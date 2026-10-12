@@ -34,6 +34,7 @@ export function sceneForTool(scene: MapScene, owner: MapLocation) {
         scene: owner.key,
         viewBox: [...scene.viewBox],
         ...(scene.mood ? { mood: scene.mood } : {}),
+        ...(scene.lighting ? { lighting: structuredClone(scene.lighting) } : {}),
         elements: scene.elements.map(element => {
             const { category, geometry: _geometry, ...facts } = structuredClone(element);
             return { ...facts, cat: category, geo: toolGeometry(element) };

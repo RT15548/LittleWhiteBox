@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { learningMemory } from './fixtures/learning-memory.js';
+import { fixtureLesson } from './fixtures/learning-classroom.js';
 import { createLearningTeaching } from '../apps/learning/application/teaching.js';
 import { createLearningService } from '../apps/learning/application/service.js';
 import { createLearningPractice } from '../apps/learning/application/practice.js';
@@ -12,7 +14,6 @@ import { createLearningSourceRegistry } from '../apps/learning/materials/lesson-
 import { createLearningResearch } from '../apps/learning/materials/research.js';
 import { runLearningProviderLoop } from '../apps/learning/agent/provider-loop.js';
 import { safePromptJson } from '../capabilities/maintenance/prompt-safety.js';
-import { declaredTeacher } from './fixtures/learning-reply.js';
 
 const prices = { short: 17, regular: 29, deep: 41 }; // Protocol fixture, not a pricing decision.
 const action = { kind: 'prepare', replaceCurrent: false, prices };
@@ -30,7 +31,7 @@ const lesson = (materials = [{ key: 'article', title: '短文', kind: 'authored'
 function results(request) {
     return request.toolResponses ?? request.messages.filter(message => message.role === 'tool').map(message => ({ name: message.toolName, response: JSON.parse(message.content) }));
 }
-async function harness(handler, { session = false, search = false, beforeWrite } = {}) {
+async function harness(handler, { session = false, search = false, webConfig = config, beforeWrite } = {}) {
     let file = null;
     let id = 0;
     let failWrite = false;
@@ -50,10 +51,10 @@ async function harness(handler, { session = false, search = false, beforeWrite }
     const profile = createLearningSession(repository, { language: 'en', osId: 'story-a', inputScope: { kind: 'public' }, action: { kind: 'profile' }, createId, now });
     assert.equal(profile.executeTool('LearningProfileEdit', { explanationLanguage: 'zh-CN', selfAssessment: '初学', goal: { description: '阅读和表达' } }).ok, true);
     await profile.commit(() => true);
-    const teaching = createLearningTeaching({ repository, createId, now, current: () => current,
+    const teaching = createLearningTeaching({ actor: 'workbench', memory: (() => { const port = learningMemory(); return () => port; })(), historyReady: () => true, repository, createId, now, current: () => current,
         capture: async () => { captures++; return structuredClone(context); }, gateway: {
-            loadConfig: async () => search ? config : {}, openSession: async () => ({ providerConfig: {}, supportsSessionToolLoop: session,
-                run: declaredTeacher(async request => { requests.push(structuredClone({ ...request, signal: undefined, onStreamProgress: undefined })); return handler(request, requests.length); }) }),
+            loadConfig: async () => search ? webConfig : {}, openSession: async () => ({ providerConfig: {}, supportsSessionToolLoop: session,
+                run: (async request => { requests.push(structuredClone({ ...request, signal: undefined, onStreamProgress: undefined })); return handler(request, requests.length); }) }),
         } });
     const read = () => repository.snapshot().document.data.profiles[0];
     return { repository, teaching, requests, read, now, createId, captures: () => captures,
@@ -61,6 +62,70 @@ async function harness(handler, { session = false, search = false, beforeWrite }
         interruptSave: () => { failWrite = true; }, confirmSave: () => { file = held; failWrite = false; },
         reopen: () => createLearningRepository(files).read() };
 }
+
+for (const ending of ['continue', 'failure']) {
+    test(`a concurrent unsent edit releases the draft without a pending-save lock (${ending})`, async t => {
+        t.mock.method(console, 'error', () => {});
+        const waiting = []; let rejected; let refreshed;
+        const h = await harness(async request => {
+            const current = JSON.parse(request.messages.findLast(message => message.role === 'user').content.split('<learning_request>\n')[1].split('\n</learning_request>')[0]);
+            const calls = results(request);
+            if (!calls.length) {
+                await new Promise(resolve => { waiting.push(resolve); if (waiting.length === 2) { waiting.forEach(release => release()); } });
+                return { text: current.action.kind === 'talk' ? 'Not-yet-saved claim' : '',
+                    toolCalls: [call('LearningProfileEdit', current.action.kind === 'profile' ? { level: 'B2' } : { interests: 'trees' })] };
+            }
+            if (current.action.kind === 'profile') { return { text: 'Level saved.' }; }
+            if (calls.length === 1) {
+                rejected = calls[0].response;
+                return { toolCalls: [call('LearningRead', {})] };
+            }
+            if (calls.length === 2) {
+                refreshed = calls[1].response;
+                if (ending === 'failure') { throw new Error('Provider stopped after reading'); }
+                return { toolCalls: [call('LearningProfileEdit', { interests: 'trees' })] };
+            }
+            assert.equal(calls.at(-1).response.status, 'confirmed');
+            return { text: 'Interests saved.' };
+        });
+        const [native, conversation] = await Promise.all([
+            h.teaching.run({ action: { kind: 'profile' }, message: 'Set B2.' }),
+            h.teaching.run({ action: { kind: 'talk' }, message: 'Set interests to trees.' }),
+        ]);
+        assert.equal(native.status, 'finished');
+        assert.equal(rejected.status, 'cancelled'); assert.equal(rejected.changed, false); assert.deepEqual(rejected.ids, []);
+        assert.equal(refreshed.section, 'overview'); assert.equal(refreshed.data.profile.level, 'B2');
+        assert.equal(h.repository.snapshot().status, 'ready'); assert.equal(h.repository.pendingCommitId(), null);
+        assert.equal(h.read().level, 'B2'); assert.equal(h.read().interests, ending === 'continue' ? 'trees' : null);
+        const turn = h.teaching.conversation().turns.find(turn => turn.purpose === 'talk');
+        assert.equal(turn.notice, undefined); assert.equal(turn.retryable, ending === 'failure');
+        assert.ok(!turn.messages.some(message => message.content === 'Not-yet-saved claim'));
+        assert.equal(conversation.status, ending === 'continue' ? 'finished' : 'failed');
+    });
+}
+
+test('paragraph feedback stays bound to its saved answer across chat, later submissions and rewrites', async () => {
+    const material = { ...fixtureLesson.materials[0], key: 'article' };
+    const reading = { ...lesson([material]), kind: 'reading-writing',
+        explanations: ['p1', 'p2'].map(paragraphId => ({ materialKey: 'article', paragraphId, explanation: 'Main idea.', terms: [] })),
+        exercises: ['p1', 'p2', null].map((paragraphId, index) => ({ ...lesson().exercises[0], key: `q${index}`, ...(paragraphId ? { paragraphId } : {}) })) };
+    const h = await harness((_request, index) => index === 1 ? { toolCalls: [call('LearningLessonEdit', reading)] } : { text: `response-${index}` });
+    await h.teaching.run({ action, message: 'Prepare.' });
+    const unit = h.read().unit;
+    const practice = createLearningPractice({ repository: h.repository, teaching: h.teaching, current: h.current, createId: h.createId, now: h.now });
+    const submit = (exerciseId, text) => practice.submit({ unitId: unit.id, exerciseId, answer: { kind: 'text', text }, replays: 0, slowPlayback: false });
+    const first = await submit(unit.exercises[0].id, 'Shade cools the road.');
+    assert.equal(first.status, 'saved');
+    const feedback = () => h.teaching.conversation().summaryReviews;
+    assert.deepEqual(feedback(), [{ attemptId: first.attemptId, text: first.teaching.text }]);
+    await h.teaching.run({ action: { kind: 'talk' }, message: 'A question.' });
+    const second = await submit(unit.exercises[1].id, 'Trees need water.');
+    assert.deepEqual(feedback(), [{ attemptId: first.attemptId, text: first.teaching.text }, { attemptId: second.attemptId, text: second.teaching.text }]);
+    const rewritten = await submit(unit.exercises[0].id, 'A tree gives shade.');
+    assert.deepEqual(feedback().map(entry => entry.attemptId), [second.attemptId, rewritten.attemptId]);
+    await createLearningService(h.repository).abandonUnit('en', () => true);
+    assert.deepEqual(feedback(), []);
+});
 
 for (const responseLost of [false, true]) {
     test(`stopping an already-sent save never resurrects unpublished teaching (response lost: ${responseLost})`, async () => {
@@ -72,10 +137,6 @@ for (const responseLost of [false, true]) {
             if (round === 1) {
                 const draft = lesson(); draft.exercises[0].skill = 'listening';
                 return { toolCalls: [call('LearningLessonEdit', draft)] };
-            }
-            if (round === 2) {
-                const ids = results(request).find(entry => entry.name === 'LearningLessonEdit').response.ids;
-                return { toolCalls: [call('LearningHelp', { exerciseIds: [ids[2]], materialIds: [ids[1]] })] };
             }
             return { text: secret };
         }, { beforeWrite: async () => { if (block) { started(); await gate; } } });
@@ -90,24 +151,24 @@ for (const responseLost of [false, true]) {
         assert.equal((await running).status, 'cancelled');
         if (responseLost) { h.confirmSave(); await h.repository.verify(); }
         assert.ok(h.read().unit, 'A write already sent may persist; stopping cannot pretend to roll it back');
-        assert.equal(h.teaching.recoverConfirmed(), null, 'Storage recovery does not authorize stopped reply publication');
+        assert.equal(await h.teaching.recoverConfirmed(), null, 'Storage recovery does not authorize stopped reply publication');
         assert.equal(h.teaching.conversation().turns.at(-1).status, 'cancelled');
         assert.ok(!JSON.stringify(h.teaching.conversation()).includes(secret));
     });
 }
 
-for (const session of [false, true]) {
-    test(`one character teacher searches, extracts and saves the actual article (${session ? 'session' : 'ordinary'} continuation)`, async t => {
+for (const session of [false, true]) for (const webProvider of ['tavily', 'exa']) {
+    test(`the independent workbench searches, extracts and saves the actual article (${webProvider}, ${session ? 'session' : 'ordinary'} continuation)`, async t => {
         const http = [];
         t.mock.method(globalThis, 'fetch', async (url, options) => {
             http.push({ url, body: JSON.parse(options.body) });
-            return Response.json(url.endsWith('/search') ? { results: [{ title: 'Urban trees', url: 'https://www.bbc.com/trees', content: 'A search summary, not the article.' }] }
-                : { results: [{ url: 'https://www.bbc.com/trees', raw_content: 'Trees cool streets.\n\nThey provide shade.' }] });
+            return Response.json(url.endsWith('/search') ? { results: [{ title: 'Urban trees', url: 'https://www.bbc.com/trees', content: 'A search summary, not the article.', highlights: ['A search summary, not the article.'] }] }
+                : { results: [{ url: 'https://www.bbc.com/trees', raw_content: 'Trees cool streets.\n\nThey provide shade.', text: 'Trees cool streets.\n\nThey provide shade.' }], statuses: [{ id: 'https://www.bbc.com/trees', status: 'success' }] });
         });
         const h = await harness((request, round) => {
             if (round === 1) {
                 const data = request.messages.map(message => message.content).join('\n');
-                assert.ok(data.includes('林老师') && data.includes('你们一起走过溪谷'));
+                assert.ok(!data.includes('林老师') && !data.includes('你们一起走过溪谷'));
                 assert.ok(request.tools.some(tool => tool.function.name === 'LearningSearch'));
                 return { toolCalls: [call('LearningSearch', { query: 'BBC urban trees beginner reading', maxResults: 2 })] };
             }
@@ -123,14 +184,14 @@ for (const session of [false, true]) {
             }
             assert.equal(results(request).find(result => result.name === 'LearningLessonEdit').response.ok, true);
             return { text: '来练习抓住文章的主要观点。' };
-        }, { session, search: true });
+        }, { session, search: true, webConfig: { ...config, webProvider, exaApiKey: 'exa-fixture' } });
         assert.equal(h.requests.length, 0);
         const result = await h.teaching.run({ action, message: '找篇适合我的 BBC 短文。' });
         assert.equal(result.status, 'finished', JSON.stringify(result));
-        assert.deepEqual(result.appliedTools, ['LearningLessonEdit', 'LearningHelp']);
-        assert.deepEqual(http.map(request => request.url), ['https://tavily.example.com/search', 'https://tavily.example.com/extract']);
+        assert.deepEqual(result.appliedTools, ['LearningLessonEdit']);
+        assert.deepEqual(http.map(request => request.url), webProvider === 'exa' ? ['https://api.exa.ai/search', 'https://api.exa.ai/contents'] : ['https://tavily.example.com/search', 'https://tavily.example.com/extract']);
         assert.equal(http[0].body.query, 'BBC urban trees beginner reading');
-        assert.equal(h.captures(), 1);
+        assert.equal(h.captures(), 0);
         assert.equal(h.read().unit.materials[0].paragraphs[0].text, 'Trees cool streets.');
         assert.equal(h.read().unit.materials[0].provenance.kind, 'original');
         assert.equal((await h.reopen()).document.data.profiles[0].unit.id, h.read().unit.id);
@@ -152,11 +213,11 @@ for (const outcome of ['confirmed', 'unconfirmed', 'failed', 'cancelled']) {
             if (outcome === 'cancelled') { h.teaching.cancel(); }
             assert.equal(h.teaching.conversation().turns.length, 1);
             assert.equal(h.teaching.conversation().turns[0].presentation, undefined);
-            assert.equal(h.read().unit, null);
+            assert.ok(h.read().unit);
             return { text: '试试用自己的话表达。' };
         });
         if (outcome === 'unconfirmed') { h.interruptSave(); }
-        const result = await h.teaching.run({ action: { kind: 'talk' }, message: '开始学习。' });
+        const result = await h.teaching.run({ action, message: '开始学习。' });
         assert.equal(result.status, outcome === 'confirmed' ? 'finished' : outcome);
         const turns = h.teaching.conversation().turns;
         if (outcome === 'confirmed') {
@@ -166,56 +227,28 @@ for (const outcome of ['confirmed', 'unconfirmed', 'failed', 'cancelled']) {
             assert.equal(turns.length, 1);
             assert.equal(turns[0].presentation, undefined);
             assert.equal(turns[0].status, outcome);
-            assert.equal(h.read().unit, null);
+            assert.equal(h.read().unit === null, outcome === 'unconfirmed');
             if (outcome === 'unconfirmed') {
                 h.confirmSave(); await h.repository.verify();
                 assert.ok(h.read().unit);
                 const calls = h.requests.length;
-                assert.equal(h.teaching.recoverConfirmed().result.text, '试试用自己的话表达。');
-                assert.equal(h.teaching.conversation().turns.at(-1).presentation.id, h.read().unit.exercises[0].id);
-                assert.equal(h.teaching.recoverConfirmed(), null);
+                assert.ok((await h.teaching.recoverConfirmed()).result.changed);
+                assert.equal(h.teaching.conversation().turns.at(-1).presentation, undefined);
+                assert.equal(await h.teaching.recoverConfirmed(), null);
                 assert.equal(h.requests.length, calls);
             }
         }
     });
 }
 
-test('a conversational answer can await feedback; provider failure leaves the previous lesson intact', async () => {
-    let phase = 'prepare'; let step = 0; let original;
-    const h = await harness(request => {
-        if (phase === 'prepare') { return ++step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: 'Summarise the main point.' }; }
-        if (++step === 1) { return { toolCalls: [call('LearningAnswer', { exerciseId: h.read().unit.exercises[0].id })] }; }
-        if (phase === 'failed') { throw Object.assign(new Error('fixture'), { status: 401 }); }
-        if (phase === 'missing') { return { text: '答对了。' }; }
-        if (step === 2) {
-            const id = results(request).find(entry => entry.name === 'LearningAnswer').response.ids[0];
-            return { toolCalls: [call('LearningAssess', { attemptId: id, verdict: 'partial', understanding: '意思清楚', expression: '动词需要调整', guidance: '试试 trees cool…' })] };
-        }
-        return { text: '意思清楚，接着调整这个动词。' };
-    });
-    await h.teaching.run({ action, message: '开始' }); original = structuredClone(h.read().unit);
-    const input = { action: { kind: 'talk' }, message: 'Trees makes streets cool.' };
-    phase = 'failed'; step = 0;
-    assert.equal((await h.teaching.run(input)).status, 'failed');
-    assert.deepEqual(h.read().unit, original);
-    phase = 'missing'; step = 0;
-    assert.equal((await h.teaching.run(input)).status, 'finished');
-    assert.equal(h.read().unit.attempts.length, 1);
-    assert.equal(h.read().unit.assessments.length, 0);
-    phase = 'success'; step = 0;
-    assert.equal((await h.teaching.run(input)).status, 'finished');
-    assert.equal(h.read().unit.attempts.length, 2);
-    assert.equal(h.read().unit.attempts[0].answer.text, input.message);
-    assert.equal(h.teaching.conversation().turns.at(-1).user, input.message);
-});
-
 test('real submitted answer survives failed assessment and is evaluated under the same ID on retry', async () => {
     let phase = 'prepare';
     let step = 0;
     let attemptId;
+    const providerError = Object.assign(new Error('API authentication rejected the assessment request.'), { status: 401 });
     const h = await harness(request => {
         if (phase === 'prepare') { return ++step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: '开始练习。' }; }
-        if (phase === 'fail') { throw Object.assign(new Error('private API response'), { status: 401 }); }
+        if (phase === 'fail') { throw providerError; }
         if (++step === 1) {
             assert.ok(request.messages.some(message => message.content.includes('Trees keep the street cool.')));
             return { toolCalls: [call('LearningAssess', { attemptId, verdict: 'correct', understanding: '抓住了要点', expression: '表达自然', guidance: '再试着补充一个依据', items: [{ label: '概括要点' }] }),
@@ -233,7 +266,7 @@ test('real submitted answer survives failed assessment and is evaluated under th
     const input = { action: { kind: 'assess', attemptId, review: false }, message: '请看我的答案。' };
     const failed = await h.teaching.run(input);
     assert.equal(failed.reason, 'provider-auth');
-    assert.ok(!JSON.stringify(failed).includes('private API response'));
+    assert.ok(failed.message.includes(providerError.message));
     assert.equal(h.read().unit.attempts[0].id, attemptId);
     assert.equal(h.read().unit.assessments.length, 0);
     phase = 'assess'; step = 0;
@@ -248,7 +281,7 @@ test('unknown save outcome retains the teacher reply and recovery only reads the
     h.interruptSave();
     assert.deepEqual(await h.teaching.run({ action, message: '开始' }), { status: 'unconfirmed' });
     assert.equal(h.read().unit, null);
-    assert.equal(h.teaching.conversation().turns.at(-1).teacher, '新课程。');
+    assert.equal(h.teaching.conversation().turns.at(-1).teacher, '');
     assert.equal(h.teaching.conversation().turns.at(-1).status, 'unconfirmed');
     const calls = h.requests.length;
     assert.equal((await h.teaching.run({ action, message: '重试' })).status, 'unconfirmed');
@@ -269,7 +302,7 @@ test('cancel, changed classroom and late provider replies cannot publish staged 
             return { text: '晚到的新课程' };
         });
         assert.equal((await h.teaching.run({ action, message: '开始' })).status, 'cancelled');
-        assert.equal(h.read().unit, null);
+        assert.ok(h.read().unit);
     }
 });
 
@@ -284,8 +317,8 @@ test('empty replies and repeated no-progress calls stop, while a rejected edit d
         const result = await h.teaching.run({ action, message: '开始' });
         assert.equal(result.status, mode === 'invalid' ? 'finished' : 'failed');
         if (mode === 'invalid') { assert.equal(h.read().unit.title, lesson().title); }
-        else { assert.equal(h.read().unit, null); }
-        if (mode === 'limit') { assert.equal(result.reason, 'learning_stalled'); }
+        else { assert.ok(h.read().unit); }
+        if (mode === 'limit') { assert.equal(result.reason, 'learning_round_limit'); }
     }
 });
 
@@ -336,29 +369,29 @@ test('article paging is cached, bounded, keeps real text and consumes no extra r
     assert.equal((await second.executeTool('LearningExtract', { candidateIds: [id] })).ok, false);
 });
 
-test('cross-card teaching drops prior conversation and private lesson, but keeps the user goal', async () => {
+test('workbench teaching retains public coursework and its own dialogue across cards', async () => {
     let phase = 'lesson';
     let step = 0;
     const h = await harness(request => {
         if (phase === 'lesson') { return ++step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: 'PRIVATE_CLASSROOM_REPLY' }; }
         const data = request.messages.map(message => message.content).join('\n');
-        assert.ok(!data.includes('PRIVATE_CLASSROOM_REPLY'));
-        assert.ok(!data.includes('Trees cool streets.'));
+        assert.ok(data.includes('PRIVATE_CLASSROOM_REPLY'));
+        assert.ok(data.includes('Trees cool streets.'));
         assert.ok(data.includes('阅读和表达'));
         return { text: '在这里可以开始新的练习。' };
     });
     await h.teaching.run({ action, message: '开始' });
-    phase = 'explain';
+    phase = 'talk';
     h.setCurrent({ ...classroom, osId: 'story-b', chatIdentity: 'chat-b' });
-    assert.equal((await h.teaching.run({ action: { kind: 'explain' }, message: '我的目标是什么？' })).status, 'finished');
-    assert.equal(h.read().unit.scope.osId, 'story-a');
+    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '我的目标是什么？' })).status, 'finished');
+    assert.deepEqual(h.read().unit.scope, { kind: 'public' });
 });
 
 test('current focus is complete and every background character remains accessible through the indexed reader', async () => {
     const h = await harness((_request, step) => step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: '开始' });
     await h.teaching.run({ action, message: '开始' });
     const data = h.repository.snapshot().document.data;
-    const { messages } = buildLearningContext({ data, ...classroom, context, action: { kind: 'explain' }, message: '请解释', exerciseId: h.read().unit.exercises[0].id });
+    const { messages } = buildLearningContext({ data, ...classroom, context, action: { kind: 'talk' }, message: '请解释', exerciseId: h.read().unit.exercises[0].id });
     assert.ok(messages[0].content.includes('Summarise the main point.'));
     const long = '<&树'.repeat(20000);
     const source = createLearningBackground({ ...context, snapshot: { ...context.snapshot, storyEvents: long } });
@@ -433,7 +466,7 @@ test('fixed-key submissions save before the teacher continues; continuation can 
     assert.equal(h.read().completions.length, 1);
 });
 
-test('a displayed explanation records assistance before later practice, without rewriting earlier attempts', async () => {
+test('ordinary discussion does not invent hint exposure or change answer conditions', async () => {
     let step = 0;
     const h = await harness(() => ++step === 1 ? { toolCalls: [call('LearningLessonEdit', lesson())] } : { text: 'Think about what trees do to the temperature.' });
     await h.teaching.run({ action, message: '开始' });
@@ -442,10 +475,10 @@ test('a displayed explanation records assistance before later practice, without 
         answer: { kind: 'text', text: 'Trees help.' }, scope: { kind: 'story', osId: 'story-a' }, replays: 0, slowPlayback: false };
     const service = createLearningService(h.repository, h);
     await service.prepareAttempt(input).save(() => true);
-    assert.equal((await h.teaching.run({ action: { kind: 'explain' }, exerciseId: input.exerciseId, message: '给一点提示。' })).status, 'finished');
+    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, exerciseId: input.exerciseId, message: '给一点提示。' })).status, 'finished');
     await service.prepareAttempt(input).save(() => true);
     assert.equal(h.read().unit.attempts[0].help.hint, false);
-    assert.equal(h.read().unit.attempts[1].help.hint, true);
+    assert.equal(h.read().unit.attempts[1].help.hint, false);
 });
 
 test('research failures do not leak transport errors, impose a two-query quota or silently retry', async t => {
@@ -454,7 +487,7 @@ test('research failures do not leak transport errors, impose a two-query quota o
     t.mock.method(globalThis, 'fetch', async () => { count++; return new Response('private gateway response', { status: 401 }); });
     const research = createLearningResearch(config, { sources: createLearningSourceRegistry(), signal: controller.signal });
     const failed = await research.executeTool('LearningSearch', { query: 'public article' });
-    assert.deepEqual(failed, { ok: false, error: 'learning_search_failed' });
+    assert.deepEqual(failed, { ok: false, error: 'learning_search_failed', httpStatus: 401 });
     assert.equal(count, 1);
     await research.executeTool('LearningSearch', { query: 'another article' });
     assert.equal((await research.executeTool('LearningSearch', { query: 'third' })).ok, false);
@@ -492,7 +525,7 @@ test('a substantive tool turn can exceed 32000 serialized characters and eight r
     h.teaching.cancel();
     assert.equal(h.teaching.conversation().turns.length, 1);
     phase = 'talk'; round = 0;
-    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '有点难，给我一个简单的铺垫。' })).status, 'finished');
+    assert.equal((await h.teaching.run({ action, message: '有点难，给我一个简单的铺垫。' })).status, 'finished');
     assert.equal(h.read().unit.id, previous.id);
     assert.deepEqual(h.read().unit.materials, previous.materials);
     assert.equal(h.read().unit.exercises.length, 2);
@@ -532,9 +565,9 @@ test('extracted source identities and complete long paragraphs survive into a fo
         }
         return { text: '用这一段开始。' };
     }, { search: true });
-    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '先找一篇文章看看。' })).status, 'finished');
+    assert.equal((await h.teaching.run({ action, message: '先找一篇文章看看。' })).status, 'finished');
     phase = 'lesson'; step = 0;
-    assert.equal((await h.teaching.run({ action: { kind: 'talk' }, message: '就用刚才那篇的短段落出题。' })).status, 'finished');
+    assert.equal((await h.teaching.run({ action, message: '就用刚才那篇的短段落出题。' })).status, 'finished');
     assert.equal(network, 2);
     assert.equal(h.read().unit.materials[0].paragraphs[0].text, 'Trees cool streets.');
 });

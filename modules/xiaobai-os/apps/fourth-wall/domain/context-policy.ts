@@ -3,7 +3,6 @@ import type { FourthWallSession } from '../types.js';
 export const MAIN_CHAT_DEFAULT = 20;
 export const CONTEXT_LIMIT = 158_000;
 export const SUMMARY_TRIGGER = 128_000;
-export const SUMMARY_OUTPUT_LIMIT = 10_000;
 export const HISTORY_PAGE_SIZE = 20;
 export const HISTORY_WINDOW_LIMIT = 60;
 

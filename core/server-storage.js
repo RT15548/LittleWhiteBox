@@ -16,5 +16,5 @@ export const ComfyDrawStorage = createStorage('LittleWhiteBox_ComfyDraw.json', {
 export const AssistantStorage = createStorage('LittleWhiteBox_Assistant.json', { debounceMs: 800 });
 export const TtsStorage = createStorage('LittleWhiteBox_TTS.json', { debounceMs: 800 });
 export const EnaPlannerStorage = createStorage('LittleWhiteBox_EnaPlanner.json', { debounceMs: 800 });
-export const CommonSettingStorage = createStorage('LittleWhiteBox_CommonSettings.json', { debounceMs: 1000 });
+export const CommonSettingStorage = createStorage('LittleWhiteBox_CommonSettings.json', { debounceMs: 1000, readTimeoutMs: 5000 });
 export const VectorStorage = createStorage('LittleWhiteBox_Vectors.json', { debounceMs: 3000 });

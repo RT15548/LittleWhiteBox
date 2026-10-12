@@ -105,23 +105,28 @@ export async function restoreFromServer(onProgress, options = {}) {
 
 const BACKUP_MANIFEST = 'LWB_BackupManifest.json';
 
-// 宽容解析：非数组/JSON 失败/字段异常时清洗，不抛错
+// Only a missing file is an empty manifest. A failed read must never become
+// the starting point for a write that would discard existing backup entries.
 async function fetchManifest() {
+    let raw;
     try {
         const res = await fetch(`/user/files/${BACKUP_MANIFEST}`, {
             headers: getRequestHeaders(),
             cache: 'no-cache',
         });
-        if (!res.ok) return [];
-        const raw = await res.json();
-        if (!Array.isArray(raw)) return [];
-        return raw.map(normalizeManifestEntry).filter(Boolean);
-    } catch (_) {
-        return [];
+        if (res.status === 404) return [];
+        if (!res.ok) throw packageError('server_failed', { status: res.status });
+        raw = await res.json();
+    } catch (cause) {
+        throw packageError('backup_manifest_read_failed', {}, cause);
     }
+    if (!Array.isArray(raw)) throw packageError('backup_manifest_read_failed');
+    const entries = raw.map(normalizeManifestEntry);
+    if (entries.some(entry => !entry)) throw packageError('backup_manifest_read_failed');
+    return entries;
 }
 
-// 标准化单条条目字段，非法 filename 直接丢弃，其余字段降级
+// 标准化单条条目字段；非法 filename 使清单读取失败，可选字段仍可缺省。
 function normalizeManifestEntry(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const filename = typeof raw.filename === 'string' ? raw.filename : null;

@@ -199,13 +199,13 @@ declare module '*.js' {
         config: Record<string, unknown>,
         options?: Record<string, unknown>,
     ): Record<string, unknown>;
-    export const TAVILY_TOOL_NAME: string;
-    export function getTavilySearchToolDefinition(): {
+    export const WEB_SEARCH_TOOL_NAME: string;
+    export function getWebSearchToolDefinition(): {
         type: 'function';
         function: { name: string; description: string; parameters: unknown };
     };
-    export function isTavilyConfigured(config?: Record<string, unknown>): boolean;
-    export function runTavilySearchTool(
+    export function isWebConfigured(config?: Record<string, unknown>): boolean;
+    export function runWebSearchTool(
         config?: Record<string, unknown>,
         args?: Record<string, unknown>,
         options?: Record<string, unknown>,

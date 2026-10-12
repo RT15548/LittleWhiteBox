@@ -46,7 +46,6 @@ defineExpose({
 
 <template>
     <div class="xiaobai-os-device">
-        <span class="xiaobai-os-side-key" aria-hidden="true" />
         <div class="xiaobai-os-glass">
             <XiaobaiOsSystemBar :is-home="isHome" />
             <div class="xiaobai-os-stage" :style="activeApp ? { '--app-accent': activeApp.accent } : null">

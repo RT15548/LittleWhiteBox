@@ -88,7 +88,7 @@ async function auditRunRef(label, ref, loadCapture) {
 async function auditAdjudicationRef(label, ref, readerRef, loadCapture) {
     const fileCheck = await auditFileRef(label, ref);
     if (!fileCheck.ok) return fileCheck;
-    if (ref.sourceRunId !== readerRef.runId) {
+    if (!readerRef || ref.sourceRunId !== readerRef.runId) {
         return { ...fileCheck, ok: false, message: 'adjudication sourceRunId 与 reader baseline 不一致' };
     }
     try {
@@ -147,7 +147,7 @@ function computeGates(study, checks) {
         devMatrix: devMatrixReady,
         baseline: ok('sourceCapture') && ok('readerBaseline') && adjudicationReady,
         controlledBaseline,
-        holdoutSealed: study.inputs.holdout.consumed === false,
+        holdoutSealed: study.inputs.holdout?.consumed === false,
         productionFrozen: study.policy.productionBehavior === 'frozen',
     };
 }
@@ -173,10 +173,14 @@ export async function auditStudy(study, { loadCapture = loadGoldCapture } = {}) 
     const checks = await Promise.all([
         auditFileRef('dev.sample', validated.inputs.dev.sample),
         auditFileRef('dev.cases', validated.inputs.dev.cases),
-        auditFileRef('dev.snapshot', validated.inputs.dev.snapshot),
-        auditFileRef('holdout.sample', validated.inputs.holdout.sample),
-        auditRunRef('sourceCapture', validated.evidence.sourceCapture, loadCapture),
-        auditRunRef('readerBaseline', validated.evidence.readerBaseline, loadCapture),
+        ...(validated.inputs.dev.snapshot
+            ? [auditFileRef('dev.snapshot', validated.inputs.dev.snapshot)] : []),
+        ...(validated.inputs.holdout
+            ? [auditFileRef('holdout.sample', validated.inputs.holdout.sample)] : []),
+        ...(validated.evidence.sourceCapture
+            ? [auditRunRef('sourceCapture', validated.evidence.sourceCapture, loadCapture)] : []),
+        ...(validated.evidence.readerBaseline
+            ? [auditRunRef('readerBaseline', validated.evidence.readerBaseline, loadCapture)] : []),
         ...(validated.evidence.adjudication
             ? [auditAdjudicationRef('adjudication', validated.evidence.adjudication, validated.evidence.readerBaseline, loadCapture)]
             : []),
@@ -203,7 +207,7 @@ export function renderStudyStatus(study, audit, { studyHash = null } = {}) {
         `- 阶段：\`${study.phase}\``,
         `- 状态：\`${study.status}\``,
         `- 候选算法行为：\`${study.policy.productionBehavior}\``,
-        `- Holdout：\`${study.inputs.holdout.consumed ? 'consumed' : 'sealed'}\``,
+        `- Holdout：\`${study.inputs.holdout ? (study.inputs.holdout.consumed ? 'consumed' : 'sealed') : 'not-in-scope'}\``,
         `- STUDY hash：\`${studyHash || 'unknown'}\``,
         `- 审计时间：${audit.checkedAt}`,
         '',

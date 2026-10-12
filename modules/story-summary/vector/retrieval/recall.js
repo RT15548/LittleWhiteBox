@@ -1,28 +1,10 @@
 ﻿// ═══════════════════════════════════════════════════════════════════════════
-// Story Summary - Recall Engine (v9 - Dense-Gated Lexical + Entity Bypass Tuning)
+// Story Summary - Recall Engine
 //
 // 命名规范：
-// - 存储层用 L0/L1/L2/L3（StateAtom/Chunk/Event/Fact）
-// - 召回层用语义名称：anchor/evidence/event/constraint
+// - 大总结以一份 JSON 保存；召回层把 events/facts 分别投影为 event/constraint
+// - L0/L1 分别为逐楼锚点与原文块
 //
-// v8 → v9 变更：
-// - recallEvents() 返回 { events, scoreMap }，event 向量只按候选临时取回给 MMR
-// - Lexical Event 合并前验 CONFIG.LEXICAL_EVENT_DENSE_MIN
-// - Lexical Floor 进入融合前验 dense similarity ≥ 0.50（CONFIG.LEXICAL_FLOOR_DENSE_MIN）
-// - Entity Bypass 阈值 0.85 → 0.80（CONFIG.EVENT_ENTITY_BYPASS_SIM）
-// - metrics 新增 lexical.eventFilteredByDense / lexical.floorFilteredByDense
-//
-// 架构：
-// 阶段 1: Query Build（确定性，无 LLM）
-// 阶段 2: Round 1 Dense Retrieval（batch embed 3 段 → 加权平均）
-// 阶段 3: Query Refinement（用已命中记忆产出 hints 段）
-// 阶段 4: Round 2 Dense Retrieval（复用 R1 vec + embed hints → 加权平均）
-// 阶段 5: Lexical Retrieval + Dense-Gated Event Merge
-// 阶段 6: Floor W-RRF Fusion + Rerank + L1 配对
-// 阶段 7: L1 配对组装（L0 → top-1 AI L1 + top-1 USER L1）
-// 阶段 7.5: PPR Diffusion
-// 阶段 8: L0 → L2 反向查找（后置，基于最终 l0Selected）
-// 阶段 9: Causation Trace
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -38,10 +20,8 @@ import {
 import { getStateAtoms } from '../storage/state-store.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
-import {
-    throwIfSignalAborted,
-    waitForAbortableDelay,
-} from '../../../../shared/common/abort-utils.js';
+import { throwIfSignalAborted } from '../../../../shared/common/abort-utils.js';
+import { embedRecallQuery } from './query-embedding.js';
 import { getContext } from '../../../../../../../extensions.js';
 import {
     buildQueryBundle,
@@ -78,6 +58,7 @@ import {
 } from './event-recall-classification.js';
 
 const MODULE_ID = 'recall';
+const MAX_EXTERNAL_FAILURES = 100;
 
 function observeRecallStage(observer, stage, ranked, value = undefined) {
     if (typeof observer !== 'function') return;
@@ -100,6 +81,8 @@ function recordExternalFailure(metrics, failure) {
         elapsedMs: Number.isFinite(failure.elapsedMs) ? failure.elapsedMs : null,
         message: failure.error ? formatErrorDetails(failure.error, { includeStack: false }) : '',
     });
+    // Query retries are unbounded; retain recent receipts with absolute attempt numbers.
+    if (metrics.external.failures.length > MAX_EXTERNAL_FAILURES) metrics.external.failures.shift();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -144,8 +127,6 @@ const CONFIG = {
     MUST_KEEP_CLUSTER_WINDOW: 2,
 
     // 因果链
-    CAUSAL_CHAIN_MAX_DEPTH: 10,
-    CAUSAL_INJECT_MAX: 30,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -429,7 +410,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
 
     if (metrics) {
         metrics.event.selected = results.length;
-        metrics.event.byRecallType = { direct: directCount, related: relatedCount, causal: 0, lexical: 0, l0Linked: 0 };
+        metrics.event.byRecallType = { direct: directCount, related: relatedCount, lexical: 0, l0Linked: 0 };
         metrics.event.byOwnership = byOwnership;
         metrics.event.similarityDistribution = calcSimilarityStats(results.map(r => r.similarity));
     }
@@ -438,7 +419,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// [Causation] 因果链追溯
+// Event identity lookup, also used by lexical recall.
 // ═══════════════════════════════════════════════════════════════════════════
 
 function buildEventIndex(allEvents) {
@@ -447,52 +428,6 @@ function buildEventIndex(allEvents) {
         if (e?.id) map.set(e.id, e);
     }
     return map;
-}
-
-function traceCausation(eventHits, eventIndex, maxDepth = CONFIG.CAUSAL_CHAIN_MAX_DEPTH) {
-    const out = new Map();
-    const idRe = /^evt-\d+$/;
-    let maxActualDepth = 0;
-
-    function visit(parentId, depth, chainFrom) {
-        if (depth > maxDepth) return;
-        if (!idRe.test(parentId)) return;
-
-        const ev = eventIndex.get(parentId);
-        if (!ev) return;
-
-        if (depth > maxActualDepth) maxActualDepth = depth;
-
-        const existed = out.get(parentId);
-        if (!existed) {
-            out.set(parentId, { event: ev, depth, chainFrom: [chainFrom] });
-        } else {
-            if (depth < existed.depth) existed.depth = depth;
-            if (!existed.chainFrom.includes(chainFrom)) existed.chainFrom.push(chainFrom);
-        }
-
-        for (const next of (ev.causedBy || [])) {
-            visit(String(next || '').trim(), depth + 1, chainFrom);
-        }
-    }
-
-    for (const r of eventHits || []) {
-        const rid = r?.event?.id;
-        if (!rid) continue;
-        for (const cid of (r.event?.causedBy || [])) {
-            visit(String(cid || '').trim(), 1, rid);
-        }
-    }
-
-    const results = Array.from(out.values())
-        .sort((a, b) => {
-            const refDiff = b.chainFrom.length - a.chainFrom.length;
-            if (refDiff !== 0) return refDiff;
-            return a.depth - b.depth;
-        })
-        .slice(0, CONFIG.CAUSAL_INJECT_MAX);
-
-    return { results, maxDepth: maxActualDepth };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1237,6 +1172,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         deferRuntimeRelease = false,
         signal = null,
         diagnostics = null,
+        withQueryEmbedding,
     } = options;
     const captureStages = typeof stageObserver === 'function';
     const events = Array.isArray(allEvents) ? allEvents : [];
@@ -1306,7 +1242,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (diagnostics) diagnostics.reason = '没有可用的查询内容';
         metrics.timing.total = Math.round(performance.now() - T0);
         return {
-            events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
+            events: [], l0Selected: [], l1ByFloor: new Map(),
             focusEntities: focusTerms,
             focusTerms,
             focusCharacters,
@@ -1320,32 +1256,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     if (diagnostics) diagnostics.stage = 'round1-embed';
     const T_R1_Embed_Start = performance.now();
     try {
-    try {
-        r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 3000, signal });
-    } catch (e1) {
-        throwIfSignalAborted(signal);
-        recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 1, error: e1 });
-        xbLog.warn(MODULE_ID, 'Round 1 向量化失败，500ms 后重试', e1);
-        const retryWaitStart = performance.now();
-        try {
-            await waitForAbortableDelay(500, signal);
-        } finally {
-            metrics.timing.round1EmbedRetryWait = Math.round(performance.now() - retryWaitStart);
-        }
-        throwIfSignalAborted(signal);
-        try {
-            r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 6000, signal });
-        } catch (e2) {
-            throwIfSignalAborted(signal);
-            recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', attempt: 2, error: e2 });
-            xbLog.error(MODULE_ID, 'Round 1 向量化重试仍失败', e2);
-            const error = new Error('Embedding request failed after retry', { cause: e2 });
-            error.code = 'RECALL_EMBEDDING_FAILED';
-            error.stage = 'round1-embed';
-            error.attempts = 2;
-            throw error;
-        }
-    }
+        r1Vectors = await embedRecallQuery(segmentTexts, vectorConfig, {
+            signal,
+            withQueryEmbedding,
+            onFailure: failure => recordExternalFailure(metrics, { stage: 'round1-embed', kind: 'request', ...failure }),
+            onActivity: trace => { metrics.external.queryActivity = trace; },
+        });
     } finally {
         metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
     }
@@ -1370,7 +1286,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (diagnostics) diagnostics.reason = '查询向量无法合成';
         metrics.timing.total = Math.round(performance.now() - T0);
         return {
-            events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
+            events: [], l0Selected: [], l1ByFloor: new Map(),
             focusEntities: focusTerms,
             focusTerms,
             focusCharacters,
@@ -1790,29 +1706,6 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         signal,
     );
 
-    // ═══════════════════════════════════════════════════════════════════
-    // 阶段 9: Causation Trace
-    // ═══════════════════════════════════════════════════════════════════
-
-    const { results: causalMap, maxDepth: causalMaxDepth } = traceCausation(eventHits, eventIndex);
-
-    const recalledIdSet = new Set(eventHits.map(x => x?.event?.id).filter(Boolean));
-    const causalChain = causalMap
-        .filter(x => x?.event?.id && !recalledIdSet.has(x.event.id))
-        .map(x => ({
-            event: x.event,
-            similarity: 0,
-            _recallType: 'CAUSAL',
-            _causalDepth: x.depth,
-            chainFrom: x.chainFrom,
-        }));
-
-    if (metrics.event.byRecallType) {
-        metrics.event.byRecallType.causal = causalChain.length;
-    }
-    metrics.event.causalChainDepth = causalMaxDepth;
-    metrics.event.causalCount = causalChain.length;
-
     // Candidate packing always consumes relevance order. Normalize the base
     // order before L2 rerank; once reranked, keep that result
     // intact because cosine similarity and cross-encoder scores are not on
@@ -1896,7 +1789,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         xbLog.info(MODULE_ID, `[Recall v9] Floor Rerank: ${metrics.evidence.beforeRerank || 0} -> ${metrics.evidence.floorsSelected || 0} floors -> L0=${metrics.evidence.l0Collected || 0} (${metrics.timing.evidenceRerank || 0}ms)`);
         xbLog.info(MODULE_ID, `[Recall v9] L1: prefetchedAI=${metrics.evidence.l1PrefetchAiFloors || 0} totalFloors=${metrics.evidence.l1PrefetchWithContextFloors || 0} | ${metrics.evidence.l1Pulled || 0} pulled -> ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
         xbLog.info(MODULE_ID, `[Recall v9] L1 breakdown: chunkDB=${metrics.evidence.l1ChunkFetchTime || 0}ms vectorDB=${metrics.evidence.l1VectorFetchTime || 0}ms cacheWarm=${!!metrics.evidence.l1CacheWarm} chunkCache=${metrics.evidence.l1ChunkCacheHits || 0}/${metrics.evidence.l1ChunkCacheMisses || 0} vectorCache=${metrics.evidence.l1VectorCacheHits || 0}/${metrics.evidence.l1VectorCacheMisses || 0} deserialize=${metrics.evidence.l1DeserializeTime || 0}ms score=${metrics.evidence.l1ScoreTime || 0}ms sort=${metrics.evidence.l1SortTime || 0}ms vectors=${metrics.evidence.l1VectorHits || 0} missing=${metrics.evidence.l1MissingVectors || 0}`);
-        xbLog.info(MODULE_ID, `[Recall v9] Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount}), ${causalChain.length} causal`);
+        xbLog.info(MODULE_ID, `[Recall v9] Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount})`);
         xbLog.info(MODULE_ID, `[Recall v9] Diffusion: ${metrics.diffusion?.seedCount || 0} seeds -> ${metrics.diffusion?.pprActivated || 0} activated -> ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms | graph=${metrics.diffusion?.buildTime || 0}ms ppr=${metrics.diffusion?.pprTime || 0}ms post=${metrics.diffusion?.postVerifyTime || 0}ms)`);
     }
 
@@ -1910,7 +1803,6 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     return {
         events: eventHits,
-        causalChain,
         l0Selected,
         l1ByFloor,
         directEvidenceContext,

@@ -1,35 +1,15 @@
 /* eslint-env node */
 import fs from 'fs';
 import path from 'path';
+import { collectWorkspaceFiles } from './workspace-files.mjs';
 
 const root = process.cwd();
 const includeExts = new Set(['.js', '.html', '.css']);
-const ignoreDirs = new Set(['node_modules', '.git']);
 
 const patterns = [
     { name: 'question-marks', regex: /\?\?\?/g },
     { name: 'replacement-char', regex: /\uFFFD/g },
 ];
-
-function isIgnoredDir(dirName) {
-    return ignoreDirs.has(dirName);
-}
-
-function walk(dir, files = []) {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-        if (entry.isDirectory()) {
-            if (isIgnoredDir(entry.name)) continue;
-            walk(path.join(dir, entry.name), files);
-        } else if (entry.isFile()) {
-            const ext = path.extname(entry.name);
-            if (includeExts.has(ext)) {
-                files.push(path.join(dir, entry.name));
-            }
-        }
-    }
-    return files;
-}
 
 function scanFile(filePath) {
     let content = '';
@@ -56,7 +36,7 @@ function scanFile(filePath) {
     return hits;
 }
 
-const files = walk(root);
+const files = collectWorkspaceFiles(root, includeExts);
 const issues = [];
 
 for (const file of files) {

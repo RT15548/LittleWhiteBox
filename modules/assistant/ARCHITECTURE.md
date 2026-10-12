@@ -2,7 +2,7 @@
 
 ## Goal
 
-这份文档不是功能清单，而是给排查和继续拆分代码时的分层心智。
+本文定义小白助手的宿主、iframe、会话、工作区与共享 Agent 能力边界，供开发和故障排查使用。
 
 当前真正需要守住的，不只是 `host shell / iframe shell / feature UI` 三层，还包括：
 
@@ -17,36 +17,9 @@
 
 ### 1. Agent Core
 
-Files:
+共享配置、模型适配、工具原语、计划账本与子任务执行的所有权见 [Agent Core](../agent-core/README.md)。助手不复制共享协议，不把自己的 UI、工作区、数据库或 JS API 放进 Core。
 
-- `../agent-core/config.js`
-- `../agent-core/provider-config.js`
-- `../agent-core/provider-resolution.js`
-- `../agent-core/settings-repository.js`
-- `../agent-core/reasoning-capabilities.js`
-- `../agent-core/reasoning-config.js`
-- `../agent-core/ui/settings-panel.js`
-- `../agent-core/ui/settings-markup.js`
-- `../agent-core/current-plans.js`
-- `../agent-core/plan-ledger.js`
-- `../agent-core/runtime/delegate-runner.js`
-- `../agent-core/runtime/protocol.js`
-- `../agent-core/runtime/context-tokens.js`
-- `../agent-core/runtime/light-brake.js`
-- `../agent-core/adapters/*`
-- `../agent-core/tools/*`
-- `../agent-core/tavily-search.js`
-
-Responsibilities:
-
-- 提供所有 Agent App 共用的模型配置、配置面板逻辑/markup、provider 解析与适配、推理能力判定、`Plan*` 账本、`[Current plans]` 注入、`DelegateRun`、通用协议与工具原语
-- 不拥有任何具体 App 的页面、iframe、host window、具体工具域、`local/` 工作区或 `book/` 书库；可拥有跨 App 复用且不含业务状态的 UI 原语
-- 需要持久化表时由具体 App 显式传入，例如 assistant 传 `LittleWhiteBox_Assistant.plans`，ebook 传 `LittleWhiteBox_Ebook.plans`
-
-Rule:
-
-- 新的通用 Agent 能力优先放进 `modules/agent-core/`
-- `assistant/shared/config.js`、`assistant/shared/plan-ledger.js`、`assistant/app-src/runtime/delegate-runner.js` 等旧路径只作为迁移壳，不再作为新依赖入口
+助手显式提供 `LittleWhiteBox_Assistant.plans` 等持久化端口；其他 App 使用自己的存储。新增通用能力直接依赖 Core 入口，不经其他 App 的内部文件复用。
 
 ### 2. Host Shell
 
@@ -101,7 +74,7 @@ Current storage model:
 - 使用同一个 Dexie 数据库：`LittleWhiteBox_Assistant`
 - 表为：`sessions`、`messages`、`meta`、`plans`
 
-这里已经不是“固定 default 会话”的旧模型，而是跟随当前助手 session 的持久化系统。
+消息、摘要和计划始终归当前助手 session，不使用固定共享会话。
 
 ### 5. Context Prefix Injection
 
@@ -204,7 +177,7 @@ Responsibilities:
 - 记忆区文件标准化
 - `local/` 工作区工具运行时与共享 mutation 规则
 
-`shared/`同时包含助手专属的 workspace / local sources / session 实现，及少数迁移壳。只有明确 re-export `agent-core` 的文件是迁移壳；其余仍由小白助手拥有。
+`shared/` 中的 workspace、local sources 与 session 实现由助手拥有；通用 Agent 原语由 Core 拥有，不能仅凭 shared 目录名认定可跨功能复用。
 
 这些模块应该保持“工作区能力”定位，不反向依赖 host window 或模型适配器。
 

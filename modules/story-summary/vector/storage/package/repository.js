@@ -1,16 +1,35 @@
 import { db, metaTable, chunksTable, chunkVectorsTable, eventVectorsTable, stateVectorsTable } from '../../../data/db.js';
 import { makeChunkRecords, makeChunkVectorRecords, makeEventVectorRecords } from '../chunk-store.js';
 import { makeStateVectorRecords } from '../state-store.js';
+import { vectorSourceRecord } from '../cache-consistency.js';
 
 const TABLES = [metaTable, chunksTable, chunkVectorsTable, eventVectorsTable, stateVectorsTable];
 
 export async function readVectorCache(chatId) {
     const cacheTables = TABLES.slice(1);
-    return db.transaction('r', cacheTables, async () => {
+    return db.transaction('r', TABLES, async () => {
         const [chunks, chunkVectors, eventVectors, stateVectors] = await Promise.all(
             cacheTables.map(table => table.where('chatId').equals(chatId).toArray()),
         );
-        return { chunks, chunkVectors, eventVectors, stateVectors };
+        const meta = await metaTable.get(chatId);
+        return { chunks, chunkVectors, eventVectors, stateVectors, meta };
+    });
+}
+
+// Cursor projection avoids retaining/copying the full embedding payload for an
+// idle integrity check. IndexedDB still deserializes each visited record.
+export async function readVectorCacheSources(chatId) {
+    return db.transaction('r', TABLES, async () => {
+        const [meta, chunks, chunkVectors, eventVectors, stateVectors] = await Promise.all([
+            metaTable.get(chatId),
+            chunksTable.where('chatId').equals(chatId).toArray(),
+            ...[chunkVectorsTable, eventVectorsTable, stateVectorsTable].map(async table => {
+                const records = [];
+                await table.where('chatId').equals(chatId).each(record => records.push(vectorSourceRecord(record)));
+                return records;
+            }),
+        ]);
+        return { meta, chunks, chunkVectors, eventVectors, stateVectors };
     });
 }
 

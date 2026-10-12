@@ -1,7 +1,6 @@
 import type { LearningEvidence, LearningItem } from './types.js';
 import { learningSpeechParts } from './speech.js';
 
-const DAY = 86400000;
 const day = (evidence: LearningEvidence) => evidence.attempt.submittedAt.slice(0, 10);
 const context = (evidence: LearningEvidence) => evidence.materials.length
     ? evidence.materials.map(material => material.paragraphs.map(paragraph => paragraph.text).join('\n')).join('\n\n')
@@ -35,21 +34,14 @@ export function selectLearningEvidence(evidence: LearningEvidence[]): LearningEv
     return unique.slice(0, 3);
 }
 
+/** What the evidence shows. When to review is the SM-2 schedule's job, not this summary's. */
 export function learningProgress(item: Pick<LearningItem, 'evidence'>) {
     const evidence = [...item.evidence].sort((left, right) => right.attempt.submittedAt.localeCompare(left.attempt.submittedAt));
     const latest = evidence[0];
-    if (!latest) { return { state: 'unassessed' as const, nextReviewAt: null, independent: false }; }
+    if (!latest) { return { state: 'unassessed' as const, independent: false }; }
     const successes = evidence.filter(independentLearningSuccess);
-    const spaced = successes.filter((entry, index) => successes.slice(0, index).every(other => distinct(entry, other)));
-    const pair = successes.flatMap(first => successes.filter(second => distinct(first, second) && (demonstratesSkill(first) || demonstratesSkill(second))).map(second => [first, second]));
-    const mastered = pair.length > 0 && independentLearningSuccess(latest);
-    let interval = 1;
-    if (mastered && spaced.length < 3) { interval = 3; }
-    if (mastered && spaced.length >= 3) {
-        const gap = Math.max(...pair.map(([left, right]) => Math.abs(Date.parse(left.attempt.submittedAt) - Date.parse(right.attempt.submittedAt)) / DAY));
-        interval = gap >= 14 ? 30 : gap >= 7 ? 14 : 7;
-    }
+    const mastered = independentLearningSuccess(latest)
+        && successes.some(first => successes.some(second => distinct(first, second) && (demonstratesSkill(first) || demonstratesSkill(second))));
     return { state: latest.assessment.verdict === 'disputed' ? 'review' as const : mastered ? 'independent' as const
-        : independentLearningSuccess(latest) ? 'practised' as const : 'strengthen' as const,
-    nextReviewAt: new Date(Date.parse(latest.attempt.submittedAt) + interval * DAY).toISOString(), independent: mastered };
+        : independentLearningSuccess(latest) ? 'practised' as const : 'strengthen' as const, independent: mastered };
 }

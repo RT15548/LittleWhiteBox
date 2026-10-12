@@ -6,7 +6,7 @@ import {
     hasVisibleText,
     resolveResultToolCalls,
 } from '../../../agent-core/runtime/protocol.js';
-import { isTavilyConfigured, runTavilySearchTool, TAVILY_TOOL_NAME } from '../../../agent-core/tavily-search.js';
+import { isWebConfigured, runWebSearchTool, WEB_SEARCH_TOOL_NAME } from '../../../agent-core/web/tools.js';
 import type { XbTavernContext, XbTavernMessage } from '../../shared/message-assembler';
 import type { TavernAssistantPreset } from '../../shared/assistant-presets';
 import { buildTavernManagerSystemPrompt } from '../../shared/manager/prompt';
@@ -340,7 +340,7 @@ export function buildManagerSystemPrompt(
 }
 
 export function isManagerWebSearchEnabled(agentConfig: Record<string, unknown> = {}): boolean {
-    return isTavilyConfigured(agentConfig);
+    return isWebConfigured(agentConfig);
 }
 
 function resolveSessionContractRuntime(contract?: Partial<TavernSessionContract> | null): TavernSessionContractRuntime {
@@ -507,7 +507,7 @@ function isSourceFileToolName(name = ''): boolean {
 }
 
 function isWebSearchToolName(name = ''): boolean {
-    return String(name || '') === TAVILY_TOOL_NAME;
+    return String(name || '') === WEB_SEARCH_TOOL_NAME;
 }
 
 function normalizeManagerThoughtBlocks(value: unknown): Array<{ label?: string; text?: string }> {
@@ -947,7 +947,7 @@ export async function runSharedManagerToolLoop(input: {
                     actionId: `${String(input.managerRunId || 'manager')}:${round}:${toolIndex}:${String(toolCall.id || 'no-provider-id')}`,
                 });
             } else if (isWebSearchToolName(toolCall.name)) {
-                toolResult = await runTavilySearchTool(input.agentConfig, args, {
+                toolResult = await runWebSearchTool(input.agentConfig, args, {
                     signal: input.signal,
                     isAbortError: (error: unknown) => error instanceof Error && error.name === 'AbortError',
                 }) as unknown as TavernMemoryToolResult;

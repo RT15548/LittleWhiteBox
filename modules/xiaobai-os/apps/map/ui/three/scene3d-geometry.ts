@@ -1,10 +1,10 @@
 import { BufferGeometry, Float32BufferAttribute, Shape, ExtrudeGeometry, Vector2, Vector3 } from 'three';
 import type { MapElement, MapScene } from '../../../../domains/map/types.js';
-import { sceneElementBounds, sceneElementOutline } from '../scene-geometry.js';
+import { sceneElementBounds, sceneElementOutline, sceneUnitScale } from '../scene-geometry.js';
 
 export function sceneFrame(scene: MapScene) {
     const [x, y, w, h] = scene.viewBox;
-    const scale = Math.max(w, h) / 14;
+    const scale = sceneUnitScale(w, h);
     return { scale, point: (px: number, py: number, height = 0) => new Vector3((px - x - w / 2) / scale, height, (py - y - h / 2) / scale) };
 }
 

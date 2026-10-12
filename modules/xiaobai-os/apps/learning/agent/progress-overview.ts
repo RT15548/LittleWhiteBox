@@ -10,7 +10,7 @@ export function learningProgressOverview(profile: LearningLanguage | undefined, 
         const group = skills.find(entry => entry.skill === item.skill)!;
         group.total++;
         group.states[progress.state]++;
-        if (progress.nextReviewAt && Date.parse(progress.nextReviewAt) <= Date.parse(asOf)) { group.due++; }
+        if (item.schedule && Date.parse(item.schedule.dueAt) <= Date.parse(asOf)) { group.due++; }
     }
     const completions = profile?.completions ?? [];
     const readable = completions.filter(entry => canReadLearningScope(entry.scope, osId));

@@ -20,7 +20,7 @@ export async function executeRecallCase(modules, recallCase, stageObserver = nul
     }), { cassette: transportCassette });
     const result = counted.value;
     const { recallResult, meta, assembly } = result.observation;
-    const normalizedRecall = recallResult || { events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [] };
+    const normalizedRecall = recallResult || { events: [], l0Selected: [], l1ByFloor: new Map() };
     const panel = modules.getSummaryPanelConfig();
     const metrics = assembly?.metrics || normalizedRecall.metrics || null;
     const promptText = result.text;
@@ -56,7 +56,7 @@ export async function executeRecallCase(modules, recallCase, stageObserver = nul
                 events: normalizedRecall.events.length,
                 l0Selected: normalizedRecall.l0Selected.length,
                 l1Floors: normalizedRecall.l1ByFloor.size,
-                causalChain: normalizedRecall.causalChain.length,
+                causalEvidence: assembly?.injectionStats.causalEvidence?.links || 0,
                 mustKeepFloors: normalizedRecall.mustKeepFloors?.length || 0,
             },
             logText: modules.formatMetricsLog(metrics || modules.createMetrics()),

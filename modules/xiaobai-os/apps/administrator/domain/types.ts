@@ -44,7 +44,8 @@ export interface AdministratorRow {
 export interface AdministratorPage { rows: AdministratorRow[]; start: number; total: number; revision: number }
 export interface AdministratorLive {
     turnId: string; text: string; totalChars: number; process: AdministratorProcessRound[]; preview: AdministratorOperation[];
-    phase: 'preparing' | 'replying' | 'summarizing' | 'saving' | 'stopping';
+    startedAt: number;
+    phase: 'preparing' | 'waiting' | 'thinking' | 'replying' | 'tools' | 'summarizing' | 'saving' | 'stopping';
 }
 export interface AdministratorState {
     chatIdentity: string; page: AdministratorPage; live: AdministratorLive | null; unsavedProcess: AdministratorUnsavedProcess | null;

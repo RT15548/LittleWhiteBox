@@ -1,33 +1,24 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import type { LearningClassView } from '../application/projection.js';
-import type { LearningSelection } from '../../../domains/learning/notes.js';
+import { LEARNING_SELECTION_LIMIT, type LearningSelection } from '../../../domains/learning/notes.js';
 import LearningIcon from './LearningIcon.vue';
+import { LEARNING_SELECTION_COPY as copy, useLearningTextSelection } from './reading-selection.js';
 type Material = NonNullable<LearningClassView['unit']>['materials'][number];
 const props = defineProps<{ material: Material; disabled: boolean; exerciseId?: string }>();
 const emit = defineEmits<{ action: [name: string, input: Record<string, unknown>]; select: [selection: LearningSelection] }>();
+const root = ref<HTMLElement | null>(null);
+useLearningTextSelection(root, () => [props.material], value => emit('select', value));
 function selectParagraph(paragraph: { id: string; text: string }) {
     emit('select', { materialId: props.material.id, paragraphId: paragraph.id, start: 0, end: paragraph.text.length, quote: paragraph.text });
-}
-function selectRange(event: MouseEvent | KeyboardEvent, paragraph: { id: string; text: string }) {
-    const selection = window.getSelection();
-    if (!selection?.rangeCount || selection.isCollapsed) { return; }
-    const range = selection.getRangeAt(0);
-    const element = event.currentTarget as HTMLElement;
-    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) { return; }
-    const before = range.cloneRange(); before.selectNodeContents(element); before.setEnd(range.startContainer, range.startOffset);
-    const quote = range.toString();
-    const start = before.toString().length;
-    if (quote && [...quote].length <= 2000 && paragraph.text.slice(start, start + quote.length) === quote) {
-        emit('select', { materialId: props.material.id, paragraphId: paragraph.id, start, end: start + quote.length, quote });
-    }
 }
 </script>
 
 <template>
-    <article class="learning-material">
+    <article ref="root" class="learning-material">
         <h2>{{ material.title }}</h2>
         <div class="learning-source">
-            <span v-if="material.provenance.kind === 'authored'">老师自编练习</span>
+            <span v-if="material.provenance.kind === 'authored'">语伴自编练习</span>
             <a v-else :href="material.provenance.url" target="_blank" rel="noopener noreferrer">{{ material.provenance.kind === 'original' ? '原文节选' : '改编自' }} · {{ material.provenance.title }} ↗</a>
         </div>
         <div v-if="material.hidden" class="learning-listening-cover">
@@ -36,8 +27,8 @@ function selectRange(event: MouseEvent | KeyboardEvent, paragraph: { id: string;
         </div>
         <div v-else class="learning-material-body">
             <div v-for="paragraph in material.paragraphs" :key="paragraph.id" class="learning-paragraph">
-                <p tabindex="0" @mouseup="selectRange($event, paragraph)" @keyup="selectRange($event, paragraph)">{{ paragraph.text }}</p>
-                <button type="button" :disabled="disabled || [...paragraph.text].length > 2000" aria-label="选这段提问" @click="selectParagraph(paragraph)">选段</button>
+                <p tabindex="0" data-learning-text :data-material-id="material.id" :data-paragraph-id="paragraph.id">{{ paragraph.text }}</p>
+                <button type="button" :disabled="[...paragraph.text].length > LEARNING_SELECTION_LIMIT" @click="selectParagraph(paragraph)">{{ copy.select }}</button>
             </div>
         </div>
         <div class="learning-audio-parts" aria-label="材料朗读分段">

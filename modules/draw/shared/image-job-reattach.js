@@ -43,7 +43,7 @@ function resolveReattachDecision(record, job, now, farewell) {
     // 以下记录要么租约已过期，要么原页面留下了与当前 leaseId 精确匹配的遗言，可以安全接管。
     // 清理没做完的记录优先收尾，与后端任务是否还在无关。
     if (record.state === PendingJobState.SETTLING) return { action: ReattachAction.SETTLE };
-    if (record.state === PendingJobState.CANCELLING) {
+    if (record.state === PendingJobState.CANCELLING || record.cancelRequested === true) {
         return { action: job ? ReattachAction.CANCEL : ReattachAction.DISCARD };
     }
     if (job) return { action: ReattachAction.ATTACH };

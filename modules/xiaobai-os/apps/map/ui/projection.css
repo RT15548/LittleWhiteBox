@@ -1,0 +1,49 @@
+.map-projection-root { all: initial; display: block; --os-status-height: 0px; width: 100%; height: var(--map-projection-height); overflow: hidden; font-family: "MiSans", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei UI", sans-serif; font-synthesis: none; }
+.map-projection-loading { display: none; }
+.map-projection-view { --map-ground: #edf3ef; --map-surface: #ffffff; --map-canvas-bg: #edf3ef; background: var(--map-ground); }
+.theme-dark .map-projection-view { --map-ground: #202f2b; --map-surface: #30433b; --map-canvas-bg: #202f2b; background: var(--map-ground); }
+.map-projection-view.map-app .map-top { position: absolute; inset: 52px 8px auto; margin: 0; padding: 0; max-height: calc(100% - 98px); z-index: 15; }
+.map-projection-view .map-top:empty { display: none; }
+.map-projection-view .map-notice { margin: 0; padding-block: 8px; max-height: 112px; border-radius: 10px; }
+.map-projection-view.map-app .map-canvas { margin: 0; padding: 0; flex: 1; min-height: 0; }
+.map-projection-view .map-canvas > .map-viewport > svg { padding: 56px 8px; overflow: visible; }
+.map-projection-view .map-scene-stage > .map-viewport > svg { padding: 46px 8px; overflow: visible; }
+.map-projection-view .map-viewport-controls { right: 8px; bottom: 8px; width: auto; flex-direction: row; border-radius: 10px; }
+.map-projection-view .map-viewport-controls button { width: 34px; min-height: 34px; font-size: 20px; }
+.map-projection-view .map-viewport-controls button + button { border-top: 0; border-left: 1px solid var(--map-line); }
+.map-projection-view .map-viewport-controls .map-fit { font-size: 11px; width: 40px; }
+.map-projection-controls { position: absolute; z-index: 20; inset: 8px 8px auto; display: flex; align-items: start; justify-content: space-between; gap: 8px; pointer-events: none; }
+.map-projection-controls > * { pointer-events: auto; }
+.map-projection-tabs, .map-projection-options-button { border: 1px solid var(--map-line); background: var(--map-surface); box-shadow: 0 2px 8px #17392c12; }
+.map-projection-tabs { display: flex; padding: 3px; border-radius: 12px; }
+.map-projection-tabs button { min-width: 48px; min-height: 32px; padding: 4px 10px; border: 0; border-radius: 8px; background: transparent; font-size: 12px; color: var(--map-muted); white-space: nowrap; }
+.map-projection-tabs button[aria-pressed="true"] { color: var(--map-accent); background: var(--map-tint); font-weight: 650; }
+.map-projection-options-button { width: 38px; height: 38px; border-radius: 12px; padding: 0; display: grid; place-items: center; }
+.map-projection-options { position: absolute; top: 46px; right: 0; width: 218px; max-width: 100%; max-height: calc(var(--map-projection-height) - 70px); padding: 8px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 1px solid var(--map-line); border-radius: 12px; background: var(--map-surface); box-shadow: 0 6px 20px #142d2824; }
+.map-projection-options button { border: 0; border-radius: 8px; min-height: 36px; background: transparent; font-size: 12px; }
+.map-projection-options > button { display: flex; align-items: center; gap: 9px; padding: 6px 8px; width: 100%; text-align: left; }
+.map-projection-options button:hover { background: var(--map-tint); }
+.map-projection-options button[aria-pressed="true"] { background: var(--map-tint); color: var(--map-accent); font-weight: 600; }
+.map-projection-options .map-render-switch { width: 100%; margin: 0; }
+.map-projection-options .map-render-switch button { flex: 1; }
+.map-projection-toggles { display: flex; gap: 4px; margin-top: 4px; }
+.map-projection-toggles button { flex: 1; }
+.map-projection-scene-options { border-bottom: 1px solid var(--map-line); padding-bottom: 6px; margin-bottom: 4px; }
+.map-projection-options .map-legend-content { padding: 8px; border-top: 1px solid var(--map-line); font-size: 12px; line-height: 1.7; }
+.map-projection-options .map-legend-content p { margin: 6px 0; }
+.map-projection-options .map-legend-content small { color: var(--map-muted); font-size: 11px; }
+.map-projection-options .map-legend-content i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; }
+.map-projection-caption { position: absolute; bottom: 8px; left: 8px; max-width: calc(100% - 138px); display: flex; align-items: center; gap: 5px; padding: 6px 9px; min-height: 34px; border-radius: 10px; background: var(--map-surface); border: 1px solid var(--map-line); font-size: 12px; pointer-events: none; }
+.map-projection-caption .map-icon { width: 15px; height: 15px; color: var(--map-accent); }
+.map-projection-caption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-projection-view .map-place-detail { position: absolute; z-index: 16; left: 8px; bottom: 8px; width: min(340px, calc(100% - 16px)); max-height: calc(100% - 62px); border: 1px solid var(--map-line); border-radius: 12px; animation: none; }
+.map-projection-view .map-sheet-grip { display: none; }
+.map-projection-view .map-place-detail > header { padding: 8px 10px; }
+.map-projection-view .map-place-detail h2 { font-size: 16px; margin-top: 2px; }
+.map-projection-view .map-place-content { padding: 0 10px 10px; }
+.map-projection-view .map-place-actions { margin: 8px 0; }
+.map-projection-view .map-detail-footnote { display: none; }
+.map-projection-view .map-empty { padding: 48px 12px 38px; }
+.map-projection-view .map-empty > .map-icon { width: 24px; height: 24px; }
+.map-projection-view .map-empty h2 { font-size: 15px; margin-top: 8px; }
+.map-projection-view .map-empty p { margin: 4px 0 8px; }

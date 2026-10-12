@@ -17,7 +17,9 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
     const started = new Set();
     const setActivity = (item, index, phase) => activity(item.slotId, { index, total: items.length,
         phase, label: DRAW_SLOT_COPY[phase], discard: () => { item.discarded = true; } });
-    const refresh = async () => { try { await render(); } catch (error) { onRenderError(error); } };
+    const refresh = async (slotIds = items.map(item => item.slotId)) => {
+        try { await render(slotIds); } catch (error) { onRenderError(error); }
+    };
     const commitOnce = async () => {
         if (committed) return true;
         signal?.throwIfAborted();
@@ -32,10 +34,10 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         if (!nativeMessage) await refresh();
         return true;
     };
-    const deliver = async (index, patch, guard = async () => {}) => {
+    const deliver = async (index, patch, guard = async () => {}, commitDelivery) => {
         const item = items[index];
         const delivered = await deliverPreparedImage({
-            guard, retainWithoutSlot: item.delivery?.retainWithoutSlot,
+            guard, commitDelivery, retainWithoutSlot: item.delivery?.retainWithoutSlot,
             isDiscarded: record => item.discarded || record?.items?.some(entry => entry.imgId === item.imgId && entry.discarded),
             resolveTarget: () => resolveTarget(item.slotId),
             persist: target => store({ ...item, ...patch, messageId: target?.messageId ?? item.messageId }),
@@ -51,16 +53,16 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         results.set(index, { slotId: item.slotId, imgId: item.imgId, tags: item.tags,
             success: patch.status === PreviewStatus.SUCCESS, status: patch.status });
         activity(item.slotId, null);
-        await refresh();
+        await refresh([item.slotId]);
     };
-    const fail = async (index, error, guard) => {
+    const fail = async (index, error, guard, commitDelivery) => {
         if (results.has(index) || deliveryErrors.has(index)) return;
         const kind = signal?.aborted ? DRAW_SLOT_ERRORS.interrupted : classifyError(error);
         const unknown = !backend && started.has(index)
             && ![ImageRequestOutcome.NOT_SUBMITTED, ImageRequestOutcome.REJECTED].includes(error?.imageRequestOutcome);
         const problem = unknown ? DRAW_SLOT_ERRORS.unknown : kind;
         await deliver(index, { status: unknown ? PreviewStatus.UNKNOWN : PreviewStatus.FAILED,
-            errorType: problem.label, errorMessage: unknown ? problem.desc : error?.message || problem.desc }, guard);
+            errorType: problem.label, errorMessage: unknown ? problem.desc : error?.message || problem.desc }, guard, commitDelivery);
     };
     try {
         for (const [index, item] of items.entries()) {
@@ -84,7 +86,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                 started.add(index);
                 if (items[index].discarded) { await deliver(index, {}); return false; }
                 setActivity(items[index], index, 'generating');
-                void refresh();
+                void refresh([items[index].slotId]);
                 return true;
             },
             recoverable: {
@@ -102,35 +104,41 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                     for (const item of items) if (item.discarded) await discardPendingImageSlot(item.slotId);
                     return commitOnce();
                 },
-                settlePlacements: async ({ error, guard } = {}) => {
-                    if (error && committed) for (const index of items.keys()) await fail(index, error, guard);
+                settlePlacements: async ({ error, deliverItem } = {}) => {
+                    if (error && committed) for (const index of items.keys()) {
+                        await deliverItem(index, ({ guard, commitDelivery }) => fail(index, error, guard, commitDelivery));
+                    }
                 },
                 resolveSettlement: ({ error } = {}) => error
                     ? { mode: 'fail', errorType: classifyError(error) } : { mode: 'complete' },
-                afterForget: refresh,
+                afterForget: () => refresh(),
             },
             onStateChange: (state, data) => {
+                const changedSlots = [];
                 for (const [index, item] of items.entries()) {
                     const generating = backend
                         ? state === 'delivering' || state === 'progress' && data.current === index + 1
                         : started.has(index);
-                    if (!results.has(index)) setActivity(item, index, generating ? 'generating' : 'queued');
+                    if (!results.has(index)) {
+                        setActivity(item, index, generating ? 'generating' : 'queued');
+                        changedSlots.push(item.slotId);
+                    }
                 }
                 onStateChange?.(state, data);
-                void refresh();
+                void refresh(changedSlots);
             },
-            onItemReady: async ({ index, base64, guard }) => {
+            onItemReady: async ({ index, base64, guard, commitDelivery }) => {
                 if (!base64) throw new Error(DRAW_SLOT_COPY.emptyResult);
                 try {
-                    await deliver(index, { base64, status: PreviewStatus.SUCCESS, errorType: null, errorMessage: null }, guard);
+                    await deliver(index, { base64, status: PreviewStatus.SUCCESS, errorType: null, errorMessage: null }, guard, commitDelivery);
                 } catch (error) {
                     deliveryErrors.add(index);
                     error.preserveBackendResult = true;
                     throw error;
                 }
             },
-            onItemSettled: async ({ index, state, error, guard }) => {
-                if (state !== 'ready' && state !== 'consumed') await fail(index, error, guard);
+            onItemSettled: async ({ index, state, error, guard, commitDelivery }) => {
+                if (state !== 'ready' && state !== 'consumed') await fail(index, error, guard, commitDelivery);
             },
         });
         if (deliveryErrors.size) throw new Error(DRAW_SLOT_COPY.storageFailed);

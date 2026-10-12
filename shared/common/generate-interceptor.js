@@ -25,7 +25,6 @@ const handlers = new Map();
 const observers = new Set();
 let installedEntry = null;
 let nextSequence = 0;
-let activeDispatch = null;
 
 function notifyObservers(phase, id, type, run, detail = null) {
     for (const observe of observers) {
@@ -44,8 +43,6 @@ export function observeGenerateInterceptors(observe) {
 }
 
 async function dispatch(chat, contextSize, abort, type) {
-    activeDispatch?.abort(true);
-
     let aborted = false;
     const controller = new AbortController();
     const wrappedAbort = (immediately) => {
@@ -61,7 +58,6 @@ async function dispatch(chat, contextSize, abort, type) {
         signal: controller.signal,
         reportProgress: detail => notifyObservers('handler-progress', null, type, dispatchRun, detail),
     });
-    activeDispatch = dispatchRun;
 
     try {
         notifyObservers('dispatch-start', null, type, dispatchRun);
@@ -83,7 +79,6 @@ async function dispatch(chat, contextSize, abort, type) {
         }
     } finally {
         notifyObservers('dispatch-end', null, type, dispatchRun);
-        if (activeDispatch === dispatchRun) activeDispatch = null;
     }
 }
 

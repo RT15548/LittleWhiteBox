@@ -97,6 +97,11 @@ export function readAtlas(domain: MapDomainV1, value: unknown): MapToolResult {
     const revision = domain.revision;
     const unassigned = new Set(unassignedMapLocations(domain.atlas).map(location => location.key));
     const visited = visitedMapLocationKeys(domain.atlas);
+    const player = domain.atlas.actors.find(actor => actor.actorKey === 'player') || null;
+    const currentLocation = domain.atlas.locations.find(location => location.key === player?.locationKey);
+    const currentScene = currentLocation?.sceneKey
+        ? { scene: currentLocation.key, hasLighting: !!domain.scenes[currentLocation.sceneKey].lighting }
+        : null;
     if (mode === 'summary') {
         return mapToolResult({
             data: {
@@ -108,7 +113,8 @@ export function readAtlas(domain: MapDomainV1, value: unknown): MapToolResult {
                     actors: domain.atlas.actors.length,
                     needsRegion: unassigned.size,
                 },
-                player: structuredClone(domain.atlas.actors.find(actor => actor.actorKey === 'player') || null),
+                player: structuredClone(player),
+                currentScene,
             },
         });
     }
@@ -117,6 +123,7 @@ export function readAtlas(domain: MapDomainV1, value: unknown): MapToolResult {
             data: {
                 mode,
                 revision,
+                currentScene,
                 atlas: {
                     locations: domain.atlas.locations.map(location => projectLocation(location, unassigned, visited)),
                     links: structuredClone(domain.atlas.links),

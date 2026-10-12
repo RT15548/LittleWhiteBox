@@ -16,4 +16,4 @@ Shop 拥有发布合同库、当前货架、购买/激活/关闭/投递事件、
 
 `catalog.ts`发布合同中的可信规则是评审过的静态指令。用户参数经过 Unicode 规范化、控制字符移除、空白折叠、长度限制和 XML/宏编码，仅进入参数数据区。
 
-购买扣款由`apps/shop/application`在 Shop Scoped transaction 中调用 Economy Capability，以一次 sidecar commit 原子提交。`prompt.ts`只把一张已校验收据渲染成 Prompt；SillyTavern 消息事件、收据挂载与生成临时态归`apps/shop/host/prompt-runtime.ts`和`host/sillytavern-context.ts`。
+购买扣款由`apps/shop/application`在 Shop Scoped transaction 中调用 Economy Capability，以一次用户文件 commit 原子提交。`prompt.ts`只把一张已校验收据渲染成 Prompt；SillyTavern 消息事件、收据挂载与生成临时态归`apps/shop/host/prompt-runtime.ts`和`host/sillytavern-context.ts`。

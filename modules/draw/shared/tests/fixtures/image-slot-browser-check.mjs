@@ -64,7 +64,7 @@ async (page) => {
         await f.emit('MESSAGE_EDITED', 0); await f.remount();
         await new Promise(resolve => requestAnimationFrame(resolve));
         assert(f.calls.length === beforeEdit, 'editing may not auto-purchase');
-        assert(document.querySelector('[data-action="generate-tag"]'), 'historical tag needs explicit action');
+        assert(document.querySelector('[data-xb-draw-tag-action]'), 'historical tag needs explicit action');
         f.acceptance = { rows, partial: { success: 1, failed: 1 }, edit: 'manual-only', remount: 'no-resubmit' };
     });
     await page.setViewportSize({ width: 390, height: 844 });

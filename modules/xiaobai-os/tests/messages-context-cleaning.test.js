@@ -3,6 +3,10 @@ import test from 'node:test';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
 import { build } from 'esbuild';
+import { formatStorySummaryL2Events } from '../../story-summary/prompt-events.js';
+import { harness } from './helpers/messages-harness.js';
+import { buildReplyPrompt } from '../apps/messages/prompt/reply-prompt.js';
+import { DOMParser } from 'linkedom';
 
 // Exercise the actual Messages -> common adapter -> Summary configuration/filter
 // wiring. Only native host access and config persistence are replaced.
@@ -16,12 +20,12 @@ const compiled = await build({
         builder.onResolve({ filter: /(?:^context-test-host$|\/(?:extensions|world-info|story-summary|debug-core|server-storage)\.js$)/ },
             () => ({ path: 'host', namespace: 'fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `
-            export const host = { context: null };
+            export const host = { context: null, eventReads: [], readEvents: () => '' };
             export const getContext = () => host.context;
             export const extension_settings = {};
             export const getWorldInfoSettings = () => ({ world_info_include_names: false });
             export const getStorySummaryCharacters = () => [];
-            export const getStorySummaryL2EventText = () => '';
+            export const getStorySummaryL2EventText = options => { host.eventReads.push(options); return host.readEvents(options); };
             export const xbLog = { error() {} };
             export const CommonSettingStorage = { set: async () => {}, get: async () => null };
         ` }));
@@ -62,4 +66,35 @@ test('Messages uses live default/custom Summary cleaning before 4000-character c
     saveSummaryPanelConfig({ ...config, textFilterRules: [] });
     result = await adapter.capture(contact, [], incoming);
     assert.ok(result.recentMessages[0].text.startsWith('<think>'));
+});
+
+test('Messages reads a cross-contact summary batch once at the capture boundary, without assigning event occurrence floors', async t => {
+    const h = await harness();
+    const story = () => ({ is_user: false, is_system: false, mes: 'ordinary story' });
+    h.messages.push(...Array.from({ length: 10 }, story)); h.remote = structuredClone(h.messages);
+    await h.send('甲', 'previous');
+    h.messages.push(...Array.from({ length: 10 }, story)); h.remote = structuredClone(h.messages);
+    // Summary stores the batch end on both events, even though they happened on opposite sides of the contact.
+    const events = [{ title: 'early-event', summary: 'floor-2-event', _addedAt: 20 },
+        { title: 'late-event', summary: 'floor-18-event', _addedAt: 20 }];
+    host.eventReads = []; host.readEvents = options => formatStorySummaryL2Events(events, options);
+    t.after(() => {host.readEvents = () => '';});
+    host.context = { chatId: 'chat', characterId: 0, characters: [{ avatar: 'role.png', name: '甲' }], chat: h.messages,
+        getCharacterCardFields() {return { mesExamples: '' };},
+        getWorldInfoPrompt: async () => ({ worldInfoBefore: '', worldInfoAfter: '', worldInfoDepth: [], worldInfoExamples: [],
+            anBefore: [], anAfter: [], outletEntries: {} }),
+    };
+    const state = h.service.current(); const contact = state.contacts[0];
+    const history = state.messages.filter(message => message.contactId === contact.id);
+    const incoming = { ...history[0], id: 'now', seq: state.nextSeq, payload: { type: 'text', text: 'current-input' } };
+    const context = await createMessagesContext(h.chat, () => state.segments).capture(contact, history, incoming);
+    assert.deepEqual(host.eventReads, [{ throughMessageIndex: 20, maxCharacters: 20_000 }]);
+    assert.equal(context.chronology.at(-1).breakBefore.kind, 'story');
+    const request = buildReplyPrompt({ contact, history, incoming, context, settings: h.deps.getSettings() });
+    const document = new DOMParser().parseFromString(`<request>${request.messages.at(-1).content}</request>`, 'text/xml');
+    assert.equal(document.querySelectorAll('story_events').length, 1);
+    for (const event of events) {
+        assert.ok(document.querySelector('story_events').textContent.includes(event.summary));
+        assert.ok(!document.querySelector('current_communication').textContent.includes(event.summary));
+    }
 });

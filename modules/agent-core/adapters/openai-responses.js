@@ -180,7 +180,7 @@ function assertResponsesResponseShape(response) {
     throw error;
 }
 
-function responsesTerminationError(status, reason) {
+function responsesTerminationError(status, reason, response) {
     const error = new Error(status === 'incomplete'
         ? 'Responses 回复未完整生成。' : status === 'failed'
             ? 'Responses 生成失败。' : 'Responses 未确认生成完成。');
@@ -188,6 +188,8 @@ function responsesTerminationError(status, reason) {
     error.code = status === 'incomplete' ? 'OPENAI_RESPONSES_INCOMPLETE'
         : status === 'failed' ? 'OPENAI_RESPONSES_FAILED' : 'OPENAI_RESPONSES_UNFINISHED';
     error.reason = reason;
+    const text = extractResponseText(response);
+    if (text) error.partialResponse = { text, finishReason: reason || status, truncated: reason === 'max_output_tokens' };
     return error;
 }
 
@@ -328,6 +330,7 @@ function shouldRetryWithLegacySystem(error) {
 function emitStreamProgress(task, payload) {
     if (typeof task.onStreamProgress !== 'function') return;
     task.onStreamProgress({
+        activity: payload.activity,
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
         ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
@@ -451,7 +454,7 @@ export class OpenAIResponsesAdapter {
         const parseResponse = (response) => {
             assertResponsesResponseShape(response);
             if (response.status !== 'completed') {
-                throw responsesTerminationError(response.status, response.incomplete_details?.reason);
+                throw responsesTerminationError(response.status, response.incomplete_details?.reason, response);
             }
             const output = response.output;
             const thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(output) : [];
@@ -498,12 +501,16 @@ export class OpenAIResponsesAdapter {
                 const reasoningByPart = new Map();
                 const summaryByPart = new Map();
                 const callsByOutput = new Map();
+                let activity = 'waiting';
+                let activeOutput;
                 let terminal;
                 for (const type of ['response.completed', 'response.incomplete', 'response.failed']) {
                     stream.on(type, event => { terminal = event; });
                 }
 
-                const emitSnapshot = () => {
+                const emitSnapshot = (nextActivity, outputIndex) => {
+                    activity = nextActivity;
+                    activeOutput = outputIndex;
                     const thoughts = [];
                     if (isReasoningOutputVisible(effectiveReasoning)) {
                         Array.from(reasoningByPart.entries())
@@ -514,6 +521,7 @@ export class OpenAIResponsesAdapter {
                             .forEach(([, text]) => pushThought(thoughts, '推理摘要', text));
                     }
                     emitStreamProgress(task, {
+                        activity,
                         text: Array.from(textByPart.entries())
                             .sort(([left], [right]) => comparePartKeys(left, right))
                             .map(([, text]) => text)
@@ -530,45 +538,57 @@ export class OpenAIResponsesAdapter {
                 };
 
                 stream.on('response.output_item.added', (event) => {
+                    if (event.item.type === 'reasoning') {
+                        emitSnapshot('thinking', event.output_index);
+                        return;
+                    }
                     if (event.item.type !== 'function_call') return;
                     callsByOutput.set(event.output_index, { ...event.item });
-                    emitSnapshot();
+                    emitSnapshot('tool-call', event.output_index);
+                });
+                stream.on('response.output_item.done', (event) => {
+                    if (event.item.type === 'reasoning' && activeOutput === event.output_index && activity === 'thinking') {
+                        emitSnapshot('waiting', event.output_index);
+                    }
                 });
                 stream.on('response.function_call_arguments.delta', (event) => {
                     const item = callsByOutput.get(event.output_index);
                     if (!item) return;
                     item.arguments += event.delta;
-                    emitSnapshot();
+                    emitSnapshot('tool-call', event.output_index);
                 });
                 stream.on('response.function_call_arguments.done', (event) => {
                     const item = callsByOutput.get(event.output_index);
                     if (!item) return;
                     item.arguments = event.arguments;
-                    emitSnapshot();
+                    emitSnapshot('tool-call', event.output_index);
                 });
                 stream.on('response.output_text.delta', (event) => {
+                    if (!event.delta) return;
                     const key = `${event.output_index}:${event.content_index}`;
                     textByPart.set(key, `${textByPart.get(key) || ''}${event.delta}`);
-                    emitSnapshot();
+                    emitSnapshot('replying', event.output_index);
                 });
                 stream.on('response.reasoning_text.delta', (event) => {
+                    if (!event.delta) return;
                     const key = `${event.output_index}:${event.content_index}`;
                     reasoningByPart.set(key, `${reasoningByPart.get(key) || ''}${event.delta}`);
-                    emitSnapshot();
+                    emitSnapshot('thinking', event.output_index);
                 });
                 stream.on('response.reasoning_summary_text.delta', (event) => {
+                    if (!event.delta) return;
                     const key = `${event.output_index}:${event.summary_index}`;
                     summaryByPart.set(key, `${summaryByPart.get(key) || ''}${event.delta}`);
-                    emitSnapshot();
+                    emitSnapshot('thinking', event.output_index);
                 });
 
                 const response = await stream.finalResponse();
                 // The SDK may finalize an in_progress snapshot on failed/incomplete events or EOF.
                 // Only the wire's completion event authorizes downstream tool execution.
                 if (terminal?.type !== 'response.completed') {
-                    throw responsesTerminationError(terminal?.type?.slice('response.'.length), terminal?.response?.incomplete_details?.reason);
+                    throw responsesTerminationError(terminal?.type?.slice('response.'.length), terminal?.response?.incomplete_details?.reason, response);
                 }
-                if (response.status !== 'completed') { throw responsesTerminationError(response.status); }
+                if (response.status !== 'completed') { throw responsesTerminationError(response.status, response.incomplete_details?.reason, response); }
                 return response;
             } catch (error) {
                 throw attachRequestInspection(error);

@@ -76,10 +76,12 @@ export function fitSceneAsset(parent: Group, element: MapElement, kind: SceneAss
         else if (part.role === 'wood') {surface = { ...element, material: 'wood' };}
         else if (part.role === 'bark' && (!element.material || ['grass', 'forest'].includes(element.material))) {surface = { ...element, material: 'wood' };}
         const tint = part.role === 'detail' ? kind === 'car' ? -.78 : -.25 : part.role === 'bark' ? -.22 : part.role === 'window' ? -.3 : part.role === 'soft' ? .12 : 0;
-        const material = materials.mesh(surface, tint);
+        const material = kind === 'light' && part.role === 'shade' ? materials.lampShade(element, tint) : materials.mesh(surface, tint);
         const mesh = resources.own(new InstancedMesh(geometry, material, count));
         for (let i = 0; i < count; i++) {mesh.setMatrixAt(i, new Matrix4().makeTranslation((i - (count - 1) / 2) * size.x * scale, 0, 0));}
-        mesh.castShadow = material.opacity >= .8; mesh.receiveShadow = true;
+        // An emitting shade must not occlude its own light and leave the floor below it black.
+        const emittingShade = kind === 'light' && part.role === 'shade' && material.emissiveIntensity > 0 && material.emissive.getHex() !== 0;
+        mesh.castShadow = material.opacity >= .8 && !emittingShade; mesh.receiveShadow = true;
         parent.add(mesh);
     }
     return height;

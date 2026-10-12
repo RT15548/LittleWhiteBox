@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { FourthWallSessionInfo } from '../types.js';
+import { FOURTH_WALL_SESSION_COPY as C } from './session-copy.js';
 
 defineProps<{
     sessions: FourthWallSessionInfo[];
@@ -15,51 +16,35 @@ const emit = defineEmits<{
 }>();
 
 function add(): void {
-    const name = window.prompt('新记录名称', '新记录')?.trim();
+    const name = window.prompt(C.namePrompt, C.newName)?.trim();
     if (name) {
         emit('add', name);
     }
 }
 
 function rename(sessionId: string, currentName: string): void {
-    const name = window.prompt('重命名记录', currentName)?.trim();
+    const name = window.prompt(C.renamePrompt, currentName)?.trim();
     if (name) {
         emit('rename', sessionId, name);
     }
 }
 
 function remove(sessionId: string): void {
-    if (window.confirm('确定删除当前记录及其皮下记忆吗？')) {
+    if (window.confirm(C.removePrompt)) {
         emit('delete', sessionId);
     }
 }
 </script>
 
 <template>
-    <section class="fourth-wall-settings-section">
-        <h3>聊天记录</h3>
-        <div class="fourth-wall-session-row">
-            <select :value="activeSessionId" :disabled="disabled" @change="emit('switch', ($event.target as HTMLSelectElement).value)">
-                <option v-for="session in sessions" :key="session.id" :value="session.id">{{ session.name }}</option>
-            </select>
-            <button type="button" :disabled="disabled" title="新建记录" @click="add">＋</button>
-            <button
-                type="button"
-                :disabled="disabled"
-                title="重命名记录"
-                @click="rename(activeSessionId, sessions.find(item => item.id === activeSessionId)?.name || '')"
-            >
-                改
-            </button>
-            <button
-                type="button"
-                :disabled="disabled || sessions.length <= 1"
-                title="删除记录"
-                class="is-danger"
-                @click="remove(activeSessionId)"
-            >
-                删
-            </button>
+    <section class="fourth-wall-settings-section fourth-wall-sessions" :aria-label="C.title">
+        <header><h3>{{ C.title }}</h3><button type="button" :disabled="disabled" :aria-label="C.add" :title="C.add" @click="add">＋</button></header>
+        <div class="fourth-wall-session-list">
+            <button v-for="session in sessions" :key="session.id" type="button" :disabled="disabled" :aria-current="session.id === activeSessionId ? 'true' : undefined" @click="session.id !== activeSessionId && emit('switch', session.id)">{{ session.name }}</button>
+        </div>
+        <div class="fourth-wall-session-actions">
+            <button type="button" :disabled="disabled" @click="rename(activeSessionId, sessions.find(item => item.id === activeSessionId)!.name)">{{ C.rename }}</button>
+            <button type="button" :disabled="disabled || sessions.length <= 1" class="is-danger" @click="remove(activeSessionId)">{{ C.remove }}</button>
         </div>
     </section>
 </template>

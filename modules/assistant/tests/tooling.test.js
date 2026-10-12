@@ -46,12 +46,11 @@ test('Write exposes filePath as the single model-facing target path parameter', 
     assert.deepEqual(definition.function.parameters.required, ['filePath', 'content']);
 });
 
-test('web search tool exposes a focused Tavily schema', () => {
+test('web search tool exposes the shared provider-independent schema', () => {
     const definition = TOOL_DEFINITIONS.find((entry) => entry.function?.name === TOOL_NAMES.WEB_SEARCH);
     assert(definition);
     assert.deepEqual(Object.keys(definition.function.parameters.properties), ['query', 'maxResults']);
     assert.deepEqual(definition.function.parameters.required, ['query']);
-    assert.match(String(definition.function.description || ''), /Tavily/i);
 });
 
 test('plan tools expose strict state-only schemas', () => {

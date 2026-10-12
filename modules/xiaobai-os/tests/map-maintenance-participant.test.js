@@ -13,6 +13,12 @@ import {
 import { buildMapPromptBlock } from '../domains/map/projection.js';
 import { createMapKernelHarness } from './map-kernel-harness.js';
 import { mapAtlasFixture } from './fixtures/map-atlas.js';
+import { createMapManagement } from '../apps/map/management/participant.js';
+
+function injectedAtlas(session) {
+    // Decode the data inside the model-facing XML envelope, not its explanatory copy.
+    return JSON.parse(session.dataMessages[0].content.split('\n').slice(2, -1).join('\n'));
+}
 
 function acceptedSource() {
     return {
@@ -77,7 +83,8 @@ test('Map injects the current atlas as data and keeps captured player data out o
     assert.equal(empty.dataMessages.length, 1);
     assert.equal(empty.dataMessages[0].role, 'user');
     assert.match(empty.dataMessages[0].content, /^<map_atlas_state>\n[\s\S]*\n<\/map_atlas_state>$/u);
-    assert.match(empty.dataMessages[0].content, /"locations":\s*\[\]/u);
+    assert.deepEqual(injectedAtlas(empty).atlas.locations, []);
+    assert.equal(injectedAtlas(empty).currentScene, null);
     assert.doesNotMatch(empty.prompt, /Alice/);
 
     await empty.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_EDIT, {
@@ -87,15 +94,17 @@ test('Map injects the current atlas as data and keeps captured player data out o
     await empty.commit(() => true);
 
     const populated = await harness.participant.createSession(acceptedSource(), 'manual');
-    const injected = populated.dataMessages[0].content;
-    assert.match(injected, /"key":\s*"Inn Room"/u);
-    assert.match(injected, /"hasScene":\s*true/u);
-    assert.match(injected, /"displayName":\s*"Alice"/u);
-    assert.doesNotMatch(injected, /sceneKey/);
+    const injected = injectedAtlas(populated);
+    assert.deepEqual(injected, (await populated.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, { mode: 'document' })).data);
+    assert.equal(injected.atlas.locations.find(place => place.key === 'Inn Room').hasScene, true);
+    assert.equal(injected.atlas.actors.find(actor => actor.actorKey === 'player').displayName, 'Alice');
+    assert.deepEqual(injected.currentScene, { scene: 'Inn Room', hasLighting: false });
+    for (const place of injected.atlas.locations) { assert.equal(Object.hasOwn(place, 'sceneKey'), false); }
     assert.doesNotMatch(populated.prompt, /Alice/);
 
     const rebuild = await harness.participant.createSession(acceptedSource(), 'rebuild');
-    assert.match(rebuild.dataMessages[0].content, /"locations":\s*\[\]/u);
+    assert.deepEqual(injectedAtlas(rebuild).atlas.locations, []);
+    assert.equal(injectedAtlas(rebuild).currentScene, null);
 });
 
 test('Map falls back to an atlas summary when the full document exceeds the injection budget', async () => {
@@ -103,18 +112,54 @@ test('Map falls back to an atlas summary when the full document exceeds the inje
     const seed = await harness.participant.createSession(acceptedSource(), 'manual');
     const brief = 'LONG_BRIEF_MARKER '.repeat(24);
     const result = await seed.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_EDIT, {
-        locations: Array.from({ length: 60 }, (_, index) => ({ key: `place-${index}`, name: `Place ${index}`, scale: 'region', brief })),
-        actors: [{ actorKey: 'player', locationKey: 'place-0' }],
+        locations: [
+            ...Array.from({ length: 60 }, (_, index) => ({ key: `place-${index}`, name: `Place ${index}`, scale: 'region', brief })),
+            { key: indoorFixture.scene, name: indoorFixture.scene, scale: 'room', parent: 'place-0' },
+        ],
     });
     assert.equal(result.status, 'updated');
+    assert.equal((await seed.executeTool(MAP_MAINTENANCE_TOOL_NAMES.SCENE_EDIT, indoorFixture)).status, 'updated');
     await seed.commit(() => true);
 
     const session = await harness.participant.createSession(acceptedSource(), 'manual');
     const injected = session.dataMessages[0].content;
     assert.equal(Array.from(injected).length <= MAX_ATLAS_DATA_MESSAGE_CHARS, true);
-    assert.match(injected, /"counts":\s*\{"locations":\s*60/u);
-    assert.match(injected, /MapAtlasRead/);
-    assert.doesNotMatch(injected, /LONG_BRIEF_MARKER/);
+    const data = injectedAtlas(session);
+    assert.equal(data.mode, 'summary');
+    assert.equal(data.counts.locations, 61);
+    assert.equal(Object.hasOwn(data, 'atlas'), false);
+    assert.deepEqual(data.currentScene, { scene: indoorFixture.scene, hasLighting: false });
+    assert.deepEqual(data, (await session.executeTool(MAP_MAINTENANCE_TOOL_NAMES.ATLAS_READ, { mode: 'summary' })).data);
+});
+
+test('current scene lighting presence follows staged edits, saves and movement without storing a second fact', async () => {
+    const domain = mapAtlasFixture([{ key: 'room', name: 'Room', sceneKey: 'layout' }, { key: 'outside' }]);
+    domain.scenes.layout = { key: 'layout', name: 'Room', status: 'active', viewBox: [0, 0, 400, 300], elements: [] };
+    domain.atlas.actors = [{ actorKey: 'player', displayName: 'Alice', locationKey: 'room' }];
+    const harness = createHarness(domain);
+    const session = await harness.participant.createSession(acceptedSource(), 'manual');
+    const tools = MAP_MAINTENANCE_TOOL_NAMES;
+    const read = async () => (await session.executeTool(tools.ATLAS_READ, { mode: 'summary' })).data.currentScene;
+    const gap = { scene: 'room', hasLighting: false };
+    assert.deepEqual(injectedAtlas(session).currentScene, gap);
+    assert.deepEqual(await read(), gap);
+    const lighting = { space: 'indoor', natural: 'night', artificial: 'on' };
+    assert.equal((await session.executeTool(tools.SCENE_EDIT, { scene: 'room', lighting })).status, 'updated');
+    assert.deepEqual(await read(), { ...gap, hasLighting: true });
+    assert.deepEqual((await session.executeTool(tools.ATLAS_READ, { mode: 'document' })).data.currentScene, await read());
+    assert.deepEqual(injectedAtlas(session).currentScene, gap);
+    await session.commit(() => true);
+    assert.deepEqual(harness.map.readCurrent().map.scenes.layout, { ...domain.scenes.layout, lighting });
+    assert.equal(Object.hasOwn(harness.map.readCurrent().map, 'currentScene'), false);
+
+    const management = await createMapManagement(harness.map, () => acceptedSource().player).open();
+    assert.deepEqual(management.initial.currentScene, { ...gap, hasLighting: true });
+    const next = await harness.participant.createSession(acceptedSource(), 'manual');
+    assert.deepEqual(injectedAtlas(next).currentScene, management.initial.currentScene);
+    await next.executeTool(tools.SCENE_EDIT, { scene: 'room', lighting: null });
+    assert.deepEqual((await next.executeTool(tools.ATLAS_READ, {})).data.currentScene, gap);
+    await next.executeTool(tools.ATLAS_EDIT, { actors: [{ actorKey: 'player', locationKey: 'outside' }] });
+    assert.equal((await next.executeTool(tools.ATLAS_READ, {})).data.currentScene, null);
 });
 
 test('indoor and outdoor first-map fixtures create observable scenes and use the captured player identity', async () => {

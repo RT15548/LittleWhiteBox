@@ -6,7 +6,8 @@ export function shouldPreserveHistoricalReasoning(config = {}, tools = [], reaso
     return config.provider === 'openai-compatible'
         && config.toolMode !== 'tagged-json'
         && Array.isArray(tools) && tools.length > 0
-        && reasoning.profileId === 'deepseek-thinking' && reasoning.mode === 'on';
+        // Inherit leaves thinking to the provider; it must not behave like an explicit off.
+        && reasoning.profileId === 'deepseek-thinking' && reasoning.mode !== 'off';
 }
 
 export function getLastUserMessageIndex(messages = []) {

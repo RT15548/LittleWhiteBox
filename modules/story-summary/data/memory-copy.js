@@ -1,4 +1,5 @@
 export const MEMORY_DATA_COPY = Object.freeze({
+    unsupportedImport: '仅支持通过“导出记忆包”生成的文件；不支持内部 JSON、裸数据或其他版本的格式。',
     unconfirmed: '还无法确认修改是否保存。这份记忆已暂停使用和修改，请重新加载当前聊天后核对。',
     saving: '正在确认上一项修改，请稍后重试。',
     sourceInvalid: '原文已变化，旧记忆暂不可用；请重试回退，或重新导入／清空总结。',

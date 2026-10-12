@@ -480,24 +480,26 @@ onBeforeUnmount(() => {
             </aside>
             <aside v-if="state.generation.message && !state.message" class="tasks-notice" role="status"><p>{{ state.generation.message }}</p></aside>
         </div>
-        <div ref="content" class="tasks-content" tabindex="-1">
-            <div v-if="dataUnavailable" class="tasks-empty" role="status"><TaskIcon name="compass" /><h3>{{ state.status === 'loading' ? '正在读取委托…' : '任务暂时不能读取' }}</h3></div>
-            <TasksBoard v-else-if="page === 'board'" :board="state.board" :busy="boardBusy" :disabled-reason="generationDisabledReason" @refresh="refreshBoard" @detail="openListing" />
-            <TasksActive v-else-if="page === 'active'" :records="receivedActive" @detail="openDetail" @discover="go('board')" />
-            <TasksPublished v-else-if="page === 'published'" :records="publishedCommissions" :disabled-reason="writeDisabledReason" @open="openPublished" @publish="go('publish')" @history="showPublishedHistory" />
-            <TasksHistory v-else-if="page === 'history'" :history="state.history" :loading="historyBusy" :source="historySource" @filter="historySource = $event" @detail="openDetail" @load-more="loadMoreHistory" />
-            <TasksSettings v-else-if="page === 'settings'" :auto-maintenance="state.settings.autoMaintenance" :settings-busy="settingsBusy" :maintenance-busy="state.maintenance.state === 'running'" :maintenance-message="maintenanceMessage" :disabled-reason="generationDisabledReason" @update="setAutoMaintenance" @maintain="maintainOnce" />
-            <TaskPublishForm v-else-if="page === 'publish'" :balance="state.playerBalance" :busy="writeBusy" :disabled-reason="writeDisabledReason" @submit="requestPublish" />
-            <TaskListingDetail v-else-if="page === 'listing'" :listing="listing" :busy="writeBusy" :disabled-reason="writeDisabledReason" @accept="selectedListing && acceptListing(selectedListing.boardId, selectedListing.listingId)" />
-            <TaskRecruitment v-else-if="page === 'recruit'" :task="recruitmentTask" :busy="writeBusy" :recruiting="Boolean(candidateBusyTaskId)" :disabled-reason="writeDisabledReason" :generation-disabled-reason="generationDisabledReason" @recruit="recruit" @assign="askAssign" @cancel="askCancel" @detail="openDetail" />
-            <TaskDetail v-else :detail="detail" :loading="detailBusy" :busy="writeBusy" :disabled-reason="detail?.originScopeId && detail.originScopeId !== state.currentScopeId ? commissionDisabledReason : writeDisabledReason" @cancel="askCancel" />
+        <div class="tasks-workspace" :class="{ 'is-main': isMainPage }">
+            <div ref="content" class="tasks-content" tabindex="-1">
+                <div v-if="dataUnavailable" class="tasks-empty" role="status"><TaskIcon name="compass" /><h3>{{ state.status === 'loading' ? '正在读取委托…' : '任务暂时不能读取' }}</h3></div>
+                <TasksBoard v-else-if="page === 'board'" :board="state.board" :busy="boardBusy" :disabled-reason="generationDisabledReason" @refresh="refreshBoard" @detail="openListing" />
+                <TasksActive v-else-if="page === 'active'" :records="receivedActive" @detail="openDetail" @discover="go('board')" />
+                <TasksPublished v-else-if="page === 'published'" :records="publishedCommissions" :disabled-reason="writeDisabledReason" @open="openPublished" @publish="go('publish')" @history="showPublishedHistory" />
+                <TasksHistory v-else-if="page === 'history'" :history="state.history" :loading="historyBusy" :source="historySource" @filter="historySource = $event" @detail="openDetail" @load-more="loadMoreHistory" />
+                <TasksSettings v-else-if="page === 'settings'" :auto-maintenance="state.settings.autoMaintenance" :settings-busy="settingsBusy" :maintenance-busy="state.maintenance.state === 'running'" :maintenance-message="maintenanceMessage" :disabled-reason="generationDisabledReason" @update="setAutoMaintenance" @maintain="maintainOnce" />
+                <TaskPublishForm v-else-if="page === 'publish'" :balance="state.playerBalance" :busy="writeBusy" :disabled-reason="writeDisabledReason" @submit="requestPublish" />
+                <TaskListingDetail v-else-if="page === 'listing'" :listing="listing" :busy="writeBusy" :disabled-reason="writeDisabledReason" @accept="selectedListing && acceptListing(selectedListing.boardId, selectedListing.listingId)" />
+                <TaskRecruitment v-else-if="page === 'recruit'" :task="recruitmentTask" :busy="writeBusy" :recruiting="Boolean(candidateBusyTaskId)" :disabled-reason="writeDisabledReason" :generation-disabled-reason="generationDisabledReason" @recruit="recruit" @assign="askAssign" @cancel="askCancel" @detail="openDetail" />
+                <TaskDetail v-else :detail="detail" :loading="detailBusy" :busy="writeBusy" :disabled-reason="detail?.originScopeId && detail.originScopeId !== state.currentScopeId ? commissionDisabledReason : writeDisabledReason" @cancel="askCancel" />
+            </div>
+            <nav v-if="isMainPage" class="tasks-nav" aria-label="任务主导航">
+                <button type="button" aria-label="发现委托" :aria-current="page === 'board' ? 'page' : undefined" @click="go('board')"><span><TaskIcon name="compass" /></span>发现</button>
+                <button type="button" aria-label="我接的" :aria-current="page === 'active' ? 'page' : undefined" @click="go('active')"><span><TaskIcon name="ticket" /></span>我接的</button>
+                <button type="button" aria-label="我发布" :aria-current="page === 'published' ? 'page' : undefined" @click="go('published')"><span><TaskIcon name="send" /><i v-if="state.commissions.some(item => item.task.status === 'recruiting' && item.scopeId === state.currentScopeId)" /></span>我发布</button>
+                <button type="button" aria-label="记录" :aria-current="page === 'history' ? 'page' : undefined" @click="go('history')"><span><TaskIcon name="archive" /></span>记录</button>
+            </nav>
         </div>
-        <nav v-if="isMainPage" class="tasks-nav" aria-label="任务主导航">
-            <button type="button" aria-label="发现委托" :aria-current="page === 'board' ? 'page' : undefined" @click="go('board')"><span><TaskIcon name="compass" /></span>发现</button>
-            <button type="button" aria-label="我接的" :aria-current="page === 'active' ? 'page' : undefined" @click="go('active')"><span><TaskIcon name="ticket" /></span>我接的</button>
-            <button type="button" aria-label="我发布" :aria-current="page === 'published' ? 'page' : undefined" @click="go('published')"><span><TaskIcon name="send" /><i v-if="state.commissions.some(item => item.task.status === 'recruiting' && item.scopeId === state.currentScopeId)" /></span>我发布</button>
-            <button type="button" aria-label="记录" :aria-current="page === 'history' ? 'page' : undefined" @click="go('history')"><span><TaskIcon name="archive" /></span>记录</button>
-        </nav>
         <TaskConfirmDialog v-if="confirmation" :title="confirmation.kind === 'publish' ? '确认发布' : confirmation.kind === 'cancel' ? (cancellingReceived ? '放弃任务？' : '取消委托？') : '确认执行者'" :confirm-label="confirmation.kind === 'publish' ? '托管并发布' : confirmation.kind === 'cancel' ? (cancellingReceived ? '确认放弃' : '取消并退款') : '确认委托'" :busy="writeBusy" :disabled-reason="confirmation.kind === 'cancel' && confirmation.scopeId !== state.currentScopeId ? commissionDisabledReason : writeDisabledReason" :error="errorMessage" @close="confirmation = null; errorMessage = ''" @confirm="confirmAction">
             <template v-if="confirmation.kind === 'publish'"><p class="tasks-confirm-name">{{ confirmation.form.title }}</p><strong class="tasks-confirm-amount">¤ {{ taskMoney(confirmation.form.reward) }}</strong><p>报酬将从钱包托管。发布后可招募执行者；任务结束前，你可以取消并全额退回报酬。</p></template>
             <template v-else-if="confirmation.kind === 'cancel'">

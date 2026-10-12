@@ -7,6 +7,7 @@ import { RELATION_TRENDS } from './data/fact-predicates.js';
 import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from './maintenance/settings.js';
+import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
 
 const UNANNOTATED_LABEL = '未标注';
 
@@ -364,7 +365,7 @@ const UNANNOTATED_LABEL = '未标注';
     let settingsSaveTimeoutId = null;
     let currentChatSummaryEnabled = true;
     let currentChatSummaryPending = true;
-    let panelConfigLoadedFromServer = false;
+    let panelConfigLoad = { status: 'loading', error: '' };
     let settingsOpenedWithServerConfig = false;
     const pendingConfigSaveRequests = new Map();
 
@@ -406,9 +407,32 @@ const UNANNOTATED_LABEL = '未标注';
         }
         const btn = $('settings-save');
         if (btn) {
-            btn.disabled = false;
-            btn.textContent = MEMORY_COPY.settingsSave;
+            btn.disabled = panelConfigLoad.status !== 'ready';
+            btn.textContent = panelConfigLoad.status === 'loading' ? SUMMARY_FEEDBACK_COPY.configLoad.waiting : MEMORY_COPY.settingsSave;
         }
+    }
+
+    function showPanelConfigLoadState(status, error = '') {
+        panelConfigLoad = { status, error };
+        const notice = $('settings-config-status');
+        notice.hidden = status === 'ready';
+        notice.dataset.state = status;
+        $('settings-config-message').textContent = status === 'error'
+            ? `${SUMMARY_FEEDBACK_COPY.configLoad.failed} ${error}`.trim()
+            : SUMMARY_FEEDBACK_COPY.configLoad.loading;
+        const retry = $('settings-config-retry');
+        retry.textContent = SUMMARY_FEEDBACK_COPY.configLoad.retry;
+        retry.hidden = status !== 'error';
+        for (const prefix of ['l0', 'embedding', 'rerank']) {
+            $(`${prefix}-btn-save`).disabled = status !== 'ready';
+        }
+        resetSettingsSaveUi();
+    }
+
+    function retryPanelConfigLoad() {
+        if (panelConfigLoad.status !== 'error') return;
+        showPanelConfigLoadState('loading');
+        postMsg('REQUEST_PANEL_CONFIG');
     }
 
     function normalizeVectorConfigUI(raw = null) {
@@ -612,6 +636,7 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function saveConfig(options = {}) {
+        if (panelConfigLoad.status !== 'ready') return Promise.resolve(false);
         try {
             const settingsOpen = $('settings-modal')?.classList.contains('active');
             if (settingsOpen) {
@@ -921,10 +946,6 @@ const UNANNOTATED_LABEL = '未标注';
         $('vector-event-count').textContent = stats.eventVectors || 0;
     }
 
-    function showVectorMismatchWarning(show) {
-        $('vector-mismatch-warning').classList.toggle('hidden', !show);
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // 记忆锚点（L0）UI
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1078,16 +1099,20 @@ const UNANNOTATED_LABEL = '未标注';
             };
 
             $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
+            for (const field of ['provider', 'url', 'key', 'model-text', 'model-select']) {
+                $(`${prefix}-api-${field}`).addEventListener(field === 'provider' || field === 'model-select' ? 'change' : 'input', () => {
+                    postMsg('VECTOR_CANCEL_TEST', { target: prefix });
+                    updateVectorOnlineStatus(prefix, 'idle', '');
+                });
+            }
             $(`${prefix}-btn-save`).onclick = () => saveVectorApiSection(prefix);
             $(`${prefix}-btn-test`).onclick = () => {
                 const btn = $(`${prefix}-btn-test`);
                 if (btn) btn.disabled = true;
-                setStatusText($(`${prefix}-api-connect-status`), '测试中...', 'loading');
-                saveConfig();
+                setStatusText($(`${prefix}-api-connect-status`), SUMMARY_FEEDBACK_COPY.connectionChecking, 'loading');
                 const cfg = getVectorConfig();
                 postMsg('VECTOR_TEST_ONLINE', {
                     target: prefix,
-                    provider: cfg[`${prefix}Api`].provider,
                     config: cfg[`${prefix}Api`],
                 });
             };
@@ -1152,7 +1177,7 @@ const UNANNOTATED_LABEL = '未标注';
     function updateVectorOnlineStatus(target, status, message) {
         const prefix = target || 'embedding';
         const btn = $(`${prefix}-btn-test`);
-        if (btn) btn.disabled = false;
+        if (btn) btn.disabled = status === 'downloading';
         setStatusText(
             $(`${prefix}-api-connect-status`),
             message || '',
@@ -1205,7 +1230,7 @@ const UNANNOTATED_LABEL = '未标注';
         if (!urlInput.value && pv.url) urlInput.value = pv.url;
     }
 
-    function openSettings() {
+    function openSettings({ preserveTab = false } = {}) {
         memoryMaintenancePage.setEnabled(config.memoryMaintenanceEnabled);
         $('api-provider').value = config.api.provider;
         $('api-url').value = config.api.url;
@@ -1242,16 +1267,8 @@ const UNANNOTATED_LABEL = '未标注';
         updateProviderUI(config.api.provider);
         if (config.vector) loadVectorConfig(config.vector);
         renderFilterRules(Array.isArray(config.textFilterRules) ? config.textFilterRules : DEFAULT_FILTER_RULES);
-        settingsOpenedWithServerConfig = panelConfigLoadedFromServer;
-        if (!settingsOpenedWithServerConfig) {
-            postMsg('REQUEST_PANEL_CONFIG');
-            setStatusText($('api-connect-status'), '正在读取服务器配置，请稍候再保存', 'loading');
-        }
-        const saveBtn = $('settings-save');
-        if (saveBtn) {
-            saveBtn.disabled = !settingsOpenedWithServerConfig;
-            saveBtn.textContent = settingsOpenedWithServerConfig ? MEMORY_COPY.settingsSave : '等待配置...';
-        }
+        settingsOpenedWithServerConfig = panelConfigLoad.status === 'ready';
+        showPanelConfigLoadState(panelConfigLoad.status, panelConfigLoad.error);
 
         // Initialize sub-options visibility
         const autoSummaryOptions = $('auto-summary-options');
@@ -1265,11 +1282,13 @@ const UNANNOTATED_LABEL = '未标注';
 
         $('settings-modal').classList.add('active');
 
-        // Default to first tab
-        $$('.settings-tab').forEach(t => t.classList.remove('active'));
-        $$('.settings-tab[data-tab="tab-summary"]').forEach(t => t.classList.add('active'));
-        $$('.tab-pane').forEach(p => p.classList.remove('active'));
-        $('tab-summary').classList.add('active');
+        // Opening starts on Summary; recovery preserves the user's current tab.
+        if (!preserveTab) {
+            $$('.settings-tab').forEach(t => t.classList.remove('active'));
+            $$('.settings-tab[data-tab="tab-summary"]').forEach(t => t.classList.add('active'));
+            $$('.tab-pane').forEach(p => p.classList.remove('active'));
+            $('tab-summary').classList.add('active');
+        }
 
         postMsg('SETTINGS_OPENED');
     }
@@ -1321,8 +1340,7 @@ const UNANNOTATED_LABEL = '未标注';
 
     async function saveSettings() {
         if (!settingsOpenedWithServerConfig) {
-            postMsg('REQUEST_PANEL_CONFIG');
-            setStatusText($('api-connect-status'), '服务器配置尚未加载完成，请关闭设置后重开再保存', 'error');
+            retryPanelConfigLoad();
             return false;
         }
         collectSettingsFormToConfig();
@@ -2467,7 +2485,6 @@ const UNANNOTATED_LABEL = '未标注';
                         const key = `${s}::${p}`;
                         const old = oldMap.get(key);
                         const fact = {
-                            id: old?.id || `f-${Date.now()}`,
                             s, p, o,
                             since: old?.since ?? 0,
                             _addedAt: old?._addedAt ?? 0,
@@ -2611,12 +2628,17 @@ const UNANNOTATED_LABEL = '未标注';
             }
 
             case 'LOAD_PANEL_CONFIG':
-                panelConfigLoadedFromServer = true;
+                showPanelConfigLoadState('ready');
                 applyBuiltInSummaryPrompts(d.builtInSummaryPrompts);
                 if (d.config) applyConfig(d.config);
                 if ($('settings-modal')?.classList.contains('active') && !settingsOpenedWithServerConfig) {
-                    openSettings();
+                    openSettings({ preserveTab: true });
                 }
+                break;
+
+            case 'PANEL_CONFIG_LOAD_ERROR':
+                settingsOpenedWithServerConfig = false;
+                showPanelConfigLoadState('error', d.message || '');
                 break;
 
             case 'PANEL_CONFIG_SAVE_RESULT': {
@@ -2680,7 +2702,10 @@ const UNANNOTATED_LABEL = '未标注';
 
             case 'VECTOR_STATS':
                 updateVectorStats(d.stats);
-                if (d.mismatch !== undefined) showVectorMismatchWarning(d.mismatch);
+                break;
+
+            case 'VECTOR_INTEGRITY':
+                $('vector-integrity-status').textContent = d.message || '';
                 break;
 
             case 'ANCHOR_STATS':
@@ -2787,6 +2812,7 @@ const UNANNOTATED_LABEL = '未标注';
         $('settings-backdrop').onclick = closeSettings;
         $('settings-close').onclick = closeSettings;
         $('settings-cancel').onclick = closeSettings;
+        $('settings-config-retry').onclick = retryPanelConfigLoad;
         $('settings-save').onclick = saveSettings;
 
         // Settings tabs

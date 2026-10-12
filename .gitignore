@@ -10,11 +10,6 @@ scripts/story-summary-replay.samples/
 scripts/story-summary-replay-output/
 scripts/.story-summary-replay-cache/
 
-# Local browser verification artifacts and isolated UI preview
+# Local verification artifacts and previews
 .playwright-cli/
-output/playwright/
-
-# One-off local model probes
-output/dice-frequency-eval*.json
-output/dice-frequency-eval.mjs
-output/memory-maintenance-check*/
+/output/

@@ -50,15 +50,16 @@ function wireResponse(provider, tool, streaming) {
         + event({ choices: [{ index: 0, delta: {}, finish_reason: openai.choices[0].finish_reason }] }) + 'data: [DONE]\n\n';
 }
 
-async function mockProvider(t, provider, { streaming = false, status = 200 } = {}) {
+async function mockProvider(t, provider, { streaming = false, status = 200, requireModelListBearer = false } = {}) {
     const requests = [];
     const server = createServer(async (request, response) => {
         let raw = '';
         for await (const chunk of request) raw += chunk;
         requests.push({ url: request.url, headers: request.headers, body: raw ? JSON.parse(raw) : null });
-        if (status !== 200) {
-            response.writeHead(status, { 'Content-Type': 'application/json' });
-            response.end(JSON.stringify({ error: { type: 'authentication_error', message: 'unsupported authentication', code: status } }));
+        const responseStatus = request.method === 'GET' && requireModelListBearer && !request.headers.authorization ? 401 : status;
+        if (responseStatus !== 200) {
+            response.writeHead(responseStatus, { 'Content-Type': 'application/json' });
+            response.end(JSON.stringify({ error: { type: 'authentication_error', message: 'unsupported authentication', code: responseStatus } }));
         } else if (request.method === 'GET') {
             response.writeHead(200, { 'Content-Type': 'application/json' });
             response.end(JSON.stringify({ data: [{ id: 'test-model' }], models: [{ name: 'models/test-model' }] }));
@@ -107,7 +108,8 @@ test('direct Agent requests preserve explicit auth through real SDK requests and
                 for (const streaming of [false, true]) {
                     await t.test(`${runtime}/${provider}, key=${JSON.stringify(apiKey)}, stream=${streaming}`, async t => {
                         const service = await mockProvider(t, provider, { streaming });
-                        const config = { provider, apiKey, baseUrl: service.baseUrl, model: 'test-model', timeoutMs: 3000, toolMode: 'native' };
+                        // A model-list preference must never change generation/continuation auth.
+                        const config = { provider, apiKey, modelListAuth: 'bearer', baseUrl: service.baseUrl, model: 'test-model', timeoutMs: 3000, toolMode: 'native' };
                         const adapter = factory(config);
                         const task = { messages, tools, maxTokens: 32, ...(streaming ? { onStreamProgress() {} } : {}) };
                         const first = await adapter.chat(task);
@@ -161,5 +163,62 @@ test('model listing allows no key and never retries authentication failures as a
                 assert.equal(service.requests.length, 2);
             });
         }
+    }
+});
+
+test('Claude model listing sends only the selected auth header without guessing from the host', async t => {
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+        requests.push({ url, headers: new Headers(options.headers), signal: options.signal });
+        return Response.json({ data: [{ id: 'test-model' }] });
+    });
+    for (const provider of ['anthropic', 'sillytavern-claude']) {
+        for (const baseUrl of [
+            'https://api.anthropic.com',
+            'https://API.ANTHROPIC.COM/v1/',
+            'https://relay.example/anthropic/v1',
+            'https://api.anthropic.com.relay.example/v1',
+            ...(provider === 'sillytavern-claude' ? [''] : []),
+        ]) {
+            for (const modelListAuth of [undefined, 'x-api-key', 'bearer']) {
+                for (const apiKey of [' test-key ', '', '   ', undefined]) {
+                    // Hosted blank URL + no key intentionally uses its existing built-in model list.
+                    if (!baseUrl && !apiKey?.trim()) continue;
+                    const controller = new AbortController();
+                    const before = requests.length;
+                    assert.deepEqual(await pullModelsForProvider({ provider, baseUrl, apiKey, modelListAuth }, { signal: controller.signal }), ['test-model']);
+                    assert.equal(requests.length, before + 1);
+                    const request = requests.at(-1);
+                    assertAuth(request.headers, modelListAuth === 'bearer' ? 'openai-compatible' : 'anthropic', apiKey?.trim() || '');
+                    assert.equal(new URL(request.url).search, '');
+                    assert.equal(request.signal, controller.signal);
+                }
+            }
+        }
+    }
+});
+
+test('Claude model listing does not retry 401 or 403 with another auth shape', async t => {
+    for (const provider of ['anthropic', 'sillytavern-claude']) {
+        for (const status of [401, 403]) {
+            for (const modelListAuth of ['x-api-key', 'bearer']) {
+                for (const apiKey of ['', ' test-key ']) {
+                    const service = await mockProvider(t, 'anthropic', { status });
+                    await assert.rejects(pullModelsForProvider({ provider, apiKey, modelListAuth, baseUrl: service.baseUrl }));
+                    assert.equal(service.requests.length, 1);
+                    assertAuth(service.requests[0].headers, modelListAuth === 'bearer' ? 'openai-compatible' : 'anthropic', apiKey.trim());
+                }
+            }
+        }
+    }
+});
+
+test('Claude model listing reaches Bearer-only relays with the configured key in either channel', async t => {
+    for (const provider of ['anthropic', 'sillytavern-claude']) {
+        const service = await mockProvider(t, 'anthropic', { requireModelListBearer: true });
+        assert.deepEqual(await pullModelsForProvider({ provider, baseUrl: service.baseUrl,
+            apiKey: ' test-key ', modelListAuth: 'bearer' }), ['test-model']);
+        assert.equal(service.requests.length, 1);
+        assertAuth(service.requests[0].headers, 'openai-compatible', 'test-key');
     }
 });

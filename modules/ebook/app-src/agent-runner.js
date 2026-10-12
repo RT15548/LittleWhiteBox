@@ -11,7 +11,7 @@ import {
 } from '../../agent-core/runtime/protocol.js';
 import { createStreamingMessageController } from '../../agent-core/runtime/streaming-messages.js';
 import { createLightBrakeController } from '../../agent-core/runtime/light-brake.js';
-import { buildTavilySearchTracePayload, isTavilyConfigured } from '../../agent-core/tavily-search.js';
+import { buildWebSearchTracePayload, isWebConfigured } from '../../agent-core/web/tools.js';
 import { resetMessageWindow } from '../../agent-core/ui/message-windowing.js';
 import { upsertBookFile } from '../shared/ebook-db.js';
 import {
@@ -106,7 +106,7 @@ function buildToolTraceEntry(toolCall = {}, args = {}, result = {}) {
         payload: isDelegate
             ? buildDelegateTracePayload(args)
             : isWebSearch
-                ? buildTavilySearchTracePayload(result)
+                ? buildWebSearchTracePayload(result)
                 : [],
     };
 }
@@ -143,7 +143,7 @@ function buildRunningToolTraceEntry(toolCall = {}, args = {}, round = 0) {
         payload: isDelegate
             ? buildDelegateTracePayload(args)
             : isWebSearch
-                ? buildTavilySearchTracePayload({ query: args.query })
+                ? buildWebSearchTracePayload({ query: args.query })
                 : [],
     };
 }
@@ -433,7 +433,7 @@ export function createEbookAgentRunner(deps = {}) {
         getActiveProviderConfig,
         buildProviderMessages: () => buildMessagesForRun(''),
         getToolDefinitions: () => getEbookToolDefinitions({
-            webSearchEnabled: isTavilyConfigured(getActiveProviderConfig()),
+            webSearchEnabled: isWebConfigured(getActiveProviderConfig()),
         }),
         onCompactionStart: (event = {}) => {
             clearCompactionOverlayHideTimer();
@@ -480,7 +480,7 @@ export function createEbookAgentRunner(deps = {}) {
         getSystemPrompt: () => EBOOK_DELEGATE_PROMPT,
         resolveToolDefinitions: () => getEbookToolDefinitions({
             readOnly: true,
-            webSearchEnabled: isTavilyConfigured(getActiveProviderConfig({ role: 'delegate' })),
+            webSearchEnabled: isWebConfigured(getActiveProviderConfig({ role: 'delegate' })),
         }),
         safeJsonParse,
         isAbortError,

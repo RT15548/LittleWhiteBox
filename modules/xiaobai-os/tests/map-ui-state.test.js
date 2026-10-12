@@ -43,6 +43,16 @@ test('opening and reopening Map keeps old results inspectable without notifying 
     }
 });
 
+test('projection toggle has only its preference request, never an update/rebuild', async t => {
+    const initial = { ...saved, projectToChat: false, autoMaintenance: false };
+    const { ui, requests } = mount(t, initial, async () => ({ result: { ...initial, projectToChat: true } }));
+    await ui.setProjection(true);
+    assert.equal(ui.state.value.projectToChat, true);
+    assert.equal(ui.state.value.autoMaintenance, false);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0], 'map/set-projection');
+});
+
 test('a newly completed run notifies once, and another run with the same failure can notify again', t => {
     const { ui, push } = mount(t);
     push(running);

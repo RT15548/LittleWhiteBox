@@ -107,6 +107,10 @@ export async function runSummaryResponseCheck() {
                 saved++;
             } });
             globalThis.window.xiaobaixStreamingGeneration = {
+                async startRawGeneration(args) {
+                    requests++;
+                    return { sessionId: args.id, completion: Promise.resolve(responseText) };
+                },
                 async xbgenrawCommand(args) {
                     requests++;
                     return args.nonstream === 'true' ? responseText : 'response-session';

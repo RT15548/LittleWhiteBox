@@ -25,9 +25,16 @@ import { DiceOperationError } from './application/operation-error.js';
 
 export function createProductionDiceModule(settings: XiaobaiOsSettingsRepository,
     references: (identityKey: string) => Promise<EncounterReferences>,
-    isAuxiliaryMessage: (message: DiceHostMessage) => boolean, upgrade: () => Promise<void>): XiaobaiOsAppModule {
+    isAuxiliaryMessage: (message: DiceHostMessage) => boolean, upgrade: () => Promise<void>) {
     let cleanup: (() => Promise<void>) | null = null;
-    return {
+    let readReplyPaused: ReturnType<typeof createDiceGenerationAdapter>['isReplyPaused'] | null = null;
+    const replyListeners = new Set<() => void>();
+    const replyChanged = () => { for (const listener of replyListeners) { listener(); } };
+    const replyPause = {
+        isPaused: (message: unknown) => readReplyPaused?.(message) ?? false,
+        subscribe(listener: () => void) { replyListeners.add(listener); return () => { replyListeners.delete(listener); }; },
+    };
+    const module: XiaobaiOsAppModule = {
         descriptor: DICE_APP_DESCRIPTOR, partition: DICE_PARTITION, capabilities: [ECONOMY_READ_CAPABILITY, ECONOMY_TRANSACTION_CAPABILITY, PROMPT_INJECTION_CAPABILITY],
         async install(context) {
             const prompts = context.useCapability(PROMPT_INJECTION_CAPABILITY);
@@ -51,13 +58,15 @@ export function createProductionDiceModule(settings: XiaobaiOsSettingsRepository
             let running = false;
             const enabled = () => running && !!captureDiceChat() && settings.read()!.apps.dice.actionChecksEnabled;
             const generation = createDiceGenerationAdapter(enabled, () => settings.read()!.apps.dice.actionCheckFrequency,
-                () => display.refresh(),
+                () => { display.refresh(); replyChanged(); },
                 (target, candidate, signal) => display.reveal(target, candidate, signal), () => settings.read()!.apps.dice.actionCheckRule,
                 sheets.read, rerolls, results, {
                     setRules: content => checkPrompts.set('rules', content),
                     setResult: content => checkPrompts.set('result', content),
                 });
             const display = createDiceMessageDisplay(generation, enabled);
+            readReplyPaused = generation.isReplyPaused;
+            context.execution.addCleanup(() => { readReplyPaused = null; replyChanged(); });
             const encountersEnabled = () => running && !!captureDiceChat() && settings.read()!.apps.dice.encountersEnabled;
             const encounters = createEncounterRuntime({ enabled: encountersEnabled, references, isAuxiliaryMessage,
                 setPrompt: content => encounterPrompts.set('context', content),
@@ -104,7 +113,7 @@ export function createProductionDiceModule(settings: XiaobaiOsSettingsRepository
             };
             // Preferences are global; generation still requires a current chat.
             const background = {
-                startBackground() { running = true; generation.start(); display.start(); encounters.start(); encounterDisplay.start(); },
+                startBackground() { running = true; generation.start(); display.start(); encounters.start(); encounterDisplay.start(); replyChanged(); },
                 stopBackground() { running = false; display.stop(); encounterDisplay.stop(); encounters.stop(); generation.stop(); },
                 handleChatChanged() { generation.cancel(); encounters.cancel(); display.refresh(); encounterDisplay.refresh(); },
                 cancelAll() { generation.cancel(); encounters.cancel(); },
@@ -119,4 +128,5 @@ export function createProductionDiceModule(settings: XiaobaiOsSettingsRepository
             // Chat record cleanup must not clear the paid, user-owned character sheet.
         },
     };
+    return { ...module, replyPause };
 }

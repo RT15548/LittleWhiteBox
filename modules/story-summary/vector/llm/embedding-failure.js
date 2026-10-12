@@ -64,8 +64,15 @@ export function readEmbeddingVectors(data, expectedCount) {
     return vectors;
 }
 
+export function readEmbeddingFailure(error) {
+    for (let current = error; current; current = current.cause) {
+        if (current.embeddingFailure) return current.embeddingFailure;
+    }
+    return null;
+}
+
 export function getEmbeddingFailureDetails(error) {
-    const failure = error?.embeddingFailure || {};
+    const failure = readEmbeddingFailure(error) || {};
     const kind = String(failure.kind || '');
     let code = 'embedding_failed';
 
@@ -83,7 +90,7 @@ export function getEmbeddingFailureDetails(error) {
 }
 
 export function isRetryableEmbeddingFailure(error) {
-    const failure = error?.embeddingFailure || {};
+    const failure = readEmbeddingFailure(error) || {};
     const kind = String(failure.kind || '');
     if (kind === 'network' || kind === 'timeout') return true;
     if (kind !== 'http') return false;

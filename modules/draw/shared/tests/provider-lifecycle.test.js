@@ -33,9 +33,50 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} producti
     const cancelledPrepared = assert.rejects(cancelled.prepared);
     const cancelledComplete = assert.rejects(cancelled.completed);
     await Promise.resolve();
-    assert.equal(api.abortGeneration(0), true);
+    assert.equal(await api.abortGeneration(0), true);
     await Promise.all([cancelledPrepared, cancelledComplete]);
     assert.equal(beforeSubmit.mes, '[img: cancelled]');
+    for (const boundary of ['cancel', 'chat-switch']) await t.test(`manual save wait retains unsubmitted ownership across ${boundary}`, async () => {
+        const message = { mes: '[img: manual]', name: 'Fixture', swipe_id: 0, extra: {} };
+        const saving = Promise.withResolvers(), releaseSave = Promise.withResolvers();
+        let persisted, submissions = 0;
+        const ctx = h.ctx = { chatId: `provider-${provider}-manual-${boundary}`, chat: [message],
+            characterId: 0, characters: [{ name: 'Fixture', avatar: 'fixture.png' }], getRequestHeaders: () => ({}),
+            saveChat: async () => { saving.resolve(); await releaseSave.promise; persisted = structuredClone(ctx.chat); } };
+        globalThis.fetch = async url => {
+            if (url === '/api/chats/get') return Response.json(persisted);
+            submissions++;
+            throw new Error('Unexpected supplier request');
+        };
+        const completed = api.generatePreparedChatImages(provider, { ctx, message, messageId: 0, sourceText: message.mes,
+            tasks: api.parseChatImageTags(message.mes).map(tag => ({ scene: tag.tags, placement: { ...tag, mode: 'replace' } }))
+        }).then(value => ({ value }), error => ({ error }));
+        const other = { mes: 'other chat', extra: {} };
+        try {
+            await saving.promise;
+            assert.equal(submissions, 0);
+            if (boundary === 'cancel') assert.equal(await api.abortGeneration(0), true);
+            else h.ctx = { ...ctx, chatId: 'other-chat', chat: [other] };
+            releaseSave.resolve();
+            const outcome = await completed;
+            if (boundary === 'cancel') {
+                // Novel's adapter rejects an already-aborted batch; the other
+                // two adapters return its cancelled outcome. Both are unsubmitted.
+                if (provider === 'novelai') assert.equal(outcome.error?.errorType?.code, 'aborted');
+                else assert.equal(outcome.value?.aborted, true);
+            }
+            else assert.equal(outcome.error?.placementsCommitted, true);
+            assert.equal(submissions, 0);
+            assert.deepEqual(other, { mes: 'other chat', extra: {} });
+            const slotId = [...api.extractSlotIds(message.mes)][0];
+            assert.ok(slotId);
+            assert.equal((await api.getDisplayPreviewForSlot(slotId)).preview.status, 'failed');
+            assert.equal(api.isGenerating(), false);
+        } finally {
+            releaseSave.resolve();
+            await completed;
+        }
+    });
     for (const connectionMode of provider === 'comfyui' ? ['direct', 'proxy'] : ['default']) {
         await t.test(`cancellation during input storage remains unsubmitted (${connectionMode})`, async () => {
             const message = { mes: '[img: starting] [img: queued]', swipe_id: 0, extra: {} };
@@ -65,7 +106,7 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} producti
                         scene: tag.tags, placement: { ...tag, mode: 'replace' } })) });
                 await operation.prepared;
                 const result = await operation.completed;
-                assert.equal(cancelledAtStorage, true);
+                assert.equal(await cancelledAtStorage, true);
                 assert.equal(submissions, 0);
                 assert.equal(result.unknown, 0);
                 assert.equal(result.aborted, true);
@@ -153,7 +194,7 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} producti
                 await listener({ messageId: 0, swipeId, newSwipeId: 1 });
             }
             assert.equal(api.getGenerationState(0).data.total, 2);
-            assert.equal(api.abortGeneration(0), true);
+            assert.equal(await api.abortGeneration(0), true);
             assert.equal(requestSignal.aborted, false);
             response.resolve();
             const [a, b] = await Promise.all([first.completed, second.completed]);

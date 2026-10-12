@@ -1,4 +1,4 @@
-import { CHECK_MARKER_PATTERN } from '../domain/check-marker.js';
+import { CHECK_MARKER_PATTERN } from '../domain/check-marker-syntax.js';
 
 interface TextPart { text?: string; [key: string]: unknown }
 interface PromptMessage { content?: string | TextPart[] | null; [key: string]: unknown }

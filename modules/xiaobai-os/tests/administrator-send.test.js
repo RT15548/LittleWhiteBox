@@ -88,7 +88,7 @@ test('LAN HTTP can open administrator and save text, tool receipts and an image'
     assert.equal(turns.length, 2);
     assert.ok(turns.every(turn => turn.status === 'finished'));
     assert.notEqual(turns[0].id, turns[1].id);
-    assert.deepEqual(turns.map(turn => turn.operations.map(operation => operation.status)), [['read', 'read'], ['read', 'read']]);
+    assert.deepEqual(turns.map(turn => turn.operations.map(operation => operation.status)), [['read'], ['read']]);
     assert.notEqual(turns[0].operations[0].id, turns[1].operations[0].id);
     assert.equal(files.size, 1);
     assert.equal(await h.images.load(h.repository.osId(), turns[1].user.image), image.dataUrl);

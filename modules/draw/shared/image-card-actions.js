@@ -1,10 +1,11 @@
 import { getContext } from '../../../../../../extensions.js';
 import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
+import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
 import { generatePreparedChatImages } from './prepared-chat-images.js';
 import { getSlotActivity } from './slot-activity.js';
 import { getPendingImageJobSlots, discardPendingImageSlot } from './pending-image-jobs.js';
 import { discardChatImagePlacement, commitChatImageRemoval, rollbackChatImageRemoval } from './chat-image-placement.js';
-import { isMessageBeingEdited, renderPreviewsForMessage, syncRenderedMessageFromState, clearDrawSavedEntry, syncDrawSavedFromPreview } from './draw-common.js';
+import { isMessageBeingEdited, renderPreviewsForMessage, syncRenderedMessageFromState, clearDrawSavedEntry, syncDrawSavedFromPreview, getDrawSavedPreview } from './draw-common.js';
 import { isSceneSlotAlive } from './scene-placement.js';
 import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
@@ -140,7 +141,13 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
         for (const card of candidates) {
             const slotId = card.dataset.slotId;
             if (redraws.has(slotId) || getSlotActivity(slotId) || pendingSlots.has(slotId)) { claims.delete(slotId); skipped += 1; continue; }
-            const record = await getCardPreview({ slotId, imgId: card.dataset.imgId });
+            const imgId = card.dataset.imgId;
+            let record = await getCardPreview({ slotId, imgId });
+            // 与单张重画一致：缓存里没有这个版本时，用聊天里保存的记录兜底。
+            if (!record && imgId) {
+                const saved = getDrawSavedPreview(message, slotId, messageId, String(ctx.chatId));
+                if (saved?.imgId === imgId) record = saved;
+            }
             const tags = record?.tags ?? card.dataset.tags;
             if (!tags?.trim()) { claims.delete(slotId); skipped += 1; continue; }
             slotIds.push(slotId);
@@ -164,18 +171,16 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
 }
 
 async function redraw(provider, container) {
-    const slotId = container.dataset.slotId;
-    const messageId = Number(container.dataset.mesid);
-    const ctx = getContext();
-    const message = ctx.chat[messageId];
+    const target = captureImageCardTarget(container);
+    const { slotId, messageId, ctx, message, swipeIndex } = target;
     if (!message || !isSceneSlotAlive(message.mes, slotId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
     const sourceText = message.mes;
-    const swipeIndex = message.swipe_id ?? 0;
     try {
         // A refresh drops runtime activity, not the submitted backend job. Do
         // not turn a journal read failure into permission for a paid resubmit.
         if ((await getPendingImageJobSlots()).has(slotId)) return;
-        const record = await getCardPreview({ slotId, imgId: container.dataset.imgId });
+        const record = await readImageCardTarget(target);
+        target.assertCurrent();
         const tags = record?.tags ?? container.dataset.tags;
         if (!tags?.trim()) throw new Error(DRAW_SLOT_COPY.emptyTags);
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,

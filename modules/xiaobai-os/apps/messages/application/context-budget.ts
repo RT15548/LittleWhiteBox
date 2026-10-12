@@ -1,8 +1,7 @@
 import { estimateConversationTokens, estimateTokenCount, type resolveConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
-import { escapePromptData } from '../../../host/prompt-context/format.js';
+import { escapePromptTags } from '../../../host/prompt-context/format.js';
 import type { MessageContact, PrivateMessage } from '../../../domains/messages/types.js';
-import { buildReplyBackground, type buildReplyPrompt } from '../prompt/reply-prompt.js';
-import { threadLine } from '../prompt/communication-history.js';
+import { buildReplyBackground, replyLine, type buildReplyPrompt, type ReplyContext } from '../prompt/reply-prompt.js';
 import { CONTEXT_LIMIT, IMAGE_TOKEN_RESERVE, SUMMARY_TRIGGER } from './context-policy.js';
 
 type Prompt = ReturnType<typeof buildReplyPrompt>;
@@ -26,11 +25,11 @@ export async function countContext(prompt: Prompt, providerConfig: Record<string
     const measurement = await countTokens({ messages: conversation(prompt), providerConfig, signal });
     return measurement.tokens + imageReserve(prompt);
 }
-export function estimateContext(prompt: Prompt, contact: MessageContact, history: PrivateMessage[], context: Parameters<typeof buildReplyBackground>[0]): MessagesContextStats {
+export function estimateContext(prompt: Prompt, contact: MessageContact, history: PrivateMessage[], context: ReplyContext): MessagesContextStats {
     const usedTokens = estimateConversationTokens({ messages: conversation(prompt) }) + imageReserve(prompt);
-    const backgroundTokens = estimateConversationTokens({ messages: Object.values(buildReplyBackground(context)) });
-    const summaryTokens = estimateTokenCount(escapePromptData(contact.summary?.text ?? ''));
-    const historyTokens = estimateTokenCount(history.map(threadLine).join('\n'));
+    const backgroundTokens = estimateConversationTokens({ messages: Object.values(buildReplyBackground(context, contact)) });
+    const summaryTokens = estimateTokenCount(escapePromptTags(contact.summary?.text ?? ''));
+    const historyTokens = estimateTokenCount(history.map(message => replyLine(message, context.player.displayName)).join('\n'));
     const imageTokens = imageReserve(prompt);
     return { usedTokens, limit: CONTEXT_LIMIT, trigger: SUMMARY_TRIGGER, backgroundTokens, summaryTokens, historyTokens, imageTokens,
         promptTokens: Math.max(0, usedTokens - backgroundTokens - summaryTokens - historyTokens - imageTokens) };

@@ -23,7 +23,7 @@ const agentCoreEntryPoint = resolve(projectRoot, 'modules/agent-core/node-entry.
 const drawRunEntryPoint = resolve(projectRoot, 'modules/draw/node-entry.js');
 const outputDirectory = resolve(
     projectRoot,
-    'server-plugin/littlewhitebox-image-jobs/draw-runs/vendor',
+    'server-plugin/littlewhitebox-server/draw-runs/vendor',
 );
 const bundlePath = resolve(outputDirectory, 'agent-core-node.cjs');
 const drawRunBundlePath = resolve(outputDirectory, 'draw-run-runtime.cjs');

@@ -6,7 +6,7 @@ import { formatDraftMetrics, formatTextMetrics } from './text-metrics.js';
 import { buildTokenCounterPayload, estimateTokenCount } from '../../agent-core/runtime/context-tokens.js';
 import { EBOOK_MAX_CONTEXT_TOKENS } from './history-compaction.js';
 import { getMessageWindow } from '../../agent-core/ui/message-windowing.js';
-import { isTavilyConfigured } from '../../agent-core/tavily-search.js';
+import { isWebConfigured } from '../../agent-core/web/tools.js';
 import { getEbookToolDefinitions } from '../shared/tool-definitions.js';
 import { buildBookContextPrompt, buildBookTurnContextPrompt, EBOOK_SYSTEM_PROMPT } from './prompts.js';
 
@@ -259,7 +259,7 @@ function createContextMeterHasher() {
 }
 
 function getContextMeterReasoning(state, providerConfig) {
-    const tools = getEbookToolDefinitions({ webSearchEnabled: isTavilyConfigured(providerConfig) });
+    const tools = getEbookToolDefinitions({ webSearchEnabled: isWebConfigured(providerConfig) });
     return buildTokenCounterPayload(state.messages || [], tools, providerConfig)
         .map(message => message.reasoning_content || '').filter(Boolean).join('\n');
 }
@@ -325,7 +325,7 @@ export function estimateConversationContextTokens(state = {}, providerConfig = {
     lines.push(`[Stable context]\n${contextPrompt}`);
     lines.push(`[Turn context]\n${turnContextPrompt}`);
     lines.push(`[Tools]\n${JSON.stringify(getEbookToolDefinitions({
-        webSearchEnabled: isTavilyConfigured(providerConfig),
+        webSearchEnabled: isWebConfigured(providerConfig),
     }))}`);
     (state.messages || []).forEach((message) => {
         if (!message || !['user', 'assistant', 'tool'].includes(message.role)) return;

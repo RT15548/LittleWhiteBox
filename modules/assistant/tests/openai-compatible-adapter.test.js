@@ -1277,6 +1277,50 @@ test('OpenAI Responses streams interleaved function arguments with stable call I
     assert.deepEqual(calls.map(call => call.arguments), ['', ''], 'SDK event objects remain untouched');
 });
 
+for (const output of ['show', 'hide']) {
+    test(`OpenAI Responses reports real reasoning activity independently of ${output} summary visibility`, async () => {
+        const adapter = new OpenAIResponsesAdapter({ apiKey: 'test-key', model: 'gpt-5.6' });
+        const snapshots = [];
+        const reasoning = { type: 'reasoning', id: 'r1', summary: [] };
+        const secondReasoning = { ...reasoning, id: 'r2' };
+        const message = { type: 'message', id: 'm1', role: 'assistant', status: 'in_progress', content: [] };
+        const part = { type: 'output_text', text: '', annotations: [] };
+        const response = { id: 'resp1', object: 'response', status: 'in_progress', model: 'gpt-5.6', output: [] };
+        // Exercise the real SDK's SSE dispatch, including opaque reasoning with no summary.
+        const events = [
+            { type: 'response.created', response },
+            { type: 'response.output_item.added', output_index: 0, item: reasoning },
+            { type: 'response.output_item.done', output_index: 0, item: reasoning },
+            { type: 'response.output_item.added', output_index: 1, item: message },
+            { type: 'response.content_part.added', output_index: 1, content_index: 0, part },
+            { type: 'response.output_text.delta', output_index: 1, content_index: 0, delta: 'Answer.' },
+            { type: 'response.output_item.added', output_index: 2, item: secondReasoning },
+            { type: 'response.reasoning_summary_part.added', output_index: 2, summary_index: 0, part: { type: 'summary_text', text: '' } },
+            { type: 'response.reasoning_summary_text.delta', output_index: 2, summary_index: 0, delta: 'Check the answer.' },
+            { type: 'response.output_text.delta', output_index: 1, content_index: 0, delta: ' Confirmed.' },
+            { type: 'response.output_item.done', output_index: 2, item: secondReasoning },
+            { type: 'response.completed', response: { ...response, status: 'completed', output: [reasoning,
+                { ...message, status: 'completed', content: [{ ...part, text: 'Answer. Confirmed.' }] }, secondReasoning] } },
+        ];
+        adapter.client = new OpenAI({ apiKey: 'fixture', maxRetries: 0, fetch: async (_url, options) => {
+            const body = JSON.parse(options.body);
+            assert.equal(body.reasoning.summary, output === 'show' ? 'auto' : undefined);
+            return new Response(events.map((event, sequence_number) => `event: ${event.type}\ndata: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join(''),
+                { headers: { 'content-type': 'text/event-stream' } });
+        } });
+        const result = await adapter.chat({ messages: [{ role: 'user', content: 'Check' }], reasoning: { mode: 'on', effort: 'low', output },
+            onStreamProgress: snapshot => snapshots.push(snapshot) });
+        assert.deepEqual(snapshots.map(snapshot => snapshot.activity), ['thinking', 'waiting', 'replying', 'thinking', 'thinking', 'replying']);
+        assert.equal(snapshots[0].text, '');
+        assert.deepEqual(snapshots[0].thoughts, []);
+        assert.equal(snapshots[3].text, 'Answer.');
+        assert.equal(snapshots[4].thoughts.length, output === 'show' ? 1 : 0);
+        assert.equal(snapshots.at(-1).text, 'Answer. Confirmed.');
+        assert.equal(result.text, 'Answer. Confirmed.');
+        assert.equal(Object.hasOwn(result.providerPayload, 'activity'), false);
+    });
+}
+
 test('OpenAI Responses strips SDK parsed projections before storing and replaying tool output', async () => {
     const adapter = new OpenAIResponsesAdapter({
         apiKey: 'test-key',
@@ -1633,7 +1677,7 @@ test('OpenAI-compatible matches model families broadly and encodes their latest 
 test('DeepSeek thinking relaxes only forced native tool choices and reports the transmitted choice', () => {
     const tools = [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }];
     const namedChoice = { type: 'function', function: { name: 'submit_scene_plan' } };
-    for (const model of ['deepseek-chat', 'relay/DeepSeek-v3.2', 'gpt-5.6', 'kimi-k3']) {
+    for (const model of ['deepseek-chat', 'relay/DeepSeek-v3.2', 'gpt-5.6', 'kimi-k3', 'claude-sonnet-4-6']) {
         const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model });
         for (const mode of ['on', 'off', 'inherit']) {
             for (const toolChoice of ['required', namedChoice, 'auto', 'none']) {
@@ -1644,7 +1688,7 @@ test('DeepSeek thinking relaxes only forced native tool choices and reports the 
                 const original = structuredClone(task);
                 const inspection = adapter.inspectRequest(task);
                 const body = inspection.request.body;
-                const relax = model.toLowerCase().includes('deepseek') && mode === 'on'
+                const relax = model.toLowerCase().includes('deepseek') && mode !== 'off'
                     && (toolChoice === 'required' || toolChoice === namedChoice);
                 assert.deepEqual(body.tool_choice, relax ? 'auto' : toolChoice, `${model}/${mode}/${JSON.stringify(toolChoice)}`);
                 assert.deepEqual(body.tools, tools);
@@ -1682,7 +1726,7 @@ test('only direct DeepSeek thinking with tools preserves earlier assistant reaso
                 const body = adapter.buildRequestBody({ messages, reasoning: { mode },
                     tools: hasTools ? [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }] : [],
                 });
-                const preserve = model === 'deepseek-chat' && mode === 'on' && hasTools;
+                const preserve = model === 'deepseek-chat' && mode !== 'off' && hasTools;
                 assert.equal(body.messages[1].reasoning_content, preserve ? 'tool reasoning' : model === 'deepseek-chat' ? '' : undefined);
                 assert.equal(body.messages[3].reasoning_content, preserve ? 'text reasoning' : undefined);
                 assert.equal(Object.hasOwn(body.messages[4], 'reasoning_content'), false);
@@ -1697,14 +1741,66 @@ test('only direct DeepSeek thinking with tools preserves earlier assistant reaso
 test('DeepSeek thinking does not add native tool fields to text-tool or tool-free requests', () => {
     for (const toolMode of ['native', 'tagged-json']) {
         const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model: 'deepseek-chat', toolMode });
-        const body = adapter.buildRequestBody({
-            messages: [{ role: 'user', content: 'test' }],
-            tools: toolMode === 'native' ? [] : [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }],
-            toolChoice: 'required', reasoning: { mode: 'on' },
+        for (const mode of ['on', 'inherit', 'off']) {
+            const body = adapter.buildRequestBody({
+                messages: [{ role: 'user', content: 'test' }],
+                tools: toolMode === 'native' ? [] : [{ type: 'function', function: { name: 'submit_scene_plan', parameters: {} } }],
+                toolChoice: 'required', reasoning: { mode },
+            });
+            assert.equal(Object.hasOwn(body, 'tools'), false);
+            assert.equal(Object.hasOwn(body, 'tool_choice'), false);
+            assert.deepEqual(body.thinking, mode === 'inherit' ? undefined : { type: mode === 'on' ? 'enabled' : 'disabled' });
+        }
+    }
+});
+
+test('native streams propagate provider error envelopes without completing tools or retrying', async t => {
+    for (const phase of ['before-output', 'after-tool-draft', 'after-tool-finish', 'unterminated-error']) {
+        await t.test(phase, async t => {
+            const adapter = new OpenAICompatibleAdapter({
+                apiKey: 'test-key', baseUrl: 'https://stream-error.example/v1', model: 'claude-sonnet-4-6',
+            });
+            const providerError = {
+                message: `provider diagnostic: ${phase}`, code: 'invalid_parameter',
+                type: 'invalid_request_error', param: 'reasoning_effort',
+            };
+            const hasTool = phase.startsWith('after-tool-');
+            const prefix = hasTool ? `data: ${JSON.stringify({ choices: [{
+                delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call-1', type: 'function',
+                    function: { name: 'Read', arguments: '{}' } }] },
+                finish_reason: phase === 'after-tool-finish' ? 'tool_calls' : null,
+            }] })}\n\n` : '';
+            const wire = `${prefix}data: ${JSON.stringify({ error: providerError })}${phase === 'unterminated-error' ? '' : '\n\n'}`;
+            let cancelled = false;
+            const response = new Response(new ReadableStream({
+                start(controller) { controller.enqueue(new TextEncoder().encode(wire)); },
+                pull(controller) { controller.close(); },
+                cancel() { cancelled = true; },
+            }, { highWaterMark: 0 }), { headers: { 'Content-Type': 'text/event-stream', 'x-request-id': 'request-1' } });
+            let requests = 0;
+            t.mock.method(globalThis, 'fetch', async () => { requests++; return response; });
+            const progress = [];
+            await assert.rejects(() => adapter.chat({
+                messages: [{ role: 'user', content: 'test' }],
+                tools: [{ type: 'function', function: { name: 'Read', parameters: {} } }],
+                reasoning: { mode: 'on' }, onStreamProgress: snapshot => progress.push(snapshot),
+            }), error => {
+                // The provider message is wire data: preserve it, rather than asserting UI wording.
+                assert.equal(error.message, providerError.message);
+                assert.deepEqual(error.error, providerError);
+                assert.equal(error.code, providerError.code);
+                assert.equal(error.param, providerError.param);
+                assert.equal(error.type, providerError.type);
+                assert.equal(error.status, undefined); // HTTP 200 does not supply an error status.
+                assert.equal(error.requestID, 'request-1');
+                assert.equal(error.requestInspection.provider, 'openai-compatible');
+                return true;
+            });
+            assert.equal(requests, 1);
+            assert.equal(progress.length, hasTool ? 1 : 0);
+            assert.equal(cancelled, phase !== 'unterminated-error');
+            assert.equal(response.body.locked, false);
         });
-        assert.equal(Object.hasOwn(body, 'tools'), false);
-        assert.equal(Object.hasOwn(body, 'tool_choice'), false);
-        assert.deepEqual(body.thinking, { type: 'enabled' });
     }
 });
 
@@ -1764,6 +1860,8 @@ test('openai-compatible adapter never retries a native stream after the response
             status: 200,
             body: {
                 getReader: () => ({
+                    cancel: async () => {},
+                    releaseLock() {},
                     read: async () => {
                         readCount += 1;
                         if (readCount === 1) {

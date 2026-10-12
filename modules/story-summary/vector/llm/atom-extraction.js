@@ -39,16 +39,17 @@ const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场
   <assistant>...</assistant>
 </round>
 
-只输出严格JSON：
+${ANCHOR_GENERATION_RULES}`;
+
+const OUTPUT_FORMAT = `## Output format
+Return only one valid JSON object in this form:
 {"anchors":[
   {
-    "scene": "完整场景描述",
+    "scene": "A self-contained scene narrative, understandable without edges or where; follow the scene writing rules",
     "edges": [{"s":"施事方","t":"受事方","r":"互动行为"}],
     "where": "地点"
   }
-]}
-
-${ANCHOR_GENERATION_RULES}`;
+]}`;
 
 // ============================================================================
 // 睡眠工具
@@ -165,7 +166,7 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
     const aiText = filterText(aiMessage.mes);
     parts.push(`<assistant>\n${aiText}\n</assistant>`);
 
-    const input = `<round>\n${parts.join('\n')}\n</round>\n请读取上述 <round> 内容，提取 1-2 个场景锚点，并严格按 JSON 输出。\n不要解释，不要续写，不要角色扮演，不要输出 JSON 以外的任何内容。`;
+    const input = `<round>\n${parts.join('\n')}\n</round>\n\n${OUTPUT_FORMAT}`;
 
     for (let attempt = 0; attempt < L0_MAX_ATTEMPTS; attempt++) {
         if (isCancelled()) return [];

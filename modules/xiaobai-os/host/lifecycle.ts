@@ -153,7 +153,7 @@ export function createXiaobaiOsLifecycle({
     let launcher: HTMLElement | null = null;
     let shortcuts: ReturnType<typeof createQuickLauncher> | null = null;
     let initialAppId: string | null = null;
-    let overlay: HTMLDivElement | null = null;
+    let overlay: HTMLDialogElement | null = null;
     let iframe: HTMLIFrameElement | null = null;
     let bridge: XiaobaiOsHostFrameBridge | null = null;
     let unsubscribeChatChanged: (() => void) | null = null;
@@ -277,6 +277,7 @@ export function createXiaobaiOsLifecycle({
         bridge = null;
         windowOpenPromise = null;
         stopThemeObserver();
+        overlay?.close();
         overlay?.remove();
         overlay = null;
         iframe = null;
@@ -595,9 +596,14 @@ export function createXiaobaiOsLifecycle({
         }
         generation += 1;
         const openGeneration = generation;
-        overlay = documentTarget.createElement('div');
+        overlay = documentTarget.createElement('dialog');
         overlay.id = OVERLAY_ID;
         overlay.className = 'xiaobaix-os-overlay';
+        overlay.setAttribute('aria-label', launcher?.getAttribute('aria-label') ?? '');
+        overlay.addEventListener('cancel', event => {
+            event.preventDefault();
+            void invoke(() => closeWindow());
+        });
         iframe = documentTarget.createElement('iframe');
         iframe.id = IFRAME_ID;
         iframe.className = 'xiaobaix-os-frame';
@@ -606,6 +612,7 @@ export function createXiaobaiOsLifecycle({
         iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
         overlay.append(iframe);
         documentTarget.body.append(overlay);
+        overlay.showModal();
         bridge = bridgeFactory({
             iframe,
             windowTarget,

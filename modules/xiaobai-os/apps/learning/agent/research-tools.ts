@@ -6,8 +6,8 @@ export function learningResearchTools() {
             name: 'LearningSearch',
             description: [
                 'Search the public web for teaching materials or factual references. You choose the query from the current teaching need.',
-                'Returns {ok,results:[{id,url,title,summary}]}; on failure returns {ok:false,error,path?,message?}. Results are search summaries, not article text.',
-                'Available with the shared Tavily key. Use LearningExtract to read a selected article; candidate IDs remain available throughout this classroom conversation.',
+                'Returns {ok,results:[{id,url,title,summary}]}; on failure returns {ok:false,error,httpStatus?,path?,message?}. Results are search summaries, not article text.',
+                'Use LearningExtract to read a selected page; candidate IDs remain available throughout this classroom conversation.',
             ].join('\n'),
             parameters: { type: 'object', properties: {
                 query: { type: 'string', maxLength: L.query, description: 'A focused search query.' },
@@ -17,11 +17,11 @@ export function learningResearchTools() {
         { type: 'function', function: {
             name: 'LearningExtract',
             description: [
-                'Read actual article text from search candidates. Successful sources can be used by LearningLessonEdit for original excerpts or teaching adaptations.',
+                'Fetch page text from search candidates, or page through text already retrieved. A successful fetch supplies source material, not a judgment that the page is a suitable article.',
                 'Returns {ok,results,failed:[{candidateId,error}]}. Each result contains sourceId, url, title, retrievedAt, paragraphCount, paragraphs and nextOffset, plus candidateId when reading search candidates. Partial successes remain usable.',
                 'Paragraph entries contain paragraph (1-based), id, textOffset, text and paragraphComplete. Assemble chunks with the same paragraph number in offset order. Only fully read ranges can support an excerpt.',
-                'Reading another page of a successful source uses the same in-memory text without another network request. Errors return {ok:false,error,path?,message?}.',
-                'Navigation, access notices and search summaries are not sufficient reading material. Select readable body paragraphs or try another source.',
+                'Reading another page of a successful source uses the same in-memory text without another network request. Errors return {ok:false,error,httpStatus?,path?,message?}.',
+                'learning_source_unavailable means the page yielded no text. Read the extracted body to judge whether it supplies the source needed for this learner’s request.',
             ].join('\n'),
             parameters: { type: 'object', properties: {
                 candidateIds: { type: 'array', minItems: 1, maxItems: 2, items: { type: 'string' }, description: 'One or two IDs returned by LearningSearch in this classroom.' },

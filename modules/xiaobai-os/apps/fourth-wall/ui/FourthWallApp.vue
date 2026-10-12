@@ -2,12 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { estimateTokenCount } from '../../../../agent-core/runtime/context-tokens.js';
 import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
+import { shouldSendOnEnter } from '../../../shell/app-src/input/composer-keyboard.js';
 import FourthWallContextButton from './FourthWallContextButton.vue';
 import FourthWallMemory from './FourthWallMemory.vue';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import FourthWallConversation from './FourthWallConversation.vue';
 import FourthWallPromptEditor from './FourthWallPromptEditor.vue';
 import FourthWallSettings from './FourthWallSettings.vue';
+import FourthWallSessions from './FourthWallSessions.vue';
 import type {
     FourthWallChatState,
     FourthWallClientState,
@@ -21,6 +23,7 @@ const PERSISTENT_REQUEST_TIMEOUT_MS = 35_000;
 const props = defineProps<XiaobaiOsAppProps>();
 const state = ref(structuredClone(toRaw(props.initialState as FourthWallClientState)));
 const draft = ref('');
+const sessionDrafts = new Map<string, string>();
 const settingsOpen = ref(false);
 const promptOpen = ref(false);
 const saving = ref(false);
@@ -57,14 +60,23 @@ watch(() => [draft.value, generation.value.text], () => {
         previewTimer = undefined;
     }, 200);
 });
-watch(() => activeSession.value.id, () => {
+watch(() => activeSession.value.id, (id, previous) => {
+    sessionDrafts.set(previous, draft.value);
     memoryOpen.value = false; clearOpen.value = false; retryAvailable.value = false;
-    draft.value = ''; generation.value = { status: 'idle', sessionId: '', text: '', thinking: '', message: '', unsaved: false };
+    draft.value = sessionDrafts.get(id) ?? ''; generation.value = { status: 'idle', sessionId: '', text: '', thinking: '', message: '', unsaved: false };
+    for (const key of sessionDrafts.keys()) { if (!state.value.chat.sessions.some(session => session.id === key)) { sessionDrafts.delete(key); } }
 });
 
 function binding(sessionId = activeSession.value.id): { chatIdentity: string; sessionId: string } {
     return { chatIdentity: state.value.chatIdentity, sessionId };
 }
+
+const sessionActions = {
+    switch: (sessionId: string) => requestState('fourth-wall/switch-session', { ...binding(), targetSessionId: sessionId }),
+    add: (name: string) => requestState('fourth-wall/add-session', { ...binding(), name }),
+    rename: (sessionId: string, name: string) => requestState('fourth-wall/rename-session', { ...binding(sessionId), name }),
+    delete: (sessionId: string) => requestState('fourth-wall/delete-session', binding(sessionId)),
+};
 
 function unwrapState(response: unknown): FourthWallClientState {
     return structuredClone((response as { result: FourthWallClientState }).result);
@@ -125,13 +137,11 @@ function recoverInput(content?: string): void {
 }
 
 function handleComposerKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.shiftKey || composing.value) {
+    if (!shouldSendOnEnter(event, composing.value)) {
         return;
     }
     event.preventDefault();
-    if (isGenerating.value) {
-        cancel();
-    } else {
+    if (!isGenerating.value) {
         void send();
     }
 }
@@ -263,6 +273,9 @@ onBeforeUnmount(() => { unsubscribe(); clearTimeout(previewTimer); });
 
 <template>
     <main class="fourth-wall-app">
+        <aside class="fourth-wall-sidebar">
+            <FourthWallSessions :sessions="state.chat.sessions" :active-session-id="activeSession.id" :disabled="saving || isGenerating" v-on="sessionActions" />
+        </aside>
         <header class="fourth-wall-header">
             <div class="fourth-wall-heading"><span>IV</span><div><strong>四次元壁</strong><small>{{ activeSession.name }}</small></div></div>
             <div class="fourth-wall-header-actions">
@@ -314,6 +327,7 @@ onBeforeUnmount(() => { unsubscribe(); clearTimeout(previewTimer); });
             <textarea
                 v-model="draft"
                 rows="1"
+                enterkeyhint="enter"
                 placeholder="聊点什么..."
                 :disabled="saving"
                 @compositionstart="composing = true"
@@ -332,10 +346,10 @@ onBeforeUnmount(() => { unsubscribe(); clearTimeout(previewTimer); });
             @close="settingsOpen = false"
             @update-chat="updateChat"
             @update-global="updateGlobal"
-            @switch-session="sessionId => requestState('fourth-wall/switch-session', { ...binding(), targetSessionId: sessionId })"
-            @add-session="name => requestState('fourth-wall/add-session', { ...binding(), name })"
-            @rename-session="(sessionId, name) => requestState('fourth-wall/rename-session', { ...binding(sessionId), name })"
-            @delete-session="sessionId => requestState('fourth-wall/delete-session', binding(sessionId))"
+            @switch-session="sessionActions.switch"
+            @add-session="sessionActions.add"
+            @rename-session="sessionActions.rename"
+            @delete-session="sessionActions.delete"
             @open-prompts="promptOpen = true"
         />
         <FourthWallPromptEditor

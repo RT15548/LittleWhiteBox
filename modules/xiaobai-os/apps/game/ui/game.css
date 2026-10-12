@@ -20,7 +20,6 @@
 .game-header h1 { font-size: 21px; font-weight: 650; letter-spacing: -.03em; }
 .game-funds { margin-left: auto; text-align: right; min-width: 0; max-width: 48%; overflow-wrap: anywhere; }
 .game-funds strong { font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; }
-.game-back { background: transparent; border: 0; color: inherit; width: 32px; height: 40px; font-size: 30px !important; line-height: 1; flex-shrink: 0; }
 .game-nav { display: flex; gap: 24px; border-bottom: 1px solid var(--game-line); padding: 0 20px; flex-shrink: 0; }
 .game-nav button { display: flex; align-items: center; gap: 6px; background: transparent; border: 0; border-bottom: 2px solid transparent; min-height: 42px; color: var(--game-muted); padding: 0 0 8px; white-space: nowrap; }
 .game-nav button[aria-current] { border-bottom-color: var(--game-accent); color: var(--game-ink); font-weight: 600; }
@@ -44,14 +43,15 @@
 .game-categories button[aria-pressed="true"] { background: var(--game-ink); color: var(--game-paper); }
 .game-shelf { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 16px; }
 .game-tile { background: transparent; border: 0; border-radius: 14px; padding: 0; text-align: left; color: var(--game-ink); min-width: 0; transition: transform 180ms ease; }
-.game-tile-art { aspect-ratio: 1.15; background: #dbf8ef; border-radius: 16px; display: grid; place-items: center; overflow: hidden; }
+.game-tile-art { aspect-ratio: 1.15; background: #dbf8ef; border-radius: 16px; display: grid; place-items: center; overflow: hidden; position: relative; }
 .tone-claret .game-tile-art { background: #eee8ff; }
 .tone-amber .game-tile-art { background: #e1f3ff; }
 .tone-moving .game-tile-art { background: #e1eee8; }
-.game-app-standalone .game-header { min-height: 48px; padding-block: 4px; }
-.game-app-standalone .game-header h1 { font-size: 15px; }
 .game-app-standalone .game-scroll { padding: 0; container-type: size; container-name: moving-frame; }
 .game-tile-art img { width: 100%; height: 100%; object-fit: contain; padding: 6px; transition: transform 250ms ease; }
+.tone-expedition .game-tile-art { background: transparent; }
+.tone-expedition .game-tile-art > img { position: absolute; inset: 0; display: block; object-fit: cover; padding: 0; }
+.game-tile-art .game-tile-mascot { position: absolute; width: 29%; height: 46%; left: 17%; bottom: 5%; padding: 0; pointer-events: none; }
 .game-tile-copy { padding: 12px 2px 0; }
 .game-tile h3 { font-size: 15px; font-weight: 600; }
 .game-tile-copy > span { display: flex; align-items: center; justify-content: space-between; color: var(--game-muted); font-size: 11px; margin-top: 5px; }
@@ -84,6 +84,11 @@
 .game-inline-note, .game-help { color: var(--game-muted); font-size: 11px; line-height: 1.7; margin-top: 12px !important; }
 .game-entry-blocked { border-top: 1px solid var(--game-line); padding-top: 20px; line-height: 1.8; }
 .game-entry-blocked button { margin-top: 14px; width: 100%; }
+@container os-stage (min-width: 900px) {
+    .game-entry, .game-scroll > .game-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 40px; max-width: 880px; align-items: start; }
+    .game-entry-art, .game-entry-rules { grid-column: 1; }
+    .game-entry-stake, .game-entry-blocked { grid-column: 2; grid-row: 1 / 3; margin: 0; padding: 8px 0 0; border-top: 0; }
+}
 
 /* A teal felt table, white dice and a clear calling tray. */
 .dice-table, .dice-showdown, .dice-opening { max-width: 600px; background: radial-gradient(ellipse at 45% 10%, #129b92, #076c70 90%); border: 1px solid #087b7c; border-radius: 24px; padding: 24px 20px 18px; color: #fff; box-shadow: inset 0 0 0 5px #ffffff05, 0 10px 26px #10271c12; }
@@ -324,6 +329,7 @@
 @media (hover: hover) {
     .game-tile:hover { transform: translateY(-3px);  }
     .game-tile:hover img { transform: rotate(-3deg) scale(1.04); }
+    .tone-expedition:hover img { transform: scale(1.04); }
     .ladder-paths button:not(:disabled):hover { border-color: var(--game-accent); }
 }
 

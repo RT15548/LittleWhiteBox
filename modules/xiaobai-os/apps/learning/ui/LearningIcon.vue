@@ -3,6 +3,7 @@ defineProps<{ name: string }>();
 const paths: Record<string, string> = {
     home: 'm3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',
     book: 'M12 5v16M3 4c4-1 6 0 9 1 3-1 5-2 9-1v15c-4-1-6 0-9 2-3-2-5-3-9-2Z',
+    workbook: 'M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM8 3v18M11 8h5M11 12h5',
     records: 'M7 3h10a2 2 0 0 1 2 2v16H5V5a2 2 0 0 1 2-2ZM9 8h6M9 12h6M9 16h3',
     reward: 'm12 3 3 6 6 1-4 5 1 6-6-3-6 3 1-6-4-5 6-1Z',
     arrow: 'M4 12h16m-6-6 6 6-6 6', send: 'M12 20V4m-6 6 6-6 6 6', back: 'm14 5-7 7 7 7', check: 'm5 12 4 4L19 6',

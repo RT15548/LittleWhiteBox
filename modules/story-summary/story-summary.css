@@ -1730,12 +1730,6 @@ h1 span {
     color: var(--hl);
 }
 
-.vector-mismatch-warning {
-    font-size: .75rem;
-    color: var(--downloading);
-    margin-top: 6px;
-}
-
 .vector-chat-section {
     border-top: 1px solid var(--bdr);
     padding-top: 16px;

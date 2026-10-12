@@ -79,6 +79,31 @@ export function resolveDrawRunActivityDetail({
     return {};
 }
 
+// Providers share this precedence: a failed cancellation is actionable, not
+// evidence that an accepted backend task is still being cancelled.
+export function resolveDrawRunPendingDetail(detail, pendingState, target) {
+    const progress = pendingState.backendAccepted && !hasDrawRunProgressDetail(detail)
+        ? { ...detail, stage: 'reattaching' } : detail;
+    if (['cancelling', 'cancel_failed'].includes(detail.phase)) return progress;
+    if (pendingState.cancelling) return { ...progress, ...target, phase: 'cancelling' };
+    if (pendingState.backendAccepted) return { ...progress, ...target, phase: 'active' };
+    return progress;
+}
+
+// Optimistic feedback belongs to the clicked view. A failed journal read/write
+// may leave no durable event to recover it; restore only this still-current UI.
+export async function runDrawCancellationAction({ cancel, isCurrent, getState, setState }) {
+    const previous = getState();
+    try {
+        const operation = cancel();
+        if (isCurrent()) setState('cancelling');
+        return await operation;
+    } catch (error) {
+        if (isCurrent() && getState() === 'cancelling') setState(previous);
+        throw error;
+    }
+}
+
 export function resolveDrawRunUiState({
     currentState,
     pending,

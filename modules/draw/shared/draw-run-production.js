@@ -1,4 +1,5 @@
 import { fetchImageBackendJobsStatus } from './backend-image-jobs.js';
+import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 import { publishDrawRunActivity } from './draw-run-activity.js';
 import {
     DRAW_RUN_PLANNER_RETRY_CAPABILITY,
@@ -137,7 +138,7 @@ export async function submitProviderDrawRun({
     }
     if (status?.ready !== true) {
         throw new DrawRunProductionError(
-            '后台画图服务不可用。请安装并启动当前 littlewhitebox-image-jobs，或关闭“后台任务”后使用浏览器流程。',
+            `后台画图服务不可用。${SERVER_PLUGIN_COPY.install}也可关闭“后台任务”后使用浏览器流程。`,
             'DRAW_RUN_BACKEND_UNAVAILABLE',
         );
     }
@@ -145,8 +146,7 @@ export async function submitProviderDrawRun({
         const installedVersion = String(status?.version || '未知');
         throw new DrawRunProductionError(
             `后台画图插件版本不兼容：当前 ${installedVersion}，需要 ${REQUIRED_DRAW_RUN_PLUGIN_VERSION}。`
-                + '请将小白X扩展目录中的 server-plugin/littlewhitebox-image-jobs 完整覆盖到 '
-                + 'SillyTavern/plugins/littlewhitebox-image-jobs，然后重启 SillyTavern；本次不会使用旧插件继续运行。',
+                + SERVER_PLUGIN_COPY.update,
             'DRAW_RUN_BACKEND_OUTDATED',
         );
     }

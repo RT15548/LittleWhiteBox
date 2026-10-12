@@ -7,11 +7,25 @@ import { estimateConversationTokens, resolveConversationTokens } from '../../age
 import { buildReplyPrompt } from '../apps/messages/prompt/reply-prompt.js';
 import { normalizePromptContext } from '../host/prompt-context/normalize.js';
 import { uploadedImageReference } from '../apps/messages/application/image-upload.js';
-import { harness, controllerHarness, photo } from './helpers/messages-harness.js';
+import { harness, controllerHarness, photo, replyText } from './helpers/messages-harness.js';
 
 const settings = { imagePrompt: true, voicePrompt: true };
 const fixtureCount = async options => ({ tokens: estimateConversationTokens(options), source: 'tokenizer' });
 const countContext = (prompt, config, signal) => countPrompt(prompt, config, signal, fixtureCount);
+
+test('person records increase background usage rather than prompt/input usage, without losing total tokens', () => {
+    const h = fixture(2, 'short history');
+    const original = estimateContext(h.prompt(), h.contact, h.history, h.background);
+    h.background.people = [{ name: h.contact.name, aliases: [], text: 'a significant relationship change. '.repeat(700) }];
+    const changed = estimateContext(h.prompt(), h.contact, h.history, h.background);
+    assert.ok(changed.backgroundTokens > original.backgroundTokens);
+    assert.ok(changed.usedTokens > original.usedTokens);
+    assert.equal(changed.historyTokens, original.historyTokens);
+    assert.equal(changed.summaryTokens, original.summaryTokens);
+    // Whole-request and sub-block byte estimates round independently.
+    assert.ok(Math.abs(changed.promptTokens - original.promptTokens) <= 1);
+    assert.equal(changed.backgroundTokens + changed.historyTokens + changed.summaryTokens + changed.promptTokens + changed.imageTokens, changed.usedTokens);
+});
 function fixture(count = 100, text = '约定'.repeat(2000)) {
     const contact = { id: '甲', name: '甲', note: '', summary: null, createdAt: 0 };
     const history = Array.from({ length: count }, (_, index) => ({ id: `m${index}`, seq: index + 1, contactId: '甲',
@@ -27,7 +41,7 @@ function fixture(count = 100, text = '约定'.repeat(2000)) {
         images: { load: async attachment => {loaded.push(attachment.path); return 'data:image/png;base64,AQID';} },
         agent: { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async request => {
             calls.push(request);
-            return h.respond ? h.respond(request) : { text: JSON.stringify(request.messages.length === 1 ? { summary: '双方的约定仍然有效。' } : { replies: [{ type: 'text', text: '记得。' }] }) };
+            return h.respond ? h.respond(request) : request.messages.length === 1 ? { text: JSON.stringify({ summary: '双方的约定仍然有效。' }) } : { text: replyText([{ type: 'text', text: '记得。' }]) };
         } }) },
     };
     h.countTokens = fixtureCount;
@@ -44,7 +58,7 @@ test('the complete request, not the old 18k character allowance, controls compac
     await h.run();
     assert.equal(h.calls.length, 1); assert.equal(h.summaries.length, 0);
     assert.deepEqual(h.history, original);
-    const thread = h.calls[0].messages.find(message => message.content.includes('<private_message_thread phase="current">')).content;
+    const thread = h.calls[0].messages.at(-1).content.split('<private_messages>')[1];
     for (const message of original) {assert.ok(thread.includes(message.payload.text));}
 });
 

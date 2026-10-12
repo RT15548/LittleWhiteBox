@@ -446,6 +446,7 @@ function scheduleAdoptionOutcome(outcome, scheduleRecovery) {
 }
 
 export async function runDrawRunRecoveryPass({
+    excludedRunIds = new Set(),
     ctx,
     records = [],
     farewells = [],
@@ -461,8 +462,8 @@ export async function runDrawRunRecoveryPass({
     if (typeof scheduleRecovery !== 'function') {
         throw new TypeError('Draw Run recovery 缺少调度器');
     }
-    const markers = collectCurrentDrawRunMarkers(ctx);
-    const originRecords = records.filter(record => record.originRunId);
+    const markers = collectCurrentDrawRunMarkers(ctx).filter(entry => !excludedRunIds.has(entry.runId));
+    const originRecords = records.filter(record => record.originRunId && !excludedRunIds.has(record.originRunId));
     if (markers.length === 0 && originRecords.length === 0) return;
     let runs;
     try {

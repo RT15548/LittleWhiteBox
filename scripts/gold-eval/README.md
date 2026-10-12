@@ -30,6 +30,14 @@ npm run test:story-summary:alignment
 自检包含评分纯函数与 run/cassette 生命周期契约；只使用临时目录和本地 stub fetch，不调用 API，
 也不写入 `总结测试/runs`。
 
+来源变更回归可指定只读原聊天文件：
+
+```powershell
+node scripts/story-summary-replay-runner.mjs --check-source-lifecycle --source-sample="<聊天 JSONL 绝对路径>"
+```
+
+可重复传入 `--source-sample`。该入口不读取 API 配置，拒绝所有外网传输，在隔离内存数据库中运行正式 L0 提取、L1 维护及 Prompt 装配，检查编辑、重排、quiet 通知和删除后的来源归属。固定 HTTP 响应只提供可追踪凭据，不提供语义判断；输出文件哈希与结构验收结果，不输出聊天原文，也不产生质量档位或改写原收据。
+
 `tests/prepared-lifecycle.test.mjs`从真实CLI启动独立进程，覆盖空库L1/L0/StateVector、Summary/L2、
 两种总结时机、多个查询和捕获；在完整收据落盘、请求飞行中及模拟磁盘满时中断，再启动新进程检查复用/拒绝。
 四种API的429及永久/格式错误也走这条完整路径。预加载替身拒绝所有非fixture URL和真实凭据；
@@ -84,7 +92,7 @@ node scripts/story-summary-replay-runner.mjs natural-capture `
 
 ```powershell
 node scripts/story-summary-replay-runner.mjs --preflight --config="C:\path\to\current-natural-baseline.json"
-# 仅在主人批准这一份聊天的 API 范围后执行；不会自动启动其余 jobs
+# 仅在获得这一份聊天的 API 调用授权后执行；不会自动启动其余 jobs
 node scripts/story-summary-replay-runner.mjs --config="C:\path\to\current-natural-baseline.json" --job=real-300 --allow-api
 ```
 
@@ -122,9 +130,9 @@ node scripts/story-summary-replay-runner.mjs --config="C:\path\to\prepared.json"
 
 连接中断、响应体未读全、收据写入失败或飞行中进程退出，均可能已计费而结果未知，恢复入口会在读取凭据前停止；
 不能用自动重发声称exactly-once。格式错误200保留原始响应，重复执行不会再次购买它。
-旧run若没有journal或缺失L0/Summary正文，不能追溯伪造或静默重新购买。旧300中断run仍禁止重开。
+旧run若没有journal或缺失L0/Summary正文，不能追溯伪造或静默重新购买。
 
-只有主人明确接受某一个未知请求可能重复计费时，才使用四个精确批准参数：
+只有请求授权方明确接受某一个未知请求可能重复计费时，才使用四个精确批准参数：
 `--retry-unknown=<id> --retry-journal-sha256=<hash> --retry-source-manifest=<path> --retry-source-sha256=<hash>`，
 同时必须指定`--resume-prepared --allow-api`。哈希冻结批准时的原journal和invalid manifest；
 它们不是“忽略漂移”开关。输入/配置/产品源码/依赖/Node平台均不许变化；经审查的测评工具变动作为
@@ -162,7 +170,7 @@ browser-e2e → recommendation → complete` 推进；candidate 验证失败可�
 
 `scoreCase()` 接收：
 
-- `case`：由 `CASE_SCHEMA.md` 定义并经 `validateCase()` 规范化的金标准。
+- `case`：由 [用例契约](./lib/cases.mjs)中的 `validateCase()` 校验并规范化的金标准。
 - `observation`：replay 适配层产生的 JSON 可序列化结果。
 
 `observation.stages` 的每个阶段都是按排名排列的
@@ -359,7 +367,4 @@ node scripts/story-summary-replay-runner.mjs reader-only `
 模型、参数、Prompt、代码 bundle 与 cases 不变时，可用 `--gold-reader-resume-run=<invalid-run>`
 创建新 run 并复用成功 checkpoint；配置 fingerprint 或 bundle 不一致会在 API 前拒绝。
 
-旧 `real-800-tpm-safe-baseline-v1` 与旧名 `production capture` 产物只保留为历史观察，不能作为新工具 source。
-后续若 Query、
-Embedding 输入、Rerank 文档/参数或 Prompt 装配变量越过当前冻结边界，必须按 `RUNBOOK.md` 重新申请
-对应 product-aligned Natural capture；reader 仍需单独披露评测 API。
+不符合现行执行契约或来源轨道的历史 capture 不能作为当前工具 source。Query、Embedding 输入、Rerank 文档/参数或 Prompt 装配变量越过冻结边界时，须按本文的预检与授权边界重新申请对应 product-aligned Natural capture；reader 仍需单独披露评测 API。

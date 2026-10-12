@@ -11,7 +11,7 @@ import {
     sameSidecarRevision,
     serializeXiaobaiOsEnvelope,
 } from '../kernel/envelope.js';
-import { XiaobaiOsStorageError } from './storage-port.js';
+import { JsonUserFileParseError, XiaobaiOsStorageError } from './storage-port.js';
 
 // Native saves have no short client deadline. A slow VPS is not evidence of a failed write.
 const DEFAULT_TIMEOUT_MS = 0;
@@ -113,7 +113,9 @@ export function createSillyTavernUserJsonFilePort(
                         response.status >= 500,
                     );
                 }
-                return JSON.parse(await response.text()) as unknown;
+                const source = await response.text();
+                try { return JSON.parse(source) as unknown; }
+                catch { throw new JsonUserFileParseError(source); }
             } finally {
                 timed.cleanup();
             }

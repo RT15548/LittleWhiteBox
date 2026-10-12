@@ -2,9 +2,9 @@
 
 ## 目标与范围
 
-本轮处理 Tavern 的 Manager Prompt、地图工具读写不一致和持久化提示词问题。不是将小白 OS 的地图模型、图标或渲染器迁入 Tavern，也不改变维护触发时机。
+本文定义 Tavern Manager 的领域提示词所有权、地图模型工具与保存契约。Tavern 和普通小白 OS 的地图领域、图标与渲染器各自独立。
 
-终态：Manager 只组合通用身份、模式、授权、证据边界和工作流程；Memory / Map / Status / Tasks 各自提供领域说明。地图对模型只有一套几何表达，存储与回放仍使用原有文档和事务。
+Manager 只组合通用身份、模式、授权、证据边界和工作流程；Memory / Map / Status / Tasks 各自提供领域说明。地图对模型只有一套几何表达，存储与回放仍使用原有文档和事务。
 
 ## 所有权与入口
 
@@ -17,9 +17,9 @@
 | Tasks Prompt | `shared/tasks/manager-domain.ts` | `tasksManagerDomain` |
 | 预设配置身份与规范化 | `shared/assistant-presets.ts` | 默认预设创建及用户预设规范化 |
 
-已有存储、服务和 UI 不在这轮整体迁移。`structured-state.ts` 仍负责现有地图文档、事务与回放；本轮移出的是公开 schema，并删除不再发布的内部 schema。内部文档检查与事务调用不是模型工具。
+`structured-state.ts` 负责地图文档、事务与回放，公开模型契约由 `shared/map/` 拥有。内部文档检查与事务调用不是模型工具。
 
-删除领域 Prompt 时删其入口文件及注册；彻底删除功能仍须同时删除该领域现有工具授权、运行入口、UI 和会话数据，不能只删 Prompt。没有为这轮新增表、字段、缓存、依赖或迁移版本。
+删除领域 Prompt 时删其入口文件及注册；彻底删除功能仍须同时删除该领域现有工具授权、运行入口、UI 和会话数据，不能只删 Prompt。领域提示词和投影不另建持久化实体。
 
 ## 上下文与政策
 
@@ -40,9 +40,9 @@
 | MapSceneRead | 显式指定场景读取；document/elements/element 使用可编辑几何表达 |
 | MapSceneEdit | 显式指定场景增量编辑；需要时创建场景及地点；`playerHere:true` 记录玩家移动 |
 
-没有把内部 `MapDocs/MapInspect/MapPatch` 或其 schema 发布给模型。内部 `init/reset/replace` 输入与回放分支已移除；现行回放保留 `meta/add/modify/remove`。
+没有把内部 `MapDocs/MapInspect/MapPatch` 或其 schema 发布给模型。现行回放只使用 `meta/add/modify/remove`。
 
-AtlasEdit 的地点省略字段保留，`parent:null` 和 `brief:null` 清除；新地点必须有 name，默认 room/mentioned。同批支持先写子项再写父项；依赖/环/坏路线均整批拒绝。路线项是完整替换，不承诺部分字段合并。地点及场景删除、通用人物迁移不是本轮新增能力，不能声称已提供完整地图 CRUD。
+AtlasEdit 的地点省略字段保留，`parent:null` 和 `brief:null` 清除；新地点必须有 name，默认 room/mentioned。同批支持先写子项再写父项；依赖/环/坏路线均整批拒绝。路线项是完整替换，不承诺部分字段合并。地点及场景删除、通用人物迁移不属于这些公开工具的能力，不能声称已提供完整地图 CRUD。
 
 ## 唯一几何表达
 
@@ -59,11 +59,10 @@ Prompt 负责空间组织与证据政策，schema 负责字段、枚举与渲染
 ## 数据生命周期与失败
 
 - 唯一长期事实来源仍是现有地图/Atlas 文档与历史事务。投影、推断说明和编译结果仅在当前调用内存在。
-- seed 的 `meta.hint` 及首次编辑删 hint 的分支已删除。旧文档读取只投影当前字段，不批量重写用户库、不增加历史格式分叉。
+- 文档读取只投影当前字段，不批量重写用户库、不增加历史格式分叉。
 - AtlasEdit 走既有事务、revision 检查、before/after write guard、Manager 快照和回滚链路。
 - SceneEdit 保留按坏元素隔离的行为，调用级保存失败不报告成功；dryRun 明确说明未保存，unchanged 是成功。
 - 内置预设更新只替换仍属内置的预设。用户保存过的预设（包括编辑默认预设）不被版本更新覆盖，也不再按旧文案正则删改用户内容。
-- 本轮不修改场景渲染器、OS 工作树、UI 入口或其他通知机制。
 
 ## 验证与验收
 
@@ -71,6 +70,4 @@ Prompt 负责空间组织与证据政策，schema 负责字段、枚举与渲染
 
 既有 Tavern 测试继续覆盖地图并发、跨场景人物去重、回放、任务权限和结算、Status 边界、Memory 写入与回滚。类型、lint、imports、构建及受追踪产物须一起检查。
 
-真实模型绘图质量仍待独立测试聊天验收：应使用自然语言世界设定，让真实 Manager 生成和更新不同场景，不手改坐标或补专用样式。本轮自动化输入只能证明工具与数据链路，不证明真实模型画得好。
-
-2026-09-06 验证：`npm run test:tavern` 873/873 通过；Tavern 类型检查、imports 与完整构建通过。已更新 `tavern-app.js` 和构建标记；没有提交或推送。
+真实模型绘图质量仍待独立测试聊天验收：应使用自然语言世界设定，让真实 Manager 生成和更新不同场景，不手改坐标或补专用样式。自动化输入只能证明工具与数据链路，不证明真实模型画得好。

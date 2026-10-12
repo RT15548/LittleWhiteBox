@@ -133,6 +133,16 @@ test('recall prose keeps tag contents after existing exclusion rules have remove
     assert.equal(mod.cleanRecallMessageText('visible story'), 'visible story');
 });
 
+test('recall query segments ignore functional controls but retain actual dialogue', () => {
+    const query = text => mod.buildQueryBundle([{ is_user: true, mes: text }]);
+    const expected = query('Alice found the key.\n  \n\nHello Bob.');
+    const actual = query('Alice found the key.\n[img:rain] [image:slot-1] [dice:check_1]\n'
+        + '[tts:emotion=happy]\n[voice:sad:Hello Bob.]');
+    for (const key of ['querySegments', 'rerankQuery', 'lexicalTerms', 'focusQuery', 'focusTerms']) {
+        assert.deepEqual(actual[key], expected[key]);
+    }
+});
+
 test('UI custom exclusions run before tag removal and query construction', () => {
     host.store.json.characters.main = ['Alice', 'Bob'];
     host.filterRules = [
@@ -253,6 +263,58 @@ test('a multilingual alias makes the chat spelling a direct event participant', 
 
     assert.deepEqual(bundle.focusTerms, ['五条悟']);
     assert.deepEqual(bundle.focusCharacters, ['五条悟']);
+});
+
+test('query feedback retains only the first three memories from each source without changing the rerank query', () => {
+    const bundle = mod.buildQueryBundle([{ is_user: true, mes: '继续说下去。' }]);
+    const rerankQuery = bundle.rerankQuery;
+    const anchors = Array.from({ length: 5 }, (_, index) => ({ atom: { semantic: `scene-${index + 1}` } }));
+    const events = Array.from({ length: 5 }, (_, index) => ({ event: { summary: `episode-${index + 1} (#1)` } }));
+
+    mod.refineQueryBundle(bundle, anchors, events);
+
+    for (let index = 1; index <= 5; index++) {
+        assert.equal(bundle.hintsSegment.text.includes(`scene-${index}`), index <= 3);
+        assert.equal(bundle.hintsSegment.text.includes(`episode-${index}`), index <= 3);
+    }
+    assert.equal(bundle.rerankQuery, rerankQuery);
+});
+
+test('a multi-character alias retains its single-character identity through event recall', async () => {
+    const event = { id: 'memory', participants: ['魈'], summary: '魈收下了礼物。 (#1)' };
+    host.store.json.characters.main = ['魈'];
+    host.store.json.events = [event];
+    host.store.json.characterAliases = [{ from: '迦楼罗', to: '魈' }];
+    host.context.chat = [{ is_user: true, mes: '我抱住迦楼罗。' }];
+    host.scores = [{ eventId: event.id, similarity: 0.65 }];
+
+    const result = await mod.recallMemory([event], { enabled: true });
+    assert.deepEqual(result.focusCharacters, ['魈']);
+    const recalled = result.events.find(item => item.event.id === event.id);
+    assert.equal(recalled?._recallType, 'DIRECT');
+    assert.equal(recalled?._evidenceEligible, true);
+
+    host.store.json.characterAliases.length = 0;
+    assert.deepEqual(mod.buildQueryBundle(host.context.chat).focusCharacters, [], 'removing the alias removes its identity match');
+});
+
+test('single-character names remain unavailable as literal matches even with known aliases', () => {
+    host.store.json.characters.main = ['白', '魈'];
+    host.store.json.characterAliases = [{ from: '白先生', to: '白' }, { from: '迦楼罗', to: '魈' }];
+    const query = text => mod.buildQueryBundle([{ is_user: true, mes: text }]);
+
+    assert.deepEqual(query('我明白了。魈').focusTerms, []);
+    assert.deepEqual(query('我明白了。魈').focusCharacters, []);
+    assert.deepEqual(query('白先生来了。').focusCharacters, ['白']);
+});
+
+test('aliases to single-character identities still exclude USER and blacklisted people', () => {
+    host.store.json.characterAliases = [{ from: '迦楼罗', to: '魈' }, { from: '面具人', to: '你' }];
+    const message = [{ is_user: true, mes: '迦楼罗与面具人到了。' }];
+    for (const name1 of ['魈', '迦楼罗']) {
+        host.context.name1 = name1;
+        assert.deepEqual(mod.buildQueryBundle(message).focusCharacters, []);
+    }
 });
 
 test('canonical and alias queries find historical prose without double-counting aliases', async () => {

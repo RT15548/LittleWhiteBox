@@ -1,0 +1,94 @@
+{
+  "formatVersion": 1,
+  "revision": 6,
+  "commitId": "commit-6-1791045487231",
+  "partitions": {
+    "economy": {
+      "schemaVersion": 3,
+      "transactions": [
+        {
+          "id": "tx-6425c280-46af-4095-96ed-5f79ceba4a69",
+          "sequence": 1,
+          "idempotencyKey": "economy:opening-grant:v1",
+          "actionId": "economy:opening-grant:v1",
+          "fromAccountId": "system:mint",
+          "toAccountId": "player",
+          "amount": 100,
+          "kind": "opening_grant",
+          "title": "开户赠礼",
+          "note": "欢迎来到小白 OS",
+          "sourceDomain": "economy",
+          "sourceScope": "user",
+          "sourceId": "opening-grant:v1",
+          "createdAt": 1791045365880
+        },
+        {
+          "id": "tx-4bc87203-cfa5-498e-aa01-7f808219b400",
+          "sequence": 2,
+          "createdAt": 1791045448065,
+          "sourceScope": "user",
+          "idempotencyKey": "building:7939674316086ae400c93f3286c495c3:fee",
+          "actionId": "a8580e65a9de072924d0c179a1c59fb0",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "7939674316086ae400c93f3286c495c3"
+        }
+      ]
+    },
+    "dice": {
+      "sheet": null,
+      "resultOverrides": {}
+    },
+    "learning-rewards": {
+      "retiredUnitIds": []
+    },
+    "building": {
+      "revision": 5,
+      "last": {
+        "id": "1abe26adace5e2097f7ac6614fac5518",
+        "command": {
+          "type": "remove",
+          "x": 2,
+          "y": 0
+        }
+      },
+      "activeId": "7939674316086ae400c93f3286c495c3",
+      "projects": [
+        {
+          "id": "7939674316086ae400c93f3286c495c3",
+          "seed": 17,
+          "tier": "sunroom",
+          "parts": [
+            {
+              "kind": "entry",
+              "x": 3,
+              "y": 0
+            },
+            {
+              "kind": "room",
+              "x": 4,
+              "y": 0
+            }
+          ],
+          "end": null,
+          "saved": false
+        }
+      ],
+      "receipts": [
+        {
+          "runId": "7939674316086ae400c93f3286c495c3",
+          "tier": "sunroom",
+          "admission": "a8580e65a9de072924d0c179a1c59fb0",
+          "ready": null,
+          "finished": null
+        }
+      ]
+    }
+  },
+  "stories": {}
+}

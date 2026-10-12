@@ -17,11 +17,12 @@ function extension() {
 }
 
 function project(owner) {
-    return structuredClone({ storySummary: owner.storySummary || {}, stateAtoms: owner.stateAtoms || [],
-        l0Index: owner.l0Index || { version: 1, byFloor: {} } });
+    // Borrowed only for synchronous comparison; snapshots leaving this layer stay detached.
+    return { storySummary: owner.storySummary || {}, stateAtoms: owner.stateAtoms || [],
+        l0Index: owner.l0Index || { version: 1, byFloor: {} } };
 }
 
-export function readSummaryMemory() { return project(extension()); }
+export function readSummaryMemory() { return structuredClone(project(extension())); }
 
 export function rememberLoadedMemory() {
     const owner = extension();
@@ -31,17 +32,24 @@ export function rememberLoadedMemory() {
 
 export function getMemoryCommitState() { return transactions.get(chat_metadata.extensions?.[EXT_ID])?.status || 'ready'; }
 
+// Settlement is not success: consumers must reread the final state after waiting.
+export function getPendingMemoryCommit(owner = chat_metadata.extensions?.[EXT_ID]) {
+    const transaction = transactions.get(owner);
+    return transaction?.status === 'saving' ? transaction.settled : null;
+}
+
 // A caller can wait for an in-flight save without consuming its unpublished draft.
 export async function waitForMemoryCommit(signal) {
     const owner = extension();
-    while (transactions.get(owner)?.status === 'saving') {
+    let pending;
+    while ((pending = getPendingMemoryCommit(owner))) {
         throwIfSignalAborted(signal);
         let onAbort;
         const cancelled = new Promise((_, reject) => {
             onAbort = () => reject(createAbortError());
             signal?.addEventListener('abort', onAbort, { once: true });
         });
-        try { await Promise.race([transactions.get(owner).settled, cancelled]); }
+        try { await Promise.race([pending, cancelled]); }
         finally { signal?.removeEventListener('abort', onAbort); }
     }
     throwIfSignalAborted(signal);
@@ -55,7 +63,7 @@ export function noteInvalidMemorySource(fromFloor) {
     const owner = extension();
     const current = transactions.get(owner);
     const sourceInvalidFloor = Math.min(current?.sourceInvalidFloor ?? fromFloor, fromFloor);
-    transactions.set(owner, { status: 'source_invalid', previous: project(owner), sourceInvalidFloor });
+    transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor });
 }
 
 export function readPublishedSummaryMemory() {
@@ -101,7 +109,7 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
     const settled = new Promise(resolve => { settle = resolve; });
     const transaction = { status: 'saving', previous: structuredClone(previous), sourceInvalidFloor, settled };
     const release = resolved => {
-        if (sourceInvalidFloor != null && !resolved) transactions.set(owner, { status: 'source_invalid', previous: project(owner), sourceInvalidFloor });
+        if (sourceInvalidFloor != null && !resolved) transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor });
         else transactions.delete(owner);
     };
     transactions.set(owner, transaction);

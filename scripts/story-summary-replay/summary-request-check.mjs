@@ -35,6 +35,10 @@ export async function runSummaryRequestCheck() {
         return Response.json({ choices: [{ message: { content: responseText } }] });
     };
     globalThis.window.xiaobaixStreamingGeneration = {
+        async startRawGeneration(args) {
+            await this.xbgenrawCommand(args);
+            return { sessionId: args.id, completion: Promise.resolve(responseText) };
+        },
         async xbgenrawCommand(args) {
             const messages = [...decodeMessages(args.top64), ...decodeMessages(args.bottom64)];
             for (const [key, role] of [['bottomsys', 'system'], ['bottomuser', 'user'], ['bottomassistant', 'assistant']]) {

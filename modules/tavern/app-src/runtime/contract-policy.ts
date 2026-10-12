@@ -4,7 +4,7 @@ import {
     type TavernSessionContract,
     type TavernSessionContractRuntime,
 } from '../../shared/session-contract';
-import { TAVILY_TOOL_NAME } from '../../../agent-core/tavily-search.js';
+import { WEB_SEARCH_TOOL_NAME } from '../../../agent-core/web/tools.js';
 import { TAVERN_SOURCE_FILE_TOOL_NAMES, type TavernMemoryToolResult } from '../../shared/memory-files';
 import { TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
 import { TAVERN_STATUS_TOOL_NAMES, type TavernStatusToolResult } from '../../shared/status-state';
@@ -14,7 +14,7 @@ const SOURCE_READ_TOOL_NAMES: string[] = [
     TAVERN_SOURCE_FILE_TOOL_NAMES.LS,
     TAVERN_SOURCE_FILE_TOOL_NAMES.GREP,
     TAVERN_SOURCE_FILE_TOOL_NAMES.READ,
-    TAVILY_TOOL_NAME,
+    WEB_SEARCH_TOOL_NAME,
 ];
 const SOURCE_WRITE_TOOL_NAMES: string[] = [
     TAVERN_SOURCE_FILE_TOOL_NAMES.EDIT,

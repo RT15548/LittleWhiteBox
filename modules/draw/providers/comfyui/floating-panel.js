@@ -7,7 +7,6 @@ import {
     subscribeDrawRunActivity,
 } from '../../shared/draw-run-activity.js';
 import {
-    cancelPendingChildDrawRuns,
     captureDrawCancellationTarget,
     isDrawCancellationTargetCurrent,
     getPendingDrawWorkState,
@@ -18,7 +17,9 @@ import {
     getDrawRunProgressIcon,
     hasDrawRunProgressDetail,
     resolveDrawRunActivityDetail,
+    resolveDrawRunPendingDetail,
     resolveDrawRunUiState,
+    runDrawCancellationAction,
 } from '../../shared/draw-run-ui-state.js';
 import {
     abortGeneration,
@@ -606,14 +607,7 @@ async function syncDrawRunPanelState(messageId, detail = {}) {
         pending: markerState.pending,
         ...activityTarget,
     });
-    const progressDetail = markerState.backendAccepted && !hasDrawRunProgressDetail(matchedDetail)
-        ? { ...matchedDetail, stage: 'reattaching' }
-        : matchedDetail;
-    const effectiveDetail = markerState.cancelling
-        ? { ...progressDetail, ...activityTarget, phase: 'cancelling' }
-        : markerState.backendAccepted
-            ? { ...progressDetail, ...activityTarget, phase: 'active' }
-            : progressDetail;
+    const effectiveDetail = resolveDrawRunPendingDetail(matchedDetail, markerState, activityTarget);
     const panelData = panelMap.get(messageId);
     if (panelData) {
         const next = resolveDrawRunUiState({
@@ -856,16 +850,18 @@ function resolvePanelMessageId(panelData) {
 async function handleFloorAbort(messageId) {
     const target = captureDrawCancellationTarget(messageId);
     try {
-        const aborted = abortGeneration(messageId, { target });
+        const aborted = await runDrawCancellationAction({
+            cancel: () => abortGeneration(messageId, { target }),
+            isCurrent: () => isDrawCancellationTargetCurrent(target),
+            getState: () => panelMap.get(getContext().chat.indexOf(target.message))?.state,
+            setState: state => setFloorState(getContext().chat.indexOf(target.message), state),
+        });
         if (aborted && isDrawCancellationTargetCurrent(target)) {
-            setFloorState(getContext().chat.indexOf(target.message), FloatState.CANCELLING);
             toastr?.info?.('正在中止');
         }
-        const cancelledChild = await cancelPendingChildDrawRuns(messageId, { target });
-        if (!aborted && cancelledChild && isDrawCancellationTargetCurrent(target)) {
-            toastr?.info?.('正在中止');
+        if (isDrawCancellationTargetCurrent(target)) {
             const liveId = getContext().chat.indexOf(target.message);
-            void syncDrawRunPanelState(liveId, { messageId: liveId, phase: 'cancelling' });
+            await syncDrawRunPanelState(liveId);
         }
     } catch (error) {
         console.error('[ComfyDraw] 中止失败:', error);
@@ -1335,16 +1331,18 @@ async function handleFloatingAbort() {
     const messageId = floatingMessageId;
     const target = captureDrawCancellationTarget(messageId);
     try {
-        const aborted = messageId >= 0 && abortGeneration(messageId, { target });
+        const aborted = messageId >= 0 && await runDrawCancellationAction({
+            cancel: () => abortGeneration(messageId, { target }),
+            isCurrent: () => isDrawCancellationTargetCurrent(target) && floatingMessageId === getContext().chat.indexOf(target.message),
+            getState: () => floatingState,
+            setState: setFloatingState,
+        });
         if (aborted && isDrawCancellationTargetCurrent(target)) {
-            setFloatingState(FloatState.CANCELLING);
             toastr?.info?.('正在中止');
         }
-        const cancelledChild = messageId >= 0 && await cancelPendingChildDrawRuns(messageId, { target });
-        if (!aborted && cancelledChild && isDrawCancellationTargetCurrent(target)) {
-            toastr?.info?.('正在中止');
+        if (messageId >= 0 && isDrawCancellationTargetCurrent(target)) {
             const liveId = getContext().chat.indexOf(target.message);
-            void syncDrawRunPanelState(liveId, { messageId: liveId, phase: 'cancelling' });
+            await syncDrawRunPanelState(liveId);
         }
     } catch (error) {
         console.error('[ComfyDraw] 中止失败:', error);

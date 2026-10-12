@@ -16,6 +16,7 @@
     --os-shadow-card: 0 4px 18px rgb(49 34 20 / 5%), 0 1px 2px rgb(49 34 20 / 4%);
     --os-ease: cubic-bezier(.22, 1, .36, 1);
     --os-status-height: 42px;
+    --os-mobile-brand-display: none;
 }
 
 * {
@@ -53,7 +54,7 @@ button {
     justify-content: center;
     outline: none;
     overflow: hidden;
-    padding: max(11px, env(safe-area-inset-top)) 14px max(11px, env(safe-area-inset-bottom));
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
     position: fixed;
 }
 
@@ -67,21 +68,19 @@ button {
 }
 
 .xiaobai-os-device {
-    background: linear-gradient(145deg, #4b4d50, #202225 18%, #090a0c 68%, #303236);
+    background: var(--xiaobai-os-screen);
     border: 1px solid rgba(255, 255, 255, .18);
-    border-radius: 48px;
-    box-shadow: 0 32px 80px rgba(0, 0, 0, .58), inset 0 1px rgba(255, 255, 255, .2);
-    height: min(824px, calc(100dvh - 22px));
-    max-height: 96dvh;
-    padding: 6px;
+    border-radius: 28px;
+    box-shadow: 0 24px 72px rgba(0, 0, 0, .38);
+    height: min(880px, 100%);
+    min-height: 0;
     position: relative;
-    width: min(398px, calc(100vw - 28px));
+    width: min(1180px, 100%);
 }
 
 .xiaobai-os-glass {
     background: var(--xiaobai-os-screen);
-    border-radius: 41px;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .72);
+    border-radius: inherit;
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
     height: 100%;
@@ -89,17 +88,8 @@ button {
     position: relative;
 }
 
-.xiaobai-os-side-key {
-    background: linear-gradient(#45474b, #111216, #383a3e);
-    border-radius: 0 3px 3px 0;
-    height: 112px;
-    position: absolute;
-    right: -5px;
-    top: 142px;
-    width: 4px;
-}
-
 .xiaobai-os-stage {
+    container: os-stage / inline-size;
     min-height: 0;
     overflow: hidden;
     position: relative;
@@ -207,10 +197,15 @@ button {
 }
 
 .xiaobai-os-system-mark {
+    align-items: center;
+    display: inline-flex;
     font-size: 11px;
     font-weight: 720;
+    gap: 4px;
     letter-spacing: .08em;
 }
+
+.xiaobai-os-system-mark img { background: #e1eee8; border-radius: 50%; display: block; height: 27px; padding: 2px; width: 27px; }
 
 .xiaobai-os-home {
     background:
@@ -220,7 +215,7 @@ button {
     color: #fff;
     height: 100%;
     overflow: hidden auto;
-    padding: 64px 21px 18px;
+    padding: 76px 40px 32px;
     position: relative;
 }
 
@@ -252,10 +247,17 @@ button {
 
 .xiaobai-os-app-grid {
     display: grid;
-    gap: 23px 13px;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 32px 24px;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
     position: relative;
     z-index: 1;
+}
+
+.xiaobai-os-app-grid,
+.xiaobai-os-desktop-toolbar {
+    width: 100%;
+    max-width: 920px;
+    margin-inline: auto;
 }
 
 .xiaobai-os-app-tile {
@@ -314,7 +316,9 @@ button {
     border-top: 1px solid rgba(255, 255, 255, .08);
     color: #fff;
     display: grid;
-    grid-template-columns: 44px 1fr 44px;
+    grid-template-columns: 44px 56px 44px;
+    justify-content: center;
+    gap: 28px;
     height: 54px;
     padding: 0 10px;
     position: relative;
@@ -428,9 +432,10 @@ button {
     transform: translateX(-12px);
 }
 
-@media (max-width: 760px), (pointer: coarse) and (max-height: 760px) {
+@media (max-width: 760px), (max-height: 560px) {
     .xiaobai-os-shell {
         --os-status-height: env(safe-area-inset-top, 0px);
+        --os-mobile-brand-display: block;
         backdrop-filter: none;
         padding: 0;
     }
@@ -451,7 +456,6 @@ button {
         box-shadow: none;
     }
 
-    .xiaobai-os-side-key,
     .xiaobai-os-system-bar {
         display: none;
     }
@@ -471,9 +475,21 @@ button {
     }
 }
 
+@media (max-width: 760px) {
+    .xiaobai-os-app-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 23px 13px;
+    }
+
+    .xiaobai-os-navigation {
+        grid-template-columns: 44px 1fr 44px;
+        gap: 0;
+    }
+}
+
 @media (max-width: 380px), (max-height: 690px) {
     .xiaobai-os-home {
-        padding: calc(22px + env(safe-area-inset-top)) 16px 14px;
+        padding: calc(22px + var(--os-status-height)) 16px 14px;
     }
 
     .xiaobai-os-app-grid {

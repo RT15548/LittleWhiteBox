@@ -1,0 +1,16 @@
+export const LEARNING_CONVERSATION_COPY = {
+    workbench: '学习助手', companion: '语伴',
+    historyLoadFailed: '暂时没能打开对话记录，请重新加载。学习内容保留。',
+    historySaveFailed: '回复已收到，但这段对话还没有保存。请检查保存状态，回复不需要重新生成。',
+    stopped: '已停止回复，已收到的内容保留。',
+    retryUnavailable: '这条消息已不能重试，请先检查保存状态，或在当前对话里重新提问。',
+    workStopped: '已停止。已保存的学习内容保留。',
+    changed: '学习内容已变化，这次操作没有继续。',
+    delegatedBusy: '当前训练操作尚未完成，这次委托没有执行。',
+    notificationFailed: '工作台的结果已保留，但语伴还没收到。可以重试通知，不会重新执行任务。',
+    notificationRetry: '重试通知',
+    memoryClearFailed: '对话记录尚未确认清理，请检查保存状态。',
+    learningSaveUnconfirmed: '学习修改尚未确认保存，请检查保存。',
+    learningSaveConflict: '学习记录有冲突，请检查保存。',
+    learningSaveRecovered: '已确认刚才的修改保存成功。这次工作中途停下了，可以接着提出未完成的要求。',
+} as const;

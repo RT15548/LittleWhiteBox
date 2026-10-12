@@ -17,7 +17,7 @@ import {
     normalizeJsApiPermission,
     normalizeAssistantConfig,
 } from '../../agent-core/config.js';
-import { isTavilyConfigured } from '../../agent-core/tavily-search.js';
+import { isWebConfigured } from '../../agent-core/web/tools.js';
 import {
     normalizeSlashCommand,
     normalizeSlashSkillTrigger,
@@ -57,7 +57,6 @@ const REQUEST_TIMEOUT_MS = 180000;
 const MAX_TOOL_ROUNDS = 64;
 const MAX_CONTEXT_TOKENS = 258000;
 const SUMMARY_TRIGGER_TOKENS = 228000;
-const HISTORY_SUMMARY_MAX_TOKENS = 10000;
 const DEFAULT_PRESERVED_TURNS = 2;
 const MIN_PRESERVED_TURNS = 1;
 const MAX_IMAGE_ATTACHMENTS = 3;
@@ -1160,7 +1159,7 @@ function getEnabledToolDefinitions(options = {}) {
         ? TOOL_DEFINITIONS
         : TOOL_DEFINITIONS.filter((tool) => tool?.function?.name !== TOOL_NAMES.RUN_JAVASCRIPT_API);
     const providerConfig = getActiveProviderConfig(role === 'delegate' ? { role: 'delegate' } : {});
-    if (!isTavilyConfigured(providerConfig)) {
+    if (!isWebConfigured(providerConfig)) {
         definitions = definitions.filter((tool) => tool?.function?.name !== TOOL_NAMES.WEB_SEARCH);
     }
     return definitions;
@@ -1431,7 +1430,6 @@ const runtime = createAssistantRuntime({
     HISTORY_SUMMARY_PREFIX,
     MAX_CONTEXT_TOKENS,
     SUMMARY_TRIGGER_TOKENS,
-    HISTORY_SUMMARY_MAX_TOKENS,
     DEFAULT_PRESERVED_TURNS,
     MIN_PRESERVED_TURNS,
     MAX_TOOL_ROUNDS,

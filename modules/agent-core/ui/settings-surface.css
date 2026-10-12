@@ -16,6 +16,14 @@
     display: none;
 }
 
+.xb-agent-settings-surface .xb-assistant-web-settings {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: inherit;
+    gap: inherit;
+    min-width: 0;
+}
+
 .xb-agent-settings-surface .xb-assistant-preset-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

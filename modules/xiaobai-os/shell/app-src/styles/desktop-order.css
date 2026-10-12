@@ -9,10 +9,13 @@
     display: flex;
     justify-content: space-between;
     min-height: 44px;
-    margin: -12px 0 22px;
+    margin-top: -12px;
+    margin-bottom: 22px;
     position: relative;
     z-index: 3;
 }
+
+.xiaobai-os-mobile-brand { background: #e1eee8; border-radius: 50%; display: var(--os-mobile-brand-display); width: 32px; height: 32px; object-fit: contain; padding: 3px; }
 
 .xiaobai-os-desktop-toolbar button,
 .xiaobai-os-order-error button {

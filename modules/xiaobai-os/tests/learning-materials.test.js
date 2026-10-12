@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractLearningSources } from '../apps/learning/materials/tavily-extract.js';
+import { extractLearningSources } from '../apps/learning/materials/web-extract.js';
 
 const config = { tavilyApiKey: 'fixture-key', tavilyBaseUrl: 'https://tavily.example.com/' };
 const urls = ['https://www.bbc.com/article', 'https://example.com/article'];
@@ -31,7 +31,7 @@ test('Extract rejects missing key, unsafe URLs and oversized results without exp
         await assert.rejects(extractLearningSources(config, [url]), { code: 'learning_source_url_invalid' });
     }
     await assert.rejects(extractLearningSources(config, urls, { fetch: async () => new Response('credential=private', { status: 401 }) }),
-        { message: 'learning_extract_http_failed' });
+        { code: 'learning_extract_http_failed', httpStatus: 401 });
     await assert.rejects(extractLearningSources(config, urls, { fetch: async () => new Response('x'.repeat(2 * 1024 * 1024 + 1)) }),
         { code: 'learning_source_too_large' });
 });

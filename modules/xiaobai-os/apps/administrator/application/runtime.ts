@@ -19,6 +19,7 @@ import { administratorProcess } from './process.js';
 import type { AdministratorEnvironmentReader } from '../domain/environment.js';
 
 interface ActiveRun {
+    startedAt: number;
     current(): boolean;
     identity: string; sourceIdentity: string; turn: AdministratorTurn;
     abort: AbortController; context: AdministratorHistory | null; executor: AdministratorToolExecutor | null;
@@ -28,6 +29,7 @@ interface ActiveRun {
     failed: boolean;
 }
 interface PendingSend {
+    startedAt: number;
     turn: AdministratorTurn;
     input: AdministratorUpload | null;
     current(): boolean;
@@ -82,7 +84,7 @@ export function createAdministratorRuntime(deps: {
         try {
             const config = await deps.gateway.loadConfig();
             active.executor = await createAdministratorToolExecutor({ registry: deps.management, reader: active.reader,
-                readEnvironment: deps.readEnvironment,
+                readEnvironment: deps.readEnvironment, webConfig: config as Record<string, unknown>, signal: active.abort.signal,
                 operations: active.turn.operations,
                 guard: () => sameChat(active) && active.reader.isCurrent(), onChange: () => { if (sameChat(active)) { changed(true); } },
                 saveReceipts: confirmation => persistTurn(active, confirmation),
@@ -98,7 +100,7 @@ export function createAdministratorRuntime(deps: {
                 requestForCounting: { role: 'user', content: userText }, imageCount: dataUrl ? 1 : 0,
                 getTools: active.executor.getTools, signal: active.abort.signal, execute: active.executor.execute, save: () => persistTurn(active),
                 onText: value => { active.text = value; if (sameChat(active)) { changed(); } },
-                onPhase: value => { active.phase = value; if (sameChat(active)) { changed(true); } },
+                onPhase: value => { if (active.phase !== value) { active.phase = value; if (sameChat(active)) { changed(true); } } },
                 onContext: value => { if (sameChat(active)) { usage = value; changed(); } },
                 onToolPreview: names => { active.preview = active.executor!.preview(names); if (sameChat(active)) { changed(); } },
             });
@@ -128,7 +130,7 @@ export function createAdministratorRuntime(deps: {
             if (run === active && sameChat(active)) { changed(true); }
         }
     }
-    async function launch(turnId: string) {
+    async function launch(turnId: string, startedAt: number) {
         if (run?.promise || conversation.unsaved()) { throw new Error('administrator_busy'); }
         const turn = conversation.read().turns.find(t => t.id === turnId);
         if (!turn?.user) { throw new Error('administrator_message_missing'); }
@@ -136,7 +138,7 @@ export function createAdministratorRuntime(deps: {
         if (!source) { throw new Error('administrator_chat_unavailable'); }
         const history = historyBefore(conversation.read(), turn.id);
         const currentTurn = structuredClone(turn);
-        const active: ActiveRun = { current: conversation.capture(), identity: repository.identity(), sourceIdentity: source.identityKey, turn: currentTurn,
+        const active: ActiveRun = { startedAt, current: conversation.capture(), identity: repository.identity(), sourceIdentity: source.identityKey, turn: currentTurn,
             abort: new AbortController(), context: { turns: [...history.turns, currentTurn], summary: history.summary }, executor: null,
             text: '', phase: 'preparing', promise: null, preview: [], failed: false, reader: createAdministratorChatReader(deps.capture, () => active.abort.signal) };
         run = active; error = '';
@@ -161,7 +163,7 @@ export function createAdministratorRuntime(deps: {
             await conversation.prepareTurn(sending.turn, guard);
             assertCurrent();
             pendingSend = null;
-            await launch(sending.turn.id);
+            await launch(sending.turn.id, sending.startedAt);
         } catch (cause) {
             // Only an unconfirmed save needs a live continuation. Upload failure leaves the UI draft resendable.
             if (pendingSend === sending && !conversation.unsaved()) { pendingSend = null; }
@@ -177,7 +179,7 @@ export function createAdministratorRuntime(deps: {
         submission = submissionId ? { id: submissionId, turnId: request.id, current: guard } : null;
         const turn: AdministratorTurn = { id: request.id, createdAt: request.createdAt, user: structuredClone(request.user),
             assistant: null, toolMessages: [], operations: [], status: 'interrupted', error: '' };
-        const sending: PendingSend = { turn, input, current: guard, stopped: false, preparing: false };
+        const sending: PendingSend = { startedAt: Date.now(), turn, input, current: guard, stopped: false, preparing: false };
         pendingSend = sending;
         return continueSend(sending);
     }
@@ -192,11 +194,12 @@ export function createAdministratorRuntime(deps: {
             const sourceIdentity = deps.capture()?.identityKey;
             if (!sourceIdentity) { return; }
             const current = conversation.capture();
-            const agent = await deps.gateway.openSession(await deps.gateway.loadConfig());
+            const config = await deps.gateway.loadConfig();
+            const agent = await deps.gateway.openSession(config);
             if (!current() || run?.promise || deps.capture()?.identityKey !== sourceIdentity) { return; }
             const abort = new AbortController();
             const reader = createAdministratorChatReader(deps.capture, () => abort.signal);
-            const executor = await createAdministratorToolExecutor({ registry: deps.management, reader, readEnvironment: deps.readEnvironment, operations: [], guard: () => false, onChange() {}, async saveReceipts() {} });
+            const executor = await createAdministratorToolExecutor({ registry: deps.management, reader, webConfig: config as Record<string, unknown>, signal: abort.signal, readEnvironment: deps.readEnvironment, operations: [], guard: () => false, onChange() {}, async saveReceipts() {} });
             if (!current() || run?.promise || deps.capture()?.identityKey !== sourceIdentity) { return; }
             const projected = administratorContext(conversation.read());
             usage = contextUsage([ADMINISTRATOR_PROMPT, executor.prompt].join('\n\n'), executor.getTools(),
@@ -231,9 +234,9 @@ export function createAdministratorRuntime(deps: {
         },
         live(): AdministratorLive | null {
             if (pendingSend?.preparing && pendingSend.current()) {
-                return { turnId: pendingSend.turn.id, text: '', totalChars: 0, process: [], preview: [], phase: pendingSend.stopped ? 'stopping' : 'preparing' };
+                return { turnId: pendingSend.turn.id, startedAt: pendingSend.startedAt, text: '', totalChars: 0, process: [], preview: [], phase: pendingSend.stopped ? 'stopping' : 'preparing' };
             }
-            return run?.promise && sameChat(run) ? { turnId: run.turn.id, text: run.text.slice(0, POLICY.textBlock), totalChars: run.text.length,
+            return run?.promise && sameChat(run) ? { turnId: run.turn.id, startedAt: run.startedAt, text: run.text.slice(0, POLICY.textBlock), totalChars: run.text.length,
                 process: administratorProcess(run.turn, true), preview: run.preview, phase: run.abort.signal.aborted ? 'stopping' : run.phase } : null;
         },
         unsavedProcess() {
@@ -250,7 +253,7 @@ export function createAdministratorRuntime(deps: {
         async send(submissionId: unknown, text: string, upload?: unknown) {
             if (run?.promise || conversation.unsaved()) { throw new Error('administrator_busy'); }
             if (typeof submissionId !== 'string' || !submissionId || submissionId.length > 128) { throw new Error('administrator_input_invalid'); }
-            if (typeof text !== 'string' || text.length > 16000 || !text.trim() && !upload) { throw new Error('administrator_input_invalid'); }
+            if (typeof text !== 'string' || text.length > POLICY.maxInputChars || !text.trim() && !upload) { throw new Error('administrator_input_invalid'); }
             const input: AdministratorUpload | null = upload ? parseAdministratorUpload(upload) : null;
             return start({ id: createAdministratorId(), createdAt: Date.now(), user: { text: text.trim() } }, input, submissionId);
         },

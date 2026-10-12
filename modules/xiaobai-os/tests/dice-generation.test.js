@@ -173,6 +173,45 @@ const { createDiceGenerationAdapter, createDiceMessageDisplay, captureDiceChat, 
 
 const call = 'Attempt.\n\n<xb_action_check>{"action":"Climb","stat":"Agility","difficulty":"hard"}</xb_action_check>';
 
+for (const cancel of ['none', 'stop', 'initiator']) test(`Dice keeps one continuation while recall waits without rerolling; cancel=${cancel}`, async t => {
+    const adapter = setup(t);
+    await begin();
+    await host.intercept('normal');
+    host.source.chat.push(message(call));
+    await received(); await setImmediate();
+    const saved = structuredClone(adapter.records(host.source.chat.at(-1)));
+    assert.equal(saved.checks.length, 1);
+    const ids = host.ids;
+    const intercept = host.intercept.bind(host);
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    let requestSignal;
+    let entries = 0;
+    t.mock.method(host, 'intercept', async type => {
+        entries++;
+        requestSignal = host.controller.signal;
+        await ready;
+        return intercept(type);
+    });
+    const pending = choose(adapter, 1);
+    await setImmediate();
+    assert.equal(requestSignal.aborted, false);
+    assert.equal(host.busy, true);
+    assert.equal(adapter.view().phase.kind, 'continuing');
+    await host.emit('GENERATION_STARTED', 'quiet', {}, false);
+    await host.emit('GENERATION_ENDED');
+    assert.equal(adapter.view().phase.kind, 'continuing');
+    if (cancel === 'initiator') adapter.cancel();
+    else if (cancel === 'stop') host.stop();
+    release();
+    await pending;
+    assert.equal(entries, 1);
+    assert.equal(requestSignal.aborted, cancel !== 'none');
+    assert.equal(host.requests.length, cancel === 'none' ? 1 : 0);
+    assert.equal(host.ids, ids);
+    assert.deepEqual(adapter.records(host.source.chat.at(-1)), saved);
+});
+
 test('a native image placement during continuation preparation preserves the incoming DICE check', async t => {
     const adapter = setup(t);
     const target = host.source.chat[0];
@@ -188,6 +227,90 @@ test('a native image placement during continuation preparation preserves the inc
 });
 const cocCall = '<xb_action_check>' + JSON.stringify({ action: 'Force the door', stat: 'body', difficulty: 'regular' }) + '</xb_action_check>';
 const message = mes => ({ name: 'Mira', mes, extra: {} });
+
+test('reply pause follows the selected message ending, not a retained Dice session', async t => {
+    const adapter = setup(t);
+    await begin(); await host.intercept('normal');
+    const target = message(call + '\n</fictional_scenarios>'); host.source.chat.push(target);
+    assert.equal(adapter.isReplyPaused(target), true);
+    await received(); await setImmediate();
+    assert.equal(adapter.view().phase.kind, 'awaiting-choice');
+    const pausedBody = target.mes;
+    target.mes += '\n\nAfterward.';
+    assert.ok(adapter.view(), 'the workflow has not been cleared yet');
+    assert.equal(adapter.isReplyPaused(target), false, 'historical Dice cannot hide completed prose');
+    target.mes = pausedBody + '\n \t';
+    assert.equal(adapter.isReplyPaused(target), true, 'whitespace after a stored result is still a pause');
+    for (const following of [{ is_user: true, mes: 'Continue' }, { is_system: true, extra: { type: 'narrator' }, mes: 'Note' }]) {
+        host.source.chat.push(following);
+        assert.equal(adapter.isReplyPaused(target), true, 'the caller-selected AI floor is authoritative');
+        host.source.chat.pop();
+    }
+    target.mes = pausedBody + '\nAfterward.\n' + call;
+    assert.equal(adapter.isReplyPaused(target), true, 'another executable request pauses again');
+});
+
+test('finished prose releases the pause before the native continuation promise settles', async t => {
+    const adapter = setup(t);
+    await begin(); await host.intercept('normal');
+    const target = message(call); host.source.chat.push(target);
+    await received(); await setImmediate();
+    const finalizing = Promise.withResolvers();
+    t.after(() => finalizing.resolve());
+    host.reply = async () => {
+        target.mes += '\n\nAfterward.';
+        await received();
+        host.unlock();
+        await finalizing.promise;
+    };
+    const continuation = choose(adapter, 1);
+    try {
+        await setImmediate();
+        assert.equal(host.busy, false);
+        assert.equal(adapter.isBusy(), true, 'Dice still owns the unsettled continuation');
+        assert.equal(adapter.isReplyPaused(target), false, 'in-flight finalization is not a content pause');
+    } finally { finalizing.resolve(); await continuation; }
+});
+
+for (const group of [false, true]) test(`reply pause outlives native stop, reload and failed continuation (group: ${group})`, async t => {
+    const revealing = Promise.withResolvers();
+    const adapter = setup(t, group, () => revealing.promise);
+    t.after(() => revealing.resolve());
+    assert.equal(adapter.isReplyPaused(host.source.chat.at(-1)), false, 'ordinary replies have no Dice hold');
+    await begin(); await host.intercept('normal');
+    const target = message(call); host.source.chat.push(target);
+    assert.equal(adapter.isReplyPaused(target), true, 'the received request already holds the reply before Dice listeners run');
+    await received();
+    assert.equal(adapter.isReplyPaused(target), true, 'revealing the roll is not completion');
+    revealing.resolve(); await setImmediate();
+    if (group) {
+        host.group(true); await host.emit('GROUP_MEMBER_DRAFTED');
+        host.group(false); await host.emit('GROUP_WRAPPER_FINISHED');
+    }
+    assert.equal(host.busy, false);
+    assert.equal(adapter.isReplyPaused(target), true, 'the native host can be idle while Dice waits for a choice');
+    const pausedBody = target.mes;
+    adapter.cancel();
+    assert.equal(adapter.isReplyPaused(target), true, 'saved terminal checks retain their pause without a live session');
+    host.enabled = false;
+    assert.equal(adapter.isReplyPaused(target), false, 'disabled Dice never blocks projection');
+    host.enabled = true;
+    target.swipe_id = 1; target.mes = 'Already completed candidate'; await host.emit('MESSAGE_SWIPED', 1);
+    assert.equal(adapter.isReplyPaused(target), false, 'unreferenced records cannot pause another swipe');
+    target.swipe_id = 0; target.mes = pausedBody; await host.emit('MESSAGE_SWIPED', 1);
+    assert.equal(adapter.isReplyPaused(target), true, 'returning to the paused swipe derives its state again');
+    const normalReply = host.reply;
+    host.reply = async () => { throw new Error('fixture-provider-rejection'); };
+    await choose(adapter, 1);
+    assert.equal(adapter.isReplyPaused(target), true, 'a failed continuation still awaits an outcome');
+    host.reply = normalReply;
+    await choose(adapter, 1);
+    assert.equal(adapter.isReplyPaused(target), false, 'only the completed continuation releases the pause');
+    host.source.chat.push({ is_user: true, mes: call });
+    assert.equal(adapter.isReplyPaused(host.source.chat.at(-1)), false, 'user text is never a Dice pause');
+    host.source.chat = [message('Another chat')]; host.source.key += '-other';
+    assert.equal(adapter.isReplyPaused(host.source.chat.at(-1)), false, 'old choices cannot hold another chat');
+});
 
 for (const group of [false, true]) test(`validated native image placement preserves the live DICE choice and roll (group: ${group})`, async t => {
     const revealing = Promise.withResolvers();

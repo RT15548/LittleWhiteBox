@@ -7,7 +7,7 @@ import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 import { TOOL_NOT_LOADED } from './tool-loader.js';
 import { administratorToolCallKey } from '../application/identity.js';
-import type { AdministratorContextUsage } from '../domain/types.js';
+import type { AdministratorContextUsage, AdministratorLive } from '../domain/types.js';
 import { administratorContext, administratorTurnMessages, contextUsage, retainedAdministratorTurns, summarizeAdministrator,
     type AdministratorHistory, type AgentRecord } from './history.js';
 
@@ -25,7 +25,7 @@ export async function runAdministratorLoop(options: {
     getTools(): ManagementTool['definition'][]; state: AdministratorHistory; signal: AbortSignal;
     execute(name: string, args: unknown, callId: string, messageIndex: number): Promise<unknown>;
     save(): Promise<void>;
-    onText(text: string): void; onPhase(phase: 'replying' | 'summarizing'): void;
+    onText(text: string): void; onPhase(phase: AdministratorLive['phase']): void;
     onContext(usage: AdministratorContextUsage): void;
     onToolPreview?(names: string[]): void;
 }): Promise<string> {
@@ -61,6 +61,7 @@ export async function runAdministratorLoop(options: {
         return true;
     }
     async function executeTools(result: AgentRecord, calls: NonNullable<AgentMessage['toolCalls']>, tools: ManagementTool['definition'][]) {
+        options.onPhase('tools');
         const advertised = new Set(tools.map(tool => tool.function.name));
         const assistant: AgentMessage = { role: 'assistant', content: String(result.text ?? ''), toolCalls: calls,
             ...(result.providerPayload && typeof result.providerPayload === 'object' ? { providerPayload: result.providerPayload as AgentRecord } : {}) };
@@ -99,17 +100,32 @@ export async function runAdministratorLoop(options: {
             if (responses && (compacted || agent.supportsSessionToolLoop && toolsChanged)) { agent = await options.gateway.openSession(options.config); responses = undefined; }
             const currentUsage = usage(tools); options.onContext(currentUsage);
             if (currentUsage.used > POLICY.inputBudget) { throw new Error('administrator_context_full'); }
-            options.onPhase('replying'); options.onText('');
+            options.onPhase('waiting'); options.onText('');
             let result: AgentRecord;
             let streaming = true;
+            let text = '', thoughts = '', callSnapshot = '';
             try {
                 const native = agent.supportsSessionToolLoop && responses !== undefined;
                 previousTools = tools;
                 result = await agent.run({ systemPrompt: options.system, messages: native ? [] : [...options.prefix, ...administratorContext(state, options.request).messages],
                     tools, signal, ...(native ? { toolResponses: responses } : {}), onStreamProgress: snapshot => {
                         if (!streaming || signal.aborted) { return; }
-                        options.onText(String(snapshot.text ?? ''));
-                        options.onToolPreview?.(Array.isArray(snapshot.toolCalls) ? snapshot.toolCalls.map(call => String(call.name ?? '')).filter(Boolean) : []);
+                        const nextText = typeof snapshot.text === 'string' ? snapshot.text : text;
+                        const nextThoughts = Array.isArray(snapshot.thoughts) ? snapshot.thoughts.map(item => String(item.text ?? '')).join('\n') : thoughts;
+                        const nextCalls = Array.isArray(snapshot.toolCalls) ? JSON.stringify(snapshot.toolCalls) : callSnapshot;
+                        // Native activity also covers reasoning with no visible summary. Other
+                        // adapters expose partial/cumulative snapshots: only new content is evidence.
+                        if (snapshot.activity === 'waiting' || snapshot.activity === 'thinking' || snapshot.activity === 'replying') {
+                            options.onPhase(snapshot.activity);
+                        } else if (snapshot.activity === 'tool-call' || nextCalls !== callSnapshot && Array.isArray(snapshot.toolCalls) && snapshot.toolCalls.length) {
+                            options.onPhase('tools');
+                        } else if (nextText && nextText !== text) { options.onPhase('replying'); }
+                        else if (nextThoughts && nextThoughts !== thoughts) { options.onPhase('thinking'); }
+                        text = nextText; thoughts = nextThoughts; callSnapshot = nextCalls;
+                        options.onText(text);
+                        if (Array.isArray(snapshot.toolCalls)) {
+                            options.onToolPreview?.(snapshot.toolCalls.map(call => String(call.name ?? '')).filter(Boolean));
+                        }
                     } });
             } catch (error) {
                 streaming = false;

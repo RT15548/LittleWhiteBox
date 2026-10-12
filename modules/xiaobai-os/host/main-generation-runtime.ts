@@ -34,13 +34,15 @@ export function createMainGenerationRuntime({
     subscribe,
 }: MainGenerationRuntimeDependencies): MainGenerationRuntime {
     const listeners = new Set<(active: boolean) => void>();
-    let currentRequestIsMain = false;
+    let currentRequestIsMain: boolean | null = null;
     let groupMainGeneration = false;
     let publishedActive = false;
     let unsubscribe: (() => void) | null = null;
 
     function currentActive(): boolean {
-        return groupMainGeneration || (currentRequestIsMain && readHostGenerating());
+        // On late startup the request type is unknown, not idle. Wait for the
+        // existing host activity to finish; observed quiet/dry-run calls remain excluded.
+        return groupMainGeneration || (currentRequestIsMain !== false && readHostGenerating());
     }
 
     function publishCurrent(): void {
@@ -78,7 +80,9 @@ export function createMainGenerationRuntime({
 
     function startBackground(): void {
         if (!unsubscribe) {
+            currentRequestIsMain = null;
             unsubscribe = subscribe({ started, hostStateChanged: publishCurrent, groupStarted, groupFinished });
+            publishCurrent();
         }
     }
 

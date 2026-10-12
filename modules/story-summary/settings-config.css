@@ -1,0 +1,32 @@
+.settings-config-status {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--bdr);
+    color: var(--txt2);
+    font-size: .8125rem;
+    line-height: 1.5;
+}
+
+.settings-config-status[hidden] {
+    display: none;
+}
+
+.settings-config-status[data-state="error"] {
+    color: var(--error);
+}
+
+.settings-config-status > span {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.settings-config-status > button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 36px;
+    white-space: nowrap;
+}

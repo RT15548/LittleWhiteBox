@@ -4,6 +4,8 @@ import {
     readImageBackendResultBase64,
 } from '../../shared/backend-image-jobs.js';
 
+import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
+
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 export const NOVELAI_V5_FINAL_IMAGE_CAPABILITY = 'novelai-v5-final-image-v1';
 
@@ -31,7 +33,7 @@ export async function decodeNovelBackendJobResult({ response, kind }) {
     if (kind === 'msgpack-stream' && mime !== 'image/png') {
         return await rejectBackendResult(
             response,
-            'NovelAI V5 后台结果来自旧版插件。请用扩展内的 littlewhitebox-image-jobs 完整覆盖服务端插件并重启 SillyTavern。',
+            `NovelAI V5 后台结果格式不兼容。${SERVER_PLUGIN_COPY.update}`,
             'novelai_backend_result_contract_outdated',
         );
     }

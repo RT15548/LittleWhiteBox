@@ -56,7 +56,7 @@ export function createMessagesController(deps: MessagesControllerDependencies): 
             recoveryBlocked, operationPending: localBusy.has(deps.identity()),
             pendingModification: !!domain.pendingMutation, revision: messagesRevision(domain),
             boundary: viewBoundary,
-            busy: runtime.active?.identity === deps.identity() ? { contactId: runtime.active.contactId, messageId: runtime.active.messageId, stage: runtime.active.stage } : null,
+            busy: runtime.active?.identity === deps.identity() ? { contactId: runtime.active.contactId, messageId: runtime.active.messageId, stage: runtime.active.stage, preview: runtime.active.preview } : null,
             outgoing: runtime.outgoing, sendFailure: runtime.failure,
             generationActive: deps.isGenerating(),
             syncNotice: { messageIds: missing, error: syncError || runtime.syncError },

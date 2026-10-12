@@ -3,12 +3,15 @@ import test from 'node:test';
 
 import {
     createImageBackendJobMonitorRegistry,
-    createImageBackendJobsClient,
+    createImageBackendJobsClient as createClient,
     fetchImageBackendJobsStatus,
     hasImageBackendJobsCapability,
     IMAGE_BATCH_JOBS_CAPABILITY,
+    DRAW_WORK_CANCELLATION_CAPABILITY,
     reportImageBackendJobState,
 } from '../backend-image-jobs.js';
+
+const createImageBackendJobsClient = options => createClient({ getOwner: () => 'fixture', ...options });
 
 function jsonResponse(body, status = 200) {
     return new Response(JSON.stringify(body), {
@@ -44,9 +47,10 @@ test('recognizes the batch jobs capability without guessing from version', () =>
     assert.equal(hasImageBackendJobsCapability({
         ready: true,
         version: '99.0.0',
-        capabilities: [IMAGE_BATCH_JOBS_CAPABILITY],
+        capabilities: [IMAGE_BATCH_JOBS_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY],
     }), true);
     assert.equal(hasImageBackendJobsCapability({ ready: true, version: '1.3.0', capabilities: [] }), false);
+    assert.equal(hasImageBackendJobsCapability({ ready: true, version: '99.0.0', capabilities: [IMAGE_BATCH_JOBS_CAPABILITY] }), false);
     assert.equal(hasImageBackendJobsCapability({ ready: false, capabilities: [IMAGE_BATCH_JOBS_CAPABILITY] }), false);
 });
 
@@ -277,7 +281,7 @@ test('cancels by request ID when abort follows a lost create response', async ()
             creates++;
             throw new TypeError('response lost');
         }
-        if (url.endsWith('/v1/jobs/request-abort/cancel')) {
+        if (url.endsWith('/v1/cancel')) {
             cancelRequests++;
             return jsonResponse(jobStatus('cancelled', [
                 { index: 0, state: 'cancelled', transport: 'legacy-image' },
@@ -309,14 +313,14 @@ test('cancels by request ID when abort follows a lost create response', async ()
     assert.equal(outcome.job.state, 'cancelled');
 });
 
-test('keeps an uncertain create recoverable when cancel-by-request-id initially returns 404', async () => {
+test('a missing cancellation capability never turns an uncertain create into a confirmed cancellation', async () => {
     const controller = new AbortController();
     const client = createImageBackendJobsClient({
         pollInterval: 1,
         createRequestId: () => 'request-race',
         fetchImpl: async (url, options = {}) => {
             if (url.endsWith('/v1/jobs') && options.method === 'POST') throw new TypeError('response lost');
-            if (url.endsWith('/v1/jobs/request-race/cancel')) {
+            if (url.endsWith('/v1/cancel')) {
                 return jsonResponse({ ok: false, error: 'not found' }, 404);
             }
             throw new Error(`Unexpected request ${options.method || 'GET'} ${url}`);
@@ -328,7 +332,28 @@ test('keeps an uncertain create recoverable when cancel-by-request-id initially 
         onStateChange(state) {
             if (state === 'reconnecting') controller.abort();
         },
-    }), error => error?.detached === true && error?.jobId === 'request-race');
+    }), error => error?.detached === true && error?.jobId === 'request-race'
+        && error.code === 'backend_cancellation_unsupported');
+});
+
+test('acknowledged cancellation fences an unobserved create without resubmitting it', async () => {
+    const controller = new AbortController();
+    const calls = [];
+    const client = createImageBackendJobsClient({ createRequestId: () => 'late-create', pollInterval: 1,
+        fetchImpl: async (url, options = {}) => {
+            calls.push({ url, method: options.method, body: options.body && JSON.parse(options.body) });
+            if (url.endsWith('/v1/jobs')) throw new TypeError('create response lost');
+            if (url.endsWith('/v1/cancel')) return jsonResponse({ ok: true });
+            if (url.endsWith('/v1/jobs/late-create')) return jsonResponse({ ok: false }, 404);
+            assert.fail('unexpected request');
+        } });
+    const result = await client.runJob({ items: [{}] }, { cancelSignal: controller.signal,
+        onStateChange(state) { if (state === 'reconnecting') controller.abort(); } });
+    assert.equal(result.job.state, 'cancelled');
+    assert.equal(result.abortRequested, true);
+    assert.equal(calls.filter(call => call.url.endsWith('/v1/jobs')).length, 1);
+    assert.deepEqual(calls.find(call => call.url.endsWith('/v1/cancel')).body, { owner: 'fixture', jobIds: ['late-create'], runIds: [] });
+    assert.equal(calls.some(call => call.method === 'DELETE'), false);
 });
 
 test('keeps an uncertain create recoverable when cancellation is rejected', async () => {
@@ -338,7 +363,7 @@ test('keeps an uncertain create recoverable when cancellation is rejected', asyn
         createRequestId: () => 'request-rejected-cancel',
         fetchImpl: async (url, options = {}) => {
             if (url.endsWith('/v1/jobs') && options.method === 'POST') throw new TypeError('response lost');
-            if (url.endsWith('/v1/jobs/request-rejected-cancel/cancel')) {
+            if (url.endsWith('/v1/cancel')) {
                 return jsonResponse({ ok: false, error: 'cancel rejected' }, 400);
             }
             throw new Error(`Unexpected request ${options.method || 'GET'} ${url}`);
@@ -557,7 +582,7 @@ test('keeps a detached job alive when the local connection dies instead of cance
     const client = createImageBackendJobsClient({
         pollInterval: 1,
         fetchImpl: async (url, options = {}) => {
-            if (url.endsWith('/v1/jobs/job-1/cancel') || isJobCleanupDelete(url, options)) {
+            if (url.endsWith('/v1/cancel') || isJobCleanupDelete(url, options)) {
                 destructive.push(`${options.method || 'GET'} ${url}`);
                 return jsonResponse({ ok: true });
             }
@@ -585,7 +610,7 @@ test('keeps cancellation intent recoverable when the backend never confirms canc
     const client = createImageBackendJobsClient({
         pollInterval: 1,
         fetchImpl: async (url, options = {}) => {
-            if (url.endsWith('/v1/jobs/job-1/cancel')) {
+            if (url.endsWith('/v1/cancel')) {
                 cancelRequests++;
                 return jsonResponse(jobStatus('running', [{ index: 0, state: 'running' }]));
             }
@@ -922,7 +947,7 @@ test('does not launch a second cleanup flow when cancellation remains unconfirme
         pollInterval: 1,
         maxConsecutiveRetries: 2,
         fetchImpl: async (url, options = {}) => {
-            if (url.endsWith('/v1/jobs/job-1/cancel')) {
+            if (url.endsWith('/v1/cancel')) {
                 cancelRequests++;
                 return jsonResponse(jobStatus('running', [{ index: 0, state: 'running' }]));
             }

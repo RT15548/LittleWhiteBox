@@ -1,3 +1,4 @@
+import { createAdministratorWebTools } from './web-tools.js';
 import { managementReadError, type ManagementParticipant, type ManagementRegistry, type ManagementResult, type ManagementSession, type ManagementTool } from '../../../capabilities/management/index.js';
 import { MANAGEMENT_READ_CHARS, textPage } from '../../../capabilities/management/read-page.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
@@ -9,7 +10,7 @@ import { createAdministratorToolResults } from './tool-results.js';
 import { createAdministratorId } from '../application/identity.js';
 import type { AdministratorEnvironmentReader } from '../domain/environment.js';
 import { ADMINISTRATOR_OS_INSPECT, OS_INSPECT } from './os-tools.js';
-import { ADMINISTRATOR_RESULT_READ, TOOL_RESULT_READ } from './result-tools.js';
+import { ADMINISTRATOR_RESULT_READ } from './result-tools.js';
 import { createAdministratorToolLoader, TOOLS_LOAD, TOOL_NOT_LOADED } from './tool-loader.js';
 import { ADMINISTRATOR_REFERENCE_TEXT } from './reference-data.js';
 import { requireToolArgumentsObject, ToolArgumentsError } from '../../../capabilities/agent/tool-arguments.js';
@@ -23,6 +24,7 @@ const STORY_EVIDENCE_RECOVERY = {
 export interface AdministratorConfirmation { messageIndex: number; result: ManagementResult & { receipt: AdministratorOperation } }
 export async function createAdministratorToolExecutor(options: {
     registry: ManagementRegistry; reader: Reader; operations: AdministratorOperation[];
+    webConfig?: Record<string, unknown>; signal?: AbortSignal;
     readEnvironment: AdministratorEnvironmentReader;
     guard(): boolean; onChange(): void; saveReceipts(confirmation?: AdministratorConfirmation): Promise<void>;
 }) {
@@ -55,7 +57,8 @@ export async function createAdministratorToolExecutor(options: {
             data: initial.length <= MANAGEMENT_READ_CHARS ? data : { ...textPage(initial), detail: ADMINISTRATOR_REFERENCE_TEXT.initialPage } });
         for (const tool of participant.tools) { register(tool, participant.id, participant); }
     }
-    const common = [...ADMINISTRATOR_CHAT_TOOLS, ADMINISTRATOR_OS_INSPECT, ADMINISTRATOR_RESULT_READ];
+    const web = createAdministratorWebTools(options.webConfig, options.signal);
+    const common = [...ADMINISTRATOR_CHAT_TOOLS, ADMINISTRATOR_OS_INSPECT, ADMINISTRATOR_RESULT_READ, ...web.tools];
     for (const tool of common) { register(tool, ADMINISTRATOR_CHAT_TOOLS.includes(tool) ? 'story' : 'administrator', null); }
     const loader = createAdministratorToolLoader(domains, common);
     register(loader.tool, 'administrator', null);
@@ -69,12 +72,18 @@ export async function createAdministratorToolExecutor(options: {
             return { ok: false, status: 'failed' as const, code: 'administrator_environment_unavailable' };
         } finally { options.reader.assertCurrent(); }
     }
-    function complete(operation: AdministratorOperation, result: ManagementResult, continuation = false, summary?: string) {
+    function complete(operation: AdministratorOperation, result: ManagementResult, tool?: ManagementTool, summary?: string) {
         operation.status = result.status;
         const report = result.data && typeof result.data === 'object' ? result.data as { applied?: unknown[]; skipped?: unknown[] } : null;
-        operation.summary = summary ?? (report?.applied || report?.skipped
+        operation.summary = summary ?? (result.data && typeof result.data === 'object' && 'message' in result.data && !result.ok
+            ? String(result.data.message).slice(0, 350) : undefined) ?? (report?.applied || report?.skipped
             ? ADMINISTRATOR_COPY.itemReport(report.applied?.length ?? 0, report.skipped?.length ?? 0) : ADMINISTRATOR_COPY.operations[result.status]);
-        const output = { ...(continuation ? result : evidence.project(operation.id, result)), receipt: { ...operation } };
+        const projected = tool === ADMINISTRATOR_RESULT_READ ? result
+            : evidence.project(operation.id, result, {
+                sourcePaged: tool !== undefined && ADMINISTRATOR_CHAT_TOOLS.includes(tool),
+                boundedSource: tool !== undefined && web.tools.includes(tool),
+            });
+        const output = { ...projected, receipt: { ...operation } };
         options.onChange();
         return output;
     }
@@ -129,6 +138,10 @@ export async function createAdministratorToolExecutor(options: {
                     try { result = await session.execute(name, args, options.guard); }
                     catch (error) { if (route.tool.effect === 'write') { pending = { id, operation, session, messageIndex }; } throw error; }
                     if (route.tool.effect === 'read') { options.reader.assertCurrent(); }
+                } else if (web.owns(name)) {
+                    options.reader.assertCurrent();
+                    result = await web.execute(name, args);
+                    options.reader.assertCurrent();
                 } else if (name === TOOLS_LOAD) {
                     options.reader.assertCurrent();
                     result = loader.load(args);
@@ -140,7 +153,7 @@ export async function createAdministratorToolExecutor(options: {
                 }
                 operation.elapsedMs += Math.round(performance.now() - started);
                 // The loop saves this result and its receipt together before any further dispatch.
-                return complete(operation, result, name === TOOL_RESULT_READ, name === TOOLS_LOAD && result.ok ? ADMINISTRATOR_COPY.toolsLoaded
+                return complete(operation, result, route.tool, name === TOOLS_LOAD && result.ok ? ADMINISTRATOR_COPY.toolsLoaded
                     : name === OS_INSPECT && !result.ok ? administratorError(new Error('administrator_environment_unavailable')) : undefined);
             } catch (error) {
                 operation.status = pending?.id === id && (error as { uncertain?: boolean })?.uncertain ? 'unconfirmed' : 'failed';

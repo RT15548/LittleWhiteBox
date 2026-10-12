@@ -1,0 +1,621 @@
+{
+  "formatVersion": 1,
+  "revision": 47,
+  "commitId": "commit-18-1791101679808",
+  "partitions": {
+    "economy": {
+      "schemaVersion": 3,
+      "transactions": [
+        {
+          "id": "tx-a7cf5dba-8cdc-4fbd-8f74-ec7f7a9c8a4c",
+          "sequence": 1,
+          "idempotencyKey": "economy:opening-grant:v1",
+          "actionId": "economy:opening-grant:v1",
+          "fromAccountId": "system:mint",
+          "toAccountId": "player",
+          "amount": 100,
+          "kind": "opening_grant",
+          "title": "开户赠礼",
+          "note": "欢迎来到小白 OS",
+          "sourceDomain": "economy",
+          "sourceScope": "user",
+          "sourceId": "opening-grant:v1",
+          "createdAt": 1791080458866
+        },
+        {
+          "id": "tx-caaad963-56fa-4390-bad0-a43d37a3c403",
+          "sequence": 2,
+          "createdAt": 1791080461218,
+          "sourceScope": "user",
+          "idempotencyKey": "building:a7d3956b2b383ae8c19aa8c67cd60216:fee",
+          "actionId": "78de6dac9a1431e182df51072e886947",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "a7d3956b2b383ae8c19aa8c67cd60216"
+        },
+        {
+          "id": "tx-b2192f82-0b13-47ed-a449-35afa63a7d83",
+          "sequence": 3,
+          "createdAt": 1791080461646,
+          "sourceScope": "user",
+          "idempotencyKey": "building:a7d3956b2b383ae8c19aa8c67cd60216:ready",
+          "actionId": "19a4ad6782ab7d4faee8c913e20e092e",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_ready",
+          "title": "小白筑家 · 基础房屋",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "a7d3956b2b383ae8c19aa8c67cd60216"
+        },
+        {
+          "id": "tx-4d1bf0e0-3247-4c55-8e7b-d201d5a1dbe6",
+          "sequence": 4,
+          "createdAt": 1791080485433,
+          "sourceScope": "user",
+          "idempotencyKey": "building:a7d3956b2b383ae8c19aa8c67cd60216:finished",
+          "actionId": "a9ae316e71b7d3f2b1552bef05efbe02",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 90,
+          "kind": "building_finished",
+          "title": "小白筑家 · 心愿交付",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "a7d3956b2b383ae8c19aa8c67cd60216"
+        },
+        {
+          "id": "tx-f61d8748-ee7f-4c40-bd8c-c0304369904e",
+          "sequence": 5,
+          "createdAt": 1791080565870,
+          "sourceScope": "user",
+          "idempotencyKey": "building:02964d29e85a2a99d295ee6378119380:fee",
+          "actionId": "2f12fb39ec5c7fdab284a38ef87a9090",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "02964d29e85a2a99d295ee6378119380"
+        },
+        {
+          "id": "tx-f91d9d7e-96cf-442e-92b5-cd92dbf0778c",
+          "sequence": 6,
+          "createdAt": 1791101541277,
+          "sourceScope": "user",
+          "idempotencyKey": "building:17ddc7e86e48174dacc4d47db70c735e:fee",
+          "actionId": "0118f6b4cc2622af93ee62168b480927",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "17ddc7e86e48174dacc4d47db70c735e"
+        },
+        {
+          "id": "tx-488231f4-79ad-444b-b4b8-a0f7ca51e957",
+          "sequence": 7,
+          "createdAt": 1791101550241,
+          "sourceScope": "user",
+          "idempotencyKey": "building:17ddc7e86e48174dacc4d47db70c735e:ready",
+          "actionId": "ffabe00a961d8d92fea8db3d49f0b317",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_ready",
+          "title": "小白筑家 · 基础房屋",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "17ddc7e86e48174dacc4d47db70c735e"
+        },
+        {
+          "id": "tx-b9c33639-6e01-40a3-8781-499c18cac692",
+          "sequence": 8,
+          "createdAt": 1791101564949,
+          "sourceScope": "user",
+          "idempotencyKey": "building:17ddc7e86e48174dacc4d47db70c735e:finished",
+          "actionId": "79807afc9042072fc8a90c04fbfbabbc",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_finished",
+          "title": "小白筑家 · 心愿交付",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "17ddc7e86e48174dacc4d47db70c735e"
+        },
+        {
+          "id": "tx-92bc633b-a0df-46d1-83d9-6bd05253c2e1",
+          "sequence": 9,
+          "createdAt": 1791101575396,
+          "sourceScope": "user",
+          "idempotencyKey": "building:8193670be4287b3defe1f619c0b656b7:fee",
+          "actionId": "e794e94cc42d8f344711517a309472d6",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "8193670be4287b3defe1f619c0b656b7"
+        },
+        {
+          "id": "tx-4d020a29-9325-464f-abc8-f8e03e10410e",
+          "sequence": 10,
+          "createdAt": 1791101583530,
+          "sourceScope": "user",
+          "idempotencyKey": "building:8193670be4287b3defe1f619c0b656b7:ready",
+          "actionId": "1a383fcab841881bbd1f2bdf548e44d2",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_ready",
+          "title": "小白筑家 · 基础房屋",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "8193670be4287b3defe1f619c0b656b7"
+        },
+        {
+          "id": "tx-e15ef694-210a-40cb-8782-4ba31c563aba",
+          "sequence": 11,
+          "createdAt": 1791101613878,
+          "sourceScope": "user",
+          "idempotencyKey": "building:8193670be4287b3defe1f619c0b656b7:finished",
+          "actionId": "38abb4ecebd8199c6de7c22a8cfb942e",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 90,
+          "kind": "building_finished",
+          "title": "小白筑家 · 心愿交付",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "8193670be4287b3defe1f619c0b656b7"
+        },
+        {
+          "id": "tx-c95792b8-5efe-4656-8445-b95f549748f8",
+          "sequence": 12,
+          "createdAt": 1791101621990,
+          "sourceScope": "user",
+          "idempotencyKey": "building:0b5b2953f19800e23d37d139f23b0157:fee",
+          "actionId": "2ad43cffe6b43603431c09f59858b2c1",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "0b5b2953f19800e23d37d139f23b0157"
+        },
+        {
+          "id": "tx-a7bb24cc-b173-4d5c-99a0-216537f1d029",
+          "sequence": 13,
+          "createdAt": 1791101625749,
+          "sourceScope": "user",
+          "idempotencyKey": "building:0b5b2953f19800e23d37d139f23b0157:ready",
+          "actionId": "a47ad2b6babb14434d4428dc3553a18e",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_ready",
+          "title": "小白筑家 · 基础房屋",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "0b5b2953f19800e23d37d139f23b0157"
+        },
+        {
+          "id": "tx-2200ba4f-851d-4038-8db7-1cfeb9287ed6",
+          "sequence": 14,
+          "createdAt": 1791101679806,
+          "sourceScope": "user",
+          "idempotencyKey": "building:0b5b2953f19800e23d37d139f23b0157:finished",
+          "actionId": "d7c2feee1e6b4030e590f622558ed1d2",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 150,
+          "kind": "building_finished",
+          "title": "小白筑家 · 心愿交付",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "0b5b2953f19800e23d37d139f23b0157"
+        }
+      ]
+    },
+    "dice": {
+      "sheet": null,
+      "resultOverrides": {}
+    },
+    "learning-rewards": {
+      "retiredUnitIds": []
+    },
+    "building": {
+      "format": 5,
+      "revision": 46,
+      "last": {
+        "id": "d7c2feee1e6b4030e590f622558ed1d2",
+        "fingerprint": "{\"type\":\"put\",\"part\":{\"kind\":\"terrace\",\"x\":1,\"y\":1,\"z\":1}}"
+      },
+      "activeId": "0b5b2953f19800e23d37d139f23b0157",
+      "projects": [
+        {
+          "id": "a7d3956b2b383ae8c19aa8c67cd60216",
+          "seed": 17,
+          "tier": "sunroom",
+          "site": {
+            "width": 4,
+            "depth": 3,
+            "entryZ": 2,
+            "floors": 2,
+            "entrance": 2,
+            "living": 2,
+            "gardenSide": -1,
+            "terraces": 1,
+            "materials": 8,
+            "sunSide": -1,
+            "heights": [
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2
+            ]
+          },
+          "rooms": [
+            {
+              "kind": "hall",
+              "x": 2,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "path",
+              "x": 2,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "garden",
+              "x": 3,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "terrace",
+              "x": 1,
+              "y": 1,
+              "z": 2
+            },
+            {
+              "kind": "path",
+              "x": 1,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "path",
+              "x": 0,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "study",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            {
+              "kind": "room",
+              "x": 0,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 2,
+              "y": 1,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 0,
+              "y": 1,
+              "z": 2
+            },
+            {
+              "kind": "wide",
+              "x": 1,
+              "y": 0,
+              "z": 0
+            }
+          ],
+          "state": "living",
+          "saved": true,
+          "memories": [
+            "gardenWalk"
+          ]
+        },
+        {
+          "id": "17ddc7e86e48174dacc4d47db70c735e",
+          "seed": 17,
+          "tier": "courtyard",
+          "site": {
+            "width": 5,
+            "depth": 3,
+            "entryZ": 2,
+            "floors": 1,
+            "entrance": 3,
+            "living": 2,
+            "gardenSide": -1,
+            "terraces": 0,
+            "materials": 8,
+            "sunSide": -1,
+            "heights": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "rooms": [
+            {
+              "kind": "hall",
+              "x": 3,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 3,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "garden",
+              "x": 2,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "room",
+              "x": 3,
+              "y": 0,
+              "z": 0
+            }
+          ],
+          "state": "living",
+          "saved": true,
+          "memories": []
+        },
+        {
+          "id": "8193670be4287b3defe1f619c0b656b7",
+          "seed": 18,
+          "tier": "duplex",
+          "site": {
+            "width": 4,
+            "depth": 3,
+            "entryZ": 2,
+            "floors": 2,
+            "entrance": 2,
+            "living": 4,
+            "gardenSide": -1,
+            "terraces": 0,
+            "materials": 9,
+            "sunSide": -1,
+            "heights": [
+              2,
+              2,
+              1,
+              1,
+              2,
+              2,
+              1,
+              1,
+              2,
+              2,
+              1,
+              1
+            ]
+          },
+          "rooms": [
+            {
+              "kind": "hall",
+              "x": 2,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 2,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "room",
+              "x": 2,
+              "y": 0,
+              "z": 0
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 0,
+              "z": 0
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          ],
+          "state": "living",
+          "saved": true,
+          "memories": []
+        },
+        {
+          "id": "0b5b2953f19800e23d37d139f23b0157",
+          "seed": 19,
+          "tier": "terrace",
+          "site": {
+            "width": 4,
+            "depth": 3,
+            "entryZ": 2,
+            "floors": 3,
+            "entrance": 1,
+            "living": 6,
+            "gardenSide": -1,
+            "terraces": 1,
+            "materials": 11,
+            "sunSide": 1,
+            "heights": [
+              2,
+              3,
+              3,
+              1,
+              2,
+              3,
+              3,
+              1,
+              2,
+              3,
+              3,
+              1
+            ]
+          },
+          "rooms": [
+            {
+              "kind": "hall",
+              "x": 1,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 1,
+              "z": 2
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 2,
+              "z": 2
+            },
+            {
+              "kind": "wide",
+              "x": 2,
+              "y": 0,
+              "z": 2
+            },
+            {
+              "kind": "wide",
+              "x": 2,
+              "y": 0,
+              "z": 1
+            },
+            {
+              "kind": "room",
+              "x": 2,
+              "y": 1,
+              "z": 2
+            },
+            {
+              "kind": "terrace",
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          ],
+          "state": "living",
+          "saved": false,
+          "memories": []
+        }
+      ],
+      "receipts": [
+        {
+          "runId": "a7d3956b2b383ae8c19aa8c67cd60216",
+          "tier": "sunroom",
+          "admission": "78de6dac9a1431e182df51072e886947",
+          "ready": "19a4ad6782ab7d4faee8c913e20e092e",
+          "finished": "a9ae316e71b7d3f2b1552bef05efbe02"
+        },
+        {
+          "runId": "02964d29e85a2a99d295ee6378119380",
+          "tier": "sunroom",
+          "admission": "2f12fb39ec5c7fdab284a38ef87a9090",
+          "ready": null,
+          "finished": null
+        },
+        {
+          "runId": "17ddc7e86e48174dacc4d47db70c735e",
+          "tier": "courtyard",
+          "admission": "0118f6b4cc2622af93ee62168b480927",
+          "ready": "ffabe00a961d8d92fea8db3d49f0b317",
+          "finished": "79807afc9042072fc8a90c04fbfbabbc"
+        },
+        {
+          "runId": "8193670be4287b3defe1f619c0b656b7",
+          "tier": "duplex",
+          "admission": "e794e94cc42d8f344711517a309472d6",
+          "ready": "1a383fcab841881bbd1f2bdf548e44d2",
+          "finished": "38abb4ecebd8199c6de7c22a8cfb942e"
+        },
+        {
+          "runId": "0b5b2953f19800e23d37d139f23b0157",
+          "tier": "terrace",
+          "admission": "2ad43cffe6b43603431c09f59858b2c1",
+          "ready": "a47ad2b6babb14434d4428dc3553a18e",
+          "finished": "d7c2feee1e6b4030e590f622558ed1d2"
+        }
+      ]
+    }
+  },
+  "stories": {}
+}

@@ -36,17 +36,17 @@ test('external status and actual lexical gates appear in the copyable report', (
     assert.doesNotMatch(text, /threshold=0\.50/);
 });
 
-test('timing counts assembly and local L1 selection once, excluding retry backoff from API time', () => {
+test('timing counts assembly and local L1 selection once, with the query attributed to API time', () => {
     const m = createMetrics();
     Object.assign(m.timing, {
-        round1Embed: 700, round1EmbedRetryWait: 500,
+        round1Embed: 700,
         directEvidenceRetrieval: 90,
         evidenceAssembly: 30, constraintFilter: 10, formatting: 10, runtimeEndSession: 5,
     });
     m.query.buildTime = 15;
     finalizeMetricsTiming(m, 900);
     assert.equal(m.timing.total, 900);
-    assert.equal(m.timing.externalTotal, 200);
+    assert.equal(m.timing.externalTotal, 700);
     assert.equal(m.timing.localKnownTotal, 160);
     assert.equal(m.timing.unattributed, 40);
     finalizeMetricsTiming(m, 900);

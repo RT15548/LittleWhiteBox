@@ -4,12 +4,14 @@ import type { OutgoingMessage } from '../application/image-upload.js';
 import MessageIcon from './MessageIcon.vue';
 import type { MessageDraft } from './draft.js';
 import { readMessageImage } from './image-file.js';
+import { shouldSendOnEnter } from '../../../shell/app-src/input/composer-keyboard.js';
 const props = defineProps<{ disabled: boolean; sending: boolean; waitingFor: string }>();
 const emit = defineEmits<{ send: [payload: OutgoingMessage] }>();
 const draft = defineModel<MessageDraft>('draft', { required: true });
 const text = computed({ get: () => draft.value.text, set: value => {draft.value = { ...draft.value, text: value };} });
 const fileInput = ref<HTMLInputElement | null>(null);
 const reading = ref(false); const error = ref('');
+const composing = ref(false);
 let alive = true;
 async function choose(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -27,7 +29,8 @@ function send() {
 }
 onUnmounted(() => {alive = false;});
 function keydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) {event.preventDefault(); send();}
+    if (!shouldSendOnEnter(event, composing.value)) {return;}
+    event.preventDefault(); send();
 }
 </script>
 <template>
@@ -43,7 +46,7 @@ function keydown(event: KeyboardEvent) {
         <p v-if="waitingFor" class="messages-composer-wait" role="status">正在等待 {{ waitingFor }} 的回复。可以先写好，稍后发送。</p>
         <div class="messages-composer-line">
             <button type="button" class="messages-icon-button messages-attach" aria-label="选择图片" :disabled="sending || reading" @click="fileInput?.click()"><MessageIcon name="plus" /></button>
-            <textarea v-model="text" rows="1" maxlength="4000" :placeholder="draft.image ? '给图片配句话…' : '说点什么…'" aria-label="消息内容" :disabled="sending" @keydown="keydown" />
+            <textarea v-model="text" rows="1" maxlength="4000" enterkeyhint="enter" :placeholder="draft.image ? '给图片配句话…' : '说点什么…'" aria-label="消息内容" :disabled="sending" @keydown="keydown" @compositionstart="composing = true" @compositionend="composing = false" />
             <button class="messages-send" type="submit" :disabled="disabled || reading || (!text.trim() && !draft.image)" aria-label="发送"><MessageIcon name="send" /></button>
         </div>
     </form>

@@ -57,6 +57,8 @@ function createPrepared(channel = 'sillytavern-openai-compatible', sourceText = 
                 model: 'test-model',
                 apiKey: 'proxy-password',
                 tavilyApiKey: 'also-secret',
+                webProvider: 'exa',
+                exaApiKey: 'exa-secret',
                 maxTokens: 1000,
                 timeoutMs: 5000,
                 toolMode: 'native',
@@ -189,6 +191,8 @@ test('frontend submission confirms the marker before POST and retains the hosted
             const envelope = JSON.parse(options.body);
             assert.equal(envelope.agent.providerConfig.apiKey, 'proxy-password');
             assert.equal(Object.hasOwn(envelope.agent.providerConfig, 'tavilyApiKey'), false);
+            assert.equal(Object.hasOwn(envelope.agent.providerConfig, 'exaApiKey'), false);
+            assert.equal(Object.hasOwn(envelope.agent.providerConfig, 'webProvider'), false);
             return response(202, { ok: true, run: { id: envelope.runId, state: 'queued' } });
         },
     });

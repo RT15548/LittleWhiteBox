@@ -37,12 +37,12 @@ function createCurrentSettings(enabled = true) {
         appOrder: [],
         apps: {
             fourthWall: createFourthWallSettings(),
-            map: { autoMaintenance: false },
+            map: { autoMaintenance: false, projectToChat: false },
             tasks: { autoMaintenance: false },
             messages: { imagePrompt: false, voicePrompt: false, syncNoticeEnabled: true },
             dice: { actionChecksEnabled: false, actionCheckFrequency: 'standard', actionCheckRule: 'd20', encountersEnabled: false },
             world: { subscribed: false, injectToStory: true },
-            game: { movingSoundEnabled: true },
+            game: { movingSoundEnabled: true, buildingSoundEnabled: true },
         },
     };
 }
@@ -61,7 +61,7 @@ test('enables a new OS entry without enabling automatic app features', async () 
         assert.deepEqual(current.apps.messages, { imagePrompt: false, voicePrompt: false, syncNoticeEnabled: true });
         assert.deepEqual(current.apps.dice, { actionChecksEnabled: false, actionCheckFrequency: 'standard', actionCheckRule: 'd20', encountersEnabled: false });
         assert.deepEqual(current.apps.world, { subscribed: false, injectToStory: true });
-        assert.deepEqual(current.apps.game, { movingSoundEnabled: true });
+        assert.deepEqual(current.apps.game, { movingSoundEnabled: true, buildingSoundEnabled: true });
         assert.deepEqual(repository.read(), current);
     }
 });
@@ -95,7 +95,7 @@ test('moves the frozen upstream Fourth Wall preferences into OS without changing
 
     assert.equal(saves, 1);
     assert.equal(current.enabled, true);
-    assert.deepEqual(current.apps.map, { autoMaintenance: false });
+    assert.deepEqual(current.apps.map, createCurrentSettings().apps.map);
     assert.deepEqual(current.apps.tasks, { autoMaintenance: false });
     assert.deepEqual(current.apps.fourthWall, {
         image: { enablePrompt: true },
@@ -159,7 +159,7 @@ test('preserves the enabled choice from the observed minimal OS setting', async 
 
     assert.equal(current.enabled, true);
     assert.equal(Object.hasOwn(current, 'schemaVersion'), false);
-    assert.deepEqual(current.apps.map, { autoMaintenance: false });
+    assert.deepEqual(current.apps.map, createCurrentSettings().apps.map);
     assert.deepEqual(current.apps.tasks, { autoMaintenance: false });
     assert.equal(typeof current.apps.fourthWall.promptTemplates.bottom, 'string');
 });
@@ -186,7 +186,7 @@ test('normalizes previously written OS settings without a root settings version'
         assert.equal(saves, 1);
         assert.equal(current.enabled, true);
         assert.equal(Object.hasOwn(current, 'schemaVersion'), false);
-        assert.deepEqual(current.apps.map, { autoMaintenance: true });
+        assert.deepEqual(current.apps.map, { ...createCurrentSettings().apps.map, autoMaintenance: true });
         assert.deepEqual(current.apps.tasks, { autoMaintenance: true });
         assert.equal(Object.hasOwn(current.apps, 'discardedTestApp'), false);
         assert.deepEqual(repository.read(), current);
@@ -237,7 +237,7 @@ test('updates OS and automatic-maintenance preferences through the common reposi
     await repository.prepare();
 
     assert.equal((await repository.setEnabled(true)).enabled, true);
-    assert.deepEqual((await repository.setMapAutoMaintenance(true)).apps.map, { autoMaintenance: true });
+    assert.deepEqual((await repository.setMapAutoMaintenance(true)).apps.map, { autoMaintenance: true, projectToChat: false });
     assert.deepEqual((await repository.setTasksAutoMaintenance(true)).apps.tasks, { autoMaintenance: true });
 
     assert.equal(saves, 3);
@@ -257,6 +257,23 @@ test('persists a mutation before installing cancellation fences and publishing i
     await repository.setMapAutoMaintenance(true);
 
     assert.deepEqual(events, ['save', 'fence', 'publish']);
+});
+
+test('map projection preference survives reopening and failed saves do not publish it', async () => {
+    const settings = { xiaobaiOs: createCurrentSettings() };
+    let fail = false, notifications = 0;
+    const adapter = createAdapter(settings, () => { if (fail) { throw new Error('fixture-save-failed'); } });
+    const repository = createSettingsRepository(adapter);
+    await repository.prepare();
+    repository.subscribe(() => { notifications++; });
+    await repository.setMapProjection(true);
+    const reopened = createSettingsRepository(adapter);
+    assert.equal((await reopened.prepare()).apps.map.projectToChat, true);
+    assert.equal(reopened.read().apps.map.autoMaintenance, false);
+    fail = true;
+    await assert.rejects(repository.setMapProjection(false));
+    assert.equal(repository.read().apps.map.projectToChat, true);
+    assert.equal(notifications, 1);
 });
 
 test('rejects invalid mutation arguments without changing preferences', async () => {

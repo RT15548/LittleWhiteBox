@@ -34,7 +34,7 @@ function eventBlock(event) {
     ].filter(Boolean).join('\n');
 }
 
-/** Pure formatter used by the public Story Summary prompt projection. */
+/** _addedAt bounds when an event was recorded, not when it happened inside the summary batch. */
 export function formatStorySummaryL2Events(events, {
     throughMessageIndex,
     maxCharacters = DEFAULT_MAX_CHARACTERS,

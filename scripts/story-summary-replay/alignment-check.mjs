@@ -204,7 +204,9 @@ export async function runAlignmentCheck({ modules, extSettings, summarize }) {
         requests.splice(0);
         failStateVector = true;
         const maintain = () => maintainNaturalHistoryAfterAi({ modules, chatId: maintenanceChatId,
-            panelConfig: applied.panel, floor: 0, visibleMessages: maintenanceHistory, nextCaseId: 'maintenance' });
+            panelConfig: applied.panel, floor: 0, visibleMessages: maintenanceHistory, nextCaseId: 'maintenance',
+            // This fixture has no L2 events; its event stage performs no requests.
+            repairEvents: async () => ({ success: true, repaired: 0 }) });
         await assert.rejects(maintain, /maintenance incomplete/);
         assert.equal(modules.getL0FloorStatus(0).status, 'ok');
         assert.ok(modules.getStateAtoms().length > 0);

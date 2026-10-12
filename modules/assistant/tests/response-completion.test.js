@@ -65,7 +65,15 @@ for (const [provider, protocol, toolMode = 'native'] of [
                         ...(stream ? { onStreamProgress() {} } : {}) });
                     if (ending === 'normal') {
                         const result = await run(); assert.equal(result.text, 'Complete text'); assert.equal(result.toolCalls.length, tools ? 1 : 0);
-                    } else { await assert.rejects(run); }
+                    } else { await assert.rejects(run, error => {
+                        if (ending === 'limit') {
+                            const expected = protocol === 'openai' ? data.json.choices[0].message.content : 'Complete text';
+                            assert.equal(error.partialResponse.text, expected);
+                            assert.equal(error.partialResponse.truncated, true);
+                            assert.equal(error.partialResponse.toolCalls, undefined);
+                        }
+                        return true;
+                    }); }
                     assert.equal(requests, 1, 'A non-normal response must not be retried');
                     t.mock.restoreAll();
                 }

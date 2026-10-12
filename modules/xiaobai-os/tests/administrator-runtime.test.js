@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { administratorHarness, settled, tick, withLoadedTools } from './administrator-harness.js';
-import { TOOLS_LOAD } from '../apps/administrator/agent/tool-loader.js';
+import { administratorHarness, settled, tick, withLoadedTools, COMMON_TOOL_NAMES } from './administrator-harness.js';
 import { createAdministratorData } from '../apps/administrator/domain/data.js';
 import { administratorPage } from '../apps/administrator/application/projection.js';
 import { ADMINISTRATOR_POLICY } from '../apps/administrator/domain/policy.js';
@@ -9,6 +8,83 @@ import { administratorTurnMessages, historyBefore } from '../apps/administrator/
 
 const call = (name, args, id = 'test-call') => ({ text: '', toolCalls: [{ id, name, arguments: JSON.stringify(args) }] });
 const userTurn = (id, assistant = '原回复') => ({ id, createdAt: 1, user: { text: '请检查任务' }, assistant, toolMessages: [], operations: [], status: 'finished', error: '' });
+
+test('live activity follows observed stream changes, retains prose between thinking blocks and resets for tool continuation', async t => {
+    const h = await administratorHarness();
+    const requests = [], completions = [];
+    h.state.generate = request => new Promise((resolve, reject) => {
+        requests.push(request); completions.push(resolve);
+        request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true });
+    });
+    t.after(() => h.runtime.reset());
+    await h.request('send', { text: 'Check' });
+    while (!requests.length) { await tick(); }
+    const update = snapshot => requests[0].onStreamProgress(snapshot);
+    assert.equal(h.runtime.live().phase, 'waiting');
+    update({ text: '', thoughts: [] });
+    assert.equal(h.runtime.live().phase, 'waiting');
+    update({ thoughts: [{ text: 'thinking' }] });
+    assert.equal(h.runtime.live().phase, 'thinking');
+    update({ text: 'Checking.', thoughts: [{ text: 'thinking' }] });
+    assert.equal(h.runtime.live().phase, 'replying');
+    update({ thoughts: [{ text: 'thinking more' }] });
+    assert.equal(h.runtime.live().phase, 'thinking');
+    assert.equal(h.runtime.live().text, 'Checking.');
+    update({ text: 'Checking.', thoughts: [{ text: 'thinking more' }] });
+    assert.equal(h.runtime.live().phase, 'thinking', 'Repeated cumulative text is not new reply activity');
+    update({ toolCalls: [{ id: 'read', name: 'ChatRead', arguments: '{"from":55}' }] });
+    assert.equal(h.runtime.live().phase, 'tools');
+    completions[0](call('ChatRead', { from: 55 }, 'read'));
+    while (requests.length < 2) { await tick(); }
+    assert.equal(h.runtime.live().phase, 'waiting');
+    assert.equal(h.runtime.live().text, '');
+    update({ activity: 'thinking', text: 'late first request' });
+    assert.equal(h.runtime.live().phase, 'waiting');
+    assert.equal(h.runtime.live().text, '');
+    completions[1]({ text: 'Done.' }); await settled(h.runtime);
+    assert.equal(h.runtime.live(), null);
+    assert.equal(h.repository.read().turns[0].assistant, 'Done.');
+});
+
+test('native reasoning without visible text is observable; stop and regeneration keep activity and timing run-local', async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 50000 });
+    const h = await administratorHarness();
+    let request, finish;
+    h.state.generate = next => new Promise((resolve, reject) => {
+        request = next; finish = resolve;
+        next.signal.addEventListener('abort', () => reject(next.signal.reason), { once: true });
+    });
+    t.after(() => h.runtime.reset());
+    const sent = await h.request('send', { text: 'Check' });
+    while (!request) { await tick(); }
+    assert.equal(h.runtime.live().startedAt, 50000);
+    request.onStreamProgress({ activity: 'thinking', text: '', thoughts: [] });
+    assert.equal(h.runtime.live().phase, 'thinking');
+    request.onStreamProgress({ activity: 'waiting', text: '', thoughts: [] });
+    assert.equal(h.runtime.live().phase, 'waiting');
+    request.onStreamProgress({ activity: 'replying', text: 'First.' });
+    request.onStreamProgress({ activity: 'thinking', text: 'First.', thoughts: [] });
+    assert.equal(h.runtime.live().phase, 'thinking');
+    assert.equal(h.runtime.live().text, 'First.');
+    finish({ text: 'First.' }); await settled(h.runtime);
+    assert.equal(Object.hasOwn(h.repository.read().turns[0], 'startedAt'), false);
+    assert.equal(Object.hasOwn(h.repository.read().turns[0], 'phase'), false);
+    const previous = request; request = null; t.mock.timers.tick(8000);
+    await h.request('regenerate', { turnId: sent.turnId });
+    while (!request) { await tick(); }
+    assert.equal(h.runtime.live().startedAt, 58000);
+    assert.equal(h.runtime.live().phase, 'waiting');
+    previous.onStreamProgress({ activity: 'thinking', text: 'stale reply' });
+    assert.equal(h.runtime.live().phase, 'waiting');
+    request.onStreamProgress({ activity: 'thinking', text: '', thoughts: [] });
+    h.runtime.stop();
+    request.onStreamProgress({ activity: 'replying', text: 'late reply' });
+    assert.equal(h.runtime.live().phase, 'stopping');
+    assert.equal(h.runtime.live().text, '');
+    await settled(h.runtime);
+    assert.equal(h.runtime.live(), null);
+    assert.equal(h.repository.read().turns[0].status, 'interrupted');
+});
 
 test('regeneration after repeated provider failures reloads API configuration and sends only the original request', async () => {
     const h = await administratorHarness();
@@ -138,7 +214,7 @@ test('a saved USER tail generates normally without appending another USER', asyn
     const turn = userTurn('old', null);
     const h = await administratorHarness({ administrator: { ...createAdministratorData(), turns: [turn] } });
     h.state.generate = async request => {
-        assert.deepEqual(request.tools.map(tool => tool.function.name), [TOOLS_LOAD]);
+        assert.deepEqual(request.tools.map(tool => tool.function.name), COMMON_TOOL_NAMES);
         assert.deepEqual(request.messages.filter(message => message.role === 'user'), [{ role: 'user', content: turn.user.text }]);
         return { text: '已重新核查。' };
     };
@@ -175,17 +251,31 @@ test('an unavailable floor is a failed read result, so the model can correct its
     });
     await h.request('send', { text: '查看第55楼' }); await settled(h.runtime);
     assert.equal(h.repository.read().turns[0].status, 'finished');
-    assert.deepEqual(h.repository.read().turns[0].operations.map(op => op.status), ['read', 'failed', 'read']);
+    assert.deepEqual(h.repository.read().turns[0].operations.map(op => op.status), ['failed', 'read']);
 });
 
-test('full story text stays in tool context and never enters frame progress or persisted receipts', async () => {
-    const h = await administratorHarness(); h.state.messages[55].mes = '原文资料'.repeat(2000); let step = 0;
-    h.state.generate = withLoadedTools([], async () => step++ === 0 ? call('ChatRead', { from: 55 }) : { text: '已查阅。' });
-    await h.request('send', { text: '查看第55楼' }); await settled(h.runtime);
-    const tool = JSON.parse(h.state.requests.at(-1).messages.find(m => m.role === 'tool' && m.toolName === 'ChatRead').content);
-    assert.equal(tool.data.items[0].text, h.state.messages[55].mes);
+test('story pages reach the next model request with direct continuation and stay out of frame progress and receipts', async () => {
+    const h = await administratorHarness();
+    h.state.messages[55].mes = '原文资料\n"<&>{}🙂'.repeat(1800);
+    const expected = h.state.messages.slice(55, 57).map(message => message.mes);
+    const joined = ['', ''], returned = [];
+    h.state.generate = async request => {
+        const message = request.messages.findLast(item => item.role === 'tool' && item.toolName === 'ChatRead');
+        if (!message) { return call('ChatRead', { from: 55, to: 56 }); }
+        const response = JSON.parse(message.content);
+        assert.equal(response.status, 'read');
+        assert.ok(Array.isArray(response.data.items));
+        for (const item of response.data.items) { joined[item.floor - 55] += item.text; }
+        returned.push(response);
+        return response.data.next ? call('ChatRead', response.data.next) : { text: '已查阅。' };
+    };
+    await h.request('send', { text: '查看第55至56楼' }); await settled(h.runtime);
+    assert.equal(h.repository.read().turns[0].status, 'finished', h.runtime.error());
+    assert.deepEqual(joined, expected);
+    assert.ok(returned.length > 1);
+    assert.equal(h.state.requests.length, returned.length + 1);
     assert.ok(h.pushed.every(message => JSON.stringify(message).length < 5000));
-    assert.deepEqual(JSON.parse(h.repository.read().turns[0].toolMessages.find(m => m.role === 'tool' && m.toolName === 'ChatRead').content), tool);
+    assert.deepEqual(h.repository.read().turns[0].toolMessages.filter(message => message.role === 'tool').map(message => JSON.parse(message.content)), returned);
     assert.ok(JSON.stringify(h.repository.read().turns[0].operations).length < 2000);
 });
 

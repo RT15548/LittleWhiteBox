@@ -1,0 +1,17 @@
+.exp-world-labels { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+.exp-threat { position:absolute; top:0; left:0; width:20px; height:20px; margin:-10px; border-radius:50%; background:#203b48cc; border:1px solid #f2cd9680; }
+.exp-threat[hidden] { display:none; }
+.exp-threat::before { content:""; position:absolute; top:4px; left:4px; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:8px solid #ef997b; }
+.exp-threat.is-boss::before { border-bottom-color:#ffe2a4; }
+.exp-damage { position:absolute; top:0; left:0; margin:-12px 0 0 -8px; color:#fff9d5; font:800 17px/1 Georgia,serif; text-shadow:0 2px 2px #183b3e,1px 0 #183b3e,-1px 0 #183b3e; }
+.exp-damage.is-player { color:#ffb2a1; font-size:20px; }
+.exp-damage.is-heal { color:#b3ffca; }
+.exp-world-ward[hidden],.exp-world-defense[hidden] { display:none; }
+.exp-world-ward { position:absolute; transform:translate(-50%,8px); width:54px; height:5px; overflow:hidden; border:1px solid #c5ecffb3; border-radius:3px; background:#153349d9; box-shadow:0 1px 3px #10253570; }
+.exp-world-ward i { display:block; height:100%; background:var(--ward-color); }
+.exp-world-defense { position:absolute; transform:translate(-50%,-100%); color:#fff6df; text-align:center; text-shadow:0 1px 2px #102535; padding:4px 9px; border:1px solid #a1e7ff; background:#174868ed; border-radius:5px; font:700 12px/1.4 sans-serif; white-space:nowrap; box-shadow:0 2px 7px #10263760; }
+.exp-world-defense::before { content:""; display:inline-block; width:10px; height:12px; margin-right:5px; vertical-align:-2px; background:#bcefff; clip-path:polygon(50% 0,100% 20%,87% 73%,50% 100%,13% 73%,0 20%); }
+.exp-world-defense[data-state=blocking],.exp-world-defense[data-state=block],.exp-world-defense[data-state=parry] { background:#574326ed; border-color:#ffe0a1; color:#fff0c8; }
+.exp-world-defense[data-state=parry] { box-shadow:0 0 0 2px #ffedb966,0 2px 8px #10263780; }
+.exp-world-defense[data-state=ward-break] { border-style:dashed; background:#243a53ed; }
+@container moving-frame (max-width:600px) { .exp-world-defense { font-size:11px; } }

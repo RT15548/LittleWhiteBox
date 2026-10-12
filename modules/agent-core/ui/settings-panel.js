@@ -34,8 +34,10 @@ import {
 import {
     normalizeReasoningConfig,
 } from '../reasoning-config.js';
-import { DEFAULT_TAVILY_BASE_URL, normalizeTavilyBaseUrl } from '../tavily-search.js';
+import { WEB_PROVIDERS, normalizeWebSettings } from '../web/settings.js';
+import { bindWebSettingsGuide, readWebSettingsForm, syncWebSettingsForm } from './web-settings.js';
 import { resolveAgentAuth } from '../provider-auth.js';
+import { MODEL_LIST_AUTH_OPTIONS, normalizeModelListAuth, supportsModelListAuth } from '../model-list-auth.js';
 
 const MODEL_FILTERS = {
     chat: {
@@ -131,10 +133,6 @@ function normalizeBaseUrl(rawBaseUrl) {
 
 function isToolModeProvider(provider = '') {
     return provider === 'openai-compatible' || provider === 'sillytavern-openai-compatible';
-}
-
-function isAnthropicProvider(provider = '') {
-    return provider === 'anthropic' || provider === 'sillytavern-claude';
 }
 
 function getSillyTavernChatCompletionSource(provider = '') {
@@ -286,6 +284,23 @@ async function tryCandidateFetches({ urls, requestOptionsList, extractModels, pr
     throw new Error(`${providerLabel} 拉取模型失败：未获取到模型列表。`);
 }
 
+async function pullAnthropicModels(baseUrl, providerConfig, options = {}) {
+    const authProvider = normalizeModelListAuth(providerConfig.modelListAuth) === 'bearer' ? 'openai-compatible' : 'anthropic';
+    return await tryCandidateFetches({
+        urls: buildAnthropicCandidateUrls(baseUrl),
+        requestOptionsList: [{
+            headers: {
+                ...resolveAgentAuth(authProvider, providerConfig.apiKey).headers,
+                'anthropic-version': '2023-06-01',
+                Accept: 'application/json',
+            },
+            signal: options.signal,
+        }],
+        extractModels: extractAnthropicModels,
+        providerLabel: 'Anthropic',
+    });
+}
+
 async function pullSillyTavernClaudeModels(providerConfig, options = {}) {
     const auth = resolveAgentAuth('anthropic', providerConfig.apiKey);
     const customBaseUrl = normalizeBaseUrl(providerConfig.baseUrl || '');
@@ -295,19 +310,7 @@ async function pullSillyTavernClaudeModels(providerConfig, options = {}) {
 
     if (baseUrl && (auth.apiKey || customBaseUrl)) {
         try {
-            return await tryCandidateFetches({
-                urls: buildAnthropicCandidateUrls(baseUrl),
-                requestOptionsList: [{
-                    headers: {
-                        ...auth.headers,
-                        'anthropic-version': '2023-06-01',
-                        Accept: 'application/json',
-                    },
-                    signal: options.signal,
-                }],
-                extractModels: extractAnthropicModels,
-                providerLabel: 'Anthropic',
-            });
+            return await pullAnthropicModels(baseUrl, providerConfig, options);
         } catch (error) {
             if (customBaseUrl) {
                 throw error;
@@ -366,20 +369,8 @@ export async function pullModelsForProvider(providerConfig, options = {}) {
         });
     }
 
-    if (isAnthropicProvider(provider)) {
-        return await tryCandidateFetches({
-            urls: buildAnthropicCandidateUrls(baseUrl),
-            requestOptionsList: [{
-                headers: {
-                    ...auth.headers,
-                    'anthropic-version': '2023-06-01',
-                    Accept: 'application/json',
-                },
-                signal: options.signal,
-            }],
-            extractModels: extractAnthropicModels,
-            providerLabel: 'Anthropic',
-        });
+    if (supportsModelListAuth(provider)) {
+        return await pullAnthropicModels(baseUrl, providerConfig, options);
     }
 
     return await tryCandidateFetches({
@@ -466,6 +457,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: String(delegateProviderConfig.baseUrl || ''),
             delegateModel: String(delegateProviderConfig.model || ''),
             delegateApiKey: String(delegateProviderConfig.apiKey || ''),
+            delegateModelListAuth: normalizeModelListAuth(delegateProviderConfig.modelListAuth),
             delegateTemperature: normalizeTemperature(delegateProviderConfig.temperature, 1),
             delegateMaxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(delegateProviderConfig),
@@ -484,6 +476,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(providerConfig.baseUrl || ''),
             model: String(providerConfig.model || ''),
             apiKey: String(providerConfig.apiKey || ''),
+            modelListAuth: normalizeModelListAuth(providerConfig.modelListAuth),
             temperature: normalizeTemperature(providerConfig.temperature, 1),
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             sendTemperature: shouldSendTemperature(providerConfig),
@@ -500,6 +493,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: String(providerConfig.baseUrl || ''),
             delegateModel: String(providerConfig.model || ''),
             delegateApiKey: String(providerConfig.apiKey || ''),
+            delegateModelListAuth: normalizeModelListAuth(providerConfig.modelListAuth),
             delegateTemperature: normalizeTemperature(providerConfig.temperature, 1),
             delegateMaxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(providerConfig),
@@ -527,8 +521,7 @@ export function createAgentSettingsPanel(deps = {}) {
             provider,
             modelConfigs,
             ...providerDraftFields,
-            tavilyApiKey: String(sourceConfig?.tavilyApiKey || ''),
-            tavilyBaseUrl: normalizeTavilyBaseUrl(sourceConfig?.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...normalizeWebSettings(sourceConfig),
             permissionMode: normalizePermissionMode(sourcePreset.permissionMode),
             jsApiPermission: normalizeJsApiPermission(sourceConfig?.jsApiPermission),
             ...delegateDraft,
@@ -579,6 +572,9 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl,
             model,
             apiKey: root.querySelector('#xb-assistant-api-key')?.value.trim() || '',
+            ...(supportsModelListAuth(provider) ? { modelListAuth: normalizeModelListAuth(
+                root.querySelector('#xb-assistant-model-list-auth')?.value ?? draft.modelListAuth,
+            ) } : {}),
             temperature: normalizeTemperature(root.querySelector('#xb-assistant-temperature')?.value, draft.temperature ?? 1),
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-max-tokens')?.value, draft.maxTokens),
             sendTemperature: root.querySelector('#xb-assistant-send-temperature')?.checked ?? Boolean(draft.sendTemperature ?? true),
@@ -591,6 +587,9 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: delegateBaseUrl,
             model: delegateModel,
             apiKey: root.querySelector('#xb-assistant-delegate-api-key')?.value.trim() ?? draft.delegateApiKey ?? '',
+            ...(supportsModelListAuth(delegateProvider) ? { modelListAuth: normalizeModelListAuth(
+                root.querySelector('#xb-assistant-delegate-model-list-auth')?.value ?? draft.delegateModelListAuth,
+            ) } : {}),
             temperature: normalizeTemperature(root.querySelector('#xb-assistant-delegate-temperature')?.value, draft.delegateTemperature ?? 1),
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-delegate-max-tokens')?.value, draft.delegateMaxTokens),
             sendTemperature: root.querySelector('#xb-assistant-delegate-send-temperature')?.checked ?? Boolean(draft.delegateSendTemperature ?? true),
@@ -622,6 +621,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: providerConfig.baseUrl,
             model: providerConfig.model,
             apiKey: providerConfig.apiKey,
+            modelListAuth: providerConfig.modelListAuth,
             temperature: providerConfig.temperature,
             maxTokens: providerConfig.maxTokens,
             sendTemperature: providerConfig.sendTemperature,
@@ -629,10 +629,7 @@ export function createAgentSettingsPanel(deps = {}) {
             reasoningEffort: providerConfig.reasoning.effort || '',
             reasoningBudgetTokens: providerConfig.reasoning.budgetTokens,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
-            tavilyApiKey: root.querySelector('#xb-assistant-tavily-api-key')?.value.trim()
-                ?? draft.tavilyApiKey
-                ?? '',
-            tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...readWebSettingsForm(root, draft),
             permissionMode: normalizePermissionMode(root.querySelector('#xb-assistant-permission-mode')?.value || draft.permissionMode),
             jsApiPermission: normalizeJsApiPermission(root.querySelector('#xb-assistant-jsapi-permission')?.value || draft.jsApiPermission),
             delegatePresetName: resolveExistingPresetName(root.querySelector('#xb-assistant-delegate-preset-select')?.value || draft.delegatePresetName, draft.currentPresetName),
@@ -641,6 +638,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: delegateProviderConfig.baseUrl,
             delegateModel: delegateProviderConfig.model,
             delegateApiKey: delegateProviderConfig.apiKey,
+            delegateModelListAuth: delegateProviderConfig.modelListAuth,
             delegateTemperature: delegateProviderConfig.temperature,
             delegateMaxTokens: delegateProviderConfig.maxTokens,
             delegateSendTemperature: delegateProviderConfig.sendTemperature,
@@ -662,6 +660,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(draft.baseUrl || ''),
             model: String(draft.model || ''),
             apiKey: String(draft.apiKey || ''),
+            ...(supportsModelListAuth(draft.provider) ? { modelListAuth: normalizeModelListAuth(draft.modelListAuth) } : {}),
             temperature: normalizeTemperature(draft.temperature, 1),
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
@@ -681,6 +680,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(draft.delegateBaseUrl || ''),
             model: String(draft.delegateModel || ''),
             apiKey: String(draft.delegateApiKey || ''),
+            ...(supportsModelListAuth(draft.delegateProvider) ? { modelListAuth: normalizeModelListAuth(draft.delegateModelListAuth) } : {}),
             temperature: normalizeTemperature(draft.delegateTemperature, 1),
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
@@ -716,8 +716,8 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: draft.baseUrl || '',
             model: draft.model || '',
             apiKey: draft.apiKey || '',
-            tavilyApiKey: draft.tavilyApiKey || '',
-            tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...(supportsModelListAuth(draft.provider) ? { modelListAuth: normalizeModelListAuth(draft.modelListAuth) } : {}),
+            ...normalizeWebSettings(draft),
             temperature: draft.sendTemperature === false ? undefined : normalizeTemperature(draft.temperature, 1),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
             maxTokens: normalizeMaxTokens(draft.maxTokens),
@@ -742,8 +742,8 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: draft.delegateBaseUrl || '',
             model: draft.delegateModel || '',
             apiKey: draft.delegateApiKey || '',
-            tavilyApiKey: draft.tavilyApiKey || '',
-            tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...(supportsModelListAuth(draft.delegateProvider) ? { modelListAuth: normalizeModelListAuth(draft.delegateModelListAuth) } : {}),
+            ...normalizeWebSettings(draft),
             temperature: draft.delegateSendTemperature === false ? undefined : normalizeTemperature(draft.delegateTemperature, 1),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
@@ -926,6 +926,17 @@ export function createAgentSettingsPanel(deps = {}) {
         );
     }
 
+    function syncModelListAuthControls(root, provider, value, scope = 'main') {
+        const prefix = scope === 'delegate' ? '#xb-assistant-delegate' : '#xb-assistant';
+        const wrap = root.querySelector(`${prefix}-model-list-auth-wrap`);
+        const select = root.querySelector(`${prefix}-model-list-auth`);
+        if (wrap) wrap.style.display = supportsModelListAuth(provider) ? '' : 'none';
+        if (select) {
+            refillSelect(select, MODEL_LIST_AUTH_OPTIONS);
+            select.value = normalizeModelListAuth(value);
+        }
+    }
+
     function syncConfigToForm(root) {
         if (!state.config) return;
         syncConfigPage(root);
@@ -953,7 +964,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateBaseUrlInput = root.querySelector('#xb-assistant-delegate-base-url');
         const delegateModelInput = root.querySelector('#xb-assistant-delegate-model');
         const delegateApiKeyInput = root.querySelector('#xb-assistant-delegate-api-key');
-        const tavilyApiKeyInput = root.querySelector('#xb-assistant-tavily-api-key');
         const delegatePulledSelect = root.querySelector('#xb-assistant-delegate-model-pulled');
         const delegateMaxTokensInput = root.querySelector('#xb-assistant-delegate-max-tokens');
         const delegateToolModeWrap = root.querySelector('#xb-assistant-delegate-tool-mode-wrap');
@@ -975,10 +985,11 @@ export function createAgentSettingsPanel(deps = {}) {
         if (baseUrlInput) baseUrlInput.value = draft.baseUrl || '';
         if (modelInput) modelInput.value = draft.model || '';
         if (apiKeyInput) apiKeyInput.value = draft.apiKey || '';
+        syncModelListAuthControls(root, provider, draft.modelListAuth);
         if (maxTokensInput) maxTokensInput.value = String(normalizeMaxTokens(draft.maxTokens));
         if (temperatureInput) temperatureInput.value = String(normalizeTemperature(draft.temperature, 1));
         if (sendTemperatureInput) sendTemperatureInput.checked = Boolean(draft.sendTemperature ?? true);
-        if (tavilyApiKeyInput) tavilyApiKeyInput.value = draft.tavilyApiKey || '';
+        syncWebSettingsForm(root, draft);
         if (toolModeWrap) toolModeWrap.style.display = isToolModeProvider(provider) ? '' : 'none';
         if (toolModeSelect) {
             refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
@@ -1001,6 +1012,7 @@ export function createAgentSettingsPanel(deps = {}) {
         if (delegateBaseUrlInput) delegateBaseUrlInput.value = draft.delegateBaseUrl || '';
         if (delegateModelInput) delegateModelInput.value = draft.delegateModel || '';
         if (delegateApiKeyInput) delegateApiKeyInput.value = draft.delegateApiKey || '';
+        syncModelListAuthControls(root, delegateProvider, draft.delegateModelListAuth, 'delegate');
         const delegateTemperatureInput = root.querySelector('#xb-assistant-delegate-temperature');
         const delegateSendTemperatureInput = root.querySelector('#xb-assistant-delegate-send-temperature');
         if (delegateMaxTokensInput) delegateMaxTokensInput.value = String(normalizeMaxTokens(draft.delegateMaxTokens));
@@ -1046,8 +1058,7 @@ export function createAgentSettingsPanel(deps = {}) {
         return {
             workspaceFileName: config?.workspaceFileName || '',
             jsApiPermission: normalizeJsApiPermission(config?.jsApiPermission),
-            tavilyApiKey: String(config?.tavilyApiKey || ''),
-            tavilyBaseUrl: normalizeTavilyBaseUrl(config?.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...normalizeWebSettings(config),
             currentPresetName: config?.currentPresetName || DEFAULT_PRESET_NAME,
             delegatePresetName: config?.delegatePresetName || config?.currentPresetName || DEFAULT_PRESET_NAME,
             delegateConfig: config?.delegateConfig || {},
@@ -1105,8 +1116,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const nextConfig = {
             ...state.config,
             jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
-            tavilyApiKey: String(draft.tavilyApiKey || ''),
-            tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...normalizeWebSettings(draft),
             currentPresetName: nextPresetName,
             delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName),
             delegateConfig: buildDelegateConfigFromDraft(draft),
@@ -1178,8 +1188,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const nextConfig = {
             ...state.config,
             jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
-            tavilyApiKey: String(draft.tavilyApiKey || state.config?.tavilyApiKey || ''),
-            tavilyBaseUrl: normalizeTavilyBaseUrl(draft.tavilyBaseUrl || state.config?.tavilyBaseUrl || DEFAULT_TAVILY_BASE_URL),
+            ...normalizeWebSettings(draft),
             currentPresetName: nextPresetName,
             delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName),
             delegateConfig: buildDelegateConfigFromDraft(draft),
@@ -1215,6 +1224,7 @@ export function createAgentSettingsPanel(deps = {}) {
             const draft = syncConfigDraft(root);
             state.config = normalizeAgentConfig({
                 ...state.config,
+                ...normalizeWebSettings(draft),
                 jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
                 currentPresetName: nextPresetName,
                 delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName),
@@ -1245,6 +1255,12 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
+        for (const prefix of ['#xb-assistant', '#xb-assistant-delegate']) {
+            root.querySelector(`${prefix}-model-list-auth`)?.addEventListener('change', () => {
+                syncConfigDraft(root);
+            });
+        }
+
         root.querySelector('#xb-assistant-max-tokens')?.addEventListener('input', () => {
             syncConfigDraft(root);
         });
@@ -1257,9 +1273,15 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-tavily-api-key')?.addEventListener('input', () => {
-            syncConfigDraft(root);
+        bindWebSettingsGuide(root);
+        root.querySelector('#xb-assistant-web-provider')?.addEventListener('change', () => {
+            const draft = syncConfigDraft(root);
+            syncWebSettingsForm(root, draft);
         });
+        for (const { id } of WEB_PROVIDERS) {
+            root.querySelector(`#xb-assistant-${id}-api-key`)?.addEventListener('input', () => syncConfigDraft(root));
+            bindInputVisibilityToggle(root, `#xb-assistant-toggle-${id}-key`, `#xb-assistant-${id}-api-key`);
+        }
 
         root.querySelector('#xb-assistant-model-pulled')?.addEventListener('change', (event) => {
             const value = event.currentTarget.value;
@@ -1272,7 +1294,6 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         bindInputVisibilityToggle(root, '#xb-assistant-toggle-key', '#xb-assistant-api-key');
-        bindInputVisibilityToggle(root, '#xb-assistant-toggle-tavily-key', '#xb-assistant-tavily-api-key');
 
         root.querySelector('#xb-assistant-delegate-provider')?.addEventListener('change', (event) => {
             const nextProvider = event.currentTarget.value;

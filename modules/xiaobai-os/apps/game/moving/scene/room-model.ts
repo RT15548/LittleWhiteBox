@@ -4,6 +4,9 @@ import { STACK_BASES } from '../levels.js';
 import { MATCH_SIZE } from '../rules.js';
 import { createItem } from './items.js';
 import { createToyKit } from './toy-kit.js';
+import { createMascot } from '../../../../brand/mascot/model.js';
+import { dressMascot } from '../../../../brand/mascot/outfit-model.js';
+import { MOVER_OUTFIT } from '../outfit.js';
 
 const PALETTES = {
     weekend: { wall: '#e0efe7', floor: '#fff0df', trim: '#95c9b3', seat: '#f2b4bc', rug: '#c9e1f3', cabinet: '#f4d294' },
@@ -109,14 +112,8 @@ export function createRoomModel(level: MovingLevel) {
         kit.ring(marker, .47, .023, '#eaba61', [0, 0, 0]).rotation.x = Math.PI / 2;
         markers.set(item.id, marker);
     }
-    const mascot = kit.group(root, [-3.05, .52, 3.55]);
-    ball(mascot, [.32, .4, .27], '#fffaf2', [0, .1, 0]);
-    for (const x of [-.2, .2]) {
-        ball(mascot, [.09, .17, .085], '#fffaf2', [x, .48, 0]);
-        ball(mascot, [.065, .07, .1], '#667486', [x * .75, -.28, .06]);
-        ball(mascot, [.028, .039, .02], '#354353', [x * .5, .22, .252]);
-        ball(mascot, [.052, .028, .025], '#f0afb0', [x * .8, .12, .242]);
-    }
+    const mascot = createMascot(kit, root, [-3.05, .52, 3.55]);
+    dressMascot(kit, mascot, MOVER_OUTFIT);
     const parcel = kit.group(mascot, [0, -.03, .37]);
     box(parcel, [.47, .35, .33], '#dfb084', [0, 0, 0], .035);
     box(parcel, [.08, .36, .34], '#ffe6b8', [0, 0, 0], .008);

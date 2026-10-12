@@ -1,0 +1,4 @@
+/* Inline in the shadow root: this guard survives detachment without a request. */
+:host { --map-projection-height: clamp(260px,50cqw,280px); }
+.map-projection-root { display: none; }
+.map-projection-loading { display: grid; place-items: center; box-sizing: border-box; height: var(--map-projection-height); padding: 16px; font: inherit; color: inherit; text-align: center; }

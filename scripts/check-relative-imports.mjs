@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from 'acorn';
+import { collectWorkspaceFiles } from './workspace-files.mjs';
 
 const ROOT_DIR = process.cwd();
 const CHECK_EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
@@ -11,8 +12,7 @@ const TYPESCRIPT_SOURCE_EXTENSIONS = new Map([
     ['.mjs', ['.mts']],
     ['.cjs', ['.cts']],
 ]);
-const IGNORE_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage']);
-const IGNORE_FILES = new Set(['package-lock.json']);
+const IGNORE_DIRS = new Set(['dist', 'coverage']);
 
 function toPosix(value) {
     return value.split(path.sep).join('/');
@@ -82,28 +82,6 @@ function resolveExistingImport(fromFile, specifier) {
     }
 
     return candidates.find(isFile) || null;
-}
-
-function shouldVisitFile(filePath) {
-    if (IGNORE_FILES.has(path.basename(filePath))) return false;
-    if (!CHECK_EXTENSIONS.has(path.extname(filePath))) return false;
-    return isFile(filePath);
-}
-
-function walkFiles(currentDir, files = []) {
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-            if (IGNORE_DIRS.has(entry.name)) continue;
-            walkFiles(path.join(currentDir, entry.name), files);
-            continue;
-        }
-
-        const filePath = path.join(currentDir, entry.name);
-        if (shouldVisitFile(filePath)) {
-            files.push(filePath);
-        }
-    }
-    return files;
 }
 
 function parseJavaScript(source, filePath) {
@@ -207,7 +185,7 @@ function checkFile(filePath) {
     return problems;
 }
 
-const files = walkFiles(ROOT_DIR);
+const files = collectWorkspaceFiles(ROOT_DIR, CHECK_EXTENSIONS, IGNORE_DIRS);
 const problems = [];
 
 for (const filePath of files) {

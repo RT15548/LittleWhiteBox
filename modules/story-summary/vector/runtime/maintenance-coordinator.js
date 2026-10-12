@@ -45,6 +45,13 @@ let embeddingBatchController = new AbortController();
 
 const operationControllers = new Map();
 const warningTimesByChannel = new Map();
+const stateObservers = new Set();
+function publishWriteState() { for (const observer of stateObservers) observer(); }
+
+export function observeVectorWrites(observer) {
+    stateObservers.add(observer);
+    return () => stateObservers.delete(observer);
+}
 
 function createAbortError(reason) {
     if (reason instanceof Error) return reason;
@@ -123,7 +130,7 @@ function warningMap(channel) {
     return map;
 }
 
-function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operationId = '' }, task) {
+function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operationId = '', ready }, task) {
     const cancelSources = SCOPE_CANCEL_SOURCES[scope];
     const operationController = new AbortController();
     const link = linkAbortSignals([
@@ -140,34 +147,43 @@ function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operati
     };
 
     registerOperation(descriptor.operationId, operationController);
-    pendingWrites += 1;
-    epoch += 1;
+    // Readiness runs outside the writer (source consistency may itself use the
+    // queue). Cancellation ownership starts now, before its first async wait.
+    const enqueue = () => {
+        if (!acceptingWrites || link.signal.aborted) return undefined;
+        pendingWrites += 1;
+        epoch += 1;
+        publishWriteState();
 
-    const run = writeTail
-        .then(async () => {
+        const run = writeTail.then(async () => {
             pendingWrites -= 1;
             if (!acceptingWrites || link.signal.aborted) {
                 epoch += 1;
+                publishWriteState();
                 return undefined;
             }
 
             const session = { ...descriptor, signal: link.signal, startedAt: Date.now() };
             activeWrite = session;
             epoch += 1;
+            publishWriteState();
             try {
                 return await task(session);
             } finally {
                 if (activeWrite === session) activeWrite = null;
                 epoch += 1;
+                publishWriteState();
             }
-        })
-        .finally(() => {
-            unregisterOperation(descriptor.operationId, operationController);
-            link.dispose();
         });
 
-    writeTail = run.catch(() => {});
-    return run;
+        writeTail = run.catch(() => {});
+        return run;
+    };
+    const run = ready ? Promise.resolve(ready).then(enqueue) : Promise.resolve(enqueue());
+    return run.finally(() => {
+        unregisterOperation(descriptor.operationId, operationController);
+        link.dispose();
+    });
 }
 
 export function runVectorWriteTask(options = {}, task) {
@@ -175,7 +191,7 @@ export function runVectorWriteTask(options = {}, task) {
     if (!SCOPE_CANCEL_SOURCES[options.scope]) {
         throw new TypeError(`Vector write task requires a known scope, got: ${String(options.scope)}`);
     }
-    if (!acceptingWrites) return Promise.resolve(undefined);
+    if (!acceptingWrites) return Promise.resolve(options.ready).then(() => undefined);
     return enqueueVectorWrite(options, task);
 }
 

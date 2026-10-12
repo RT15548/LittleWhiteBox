@@ -29,8 +29,13 @@ export async function decodeSceneAsset(buffer: ArrayBuffer) {
 
 /** One displayed scene owns requests and immutable prototypes, never a cross-chat cache. */
 export function createSceneAssetSession(load: SceneAssetLoader, changed: () => void, report: (kind: SceneAssetKind, error: unknown) => void) {
-    const records = new Map<SceneAssetKind, { abort: AbortController; asset?: SceneAsset }>();
-    let disposed = false;
+    const records = new Map<SceneAssetKind, { abort: AbortController; settled: boolean; asset?: SceneAsset }>();
+    let disposed = false, changedAssets = false;
+    function notifySettled() {
+        if (disposed || !changedAssets || [...records.values()].some(record => !record.settled)) {return;}
+        changedAssets = false;
+        changed();
+    }
     function remove(kind: SceneAssetKind) {
         const record = records.get(kind);
         records.delete(kind); record?.abort.abort(); record?.asset?.dispose();
@@ -43,17 +48,21 @@ export function createSceneAssetSession(load: SceneAssetLoader, changed: () => v
             for (const kind of records.keys()) {if (!needed.has(kind)) {remove(kind);}}
             for (const kind of needed) {
                 if (records.has(kind)) {continue;}
-                const record = { abort: new AbortController(), asset: undefined as SceneAsset | undefined };
+                const record = { abort: new AbortController(), settled: false, asset: undefined as SceneAsset | undefined };
                 records.set(kind, record);
                 void load(kind, record.abort.signal).then(asset => {
                     // Parsing cannot be interrupted; dispose a late result instead of reviving it.
                     if (records.get(kind) !== record) {asset.dispose(); return;}
-                    record.asset = asset; changed();
-                }).catch(error => {
+                    record.asset = asset; record.settled = true; changedAssets = true;
+                    notifySettled();
+                }, error => {
+                    record.settled = true;
                     if (records.get(kind) === record) {report(kind, error);}
                     // Retain the failed record until removal: no automatic retry loop.
+                    notifySettled();
                 });
             }
+            notifySettled();
         },
         dispose() {disposed = true; for (const kind of records.keys()) {remove(kind);}},
     };

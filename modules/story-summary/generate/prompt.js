@@ -1,15 +1,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Story Summary - Prompt Injection (v7 - L0 scene-based display)
+// Story Summary - Prompt Injection
 //
-// 命名规范：
-// - 存储层用 L0/L1/L2/L3（StateAtom/Chunk/Event/Fact）
-// - 装配层用语义名称：constraint/event/evidence/arc
-//
-// 架构变更（v5 → v6）：
-// - 同楼层多个 L0 共享一对 L1（EvidenceGroup per-floor）
-// - L0 展示文本直接使用 semantic 字段（v7: 场景摘要，纯自然语言）
-// - 仅负责"构建注入文本"，不负责写入 extension_prompts
-// - 注入发生在 story-summary.js：generate_interceptor 时写入 extension_prompts
+// 大总结是一份 JSON；召回把其中的 events 当作事件、facts 当作约束分别装配。
+// 本模块只构建注入文本，不写入 extension_prompts。
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../../extensions.js";
@@ -53,7 +46,7 @@ const ARCS_MAX = 1500;
 const EVENT_BUDGET_MAX = 5000;
 const RELATED_EVENT_MAX = 500;
 const EVENT_EVIDENCE_MAX = 4000;
-const DISTANT_EVIDENCE_MAX = 1000;
+const DISTANT_EVIDENCE_MAX = 2000;
 const UNSUMMARIZED_EVIDENCE_MAX = 2000;
 const TOTAL_BUDGET_MAX = CONSTRAINT_MAX + ARCS_MAX + EVENT_BUDGET_MAX
     + EVENT_EVIDENCE_MAX + DISTANT_EVIDENCE_MAX + UNSUMMARIZED_EVIDENCE_MAX;
@@ -393,6 +386,11 @@ function buildL0DisplayText(l0) {
     return String(atom.semantic || l0.text || '').trim() || '（未知锚点）';
 }
 
+// Retrieval labels vary by route; every route refers to the same stored atom.
+function l0EvidenceId(l0) {
+    return `l0:${l0.atom.atomId}`;
+}
+
 /**
  * 格式化 L1 chunk 行
  * @param {object} chunk - L1 chunk 对象
@@ -611,7 +609,7 @@ function enumerateDirectEvidenceItems(
     for (const l0 of l0Selected || []) {
         const owner = findOwner(l0.floor);
         if (!owner) continue;
-        const id = `l0:${l0.id}`;
+        const id = l0EvidenceId(l0);
         if (seenL0Ids.has(id)) continue;
         seenL0Ids.add(id);
         l0Items.push({
@@ -692,8 +690,25 @@ function attachAdmittedEvidenceToEvents(admittedItems) {
 }
 
 function markEvidenceGroupUsed(group, usedEvidenceIds) {
-    for (const l0 of group?.l0Atoms || []) usedEvidenceIds.add(`l0:${l0.id}`);
+    for (const l0 of group?.l0Atoms || []) usedEvidenceIds.add(l0EvidenceId(l0));
     for (const chunk of group?.l1Chunks || []) usedEvidenceIds.add(`l1:${chunk.chunkId}`);
+}
+
+// Display already-admitted raw passages with their scene when available. The
+// preceding USER message belongs to that AI turn; admission and charges stay put.
+function groupScatteredEvidence(anchorGroups, rawGroups, chat) {
+    const byFloor = new Map(anchorGroups.map(group => [group.floor, {
+        ...group, l1Chunks: [...group.l1Chunks],
+    }]));
+    for (const group of rawGroups) {
+        const floor = chat[group.floor]?.is_user && byFloor.get(group.floor + 1)?.l0Atoms.length
+            ? group.floor + 1 : group.floor;
+        if (!byFloor.has(floor)) byFloor.set(floor, buildEvidenceGroup(floor));
+        byFloor.get(floor).l1Chunks.push(...group.l1Chunks);
+    }
+    return [...byFloor.values()]
+        .map(group => buildEvidenceGroup(group.floor, group.l0Atoms, group.l1Chunks))
+        .sort((a, b) => a.floor - b.floor);
 }
 
 function l1FallbackFromPairs(l1ByFloor) {
@@ -728,7 +743,7 @@ function unusedL1PairChunks(l1ByFloor, floor, usedEvidenceIds) {
  * @param {object} eventItem - 事件召回项
  * @param {number} idx - 编号
  * @param {EvidenceGroup[]} evidenceGroups - 该事件的证据组
- * @param {string[]} causalLines - 已入选且计入证据预算的直接前因
+ * @param {string[]} causalLines - 已入选且计入证据预算的前因与后续
  * @returns {string} 格式化后的文本
  */
 function formatEventWithEvidence(eventItem, idx, evidenceGroups, causalLines = []) {
@@ -845,8 +860,8 @@ export function buildNonVectorPromptText() {
 // 向量模式：预算装配
 // ─────────────────────────────────────────────────────────────────────────────
 
-function createEvidenceTraceRecorder(causalById) {
-    const value = { final: [], prompt: [], eventEvidence: [] };
+function createEvidenceTraceRecorder(eventIndex) {
+    const value = { final: [], prompt: [], eventEvidence: [], causalEvidence: [] };
     const units = { final: new Map(), prompt: new Map() };
     const anonymousIds = new WeakMap();
     let nextAnonymousId = 1;
@@ -899,11 +914,10 @@ function createEvidenceTraceRecorder(causalById) {
         }
         addFloors(target, unitId, eventFloors, source, score);
     };
-    const causal = (target, item, causeIds = item?.causedBy || []) => {
+    const causal = (target, item, eventIds) => {
         const unitId = eventUnitId(item);
-        for (const eventId of causeIds) {
-            const cause = causalById?.get(eventId);
-            event(target, cause?.event, 'causal', cause?.similarity ?? null, unitId);
+        for (const eventId of eventIds) {
+            event(target, eventIndex.get(eventId), 'causal', null, unitId);
         }
     };
     const eventEvidence = (target, item, rawFloor) => {
@@ -944,14 +958,14 @@ function factsInBudgetOrder(grouped) {
  * 构建向量模式注入文本
  * @param {object} store - 存储对象
  * @param {object} recallResult - 召回结果
- * @param {Map<string, object>} causalById - 因果事件索引
+ * @param {object[]} allEvents - 与本次召回同源的完整事件集合
  * @param {string[]} focusCharacters - 焦点人物
  * @param {object} meta - 元数据
  * @param {object} metrics - 指标对象
  * @param {{ captureEvidenceTrace?: boolean }} options - replay-only observation options
  * @returns {Promise<{promptText: string, injectionStats: object, metrics: object, evidenceTrace?: object}>}
  */
-async function buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics, options = {}) {
+async function buildVectorPrompt(store, recallResult, allEvents, focusCharacters, meta, metrics, options = {}) {
     const T_Start = performance.now();
     const recallElapsed = metrics?.timing.total || 0;
     const releaseElapsedBefore = metrics?.timing.runtimeEndSession || 0;
@@ -959,12 +973,8 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     try {
 
     const data = store.json || {};
-    // Recalled events may themselves be another selected event's direct cause.
-    // Keep them addressable even when recall excluded them from causalChain.
-    causalById = new Map(causalById);
-    for (const item of recallResult?.events || []) {
-        if (item?.event?.id) causalById.set(item.event.id, item);
-    }
+    // Use the same event collection supplied to recall, not a later store revision.
+    const eventIndex = new Map(allEvents.filter(event => event?.id).map(event => [event.id, event]));
     const eventEvidenceBudget = { used: 0, max: EVENT_EVIDENCE_MAX };
     const temporalEvidenceProtectionBudget = {
         used: 0,
@@ -993,7 +1003,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         userTop1: hiddenChunk(pair.userTop1) ? pair.userTop1 : null,
         aiTop1: hiddenChunk(pair.aiTop1) ? pair.aiTop1 : null,
     }]));
-    const evidenceTrace = options.captureEvidenceTrace ? createEvidenceTraceRecorder(causalById) : null;
+    const evidenceTrace = options.captureEvidenceTrace ? createEvidenceTraceRecorder(eventIndex) : null;
 
     // 装配结果
     const assembled = {
@@ -1131,13 +1141,11 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         : Number(item?.similarity || 0);
     const eventTraceSource = item => {
         if (item?._recallType === 'DIRECT') return 'direct-event';
-        if (item?._recallType === 'CAUSAL') return 'causal-event';
         return 'related-event';
     };
     if (evidenceTrace) {
         for (const item of candidates) {
             evidenceTrace.event('final', item.event, eventTraceSource(item), eventRankingScore(item));
-            evidenceTrace.causal('final', item.event);
         }
     }
     const eventBudget = { used: 0, max: EVENT_BUDGET_MAX };
@@ -1258,7 +1266,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     ].sort((left, right) => left.candidateRank - right.candidateRank);
     const packed = packEventEvidence({
         ...enumeration,
-        causalOwners, causesById: causalById, budget: eventEvidenceBudget,
+        causalOwners, eventIndex, budget: eventEvidenceBudget,
         estimateTokens, getTokenCost: directEvidenceItemTokens,
         floorOverheadTokens: DIRECT_EVIDENCE_FLOOR_OVERHEAD_TOKENS,
         protectedBudget: temporalEvidenceProtectionBudget,
@@ -1266,6 +1274,11 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const allAdmittedItems = packed.items;
     const causalEvidence = packed.causal;
     if (evidenceTrace) {
+        evidenceTrace.value.causalEvidence = causalEvidence.candidates;
+        for (const owner of causalOwners) {
+            evidenceTrace.causal('final', owner.event, causalEvidence.candidates
+                .filter(item => item.ownerId === owner.event.id).map(item => item.eventId));
+        }
         const admitted = new Set(allAdmittedItems.map(item => item.id));
         evidenceTrace.value.eventEvidence = [
             ...enumeration.l0Items, ...enumeration.l1Items, ...enumeration.fallbackItems,
@@ -1326,7 +1339,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // [Evidence - Distant] 零散历史（已总结范围，未被事件消费的 L0，独立预算）
+    // [Evidence - Distant] 已召回但未被事件消费的 L0，含已隐藏的未总结范围
     // ═══════════════════════════════════════════════════════════════════════
 
     const lastSummarized = store.lastSummarizedMesId ?? -1;
@@ -1335,21 +1348,18 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const focusSetForEvidence = new Set((focusCharacters || []).map(normalize).filter(Boolean));
 
     const remainingL0 = l0Selected
-        .filter(l0 => !usedEvidenceIds.has(`l0:${l0.id}`))
+        .filter(l0 => !usedEvidenceIds.has(l0EvidenceId(l0)))
         .filter(l0 => shouldKeepEvidenceL0(l0, focusSetForEvidence))
         .sort((a, b) => (b.rerankScore || 0) - (a.rerankScore || 0));
 
-    // 远期：floor <= lastSummarized
-    const distantL0 = remainingL0.filter(l0 => l0.floor <= lastSummarized);
+    // Recent coverage is a budgeted supplement, not a reason to discard a
+    // recalled scene. Visible, unsummarized dialogue needs no extra scene copy.
+    const distantL0 = remainingL0.filter(l0 => l0.floor <= lastSummarized || l0.floor <= hiddenThrough);
 
     // Build distant groups once so trace and admission observe the same groups.
     const distantRanked = [];
     for (const [floor, l0s] of groupL0ByFloor(distantL0)) {
-        const group = buildEvidenceGroup(
-            floor,
-            l0s,
-            unusedL1PairChunks(l1ByFloor, floor, usedEvidenceIds),
-        );
+        const group = buildEvidenceGroup(floor, l0s);
         const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
         distantRanked.push({ group, bestScore });
     }
@@ -1370,9 +1380,21 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         injectionStats.distantEvidence.units++;
     }
 
+    // Scenes precede raw details in this pool. A long passage cannot consume
+    // the budget before other recalled scenes have had their admission turn.
+    for (const group of acceptedDistantGroups) {
+        for (const chunk of unusedL1PairChunks(l1ByFloor, group.floor, usedEvidenceIds)) {
+            const cost = estimateTokens(formatL1Line(chunk, chunk.isUser === true));
+            if (!tryConsumeWholeItem(cost, distantEvidenceBudget)) break;
+            group.l1Chunks.push(chunk);
+            group.totalTokens += cost;
+            usedEvidenceIds.add(`l1:${chunk.chunkId}`);
+        }
+    }
+
     // Unowned L1 was already charged to eventEvidenceBudget. This section is
     // presentation only; the independent distant budget remains unchanged.
-    const scatteredGroups = [...unownedL1Groups, ...acceptedDistantGroups].sort((a, b) => a.floor - b.floor);
+    const scatteredGroups = groupScatteredEvidence(acceptedDistantGroups, unownedL1Groups, getContext().chat);
     for (const group of scatteredGroups) {
         const groupLines = formatEvidenceGroup(group);
         for (const line of groupLines) {
@@ -1397,12 +1419,13 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         metrics.evidence.eventEvidenceBudgetMax = eventEvidenceBudget.max;
     }
 
-    const renderSelectedEvent = (item, index) => formatEventWithEvidence(
-        item.event,
-        index + 1,
-        item.evidenceGroups,
-        (causalEvidence.byEvent.get(item.event.id) || []).map(cause => cause.text),
-    );
+    const renderSelectedEvent = (item, index) => {
+        const relations = causalEvidence.byEvent.get(item.event.id) || [];
+        // Admission favors consequences; presentation separates background from developments.
+        const causalLines = ['cause', 'consequence'].flatMap(direction => relations
+            .filter(relation => relation.direction === direction).map(relation => relation.text));
+        return formatEventWithEvidence(item.event, index + 1, item.evidenceGroups, causalLines);
+    };
     assembled.directEvents.lines = selectedDirect.map((item, index) => {
         const text = renderSelectedEvent(item, index);
         return item.candidateRank < TOP_N_STAR ? `⭐${text}` : text;
@@ -1413,7 +1436,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         for (const item of causalOwners) {
             evidenceTrace.event('prompt', item.event, eventTraceSource(candidates[item.candidateRank]));
             evidenceTrace.causal('prompt', item.event,
-                (causalEvidence.byEvent.get(item.event.id) || []).map(cause => cause.causeId));
+                (causalEvidence.byEvent.get(item.event.id) || []).map(item => item.eventId));
         }
         for (const group of acceptedDistantGroups) evidenceTrace.floor('prompt', group.floor, 'l0');
     }
@@ -1428,7 +1451,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     if (recentEnd >= recentStart) {
         const recentAllL0 = getRecentWindowL0Atoms(recentStart, recentEnd);
         const recentL0 = recentAllL0
-            .filter(l0 => !usedEvidenceIds.has(`l0:${l0.id}`))
+            .filter(l0 => !usedEvidenceIds.has(l0EvidenceId(l0)))
             .filter(l0 => l0.floor >= recentStart && l0.floor <= recentEnd);
 
         if (recentL0.length) {
@@ -1501,6 +1524,7 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     if (assembled.constraints.lines.length) {
         sections.push(`[定了的事] 已确立的事实\n${assembled.constraints.lines.join("\n")}`);
     }
+    if (causalEvidence.introduction) sections.push(causalEvidence.introduction);
     if (assembled.directEvents.lines.length) {
         sections.push(`[印象深的事] 记得很清楚\n\n${assembled.directEvents.lines.join("\n\n")}`);
     }
@@ -1587,11 +1611,11 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     }
 }
 
-export async function buildVectorPromptForReplay(store, recallResult, causalById, focusCharacters, meta, metrics) {
+export async function buildVectorPromptForReplay(store, recallResult, focusCharacters, meta, metrics) {
     return await buildVectorPrompt(
         store,
         recallResult,
-        causalById,
+        store.json?.events || [],
         focusCharacters,
         meta,
         metrics,
@@ -1612,7 +1636,7 @@ export async function buildVectorPromptForReplay(store, recallResult, causalById
  */
 export async function buildVectorPromptText(excludeLastAi = false, options = {}) {
     const { signal = null, diagnostics = createRecallDiagnostics(getContext()?.chatId),
-        stageObserver = null, captureEvidenceTrace = false } = options;
+        stageObserver = null, captureEvidenceTrace = false, withQueryEmbedding } = options;
     let recallResult = null;
     let meta = null;
     let assembly = null;
@@ -1649,7 +1673,6 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
 
     const { chatId } = getContext();
     meta = chatId ? await getMeta(chatId) : null;
-    let causalById = new Map();
 
     try {
         try {
@@ -1659,6 +1682,7 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
                 deferRuntimeRelease: true,
                 diagnostics,
                 stageObserver,
+                withQueryEmbedding,
             });
 
             recallResult = {
@@ -1666,19 +1690,12 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
                 events: recallResult?.events || [],
                 l0Selected: recallResult?.l0Selected || [],
                 l1ByFloor: recallResult?.l1ByFloor || new Map(),
-                causalChain: recallResult?.causalChain || [],
                 focusTerms: recallResult?.focusTerms || recallResult?.focusEntities || [],
                 focusEntities: recallResult?.focusTerms || recallResult?.focusEntities || [], // compat alias
                 focusCharacters: recallResult?.focusCharacters || [],
                 metrics: recallResult?.metrics || null,
             };
 
-            // 构建因果事件索引
-            causalById = new Map(
-                (recallResult.causalChain || [])
-                    .map(c => [c?.event?.id, c])
-                    .filter(x => x[0])
-            );
         } catch (e) {
             if (signal?.aborted) {
                 return finish('', '召回已取消');
@@ -1693,8 +1710,7 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
 
         const hasRecallEvidence =
             (recallResult?.events?.length || 0) > 0 ||
-            (recallResult?.l0Selected?.length || 0) > 0 ||
-            (recallResult?.causalChain?.length || 0) > 0;
+            (recallResult?.l0Selected?.length || 0) > 0;
 
         let notice = null;
         if (!hasRecallEvidence) {
@@ -1720,7 +1736,7 @@ export async function buildVectorPromptText(excludeLastAi = false, options = {})
         assembly = await buildVectorPrompt(
             store,
             recallResult,
-            causalById,
+            allEvents,
             recallResult?.focusCharacters || [],
             meta,
             recallResult?.metrics || null,

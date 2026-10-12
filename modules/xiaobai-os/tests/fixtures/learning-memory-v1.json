@@ -1,0 +1,22 @@
+{
+  "scope": { "kind": "story", "osId": "ledger-1" },
+  "memory": {
+    "exchanges": [
+      {
+        "id": "7e6a933949f8cf815f7c5077ae18ed4e",
+        "user": "Remember our evening study plan.",
+        "reply": "We agreed to study after dinner.",
+        "replyTo": null,
+        "summarized": false,
+        "references": [
+          "c95d56c73cdf28197373fb2f437565a7",
+          "420f1d0423f8272e02a929648feae821",
+          "7b080ec1d2b6144489e31b98b10e3ac2"
+        ]
+      }
+    ],
+    "summary": "",
+    "summaryReferences": [],
+    "archivedCount": 0
+  }
+}

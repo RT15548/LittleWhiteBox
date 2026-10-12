@@ -1,4 +1,5 @@
 @import url('./apps/messages/host/message-renderer.css');
+@import url('./apps/map/host/projection-display.css');
 @import url('./host/quick-launcher.css');
 
 .xiaobaix-os-button {
@@ -41,13 +42,22 @@
 }
 
 .xiaobaix-os-overlay {
+    background: transparent;
+    border: 0;
+    box-sizing: border-box;
     height: 100vh;
     height: 100dvh;
     inset: 0;
+    margin: 0;
+    max-height: none;
+    max-width: none;
+    overflow: hidden;
+    padding: 0;
     position: fixed;
     width: 100vw;
-    z-index: 10020;
 }
+
+.xiaobaix-os-overlay::backdrop { background: transparent; }
 
 .xiaobaix-os-frame {
     background: transparent;

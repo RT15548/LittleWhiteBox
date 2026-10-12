@@ -151,6 +151,7 @@ window.fixture.recoverRedraw=async(cancel=false)=>{
 `;
 const stubs = {
     'extensions.js': 'export const getContext = () => window.fixture.ctx;',
+    'user.js': 'export const getCurrentUserHandle = () => "fixture";',
     'script.js': 'export const messageFormatting = text => window.fixture.format(text); export const getRequestHeaders = () => ({});',
     'utils.js': 'export const uuidv4 = () => crypto.randomUUID(); export const saveBase64AsFile = async () => { throw new Error("unexpected upload"); };',
     'event-manager.js': `export const event_types = new Proxy({}, {get:(_,key)=>key});

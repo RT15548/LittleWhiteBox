@@ -29,6 +29,8 @@ defineProps<{ prefix: string }>();
                     <path v-else-if="['carpet', 'fabric', 'bed-sheet', 'tatami'].includes(material)" d="M0 5H48M0 13H48M0 21H48M0 29H48M4 0v32m8-32v32m8-32v32m8-32v32m8-32v32m8-32v32" opacity=".55" />
                     <path v-else-if="material === 'rune'" d="m24 5 8 11-8 11-8-11ZM24 10v12M20 16h8" />
                     <path v-else-if="material === 'blood'" d="M7 8q12-5 16 6t20 7M4 27l6-3" />
+                    <path v-else-if="material === 'flesh'" d="M-3 4Q12 18 24 7T52 12M4 32Q18 17 34 29" />
+                    <path v-else-if="material === 'slime'" d="M5 13Q10 4 19 9M28 28Q35 19 43 24" stroke="var(--scene-highlight)" stroke-width="1.5" />
                     <path v-else-if="material === 'snow'" d="M5 19q5-3 11-1M29 8q6-2 12 1" stroke="var(--scene-highlight)" stroke-width="1.4" />
                 </g>
                 <path v-if="material === 'wood' || material === 'stone' || material === 'metal'" d="M0 1H48" stroke="var(--scene-highlight)" stroke-width=".7" opacity=".35" />

@@ -6,7 +6,7 @@ import type { MessagesClientState } from '../types.js';
 import type { MessagesContextStats } from '../application/context-budget.js';
 import { CONTEXT_LIMIT, IMAGE_TOKEN_RESERVE, SUMMARY_TRIGGER } from '../application/context-policy.js';
 import { estimateTokenCount } from '../../../../agent-core/runtime/context-tokens.js';
-import { escapePromptData } from '../../../host/prompt-context/format.js';
+import { escapePromptTags } from '../../../host/prompt-context/format.js';
 import type { MessageDraft } from './draft.js';
 
 const props = defineProps<{ bridge: XiaobaiOsAppProps['bridge']; state: MessagesClientState; contactId: string; draft: MessageDraft }>();
@@ -29,7 +29,7 @@ watch(() => JSON.stringify([props.contactId, props.state.chatIdentity, props.sta
     } catch {if (current) {failed.value = true; stats.value = null;}}
     finally {if (current) {loading.value = false;}}
 }, { immediate: true });
-const draftText = computed(() => estimateTokenCount(escapePromptData(props.draft.text)));
+const draftText = computed(() => estimateTokenCount(escapePromptTags(props.draft.text)));
 const imageTokens = computed(() => (stats.value?.imageTokens ?? 0) + (props.draft.image ? IMAGE_TOKEN_RESERVE : 0));
 const used = computed(() => (stats.value?.usedTokens ?? 0) + draftText.value + (props.draft.image ? IMAGE_TOKEN_RESERVE : 0));
 const ratio = computed(() => Math.min(1, used.value / CONTEXT_LIMIT));

@@ -40,12 +40,14 @@ export async function maintainNaturalHistoryAfterAi({
     floor,
     visibleMessages,
     nextCaseId,
+    repairEvents,
 }) {
     if (!panelConfig.vector.enabled) return vectorDisabledStep(floor);
     let counted;
     try {
         counted = await withExternalCallTrace(() => runVectorMaintenance({
-            buildChunks: () => modules.buildIncrementalChunks({ vectorConfig: panelConfig.vector }),
+            buildChunks: () => modules.maintainChunks({ vectorConfig: panelConfig.vector, targetChatId: chatId, chatSnapshot: visibleMessages }),
+            repairEvents,
             extract: () => modules.incrementalExtractAtoms(chatId, visibleMessages, null,
                 { maxFloors: 20, preferredFloors: [floor] }),
             vectorize: () => modules.vectorizeMissingStateAtoms(chatId, null, { vectorConfig: panelConfig.vector }),
@@ -62,10 +64,10 @@ export async function maintainNaturalHistoryAfterAi({
         throw error;
     }
 
-    const { chunkResult, l0Result, l0VectorResult, cancelled } = counted.value;
-    if (cancelled || chunkResult?.success === false || !l0VectorResult?.success) {
+    const { chunkResult, eventResult, l0Result, l0VectorResult, cancelled } = counted.value;
+    if (cancelled || chunkResult?.success === false || eventResult?.success === false || !l0VectorResult?.success) {
         throwNaturalStageFailure('vector-maintenance', nextCaseId,
-            `L0/L1 maintenance incomplete: ${l0VectorResult?.code || chunkResult?.code || (cancelled ? 'cancelled' : 'unknown')}`, counted);
+            `L0/L1/L2 maintenance incomplete: ${l0VectorResult?.code || chunkResult?.code || eventResult?.code || (cancelled ? 'cancelled' : 'unknown')}`, counted);
     }
 
     const meta = await modules.getMeta(chatId);
@@ -96,7 +98,7 @@ export async function maintainNaturalHistoryAfterAi({
             );
         }
     }
-    if (chunkResult?.built > 0 || l0Result?.built > 0) {
+    if (chunkResult?.built > 0 || chunkResult?.repaired > 0 || l0Result?.built > 0) {
         modules.invalidateLexicalIndex();
     }
 

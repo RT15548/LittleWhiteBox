@@ -1968,6 +1968,7 @@ test('SillyTavern Claude model pull honors custom proxy model lists', async () =
 
         assert.equal(requests[0].url, 'https://beta.smolproxy.org/deepseek/anthropic/v1/models');
         assert.equal(requests[0].headers['x-api-key'], 'proxy-key');
+        assert.equal(requests[0].headers.Authorization, undefined);
         assert.deepEqual(models, ['deepseek-chat', 'deepseek-reasoner']);
     } finally {
         globalThis.fetch = originalFetch;

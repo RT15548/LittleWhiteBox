@@ -1,6 +1,6 @@
 import { buildFourthWallAgentRequest, counterMessages } from '../domain/agent-request.js';
 import { buildMemoryRequest, formatMemoryMessage } from '../domain/memory-prompt.js';
-import { CONTEXT_LIMIT, SUMMARY_TRIGGER, SUMMARY_OUTPUT_LIMIT, getArchiveEnd } from '../domain/context-policy.js';
+import { CONTEXT_LIMIT, SUMMARY_TRIGGER, getArchiveEnd } from '../domain/context-policy.js';
 import type { resolveConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
 import { normalizeAgentSettings } from '../../../../agent-core/config.js';
 import { resolveActiveProviderConfig } from '../../../../agent-core/provider-resolution.js';
@@ -121,7 +121,7 @@ export function createGatewayContextService(gateway: XiaobaiOsAgentGateway, coun
         },
         async summarize(request, config, signal) {
             const result = await gateway.run({
-                ...request, config, signal, temperature: 0.2, maxTokens: SUMMARY_OUTPUT_LIMIT,
+                ...request, config, signal, temperature: 0.2,
                 reasoning: { mode: 'inherit', output: 'hide' },
             });
             return { text: String(result.text || ''), finishReason: String(result.finishReason || ''), refused: result.refused === true };

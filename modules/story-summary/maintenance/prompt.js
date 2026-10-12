@@ -35,6 +35,7 @@ An earlier stay in Changsha and a current home in Beijing can both be true. Reta
 Lasting location facts track regions or cities; movement between rooms belongs in events and anchors.
 Agreement between summary and anchor is not independent evidence. Read dialogue when accuracy is uncertain.
 An event's source marker locates an episode, not every claim's proof. causedBy identifies direct causes or explicit motives.
+When reviewing or merging events, verify causedBy against the dialogue, correcting mistaken links and adding supported missing links.
 Stages of the same occurrence can form one event; another occurrence on the same topic or a later consequence remains separate.
 A merged description keeps the chronological development and meaningful details of the whole episode.
 If dialogue cannot settle a claim, leave it unchanged and describe the uncertainty briefly.`,

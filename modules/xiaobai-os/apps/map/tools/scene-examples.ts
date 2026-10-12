@@ -1,32 +1,35 @@
 /** Model-facing examples, also exercised through the real tools. Not live-model results. */
 export const SCENE_EXAMPLES = [
     {
-        background: 'A timber-floored inn taproom has stone walls, a south entrance, a counter against the north wall and a table in the western half. The player has just entered. No exact dimensions or chairs were described.',
+        background: 'At night, a timber-floored inn taproom has stone walls, a south entrance, a counter against the north wall and a table in the western half. A lit floor lamp stands east of the table. The player has just entered. No exact dimensions or chairs were described.',
         layout: 'Approximate the rectangle around these anchors. Break the south wall at the entrance; keep the route from entrance to counter east of the table clear. One ordinary chair is inferred, faces its table, and is marked accordingly.',
         atlas: { locations: [{ key: 'town', name: 'Riverside Town', scale: 'region' }, { key: 'taproom', name: 'Taproom', scale: 'room', parent: 'town' }] },
         create: {
             scene: 'taproom', playerHere: true, viewBox: [0, 0, 480, 380], mood: 'warm',
+            lighting: { space: 'indoor', natural: 'night', artificial: 'on' },
             elements: [
                 { id: 'floor', cat: 'terrain', shape: 'rect', geo: { center: [240, 170], size: [400, 260] }, material: 'wood' },
                 { id: 'wall', cat: 'wall', shape: 'path', geo: { points: [[200, 300], [40, 300], [40, 40], [440, 40], [440, 300], [270, 300]] }, closed: false, material: 'stone' },
                 { id: 'counter', cat: 'furniture', shape: 'rect', geo: { center: [240, 75], size: [260, 40] }, icon: 'counter', material: 'wood', label: 'Counter' },
                 { id: 'table', cat: 'furniture', shape: 'rect', geo: { center: [130, 185], size: [90, 60] }, icon: 'table', material: 'wood' },
                 { id: 'chair', cat: 'furniture', shape: 'rect', geo: { center: [130, 240], size: [32, 34] }, icon: 'chair', material: 'wood', rotation: 180, certainty: 'inferred' },
+                { id: 'lamp', cat: 'decoration', shape: 'circle', geo: { at: [370, 170], radius: 12 }, icon: 'light', material: 'warm-light' },
                 { id: 'entrance', cat: 'door', kind: 'entrance', shape: 'icon', geo: { at: [235, 300] }, label: 'Entrance' },
                 { id: 'player', cat: 'actor', kind: 'player', actorKey: 'player', shape: 'icon', geo: { at: [235, 265] } },
             ],
         },
         update: {
-            evidence: 'The player walks up to the counter. Nothing else changes. Read the existing scene if needed, then move only the player; keep furniture and viewBox.',
-            edit: { scene: 'taproom', elements: [{ id: 'player', geo: { at: [235, 125] } }] },
+            evidence: 'The keeper switches off the lamp as the player walks up to the counter. Update the lighting and player position; keep furniture and viewBox.',
+            edit: { scene: 'taproom', lighting: { space: 'indoor', natural: 'night', artificial: 'off' }, elements: [{ id: 'player', geo: { at: [235, 125] } }] },
         },
     },
     {
-        background: 'In a grassy valley, woodland is northwest, a stream with visible banks bends south through the middle, and a wooden bridge connects west and east trails. The player stands on the west trail.',
+        background: 'In a sunlit grassy valley, woodland is northwest, a stream with visible banks bends south through the middle, and a wooden bridge connects west and east trails. The player stands on the west trail.',
         layout: 'Use one forest area without a tree icon. Trace one stream bank downstream and the other back upstream to form its area. Bridge travel is east-west, so rotate its default north-south deck by 90 degrees. Trail vertices are real turns, not decorative handles.',
         atlas: { locations: [{ key: 'highlands', name: 'Highlands', scale: 'region' }, { key: 'valley', name: 'Stream Valley', scale: 'outdoor', parent: 'highlands' }] },
         create: {
             scene: 'valley', playerHere: true, viewBox: [0, 0, 700, 520],
+            lighting: { space: 'outdoor', natural: 'sunlight', artificial: 'off' },
             elements: [
                 { id: 'ground', cat: 'terrain', shape: 'rect', geo: { center: [340, 250], size: [640, 460] }, material: 'grass' },
                 { id: 'woods', cat: 'terrain', shape: 'path', geo: { points: [[30, 30], [260, 30], [240, 200], [30, 170]] }, closed: true, material: 'forest', label: 'Woodland' },
@@ -43,7 +46,7 @@ export const SCENE_EXAMPLES = [
         },
     },
     {
-        background: 'In the Helios System, a station’s metal-floored orbital cabin has a south hatch, a metal desk to the west, a chair south of it, and an angular metal instrument to the east. The player is just inside the hatch.',
+        background: 'In the Helios System, a station’s metal-floored orbital cabin has a south hatch, a metal desk to the west, a chair south of it, and an angular metal instrument to the east. Its ceiling lights are on and no natural light enters. The player is just inside the hatch.',
         layout: 'Reuse ordinary table/chair tokens with metal, not wood. Preserve the unfamiliar instrument as its own outline and label without guessing a furniture icon. The central aisle remains clear.',
         atlas: { locations: [
             { key: 'cabin', name: 'Orbital Cabin', scale: 'room', parent: 'station' },
@@ -52,6 +55,7 @@ export const SCENE_EXAMPLES = [
         ] },
         create: {
             scene: 'cabin', playerHere: true, viewBox: [0, 0, 600, 440], mood: 'cold',
+            lighting: { space: 'indoor', natural: 'night', artificial: 'on' },
             elements: [
                 { id: 'floor', cat: 'terrain', shape: 'rect', geo: { center: [300, 200], size: [500, 320] }, material: 'metal' },
                 { id: 'wall', cat: 'wall', shape: 'path', geo: { points: [[260, 360], [50, 360], [50, 40], [550, 40], [550, 360], [340, 360]] }, closed: false, material: 'metal' },

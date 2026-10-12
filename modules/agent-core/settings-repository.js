@@ -1,3 +1,4 @@
+import { normalizeWebSettings } from './web/settings.js';
 import {
     AGENT_SETTINGS_CONFIG_VERSION,
     normalizeAgentSettings,
@@ -43,8 +44,7 @@ export function mergeSharedAgentSettings(current = {}, patch = {}, options = {})
         ...normalizedCurrent,
         workspaceFileName: patch.workspaceFileName ?? normalizedCurrent.workspaceFileName,
         jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? normalizedCurrent.jsApiPermission),
-        tavilyApiKey: patch.tavilyApiKey ?? normalizedCurrent.tavilyApiKey,
-        tavilyBaseUrl: patch.tavilyBaseUrl ?? normalizedCurrent.tavilyBaseUrl,
+        ...normalizeWebSettings(patch, normalizedCurrent),
         currentPresetName: normalizePresetName(patch.currentPresetName || normalizedCurrent.currentPresetName),
         delegatePresetName: normalizePresetName(
             patch.delegatePresetName

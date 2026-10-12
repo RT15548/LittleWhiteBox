@@ -1,3 +1,4 @@
+import { normalizeWebSettings } from '../agent-core/web/settings.js';
 import { getRequestHeaders } from "../../../../../../script.js";
 import * as scriptModule from "../../../../../../script.js";
 import { getContext } from "../../../../../extensions.js";
@@ -263,8 +264,7 @@ function buildRuntimeConfig() {
         delegateConfigured: settings.delegateConfigured === true,
         presetNames: Object.keys(settings.presets || {}),
         presets: settings.presets || {},
-        tavilyApiKey: settings.tavilyApiKey || '',
-        tavilyBaseUrl: settings.tavilyBaseUrl || '',
+        ...normalizeWebSettings(settings),
         toolInfo: {
             readableSources: ['littlewhitebox', 'sillytavern-public', 'session-local-source'],
             writableSources: ['session-local-source'],
@@ -3590,8 +3590,7 @@ async function handleIframeMessage(event) {
                 ...current,
                 workspaceFileName: normalizeWorkspaceName(patch.workspaceFileName || current.workspaceFileName),
                 jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? current.jsApiPermission),
-                tavilyApiKey: patch.tavilyApiKey ?? current.tavilyApiKey,
-                tavilyBaseUrl: patch.tavilyBaseUrl ?? current.tavilyBaseUrl,
+                ...normalizeWebSettings(patch, current),
                 currentPresetName: normalizePresetName(patch.currentPresetName || current.currentPresetName),
                 delegatePresetName: normalizePresetName(patch.delegatePresetName || current.delegatePresetName || patch.currentPresetName || current.currentPresetName),
                 delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'

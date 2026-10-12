@@ -11,7 +11,7 @@ const browserOutput = resolve(projectRoot, 'libs/msgpack.mjs');
 const browserLicenseOutput = resolve(projectRoot, 'libs/msgpack.LICENSE.txt');
 const serverVendorDirectory = resolve(
     projectRoot,
-    'server-plugin/littlewhitebox-image-jobs/providers/novelai/vendor',
+    'server-plugin/littlewhitebox-server/providers/novelai/vendor',
 );
 const serverOutput = resolve(serverVendorDirectory, 'novel-v5-parser.cjs');
 const licensesOutput = resolve(serverVendorDirectory, 'THIRD_PARTY_LICENSES.txt');

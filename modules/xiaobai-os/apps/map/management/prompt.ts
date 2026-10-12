@@ -8,7 +8,7 @@ export const MAP_MANAGEMENT_PROMPT = [
     MAP_GEOGRAPHY_PROMPT,
     '',
     '## What you have',
-    'You start with atlas counts and the player position, or a stored-JSON page and validation error when the map data is invalid.',
+    'You start with atlas counts, the player position and currentScene, or a stored-JSON page and validation error when the map data is invalid.',
     'Use MapAtlasRead collections to find the places, routes and actors the user is talking about, along with their keys. MapSceneRead shows a place’s current layout and the elements you can edit.',
     '',
     MAP_PLACE_SETUP_PROMPT,

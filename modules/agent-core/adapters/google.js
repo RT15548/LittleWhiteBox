@@ -791,7 +791,7 @@ export class GoogleAdapter {
             text,
             toolCalls: normalizedToolCalls,
             thoughts,
-            finishReason: requireResponseCompletion('google', finishReason),
+            finishReason: requireResponseCompletion('google', finishReason, false, text),
             model: response.modelVersion || this.config.model,
             provider: 'google',
             providerPayload: buildProviderPayloadFromContents(historyModelContents)

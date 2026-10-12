@@ -1,5 +1,5 @@
 import { createPlanLedger } from '../../agent-core/plan-ledger.js';
-import { isTavilyConfigured, runTavilySearchTool } from '../../agent-core/tavily-search.js';
+import { isWebConfigured, runWebSearchTool } from '../../agent-core/web/tools.js';
 import { ebookPlansTable, iterateBookFiles, listBookFilePaths, listBookFiles, renameBook } from './ebook-db.js';
 import { createBookFileToolHandlers, collectDirectoryEntries } from './book-file-tools.js';
 import {
@@ -106,7 +106,7 @@ export function createBookToolRuntime(options = {}) {
             case EBOOK_TOOL_NAMES.READ:
                 return await fileTools.executeRead(args);
             case EBOOK_TOOL_NAMES.WEB_SEARCH:
-                return await runTavilySearchTool(getSearchConfig(), args, {
+                return await runWebSearchTool(getSearchConfig(), args, {
                     signal: options.signal,
                     isAbortError: options.isAbortError,
                 });
@@ -153,7 +153,7 @@ export function createBookToolRuntime(options = {}) {
         getFiles,
         getToolDefinitions: () => getEbookToolDefinitions({
             readOnly,
-            webSearchEnabled: isTavilyConfigured(getSearchConfig()),
+            webSearchEnabled: isWebConfigured(getSearchConfig()),
         }),
     };
 }

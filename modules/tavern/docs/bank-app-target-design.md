@@ -1,8 +1,6 @@
 # 小白银行 APP 目标设计
 
-- 状态：已确认，供实现团队施工
-- 适用范围：小白酒馆 Tavern 模块 / 小号测试线
-- 确认日期：2026-07-26
+适用范围：小白酒馆 Tavern 模块。它与普通小白 OS 的同名 APP 属于不同领域，数据与运行入口不互用。
 
 ## 1. 产品定义
 
@@ -95,7 +93,6 @@ Bank Activity 是用户可观察的业务事实，不是缓存。删除 Bank 功
 modules/tavern/
 ├─ docs/
 │  ├─ bank-app-target-design.md
-│  └─ bank-app-implementation-plan.md
 ├─ shared/bank/
 │  ├─ README.md
 │  ├─ bank-types.ts
@@ -129,7 +126,7 @@ modules/tavern/
    └─ bank-controller.test.ts
 ```
 
-三个游戏已有独立规则、状态和测试，因此从第一版就属于三个纯逻辑文件；Vue 不得拥有游戏判断或概率计算。
+三个游戏已有独立规则、状态和测试，因此分别属于三个纯逻辑文件；Vue 不得拥有游戏判断或概率计算。
 
 ## 6. 金额与随机数规则
 

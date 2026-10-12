@@ -12,6 +12,7 @@ function createHarness() {
         settingsListener: null,
         statusListener: null,
         autoMaintenance: false,
+        projectToChat: false,
         writeState: 'ready',
         status: initialStatus,
         statuses: new Map([['character:1:chat-a', initialStatus]]),
@@ -26,7 +27,12 @@ function createHarness() {
         adoptServerState: async () => {host.writeState = 'ready'; return { status: 'adopted' };},
     };
     const settings = {
-        read: () => ({ apps: { map: { autoMaintenance: host.autoMaintenance } } }),
+        read: () => ({ apps: { map: { autoMaintenance: host.autoMaintenance, projectToChat: host.projectToChat } } }),
+        async setMapProjection(enabled) {
+            host.projectToChat = enabled;
+            host.settingsListener?.(settings.read());
+            return settings.read();
+        },
         async setMapAutoMaintenance(enabled) {
             host.autoMaintenance = enabled;
             host.settingsListener?.(settings.read());
@@ -83,6 +89,19 @@ function activation(host) {
         },
     };
 }
+
+test('projection preference is independent of automatic maintenance and sends no maintenance work', async () => {
+    const { controller, host } = createHarness();
+    controller.activate(activation(host));
+    const state = await controller.handleMessage({ type: 'map/set-projection', payload: { chatIdentity: host.identity.key, enabled: true } });
+    assert.equal(state.projectToChat, true);
+    assert.equal(state.autoMaintenance, false);
+    assert.deepEqual(host.calls, []);
+    controller.deactivate();
+    assert.equal(controller.readState().projectToChat, true);
+    assert.equal(controller.activate(activation(host)).projectToChat, true);
+    controller.stopBackground();
+});
 
 test('Map activation is read-only and maintenance requests return after Host admission', async () => {
     const { controller, host } = createHarness();

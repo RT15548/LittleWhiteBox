@@ -85,6 +85,37 @@ test('a failed non-strict read does not poison a later strict retry', async () =
     assert.equal(attempts, 2);
 });
 
+for (const stalledStage of ['request', 'body']) {
+    test(`a timed-out ${stalledStage} releases shared readers and cannot overwrite a later successful read`, async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const stalled = deferred();
+        let attempts = 0;
+        let signal;
+        const storage = new StorageFile('bounded-read.json', {
+            readTimeoutMs: 100,
+            fetch: async (_url, options) => {
+                attempts++;
+                if (attempts > 1) return response(200, '{"value":"fresh"}');
+                signal = options.signal;
+                return stalledStage === 'request' ? stalled.promise
+                    : { ok: true, status: 200, text: () => stalled.promise };
+            },
+        });
+        const first = assert.rejects(storage.getStrict('value'), { code: 'STORAGE_READ_TIMEOUT' });
+        const joined = assert.rejects(storage.getStrict('value'), { code: 'STORAGE_READ_TIMEOUT' });
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+        t.mock.timers.tick(100);
+        await Promise.all([first, joined]);
+        assert.equal(signal.aborted, true);
+        assert.equal(attempts, 1);
+        assert.equal(await storage.getStrict('value'), 'fresh');
+        stalled.resolve(stalledStage === 'request' ? response(200, '{"value":"stale"}') : '{"value":"stale"}');
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+        assert.equal(await storage.getStrict('value'), 'fresh');
+        assert.equal(attempts, 2);
+    });
+}
+
 test('strict load rejects a non-object storage root', async () => {
     const storage = new StorageFile('invalid.json', {
         fetch: async () => response(200, '[]'),

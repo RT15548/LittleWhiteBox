@@ -1,6 +1,6 @@
 import { analyzeJavaScriptApiRequest } from '../runtime-src/jsapi-runtime.js';
 import { createDelegateRunner } from '../../agent-core/runtime/delegate-runner.js';
-import { runTavilySearchTool } from '../../agent-core/tavily-search.js';
+import { runWebSearchTool } from '../../agent-core/web/tools.js';
 import {
     buildProviderMessagesFromHistory,
     filterThoughtsForTurn,
@@ -87,7 +87,6 @@ export function createAssistantRuntime(deps) {
         HISTORY_SUMMARY_PREFIX,
         MAX_CONTEXT_TOKENS,
         SUMMARY_TRIGGER_TOKENS,
-        HISTORY_SUMMARY_MAX_TOKENS,
         DEFAULT_PRESERVED_TURNS,
         MIN_PRESERVED_TURNS,
         MAX_TOOL_ROUNDS,
@@ -310,7 +309,6 @@ export function createAssistantRuntime(deps) {
         DEFAULT_PRESERVED_TURNS,
         MIN_PRESERVED_TURNS,
         SUMMARY_TRIGGER_TOKENS,
-        HISTORY_SUMMARY_MAX_TOKENS,
         buildContextMeterLabel,
         forceUpdateContextStats,
         toProviderMessages,
@@ -535,7 +533,7 @@ export function createAssistantRuntime(deps) {
                     const providerConfig = options.role === 'delegate'
                         ? getDelegateProviderConfig?.(run)
                         : getActiveProviderConfig();
-                    toolResult = await runTavilySearchTool(providerConfig || {}, parsedArguments, {
+                    toolResult = await runWebSearchTool(providerConfig || {}, parsedArguments, {
                         signal: run.controller.signal,
                         isAbortError,
                     });

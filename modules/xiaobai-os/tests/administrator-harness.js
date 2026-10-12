@@ -21,8 +21,10 @@ import { createTransactionCoordinator } from '../kernel/transaction-coordinator.
 import { xiaobaiOsApps } from '../shell/app-catalog.js';
 import { TOOLS_LOAD } from '../apps/administrator/agent/tool-loader.js';
 
-// Scripted providers in existing business tests first acquire the selected packages.
-export const withLoadedTools = (apps, generate) => request => request.tools.length === 1 && request.tools[0].function.name === TOOLS_LOAD
+export const COMMON_TOOL_NAMES = [TOOLS_LOAD, 'ChatSearch', 'ChatRead', 'OSInspect', 'ToolResultRead'];
+
+// Scripted providers acquire APP packages only when the test needs their record tools.
+export const withLoadedTools = (apps, generate) => request => apps.length && request.tools.every(tool => COMMON_TOOL_NAMES.includes(tool.function.name))
     ? { toolCalls: [{ id: 'load-tools', name: TOOLS_LOAD, arguments: JSON.stringify({ apps }) }] } : generate(request);
 
 export const tick = () => new Promise(resolve => setTimeout(resolve, 0));

@@ -164,6 +164,31 @@ test('cancelling embedding work spares consistency and io tasks', async () => {
     assert.deepEqual(order, ['embedding:start', 'embedding:aborted', 'consistency:ran', 'io:ran']);
 });
 
+test('readiness stays outside the writer; stopping generation still lets source consistency finish', async () => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const completed = [];
+    const ready = runVectorWriteTask({ scope: CONSISTENCY }, async () => {
+        await gate;
+        completed.push('source-committed');
+    });
+    const generation = runVectorWriteTask({ scope: EMBEDDING, operationId: 'preparing', ready }, () => completed.push('model'));
+    const io = runVectorWriteTask({ scope: IO }, () => completed.push('io'));
+    assert.equal(cancelVectorWriteOperation('preparing'), true);
+    release();
+    await Promise.all([ready, generation, io]);
+    assert.deepEqual(completed, ['source-committed', 'io']);
+    assert.equal(cancelVectorWriteOperation('preparing'), false);
+});
+
+test('a failed prerequisite releases its operation and never starts generation', async () => {
+    let requests = 0;
+    await assert.rejects(runVectorWriteTask({ scope: EMBEDDING, operationId: 'preparing',
+        ready: Promise.reject(Object.assign(new Error('source save failed'), { code: 'source_failure' })) }, () => { requests++; }), { code: 'source_failure' });
+    assert.equal(requests, 0);
+    assert.equal(cancelVectorWriteOperation('preparing'), false);
+});
+
 test('shutdown invalidates every scope, drains the writer, and requires an explicit resume', async () => {
     const order = [];
     const active = blockUntilAborted(order, 'consistency', { kind: 'shutdown-active', scope: CONSISTENCY });

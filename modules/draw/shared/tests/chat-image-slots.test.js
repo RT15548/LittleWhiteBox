@@ -22,6 +22,7 @@ const markdown = new showdown.Converter({ simpleLineBreaks: true, tables: true }
 host.format = value => markdown.makeHtml(value);
 const stubs = {
     'extensions.js': 'export const getContext = () => globalThis.__chatImageSlotsTest.ctx;',
+    'user.js': 'export const getCurrentUserHandle = () => "fixture";',
     'script.js': 'export const messageFormatting = text => globalThis.__chatImageSlotsTest.format(text); export const getRequestHeaders = () => ({}); export const syncMesToSwipe = () => {};',
     'utils.js': 'export const uuidv4 = () => crypto.randomUUID(); export const saveBase64AsFile = async () => { throw new Error("unexpected upload"); };',
     'event-manager.js': `
@@ -75,6 +76,7 @@ function setup(t, source, { legacy = false } = {}) {
     const { document, window } = parseHTML('<html><head></head><body><div id="chat"><div class="mes" mesid="0"><div class="mes_text"></div></div></div></body></html>');
     globalThis.document = document;
     globalThis.window = window;
+    window.HTMLImageElement.prototype.decode = async () => {};
     globalThis.MutationObserver = window.MutationObserver;
     const observed = new Set();
     globalThis.IntersectionObserver = class {
@@ -172,7 +174,7 @@ function setup(t, source, { legacy = false } = {}) {
             await host.emit('GENERATION_ENDED');
             await host.emit('MESSAGE_RECEIVED', 0, type);
         },
-        generateTag() { root.querySelector('[data-action="generate-tag"]').click(); },
+        generateTag() { root.querySelector('[data-xb-draw-tag-action]').click(); },
         get saves() { return saves; }, get requests() { return responses; },
         set hold(value) { hold = value; }, finish() { for (const deliver of deliveries.splice(0)) deliver(); },
         set saveMode(value) { saveMode = value; }, set cacheReadsFail(value) { cacheReadsFail = value; },
@@ -208,17 +210,109 @@ test('received tags batch once without visibility, update swipe, and survive dup
 test('historical tags stay raw through reload; only an explicit action generates one occurrence', async t => {
     const h = setup(t, '[img: first] and [img: later]');
     api.initChatMessageImages();
-    await until(() => h.root.querySelectorAll('[data-action="generate-tag"]').length === 2);
+    await until(() => h.root.querySelectorAll('[data-xb-draw-tag-action]').length === 2);
     assert.equal(h.requests, 0);
     h.generateTag();
     await until(() => h.root.querySelectorAll('.xb-nd-img img').length === 1);
+    // Visible delivery precedes floor-batch release. This test purchases the
+    // next historical tag only after the unchanged floor exclusion permits it.
+    await until(() => h.jobs.size === 0);
     assert.ok(h.message.mes.includes('[img: later]'));
     api.cleanupChatMessageImages(); h.format(); api.initChatMessageImages();
-    await until(() => h.root.querySelectorAll('[data-action="generate-tag"]').length === 1);
+    await until(() => h.root.querySelectorAll('[data-xb-draw-tag-action]').length === 1);
     assert.equal(h.requests, 1);
     h.generateTag();
     await until(() => h.requests === 2);
     await until(() => !h.message.mes.includes('[img:'));
+});
+
+test('native tag handoff never exposes markers or rebuilds live sibling content', async t => {
+    const h = setup(t, 'Before [img: first] middle [img: second] after');
+    h.hold = true;
+    api.initChatMessageImages();
+    await h.begin();
+    await until(() => h.root.querySelectorAll('[data-xb-draw-tag="streaming"]').length === 2);
+    const iframe = document.createElement('iframe');
+    h.root.append(iframe);
+    await tick();
+    const frames = [];
+    const observer = new MutationObserver(() => frames.push({
+        raw: /\[(?:img|image)\s*:/.test(h.root.textContent),
+        cards: h.root.querySelectorAll('.xb-nd-img').length,
+        sameFrame: h.root.contains(iframe),
+    }));
+    observer.observe(h.root, { childList: true, subtree: true, characterData: true });
+    t.after(() => observer.disconnect());
+    await h.receive();
+    await until(() => h.requests === 1);
+    await until(() => h.root.querySelectorAll('.xb-nd-img[data-slot-id]:not([data-slot-id=""])').length === 2);
+    h.finish();
+    await until(() => h.root.querySelectorAll('.xb-nd-img img').length === 2);
+    assert.ok(frames.length > 0);
+    assert.deepEqual(frames.filter(frame => frame.raw || frame.cards !== 2 || !frame.sameFrame), []);
+    assert.equal(h.requests, 1);
+});
+
+for (const retry of [false, true]) for (const saveMode of ['ok', 'uncertain']) {
+    test(`manual tag handoff keeps cards and live siblings through delayed ${saveMode} save (retry: ${retry})`, async t => {
+        const h = setup(t, '[img: same] and [img: same]');
+        api.initChatMessageImages();
+        if (retry) {
+            h.prepareBarrier = () => { throw new Error('preparation rejected'); };
+            await h.begin(); await h.receive();
+            await until(() => h.root.querySelectorAll('[data-xb-draw-tag="failed"]').length === 2);
+            h.prepareBarrier = async () => {};
+        } else await until(() => h.root.querySelectorAll('[data-xb-draw-tag-action]').length === 2);
+        const iframe = document.createElement('iframe');
+        h.root.append(iframe);
+        const gate = Promise.withResolvers();
+        h.onSave = () => gate.promise;
+        h.saveMode = saveMode;
+        const frames = [];
+        const observer = new MutationObserver(() => frames.push({
+            raw: /\[(?:img|image)\s*:/.test(h.root.textContent),
+            cards: h.root.querySelectorAll('.xb-nd-img').length,
+            sameFrame: h.root.contains(iframe),
+        }));
+        observer.observe(h.root, { childList: true, subtree: true, characterData: true });
+        t.after(() => { gate.resolve(); observer.disconnect(); });
+        h.generateTag();
+        await until(() => h.saves === 1);
+        api.refreshChatMessageImages();
+        await tick();
+        assert.equal(h.requests, 0, 'no supplier request before save confirmation');
+        assert.equal(h.root.querySelectorAll('.xb-nd-img').length, 2);
+        assert.equal(/\[(?:img|image)\s*:/.test(h.root.textContent), false);
+        gate.resolve();
+        if (saveMode === 'ok') await until(() => h.root.querySelector('.xb-nd-img img'));
+        else await until(() => h.root.querySelector('.xb-nd-img[data-state="failed"]'));
+        await until(() => h.jobs.size === 0);
+        assert.equal(h.requests, saveMode === 'ok' ? 1 : 0);
+        assert.equal(api.parseChatImageTags(h.message.mes).length, 1);
+        assert.equal(api.extractSlotIds(h.message.mes).size, 1);
+        assert.ok(frames.length > 0);
+        assert.deepEqual(frames.filter(frame => frame.raw || frame.cards !== 2 || !frame.sameFrame), []);
+    });
+}
+
+test('unchanged tag projections retain manual controls and use the current source on click', async t => {
+    const h = setup(t, '[img: first] and [img: second]');
+    api.initChatMessageImages();
+    await until(() => h.root.querySelectorAll('[data-xb-draw-tag-action]').length === 2);
+    const cards = [...h.root.querySelectorAll('.xb-nd-img')];
+    const button = cards[0].querySelector('button');
+    h.message.mes += ' appended prose';
+    h.root.append(document.createTextNode(' appended prose'));
+    await host.emit('MESSAGE_UPDATED', 0);
+    await tick();
+    assert.equal(h.root.querySelectorAll('.xb-nd-img').length, cards.length);
+    assert.ok([...h.root.querySelectorAll('.xb-nd-img')].every((card, index) => card === cards[index]));
+    assert.ok(cards[0].querySelector('button') === button);
+    button.click();
+    await until(() => h.requests === 1);
+    await until(() => h.root.querySelector('.xb-nd-img img'));
+    assert.equal(h.message.mes.endsWith(' appended prose'), true);
+    assert.deepEqual(host.errors, []);
 });
 
 test('content lease disposal does not cancel a claimed request', async t => {
@@ -245,7 +339,9 @@ test('DOM-only replacement restores owned images without a host message event or
 
 test('uncertain save retains registered input but makes zero generation requests', async t => {
     const h = setup(t, '[img: retain]'); h.saveMode = 'uncertain';
-    api.initChatMessageImages(); await until(() => h.root.querySelector('[data-action="generate-tag"]'));
+    api.initChatMessageImages(); await until(() => h.root.querySelector('[data-xb-draw-tag-action]'));
+    const iframe = document.createElement('iframe');
+    h.root.append(iframe);
     h.generateTag(); await until(() => h.root.querySelector('[data-state="failed"]'));
     assert.equal(h.requests, 0);
     const card = h.root.querySelector('[data-slot-id]');
@@ -261,6 +357,7 @@ test('uncertain save retains registered input but makes zero generation requests
     assert.equal(h.message.mes, savedSource);
     assert.equal(h.root.querySelector('.xb-nd-img').dataset.slotId, slotId);
     assert.equal(h.root.querySelectorAll('img').length, 1);
+    assert.ok(h.root.contains(iframe));
 });
 
 test('edited tags persist for image and interrupted card, redraw reads the selected record rather than stale DOM', async t => {
@@ -655,8 +752,14 @@ test('preparation storage failure keeps a raw retryable tag and never resubmits 
         if (failStorage && this.name === 'previews') this.transaction.abort();
         return result;
     });
-    api.initChatMessageImages(); await h.begin(); await h.receive();
+    api.initChatMessageImages(); await h.begin();
+    await until(() => h.root.querySelector('[data-xb-draw-tag="streaming"]'));
+    const card = h.root.querySelector('.xb-nd-img');
+    await h.receive();
     await until(() => h.root.querySelector('[data-xb-draw-tag="failed"]'));
+    assert.ok(h.root.querySelector('.xb-nd-img') === card);
+    assert.ok(card.querySelector('[data-xb-draw-tag-action]'));
+    assert.equal(h.root.textContent.includes('[img:'), false);
     assert.equal(h.message.mes, '[img: retry input]'); assert.equal(h.requests, 0);
     h.format(); api.refreshChatMessageImages(); await tick(); assert.equal(h.requests, 0);
     failStorage = false; h.generateTag();
@@ -683,7 +786,7 @@ test('DICE first listener removes a tail before tag adoption; editing later is n
     await h.receive(); await until(() => h.jobs.size === 0);
     assert.equal(h.submissions[0].tasks.length, 1);
     h.message.mes += ' [img: edited]'; h.format(); await host.emit('MESSAGE_EDITED');
-    await until(() => h.root.querySelector('[data-action="generate-tag"]'));
+    await until(() => h.root.querySelector('[data-xb-draw-tag-action]'));
     assert.equal(h.requests, 1);
     host.events.get('MESSAGE_RECEIVED').shift();
 });
@@ -887,7 +990,7 @@ for (const event of ['CHAT_CHANGED', 'MESSAGE_SWIPED']) test(`leaving and return
     assert.equal(h.requests, 0);
     assert.equal(api.parseChatImageTags(h.message.mes).length, 1);
     assert.equal(api.extractSlotIds(h.message.mes).size, 0);
-    await until(() => h.root.querySelector('[data-action="generate-tag"]'));
+    await until(() => h.root.querySelector('[data-xb-draw-tag-action]'));
 });
 
 test('stream tokens cannot resurrect a slot removed from the original continuation prefix', async t => {
@@ -966,13 +1069,24 @@ test('cancellation keeps the clicked swipe across an asynchronous journal read',
     const next = h.message.mes;
     h.message.swipe_id = 0; h.message.mes = original;
     const gate = Promise.withResolvers(), calls = [];
-    const operation = api.cancelPendingChildDrawRuns(0, { recordsLoader: () => gate.promise,
-        imageJobClient: { cancelJob: async id => calls.push(id) } });
+    const operation = api.cancelFloorDrawWork(0, { recordsLoader: () => gate.promise,
+        imageJobClient: { cancelWork: async ({ jobIds }) => calls.push(...jobIds) } });
     h.message.swipe_id = 1; h.message.mes = next;
     gate.resolve(await api.listPendingImageJobs()); await operation;
     assert.deepEqual(calls, [first.jobId]);
     assert.equal((await api.getPendingImageJob(first.jobId)).cancelRequested, true);
     assert.equal((await api.getPendingImageJob(second.jobId)).cancelRequested, false);
+});
+
+test('a global runtime stop does not accidentally target the first floor recovered jobs', async t => {
+    const h = setup(t, '[img: unrelated recovered image]');
+    const record = await stageNativeJob(t, h, { active: true });
+    const calls = [];
+    assert.equal(await api.cancelFloorDrawWork(null, {
+        imageJobClient: { cancelWork: async targets => calls.push(targets) },
+    }), false);
+    assert.deepEqual(calls, []);
+    assert.equal((await api.getPendingImageJob(record.jobId)).cancelRequested, false);
 });
 
 test('a settled sibling cannot prevent cancellation of a remaining journal task', async t => {
@@ -982,43 +1096,32 @@ test('a settled sibling cannot prevent cancellation of a remaining journal task'
     const second = await stageNativeJob(t, h, { active: true });
     const records = await api.listPendingImageJobs(), calls = [];
     await api.forgetPendingImageJob(first.jobId, first.leaseId);
-    await api.cancelPendingChildDrawRuns(0, { recordsLoader: async () => records,
-        imageJobClient: { cancelJob: async id => calls.push(id) } });
+    await api.cancelFloorDrawWork(0, { recordsLoader: async () => records,
+        imageJobClient: { cancelWork: async ({ jobIds }) => calls.push(...jobIds) } });
     assert.ok(calls.includes(second.jobId));
     assert.equal((await api.getPendingImageJob(second.jobId)).cancelRequested, true);
 });
 
-for (const change of ['swipe', 'chat', 'earlier-floor']) test(`queued marker cancellation retains its clicked target after ${change}`, async t => {
+for (const change of ['swipe', 'chat', 'earlier-floor']) test(`marker cancellation retains only its clicked target after ${change}`, async t => {
     const h = setup(t, 'original');
     api.setDrawRunMarker({ message: h.message, messageId: 0, runId: 'run-cancel-original',
         marker: { provider: 'sd-webui', sourceHash: 'source', targetHash: 'target', createdAt: 1 } });
-    const gate = Promise.withResolvers(), entered = Promise.withResolvers();
-    const blocker = api.withConfirmableChatMutation(h.ctx, async () => { entered.resolve(); await gate.promise; });
-    await entered.promise;
-    const requests = [], mirrors = [], saves = [];
-    const operation = api.cancelPendingDrawRuns(0, {
-        drawRunClient: { cancelRun: async id => requests.push(id) },
-        syncActiveSwipe: id => { mirrors.push(id); return true; },
-        saveAndConfirm: async () => saves.push(h.ctx.chat.indexOf(h.message)),
+    const gate = Promise.withResolvers(), requests = [];
+    const operation = api.cancelFloorDrawWork(0, {
+        recordsLoader: () => gate.promise,
+        imageJobClient: { cancelWork: async targets => requests.push(targets) },
     });
-    // Install rejection handling before releasing the queued mutation.
-    const done = change === 'chat' ? assert.rejects(operation) : operation;
     if (change === 'chat') host.ctx = { ...h.ctx, chatId: 'other-chat', chat: [{ mes: 'other' }] };
     if (change === 'swipe') {
         h.message.swipe_info = [{ extra: structuredClone(h.message.extra) }, { extra: {} }];
         h.message.swipe_id = 1; h.message.swipes.push('other'); h.message.mes = 'other'; h.message.extra = {};
     }
-    if (change === 'earlier-floor') {
-        h.ctx.chat.unshift({ mes: 'earlier' });
-        h.message.swipe_info = [{ extra: h.message.extra }];
-    }
-    gate.resolve(); await blocker; await done;
-    assert.deepEqual(requests, ['run-cancel-original']);
-    assert.deepEqual(saves, change === 'chat' ? [] : [change === 'earlier-floor' ? 1 : 0]);
-    assert.deepEqual(mirrors, change === 'earlier-floor' ? [1] : []);
-    const marker = api.listDrawRunMarkers(h.message).find(entry => entry.runId === 'run-cancel-original');
-    assert.equal(Boolean(marker.marker.cancelRequestedAt), change !== 'chat');
-    if (change === 'swipe') assert.deepEqual(h.message.extra, {});
+    if (change === 'earlier-floor') h.ctx.chat.unshift({ mes: 'earlier' });
+    const before = structuredClone(host.ctx.chat);
+    gate.resolve([]); await operation;
+    assert.deepEqual(requests, [{ owner: 'fixture', jobIds: [], runIds: ['run-cancel-original'] }]);
+    assert.deepEqual(host.ctx.chat, before);
+    assert.equal(h.saves, 0);
 });
 
 test('recovered native image jobs are capsule-visible and cancelled by their existing journal identity', async t => {
@@ -1029,16 +1132,15 @@ test('recovered native image jobs are capsule-visible and cancelled by their exi
     const state = await api.getPendingDrawWorkState(0);
     assert.equal(state.pending, true); assert.equal(state.backendAccepted, true);
     const cancelled = [];
-    assert.equal(await api.cancelPendingChildDrawRuns(0, {
-        imageJobClient: { cancelJob: async id => cancelled.push(id) },
-        drawRunClient: { cancelRun: () => assert.fail('native images are not a Draw Run') },
+    assert.equal(await api.cancelFloorDrawWork(0, {
+        imageJobClient: { cancelWork: async ({ jobIds, runIds }) => { assert.deepEqual(runIds, []); cancelled.push(...jobIds); } },
     }), true);
     assert.deepEqual(cancelled, [record.jobId]);
     assert.equal((await api.getPendingImageJob(record.jobId)).cancelRequested, true);
     assert.equal((await api.getPendingDrawWorkState(0)).cancelling, true);
     host.ctx = { ...h.ctx, chatId: 'another', chat: [{ mes: h.message.mes }] };
     assert.equal((await api.getPendingDrawWorkState(0)).pending, false);
-    assert.equal(await api.cancelPendingChildDrawRuns(0), false);
+    assert.equal(await api.cancelFloorDrawWork(0), false);
 });
 
 for (const phase of ['before-submit', 'after-submit', 'unknown-submit']) test(`native refresh ${phase} queries existing identity, never purchases again`, async t => {
@@ -1204,7 +1306,7 @@ test('switching branch during save stops submission and preserves both branch te
     const h = setup(t, '[img: branch]');
     h.message.swipes.push('alternate');
     h.onSave = () => { h.message.swipe_id = 1; h.message.mes = 'alternate'; };
-    api.initChatMessageImages(); await until(() => h.root.querySelector('[data-action="generate-tag"]'));
+    api.initChatMessageImages(); await until(() => h.root.querySelector('[data-xb-draw-tag-action]'));
     h.generateTag(); await until(() => host.errors.length > 0);
     assert.equal(h.message.mes, 'alternate');
     assert.match(h.message.swipes[0], /^\[image:/);
@@ -1278,6 +1380,212 @@ test('editing a saved card after preview cache loss keeps its saved image refere
     assert.equal(h.root.querySelector('img').getAttribute('src'), '/existing-image.png');
 });
 
+// Version-directed operations must not share the gallery's display fallback.
+// Exercise real storage + card actions: a source-only test cannot detect a
+// correct-looking card whose edits or paid redraw use a different record.
+for (const status of ['failed', 'success']) for (const selected of [false, true]) {
+    test(`saved card edits and redraw never borrow a ${status} sibling (explicit selection: ${selected})`, async t => {
+        const slotId = `exact-card-${status}-${selected}`, imgId = slotId + '-saved';
+        const h = setup(t, `[image:${slotId}]`);
+        h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, tags: 'saved scene', savedUrl: '/saved.png' } };
+        await api.storePreview({ slotId, imgId: slotId + '-other', status, tags: 'other scene',
+            savedUrl: status === 'success' ? '/other.png' : null,
+            characterPrompts: [{ name: 'Other', prompt: 'other character' }], negativePrompt: 'other negative' });
+        const other = await api.getPreview(slotId + '-other');
+        if (selected) await api.setSlotSelection(slotId, imgId);
+        await api.renderPreviewsForMessage(0);
+        const card = h.root.querySelector('.xb-nd-img'), panel = card.querySelector('.xb-nd-edit');
+        assert.equal(card.dataset.imgId, imgId);
+        assert.equal(await api.getCardPreview({ slotId, imgId }), null);
+        assert.equal(await api.getCardPreview({ slotId }), null);
+        assert.equal((await api.getDisplayPreviewForSlot(slotId)).preview.imgId, other.imgId);
+        const opened = await api.readCardTagEditor(card);
+        assert.equal(opened.imgId, imgId);
+        assert.equal(opened.tags, 'saved scene');
+        assert.equal(await api.getPreview(imgId), undefined, 'opening is read-only');
+        panel.style.display = 'block'; panel.querySelector('textarea').value = 'edited saved scene';
+        const saved = await api.persistCardTagEdits(card, tags => ({ positive: tags }));
+        assert.equal(saved.imgId, imgId);
+        assert.equal(saved.savedUrl, '/saved.png');
+        assert.equal(api.getDrawSavedEntry(h.message, slotId).tags, 'edited saved scene');
+        assert.deepEqual(await api.getPreview(other.imgId), other);
+        assert.equal(h.requests, 0);
+        await api.redrawImageCard('novelai', card);
+        assert.equal(h.submissions[0].tasks[0].scene, 'edited saved scene');
+        assert.deepEqual(h.submissions[0].tasks[0].characterPrompts, []);
+        assert.equal(h.submissions[0].tasks[0].negativePrompt, undefined);
+        assert.deepEqual(await api.getPreview(other.imgId), other);
+    });
+}
+
+test('redrawing a portable-only card uses its own input without first editing it', async t => {
+    const slotId = 'portable-exact-redraw', imgId = slotId + '-saved';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, tags: 'saved scene', savedUrl: '/saved.png' } };
+    await api.storePreview({ slotId, imgId: slotId + '-failed', status: 'failed', tags: 'wrong scene',
+        characterPrompts: [{ prompt: 'wrong character' }], negativePrompt: 'wrong negative' });
+    await api.renderPreviewsForMessage(0);
+    await api.redrawImageCard('novelai', h.root.querySelector('.xb-nd-img'));
+    assert.equal(h.submissions[0].tasks[0].scene, 'saved scene');
+    assert.deepEqual(h.submissions[0].tasks[0].characterPrompts, []);
+    assert.equal(h.submissions[0].tasks[0].negativePrompt, undefined);
+    assert.equal((await api.getPreview(imgId)).savedUrl, '/saved.png');
+});
+
+for (const savedReference of ['absent', 'other-version']) test(`missing explicit target rejects edits and redraw with ${savedReference} reference`, async t => {
+    const slotId = `missing-exact-${savedReference}`, imgId = slotId + '-a';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, tags: 'scene a', savedUrl: '/a.png' } };
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img'), panel = card.querySelector('.xb-nd-edit');
+    panel.style.display = 'block'; panel.querySelector('textarea').value = 'draft a';
+    if (savedReference === 'absent') delete h.message.extra.xiaobaixDrawSaved[slotId];
+    else h.message.extra.xiaobaixDrawSaved[slotId] = { imgId: slotId + '-b', savedUrl: '/b.png', tags: 'scene b' };
+    const before = structuredClone(h.message.extra);
+    await assert.rejects(api.readCardTagEditor(card));
+    await assert.rejects(api.persistCardTagEdits(card, tags => ({ positive: tags })));
+    assert.equal(panel.querySelector('textarea').value, 'draft a');
+    await assert.rejects(api.redrawImageCard('novelai', card));
+    assert.equal((await api.getPreviewsBySlot(slotId)).length, 0);
+    assert.deepEqual(h.message.extra, before);
+    assert.equal(h.requests, 0);
+});
+
+for (const action of ['open', 'save', 'redraw']) for (const change of ['version', 'chat', 'branch', 'delete']) {
+    test(`${action} cannot retarget after ${change} during its record read`, async t => {
+        const slotId = `target-race-${action}-${change}`, imgId = slotId + '-a';
+        const h = setup(t, `[image:${slotId}]`);
+        await api.storePreview({ slotId, imgId, status: 'failed', tags: 'scene a' });
+        await api.renderPreviewsForMessage(0);
+        const card = h.root.querySelector('.xb-nd-img'), panel = card.querySelector('.xb-nd-edit');
+        panel.style.display = 'block'; panel.dataset.imgId = imgId;
+        panel.querySelector('textarea').value = 'draft a';
+        const get = IDBObjectStore.prototype.get;
+        let changed = false;
+        t.mock.method(IDBObjectStore.prototype, 'get', function (key) {
+            const request = get.call(this, key);
+            if (!changed && this.name === 'previews' && key === imgId) {
+                changed = true;
+                request.addEventListener('success', () => {
+                    if (change === 'version') card.dataset.imgId = slotId + '-b';
+                    if (change === 'chat') h.ctx.chatId += '-switched';
+                    if (change === 'branch') h.message.swipe_id = 1;
+                    if (change === 'delete') { h.message.mes = ''; h.message.swipes = ['']; }
+                }, { once: true });
+            }
+            return request;
+        });
+        const run = action === 'open' ? api.readCardTagEditor(card)
+            : action === 'save' ? api.persistCardTagEdits(card, tags => ({ positive: tags }))
+                : api.redrawImageCard('novelai', card);
+        await assert.rejects(run);
+        assert.equal(changed, true);
+        assert.equal((await api.getPreview(imgId)).tags, 'scene a');
+        assert.equal(panel.querySelector('textarea').value, 'draft a');
+        assert.equal(panel.dataset.imgId, imgId);
+        assert.equal(h.requests, 0);
+    });
+}
+
+test('an ID-less placeholder creates its own editable input, never edits a historical sibling', async t => {
+    const slotId = 'first-edit-exact';
+    const h = setup(t, `[image:${slotId}]`);
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img'), panel = card.querySelector('.xb-nd-edit');
+    assert.equal(card.dataset.imgId || '', '');
+    await api.storePreview({ slotId, imgId: slotId + '-history', status: 'failed', tags: 'history' });
+    assert.equal(await api.readCardTagEditor(card), null);
+    panel.style.display = 'block'; panel.querySelector('textarea').value = 'first draft';
+    const saved = await api.persistCardTagEdits(card, tags => ({ positive: tags }));
+    assert.notEqual(saved.imgId, slotId + '-history');
+    assert.equal(saved.tags, 'first draft');
+    assert.equal(panel.dataset.imgId, saved.imgId);
+    assert.equal(card.dataset.imgId, saved.imgId);
+    assert.equal(await api.getSlotSelection(slotId), saved.imgId);
+    assert.equal((await api.getPreview(slotId + '-history')).tags, 'history');
+    panel.querySelector('textarea').value = 'second draft';
+    await api.persistCardTagEdits(card, tags => ({ positive: tags }));
+    assert.equal((await api.getPreview(saved.imgId)).tags, 'second draft');
+    assert.equal(h.requests, 0);
+});
+
+for (const projection of ['own', 'other']) test(`first TAG save accepts only its ${projection} projection while storage completion is pending`, async t => {
+    const slotId = `first-save-projection-${projection}`;
+    const h = setup(t, `[image:${slotId}]`);
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img'), panel = card.querySelector('.xb-nd-edit');
+    await api.readCardTagEditor(card);
+    panel.style.display = 'block'; panel.querySelector('textarea').value = 'first draft';
+    const gate = Promise.withResolvers();
+    let resume, createdImgId;
+    const put = IDBObjectStore.prototype.put;
+    const storage = t.mock.method(IDBObjectStore.prototype, 'put', function (value) {
+        const request = put.call(this, value);
+        if (!createdImgId && this.name === 'selections' && value.slotId === slotId) {
+            createdImgId = value.selectedImgId;
+            this.transaction.addEventListener('complete', event => {
+                event.stopImmediatePropagation();
+                resume = () => this.transaction.oncomplete(event);
+                gate.resolve();
+            }, { once: true });
+        }
+        return request;
+    });
+    const saving = api.persistCardTagEdits(card, tags => ({ positive: tags }));
+    const rejected = projection === 'other' ? assert.rejects(saving) : null;
+    await gate.promise; storage.mock.restore();
+    if (projection === 'other') {
+        await api.storePreview({ slotId, imgId: slotId + '-other', status: 'failed', tags: 'other' });
+        await api.setSlotSelection(slotId, slotId + '-other');
+    }
+    await api.renderPreviewsForMessage(0, { refreshSlotIds: [slotId] });
+    assert.equal(card.dataset.imgId, projection === 'own' ? createdImgId : slotId + '-other');
+    resume();
+    if (rejected) {
+        await rejected;
+        assert.equal((await api.getPreview(slotId + '-other')).tags, 'other');
+        assert.equal(await api.getSlotSelection(slotId), slotId + '-other');
+        assert.equal(panel.dataset.imgId, '');
+    } else {
+        assert.equal((await saving).imgId, createdImgId);
+        assert.equal(panel.dataset.imgId, createdImgId);
+        assert.equal(await api.getSlotSelection(slotId), createdImgId);
+    }
+    assert.equal(panel.querySelector('textarea').value, 'first draft');
+    assert.equal(h.requests, 0);
+});
+
+test('portable references without a stored ID use one identity for display, editing and archival', async t => {
+    const slotId = 'portable-no-id';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { savedUrl: '/saved.png', tags: 'saved scene' } };
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img');
+    const imgId = card.dataset.imgId;
+    assert.ok(imgId);
+    assert.equal((await api.readCardTagEditor(card)).imgId, imgId);
+    card.querySelector('textarea').value = 'edited scene';
+    assert.equal((await api.persistCardTagEdits(card, tags => ({ positive: tags }))).imgId, imgId);
+    assert.equal(api.getDrawSavedEntry(h.message, slotId).imgId, imgId);
+    assert.equal((await api.getPreview(imgId)).tags, 'edited scene');
+});
+
+test('a gallery record from another slot cannot authorize saved-reference edits', async t => {
+    const slotId = 'foreign-slot-target', imgId = 'foreign-slot-image';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, tags: 'saved', savedUrl: '/saved.png' } };
+    await api.storePreview({ slotId: 'foreign-slot-owner', imgId, tags: 'foreign', savedUrl: '/foreign.png' });
+    const foreign = await api.getPreview(imgId);
+    assert.equal(await api.getCardPreview({ slotId, imgId }), null);
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img');
+    card.querySelector('textarea').value = 'edited';
+    await assert.rejects(api.persistCardTagEdits(card, tags => ({ positive: tags })));
+    assert.deepEqual(await api.getPreview(imgId), foreign);
+    assert.equal(api.getDrawSavedEntry(h.message, slotId).tags, 'saved');
+    assert.equal(h.requests, 0);
+});
+
 async function registerHeldRedraw(t, h, { oldImage = true, saved = true, cancelled = false } = {}) {
     const slotId = api.extractSlotIds(h.message.mes).values().next().value;
     const oldId = `${slotId}-old`;
@@ -1339,10 +1647,49 @@ test('already delivered item remains visible while its journal is awaiting final
     const job = await registerHeldRedraw(t, h);
     await api.storePreview({ slotId: job.slotId, imgId: job.imgId, base64: 'ZGVm', tags: 'new', messageId: 0 });
     await api.setSlotSelection(job.slotId, job.imgId);
+    await api.commitPendingImageJobItem(job.record.jobId, job.record.leaseId, 0);
     h.format(); await api.renderPreviewsForMessage(0);
     assert.ok(h.root.querySelector('img'));
     assert.equal(h.root.querySelector('.xb-nd-img').dataset.imgId, job.imgId);
     assert.ok(await api.getPendingImageJob(job.record.jobId));
+});
+
+test('different cards accept rerolls together while duplicate clicks share one purchase', async t => {
+    const h = setup(t, '[image:queued-a] [image:queued-b]');
+    for (const slotId of ['queued-a', 'queued-b']) {
+        await api.storePreview({ slotId, imgId: `old-${slotId}`, tags: slotId, messageId: 0, base64: 'YWJj' });
+    }
+    await api.renderPreviewsForMessage(0);
+    h.hold = true;
+    const [a, b] = h.root.querySelectorAll('.xb-nd-img');
+    const first = api.redrawImageCard('novelai', a);
+    assert.equal(api.redrawImageCard('novelai', a), first);
+    const second = api.redrawImageCard('novelai', b);
+    await until(() => h.requests === 2);
+    assert.equal(h.jobs.size, 2);
+    assert.deepEqual(h.submissions.map(input => input.tasks[0].scene), ['queued-a', 'queued-b']);
+    h.finish();
+    await Promise.all([first, second]);
+    assert.equal(h.jobs.size, 0);
+    assert.equal(h.requests, 2);
+});
+
+test('a committed backend item can reroll while its uncommitted sibling stays protected', async t => {
+    const h = setup(t, '[image:batch-finished-a] [image:batch-running-b]');
+    const items = ['batch-finished-a', 'batch-running-b'].map((slotId, index) => ({ index, slotId, imgId: `old-${slotId}` }));
+    for (const item of items) await api.storePreview({ ...item, tags: item.slotId, messageId: 0, base64: 'YWJj' });
+    const record = await api.recordPendingImageJob({ jobId: 'partial-reroll', provider: 'sd-webui',
+        delivery: { mode: 'slots', chatId: h.ctx.chatId, messageId: '0' }, items });
+    t.after(() => api.forgetPendingImageJob(record.jobId, record.leaseId));
+    await api.commitPendingImageJobItem(record.jobId, record.leaseId, 0);
+    await api.renderPreviewsForMessage(0);
+    const [a, b] = h.root.querySelectorAll('.xb-nd-img');
+    await api.redrawImageCard('novelai', b);
+    assert.equal(h.requests, 0);
+    await api.redrawImageCard('novelai', a);
+    assert.equal(h.requests, 1);
+    assert.notEqual(await api.getSlotSelection(items[0].slotId), items[0].imgId);
+    assert.equal((await api.getPendingImageJobSlots()).has(items[1].slotId), true);
 });
 
 for (const oldImage of [true, false]) test(`cancel recovery retains existing slot and editable input${oldImage ? ' with old image' : ' after old cache expired'}`, async t => {
@@ -1426,6 +1773,254 @@ test('saved selected image remains available after its preview cache expires', a
     await api.renderPreviewsForMessage(0);
     assert.equal(h.root.querySelector('img').getAttribute('src'), '/saved.png');
     assert.equal(h.root.querySelector('.xb-nd-img').dataset.imgId, 'saved-only');
+});
+
+for (const phase of ['preparation', 'save']) test(`existing-slot redraw preserves unrelated continuation during ${phase}`, async t => {
+    const slotId = `redraw-continuation-${phase}`;
+    const h = setup(t, `Before [image:${slotId}] after`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId: `${slotId}-old`, savedUrl: '/kept.png', tags: 'saved tags' } };
+    await api.renderPreviewsForMessage(0);
+    const expected = h.message.mes + ' continued narration';
+    const continueText = () => { h.message.mes = expected; h.message.swipes[0] = expected; };
+    if (phase === 'preparation') h.prepareBarrier = continueText;
+    else h.onSave = continueText;
+    const result = await api.redrawImageCard('novelai', h.root.querySelector('.xb-nd-img'));
+    assert.equal(result.success, 1);
+    assert.equal(h.requests, 1);
+    assert.equal(h.message.mes, expected);
+    assert.equal(h.message.swipes[0], expected);
+    assert.equal(h.persisted[1].mes, expected);
+    const selected = await api.getPreview(await api.getSlotSelection(slotId));
+    assert.equal(selected.status, 'success');
+    assert.equal(selected.tags, 'saved tags');
+    assert.equal((await api.getPreview(`${slotId}-old`)).savedUrl, '/kept.png');
+});
+
+for (const phase of ['preparation', 'save']) for (const boundary of ['chat', 'swipe', 'removed', 'edit']) {
+    test(`existing-slot redraw still rejects ${boundary} during ${phase}`, async t => {
+        const slotId = `redraw-boundary-${phase}-${boundary}`;
+        const h = setup(t, `[image:${slotId}]`);
+        h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId: `${slotId}-old`, savedUrl: '/kept.png', tags: 'saved tags' } };
+        await api.renderPreviewsForMessage(0);
+        const invalidate = () => {
+            if (boundary === 'chat') host.ctx = { chatId: 'other', chat: [{ mes: 'other chat' }] };
+            if (boundary === 'swipe') { h.message.swipe_id = 1; h.message.mes = 'other branch'; }
+            if (boundary === 'removed') h.message.mes = 'slot removed';
+            if (boundary === 'edit') h.root.closest('.mes').classList.add('editing');
+        };
+        if (phase === 'preparation') h.prepareBarrier = invalidate;
+        else h.onSave = invalidate;
+        await assert.rejects(api.redrawImageCard('novelai', h.root.querySelector('.xb-nd-img')));
+        assert.equal(h.requests, 0);
+        if (boundary === 'chat') assert.equal(host.ctx.chat[0].mes, 'other chat');
+        if (boundary === 'swipe') assert.equal(h.message.mes, 'other branch');
+        if (boundary === 'removed') assert.equal(h.message.mes, 'slot removed');
+    });
+}
+
+test('failed redraw preserves a saved-only image as a recoverable gallery version', async t => {
+    const slotId = 'redraw-saved-only';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId: 'saved-only-before-redraw', savedUrl: '/kept.png', tags: 'saved tags' } };
+    await api.setSlotSelection(slotId, 'saved-only-before-redraw');
+    await api.renderPreviewsForMessage(0);
+    h.failures = [0];
+    await api.redrawImageCard('novelai', h.root.querySelector('.xb-nd-img'));
+    const failed = await api.getPreview(await api.getSlotSelection(slotId));
+    assert.equal(failed.status, 'failed');
+    assert.equal((await api.getPreview('saved-only-before-redraw')).savedUrl, '/kept.png');
+    assert.equal(await api.restoreImageCard(h.root.querySelector('.xb-nd-img')), true);
+    assert.equal(await api.getSlotSelection(slotId), 'saved-only-before-redraw');
+    assert.equal(h.requests, 1);
+});
+
+test('failure to preserve a saved-only image cannot clear its reference or purchase a redraw', async t => {
+    const slotId = 'redraw-saved-write-error';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId: 'write-error-old', savedUrl: '/kept.png', tags: 'saved tags' } };
+    await api.setSlotSelection(slotId, 'write-error-old');
+    await api.renderPreviewsForMessage(0);
+    const put = IDBObjectStore.prototype.put;
+    t.mock.method(IDBObjectStore.prototype, 'put', function (value, ...args) {
+        const result = put.call(this, value, ...args);
+        if (this.name === 'previews' && value.imgId === 'write-error-old') this.transaction.abort();
+        return result;
+    });
+    await assert.rejects(api.redrawImageCard('novelai', h.root.querySelector('.xb-nd-img')));
+    assert.equal(h.requests, 0);
+    assert.equal(api.getDrawSavedEntry(h.message, slotId).savedUrl, '/kept.png');
+});
+
+for (const switchChat of [false, true]) for (const boundary of ['lookup', 'write']) test(`deleting a saved-only slot during archive ${boundary} cannot recreate its gallery version (switch chat: ${switchChat})`, async t => {
+    const slotId = `delete-during-archive-${boundary}-${switchChat}`, imgId = `archive-deleted-image-${boundary}-${switchChat}`;
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, savedUrl: '/kept.png', tags: 'saved tags' } };
+    await api.renderPreviewsForMessage(0);
+    const gate = Promise.withResolvers();
+    let resume;
+    const method = boundary === 'lookup' ? 'get' : 'put';
+    const original = IDBObjectStore.prototype[method];
+    const mock = t.mock.method(IDBObjectStore.prototype, method, function (value) {
+        const request = original.call(this, value);
+        if (this.name === 'previews' && (boundary === 'lookup' ? value : value.imgId) === imgId) {
+            const emitter = boundary === 'lookup' ? request : this.transaction;
+            const eventName = boundary === 'lookup' ? 'success' : 'complete';
+            emitter.addEventListener(eventName, event => {
+                event.stopImmediatePropagation();
+                resume = () => emitter['on' + eventName](event);
+                gate.resolve();
+            }, { once: true });
+        }
+        return request;
+    });
+    const archive = api.materializeDrawSavedPreview(h.message, slotId, { messageId: 0, chatId: h.ctx.chatId });
+    await gate.promise;
+    mock.mock.restore();
+    if (switchChat) h.onSave = () => { host.ctx = { ...h.ctx, chatId: 'other-chat', chat: [{ mes: 'other', extra: {} }] }; };
+    await api.removeChatImageSlot(h.root.querySelector('.xb-nd-img'));
+    const rejected = assert.rejects(archive);
+    resume();
+    await rejected;
+    assert.equal(await api.getPreview(imgId), undefined);
+    assert.equal(api.extractSlotIds(h.message.mes).size, 0);
+    assert.equal(h.requests, 0);
+});
+
+test('concurrent archive and removal cannot resurrect a saved image after leaving the chat', async t => {
+    const slotId = 'archive-concurrent-removal', imgId = slotId + '-old';
+    const h = setup(t, `[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, savedUrl: '/old.png', tags: 'old' } };
+    await api.storePreview({ slotId, imgId: slotId + '-failed', status: 'failed', tags: 'retry', messageId: 0 });
+    await api.setSlotSelection(slotId, slotId + '-failed');
+    await api.renderPreviewsForMessage(0);
+    const other = { mes: 'other chat', extra: {} };
+    h.onSave = () => { host.ctx = { ...h.ctx, chatId: 'other-chat', chat: [other] }; };
+    // No storage hooks: both real production operations use normal IDB ordering.
+    const deletion = api.removeChatImageSlot(h.root.querySelector('.xb-nd-img'));
+    const archive = api.materializeDrawSavedPreview(h.message, slotId, { messageId: 0, chatId: h.ctx.chatId })
+        .then(() => null, error => error);
+    await Promise.all([deletion, archive]);
+    assert.equal(api.extractSlotIds(h.message.mes).size, 0);
+    assert.equal((await api.getPreviewsBySlot(slotId)).length, 0);
+    assert.equal(await api.getSlotSelection(slotId), null);
+    assert.deepEqual(other, { mes: 'other chat', extra: {} });
+    assert.equal(h.requests, 0);
+});
+
+test('archive preserves an inactive branch but rejects a removed message with a remaining saved reference', async t => {
+    const slotId = 'archive-inactive-branch', imgId = slotId + '-old';
+    const h = setup(t, 'current branch');
+    h.message.swipes.push(`[image:${slotId}]`);
+    h.message.extra.xiaobaixDrawSaved = { [slotId]: { imgId, savedUrl: '/old.png', tags: 'old' } };
+    await api.materializeDrawSavedPreview(h.message, slotId, { messageId: 0, chatId: h.ctx.chatId });
+    assert.equal((await api.getPreview(imgId)).savedUrl, '/old.png');
+    await api.deletePreview(imgId);
+    h.ctx.chat.splice(0, 1);
+    await assert.rejects(api.materializeDrawSavedPreview(h.message, slotId, { messageId: 0, chatId: h.ctx.chatId }));
+    assert.equal(await api.getPreview(imgId), undefined);
+    assert.equal(h.requests, 0);
+});
+
+test('first gallery read error settles under DOM observation and retries only on explicit action', async t => {
+    const slotId = 'first-gallery-error', imgId = slotId + '-image';
+    const h = setup(t, `[image:${slotId}]`);
+    await api.storePreview({ slotId, imgId, savedUrl: '/old.png', tags: 'old', messageId: 0 });
+    const get = IDBObjectStore.prototype.get;
+    let reads = 0;
+    const storage = t.mock.method(IDBObjectStore.prototype, 'get', function (...args) {
+        const request = get.apply(this, args);
+        if (this.name === 'selections') {
+            reads++;
+            this.transaction.abort();
+            // Bound a broken observer loop so a regression fails, not hangs.
+            if (reads === 5) api.cleanupChatMessageImages();
+        }
+        return request;
+    });
+    t.mock.method(console, 'error', () => {});
+    api.initChatMessageImages();
+    await until(() => h.root.querySelector('[role="alert"]'));
+    const card = h.root.querySelector('.xb-nd-img');
+    h.message.mes += ' continuation'; h.root.append(document.createTextNode(' continuation'));
+    for (let turn = 0; turn < 3; turn++) { await tick(); await api.renderPreviewsForMessage(0); }
+    assert.equal(reads, 1);
+    assert.equal(h.requests, 0);
+    storage.mock.restore();
+    card.querySelector('[role="alert"] button').click();
+    await until(() => card.dataset.imgId === imgId);
+    assert.equal(h.root.querySelector('.xb-nd-img'), card);
+    assert.equal(card.querySelector('[role="alert"]'), null);
+    assert.equal(h.requests, 0);
+});
+
+test('a sibling starting and finishing leaves a completed card draft and nodes intact', async t => {
+    const slotIds = ['draft-complete', 'draft-running'];
+    const h = setup(t, slotIds.map(id => `[image:${id}]`).join('\n'));
+    await api.submitPreparedChatImages({ ctx: h.ctx, message: h.message, messageId: 0, sourceText: h.message.mes,
+        tasks: slotIds.map(slotId => ({ scene: slotId, placement: { mode: 'existing', slotId } })),
+        metadata: slotIds.map(tags => ({ tags, positive: tags })), backend: false,
+        run: async callbacks => {
+            await callbacks.onItemStarting({ index: 0 });
+            await callbacks.onItemReady({ index: 0, base64: 'YWJj' });
+            const card = h.root.querySelector('[data-slot-id="draft-complete"]');
+            const editor = card.querySelector('.xb-nd-edit'), input = editor.querySelector('textarea');
+            editor.style.display = 'block'; input.value = 'unsaved sibling draft';
+            await callbacks.onItemStarting({ index: 1 });
+            await callbacks.onItemReady({ index: 1, base64: 'ZGVm' });
+            assert.ok(h.root.querySelector('[data-slot-id="draft-complete"]') === card);
+            assert.ok(card.querySelector('textarea') === input);
+            assert.equal(input.value, 'unsaved sibling draft');
+            assert.equal(editor.style.display, 'block');
+        } });
+});
+
+test('hidden slots and code blocks cannot create a MESSAGE_UPDATED feedback loop', async t => {
+    const h = setup(t, '[image:hidden-loop]\n\n```html\n<div>widget</div>\n```');
+    const original = host.format;
+    const format = t.mock.method(host, 'format', source => original(source.replace('[image:hidden-loop]', '')));
+    h.ctx.eventSource = { emit: host.emit };
+    h.format();
+    const before = format.mock.calls.length;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    api.startSharedDrawPreviewRuntime();
+    t.after(() => api.stopSharedDrawPreviewRuntime());
+    await host.emit('MESSAGE_UPDATED', 0);
+    for (let i = 0; i < 3; i++) {
+        t.mock.timers.tick(300);
+        await api.renderPreviewsForMessage(0);
+    }
+    assert.equal(format.mock.calls.length, before);
+    assert.equal(h.requests, 0);
+});
+
+test('a preserved draft cannot be saved into a newly selected version', async t => {
+    const slotId = 'changed-editor-version';
+    const h = setup(t, `[image:${slotId}]`);
+    await api.storePreview({ slotId, imgId: 'edit-first', tags: 'first', savedUrl: '/same.png', messageId: 0 });
+    await api.setSlotSelection(slotId, 'edit-first');
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img'), editor = card.querySelector('.xb-nd-edit');
+    editor.style.display = 'block'; editor.querySelector('textarea').value = 'unsaved first draft';
+    await api.storePreview({ slotId, imgId: 'edit-second', tags: 'second', savedUrl: '/same.png', messageId: 0 });
+    await api.setSlotSelection(slotId, 'edit-second');
+    await api.renderPreviewsForMessage(0, { refreshSlotIds: [slotId] });
+    await assert.rejects(api.persistCardTagEdits(card, tags => ({ positive: tags })));
+    assert.equal((await api.getPreview('edit-second')).tags, 'second');
+    assert.equal(editor.querySelector('textarea').value, 'unsaved first draft');
+});
+
+test('cancelled recovery preserves a saved-only version before selecting the interrupted attempt', async t => {
+    const h = setup(t, '[image:cancel-saved-only]');
+    const job = await registerHeldRedraw(t, h, { oldImage: false, cancelled: true });
+    // Simulate a separate browser whose gallery lacks the old portable image.
+    await api.deletePreview(job.oldId);
+    api.startImageJobRecovery({ client: { listJobs: async () => [] } });
+    await api.reconcilePendingImageJobs(); api.stopImageJobRecovery();
+    assert.equal((await api.getPreview(job.imgId)).status, 'failed');
+    assert.equal((await api.getPreview(job.oldId)).savedUrl, '/old.png');
+    assert.equal(await api.restoreImageCard(h.root.querySelector('.xb-nd-img')), true);
+    assert.equal(await api.getSlotSelection(job.slotId), job.oldId);
+    assert.equal(h.requests, 0);
 });
 
 const coldSwipeFixture = JSON.parse(await readFile(new URL(

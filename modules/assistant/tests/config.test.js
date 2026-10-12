@@ -63,6 +63,20 @@ test('assistant API defaults do not replace an existing user tool selection', as
     assert.equal(resolveActiveProviderConfig(loaded).toolMode, 'native');
 });
 
+test('only Claude presets retain model-list auth and missing selections default to x-api-key', () => {
+    for (const modelListAuth of [undefined, 'x-api-key', 'bearer', 'invalid']) {
+        const modelConfigs = Object.fromEntries(['anthropic', 'sillytavern-claude', 'openai-compatible', 'google']
+            .map(provider => [provider, { modelListAuth }]));
+        const config = normalizeAgentConfig({ modelConfigs });
+        for (const provider of ['anthropic', 'sillytavern-claude']) {
+            assert.equal(config.modelConfigs[provider].modelListAuth, modelListAuth === 'bearer' ? 'bearer' : 'x-api-key');
+        }
+        for (const provider of ['openai-compatible', 'google']) {
+            assert.equal(Object.hasOwn(config.modelConfigs[provider], 'modelListAuth'), false);
+        }
+    }
+});
+
 test('assistant API presets preserve independent main and delegate output limits', () => {
     const config = normalizeAgentConfig({
         currentPresetName: '主助手',

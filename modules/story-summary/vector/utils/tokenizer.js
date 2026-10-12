@@ -4,13 +4,10 @@
 // 职责：
 // 1. 管理结巴 WASM 生命周期（预加载 / 就绪检测 / 降级）
 // 2. 实体词典注入（分词前最长匹配保护）
-// 3. 亚洲文字（CJK + 假名）走结巴，拉丁文字走空格分割
+// 3. 中文使用结巴，日文使用 TinySegmenter；拉丁文字按分隔符拆词
 // 4. 提供 tokenize(text): string[] 统一接口
 //
-// 加载时机：
-// - 插件初始化时 storySummary.enabled && vectorConfig.enabled → preload()
-// - 向量开关从 off→on 时 → preload()
-// - CHAT_CHANGED 时 → injectEntities() + warmup 索引（不负责加载 WASM）
+// 预热由剧情总结调用方管理；切聊时重新注入当前实体并预热词法索引。
 //
 // 降级策略：
 // - WASM 未就绪时 → 实体保护 + 标点分割（不用 bigram）

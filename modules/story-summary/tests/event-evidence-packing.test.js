@@ -8,7 +8,7 @@ function pack({ l0 = [], l1 = [], cause = '' } = {}) {
     const budget = { used: 0, max: 4000 };
     const result = packEventEvidence({ l0Items: l0.map((n, i) => item('l0', n, i)),
         l1Items: l1.map((n, i) => item('l1', n, i)), causalOwners: [owner],
-        causesById: new Map(cause ? [['evt-cause', { event: { id: 'evt-cause', summary: cause } }]] : []),
+        eventIndex: new Map(cause ? [['evt-cause', { id: 'evt-cause', summary: cause }]] : []),
         budget, estimateTokens: text => text.length, getTokenCost: item => item.tokenCost,
         floorOverheadTokens: 0, protectedBudget: { used: 0, max: 1600 } });
     return { ...result, used: budget.used };

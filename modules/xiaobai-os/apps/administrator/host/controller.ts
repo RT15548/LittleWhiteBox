@@ -101,6 +101,12 @@ export function createAdministratorController(conversation: AdministratorConvers
                     finally { if (guard() && !conversation.unsaved()) { await runtime.reset(); } }
                     await runtime.prepareContext(); return state();
                 });
+                case 'administrator/edit': return exclusive(async () => {
+                    if (conversation.unsaved()) { throw new Error('administrator_save_pending'); }
+                    if (payload.revision !== conversation.read().revision) { throw new Error('administrator_history_conflict'); }
+                    await conversation.editUserMessage(String(payload.turnId), payload.text, guard);
+                    await runtime.reset(); await runtime.prepareContext(); return state();
+                });
                 case 'administrator/delete': return exclusive(async () => {
                     if (payload.revision !== conversation.read().revision) { throw new Error('administrator_history_conflict'); }
                     await runtime.reset(); await conversation.deleteMessage(String(payload.turnId), String(payload.role), guard); await runtime.prepareContext(); return state();

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate } from 'node:timers';
 import { parseHTML } from 'linkedom';
+import { installDialogDom } from './fixtures/dialog-dom.js';
 
 import { createTaskController } from '../apps/tasks/host/controller.js';
 import { createXiaobaiOsBootstrap } from '../host/bootstrap.js';
@@ -226,6 +227,7 @@ for (const closeFromDesktop of [false, true]) {
             files: {},
         });
         const { document, window } = parseHTML('<html><head></head><body><div><button id="send_but"></button></div></body></html>');
+        installDialogDom(document);
         let bridgeOptions;
         const posts = [];
         const bootstrap = createXiaobaiOsBootstrap({

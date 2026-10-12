@@ -15,10 +15,10 @@ const THIS_JOB = {
 
 const WHAT_YOU_HAVE = [
     '## What you have',
-    '- `<map_atlas_state>`: the atlas as it was when this run started; MapAtlasRead reflects edits made during this run. With `mode: "document"`, it contains all recorded locations (including `hasScene` and any recorded position/terrain), links and actors. With `mode: "summary"`, it contains only counts and the player position if known; read the needed collections with MapAtlasRead. Omission from a summary does not establish that a collection is empty.',
+    '- `<map_atlas_state>`: the atlas as it was when this run started. Both modes include currentScene. With `mode: "document"`, all recorded locations, links and actors are included; with `mode: "summary"`, only counts and the player position accompany it. Read the needed collections with MapAtlasRead; omission from a summary does not establish that a collection is empty.',
     '- If a `<current_map>` block appears in the current state, it is a bounded player-facing overview of this same atlas, not a complete inventory. Use the mode of `<map_atlas_state>` to determine which details still need reading.',
     '- The player\'s display name is in `<accepted_turn>`. Their atlas position is the `player` actor.',
-    '- Scene layouts are not injected. Read one with MapSceneRead when you need it.',
+    '- Scene elements and lighting values are not injected. MapSceneRead provides them when needed.',
 ].join('\n');
 
 const WHAT_COMPLETION_ADDS = [
@@ -34,17 +34,18 @@ const WHAT_COMPLETION_ADDS = [
 const TOOLS = [
     '## Tools and when to read',
     '- MapAtlasRead pages locations, links or actors. When `<map_atlas_state>` is a summary, read the region you are about to touch; it also confirms a key before extending a region.',
-    '- MapSceneRead shows one place’s current layout in the vocabulary MapSceneEdit accepts. Read an existing scene before patching it, so patches use its real ids, or when judging whether its ordinary layout is sparse; that judgment does not require a new spatial event in the story. A location recorded with `hasScene: false` has no layout to read.',
+    '- Read an existing scene with MapSceneRead before editing it or assessing its completeness. A location recorded with `hasScene: false` has no layout to read.',
+    '- For the place the story is using, currentScene.hasLighting: false is a known gap: read that scene and complete it even without a new spatial event. If the story has moved elsewhere, assess the destination instead.',
     '- MapAtlasEdit establishes destinations, positions, routes and world-level actor positions.',
-    '- MapSceneEdit draws or patches the layout of the current story place.',
+    '- MapSceneEdit draws or patches the current story place. Change only the affected facts; an illumination change does not require a new layout.',
     '- Reuse layouts read in this run together with subsequent accepted edits. A new turn alone is not a reason to repeat a completeness check; when no scene update or layout assessment is needed, work from the supplied atlas.',
 ].join('\n');
 
 const WHEN_TO_WRITE = [
     '## When to write and when to stop',
-    'Write when the story establishes a spatial fact, when the atlas or the current scene is sparse, or when a place becomes relevant for the first time. Otherwise do not touch the map.',
-    'Sparse means: the atlas has fewer than a handful of destinations for a world that clearly has more, or the current scene lacks the ordinary features a visitor would see. Complete a sparse area once, then preserve its layout.',
-    'A place is complete when its evidenced anchors are placed, its ordinary furniture and walking space exist, its entrances connect to walkable space, and its labels are readable. Once complete, only evidenced changes or genuine gaps justify another edit; do not redraw or expand a complete area every turn.',
+    'Write when the story establishes a spatial or lighting change, when the atlas or the current scene is sparse, or when a place becomes relevant for the first time. Otherwise do not touch the map.',
+    'An atlas is sparse when it has fewer than a handful of destinations for a world that clearly has more. Assess scene completeness using the shared drawing criteria below.',
+    'Complete a sparse area once. After that, only evidenced changes or genuine gaps justify another edit; preserve the established layout rather than redrawing or expanding it every turn.',
 ].join('\n');
 
 const CHOOSING_THE_SCENE = [
@@ -69,9 +70,9 @@ export function buildMapMaintenancePrompt(mode: MaintenanceMode): string {
         MAP_GEOGRAPHY_PROMPT,
         WHAT_YOU_HAVE,
         WHAT_COMPLETION_ADDS,
+        WHEN_TO_WRITE,
         TOOLS,
         MAP_PLACE_SETUP_PROMPT,
-        WHEN_TO_WRITE,
         CHOOSING_THE_SCENE,
         WORLD_ATLAS,
         MAP_SCENE_DRAWING_PROMPT,

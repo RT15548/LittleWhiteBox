@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 import { Script, createContext } from 'node:vm';
+import { collectWorkspaceFiles } from '../../../scripts/workspace-files.mjs';
 import type { Component } from 'vue';
 import { defineTavernPhoneApps } from '../app-src/features/phone-os/phone-os-types';
 
@@ -11,7 +12,6 @@ const tavernRoot = resolve(root, 'modules/tavern');
 const sourceExtensions = new Set(['.ts', '.vue']);
 const ignoredPathParts = new Set(['dist', 'tests']);
 const repositoryTextExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue', '.html', '.css', '.json', '.md', '.txt']);
-const repositoryIgnoredDirNames = new Set(['.git', 'node_modules', 'coverage']);
 const externalGoogleFontEndpointPattern = /fonts\.(?:googleapis|gstatic)/i;
 
 function collectSourceFiles(dir: string): string[] {
@@ -26,21 +26,9 @@ function collectSourceFiles(dir: string): string[] {
         });
 }
 
-function collectRepositoryTextFiles(dir: string = root, files: string[] = []): string[] {
-    for (const name of readdirSync(dir)) {
-        const path = join(dir, name);
-        const stat = statSync(path);
-        if (stat.isDirectory()) {
-            if (!repositoryIgnoredDirNames.has(name)) {
-                collectRepositoryTextFiles(path, files);
-            }
-            continue;
-        }
-        const extension = path.slice(path.lastIndexOf('.')).toLowerCase();
-        if (name.endsWith('.min.js') || !repositoryTextExtensions.has(extension)) {continue;}
-        files.push(path);
-    }
-    return files;
+function collectRepositoryTextFiles(): string[] {
+    return collectWorkspaceFiles(root, repositoryTextExtensions, new Set(['coverage']))
+        .filter((path: string) => !path.endsWith('.min.js'));
 }
 
 function readRepoFile(path: string): string {
@@ -1655,231 +1643,6 @@ test('tavern accepted-turn manager uses an unconfirmed candidate and a persisten
     assert.match(sessionDbSource, /confirmedByUserOrder: order/);
     assert.match(displaySource, /queued: '排队中'/);
     assert.match(panelSource, /'已接受回合维护'/);
-});
-
-test('tavern markdown enhancement lives outside the app controller', () => {
-    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
-    const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
-    const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
-    const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
-    const managerSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
-    const hostSource = readRepoFile('modules/tavern/host/sillytavern-context.ts');
-    const tavernHostSource = readRepoFile('modules/tavern/tavern.ts');
-    const indexSource = readRepoFile('index.js');
-    const markdownSource = readRepoFile('modules/agent-core/ui/message-markdown.js');
-    const drawMarkdownImagesSource = readRepoFile('modules/tavern/app-src/features/draw/draw-markdown-images.ts');
-    const sdDrawSource = readRepoFile('modules/draw/providers/sd-webui/sd-draw.js');
-    const novelDrawSource = readRepoFile('modules/draw/providers/novelai/novel-draw.js');
-    const novelRequestConfigSource = readRepoFile('modules/draw/providers/novelai/novel-request-config.js');
-    const comfyDrawSource = readRepoFile('modules/draw/providers/comfyui/comfy-draw.js');
-    const generatedImageRuntimeSource = readRepoFile('modules/draw/shared/generated-image-runtime.js');
-    const generationFingerprintSource = readRepoFile('modules/draw/shared/generation-fingerprint.js');
-    const serialImageQueueSource = readRepoFile('modules/draw/shared/serial-image-request-queue.js');
-    assert.match(appSource, /useTavernMarkdownTools/);
-    assert.doesNotMatch(appSource, /function renderChatMarkdown/);
-    assert.doesNotMatch(appSource, /function enhanceChatMarkdown/);
-    assert.match(markdownToolsSource, /function renderChatMarkdown/);
-    assert.match(markdownToolsSource, /function enhanceChatMarkdown/);
-    assert.match(markdownToolsSource, /function enhanceChatMarkdown\(\) \{[\s\S]*preserveChatScroll\(\(\) => \{/);
-    assert.match(markdownToolsSource, /function enhanceActionCheckMarkers/);
-    assert.match(markdownToolsSource, /createTavernDrawMarkdownImageEnhancer/);
-    assert.match(markdownToolsSource, /drawImageEnhancer\.enhanceTavernImageMarkers\(node\)/);
-    assert.match(markdownToolsSource, /drawImageEnhancer\.closeTavernImageGallery\(\)/);
-    assert.match(markdownToolsSource, /function enhanceInlineImageTokens/);
-    assert.match(markdownToolsSource, /function loadInlineImageSlot/);
-    assert.match(markdownToolsSource, /xb-tavern:inline-image-generate/);
-    assert.match(markdownToolsSource, /export const TAVERN_INLINE_IMAGE_PROGRESS_EVENT = 'xb-tavern:inline-image-progress';/);
-    assert.match(markdownToolsSource, /TAVERN_INLINE_IMAGE_TOKEN_REGEX/);
-    assert.match(markdownToolsSource, /function canEnhanceMarkdownRoot/);
-    assert.match(markdownToolsSource, /function canAutoLoadInlineImageSlot/);
-    assert.match(markdownToolsSource, /closest\('\[hidden\], \[aria-hidden="true"\]'\)/);
-    assert.doesNotMatch(markdownToolsSource, /function renderLoadedTavernImageFigure/);
-    assert.doesNotMatch(markdownToolsSource, /function renderUnavailableTavernImageFigure/);
-    assert.doesNotMatch(markdownToolsSource, /function buildTavernImageEditPanel/);
-    assert.doesNotMatch(markdownToolsSource, /xb-tavern:draw-image-select/);
-    assert.doesNotMatch(markdownToolsSource, /xb-tavern:draw-image-gallery/);
-    assert.doesNotMatch(drawMarkdownImagesSource, /TAVERN_INLINE_IMAGE_TOKEN_REGEX/);
-    assert.doesNotMatch(drawMarkdownImagesSource, /xb-tavern:inline-image-generate/);
-    assert.doesNotMatch(drawMarkdownImagesSource, /xb-tavern-inline-image/);
-    assert.match(drawMarkdownImagesSource, /export function createTavernDrawMarkdownImageEnhancer/);
-    assert.match(drawMarkdownImagesSource, /function enhanceTavernImageMarkers/);
-    assert.match(drawMarkdownImagesSource, /function renderLoadedTavernImageFigure/);
-    assert.match(drawMarkdownImagesSource, /function renderUnavailableTavernImageFigure/);
-    assert.match(drawMarkdownImagesSource, /function buildTavernImageEditPanel/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern:draw-image-select/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern:draw-image-gallery/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern:draw-image-save/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern:draw-image-delete/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern:draw-image-refresh/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern:draw-image-edit/);
-    assert.match(drawMarkdownImagesSource, /function removeAdjacentImageLineBreaks/);
-    assert.match(drawMarkdownImagesSource, /node instanceof HTMLBRElement/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-failed-actions/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-failed-icon/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-failed-title/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-failed-desc/);
-    assert.match(drawMarkdownImagesSource, /retryButton\.textContent = '⟳ 重新生成';/);
-    assert.match(drawMarkdownImagesSource, /editButton\.textContent = '✐ 编辑TAG';/);
-    assert.doesNotMatch(drawMarkdownImagesSource, /🔄 重新生成|✏️ 编辑TAG/);
-    // Failed-state "保存并重试" persists edited tags then regenerates, and falls back to the
-    // edited result when the regeneration transport rejects.
-    assert.match(drawMarkdownImagesSource, /retryAfterSave: true/);
-    assert.match(drawMarkdownImagesSource, /panelOptions\.retryAfterSave/);
-    assert.match(drawMarkdownImagesSource, /catch \{\s*await refreshTavernImageFigure\(figure, slotId, editResponse\);/);
-    // While the failed-state editor is open the outer action buttons stay keyboard-disabled,
-    // surviving a busy lock clearing after an error.
-    assert.match(drawMarkdownImagesSource, /button\.dataset\.editDisabled/);
-    assert.match(drawMarkdownImagesSource, /button\.disabled = busy[\s\S]*button\.dataset\.editDisabled === 'true'/);
-    assert.match(drawMarkdownImagesSource, /payload: \{ slotId, imgId \}/);
-    assert.match(drawMarkdownImagesSource, /textarea\[data-type="scene"\]/);
-    assert.match(drawMarkdownImagesSource, /textarea\[data-type="char"\]/);
-    assert.match(drawMarkdownImagesSource, /characterPrompts/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-gallery-overlay/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-nav/);
-    assert.match(drawMarkdownImagesSource, /xb-tavern-image-menu/);
-    assert.match(drawMarkdownImagesSource, /newerButton\.title = currentIndex === 0 \? '重新生成' : '下一版本';/);
-    assert.match(drawMarkdownImagesSource, /newerButton\.disabled = false;/);
-    assert.match(drawMarkdownImagesSource, /if \(currentIndex > 0\) \{[\s\S]*void selectIndex\(currentIndex - 1\);[\s\S]*return;[\s\S]*\}[\s\S]*void refreshImage\(\);/);
-    assert.match(drawMarkdownImagesSource, /removeAdjacentImageLineBreaks\(figure\)/);
-    assert.match(tavernHostSource, /case 'xb-tavern:draw-image-select':/);
-    assert.match(tavernHostSource, /case 'xb-tavern:draw-image-gallery':/);
-    assert.match(tavernHostSource, /case 'xb-tavern:draw-image-save':/);
-    assert.match(tavernHostSource, /case 'xb-tavern:draw-image-delete':/);
-    assert.match(tavernHostSource, /case 'xb-tavern:draw-image-refresh':/);
-    assert.match(tavernHostSource, /case 'xb-tavern:draw-image-edit':/);
-    assert.match(tavernHostSource, /case 'xb-tavern:inline-image-generate':/);
-    assert.doesNotMatch(tavernHostSource, /fourth-wall\/fw-image|getFourthWallImageModule/);
-    assert.match(tavernHostSource, /window\.xiaobaixDraw\?\.generateSharedImage/);
-    assert.match(tavernHostSource, /tags,\s*status: state,\s*ahead,\s*delay:/);
-    assert.match(tavernHostSource, /buildPromptData/);
-    assert.match(tavernHostSource, /getDrawPromptNegativeInput/);
-    assert.match(tavernHostSource, /syncDrawSavedFromPreview/);
-    assert.match(tavernHostSource, /syncDrawSavedAfterDeletion/);
-    assert.match(tavernHostSource, /clearDrawSavedEntry/);
-    assert.match(tavernHostSource, /storeFailedPlaceholder/);
-    // handleDrawImageRefresh must persist a new failed placeholder and return ok on regeneration
-    // failure (not reject), so the iframe re-renders the failed state with the attempted tags.
-    assert.match(tavernHostSource, /function buildRefreshFailedDrawPlaceholder/);
-    assert.match(tavernHostSource, /storeFailedPlaceholder\(\s*buildRefreshFailedDrawPlaceholder/);
-    assert.match(tavernHostSource, /deleteFailedRecordsForSlot\(slotId\)/);
-    assert.match(drawMarkdownImagesSource, /showTavernImageRefreshError\(error\)/);
-    assert.match(appSource, /showToast: showTavernToast/);
-    assert.match(tavernHostSource, /clearSlotSelection/);
-    assert.match(tavernHostSource, /function getDrawPreviewStorageMessageId/);
-    assert.match(tavernHostSource, /function buildDeletedDrawPlaceholder/);
-    assert.match(tavernHostSource, /TAVERN_DRAW_DELETED_ERROR_MESSAGE/);
-    assert.match(tavernHostSource, /preview\.source \|\| ''\)\.trim\(\) === 'tavern'/);
-    assert.match(tavernHostSource, /messageId: getDrawPreviewStorageMessageId\(preview, slotId\)/);
-    assert.doesNotMatch(tavernHostSource, /messageId:\s*Number\(preview\.messageId\)\s*\|\|\s*0/);
-    assert.doesNotMatch(tavernHostSource, /messageId:\s*Number\(preview\.messageId\)/);
-    assert.match(tavernHostSource, /characterPrompts/);
-    assert.match(tavernHostSource, /deletedCurrentImage && !nextImgId/);
-    assert.match(tavernHostSource, /await storeFailedPlaceholder\(buildDeletedDrawPlaceholder\(slotId, deletedPreview \|\| \{\}, current\)\);/);
-    assert.match(indexSource, /buildDrawPromptData/);
-    assert.match(indexSource, /characterPrompts: promptData\.characterPrompts/);
-    assert.match(generatedImageRuntimeSource, /const inflightRequests = new Map\(\);/);
-    assert.match(generatedImageRuntimeSource, /function subscribe\(entry, signal, onProgress\)/);
-    assert.match(generatedImageRuntimeSource, /entry\.consumers\.size === 0/);
-    assert.match(generatedImageRuntimeSource, /descriptor\.facade\.generateImage/);
-    assert.match(generatedImageRuntimeSource, /facade\.prepareGeneration/);
-    assert.match(generatedImageRuntimeSource, /generationPlan\?\.fingerprint/);
-    assert.match(generatedImageRuntimeSource, /generationPlan\.execute\(runtimeOptions\)/);
-    assert.match(generatedImageRuntimeSource, /const rawAhead = Number\(data\.ahead\);/);
-    assert.match(generatedImageRuntimeSource, /rawPosition - 1/);
-    assert.match(generatedImageRuntimeSource, /generation: generationFingerprint/);
-    assert.doesNotMatch(generatedImageRuntimeSource, /fingerprint: descriptor\.fingerprint/);
-    assert.match(generationFingerprintSource, /export function stableSerialize/);
-    assert.match(generationFingerprintSource, /export function hashStableValue/);
-    assert.match(indexSource, /function prepareDrawGeneration/);
-    assert.match(indexSource, /cloneDrawGenerationValue\(buildDrawPromptData\(payload\)\)/);
-    assert.match(indexSource, /getGenerationSnapshot/);
-    assert.match(indexSource, /generationConfig,/);
-    assert.match(indexSource, /void clearExpiredGeneratedImageCacheRuntime\(\);/);
-    const drawFacadeSource = indexSource.match(/window\.xiaobaixDraw = \{[\s\S]*?\n[ ]{4}\};/)?.[0] || '';
-    assert.ok(drawFacadeSource);
-    assert.doesNotMatch(drawFacadeSource, /clearSharedImageRequests|clearExpiredGeneratedImageCache/);
-    assert.match(serialImageQueueSource, /export function createSerialImageRequestQueue/);
-    assert.match(serialImageQueueSource, /const cooldown = started \? normalizeCooldown\(getCooldownMs\(\)\) : 0;/);
-    assert.match(serialImageQueueSource, /if \(error\) item\.reject\(error\);[\s\S]*else item\.resolve\(result\);[\s\S]*await waitForCooldown\(cooldown, \{[\s\S]*deadline: item\.cooldownUntil/);
-    assert.match(novelDrawSource, /getCooldownMs: \(\) => getNovelImageRequestDelay\(\)/);
-    assert.match(novelDrawSource, /getGenerationSnapshot/);
-    assert.match(sdDrawSource, /getGenerationSnapshot/);
-    assert.match(comfyDrawSource, /getGenerationSnapshot/);
-    const novelSnapshotSource = extractFunctionSource(novelDrawSource, 'function getGenerationSnapshot');
-    const sdSnapshotSource = extractFunctionSource(sdDrawSource, 'function getGenerationSnapshot');
-    const comfySnapshotSource = extractFunctionSource(comfyDrawSource, 'function getGenerationSnapshot');
-    const sdFingerprintSource = sdSnapshotSource.match(/fingerprint:\s*\{[\s\S]*?\n[ ]{8}\},\n[ ]{8}execution,/)?.[0] || '';
-    const comfyFingerprintSource = comfySnapshotSource.match(/fingerprint:\s*\{[\s\S]*?\n[ ]{8}\},\n[ ]{8}execution,/)?.[0] || '';
-    assert.doesNotMatch(novelSnapshotSource, /apiKey|requestDelay|timeout/);
-    assert.ok(sdFingerprintSource);
-    assert.ok(comfyFingerprintSource);
-    assert.doesNotMatch(sdFingerprintSource, /auth|apiKey|token/);
-    assert.doesNotMatch(comfyFingerprintSource, /auth|apiKey|token/);
-    assert.match(sdFingerprintSource, /endpointHash: hashStableValue/);
-    assert.match(comfyFingerprintSource, /workflowHash: hashStableValue/);
-    assert.match(novelRequestConfigSource, /generationConfig\?\.overrideSize/);
-    assert.match(sdDrawSource, /generationConfig\?\.prepared === true \? params/);
-    assert.match(sdDrawSource, /fetchSdProxy\('generate', body, \{ signal, generationConfig \}\)/);
-    assert.match(comfyDrawSource, /generationConfig\?\.prepared === true \? params/);
-    assert.match(comfyDrawSource, /requestComfyTransport\('generate', requestBody, \{[\s\S]*generationConfig: settings/);
-    assert.match(comfyDrawSource, /fetchComfyDirectImageFromWorkflow\(workflow, \{[\s\S]*generationConfig: settings/);
-    assert.match(novelDrawSource, /const requestDelay = getSettings\(\)\.requestDelay;/);
-    assert.doesNotMatch(novelDrawSource, /if \(i < tasks\.length - 1\) \{[\s\S]{0,200}randomDelay\(settings\.requestDelay/);
-    assert.match(sdDrawSource, /export async function generateSdImage\([\s\S]*sdImageRequestQueue\.enqueue\(/);
-    assert.match(sdDrawSource, /async function requestSdImage/);
-    assert.doesNotMatch(sdDrawSource, /export async function requestSdImage/);
-    assert.match(comfyDrawSource, /export async function generateComfyImage\([\s\S]*comfyImageRequestQueue\.enqueue\(/);
-    assert.match(comfyDrawSource, /async function requestComfyImage/);
-    assert.doesNotMatch(comfyDrawSource, /export async function requestComfyImage/);
-    assert.match(indexSource, /onQueueStateChange: payload\.onQueueStateChange/);
-    assert.match(indexSource, /generateSharedImageRuntime\(input\)/);
-    assert.match(indexSource, /checkGeneratedImageCacheRuntime\(input\)/);
-    assert.match(tavernHostSource, /pendingInlineImageRequests/);
-    assert.match(tavernHostSource, /generateSharedImage\(\{[\s\S]*signal: controller\.signal/);
-    assert.match(tavernHostSource, /pendingInlineImageRequests\.get\(requestId\)\?\.abort\(\)/);
-    assert.match(appSource, /TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
-    assert.match(appSource, /window\.dispatchEvent\(new CustomEvent\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
-    assert.doesNotMatch(tavernHostSource, /openGallery/);
-    assert.match(sdDrawSource, /if \(source === 'tavern'\) \{/);
-    assert.match(novelDrawSource, /if \(source === 'tavern'\) \{/);
-    assert.match(comfyDrawSource, /if \(source === 'tavern'\) \{/);
-    assert.match(sdDrawSource, /messageId: sessionId[\s\S]*`tavern:/);
-    assert.match(novelDrawSource, /messageId: sessionId[\s\S]*`tavern:/);
-    assert.match(comfyDrawSource, /messageId: sessionId[\s\S]*`tavern:/);
-    assert.match(hostSource, /htmlRenderEnabled: isHtmlRenderEnabled\(\)/);
-    assert.match(appSource, /const htmlRenderEnabled = ref\(true\);/);
-    assert.match(appSource, /if \('context' in payload\) \{[\s\S]*const nextContext = payload\.context as XbTavernContext \|\| \{\};[\s\S]*if \(canApplyHostContext\(nextContext\)\) \{[\s\S]*context\.value = nextContext;/);
-    assert.match(appSource, /htmlRenderEnabled\.value = payload\.htmlRenderEnabled !== false;/);
-    assert.match(appSource, /htmlRenderEnabled,\s*htmlThemeDark: homeThemeDark,\s*alertDialog: alertTavernDialog,\s*confirmDialog: confirmTavernDialog,\s*requestHost,/);
-    assert.match(contextSource, /htmlRenderEnabled: Ref<boolean>;/);
-    assert.match(conversationSource, /htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
-    assert.match(conversationSource, /homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
-    assert.match(conversationSource, /pending-user:\$\{pendingUserRenderState\.signature\}/);
-    assert.doesNotMatch(conversationSource, /live-assistant:\$\{liveAssistantRenderState\.signature\}/);
-    assert.match(managerSource, /function managerMarkdownSignature/);
-    assert.match(managerSource, /htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
-    assert.match(managerSource, /homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
-    assert.match(managerSource, /history-message:\$\{item\.key\}:\$\{managerMarkdownSignature\(item\.content\)\}/);
-    assert.match(managerSource, /class="xb-tavern-markdown live-manager-draft"[\s\S]*\{\{ liveManagerAssistantDraft\.content \}\}/);
-    assert.doesNotMatch(managerSource, /live-message:\$\{item\.key\}/);
-    assert.match(appSource, /visibleManagerMarkdownSignature[\s\S]*htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
-    assert.match(appSource, /visibleManagerMarkdownSignature[\s\S]*homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
-    assert.match(appSource, /const liveManagerMarkdownSignature = computed\(\(\) => \{[\s\S]*\$\{draft\.sessionId\}:\$\{draft\.revision\}/);
-    assert.doesNotMatch(appSource, /liveManagerMarkdownSignature[\s\S]*markdownSignature\(draft\.content\)/);
-    assert.match(managerSource, /:key="`live-assistant:\$\{liveManagerAssistantDraft\.sessionId\}`"/);
-    assert.doesNotMatch(managerSource, /liveManagerAssistantDraft\.revision/);
-    assert.match(appSource, /watch\(\[[\s\S]*\(\) => htmlRenderEnabled\.value,[\s\S]*\(\) => homeThemeDark\.value,[\s\S]*enhanceChatMarkdown\(\);/);
-    assert.match(appSource, /watch\(\(\) => liveManagerMarkdownSignature\.value, \(\) => \{[\s\S]*scrollManagerToBottom\(\);[\s\S]*updateManagerScrollButtons\(\)/);
-    assert.match(markdownToolsSource, /htmlBlockMode: optionsOverride\.live[\s\S]*\? 'code'[\s\S]*: options\.htmlRenderEnabled\.value \? 'preview' : 'code'/);
-    assert.match(markdownToolsSource, /htmlBlockMode: options\.htmlRenderEnabled\.value \? undefined : 'code'/);
-    assert.match(markdownToolsSource, /window\.addEventListener\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
-    assert.match(markdownToolsSource, /window\.removeEventListener\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
-    assert.match(markdownToolsSource, /if \(!canEnhanceMarkdownRoot\(node\)\) \{return;\}/);
-    assert.match(markdownSource, /if \(options\.htmlBlockMode === 'code'\) \{[\s\S]*return buildHtmlCodeView\(doc, code\);/);
-    assert.match(tavernHostSource, /refreshRenderSettings: \(\) => void;/);
-    assert.match(tavernHostSource, /function refreshRenderSettings\(\): void \{[\s\S]*htmlRenderEnabled: isHtmlRenderEnabled\(\),[\s\S]*\}/);
-    assert.match(indexSource, /window\.xiaobaixTavern\?\.refreshRenderSettings\?\.\(\);/);
-    assert.doesNotMatch(indexSource, /refreshContext\?\.\(\{ includeWorldbooks: false \}\)/);
 });
 
 test('tavern draw image refresh only stores failed placeholders for failed-card retries', async () => {

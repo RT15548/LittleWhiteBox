@@ -10,6 +10,9 @@ import { build } from 'esbuild';
 import 'fake-indexeddb/auto';
 import { maintenanceFixture, joinedEventPatch } from './fixtures/memory-maintenance.js';
 import { memoryPolicy } from '../data/memory-policy.js';
+import { entry } from './helpers/story-summary-entry.js';
+import { createHideStateController } from '../hide-state.js';
+import { memorySaveError } from '../data/memory-copy.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__memoryStorageTest = { metadata: {}, context: {} };
@@ -17,7 +20,7 @@ const shims = {
     'extensions.js': 'export const getContext=()=>globalThis.__memoryStorageTest.context;',
     'script.js': 'export let chat_metadata=globalThis.__memoryStorageTest.metadata; export function reload(){chat_metadata=globalThis.__memoryStorageTest.metadata;} export const getRequestHeaders=()=>({});',
     'debug-core.js': 'export const xbLog={info(){},warn(){},error(){},debug(){}};',
-    'runtime.js': 'export const applyRecallRuntimeMutationBestEffort=()=>{}; export const clearRecallRuntime=async()=>{};',
+    'runtime.js': 'export const applyRecallRuntimeMutationBestEffort=(chatId,change)=>globalThis.__memoryStorageTest.mutations.push({chatId,...change}); export const clearRecallRuntime=async()=>{};',
     'modules/story-summary/data/config.js': 'export const getTextFilterRules=()=>[]; export const getVectorConfig=()=>globalThis.__memoryStorageTest.vectorConfig; export const getSummaryPanelConfig=()=>({memoryMaintenanceEnabled:false});',
     'modules/story-summary/generate/llm.js': 'export const generateSummary=(...args)=>globalThis.__memoryStorageTest.generate(...args); export const parseSummaryJson=JSON.parse; export const isSummaryGenerationCancelledError=()=>false;',
     'modules/story-summary/maintenance/runner.js': 'export const createSharedMemoryAgent=()=>{throw Error("unexpected Agent request");}; export const runMemoryAgent=createSharedMemoryAgent;',
@@ -29,9 +32,12 @@ const bundled = await build({
         "export * from './modules/story-summary/data/store.js';",
         "export * from './modules/story-summary/data/memory-commit.js';",
         "export * from './modules/story-summary/data/summary-import.js';",
+        "export { normalizeCharacterAliases } from './modules/story-summary/data/character-aliases.js';",
         "export * from './modules/story-summary/data/summary-history.js';",
         "export * from './modules/story-summary/data/anchor-extraction.js';",
         "export * from './modules/story-summary/data/anchor-invalidation.js';",
+        "export * from './modules/story-summary/data/message-sources.js';",
+        "export * from './modules/story-summary/data/source-sync.js';",
         "export * from './modules/story-summary/maintenance/domain.js';",
         "export * from './modules/story-summary/maintenance/history.js';",
         "export * from './modules/story-summary/maintenance/ranges.js';",
@@ -40,7 +46,8 @@ const bundled = await build({
         "export * from './modules/story-summary/maintenance/host.js';",
         "export * from './modules/story-summary/generate/generator.js';",
         "export * from './modules/story-summary/vector/storage/state-store.js';",
-        "export { db, stateVectorsTable } from './modules/story-summary/data/db.js';",
+        "export { db, stateVectorsTable, chunksTable, chunkVectorsTable, metaTable } from './modules/story-summary/data/db.js';",
+        "export { deleteChunksFromFloor, deleteChunksAtFloor, updateMeta, clearAllChunks, clearEventVectors } from './modules/story-summary/vector/storage/chunk-store.js';",
         "export { reload } from 'script.js';",
     ].join('\n') },
     bundle: true, write: false, format: 'esm', platform: 'node',
@@ -63,7 +70,7 @@ const disk = () => host.files.get(host.context.chatId).extensions.LittleWhiteBox
 beforeEach(async () => {
     for (const table of mod.db.tables) await table.clear();
     const fixture = maintenanceFixture();
-    Object.assign(host, { fixture, mode: 'save', reads: 0, writes: 0, afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
+    Object.assign(host, { fixture, mode: 'save', reads: 0, writes: 0, mutations: [], afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
     host.vectorConfig = { enabled: false, embeddingApi: {} };
     host.generate = () => assert.fail('unexpected summary request');
     host.embed = () => assert.fail('unexpected embedding request');
@@ -112,6 +119,465 @@ async function maintain(commands) {
 }
 const fixFact = { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '未经证实的传闻' } };
 const fixAnchor = { kind: 'edit', collection: 'anchors', key: 'atom-1-0', patch: { semantic: '夏实说听说可能如此，自己没有确证。' } };
+
+async function seedCacheRange(chatId, floors, lastChunkFloor = Math.max(...floors)) {
+    const keys = floors.map(floor => ({ chatId, floor, chunkId: `c-${floor}-0` }));
+    await mod.chunksTable.bulkPut(keys.map(row => ({ ...row, text: `floor ${row.floor}` })));
+    await mod.chunkVectorsTable.bulkPut(keys.map(({ chatId: owner, chunkId }) => ({ chatId: owner, chunkId, vector: new ArrayBuffer(8) })));
+    await mod.saveStateVectors(chatId, floors.map(floor => ({ atomId: `a-${floor}`, floor, vector: [1, 0] })), 'test');
+    await mod.metaTable.put({ chatId, lastChunkFloor, fingerprint: 'test', updatedAt: 1 });
+}
+
+function observeCacheWrites(t) {
+    let writes = 0;
+    const record = () => { writes++; };
+    for (const table of mod.db.tables) for (const event of ['creating', 'updating', 'deleting']) {
+        table.hook(event, record);
+        t.after(() => table.hook(event).unsubscribe(record));
+    }
+    return () => writes;
+}
+
+for (const scenario of [
+    { name: 'floor zero USER edit', kind: 'edit', floor: 0, change: chat => { chat[0].mes += ' changed'; }, chunks: [0], anchors: [0, 1] },
+    { name: 'AI continuation', change: chat => { chat[1].mes += ' continued'; }, chunks: [1], anchors: [1] },
+    { name: 'swipe', kind: 'swipe', floor: 1, change: chat => { chat[1].mes = 'replacement'; }, chunks: [1], from: 1 },
+    { name: 'reorder then quiet', kind: 'edit', floor: 2, change: chat => { [chat[1], chat[2]] = [chat[2], chat[1]]; }, from: 1 },
+    { name: 'middle deletion', kind: 'delete', change: chat => { chat.splice(2, 1); }, from: 2 },
+    { name: 'tail deletion', kind: 'delete', change: chat => { chat.splice(22); }, from: 22 },
+]) test(`source owner retires persisted cache: ${scenario.name}`, async t => {
+    await seedAnchors();
+    const { chatId, chat } = host.context;
+    await seedCacheRange(chatId, chat.map((_, floor) => floor));
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    scenario.change(chat);
+    tracker.observeCompletion(host.context, chat.length - 1);
+    assert.ok(tracker.inspect(host.context));
+    const result = await mod.synchronizeSourceCaches(tracker, host.context, scenario);
+    assert.equal(result.status, 'synced');
+    assert.equal(tracker.inspect(host.context), null);
+    const removedChunk = floor => scenario.chunks ? scenario.chunks.includes(floor) : floor >= scenario.from;
+    const removedAnchor = floor => scenario.anchors ? scenario.anchors.includes(floor) : floor >= scenario.from;
+    const chunks = await mod.chunksTable.where('chatId').equals(chatId).toArray();
+    assert.deepEqual(chunks.map(row => row.floor).sort((a, b) => a - b), Array.from({ length: 24 }, (_, floor) => floor).filter(floor => !removedChunk(floor)));
+    assert.equal(await mod.chunkVectorsTable.where('chatId').equals(chatId).count(), chunks.length);
+    assert.ok(ext().stateAtoms.every(atom => !removedAnchor(atom.floor)));
+    assert.ok((await mod.getAllStateVectors(chatId)).every(row => !removedAnchor(row.floor)));
+    assert.deepEqual(disk(), ext());
+    const writes = observeCacheWrites(t), saves = host.writes;
+    assert.equal((await mod.synchronizeSourceCaches(tracker, host.context, scenario)).status, 'unchanged');
+    assert.equal(writes(), 0);
+    assert.equal(host.writes, saves);
+});
+
+// Exercise the real entry's hide wiring, not a second copy of its save policy.
+function memoryVisibility() {
+    const errors = [], rendered = [], saves = [];
+    let warnings = 0;
+    host.context.saveChat = async () => saves.push(host.context.chat.map(message => message.is_system));
+    const ui = entry(['hideState', 'applyHideState', 'clearHideState', 'isStorySummaryConsumableForCurrentChat'], {
+        ...mod, createHideStateController, memorySaveError,
+        getContext: () => host.context,
+        getStorySummaryEnablement: () => ({ context: host.context, effectiveEnabled: true }),
+        getHideUiSettings: () => ({ hideSummarized: true, useVectorBoundary: false, keepVisibleCount: 4 }),
+        getVectorConfig: () => host.vectorConfig,
+        events: {}, MODULE_ID: 'story-summary',
+        document: { querySelector: selector => ({ setAttribute: (_key, value) => rendered.push({ selector, value }) }) },
+        window: { toastr: { warning: () => { warnings++; } } },
+        xbLog: { error: (_module, _message, error) => errors.push(error.code) },
+    });
+    return { ...ui, errors, rendered, saves, warnings: () => warnings };
+}
+
+for (const uncertain of [false, true]) test(`first swipe during initial visibility waits for its own save (uncertain: ${uncertain})`, async () => {
+    await importFixture();
+    const context = host.context;
+    context.chat.push({ mes: '次日', is_user: true }, { mes: '原回复', is_user: false, swipe_id: 0 });
+    const memory = mod.readSummaryMemory();
+    memory.l0Index.byFloor[25] = { floor: 25, status: 'empty', atoms: 0 };
+    await mod.commitSummaryMemory(context.chatId, memory);
+    // Loaded persisted flags/cache, with no edit or generation in this session.
+    context.chat.forEach((message, floor) => { message.is_system = floor <= 19; });
+    const initial = context.chat.map(message => message.is_system);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const ui = memoryVisibility();
+    let release, entered;
+    const saveStarted = new Promise(resolve => { entered = resolve; });
+    host.afterSave = () => { entered(); return new Promise(resolve => { release = resolve; }); };
+    if (uncertain) host.mode = 'read_fail';
+    context.chat[25].swipe_id = 1;
+    const syncing = mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 25 });
+    const synced = uncertain ? assert.rejects(syncing, { code: 'metadata_save_unconfirmed' }) : syncing;
+    await saveStarted;
+    const updating = ui.applyHideState();
+    try {
+        assert.equal(mod.getMemoryCommitState(), 'saving');
+        assert.deepEqual(context.chat.map(message => message.is_system), initial);
+        assert.deepEqual(ui.rendered, []);
+        assert.deepEqual(ui.saves, []);
+        assert.deepEqual(ui.errors, []);
+        assert.equal(ui.warnings(), 0);
+    } finally {
+        host.afterSave = null;
+        release();
+        await synced;
+        await updating;
+    }
+    assert.deepEqual(ui.saves, []); // Never write an unconfirmed draft with a visibility save.
+    assert.equal(ui.warnings(), uncertain ? 1 : 0);
+    assert.deepEqual(ui.errors, uncertain ? ['metadata_unconfirmed'] : []);
+    assert.equal(mod.getMemoryCommitState(), uncertain ? 'unconfirmed' : 'ready');
+    assert.equal(mod.isSummaryConsumable(mod.getSummaryStore(), context.chat.length), !uncertain);
+    if (uncertain) assert.ok(context.chat.every(message => !message.is_system));
+    else {
+        assert.equal(tracker.inspect(context), null);
+        assert.deepEqual(context.chat.map(message => message.is_system), initial);
+        assert.deepEqual(ui.rendered, []);
+        assert.deepEqual(disk(), ext());
+    }
+});
+
+test('same-chat reload preserves every persisted L0/L1 row and extraction receipt with zero writes', async t => {
+    await importFixture(); await seedAnchors();
+    const context = host.context;
+    await seedCacheRange(context.chatId, [0, 1, 2, 3]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const beforeMemory = mod.readSummaryMemory();
+    const beforeTables = await Promise.all(mod.db.tables.map(table => table.toArray()));
+    const saves = host.writes, writes = observeCacheWrites(t);
+    context.chat.splice(0, context.chat.length, ...structuredClone(context.chat));
+    host.metadata = structuredClone(host.files.get(context.chatId));
+    mod.reload();
+    tracker.switchChat(context);
+    assert.equal((await mod.synchronizeSourceCaches(tracker, context)).status, 'unchanged');
+    assert.deepEqual(mod.readSummaryMemory(), beforeMemory);
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), beforeTables);
+    assert.equal(host.writes, saves);
+    assert.equal(writes(), 0);
+});
+
+for (const failure of ['cache', 'save']) test(`failed ${failure} never confirms source safety`, async t => {
+    await seedAnchors();
+    await seedCacheRange(host.context.chatId, [0, 1, 2, 3]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    host.context.chat[0].mes += ' changed';
+    if (failure === 'cache') {
+        const fail = () => { throw new Error('storage unavailable'); };
+        mod.chunkVectorsTable.hook('deleting', fail);
+        t.after(() => mod.chunkVectorsTable.hook('deleting').unsubscribe(fail));
+    } else host.mode = 'old';
+    await assert.rejects(mod.synchronizeSourceCaches(tracker, host.context));
+    assert.ok(tracker.inspect(host.context));
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), false);
+});
+
+for (const kind of ['edit', 'swipe']) test(`queued ${kind} survives leaving and returning before the consistency writer runs`, async () => {
+    await importFixture(); await seedAnchors();
+    const context = host.context;
+    await seedCacheRange(context.chatId, [0, 1, 2, 3]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    context.chat[1].mes += ' changed';
+    mod.retainSourceChange(tracker, context, { kind, floor: 1 });
+    const other = { chatId: 'other', chat: [] };
+    tracker.switchChat(other);
+    assert.equal((await mod.synchronizeSourceCaches(tracker, other, { kind, floor: 1, isCurrent: () => false })).status, 'stale');
+    tracker.switchChat(context);
+    const result = await mod.synchronizeSourceCaches(tracker, context);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([context.chatId, 1]).count(), 0);
+    if (kind === 'edit') {
+        assert.equal(result.status, 'synced');
+        assert.equal(tracker.inspect(context), null);
+        assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), true);
+    } else {
+        // Historical swipe crossed the imported baseline: preserve, but block L2.
+        assert.equal(result.status, 'failed');
+        assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+        assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), false);
+    }
+    assert.deepEqual(disk(), ext());
+});
+
+function importEntry(tracker) {
+    const noop = () => {};
+    return entry(['importSummaryMemoryPackage', 'extractSummaryImportJson', 'cloneSummaryJsonForPortability',
+        'normalizePortableFact', 'normalizeInternalFact', 'stripFloorMarker'], { ...mod, getContext: () => host.context, messageSources: tracker,
+        invalidateLexicalIndex: noop, refreshEntityLexiconAndWarmup: noop, scheduleLexicalWarmup: noop,
+        clearHideState: noop, sendFrameBaseData: noop, sendFrameFullData: noop, sendAnchorStatsToFrame: noop,
+        sendVectorStatsToFrame: noop, notifyStorySummaryChatState: noop });
+}
+
+for (const order of ['event-first', 'background-first']) for (const sameText of [false, true]) test(`${order}: a selected swipe change cannot leave imported L2 consumable (same text: ${sameText})`, async () => {
+    await importFixture(); await seedAnchors();
+    const context = host.context;
+    context.chat[1].swipe_id = 0;
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    context.chat[1].swipe_id = 1;
+    if (!sameText) context.chat[1].mes += ' selected another branch';
+    const first = await mod.synchronizeSourceCaches(tracker, context, order === 'event-first' ? { kind: 'swipe', floor: 1 } : {});
+    assert.equal(first.status, 'failed');
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), false);
+    assert.equal((await mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 1 })).status, 'failed');
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+    assert.deepEqual(disk(), ext());
+});
+
+for (const generated of [false, true]) test(`unselected swipe deletion then immediate edit preserves L2 (generated: ${generated})`, async t => {
+    await importFixture(); await seedAnchors();
+    const context = host.context;
+    if (generated) {
+        context.chat.push({ mes: '次日', is_user: true }, { mes: '共同出发', is_user: false });
+        host.generate = async () => JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '共同出发', isState: false }] });
+        await mod.runSummaryGeneration(25, { trigger: { delayFloors: 0 } });
+    }
+    const floor = generated ? 25 : 1;
+    await seedCacheRange(context.chatId, [floor]);
+    const message = context.chat[floor];
+    message.swipes = ['unused', message.mes]; message.swipe_id = 1;
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const before = structuredClone(ext().storySummary);
+    const metadataWrites = host.writes, cacheWrites = observeCacheWrites(t);
+    message.swipes.splice(0, 1); message.swipe_id = 0;
+    tracker.observeSwipeDeleted(context, { messageId: floor, swipeId: 0 });
+    assert.equal(host.writes, metadataWrites);
+    assert.equal(cacheWrites(), 0);
+    // No intervening inspect/sync: the edit must not disguise the renumbering as a branch replacement.
+    message.mes += ' ordinary edit'; message.swipes[0] = message.mes;
+    assert.equal((await mod.synchronizeSourceCaches(tracker, context, { kind: 'edit', floor })).status, 'synced');
+    assert.deepEqual(ext().storySummary, before);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), true);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([context.chatId, floor]).count(), 0);
+    assert.deepEqual(disk(), ext());
+});
+
+// Verified native contracts: 1.14 loads the replacement before deletion notification
+// and then reloads; 1.18 notifies first, then loads it and emits MESSAGE_SWIPED.
+for (const order of ['body-before-notice', 'body-after-notice']) for (const sameText of [false, true]) {
+    test(`selected swipe deletion rolls generated L2 back once (${order}, same text: ${sameText})`, async () => {
+        await importFixture();
+        const baselineFacts = structuredClone(ext().storySummary.json.facts);
+        const context = host.context;
+        context.chat.push({ mes: '次日', is_user: true }, { mes: '共同出发', is_user: false });
+        host.generate = async () => JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '共同出发', isState: false }] });
+        await mod.runSummaryGeneration(25, { trigger: { delayFloors: 0 } });
+        assert.equal(ext().storySummary.lastSummarizedMesId, 25);
+        assert.ok(ext().storySummary.json.facts.some(fact => fact.p === '行程' && fact.o === '共同出发'));
+        const message = context.chat[25];
+        message.swipes = [message.mes, sameText ? message.mes : '独自留下']; message.swipe_id = 0;
+        const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+        message.swipes.splice(0, 1);
+        if (order === 'body-before-notice') message.mes = message.swipes[0];
+        tracker.observeSwipeDeleted(context, { messageId: 25, swipeId: 0 });
+        assert.equal((await mod.synchronizeSourceCaches(tracker, context)).status, 'synced');
+        assert.equal(ext().storySummary.lastSummarizedMesId, 23);
+        assert.deepEqual(ext().storySummary.json.facts, baselineFacts);
+        const rolledBack = structuredClone(ext().storySummary);
+        if (order === 'body-after-notice') {
+            message.mes = message.swipes[0];
+            await mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 25 });
+        } else {
+            context.chat = structuredClone(context.chat);
+            tracker.switchChat(context);
+        }
+        assert.equal(tracker.inspect(context), null);
+        assert.deepEqual(ext().storySummary, rolledBack);
+        assert.deepEqual(disk(), ext());
+    });
+}
+
+for (const kind of ['swipe', 'delete']) for (const stage of ['queued', 'failed']) for (const action of ['import', 'clear']) test(`confirmed ${action} resolves ${stage} ${kind} rollback intent without confirming source caches`, async () => {
+    await importFixture(); await seedAnchors();
+    const context = host.context;
+    await seedCacheRange(context.chatId, [0, 1, 2, 3]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    if (kind === 'swipe') context.chat[1].mes += ' swiped';
+    else context.chat.splice(1, 1);
+    mod.retainSourceChange(tracker, context, { kind, floor: 1 });
+    if (stage === 'failed') assert.equal((await mod.synchronizeSourceCaches(tracker, context)).status, 'failed');
+    // Explicit recovery can follow a queued, cancelled or failed consistency task.
+    const sourceBasis = tracker.capture(context);
+    let imported;
+    if (action === 'import') {
+        await importEntry(tracker).importSummaryMemoryPackage(JSON.stringify({ ...mod.SUMMARY_MEMORY_PACKAGE,
+            data: { facts: [{ 人物名字: '夏实', 种类: '去向', 描述: '导入后确认的新路线' }] } }), context.chatId);
+        imported = structuredClone(mod.readSummaryMemory().storySummary.json);
+    } else await mod.clearSummaryData(context.chatId);
+    tracker.resolveRollback(sourceBasis, context);
+    assert.ok(tracker.inspect(context));
+    assert.equal((await mod.synchronizeSourceCaches(tracker, context, { kind, floor: 1 })).status, 'synced');
+    assert.equal(tracker.inspect(context), null);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([context.chatId, 1]).count(), 0);
+    assert.ok(ext().stateAtoms.every(atom => atom.floor !== 1));
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    if (action === 'import') {
+        assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), true);
+        assert.deepEqual(ext().storySummary.json, imported);
+    }
+    assert.deepEqual(disk(), ext());
+});
+
+test('tail invalidation preserves other chats and earlier floors, with a matching durable L1 boundary', async () => {
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 5, 22, 23]);
+    await seedCacheRange('other-chat', [22, 23]);
+    host.mutations = [];
+    assert.equal(await mod.deleteStateVectorsFromFloor(chatId, 22), 2);
+    assert.deepEqual(await mod.deleteChunksFromFloor(chatId, 22), { deletedCount: 2, boundaryChanged: true, lastChunkFloor: 21 });
+    assert.deepEqual((await mod.chunksTable.where('chatId').equals(chatId).toArray()).map(row => row.floor).sort((a, b) => a - b), [0, 5]);
+    assert.deepEqual((await mod.stateVectorsTable.where('chatId').equals(chatId).toArray()).map(row => row.floor).sort((a, b) => a - b), [0, 5]);
+    assert.equal(await mod.chunkVectorsTable.where('chatId').equals(chatId).count(), 2);
+    for (const table of [mod.chunksTable, mod.chunkVectorsTable, mod.stateVectorsTable]) {
+        assert.equal(await table.where('chatId').equals('other-chat').count(), 2);
+    }
+    const meta = await mod.metaTable.get(chatId);
+    assert.equal(meta.lastChunkFloor, 21);
+    assert.equal(meta.fingerprint, 'test');
+    assert.ok(host.mutations.every(change => change.chatId === chatId));
+});
+
+for (const failureStage of ['vectors', 'boundary']) test(`L1 range deletion rolls back all tables when ${failureStage} fail`, async t => {
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [20, 22, 23]);
+    const before = await Promise.all(mod.db.tables.map(table => table.toArray()));
+    host.mutations = [];
+    const fail = () => { throw new Error('fixture storage failure'); };
+    const table = failureStage === 'vectors' ? mod.chunkVectorsTable : mod.metaTable;
+    const event = failureStage === 'vectors' ? 'deleting' : 'updating';
+    table.hook(event, fail);
+    t.after(() => table.hook(event).unsubscribe(fail));
+    await assert.rejects(mod.deleteChunksFromFloor(chatId, 22));
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), before);
+    assert.deepEqual(host.mutations, []);
+});
+
+test('empty invalidation does not write, create metadata or announce cache changes', async t => {
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 5], 5);
+    const originalMeta = await mod.metaTable.get(chatId);
+    host.mutations = [];
+    const writes = observeCacheWrites(t);
+    for (const owner of [chatId, 'missing-chat']) {
+        assert.equal(await mod.deleteStateVectorsFromFloor(owner, 22), 0);
+        assert.deepEqual(await mod.deleteChunksFromFloor(owner, 22), {
+            deletedCount: 0, boundaryChanged: false, lastChunkFloor: owner === chatId ? 5 : -1,
+        });
+    }
+    assert.equal(writes(), 0);
+    assert.deepEqual(await mod.metaTable.get(chatId), originalMeta);
+    assert.equal(await mod.metaTable.get('missing-chat'), undefined);
+    assert.deepEqual(host.mutations, []);
+});
+
+test('L1 boundary rewinds even when a processed range contains no chunks', async () => {
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0], 23);
+    host.mutations = [];
+    assert.deepEqual(await mod.deleteChunksFromFloor(chatId, 22), { deletedCount: 0, boundaryChanged: true, lastChunkFloor: 21 });
+    assert.equal((await mod.metaTable.get(chatId)).lastChunkFloor, 21);
+    assert.equal(host.mutations.length, 1);
+});
+
+test('ordinary tail edits without affected memory do not add a memory save or readback', async t => {
+    await importFixture(); await seedAnchors();
+    const before = mod.readSummaryMemory(), saves = host.writes, reads = host.reads;
+    const cacheWrites = observeCacheWrites(t);
+    host.mutations = [];
+    host.context.chat[22].mes = 'edited user text';
+    await mod.rollbackSummaryIfNeeded({ invalidateFloors: [22, 23] });
+    await mod.deleteChunksAtFloor(host.context.chatId, 22);
+    assert.deepEqual(mod.readSummaryMemory(), before);
+    assert.equal(host.writes, saves);
+    assert.equal(host.reads, reads);
+    assert.equal(cacheWrites(), 0);
+    assert.deepEqual(host.mutations, []);
+});
+
+test('an extraction status alone still requires a confirmed source invalidation', async () => {
+    await importFixture();
+    const memory = mod.readSummaryMemory();
+    memory.l0Index.byFloor[23] = { floor: 23, status: 'empty', atoms: 0 };
+    await mod.commitSummaryMemory(host.context.chatId, memory);
+    const saves = host.writes;
+    await mod.rollbackSummaryIfNeeded({ invalidateFloors: [22, 23] });
+    assert.equal(host.writes, saves + 1);
+    assert.equal(ext().l0Index.byFloor[23], undefined);
+    assert.deepEqual(disk(), ext());
+});
+
+test('ordinary edit preserves later memory/vectors and retires only the affected anchor history', async () => {
+    await importFixture(); await seedAnchors(); await maintain([fixAnchor]); await completeRange();
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3, 22, 23]);
+    await seedCacheRange('other', [1, 3]);
+    const before = structuredClone(ext());
+    await mod.rollbackSummaryIfNeeded({ invalidateFloors: [1] });
+    await mod.deleteChunksAtFloor(chatId, 1);
+    assert.deepEqual(ext().stateAtoms, before.stateAtoms.filter(atom => atom.floor !== 1));
+    assert.deepEqual(ext().storySummary.json, before.storySummary.json);
+    assert.equal(ext().l0Index.byFloor[1], undefined);
+    assert.deepEqual(mod.maintenanceRanges(ext().storySummary.summaryHistory, 23).pending, [{ from: 2, to: 2 }]);
+    for (const table of [mod.chunksTable, mod.stateVectorsTable]) {
+        assert.deepEqual((await table.where('chatId').equals(chatId).toArray()).map(row => row.floor).sort((a, b) => a - b), [0, 3, 22, 23]);
+        assert.equal(await table.where('chatId').equals('other').count(), 2);
+    }
+    assert.equal(await mod.chunkVectorsTable.where('chatId').equals(chatId).count(), 4);
+    assert.equal((await mod.metaTable.get(chatId)).lastChunkFloor, 0);
+    assert.deepEqual(disk(), ext());
+});
+
+for (const failureStage of ['vectors', 'boundary']) test(`local edit invalidation is atomic on ${failureStage} failure`, async t => {
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3]);
+    const before = await Promise.all(mod.db.tables.map(table => table.toArray()));
+    host.mutations = [];
+    const table = failureStage === 'vectors' ? mod.chunkVectorsTable : mod.metaTable;
+    const event = failureStage === 'vectors' ? 'deleting' : 'updating';
+    const fail = () => { throw new Error('fixture storage failure'); };
+    table.hook(event, fail);
+    t.after(() => table.hook(event).unsubscribe(fail));
+    await assert.rejects(mod.deleteChunksAtFloor(chatId, 1));
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), before);
+    assert.deepEqual(host.mutations, []);
+});
+
+test('pure source retirement preserves its input, including absent anchors and completed history', async () => {
+    await importFixture(); await seedAnchors(); await maintain([{ ...fixAnchor, kind: 'delete' }]); await completeRange();
+    const before = mod.readSummaryMemory(), original = structuredClone(before);
+    const result = mod.invalidateMemoryAnchors(before, 1);
+    assert.deepEqual(before, original);
+    assert.deepEqual(result.next.storySummary.json, original.storySummary.json);
+    assert.ok(result.atomIds.includes('atom-1-0'));
+    assert.ok(result.retired > 0);
+    assert.ok(result.next.stateAtoms.every(atom => atom.floor < 1));
+    assert.deepEqual(mod.maintenanceRanges(result.next.storySummary.summaryHistory, 23).pending, [{ from: 2, to: 24 }]);
+    const repeated = mod.invalidateMemoryAnchors(result.next, 1);
+    assert.deepEqual(repeated.next, result.next);
+    assert.equal(repeated.retired, 0);
+    assert.deepEqual(repeated.atomIds, []);
+});
+
+for (const identityShape of ['portable', 'duplicate']) {
+    test(`imported ${identityShape} fact identities support maintenance and undo without changing their content`, async () => {
+        // The portable decoder supplies empty IDs; import is the identity boundary.
+        const facts = host.fixture.json.facts;
+        for (const fact of facts) fact.id = identityShape === 'portable' ? '' : 'f-8';
+        facts.at(-1).id = 'retained-identity';
+        const content = facts.map(({ id: _id, ...fact }) => fact);
+        const imported = await importFixture();
+        assert.equal(new Set(imported.facts.map(f => f.id)).size, facts.length);
+        assert.ok(imported.facts.every(f => f.id));
+        assert.equal(imported.facts.at(-1).id, 'retained-identity');
+        if (identityShape === 'duplicate') assert.equal(imported.facts[0].id, 'f-8');
+        assert.deepEqual(imported.facts.map(({ id: _id, _addedAt: _floor, ...fact }) => fact),
+            content.map(({ _addedAt: _floor, ...fact }) => fact));
+        assert.deepEqual(disk().storySummary.json.facts, imported.facts);
+
+        await maintain([{ ...fixFact, key: imported.facts[0].id }]);
+        assert.equal(ext().storySummary.json.facts[0].o, fixFact.patch.o);
+        assert.equal((await mod.rollbackSummaryOnce(host.context.chatId)).success, true);
+        assert.deepEqual(ext().storySummary.json.facts, imported.facts);
+        assert.deepEqual(disk().storySummary.json.facts, imported.facts);
+    });
+}
 
 function readMaintenanceState() {
     const store = mod.getSummaryStore();
@@ -299,8 +765,9 @@ test('late anchors reopen just their floor; clear and same-ID regeneration never
     await mod.commitSummaryMemory(host.context.chatId, next);
     assert.deepEqual(progress().pending, [{ from: 2, to: 2 }]);
     await completeRange(2, 2);
-    const cleared = mod.readSummaryMemory(); mod.invalidateMemoryAnchors(cleared, 1, 'anchors_cleared');
+    const { next: cleared } = mod.invalidateMemoryAnchors(mod.readSummaryMemory(), 1, 'anchors_cleared');
     await mod.commitSummaryMemory(host.context.chatId, cleared);
+    assert.equal(ext().stateAtoms.length, 0);
     const afterClear = progress();
     host.metadata = structuredClone(host.metadata); mod.reload(); mod.getSummaryStore();
     const rebuilt = mod.readSummaryMemory(); rebuilt.stateAtoms.push(structuredClone(host.fixture.atoms[0]));
@@ -499,6 +966,23 @@ test('ordinary source edit with failed metadata save remains blocked until inval
     assert.equal(ext().stateAtoms.length, 0);
     assert.deepEqual(ext().l0Index.byFloor, {});
     assert.equal(mod.getMemoryCommitState(), 'ready');
+});
+
+test('a local L1 cleanup failure preserves memory and blocks the old source through the confirmed save boundary', async t => {
+    await importFixture(); await seedAnchors();
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3]);
+    const before = structuredClone(ext());
+    const fail = () => { throw new Error('L1 storage offline'); };
+    mod.chunkVectorsTable.hook('deleting', fail);
+    t.after(() => mod.chunkVectorsTable.hook('deleting').unsubscribe(fail));
+    await assert.rejects(mod.rollbackSummaryIfNeeded({ invalidateFloors: [1],
+        invalidateSourceCache: () => mod.deleteChunksAtFloor(chatId, 1) }));
+    assert.deepEqual(ext().stateAtoms, before.stateAtoms);
+    assert.deepEqual(ext().storySummary.json, before.storySummary.json);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
+    assert.deepEqual(disk(), ext());
 });
 
 test('in-flight saves publish no draft receipt and reject another writer without overwriting it', async () => {

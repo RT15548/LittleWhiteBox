@@ -16,6 +16,11 @@ import { GAME_APP_DESCRIPTOR } from './descriptor.js';
 import { GAME_PARTITION } from './partition.js';
 import { MOVING_PARTITION } from './moving/partition.js';
 import { createMovingService, type MovingService } from './moving/service.js';
+import { BUILDING_PARTITION } from './building/partition.js';
+import { createBuildingService, type BuildingService } from './building/service.js';
+import { EXPEDITION_PARTITION } from './expedition/partition.js';
+import { createExpeditionService, type ExpeditionService } from './expedition/service.js';
+import { AGENT_CAPABILITY } from '../../capabilities/agent/index.js';
 
 export { GAME_PARTITION } from './partition.js';
 
@@ -23,6 +28,8 @@ export interface GameModuleInstallContext {
     ownerId: string;
     game: GameService;
     moving: MovingService;
+    building: BuildingService;
+    expedition: ExpeditionService;
     economy: EconomyReadCapability;
     execution: AppInstallContext['execution'];
 }
@@ -32,14 +39,15 @@ export interface GameModuleDependencies {
     dispose?(runtime: XiaobaiOsAppRuntime): Promise<void>;
     service?: GameServiceDependencies;
     movingSoundEnabled?: () => boolean;
+    buildingSoundEnabled?: () => boolean;
 }
 
 export function createGameModule(dependencies: GameModuleDependencies): XiaobaiOsAppModule {
     return {
         descriptor: GAME_APP_DESCRIPTOR,
         partition: GAME_PARTITION,
-        additionalPartitions: [MOVING_PARTITION],
-        capabilities: [ECONOMY_READ_CAPABILITY, ECONOMY_TRANSACTION_CAPABILITY],
+        additionalPartitions: [MOVING_PARTITION, BUILDING_PARTITION, EXPEDITION_PARTITION],
+        capabilities: [ECONOMY_READ_CAPABILITY, ECONOMY_TRANSACTION_CAPABILITY, AGENT_CAPABILITY],
         install(context) {
             if (!context.partition) {throw new Error('Game partition store is unavailable');}
             const economy = context.useCapability(ECONOMY_READ_CAPABILITY);
@@ -56,6 +64,10 @@ export function createGameModule(dependencies: GameModuleDependencies): XiaobaiO
                 ownerId: context.ownerId,
                 game,
                 moving,
+                building: createBuildingService(context.storeFor(BUILDING_PARTITION), context.filesFor(BUILDING_PARTITION), economy,
+                    { idle: () => !dependencies.service?.isMainGenerationActive?.(), soundEnabled: dependencies.buildingSoundEnabled }),
+                expedition: createExpeditionService(context.storeFor(EXPEDITION_PARTITION), context.filesFor(EXPEDITION_PARTITION), economy,
+                    { idle: () => !dependencies.service?.isMainGenerationActive?.(), agent: context.useCapability(AGENT_CAPABILITY) }),
                 economy,
                 execution: context.execution,
             });

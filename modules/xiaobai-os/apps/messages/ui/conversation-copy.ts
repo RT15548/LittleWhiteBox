@@ -1,0 +1,16 @@
+export const conversationCopy = {
+    back: '返回信息',
+    details: '联系人详情',
+    contextHint: '对话参考角色设定、世界书、近期剧情及可用总结。',
+    loadingOlder: '读取中…',
+    older: '查看更早的消息',
+    loading: '正在读取消息…',
+    unfinished: '发送未完成',
+    image: '图片',
+    voice: '语音',
+    summarizing: '对方正在翻看以前的私信…',
+    replying: '对方正在输入…',
+    hideCharacterState: '收起内心',
+    showCharacterState: '偷看内心',
+    latest: '回到最新消息',
+};

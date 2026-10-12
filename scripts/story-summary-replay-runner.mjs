@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 
-import { build } from 'esbuild';
+import { buildReplayBundle } from './story-summary-replay/build-bundle.mjs';
 import { resolveCapturePath, runGoldReaderOnly } from './gold-eval/reader-session.mjs';
 import { selectPreparedJob, assertCredentialFree, assertPreparedArguments, verifyPreparedCode, assertPreparedJobNotStarted, loadPreparedCredentials, withPreparedRequestBudget } from './story-summary-replay/prepared-config.mjs';
 import { openRequestJournal, preparedJournalBinding } from './story-summary-replay/request-journal.mjs';
@@ -63,7 +63,7 @@ async function readCodeState() {
             fs.readFile(packageLockPath),
         ]);
         const productionSource = await hashProductionStorySummarySource();
-        const supportFiles = ['api-client.mjs', 'prepared-config.mjs', 'request-recovery.mjs', 'request-journal.mjs', 'prepared-resume.mjs', 'summary-request.mjs', 'response-archive.mjs'];
+        const supportFiles = ['build-bundle.mjs', 'api-client.mjs', 'prepared-config.mjs', 'request-recovery.mjs', 'request-journal.mjs', 'prepared-resume.mjs', 'summary-request.mjs', 'response-archive.mjs'];
         const supportHash = sha256(Buffer.concat(await Promise.all(supportFiles.map(name =>
             fs.readFile(path.join(rootDir, 'scripts', 'story-summary-replay', name))))));
         return {
@@ -85,6 +85,7 @@ async function readCodeState() {
             codeArtifacts: [
                 { source: runnerPath, destination: 'story-summary-replay-runner.mjs' },
                 { source: path.join(rootDir, 'scripts', 'gold-eval'), destination: 'gold-eval' },
+                { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'build-bundle.mjs'), destination: 'story-summary-replay/build-bundle.mjs' },
                 { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'api-client.mjs'), destination: 'story-summary-replay/api-client.mjs' },
                 { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'prepared-config.mjs'), destination: 'story-summary-replay/prepared-config.mjs' },
                 { source: path.join(rootDir, 'scripts', 'story-summary-replay', 'response-archive.mjs'), destination: 'story-summary-replay/response-archive.mjs' },
@@ -123,68 +124,8 @@ async function readLocalConfig() {
     }
 }
 
-function runtimeAliasPlugin() {
-    const replayDir = path.join(rootDir, 'scripts', 'story-summary-replay');
-    const shimExtensions = path.join(replayDir, 'shims', 'extensions.js');
-    const shimOpenAi = path.join(replayDir, 'shims', 'openai.js');
-    const shimHostChatCompletions = path.join(replayDir, 'shims', 'host-chat-completions-client.js');
-    const shimScript = path.join(replayDir, 'shims', 'script.js');
-    const shimUtils = path.join(replayDir, 'shims', 'utils.js');
-
-    return {
-        name: 'story-summary-replay-alias',
-        setup(buildApi) {
-            buildApi.onResolve({ filter: /metadata-confirmation\.js$/ }, (args) => {
-                if (!args.importer.endsWith(`${path.sep}data${path.sep}memory-commit.js`)) return null;
-                return { path: path.join(replayDir, 'shims', 'metadata-confirmation.js') };
-            });
-            buildApi.onResolve({ filter: /extensions\.js$/ }, (args) => {
-                if (!args.importer) return null;
-                return { path: shimExtensions };
-            });
-
-            buildApi.onResolve({ filter: /script\.js$/ }, (args) => {
-                if (!args.importer) return null;
-                return { path: shimScript };
-            });
-
-            buildApi.onResolve({ filter: /openai\.js$/ }, (args) => {
-                if (!args.importer.endsWith(`${path.sep}modules${path.sep}story-summary${path.sep}generate${path.sep}llm.js`)) {
-                    return null;
-                }
-                return { path: shimOpenAi };
-            });
-
-            buildApi.onResolve({ filter: /host-llm[\\/]chat-completions[\\/]client\.js$/ }, (args) => {
-                if (!args.importer.endsWith(`${path.sep}modules${path.sep}story-summary${path.sep}generate${path.sep}llm.js`)) {
-                    return null;
-                }
-                return { path: shimHostChatCompletions };
-            });
-
-            buildApi.onResolve({ filter: /utils\.js$/ }, (args) => {
-                if (!args.importer.includes(`${path.sep}core${path.sep}server-storage.js`)) {
-                    return null;
-                }
-                return { path: shimUtils };
-            });
-        },
-    };
-}
-
 async function buildBundle() {
-    await fs.mkdir(cacheDir, { recursive: true });
-
-    await build({
-        entryPoints: [path.join(rootDir, 'scripts', 'story-summary-replay', 'entry.mjs')],
-        bundle: true,
-        format: 'esm',
-        platform: 'node',
-        external: ['@google/genai'],
-        outfile: bundlePath,
-        sourcemap: 'inline',
-        plugins: [runtimeAliasPlugin()],
-    });
+    await buildReplayBundle(rootDir, bundlePath);
 }
 
 function parseCliMode(argv) {
@@ -371,6 +312,16 @@ function applyCliOverrides(config, argv) {
 }
 
 async function main() {
+    if (process.argv.includes('--check-source-lifecycle')) {
+        const samples = process.argv.filter(arg => arg.startsWith('--source-sample=')).map(arg => arg.slice('--source-sample='.length));
+        if (!samples.length) throw new Error('Source lifecycle check requires explicit --source-sample paths');
+        await buildBundle();
+        const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
+        // eslint-disable-next-line no-unsanitized/method -- Only the local bundle built above is loaded.
+        const replayModule = await import(bundleUrl);
+        console.log(JSON.stringify(await replayModule.runStorySummarySourceLifecycleCheck(samples)));
+        return;
+    }
     const checkPreparedResume = process.argv.includes('--check-prepared-resume');
     if (process.argv.includes('--preflight')) {
         if (!explicitConfig) throw new Error('--preflight requires an explicit credential-free --config');

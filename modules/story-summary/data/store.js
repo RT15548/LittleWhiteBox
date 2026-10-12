@@ -1,5 +1,5 @@
 // Story Summary - Store
-// L2 (events/characters/arcs) + L3 (facts) 统一存储
+// 大总结以一份 JSON 保存 events、characters、arcs、facts 等；L3 Facts 是召回时的投影名称，不是另一份总结存储。
 
 import { getContext } from "../../../../../../extensions.js";
 import { chat_metadata } from "../../../../../../../script.js";
@@ -16,16 +16,17 @@ import {
     buildSummaryUndo,
 } from "./summary-undo.js";
 import { isRelationFact, parseRelationTarget, factKey } from "./fact-predicates.js";
+import { createFactIdAllocator } from './fact-identity.js';
 import { projectSummaryEvent, normalizeEventStringArray } from "./events.js";
 import { upgradeStoredEventMemoryRoles } from "./migrations/event-memory-role.js";
 import { upgradeSummaryHistory, createSummaryBatch } from './summary-history.js';
 export { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { maintenanceImpact, sameMemory, restoreMaintenance } from '../maintenance/domain.js';
-import { deleteStateVectorsByIds, deleteStateVectorsFromFloor } from '../vector/storage/state-store.js';
+import { deleteStateVectorsByIds, deleteStateVectorsFromFloor, deleteStateVectorsAtFloors } from '../vector/storage/state-store.js';
 import { readSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
     getRuntimeInvalidSourceFloor, noteInvalidMemorySource } from './memory-commit.js';
-import { invalidateMemoryAnchors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
+import { invalidateMemoryAnchors, invalidateMemoryAnchorsAtFloors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
@@ -330,20 +331,6 @@ export function extractRelationshipsFromFacts(facts) {
         .filter(Boolean);
 }
 
-/**
- * 生成下一个 fact ID
- */
-function getNextFactId(existingFacts) {
-    let maxId = 0;
-    for (const f of existingFacts || []) {
-        const match = f.id?.match(/^f-(\d+)$/);
-        if (match) {
-            maxId = Math.max(maxId, parseInt(match[1], 10));
-        }
-    }
-    return maxId + 1;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Facts 合并（KV 覆盖模型）
 // ═══════════════════════════════════════════════════════════════════════════
@@ -357,7 +344,7 @@ export function mergeFacts(existingFacts, updates, floor) {
         }
     }
 
-    let nextId = getNextFactId(existingFacts);
+    const allocateFactId = createFactIdAllocator(existingFacts);
 
     for (const u of updates || []) {
         if (!u.s || !u.p) continue;
@@ -373,7 +360,7 @@ export function mergeFacts(existingFacts, updates, floor) {
 
         const existing = map.get(key);
         const newFact = {
-            id: existing?.id || `f-${nextId++}`,
+            id: existing?.id || allocateFactId(),
             s: u.s.trim(),
             p: u.p.trim(),
             o: String(u.o).trim(),
@@ -427,7 +414,7 @@ export function migrateToFacts(json) {
     if (json.facts?.length) return json.facts;
 
     const facts = [];
-    let nextId = 1;
+    const allocateFactId = createFactIdAllocator();
 
     // 迁移 world（worldUpdate 的持久化结果）
     for (const w of json.world || []) {
@@ -447,7 +434,7 @@ export function migrateToFacts(json) {
         if (!s || !p) continue;
 
         facts.push({
-            id: `f-${nextId++}`,
+            id: allocateFactId(),
             s,
             p,
             o: w.content.trim(),
@@ -461,7 +448,7 @@ export function migrateToFacts(json) {
         if (!r.from || !r.to) continue;
 
         facts.push({
-            id: `f-${nextId++}`,
+            id: allocateFactId(),
             s: r.from,
             p: `对${r.to}的看法`,
             o: r.label || '未知',
@@ -485,7 +472,7 @@ function normalizeArcProgress(value) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 数据合并（L2 + L3）
+// 大总结数据合并
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
@@ -493,17 +480,15 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
     const merged = structuredClone(oldJson || {});
     const incoming = canonicalizeIncrementalSummaryData(parsed || {}, merged.characterAliases || []);
 
-    // L2 初始化
+    // 初始化大总结的各部分
     merged.keywords ||= [];
     merged.events ||= [];
     merged.characters ||= {};
     merged.characters.main ||= [];
     merged.arcs ||= [];
 
-    // L3 初始化（不再迁移，getSummaryStore 已处理）
     merged.facts ||= [];
 
-    // L2 数据合并
     if (incoming.keywords?.length) {
         merged.keywords = incoming.keywords.map(k => ({ ...k, _addedAt: endMesId }));
     }
@@ -559,7 +544,7 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
     });
     merged.arcs = Array.from(arcMap.values());
 
-    // L3 factUpdates 合并
+    // facts 与其他大总结字段参与同一次合并及撤销差量。
     merged.facts = mergeFacts(merged.facts, incoming.factUpdates || [], endMesId);
 
     const aliasResult = applyCharacterAliasUpdates(merged, incoming.characterAliasUpdates || [], endMesId);
@@ -583,7 +568,7 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 删除时有效原文前缀由聊天长度决定；swipe 则从被替换楼层起失效。
-export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalidateFromFloor = null } = {}) {
+export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalidateFromFloor = null, invalidateFloors = null, invalidateSourceCache = null } = {}) {
     const { chat, chatId } = getContext();
     const currentLength = Array.isArray(chat) ? chat.length : 0;
     let validPrefixLength = Number.isInteger(changedFromFloor) && changedFromFloor >= 0
@@ -593,15 +578,24 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
     if (getRuntimeInvalidSourceFloor() != null) validPrefixLength = Math.min(validPrefixLength, getRuntimeInvalidSourceFloor());
     assertMemoryWritable(chatId);
     const previous = readSummaryMemory();
-    const next = structuredClone(previous);
     // Retire before undo, including operations whose anchors were already deleted by the Agent.
-    const invalidFrom = Math.min(validPrefixLength, invalidateFromFloor ?? changedFromFloor ?? currentLength);
-    invalidateMemoryAnchors(next, invalidFrom);
-    const invalidate = () => deleteStateVectorsFromFloor(chatId, invalidFrom);
-    if (!store || !isSummaryRollbackRequired(store, validPrefixLength)) {
-        delete next.storySummary.sourceInvalidFromFloor;
+    const rollbackRequired = store && isSummaryRollbackRequired(store, validPrefixLength);
+    const localEdit = invalidateFloors !== null && validPrefixLength === currentLength && changedFromFloor === null && !rollbackRequired;
+    const invalidFrom = Math.min(validPrefixLength, invalidateFromFloor ?? changedFromFloor ?? currentLength, ...(invalidateFloors || []));
+    let { next } = localEdit ? invalidateMemoryAnchorsAtFloors(previous, invalidateFloors) : invalidateMemoryAnchors(previous, invalidFrom);
+    const invalidate = async () => {
+        if (localEdit) await deleteStateVectorsAtFloors(chatId, invalidateFloors);
+        else await deleteStateVectorsFromFloor(chatId, invalidFrom);
+        await invalidateSourceCache?.();
+    };
+    if (!rollbackRequired) {
+        if (Object.hasOwn(next.storySummary, 'sourceInvalidFromFloor')) {
+            const storySummary = { ...next.storySummary };
+            delete storySummary.sourceInvalidFromFloor;
+            next = { ...next, storySummary };
+        }
         try {
-            if (!sameMemory(next, previous) || getRuntimeInvalidSourceFloor() != null) {
+            if (next !== previous || getRuntimeInvalidSourceFloor() != null) {
                 await commitSummaryMemory(chatId, next, { previous, invalidate, resolvesSourceInvalidity: true });
             }
             else await invalidate();
@@ -621,6 +615,8 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
                 : { status: 'not_needed' };
     }
     noteInvalidMemorySource(validPrefixLength);
+    // Real L2 undo mutates its draft; never let it change the detached baseline.
+    next = structuredClone(next);
     const history = next.storySummary.summaryHistory || [];
     const target = [...history].reverse().find(entry => entry.endMesId < validPrefixLength)?.endMesId ?? -1;
     const baseline = history.find(entry => entry.kind === 'baseline');
@@ -643,8 +639,7 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
 export async function invalidateSummaryAnchors(chatId, fromFloor = 0, reason = 'source_changed') {
     getSummaryStore();
     const previous = readSummaryMemory();
-    const next = structuredClone(previous);
-    const impact = invalidateMemoryAnchors(next, fromFloor, reason);
+    const { next, ...impact } = invalidateMemoryAnchors(previous, fromFloor, reason);
     await commitSummaryMemory(chatId, next, { previous,
         invalidate: () => deleteStateVectorsFromFloor(chatId, fromFloor) });
     return impact;
@@ -755,10 +750,10 @@ export async function rollbackSummaryOnce(chatId) {
 export async function clearSummaryData(chatId) {
     getSummaryStore();
     const previous = readSummaryMemory();
-    const next = structuredClone(previous);
+    const invalidSourceFloor = Math.min(previous.storySummary.sourceInvalidFromFloor ?? Infinity, getRuntimeInvalidSourceFloor() ?? Infinity);
+    const retired = Number.isFinite(invalidSourceFloor) ? invalidateMemoryAnchors(previous, invalidSourceFloor).next : previous;
+    const next = structuredClone(retired);
     const store = next.storySummary;
-    const invalidSourceFloor = Math.min(store.sourceInvalidFromFloor ?? Infinity, getRuntimeInvalidSourceFloor() ?? Infinity);
-    if (Number.isFinite(invalidSourceFloor)) invalidateMemoryAnchors(next, invalidSourceFloor);
     delete store.json;
     store.lastSummarizedMesId = -1;
     store.summaryHistory = [];
@@ -774,7 +769,7 @@ export async function clearSummaryData(chatId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// L3 数据读取（供 prompt.js / recall.js 使用）
+// facts 数据读取（供提示词装配和召回使用）
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getFacts() {

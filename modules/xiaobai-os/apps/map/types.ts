@@ -3,6 +3,7 @@ import type { MapDomainV1 } from '../../domains/map/types.js';
 
 export interface MapSettings {
     autoMaintenance: boolean;
+    projectToChat: boolean;
 }
 
 export type MapClientStatus =
@@ -24,6 +25,7 @@ export interface MapClientState {
     status: MapClientStatus;
     message: string;
     autoMaintenance: boolean;
+    projectToChat: boolean;
     maintenanceStatus?: MapMaintenanceStatus;
     /** Latest in-memory result, available for inspection; not an unread notification. */
     maintenanceMessage?: string;

@@ -95,16 +95,18 @@ test('shared direct causes render once with resolved references and no recursive
     assert.equal(shared.stats.links, 2);
     assert.deepEqual(shared.ownerUnits.sort(), ['event:evt-100', 'event:evt-200']);
     assert.equal(shared.grandparentRendered, false);
-    // These are references in the model-facing output, not source-string checks.
-    const reference = shared.text.match(/见(前因\d+)/u)?.[1];
-    assert.ok(reference && shared.text.includes(`├─ ${reference}`));
+    const sharedBody = shared.references.find(item => !item.reference);
+    const reference = shared.references.find(item => item.reference);
+    assert.equal(reference.label, sharedBody.label);
+    assert.equal(shared.text.split(sharedBody.label).length - 1, 2);
     assert.equal(reused.bodyCopies, 1);
     assert.equal(reused.stats.bodies, 0);
-    assert.equal(reused.stats.links, 1);
+    assert.equal(reused.stats.links, 2);
     assert.ok(reused.stats.tokens > 0);
     assert.equal(reused.eventTokens, reused.baselineEventTokens);
-    assert.ok(reused.text.includes('见[印象深的事]第1条'));
-    assert.equal(cyclic.stats.links, 2);
+    assert.deepEqual(new Set(reused.references.map(item => item.eventId)), new Set(['evt-1', 'evt-100']));
+    assert.ok(reused.references.every(item => item.reference && reused.text.includes(item.label)));
+    assert.equal(cyclic.stats.links, 4);
     assert.equal(cyclic.stats.bodies, 0);
 });
 
@@ -117,8 +119,21 @@ test('causal supplementation rotates across events until its boundary cause ente
     assert.equal(capped.stats.maxTokens, 1000);
     assert.equal(capped.stats.perEventMaxTokens, 400);
     assert.ok(capped.stats.tokens >= 1000);
-    assert.equal(capped.stats.bodies, 5);
+    assert.equal(capped.stats.bodies, capped.perOwnerLinks.length);
     assert.equal(new Set(capped.perOwnerLinks).size, capped.perOwnerLinks.length);
+});
+
+test('selected main events bring connected later records into the actual prompt without promoting them', async () => {
+    const { forward } = (await runAssemblyCheck()).packingChecks;
+    assert.deepEqual(forward.rendered, [true, true, false]);
+    assert.ok(forward.positions[0] < forward.positions[1] && forward.positions[1] < forward.positions[2]);
+    assert.equal(forward.selectedMainEvents, 1);
+    assert.equal(forward.eventTokens, forward.baselineEventTokens);
+    assert.equal(forward.stats.causes, 1);
+    assert.equal(forward.stats.consequences, 2);
+    assert.equal(forward.evidenceTokens, forward.stats.tokens);
+    assert.deepEqual(forward.admitted.find(item => item.eventId === 'evt-102').path,
+        ['evt-100', 'evt-101', 'evt-102']);
 });
 
 test('boundary facts and events stay whole without smaller replacements or orphaned causes', async () => {
@@ -130,6 +145,7 @@ test('boundary facts and events stay whole without smaller replacements or orpha
     assert.equal(packing.boundaryFactRenderedWhole, true);
     assert.deepEqual(packing.relatedRendered, [true, true, false, true]);
     assert.equal(packing.droppedOwnerCauseRendered, false);
+    assert.equal(packing.droppedOwnerConsequenceRendered, false);
     assert.equal(packing.droppedOwnerLinks, 0);
 });
 
@@ -141,45 +157,45 @@ test('loose history has its own soft budget even when event evidence is full or 
     assert.deepEqual(allPools.rendered, Array(7).fill(true));
     for (const { budget } of [full, allPools, history]) {
         assert.equal(budget.eventEvidenceMax, 4000);
-        assert.equal(budget.distantEvidenceMax, 1000);
+        assert.equal(budget.distantEvidenceMax, 2000);
         assert.ok(budget.distantEvidenceUsed > 0);
         assert.equal(budget.eventEvidenceUsed,
             budget.metrics.breakdown.directEvidence + budget.metrics.breakdown.causalEvidence);
         assert.equal(budget.distantEvidenceUsed, budget.metrics.breakdown.distantEvidence);
     }
     assert.ok(history.budget.eventEvidenceUsed < 200, 'unused event-evidence space must not increase the history cap');
-    assert.equal(history.dropped, 2);
+    assert.equal(history.dropped, 0);
 });
 
-test('loose history retains focus filtering, summary boundary, ranked whole-floor admission and chronological output', async () => {
+test('loose history retains focus filtering and chronological output while admitting scenes before raw details', async () => {
     const { history } = (await runAssemblyCheck()).packingChecks.independentPools;
     assert.deepEqual(history.rendered, {
         HIGH_ANCHOR: true, SAME_FLOOR_ANCHOR: true, HIGH_RAW: true,
-        EDGE_MATCH: true, PAIR_USER: true, PAIR_AI: true, BOUNDARY_ANCHOR: false,
-        OVERSIZED_GROUP: true, OVERSIZED_RAW: true, LOW_ANCHOR: false,
+        EDGE_MATCH: true, PAIR_USER: true, PAIR_AI: true, BOUNDARY_ANCHOR: true,
+        OVERSIZED_GROUP: true, OVERSIZED_RAW: true, LOW_ANCHOR: true,
         OTHER_PERSON: false, UNSUMMARIZED_ANCHOR: false,
     });
     assert.deepEqual(history.copies, [1, 1]);
     assert.ok(history.positions.every(position => position >= 0));
     assert.deepEqual(history.positions, [...history.positions].sort((a, b) => a - b));
-    assert.equal(history.units, 3);
+    assert.equal(history.units, 5);
     assert.equal(history.unusedInEventRange, 1);
     assert.equal(history.noFocusRendered, true);
 });
 
-test('aggregate budget sums the independent pools once and reports 15500 even for empty memory', async () => {
+test('aggregate budget sums the independent pools once and reports 16500 even for empty memory', async () => {
     const { allPools, empty } = (await runAssemblyCheck()).packingChecks.independentPools;
-    const limits = { constraints: 2000, arcs: 1500, events: 5000, directEvidence: 4000, causalEvidence: 1000, distantEvidence: 1000, recentEvidence: 2000 };
+    const limits = { constraints: 2000, arcs: 1500, events: 5000, directEvidence: 4000, causalEvidence: 1000, distantEvidence: 2000, recentEvidence: 2000 };
     for (const [pool, limit] of Object.entries(limits)) {
         assert.ok(allPools.budget.metrics.breakdown[pool] > 0);
         assert.ok(allPools.budget.metrics.breakdown[pool] <= limit);
     }
     for (const { budget } of [allPools, empty]) {
         const used = Object.values(budget.metrics.breakdown).reduce((sum, tokens) => sum + tokens, 0);
-        assert.deepEqual(budget.injection, { max: 15500, used });
+        assert.deepEqual(budget.injection, { max: 16500, used });
         assert.equal(budget.metrics.total, used);
-        assert.equal(budget.metrics.limit, 15500);
-        assert.equal(budget.metrics.utilization, Math.round(used / 15500 * 100));
+        assert.equal(budget.metrics.limit, 16500);
+        assert.equal(budget.metrics.utilization, Math.round(used / 16500 * 100));
     }
     assert.equal(empty.promptText, '');
     assert.equal(empty.budget.injection.used, 0);
@@ -206,8 +222,49 @@ test('L1 with no admitted L2 is rendered once and charged to its original pool',
     assert.ok(independent.budget.metrics.breakdown.directEvidence > 500);
     assert.ok(independent.budget.metrics.breakdown.distantEvidence < 100);
     assert.equal(independent.budget.eventEvidenceMax, 4000);
-    assert.equal(independent.budget.distantEvidenceMax, 1000);
+    assert.equal(independent.budget.distantEvidenceMax, 2000);
     assert.equal(independent.parentOverBudget.rendered, true);
     assert.equal(independent.parentOverBudget.ownerRendered, false);
     assert.equal(independent.parentOverBudget.admitted[0].ownerEventId, null);
+});
+
+test('recalled hidden unsummarized scenes enter without L2, group with their raw turn and appear only once', async () => {
+    const { joined } = (await runAssemblyCheck()).packingChecks.unsummarized;
+    assert.equal(joined.eventCount, 0);
+    assert.deepEqual(joined.copies, [1, 1, 0, 1, 1]);
+    assert.ok(joined.positions.every(position => position >= 0));
+    assert.deepEqual(joined.positions, [...joined.positions].sort((a, b) => a - b));
+    assert.deepEqual(joined.scattered, [21]);
+    assert.deepEqual(joined.recent, [23]);
+    assert.ok(joined.budget.metrics.breakdown.directEvidence > 0);
+    assert.ok(joined.budget.metrics.breakdown.distantEvidence > 0);
+    assert.ok(joined.budget.metrics.breakdown.recentEvidence > 0);
+    const used = Object.values(joined.budget.metrics.breakdown).reduce((sum, tokens) => sum + tokens, 0);
+    assert.equal(joined.budget.injection.used, used);
+});
+
+test('unsummarized scene admission follows the actual hide boundary and does not copy visible dialogue', async () => {
+    const { eligibility } = (await runAssemblyCheck()).packingChecks.unsummarized;
+    assert.deepEqual(eligibility.map(row => row.scene), [true, false, false, false]);
+    assert.ok(eligibility.every(row => !row.visible));
+});
+
+test('a long attached raw passage cannot displace another recalled scene from scattered memory', async () => {
+    const { anchorFirst } = (await runAssemblyCheck()).packingChecks.unsummarized;
+    assert.deepEqual(anchorFirst.copies, [1, 1, 1]);
+    assert.equal(anchorFirst.completeRaw, true);
+    assert.deepEqual(anchorFirst.scattered, [21, 23]);
+    assert.deepEqual(anchorFirst.recent, []);
+    assert.ok(anchorFirst.budget.distantEvidenceUsed > 2000);
+    assert.equal(anchorFirst.budget.eventEvidenceUsed, 0);
+});
+
+test('scattered overflow remains eligible for recent memory and both paths share the stored anchor identity', async () => {
+    const { overflow } = (await runAssemblyCheck()).packingChecks.unsummarized;
+    assert.deepEqual(overflow.copies, [1, 1, 1, 1, 1]);
+    assert.deepEqual(overflow.scattered, [21, 23, 25]);
+    assert.deepEqual(overflow.recent, [27, 29]);
+    assert.ok(overflow.budget.distantEvidenceUsed > 2000);
+    assert.ok(overflow.budget.metrics.breakdown.recentEvidence > 0);
+    assert.ok(overflow.budget.metrics.breakdown.recentEvidence < 2000);
 });

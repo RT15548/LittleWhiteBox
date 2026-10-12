@@ -52,7 +52,7 @@ Shop 不拥有余额、聊天正文、模型请求、全局剧情状态或消息
 
 - 游戏玩过就是玩过；商品买过、钱花过、道具用过就是既成事实。
 - 编辑或删除聊天消息不退款、不返还库存、不减少`appliedCount`、不恢复已关闭效果。
-- 创建聊天分支时由 Kernel 复制父 sidecar 的已确认 partitions 并生成新 osId；分支之后各自继续写，不根据消息前缀重算经济历史。
+- 聊天分支得到新 osId，不复制经济资产、库存或未结业务；共享钱包不重新开户。数据策略统一见 Economy 平台设计。
 - 有限效果按“成功形成的新 Assistant 回复”消耗一次，不按数组下标、楼层号或当前 Assistant 总数计算。
 - normal 生成使用当前有效效果，并在非空 Assistant 消息被宿主发布后提交一次`deliver`。
 - swipe、continue 使用目标消息原收据，不增加`appliedCount`。
@@ -78,7 +78,7 @@ Prompt runtime 只保存当前运行内的临时生成状态：
 
 `GENERATION_ENDED`在流式模式可能早于`MESSAGE_RECEIVED`，因此只能清 Prompt，不能独自判定回复失败。
 
-监听器不把持久化 Promise 返回给 SillyTavern 的串行事件总线。收据绑定和在途投影在监听器返回前已经完成，因此下一轮生成立即看到扣次后的有效状态；Kernel 只负责通用 sidecar transaction、确认和通知，不感知 Shop 队列。
+监听器不把持久化 Promise 返回给 SillyTavern 的串行事件总线。收据绑定和在途投影在监听器返回前已经完成，因此下一轮生成立即看到扣次后的有效状态；Kernel 只负责通用文件事务、确认和通知，不感知 Shop 队列。
 
 ## 6. Prompt 安全
 
@@ -88,9 +88,9 @@ Prompt 不输出价格、余额、revision、actionId 或 eventId。没有效果
 
 ## 7. 资金与保存失败
 
-`purchase`在 Shop Scoped transaction 中调用 Economy Capability，使 Shop 事件与 player→sink 扣款进入同一个 sidecar candidate，并以一个 commitId 上传。`activate`、`deactivate`和`deliver`不产生资金流水。Shop-Economy 交叉不变量只读取 Shop 分区和 caller-bound Economy 视图，拒绝缺少扣款、重复扣款和孤儿交易。
+`purchase`在 Shop Scoped transaction 中调用 Economy Capability，使 Shop 事件与 player→sink 扣款进入同一个用户文件 candidate，并以一个 commitId 上传。`activate`、`deactivate`和`deliver`不产生资金流水。Shop-Economy 交叉不变量只读取 Shop 分区和 caller-bound Economy 视图，拒绝缺少扣款、重复扣款和孤儿交易。
 
-消息一旦形成，效果交付就是已发生事实，删除消息或一次保存失败都不返还次数。明确保存失败时，交付 ticket 保留在当前运行的有效投影中并暂停后继交付落账；上传结果不确定时，Kernel 保留同一 candidate 并冻结当前聊天全部 sidecar 写入。下一条新回复、读回确认或重新进入对应聊天时，队列用原 actionId 继续，不重新交付也不生成第二笔事件。
+消息一旦形成，效果交付就是已发生事实，删除消息或一次保存失败都不返还次数。明确保存失败时，交付 ticket 保留在当前运行的有效投影中并暂停后继交付落账；上传结果不确定时，Kernel 保留同一 candidate 并冻结用户文件新写入。下一条新回复、读回确认或重新进入对应聊天时，队列用原 actionId 继续，不重新交付也不生成第二笔事件。
 
 主生成期间禁止 activate/deactivate，避免请求已取出的效果集合在同一次生成中途改变；购买不改变有效效果集合，可以排队提交。
 
@@ -117,7 +117,7 @@ Prompt 不输出价格、余额、revision、actionId 或 eventId。没有效果
 - 事件重放、库存、叠加、有限次数和结束规则；
 - 购买与扣款原子提交、actionId 幂等和 CAS；
 - normal 的一次投递、停止/dry-run/空回复不投递；
-- 慢 sidecar 上传期间，下一轮使用持久事件链与在途 ticket 的顺序投影，不会重复使用同一次有限效果；
+- 慢用户文件上传期间，下一轮使用持久事件链与在途 ticket 的顺序投影，不会重复使用同一次有限效果；
 - 交付保存失败保留投影并暂停后继，下一条新回复、读回确认或重进聊天后按原 actionId 续交；
 - regenerate 删除前取收据且只回挂，swipe/continue 不写 Shop；
 - 编辑/删除聊天消息不改钱、库存和已用次数；

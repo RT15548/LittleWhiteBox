@@ -12,7 +12,7 @@ import { createManagementRegistry } from '../capabilities/management/index.js';
 import { createHostAppCatalog, XIAOBAI_OS_HOST_APP_IDS } from '../host/app-catalog.js';
 import { xiaobaiOsApps } from '../shell/app-catalog.js';
 import { MANAGEMENT_READ_CHARS } from '../capabilities/management/read-page.js';
-import { administratorHarness, settled } from './administrator-harness.js';
+import { administratorHarness, settled, COMMON_TOOL_NAMES } from './administrator-harness.js';
 
 const forbidden = () => assert.fail('inspection must not invoke a write, recovery, subscription or model request');
 const idle = () => ({ state: 'idle', mode: null, message: '', reason: '', lastRunAt: null });
@@ -42,7 +42,6 @@ async function executorFixture(registry = createManagementRegistry()) {
     const reader = createAdministratorChatReader(() => ({ identityKey: h.state.identity, messages, playerName: 'Player', assistantName: 'Narrator' }), () => abort.signal);
     const executor = await createAdministratorToolExecutor({ registry, reader, readEnvironment: h.readEnvironment, operations,
         guard: forbidden, onChange() {}, saveReceipts: forbidden });
-    await executor.execute(TOOLS_LOAD, {}, 'load', -1);
     let sequence = 0;
     return { ...h, abort, messages, reader, operations, executor,
         call: (args = {}) => executor.execute(OS_INSPECT, args, String(++sequence), sequence) };
@@ -130,7 +129,7 @@ test('inspection is fresh within one run and does not depend on stale story evid
     assert.equal(first.status, 'read'); assert.equal(second.status, 'read');
     assert.equal(first.data.storage.user.state, 'ready');
     assert.deepEqual(second.data.storage.user, h.state.user); assert.equal(second.data.mainChatGenerating, true);
-    assert.deepEqual(first.receipt, h.operations[1]); assert.deepEqual(second.receipt, h.operations[2]);
+    assert.deepEqual(first.receipt, h.operations[0]); assert.deepEqual(second.receipt, h.operations[1]);
     assert.equal(h.executor.data.environment.data.mainChatGenerating, false);
     assert.equal(h.operations.every(operation => operation.appId === 'administrator' && operation.status === 'read'), true);
 });
@@ -140,7 +139,7 @@ test('inspection accepts no selectors and terminates on chat switch or cancellat
     for (const args of [{ app: 'wallet' }, { chat: 'other' }, { repair: true }, [], null]) {
         assert.equal((await h.call(args)).status, 'failed');
     }
-    assert.equal(h.operations.length, 1);
+    assert.equal(h.operations.length, 0);
     h.state.identity = 'another-chat';
     await assert.rejects(h.call(), { message: 'administrator_context_changed' });
     const cancelled = await executorFixture(); cancelled.abort.abort();
@@ -165,7 +164,6 @@ test('initial record failures preserve the catalog; environment failures remain 
     const initial = await createAdministratorToolExecutor({ registry, reader: h.reader, readEnvironment: h.readEnvironment, operations: [],
         guard: forbidden, onChange() {}, saveReceipts: forbidden });
     assert.deepEqual(initial.data.environment, { ok: false, status: 'failed', code: 'administrator_environment_unavailable' });
-    await initial.execute(TOOLS_LOAD, {}, 'load', -1);
     assert.equal((await initial.execute('ChatRead', { from: 0 }, 'story-read', 0)).status, 'read');
 });
 
@@ -178,18 +176,17 @@ test('real request and idle context meter share reference projection; inspection
     h.state.generate = async request => {
         if (++round === 1) {
             assert.deepEqual(JSON.parse(request.messages[0].content.split('\n').slice(1).join('\n')).environment, { ok: true, status: 'read', data: initial });
-            assert.deepEqual(request.tools.map(tool => tool.function.name), [TOOLS_LOAD]);
+            assert.deepEqual(request.tools.map(tool => tool.function.name), COMMON_TOOL_NAMES);
             assert.equal(h.runtime.context().rules, before.rules); assert.equal(h.runtime.context().tools, before.tools);
             h.state.environment = { ...initial, observedAt: 2, mainChatGenerating: true, storage: { ...initial.storage, user: { state: 'unconfirmed', hasPendingCommit: true } } };
-            return { toolCalls: [{ id: 'load', name: TOOLS_LOAD, arguments: '{}' }] };
+            return { toolCalls: [{ id: 'inspect-call', name: OS_INSPECT, arguments: '{}' }] };
         }
-        if (round === 2) { return { toolCalls: [{ id: 'inspect-call', name: OS_INSPECT, arguments: '{}' }] }; }
         result = JSON.parse(request.messages.find(message => message.role === 'tool' && message.toolName === OS_INSPECT).content);
         assert.deepEqual(result.data, h.state.environment);
         return { text: 'Inspection complete.' };
     };
     await h.request('send', { text: 'Inspect OS status.' }); await settled(h.runtime);
-    assert.equal(round, 3); assert.equal(h.conversation.read().turns[0].status, 'finished');
+    assert.equal(round, 2); assert.equal(h.conversation.read().turns[0].status, 'finished');
     assert.ok(h.state.environmentReads.every(identity => identity === 'admin-test'));
     const history = h.state.persisted.partitions.administrator.turns[0].toolMessages;
     assert.deepEqual(JSON.parse(history.find(message => message.role === 'tool' && message.toolName === OS_INSPECT).content), result);

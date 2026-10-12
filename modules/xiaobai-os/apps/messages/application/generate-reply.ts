@@ -1,6 +1,7 @@
 import type { MessageContact, PrivateMessage } from '../../../domains/messages/types.js';
 import type { SendDependencies } from './send.js';
-import { compileReplies, compileSummary } from '../prompt/reply-compiler.js';
+import { compileReplies, compileSummary, previewReplies } from '../prompt/reply-compiler.js';
+import type { MessageReplyPreview } from '../types.js';
 import { buildReplyPrompt } from '../prompt/reply-prompt.js';
 import { buildSummaryPrompt } from '../prompt/thread-summary.js';
 import { countContext, meteringImages } from './context-budget.js';
@@ -11,6 +12,8 @@ export async function generateMessageReply(deps: SendDependencies, input: {
     contact: MessageContact; history: PrivateMessage[]; incoming: PrivateMessage;
     signal: AbortSignal; guard: () => boolean; stage: (stage: string) => void;
     saveSummary?: (summary: NonNullable<MessageContact['summary']>, previous: number) => Promise<void>;
+    /** Live, never persisted: provisional bubbles and fictional character state. */
+    preview?: (preview: MessageReplyPreview) => void;
 }) {
     const assertCurrent = () => {if (!input.guard() || input.signal.aborted) {throw new Error('messages_cancelled');}};
     assertCurrent(); input.stage('replying');
@@ -59,6 +62,11 @@ export async function generateMessageReply(deps: SendDependencies, input: {
     const recent = pending();
     const images = await loadImages([...recent, input.incoming]);
     const prompt = buildReplyPrompt({ contact, context: background, incoming: input.incoming, history: recent, images, settings });
-    const response = await session.run({ ...prompt, tools: [], signal: input.signal }); assertCurrent();
+    const preview = input.preview;
+    const response = await session.run({ ...prompt, tools: [], signal: input.signal,
+        ...(preview ? { onStreamProgress: (snapshot: Record<string, unknown>) => {
+            // Reasoning-only provider events do not change the character's visible output.
+            if (input.guard() && !input.signal.aborted && typeof snapshot.text === 'string') {preview(previewReplies(snapshot.text));}
+        } } : {}) }); assertCurrent();
     return { replies: compileReplies(response), summary: contact.summary };
 }

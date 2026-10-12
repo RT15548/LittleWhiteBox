@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLearningTeacherService } from '../apps/learning/application/teacher.js';
+import { selectedLearningCompanion } from '../apps/learning/domain/conversation.js';
 import { LEARNING_PARTITION } from '../apps/learning/partition.js';
 import { createCapabilityRegistry } from '../kernel/capability-registry.js';
 import { createEconomyCapabilityRegistrations, ECONOMY_PARTITION, ECONOMY_READ_CAPABILITY, ECONOMY_TRANSACTION_CAPABILITY } from '../capabilities/economy/index.js';
@@ -51,14 +52,14 @@ test('teacher suggestions exclude the player; choosing a teacher only stores a p
     const { state, teacher, store } = await harness();
     assert.deepEqual(teacher.candidates(), [{ name: '小林', aliases: ['林老师'], text: '' }]);
     const before = await teacher.read();
-    assert.equal(before.osId, null);
-    assert.equal(state.writes, 0);
+    assert.ok(before.osId);
+    assert.equal(state.writes, 1);
     assert.equal((await teacher.select(before.identityKey, { name: '小林', note: '' }, () => true)).status, 'confirmed');
     const current = await store.read();
     assert.ok(current.osId);
-    assert.deepEqual(state.files.get(current.osId).partitions, { learning: { teacher: { name: '小林', note: '' } } });
+    assert.deepEqual(selectedLearningCompanion(state.files.get(current.osId).partitions.learning).person, { name: '小林', note: '' });
     await assert.rejects(teacher.select(before.identityKey, null, () => false), /learning_context_changed/);
-    assert.equal((await store.read()).value.teacher.name, '小林');
+    assert.equal(selectedLearningCompanion((await store.read()).value).person.name, '小林');
     assert.equal(LEARNING_PARTITION.parse({ teacher: null, profiles: [] }).ok, false);
 });
 
@@ -74,7 +75,7 @@ test('rename keeps teacher and osId; full copy and historical branch get indepen
     state.capture = { ...state.capture, identityKey: 'runtime-renamed', binding: { ...originalBinding, chatId: 'renamed' } };
     const renamed = await manager.resolveCurrent();
     assert.equal(renamed.envelope.osId, original.osId);
-    assert.equal(renamed.envelope.partitions.learning.teacher.name, '小林');
+    assert.equal(selectedLearningCompanion(renamed.envelope.partitions.learning).person.name, '小林');
     state.headers.set(headerKey(state.capture.binding), originalMetadata);
     state.capture = { ...state.capture, identityKey: 'runtime-copy', binding: { ...originalBinding, chatId: 'copy' }, metadata: originalMetadata };
     const copy = await manager.resolveCurrent();
@@ -85,7 +86,7 @@ test('rename keeps teacher and osId; full copy and historical branch get indepen
     assert.notEqual(branch.envelope.osId, original.osId);
     assert.notEqual(branch.envelope.osId, copy.envelope.osId);
     await coordinator.installResolvedEnvelope(branch.envelope);
-    assert.equal((await store.read()).value.teacher.name, '小林');
+    assert.equal(selectedLearningCompanion((await store.read()).value).person.name, '小林');
     await index.remember(copy.envelope.osId, copy.envelope.binding);
     assert.equal(await manager.handleChatDeleted('copy', 'avatar.png'), 'deleted');
     assert.equal(state.files.has(original.osId), true);

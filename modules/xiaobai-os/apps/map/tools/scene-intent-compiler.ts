@@ -377,6 +377,7 @@ export function compileSceneIntent(
         ? viewBox as [number, number, number, number]
         : undefined;
     const mood = value.mood as MapDomainV1['scenes'][string]['mood'];
+    const lighting = value.lighting as MapDomainV1['scenes'][string]['lighting'] | null;
 
     if (!existingLocation.sceneKey && rawElements.length === 0 && rawRemovals.length === 0) {
         return {
@@ -397,13 +398,14 @@ export function compileSceneIntent(
     if (!existingScene) {
         setup.push({
             op: 'initialize-scene',
-            scene: { key: sceneKey, name: title, status: 'active', viewBox: validViewBox || [0, 0, 400, 300], ...(mood ? { mood } : {}) },
+            scene: { key: sceneKey, name: title, status: 'active', viewBox: validViewBox || [0, 0, 400, 300], ...(mood ? { mood } : {}), ...(lighting ? { lighting } : {}) },
         });
     } else {
         const changes: Record<string, unknown> = { name: title, status: 'active' };
         if (validViewBox) {changes.viewBox = validViewBox;}
         if (mood) {changes.mood = mood;}
         else if (value.mood === null) {changes.mood = null;}
+        if (Object.hasOwn(value, 'lighting')) {changes.lighting = lighting;}
         setup.push({ op: 'update-scene', sceneKey, changes });
     }
     if (value.playerHere === true) {

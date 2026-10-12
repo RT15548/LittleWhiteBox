@@ -1,0 +1,14 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { exerciseBuilding, verifyBuildingRecovery, verifyBuildingTouch, verifyBuildingHomeReturn, verifyRetainedBuilding } from './building-browser-actions.mjs';
+import { exerciseBuildingMemories } from './building-memory-browser-actions.mjs';
+import { verifyBuildingCameraDirection } from './building-camera-browser-actions.mjs';
+const output = resolve('output/playwright');
+await mkdir(output, { recursive: true });
+await writeFile(resolve(output, 'building-exercise.js'), `(${exerciseBuilding.toString()})`);
+await writeFile(resolve(output, 'building-recovery.js'), `(${verifyBuildingRecovery.toString()})`);
+await writeFile(resolve(output, 'building-touch.js'), `(${verifyBuildingTouch.toString()})`);
+await writeFile(resolve(output, 'building-home-return.js'), `(${verifyBuildingHomeReturn.toString()})`);
+await writeFile(resolve(output, 'building-memories.js'), `(${exerciseBuildingMemories.toString()})`);
+await writeFile(resolve(output, 'building-camera.js'), `(${verifyBuildingCameraDirection.toString()})`);
+await writeFile(resolve(output, 'building-retained.js'), `(${verifyRetainedBuilding.toString()})`);

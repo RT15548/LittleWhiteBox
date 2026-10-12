@@ -38,7 +38,7 @@ test('Scene read returns editable vocabulary for every shape without exposing or
     const kernel = createMapKernelHarness(mapAtlasFixture([{ key: 'readback', name: 'Readback' }]));
     let session = await sessionFor(kernel);
     const input = {
-        scene: 'readback', mood: 'cold', viewBox: [0, 0, 400, 300],
+        scene: 'readback', mood: 'cold', lighting: { space: 'indoor', natural: 'night', artificial: 'on' }, viewBox: [0, 0, 400, 300],
         elements: [
             { id: 'rect', cat: 'furniture', shape: 'rect', geo: { center: [100.25, 80.5], size: [30.5, 40.25] }, icon: 'chair', rotation: 180, material: 'metal', certainty: 'inferred' },
             { id: 'circle', cat: 'decoration', shape: 'circle', geo: { at: [220, 90], radius: 15 }, icon: 'rock', rotation: 0 },
@@ -87,7 +87,7 @@ test('inclusive provider bounds cannot store zero-sized physical footprints', as
 });
 
 for (const example of SCENE_EXAMPLES) {
-    test(`model-facing ${example.create.scene} example saves and its next-turn patch changes only the named element`, async () => {
+    test(`model-facing ${example.create.scene} example saves and patches only the requested scene facts`, async () => {
         const kernel = createMapKernelHarness();
         let session = await sessionFor(kernel);
         assert.equal((await session.executeTool(TOOLS.ATLAS_EDIT, example.atlas)).status, 'updated');
@@ -105,6 +105,7 @@ for (const example of SCENE_EXAMPLES) {
         await session.commit(() => true);
         const final = parseMapDomain(kernel.state.persisted.partitions.map).scenes[example.create.scene];
         assert.deepEqual(final.viewBox, initial.viewBox);
+        assert.deepEqual(final.lighting, example.update.edit.lighting || initial.lighting);
         const patch = example.update.edit.elements[0];
         for (const element of initial.elements) {
             const current = final.elements.find(e => e.id === element.id);

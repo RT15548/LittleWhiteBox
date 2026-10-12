@@ -376,7 +376,7 @@ export function renderMarkdownToHtml(text, options = {}) {
     return injectHtmlBlockPlaceholders(escapeHtml(markdownText).replace(/\n/g, '<br>'));
 }
 
-async function copyText(text = '', ownerDocument = null) {
+export async function copyText(text = '', ownerDocument = null) {
     const normalized = String(text || '');
     if (!normalized) return false;
     const doc = ownerDocument?.createElement ? ownerDocument : globalThis.document;

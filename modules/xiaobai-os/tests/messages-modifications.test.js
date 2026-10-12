@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { harness, controllerHarness, photo } from './helpers/messages-harness.js';
+import { harness, controllerHarness, photo, replyText } from './helpers/messages-harness.js';
 import { createMessagesModifications, messagesRevision } from '../apps/messages/application/modifications.js';
 import { regenerateMessageReply } from '../apps/messages/application/regenerate.js';
 import { resolveCopiedMessages, branchMessages } from '../apps/messages/application/branch.js';
@@ -84,7 +84,7 @@ test('reroll replaces an entire latest reply group in its original floor positio
     const h = await harness(); await h.send('甲', 'a'); await h.send('乙', 'b');
     const before = h.service.current(); const other = before.messages.filter(m => m.contactId === '乙');
     const latest = target(h, before.messages.filter(m => m.contactId === '甲').at(-1).id);
-    h.response = () => ({ text: '{"replies":[{"type":"text","text":"重新回答甲"}]}' });
+    h.response = () => ({ text: replyText([{ type: 'text', text: '重新回答甲' }]) });
     await regenerate(h);
     let state = h.service.current();
     assert.deepEqual(state.messages.filter(m => m.contactId === '乙'), other);
@@ -113,7 +113,7 @@ test('reroll rebuilds a contaminated summary only in candidate context; failure/
     const entered = new Promise(resolve => {started = resolve;});
     h.response = () => {started(); return new Promise(resolve => {release = resolve;});};
     const controller = new AbortController(); const pending = regenerate(h, '甲', controller.signal);
-    await entered; controller.abort(); release({ text: '{"replies":[{"type":"text","text":"too late"}]}' });
+    await entered; controller.abort(); release({ text: replyText([{ type: 'text', text: 'too late' }]) });
     await assert.rejects(pending, /cancelled/); assert.deepEqual(h.service.current(), original);
 });
 
@@ -123,12 +123,39 @@ test('runtime rejects concurrent/duplicate rerolls and keeps an accepted operati
     h.response = () => {started(); return new Promise(resolve => {release = resolve;});};
     const command = target(h, h.service.current().messages.at(-1).id);
     await c.command('regenerate', command); await entered;
+    const stream = h.requests.at(-1).onStreamProgress;
+    assert.equal(typeof stream, 'function');
+    const preview = { characterState: 'I am still waiting by the door.', characterStateDone: true, replies: [{ type: 'text', text: 'provisional answer' }] };
+    stream({ text: replyText(preview.replies, preview.characterState) });
+    assert.deepEqual(c.runtime.active.preview, preview);
+    assert.ok(!JSON.stringify(h.service.current()).includes(preview.replies[0].text));
     await assert.rejects(c.command('regenerate', command));
     assert.equal(h.service.current().messages.length, 3); c.controller.deactivate();
-    release({ text: '{"replies":[{"type":"text","text":"完成新的回复"}]}' }); await c.idle();
+    release({ text: replyText([{ type: 'text', text: '完成新的回复' }]) }); await c.idle();
     assert.equal(h.service.current().messages.at(-1).payload.text, '完成新的回复');
+    assert.equal(c.runtime.active, null);
+    for (const text of [preview.characterState, preview.replies[0].text]) {assert.ok(!JSON.stringify(h.service.current()).includes(text));}
     c.activate(); await assert.rejects(c.command('regenerate', command));
     assert.equal(h.apiCalls, 2);
+});
+
+test('failed or cancelled streamed rerolls discard previews and preserve the original reply group', async t => {
+    for (const outcome of ['failed', 'cancelled']) {await t.test(outcome, async () => {
+        const h = await harness(); await h.send('甲', 'a'); const c = await controllerHarness(h);
+        const before = structuredClone(h.service.current()); let release; let started;
+        const entered = new Promise(resolve => {started = resolve;});
+        h.response = () => {started(); return new Promise(resolve => {release = resolve;});};
+        await c.command('regenerate', target(h, before.messages.at(-1).id)); await entered;
+        const stream = h.requests.at(-1).onStreamProgress;
+        stream({ text: '<in_character>private feeling</in_character><msg>provisional</msg>' });
+        assert.equal(c.runtime.active.preview.replies[0].text, 'provisional');
+        if (outcome === 'cancelled') {c.runtime.cancel();}
+        release({ text: outcome === 'failed' ? '<msg>incomplete' : '<msg>late</msg>' });
+        if (outcome === 'cancelled') {await c.runtime.stop();} else {await c.idle();}
+        stream({ text: '<msg>stale stream</msg>' });
+        assert.equal(c.runtime.active, null);
+        assert.deepEqual(h.service.current(), before);
+    });}
 });
 
 test('each cross-file save failure retains originals until native confirmation; checking save never regenerates', async t => {

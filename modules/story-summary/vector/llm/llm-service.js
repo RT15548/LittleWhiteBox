@@ -201,7 +201,7 @@ export async function callLLM(messages, options = {}) {
     }
 }
 
-export async function testL0Service(apiConfig = {}) {
+export async function testL0Service(apiConfig = {}, { signal } = {}) {
     if (!apiConfig?.key) {
         throw new Error('请配置 L0 API Key');
     }
@@ -213,6 +213,7 @@ export async function testL0Service(apiConfig = {}) {
         temperature: 0,
         max_tokens: 16,
         timeout: 15000,
+        signal,
     });
     const text = String(result || '').trim();
     if (!text) throw new Error('返回为空');

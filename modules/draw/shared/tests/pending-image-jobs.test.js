@@ -12,6 +12,9 @@ const {
     fencePendingImageJobLease,
     forgetPendingImageJob,
     getPendingImageJob,
+    getPendingImageJobSlots,
+    commitPendingImageJobItem,
+    discardPendingImageSlot,
     markPendingImageJobActive,
     markPendingImageJobAdoptionPlacing,
     markPendingImageJobAdoptionReady,
@@ -23,7 +26,7 @@ const {
     PendingJobState,
     PENDING_JOB_LEASE_MS,
     recordPendingImageJob,
-    requestPendingImageJobCancellation,
+    acknowledgePendingImageJobCancellations,
     resetPendingImageJobAdoptionPlacement,
     renewPendingImageJobLease,
 } = await import('../pending-image-jobs.js');
@@ -53,6 +56,40 @@ function drawRunRecord(jobId) {
         },
     };
 }
+
+test('a committed item releases only its slot while its batch and cancellation remain durable', async () => {
+    const record = newRecord('item-receipt');
+    record.items.push({ index: 1, slotId: 'receipt-sibling', imgId: 'receipt-image-b' });
+    const owner = await recordPendingImageJob(record);
+    await markPendingImageJobActive(owner.jobId, owner.leaseId);
+    await commitPendingImageJobItem(owner.jobId, owner.leaseId, 0);
+    await acknowledgePendingImageJobCancellations({ jobIds: [owner.jobId], runIds: [] });
+    await discardPendingImageSlot('receipt-sibling');
+    const current = await renewPendingImageJobLease(owner.jobId, owner.leaseId);
+    assert.equal(current.items[0].deliveryCommitted, true);
+    assert.equal(current.items[1].discarded, true);
+    assert.equal(current.cancelRequested, true);
+    assert.equal((await getPendingImageJobSlots()).has(record.items[0].slotId), false);
+    await assert.rejects(commitPendingImageJobItem(owner.jobId, 'stale-lease', 1),
+        error => error.code === 'PENDING_JOB_LEASE_LOST');
+    await assert.rejects(commitPendingImageJobItem(owner.jobId, owner.leaseId, 100), RangeError);
+    await forgetPendingImageJob(owner.jobId, owner.leaseId);
+});
+
+test('competing backend attempts atomically reserve one slot, then admit a reroll after delivery', async () => {
+    const first = newRecord('slot-reservation-a');
+    const second = newRecord('slot-reservation-b');
+    second.items[0].slotId = first.items[0].slotId;
+    const attempts = await Promise.allSettled([recordPendingImageJob(first), recordPendingImageJob(second)]);
+    assert.equal(attempts.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal(attempts.find(result => result.status === 'rejected').reason.code, 'PENDING_IMAGE_SLOT_BUSY');
+    const owner = attempts.find(result => result.status === 'fulfilled').value;
+    await commitPendingImageJobItem(owner.jobId, owner.leaseId, 0);
+    const reroll = await recordPendingImageJob({ ...second, jobId: 'slot-reservation-reroll' });
+    assert.equal((await getPendingImageJobSlots()).get(first.items[0].slotId).jobId, reroll.jobId);
+    await forgetPendingImageJob(owner.jobId, owner.leaseId);
+    await forgetPendingImageJob(reroll.jobId, reroll.leaseId);
+});
 
 test('adoption journal creation is atomic across competing tabs', async () => {
     const jobId = `atomic-adoption-${Date.now()}`;
@@ -134,7 +171,8 @@ test('a control page can persist Draw Run child cancellation without owning the 
     const jobId = `adoption-control-cancel-${Date.now()}`;
     let record = await createAdoptingPendingImageJob(drawRunRecord(jobId));
     const adoptionLeaseId = record.leaseId;
-    record = await requestPendingImageJobCancellation(jobId);
+    await acknowledgePendingImageJobCancellations({ jobIds: [jobId], runIds: [] });
+    record = await getPendingImageJob(jobId);
     assert.equal(record.state, PendingJobState.ADOPTING);
     assert.equal(record.cancelRequested, true);
     assert.equal(record.leaseId, adoptionLeaseId);

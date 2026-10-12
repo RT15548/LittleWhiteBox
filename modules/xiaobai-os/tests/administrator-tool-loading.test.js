@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { administratorHarness, settled } from './administrator-harness.js';
+import { administratorHarness, settled, COMMON_TOOL_NAMES as common } from './administrator-harness.js';
 import { createAdministratorToolExecutor } from '../apps/administrator/agent/tool-executor.js';
 import { createAdministratorChatReader } from '../apps/administrator/host/chat-reader.js';
 import { TOOLS_LOAD } from '../apps/administrator/agent/tool-loader.js';
@@ -11,7 +11,6 @@ import { ADMINISTRATOR_PROMPT } from '../apps/administrator/agent/prompt.js';
 import { administratorReferenceMessage } from '../apps/administrator/agent/reference-data.js';
 
 const names = tools => tools.map(tool => tool.function.name);
-const common = [TOOLS_LOAD, 'ChatSearch', 'ChatRead', 'OSInspect', 'ToolResultRead'];
 const call = (name, args = {}) => ({ toolCalls: [{ id: 'call', name, arguments: JSON.stringify(args) }] });
 const result = (messages, name) => JSON.parse(messages.findLast(message => message.role === 'tool' && message.toolName === name).content);
 
@@ -25,17 +24,33 @@ async function executorFixture(h, saveReceipts = async () => { assert.fail('load
     return { executor, operations, abort, call: (name, args = {}) => executor.execute(name, args, String(++sequence), sequence) };
 }
 
-test('one load supplies a complete registered APP package and common tools without business activity', async () => {
+test('story search and reading work immediately while APP reads and writes still require selection', async () => {
+    const h = await administratorHarness(), f = await executorFixture(h);
+    const writes = h.state.writes.length;
+    assert.equal((await f.call('MapAtlasRead', { mode: 'summary' })).code, 'tool_not_loaded');
+    assert.equal((await f.call('WorldEdit', { overview: 'must not save' })).code, 'tool_not_loaded');
+    const search = await f.call('ChatSearch', { query: 'floor-55' });
+    assert.equal(search.status, 'read');
+    assert.deepEqual(search.data.items.map(item => item.floor), [55]);
+    const read = await f.call('ChatRead', { from: search.data.items[0].floor });
+    assert.equal(read.status, 'read');
+    assert.equal(read.data.items[0].text, h.state.messages[55].mes);
+    assert.deepEqual(names(f.executor.getTools()), common);
+    assert.equal(h.state.writes.length, writes);
+    assert.equal(f.operations.length, 2);
+});
+
+test('one load adds a complete registered APP package to the common tools without business activity', async () => {
     const h = await administratorHarness(), f = await executorFixture(h);
     const expected = (await h.registry.get('map').open()).tools.map(tool => tool.definition);
     const initial = f.executor.getTools(), data = structuredClone(f.executor.data);
     const writes = h.state.writes.length, reads = h.state.environmentReads.length;
-    assert.deepEqual(names(initial), [TOOLS_LOAD]);
+    assert.deepEqual(names(initial), common);
     assert.equal((await f.call('MapAtlasRead', { mode: 'summary' })).code, 'tool_not_loaded');
     const loaded = await f.call(TOOLS_LOAD, { apps: ['map'] });
     assert.deepEqual(f.executor.getTools().slice(common.length), expected);
     assert.deepEqual(loaded.data, { apps: ['map'], tools: [...common, ...names(expected)] });
-    assert.deepEqual(names(initial), [TOOLS_LOAD]);
+    assert.deepEqual(names(initial), common);
     assert.deepEqual(f.executor.data, data);
     const snapshot = f.executor.getTools();
     assert.deepEqual((await f.call(TOOLS_LOAD, { apps: ['map', 'map'] })).data, loaded.data);
@@ -55,7 +70,7 @@ test('invalid loads are atomic, initial read failures retain their package, and 
     for (const args of [null, [], { apps: null }, { apps: 'map' }, { apps: [1] }, { apps: [{ toString: null }] },
         { apps: [], extra: true }, { apps: ['map', 'unknown'] }]) {
         assert.equal((await f.call(TOOLS_LOAD, args)).status, 'failed');
-        assert.deepEqual(names(f.executor.getTools()), [TOOLS_LOAD]);
+        assert.deepEqual(names(f.executor.getTools()), common);
     }
     assert.equal((await f.call(TOOLS_LOAD, { apps: ['unavailable'] })).status, 'read');
     assert.deepEqual(f.executor.data.readErrors.map(error => error.code), ['storage_read_failed']);
@@ -64,7 +79,7 @@ test('invalid loads are atomic, initial read failures retain their package, and 
     assert.deepEqual((await f.call(TOOLS_LOAD, { apps: [] })).data, { apps: ['unavailable'], tools: common });
     const after = await executorFixture(h);
     assert.deepEqual(after.executor.data.readErrors, []);
-    assert.deepEqual(names(after.executor.getTools()), [TOOLS_LOAD]);
+    assert.deepEqual(names(after.executor.getTools()), common);
 });
 
 test('new APP registration joins loading without administrator-specific routing, and removal leaves no package', async () => {
@@ -82,7 +97,7 @@ test('new APP registration joins loading without administrator-specific routing,
     remove();
     const next = await executorFixture(h);
     assert.equal((await next.call(TOOLS_LOAD, { apps: ['probe'] })).code, 'management_unavailable');
-    assert.deepEqual(names(next.executor.getTools()), [TOOLS_LOAD]);
+    assert.deepEqual(names(next.executor.getTools()), common);
 });
 
 test('changed story floors block only the attempted write until all changed evidence is reread', async () => {
@@ -166,7 +181,7 @@ test('a tool loaded in the same batch cannot run until the next request; later t
     const sent = await h.request('send', { text: 'check world' }); await settled(h.runtime);
     assert.equal(h.world.readCurrent().world.overview, '');
     assert.equal(h.repository.read().turns[0].operations.length, 1);
-    h.state.generate = async request => { assert.deepEqual(names(request.tools), [TOOLS_LOAD]); return { text: 'fresh' }; };
+    h.state.generate = async request => { assert.deepEqual(names(request.tools), common); return { text: 'fresh' }; };
     await h.request('send', { text: 'next question' }); await settled(h.runtime);
     await h.request('regenerate', { turnId: sent.turnId }); await settled(h.runtime);
     assert.equal(h.repository.read().turns[0].status, 'finished');
@@ -185,7 +200,8 @@ test('context estimates charge only the loaded definitions, with unchanged refer
     const map = measure(f.executor.getTools());
     await f.call(TOOLS_LOAD, { apps: ['tasks', 'world'] });
     const all = measure(f.executor.getTools()), eager = measure(f.executor.getTools().filter(tool => tool.function.name !== TOOLS_LOAD));
-    assert.ok(initial.tools < commonOnly.tools && commonOnly.tools < map.tools && map.tools < all.tools);
+    assert.deepEqual(initial, commonOnly);
+    assert.ok(initial.tools < map.tools && map.tools < all.tools);
     assert.deepEqual(f.executor.data, reference);
     assert.ok(initial.used < eager.used);
     t.diagnostic(JSON.stringify({ estimatorOnly: true, initial, commonOnly, map, all, eager }));
@@ -242,7 +258,7 @@ for (const transport of ['native', 'tagged-json', 'google']) {
         const turn = h.repository.read().turns[0];
         assert.equal(turn.status, 'finished', h.runtime.error());
         assert.equal(step, script.length);
-        assert.deepEqual(names(requests[0].tools), [TOOLS_LOAD]);
+        assert.deepEqual(names(requests[0].tools), common);
         const expected = [...common, ...names((await h.registry.get('map').open()).tools.map(tool => tool.definition))];
         for (const request of requests.slice(1)) { assert.deepEqual(names(request.tools), expected); }
         assert.equal(new Set(requests.map(request => request.systemPrompt)).size, 1);
@@ -260,14 +276,14 @@ for (const transport of ['native', 'tagged-json', 'google']) {
         assert.equal(businessChanges, 1);
         if (transport === 'google') {
             assert.equal(creations.length, 2);
-            assert.deepEqual(creations[0].config.tools[0].functionDeclarations.map(tool => tool.name), [TOOLS_LOAD]);
+            assert.deepEqual(creations[0].config.tools[0].functionDeclarations.map(tool => tool.name), common);
             assert.deepEqual(creations[1].config.tools[0].functionDeclarations.map(tool => tool.name), expected);
             assert.equal(requests[1].toolResponses, undefined);
             assert.equal(result(requests[1].messages, TOOLS_LOAD).status, 'read');
             assert.equal(creations[1].history.flatMap(message => message.parts).find(part => part.functionCall)?.thoughtSignature, 'fixture-signature');
             assert.ok(requests.slice(2).every(request => request.toolResponses && !request.messages.length));
         } else if (transport === 'native') {
-            assert.deepEqual(names(wire[0].tools), [TOOLS_LOAD]);
+            assert.deepEqual(names(wire[0].tools), common);
             assert.ok(wire.slice(1).every(body => names(body.tools).join() === expected.join()));
             assert.ok(wire[1].messages.some(message => message.role === 'tool'));
         } else {

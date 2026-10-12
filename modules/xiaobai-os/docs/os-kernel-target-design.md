@@ -2,9 +2,9 @@
 
 ## 1. 文档地位
 
-本文是普通酒馆小白 OS 的底座施工契约，固定存储、聊天身份、分区事务、Capability、APP 生命周期、Shell Bridge 和 SillyTavern 适配的终态。配套施工批次见 [OS Kernel 施工方案](./os-kernel-implementation-plan.md)。
+本文定义普通小白 OS 的业务无关底座：聊天身份、文件事务、分区、Capability、APP 生命周期与 Frame Bridge。聊天 sidecar 与用户文件是两个独立事务根；经济及用户级路由见 [Economy 平台](./economy-platform-target-design.md)，不能把全部 APP 数据都当作聊天 sidecar。
 
-各 APP 文档继续拥有自己的领域、Prompt、工具、Controller 和 UI；凡是其中关于聊天 metadata 根、根 mutation、根 store、APP 静态总装或跨领域直接写 Economy 的描述，均由本文取代。施工者不得保留两套运行路径，也不得为了兼容未进入 upstream 的测试线实现增加旧 schema、回退读取或永久清洗器。
+各 APP 文档继续拥有自己的领域、Prompt、工具、Controller 和 UI；凡是其中关于聊天 metadata 根、根 mutation、根 store、APP 静态总装或跨领域直接写 Economy 的描述，均由本文取代。实现不得保留两套运行路径，也不得为了兼容未进入 upstream 的测试线实现增加旧 schema、回退读取或永久清洗器。
 
 本文描述普通 OS，不得 import modules/tavern 下的运行时代码、数据库、Phone Session 或楼层协议。
 
@@ -16,7 +16,7 @@
 - APP Host、后台任务或 UI 加载失败时，桌面、导航和无依赖 APP 继续工作；
 - APP 图标始终由 Shell 静态目录提供，失败 APP 可进入独立错误页并重试；
 - 聊天业务数据全部离开 chat_metadata.extensions.LittleWhiteBox.xiaobaiOs；
-- 同一业务动作涉及多个分区时只上传一次 sidecar；
+- 同一事务根内的业务动作只上传一次所属文件，不伪装跨文件原子；
 - Game、Bank、Shop、Tasks 不直接读写 Economy 分区；
 - Map、Tasks、Fourth Wall 使用 agent-core 的现行共享 Agent 配置；
 - 不安装 server plugin，不要求修改 config.yaml。
@@ -36,10 +36,10 @@ Sidecar 是独立于聊天 JSONL 的业务文件，通常远小于完整聊天�
 | 项目 | 终态结论 |
 | --- | --- |
 | 功能所有者 | kernel 只拥有业务无关的身份、事务、分区、能力和生命周期；APP 拥有自己的全部业务 |
-| 唯一事实来源 | APP 事实位于 sidecar 对应分区；余额只来自 Economy 分区流水；共享 Agent 配置仍来自 agent-core |
+| 唯一事实来源 | APP 事实位于注册声明的对应分区；余额来自 Economy，用户文件路由由 Economy 平台定义；共享 Agent 配置来自 agent-core |
 | 持久态 | osId 引用、sidecar envelope、APP 分区、尽力维护的 sidecar 索引 |
 | 临时态 | 缓存、写队列、APP 状态、AbortController、staging、未确认候选、UI 路由和错误对象 |
-| 外部依赖 | SillyTavern 1.18 context/events、user files 接口、聊天 metadata 一次性引用、iframe、agent-core |
+| 外部依赖 | 受支持 SillyTavern context/events、user files 接口、聊天 metadata 一次性引用、iframe、agent-core |
 | 注册入口 | Kernel bootstrap、Capability catalog、Host APP catalog、Shell APP catalog |
 | 删除路径 | 删除 APP 目录和两处 catalog 项，按产品策略清分区；不留旧类型或回退读取 |
 | 真实兼容对象 | SillyTavern、浏览器/WebView、共享 Agent 配置、upstream 已上线 Fourth Wall 数据 |
@@ -484,7 +484,7 @@ SillyTavern 内建分支的新 metadata 通常只带 main_chat，不能依赖 CH
 4. 先保存子 sidecar，再安装子聊天引用；
 5. 任一步失败不修改父 sidecar，也不让父子共享 osId。
 
-默认领域 revision、事件和余额原样复制；Envelope revision 重新开始。经济时点不按消息前缀猜测回滚。只有具有真实历史证据和业务需要的功能解释自己的复制规则：当前 Messages 根据子聊天私人信息标记裁剪私聊前缀，见其终态设计；Kernel 不识别消息标记，不解析业务分区。此后两个 sidecar 独立推进。
+聊天分区按默认复制策略处理，Envelope revision 重新开始；用户文件不属于该复制范围，经济资产不随分支复制。只有具有真实历史证据和业务需要的功能解释自己的复制规则：当前 Messages 根据子聊天私人信息标记裁剪私聊前缀，见其终态设计；Kernel 不识别消息标记，不解析业务分区。此后两个 sidecar 独立推进。
 
 ### 11.3 重命名、复制和导入
 
@@ -500,37 +500,9 @@ CHAT_DELETED/GROUP_CHAT_DELETED 事件可能只给聊天文件名。Kernel 只�
 
 索引文件固定为 LittleWhiteBox_OS_index.json，只保存`formatVersion: 1`和`entries: Record<osId, XiaobaiOsChatBindingV1>`。它只用于重命名、删除和孤儿清理，不保存分区、revision 或业务快照，也不是读取数据的唯一事实来源。索引更新使用独立的尽力写队列；冲突、损坏或保存失败只记录日志并从以后访问的聊天逐步重建，不得阻断 sidecar 读取或业务提交。SillyTavern 没有 user files 枚举接口，因此不能承诺扫描找回或清理全部孤儿。
 
-## 12. Game 动画与提交
+## 12. 业务保存与揭晓
 
-Game 点击确认后的时序固定为：
-
-    关闭确认框
-    → 立即开始不暴露最终骰面的中性动画
-    → 事务使用协调器最新已确认 sidecar
-    → 校验 Game/Economy/CAS
-    → 只生成一次随机结果、ID 和 candidate
-    → 上传并确认 commitId
-    → 同时满足“已确认保存”和“最短动画结束”
-    → 展示最终骰面、胜负、叫牌和余额变化
-
-最终结果文案首先明确：
-
-- 你赢了或你输了；
-- 你叫了几个几、最终挑战者；
-- 双方骰面；
-- 本局余额变化和最新余额。
-
-保存明确失败：
-
-- 不把候选冒充成已完成赌局；
-- 页面显示“本局结果尚未保存”及重试；
-- 冻结本局后继动作和新开局；
-- 当前运行内保留同一个已序列化 candidate、actionId、commitId 和随机结果；
-- 重试只提交该 candidate，不重新执行游戏命令；
-
-保存结果 unconfirmed 时显示“落账待核实”，按 commitId 强读确认；不能把未知结果称为明确失败。关闭 OS 窗口不会销毁 Host 内的 pending candidate，切回同一聊天仍可继续恢复。只有整个页面运行结束才会丢失纯内存候选。再次加载时只能沿聊天中已确认的引用强读服务端：已有引用的聊天会读到新事实或旧事实；首次 sidecar 若连引用都未确认，则只能在引用实际落盘时找回，否则该无引用文件是待索引清理的孤儿。任何情况都不得凭空重建随机结果。
-
-存储慢只延迟最终揭示，不得阻止动画起步，也不得显示虚假的最终骰面。
+Kernel 只拥有候选、确认和恢复，不拥有赌局动画或金融规则。游戏的“先中性动画、确认后揭示”和失败冻结见 [Game 设计](./game-app-target-design.md)；用户文件恢复见 Economy 平台。重试只上传原候选，不重新执行业务命令或生成随机数。
 
 ## 13. 兼容、升级和删除
 
@@ -562,7 +534,7 @@ upstream 已上线的旧 Fourth Wall 是单独的真实兼容对象。对“没�
 
 - 坏 Game 分区不影响 Map/Fourth Wall，坏 Economy 只影响其真实依赖者；
 - 无关分区在其他 APP 提交后保持 JSON value 深相等，不要求对象键顺序或文件字节完全一致；
-- Game + Economy、Shop + Economy、Bank + Economy、Tasks + Economy 各自只产生一次 replace；
+- 同一用户文件内的业务／资金动作各自只产生一次 replace，不把跨根操作算成单事务；
 - 当前激活期读写共用已确认版本；首次加载、明确刷新、异常恢复才读服务器，不承诺多端同时编辑；
 - timeout 以 commitId 确认，重试不重新执行业务命令；
 - 分支得到独立 osId 和创建时分区副本；重命名保留 osId；删除歧义不误删；

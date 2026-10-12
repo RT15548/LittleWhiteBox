@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { DOMParser } from 'linkedom';
 
 import { createHostPromptContextAdapter } from '../host/prompt-context/capture.js';
 import { MESSAGE_CONTEXT_LIMITS } from '../apps/messages/host/context-limits.js';
@@ -110,8 +111,8 @@ test('Messages request retains the last complete floors, full character card, an
     const request = buildReplyPrompt({ contact, incoming, history: [], settings: { imagePrompt: false, voicePrompt: false },
         context: { ...captured.contextSnapshot, people: [], chronology: [{ firstSeq: 1, throughSeq: 1, afterStoryFloor: 13, breakBefore: null }] },
     });
-    const setting = request.messages.find(message => message.role === 'system').content;
-    const currentState = request.messages.find(message => typeof message.content === 'string' && message.content.includes('<recent_messages>')).content;
+    const setting = request.messages[0].content;
+    const currentState = new DOMParser().parseFromString(request.messages.at(-1).content, 'text/xml').querySelector('recent_story').textContent;
     assert.deepEqual(captured.contextSnapshot.recentMessages.map(message => message.index), Array.from({ length: 12 }, (_, index) => index + 2));
     assert.equal(captured.contextSnapshot.exampleDialogue, `${'口吻'.repeat(2500)}口吻末尾已展开`);
     assert.equal(captured.contextSnapshot.characterNote, '角色补充设定');
@@ -169,7 +170,7 @@ test('Messages sends one expanded single-chat character and each activated nativ
         history: [], settings: { imagePrompt: false, voicePrompt: false },
         context: { ...contextSnapshot, people: [], chronology: [{ firstSeq: 1, throughSeq: 1, afterStoryFloor: 1, breakBefore: null }] },
     });
-    const setting = request.messages.find(message => message.role === 'system').content;
+    const setting = request.messages[0].content;
     for (const text of ['林月住在车站旁', '对玩家直来直去', '当前车站', '玩家是熟人',
         '说话有点冲。', '雨城', '夜间禁行', '街上很安静', '例子前', '例子后', '便签前', '便签后']) {
         assert.equal(setting.split(text).length - 1, 1, text);

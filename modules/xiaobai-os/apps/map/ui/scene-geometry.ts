@@ -1,11 +1,14 @@
 import type { MapElement, MapIconToken, RectGeometry, CircleGeometry, PointGeometry, PointsGeometry } from '../../../domains/map/types.js';
 import { MAP_OBJECT_ICONS } from '../../../domains/map/semantics.js';
+import { organicSymbol } from './scene-organic-symbols.js';
 
 export interface SceneBounds { x: number; y: number; width: number; height: number }
+/** Common map-coordinate scale for surface detail, light placement and the 3D frame. */
+export function sceneUnitScale(width: number, height: number): number { return Math.max(width, height) / 14; }
 const AREA_CATEGORIES = new Set(['water', 'terrain', 'furniture', 'decoration', 'danger', 'magic', 'secret', 'light']);
 const FOOTPRINT_OBJECT_ICONS = new Set<MapIconToken>(MAP_OBJECT_ICONS);
 const PLAN_OBJECT_DRAWINGS = new Set<MapIconToken>(['chair', 'table', 'bed', 'counter', 'shelf', 'sofa', 'bridge', 'tree', 'rock']);
-export function hasSceneObjectDrawing(element: MapElement): boolean {return !!element.icon && PLAN_OBJECT_DRAWINGS.has(element.icon);}
+export function hasSceneObjectDrawing(element: MapElement): boolean {return !!element.icon && (PLAN_OBJECT_DRAWINGS.has(element.icon) || !!organicSymbol(element.icon));}
 const numberText = (value: number): string => Number(value.toFixed(3)).toString();
 const pointsOf = (element: MapElement): Array<[number, number]> => (element.geometry as PointsGeometry).points || [];
 
@@ -15,7 +18,7 @@ export function isSceneMarker(element: MapElement): boolean {
         || element.kind === 'stairs' || element.icon === 'stairs' || element.icon === 'door-open';
 }
 
-function closesPath(element: MapElement): boolean {
+export function closesPath(element: MapElement): boolean {
     return pointsOf(element).length >= 3 && (element.closed ?? AREA_CATEGORIES.has(element.category));
 }
 

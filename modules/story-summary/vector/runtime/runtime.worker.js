@@ -262,6 +262,7 @@ function deleteChunksAtFloor(entry, floor) {
         entry.chunkVectorsById.delete(chunk.chunkId);
     }
     entry.chunksByFloor.delete(floor);
+    if (entry.meta?.lastChunkFloor >= floor) entry.meta = { ...entry.meta, lastChunkFloor: floor - 1 };
 }
 
 function deleteStateVectorsFromFloor(entry, floor) {
@@ -489,6 +490,11 @@ function applyMutation(chatId, mutation = {}) {
             break;
         case 'deleteStateVectorsFromFloor':
             deleteStateVectorsFromFloor(entry, Number(mutation.floor || 0));
+            break;
+        case 'deleteStateVectorsAtFloors':
+            for (const [id, record] of entry.stateVectorsById) {
+                if (mutation.floors.includes(record.floor)) entry.stateVectorsById.delete(id);
+            }
             break;
         case 'deleteEventVectorsByIds':
             for (const eventId of mutation.eventIds || []) entry.eventVectorsById.delete(eventId);

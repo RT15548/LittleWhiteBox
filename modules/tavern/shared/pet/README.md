@@ -1,5 +1,7 @@
 # Pet domain
 
+产品、内容和保存规则统一见 [不明物设计](../../docs/pet-app-target-design.md)。
+
 不明物是一个全局唯一的 Companion domain：主 RP 只提供时间，当前会话只提供来源钱包、Phone boundary 和剧情落点。它不是 session archive、角色档案或回滚领域的一部分。
 
 ## 模块边界
@@ -26,7 +28,7 @@
 - moment 不过期、最多一条、每次完成/跳过后至少六个 active turns、按三轴轮转，并写入第一人称 memory。`pendingMoment` 未处理时不产生第二条 moment，但不阻止同一回合的普通事件、藏币、Curio 与 interference。
 - 事件和长期安静只能产生内容，不能把“不打开 APP”解释为冷落。
 - 所有动态 Prompt 数据转义；interference 投影不可信时 fail-open，绝不影响主 RP。
-- 旧 Pet schema 是 v29 hard cut。不要添加旧字段读取、转换或 alias。
+- 旧测试线 Pet 数据在升级边界丢弃后重建，日常路径不读旧字段或别名。
 
 ## 写入与删除
 

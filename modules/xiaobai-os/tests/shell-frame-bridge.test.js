@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createFrameBridge, XIAOBAI_OS_FRAME_SOURCE } from '../shell/app-src/frame-bridge.js';
+import { createFrameBridge, FrameRequestError, XIAOBAI_OS_FRAME_SOURCE } from '../shell/app-src/frame-bridge.js';
 
 function createShell(t, readyState = 'loading') {
     const previous = new Map(['window', 'document', 'parent'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -12,7 +12,8 @@ function createShell(t, readyState = 'loading') {
     Object.assign(globalThis, {
         window: windowTarget,
         document: documentTarget,
-        parent: { postMessage: (message, origin) => messages.push({ message, origin }) },
+        // Mirror the browser's structured-clone boundary, not a direct method call.
+        parent: { postMessage: (message, origin) => messages.push({ message: structuredClone(message), origin }) },
     });
     const bridge = createFrameBridge();
     t.after(() => {
@@ -66,4 +67,31 @@ test('disposing during loading prevents a late readiness announcement', t => {
     shell.bridge.dispose();
     shell.finishLoading();
     assert.deepEqual(shell.messages, []);
+});
+
+test('a request that cannot be sent has no delivery or orphaned timeout', async t => {
+    const shell = createShell(t);
+    const cancelled = [];
+    const clear = globalThis.clearTimeout;
+    t.mock.method(globalThis, 'clearTimeout', timer => { cancelled.push(timer); clear(timer); });
+    await assert.rejects(shell.bridge.request('learning/explain', { selection: new Proxy({}, {}) }), error => {
+        assert.ok(error instanceof FrameRequestError);
+        assert.equal(error.code, 'host_request_not_sent');
+        assert.equal(error.cause.name, 'DataCloneError');
+        return true;
+    });
+    assert.equal(shell.messages.length, 0);
+    assert.equal(cancelled.length, 1);
+    shell.bridge.dispose();
+    assert.equal(cancelled.length, 1); // Failed sends were removed from the pending map too.
+});
+
+test('a delivered request without acknowledgement is unknown, not safe to resend', async t => {
+    const shell = createShell(t);
+    await assert.rejects(shell.bridge.request('learning/talk', { message: 'Hello' }, 1), error => {
+        assert.ok(error instanceof FrameRequestError);
+        assert.equal(error.code, 'host_request_timeout');
+        return true;
+    });
+    assert.equal(shell.messages.length, 1);
 });

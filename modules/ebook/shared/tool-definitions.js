@@ -1,11 +1,11 @@
-import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
+import { getWebSearchToolDefinition, WEB_SEARCH_TOOL_NAME } from '../../agent-core/web/tools.js';
 
 export const EBOOK_TOOL_NAMES = Object.freeze({
     LS: 'LS',
     GLOB: 'Glob',
     GREP: 'Grep',
     READ: 'Read',
-    WEB_SEARCH: TAVILY_TOOL_NAME,
+    WEB_SEARCH: WEB_SEARCH_TOOL_NAME,
     WRITE: 'Write',
     EDIT: 'Edit',
     DELETE: 'Delete',
@@ -97,7 +97,7 @@ export function getEbookToolDefinitions(options = {}) {
     ];
 
     if (webSearchEnabled) {
-        definitions.push(getTavilySearchToolDefinition());
+        definitions.push(getWebSearchToolDefinition());
     }
 
     if (!readOnly) {

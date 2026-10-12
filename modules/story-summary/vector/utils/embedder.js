@@ -63,16 +63,16 @@ export async function deleteLocalModelCache() { }
 // 在线服务测试
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function testOnlineService(_provider, config = {}) {
+export async function testOnlineService(_provider, config = {}, { signal } = {}) {
     if (!config?.key) {
         throw new Error('请配置 Embedding API Key');
     }
 
     try {
-        const [vec] = await sfEmbed(['测试连接'], { apiConfig: config });
+        const [vec] = await sfEmbed(['测试连接'], { apiConfig: config, signal });
         return { success: true, dims: vec?.length || 0 };
     } catch (e) {
-        throw new Error(`连接失败: ${e.message}`);
+        throw new Error(`连接失败: ${e.message}`, { cause: e });
     }
 }
 

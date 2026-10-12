@@ -1,0 +1,10 @@
+{
+    "name": "littlewhitebox-server",
+    "type": "commonjs",
+    "main": "index.js",
+    "description": "小白盒后端：提供绘图后台任务和 Exa 联网服务。",
+    "private": true,
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

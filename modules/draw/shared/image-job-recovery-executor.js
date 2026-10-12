@@ -1,6 +1,7 @@
 import { createBackendItemError } from './backend-image-jobs.js';
 import {
     claimPendingImageJob,
+    commitPendingImageJobItem,
     fencePendingImageJobLease,
     forgetPendingImageJob,
     getPendingImageJob,
@@ -12,9 +13,10 @@ import {
     renewPendingImageJobLease,
 } from './pending-image-jobs.js';
 import { ReattachAction } from './image-job-reattach.js';
-import { reattachRecoverableImageJob } from './recoverable-image-jobs.js';
+import { createImageJobItemDelivery, reattachRecoverableImageJob } from './recoverable-image-jobs.js';
 
 const defaultJournal = {
+    commitItem: commitPendingImageJobItem,
     fenceLease: fencePendingImageJobLease,
     claim: claimPendingImageJob,
     forget: forgetPendingImageJob,
@@ -25,10 +27,6 @@ const defaultJournal = {
     releaseLease: releasePendingImageJobLease,
     renewLease: renewPendingImageJobLease,
 };
-
-function getRecordItem(record, index) {
-    return record.items.find(item => item.index === index) || null;
-}
 
 function describeSettlement(delivery, record, { error, mode } = {}) {
     if (mode) return { mode };
@@ -56,25 +54,23 @@ async function runAttachment({ client, record, journal, delivery, cancelled }) {
         journal,
         cancelSignal: controller?.signal,
         onStateChange: (state, data) => delivery.onStateChange?.(record, state, data),
-        onItemReady: async ({ index, ...payload }) => {
-            const item = getRecordItem(record, index);
-            if (!item) throw new Error(`后台任务返回了未知图片索引 ${index}`);
+        onItemReady: async ({ record: current, item, ...payload }) => {
             await guard();
-            await delivery.deliver(record, item, payload, guard);
+            await delivery.deliver(current, item, payload, guard);
         },
         onItemSettled: async (details) => {
-            if (details.alreadyDelivered === true || details.state === 'cancelled') return;
-            const item = getRecordItem(record, details.index);
-            if (!item) return;
+            if (details.alreadyDelivered === true) return;
+            if (details.state === 'cancelled') return false;
             const error = details.source === 'frontend' ? details.error : createBackendItemError(details);
             await guard();
-            await delivery.failItem(record, item, error, guard);
+            await delivery.failItem(details.record, details.item, error, guard, details.commitDelivery);
         },
-        resolveSettlement: async ({ error }) => {
+        resolveSettlement: async ({ error, result }) => {
             const current = typeof journal.get === 'function'
                 ? await journal.get(record.jobId).catch(() => null)
                 : null;
             const cancellationRequested = cancelled
+                || result?.job?.state === 'cancelled'
                 || current?.state === PendingJobState.CANCELLING
                 || current?.cancelRequested === true;
             settlement = describeSettlement(delivery, record, {
@@ -138,7 +134,8 @@ export async function executeImageJobReattachEntry({
         settlement = record.settlement;
     }
     await guard();
-    await delivery.settle(record, settlement || { mode: 'complete' }, {}, guard);
+    const deliverItem = createImageJobItemDelivery({ journal, jobId: record.jobId, leaseId: record.leaseId, guard });
+    await delivery.settle(record, settlement || { mode: 'complete' }, { deliverItem }, guard);
     await guard();
     await delivery.beforeForget?.(record, settlement || { mode: 'complete' }, {}, guard);
     await journal.forget(record.jobId, record.leaseId);

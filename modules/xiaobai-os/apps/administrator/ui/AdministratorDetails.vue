@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { AdministratorOperation } from '../domain/types.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
@@ -11,9 +11,11 @@ const items = ref<AdministratorOperation[]>([]), offset = ref(0), total = ref(0)
 const evidence = ref<{ text: string; nextOffset: number | null; offset: number; totalChars: number } | null>(null);
 const reference = ref('');
 const layer = ref<HTMLElement | null>(null);
+const modal = ref(true);
+let layoutObserver: ResizeObserver | undefined;
 function focusLayer() { void nextTick(() => layer.value?.focus({ preventScroll: true })); }
 function back() { if (evidence.value) { evidence.value = null; focusLayer(); } else { emit('close'); } }
-useAppLayer(layer, back);
+useAppLayer(layer, back, () => modal.value);
 async function page(start: number) {
     loading.value = true; error.value = ''; evidence.value = null;
     try {
@@ -30,11 +32,20 @@ async function read(id: string, start = 0) {
     } catch (cause) { error.value = administratorError(cause); }
     finally { loading.value = false; }
 }
-onMounted(() => page(0));
+onMounted(() => {
+    const root = layer.value!.closest<HTMLElement>('.administrator-app')!;
+    const syncLayout = () => { modal.value = getComputedStyle(root).getPropertyValue('--admin-details-docked').trim() !== '1'; };
+    syncLayout();
+    layoutObserver = new ResizeObserver(syncLayout);
+    layoutObserver.observe(root);
+    focusLayer();
+    void page(0);
+});
+onBeforeUnmount(() => layoutObserver?.disconnect());
 </script>
 
 <template>
-    <section ref="layer" class="admin-details" role="dialog" aria-modal="true" tabindex="-1" :aria-label="C.details" @keydown.esc.stop.prevent="back">
+    <section ref="layer" class="admin-details" :role="modal ? 'dialog' : 'region'" :aria-modal="modal ? true : undefined" tabindex="-1" :aria-label="C.details" @keydown.esc.stop.prevent="back">
         <header><strong>{{ C.details }}</strong><button type="button" :aria-label="C.close" @click="emit('close')">×</button></header>
         <div class="admin-details-body">
             <template v-if="evidence">

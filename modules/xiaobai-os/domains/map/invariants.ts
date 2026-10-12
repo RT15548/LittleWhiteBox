@@ -1,5 +1,5 @@
 import type { MapDomainV1, MapElementShape } from './types.js';
-import { MAP_CERTAINTIES, MAP_ELEMENT_CATEGORIES, MAP_ELEMENT_KINDS, MAP_ELEMENT_SHAPES, MAP_ICON_TOKENS, MAP_MATERIALS } from './semantics.js';
+import { MAP_ARTIFICIAL_LIGHTS, MAP_CERTAINTIES, MAP_ELEMENT_CATEGORIES, MAP_ELEMENT_KINDS, MAP_ELEMENT_SHAPES, MAP_ICON_TOKENS, MAP_LIGHTING_SPACES, MAP_MATERIALS, MAP_NATURAL_LIGHTS } from './semantics.js';
 import { MapValidation } from './validation.js';
 export { MapDomainError, type MapDomainErrorCode } from './validation.js';
 
@@ -117,13 +117,21 @@ function unique(v: MapValidation, values: readonly unknown[], key: string, path:
 }
 
 function scene(v: MapValidation, value: unknown, recordKey: string, path: string): void {
-    const record = v.record(value, path, ['key', 'name', 'status', 'viewBox', 'elements'], ['mood']);
+    const record = v.record(value, path, ['key', 'name', 'status', 'viewBox', 'elements'], ['mood', 'lighting']);
     if (!record) { return; }
     id(v, record.key, `${path}.key`);
     v.check(record.key === recordKey, 'map_invalid_domain', `${path}.key`, 'must match its record key');
     text(v, record.name, `${path}.name`, MAX_MAP_NAME_LENGTH);
     token(v, record.status, SCENE_STATUSES, `${path}.status`);
     if (Object.hasOwn(record, 'mood')) { token(v, record.mood, SCENE_MOODS, `${path}.mood`); }
+    if (Object.hasOwn(record, 'lighting')) {
+        const lighting = v.record(record.lighting, `${path}.lighting`, ['space', 'natural', 'artificial']);
+        if (lighting) {
+            token(v, lighting.space, MAP_LIGHTING_SPACES, `${path}.lighting.space`);
+            token(v, lighting.natural, MAP_NATURAL_LIGHTS, `${path}.lighting.natural`);
+            token(v, lighting.artificial, MAP_ARTIFICIAL_LIGHTS, `${path}.lighting.artificial`);
+        }
+    }
     if (v.check(Array.isArray(record.viewBox) && record.viewBox.length === 4, 'map_invalid_domain', `${path}.viewBox`, 'must be [x, y, width, height]')) {
         const box = record.viewBox as unknown[];
         coordinate(v, box[0], `${path}.viewBox.0`); coordinate(v, box[1], `${path}.viewBox.1`);

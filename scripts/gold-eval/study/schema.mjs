@@ -165,7 +165,7 @@ export function validateStudy(raw) {
 
     const inputs = requireObject(input.inputs, 'inputs');
     const dev = requireObject(inputs.dev, 'inputs.dev');
-    const holdout = requireObject(inputs.holdout, 'inputs.holdout');
+    const holdout = inputs.holdout == null ? null : requireObject(inputs.holdout, 'inputs.holdout');
     const hypotheses = (input.hypotheses || []).map(validateHypothesis);
     const hypothesisIds = new Set();
     for (const hypothesis of hypotheses) {
@@ -178,7 +178,7 @@ export function validateStudy(raw) {
     if (activeHypothesisId && !hypothesisIds.has(activeHypothesisId)) {
         throw new Error(`active.hypothesisId 不存在: ${activeHypothesisId}`);
     }
-    if (holdout.consumed === true && STUDY_PHASES.indexOf(phase) < STUDY_PHASES.indexOf('holdout')) {
+    if (holdout?.consumed === true && STUDY_PHASES.indexOf(phase) < STUDY_PHASES.indexOf('holdout')) {
         throw new Error('方案冻结并进入 holdout phase 前不得消费 holdout');
     }
     const devMatrix = requireObject(input.devMatrix, 'devMatrix');
@@ -205,18 +205,18 @@ export function validateStudy(raw) {
                 ...dev,
                 sample: validateFileRef(dev.sample, 'inputs.dev.sample'),
                 cases: validateFileRef(dev.cases, 'inputs.dev.cases'),
-                snapshot: validateFileRef(dev.snapshot, 'inputs.dev.snapshot'),
+                snapshot: validateFileRef(dev.snapshot, 'inputs.dev.snapshot', { optional: true }),
             },
-            holdout: {
+            holdout: holdout ? {
                 ...holdout,
                 sample: validateFileRef(holdout.sample, 'inputs.holdout.sample'),
                 cases: validateFileRef(holdout.cases, 'inputs.holdout.cases', { optional: true }),
                 consumed: holdout.consumed === true,
-            },
+            } : null,
         },
         evidence: {
-            sourceCapture: validateRunRef(input.evidence?.sourceCapture, 'evidence.sourceCapture'),
-            readerBaseline: validateRunRef(input.evidence?.readerBaseline, 'evidence.readerBaseline'),
+            sourceCapture: validateRunRef(input.evidence?.sourceCapture, 'evidence.sourceCapture', { optional: true }),
+            readerBaseline: validateRunRef(input.evidence?.readerBaseline, 'evidence.readerBaseline', { optional: true }),
             adjudication: validateAdjudicationRef(input.evidence?.adjudication, 'evidence.adjudication', { optional: true }),
             baselineCampaign: validateBaselineCampaign(input.evidence?.baselineCampaign),
         },

@@ -167,10 +167,8 @@ export async function rerank(query, documents, options = {}) {
             signal: requestSignal,
         });
 
-        clearTimeout(timeoutId);
-
         if (!response.ok) {
-            const errorText = await response.text().catch(() => '');
+            const errorText = await response.text();
             const error = new Error(`Rerank API ${response.status}: ${errorText.slice(0, 200)}`);
             error.httpStatus = response.status;
             throw error;
@@ -195,8 +193,6 @@ export async function rerank(query, documents, options = {}) {
         };
 
     } catch (e) {
-        clearTimeout(timeoutId);
-
         // Caller cancellation ends the whole recall. Only this request's own
         // timeout/provider failure may use the atomic rerank fallback.
         if (signal?.aborted) throw signal.reason || e;
@@ -222,6 +218,8 @@ export async function rerank(query, documents, options = {}) {
                 elapsedMs: Math.round(performance.now() - T0),
             },
         };
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
@@ -365,7 +363,7 @@ export async function rerankChunks(query, chunks, options = {}) {
 /**
  * 测试 Rerank 服务连接
  */
-export async function testRerankService(apiConfig = {}) {
+export async function testRerankService(apiConfig = {}, { signal } = {}) {
     const next = {
         provider: String(apiConfig.provider || 'siliconflow').trim(),
         url: String(apiConfig.url || DEFAULT_RERANK_URL).trim(),
@@ -378,7 +376,10 @@ export async function testRerankService(apiConfig = {}) {
 
     const key = getNextRerankKey(next.key);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const onAbort = () => controller.abort();
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
     try {
         const baseUrl = resolveApiBaseUrl(
             String(next.url || DEFAULT_RERANK_URL),
@@ -399,9 +400,8 @@ export async function testRerankService(apiConfig = {}) {
             }),
             signal: controller.signal,
         });
-        clearTimeout(timeoutId);
         if (!response.ok) {
-            const errorText = await response.text().catch(() => '');
+            const errorText = await response.text();
             throw new Error(`Rerank API ${response.status}: ${errorText.slice(0, 200)}`);
         }
         const data = await response.json();
@@ -411,8 +411,10 @@ export async function testRerankService(apiConfig = {}) {
             message: `连接成功：返回 ${results.length} 个结果`,
         };
     } catch (e) {
-        throw new Error(`连接失败: ${e.message}`);
+        if (signal?.aborted) throw e;
+        throw new Error(`连接失败: ${e.message}`, { cause: e });
     } finally {
         clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onAbort);
     }
 }

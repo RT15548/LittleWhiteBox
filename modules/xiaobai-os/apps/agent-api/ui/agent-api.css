@@ -25,15 +25,29 @@
 
 .agent-api-scroll {
     height: 100%;
-    padding: 56px 24px 32px;
+    padding: calc(var(--os-status-height, 42px) + 14px) 24px max(32px, env(safe-area-inset-bottom));
     overflow: hidden auto;
     scrollbar-color: var(--border-focus) transparent;
+}
+
+.xiaobai-os-shell:not(.theme-dark) .agent-api-app {
+    --bg-primary: #f5f7fb; --bg-secondary: #fff; --bg-tertiary: #edf1f7; --bg-input: #fff;
+    --text-primary: #202c40; --text-secondary: #58677c; --text-muted: #67778c;
+    --border: #dbe2ed; --border-focus: #6c91cc; --accent: #3567b5; --accent-soft: #e7effb;
+    --success: #247755; --danger: #b64049; --warning: #94651d; color-scheme: light;
 }
 
 .agent-api-content {
     width: 100%;
     max-width: 800px;
     margin: 0 auto;
+}
+
+@container os-stage (min-width: 900px) {
+    .agent-api-content { max-width: 1000px; }
+    .agent-api-panel .xb-assistant-config-page { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; align-items: start; }
+    .agent-api-panel .xb-assistant-preset-row, .agent-api-panel .xb-assistant-config-note, .agent-api-panel .xb-assistant-inline-status { grid-column: 1 / -1; }
+    .agent-api-panel .xb-assistant-temperature-row { grid-template-columns: minmax(0, 1fr) auto; }
 }
 
 .agent-api-header {
@@ -169,12 +183,5 @@
     .agent-api-state button,
     .agent-api-connection button {
         width: 100%;
-    }
-}
-
-@media (max-width: 760px), (pointer: coarse) and (max-height: 760px) {
-    .agent-api-scroll {
-        padding-top: calc(24px + env(safe-area-inset-top));
-        padding-bottom: calc(28px + env(safe-area-inset-bottom));
     }
 }

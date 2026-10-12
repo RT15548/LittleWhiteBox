@@ -1,5 +1,6 @@
 import {
     fencePendingImageJobLease,
+    commitPendingImageJobItem,
     forgetPendingImageJob,
     markPendingImageJobActive,
     markPendingImageJobCancelling,
@@ -10,6 +11,7 @@ import {
     releasePendingImageJobLease,
     renewPendingImageJobLease,
 } from './pending-image-jobs.js';
+import { registerDrawCancellationJob, waitForDrawCancellation } from './draw-work-cancellation.js';
 
 // 可恢复的后台批量生图：提交顺序的唯一所有者。
 //
@@ -27,6 +29,7 @@ import {
 // IndexedDB 不存在于 Node，而这套顺序恰恰是最需要被证明的部分。
 const defaultJournal = {
     record: recordPendingImageJob,
+    commitItem: commitPendingImageJobItem,
     fenceLease: fencePendingImageJobLease,
     renewLease: renewPendingImageJobLease,
     markActive: markPendingImageJobActive,
@@ -38,6 +41,35 @@ const defaultJournal = {
 
 export function isPendingJobLeaseLost(error) {
     return error instanceof PendingImageJobLostError || error?.code === 'PENDING_JOB_LEASE_LOST';
+}
+
+// One gate for initial delivery, replay and settlement. A receipt permanently
+// ends this item's authority over its slot, even if its batch still runs.
+// commitDelivery lets a host release activity/render only AFTER the receipt;
+// the outer commit also covers gallery-only consumers without such projection.
+export function createImageJobItemDelivery({ journal, jobId, leaseId, guard }) {
+    return async (index, effect) => {
+        const record = await guard();
+        const item = record.items.find(item => item.index === index);
+        if (!item) throw new RangeError('PENDING_IMAGE_ITEM_NOT_FOUND');
+        if (item.deliveryCommitted) return false;
+        let committed = false;
+        const commitDelivery = async () => {
+            if (committed) return;
+            await journal.commitItem(jobId, leaseId, index);
+            committed = true;
+        };
+        try {
+            // false explicitly defers a terminal item to batch settlement
+            // (e.g. cancelled Draw Run slots must first be removed and saved).
+            if (await effect({ record, item, guard, commitDelivery }) === false) return false;
+            await commitDelivery();
+            return true;
+        } catch (error) {
+            error.preserveBackendResult = true;
+            throw error;
+        }
+    };
 }
 
 // 占位符没能写进正文：用户在这段时间里改了这条消息，规划已经不适用了。
@@ -154,6 +186,7 @@ export async function submitRecoverableImageJob({
     if (typeof commitPlacements !== 'function') throw new Error('缺少占位符持久化回调');
 
     const jobId = createJobId();
+    registerDrawCancellationJob(cancelSignal, jobId);
     // 第一步必须是落日志：从这一刻起，无论页面怎么死，这批槽位都有归属。
     const record = await journal.record({ ...plan, jobId, provider });
     const { leaseId } = record;
@@ -182,7 +215,12 @@ export async function submitRecoverableImageJob({
     keeper.observe(fenced);
     let cancelIntentPromise = null;
     const markCancelIntent = () => {
-        cancelIntentPromise ??= journal.markCancelling(jobId, leaseId);
+        cancelIntentPromise ??= waitForDrawCancellation(cancelSignal)
+            .then(() => journal.markCancelling(jobId, leaseId))
+            .catch(error => { error.detached = true; throw error; });
+        // The owning try/catch awaits this promise; keep a rejected barrier from
+        // surfacing as an unhandled rejection before the monitor reaches it.
+        void cancelIntentPromise.catch(() => {});
     };
     if (cancelSignal?.aborted) markCancelIntent();
     cancelSignal?.addEventListener('abort', markCancelIntent, { once: true });
@@ -193,6 +231,7 @@ export async function submitRecoverableImageJob({
         await keeper.onStateChange(state);
         onStateChange?.(state, data);
     };
+    const deliverItem = createImageJobItemDelivery({ journal, jobId, leaseId, guard: fenceLease });
 
     try {
         const result = await client.runJob(request, {
@@ -206,12 +245,10 @@ export async function submitRecoverableImageJob({
             },
             onStateChange: forwardStateChange,
             onItemReady: async (details) => {
-                await fenceLease();
-                await onItemReady?.({ ...details, guard: fenceLease });
+                await deliverItem(details.index, delivery => onItemReady?.({ ...details, ...delivery }));
             },
             onItemSettled: async (details) => {
-                await fenceLease();
-                await onItemSettled?.({ ...details, guard: fenceLease });
+                await deliverItem(details.index, delivery => onItemSettled?.({ ...details, ...delivery }));
             },
         });
         cancelSignal?.removeEventListener('abort', markCancelIntent);
@@ -223,9 +260,11 @@ export async function submitRecoverableImageJob({
             journal, jobId, leaseId, settlePlacements, resolveSettlement, beforeForget, afterForget, result,
         });
         return { ...result, jobId, leaseId };
-    } catch (error) {
+    } catch (submissionError) {
         cancelSignal?.removeEventListener('abort', markCancelIntent);
-        await waitForCancelIntent();
+        let error = submissionError;
+        try { await waitForCancelIntent(); }
+        catch (cancellationError) { error = cancellationError; }
         if (isPendingJobLeaseLost(error)) throw error;
         error.jobId ||= jobId;
         // 任务是否还活在后端由 client 判定（只有 404 才算真的没了）。detached 的任务必须
@@ -268,7 +307,8 @@ async function finishRecoverableImageJob({
         if (typeof settlePlacements === 'function') {
             const guard = () => journal.fenceLease(jobId, leaseId);
             await guard();
-            await settlePlacements({ jobId, leaseId, result, error, guard });
+            const deliverItem = createImageJobItemDelivery({ journal, jobId, leaseId, guard });
+            await settlePlacements({ jobId, leaseId, result, error, guard, deliverItem });
         }
         if (typeof beforeForget === 'function') {
             const guard = () => journal.fenceLease(jobId, leaseId);
@@ -314,21 +354,23 @@ export async function reattachRecoverableImageJob({
         await keeper.onStateChange(state);
         onStateChange?.(state, data);
     };
+    const deliverItem = createImageJobItemDelivery({ journal, jobId, leaseId, guard: fenceLease });
 
     try {
         const result = await client.attachJob(jobId, {
             cancelSignal: keeper.signal,
             detachSignal,
             beforeIrreversible: fenceLease,
-            beforeCancel: fenceLease,
+            beforeCancel: async () => {
+                await waitForDrawCancellation(cancelSignal);
+                await fenceLease();
+            },
             onStateChange: forwardStateChange,
             onItemReady: async (details) => {
-                await fenceLease();
-                await onItemReady?.({ ...details, guard: fenceLease });
+                await deliverItem(details.index, delivery => onItemReady?.({ ...details, ...delivery }));
             },
             onItemSettled: async (details) => {
-                await fenceLease();
-                await onItemSettled?.({ ...details, guard: fenceLease });
+                await deliverItem(details.index, delivery => onItemSettled?.({ ...details, ...delivery }));
             },
         });
         preserveUndeliveredResults(result, jobId);

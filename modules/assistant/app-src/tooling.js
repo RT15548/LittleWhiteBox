@@ -1,4 +1,4 @@
-import { formatTavilySearchResults, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
+import { formatWebSearchResults, WEB_SEARCH_TOOL_NAME, getWebSearchToolDefinition } from '../../agent-core/web/tools.js';
 
 // ============================================================
 // 工具名称常量
@@ -8,7 +8,7 @@ export const TOOL_NAMES = {
     GLOB: 'Glob',
     GREP: 'Grep',
     READ: 'Read',
-    WEB_SEARCH: TAVILY_TOOL_NAME,
+    WEB_SEARCH: WEB_SEARCH_TOOL_NAME,
     WRITE: 'Write',
     APPLY_PATCH: 'apply_patch',
     DELETE: 'Delete',
@@ -144,26 +144,7 @@ export const TOOL_DEFINITIONS = [
             },
         },
     },
-    {
-        type: 'function',
-        function: {
-            name: TOOL_NAMES.WEB_SEARCH,
-            description: [
-                'Search the public web with Tavily when you need external facts that are not available from project files, workspace files, or current SillyTavern instance state.',
-                'Use this for real-world references, factual verification, time-sensitive information, public documentation, or outside background research before answering.',
-                'Keep the query focused and specific; do not use it for questions that can already be answered from local tools.',
-            ].join('\n'),
-            parameters: {
-                type: 'object',
-                properties: {
-                    query: { type: 'string', description: 'Focused search query, for example "SillyTavern world info regex docs" or "Kyoto district history".' },
-                    maxResults: { type: 'number', description: 'Optional number of results to return. Default 5, max 8.' },
-                },
-                required: ['query'],
-                additionalProperties: false,
-            },
-        },
-    },
+    getWebSearchToolDefinition(),
     {
         type: 'function',
         function: {
@@ -932,7 +913,7 @@ export function formatToolResultDisplay(message) {
         }
         return {
             summary: lines.filter(Boolean).join('\n'),
-            details: formatTavilySearchResults(results),
+            details: formatWebSearchResults(results),
         };
     }
 

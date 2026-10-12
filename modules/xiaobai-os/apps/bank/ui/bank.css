@@ -22,6 +22,7 @@
 .bank-icon-button { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; padding: 0; border: 0; background: transparent; border-radius: 50%; }
 .bank-icon-button:hover { background: var(--bank-line); }
 .bank-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--bank-line) transparent; }
+.bank-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .bank-page { max-width: 680px; margin-inline: auto; padding: 18px 24px 30px; }
 .bank-page-heading { margin: 0 0 22px; }
 .bank-page-heading h2 { font-size: 19px; line-height: 1.4; letter-spacing: -.025em; margin: 0; font-weight: 600; }
@@ -167,3 +168,15 @@
 @keyframes bank-spin { to { transform: rotate(360deg); } }
 @media (max-width: 360px) { .bank-header { gap: 7px; padding-inline: 16px; } .bank-page { padding-inline: 18px; } .bank-dialog { padding: 22px 18px; } }
 @media (prefers-reduced-motion: reduce) { .bank-app *, .bank-app *::before, .bank-app *::after { animation: none !important; transition: none !important; } }
+@container os-stage (min-width: 900px) {
+    .bank-workspace { display: grid; grid-template-columns: 164px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+    .bank-navigation { grid-column: 1; grid-row: 1; grid-template-columns: 1fr; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; gap: 6px; padding: 18px 12px; border-top: 0; border-right: 1px solid var(--bank-line); }
+    .bank-navigation button { min-height: 48px; flex-direction: row; justify-content: flex-start; gap: 6px; padding: 6px 12px; font-size: 13px; border-radius: 10px; }
+    .bank-navigation button[aria-current] { background: var(--bank-tint); }
+    .bank-navigation button > span { width: 28px; }
+    .bank-scroll { grid-column: 2; grid-row: 1; min-width: 0; }
+    .bank-page { max-width: 960px; padding-inline: 32px; }
+    .bank-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+    .bank-product-card:first-child { padding-top: 22px; }
+    .bank-vault-portals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+}

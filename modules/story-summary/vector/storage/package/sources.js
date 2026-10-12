@@ -22,8 +22,8 @@ function indexRows(rows) {
 
 // Read-only projection of the authoritative chat, never getSummaryStore or
 // getStateAtoms: those getters can initialize/migrate persisted metadata.
-export function buildSourceIndex({ chat, atoms, events }) {
-    const chunks = chat.flatMap((message, floor) => chunkMessage(floor, message));
+// Packages use current chat inputs; daily maintenance supplies saved materials.
+export function buildSourceIndex({ chat, atoms, events }, chunks = chat.flatMap((message, floor) => chunkMessage(floor, message))) {
     return {
         floorCount: chat.length,
         chunks: indexRows(chunks.map(chunk => ({ id: chunk.chunkId, sourceHash: inputDigest('chunk', chunk.text), chunk }))),

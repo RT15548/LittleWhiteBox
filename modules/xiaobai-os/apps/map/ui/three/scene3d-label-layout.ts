@@ -3,6 +3,7 @@ export interface LabelRect extends LabelPoint { w: number; h: number }
 export interface ProjectedLabel {
     id: string;
     anchor: LabelPoint;
+    badgeAnchor?: LabelPoint;
     priority: number;
     badge?: { w: number; h: number };
     caption?: { w: number; h: number };
@@ -29,7 +30,7 @@ export function layoutSceneLabels(labels: readonly ProjectedLabel[], width: numb
         const result: PlacedLabel = { anchor: { ...item.anchor } };
         placed.set(item.id, result);
         if (!item.badge) {continue;}
-        const { w, h } = item.badge, { x, y } = item.anchor;
+        const { w, h } = item.badge, { x, y } = item.badgeAnchor || item.anchor;
         const candidates: LabelRect[] = [];
         for (const gap of [9, 27, 45]) {
             candidates.push(

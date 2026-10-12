@@ -7,20 +7,22 @@ import { messagesRevision } from '../apps/messages/application/modifications.js'
 import { projectionMarker, unsyncedIds } from '../apps/messages/application/projection.js';
 import { createMessagesRuntime, syncCurrentMessages } from '../apps/messages/host/runtime.js';
 import { createMessagesController } from '../apps/messages/host/controller.js';
+import { previewReplies } from '../apps/messages/prompt/reply-compiler.js';
 
-import { harness, controllerHarness, photo } from './helpers/messages-harness.js';
+import { harness, controllerHarness, photo, replyText } from './helpers/messages-harness.js';
 const clone = structuredClone;
 
 test('saved capabilities select the advertised reply formats for sending and retrying without changing history or uploaded images', async () => {
     const h = await harness(); const c = await controllerHarness(h);
-    const examples = request => {
-        // Execute the JSON examples actually sent in the external reply
-        // protocol through compilation and storage, without checking source text.
-        return [...request.systemPrompt.matchAll(/\{"type":"(?:text|image|voice)"[^{}\n]*\}/gu)].map(([json]) => JSON.parse(json));
-    };
+    // Execute the <msg> examples actually sent in the reply protocol
+    // through compilation and storage, without checking source text.
+    const lines = request => request.systemPrompt.match(/<msg\b[^>\n]*>[^\n]*?<\/msg>/gu) ?? [];
+    const examples = request => previewReplies(lines(request).join('\n')).replies;
     const respond = () => {
-        const replies = examples(h.requests.at(-1));
-        return { text: JSON.stringify(replies.length ? { replies } : { summary: '双方通过私人通讯分享了花店照片。' }) };
+        const request = h.requests.at(-1); const declared = lines(request);
+        const characterState = request.systemPrompt.match(/^<in_character>\n[\s\S]*?^<\/in_character>$/mu)?.[0];
+        if (declared.length) {assert.ok(previewReplies(characterState).characterStateDone);}
+        return { text: declared.length ? `${characterState}\n${declared.join('\n')}` : JSON.stringify({ summary: '双方通过私人通讯分享了花店照片。' }) };
     };
     h.response = respond;
     for (const [imagePrompt, voicePrompt] of [[false, false], [true, false], [false, true], [true, true], [false, false]]) {
@@ -47,6 +49,30 @@ test('saved capabilities select the advertised reply formats for sending and ret
     await c.command('retry', { contactId: '乙', messageId: 'input:retry-settings' }); await c.idle();
     assert.deepEqual(examples(h.requests.at(-1)).map(item => item.type), ['text', 'voice']);
     assert.equal(h.service.current().messages.filter(m => m.id === 'input:retry-settings').length, 1);
+    await c.runtime.stop(); c.controller.deactivate();
+});
+
+test('sending previews only fictional character state, ignores native reasoning events, and persists only replies', async () => {
+    const h = await harness(); const c = await controllerHarness(h);
+    const preview = { characterState: 'I am happy to hear from her.', characterStateDone: true,
+        replies: [{ type: 'text', text: 'visible-reply' }] };
+    h.response = () => {
+        const stream = h.requests.at(-1).onStreamProgress;
+        stream({ thoughts: [{ text: 'provider-only' }] });
+        assert.equal(c.runtime.active.preview, null);
+        stream({ text: '<think><msg>discarded-draft</msg>', thoughts: [{ text: 'provider-only' }] });
+        assert.deepEqual(c.runtime.active.preview, { characterState: '', characterStateDone: false, replies: [] });
+        const text = replyText(preview.replies, preview.characterState);
+        stream({ text, thoughts: [{ text: 'provider-only' }] });
+        assert.deepEqual(c.runtime.active.preview, preview);
+        stream({ thoughts: [{ text: 'later-provider-event' }] });
+        assert.deepEqual(c.runtime.active.preview, preview);
+        return { text };
+    };
+    await c.command('send', { contactId: '甲', actionId: 'stream', payload: { type: 'text', text: 'hello' } }); await c.idle();
+    assert.deepEqual(h.service.current().messages.filter(message => message.replyTo === 'input:stream').map(message => message.payload), preview.replies);
+    assert.equal(c.runtime.active, null);
+    for (const text of [preview.characterState, 'provider-only', 'discarded-draft']) {assert.ok(!JSON.stringify(h.service.current()).includes(text));}
     await c.runtime.stop(); c.controller.deactivate();
 });
 
@@ -309,7 +335,7 @@ test('uncertain reply save retains the complete candidate; confirming it never r
     const h = await harness();
     h.response = async () => {
         h.replace = input => {h.persisted = clone(input.candidate); return { status: 'unconfirmed', observed: null };};
-        return { text: '{"replies":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}' };
+        return { text: replyText([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]) };
     };
     await assert.rejects(h.send('甲', 'a'), /save_unconfirmed/);
     assert.equal(h.service.current().messages.length, 1);
@@ -338,7 +364,7 @@ test('chat/run cancellation rejects a late Provider result while preserving the 
     const runtime = createMessagesRuntime({ ...h.deps, identity: () => h.identity, isGenerating: () => false, changed: () => undefined });
     runtime.start('甲', 'a', { type: 'text', text: 'hi' }); await called;
     runtime.cancel(); h.identity = 'another'; h.identity = 'chat';
-    release({ text: '{"replies":[{"type":"text","text":"late"}]}' }); await runtime.stop();
+    release({ text: replyText([{ type: 'text', text: 'late' }]) }); await runtime.stop();
     assert.equal(h.service.current().messages.length, 1);
     assert.equal(h.messages.length, 0);
     assert.deepEqual(unsyncedIds(h.service.current()), ['a']);
@@ -359,7 +385,7 @@ test('leaving the APP keeps an accepted reply running and reactivation reads the
     controller.activate(activation);
     await controller.handleMessage({ type: 'messages/send', payload: { chatIdentity: 'chat', actionId: 'a', contactId: '甲', payload: { type: 'text', text: 'hi' } } });
     await called; controller.deactivate();
-    release({ text: '{"replies":[{"type":"text","text":"still here"}]}' }); await idle;
+    release({ text: replyText([{ type: 'text', text: 'still here' }]) }); await idle;
     const view = controller.activate(activation);
     controller.emit();
     assert.equal(updates.at(-1).type, 'messages/state');

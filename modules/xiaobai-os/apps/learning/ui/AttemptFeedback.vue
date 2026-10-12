@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { LearningAssessment, LearningAttempt, LearningResponse } from '../../../domains/learning/types.js';
 import { learningAnswerText } from '../application/answer-text.js';
-defineProps<{ attempt: LearningAttempt; feedback?: LearningAssessment; response: LearningResponse; paragraphs?: { id: string; text: string }[]; disabled: boolean }>();
+import { LEARNING_WORK_COPY } from '../../../domains/learning/work.js';
+defineProps<{ attempt: LearningAttempt; feedback?: LearningAssessment; response: LearningResponse; paragraphs?: { id: string; text: string }[]; disabled: boolean;
+    reviewable: boolean; }>();
 defineEmits<{ action: [name: string, input: Record<string, unknown>] }>();
 const verdicts = { correct: '答对了', partial: '已经掌握一部分', incorrect: '一起把这里弄懂', disputed: '这处还需复核' };
 </script>
@@ -15,10 +17,11 @@ const verdicts = { correct: '答对了', partial: '已经掌握一部分', incor
             <p v-if="feedback.understanding"><b>理解</b>{{ feedback.understanding }}</p>
             <p v-if="feedback.expression"><b>表达</b>{{ feedback.expression }}</p>
             <p v-if="feedback.guidance"><b>批注</b>{{ feedback.guidance }}</p>
-            <button type="button" :disabled="disabled" @click="$emit('action', 'assess', { attemptId: attempt.id, review: true, message: '请重新审视我的原答与题目。也请考虑其他有效表达，不只对照原来的答案键。' })">{{ feedback.verdict === 'disputed' ? '请老师复核' : '有疑问，请复核' }}</button>
+            <small v-if="!reviewable" class="learning-muted">{{ LEARNING_WORK_COPY.revised }}</small>
+            <button v-else type="button" :disabled="disabled" @click="$emit('action', 'assess', { attemptId: attempt.id, review: true, message: '请重新审视我的原答与题目。也请考虑其他有效表达，不只对照原来的答案键。' })">{{ feedback.verdict === 'disputed' ? '请语伴复核' : '有疑问，请复核' }}</button>
         </template>
         <template v-else>
-            <p>原答已保存，等待老师评估。</p>
+            <p>原答已保存，等待语伴评估。</p>
             <button type="button" :disabled="disabled" @click="$emit('action', 'assess', { attemptId: attempt.id, review: false, message: '请评估这条已经保存的原答。' })">重试评估</button>
         </template>
     </section>

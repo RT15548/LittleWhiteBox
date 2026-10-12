@@ -21,6 +21,7 @@ import {
     streamHostChatCompletion,
 } from "../../../shared/host-llm/chat-completions/client.js";
 import { xbLog } from "../../../core/debug-core.js";
+import { runWithAbortDeadline } from '../../../shared/common/abort-utils.js';
 
 const PROVIDER_MAP = {
     openai: "openai",
@@ -34,6 +35,7 @@ const PROVIDER_MAP = {
 
 const HOST_GENERATION_PROVIDERS = new Set(['openai']);
 const SUMMARY_GENERATION_TIMEOUT_MS = 180_000;
+const SUMMARY_GENERATION_TIMEOUT_MESSAGE = '生成超时';
 const SUMMARY_CANCELLED_CODE = 'summary_generation_cancelled';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -69,21 +71,22 @@ function cancelRequest(request) {
     request.streamingMod?.cancel?.(request.sessionId);
 }
 
-function waitForStreamingComplete(sessionId, streamingMod, request, timeout = SUMMARY_GENERATION_TIMEOUT_MS) {
-    return new Promise((resolve, reject) => {
-        const start = Date.now();
-        const poll = () => {
-            if (request.cancelled) return reject(createSummaryGenerationCancelledError());
-            const { isStreaming, text } = streamingMod.getStatus(sessionId);
-            if (!isStreaming) return resolve(text || '');
-            if (Date.now() - start > timeout) {
-                streamingMod.cancel?.(sessionId);
-                return reject(new Error('生成超时'));
-            }
-            setTimeout(poll, 300);
-        };
-        poll();
-    });
+async function waitForStreamingComplete(completion, request, timeout) {
+    const controller = new AbortController();
+    request.abortController = controller;
+    if (request.cancelled) controller.abort();
+    try {
+        return await runWithAbortDeadline(() => completion, {
+            controller, timeoutMs: timeout, timeoutMessage: SUMMARY_GENERATION_TIMEOUT_MESSAGE,
+        });
+    } catch (error) {
+        if (controller.signal.aborted) request.streamingMod.cancel?.(request.sessionId);
+        if (request.cancelled) throw createSummaryGenerationCancelledError();
+        if (controller.signal.aborted) throw new Error(SUMMARY_GENERATION_TIMEOUT_MESSAGE);
+        throw error;
+    } finally {
+        request.abortController = null;
+    }
 }
 
 function createTimeoutSignal(timeout) {
@@ -235,7 +238,7 @@ async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}
             throw createSummaryGenerationCancelledError();
         }
         if (abortable.isTimedOut()) {
-            throw new Error('生成超时');
+            throw new Error(SUMMARY_GENERATION_TIMEOUT_MESSAGE);
         }
         throw error;
     } finally {
@@ -471,15 +474,11 @@ export async function generateSummary(options) {
 
         let rawOutput;
         if (useStream) {
-            const sid = await streamingMod.xbgenrawCommand(args, '');
-            request.sessionId = sid;
-            if (request.cancelled) {
-                streamingMod.cancel?.(sid);
-                throw createSummaryGenerationCancelledError();
-            }
-            rawOutput = await waitForStreamingComplete(sid, streamingMod, request, timeout);
+            const task = await streamingMod.startRawGeneration(args, '', { signal });
+            request.sessionId = task.sessionId;
+            rawOutput = await waitForStreamingComplete(task.completion, request, timeout);
         } else {
-            rawOutput = await streamingMod.xbgenrawCommand(args, '');
+            rawOutput = await streamingMod.xbgenrawCommand(args, '', { signal });
         }
 
         if (request.cancelled) {
@@ -491,6 +490,9 @@ export async function generateSummary(options) {
         }
 
         return rawOutput;
+    } catch (error) {
+        if (request.cancelled) throw createSummaryGenerationCancelledError();
+        throw error;
     } finally {
         signal?.removeEventListener?.('abort', handleAbort);
     }

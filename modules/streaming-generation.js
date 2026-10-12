@@ -12,6 +12,7 @@ import { world_info } from "../../../../world-info.js";
 import { xbLog, CacheRegistry } from "../core/debug-core.js";
 import { getTrustedOrigin } from "../core/iframe-messaging.js";
 import { replaceXbGetVarInString, replaceXbGetVarYamlInString } from "./variables/var-commands.js";
+import { throwIfSignalAborted } from '../shared/common/abort-utils.js';
 
 const EVT_DONE = 'xiaobaix_streaming_completed';
 
@@ -537,7 +538,7 @@ class StreamingGeneration {
                 errorMessage = err;
             }
 
-            throw new Error(errorMessage);
+            throw new Error(errorMessage, { cause: err });
         } finally {
             session.isStreaming = false;
             this.activeCount = Math.max(0, this.activeCount - 1);
@@ -975,7 +976,16 @@ class StreamingGeneration {
         return out;
     }
 
-    async xbgenrawCommand(args, prompt) {
+    async xbgenrawCommand(args, prompt, options) {
+        const task = await this.startRawGeneration(args, prompt, options);
+        if (!task) return '';
+        return task.stream ? String(task.sessionId) : await task.completion;
+    }
+
+    // Programmatic callers receive the actual completion, including failures;
+    // slash commands retain their streaming-ID / nonstreaming-text contract.
+    async startRawGeneration(args, prompt, { signal } = {}) {
+        throwIfSignalAborted(signal);
         const hasScaffolding = Boolean(String(
             args?.top || args?.top64 ||
             args?.topsys || args?.topuser || args?.topassistant ||
@@ -983,7 +993,7 @@ class StreamingGeneration {
             args?.bottomsys || args?.bottomuser || args?.bottomassistant ||
             args?.addon || ''
         ).trim());
-        if (!prompt?.trim() && !hasScaffolding) return '';
+        if (!prompt?.trim() && !hasScaffolding) return null;
         const role = ['user', 'system', 'assistant'].includes(args?.as) ? args.as : 'user';
         const sessionId = this._getSlotId(args?.id);
         const lockArg = String(args?.lock || '').toLowerCase();
@@ -1013,6 +1023,12 @@ class StreamingGeneration {
             }
         } catch {}
         const nonstream = String(args?.nonstream || '').toLowerCase() === 'true';
+        const task = completion => {
+            // Streaming commands return before completion. Observe/report their
+            // rejection without changing the promise awaited by direct callers.
+            completion.catch(error => xbLog.error('streamingGeneration', error));
+            return { sessionId, stream: !nonstream, completion };
+        };
         const b64dUtf8 = (s) => {
             try {
                 let str = String(s).trim().replace(/-/g, '+').replace(/_/g, '/');
@@ -1133,24 +1149,16 @@ class StreamingGeneration {
                 .concat(prompt && prompt.trim().length ? [{ role, content: prompt.trim() }] : [])
                 .concat(bottomMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length));
             
-            if (nonstream) {
-                try { if (lock) deactivateSendButtons(); } catch {}
-                try {
-                    const preparedMessages = await this._emitPromptReady(messages);
-                    const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
-                    const finalText = await this.processGeneration(common, prompt || '', sessionId, false);
-                    return String(finalText ?? '');
-                } finally {
-                    try { if (lock) activateSendButtons(); } catch {}
-                }
-            } else {
-                try { if (lock) deactivateSendButtons(); } catch {}
+            try { if (lock) deactivateSendButtons(); } catch {}
+            try {
                 const preparedMessages = await this._emitPromptReady(messages);
+                throwIfSignalAborted(signal);
                 const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
-                const p = this.processGeneration(common, prompt || '', sessionId, true);
-                p.finally(() => { try { if (lock) activateSendButtons(); } catch {} });
-                p.catch(() => {});
-                return String(sessionId);
+                return task(this.processGeneration(common, prompt || '', sessionId, !nonstream)
+                    .finally(() => { try { if (lock) activateSendButtons(); } catch {} }));
+            } catch (error) {
+                try { if (lock) activateSendButtons(); } catch {}
+                throw error;
             }
         }
         const addonSet = new Set(addonSetStr.split(',').map(s => s.trim()).filter(Boolean));
@@ -1243,31 +1251,19 @@ class StreamingGeneration {
             }
             return finalMessages;
         };
-        if (nonstream) {
+        return task((async () => {
             try { if (lock) deactivateSendButtons(); } catch {}
             try {
                 const finalMessages = await buildAddonFinalMessages();
+                throwIfSignalAborted(signal);
                 const preparedMessages = await this._emitPromptReady(finalMessages);
+                throwIfSignalAborted(signal);
                 const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
-                const finalText = await this.processGeneration(common, prompt || '', sessionId, false);
-                return String(finalText ?? '');
+                return await this.processGeneration(common, prompt || '', sessionId, !nonstream);
             } finally {
                 try { if (lock) activateSendButtons(); } catch {}
             }
-        } else {
-            (async () => {
-                try {
-                    try { if (lock) deactivateSendButtons(); } catch {}
-                    const finalMessages = await buildAddonFinalMessages();
-                    const preparedMessages = await this._emitPromptReady(finalMessages);
-                    const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
-                    await this.processGeneration(common, prompt || '', sessionId, true);
-                } catch {} finally {
-                    try { if (lock) activateSendButtons(); } catch {}
-                }
-            })();
-            return String(sessionId);
-        }
+        })());
     }
 
     async xbgenCommand(args, prompt) {

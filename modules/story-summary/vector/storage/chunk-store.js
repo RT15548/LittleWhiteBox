@@ -104,6 +104,13 @@ export async function getAllChunks(chatId) {
     return await chunksTable.where('chatId').equals(chatId).toArray();
 }
 
+export async function hasStoredChunksAfterFloor(chatId, floor, chatLength) {
+    if (floor + 1 >= chatLength) return false;
+    return await chunksTable.where('[chatId+floor]')
+        .between([chatId, floor + 1], [chatId, chatLength], true, false)
+        .count() > 0;
+}
+
 export async function getChunksByFloors(chatId, floors) {
     const chunks = await chunksTable
         .where('[chatId+floor]')
@@ -113,52 +120,54 @@ export async function getChunksByFloors(chatId, floors) {
 }
 
 /**
- * 删除指定楼层及之后的所有 chunk 和向量
+ * Atomically discard the affected L1 range and rewind its contiguous boundary.
  */
 export async function deleteChunksFromFloor(chatId, fromFloor) {
-    const chunks = await chunksTable
-        .where('chatId')
-        .equals(chatId)
-        .filter(c => c.floor >= fromFloor)
-        .toArray();
-
-    const chunkIds = chunks.map(c => c.chunkId);
-
-    await chunksTable
-        .where('chatId')
-        .equals(chatId)
-        .filter(c => c.floor >= fromFloor)
-        .delete();
-
-    for (const chunkId of chunkIds) {
-        await chunkVectorsTable.delete([chatId, chunkId]);
-    }
-    applyRecallRuntimeMutationBestEffort(chatId, {
-        type: 'deleteChunksFromFloor',
-        floor: fromFloor,
+    const result = await db.transaction('rw', chunksTable, chunkVectorsTable, metaTable, async () => {
+        const keys = await chunksTable.where('[chatId+floor]')
+            .between([chatId, fromFloor], [chatId, Infinity], true, true).primaryKeys();
+        const meta = await metaTable.get(chatId);
+        const previousFloor = meta?.lastChunkFloor ?? -1;
+        const lastChunkFloor = meta ? Math.min(previousFloor, fromFloor - 1) : previousFloor;
+        const boundaryChanged = lastChunkFloor !== previousFloor;
+        if (keys.length) {
+            await chunksTable.bulkDelete(keys);
+            await chunkVectorsTable.bulkDelete(keys);
+        }
+        if (boundaryChanged) {
+            await metaTable.put({ ...meta, lastChunkFloor, updatedAt: Date.now() });
+        }
+        return { deletedCount: keys.length, boundaryChanged, lastChunkFloor };
     });
+    if (result.deletedCount || result.boundaryChanged) {
+        applyRecallRuntimeMutationBestEffort(chatId, {
+            type: 'deleteChunksFromFloor',
+            floor: fromFloor,
+        });
+    }
+    return result;
 }
 
 /**
  * 删除指定楼层的 chunk 和向量
  */
 export async function deleteChunksAtFloor(chatId, floor) {
-    const chunks = await chunksTable
-        .where('[chatId+floor]')
-        .equals([chatId, floor])
-        .toArray();
-
-    const chunkIds = chunks.map(c => c.chunkId);
-
-    await chunksTable.where('[chatId+floor]').equals([chatId, floor]).delete();
-
-    for (const chunkId of chunkIds) {
-        await chunkVectorsTable.delete([chatId, chunkId]);
-    }
-    applyRecallRuntimeMutationBestEffort(chatId, {
+    const result = await db.transaction('rw', chunksTable, chunkVectorsTable, metaTable, async () => {
+        const keys = await chunksTable.where('[chatId+floor]').equals([chatId, floor]).primaryKeys();
+        const meta = await metaTable.get(chatId);
+        const boundaryChanged = meta && meta.lastChunkFloor >= floor;
+        if (keys.length) {
+            await chunksTable.bulkDelete(keys);
+            await chunkVectorsTable.bulkDelete(keys);
+        }
+        if (boundaryChanged) await metaTable.put({ ...meta, lastChunkFloor: floor - 1, updatedAt: Date.now() });
+        return { deleted: keys.length, boundaryChanged };
+    });
+    if (result.deleted || result.boundaryChanged) applyRecallRuntimeMutationBestEffort(chatId, {
         type: 'deleteChunksAtFloor',
         floor,
     });
+    return result.deleted;
 }
 
 export async function clearAllChunks(chatId) {
@@ -196,18 +205,6 @@ export async function saveChunkVectors(chatId, items, fingerprint) {
     });
 }
 
-/** 修补正文片段时原文与向量一起提交，失败不覆盖已有的有效记录。 */
-export async function saveChunkRepairs(chatId, chunks, items, fingerprint) {
-    const chunkRecords = makeChunkRecords(chatId, chunks);
-    const vectorRecords = makeChunkVectorRecords(chatId, items, fingerprint);
-    await db.transaction('rw', chunksTable, chunkVectorsTable, async () => {
-        await chunksTable.bulkPut(chunkRecords);
-        await chunkVectorsTable.bulkPut(vectorRecords);
-    });
-    applyRecallRuntimeMutationBestEffort(chatId, { type: 'upsertChunks', chunks: chunkRecords });
-    applyRecallRuntimeMutationBestEffort(chatId, { type: 'upsertChunkVectors', items: vectorRecords });
-}
-
 // A watermark can precede already-restored chunks. Commit the entire incremental
 // batch atomically so failure/cancellation restores overwritten records as well
 // as removing new ones. Runtime invalidation must follow commit, not each write.
@@ -241,15 +238,16 @@ export async function saveIncrementalChunks(chatId, chunks, items, fingerprint, 
 }
 
 export async function getChunkVectorDescriptors(chatId) {
-    const records = await chunkVectorsTable.where('chatId').equals(chatId).toArray();
-    return records.map(record => {
+    const descriptors = [];
+    await chunkVectorsTable.where('chatId').equals(chatId).each(record => {
         let valid = false;
         try {
             assertFiniteVector(bufferToFloat32(record.vector), 'stored chunk vector', record.dims);
             valid = true;
         } catch { /* 无效向量与缺失向量一样，需要补齐。 */ }
-        return { chunkId: record.chunkId, fingerprint: record.fingerprint, valid };
+        descriptors.push({ chunkId: record.chunkId, fingerprint: record.fingerprint, valid });
     });
+    return descriptors;
 }
 
 export async function getAllChunkVectors(chatId) {
@@ -319,6 +317,15 @@ export async function getAllEventVectors(chatId) {
     }));
 }
 
+// Gap checks need identity/model only, not decoded vector payloads.
+export async function getEventVectorDescriptors(chatId) {
+    const descriptors = [];
+    await eventVectorsTable.where('chatId').equals(chatId).each(record => {
+        descriptors.push({ eventId: record.eventId, fingerprint: record.fingerprint });
+    });
+    return descriptors;
+}
+
 export async function clearEventVectors(chatId) {
     await eventVectorsTable.where('chatId').equals(chatId).delete();
     await clearRecallRuntime(chatId, 'events');
@@ -359,12 +366,10 @@ export async function getStorageStats(chatId) {
 }
 
 export async function clearChatData(chatId) {
-    await Promise.all([
-        metaTable.delete(chatId),
-        chunksTable.where('chatId').equals(chatId).delete(),
-        chunkVectorsTable.where('chatId').equals(chatId).delete(),
-        eventVectorsTable.where('chatId').equals(chatId).delete(),
-    ]);
+    // This database contains only chat-owned vector caches, including L0.
+    await db.transaction('rw', db.tables, async () => {
+        await Promise.all(db.tables.map(table => table.where('chatId').equals(chatId).delete()));
+    });
     await clearRecallRuntime(chatId);
 }
 

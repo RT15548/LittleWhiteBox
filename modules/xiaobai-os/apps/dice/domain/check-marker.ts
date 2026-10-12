@@ -1,6 +1,6 @@
-/** The message body owns placement; the record with this ID owns the result. */
-export const CHECK_MARKER_PATTERN = String.raw`\[dice:([a-zA-Z0-9_-]+)\]`;
+import { CHECK_MARKER_PATTERN } from './check-marker-syntax.js';
 
+/** The message body owns placement; the record with this ID owns the result. */
 export function checkMarker(id: string): string {
     if (!/^[a-zA-Z0-9_-]+$/.test(id)) { throw new TypeError('dice_record_id_invalid'); }
     return `[dice:${id}]`;

@@ -127,7 +127,7 @@ function renderPanel(): void {
         inlineToastText: panelState.inlineToastText,
         showAssistantPermissions: false,
         showDelegateSettings: false,
-        showTavilySettings: true,
+        showWebSettings: true,
         canDeletePreset: presetCount.value > 1,
     });
     panel.syncConfigToForm(root);

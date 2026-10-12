@@ -70,14 +70,22 @@ export function memoryOwnership(history, cutoff) {
     };
 }
 
+/** Pure receipt update, shared by source invalidation and owned transaction drafts. */
+export function invalidateReceiptCompletion(receipt, ranges) {
+    if (!receipt.completion) return receipt;
+    const affected = ranges.filter(range => range.from <= range.to && overlaps(range, receipt.completion)).map(range => ({
+        from: Math.max(range.from, receipt.completion.from), to: Math.min(range.to, receipt.completion.to),
+    }));
+    if (!affected.length) return receipt;
+    const invalidated = unionRanges([...(receipt.invalidated || []), ...affected]);
+    return sameMemory(invalidated, receipt.invalidated || []) ? receipt : { ...receipt, invalidated };
+}
+
 /** Receipt-owned retirement; never a second progress store. */
 export function invalidateCompletionRanges(history, ranges) {
     for (const batch of history) for (const receipt of batch.maintenance || []) {
-        if (!receipt.completion) continue;
-        const affected = ranges.filter(range => overlaps(range, receipt.completion)).map(range => ({
-            from: Math.max(range.from, receipt.completion.from), to: Math.min(range.to, receipt.completion.to),
-        }));
-        if (affected.length) receipt.invalidated = unionRanges([...(receipt.invalidated || []), ...affected]);
+        const next = invalidateReceiptCompletion(receipt, ranges);
+        if (next !== receipt) receipt.invalidated = next.invalidated;
     }
 }
 

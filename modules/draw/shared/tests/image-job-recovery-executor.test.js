@@ -45,6 +45,11 @@ function createJournal() {
         async renewLease(jobId, leaseId) {
             return journal.fenceLease(jobId, leaseId).catch(() => null);
         },
+        async commitItem(jobId, leaseId, index) {
+            const entry = await journal.fenceLease(jobId, leaseId);
+            entry.items.find(item => item.index === index).deliveryCommitted = true;
+            return entry;
+        },
         async markActive(jobId, leaseId) {
             const entry = await journal.fenceLease(jobId, leaseId);
             entry.state = PendingJobState.ACTIVE;

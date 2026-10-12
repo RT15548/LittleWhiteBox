@@ -14,6 +14,23 @@ function options(state, gateway, execute = async () => ({ status: 'read', data: 
     return { state, gateway, config: {}, system: 'administrator fixture', prefix: [], request: { role: 'user', content: 'current request' }, requestForCounting: { role: 'user', content: 'current request' }, imageCount: 0,
         getTools: () => tools, signal: new AbortController().signal, execute, async save() {}, onText() {}, onPhase() {}, onContext() {} };
 }
+test('summary inherits the user Agent API configuration without overriding generation settings', async () => {
+    const config = { currentPresetName: 'user-selected' };
+    let calls = 0;
+    const gateway = { async openSession(received) {
+        assert.equal(received, config);
+        return { async run(request) {
+            calls++;
+            for (const setting of ['maxTokens', 'temperature', 'reasoning']) {
+                assert.equal(request[setting], undefined);
+            }
+            return { text: 'brief' };
+        } };
+    } };
+    await summarizeAdministrator({ gateway, config, summary: '', messages: [{ role: 'user', content: 'Retain the confirmed project decisions.' }], signal: new AbortController().signal });
+    assert.equal(calls, 1);
+});
+
 test('explicit context overflow compacts full exchanges, reopens native session, and retries the model once without replaying business tools', async () => {
     const state = createState([turn('old', 'Earlier user request. '.repeat(200)), turn('recent', 'Recent facts. '.repeat(100))]);
     let sessions = 0, requests = 0, executions = 0, summaries = 0; const replayed = [];
@@ -61,7 +78,7 @@ test('the threshold summarizes all retained exchanges together, including recent
     const gateway = { async openSession() { return { supportsSessionToolLoop: false, providerConfig: {}, async run(request) {
         if (!request.tools.length) {
             summaries++;
-            assert.ok(estimateTokenCount(request.systemPrompt) + estimateTokenCount(request.messages[0].content) + request.maxTokens < ADMINISTRATOR_POLICY.inputBudget);
+            assert.ok(estimateTokenCount(request.systemPrompt) + estimateTokenCount(request.messages[0].content) < ADMINISTRATOR_POLICY.inputBudget);
             const input = JSON.parse(request.messages[0].content);
             assert.equal(input.summary, 'previous confirmed facts');
             assert.deepEqual(input.exchanges, expected);

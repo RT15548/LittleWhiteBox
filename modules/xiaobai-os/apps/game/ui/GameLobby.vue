@@ -40,11 +40,13 @@ const visible = computed(() =>
                 :key="room.id"
                 type="button"
                 class="game-tile"
+                :data-game-room="room.id"
                 :class="'tone-' + room.tone"
                 @click="$emit('open', room.id)"
             >
                 <div class="game-tile-art">
                     <img :src="room.artwork" alt="" loading="lazy">
+                    <img v-if="'mascotPortrait' in room" class="game-tile-mascot" :src="room.mascotPortrait" alt="" loading="lazy">
                 </div>
                 <div class="game-tile-copy">
                     <h3>{{ room.name }}</h3>

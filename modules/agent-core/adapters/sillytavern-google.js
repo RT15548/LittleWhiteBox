@@ -277,7 +277,7 @@ function createGoogleStreamAccumulator(task, effectiveReasoning, config = {}) {
                 text,
                 toolCalls,
                 thoughts,
-                finishReason: requireResponseCompletion('google', finishReason),
+                finishReason: requireResponseCompletion('google', finishReason, false, text),
                 model,
                 provider: 'sillytavern-google',
                 providerPayload: buildProviderPayload(content),

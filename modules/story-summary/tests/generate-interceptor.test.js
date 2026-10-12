@@ -70,8 +70,9 @@ test('dispatcher exposes fresh per-run results to later handlers', async () => {
     assert.notEqual(seenMaps[0], seenMaps[1]);
 });
 
-test('a new dispatch immediately aborts the previous overlapping run', async () => {
+test('a quiet dispatch cannot abort an overlapping foreground dispatch', async () => {
     const firstStarted = deferred();
+    const firstFinished = deferred();
     const firstAbortCalls = [];
     let firstSignal = null;
     let calls = 0;
@@ -80,9 +81,7 @@ test('a new dispatch immediately aborts the previous overlapping run', async () 
         if (calls !== 1) return;
         firstSignal = runContext.signal;
         firstStarted.resolve();
-        await new Promise(resolve => {
-            runContext.signal.addEventListener('abort', resolve, { once: true });
-        });
+        await firstFinished.promise;
     });
 
     const firstRun = globalThis.xiaobaixGenerateInterceptor(
@@ -93,9 +92,11 @@ test('a new dispatch immediately aborts the previous overlapping run', async () 
     );
     await firstStarted.promise;
 
-    const secondRun = globalThis.xiaobaixGenerateInterceptor([], 0, () => {}, 'normal');
-    assert.equal(firstSignal.aborted, true);
-    assert.deepEqual(firstAbortCalls, [true]);
+    const secondRun = globalThis.xiaobaixGenerateInterceptor([], 0, () => {}, 'quiet');
+    await secondRun;
+    assert.equal(firstSignal.aborted, false);
+    assert.deepEqual(firstAbortCalls, []);
+    firstFinished.resolve();
 
     await Promise.all([firstRun, secondRun]);
     assert.equal(calls, 2);

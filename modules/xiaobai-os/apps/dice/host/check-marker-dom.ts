@@ -1,4 +1,5 @@
-import { CHECK_MARKER_PATTERN, checkMarker } from '../domain/check-marker.js';
+import { CHECK_MARKER_PATTERN } from '../domain/check-marker-syntax.js';
+import { checkMarker } from '../domain/check-marker.js';
 
 /** Replace exact marker text only, including a marker segmented by native streaming fade-in. */
 export function mountCheckCards(root: HTMLElement, cards: ReadonlyMap<string, HTMLElement>): Set<HTMLElement> {

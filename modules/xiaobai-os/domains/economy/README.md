@@ -17,6 +17,6 @@ Economy 不读取普通聊天消息，不保存楼层、哈希或剧情锚点，
 
 ## 外部边界
 
-Economy Capability 只依赖 Kernel 分区事务。Bank、Game、Shop、Tasks 通过各自 application service 在同一次 Scoped transaction 中组合领域事件和资金腿；Economy 不 import 这些业务领域，调用者也不能取得可写 Ledger 或伪造`sourceDomain`。正式线没有 Economy 数据；测试线旧 V1/metadata 根不迁移、不读取。
+Economy Capability 只依赖 Kernel 分区事务。Bank、Game、Shop、Tasks 通过各自 application service 在同一次 Scoped transaction 中组合领域事件和资金腿；Economy 不 import 这些业务领域，调用者也不能取得可写 Ledger 或伪造`sourceDomain`。正式线旧聊天经济数据的重置与当前用户文件升级策略统一见 [Economy 平台设计](../../docs/economy-platform-target-design.md)，不在领域 README 另定义数据丢弃规则。
 
 删除 Economy 时必须同时下线所有资金消费者，并清理`economy`分区、Capability 与 domain 注册；不能留下第二份余额继续运行。

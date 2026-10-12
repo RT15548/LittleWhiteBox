@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { LearningAnswer, LearningResponse } from '../../../domains/learning/types.js';
 import type { LearningAnswerDraft } from './answer-draft.js';
+import { rememberLearningEditor as vRememberEditor } from './learning-editor.js';
 const props = defineProps<{ response: LearningResponse; paragraphs: { id: string; text: string }[]; disabled: boolean }>();
 const emit = defineEmits<{ submit: [answer: LearningAnswer] }>();
 const draft = defineModel<LearningAnswerDraft>({ required: true });
@@ -61,8 +62,8 @@ function submit() {
             <div v-else-if="response.kind === 'gaps'" class="learning-fields">
                 <label v-for="slot in response.slots" :key="slot.id">{{ slot.text }}<input v-model="draft.values[slot.id]" type="text" maxlength="4000" autocomplete="off"></label>
             </div>
-            <label v-else class="learning-writing"><span class="learning-sr-only">你的回答</span><textarea v-model="draft.text" rows="6" maxlength="4000" placeholder="写下你的回答…" /></label>
-            <button class="learning-primary" type="submit" :disabled="!ready">交给老师 →</button>
+            <label v-else class="learning-writing"><span class="learning-sr-only">你的回答</span><textarea v-model="draft.text" v-remember-editor="draft" rows="6" maxlength="4000" placeholder="写下你的回答…" /></label>
+            <button class="learning-primary" type="submit" :disabled="!ready">交给语伴 →</button>
         </fieldset>
     </form>
 </template>

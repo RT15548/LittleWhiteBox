@@ -4,6 +4,7 @@ import type { MovingAction, MovingLevel, MovingState } from '../types.js';
 import { MOVING_COPY } from '../copy.js';
 import { createRoomModel } from './room-model.js';
 import { createMovingCamera, fitMovingCamera, INITIAL_YAW } from './camera.js';
+import { createMascotPerformer, MASCOT_RUN_DURATION_MS } from '../../../../brand/mascot/performance.js';
 
 interface SceneOptions {
     action: (action: MovingAction) => void;
@@ -18,6 +19,7 @@ export function createMovingScene(host: HTMLElement, level: MovingLevel, initial
     const drawingSize = new Vector2();
     const model = createRoomModel(level);
     const mascotHome = model.mascot.position.clone();
+    const mascotPerformer = createMascotPerformer(model.mascot, mascotHome);
     const abort = new AbortController();
     let renderer: WebGLRenderer | undefined;
     let resizeObserver: ResizeObserver | undefined;
@@ -46,7 +48,7 @@ export function createMovingScene(host: HTMLElement, level: MovingLevel, initial
             object.position.set(...item.position); object.scale.setScalar(itemScale);
             model.markers.get(item.id)!.visible = canPick(state, item);
         }
-        model.mascot.position.copy(mascotHome); model.mascot.rotation.y = 0; model.parcel.visible = false;
+        mascotPerformer.rest(model.parcel);
         model.shipped.children.forEach((carton, n) => { carton.visible = n < packedCount(level, state); });
     }
 
@@ -77,11 +79,7 @@ export function createMovingScene(host: HTMLElement, level: MovingLevel, initial
                     object.position.y += Math.sin(flight * Math.PI) * 1.4;
                     object.scale.setScalar(itemScale * (1 - flight * .7));
                     if (transition.packed) {
-                        const walk = Math.max(0, (t - .2) / .8);
-                        model.parcel.visible = walk > 0 && walk < .92;
-                        model.mascot.position.x = mascotHome.x + walk * (model.shipped.position.x - mascotHome.x);
-                        model.mascot.position.y = mascotHome.y + Math.abs(Math.sin(walk * 22)) * .1;
-                        model.mascot.rotation.y = .6;
+                        mascotPerformer.carry(t, model.shipped.position.x, model.parcel);
                     }
                 }
                 if (t >= 1) { finish(); }
@@ -234,7 +232,7 @@ export function createMovingScene(host: HTMLElement, level: MovingLevel, initial
                 finish(); state = next; settled();
                 if (motion.matches || !active || document.hidden || failed || !onscreen || !action) { invalidate(); return Promise.resolve(); }
                 return new Promise(resolve => {
-                    transition = { started: performance.now(), duration: packed ? 1100 : 300, action, packed, done: resolve };
+                    transition = { started: performance.now(), duration: packed ? MASCOT_RUN_DURATION_MS : 300, action, packed, done: resolve };
                     invalidate();
                 });
             },

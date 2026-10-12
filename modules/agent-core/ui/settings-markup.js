@@ -1,3 +1,4 @@
+import { buildWebSettingsMarkup } from './web-settings.js';
 function escapeHtml(text = '') {
     return String(text || '')
         .replace(/&/g, '&amp;')
@@ -5,6 +6,14 @@ function escapeHtml(text = '') {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function buildModelListAuthMarkup(scope = 'main') {
+    const prefix = scope === 'delegate' ? 'xb-assistant-delegate' : 'xb-assistant';
+    return `<label id="${prefix}-model-list-auth-wrap" style="display: none">
+        <span>模型列表鉴权</span>
+        <select id="${prefix}-model-list-auth"></select>
+    </label>`;
 }
 
 function buildPresetActionIcon(name) {
@@ -104,7 +113,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
         showInlineToast = true,
         showAssistantPermissions = true,
         showDelegateSettings = true,
-        showTavilySettings = true,
+        showWebSettings = true,
         activePage = 'main',
         delegatePresetHint = 'DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。',
         isBusy = false,
@@ -169,6 +178,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <span>Model</span>
                     <input id="xb-assistant-delegate-model" type="text" />
                 </label>
+                ${buildModelListAuthMarkup('delegate')}
                 <div class="xb-assistant-inline-input xb-assistant-model-row">
                     <label class="xb-assistant-grow">
                         <span>已拉取模型</span>
@@ -257,6 +267,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <span>Model</span>
                 <input id="xb-assistant-model" type="text" />
             </label>
+            ${buildModelListAuthMarkup()}
             <div class="xb-assistant-inline-input xb-assistant-model-row">
                 <label class="xb-assistant-grow">
                     <span>已拉取模型</span>
@@ -283,13 +294,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     </span>
                 </label>
             </div>
-            ${showTavilySettings ? `<label>
-                <span>Tavily API Key（全局）</span>
-                <div class="xb-assistant-inline-input">
-                    <input id="xb-assistant-tavily-api-key" type="password" />
-                    <button id="xb-assistant-toggle-tavily-key" type="button" class="secondary ghost">显示</button>
-                </div>
-            </label>` : ''}
+            ${showWebSettings ? buildWebSettingsMarkup() : ''}
             <label id="xb-assistant-tool-mode-wrap">
                 <span>Tool 调用格式</span>
                 <select id="xb-assistant-tool-mode"></select>

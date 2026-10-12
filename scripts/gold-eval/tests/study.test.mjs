@@ -100,3 +100,38 @@ test('study store 使用 expected hash 防止并发覆盖', async () => {
         await fs.rm(root, { recursive: true, force: true });
     }
 });
+
+test('current study audits only declared dependencies and still rejects changed source', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gold-current-study-'));
+    try {
+        const content = 'current';
+        for (const name of ['sample', 'cases', 'source']) {
+            await fs.writeFile(path.join(root, name), content);
+        }
+        const study = buildStudy(root, hash(content));
+        study.inputs.dev.snapshot = null;
+        study.inputs.holdout = null;
+        study.evidence = {};
+        study.devMatrix.sources = [{
+            id: 'current-code', role: 'execution-source', status: 'frozen',
+            artifacts: [{ name: 'source', path: path.join(root, 'source'), sha256: hash(content) }],
+        }];
+        study.gates = { devMatrix: { requiredCategories: [], requiredSources: ['current-code'] } };
+        study.history = [{ path: path.join(root, 'removed-old-study.json') }];
+        const options = { loadCapture: () => { throw new Error('No capture used by this study'); } };
+        const before = await auditStudy(study, options);
+        assert.equal(before.ok, true);
+        assert.equal(before.gates.devMatrix, true);
+        assert.equal(before.gates.baseline, false);
+        assert.equal(before.gates.holdoutSealed, false);
+        assert.equal(before.checks.length, 3);
+
+        await fs.writeFile(path.join(root, 'source'), 'newer unbound code');
+        const after = await auditStudy(study, options);
+        assert.equal(after.ok, false);
+        assert.equal(after.gates.devMatrix, false);
+        assert.equal(after.checks.filter(item => !item.ok).length, 1);
+    } finally {
+        await fs.rm(root, { recursive: true, force: true });
+    }
+});

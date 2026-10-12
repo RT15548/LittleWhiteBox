@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { LearningClientState } from '../types.js';
 import LearningIcon from './LearningIcon.vue';
+import { LEARNING_VOICE_COPY } from './learning-copy.js';
 defineProps<{ state: LearningClientState }>();
 const emit = defineEmits<{ action: [name: string, input?: Record<string, unknown>] }>();
 function clock(value: number) { return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`; }
@@ -9,7 +10,7 @@ function clock(value: number) { return `${Math.floor(value / 60)}:${String(Math.
 <template>
     <section v-if="state.media.status !== 'idle'" class="learning-player" aria-label="课堂朗读">
         <p v-if="state.media.message" role="status">{{ state.media.message }}</p>
-        <button v-if="!state.voices.enabled" type="button" @click="emit('action', 'tts-settings')">如何开启 TTS</button>
+        <button v-if="!state.voices.enabled" type="button" @click="emit('action', 'tts-settings')">{{ LEARNING_VOICE_COPY.enable }}</button>
         <div v-if="state.media.key" class="learning-row">
             <LearningIcon name="sound" /><span>{{ state.media.status === 'loading' ? '正在生成声音…' : `${clock(state.media.position)} / ${clock(state.media.duration)}` }}</span>
             <button v-if="state.media.status === 'playing'" type="button" aria-label="暂停" @click="emit('action', 'pause')"><LearningIcon name="pause" /></button>

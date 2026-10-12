@@ -17,6 +17,7 @@ import { EXT_ID } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { TasksStorage } from "../../core/server-storage.js";
+import { initPresetTaskEvents } from './preset-task-events.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量和默认值
@@ -1132,15 +1133,7 @@ async function onChatCreated() {
     await checkAndExecuteTasks('chat_created', false, false);
 }
 
-function onPresetChanged(event) {
-    const apiId = event?.apiId;
-    if (apiId && apiId !== 'openai') return;
-    resetPresetTasksCache();
-    state.lastTasksHash = '';
-    refreshUI();
-}
-
-function onMainApiChanged() {
+function refreshPresetTasks() {
     resetPresetTasksCache();
     state.lastTasksHash = '';
     refreshUI();
@@ -2245,6 +2238,10 @@ function registerSlashCommands() {
 // 初始化
 // ═══════════════════════════════════════════════════════════════════════════
 
+export function initTaskSettings() {
+    initPresetTaskEvents(refreshPresetTasks);
+}
+
 async function initTasks() {
     if (window.__XB_TASKS_INITIALIZED__) {
         console.log('[小白X任务] 已经初始化，跳过重复注册');
@@ -2410,9 +2407,6 @@ async function initTasks() {
     events.on(event_types.MESSAGE_DELETED, onMessageDeleted);
     events.on(event_types.MESSAGE_SWIPED, onMessageSwiped);
     events.on(event_types.CHARACTER_DELETED, onCharacterDeleted);
-    events.on(event_types.PRESET_CHANGED, onPresetChanged);
-    events.on(event_types.OAI_PRESET_CHANGED_AFTER, onPresetChanged);
-    events.on(event_types.MAIN_API_CHANGED, onMainApiChanged);
 
     $(window).off('beforeunload.xbTasks').on('beforeunload.xbTasks', cleanup);
     registerSlashCommands();

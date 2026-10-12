@@ -63,6 +63,13 @@ test('a preparing entry is reattached when the backend already holds the job', (
     );
 });
 
+test('acknowledged cancellation before create response is not mistaken for an ordinary missing job', () => {
+    const preparing = record({ state: PendingJobState.PREPARING, cancelRequested: true });
+    assert.deepEqual(actionsFor({ records: [preparing], backendJobs: [] }), [ReattachAction.DISCARD]);
+    assert.deepEqual(actionsFor({ records: [preparing], backendJobs: [{ id: preparing.jobId }] }), [ReattachAction.CANCEL]);
+    assert.deepEqual(actionsFor({ records: [{ ...preparing, leaseExpiresAt: NOW + 1 }], backendJobs: [] }), [ReattachAction.WAIT]);
+});
+
 test('a page farewell bypasses only its exact lease and keeps a short preparing grace', () => {
     const preparing = record({
         state: PendingJobState.PREPARING,

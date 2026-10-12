@@ -198,7 +198,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             onResponseAccepted: options.onResponseAccepted,
         });
 
-        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal);
+        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, extractThinkTaggedContent(getStreamedSnapshotText(assistantSnapshot)).cleaned);
         assertSignedToolCallsIntact(assistantSnapshot);
         const standardToolCalls = getStreamedSnapshotToolCalls(assistantSnapshot);
         const { thinkTagged, cleanedText } = cleanTextForToolMode(
@@ -228,7 +228,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         );
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
-        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal);
+        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal, extractThinkTaggedContent(flattenTextContent(message.content)).cleaned);
         assertSignedToolCallsIntact(message);
         const thoughts = extractThoughtsFromMessage(message, choice);
         const standardToolCalls = buildToolCallResultsFromOpenAI(message.tool_calls || []);

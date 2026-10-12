@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import type { GameKind } from '../types.js';
 import { gameRoom } from './room-catalog.js';
+const COPY = { balance: (amount: number) => `可用 ${amount.toLocaleString('zh-CN')} 小白币` };
 const props = defineProps<{
     kind: GameKind;
     minimum: number;
@@ -63,7 +64,7 @@ const reason = computed(
                 :step="step"
                 aria-label="本局下注"
             ><span>小白币</span></label>
-            <p class="game-entry-balance">可用 {{ balance.toLocaleString('zh-CN') }} 小白币 · 仅使用虚拟币</p>
+            <p class="game-entry-balance">{{ COPY.balance(balance) }}</p>
             <button
                 type="button"
                 class="game-primary-action game-start"

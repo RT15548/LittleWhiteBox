@@ -2,6 +2,9 @@
 // 服务器文件存储工具
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { runWithAbortDeadline, throwIfSignalAborted } from '../shared/common/abort-utils.js';
+import { STORAGE_COPY } from './storage-copy.js';
+
 const toBase64 = (text) => btoa(unescape(encodeURIComponent(text)));
 const STORAGE_UPLOAD_TIMEOUT_MS = 5000;
 const defaultDebounce = (func, timeout) => {
@@ -43,6 +46,7 @@ export class StorageFile {
         this.filename = filename;
         this._cache = null;
         this._loading = null;
+        this._readTimeoutMs = opts.readTimeoutMs || 0;
         this._dirtyVersion = 0;
         this._savedVersion = 0;
         this._saving = false;
@@ -61,23 +65,42 @@ export class StorageFile {
         if (this._cache !== null) return this._cache;
 
         if (!this._loading) {
-            const loading = (async () => {
+            const read = async (signal) => {
                 const res = await this._fetch(`/user/files/${this.filename}`, {
                     headers: this._getRequestHeaders(),
                     cache: 'no-cache',
+                    signal,
                 });
+                throwIfSignalAborted(signal);
                 if (res.status === 404) {
-                    this._cache = Object.create(null);
-                    return this._cache;
+                    return Object.create(null);
                 }
                 if (!res.ok) {
                     throw new Error(`存储文件读取失败（HTTP ${res.status}）`);
                 }
                 const text = await res.text();
+                throwIfSignalAborted(signal);
                 const parsed = text ? JSON.parse(text) : {};
                 if (!isPlainRecord(parsed)) throw new Error('存储文件格式无效');
-                this._cache = canonicalizeRecord(parsed).data;
-                return this._cache;
+                return canonicalizeRecord(parsed).data;
+            };
+            const loading = (async () => {
+                const controller = new AbortController();
+                let data;
+                try {
+                    data = this._readTimeoutMs > 0
+                        ? await runWithAbortDeadline(read, { timeoutMs: this._readTimeoutMs, controller })
+                        : await read();
+                } catch (cause) {
+                    if (!controller.signal.aborted) throw cause;
+                    const error = new Error(STORAGE_COPY.readTimeout(this._readTimeoutMs), { cause });
+                    error.code = 'STORAGE_READ_TIMEOUT';
+                    throw error;
+                }
+                // Only the winning, completed read can publish. A timed-out
+                // transport/body may finish later, but cannot replace this cache.
+                this._cache = data;
+                return data;
             })();
             this._loading = loading;
             loading.finally(() => {

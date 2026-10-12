@@ -68,6 +68,65 @@ function createPanelState(config) {
     };
 }
 
+test('Claude model-list auth stays independent across channels, presets and main/delegate saves', async () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const main = { provider: 'anthropic', modelConfigs: { anthropic: { apiKey: 'main-key' } } };
+    const delegate = { provider: 'sillytavern-claude', modelConfigs: { 'sillytavern-claude': { apiKey: 'delegate-key', modelListAuth: 'bearer' } } };
+    let persisted = normalizeAgentConfig({ currentPresetName: 'main', presets: { main, other: main }, delegateConfig: delegate, delegateConfigured: true });
+    const storage = { getStrict: async () => structuredClone(persisted),
+        async setAndSave(_key, value) { persisted = structuredClone(value); return true; } };
+    const state = createPanelState(persisted);
+    const { document } = parseHTML(`<html><body>${buildAgentSettingsPanelMarkup()}</body></html>`);
+    root.replaceChildren(...document.body.childNodes);
+    let saving;
+    const pulls = [];
+    const panel = createAgentSettingsPanel({ state,
+        saveConfig: request => { saving = saveSharedAgentSettings(request.payload, { storage }); },
+        pullModels: async config => { pulls.push(config); return ['test-model']; },
+    });
+    const change = (id, value) => {
+        const select = root.querySelector(id);
+        select.value = value;
+        select.dispatchEvent(new dom.document.defaultView.Event('change'));
+        panel.syncConfigToForm(root);
+    };
+    try {
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+        assert.equal(root.querySelector('#xb-assistant-model-list-auth').value, 'x-api-key');
+        assert.equal(root.querySelector('#xb-assistant-delegate-model-list-auth').value, 'bearer');
+        change('#xb-assistant-model-list-auth', 'bearer');
+        change('#xb-assistant-delegate-model-list-auth', 'x-api-key');
+        for (const [prefix, provider, expected] of [
+            ['#xb-assistant', 'anthropic', 'bearer'],
+            ['#xb-assistant-delegate', 'sillytavern-claude', 'x-api-key'],
+        ]) {
+            change(`${prefix}-provider`, 'google');
+            assert.equal(root.querySelector(`${prefix}-model-list-auth-wrap`).style.display, 'none');
+            change(`${prefix}-provider`, provider);
+            assert.equal(root.querySelector(`${prefix}-model-list-auth-wrap`).style.display, '');
+            assert.equal(root.querySelector(`${prefix}-model-list-auth`).value, expected);
+            root.querySelector(`${prefix}-pull-models`).click();
+            await flushTasks();
+            assert.equal(pulls.at(-1).modelListAuth, expected);
+        }
+        root.querySelector('#xb-assistant-save').click();
+        assert.equal((await saving).ok, true);
+        const loaded = await loadSharedAgentSettings({ storage });
+        assert.equal(resolveActiveProviderConfig(loaded).modelListAuth, 'bearer');
+        assert.equal(resolveActiveProviderConfig(loaded, { role: 'delegate' }).modelListAuth, 'x-api-key');
+        state.config = normalizeAgentConfig(loaded);
+        state.configDraft = null;
+        panel.syncConfigToForm(root);
+        for (const [preset, expected] of [['other', 'x-api-key'], ['main', 'bearer']]) {
+            change('#xb-assistant-preset-select', preset);
+            assert.equal(root.querySelector('#xb-assistant-model-list-auth').value, expected);
+            assert.equal(root.querySelector('#xb-assistant-delegate-model-list-auth').value, 'x-api-key');
+        }
+    } finally { dom.restore(); }
+});
+
 function flushTasks() {
     return new Promise(resolve => globalThis.setTimeout(resolve, 0));
 }
@@ -76,7 +135,7 @@ function mountAgentSettingsPanel(root) {
     const { document } = parseHTML(`<!doctype html><html><body>${buildAgentSettingsPanelMarkup({
         showAssistantPermissions: false,
         showDelegateSettings: false,
-        showTavilySettings: false,
+        showWebSettings: false,
     })}</body></html>`);
     root.replaceChildren(...document.body.childNodes);
 }
@@ -133,6 +192,47 @@ test('OS Agent form preserves Agent Core fields that it intentionally hides', ()
         dom.restore();
     }
 });
+
+test('web provider selection and both keys survive preset changes, save/reopen and explicit clearing', async () => {
+    const dom = installDom(), root = dom.document.querySelector('#root');
+    const preset = { provider: 'openai-compatible', modelConfigs: {} };
+    let persisted = normalizeAgentConfig({ currentPresetName: 'one', presets: { one: preset, two: preset }, tavilyApiKey: 'tavily-fixture' });
+    const storage = { getStrict: async () => persisted, async setAndSave(_key, value) { persisted = value; return true; } };
+    const state = createPanelState(persisted);
+    const { document } = parseHTML(`<html><body>${buildAgentSettingsPanelMarkup()}</body></html>`);
+    root.replaceChildren(...document.body.childNodes);
+    let saving;
+    const panel = createAgentSettingsPanel({ state, saveConfig: request => { saving = saveSharedAgentSettings(request.payload, { storage }); } });
+    const change = (id, value, event = 'change') => {
+        const input = root.querySelector(id); input.value = value;
+        input.dispatchEvent(new dom.document.defaultView.Event(event));
+    };
+    try {
+        panel.syncConfigToForm(root); panel.bindSettingsPanelEvents(root);
+        assert.equal(root.querySelector('#xb-assistant-exa-key-wrap').style.display, 'none');
+        change('#xb-assistant-web-provider', 'exa');
+        change('#xb-assistant-exa-api-key', 'exa-fixture', 'input');
+        change('#xb-assistant-preset-select', 'two');
+        panel.syncConfigToForm(root);
+        assert.equal(root.querySelector('#xb-assistant-web-provider').value, 'exa');
+        assert.equal(root.querySelector('#xb-assistant-exa-api-key').value, 'exa-fixture');
+        assert.equal(root.querySelector('#xb-assistant-tavily-key-wrap').style.display, 'none');
+        root.querySelector('#xb-assistant-save').click();
+        assert.equal((await saving).ok, true);
+        state.config = normalizeAgentConfig(await loadSharedAgentSettings({ storage }));
+        state.configDraft = null; state.configFormSyncPending = true;
+        panel.syncConfigToForm(root);
+        assert.equal(root.querySelector('#xb-assistant-exa-api-key').value, 'exa-fixture');
+        change('#xb-assistant-web-provider', 'tavily');
+        assert.equal(root.querySelector('#xb-assistant-tavily-api-key').value, 'tavily-fixture');
+        change('#xb-assistant-tavily-api-key', '', 'input');
+        root.querySelector('#xb-assistant-save').click(); await saving;
+        assert.equal(persisted.tavilyApiKey, '');
+        assert.equal(persisted.exaApiKey, 'exa-fixture');
+        assert.equal(persisted.webProvider, 'tavily');
+    } finally { dom.restore(); }
+});
+
 
 test('OS Agent form does not pull models until the user clicks the pull action', async () => {
     const dom = installDom();

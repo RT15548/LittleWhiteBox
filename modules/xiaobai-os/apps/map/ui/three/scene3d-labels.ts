@@ -3,8 +3,9 @@ import type { MapScene } from '../../../../domains/map/types.js';
 import { elementPresentation, MAP_CATEGORY_LABELS } from '../map-presentation.js';
 import { isSceneMarker } from '../scene-geometry.js';
 import { layoutSceneLabels, type ProjectedLabel } from './scene3d-label-layout.js';
+import { organicSymbol } from '../scene-organic-symbols.js';
 
-export function createSceneLabels(container: HTMLElement, scene: MapScene, anchors: ReadonlyMap<string, Vector3>) {
+export function createSceneLabels(container: HTMLElement, scene: MapScene, anchors: ReadonlyMap<string, Vector3>, markerTops?: ReadonlyMap<string, Vector3>) {
     const items = scene.elements.filter(e => e.label || isSceneMarker(e)).map(element => {
         const hasGlyph = isSceneMarker(element) && element.shape !== 'label';
         const player = element.actorKey === 'player';
@@ -38,6 +39,15 @@ export function createSceneLabels(container: HTMLElement, scene: MapScene, ancho
     return {
         symbols(ready: boolean) {
             for (const item of items) {
+                const symbol = organicSymbol(item.element.icon);
+                if (symbol) {
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+                    const path = document.createElementNS(svg.namespaceURI, 'path');
+                    path.setAttribute('d', symbol.path); path.setAttribute('fill', 'currentColor'); path.setAttribute('fill-opacity', '.35');
+                    path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', '1.2'); path.setAttribute('stroke-linejoin', 'round');
+                    svg.append(path); item.glyph.replaceChildren(svg); continue;
+                }
                 item.glyph.textContent = ready ? item.recipe.icon : item.recipe.fallback;
                 item.glyph.classList.toggle('has-symbols', ready);
             }
@@ -49,9 +59,11 @@ export function createSceneLabels(container: HTMLElement, scene: MapScene, ancho
                 caption.hidden = !show;
                 const point = anchor.clone().project(camera);
                 const x = (point.x + 1) * width / 2, y = (1 - point.y) * height / 2;
+                const top = markerTops?.get(element.id)?.clone().project(camera);
                 if (point.z < -1 || point.z > 1 || x < 0 || x > width || y < 0 || y > height) {continue;}
                 projected.push({
                     id: element.id, anchor: { x, y }, priority,
+                    badgeAnchor: top ? { x: (top.x + 1) * width / 2, y: (1 - top.y) * height / 2 } : undefined,
                     badge: hasGlyph ? { w: glyph.offsetWidth, h: glyph.offsetHeight } : undefined,
                     caption: show ? { w: caption.offsetWidth, h: caption.offsetHeight } : undefined,
                 });

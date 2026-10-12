@@ -6,12 +6,14 @@ import { ensureChatImageTagFormat, markFreshImageTagChat } from './chat-image-ta
 import { createChatImageSession } from './chat-image-session.js';
 import { buildPendingImageHtml, ensureDrawImageStyles, isMessageBeingEdited, renderPreviewsForMessage } from './draw-common.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
+import { subscribeChatImagePlacement } from './chat-image-placement.js';
 
 const events = createModuleEvents('chatMessageImages');
 const leases = new Map();
 let initialized = false;
 let queued = false;
 let observer;
+let unsubscribePlacement;
 
 function available() { return initialized && window.xiaobaixDraw?.getStatus?.().ready === true; }
 function enabled() { return initialized && window.xiaobaixDraw?.getStatus?.().enabled === true; }
@@ -24,8 +26,8 @@ const session = createChatImageSession({ context: getContext,
     changed: requestRefresh, report });
 
 function releaseProvisional(lease) {
-    for (const [node, candidate] of lease.nodes) {
-        if (node.parentNode) node.replaceWith(node.ownerDocument.createTextNode(candidate.marker));
+    for (const [node, entry] of lease.nodes) {
+        if (node.parentNode) node.replaceWith(node.ownerDocument.createTextNode(entry.candidate.marker));
     }
     lease.nodes.clear();
 }
@@ -40,43 +42,116 @@ function requestRefresh() {
     });
 }
 
+function createPendingCard(document, options) {
+    const template = document.createElement('template');
+    // Only Draw's escaped, locally generated markup is parsed.
+    // eslint-disable-next-line no-unsanitized/property
+    template.innerHTML = buildPendingImageHtml(options);
+    return template.content.firstElementChild;
+}
+
+function insertTagCard({ node, offset, marker }, card) {
+    const suffix = node.ownerDocument.createTextNode(node.nodeValue.slice(offset + marker.length));
+    node.nodeValue = node.nodeValue.slice(0, offset);
+    node.after(card, suffix);
+}
+
+function updateTagCard(card, entry, input, view) {
+    entry.candidate = input.candidate;
+    entry.input = input;
+    if (card.dataset.mesid !== String(input.messageId)) card.dataset.mesid = String(input.messageId);
+    const previous = entry.view;
+    if (previous?.phase === view.phase && previous.label === view.label && previous.action === view.action) return;
+    entry.view = view;
+    const next = createPendingCard(card.ownerDocument, { slotId: '', messageId: input.messageId, label: view.label });
+    card.replaceChildren(...next.childNodes);
+    card.dataset.xbDrawTag = view.phase;
+    if (view.action) {
+        const actions = card.ownerDocument.createElement('div');
+        actions.className = 'xb-nd-failed-btns xb-nd-tag-actions';
+        const button = card.ownerDocument.createElement('button');
+        button.type = 'button'; button.className = 'xb-nd-retry-btn';
+        // Provider menus capture [data-action] before target listeners. Tag
+        // actions belong to this session, not the rendered-image menu.
+        button.dataset.xbDrawTagAction = ''; button.textContent = view.action;
+        button.addEventListener('click', event => {
+            event.stopPropagation();
+            void session.retry(entry.input);
+        });
+        actions.append(button); card.append(actions);
+    }
+}
+
+function currentMessageId(lease) {
+    const value = lease.content.closest('.mes')?.getAttribute('mesid');
+    return value === null || value === undefined ? lease.messageId : Number(value);
+}
+
 function enhance(lease) {
+    lease.messageId = currentMessageId(lease);
     const ctx = getContext(), message = ctx.chat?.[lease.messageId];
     if (!message || isMessageBeingEdited(lease.messageId)) return;
-    releaseProvisional(lease);
+    for (const node of lease.nodes.keys()) if (!lease.content.contains(node)) lease.nodes.delete(node);
     const source = message.mes, swipeIndex = message.swipe_id ?? 0;
-    const { matched } = findRenderedChatImageTags(lease.content, parseChatImageTags(source));
+    const { matched } = findRenderedChatImageTags(lease.content, parseChatImageTags(source), lease.nodes);
+    const retained = new Set(matched.map(item => item.node));
+    // Only a genuinely invalidated/ambiguous projection returns to source text.
+    // Ordinary refreshes and state transitions keep the card and its controls.
+    for (const [node, entry] of lease.nodes) {
+        if (retained.has(node)) continue;
+        node.replaceWith(node.ownerDocument.createTextNode(entry.candidate.marker));
+        lease.nodes.delete(node);
+    }
     // Matching the formatted text is only a projection. It never grants or
     // withholds permission to execute a tag from the raw message.
-    for (const { node, offset, marker, candidate } of matched.reverse()) {
-        const suffix = node.ownerDocument.createTextNode(node.nodeValue.slice(offset + marker.length));
-        node.nodeValue = node.nodeValue.slice(0, offset);
-        const template = lease.content.ownerDocument.createElement('template');
+    for (const match of matched.reverse()) {
+        const { node, candidate } = match;
         const view = session.view(message, lease.messageId, candidate);
-        // Shared escaped renderer, preserving the existing drawing card visual.
-        // eslint-disable-next-line no-unsanitized/property
-        template.innerHTML = buildPendingImageHtml({ slotId: '', messageId: lease.messageId, label: view.label });
-        const card = template.content.firstElementChild;
-        card.dataset.xbDrawTag = view.phase;
-        if (view.action) {
-            const actions = node.ownerDocument.createElement('div');
-            actions.className = 'xb-nd-failed-btns xb-nd-tag-actions';
-            const button = node.ownerDocument.createElement('button');
-            button.type = 'button'; button.className = 'xb-nd-retry-btn';
-            button.dataset.action = 'generate-tag'; button.textContent = view.action;
-            button.addEventListener('click', event => {
-                event.stopPropagation();
-                void session.retry({ ctx, message, messageId: lease.messageId, source, swipeIndex, candidate });
-            });
-            actions.append(button); card.append(actions);
+        let entry = lease.nodes.get(node);
+        let card = node;
+        if (!entry) {
+            card = createPendingCard(lease.content.ownerDocument, { slotId: '', messageId: lease.messageId, label: view.label });
+            entry = {};
+            insertTagCard(match, card);
+            lease.nodes.set(card, entry);
         }
-        node.after(card, suffix);
-        lease.nodes.set(card, candidate);
+        updateTagCard(card, entry, { ctx, message, messageId: lease.messageId, source, swipeIndex, candidate }, view);
     }
     // A DOM-only host repaint may expose existing slots without a message event.
     // This is a read-only projection; the content lease cannot rebuild filtered
     // host text, prepare input, or submit a drawing task.
     void renderPreviewsForMessage(lease.messageId, { content: lease.content }).catch(report);
+}
+
+// Transfer the already visible tag to the committed slot in the same synchronous
+// placement notification. Never release it back to [img] and wait for a repaint.
+function adoptPlacedCards(change) {
+    const ctx = getContext();
+    if (!available() || !change.edits || change.message?.mes !== change.after) return;
+    for (const lease of leases.values()) {
+        const messageId = currentMessageId(lease);
+        if (!lease.content.isConnected || ctx.chat?.[messageId] !== change.message
+            || (change.message.swipe_id ?? 0) !== change.swipeIndex || isMessageBeingEdited(messageId)) continue;
+        const { matched } = findRenderedChatImageTags(lease.content, parseChatImageTags(change.before), lease.nodes);
+        for (const match of matched.reverse()) {
+            const edit = change.edits.find(item => item.start === match.candidate.start && item.end === match.candidate.end);
+            if (!edit?.slotId || !edit.content || edit.discarded) continue;
+            let card = match.node;
+            if (!lease.nodes.has(card)) {
+                card = createPendingCard(lease.content.ownerDocument, { slotId: edit.slotId, messageId,
+                    label: DRAW_SLOT_COPY.preparing, loading: true });
+                insertTagCard(match, card);
+            } else {
+                lease.nodes.delete(card);
+                card.querySelector('.xb-nd-tag-actions')?.remove();
+                delete card.dataset.xbDrawTag;
+                card.dataset.slotId = edit.slotId;
+                card.dataset.mesid = String(messageId);
+                card.setAttribute('data-xb-draw-loading', '');
+            }
+        }
+    }
+    requestRefresh();
 }
 
 // A content lease owns display subscriptions only. Releasing it never cancels
@@ -129,6 +204,9 @@ export function initChatMessageImages() {
     if (initialized) { requestRefresh(); return true; }
     initialized = true;
     session.connect();
+    unsubscribePlacement = subscribeChatImagePlacement(change => {
+        try { adoptPlacedCards(change); } catch (error) { report(error); }
+    });
     observer = new MutationObserver(requestRefresh);
     events.on(event_types.CHAT_CREATED, () => { markFreshImageTagChat(getContext()); requestRefresh(); });
     events.on(event_types.GROUP_CHAT_CREATED, () => { markFreshImageTagChat(getContext()); requestRefresh(); });
@@ -155,6 +233,7 @@ export function refreshChatMessageImages() {
 export function cleanupChatMessageImages() {
     if (!initialized) return false;
     initialized = false; session.disconnect();
+    unsubscribePlacement?.(); unsubscribePlacement = null;
     events.cleanup(); observer?.disconnect(); observer = null;
     for (const lease of leases.values()) lease.release();
     return true;

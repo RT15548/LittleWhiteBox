@@ -1,17 +1,10 @@
 # NovelAI Diffusion V5 产品与开发规格
 
-> 状态：已按本文边界实施，协议根据 2026-08-21 的 NovelAI 生产客户端和用户抓包核实；本文同时保留实施前基线，供审计迁移来源。
->
-> 本文是 NovelAI V5 接入的产品、架构与验收基准。实施时不得把参数预设、提示词预设和模型能力合并成同一个状态。
-
-本文使用以下状态标记：
-
-- **已确认**：用户已裁定或有生产协议证据，实施不得自行改变。
-- **实现约束**：由现有代码、数据安全或架构边界推导出的必要条件。
+本文定义 NovelAI V5 的产品、参数、请求与响应边界。模型能力、参数预设与提示词预设是独立事实，不能隐式联动。
 
 ## 1. 产品结论
 
-### 1.1 已确认
+### 1.1 产品规则
 
 NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认选择。
 
@@ -25,7 +18,7 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 - 选择 V5 后应实际使用其自然语言、自由角色定位、更多角色、交互和文字描述能力，而不只是换一个模型 ID。
 - V5 参数区新增 `Transparent BG` 勾选项；启用时自动追加 `transparent background`，并发送透明背景协议参数。该开关属于参数预设，不属于提示词预设。
 - V5 的默认质量词由官方 Quality Standard 与 UC Heavy 提供。`positivePrefix` 与 `negativePrefix` 属于用户预设内容，代码不会因切换模型而改写；把 V4.5 预设切到 V5 的用户如果保留了原有 V4.5 质量词表，需要自行清空以免与官方预设重复。
-- 本期同时在 V5 UI 开放 Quality `standard / light / none` 与 UC `heavy / light / humanFocus / furryFocus / none`。
+- V5 UI 提供 Quality `standard / light / none` 与 UC `heavy / light / humanFocus / furryFocus / none`。
 - V4.5 与 V5 分别使用 Provider 内明确命名的静态指南作为默认值；提示词预设只保存用户实际编辑过的对应模型指南覆盖。
 
 ## 2. 名词与所有权
@@ -51,52 +44,7 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 - 不把 `{$tagGuide}` 的模型选择结果持久化为第二份事实。
 - 不从 Prompt 中是否已有 `transparent background` 反推勾选状态；开关值是唯一事实来源。
 
-## 3. 实施前基线
 
-### 3.1 参数预设
-
-V5 接入前，`modules/draw/providers/novelai/novel-draw.js` 内置两个参数预设：
-
-- `默认 (V4.5 Full)`
-- `3D 风格 (V4.5 Full)`
-
-两者的 `params.model` 都是 `nai-diffusion-4-5-full`。用户通过 `selectedParamsPresetId` 手动选择，预设中的模型、正负向固定词、尺寸、采样器和数值参数都可修改。
-
-当时模型下拉只有 V4.5 Full、V4.5 Curated、V4 Full、V3、Furry V3 和自定义模型，没有 V5。
-
-### 3.2 提示词预设
-
-提示词预设通过 `selectedPromptPresetId` 独立选择，当前包含：
-
-- System Prompt
-- TAG 编写指南
-- 场景计划规则
-
-当时默认 TAG 指南来自 `modules/draw/providers/novelai/TAG编写指南.md`，内容明确面向 V4.5。
-
-`modules/draw/providers/novelai/novel-prompts.js` 的固定请求结构包含 `{$tagGuide}`。当时启动流程会读取 V4.5 指南，将实际文本填入提示词预设的 `tagGuideContent`；构造 Scene Planner 请求时再把该文本放入 `{$tagGuide}`。
-
-因此当前行为不是模型感知的：即使用户把参数预设改成其他模型，Scene Planner 仍可能收到 V4.5 指南。
-
-### 3.3 Scene Planner 契约
-
-当前 `submit_scene_plan` Tool Schema 要求每个角色的 `center` 为 `A1` 至 `E5` 的字符串。默认 `scene-rules.md` 也写死了 5x5 网格规则。
-
-这适合现有 V4.5 路径，但不能表达 V5 的任意归一化坐标。
-
-此外，`sceneRules`、`topSystem` 和 `tagGuideContent` 当时持久化在每个提示词预设中。旧 `PROMPT_TEMPLATE_VERSION` 迁移会按默认预设名称覆盖这些字段；名称不能证明内容仍是系统默认，因此 V5 迁移不得沿用这种判定。旧默认 `topSystem` 明确写有 V4.5、严格 TAG 和已经淘汰的原文 anchor 约束，旧 `sceneRules` 还包含 5x5、配角合并和固定 Tag 配额等模型相关文本；两者都必须按冻结历史格式迁移，不能继续注入 V5 请求。
-
-### 3.4 请求与响应
-
-当前 NovelAI 请求链路：
-
-```text
-POST /ai/generate-image
-Content-Type: application/json
-响应：ZIP 或直接图片字节
-```
-
-当前所有非 V3 模型都按 `params_version: 3` 构造，不能直接通过新增模型下拉支持 V5。
 
 ## 4. 已确认的 V5 外部协议
 
@@ -210,7 +158,7 @@ V5 继续发送 `characterPrompts`、`v4_prompt` 和 `v4_negative_prompt`。字�
 
 用户在 V5 Full、Quality None、UC None 下启用官方 `Transparent BG` 后，生产请求确认出现以下变化：
 
-- 最终 `input` 与 `v4_prompt.caption.base_caption` 的自动后缀包含 `transparent background`；在本次无 Quality 后缀、无 `Text:` 块的抓包中，它位于 Prompt 最末尾。
+- 最终 `input` 与 `v4_prompt.caption.base_caption` 的自动后缀包含 `transparent background`；确认的官方请求中，无 Quality 后缀、无 `Text:` 块时，它位于 Prompt 最末尾。
 - `parameters.tag_hint_transparent_background` 为 `true`。
 - 同一请求包含 V5 固定参数 `parameters.straight_alpha: true`，输出格式为 PNG；该字段并非 Transparent BG 开关产生。
 
@@ -642,27 +590,7 @@ MessagePack 解码使用锁定版本的成熟依赖（`@msgpack/msgpack`），�
 - 用户取消时立即取消 reader 和上游请求。
 - 本期 `n_samples` 固定为 1；解析器仍按 `samp_ix` 校验，不猜测样本顺序。
 
-## 11. 预计代码范围
 
-| 文件/区域 | 改动 |
-| --- | --- |
-| `novel-draw.js` | V5 参数预设、Quality/UC 与旧指南迁移、模型能力解析、V5 payload、Transparent BG、transport 分流、端点解析、后端能力检查 |
-| `novel-draw.html` | V5 模型选项、V5 Quality/UC、Transparent BG、角色数上限提示、可编辑模型指南 |
-| `novel-prompts.js` | 按模型解析 `{$tagGuide}` 的预设覆盖或内置默认，追加不可编辑模型提交契约，不改变提示词预设选择 |
-| `TAG编写指南-V4.5.md` | 由现有指南明确改名，保留 V4.5 TAG 规则 |
-| `提示词编写指南-V5.md` | V5 自然语言、坐标、多人、文字和新标签规范 |
-| `top-system.md` / `top-system-pov.md` | 改为模型无关默认 System Prompt，删除版本、严格 TAG 和旧 anchor 表述 |
-| `scene-plan-contract.js` | 接受通用 center mode；在校验边界把 grid / normalized 输入统一成坐标对象 |
-| `draw-common.js`、NovelAI 本地组装器 | 接受已规范化坐标，移除重复 `gridToCoord` |
-| `scene-planner.js` | 透传通用契约选项和绝对角色上限，不识别 NovelAI 模型 ID |
-| `scene-rules.md` | 新默认内容移除模型绑定的固定 5x5、角色合并和 Tag 配额协议 |
-| `novel-image-response.js` 或相邻模块 | 长度帧读取、MessagePack 解码、final/error 处理 |
-| `package.json` / `package-lock.json` / 本地 `libs` | 锁定并分发 `@msgpack/msgpack` 浏览器 ESM 与许可证，不使用 CDN |
-| `server-plugin/littlewhitebox-image-jobs/providers/novelai` | NovelAI transport 由通用图片任务插件所有；v2 仅传输完整 URL 与请求报文，v1 冻结为正式线兼容入口 |
-| `cloud-presets.js` | 参数预设格式升级为 V2，完整往返数量限制与 V5 字段；V1 只在导入边界转换 |
-| Assistant file manifest | 源码完成后最后重建 |
-
-V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner 只接受必要的坐标契约参数，不认识 NovelAI 模型 ID。
 
 ## 12. 数据迁移
 
@@ -772,9 +700,9 @@ V5 领域代码留在 `modules/draw/providers/novelai/`。共享 Scene Planner �
 
 不通过读取源码字符串或 bundle 文本断言功能存在；测试公开输入输出和可观察行为。
 
-## 14. 人工验收
+## 14. 外部服务验证
 
-实现和自动测试完成后，使用已经重新签发的 NovelAI Token 做最少两次真实生成：
+真实服务验收须另获 API 调用授权，并分别覆盖：
 
 1. V5 Full：两个角色、两个不同自由坐标、Quality Standard、UC Heavy、Transparent BG 开启。
 2. V5 Curated：自然语言场景、角色互动或带样式的短文字、Quality Light、UC Furry Focus。

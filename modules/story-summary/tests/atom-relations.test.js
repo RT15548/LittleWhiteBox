@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
 import { build } from 'esbuild';
+import { ANCHOR_GENERATION_EXAMPLES } from '../data/generation-rules.js';
 import { buildRAggregateText } from '../vector/pipeline/state-vector-input.js';
 
 // Exercise the public extractor with a controlled model response. Only host
@@ -85,4 +86,14 @@ test('extraction budgets the complete response and preserves both detailed and s
     assert.equal(mod.getRequest().options.max_tokens, 1200);
     assert.deepEqual(atoms.map(atom => ({ scene: atom.semantic, edges: atom.edges, where: atom.where })), anchors);
     assert.ok(atoms.every(atom => atom.floor === 8));
+});
+
+test('L0 prompt example responses preserve their scene, relations and location through extraction', async () => {
+    // Execute the model-facing examples through the actual response boundary.
+    // A controlled response verifies protocol validity, not model generation quality.
+    for (const { anchor } of ANCHOR_GENERATION_EXAMPLES) {
+        mod.setResponse({ anchors: [anchor] });
+        const atoms = await mod.extractAtomsForRound(null, { mes: anchor.scene }, 30);
+        assert.deepEqual(atoms.map(atom => ({ scene: atom.semantic, edges: atom.edges, where: atom.where })), [anchor]);
+    }
 });

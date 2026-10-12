@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { XiaobaiOsFrameBridge } from '../../../shell/app-src/frame-bridge.js';
 import FourthWallMessage from './FourthWallMessage.vue';
 import FourthWallContent from './FourthWallContent.js';
@@ -29,8 +29,12 @@ const page = ref(props.page);
 const streamingContent = computed(() => parseFourthWallContent(props.generation.text || ''));
 const loading = ref(false);
 const followLatest = ref(true);
+const latestPage = computed(() => page.value.start + page.value.messages.length === page.value.total);
 const editing = ref<{ index: number; content: string; original: string; ts: number; revision: number } | null>(null);
 let pageSequence = 0;
+let readingAnchor: ReturnType<typeof anchor> = null;
+let viewportSize = { width: 0, height: 0 };
+let resizeObserver: ResizeObserver;
 const phaseLabels: Record<FourthWallTaskPhase, string> = {
     counting: '正在计算上下文…', summarizing: '正在整理皮下记忆…', saving: '正在保存…', replying: '等待回应…',
 };
@@ -43,6 +47,34 @@ function anchor() {
         .find(item => item.getBoundingClientRect().bottom > top);
     return row ? { index: row.dataset.messageIndex, offset: row.getBoundingClientRect().top - top } : null;
 }
+function rememberViewport() {
+    const root = viewport.value;
+    if (!root) { return; }
+    viewportSize = { width: root.clientWidth, height: root.clientHeight };
+    readingAnchor = anchor();
+}
+function restoreViewport(saved: ReturnType<typeof anchor>, latest: boolean) {
+    const root = viewport.value;
+    if (!root) { return; }
+    if (latest) { root.scrollTop = root.scrollHeight; }
+    else if (saved) {
+        const row = root.querySelector<HTMLElement>('[data-message-index="' + saved.index + '"]');
+        if (row) { root.scrollTop += row.getBoundingClientRect().top - root.getBoundingClientRect().top - saved.offset; }
+    }
+    rememberViewport();
+}
+function viewportResized(root: HTMLElement) {
+    return root.clientWidth !== viewportSize.width || root.clientHeight !== viewportSize.height;
+}
+onMounted(() => {
+    const root = viewport.value!;
+    rememberViewport();
+    resizeObserver = new ResizeObserver(() => {
+        if (viewportResized(root)) { restoreViewport(readingAnchor, followLatest.value); }
+    });
+    resizeObserver.observe(root);
+});
+onBeforeUnmount(() => resizeObserver.disconnect());
 async function install(next: FourthWallHistoryPage, latest = false) {
     const saved = anchor();
     if (editing.value && next.sessionId === page.value.sessionId) {
@@ -56,18 +88,16 @@ async function install(next: FourthWallHistoryPage, latest = false) {
     }
     page.value = next;
     await nextTick();
-    const root = viewport.value;
-    if (!root) { return; }
-    if (latest) { root.scrollTop = root.scrollHeight; followLatest.value = true; return; }
-    if (saved) {
-        const row = root.querySelector<HTMLElement>('[data-message-index="' + saved.index + '"]');
-        if (row) { root.scrollTop += row.getBoundingClientRect().top - root.getBoundingClientRect().top - saved.offset; }
-    }
+    if (latest) { followLatest.value = true; }
+    restoreViewport(saved, latest);
 }
 function onScroll() {
     const root = viewport.value;
-    if (root) { followLatest.value = page.value.start + page.value.messages.length === page.value.total
-        && root.scrollHeight - root.clientHeight - root.scrollTop < 48; }
+    // Reflow can dispatch scroll before ResizeObserver. It is not a request to
+    // leave the live reply or to move the user's saved history reading position.
+    if (!root || viewportResized(root)) { return; }
+    followLatest.value = latestPage.value && root.scrollHeight - root.clientHeight - root.scrollTop < 48;
+    rememberViewport();
 }
 async function load(direction: 'earlier' | 'later' | 'latest') {
     if (loading.value) { return; }
@@ -105,10 +135,9 @@ watch(() => props.page, next => {
     void install(next, next.sessionId !== page.value.sessionId || followLatest.value);
 }, { immediate: true });
 watch(() => props.sessionId, () => { editing.value = null; followLatest.value = true; });
-watch(() => props.generation.text, async () => {
-    if (!followLatest.value) { return; }
+watch(() => [props.generation.text, props.generation.thinking, props.generation.status], async () => {
     await nextTick();
-    if (viewport.value) { viewport.value.scrollTop = viewport.value.scrollHeight; }
+    if (followLatest.value && latestPage.value) { restoreViewport(null, true); }
 });
 </script>
 
@@ -134,10 +163,10 @@ watch(() => props.generation.text, async () => {
             @edit="(index, content) => emit('edit', index, content, editing?.revision ?? page.revision)"
             @delete="index => emit('delete', index)"
         />
-        <button v-if="page.start + page.messages.length < page.total" type="button" class="fourth-wall-earlier" :disabled="loading" @click="load('later')">
+        <button v-if="!latestPage" type="button" class="fourth-wall-earlier" :disabled="loading" @click="load('later')">
             查看后面的记录
         </button>
-        <article v-if="generation.status !== 'idle' && followLatest" class="fourth-wall-message is-ai is-streaming" role="status">
+        <article v-if="generation.status !== 'idle' && latestPage" class="fourth-wall-message is-ai is-streaming" role="status">
             <img v-if="characterAvatar" class="fourth-wall-avatar" :src="characterAvatar" alt="">
             <span v-else class="fourth-wall-avatar is-placeholder" />
             <div class="fourth-wall-message-stack">

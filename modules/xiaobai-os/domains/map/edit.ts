@@ -7,6 +7,7 @@ import type {
     MapLocation,
     MapScene,
     MapSceneMood,
+    MapSceneLighting,
 } from './types.js';
 
 export type MapLocationEdit =
@@ -26,7 +27,7 @@ export type MapSceneEdit =
     | {
         op: 'update-scene';
         sceneKey: string;
-        changes: Partial<Pick<MapScene, 'name' | 'status' | 'viewBox'>> & { mood?: MapSceneMood | null };
+        changes: Partial<Pick<MapScene, 'name' | 'status' | 'viewBox'>> & { mood?: MapSceneMood | null; lighting?: MapSceneLighting | null };
     }
     | { op: 'remove-scene'; sceneKey: string }
     | { op: 'upsert-element'; sceneKey: string; element: MapElement }
@@ -86,6 +87,10 @@ function applyEdit(candidate: MapDomainV1, edit: MapDomainEdit): void {
             if (Object.hasOwn(edit.changes, 'mood')) {
                 if (edit.changes.mood === null) {delete scene.mood;}
                 else if (edit.changes.mood !== undefined) {scene.mood = edit.changes.mood;}
+            }
+            if (Object.hasOwn(edit.changes, 'lighting')) {
+                if (edit.changes.lighting === null) {delete scene.lighting;}
+                else if (edit.changes.lighting !== undefined) {scene.lighting = structuredClone(edit.changes.lighting);}
             }
             return;
         }

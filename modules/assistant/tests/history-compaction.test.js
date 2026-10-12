@@ -61,7 +61,7 @@ test('replayed historical reasoning alone triggers assistant compaction even whe
         render() {}, persistSession() {}, showToast() {}, getActiveProviderConfig: () => config,
         buildTextWithAttachmentSummary: text => text, trimForSummary: text => text,
         SUMMARY_SYSTEM_PROMPT, DEFAULT_PRESERVED_TURNS: 1, MIN_PRESERVED_TURNS: 1,
-        SUMMARY_TRIGGER_TOKENS: 228000, HISTORY_SUMMARY_MAX_TOKENS: 10000,
+        SUMMARY_TRIGGER_TOKENS: 228000,
         toProviderMessages: messages => [{ role: 'system', content: state.historySummary }, ...messages],
     });
     let summaries = 0;
@@ -129,21 +129,6 @@ test('context meter estimates during render and sends one complete payload only 
     }
 });
 
-test('history summary prompt preserves structured cross-domain memory', () => {
-    assert.match(SUMMARY_SYSTEM_PROMPT, /目标是省上下文，不是失忆/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /# 当前目标/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /# 已确认内容/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /# 关键细节/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /# 未解决问题 \/ 下一步/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /# 用户偏好与约束/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /技术排查/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /写卡\/小说\/剧情/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /闲聊\/长期协作/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /不超过 10000 tokens/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /先判断对话类型/);
-    assert.match(SUMMARY_SYSTEM_PROMPT, /不要把具体事实洗成/);
-});
-
 test('fallback estimates are not cached as resolved; late cancelled counts cannot overwrite the latest meter', async () => {
     const state = { historySummary: '', contextStats: { usedTokens: 0 } };
     let calls = 0;
@@ -192,7 +177,7 @@ test('assistant continues after unavailable counting or uncompressible tool inpu
             normalizeAttachments: value => value || [], normalizeThoughtBlocks: value => value || [],
             getActiveProviderConfig: () => ({ provider: 'google', model: 'gemini-test' }),
             SYSTEM_PROMPT: '规则', SUMMARY_SYSTEM_PROMPT: '总结', HISTORY_SUMMARY_PREFIX: '记忆',
-            MAX_CONTEXT_TOKENS: 258000, SUMMARY_TRIGGER_TOKENS: 228000, HISTORY_SUMMARY_MAX_TOKENS: 10000,
+            MAX_CONTEXT_TOKENS: 258000, SUMMARY_TRIGGER_TOKENS: 228000,
             DEFAULT_PRESERVED_TURNS: 1, MIN_PRESERVED_TURNS: 1, MAX_TOOL_ROUNDS: 4, REQUEST_TIMEOUT_MS: 1000,
             TOOL_DEFINITIONS: [], TOOL_NAMES: { READ: 'Read' },
             countTokens: async options => {
@@ -289,7 +274,6 @@ test('history compaction source includes full archived tool details', async () =
         DEFAULT_PRESERVED_TURNS: 1,
         MIN_PRESERVED_TURNS: 1,
         SUMMARY_TRIGGER_TOKENS: 1,
-        HISTORY_SUMMARY_MAX_TOKENS: 10000,
         buildContextMeterLabel() {
             return '999 tokens';
         },
@@ -309,7 +293,7 @@ test('history compaction source includes full archived tool details', async () =
         },
     }, new AbortController().signal);
 
-    assert.equal(summaryRequest?.maxTokens, 10000);
+    assert.equal(summaryRequest?.maxTokens, 12000);
     assert.deepEqual(summaryRequest?.reasoning, { mode: 'inherit', output: 'hide' });
     assert.match(summarySource, /已有历史摘要（当前记忆底稿/);
     assert.match(summarySource, /modules\/old\.js/);
@@ -366,7 +350,6 @@ test('history compaction propagates cancellation without mutating archived histo
         DEFAULT_PRESERVED_TURNS: 1,
         MIN_PRESERVED_TURNS: 1,
         SUMMARY_TRIGGER_TOKENS: 1,
-        HISTORY_SUMMARY_MAX_TOKENS: 10000,
         buildContextMeterLabel() { return '999 tokens'; },
         async forceUpdateContextStats() { state.contextStats.usedTokens = 999; },
         toProviderMessages(messages) { return messages; },

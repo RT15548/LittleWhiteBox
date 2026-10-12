@@ -144,7 +144,7 @@
 .map-symbol-fallback { text-anchor: middle; dominant-baseline: central; fill: var(--map-ink); font-size: 9px; }
 .map-scene-label { fill: var(--map-ink); stroke: var(--map-canvas-bg); stroke-width: 3; paint-order: stroke fill; font-size: 11px; text-anchor: middle; pointer-events: none; }.map-scene-label.is-primary { font-size: 13px; font-weight: 650; }
 .map-scene-icon circle { fill: var(--map-surface); stroke-width: 1.5; }.map-scene-icon .map-material-symbol { font-size: 17px; fill: var(--map-accent); }
-.map-scene-element.is-actor .map-scene-icon > circle:not(.scene-player-halo) { fill: var(--map-current); stroke: var(--map-surface); }.map-scene-element.is-actor .map-material-symbol { fill: var(--map-surface); }
+.map-scene-icon.is-actor > circle:not(.scene-player-halo) { fill: var(--map-current); stroke: var(--map-surface); }.map-scene-icon.is-actor .map-material-symbol { fill: var(--map-surface); }
 @keyframes map-spin { to { transform: rotate(360deg); } }
 @keyframes map-sheet-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 360px) {

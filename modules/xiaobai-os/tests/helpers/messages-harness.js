@@ -79,7 +79,7 @@ export async function harness(seed) {
         agent: { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async request => {
             h.requests.push(request);
             h.apiCalls++; if (h.response) {return h.response();}
-            return { text: '{"replies":[{"type":"text","text":"马上到。"},{"type":"voice","transcript":"等我一下。"}]}' };
+            return { text: replyText([{ type: 'text', text: '马上到。' }, { type: 'voice', transcript: '等我一下。' }]) };
         } }) }, playerName: () => '玩家', id,
     };
     if (seed) {await service.refresh();} else {await service.change(state => {
@@ -87,6 +87,14 @@ export async function harness(seed) {
     });}
     const send = (contactId, messageId, payload = { type: 'text', text: '来吗？' }) => sendPrivateMessage(deps, { contactId, messageId, payload, guard: () => true, signal: new AbortController().signal, stage: () => undefined });
     return Object.assign(h, { service, settings, preferences, deps, send, chat, coordinator, get timeline() {return timeline;}, restart() {timeline = createMessagesTimeline(service, chat, id); deps.timeline = timeline;} });
+}
+
+/** A model reply in the private-message output format: character state, then one <msg> per payload. */
+export function replyText(payloads, characterState = '看到他的消息，我心里轻快了些。') {
+    const msg = payload => payload.type === 'text' ? `<msg>${payload.text}</msg>`
+        : payload.type === 'voice' ? `<msg type="voice"${payload.emotion ? ` emotion="${payload.emotion}"` : ''}>${payload.transcript}</msg>`
+            : `<msg type="image"${payload.generationPrompt ? ` tags="${payload.generationPrompt}"` : ''}>${payload.description}</msg>`;
+    return `<in_character>\n${characterState}\n</in_character>\n${payloads.map(msg).join('\n')}`;
 }
 
 export const photo = parseOutgoingMessage({ type: 'image', description: '', upload: {

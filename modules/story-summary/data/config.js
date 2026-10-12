@@ -542,15 +542,10 @@ export async function saveSummaryPanelConfigVerified(config) {
 }
 
 export async function readSummaryPanelConfigFromServer() {
-    try {
-        const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
-        if (savedConfig) {
-            return cloneConfig(normalizeSummaryPanelConfig(savedConfig));
-        }
-    } catch (e) {
-        xbLog.warn(MODULE_ID, "加载面板配置失败", e);
-    }
-    return getSummaryPanelConfig();
+    const savedConfig = await CommonSettingStorage.getStrict(SUMMARY_CONFIG_KEY, null);
+    // Confirmed absence is not a read failure. Preserve local settings without
+    // creating or overwriting a server record during initialization.
+    return savedConfig ? cloneConfig(normalizeSummaryPanelConfig(savedConfig)) : getSummaryPanelConfig();
 }
 
 export function applySummaryPanelConfigSnapshot(config) {

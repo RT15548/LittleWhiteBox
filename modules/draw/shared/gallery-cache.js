@@ -818,9 +818,9 @@ export async function updatePreviewRecord(imgId, changes) {
 }
 
 export async function getCardPreview({ imgId, slotId }) {
-    const record = imgId ? await getPreview(imgId) : null;
-    if (record?.slotId === slotId) return record;
-    return (await getDisplayPreviewForSlot(slotId)).preview;
+    if (!imgId) return null;
+    const record = await getPreview(imgId);
+    return record?.slotId === slotId ? record : null;
 }
 
 export async function getLatestPreviewForSlot(slotId) {

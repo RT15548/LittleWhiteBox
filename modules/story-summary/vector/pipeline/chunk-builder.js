@@ -24,6 +24,7 @@ import { xbLog } from '../../../../core/debug-core.js';
 import { chunkMessage } from './chunk-text.js';
 import { inputDigest } from '../utils/vector-input-digest.js';
 import { createAbortError } from '../../../../shared/common/abort-utils.js';
+import { trackVectorActivity } from '../runtime/vector-activity.js';
 
 const MODULE_ID = 'chunk-builder';
 const INCREMENTAL_EMBED_BATCH_SIZE = 20;
@@ -135,6 +136,11 @@ export async function buildAllChunks(options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function buildIncrementalChunks(options = {}) {
+    return trackVectorActivity({ chatId: options.targetChatId || getContext()?.chatId, phase: 'l1-vectorization', api: options.vectorConfig?.embeddingApi, unit: 'chunks' },
+        activity => buildIncrementalChunksInner(options, activity));
+}
+
+async function buildIncrementalChunksInner(options, activity) {
     const {
         vectorConfig,
         targetChatId = '',
@@ -184,6 +190,7 @@ export async function buildIncrementalChunks(options = {}) {
     }
 
     const texts = newChunks.map(c => c.text);
+    activity.update({ total: texts.length, state: 'embedding' });
 
     const failedResult = (code, error, details = {}) => ({
         success: false,
@@ -206,6 +213,7 @@ export async function buildIncrementalChunks(options = {}) {
 
             for (let attempt = 1; attempt <= INCREMENTAL_EMBED_MAX_ATTEMPTS; attempt++) {
                 try {
+                    activity.update({ activeUnits: batch.length, state: 'embedding' });
                     const result = await embed(batch, vectorConfig, { signal });
                     if (isCancelled()) return cancelledResult(startFloor, endFloor);
                     if (
@@ -231,6 +239,7 @@ export async function buildIncrementalChunks(options = {}) {
                     );
                     const batchIndex = Math.floor(i / INCREMENTAL_EMBED_BATCH_SIZE) + 1;
                     const batchCount = Math.ceil(texts.length / INCREMENTAL_EMBED_BATCH_SIZE);
+                    activity.update({ activeUnits: 0, state: 'retry-wait' });
                     for (let waited = 0; waited < INCREMENTAL_EMBED_RETRY_DELAY_MS; waited += 1000) {
                         if (isCancelled()) return cancelledResult(startFloor, endFloor);
                         onRetry?.({
@@ -245,6 +254,7 @@ export async function buildIncrementalChunks(options = {}) {
             }
 
             vectors.push(...batchVectors);
+            activity.update({ completed: vectors.length, activeUnits: 0 });
         }
     } catch (error) {
         const { code, httpStatus } = getEmbeddingFailureDetails(error);
@@ -259,6 +269,7 @@ export async function buildIncrementalChunks(options = {}) {
     }));
 
     try {
+        activity.update({ state: 'saving' });
         await saveIncrementalChunks(chatId, newChunks, vectorItems, fingerprint, endFloor, () => {
             if (isCancelled()) throw createAbortError();
         });
@@ -283,11 +294,11 @@ export async function buildIncrementalChunks(options = {}) {
 export async function syncOnMessageDeleted(chatId, newLength) {
     if (!chatId || newLength < 0) return;
 
-    await deleteChunksFromFloor(chatId, newLength);
-    const meta = await getMeta(chatId);
-    await updateMeta(chatId, { lastChunkFloor: Math.min(meta.lastChunkFloor, newLength - 1) });
-
-    xbLog.info(MODULE_ID, `消息删除同步：删除 floor >= ${newLength}`);
+    const result = await deleteChunksFromFloor(chatId, newLength);
+    if (result.deletedCount || result.boundaryChanged) {
+        xbLog.info(MODULE_ID, `消息删除同步：删除 floor >= ${newLength}`);
+    }
+    return result;
 }
 
 /**

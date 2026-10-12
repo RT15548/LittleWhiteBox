@@ -5,6 +5,7 @@
 
 import { getTextFilterRules } from '../../data/config.js';
 import { stripMarkupTags } from './markup-text.js';
+import { projectMessageProse } from './message-prose.js';
 
 import { applyTextFilterRules } from '../../data/text-filter-rules.js';
 export { applyTextFilterRules } from '../../data/text-filter-rules.js';
@@ -19,8 +20,6 @@ export function filterText(text) {
 // Queries and new L1 chunks share the same prose projection. Remove excluded
 // blocks before stripping their delimiters; otherwise their contents would leak.
 export function cleanRecallMessageText(text) {
-    const filtered = filterText(text)
-        .replace(/\[tts:[^\]]*\]/gi, '')
-        .replace(/<state>[\s\S]*?<\/state>/gi, '');
-    return stripMarkupTags(filtered).trim();
+    const filtered = filterText(text).replace(/<state>[\s\S]*?<\/state>/gi, '');
+    return stripMarkupTags(projectMessageProse(filtered)).trim();
 }

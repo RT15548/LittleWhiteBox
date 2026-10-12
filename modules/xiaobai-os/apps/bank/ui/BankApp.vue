@@ -284,17 +284,19 @@ onBeforeUnmount(() => {
                 <button v-else-if="!state.turnConfirmationAbandoned && (state.status === 'blocked' || state.status === 'conflict')" type="button" :disabled="refreshDisabled" @click="refresh">{{ refreshing ? '正在读取…' : '重新加载' }}</button>
             </aside>
         </div>
-        <div ref="content" class="bank-scroll">
-            <div v-if="state.status === 'loading'" class="bank-empty-state" role="status"><BankProductIcon kind="refresh" class="is-spinning" /><h3>正在读取资产…</h3></div>
-            <BankVault v-else-if="page === 'vault'" :locked-amount="state.lockedAmount" :current-turn="state.currentTurn" :deposit-count="state.deposits.length" :fund-count="state.investments.length" :claimable-count="state.claimableCount" :write-disabled-reason="writeDisabledReason" @navigate="navigate" @settle="settleDue" />
-            <BankDeposits v-else-if="page === 'deposits'" :products="state.products.deposits" :balance="state.balance" :write-disabled-reason="writeDisabledReason" @open="product => openProduct(product, 'deposit-open')" />
-            <BankFunds v-else-if="page === 'funds'" :products="state.products.funds" :balance="state.balance" :write-disabled-reason="writeDisabledReason" @open="product => openProduct(product, 'fund-open')" />
-            <BankPositions v-else-if="page === 'positions'" :deposits="state.deposits" :investments="state.investments" :claimable-count="state.claimableCount" :write-disabled-reason="writeDisabledReason" @withdraw="openWithdrawal" @settle="settleDue" @browse="navigate('deposits')" />
-            <BankRecords v-else :activities="state.activities" :total="state.activityPage.total" :has-more="state.activityPage.hasMore" :loading-more="loadingMore" :error="recordsError" @load-more="loadMore" />
+        <div class="bank-workspace">
+            <div ref="content" class="bank-scroll">
+                <div v-if="state.status === 'loading'" class="bank-empty-state" role="status"><BankProductIcon kind="refresh" class="is-spinning" /><h3>正在读取资产…</h3></div>
+                <BankVault v-else-if="page === 'vault'" :locked-amount="state.lockedAmount" :current-turn="state.currentTurn" :deposit-count="state.deposits.length" :fund-count="state.investments.length" :claimable-count="state.claimableCount" :write-disabled-reason="writeDisabledReason" @navigate="navigate" @settle="settleDue" />
+                <BankDeposits v-else-if="page === 'deposits'" :products="state.products.deposits" :balance="state.balance" :write-disabled-reason="writeDisabledReason" @open="product => openProduct(product, 'deposit-open')" />
+                <BankFunds v-else-if="page === 'funds'" :products="state.products.funds" :balance="state.balance" :write-disabled-reason="writeDisabledReason" @open="product => openProduct(product, 'fund-open')" />
+                <BankPositions v-else-if="page === 'positions'" :deposits="state.deposits" :investments="state.investments" :claimable-count="state.claimableCount" :write-disabled-reason="writeDisabledReason" @withdraw="openWithdrawal" @settle="settleDue" @browse="navigate('deposits')" />
+                <BankRecords v-else :activities="state.activities" :total="state.activityPage.total" :has-more="state.activityPage.hasMore" :loading-more="loadingMore" :error="recordsError" @load-more="loadMore" />
+            </div>
+            <nav class="bank-navigation" aria-label="银行主导航">
+                <button v-for="item in [{ page: 'vault', label: '总览', icon: 'vault' }, { page: 'deposits', label: '存单', icon: 'deposit' }, { page: 'funds', label: '理财', icon: 'fund' }, { page: 'positions', label: '持有', icon: 'positions' }, { page: 'records', label: '记录', icon: 'records' }] as const" :key="item.page" type="button" :aria-label="item.label" :aria-current="page === item.page ? 'page' : undefined" @click="navigate(item.page)"><span><BankProductIcon :kind="item.icon" /><i v-if="item.page === 'positions' && state.claimableCount" /></span>{{ item.label }}</button>
+            </nav>
         </div>
-        <nav class="bank-navigation" aria-label="银行主导航">
-            <button v-for="item in [{ page: 'vault', label: '总览', icon: 'vault' }, { page: 'deposits', label: '存单', icon: 'deposit' }, { page: 'funds', label: '理财', icon: 'fund' }, { page: 'positions', label: '持有', icon: 'positions' }, { page: 'records', label: '记录', icon: 'records' }] as const" :key="item.page" type="button" :aria-label="item.label" :aria-current="page === item.page ? 'page' : undefined" @click="navigate(item.page)"><span><BankProductIcon :kind="item.icon" /><i v-if="item.page === 'positions' && state.claimableCount" /></span>{{ item.label }}</button>
-        </nav>
         <BankActionDialog v-if="pending" :mode="pending.mode" :product="pending.product" :position="pending.position" :balance="state.balance" :busy="actionBusy" :error="dialogError" :claimable-count="state.claimableCount" :disabled-reason="writeDisabledReason" @cancel="closeAction" @confirm="submitAction" />
     </main>
 </template>

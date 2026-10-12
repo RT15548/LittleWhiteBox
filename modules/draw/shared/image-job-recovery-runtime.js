@@ -1,4 +1,5 @@
 import { getContext } from '../../../../../../extensions.js';
+import { getCurrentUserHandle } from '../../../../../../user.js';
 import { hasPreviewImage, PreviewStatus, DRAW_SLOT_ERRORS } from './image-record.js';
 import { getRequestHeaders } from '../../../../../../../script.js';
 import { createModuleEvents, event_types } from '../../../core/event-manager.js';
@@ -8,6 +9,7 @@ import {
     reportImageBackendJobState,
 } from './backend-image-jobs.js';
 import { createDrawRunClient } from './draw-run-client.js';
+import { resumeDrawCancellations } from './draw-work-cancellation.js';
 import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 import { runDrawRunRecoveryPass } from './draw-run-recovery-runtime.js';
 import {
@@ -36,6 +38,7 @@ import {
     isAnyMessageBeingEdited,
     isMessageBeingEdited,
     renderPreviewsForMessage,
+    materializeDrawSavedPreview,
 } from './draw-common.js';
 import {
     classifyImageJobDeliveryTarget,
@@ -47,8 +50,8 @@ import {
 } from './image-job-delivery-target.js';
 
 const RETRY_DELAY_MS = 15_000;
-const backendClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders });
-const drawRunClient = createDrawRunClient({ getHeaders: getRequestHeaders });
+const backendClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
+const drawRunClient = createDrawRunClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
 const resultDecoders = new Map([
     ['sd-webui', ({ response }) => readImageBackendResultBase64(response)],
     ['comfyui', ({ response }) => readImageBackendResultBase64(response)],
@@ -60,6 +63,9 @@ let recoveryTimer = null;
 let recoveryTimerAt = 0;
 let recoveryRunning = null;
 let recoveryQueued = false;
+// Runtime bookkeeping only, not ownership. IndexedDB leases still fence every
+// delivery. A long-lived attachment must not hold the discovery/replay gate.
+const recoveryTasks = new Map();
 let runtimeClient = backendClient;
 let runtimeDrawRunClient = drawRunClient;
 let drawRunActivityDispose = null;
@@ -154,6 +160,11 @@ function describeMissingJob(record) {
 }
 
 function createDeliveryAdapter() {
+    const preserveSavedImage = async (record, item, target) => {
+        if (target) await materializeDrawSavedPreview(target.message, item.slotId, {
+            messageId: target.messageId, chatId: record.delivery.chatId,
+        });
+    };
     return {
         onStateChange(record, state, data) {
             reportImageBackendJobState((stage, progress = {}) => {
@@ -180,11 +191,15 @@ function createDeliveryAdapter() {
                 return;
             }
             const committed = await deliverPreparedImage({
+                commitDelivery: payload.commitDelivery,
                 retainWithoutSlot: record.delivery?.retainWithoutSlot,
                 isDiscarded: current => current?.items.some(entry => entry.imgId === item.imgId && entry.discarded),
                 resolveTarget: () => requireAvailableTarget(record, item),
                 guard,
-                persist: target => storePreview({ ...previewOptions(record, item, target), base64 }),
+                persist: async target => {
+                    await preserveSavedImage(record, item, target);
+                    await storePreview({ ...previewOptions(record, item, target), base64 });
+                },
                 remove: () => deletePreview(item.imgId),
                 select: () => setSlotSelection(item.slotId, item.imgId),
                 clearSelection: () => clearSlotSelection(item.slotId),
@@ -198,22 +213,26 @@ function createDeliveryAdapter() {
                 await deletePreview(item.imgId);
             }
         },
-        async failItem(record, item, error, guard) {
+        async failItem(record, item, error, guard, commitDelivery) {
             // gallery-only 没有正文槽位，也不伪造一张失败卡；后端失败项本身就是终态。
             if (record.delivery?.mode === 'gallery') return;
             const errorType = error?.label ? error : classifyError(error);
             const failedImgId = item.imgId;
             const committed = await deliverPreparedImage({
+                commitDelivery,
                 retainWithoutSlot: record.delivery?.retainWithoutSlot,
                 isDiscarded: current => current?.items.some(entry => entry.imgId === item.imgId && entry.discarded),
                 resolveTarget: () => requireAvailableTarget(record, item),
                 guard,
-                persist: target => storeFailedPlaceholder({
-                    ...previewOptions(record, item, target),
-                    imgId: failedImgId,
-                    errorType: errorType.label,
-                    errorMessage: errorType.desc,
-                }),
+                persist: async target => {
+                    await preserveSavedImage(record, item, target);
+                    await storeFailedPlaceholder({
+                        ...previewOptions(record, item, target),
+                        imgId: failedImgId,
+                        errorType: errorType.label,
+                        errorMessage: errorType.desc,
+                    });
+                },
                 remove: () => deletePreview(failedImgId),
                 select: () => setSlotSelection(item.slotId, failedImgId),
                 clearSelection: () => clearSlotSelection(item.slotId),
@@ -221,14 +240,14 @@ function createDeliveryAdapter() {
             if (committed) await renderRecord(record);
             else { await guard(); await deletePreview(item.imgId); }
         },
-        async settle(record, settlement, _details, guard) {
+        async settle(record, settlement, { deliverItem }, guard) {
             if (record.delivery?.mode === 'gallery') {
                 await guard();
                 return;
             }
             const slotsToRemove = [];
-            if (settlement.mode === 'discard') {
-                for (const item of record.items) {
+            if (settlement.mode === 'discard' || settlement.mode === 'fail') {
+                for (const entry of record.items) await deliverItem(entry.index, async ({ record: current, item, commitDelivery }) => {
                     // Released upstream 3.1.5 used a separate failed-* record.
                     // Retain its read path while those recoverable journals exist.
                     const [delivered, failed] = await Promise.all([
@@ -236,25 +255,23 @@ function createDeliveryAdapter() {
                         getPreview(`failed-${item.imgId}`),
                     ]);
                     await guard();
-                    if (hasPreviewImage(delivered) || delivered?.status === PreviewStatus.FAILED || failed) continue;
-                    if (record.delivery.preserveSlotsOnCancel) {
-                        await this.failItem(record, item, DRAW_SLOT_ERRORS.interrupted, guard);
-                        continue;
+                    // Preserve already stored results, but do not manufacture a
+                    // receipt from gallery presence. An interrupted/unconfirmed
+                    // old delivery stays reserved until this whole settlement
+                    // finishes and forgets its journal.
+                    if (hasPreviewImage(delivered) || delivered?.status === PreviewStatus.FAILED || failed) return false;
+                    if (settlement.mode === 'fail' || current.delivery.preserveSlotsOnCancel) {
+                        const errorType = settlement.mode === 'discard' ? DRAW_SLOT_ERRORS.interrupted
+                            : settlement.errorType?.label ? settlement.errorType : describeMissingJob(current);
+                        await this.failItem(current, item, errorType, guard, commitDelivery);
+                        return;
                     }
-                    const target = requireAvailableTarget(record, item);
-                    if (target) slotsToRemove.push(item.slotId);
-                }
-            } else if (settlement.mode === 'fail') {
-                const errorType = settlement.errorType?.label ? settlement.errorType : describeMissingJob(record);
-                for (const item of record.items) {
-                    const [delivered, failed] = await Promise.all([
-                        getPreview(item.imgId).catch(() => null),
-                        getPreview(`failed-${item.imgId}`).catch(() => null),
-                    ]);
-                    await guard();
-                    if (hasPreviewImage(delivered) || delivered?.status === PreviewStatus.FAILED || failed) continue;
-                    await this.failItem(record, item, errorType, guard);
-                }
+                    const target = requireAvailableTarget(current, item);
+                    if (target) {
+                        slotsToRemove.push(item.slotId);
+                        return false; // receipt follows the confirmed removal below
+                    }
+                });
             }
             let removedTargets = [];
             if (slotsToRemove.length > 0) {
@@ -329,7 +346,7 @@ function createDeliveryAdapter() {
             await guard();
             for (const slotId of slotsToRemove) {
                 const item = record.items.find(item => item.slotId === slotId);
-                if (item) await deletePreview(item.imgId);
+                if (item) await deliverItem(item.index, () => deletePreview(item.imgId));
             }
             await renderRecord(record);
             const removedMessageIds = new Set(removedTargets
@@ -392,6 +409,20 @@ function scheduleRecovery(delay = 0) {
 }
 
 async function runRecoveryPass() {
+    let cancellation;
+    try {
+        cancellation = await resumeDrawCancellations(runtimeClient, getCurrentUserHandle());
+    } catch (error) {
+        // Without the journal we cannot identify the protected set. Individual
+        // transport failures below must not stop unrelated result delivery.
+        console.warn('[ImageJobs] 后台取消尚未确认，保留整组意图等待重试:', error);
+        scheduleRecovery(RETRY_DELAY_MS);
+        return;
+    }
+    for (const error of cancellation.failures) console.warn('[ImageJobs] 整组取消未确认，仅暂缓相关任务:', error);
+    if (cancellation.failures.length) scheduleRecovery(RETRY_DELAY_MS);
+    const { blockedJobIds, blockedRunIds } = cancellation;
+    const isBlocked = record => blockedJobIds.has(record.jobId) || blockedRunIds.has(record.originRunId);
     const ctx = getContext();
     const chatId = String(ctx?.chatId || '');
     if (!chatId) return;
@@ -404,9 +435,12 @@ async function runRecoveryPass() {
         return;
     }
     try {
+        // A blocked child also protects its parent marker/adoption/ACK path.
+        for (const record of allRecords) if (blockedJobIds.has(record.jobId) && record.originRunId) blockedRunIds.add(record.originRunId);
         await runDrawRunRecoveryPass({
             ctx,
-            records: allRecords,
+            records: allRecords.filter(record => !isBlocked(record)),
+            excludedRunIds: blockedRunIds,
             farewells: readPageFarewells(),
             client: runtimeDrawRunClient,
             scheduleRecovery,
@@ -428,7 +462,7 @@ async function runRecoveryPass() {
         return;
     }
     const records = allRecords.filter(record => (
-        record.state !== PendingJobState.ADOPTING
+        !isBlocked(record) && record.state !== PendingJobState.ADOPTING
         && (record.delivery?.mode === 'gallery' || record.delivery?.retainWithoutSlot || record.delivery?.chatId === chatId)
     ));
     if (records.length === 0) return;
@@ -461,22 +495,20 @@ async function runRecoveryPass() {
 
     const delivery = createDeliveryAdapter();
     const actionable = plan.filter(entry => {
+        if (recoveryTasks.has(entry.record.jobId)) return false;
         if (entry.action !== ReattachAction.ATTACH) return entry.action !== ReattachAction.WAIT;
         return resultDecoders.has(entry.record.provider);
     });
-    const results = await Promise.allSettled(actionable.map(entry => executeImageJobReattachEntry({
-        entry,
-        client: runtimeClient,
-        delivery,
-    })));
-    for (const result of results) {
-        if (result.status === 'rejected' && result.reason?.code !== 'PENDING_JOB_LEASE_LOST') {
-            console.warn('[ImageJobs] 后台任务接回未完成，保留记录稍后重试:', result.reason);
-            scheduleRecovery(RETRY_DELAY_MS);
-        } else if (result.status === 'fulfilled' && result.value === false) {
+    for (const entry of actionable) {
+        const task = executeImageJobReattachEntry({ entry, client: runtimeClient, delivery }).then(result => {
             // plan 与 claim 之间被其他标签页抢先接管；若对方随后退出，仍需在租约后重试。
+            if (result === false) scheduleRecovery(RETRY_DELAY_MS);
+        }, error => {
+            if (error?.code === 'PENDING_JOB_LEASE_LOST') return;
+            console.warn('[ImageJobs] 后台任务接回未完成，保留记录稍后重试:', error);
             scheduleRecovery(RETRY_DELAY_MS);
-        }
+        }).finally(() => recoveryTasks.delete(entry.record.jobId));
+        recoveryTasks.set(entry.record.jobId, task);
     }
 }
 
@@ -484,19 +516,22 @@ export async function reconcilePendingImageJobs() {
     if (!runtimeEvents) return;
     if (recoveryRunning) {
         recoveryQueued = true;
-        return recoveryRunning;
+    } else {
+        recoveryRunning = (async () => {
+            try {
+                do {
+                    recoveryQueued = false;
+                    await runRecoveryPass();
+                } while (runtimeEvents && recoveryQueued);
+            } finally {
+                recoveryRunning = null;
+            }
+        })();
     }
-    recoveryRunning = (async () => {
-        do {
-            recoveryQueued = false;
-            await runRecoveryPass();
-        } while (runtimeEvents && recoveryQueued);
-    })();
-    try {
-        await recoveryRunning;
-    } finally {
-        recoveryRunning = null;
-    }
+    await recoveryRunning;
+    // Preserve the caller's completion boundary, without locking out online,
+    // chat-change or retry passes while these independently leased jobs run.
+    await Promise.all([...recoveryTasks.values()]);
 }
 
 export function startImageJobRecovery({

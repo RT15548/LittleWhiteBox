@@ -1,8 +1,8 @@
-# Shop domain skeleton
+# Shop domain
 
-This directory owns the Tavern Shop domain. Implementation is intentionally absent until the approved construction plan is executed.
+This directory owns the Tavern Shop domain. It owns the current catalog, inventory, active effects, atomic Economy-backed commands and timeline restoration.
 
-Planned files:
+Responsibilities:
 
 - `shop-types.ts` — catalog, inventory, activation, version and error contracts.
 - `shop-catalog.ts` — the 14 reviewed static products and their exact narrative templates.
@@ -15,4 +15,3 @@ This layer may depend on Tavern sessions and Economy services. Economy, generic 
 Specifications:
 
 - [Target design](../../docs/shop-app-target-design.md)
-- [Implementation plan](../../docs/shop-app-implementation-plan.md)

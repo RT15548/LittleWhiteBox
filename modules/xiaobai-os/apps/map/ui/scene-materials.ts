@@ -7,6 +7,7 @@ export const SCENE_MATERIAL_COLORS: Readonly<Record<MapMaterial, string>> = Obje
     blood: '#ab6260', water: '#86bdb9', grass: '#c7d4ae', forest: '#91ac7d', glass: '#b5d5ce',
     dirt: '#bda989', snow: '#e6eee1', metal: '#aabec0', rune: '#aca0be',
     'warm-light': '#e3c28c', 'cold-light': '#afced6', shadow: '#758079',
+    flesh: '#aa657e', slime: '#6dbfa4',
 });
 
 export function materialPaint(material: MapMaterial | undefined, prefix: string): string {

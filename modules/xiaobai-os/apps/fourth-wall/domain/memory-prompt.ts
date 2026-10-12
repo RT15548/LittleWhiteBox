@@ -9,7 +9,7 @@ export const MEMORY_SYSTEM_PROMPT = [
     'Separate the partner\'s identity from facts about the user. Keep established identity, personality, speech habits, preferences, relationship changes, meaningful experiences and commitments.',
     'Preserve uncertainty and attributed claims. Missing information stays missing; passing moods and repeated banter need not become lasting facts.',
     'Return a complete replacement memory document in Chinese with two sections: # 皮下人设 and # 长期记忆.',
-    'Use concise concrete prose or short items. Stay below 10000 tokens; a short source warrants a short memory. Return only the document.',
+    'Use concise concrete prose or short items. A short source warrants a short memory. Return only the document.',
 ].join('\n');
 
 export function formatMemoryMessage(message: FourthWallMessageData, index: number, content = message.content, offset = 0): string {

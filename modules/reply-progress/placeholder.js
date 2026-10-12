@@ -21,12 +21,12 @@ export function createPlaceholderPresenter(textarea, { watch = observePlaceholde
             }
         },
         restore() {
+            unwatch();
             // A host or another extension may have taken over in the meantime.
             if (textarea.getAttribute('placeholder') === lastWritten) {
                 if (baseline === null) textarea.removeAttribute('placeholder');
                 else textarea.setAttribute('placeholder', baseline);
             }
-            unwatch();
         },
     };
 }

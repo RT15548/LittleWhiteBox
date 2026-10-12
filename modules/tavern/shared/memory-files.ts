@@ -1,5 +1,5 @@
 import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
-import { getTavilySearchToolDefinition } from '../../agent-core/tavily-search.js';
+import { getWebSearchToolDefinition } from '../../agent-core/web/tools.js';
 import { grepTextSources } from '../../agent-core/runtime/text-grep.js';
 import { readTextFile } from '../../agent-core/runtime/text-read.js';
 import Dexie from '../../../libs/dexie.mjs';
@@ -1609,7 +1609,7 @@ export function getTavernManagerToolDefinitions(options: { webSearchEnabled?: bo
         ...getTavernStatusToolDefinitions(),
     ];
     if (options.webSearchEnabled) {
-        definitions.push(getTavilySearchToolDefinition() as TavernManagerToolDefinition);
+        definitions.push(getWebSearchToolDefinition() as TavernManagerToolDefinition);
     }
     return definitions;
 }

@@ -154,5 +154,10 @@ p { margin:14px 0; }
 .dice-notice { margin-top:28px; border-top:1px solid color-mix(in srgb,currentColor 15%,transparent); font-size:13px; }
 .dice-recovery { margin-top:20px; }
 .dice-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+@container os-stage (min-width: 900px) {
+    .dice-app { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-content: start; align-items: start; gap: 36px; max-width: 1000px; padding: 28px 32px; }
+    .dice-feature + .dice-feature { margin: 0; padding: 0 0 0 32px; border-top: 0; border-left: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
+    .dice-recovery { grid-column: 1 / -1; }
+}
 @media (prefers-reduced-motion: reduce) { .dice-switch > span:first-child { transition:none; } }
 </style>

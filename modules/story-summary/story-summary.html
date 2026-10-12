@@ -9,6 +9,7 @@
     <title>剧情总结 · Story Summary</title>
     <link rel="stylesheet" href="story-summary.css">
     <link rel="stylesheet" href="story-summary-timeline.css">
+    <link rel="stylesheet" href="settings-config.css">
     <link rel="stylesheet" href="maintenance/ui.css">
     <style>
         #xb-frame-boot {
@@ -261,6 +262,10 @@
                         <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
                 </button>
+            </div>
+            <div id="settings-config-status" class="settings-config-status" role="status" aria-live="polite" hidden>
+                <span id="settings-config-message"></span>
+                <button type="button" class="btn btn-sm" id="settings-config-retry" hidden></button>
             </div>
             <div class="modal-body">
                 <!-- Tab 1: Summary Settings -->
@@ -770,9 +775,7 @@
                                                         id="vector-event-count">0</strong></span>
                                             </div>
                                         </div>
-                                        <div class="vector-mismatch-warning hidden" id="vector-mismatch-warning">
-                                            ⚠ 需完整重建向量
-                                        </div>
+                                        <div class="settings-hint" id="vector-integrity-status" role="status"></div>
                                         <div class="vector-empty-warning hidden" id="vector-empty-l0-warning"
                                             style="font-size: 0.75rem; color: #f59e0b; margin-top: 6px;">
                                             还没有锚点文本，请先在上方生成。

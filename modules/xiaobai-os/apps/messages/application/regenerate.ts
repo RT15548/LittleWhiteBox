@@ -1,9 +1,11 @@
 import type { SendDependencies } from './send.js';
 import type { MessagesModifications, ModificationTarget } from './modifications.js';
 import { generateMessageReply } from './generate-reply.js';
+import type { MessageReplyPreview } from '../types.js';
 
 export async function regenerateMessageReply(deps: SendDependencies, modifications: MessagesModifications, target: ModificationTarget, input: {
     signal: AbortSignal; guard: () => boolean; stage: (stage: string) => void;
+    preview?: (preview: MessageReplyPreview) => void;
 }) {
     const { state, ids } = modifications.authorize(target, 'regenerate');
     const old = state.messages.find(message => message.id === ids[0])!;

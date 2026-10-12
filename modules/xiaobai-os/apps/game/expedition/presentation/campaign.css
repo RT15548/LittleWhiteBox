@@ -1,0 +1,128 @@
+.game-scroll > .ember-campaign { max-width:none; }
+.ember-campaign { --ember-ink:#2c3b58; --ember-muted:#6c7790; --ember-action:#485b83; --ember-paper:#f8f9fd; --ember-line:#b6c2d5; --ember-warm:#aa704f; position:relative; height:100%; min-height:0; overflow:hidden; background:#cbd5f0; color:var(--ember-ink); font-family:inherit; font-size:14px; line-height:1.6; container-type:inline-size; isolation:isolate; }
+.ember-campaign button,.ember-campaign textarea { font:inherit; }
+.ember-campaign button { cursor:pointer; min-height:44px; border:1px solid #8aabae88; border-radius:6px; padding:9px 14px; color:inherit; background:#f4f7ef; }
+.ember-campaign button:disabled { cursor:not-allowed; opacity:.5; }
+.ember-campaign button:focus-visible,.ember-campaign textarea:focus-visible { outline:3px solid #bf692c; outline-offset:3px; }
+.ember-campaign button:not(:disabled):hover { border-color:#ba7646; }
+.ember-campaign h1,.ember-campaign h2,.ember-campaign h3,.ember-campaign p { margin:0; }
+.ember-campaign h2 { font-size:25px; font-weight:650; letter-spacing:.06em; }
+.ember-campaign h3 { font-size:16px; }
+.ember-campaign small { font-size:12px; font-weight:400; }
+.ember-campaign .exp-icon { display:inline-block; width:26px; height:26px; flex-shrink:0; vertical-align:middle; }
+.ember-campaign .ember-primary { background:var(--ember-action); color:#fff9e9; border-color:var(--ember-action); min-height:48px; padding-inline:26px; }
+.ember-health { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; font-weight:650; }
+.ember-health meter { width:135px; height:16px; accent-color:#4e947e; }
+.ember-objective { margin-top:6px!important; max-width:240px; font-size:12px; line-height:1.5; }
+.ember-tools { position:absolute; top:20px; right:20px; display:flex; gap:6px; }
+.ember-tools button { display:flex; align-items:center; gap:6px; background:#f5f7fded; box-shadow:0 2px 12px #1e41451a; }
+.ember-boss { position:absolute; top:24px; left:50%; transform:translateX(-50%); width:26%; max-width:360px; text-align:center; text-shadow:0 1px 4px #fff; }
+.ember-boss meter { display:block; width:100%; height:14px; accent-color:#bd664d; }
+.ember-alarm { position:absolute; top:115px; right:24px; background:#7b3b29e8; color:#fff6e5; padding:7px 12px; border-radius:5px; font-size:13px; }
+.ember-notice { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:min(90%,560px); max-height:calc(100% - 40px); overflow:auto; box-sizing:border-box; z-index:8; background:#fff3dc; border:1px solid #a96741; box-shadow:0 8px 30px #193e4940; padding:16px; display:grid; gap:12px; border-radius:8px; }
+.ember-conversation-notice { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:min(90%,480px); max-height:45%; overflow:auto; box-sizing:border-box; z-index:7; display:grid; gap:8px; padding:12px 16px; border:1px solid #c0cbc2; border-radius:8px; background:#f7faf3; box-shadow:0 5px 22px #193e4928; font-size:13px; }
+.ember-conversation-notice button { justify-self:end; }
+.ember-award-notice { position:absolute; bottom:150px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:16px; max-width:calc(100% - 32px); padding:8px 10px 8px 16px; border:1px solid var(--ember-line); border-radius:6px; background:var(--ember-paper); box-shadow:0 4px 18px #24495024; z-index:4; }
+.ember-award-notice span { display:grid; overflow-wrap:anywhere; }
+.ember-award-notice small { color:var(--ember-muted); }
+.ember-award-notice button { flex-shrink:0; min-width:44px; padding:4px; border:0; background:transparent; }
+.ember-dialogue-issue { padding:8px 12px; border-left:3px solid #aa7946; color:#78532e; font-size:13px; }
+.ember-error-detail { white-space:pre-wrap; overflow-wrap:anywhere; }
+.ember-dialogue-scroll details { overflow-wrap:anywhere; }
+.ember-transition,.ember-rest-notice { position:absolute; z-index:4; left:50%; top:48%; transform:translate(-50%,-50%); max-width:calc(100% - 32px); padding:9px 17px; border-block:1px solid #c9cedf99; border-radius:3px; background:#f4f6f1ed; color:#3c4e62; font-size:13px; letter-spacing:.04em; pointer-events:none; text-align:center; }
+.ember-curtain { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:20px; background:#274d5359; }
+.ember-panel { box-sizing:border-box; display:flex; flex-direction:column; gap:20px; width:min(100%,680px); max-height:100%; padding:24px 30px 30px; overflow:auto; background:var(--ember-paper); border:1px solid #fff8; box-shadow:0 18px 70px #24495045; border-radius:10px; }
+.ember-wide { width:min(100%,1040px); }
+.ember-wardrobe-panel { height:100%; overflow:hidden; }
+.ember-wardrobe-panel .ember-panel-heading { flex-shrink:0; }
+.ember-wardrobe-panel .ember-panel-heading h2 { color:var(--ember-ink); }
+.ember-map-panel { height:min(100%,820px); overflow:hidden; }
+.ember-panel-heading { display:flex; justify-content:space-between; align-items:center; gap:18px; font-size:12px; letter-spacing:.08em; color:#617d7d; }
+.ember-panel-heading button { padding:5px 14px; background:transparent; }
+.ember-pack-heading { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; flex-shrink:0; overflow-wrap:anywhere; }
+.ember-pack-heading span { font-size:12px; color:var(--ember-muted); }
+.ember-pack-tabs { display:flex; gap:20px; flex-shrink:0; border-bottom:1px solid #34555d26; }
+.ember-pack-tabs button { padding:8px 2px; border:0; border-bottom:2px solid transparent; background:none; border-radius:0; color:#617d7d; }
+.ember-pack-tabs button[aria-pressed=true] { color:var(--ember-ink); border-bottom-color:#a86b3e; }
+.ember-relics { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; }
+.ember-relics article,.ember-relics>button { padding:18px; display:flex; flex-direction:column; gap:14px; text-align:left; background:#e4eee5; border-radius:6px; border:1px solid #b8cec0; }
+.ember-relics p { font-size:13px; flex:1; }
+.ember-journal { margin:0; padding-left:22px; display:grid; gap:16px; }
+.ember-journal li::marker { color:#a36239; }
+.ember-objective-panel { border-left:3px solid #b87743; padding:8px 16px; }
+.ember-curtain:has(.ember-dialogue) { place-items:center; background:linear-gradient(105deg,#e0e5f2db,#bbc6dfb8 43%,#27395359); }
+@media (min-width:721px) and (min-height:451px) {
+ .ember-curtain:has(.ember-dialogue)::before { content:""; position:absolute; inset:0; background-image:linear-gradient(90deg,#eef0f740,#c4cce688),var(--scene-art); background-size:cover; background-position:center; pointer-events:none; }
+}
+.ember-panel.ember-dialogue { position:relative; height:100%; width:min(760px,100%); overflow:hidden; gap:0; padding:0; background:var(--ember-paper); }
+.ember-dialogue-heading { display:flex; align-items:center; gap:10px; padding:16px 24px; border-bottom:1px solid #34555d20; flex-shrink:0; }
+.ember-person-heading { flex:1; min-width:0; }
+.ember-person-heading h2 { font-size:23px; letter-spacing:.08em; }
+.ember-person-heading small { color:#647b7d; }
+.ember-dialogue-heading > button { background:transparent; padding:6px 10px; border:0; }
+.ember-dialogue-scroll { overflow:auto; overflow-anchor:none; overscroll-behavior:contain; flex:1; min-height:0; display:flex; flex-direction:column; align-items:stretch; gap:20px; padding:24px; scrollbar-width:thin; }
+.ember-dialogue-scroll > * { flex-shrink:0; }
+.ember-history-nav { display:flex; justify-content:center; gap:16px; }
+.ember-dialogue-scroll .ember-history-link { align-self:center; min-height:40px; padding:6px 12px; background:transparent; border:0; color:#526f69; font-size:.85em; }
+.ember-greeting,.ember-npc-line,.ember-player-line,.ember-prose { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.95; }
+.ember-player-line { padding:10px 14px; align-self:flex-end; max-width:88%; border-radius:6px; background:#e7eee8; }
+.ember-player-line small { display:block; color:#637f79; }
+.ember-dialogue > .ember-primary { margin:12px 24px 20px; flex-shrink:0; }
+.ember-story-art { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; flex-shrink:0; border-radius:3px; }
+.ember-pause-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.ember-pause-actions button[aria-pressed=true] { color:#fff9e9; background:var(--ember-action); border-color:var(--ember-action); }
+.ember-help { font-size:12px; color:var(--ember-muted); }
+.ember-touch-help { display:none; }
+.ember-campaign .exp-wardrobe { display:grid; grid-template-columns:minmax(230px,1fr) 1fr; grid-template-rows:minmax(0,1fr); gap:24px; min-height:0; flex:1; }
+.ember-campaign .exp-fitting { display:flex; flex-direction:column; gap:12px; min-width:0; min-height:0; overflow:auto; scrollbar-width:thin; scrollbar-color:#829c9a transparent; }
+.ember-campaign .exp-fitting-body { display:flex; flex-direction:column; gap:12px; min-height:min-content; flex:1 0 auto; }
+.ember-campaign .exp-preview-stage { display:flex; flex-direction:column; gap:8px; min-height:min-content; flex:1; }
+.ember-campaign .exp-outfit-info { display:grid; gap:6px; flex-shrink:0; }
+.ember-campaign .exp-fitting-actions { display:flex; flex-direction:column; gap:10px; flex-shrink:0; }
+.ember-campaign .exp-outfit-preview { min-height:130px; flex:1; position:relative; overflow:hidden; }
+.exp-preview-error { position:absolute; inset:0; display:grid; place-content:center; gap:10px; padding:20px; background:var(--ember-paper); z-index:1; }
+.ember-campaign .exp-outfit-preview canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
+.ember-campaign .exp-outfit-rack { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:max-content; gap:8px; min-width:0; min-height:0; overflow:auto; align-content:start; scrollbar-width:thin; scrollbar-color:#829c9a transparent; }
+.ember-campaign .exp-outfit-rack button { display:flex; flex-direction:column; align-items:center; padding:6px; min-width:0; min-height:max-content; }
+.ember-campaign .exp-outfit-swatch { width:100%; max-width:120px; }
+.ember-campaign .exp-preview-tools { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.ember-campaign .exp-preview-tools label { display:flex; align-items:center; gap:6px; flex:1; min-width:0; font-size:12px; white-space:nowrap; }
+.ember-campaign .exp-preview-tools input { width:100%; min-width:0; margin:0; accent-color:var(--ember-action); }
+.ember-campaign .exp-preview-tools button { flex-shrink:0; padding-inline:10px; font-size:12px; }
+.ember-campaign .exp-primary { background:var(--ember-action); color:#fff9e9; border-color:var(--ember-action); min-height:48px; }
+.ember-campaign .exp-muted { color:var(--ember-muted); font-size:12px; }
+.ember-campaign .exp-purchase-confirm { display:flex; gap:8px; flex-wrap:wrap; }
+.ember-campaign .exp-outfit-rack button[aria-pressed=true] { border-color:var(--ember-action); background:#d5e8df; box-shadow:inset 0 0 0 1px var(--ember-action); }
+.exp-person-name { position:absolute; top:0; left:0; color:#fffdf0; background:#244c59e8; padding:2px 9px; border:1px solid #deca8a; border-radius:4px; font-size:12px; line-height:1.5; white-space:nowrap; pointer-events:none; }
+@container (max-width:720px) {
+ .ember-keyboard-help { display:none; }.ember-touch-help { display:block; }
+ .ember-tools { right:12px; top:16px; flex-direction:column; }.ember-tools button { padding:8px; gap:4px; font-size:12px; }.ember-tools .exp-icon { width:20px; height:20px; }
+ .ember-boss { top:102px; left:18px; width:60%; transform:none; text-align:left; }.ember-alarm { top:205px; right:12px; }
+ .ember-curtain { padding:10px; }.ember-panel { padding:18px; gap:16px; }.ember-panel h2 { font-size:22px; }
+ .ember-objective { max-width:230px; }
+ .ember-campaign .exp-wardrobe { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) max-content; gap:14px; }
+ .ember-campaign .exp-outfit-rack { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:100px; padding-bottom:4px; }
+ .ember-campaign .exp-outfit-swatch { width:80px; }
+ .ember-panel.ember-dialogue { height:100%; width:100%; }
+ .ember-dialogue-heading { padding:12px 16px; gap:6px; }.ember-dialogue-scroll { padding:18px 16px; }
+}
+@media (max-height:450px) {
+ .ember-panel { padding:14px 20px; }.ember-tools { flex-direction:row; }.ember-boss { top:90px; }.ember-alarm { top:130px; }
+ .ember-curtain:has(.ember-dialogue) { padding:6px; }
+ .ember-dialogue-heading { padding:4px 12px; }.ember-person-heading { display:flex; align-items:baseline; gap:10px; }.ember-person-heading h2 { font-size:18px; flex-shrink:0; }.ember-person-heading small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+ .ember-dialogue-scroll { padding:12px; }
+}
+@media (min-width:650px) and (max-height:450px) {
+ .ember-curtain:has(.ember-wardrobe-panel) { padding:8px; }
+ .ember-wardrobe-panel { gap:8px; padding:8px 14px; }
+ .ember-campaign .exp-wardrobe { grid-template-columns:minmax(0,1fr) minmax(170px,.4fr); grid-template-rows:minmax(0,1fr); gap:16px; }
+ .ember-campaign .exp-fitting { display:grid; grid-template-columns:minmax(0,1fr) minmax(170px,1fr); grid-template-rows:minmax(0,1fr) auto; gap:8px 16px; }
+ .ember-campaign .exp-fitting-body { display:contents; }
+ .ember-campaign .exp-preview-stage { grid-column:1; grid-row:1/3; }
+ .ember-campaign .exp-outfit-info { grid-column:2; grid-row:1; overflow:auto; align-content:start; }
+ .ember-campaign .exp-fitting-actions { grid-column:2; grid-row:2; gap:6px; }
+ .ember-campaign .exp-fitting-actions .exp-primary { min-height:44px; }
+ .ember-campaign .exp-outfit-rack { grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-flow:row; grid-auto-columns:auto; }
+ .ember-campaign .exp-outfit-swatch { width:100%; max-width:80px; }
+ .ember-panel.ember-dialogue { width:100%; }
+}

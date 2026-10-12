@@ -1,8 +1,8 @@
 import { parseLearningAnswer } from './exercise.js';
 import { parseLearningHeardParts } from './speech.js';
 import { learningRecord, learningText } from './profile.js';
-import { LEARNING_LIMITS as L, type LearningAssessment, type LearningAttempt, type LearningExercise, type LearningHelp, type LearningMaterial } from './types.js';
-import { learningArray, learningBoolean, learningEnum, learningId, learningInteger, learningTimestamp, parseLearningScope, requireLearning, uniqueLearning } from './validation.js';
+import { LEARNING_ANNOTATION_CATEGORIES, LEARNING_LIMITS as L, type LearningAnnotation, type LearningAssessment, type LearningAttempt, type LearningExercise, type LearningHelp, type LearningMaterial } from './types.js';
+import { learningArray, learningBoolean, learningEnum, learningId, learningIds, learningInteger, learningTimestamp, parseLearningScope, requireLearning, uniqueLearning } from './validation.js';
 
 export function parseLearningMaterial(value: unknown, path = 'material'): LearningMaterial {
     const item = learningRecord(value, path, ['id', 'title', 'paragraphs', 'provenance', 'transcriptRevealed']);
@@ -40,7 +40,7 @@ export function parseLearningHelp(value: unknown, path = 'help'): LearningHelp {
 }
 
 export function parseLearningAttempt(value: unknown, exercises: LearningExercise[], materials: LearningMaterial[], path = 'attempt'): LearningAttempt {
-    const item = learningRecord(value, path, ['id', 'exerciseId', 'answer', 'submittedAt', 'help', 'scope', 'listening']);
+    const item = learningRecord(value, path, ['id', 'exerciseId', 'answer', 'submittedAt', 'help', 'scope', 'listening', 'revisesAttemptId']);
     const exerciseId = learningId(item.exerciseId, `${path}.exerciseId`);
     const exercise = exercises.find(exercise => exercise.id === exerciseId);
     requireLearning(exercise, `${path}.exerciseId`, 'Attempt must reference an existing exercise');
@@ -48,14 +48,48 @@ export function parseLearningAttempt(value: unknown, exercises: LearningExercise
         answer: parseLearningAnswer(item.answer, exercise.response, materials, `${path}.answer`),
         submittedAt: learningTimestamp(item.submittedAt, `${path}.submittedAt`), help: parseLearningHelp(item.help, `${path}.help`),
         scope: parseLearningScope(item.scope, `${path}.scope`),
-        ...(item.listening === undefined ? {} : { listening: parseLearningHeardParts(item.listening, exercise, materials, `${path}.listening`) }) };
+        ...(item.listening === undefined ? {} : { listening: parseLearningHeardParts(item.listening, exercise, materials, `${path}.listening`) }),
+        ...(item.revisesAttemptId === undefined ? {} : { revisesAttemptId: learningId(item.revisesAttemptId, `${path}.revisesAttemptId`) }) };
+}
+
+/** A learner's own paragraphs: every non-blank line, so a single Enter already starts a paragraph. */
+export function learningAnswerParagraphs(text: string): string[] {
+    return text.split(/\r?\n/u).filter(line => line.trim());
+}
+
+function parseAnnotation(value: unknown, path: string): LearningAnnotation {
+    const item = learningRecord(value, path, ['id', 'category', 'severity', 'paragraphIndex', 'quote', 'explanation', 'suggestion', 'itemId']);
+    const category = learningEnum(item.category, `${path}.category`, LEARNING_ANNOTATION_CATEGORIES);
+    requireLearning(item.itemId === undefined || category === 'grammar' || category === 'vocabulary', `${path}.itemId`, 'Only grammar and vocabulary annotations link a learning item');
+    return { id: learningId(item.id, `${path}.id`), category,
+        severity: learningEnum(item.severity, `${path}.severity`, ['error', 'improve', 'alternative']),
+        paragraphIndex: learningInteger(item.paragraphIndex, `${path}.paragraphIndex`),
+        quote: learningText(item.quote, `${path}.quote`, L.quote), explanation: learningText(item.explanation, `${path}.explanation`, L.explanation),
+        suggestion: learningText(item.suggestion, `${path}.suggestion`, L.explanation, true),
+        ...(item.itemId === undefined ? {} : { itemId: learningId(item.itemId, `${path}.itemId`) }) };
+}
+
+/** Annotations point at the learner's actual words, never at text the model imagined. */
+export function checkLearningAnnotations(assessment: LearningAssessment, attempt: LearningAttempt, path = 'assessment'): void {
+    if (!assessment.annotations?.length) { return; }
+    requireLearning(attempt.answer.kind === 'text', `${path}.annotations`, 'Annotations mark a written answer');
+    const paragraphs = learningAnswerParagraphs(attempt.answer.text);
+    for (const annotation of assessment.annotations) {
+        requireLearning(paragraphs[annotation.paragraphIndex]?.includes(annotation.quote), `${path}.annotations`,
+            "Quote the learner's exact words and the index of their paragraph that contains them");
+    }
 }
 
 export function parseLearningAssessment(value: unknown, path = 'assessment'): LearningAssessment {
-    const item = learningRecord(value, path, ['attemptId', 'verdict', 'understanding', 'expression', 'guidance', 'scope']);
+    const item = learningRecord(value, path, ['attemptId', 'verdict', 'understanding', 'expression', 'guidance', 'scope', 'annotations', 'resolvedAnnotationIds', 'signal']);
+    const annotations = item.annotations === undefined ? undefined : learningArray(item.annotations, `${path}.annotations`, parseAnnotation, L.annotations);
+    if (annotations) { uniqueLearning(annotations.map(annotation => annotation.id), `${path}.annotations`); }
     return { attemptId: learningId(item.attemptId, `${path}.attemptId`),
         verdict: learningEnum(item.verdict, `${path}.verdict`, ['correct', 'partial', 'incorrect', 'disputed']),
         understanding: learningText(item.understanding, `${path}.understanding`, L.explanation, true),
         expression: learningText(item.expression, `${path}.expression`, L.explanation, true),
-        guidance: learningText(item.guidance, `${path}.guidance`, L.explanation), scope: parseLearningScope(item.scope, `${path}.scope`) };
+        guidance: learningText(item.guidance, `${path}.guidance`, L.explanation), scope: parseLearningScope(item.scope, `${path}.scope`),
+        ...(annotations ? { annotations } : {}),
+        ...(item.resolvedAnnotationIds === undefined ? {} : { resolvedAnnotationIds: learningIds(item.resolvedAnnotationIds, `${path}.resolvedAnnotationIds`, L.annotations) }),
+        ...(item.signal === undefined ? {} : { signal: learningEnum(item.signal, `${path}.signal`, ['clean', 'hesitant', 'blank']) }) };
 }

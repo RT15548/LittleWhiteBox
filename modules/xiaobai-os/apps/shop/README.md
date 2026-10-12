@@ -12,6 +12,4 @@
 - `host/prompt-runtime.ts`：生成事件、normal/regenerate/swipe/continue 判定及 Prompt 生命周期。
 - `ui/`：货架、库存和动作弹窗。
 
-`legacy-service.ts`、`legacy-root-protocol.ts`和`legacy-controller.ts`仅保留生产切换前的 metadata-root 路径；新服务不读取完整 OS root 或 Economy ledger。
-
 购买和扣款在同一次用户文件 commit 中保存。normal 回复一形成，消息收据与在途交付就在当前调用内生效；下一轮读取“持久 Shop + 在途交付”，不等待文件上传，后台只按序把 deliver 落入`shop`分区。Shop 不读取楼层或剧情内容，不因编辑、删除、swipe 或分支而回滚经济事实。

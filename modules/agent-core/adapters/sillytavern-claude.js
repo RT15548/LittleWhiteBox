@@ -283,7 +283,7 @@ function parseContentResult(content = [], options = {}) {
         text,
         toolCalls,
         thoughts,
-        finishReason: requireResponseCompletion('anthropic', options.finishReason),
+        finishReason: requireResponseCompletion('anthropic', options.finishReason, false, text),
         model: options.model || '',
         provider: 'sillytavern-claude',
         providerPayload: normalized.length ? { anthropicContent: buildProviderPayloadContent(normalized) } : undefined,

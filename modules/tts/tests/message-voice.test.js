@@ -24,6 +24,17 @@ test('voice aliases and optional emotion project to TTS-owned bubbles', () => {
     assert.match(result, />2"<\/span>/);
 });
 
+test('a plain voice marker cannot consume a following emotional voice marker', () => {
+    const source = '[voice:first line] [语音:Happy:second line]';
+    const { document } = parseHTML(`<div>${enhanceMessageVoiceHtml(source, true)}</div>`);
+    const bubbles = [...document.querySelectorAll('[data-xb-tts-message-voice]')];
+    assert.deepEqual(bubbles.map(node => ({ text: decodeURIComponent(node.dataset.text), emotion: node.dataset.emotion })), [
+        { text: 'first line', emotion: '' }, { text: 'second line', emotion: 'happy' },
+    ]);
+    restoreMessageVoiceBubbles(document);
+    assert.equal(document.querySelector('div').textContent, source);
+});
+
 test('voice projection changes visible text without rewriting attributes or code examples', () => {
     const { document } = parseHTML('<div id="message" data-example="[voice:attribute]">before [voice:happy:hello]<code>[voice:hidden]</code></div>');
     const message = document.getElementById('message');

@@ -90,47 +90,19 @@ async function harness() {
         reopen: async () => { const reopened = createLearningRepository(files); return (await reopened.read()).document; } };
 }
 
-test('conversation answers use the exact student message and pre-turn help conditions once, never teacher-supplied text', async () => {
-    const h = await harness();
-    const unit = await h.prepare();
-    const message = '  Trees makes city cooler.\nI think shade helps.  ';
-    const run = h.session({ kind: 'talk' }, publicScope, 'story-a', message);
-    const exerciseId = unit.exercises[0].id;
-    assert.equal(run.executeTool('LearningAnswer', { exerciseId, text: 'A corrected answer.' }).ok, false);
-    assert.equal(run.executeTool('LearningHelp', { exerciseIds: [exerciseId], materialIds: [] }).ok, true);
-    const recorded = run.executeTool('LearningAnswer', { exerciseId });
-    assert.equal(recorded.ok, true, JSON.stringify(recorded));
-    assert.deepEqual(run.executeTool('LearningAnswer', { exerciseId }).ids, recorded.ids);
-    const attempt = run.executeTool('LearningRead', { section: 'unit' }).data.attempts[0];
-    assert.equal(attempt.answer.text, message);
-    assert.equal(attempt.help.hint, false);
-    assert.equal(h.read().unit.attempts.length, 0);
-    assert.equal(run.executeTool('LearningAssess', h.feedback(recorded.ids[0])).ok, true);
-    await run.commit(() => true);
-    assert.equal(h.read().unit.attempts.length, 1);
-    assert.equal(h.read().unit.attempts[0].answer.text, message);
-    assert.equal(h.read().unit.revealed.hints.includes(exerciseId), true);
-    const late = h.session({ kind: 'talk' }, publicScope, 'story-a', 'already visible');
-    assert.equal(late.executeTool('LearningLessonEdit', { exercises: [question({ key: 'new', materialKeys: [unit.materials[0].id] })] }).ok, true);
-    const added = late.executeTool('LearningRead', { section: 'unit' }).data.exercises.at(-1).id;
-    assert.equal(late.executeTool('LearningAnswer', { exerciseId: added }).ok, false);
-    assert.equal((await late.commit(() => true)).status, 'confirmed');
-    assert.equal(h.read().unit.attempts.length, 1);
-});
-
 test('a teacher starts a fresh lesson only after a confirmed completion, preserving the reward and retained evidence', async () => {
     const h = await harness(); const unit = await h.prepare();
-    const premature = h.session({ kind: 'talk' });
+    const premature = h.session({ kind: 'prepare', replaceCurrent: false });
     assert.equal(premature.executeTool('LearningLessonEdit', { ...lesson(), newLesson: true }).ok, false);
     assert.equal(h.read().unit.id, unit.id);
     const attemptId = await h.submit();
-    const finishing = h.session({ kind: 'talk' });
+    const finishing = h.session({ kind: 'assess', attemptId, review: false });
     assert.equal(finishing.executeTool('LearningAssess', h.feedback(attemptId)).ok, true);
     assert.equal(finishing.executeTool('LearningComplete', { unitId: unit.id, attemptIds: [attemptId], summary: '完成' }).ok, true);
     assert.equal(finishing.executeTool('LearningLessonEdit', { ...lesson(), newLesson: true }).ok, false);
     await finishing.commit(() => true);
     const completion = structuredClone(h.read().completions[0]);
-    const next = h.session({ kind: 'talk' });
+    const next = h.session({ kind: 'prepare', replaceCurrent: false });
     assert.equal(next.executeTool('LearningLessonEdit', { ...lesson(), title: '下一课', newLesson: true }).ok, true);
     await next.commit(() => true);
     assert.notEqual(h.read().unit.id, unit.id);
@@ -138,15 +110,88 @@ test('a teacher starts a fresh lesson only after a confirmed completion, preserv
     assert.equal(h.read().items[0].evidence[0].attempt.id, attemptId);
 });
 
-test('presentation references cannot outlive a deleted exercise in the same proposed turn', async () => {
+test('retiring a displayed exercise clears its transient link without blocking the edit', async () => {
     const h = await harness();
     const unit = await h.prepare(lesson({ exercises: [question(), question({ key: 'second' })] }));
-    const run = h.session({ kind: 'talk' });
+    const run = h.session({ kind: 'prepare', replaceCurrent: false });
     const id = unit.exercises[1].id;
     assert.equal(run.executeTool('LearningPresent', { kind: 'exercise', id }).ok, true);
-    assert.equal(run.executeTool('LearningLessonEdit', { removeExercises: [id] }).ok, false);
-    assert.equal((await run.commit(() => true)).status, 'unchanged');
-    assert.equal(h.read().unit.exercises.length, 2);
+    assert.equal(run.executeTool('LearningLessonEdit', { removeExercises: [id] }).ok, true);
+    assert.equal(run.presentation(), null);
+    assert.equal((await run.commit(() => true)).status, 'confirmed');
+    assert.equal(h.read().unit.exercises.length, 1);
+});
+
+test('an external replacement requires reading or naming the new target, while own replacements stay in focus', async () => {
+    const h = await harness(); const old = await h.prepare();
+    const run = h.session({ kind: 'talk', unitId: old.id });
+    const replacement = await h.prepare(lesson({ title: 'New target' }));
+    run.refresh();
+    assert.equal(run.executeTool('LearningLessonEdit', { title: 'Stale edit' }).ok, false);
+    run.executeTool('LearningRead', { section: 'unit' });
+    assert.equal(run.executeTool('LearningLessonEdit', { title: 'Deliberate edit' }).ok, true);
+    await run.checkpoint(() => true);
+    run.authorizeReplacement(replacement.id);
+    assert.equal(run.executeTool('LearningLessonEdit', { ...lesson(), newLesson: true }).ok, true);
+    await run.checkpoint(() => true); run.refresh();
+    assert.equal(run.executeTool('LearningLessonEdit', { title: 'Own new target' }).ok, true);
+    await run.commit(() => true);
+    assert.notEqual(h.read().unit.id, replacement.id);
+});
+
+test('an unsent replacement restores the saved focus and presentation rather than retaining its candidate', async () => {
+    const h = await harness(); const unit = await h.prepare();
+    const run = h.session({ kind: 'talk', unitId: unit.id });
+    run.executeTool('LearningPresent', { kind: 'exercise', id: unit.exercises[0].id });
+    const presentation = run.presentation();
+    run.authorizeReplacement(unit.id);
+    assert.equal(run.executeTool('LearningLessonEdit', { ...lesson(), newLesson: true }).ok, true);
+    assert.equal(run.presentation(), null);
+    await h.service.saveSettings('en', { level: 'B2' }, () => true);
+    assert.equal((await run.checkpoint(() => true)).status, 'cancelled');
+    assert.deepEqual(run.presentation(), presentation);
+    assert.deepEqual(run.appliedTools(), ['LearningPresent']);
+    run.refresh();
+    assert.equal(run.executeTool('LearningLessonEdit', { title: 'Still the saved lesson' }).ok, true);
+    assert.equal((await run.commit(() => true)).status, 'confirmed');
+    assert.equal(h.read().unit.id, unit.id); assert.equal(h.read().unit.title, 'Still the saved lesson');
+    assert.equal(h.read().level, 'B2');
+});
+
+test('each reading-content writer confines story-informed edits to that story', async () => {
+    for (const name of ['LearningReadingNotes', 'LearningEssayTask', 'LearningModelEssay']) {
+        const h = await harness(); const unit = await h.prepare(lesson({ kind: 'reading-writing' }));
+        const attemptId = await h.submit();
+        const run = h.session({ kind: 'talk' }, { kind: 'story', osId: 'story-a' });
+        const args = new Map([
+        ['LearningReadingNotes', { explanations: [{ paragraphId: 'p1', explanation: 'Private detail', terms: [] }] }],
+        ['LearningEssayTask', { prompt: 'Private detail', exerciseId: 'new-essay' }],
+        ['LearningModelEssay', { unitId: unit.id, text: 'Private detail', level: 'B1' }],
+        ]).get(name);
+        const result = run.executeTool(name, args);
+        assert.equal(result.ok, true, JSON.stringify(result));
+        assert.equal((await run.commit(() => true)).status, 'confirmed');
+        assert.deepEqual(h.read().unit.scope, { kind: 'story', osId: 'story-a' });
+        assert.equal(h.read().unit.attempts[0].id, attemptId);
+        assert.deepEqual(h.read().unit.attempts[0].scope, publicScope);
+    }
+});
+
+test('private edits after cross-story reuse leave original evidence, completion and reward ownership intact', async () => {
+    const h = await harness(); const unit = await h.prepare();
+    const attemptId = await h.submit(); await h.assess(attemptId, { complete: true });
+    const before = structuredClone(h.read());
+    const scope = { kind: 'story', osId: 'story-b' };
+    const run = h.session({ kind: 'talk', unitId: unit.id }, scope, 'story-b');
+    assert.equal(run.executeTool('LearningLessonEdit', { title: 'A detail from the second story' }).ok, true);
+    assert.equal((await run.commit(() => true)).status, 'confirmed');
+    const saved = (await h.reopen()).data.profiles[0];
+    assert.deepEqual(saved.unit.scope, scope); assert.equal(saved.unit.originOsId, before.unit.originOsId);
+    assert.deepEqual(saved.unit.attempts, before.unit.attempts); assert.deepEqual(saved.unit.assessments, before.unit.assessments);
+    assert.deepEqual(saved.items, before.items); assert.deepEqual(saved.completions, before.completions);
+    const reader = h.session({ kind: 'talk' }, publicScope, 'story-a');
+    assert.equal(reader.executeTool('LearningRead', { section: 'unit' }).data, null);
+    assert.equal(reader.executeTool('LearningRead', { section: 'evidence' }).data.length, 1);
 });
 
 test('lesson tools preserve actual source text through submission, assessment, completion and storage reopen', async () => {
@@ -184,20 +229,20 @@ test('failed calls are atomic, correction retains IDs and valid earlier changes 
     assert.equal(corrected.changed, false);
     await run.commit(() => true);
     assert.equal(h.read().unit.exercises.length, 1);
-    const editing = h.session({ kind: 'talk' });
+    const editing = h.session({ kind: 'prepare', replaceCurrent: false });
     assert.equal(editing.executeTool('LearningLessonEdit', { title: '调整课程标题' }).ok, true);
     await editing.commit(() => true);
     assert.equal(h.read().unit.title, '调整课程标题');
     assert.deepEqual(h.read().unit.exercises.map(exercise => exercise.id), [good.ids.at(-1)]);
 });
 
-test('ordinary teaching can maintain the stated goal but cannot manufacture attempts or change published money', async () => {
+test('assessment can accompany goal edits but cannot manufacture attempts or change published money', async () => {
     const h = await harness();
     const unit = await h.prepare();
     let run = h.session({ kind: 'complete' });
     assert.equal(run.executeTool('LearningComplete', { unitId: unit.id, attemptIds: ['invented'], summary: '做完了' }).ok, false);
     assert.equal(run.executeTool('LearningProfileEdit', { goal: { description: '想多练阅读理解' } }).ok, true);
-    assert.equal(run.executeTool('LearningLessonEdit', { tier: 'deep' }).ok, false);
+    assert.equal(h.session({ kind: 'prepare', replaceCurrent: false }).executeTool('LearningLessonEdit', { tier: 'deep' }).ok, false);
     const attemptId = await h.submit();
     run = h.session({ kind: 'assess', attemptId, review: false });
     assert.equal(run.executeTool('LearningAssess', { ...h.feedback(attemptId), answer: '伪造原答' }).ok, false);
@@ -225,7 +270,7 @@ test('all native objective forms use published answers and real help, without a 
         const attemptId = await h.submit(entry.answer);
         assert.equal(h.read().unit.assessments[0].verdict, 'correct');
         assert.equal(h.read().unit.attempts[0].help.hint, true);
-        const complete = h.session({ kind: 'complete' });
+        const complete = h.session({ kind: 'assess', attemptId, review: false });
         assert.equal(complete.executeTool('LearningAssess', { attemptId, items: [{ label: '依据原文理解' }] }).ok, true);
         assert.equal(complete.executeTool('LearningComplete', { unitId: unit.id, attemptIds: [attemptId], summary: '练习结束。' }).ok, true);
         await complete.commit(() => true);
@@ -244,17 +289,17 @@ test('a corrected retry carries prior feedback into retained evidence without ch
     assert.equal(original.help.feedback, false);
     const retry = await h.submit({ kind: 'choice', ids: ['a'] });
     assert.deepEqual(h.read().unit.attempts[0], original);
-    const run = h.session({ kind: 'complete' });
+    const run = h.session({ kind: 'assess', attemptId: retry, review: false });
     assert.equal(run.executeTool('LearningAssess', { attemptId: retry, items: [{ label: '理解树荫的作用' }] }).ok, true);
     await run.commit(() => true);
-    await h.service.deleteAttempt('en', first, () => true);
+    await h.service.deleteAttempt('en', first, 'story-a', () => true);
     await h.prepare();
     const reopened = (await h.reopen()).data.profiles[0];
     const evidence = learningEvidence(reopened, retry);
     assert.equal(evidence.attempt.help.feedback, true);
     assert.equal(evidence.attempt.help.hint, false); assert.equal(evidence.attempt.help.answer, false);
     assert.equal(independentLearningSuccess(evidence), false);
-    assert.equal(h.session({ kind: 'explain' }).executeTool('LearningRead', { section: 'evidence' }).data[0].attempt.help.feedback, true);
+    assert.equal(h.session({ kind: 'talk' }).executeTool('LearningRead', { section: 'evidence' }).data[0].attempt.help.feedback, true);
 });
 
 test('unassessed retries and feedback on a different question do not invent prior assistance', async () => {
@@ -294,7 +339,7 @@ test('private units, answers, feedback and item labels do not cross stories; onl
     const downgraded = await h.reopen();
     downgraded.data.profiles[0].completions[0].scope = publicScope;
     assert.throws(() => parseLearningDocument(downgraded));
-    const other = h.session({ kind: 'explain' }, { kind: 'story', osId: 'story-b' }, 'story-b');
+    const other = h.session({ kind: 'talk' }, { kind: 'story', osId: 'story-b' }, 'story-b');
     assert.equal(other.executeTool('LearningRead', {}).data.blockedCurrentUnit, true);
     const items = other.executeTool('LearningRead', { section: 'items' }).data;
     assert.equal(items[0].label, null);
@@ -308,7 +353,7 @@ test('private units, answers, feedback and item labels do not cross stories; onl
     await h.prepare();
     const privateAnswer = await h.submit({ kind: 'text', text: 'Only the original teacher may see this answer.' }, scope);
     await h.assess(privateAnswer, { scope });
-    const reader = h.session({ kind: 'explain' }, { kind: 'story', osId: 'story-b' }, 'story-b');
+    const reader = h.session({ kind: 'talk' }, { kind: 'story', osId: 'story-b' }, 'story-b');
     assert.equal(reader.executeTool('LearningRead', { section: 'unit' }).data.attempts.length, 0);
 });
 
@@ -323,20 +368,22 @@ test('independent progress requires spaced active evidence; review and deletion 
     const second = await h.submit({ kind: 'text', text: 'Libraries make books available.' });
     await h.assess(second, { items: [{ itemId }] });
     assert.equal(learningProgress(h.read().items[0]).independent, true);
-    assert.equal(learningProgress(h.read().items[0]).nextReviewAt, '2026-09-11T08:00:00.000Z');
-    await h.service.dispute('en', second, () => true);
+    // Memory review is scheduled for grammar and vocabulary only; a reading item keeps evidence without a due date.
+    assert.equal(h.read().items[0].schedule, undefined);
+    assert.equal('nextReviewAt' in learningProgress(h.read().items[0]), false);
+    await h.service.dispute('en', second, 'story-a', () => true);
     assert.equal(learningProgress(h.read().items[0]).state, 'review');
     await h.assess(second, { items: [{ itemId }], review: true });
     assert.equal(learningProgress(h.read().items[0]).independent, true);
     // Recheck a retained answer from the previous unit, not a fabricated new attempt.
-    await h.service.dispute('en', first, () => true);
+    await h.service.dispute('en', first, 'story-a', () => true);
     assert.equal(learningProgress(h.read().items[0]).independent, false);
     await h.assess(first, { items: [{ itemId }], review: true });
     assert.equal(learningProgress(h.read().items[0]).independent, true);
-    await h.service.deleteAttempt('en', first, () => true);
+    await h.service.deleteAttempt('en', first, 'story-a', () => true);
     assert.equal(learningProgress(h.read().items[0]).independent, false);
     assert.equal(h.read().items[0].evidence.length, 1);
-    await h.service.deleteItem('en', itemId, () => true);
+    await h.service.deleteItem('en', itemId, 'story-a', () => true);
     assert.equal(h.read().items.length, 0);
     assert.equal(h.read().unit.attempts[0].id, second);
     await h.service.deleteLanguage('en', () => true);
@@ -358,7 +405,7 @@ test('receptive skills accept comprehension choices; productive skills require p
                         learningSpeechParts(unit.materials[0])[0].key, true, false, 'story-a', () => true);
                 }
                 const attemptId = await h.submit({ kind: 'choice', ids: ['a'] });
-                const marking = h.session({ kind: 'talk' });
+                const marking = h.session({ kind: 'assess', attemptId, review: false });
                 assert.equal(marking.executeTool('LearningAssess', { attemptId, items: [itemId ? { itemId } : { label: 'Identify meaning' }] }).ok, true);
                 await marking.commit(() => true);
                 itemId = h.read().items[0].id;
@@ -386,16 +433,18 @@ test('receptive skills accept comprehension choices; productive skills require p
 });
 
 test('due review is injected with time and a sorted cursor, and every due item remains readable with private text withheld', async () => {
-    const h = await harness(); await h.prepare();
+    // Due dates come from the vocabulary schedule: a new item is due one day after it is first recorded.
+    const vocabulary = lesson({ exercises: [question({ skill: 'vocabulary' })] });
+    const h = await harness(); await h.prepare(vocabulary);
     const attemptId = await h.submit();
     for (let offset = 0; offset < 25; offset += 5) {
         await h.assess(attemptId, { items: Array.from({ length: 5 }, (_, i) => ({ label: `${offset + i}: ${'<&'.repeat(350)}` })) });
     }
     h.setDate('2026-09-01T08:00:00.000Z');
-    await h.prepare(); await h.assess(await h.submit(), { items: [{ label: 'Oldest, inserted last' }] });
+    await h.prepare(vocabulary); await h.assess(await h.submit(), { items: [{ label: 'Oldest, inserted last' }] });
     const oldest = h.read().items.at(-1).id;
     h.setDate('2026-10-01T08:00:00.000Z');
-    await h.prepare(); await h.assess(await h.submit(), { items: [{ label: 'Not due yet' }] });
+    await h.prepare(vocabulary); await h.assess(await h.submit(), { items: [{ label: 'Not due yet' }] });
     const document = await h.reopen(); const asOf = '2026-09-09T08:00:00.000Z';
     const { messages } = buildLearningContext({ data: document.data, language: 'en', osId: 'story-a', teacher: { name: '老师', note: '' }, asOf,
         action: { kind: 'talk' }, message: '练习阅读', context: { teacherDetails: '', snapshot: {
@@ -485,22 +534,21 @@ test('data projection budget degrades without invalidating saved text; read and 
     await assert.rejects(run.commit(() => true));
 });
 
-test('a failed item attachment leaves no debt on a successful assessment of another attempt', async () => {
+test('a failed item attachment leaves no debt on a corrected assessment', async () => {
     const h = await harness();
     await h.prepare(lesson({ exercises: [question({ skill: 'reading', response: { kind: 'choice', multiple: false,
         options: [{ id: 'a', text: 'cool' }, { id: 'b', text: 'warm' }] },
     rule: { kind: 'exact', answer: { kind: 'choice', ids: ['a'] }, explanation: 'See the text.' } })] }));
-    const first = await h.submit({ kind: 'choice', ids: ['a'] });
     const second = await h.submit({ kind: 'choice', ids: ['b'] });
-    const run = h.session({ kind: 'complete' });
-    assert.equal(run.executeTool('LearningAssess', { attemptId: first, items: [{ itemId: 'missing' }] }).ok, false);
+    const run = h.session({ kind: 'assess', attemptId: second, review: false });
+    assert.equal(run.executeTool('LearningAssess', { attemptId: second, items: [{ itemId: 'missing' }] }).ok, false);
     assert.equal(run.executeTool('LearningAssess', { attemptId: second, items: [{ label: '读懂原因' }] }).ok, true);
     assert.equal(h.read().items.length, 0);
     await run.commit(() => true);
     assert.equal(h.read().items[0].evidence[0].attempt.id, second);
 });
 
-test('reviewing one answer does not implicitly authorise rewriting another answer’s feedback', async () => {
+test('reconsidering another answer requires an explicit review flag, not another run', async () => {
     const h = await harness(); await h.prepare();
     const first = await h.submit(); await h.assess(first);
     const second = await h.submit(); await h.assess(second);
@@ -508,7 +556,10 @@ test('reviewing one answer does not implicitly authorise rewriting another answe
     const revised = { ...h.feedback(second), verdict: 'partial' };
     assert.equal(run.executeTool('LearningAssess', revised).ok, false);
     assert.equal(run.executeTool('LearningAssess', { ...revised, review: true }).ok, true);
-    await run.commit(() => true);
+    assert.equal((await run.commit(() => true)).status, 'confirmed');
+    const targeted = h.session({ kind: 'assess', attemptId: second, review: true });
+    assert.equal(targeted.executeTool('LearningAssess', revised).ok, true);
+    await targeted.commit(() => true);
     assert.equal(h.read().unit.assessments.find(entry => entry.attemptId === first).verdict, 'correct');
     assert.equal(h.read().unit.assessments.find(entry => entry.attemptId === second).verdict, 'partial');
 });
@@ -547,7 +598,7 @@ test('incremental adaptation keeps saved answers, listening, evidence and reward
     const attemptId = await h.submit();
     await h.assess(attemptId, { complete: true });
     const before = structuredClone(h.read());
-    const run = h.session({ kind: 'talk' });
+    const run = h.session({ kind: 'prepare', replaceCurrent: false });
     const exerciseId = original.exercises[0].id;
     const materialId = original.materials[0].id;
     assert.equal(run.executeTool('LearningLessonEdit', { exercises: [question({ key: exerciseId, materialKeys: [materialId], prompt: 'Changed meaning' })] }).ok, false);
@@ -565,7 +616,7 @@ test('incremental adaptation keeps saved answers, listening, evidence and reward
     assert.deepEqual(after.unit.attempts, before.unit.attempts);
     assert.deepEqual(after.items, before.items);
     assert.deepEqual(after.completions, before.completions);
-    const remove = h.session({ kind: 'talk' });
+    const remove = h.session({ kind: 'prepare', replaceCurrent: false });
     const target = after.unit.exercises.at(-1).id;
     assert.equal(remove.executeTool('LearningLessonEdit', { removeExercises: [target] }).ok, true);
     await remove.commit(() => true);

@@ -97,6 +97,8 @@ export function planDrawRunRecovery({
             : null;
         if (run) claimedRuns.add(runId);
 
+        // Released upstream markers carried cancellation intent in the chat.
+        // Read it until that run is reconciled; new cancellations use the exact-set journal.
         const cancellationRequested = Number(markerEntry.marker?.cancelRequestedAt) > 0;
         const cancellationReachedBackend = Number(run?.cancelRequestedAt) > 0;
         if (cancellationRequested && run && !cancellationReachedBackend

@@ -96,7 +96,7 @@ function parseRule(value: unknown, response: LearningResponse, materials: Learni
 }
 
 export function parseLearningExercise(value: unknown, materials: LearningMaterial[], path = 'exercise'): LearningExercise {
-    const item = learningRecord(value, path, ['id', 'skill', 'materialIds', 'prompt', 'response', 'rule', 'hint']);
+    const item = learningRecord(value, path, ['id', 'skill', 'materialIds', 'prompt', 'response', 'rule', 'hint', 'paragraphId', 'itemId']);
     const materialIds = learningIds(item.materialIds, `${path}.materialIds`);
     requireLearning(materialIds.every(id => materials.some(material => material.id === id)), `${path}.materialIds`, 'Referenced material must exist');
     const referenced = materials.filter(material => materialIds.includes(material.id));
@@ -105,9 +105,15 @@ export function parseLearningExercise(value: unknown, materials: LearningMateria
     const skill = learningEnum(item.skill, `${path}.skill`, LEARNING_SKILLS);
     if (skill === 'listening') { requireLearning(materialIds.length > 0, path, 'Listening requires a saved material'); }
     if (skill === 'writing') { requireLearning(response.kind === 'text', path, 'Writing evidence requires a written response'); }
+    const paragraphId = item.paragraphId === undefined ? undefined : learningId(item.paragraphId, `${path}.paragraphId`);
+    if (paragraphId !== undefined) {
+        requireLearning(referenced.some(material => material.paragraphs.some(paragraph => paragraph.id === paragraphId)), `${path}.paragraphId`, 'Use a paragraph of the referenced material');
+    }
     return { id: learningId(item.id, `${path}.id`), skill, materialIds,
         prompt: learningText(item.prompt, `${path}.prompt`, L.prompt), response,
-        rule: parseRule(item.rule, response, referenced, `${path}.rule`), hint: learningText(item.hint, `${path}.hint`, L.explanation, true) };
+        rule: parseRule(item.rule, response, referenced, `${path}.rule`), hint: learningText(item.hint, `${path}.hint`, L.explanation, true),
+        ...(paragraphId === undefined ? {} : { paragraphId }),
+        ...(item.itemId === undefined ? {} : { itemId: learningId(item.itemId, `${path}.itemId`) }) };
 }
 
 export function objectiveLearningVerdict(exercise: LearningExercise, answer: LearningAnswer): 'correct' | 'incorrect' | null {

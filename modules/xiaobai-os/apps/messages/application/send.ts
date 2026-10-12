@@ -8,7 +8,7 @@ import { unsyncedIds } from './projection.js';
 import { generateMessageReply } from './generate-reply.js';
 import { uploadedImageReference, type OutgoingMessage } from './image-upload.js';
 import type { MessageImages } from '../host/image-attachments.js';
-import type { MessagesSettings } from '../types.js';
+import type { MessageReplyPreview, MessagesSettings } from '../types.js';
 import type { ContextTokenCounter } from './context-budget.js';
 
 export interface SendDependencies {
@@ -30,6 +30,7 @@ export class MessageSendError extends Error {
 export async function sendPrivateMessage(deps: SendDependencies, input: {
     contactId: string; messageId: string; payload?: OutgoingMessage;
     guard: () => boolean; recoverInput?: () => boolean; signal: AbortSignal; stage: (stage: string) => void;
+    preview?: (preview: MessageReplyPreview) => void;
 }): Promise<void> {
     const { service, timeline } = deps;
     const assertCurrent = () => {if (!input.guard() || input.signal.aborted) {throw new Error('messages_cancelled');}};
@@ -69,7 +70,7 @@ export async function sendPrivateMessage(deps: SendDependencies, input: {
         const contact = service.current().contacts.find(person => person.id === input.contactId)!;
         const { replies } = await generateMessageReply(deps, {
             contact, history: thread.filter(message => message.id !== incoming!.id), incoming: incoming!,
-            signal: input.signal, guard: input.guard, stage,
+            signal: input.signal, guard: input.guard, stage, preview: input.preview,
             async saveSummary(summary, previous) {
                 await service.change(state => {
                     const target = state.contacts.find(person => person.id === input.contactId);

@@ -1,10 +1,7 @@
-import {
-    DEFAULT_TAVILY_BASE_URL,
-    normalizeTavilyApiKey,
-    normalizeTavilyBaseUrl,
-} from './tavily-search.js';
+import { normalizeWebApiKey, normalizeWebBaseUrl, normalizeWebSettings } from './web/settings.js';
 import { normalizeReasoningConfig } from './reasoning-config.js';
 import { normalizeAgentApiKey } from './provider-auth.js';
+import { DEFAULT_MODEL_LIST_AUTH, normalizeModelListAuth, supportsModelListAuth } from './model-list-auth.js';
 
 export const DEFAULT_PROVIDER = 'openai-compatible';
 export const DEFAULT_PRESET_NAME = '默认';
@@ -52,6 +49,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         baseUrl: '',
         model: 'claude-sonnet-4-0',
         apiKey: '',
+        modelListAuth: DEFAULT_MODEL_LIST_AUTH,
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
@@ -68,6 +66,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         baseUrl: 'https://api.anthropic.com',
         model: 'claude-sonnet-4-0',
         apiKey: '',
+        modelListAuth: DEFAULT_MODEL_LIST_AUTH,
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
@@ -137,6 +136,7 @@ export function normalizeModelConfigs(modelConfigs = {}) {
             baseUrl: String(source.baseUrl ?? defaults.baseUrl ?? ''),
             model: String(source.model ?? defaults.model ?? ''),
             apiKey: normalizeAgentApiKey(source.apiKey ?? defaults.apiKey),
+            ...(supportsModelListAuth(provider) ? { modelListAuth: normalizeModelListAuth(source.modelListAuth) } : {}),
             temperature: source.temperature ?? defaults.temperature,
             maxTokens: normalizeMaxTokens(source.maxTokens, defaults.maxTokens),
             sendTemperature: typeof source.sendTemperature === 'boolean'
@@ -262,7 +262,7 @@ function resolveLegacyTavilyValue(input = {}, legacyPresetName, currentPresetNam
 function resolveLegacyTavilyBaseUrl(input = {}, legacyPresetName, currentPresetName) {
     const normalizeRaw = (value) => String(value || '').trim();
     if (normalizeRaw(input?.tavilyBaseUrl)) {
-        return normalizeTavilyBaseUrl(input.tavilyBaseUrl);
+        return normalizeWebBaseUrl(input.tavilyBaseUrl);
     }
 
     const presetSource = buildPresetSource(input, legacyPresetName);
@@ -278,18 +278,18 @@ function resolveLegacyTavilyBaseUrl(input = {}, legacyPresetName, currentPresetN
         if (seen.has(presetName)) continue;
         seen.add(presetName);
         const value = presetSource?.[presetName]?.tavilyBaseUrl;
-        if (normalizeRaw(value)) return normalizeTavilyBaseUrl(value);
+        if (normalizeRaw(value)) return normalizeWebBaseUrl(value);
     }
 
     if (normalizeRaw(input?.delegateConfig?.tavilyBaseUrl)) {
-        return normalizeTavilyBaseUrl(input.delegateConfig.tavilyBaseUrl);
+        return normalizeWebBaseUrl(input.delegateConfig.tavilyBaseUrl);
     }
-    return DEFAULT_TAVILY_BASE_URL;
+    return normalizeWebBaseUrl();
 }
 
 function resolveGlobalTavilySettings(input = {}, legacyPresetName, currentPresetName) {
     return {
-        tavilyApiKey: resolveLegacyTavilyValue(input, legacyPresetName, currentPresetName, 'tavilyApiKey', normalizeTavilyApiKey),
+        tavilyApiKey: resolveLegacyTavilyValue(input, legacyPresetName, currentPresetName, 'tavilyApiKey', normalizeWebApiKey),
         tavilyBaseUrl: resolveLegacyTavilyBaseUrl(input, legacyPresetName, currentPresetName),
     };
 }
@@ -306,7 +306,7 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
     const delegateFallbackPreset = presets[delegatePresetName] || presets[currentPresetName] || buildDefaultPreset();
     const delegateConfig = normalizeDelegateConfig(saved.delegateConfig, delegateFallbackPreset);
     const delegateConfigured = resolveDelegateConfigured(saved, presets, currentPresetName, delegatePresetName);
-    const tavilySettings = resolveGlobalTavilySettings(saved, legacyPresetName, currentPresetName);
+    const webSettings = normalizeWebSettings(saved, resolveGlobalTavilySettings(saved, legacyPresetName, currentPresetName));
 
     return {
         workspaceFileName: normalizeWorkspaceName(saved.workspaceFileName || defaultWorkspaceFileName),
@@ -316,8 +316,7 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
         delegateConfig,
         delegateConfigured,
         presets,
-        tavilyApiKey: tavilySettings.tavilyApiKey,
-        tavilyBaseUrl: tavilySettings.tavilyBaseUrl,
+        ...webSettings,
         updatedAt: Number(saved.updatedAt) || 0,
         configVersion: AGENT_SETTINGS_CONFIG_VERSION,
     };
@@ -332,7 +331,7 @@ export function normalizeAgentConfig(config = {}) {
     const delegateFallbackPreset = presets[delegatePresetName] || currentPreset;
     const delegateConfig = normalizeDelegateConfig(config.delegateConfig, delegateFallbackPreset);
     const delegateConfigured = resolveDelegateConfigured(config, presets, currentPresetName, delegatePresetName);
-    const tavilySettings = resolveGlobalTavilySettings(config, legacyPresetName, currentPresetName);
+    const webSettings = normalizeWebSettings(config, resolveGlobalTavilySettings(config, legacyPresetName, currentPresetName));
 
     return {
         workspaceFileName: String(config.workspaceFileName || ''),
@@ -348,8 +347,7 @@ export function normalizeAgentConfig(config = {}) {
         provider: currentPreset.provider,
         modelConfigs: currentPreset.modelConfigs,
         permissionMode: normalizePermissionMode(currentPreset.permissionMode),
-        tavilyApiKey: tavilySettings.tavilyApiKey,
-        tavilyBaseUrl: tavilySettings.tavilyBaseUrl,
+        ...webSettings,
     };
 }
 

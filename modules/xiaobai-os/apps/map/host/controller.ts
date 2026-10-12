@@ -21,7 +21,7 @@ interface MapActivation {
 
 interface MapControllerDependencies {
     map: MapService;
-    settings: Pick<XiaobaiOsSettingsRepository, 'read' | 'setMapAutoMaintenance' | 'subscribe'>;
+    settings: Pick<XiaobaiOsSettingsRepository, 'read' | 'setMapAutoMaintenance' | 'setMapProjection' | 'subscribe'>;
     maintenance: Pick<
         MaintenanceRunner,
         'startManual' | 'startRebuild' | 'cancelRequested' | 'invalidateAutomatic' | 'getStatus' | 'subscribeStatus'
@@ -63,6 +63,7 @@ export function createMapController({
 }: MapControllerDependencies): XiaobaiOsAppRuntime & {
     activate: NonNullable<XiaobaiOsAppRuntime['activate']>;
     handleMessage: NonNullable<XiaobaiOsAppRuntime['handleMessage']>;
+    readState(): MapClientState;
 } {
     let activation: MapActivation | null = null;
     let unsubscribeData: (() => void) | null = null;
@@ -90,12 +91,14 @@ export function createMapController({
         const view = map.readCurrent();
         const status = clientStatus(view.writeState);
         const maintenanceStatus = maintenanceState(maintenance.getStatus('map', chatIdentity));
+        const preferences = settings.read()?.apps.map;
         return {
             chatIdentity,
             map: view.map,
             writeState: view.writeState,
             ...status,
-            autoMaintenance: settings.read()?.apps.map.autoMaintenance === true,
+            autoMaintenance: preferences?.autoMaintenance === true,
+            projectToChat: preferences?.projectToChat === true,
             ...maintenanceStatus,
         };
     }
@@ -168,6 +171,12 @@ export function createMapController({
             assertSameActivation(current, payload);
             return emitState(current);
         }
+        if (message.type === 'map/set-projection') {
+            if (typeof payload.enabled !== 'boolean') { throw new TypeError('invalid_map_projection'); }
+            await settings.setMapProjection(payload.enabled);
+            assertSameActivation(current, payload);
+            return emitState(current);
+        }
         if (message.type === 'map/maintain-once') {
             return startMaintenance('manual');
         }
@@ -186,6 +195,7 @@ export function createMapController({
     }
 
     return Object.freeze({
+        readState: () => buildState(currentChatIdentity()),
         activate,
         deactivate,
         cancelForeground: deactivate,

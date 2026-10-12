@@ -3,6 +3,7 @@ import { createAdministratorData, invalidateSummary } from '../domain/data.js';
 import type { AdministratorRepository } from '../storage/repository.js';
 import { administratorAttachments, type AdministratorImages } from '../storage/images.js';
 import type { AdministratorData, AdministratorImage, AdministratorTurn } from '../domain/types.js';
+import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 
 type Cleanup = { osId: string; images: AdministratorImage[] | 'all' };
 type PendingSave = { candidate: AdministratorData; revision: number; clear: boolean; cleanup: Cleanup | null; osId: string | null; guard(): boolean };
@@ -123,6 +124,15 @@ export function createAdministratorConversation(repository: AdministratorReposit
                 }
             }
             await clean(owner);
+        },
+        async editUserMessage(turnId: string, text: unknown, guard: () => boolean) {
+            const candidate = structuredClone(session.data), turn = candidate.turns.find(t => t.id === turnId);
+            if (!turn?.user) { throw new Error('administrator_message_missing'); }
+            if (typeof text !== 'string' || text.length > POLICY.maxInputChars || !text.trim() && !turn.user.image) { throw new Error('administrator_input_invalid'); }
+            if (turn.user.text === text.trim()) { return; }
+            turn.user.text = text.trim();
+            invalidateSummary(candidate, turnId);
+            await save(candidate, guard);
         },
         async deleteMessage(turnId: string, role: string, guard: () => boolean) {
             const candidate = structuredClone(session.data), turn = candidate.turns.find(t => t.id === turnId);

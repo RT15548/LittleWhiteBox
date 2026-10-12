@@ -188,6 +188,12 @@
     .shop-navigation { justify-content: center; }
     .shop-navigation button { flex: 0 1 160px; }
 }
+@container os-stage (min-width: 900px) {
+    .shop-detail { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); max-width: 1000px; padding: 24px; gap: 0 32px; align-items: start; }
+    .shop-detail-art { grid-column: 1; grid-row: 1 / 3; height: 340px; margin: 0; position: sticky; top: 24px; }
+    .shop-detail-copy { grid-column: 2; padding: 0 0 20px; }
+    .shop-detail-checkout { grid-column: 2; position: static; padding-inline: 0; }
+}
 @container (max-width: 340px) {
     .shop-header { padding-inline: 16px; gap: 8px; }
     .shop-header h1 { font-size: 19px; }

@@ -3,7 +3,7 @@ import type { MessagesTimeline } from '../application/timeline.js';
 import { MessageSendError, sendPrivateMessage, type SendDependencies } from '../application/send.js';
 import type { OutgoingMessage } from '../application/image-upload.js';
 import { unsyncedIds } from '../application/projection.js';
-import type { MessageSendFailure, PendingOutgoingMessage } from '../types.js';
+import type { MessageReplyPreview, MessageSendFailure, PendingOutgoingMessage } from '../types.js';
 import type { MessagesModifications, ModificationTarget } from '../application/modifications.js';
 import { regenerateMessageReply } from '../application/regenerate.js';
 import { previewMessageContext } from '../application/context-preview.js';
@@ -27,8 +27,9 @@ export function createMessagesRuntime(deps: SendDependencies & {
     identity(): string; isGenerating(): boolean; changed(): void;
 }) {
     let epoch = 0;
-    type Run = { controller: AbortController; contactId: string; messageId: string; stage: string; identity: string };
+    type Run = { controller: AbortController; contactId: string; messageId: string; stage: string; identity: string; preview: MessageReplyPreview | null };
     let active: Run | null = null;
+    let previewShown = 0;
     let latestRun: Run | null = null;
     let error = '';
     let syncError = '';
@@ -39,6 +40,13 @@ export function createMessagesRuntime(deps: SendDependencies & {
     function guard() {
         const captured = epoch; const identity = deps.identity();
         return () => !!identity && captured === epoch && identity === deps.identity() && !deps.isGenerating();
+    }
+    function showPreview(run: Run, next: MessageReplyPreview) {
+        const previous = run.preview;
+        run.preview = next;
+        // New bubbles and completed character state show at once; partial text refreshes at a calmer pace.
+        if (!previous || previous.replies.length !== next.replies.length || previous.characterStateDone !== next.characterStateDone
+            || Date.now() - previewShown >= 300) {previewShown = Date.now(); deps.changed();}
     }
     function pendingOutgoing(): PendingOutgoingMessage | null {
         if (outgoing) {
@@ -63,7 +71,7 @@ export function createMessagesRuntime(deps: SendDependencies & {
         payload ??= pending?.payload;
         if (payload && !pending) {outgoing = { identity: deps.identity(), contactId, messageId, payload, createdAt: Date.now() };}
         error = ''; syncError = ''; failure = null;
-        const run = { contactId, messageId, stage: 'saving', controller: new AbortController(), identity: deps.identity() };
+        const run: Run = { contactId, messageId, stage: 'saving', controller: new AbortController(), identity: deps.identity(), preview: null };
         active = run; latestRun = run;
         const current = guard();
         deps.changed();
@@ -73,9 +81,12 @@ export function createMessagesRuntime(deps: SendDependencies & {
                 && deps.service.current().contacts.some(contact => contact.id === contactId),
             stage(stage) {
                 run.stage = stage;
+                // Committed replies replace the provisional ones; a failure leaves none behind.
+                if (stage !== 'replying' && stage !== 'saving-reply') {run.preview = null;}
                 if (stage === 'syncing' && active === run) {active = null;}
                 deps.changed();
             },
+            preview: next => showPreview(run, next),
         }).catch(cause => {
             const stage = cause instanceof MessageSendError ? cause.stage : run.stage;
             console.warn('[LittleWhiteBox] 私人信息未完成', { stage, messageId, cause });
@@ -102,10 +113,15 @@ export function createMessagesRuntime(deps: SendDependencies & {
         if (active || pendingOutgoing()) {throw new Error('messages_busy');}
         if (deps.isGenerating()) {throw new Error('messages_not_ready');}
         deps.modifications.authorize(target, 'regenerate');
-        const run = { contactId: target.contactId, messageId: target.messageId!, stage: 'replying', controller: new AbortController(), identity: deps.identity() };
+        const run: Run = { contactId: target.contactId, messageId: target.messageId!, stage: 'replying', controller: new AbortController(), identity: deps.identity(), preview: null };
         const current = guard(); active = run; latestRun = run; error = ''; failure = null; deps.changed();
         const task = regenerateMessageReply(deps, deps.modifications, target, { signal: run.controller.signal, guard: current,
-            stage(stage) {run.stage = stage; deps.changed();},
+            stage(stage) {
+                run.stage = stage;
+                if (stage !== 'replying' && stage !== 'saving-reply') {run.preview = null;}
+                deps.changed();
+            },
+            preview: next => showPreview(run, next),
         }).catch(cause => {
             console.warn('[LittleWhiteBox] 重新回复未完成', cause);
             if (run.identity === deps.identity() && latestRun === run) {error = deps.service.pending() || deps.service.current().pendingMutation

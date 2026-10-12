@@ -48,13 +48,13 @@ import {
 } from './tts-auth-provider.js';
 import { postToIframe, isTrustedIframeEvent } from "../../core/iframe-messaging.js";
 import { createConfigSaveQueue } from "./config-save-queue.js";
+import { createTtsDirectiveRegex } from './tts-message-markup.js';
 
 // ============ 常量 ============
 
 const MODULE_ID = 'tts';
 const OVERLAY_ID = 'xiaobaix-tts-overlay';
 const HTML_PATH = `${extensionFolderPath}/modules/tts/tts-overlay.html`;
-const TTS_DIRECTIVE_REGEX = /\[tts:([^\]]*)\]/gi;
 let playbackOwnership = null;
 let externalSpeech = null;
 let runtimeOptions = { ownsMessageDom: true, onUiChanged: null };
@@ -851,7 +851,7 @@ function enhanceTtsDirectives(container) {
     textNodes.forEach((node) => {
         if (node.parentElement?.closest('code, pre, script, style, textarea, .xb-tts-tag, .xb-voice-bubble')) return;
         const current = node.nodeValue || '';
-        const candidates = current.matchAll(/\[tts:([^\]]*)\]/gi);
+        const candidates = current.matchAll(createTtsDirectiveRegex());
         const replacement = documentTarget.createDocumentFragment();
         let cursor = 0;
         let changed = false;
@@ -873,8 +873,7 @@ function enhanceTtsDirectives(container) {
 }
 
 function hasTtsMessageMarkup(container) {
-    TTS_DIRECTIVE_REGEX.lastIndex = 0;
-    return TTS_DIRECTIVE_REGEX.test(container?.textContent || '') || hasMessageVoiceMarker(container);
+    return createTtsDirectiveRegex().test(container?.textContent || '') || hasMessageVoiceMarker(container);
 }
 
 function enhanceTtsMessageContent(container) {

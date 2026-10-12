@@ -21,4 +21,3 @@ Persistent entities are limited to `bankStateVersions` and `bankActivities`. Ban
 Specifications:
 
 - [Target design](../../docs/bank-app-target-design.md)
-- [Implementation plan](../../docs/bank-app-implementation-plan.md)

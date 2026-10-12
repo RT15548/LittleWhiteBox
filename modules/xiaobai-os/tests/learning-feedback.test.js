@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { learningMemory } from './fixtures/learning-memory.js';
 import { createLearningTeaching } from '../apps/learning/application/teaching.js';
 import { runLearningProviderLoop } from '../apps/learning/agent/provider-loop.js';
 import { reportLearningFailure } from '../apps/learning/application/feedback.js';
 import { createLearningRepository } from '../apps/learning/storage/repository.js';
 import { createClassroomFixture } from './fixtures/learning-classroom.js';
+import { OpenAICompatibleAdapter, extractTaggedToolCalls } from '../../agent-core/adapters/openai-compatible.js';
 
 // Failures are injected at context/provider/storage boundaries; real profile tools still validate and save.
 const privateText = 'PRIVATE_PROMPT_AND_API_KEY';
@@ -12,7 +14,9 @@ const classroom = { language: 'en', osId: 'story', chatIdentity: 'chat', teacher
 const context = { teacherDetails: privateText, snapshot: { player: {}, characters: [], storyEvents: '', recentMessages: [], worldInfo: {} } };
 const profile = { explanationLanguage: 'zh-CN', selfAssessment: '初学', goal: { description: '读懂新闻' } };
 const call = (name, args = {}) => ({ id: name, name, arguments: JSON.stringify(args) });
-const fault = () => Object.assign(new TypeError(privateText), { status: 400, response: privateText, headers: { authorization: privateText } });
+const fault = () => Object.assign(new TypeError('The requested operation could not be processed.'), {
+    status: 400, response: privateText, headers: { authorization: privateText }, requestInspection: { body: privateText },
+});
 
 async function setup(mode) {
     let file = null; let requests = 0; let writes = 0;
@@ -21,7 +25,7 @@ async function setup(mode) {
         createId: () => { if (mode === 'save') { throw fault(); } return 'saved-1'; },
     });
     await repository.read();
-    const teaching = createLearningTeaching({ repository, current: () => classroom, onProgress: value => progress.push(value),
+    const teaching = createLearningTeaching({ actor: 'workbench', memory: (() => { const port = learningMemory(); return () => port; })(), historyReady: () => true, repository, current: () => classroom, onProgress: value => progress.push(value),
         capture: async () => { if (mode === 'context') { throw fault(); } return context; },
         gateway: {
             loadConfig: async () => { if (mode === 'config') { throw fault(); } return {}; },
@@ -34,8 +38,7 @@ async function setup(mode) {
                     if (mode === 'unknown') { return { toolCalls: [call('NotProvided')] }; }
                     if (mode === 'limit') { return { toolCalls: Array.from({ length: 17 }, () => call('LearningRead')) }; }
                     if (mode === 'cancel') { teaching.cancel(); throw fault(); }
-                    if (requests === 1) { return { toolCalls: [call('LearningProfileEdit', mode === 'invalid' || mode === 'corrected' ? {} : profile),
-                        call('LearningHelp', { exerciseIds: [], materialIds: [] })] }; }
+                    if (requests === 1) { return { toolCalls: [call('LearningProfileEdit', mode === 'invalid' || mode === 'corrected' ? {} : profile)] }; }
                     if (mode === 'corrected' && requests === 2) { return { toolCalls: [call('LearningProfileEdit', profile)] }; }
                     return { text: '已记住你的目标。' };
                 } };
@@ -47,22 +50,22 @@ async function setup(mode) {
 
 test('profile failures identify their stage, log one bounded diagnostic and never publish incomplete goals', async t => {
     for (const [mode, reason, stage, tool] of [
-        ['context', 'learning_context_failed', 'context'], ['config', 'learning_config_failed', 'config'],
+        ['config', 'learning_config_failed', 'config'],
         ['session', 'learning_session_failed', 'session'], ['provider', 'provider-request', 'provider'],
-        ['protocol', 'learning_protocol_failed', 'provider'], ['unknown', 'learning_stalled', 'tools', 'NotProvided'],
-        ['limit', 'learning_stalled', 'tools', 'LearningRead'],
-        ['save', 'learning_save_failed', 'save'],
+        ['protocol', 'learning_protocol_failed', 'provider'], ['unknown', 'learning_round_limit', 'tools', 'NotProvided'],
+        ['limit', 'learning_round_limit', 'tools', 'LearningRead'],
+        ['save', 'learning_tool_failed', 'tools'],
     ]) {
         await t.test(mode, async sub => {
             const logs = sub.mock.method(console, 'error', () => {});
             const h = await setup(mode);
             const result = await h.teaching.run({ action: { kind: 'profile' }, message: privateText });
             assert.equal(result.status, 'failed'); assert.equal(result.reason, reason);
-            assert.ok(result.message.includes(reason));
+            assert.ok(result.message);
             assert.equal(logs.mock.calls.length, 1);
             const diagnostic = logs.mock.calls[0].arguments[1];
-            assert.equal(diagnostic.action, 'profile'); assert.equal(diagnostic.stage, stage);
-            if (tool) { assert.equal(diagnostic.tool, tool); assert.equal(diagnostic.round, 3); }
+            assert.equal(diagnostic.action, 'profile'); assert.equal(diagnostic.stage, stage); assert.equal(diagnostic.reason, reason);
+            if (tool) { assert.equal(diagnostic.tool, tool); assert.equal(diagnostic.round, 48); }
             if (mode === 'provider') { assert.equal(diagnostic.httpStatus, 400); }
             assert.ok(!JSON.stringify([result, logs.mock.calls.map(call => call.arguments)]).includes(privateText));
             assert.equal(h.repository.snapshot().document, null); assert.equal(h.counts().writes, 0);
@@ -71,7 +74,7 @@ test('profile failures identify their stage, log one bounded diagnostic and neve
     }
 });
 
-test('tool execution failures keep tool, round and safe source locations without logging raw arguments or errors', async t => {
+test('tool execution failures expose the actual message but not request payloads, credentials or full stacks', async t => {
     const logs = t.mock.method(console, 'error', () => {});
     const cause = fault();
     cause.stack = `TypeError: ${privateText}\n    at run (https://user:password@example.com/private/teaching.ts:42:7?key=${privateText})`;
@@ -85,8 +88,53 @@ test('tool execution failures keep tool, round and safe source locations without
     const diagnostic = logs.mock.calls[0].arguments[1];
     assert.equal(diagnostic.stage, 'tools'); assert.equal(diagnostic.tool, 'LearningRead'); assert.equal(diagnostic.round, 1);
     assert.equal(diagnostic.errorName, 'TypeError'); assert.deepEqual(diagnostic.locations, ['teaching.ts:42:7']);
+    assert.equal(diagnostic.errorMessage, cause.message);
+    assert.ok(message.includes(cause.message));
     const output = JSON.stringify([message, logs.mock.calls[0].arguments]);
     for (const secret of [privateText, 'password', 'example.com', 'authorization']) { assert.ok(!output.includes(secret)); }
+});
+
+// Wire-protocol fixtures: preserve the parser's actual diagnostic, not a UI wording snapshot.
+for (const [kind, wireText, code] of [
+    ['DSML', '<｜DSML｜function_calls><｜DSML｜invoke name="LearningArticle"><｜DSML｜parameter name="text" string="true">unfinished', 'DSML_TOOL_CALL_INVALID'],
+    ['tagged JSON', '<tool_call>{"name":"LearningArticle","arguments":{}} {"name":"Other"}</tool_call>', 'TAGGED_TOOL_CALL_INVALID'],
+]) {
+    test(`${kind} parse failures survive the real adapter, teaching and preparation view without executing or retrying`, async t => {
+        const logs = t.mock.method(console, 'error', () => {});
+        let parserError;
+        assert.throws(() => extractTaggedToolCalls(wireText), error => { parserError = error; return error.code === code; });
+        const wire = [{ choices: [{ index: 0, delta: { content: wireText }, finish_reason: null }] },
+            { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }]
+            .map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n';
+        const requests = t.mock.method(globalThis, 'fetch', async () => new Response(wire, { headers: { 'content-type': 'text/event-stream' } }));
+        const adapter = new OpenAICompatibleAdapter({ apiKey: 'fixture', baseUrl: 'https://fixture.invalid/v1', model: 'deepseek-chat', toolMode: 'tagged-json' });
+        const h = await createClassroomFixture(); t.after(h.dispose);
+        await h.command('settings', { value: { level: 'B1' } });
+        h.flags.teacherResponse = request => adapter.chat(request);
+        await h.command('prepare', { kind: 'reading-writing', message: '准备一篇短文。' });
+        const state = await h.command('choose-original');
+        const turn = state.workbenchConversation.turns.at(-1);
+        assert.equal(turn.status, 'failed'); assert.equal(h.profile().unit, null);
+        assert.ok(turn.message.includes(parserError.message)); assert.ok(turn.message.includes(code));
+        assert.equal(state.preparation.message, turn.message);
+        assert.equal(logs.mock.calls.at(-1).arguments[1].errorMessage, parserError.message);
+        assert.equal(requests.mock.calls.length, 1);
+        assert.equal(turn.messages.some(message => message.role === 'tool'), false);
+    });
+}
+
+test('API and completion diagnostics retain the source message, status, code and reason', t => {
+    const logs = t.mock.method(console, 'error', () => {});
+    for (const cause of [Object.assign(new Error('Upstream rejected the request: invalid tool protocol.'), { status: 422, code: 'invalid_request' }),
+        Object.assign(new Error('Model response did not complete normally.'), { code: 'AGENT_RESPONSE_INCOMPLETE', reason: 'missing_completion' }),
+        'Proxy response failed to decode.']) {
+        const message = reportLearningFailure('prepare', 'provider-failed', { stage: 'provider', round: 2, cause });
+        const original = typeof cause === 'string' ? cause : cause.message;
+        assert.ok(message.includes(original));
+        for (const value of [cause.status, cause.code, cause.reason].filter(Boolean)) { assert.ok(message.includes(String(value))); }
+        assert.equal(logs.mock.calls.at(-1).arguments[1].errorMessage, original);
+        assert.ok(!message.includes('[object Object]'));
+    }
 });
 
 test('corrected proposals and cancellation do not emit terminal failure logs or retain stale progress', async t => {
@@ -94,13 +142,13 @@ test('corrected proposals and cancellation do not emit terminal failure logs or 
     const h = await setup('corrected');
     assert.equal((await h.teaching.run({ action: { kind: 'profile' }, message: '开始' })).status, 'finished');
     assert.equal(h.repository.snapshot().document.data.profiles[0].goal.description, profile.goal.description);
-    assert.deepEqual(h.progress.map(value => value.stage), ['context', 'config', 'session', 'provider', 'tools', 'tools', 'provider', 'tools', 'provider', 'save']);
+    assert.deepEqual(h.progress.map(value => value.stage), ['context', 'config', 'session', 'provider', 'tools', 'provider', 'tools', 'provider', 'save']);
     const cancelled = await setup('cancel');
     assert.equal((await cancelled.teaching.run({ action: { kind: 'profile' }, message: '开始' })).status, 'cancelled');
     assert.equal(cancelled.counts().writes, 0); assert.equal(logs.mock.calls.length, 0);
 });
 
-test('classroom publishes real progress, exposes the error code and allows explicit retry with no automatic requests', async t => {
+test('classroom publishes failure feedback, retains the diagnostic code and allows explicit retry with no automatic requests', async t => {
     const logs = t.mock.method(console, 'error', () => {});
     const h = await createClassroomFixture(); t.after(h.dispose);
     await h.command('teacher', { teacher: { name: 'Teacher', note: '' } });
@@ -110,7 +158,8 @@ test('classroom publishes real progress, exposes the error code and allows expli
     h.flags.providerFailure = true;
     const failed = await h.command('profile', { message: '高中基础，希望读懂新闻。' });
     assert.equal(failed.busy, false); assert.equal(failed.profile, null);
-    assert.ok(failed.message.includes('provider-auth')); assert.equal(logs.mock.calls.length, 1);
+    assert.equal(failed.message, ''); assert.ok(failed.workbenchConversation.turns.at(-1).message); assert.equal(logs.mock.calls.length, 1);
+    assert.equal(logs.mock.calls[0].arguments[1].reason, 'provider-auth');
     assert.ok(states.some(state => state.busy));
     assert.equal(states.at(-1).busy, false);
     assert.equal(h.counts.provider, 1);
@@ -132,7 +181,7 @@ test('LAN HTTP can save a profile, prepare, answer, keep a note and finish a les
     assert.equal(opened.storage, 'ready');
     assert.ok(opened.profile); assert.ok(opened.unit);
     const unit = h.profile().unit;
-    await h.command('explain', { exerciseId: unit.exercises[0].id, message: '请解释这段话。' });
+    await h.command('talk', { exerciseId: unit.exercises[0].id, message: '请解释这段话。' });
     await h.command('save-note');
     assert.equal(h.profile().unit.notes.length, 1);
     await h.command('submit', { unitId: unit.id, exerciseId: unit.exercises[0].id, answer: { kind: 'choice', ids: ['a'] } });

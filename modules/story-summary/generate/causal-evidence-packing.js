@@ -1,65 +1,117 @@
-import { parseEventRange } from '../vector/retrieval/temporal-turn-carrier.js';
 import { tryConsumeWholeItem } from './token-budget.js';
+import { CAUSAL_EVIDENCE_NOTE, causalRecordLabel, formatCausalEvidence } from './causal-evidence-format.js';
 
-// Causal background uses the existing evidence pool, never an extra pool.
 const CAUSAL_POOL_SHARE = 0.25;
 const CAUSAL_PER_EVENT_SHARE = 0.10;
+const MAX_CAUSAL_BODIES = 30;
+const MAX_CONSEQUENCE_DEPTH = 10;
 
-function formatCause(event, label) {
-    const time = event.timeLabel ? `【${event.timeLabel}】` : '';
-    const people = (event.participants || []).join(' / ');
-    const summary = String(event.summary || '').replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, '').trim();
-    const range = parseEventRange(event.summary);
-    const floorHint = range
-        ? ` (#${range.start + 1}${range.end !== range.start ? `-${range.end + 1}` : ''})`
-        : '';
-    return `  ├─ ${label}${time}${people ? ` ${people}` : ''}\n  │  ${summary}${floorHint}`;
+function buildConsequenceIndex(eventIndex) {
+    const result = new Map();
+    for (const event of eventIndex.values()) {
+        for (const causeId of new Set(event.causedBy || [])) {
+            if (causeId === event.id || !eventIndex.has(causeId)) continue;
+            if (!result.has(causeId)) result.set(causeId, []);
+            result.get(causeId).push(event.id);
+        }
+    }
+    return result;
+}
+
+function createQueue(owner, eventIndex, consequences, maxTokens) {
+    const rootId = owner.event.id;
+    const pending = {
+        cause: [...new Set(owner.event.causedBy || [])]
+            .filter(id => id !== rootId && eventIndex.has(id))
+            .map(eventId => ({ eventId, direction: 'cause', path: [rootId, eventId] })),
+        consequence: [],
+    };
+    const seen = new Set([rootId]);
+    const offsets = { cause: 0, consequence: 0 };
+    let nextDirection = 'consequence';
+    const expand = path => {
+        if (path.length - 1 >= MAX_CONSEQUENCE_DEPTH) return;
+        for (const eventId of consequences.get(path[path.length - 1]) || []) {
+            if (seen.has(eventId)) continue;
+            seen.add(eventId);
+            pending.consequence.push({ eventId, direction: 'consequence', path: [...path, eventId] });
+        }
+    };
+    expand([rootId]);
+    return {
+        owner, budget: { used: 0, max: maxTokens }, expand,
+        take() {
+            const other = nextDirection === 'cause' ? 'consequence' : 'cause';
+            const direction = offsets[nextDirection] < pending[nextDirection].length ? nextDirection : other;
+            const item = pending[direction][offsets[direction]];
+            if (item) offsets[direction]++;
+            nextDirection = direction === 'cause' ? 'consequence' : 'cause';
+            return item;
+        },
+    };
 }
 
 /**
- * Admit direct causes of already selected events, in relevance-order rounds.
- * Owners carry their final display label; cause bodies are emitted once, and
- * references (including references to selected main events) are also charged.
- * This only reads direct edges: it does not traverse a cause's own causedBy.
+ * Supplement selected owners only: direct causes, plus forward breadth-first paths.
+ * A forward path grows only after its preceding record has actually been admitted.
+ * Owners rotate, starting with consequences, within one shared evidence ledger.
  */
-export function packCausalEvidence(owners, causesById, budget, estimateTokens) {
+export function packCausalEvidence(owners, eventIndex, budget, estimateTokens) {
     const maxTokens = Math.floor(budget.max * CAUSAL_POOL_SHARE);
     const perEventMaxTokens = Math.floor(budget.max * CAUSAL_PER_EVENT_SHARE);
     const mainLabels = new Map(owners.map(owner => [owner.event.id, owner.label]));
     const emittedLabels = new Map();
     const byEvent = new Map();
-    const stats = { candidates: 0, links: 0, bodies: 0, tokens: 0, maxTokens, perEventMaxTokens };
+    const candidates = [];
     const causalBudget = { used: 0, max: maxTokens };
-    const queues = owners.map(owner => ({
-        owner,
-        ids: [...new Set(owner.event.causedBy || [])].filter(id => (
-            id !== owner.event.id && causesById.has(id)
-        )),
-        budget: { used: 0, max: perEventMaxTokens },
-    }));
-    stats.candidates = queues.reduce((sum, queue) => sum + queue.ids.length, 0);
+    const consequences = buildConsequenceIndex(eventIndex);
+    const queues = owners.map(owner => createQueue(owner, eventIndex, consequences, perEventMaxTokens));
+    const noteTokens = estimateTokens(CAUSAL_EVIDENCE_NOTE);
 
-    for (let round = 0; queues.some(queue => round < queue.ids.length); round++) {
+    while (budget.used < budget.max && causalBudget.used < causalBudget.max) {
+        let attempted = false;
         for (const queue of queues) {
-            const causeId = queue.ids[round];
-            if (causeId === undefined) continue;
-            const cause = causesById.get(causeId).event;
-            if (!String(cause?.summary || '').trim()) continue;
-            const existingLabel = mainLabels.get(causeId) || emittedLabels.get(causeId);
-            const label = existingLabel || `前因${emittedLabels.size + 1}`;
-            const text = existingLabel ? `  ├─ 前因：见${label}` : formatCause(cause, label);
+            if (budget.used >= budget.max || causalBudget.used >= causalBudget.max) break;
+            if (queue.budget.used >= queue.budget.max) continue;
+            const item = queue.take();
+            if (!item) continue;
+            attempted = true;
+            const candidate = { ...item, ownerId: queue.owner.event.id, admitted: false };
+            candidates.push(candidate);
+            const event = eventIndex.get(item.eventId);
+            if (!String(event?.summary || '').trim()) continue;
+            const existingLabel = mainLabels.get(item.eventId) || emittedLabels.get(item.eventId);
+            if (!existingLabel && emittedLabels.size >= MAX_CAUSAL_BODIES) continue;
+            const label = existingLabel || causalRecordLabel(emittedLabels.size + 1);
+            const parentId = item.path[item.path.length - 2];
+            const parentLabel = item.path.length > 2
+                ? mainLabels.get(parentId) || emittedLabels.get(parentId)
+                : null;
+            const reference = !!existingLabel;
+            const text = formatCausalEvidence(event, { ...item, parentLabel, label, reference });
             const cost = estimateTokens(text);
-            if (!tryConsumeWholeItem(cost, budget, causalBudget, queue.budget)) continue;
-            stats.links++;
-            if (!existingLabel) {
-                emittedLabels.set(causeId, label);
-                stats.bodies++;
-            }
+            // Charge the shared explanation once, without taxing the first owner's quota.
+            if (!tryConsumeWholeItem(cost + (byEvent.size ? 0 : noteTokens), budget, causalBudget)) continue;
+            tryConsumeWholeItem(cost, queue.budget);
+            Object.assign(candidate, { admitted: true, label, reference, text });
+            if (!existingLabel) emittedLabels.set(item.eventId, label);
             if (!byEvent.has(queue.owner.event.id)) byEvent.set(queue.owner.event.id, []);
-            byEvent.get(queue.owner.event.id).push({ causeId, text });
+            byEvent.get(queue.owner.event.id).push(candidate);
+            if (item.direction === 'consequence') queue.expand(item.path);
         }
+        if (!attempted) break;
     }
 
-    stats.tokens = causalBudget.used;
-    return { byEvent, stats };
+    const links = [...byEvent.values()].flat();
+    return {
+        byEvent, candidates,
+        introduction: links.length ? CAUSAL_EVIDENCE_NOTE : '',
+        stats: {
+            candidates: candidates.length, links: links.length, bodies: emittedLabels.size,
+            causes: links.filter(item => item.direction === 'cause').length,
+            consequences: links.filter(item => item.direction === 'consequence').length,
+            depth: Math.max(0, ...links.map(item => item.path.length - 1)),
+            tokens: causalBudget.used, maxTokens, perEventMaxTokens, maxBodies: MAX_CAUSAL_BODIES,
+        },
+    };
 }

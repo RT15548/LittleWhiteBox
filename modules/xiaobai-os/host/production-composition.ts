@@ -17,6 +17,7 @@ import {
     MAP_CONTEXT_CAPABILITY,
 } from '../apps/map/context-capability.js';
 import { createProductionMapModule } from '../apps/map/production-module.js';
+import { createMapProjectionRuntime } from '../apps/map/host/projection-runtime.js';
 import { createProductionMessagesModule } from '../apps/messages/production-module.js';
 import { createMessagesBranchCopy } from '../apps/messages/host/branch-copy.js';
 import { projectionMarker, type ChatMessage } from '../apps/messages/application/projection.js';
@@ -131,6 +132,11 @@ export function createProductionBootstrap(
         }),
     ];
 
+    const dice = createProductionDiceModule(settings, async identityKey => {
+        const summary = await import('../../story-summary/story-summary.js') as { isStorySummaryEnabledForCurrentChat(): boolean };
+        return { world: composition.capabilities.require(WORLD_CONTEXT_CAPABILITY).isStoryBackgroundEnabled(identityKey),
+            summary: summary.isStorySummaryEnabledForCurrentChat() };
+    }, message => !!projectionMarker(message), () => upgradeDiceUserFile(composition.userTransactions!));
     const modules = [
         createAdministratorModule({ images: administratorImages, capture: getSillyTavernChatSurface,
             readEnvironment: createAdministratorEnvironmentReader({
@@ -146,11 +152,7 @@ export function createProductionBootstrap(
                 userFile: { getFileState: () => composition.userTransactions!.getFileState(), hasPendingCommit: () => composition.userTransactions!.hasPendingCommit() },
             }),
         }),
-        createProductionDiceModule(settings, async identityKey => {
-            const summary = await import('../../story-summary/story-summary.js') as { isStorySummaryEnabledForCurrentChat(): boolean };
-            return { world: composition.capabilities.require(WORLD_CONTEXT_CAPABILITY).isStoryBackgroundEnabled(identityKey),
-                summary: summary.isStorySummaryEnabledForCurrentChat() };
-        }, message => !!projectionMarker(message), () => upgradeDiceUserFile(composition.userTransactions!)),
+        dice,
         createAgentApiModule(),
         createProductionFourthWallModule(settings, upstreamFourthWall),
         createProductionMessagesModule(mainGeneration, settings),
@@ -169,9 +171,12 @@ export function createProductionBootstrap(
         createProductionGameModule({ getChatIdentity: getSillyTavernChatIdentity, mainGeneration, settings }),
         createProductionMapModule({
             settings,
+            mainGeneration,
+            replyPause: dice.replyPause,
             getPlayerDisplayName: () => getSillyTavernChatSurface()?.playerName ?? '玩家',
             getChatIdentity: getSillyTavernChatIdentity,
             subscribePrompt: subscribeMapPromptEvents,
+            createProjectionRuntime: createMapProjectionRuntime,
         }),
         createProductionTasksModule({
             settings,

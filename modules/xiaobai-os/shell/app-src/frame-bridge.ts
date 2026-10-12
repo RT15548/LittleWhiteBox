@@ -14,6 +14,13 @@ export interface FrameAppSession {
     activationToken: string;
 }
 
+export class FrameRequestError extends Error {
+    constructor(readonly code: 'host_request_not_sent' | 'host_request_timeout', options?: ErrorOptions) {
+        super(code, options);
+        this.name = 'FrameRequestError';
+    }
+}
+
 export class HostRequestError extends Error {
     readonly code: string;
     readonly phase: string;
@@ -141,10 +148,16 @@ export function createFrameBridge() {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 pending.delete(requestId);
-                reject(new Error('host_request_timeout'));
+                reject(new FrameRequestError('host_request_timeout'));
             }, timeoutMs);
             pending.set(requestId, { resolve, reject, timer, session: appSession ? { ...appSession } : null });
-            post(type, payload, requestId);
+            try {
+                post(type, payload, requestId);
+            } catch (cause) {
+                pending.delete(requestId);
+                clearTimeout(timer);
+                reject(new FrameRequestError('host_request_not_sent', { cause }));
+            }
         });
     }
 

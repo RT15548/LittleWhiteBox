@@ -12,10 +12,8 @@ export function createLearningRewards(deps: {
     repository: LearningRepository; store: PartitionStore<LearningRewardPolicy>;
     economy: EconomyReadCapability; files: XiaobaiOsFileControls;
 }) {
-    let running = false;
-    async function settle(language: string, unitId: string, openWallet: boolean, isCurrent: () => boolean): Promise<LearningRewardStatus> {
-        if (running) { return 'cancelled'; }
-        running = true;
+    let queue: Promise<LearningRewardStatus | void> = Promise.resolve();
+    async function settleNow(language: string, unitId: string, openWallet: boolean, isCurrent: () => boolean): Promise<LearningRewardStatus> {
         try {
             await deps.repository.read();
             const snapshot = deps.repository.snapshot();
@@ -65,10 +63,13 @@ export function createLearningRewards(deps: {
             const receipt = await deps.repository.save(expected, data, guard);
             return receipt.status === 'confirmed' || receipt.status === 'unchanged' ? 'paid' : receipt.status;
         } catch { return isCurrent() ? 'failed' : 'cancelled'; }
-        finally { running = false; }
     }
     return {
-        settle,
+        settle(language: string, unitId: string, openWallet: boolean, isCurrent: () => boolean) {
+            const result = queue.then(() => settleNow(language, unitId, openWallet, isCurrent));
+            queue = result;
+            return result;
+        },
         status(completion: LearningCompletion): LearningRewardStatus | 'available' {
             if (deps.store.peekCurrent()?.value?.retiredUnitIds.includes(completion.unitId)) { return 'retired'; }
             if (completion.receipt) { return 'paid'; }

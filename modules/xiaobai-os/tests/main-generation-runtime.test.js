@@ -3,9 +3,8 @@ import test from 'node:test';
 
 import { createMainGenerationRuntime } from '../host/main-generation-runtime.js';
 
-function createHarness() {
+function createHarness(hostGenerating = false) {
     let handlers = null;
-    let hostGenerating = false;
     const states = [];
     const runtime = createMainGenerationRuntime({
         readHostGenerating: () => hostGenerating,
@@ -23,6 +22,24 @@ function createHarness() {
         states,
     };
 }
+
+test('startup during existing host activity stays guarded and publishes its eventual completion', () => {
+    const harness = createHarness(true);
+    assert.equal(harness.runtime.isActive(), true);
+    assert.deepEqual(harness.states, [true]);
+    harness.setHostGenerating(false);
+    assert.equal(harness.runtime.isActive(), false);
+    assert.deepEqual(harness.states, [true, false]);
+
+    harness.setHostGenerating(true);
+    harness.runtime.stopBackground();
+    harness.runtime.subscribe(active => harness.states.push(active));
+    harness.runtime.startBackground();
+    assert.equal(harness.runtime.isActive(), true, 'restart samples existing host activity again');
+    harness.handlers.started({ type: 'quiet', dryRun: false });
+    assert.equal(harness.runtime.isActive(), false);
+    harness.setHostGenerating(false);
+});
 
 test('a main request becomes active only after SillyTavern enters its real generation state', () => {
     const harness = createHarness();

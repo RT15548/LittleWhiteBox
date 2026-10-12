@@ -1,16 +1,15 @@
 // The only source of the compact, user-visible stage names.
 export const REPLY_PROGRESS_COPY = Object.freeze({
     message: '消息事件处理',
-    context: '酒馆/插件处理',
-    assembly: '酒馆组装提示词',
-    request: 'API请求',
+    context: '等待处理',
     waiting: '等待回复',
     interceptor: '小白x插件处理',
     recall: '小白x记忆处理',
 });
 
 export const REPLY_PROGRESS_ERRORS = Object.freeze({
-    observeRequest: '[生成状态追踪] 请求边界观察失败',
+    observe: '[生成状态追踪] 观察失败，已停止本次提示',
+    cleanup: '[生成状态追踪] 提示清理失败',
 });
 
 const HANDLERS = Object.freeze({

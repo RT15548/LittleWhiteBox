@@ -137,10 +137,43 @@ const ANCHOR_COUNT_RULES = `- 最多2个。1个够时不凑2个
 - 明显场景切换（地点/时间/对象变化）时才2个
 - 同一场景不拆分`;
 
+// Executable Chinese scene examples shared by the prompt and extraction contract test.
+export const ANCHOR_GENERATION_EXAMPLES = [
+    {
+        weakScene: '车站归还雨伞',
+        anchor: {
+            scene: '雨停后，许宁在车站门口把黄色雨伞还给赵岚，指着伞柄的裂纹说明借来时就有。赵岚摸了摸裂口，确认借出时已经开裂，把雨伞收进布袋，没有要求许宁赔偿。',
+            edges: [
+                { s: '许宁', t: '赵岚', r: '归还雨伞并说明原有裂纹' },
+                { s: '赵岚', t: '许宁', r: '确认原有裂纹未要求赔偿' },
+            ],
+            where: '车站门口',
+        },
+    },
+    {
+        weakScene: '两人发生争执，最后达成约定。',
+        anchor: {
+            scene: '程遥在修车铺把漏气的后轮推到柜台前，拿出三天前的维修收据，要求孟川免费返修。孟川拆下内胎后指出气嘴旁有一道新划口，程遥否认自己划伤轮胎，两人约定先保留旧内胎，再一起查看当天的监控。',
+            edges: [
+                { s: '程遥', t: '孟川', r: '出示维修收据要求免费返修' },
+                { s: '孟川', t: '程遥', r: '指出气嘴旁有新划口' },
+                { s: '程遥', t: '孟川', r: '约定保留内胎并查看监控' },
+            ],
+            where: '修车铺',
+        },
+    },
+];
+
 export const ANCHOR_GENERATION_RULES = `${ANCHOR_LANGUAGE_RULE}
 
 ## scene 写法
 ${anchorSceneRules('scene')}
+
+### Scene examples (not exhaustive)
+These examples contrast titles or vague recaps with concrete narratives. They show the level of detail, not a topic, tone or sentence pattern to copy. Facts for the actual response come only from the current <round>.
+${ANCHOR_GENERATION_EXAMPLES.map(({ weakScene, anchor }) => `Insufficient scene: ${weakScene}
+Complete response, when these facts are present in the source:
+${JSON.stringify({ anchors: [anchor] })}`).join('\n\n')}
 
 ## edges（关系三元组）
 ${ANCHOR_EDGE_RULES}

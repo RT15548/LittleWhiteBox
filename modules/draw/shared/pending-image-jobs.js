@@ -3,6 +3,7 @@ import {
     trackPageJobLease,
     untrackPageJobLease,
 } from './page-farewell.js';
+import { DRAW_SLOT_COPY } from './image-record.js';
 
 // 后台生图任务的交付日志。
 //
@@ -95,6 +96,18 @@ export class PendingImageJobConflictError extends Error {
     }
 }
 
+export class PendingImageSlotBusyError extends Error {
+    constructor(slotId) {
+        super(DRAW_SLOT_COPY.slotBusy);
+        this.code = 'PENDING_IMAGE_SLOT_BUSY';
+        this.slotId = slotId;
+    }
+}
+
+export function isPendingImageJobItem(item) {
+    return !item.discarded && !item.deliveryCommitted;
+}
+
 let dbOpening = null;
 
 function openPendingJobsDB() {
@@ -166,6 +179,7 @@ function normalizeItem(source) {
         slotId,
         imgId,
         ...(source.discarded === true ? { discarded: true } : {}),
+        ...(source.deliveryCommitted === true ? { deliveryCommitted: true } : {}),
         previewMetadata: {
             tags: normalizeText(metadata.tags),
             positive: normalizeText(metadata.positive),
@@ -304,8 +318,19 @@ async function addPendingImageJob(record, state, { conflictIsNull = false } = {}
                 if (conflictIsNull) return setOutput(null);
                 return fail(new PendingImageJobConflictError(normalized.jobId));
             }
-            const add = store.add(normalized);
-            add.onsuccess = () => setOutput(normalized);
+            // Admission and insertion share one transaction: two pages must
+            // not purchase distinct jobs for the same uncommitted slot.
+            const records = store.getAll();
+            records.onsuccess = () => {
+                const slots = new Set(normalized.items.filter(isPendingImageJobItem).map(item => item.slotId));
+                for (const raw of records.result) {
+                    const conflict = normalizePendingImageJob(raw)?.items
+                        .find(item => isPendingImageJobItem(item) && slots.has(item.slotId));
+                    if (conflict) return fail(new PendingImageSlotBusyError(conflict.slotId));
+                }
+                const add = store.add(normalized);
+                add.onsuccess = () => setOutput(normalized);
+            };
         };
     });
     if (added) trackPageJobLease(added.jobId, added.leaseId);
@@ -443,6 +468,16 @@ export async function discardPendingImageSlot(slotId) {
     });
 }
 
+// Monotonic delivery receipt, not progress. It survives cache clearing/reload
+// while siblings run and dies with the journal. Only the lease owner may write
+// it, after all image/selection effects and before releasing the backend copy.
+export async function commitPendingImageJobItem(jobId, leaseId, index) {
+    return patchPendingImageJob(jobId, leaseId, record => ({
+        ...record, items: record.items.map(item => item.index === index
+            ? { ...item, deliveryCommitted: true } : item),
+    }), { requireItemIndex: index });
+}
+
 // 状态迁移与删除都只有租约持有者有权执行，因此一律要求 leaseId：
 // 让易主后的旧流程写不进任何东西，是这套所有权模型唯一有意义的落点。
 
@@ -451,31 +486,23 @@ export async function markPendingImageJobCancelling(jobId, leaseId) {
     return setPendingImageJobState(jobId, leaseId, PendingJobState.CANCELLING);
 }
 
-// 用户取消是独立于当前接管租约的持久事实：按钮所在页面不一定是正在交付图片的
-// lease owner。事务会在最新记录上追加取消意图；现有 owner 随后的状态写入仍会通过
-// setPendingImageJobState 保留 cancelling，恢复器也能在页面退出后继续补发取消。
-export async function requestPendingImageJobCancellation(jobId) {
-    const key = normalizeText(jobId).trim();
-    if (!key) throw new TypeError('后台生图取消缺少 jobId');
-    return runTransaction('readwrite', (store, setOutput, fail) => {
-        const request = store.get(key);
+// An acknowledged cancellation is independent of the delivery lease. Commit
+// its exact jobs AND already-adopted children in one transaction before the
+// cancellation journal can forget it. Never create missing delivery records.
+export async function acknowledgePendingImageJobCancellations({ jobIds, runIds }) {
+    const jobs = new Set(jobIds), runs = new Set(runIds);
+    return runTransaction('readwrite', (store, setOutput) => {
+        const request = store.getAll();
         request.onsuccess = () => {
-            const record = normalizePendingImageJob(request.result);
-            if (!record) return setOutput(null);
-            if (![PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
-                .includes(record.state)) {
-                return setOutput(null);
+            for (const raw of request.result) {
+                const record = normalizePendingImageJob(raw);
+                if (!record || !(jobs.has(record.jobId) || runs.has(record.originRunId))) continue;
+                if (![PendingJobState.PREPARING, PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
+                    .includes(record.state)) continue;
+                store.put({ ...record, cancelRequested: true,
+                    state: record.state === PendingJobState.ACTIVE ? PendingJobState.CANCELLING : record.state });
             }
-            const updated = normalizePendingImageJob({
-                ...record,
-                cancelRequested: true,
-                state: record.state === PendingJobState.ACTIVE
-                    ? PendingJobState.CANCELLING
-                    : record.state,
-            });
-            if (!updated) return fail(new Error(`后台生图任务 ${key} 无法记录取消意图`));
-            store.put(updated);
-            setOutput(updated);
+            setOutput(true);
         };
     });
 }
@@ -576,6 +603,7 @@ async function patchPendingImageJob(jobId, leaseId, update, {
     requireAdoptionPhase = '',
     requireOriginRunId = '',
     requireOriginRunAckReady = false,
+    requireItemIndex,
 } = {}) {
     const key = normalizeText(jobId).trim();
     try {
@@ -598,6 +626,9 @@ async function patchPendingImageJob(jobId, leaseId, update, {
                 }
                 if (requireOriginRunAckReady && record.originRunAckReady !== true) {
                     return fail(new PendingImageJobLostError(key, 'Draw Run ACK gate 尚未打开'));
+                }
+                if (requireItemIndex !== undefined && !record.items.some(item => item.index === requireItemIndex)) {
+                    return fail(new RangeError('PENDING_IMAGE_ITEM_NOT_FOUND'));
                 }
                 const updated = normalizePendingImageJob(update(record));
                 if (!updated) return fail(new Error(`后台生图恢复记录 ${key} 更新后无效`));
@@ -662,7 +693,7 @@ export async function getPendingImageJobSlots() {
     const records = await listPendingImageJobs();
     for (const record of records) {
         for (const item of record.items) {
-            if (item.discarded) continue;
+            if (!isPendingImageJobItem(item)) continue;
             slots.set(item.slotId, {
                 jobId: record.jobId,
                 imgId: item.imgId,

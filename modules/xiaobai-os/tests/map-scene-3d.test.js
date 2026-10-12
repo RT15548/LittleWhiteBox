@@ -202,6 +202,32 @@ test('pilot assets only opt in for compatible sized elements and late loads are 
     session.dispose();
 });
 
+test('scene assets publish one settled batch, including failures, and cancellation releases late results', async () => {
+    const pending = new Map(), reports = [];
+    let changes = 0, disposals = 0;
+    const asset = () => ({ dispose: () => { disposals++; } });
+    const session = createSceneAssetSession(kind => new Promise((resolve, reject) => pending.set(kind, { resolve, reject })),
+        () => { changes++; }, (kind, error) => reports.push({ kind, error }));
+    session.sync(['table', 'chair', 'bed']);
+    pending.get('table').resolve(asset()); await Promise.resolve();
+    pending.get('chair').resolve(asset()); await Promise.resolve();
+    assert.equal(changes, 0, 'each asset completion must not reconstruct the entire scene');
+    const failure = new Error('fixture'); pending.get('bed').reject(failure); await Promise.resolve();
+    assert.equal(changes, 1, 'a failed asset does not strand successful assets');
+    assert.deepEqual(reports, [{ kind: 'bed', error: failure }]);
+    session.sync(['table', 'chair', 'bed']); await Promise.resolve();
+    assert.equal(changes, 1, 'retained failed assets are not automatically retried');
+    session.sync(['table', 'chair', 'rock', 'tree']);
+    pending.get('rock').resolve(asset()); await Promise.resolve();
+    assert.equal(changes, 1);
+    session.sync(['table', 'chair', 'rock']);
+    assert.equal(changes, 2, 'removing the last pending asset releases the settled batch');
+    pending.get('tree').resolve(asset()); await Promise.resolve();
+    assert.equal(disposals, 1); assert.equal(changes, 2, 'late cancelled assets do not revive the scene');
+    session.dispose();
+    assert.equal(disposals, 4);
+});
+
 for (const input of sceneMapInputs) {
     test(`${input.scene}: real compiler output renders without mutating facts and disposes owned GPU assets`, () => {
         const map = domain(input), original = structuredClone(map);

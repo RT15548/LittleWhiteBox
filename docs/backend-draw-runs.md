@@ -1,8 +1,8 @@
-# 后端 Draw Run（第二刀）方案定稿
+# 后端 Draw Run 设计
 
-状态：第 1～11 步代码完成；`draw-runs-v1` 路由 capability、`draw-run-runtime-v4` 运行契约与三家 Provider 生产入口已经开放。v4 接收前端提供的 Tool Schema，仅以 `images` 作为返回结果的执行契约；继续要求 NovelAI V5 子任务在服务端归一为最终 PNG。自动化契约验证通过后，仍需在真实 SillyTavern 中完成人工写盘/读回、关闭浏览器接回与三家 Provider 实盘验收。
-前置：第一刀已封板于 `95526dd feat(draw): add provider-neutral backend image jobs`。
-权威文档关系：本文件是第二刀的开工单与终态契约；第一刀契约见 `docs/image-backend-batch-jobs.md`，第二刀不修改第一刀的进程内存边界。
+Draw Run 将场景规划、工具纠错与图片请求编译交给后端。现行入口为 `draw-runs-v1`与`draw-run-runtime-v4`，接收前端 Tool Schema，只以 images 作为执行结果；NovelAI V5 子任务归一为最终 PNG。
+
+执行与进程内存边界见 [Image Job](./image-backend-batch-jobs.md)。真实宿主写盘／读回、关闭浏览器接回和三家 Provider 实盘仍需验收，不以自动契约测试代替。
 
 ## 0. 目标与产品承诺
 
@@ -14,12 +14,12 @@
 - 收到 202 后确认后台已经接管，此后即可关闭页面。
 - 提交完成后的画图胶囊不固定占用整句“提交后台完成”，而是持续显示排队、分析、准备、生成张数、等待、重连或接回等真实阶段；提交完成通知仍明确告知用户可以离开页面。
 - 图片 Provider 仍是现有的单值设置；任一时刻只有当前 Provider 的一套面板与提交入口，不引入多 Provider 同时点击或并发执行。
-- 同一 owner 的图片任务继续由第一刀严格串行执行；第二刀只把 Planner 前移到后端，不放宽 NovelAI、SD WebUI 或 ComfyUI 的执行并发。
+- 同一 owner 的图片任务继续由Image Job严格串行执行；Draw Run只把 Planner 前移到后端，不放宽 NovelAI、SD WebUI 或 ComfyUI 的执行并发。
 
 明确不承诺：
 
 - 点击后同一瞬间杀浏览器、请求尚未发出的场景（不用 Service Worker / Beacon 弥补）。
-- SillyTavern Node 进程重启后的任务存活（沿用第一刀内存边界）。
+- SillyTavern Node 进程重启后的任务存活（沿用Image Job内存边界）。
 - 超过后端 TTL 的无限期离线。
 - 跨设备同时打开同一账号的分布式强一致。
 
@@ -36,14 +36,14 @@
   ├─ 调用 Agent Core（Node entry，per-run Host Client）
   ├─ Tool 纠错与计划校验（与浏览器同一份 Planner）
   ├─ Provider 纯编译器生成最终图片请求
-  └─ 创建第一刀 Image Job（childJobId = 从 runId 确定性派生的 requestId）
+  └─ 创建Image Job（childJobId = 从 runId 确定性派生的 requestId）
               ↓
 浏览器恢复协调器
   ├─ 按 runId marker 找回原 message/swipe
   ├─ 校验 sourceHash
   ├─ 插入图片 slots（或 gallery-only）
   ├─ adoptExistingJobFromDrawRun 接管 child Image Job
-  └─ 复用第一刀的画廊、ACK、结算
+  └─ 复用Image Job的画廊、ACK、结算
 ```
 
 Agent 渠道分两类传输：
@@ -51,14 +51,14 @@ Agent 渠道分两类传输：
 - 非酒馆渠道（`openai-compatible` / `openai-responses` / `anthropic` / `google`）：Node Agent Core 直接请求供应商。浏览器提交当前预设快照（模型、Base URL、API Key、Reasoning、Tool 模式等），只存在 Draw Run 内存，Planner 结束立即清除。
 - 酒馆渠道（`sillytavern-openai-compatible` / `sillytavern-claude` / `sillytavern-google`）：继续请求酒馆 `/api/backends/chat-completions/generate`，每个 run 使用独立 Cookie/CSRF Host Client，通过本机回环。Cookie、CSRF 与 SillyTavern Basic Auth 来自当前请求；用户预设中的 `apiKey` 是反代 `proxy_password`，必须随 run 临时传递，不能和回环凭证混为一类。
 
-## 2. 开工前八项
+## 2. 所有权与生命周期
 
 | 项目 | 定义 |
 |---|---|
 | 功能所有者 | 后端 `DrawRunManager`；浏览器只有提交与恢复协调器 |
 | 唯一事实来源 | Planner 状态归 Draw Run；图片执行归 Image Job；交付归现有 pending image journal |
 | 临时态 | 请求正文、Agent 凭证、图片密钥、LLM transcript、编译 recipe 全在后端内存 |
-| 持久态 | 只在目标 swipe extra 保存最小 run handle；Planner 后沿用第一刀 IndexedDB journal |
+| 持久态 | 只在目标 swipe extra 保存最小 run handle；Planner 后沿用Image Job IndexedDB journal |
 | 外部依赖 | Agent Core、酒馆三条 Chat Completion 渠道、直接模型 API、三家图片服务、聊天保存接口 |
 | 注册入口 | 后端声明 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v4` 运行契约；前端只注册一个共享恢复运行时 |
 | 删除路径 | 删 draw-runs 后端目录、前端协调器、capability，清理 `extra.xbDrawRuns`；图片 compiler 继续供普通链路使用 |
@@ -75,12 +75,12 @@ child 创建前的任意非终态 → cancelling → cancelled（无 manifest）
 dispatched + child 已消失且未接管 → child_expired（保留 RUN_ERROR_RETENTION_MS 后回收）
 ```
 
-`dispatched` 表示 Planner 已结束、child Image Job 已创建。图片是否生成完由第一刀 Image Job 状态决定。
+`dispatched` 表示 Planner 已结束、child Image Job 已创建。图片是否生成完由Image Job 状态决定。
 
 取消语义按 child 是否已创建分裂，不允许合并：
 
 - child 创建前取消：终态 `cancelled`，无 manifest。
-- child 创建后取消：Draw Run 保持 `dispatched`，记录 `cancelRequestedAt`，manifest 原样保留；取消转发给第一刀 Image Job。浏览器仍需 adoption，以收取已 ready 的结果并完成取消结算。禁止转成普通 `cancelled` 并清掉 manifest。
+- child 创建后取消：Draw Run 保持 `dispatched`，记录 `cancelRequestedAt`，manifest 原样保留；取消转发给Image Job。浏览器仍需 adoption，以收取已 ready 的结果并完成取消结算。禁止转成普通 `cancelled` 并清掉 manifest。
 
 **生命周期跟随 child，不是独立计时**：
 
@@ -90,7 +90,7 @@ child 消失且尚未接管 → 标记 child_expired，保留 RUN_ERROR_RETENTIO
 客户端完成 adoption → 主动 ACK 删除 Draw Run
 ```
 
-（第一刀 child 终态后 retention 为 1 小时，`job-manager.js` `DEFAULT_RETENTION_MS`；Draw Run 通过订阅/查询 child 存活状态联动，禁止写死"两个数字相同"。）
+（Image Job child 终态后 retention 为 1 小时，`job-manager.js` `DEFAULT_RETENTION_MS`；Draw Run 通过订阅/查询 child 存活状态联动，禁止写死"两个数字相同"。）
 
 Draw Run 保存：
 
@@ -129,7 +129,7 @@ Draw Run 保存：
 
 ## 4. 后端 API
 
-基础路径：`/api/plugins/littlewhitebox-image-jobs/v1/draw-runs`
+基础路径：`/api/plugins/littlewhitebox-server/v1/draw-runs`
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -144,14 +144,14 @@ Draw Run 保存：
 - owner 只取 `req.user.profile.handle`，body 不允许指定 owner。
 - 同一 owner + runId + 相同签名返回原任务；相同 runId、不同请求 409。
 - 编译所有图片成功后，才能一次性创建 child Image Job。
-- childJobId 从 runId 确定性派生。第一刀创建接口已满足幂等（`requestId` 即 jobId，同签名重放返回原任务、异签名 409，`job-manager.js:87-95`），重试不重复扣费。
-- child 创建必须经过与第一刀 HTTP 路由同一个 normalize/validate service（从 `routes.js` 提取共享服务，路由与 DrawRunManager 都走它），禁止绕过校验直接调用 manager。
+- childJobId 从 runId 确定性派生。Image Job创建接口已满足幂等（`requestId` 即 jobId，同签名重放返回原任务、异签名 409，`job-manager.js:87-95`），重试不重复扣费。
+- child 创建必须经过与Image Job HTTP 路由同一个 normalize/validate service（从 `routes.js` 提取共享服务，路由与 DrawRunManager 都走它），禁止绕过校验直接调用 manager。
 - 浏览器创建 Draw Run、提交响应丢失后的确定性查询，以及后续 list/get/cancel/ACK 请求均有 15 秒单请求上限；超时只进入不确定/重试语义，不得把未知结果当成任务不存在。
 - Planner 前取消：中止 LLM，不创建图片任务。
 - Planner 与 child 创建竞态必须串行化。
-- child 已创建后取消：转发给第一刀 Image Job，保留已 ready 的结果（Draw Run 状态语义见第 3 节）。
+- child 已创建后取消：转发给Image Job，保留已 ready 的结果（Draw Run 状态语义见第 3 节）。
 
-资源常量（定死，禁止施工时临时猜）：
+资源上限与保留时限：
 
 | 常量 | 值 | 说明 |
 |---|---|---|
@@ -161,18 +161,18 @@ Draw Run 保存：
 | `MAX_CONCURRENT_PLANNERS_GLOBAL` | 4 | 全局同时运行的 Planner |
 | `MAX_ENVELOPE_BYTES` | 2 MiB | 单个 envelope 序列化字节上限 |
 | `MAX_TOTAL_ENVELOPE_BYTES` | 32 MiB | 全部未完成 run 的 envelope 常驻内存上限 |
-| `SUBMISSION_UNCERTAINTY_WINDOW_MS` | 120 000 | marker 落盘后至可判定"未提交"的等待窗口（与第一刀 `PENDING_JOB_LEASE_MS` 对齐） |
-| `RUN_ERROR_RETENTION_MS` | 3 600 000 | `failed` / `cancelled` / `child_expired` 的展示保留期（与第一刀 child retention 对齐） |
+| `SUBMISSION_UNCERTAINTY_WINDOW_MS` | 120 000 | marker 落盘后至可判定"未提交"的等待窗口（与Image Job `PENDING_JOB_LEASE_MS` 对齐） |
+| `RUN_ERROR_RETENTION_MS` | 3 600 000 | `failed` / `cancelled` / `child_expired` 的展示保留期（与Image Job child retention 对齐） |
 | `CHILD_SWEEP_INTERVAL_MS` | 30 000 | Draw Run 主动查询 child 是否仍存在；timer 使用 `unref`，插件退出时清理 |
 
-（与第一刀 `MAX_JOBS_PER_OWNER=20` 相互独立。）
+（与Image Job `MAX_JOBS_PER_OWNER=20` 相互独立。）
 
 并发边界（Planner 与生图分属两层，不许混淆）：
 
 - 上表并发常量只作用于 Planner——LLM 调用，不碰 NovelAI / SD / Comfy。
-- 生图并发归第一刀调度器所有，**单 owner 严格串行**：per-owner scheduler 单活动槽 + 批间随机 cooldown（`job-manager.js` `scheduler.active`，已核实为既有行为）。封号风险与显卡负载都在这一层。
-- 第二刀不得新增任何生图并发路径；Draw Run `dispatched` 后的全部流量语义由第一刀决定。
-- 既有事实：`MAX_CONCURRENT_ITEMS = 4` 是跨 owner 的全局上限，单 owner 仍串行；第二刀不改变它。
+- 生图并发归Image Job调度器所有，**单 owner 严格串行**：per-owner scheduler 单活动槽 + 批间随机 cooldown（`job-manager.js` `scheduler.active`，已核实为既有行为）。封号风险与显卡负载都在这一层。
+- Draw Run不得新增任何生图并发路径；Draw Run `dispatched` 后的全部流量语义由Image Job决定。
+- 既有事实：`MAX_CONCURRENT_ITEMS = 4` 是跨 owner 的全局上限，单 owner 仍串行；Draw Run不改变它。
 
 Envelope 限额与脱敏：
 
@@ -206,30 +206,27 @@ req.socket.server.address() // 唯一可信的监听地址与端口
 - HTTP / 原生 HTTPS（含自签）。
 - 多用户并发不串身份。
 
-诊断端点为 `POST /api/plugins/littlewhitebox-image-jobs/v1/draw-runs/probe`。它只返回回环协议、地址族与各凭证是否通过验证，不回显 Cookie、CSRF token 或 Basic Auth 内容。内层校验路由要求当前进程生成的一次性 challenge，不能作为公开身份查询接口使用。
+诊断端点为 `POST /api/plugins/littlewhitebox-server/v1/draw-runs/probe`。它只返回回环协议、地址族与各凭证是否通过验证，不回显 Cookie、CSRF token 或 Basic Auth 内容。内层校验路由要求当前进程生成的一次性 challenge，不能作为公开身份查询接口使用。
 
-探针不调用 LLM、不产生费用。探针通过部署矩阵之前，不开写 DrawRunManager。后续设置页的"后台 Agent 连接测试"直接复用它。
+探针不调用 LLM、不产生费用；设置页的“后台 Agent 连接测试”复用同一诊断端点。
 
-部署矩阵由 `server-plugin/littlewhitebox-image-jobs/tests/loopback-deployment-matrix.js` 从源码建立隔离运行副本并启动真实 SillyTavern 1.18.0 进程，不以 Express mock 代替，也不加载现用 server plugin 或数据。已验证 HTTP/IPv4 双用户会话并发探针与 Cookie/CSRF、原生自签 HTTPS/IPv4 + Basic Auth、HTTP/IPv6、HTTPS 终止反代到 HTTP SillyTavern + Basic Auth，以及明确绑定 `127.0.0.2` 时同端口 `127.0.0.1` 诱饵服务收到零请求。`req.protocol` 与 socket 元数据冲突时仍以后者为准，由探针单测独立覆盖。
+部署矩阵由 `server-plugin/littlewhitebox-server/tests/loopback-deployment-matrix.js` 从源码建立隔离运行副本并启动真实 SillyTavern 1.18.0 进程，不以 Express mock 代替，也不加载现用 server plugin 或数据。已验证 HTTP/IPv4 双用户会话并发探针与 Cookie/CSRF、原生自签 HTTPS/IPv4 + Basic Auth、HTTP/IPv6、HTTPS 终止反代到 HTTP SillyTavern + Basic Auth，以及明确绑定 `127.0.0.2` 时同端口 `127.0.0.1` 诱饵服务收到零请求。`req.protocol` 与 socket 元数据冲突时仍以后者为准，由探针单测独立覆盖。
 
 ## 6. Agent 渠道
 
-调研事实（已核实）：
+Agent Core 的配置与 Adapter 注册见 [共享核心](../modules/agent-core/README.md)，后端通过 Node entry 使用，不走浏览器 bundle 或 UI。
 
-- 7 个 adapter 注册于 `modules/agent-core/provider-config.js:13-35`；agent-core 核心与全部 adapter 零浏览器依赖（仅同构 SDK openai / @anthropic-ai/sdk / @google/genai + 内部纯模块），唯一浏览器耦合在 `agent-core/ui/`，核心路径不经过。Node entry 可直接 import 源码，不走 `dist/agent-core-browser.js`。
-- 全局单例 header provider 在 `shared/host-llm/chat-completions/client.js:14`，浏览器侧有 5 个模块设置它（draw、assistant、ebook、xiaobai-os/fourth-wall、ena-planner）。
-
-Host Client 收窄方案（不碰 assistant / ebook / xiaobai-os/fourth-wall / ENA）：
+Host Client 边界：
 
 - 保留浏览器默认 Host Client 和现有 setter。
-- `createAgentAdapter()` 增加可选 `hostClient` 注入。
+- `createAgentAdapter()` 接受实例 `hostClient` 注入。
 - 三个酒馆 adapter 默认使用浏览器 client。
 - Node Draw Run 强制传入 per-run client；服务端缺实例 client 直接拒绝，不回退全局单例。
 
 Node 发布边界：
 
 - `modules/agent-core/node-entry.js` 是后端唯一入口；酒馆三渠道在入口层强制要求实例 Host Client，不导出浏览器全局 setter。
-- `npm run build:agent-core:node` 用 esbuild 生成 `server-plugin/littlewhitebox-image-jobs/draw-runs/vendor/agent-core-node.cjs`，把 Agent Core、三个 SDK 及其实际依赖打成 CommonJS 单文件；产物只允许引用 Node 内置模块。
+- `npm run build:agent-core:node` 用 esbuild 生成 `server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs`，把 Agent Core、三个 SDK 及其实际依赖打成 CommonJS 单文件；产物只允许引用 Node 内置模块。
 - 同一构建根据 esbuild metafile 生成 `draw-runs/vendor/THIRD_PARTY_LICENSES.txt`，逐项记录实际入包依赖的精确版本、许可证声明及上游随包附带的 LICENSE/NOTICE/COPYING 正文；未附带这些文件时回退提取 README 的 License 段，仍无正文则构建失败。
 - `npm run check:agent-core:node` 先核对实际入包依赖与 `package-lock.json` 的锁定版本，再无写入重建并逐字节比对 bundle 与许可证清单，防止提交陈旧产物；正式构建在同目录 staging，并以整个 `vendor` 目录为发布单元切换，失败时恢复上一份完整产物。
 - 运行时不安装 npm 依赖；bundle 编译目标与 server plugin 最低版本均为 Node.js 18。`npm run check:agent-core:node18` 固定在 Node.js 18.20.8 隔离加载 bundle、创建七类 Adapter，并通过本机模拟端点验证 Google SDK 的实际 `generateContent` 请求路径；虽然当前 `@google/genai` 声明 Node.js 20，锁定并打包的现用路径已验证支持 Node.js 18，后续 SDK 升级由该检查拦截。
@@ -240,9 +237,9 @@ Node 发布边界：
 
 ## 7. Scene Planner prepare/execute 拆分
 
-调研事实（已核实）：`scene-planner.js` 输入已是数据入参；4 处浏览器 fallback（宏展开 runtime、`worldInfoResolver`、`dependencies.getAgentSettings`、`dependencies.requestHeadersProvider` / `loadAgentCore`）注入口全部已存在。宏展开（`substituteParams`、chat 历史）是唯一必须在浏览器侧先算好的数据。
+`scene-planner.js` 接收准备好的数据；宏展开、世界书解析、Agent 设置和请求鉴权由调用方提供。依赖宿主的宏展开与聊天历史必须在浏览器侧捕获，不在 Node 重新解释。
 
-浏览器预处理 `prepareScenePlannerInput()`：Scene Source、插图点、宏展开、世界书、角色资料、Prompt 模板、当前 Agent providerConfig、Tool 校验上下文、sourceHash。输出可序列化的 Planner 部分；第 8 步的协调器只负责在外层补齐 run 与图片生成字段，不能再次解释 Prompt。
+浏览器预处理 `prepareScenePlannerInput()`：Scene Source、插图点、宏展开、世界书、角色资料、Prompt 模板、当前 Agent providerConfig、Tool 校验上下文、sourceHash。输出可序列化的 Planner 部分；提交协调器只负责在外层补齐 run 与图片生成字段，不能再次解释 Prompt。
 
 后台执行 `executePreparedScenePlanner()`：转发前端提供的唯一 `submit_scene_plan` Tool、调用 Agent、Tool 回放、最多三次纠错、重复错误提前终止、独立校验 `images`、输出规范 Scene Plan。
 
@@ -281,13 +278,13 @@ Node 发布边界：
 
 NovelAI 自动学习在浏览器侧复用同一入口：未提供 `type` 的新角色可以出图，但不自动入库，避免角色库把缺失类型补成 `girl`；已有角色的匹配、停用保护与补空字段行为不变。
 
-2.2.0 正式版后台不接收 `planner.tool`，新前端通过 `draw-run-runtime-v4` 在提交前明确要求一次升级至 2.3.0；不保留在后端重建旧 Schema 的分支。既有聊天标记和图片交付记录没有格式变更。后续只改规划说明及其 Schema 不需要升级后台；改变图片执行语义、供应商协议或修复后台缺陷仍可能需要升级。
+前端同时校验当前 Planner 运行契约和 [整组取消能力](./image-backend-batch-jobs.md#整组取消)，部署版本与升级方式由 [后端 README](../server-plugin/littlewhitebox-server/README.md#升级) 维护。不保留后端重建旧 Schema 的分支；既有聊天标记和图片交付记录继续按现有身份接回。规划说明及其 Schema 不变更图片执行语义时，不要求升级后台。
 
 服务端验证边界：
 
 - 请求 envelope 的 JSON 形状与类型校验，未知字段拒绝；`planner.tool` 中的 Schema 内容按上述边界透传。
 - `imageProvider` / `agent.channel` 白名单。
-- `effectiveMaxImages = 0` 保留用户“不指定精确张数”的语义；`maxPlanImages` 是本次执行容量且 ≤ 第一刀单 job items 上限（20）。显式设置超过容量时在写 marker、调用 Planner 前拒绝。
+- `effectiveMaxImages = 0` 保留用户“不指定精确张数”的语义；`maxPlanImages` 是本次执行容量且 ≤ Image Job单 job items 上限（20）。显式设置超过容量时在写 marker、调用 Planner 前拒绝。
 - `planner.prompt` 只接受预处理后的 system prompt 与单条 user message；原始世界书、Prompt 模板或宏运行时对象不得进入 envelope。
 - `generationRecipe` 交给对应 provider 的 recipe validator。
 - 酒馆渠道只允许携带用户预设中的反代 `proxy_password`（沿用 `providerConfig.apiKey` 字段）；Cookie、CSRF 与 Basic Auth 不进入 envelope，由当前请求捕获。
@@ -328,7 +325,7 @@ Provider registry 只做 `provider → recipe validator → compiler → Image J
 - 从未 swipe 过的消息（无 swipe 结构）：只有 `message.extra` 一份。
 - 扫描时按 swipe 读取并按 runId 去重。
 
-### Confirmable save（读回验证，前置验证项）
+### Confirmable save（读回验证）
 
 事实（已核实）：`ctx.saveChat` 即 `saveChatConditional`（`st-context.js:154`），它吞异常且等锁超时时静默返回不保存（`script.js:9352-9358`）；`isChatSaving` 锁不对插件暴露，直接调用 `saveChat()` 无法与宿主保存队列正确协调。
 
@@ -344,13 +341,12 @@ Provider registry 只做 `provider → recipe validator → compiler → Image J
 
 - 首次提交不再要求“内存整份聊天 === 持久化整份聊天”。ST 的防抖保存、本页未落盘字段、其他扩展的合法内存修改都不应阻塞一次正常点击。
 - SillyTavern 的 `integrity` 是文件身份标识，不是每次保存递增的版本号；同一聊天双标签同时编辑仍属于 ST 原生的整聊覆盖边界。首次 marker 保存不自建另一套聊天版本系统；但无论宿主保存返回何种结果，读回没有 marker 都绝不 POST Draw Run。
-- adoption、取消与 marker 清理的写前条件只核对目标 run 的 marker 和冻结 swipe 正文；同一目标被编辑时不保存，无关楼层或运行时字段的合法差异不再阻断任务交接。SillyTavern 仍以整份聊天保存，因此不同标签页同时编辑不同楼层沿用宿主自身的最后写入覆盖边界，不在画图状态机内伪造聊天版本系统。
-- 同一页面内另有一层非持久化 mutation queue，把“修改共享 `ctx.chat` → 保存并确认”整体串行，防止首次 marker 与取消/恢复互相覆盖。
+- adoption 与 marker 清理的写前条件只核对目标 run 的 marker 和冻结 swipe 正文；同一目标被编辑时不保存，无关楼层或运行时字段的合法差异不再阻断任务交接。SillyTavern 仍以整份聊天保存，因此不同标签页同时编辑不同楼层沿用宿主自身的最后写入覆盖边界，不在画图状态机内伪造聊天版本系统。
+- 同一页面内另有一层非持久化 mutation queue，把“修改共享 `ctx.chat` → 保存并确认”整体串行，防止首次 marker 与恢复互相覆盖。
 - 读回失败或内容不符都属于"不确定"：不 POST、不回滚可能已成功的远端写入，保留 marker 等恢复清理。
 - 封装冻结调用时的聊天身份：单人聊天读 `/api/chats/get`，群聊读 `/api/chats/group/get`；保存期间切换聊天不能改变读回目标。
 - 保存等待和读回各有 15 秒上限。保存超时或抛错后仍继续读回：读回验证通过即确认，未通过才判定"不确定"；不取消仍可能完成的宿主保存。
-- 该封装在施工顺序中作为独立前置验证证明（见第 12 节），通过后 marker 与 adoption 才能开工。
-- Draw Run adoption 激活后的第一刀恢复结算仍按目标槽位做写前校验与读回验证；同一目标冲突时恢复内存槽位并让位。
+- Draw Run adoption 激活后的Image Job恢复结算仍按目标槽位做写前校验与读回验证；同一目标冲突时恢复内存槽位并让位。
 
 ### marker 内容与严格顺序
 
@@ -365,14 +361,14 @@ extra.xbDrawRuns[runId] = {
   createdAt,
   // 自动模式才有
   automatic: true,
-  // 用户请求取消后才有
+  // 正式线已有标记的读取兼容；新取消使用整组意图 journal
   cancelRequestedAt,
 }
 ```
 
 ```text
 点击时冻结活动 swipe index 与完整正文
-→ 查询第一刀 journal；当前 swipe 仍有活跃图片槽位时在进入 Planner 前拒绝第二批，gallery-only 或用户已删除的槽位不锁正文
+→ 查询Image Job journal；当前 swipe 仍有活跃图片槽位时在进入 Planner 前拒绝第二批，gallery-only 或用户已删除的槽位不锁正文
 → 查询 capability 并完成全部 Planner 预处理
 → 生成 runId（slotId/imgId 由 runId + index 确定性派生）
 → 保存 marker 前再次核对仍是点击时的同一 swipe；重算剥槽正文的 sourceHash，并以冻结的完整 swipe targetHash 做严格 CAS（且楼层不在编辑中）
@@ -393,7 +389,7 @@ extra.xbDrawRuns[runId] = {
 - swipe 重排、消息前移：runId 随 swipe extra 移动，不依赖楼层下标。
 - adoption journal 中的 `messageId` 只是写入时定位提示；恢复以确定性 `slotId` 扫描全部正文与非活动 swipe。删除更早楼层导致消息下标变化时，不得把仍存在的已付费图片槽位误判为丢失。
 
-## 10. adoption 与 gallery-only journal 重整
+## 10. adoption 与 gallery-only journal
 
 ### journal delivery 判别模型
 
@@ -407,16 +403,16 @@ delivery: { mode: 'slots', chatId, messageId }
 delivery: { mode: 'gallery' }
 ```
 
-运行时只认当前结构；不留"字段缺失就当 slots"的旧语义。第一刀既有测试 fixture 同步迁移。
+运行时只认当前结构；不留"字段缺失就当 slots"的旧语义。Image Job既有测试 fixture 同步迁移。
 
-### `adopting` 状态与第一刀恢复器隔离
+### `adopting` 状态与Image Job恢复器隔离
 
-改造前事实（已核实）：第一刀 reattach 决策在租约过期后只要后端 job 存在就返回 `ATTACH`，不区分 journal 状态；journal 创建使用 `store.put()` 盲写。这两点在第一刀是安全的（slots 先于提交落盘、创建者唯一），但 adoption 场景下 child 由服务端创建、slots 尚未落盘、多标签页竞争创建，两点都不再成立——若刷新发生在 slots 落盘前，第一刀恢复器会开始收图并把不存在的 slot 当已删除目标幂等丢弃。
+adoption 的 child 由服务端创建，客户端 slots 尚未落盘时不得进入普通 Image Job 恢复，否则不存在的 slot 会被当作已删除目标。journal 创建与恢复必须遵守以下隔离和原子性规则：
 
 契约：
 
-- journal 新增真实状态：`adopting/pending → adopting/placing → adopting/ready → active`。
-- `adopting` 只能由 Draw Run 恢复器处理；第一刀 Image Job 恢复器必须忽略它（`planImageJobReattach` 对 `adopting` 不产生任何动作）。
+- journal 的接管状态为：`adopting/pending → adopting/placing → adopting/ready → active`。
+- `adopting` 只能由 Draw Run 恢复器处理；Image Job 恢复器必须忽略它（`planImageJobReattach` 对 `adopting` 不产生任何动作）。
 - 写 slots 或判定 gallery-only 并经读回确认后只转 `adopting/ready`；marker 已确认从服务端聊天删除、`originRunAckReady` 已打开后，才转 `active`。
 - `active/cancelling` 且带 `originRunId` 的记录本身即证明 marker 已从服务端删除。其他标签页若仍有本地陈旧 marker，只清内存，不得保存陈旧聊天快照。
 - adoption journal 创建必须用 IndexedDB 原子 `add` / 单事务 CAS，禁止 `put` 盲写，两标签页只允许一个成功。
@@ -424,7 +420,7 @@ delivery: { mode: 'gallery' }
 
 ### adoptExistingJobFromDrawRun
 
-第二刀唯一特许入口，不破坏第一刀普通任务的 `journal → slots → POST`。只接受：当前 owner 可见的 Draw Run、runId marker、后端返回的 childJobId 与 manifest、sourceHash 与 marker targetHash 双重校验。
+Draw Run唯一特许入口，不破坏Image Job普通任务的 `journal → slots → POST`。只接受：当前 owner 可见的 Draw Run、runId marker、后端返回的 childJobId 与 manifest、sourceHash 与 marker targetHash 双重校验。
 
 接管顺序：
 
@@ -439,11 +435,11 @@ delivery: { mode: 'gallery' }
 → 删除 draw-run marker 并保存；自动任务在同一次保存中写入现有 Provider auto_done
 → journal.originRunAckReady = true
 → 单事务转 active/cancelling 且释放 adoption lease
-→ 交给第一刀 attachJob()；图片落库与正文结算成功后 ACK Draw Run
+→ 交给Image Job attachJob()；图片落库与正文结算成功后 ACK Draw Run
 → 删除 journal（ACK 响应丢失时凭 originRunId 重试，404 视为已完成）
 ```
 
-marker 清理后，面板控制权改读同一条第一刀 journal，不另建 UI 状态快照：child 仍在排队/生成时继续显示实际阶段与张数并可取消。带完整任务身份的页面内活动事件只负责唤醒目标楼层读取当前 marker/journal，并携带这一刻的阶段或终态；事件不落盘、不设 TTL，也不作为任务事实。取消意图先原子写入 journal，再同时请求 Draw Run 与 child 取消，恢复器最终以 journal 的 `cancelling` 事实做 discard 结算。journal 删除后，成功/部分成功结果按浏览器生成的同一终态短暂显示，再自动回到空闲。
+marker 清理后，面板控制权改读同一条Image Job journal，不另建 UI 状态快照：child 仍在排队/生成时继续显示实际阶段与张数并可取消。带完整任务身份的页面内活动事件只负责唤醒目标楼层读取当前 marker/journal，并携带这一刻的阶段或终态；事件不落盘、不设 TTL，也不作为任务事实。新取消先持久化精确 run/job 集合并用同一个后端请求确认，恢复顺序与生命周期遵守 [整组取消契约](./image-backend-batch-jobs.md#整组取消)。journal 删除后，成功/部分成功结果按浏览器生成的同一终态短暂显示，再自动回到空闲。
 
 酒馆停止键 / Escape 只中止仍在浏览器调用栈里的前台生成，不取消已经由后端接管的 Draw Run。后台任务只能从对应楼层或悬浮画图胶囊显式取消，避免用户停止文本生成时误伤早前楼层已经付费的后台批。
 
@@ -462,29 +458,11 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 ## 11. 多标签页与 unclaimed run
 
 - 同源多标签页沿用 IndexedDB lease；创建 child journal 时只允许一个标签页 CAS 成功接管。
-- Draw Run 的首次 marker、取消、adoption 槽位和恢复结算写入都按聊天持有同源 Web Lock，同页共享内存修改另由 mutation queue 串行；两类锁都只活在运行期，不新增持久状态。首次 marker 以当前活聊天为事实并在保存后读回确认；取消、adoption 与 marker 清理在保存前精确比较目标 run 的 marker + swipe 正文，不能被同一目标的并发修改越过，也不因无关楼层差异永久卡住。第一刀槽位结算继续按其目标槽位快照执行；其他标签页已经推进同一目标正文时，陈旧恢复页只能让位。
+- Draw Run 的首次 marker、adoption 槽位和恢复结算写入都按聊天持有同源 Web Lock，同页共享内存修改另由 mutation queue 串行；两类锁都只活在运行期，不新增持久状态。首次 marker 以当前活聊天为事实并在保存后读回确认；adoption 与 marker 清理在保存前精确比较目标 run 的 marker + swipe 正文，不能被同一目标的并发修改越过，也不因无关楼层差异永久卡住。Image Job槽位结算继续按其目标槽位快照执行；其他标签页已经推进同一目标正文时，陈旧恢复页只能让位。
 - 后端存在且没有 marker/journal：不自动取消、不自动删除、不猜楼层，保持 `unclaimed`。已有 adoption journal 可按冻结的 chat target 跨聊天只读确认；无论 delivery 是 slots 还是 gallery，目标聊天未激活时都只等待，不能把“当前看不到 marker”误判成目标消失。回到目标聊天后再完成对应的占位符或 gallery 接回与 marker 清理。
 
-## 12. 施工顺序
 
-```text
-95526dd 第一刀封板（已完成）
-→ 1. Host Client 实例注入（已完成；收窄范围，见第 6 节）
-→ 2. 本地回环探针通过真实 SillyTavern 部署矩阵（已完成；可复现脚本及覆盖项见第 5 节）
-→ 3. confirmable save 读回验证封装并独立证明（实现与 mock 行为测试完成；真实 SillyTavern 写盘后读盘由人工验收，尚未标独立证明完成；见第 9 节；marker 与 adoption 的前置）
-→ 4. Node bundle 管线（已完成；esbuild：Node entry + 三个 SDK + Agent Core → 提交进 server-plugin 的可复制产物；零运行时安装依赖；生成第三方许可证清单）
-→ 5. Planner prepare/execute 拆分（已完成；浏览器行为不变）
-→ 6. 三家纯 compiler 提取，浏览器链路切换（已完成；行为不变）
-→ 7. DrawRunManager / 状态机 / API / per-run Host Client / Agent executor / compiler registry / child 创建（经共享 normalize/validate service）/ 敏感数据清理 / 生命周期与取消（已完成；该阶段未单独发布 capability）
-→ 8. 前端提交与 marker（已完成共享 draw-run-coordinator：preflight、marker CAS、幂等提交、提交不确定窗口、“提交后台/提交后台完成”状态事件；该阶段未单独注册三家生产入口）
-→ 9. journal 重整：delivery 判别模型 + adopting 状态 + 原子创建 + originRunId（已完成；旧测试线 schema 在升级入口一次性删除）
-→ 10. child adoption（已完成：marker 扫描、reconcile、adoptExistingJobFromDrawRun、source_changed → gallery、marker 清理与补 ACK、多标签页竞争、取消与 child_expired 收口）
-→ 11. 注册三家 Provider 生产入口与对应 UI 状态，并开放 `draw-runs-v1` 路由 capability；当前 `draw-run-runtime-v4` 接收前端 Tool Schema、仅解释返回的 `images`，并要求 NovelAI V5 子任务只交付最终 PNG（已完成；任一不匹配时明确显示当前/所需插件版本和更新路径，不悄悄退化）
-```
-
-施工期间阶段 1–8 用户行为保持不变：第 7～8 步只建立后端 API 与共享提交边界，当时未发布 capability、未注册 Provider 入口，避免前端进入一个能提交却不能 adoption 的半成品路径。现在第 9～10 步接回闭环与第 11 步生产入口已经一并完成并开放。
-
-## 13. 最低必要测试
+## 12. 最低必要测试
 
 **不使用源码正则/import 字符串扫描类架构测试**。运行时可移植性由以下真实执行保护：
 
@@ -502,21 +480,21 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 - 酒馆 OpenAI/Claude/Google 的 Tool 与纠错回放和浏览器模式一致。
 - Planner 失败不产生正文 slot。
 - child 创建恰好一次，且经过与 HTTP 路由同一个 normalize/validate service。
-- child 已创建后刷新，可经 adoption 进入第一刀 journal。
-- `adopting` journal 被第一刀恢复器忽略，只有 Draw Run 恢复器能推进它。
+- child 已创建后刷新，可经 adoption 进入Image Job journal。
+- `adopting` journal 被Image Job恢复器忽略，只有 Draw Run 恢复器能推进它。
 - adoption journal 并发创建只有一个标签页成功（原子 add/CAS）。
 - child 创建后取消：Draw Run 保持 `dispatched` + manifest，adoption 仍能收取已 ready 结果。
 - marker 已删、ACK 响应丢失后，凭 `originRunId` 补 ACK。
 - sourceHash 或首次写占位符前的完整 swipe targetHash 变化时只进画廊；gallery 模式落库成功后才 ACK。
-- adoption 已落盘后，用户只删除部分槽位时不复活被删槽位，其余仍存槽位继续接图；当前 swipe 的第一刀 journal 清理前不得启动会替换它的第二批。
+- adoption 已落盘后，用户只删除部分槽位时不复活被删槽位，其余仍存槽位继续接图；当前 swipe 的Image Job journal 清理前不得启动会替换它的第二批。
 - 消息移动、swipe 切换后仍能按 marker 找回（含活动/非活动/无 swipe 结构三形态）。
 - 两标签页只能有一个接管者。
 - 显式取消传播；关闭页面不传播取消。
 - Node 重启按已知边界显示失效，而不是重新扣费。
 - 三家 Provider 全部覆盖，不能只证明 NovelAI。
 
-## 14. 关键跨边界风险
+## 13. 关键跨边界风险
 
-1. 酒馆 Agent 渠道的身份回环（第 5 节探针先行）。
-2. Agent Core 浏览器/Node 双入口（调研已证实源码零改动可进 Node，风险收敛为打包与注入）。
+1. 酒馆 Agent 渠道的身份回环（第 5 节部署矩阵与探针）。
+2. Agent Core 浏览器/Node 双入口（验证打包、Host Client 注入与运行环境）。
 3. 三家图片 payload 单一事实源（第 8 节 compiler + 浏览器链路实际运行验证）。

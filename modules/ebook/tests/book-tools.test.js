@@ -977,7 +977,7 @@ test('Loose JSON repair keeps deliberately escaped unicode literals', () => {
     assert.equal(args.content, 'literal \\u7b2c99\\u7ae0');
 });
 
-test('Book runtime exposes Tavily web search only when configured', async () => {
+for (const webProvider of ['tavily', 'exa']) test(`Book runtime exposes and executes ${webProvider} search only when configured`, async () => {
     await resetDb();
     const book = await createBook('联网资料测试');
     const runtimeWithoutSearch = createBookToolRuntime({ bookId: book.id });
@@ -993,28 +993,24 @@ test('Book runtime exposes Tavily web search only when configured', async () => 
             url: String(url),
             body: options.body,
         });
-        return {
-            ok: true,
-            status: 200,
-            async json() {
-                return {
+        return Response.json({
                     results: [
                         {
                             title: 'Kyoto Machiya Guide',
                             url: 'https://example.com/machiya',
                             content: 'Traditional machiya usually have a narrow frontage and deep plan.',
+                            highlights: ['Traditional machiya usually have a narrow frontage and deep plan.'],
                             score: 0.91,
                         },
                     ],
-                };
-            },
-        };
+        });
     };
 
     try {
         const runtime = createBookToolRuntime({
             bookId: book.id,
             searchConfig: {
+                webProvider, exaApiKey: 'ebook-exa-key',
                 tavilyApiKey: 'ebook-tavily-key',
                 tavilyBaseUrl: 'https://api.tavily.com/',
             },
@@ -1033,12 +1029,12 @@ test('Book runtime exposes Tavily web search only when configured', async () => 
         assert.equal(result.query, 'Kyoto machiya layout');
         assert.equal(result.count, 1);
         assert.equal(requests.length, 1);
-        assert.equal(requests[0].url, 'https://api.tavily.com/search');
+        assert.equal(requests[0].url, `https://api.${webProvider === 'exa' ? 'exa.ai' : 'tavily.com'}/search`);
 
         const requestBody = JSON.parse(requests[0].body);
-        assert.equal(requestBody.api_key, 'ebook-tavily-key');
+        if (webProvider === 'tavily') assert.equal(requestBody.api_key, 'ebook-tavily-key');
         assert.equal(requestBody.query, 'Kyoto machiya layout');
-        assert.equal(requestBody.max_results, 3);
+        assert.equal(webProvider === 'exa' ? requestBody.numResults : requestBody.max_results, 3);
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -6305,7 +6301,6 @@ test('Ebook settings open as an in-app shared config panel instead of jumping to
     assert.match(html, /id="xb-assistant-delegate-pull-models"/);
     assert.doesNotMatch(html, /<span>预设名称<\/span>/);
     assert.doesNotMatch(html, /class="xb-assistant-actions"/);
-    assert.match(html, /Tavily API Key（全局）/);
     assert.doesNotMatch(html, /id="xb-assistant-tavily-base-url"/);
     assert.doesNotMatch(html, /id="xb-assistant-delegate-tavily-api-key"/);
     assert.doesNotMatch(html, /id="xb-assistant-delegate-tavily-base-url"/);
@@ -8558,8 +8553,8 @@ test('Book prompt keeps assistant-style tool layers and recovery rules', () => {
 
     const webSearchDefinitions = getEbookToolDefinitions({ webSearchEnabled: true });
     const webSearch = webSearchDefinitions.find((definition) => definition.function?.name === EBOOK_TOOL_NAMES.WEB_SEARCH);
-    assert.match(String(webSearch.function.description), /not available in the current book or imported sources/);
-    assert.match(String(webSearch.function.description), /prefer LS \/ Grep \/ Read/);
+    assert.deepEqual(Object.keys(webSearch.function.parameters.properties), ['query', 'maxResults']);
+    assert.deepEqual(webSearch.function.parameters.required, ['query']);
     assert.equal(
         getEbookToolDefinitions({ webSearchEnabled: false })
             .some((definition) => definition.function?.name === EBOOK_TOOL_NAMES.WEB_SEARCH),

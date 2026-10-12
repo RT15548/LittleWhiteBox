@@ -4,7 +4,7 @@ import { setImmediate } from 'node:timers/promises';
 import { createMessagesMedia } from '../apps/messages/host/media-adapter.js';
 import { createMessagesController } from '../apps/messages/host/controller.js';
 import { createMessagesRuntime } from '../apps/messages/host/runtime.js';
-import { harness, photo } from './helpers/messages-harness.js';
+import { harness, photo, replyText } from './helpers/messages-harness.js';
 import { extractImageFromResponse, formatImageBase64 } from '../../draw/providers/novelai/novel-image-response.js';
 
 const png = photo.upload.dataUrl.split(',')[1];
@@ -67,7 +67,7 @@ test('cancelling one image request suppresses late progress/results without canc
 
 test('image controller forwards correlated queue progress and provider failures instead of masking them', async () => {
     const h = await harness();
-    h.response = () => ({ text: JSON.stringify({ replies: [message.payload] }) });
+    h.response = () => ({ text: replyText([message.payload]) });
     await h.send('甲', 'send');
     const selected = h.service.current().messages.at(-1);
     const media = createMessagesMedia(() => ({ xiaobaixDraw: { getStatus: status,

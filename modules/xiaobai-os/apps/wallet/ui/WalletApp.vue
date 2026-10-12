@@ -140,23 +140,25 @@ onBeforeUnmount(() => {
         <WalletAppHeader :refreshing="refreshing" :disabled="refreshDisabled" @refresh="refresh" />
 
         <div class="wallet-ui-scroll">
-            <WalletBalanceCard :balance="state.balance" :currency="state.currency" :status="state.status" />
+            <div class="wallet-overview">
+                <WalletBalanceCard :balance="state.balance" :currency="state.currency" :status="state.status" />
 
-            <WalletNotice
-                v-if="noticeVisible"
-                class="wallet-notice"
-                :tone="noticeTone"
-                :title="noticeTitle"
-                :message="errorMessage || state.message"
-            >
-                <button v-if="requiresConfirmation" type="button" class="wallet-ui-text-button" :disabled="refreshing" @click="confirmSave()">
-                    {{ refreshing ? copy.checking : copy.checkSave }}
-                </button>
-                <button v-if="requiresConfirmation" type="button" class="wallet-ui-text-button" :disabled="refreshing" @click="confirmingAdopt = true">{{ copy.adopt }}</button>
-                <button v-else-if="errorMessage" type="button" class="wallet-ui-text-button" :disabled="refreshDisabled" @click="refresh">
-                    {{ refreshing ? '正在读取…' : '重新加载' }}
-                </button>
-            </WalletNotice>
+                <WalletNotice
+                    v-if="noticeVisible"
+                    class="wallet-notice"
+                    :tone="noticeTone"
+                    :title="noticeTitle"
+                    :message="errorMessage || state.message"
+                >
+                    <button v-if="requiresConfirmation" type="button" class="wallet-ui-text-button" :disabled="refreshing" @click="confirmSave()">
+                        {{ refreshing ? copy.checking : copy.checkSave }}
+                    </button>
+                    <button v-if="requiresConfirmation" type="button" class="wallet-ui-text-button" :disabled="refreshing" @click="confirmingAdopt = true">{{ copy.adopt }}</button>
+                    <button v-else-if="errorMessage" type="button" class="wallet-ui-text-button" :disabled="refreshDisabled" @click="refresh">
+                        {{ refreshing ? '正在读取…' : '重新加载' }}
+                    </button>
+                </WalletNotice>
+            </div>
 
             <section class="wallet-ledger" aria-labelledby="wallet-ledger-title">
                 <div class="wallet-ui-section-title">

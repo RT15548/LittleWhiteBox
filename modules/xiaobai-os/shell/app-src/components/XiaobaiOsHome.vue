@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type { XiaobaiOsAppDefinition } from '../../app-catalog.js';
 import { orderApps } from '../../app-order.js';
 import { useDesktopDrag } from './use-desktop-drag.js';
+import { MASCOT_MARK_URL } from '../../../brand/mascot/assets.js';
 import '../styles/desktop-order.css';
 
 const props = defineProps<{
@@ -143,6 +144,7 @@ watch(() => props.apps.map(app => app.id).sort().join(','), () => {
             <div class="xiaobai-os-home-wash" />
         </div>
         <div class="xiaobai-os-desktop-toolbar">
+            <img v-if="!editing" class="xiaobai-os-mobile-brand" :src="MASCOT_MARK_URL" alt="" aria-hidden="true">
             <template v-if="editing">
                 <button type="button" :disabled="saving || !!error" @click="reset">恢复默认</button>
                 <button class="xiaobai-os-desktop-done" type="button" :disabled="saving" @click="finishEditing">完成</button>

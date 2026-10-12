@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import test from 'node:test';
 
-import { IMAGE_BATCH_JOBS_CAPABILITY } from '../../../shared/backend-image-jobs.js';
+import { IMAGE_BATCH_JOBS_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY } from '../../../shared/backend-image-jobs.js';
 import {
     decodeNovelBackendJobResult,
     hasNovelV5FinalImageCapability,
@@ -30,7 +30,7 @@ class TestFileReader {
 test('requires the explicit server-normalized NovelAI V5 result contract', () => {
     assert.equal(hasNovelV5FinalImageCapability({
         ready: true,
-        capabilities: [IMAGE_BATCH_JOBS_CAPABILITY, NOVELAI_V5_FINAL_IMAGE_CAPABILITY],
+        capabilities: [IMAGE_BATCH_JOBS_CAPABILITY, NOVELAI_V5_FINAL_IMAGE_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY],
     }), true);
     assert.equal(hasNovelV5FinalImageCapability({
         ready: true,
@@ -87,8 +87,7 @@ test('rejects a stale backend that still returns the original V5 MessagePack str
             kind: 'msgpack-stream',
         }),
         error => error.code === 'novelai_backend_result_contract_outdated'
-            && error.discardBackendResult === true
-            && /完整覆盖服务端插件/.test(error.message),
+            && error.discardBackendResult === true,
     );
     assert.equal(cancelled, true);
 });

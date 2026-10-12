@@ -1,3 +1,10 @@
+export const DEFAULT_PLANNER_REQUEST_BLOCK = {
+    id: 'ena-default-user-001',
+    role: 'user',
+    name: 'Planner Request',
+    content: `Ena 和 Shiro 出动！`,
+};
+
 export const DEFAULT_PROMPT_BLOCKS = [
     {
         id: 'ena-default-system-001',
@@ -274,12 +281,7 @@ export const DEFAULT_PROMPT_BLOCKS = [
     </note>
     </output> `,
     },
-    {
-        id: 'ena-default-assistant-001',
-        role: 'assistant',
-        name: 'Assistant Seed',
-        content: `Ena 和 Shiro 出动！`,
-    },
+    DEFAULT_PLANNER_REQUEST_BLOCK,
 ];
 
 export const BUILTIN_TEMPLATES = {

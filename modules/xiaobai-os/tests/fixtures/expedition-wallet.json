@@ -1,0 +1,139 @@
+{
+  "economy": {
+    "schemaVersion": 3,
+    "transactions": [
+      {
+        "id": "tx-10e43471-9577-484c-8bec-10c349e513ab",
+        "sequence": 1,
+        "idempotencyKey": "economy:opening-grant:v1",
+        "actionId": "economy:opening-grant:v1",
+        "fromAccountId": "system:mint",
+        "toAccountId": "player",
+        "amount": 100,
+        "kind": "opening_grant",
+        "title": "开户赠礼",
+        "note": "欢迎来到小白 OS",
+        "sourceDomain": "economy",
+        "sourceScope": "user",
+        "sourceId": "opening-grant:v1",
+        "createdAt": 1791198634059
+      },
+      {
+        "id": "tx-94668516-60ff-496e-8863-844ce7ec94d8",
+        "sequence": 2,
+        "createdAt": 1791198634254,
+        "sourceScope": "user",
+        "idempotencyKey": "expedition:boss-0",
+        "actionId": "46a13cd9-c3d8-46d6-942e-8a45d26e00b0",
+        "fromAccountId": "counterparty:game:expedition",
+        "toAccountId": "player",
+        "amount": 80,
+        "kind": "expedition_award",
+        "title": "余烬远征",
+        "note": "",
+        "sourceDomain": "game",
+        "sourceId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb"
+      },
+      {
+        "id": "tx-0039b7c4-28ae-4c30-a753-ad671987a9cd",
+        "sequence": 3,
+        "createdAt": 1791198634446,
+        "sourceScope": "user",
+        "idempotencyKey": "expedition:boss-1",
+        "actionId": "f24fa361-7563-4583-a9ae-8febb7597719",
+        "fromAccountId": "counterparty:game:expedition",
+        "toAccountId": "player",
+        "amount": 80,
+        "kind": "expedition_award",
+        "title": "余烬远征",
+        "note": "",
+        "sourceDomain": "game",
+        "sourceId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb"
+      },
+      {
+        "id": "tx-ca563499-3d03-4f9c-aff0-219baf940d51",
+        "sequence": 4,
+        "createdAt": 1791198634690,
+        "sourceScope": "user",
+        "idempotencyKey": "expedition:boss-2",
+        "actionId": "4a164a7b-b8e5-474c-91ab-192ee124f930",
+        "fromAccountId": "counterparty:game:expedition",
+        "toAccountId": "player",
+        "amount": 80,
+        "kind": "expedition_award",
+        "title": "余烬远征",
+        "note": "",
+        "sourceDomain": "game",
+        "sourceId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb"
+      },
+      {
+        "id": "tx-1bfede01-026c-473f-8dbe-9d08d054f15d",
+        "sequence": 5,
+        "createdAt": 1791198634690,
+        "sourceScope": "user",
+        "idempotencyKey": "expedition:victory",
+        "actionId": "4a164a7b-b8e5-474c-91ab-192ee124f930",
+        "fromAccountId": "counterparty:game:expedition",
+        "toAccountId": "player",
+        "amount": 200,
+        "kind": "expedition_award",
+        "title": "余烬远征",
+        "note": "",
+        "sourceDomain": "game",
+        "sourceId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb"
+      },
+      {
+        "id": "tx-7d75a052-9f77-46be-8dae-36919c6da635",
+        "sequence": 6,
+        "createdAt": 1791198634690,
+        "sourceScope": "user",
+        "idempotencyKey": "expedition:mastery-blade",
+        "actionId": "4a164a7b-b8e5-474c-91ab-192ee124f930",
+        "fromAccountId": "counterparty:game:expedition",
+        "toAccountId": "player",
+        "amount": 120,
+        "kind": "expedition_award",
+        "title": "余烬远征",
+        "note": "",
+        "sourceDomain": "game",
+        "sourceId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb"
+      }
+    ]
+  },
+  "expedition": {
+    "awards": [
+      {
+        "key": "boss-0",
+        "actionId": "46a13cd9-c3d8-46d6-942e-8a45d26e00b0",
+        "runId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb",
+        "amount": 80
+      },
+      {
+        "key": "boss-1",
+        "actionId": "f24fa361-7563-4583-a9ae-8febb7597719",
+        "runId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb",
+        "amount": 80
+      },
+      {
+        "key": "boss-2",
+        "actionId": "4a164a7b-b8e5-474c-91ab-192ee124f930",
+        "runId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb",
+        "amount": 80
+      },
+      {
+        "key": "victory",
+        "actionId": "4a164a7b-b8e5-474c-91ab-192ee124f930",
+        "runId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb",
+        "amount": 200
+      },
+      {
+        "key": "mastery-blade",
+        "actionId": "4a164a7b-b8e5-474c-91ab-192ee124f930",
+        "runId": "2acd0051-c5d5-4489-8c3b-99409cebc6fb",
+        "amount": 120
+      }
+    ],
+    "purchases": [],
+    "equippedOutfit": "traveler"
+  }
+}

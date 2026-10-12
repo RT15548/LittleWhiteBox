@@ -12,6 +12,8 @@ import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { executeSlashCommand } from '../../core/slash-command.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
+import { migratePlannerPromptConfig } from './ena-planner-prompt-migration.js';
+import { buildPlannerTurnMessages } from './ena-planner-messages.js';
 import { createEnaPlannerSendInterceptor } from './ena-planner-interceptor.js';
 import {
     createAbortError,
@@ -193,7 +195,7 @@ async function loadConfig(epoch = lifecycleEpoch) {
         const loadedConfig = (loaded && typeof loaded === 'object' && !Array.isArray(loaded))
             ? structuredClone(loaded)
             : getDefaultSettings();
-        config = normalizeSettings(loadedConfig);
+        config = normalizeSettings(migratePlannerPromptConfig(loadedConfig));
         state.logs = Array.isArray(data.logs) ? structuredClone(data.logs) : [];
 
         if (extension_settings?.[EXT_NAME]) {
@@ -222,7 +224,7 @@ async function saveConfigNow(updateConfig) {
             let nextConfig = structuredClone(config);
             const updated = typeof updateConfig === 'function' ? updateConfig(nextConfig) : updateConfig;
             if (updated !== undefined) nextConfig = updated;
-            const normalizedConfig = normalizeSettings(structuredClone(nextConfig));
+            const normalizedConfig = normalizeSettings(migratePlannerPromptConfig(structuredClone(nextConfig)));
             await EnaPlannerStorage.updateAndSave(draft => {
                 assertCurrentLifecycle(operationEpoch);
                 draft.config = normalizedConfig;
@@ -1166,8 +1168,6 @@ async function buildPlannerMessages(rawUserInput, options = {}) {
     const messageVars = getLatestMessageVarTable();
 
     const enaSystemBlocks = getPromptBlocksByRole('system');
-    const enaAssistantBlocks = getPromptBlocksByRole('assistant');
-    const enaUserBlocks = getPromptBlocksByRole('user');
 
     const charBlockRaw = formatCharCardBlock(charObj);
 
@@ -1233,21 +1233,13 @@ async function buildPlannerMessages(rawUserInput, options = {}) {
     // 6) Previous plots
     if (String(plots).trim()) messages.push({ role: 'system', content: plots });
 
-    // 7) User input (with friendly framing)
+    // 7) User input and bottom prompt blocks form one final user message.
     const userMsgContent = `以下是玩家的最新指令哦~:\n[${userInput}]`;
-    messages.push({ role: 'user', content: userMsgContent });
-
-    // Extra user blocks before user message
-    for (const b of enaUserBlocks) {
-        const content = await renderTemplateAll(b.content, env, messageVars);
-        messages.splice(Math.max(0, messages.length - 1), 0, { role: 'system', content: `【extra-user-block】\n${content}` });
-    }
-
-    // 8) Assistant blocks
-    for (const b of enaAssistantBlocks) {
-        const content = await renderTemplateAll(b.content, env, messageVars);
-        messages.push({ role: 'assistant', content });
-    }
+    messages.push(...await buildPlannerTurnMessages(
+        userMsgContent,
+        s.promptBlocks,
+        content => renderTemplateAll(content, env, messageVars),
+    ));
 
     const finalMessages = s.mergeConsecutiveSystemMessages ? mergeConsecutiveSystemMessages(messages) : messages;
     throwIfSignalAborted(signal, 'Ena Planner message build cancelled');

@@ -29,7 +29,7 @@ async (page) => {
     const editor = page.locator('#chat .mes').last().locator('.edit_textarea');
     await editor.fill(await editor.inputValue() + ' [img: manually edited]');
     await page.locator('#chat .mes').last().locator('.mes_edit_done').click();
-    await page.waitForFunction(() => document.querySelector('#chat .mes:last-child [data-action="generate-tag"]'));
+    await page.waitForFunction(() => document.querySelector('#chat .mes:last-child [data-xb-draw-tag-action]'));
     if (await page.evaluate(() => window.__accept.submissions) !== before) throw new Error('Editing submitted a task');
     await page.evaluate(() => window.__accept.rows.push({ action: 'edit-save', submissions: 0 }));
     await page.route('**/api/chats/save', route => route.fulfill({ status: 500, json: { error: 'simulated storage failure' } }));

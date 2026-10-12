@@ -26,13 +26,14 @@ export const ADMINISTRATOR_CHAT_TOOLS: readonly ManagementTool[] = [
             chatScope,
             'data contains items with floor, speaker, role, text, offset and totalChars; scanned gives the covered range.',
             'Use it for exact message text and context around a known floor.',
-            `Each call covers at most ${POLICY.chatReadFloors} floors and returns at most ${MANAGEMENT_READ_CHARS} text characters. next holds continuation arguments; complete is true when the requested range is finished.`,
+            `Each call covers at most ${POLICY.chatReadFloors} floors and returns at most ${MANAGEMENT_READ_CHARS} text characters.`,
+            'When next is present, pass that whole object to ChatRead to continue: it contains from, to and offset. next is null and complete is true when the requested range is finished.',
             'Continuation requires the same message version. After an edit or swipe change, read that floor again from offset 0.',
         ].join('\n'),
         parameters: { type: 'object', properties: {
             from: floor,
             to: { ...floor, description: 'Inclusive end floor. Default from, which reads a single floor.' },
-            offset: { type: 'integer', minimum: 0, description: 'Text offset within the starting floor, not a floor number. Default 0; use the offset from next for continuation.' },
+            offset: { type: 'integer', minimum: 0, description: 'Text offset within the starting floor. Default 0.' },
         }, required: ['from'], additionalProperties: false },
     } } },
 ];

@@ -25,13 +25,17 @@ export function createAdministratorToolResults() {
         }
     }
     return {
-        project(id: string, result: ManagementResult) {
+        project(id: string, result: ManagementResult, options: { sourcePaged?: boolean; boundedSource?: boolean } = {}) {
             const full = safePromptJson(result);
             remove(id);
-            if (full.length > POLICY.evidenceChars) { return { ok: result.ok, status: result.status, detailsUnavailable: 'result_exceeds_evidence_budget', totalChars: full.length }; }
-            while (chars + full.length > POLICY.evidenceChars) { remove(entries.keys().next().value!); }
+            // A source-bounded result may occupy the cache alone. Its transport already capped its size;
+            // retaining it avoids paying for the same read again just to obtain the remaining pages.
+            const budget = options.boundedSource ? Math.max(POLICY.evidenceChars, full.length) : POLICY.evidenceChars;
+            if (full.length > budget) { return { ok: result.ok, status: result.status, detailsUnavailable: 'result_exceeds_evidence_budget', totalChars: full.length }; }
+            while (chars + full.length > budget) { remove(entries.keys().next().value!); }
             entries.set(id, full); chars += full.length;
-            return full.length <= MANAGEMENT_READ_CHARS ? result : { ok: result.ok, status: result.status, data: { reference: id, ...textPage(full) } };
+            // Source-paged tools return their content and continuation together; the cache still retains the full evidence.
+            return options.sourcePaged || full.length <= MANAGEMENT_READ_CHARS ? result : { ok: result.ok, status: result.status, data: { reference: id, ...textPage(full) } };
         },
         page(id: string, reference: string, offset?: unknown) {
             const page = textPage(source(reference), offset);

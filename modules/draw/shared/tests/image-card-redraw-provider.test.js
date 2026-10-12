@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createImageCardRedrawProvider } from '../image-card-redraw-provider.js';
-import { FloorImageBusyError, acquireFloorImageJob, getFloorImageJobs, getFloorImageJob, getFloorImagePhase,
+import { acquireFloorImageJob, getFloorImageJobs, getFloorImageJob, getFloorImagePhase,
     releaseFloorImageJob, observeFloorImageJob, getFloorImageState } from '../floor-image-job.js';
 import { publishDrawRunActivity } from '../draw-run-activity.js';
 import { formatScenePlannerProgress, toScenePlannerProgress } from '../draw-capsule-copy.js';
@@ -61,21 +61,26 @@ test('backend handoff is not completion and stays in the aggregate until its del
     assert.equal(h.jobs.size, 0);
 });
 
-test('an occupied floor lets a manual redraw join the floor aggregate without releasing or resetting the active batch', async () => {
-    let submitted = 0;
+test('an existing-slot redraw joins an occupied floor without releasing its active batch', async () => {
     const h = setup(async input => {
-        submitted += 1;
+        assert.equal(getFloorImageJobs(h.jobs, h.input.ctx, 1).length, 2);
         input.onStateChange('success', { success: 1, total: 1 });
-        return { success: 1, total: 1, aborted: false };
     });
     const active = h.options.createJob(1);
+    h.observe(active)('gen', { current: 1, total: 2 });
     await h.run();
-    assert.equal(submitted, 1);
     assert.equal(getFloorImageJob(h.jobs, h.input.ctx, 1), active);
-    assert.equal(active.released, false);
-    assert.equal(h.jobs.has(active), true);
-    // 只有重画能加入已有任务；整楼层的新规划（容器级任务）仍保持锁定，避免与运行中的任务争抢插图位置。
-    assert.throws(() => h.options.createJob(1), FloorImageBusyError);
+    assert.equal(h.states.at(-1).data.total, 3);
+    assert.equal(h.states.at(-1).state, 'gen');
+});
+
+test('structural placement still rejects an occupied floor without disturbing its batch', async () => {
+    const h = setup(() => assert.fail('must not submit'));
+    h.input.tasks[0].placement = { mode: 'append' };
+    const active = h.options.createJob(1);
+    await assert.rejects(h.run());
+    assert.equal(getFloorImageJob(h.jobs, h.input.ctx, 1), active);
+    assert.equal(h.states.length, 0);
 });
 
 test('a settled direct request with an unknown result is not an active confirmation spinner', async () => {

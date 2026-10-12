@@ -54,8 +54,7 @@ export const FOCUS_MIN_NORMALIZED_WEIGHT = 0.35;
 // 其他常量
 // ─────────────────────────────────────────────────────────────────────────
 
-const MEMORY_HINT_ATOMS_MAX = 5;
-const MEMORY_HINT_EVENTS_MAX = 3;
+const MEMORY_HINTS_PER_SOURCE_MAX = 3;
 const LEXICAL_TERMS_MAX = 10;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -173,7 +172,7 @@ export function describeQueryFocusOwnership(bundle) {
  * @property {string[]} focusCharacters - 最近查询窗口显式命中的可信人物（不含 name1）
  * @property {string[]} focusEntities   - Deprecated alias of focusTerms
  * @property {Set<string>} allEntities         - Full entity lexicon (includes non-character entities)
- * @property {Set<string>} allCharacters       - Union of trusted and candidate character pools
+ * @property {Set<string>} allCharacters       - Character spellings eligible for text matching, including aliases
  * @property {Set<string>} trustedCharacters   - Clean character pool (main/arcs/name2/L2 participants)
  * @property {Set<string>} candidateCharacters - Extended character pool from L0 edges.s/t after cleanup
  * @property {function(string): string[]} _extractEntities - 本查询词典快照的实体提取
@@ -350,14 +349,14 @@ export function refineQueryBundle(bundle, anchorHits, eventHits) {
     const hints = [];
 
     // 1. 从 top anchorHits 提取 memory hints
-    const topAnchors = (anchorHits || []).slice(0, MEMORY_HINT_ATOMS_MAX);
+    const topAnchors = (anchorHits || []).slice(0, MEMORY_HINTS_PER_SOURCE_MAX);
     for (const hit of topAnchors) {
         const semantic = hit.atom?.semantic || '';
         if (semantic) hints.push(semantic);
     }
 
     // 2. 从 top eventHits 提取 memory hints
-    const topEvents = (eventHits || []).slice(0, MEMORY_HINT_EVENTS_MAX);
+    const topEvents = (eventHits || []).slice(0, MEMORY_HINTS_PER_SOURCE_MAX);
     for (const hit of topEvents) {
         const ev = hit.event || {};
         const title = String(ev.title || '').trim();

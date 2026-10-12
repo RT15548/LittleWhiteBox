@@ -49,3 +49,17 @@ test('visible text can be matched without changing code or attributes', () => {
     assert.equal(result.matched[0].candidate.tags, 'visible');
     assert.equal(root.getAttribute('title'), '[img: attribute]');
 });
+
+test('existing tag cards and raw tags share occurrence matching without removing the cards', () => {
+    const source = '[img: same] [img: same]';
+    const candidates = parseChatImageTags(source);
+    const { document } = parseHTML('<div><div class="xb-nd-img"><button>action</button></div> [img: same]</div>');
+    const root = document.querySelector('div');
+    const card = root.firstElementChild;
+    const rendered = new Map([[card, { candidate: candidates[0] }]]);
+    const result = findRenderedChatImageTags(root, candidates, rendered);
+    assert.deepEqual(result.matched.map(item => item.candidate.start), candidates.map(item => item.start));
+    assert.ok(result.matched[0].node === card);
+    assert.ok(root.firstElementChild === card);
+    assert.equal(findRenderedChatImageTags(root, candidates.slice(0, 1), rendered).matched.length, 0);
+});

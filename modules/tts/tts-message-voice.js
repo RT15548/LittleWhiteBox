@@ -1,4 +1,5 @@
 import { playTransientVoice, stopTransientVoice } from './tts-playback-runtime.js';
+import { createMessageVoiceRegex, replaceMessageVoiceMarkers } from './tts-message-markup.js';
 
 const STYLE_ID = 'xb-tts-message-voice-styles';
 const errorTimers = new Map();
@@ -16,20 +17,13 @@ function createVoiceBubbleHtml(text, emotion, marker) {
 }
 
 export function enhanceMessageVoiceHtml(value, enabled = false) {
-    let html = String(value || '');
+    const html = String(value || '');
     if (!enabled) return html;
-    html = html.replace(/\[(?:voice|语音)\s*:([^:]*)[:]([^\]]+)\]/gi, (match, emotionRaw, voiceText) => {
-        const text = voiceText.trim();
-        return text ? createVoiceBubbleHtml(text, String(emotionRaw || '').trim().toLowerCase(), match) : match;
-    });
-    return html.replace(/\[(?:voice|语音)\s*:\s*([^\]:]+)\]/gi, (match, voiceText) => {
-        const text = voiceText.trim();
-        return text ? createVoiceBubbleHtml(text, '', match) : match;
-    });
+    return replaceMessageVoiceMarkers(html, createVoiceBubbleHtml);
 }
 
 export function hasMessageVoiceMarker(root) {
-    return /\[(?:voice|语音)\s*:[^\]]+\]/i.test(root?.textContent || '');
+    return createMessageVoiceRegex().test(root?.textContent || '');
 }
 
 export function enhanceMessageVoiceTextNodes(root, enabled = true) {
@@ -44,7 +38,7 @@ export function enhanceMessageVoiceTextNodes(root, enabled = true) {
     textNodes.forEach((node) => {
         if (node.parentElement?.closest('code, pre, script, style, textarea, [data-xb-tts-message-voice="1"], .xb-tts-tag')) return;
         const current = node.nodeValue || '';
-        const candidates = current.matchAll(/\[(?:voice|语音)\s*:[^\]]+\]/gi);
+        const candidates = current.matchAll(createMessageVoiceRegex());
         const replacement = documentTarget.createDocumentFragment();
         let cursor = 0;
         let nodeChanged = false;

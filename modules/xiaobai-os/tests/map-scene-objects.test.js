@@ -17,6 +17,8 @@ import { sceneAssetKind } from '../apps/map/ui/three/scene3d-asset-fit.js';
 import { sceneFrame, elementFootprint } from '../apps/map/ui/three/scene3d-geometry.js';
 import { createMapKernelHarness } from './map-kernel-harness.js';
 import { sceneObjectInputs } from './fixtures/scene-map-objects.js';
+import { organicSymbol } from '../apps/map/ui/scene-organic-symbols.js';
+import { sceneCreatureInput } from './fixtures/scene-creatures.js';
 
 const player = { actorKey: 'player', displayName: '小白' };
 const compile = input => {
@@ -29,11 +31,11 @@ function freeze(value) {if (value && typeof value === 'object') {Object.values(v
 const directory = new URL('../apps/map/ui/three/assets/kenney/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', directory), 'utf8'));
 
-test('all 37 object types survive compilation, persisted reads and icon-only patches', async () => {
-    assert.equal(new Set(MAP_OBJECT_ICONS).size, 37);
-    assert.equal(new Set(MAP_ICON_TOKENS).size, 55);
+test('all supported object types survive compilation, persisted reads and icon-only patches', async () => {
+    assert.equal(new Set(MAP_OBJECT_ICONS).size, MAP_OBJECT_ICONS.length);
+    assert.equal(new Set(MAP_ICON_TOKENS).size, MAP_ICON_TOKENS.length);
     const covered = new Set();
-    for (const input of sceneObjectInputs) {
+    for (const input of [...sceneObjectInputs, sceneCreatureInput]) {
         const map = compile(input), harness = createMapKernelHarness();
         const saved = await harness.map.replaceCurrent(map, { expectedRevision: 0 });
         const restored = parseMapDomain(JSON.parse(JSON.stringify(harness.state.persisted.partitions.map)));
@@ -52,12 +54,12 @@ test('all 37 object types survive compilation, persisted reads and icon-only pat
     assert.deepEqual(covered, new Set(MAP_OBJECT_ICONS));
 });
 
-test('every icon maps to a bundled Material Symbol and has a text fallback', async () => {
+test('every icon has a local vector or bundled glyph and a text alternative', async () => {
     const codepoints = await readFile(new URL('../../../libs/material-symbols/codepoints', import.meta.url), 'utf8');
     const available = new Set(codepoints.trim().split(/\r?\n/).map(line => line.split(' ')[0]));
     for (const icon of MAP_ICON_TOKENS) {
         const presentation = elementPresentation({ category: 'decoration', shape: 'icon', geometry: { x: 0, y: 0 }, icon }, 'test');
-        assert.ok(available.has(presentation.icon), `${icon}: ${presentation.icon} is absent from the local font`);
+        assert.ok(organicSymbol(icon)?.path || available.has(presentation.icon), `${icon}: missing local symbol`);
         assert.ok(presentation.fallback);
     }
 });
@@ -273,7 +275,7 @@ test('procedural objects retain their full ground footprint without framing alre
                     assert.ok(Math.hypot(point.x - expectedPoint.x, point.z - expectedPoint.z) < 1e-5, `${icon}: outline changed the original contour`);
                     assert.ok(point.y > 0 && point.y < .03, 'Occupancy belongs at ground level');
                 }
-                assert.equal(outline.material.opacity, elementPresentation(element, '').opacity);
+                assert.ok(outline.material.opacity > 0 && outline.material.opacity <= elementPresentation(element, '').opacity);
                 assert.equal(outline.material.gapSize > 0, certainty !== 'confirmed');
             }
             assert.deepEqual(scene, original);

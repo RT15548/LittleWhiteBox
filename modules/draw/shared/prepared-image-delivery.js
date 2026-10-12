@@ -1,9 +1,14 @@
 // Native reply images survive an unsaved/missing placement, never an explicit
 // deletion. Both live execution and journal recovery use these same checkpoints.
 export async function deliverPreparedImage({ retainWithoutSlot, resolveTarget, guard,
-    isDiscarded, persist, remove, select, clearSelection }) {
+    isDiscarded, persist, remove, select, clearSelection, commitDelivery }) {
     const discarded = async () => isDiscarded(await guard());
-    const removeResult = async () => { await remove(); await clearSelection?.(); return false; };
+    const removeResult = async () => {
+        await remove();
+        await clearSelection?.();
+        await commitDelivery?.();
+        return false;
+    };
     if (await discarded()) return removeResult();
     let target = resolveTarget();
     if (!target && !retainWithoutSlot) return removeResult();
@@ -19,5 +24,6 @@ export async function deliverPreparedImage({ retainWithoutSlot, resolveTarget, g
             if (!retainWithoutSlot) return removeResult();
         }
     }
+    await commitDelivery?.();
     return true;
 }

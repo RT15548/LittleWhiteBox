@@ -21,7 +21,7 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
     let extractionRuns = 0;
     let lexicalInvalidations = 0;
     const modules = {
-        buildIncrementalChunks: async () => {
+        maintainChunks: async () => {
             lastChunkFloor = extractionRuns === 0 ? 1 : 3;
             return { built: 1 };
         },
@@ -48,8 +48,10 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
         invalidateLexicalIndex: () => { lexicalInvalidations += 1; },
     };
     const panelConfig = { vector: { enabled: true } };
+    const repairEvents = async () => ({ success: true, repaired: 0 });
     const firstVisible = [message(0), message(1)];
     const first = await maintainNaturalHistoryAfterAi({
+        repairEvents,
         modules,
         chatId: 'fixture-chat',
         panelConfig,
@@ -72,6 +74,7 @@ test('natural runtime保留L0 fail供下一AI回合重试，并只在query bound
 
     const secondVisible = [message(0), message(1), message(2), message(3)];
     const second = await maintainNaturalHistoryAfterAi({
+        repairEvents,
         modules,
         chatId: 'fixture-chat',
         panelConfig,

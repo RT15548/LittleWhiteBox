@@ -20,34 +20,9 @@
 
 ## 3. 当前数据模型
 
-DB v29 hard cut：升级时删除 `petCompanion`、`petActions`、`petJournal` 三张旧表，v30 再按新 schema 重建，然后只写下列新格式。没有旧字段读取器、转换器、别名或兼容分支。
-
-```ts
-type TavernPetState = {
-  petTurn: number;
-  phase: 'egg' | 'juvenile' | 'adult';
-  traits: { closeness: number; sharing: number; tempo: number };
-  appetite: number; // 0..100；0 只是很饿
-  emotion: TavernPetEmotion;
-  personaId?: TavernPetPersonaId;
-  petName?: string;
-  pendingMoment?: TavernPetMoment;
-  nextMomentPetTurn: number;
-  lastMeaningfulInteractionPetTurn: number;
-  lastEvolutionPetTurn?: number;
-  chatMemory: { summary: string; recent: TavernPetChatRound[]; moments: string[] };
-  nestCoins: number;
-  curios: TavernPetCurioId[];
-  eventCooldowns: Partial<Record<TavernPetEventId, number>>;
-  interferenceEnabled: boolean;
-  pendingEvolution?: TavernPetEvolutionRequest;
-  lifetimeStats: TavernPetLifetimeStats;
-};
-```
+当前类型与严格校验分别由 [pet-types.ts](../shared/pet/pet-types.ts)和 [pet-invariants.ts](../shared/pet/pet-invariants.ts)定义，文档不复制整份状态形状。旧测试线 Pet 数据在数据库升级边界丢弃后重建，不在日常读写中保留旧字段、转换器或兼容壳；其他正式领域的数据不受该清理影响。
 
 `petTurn` 是唯一成长时钟：`1` 表示孵化完成，`25` 表示幼体已经历 24 个活跃主回合并成年。`lastEvolutionPetTurn` 是再塑形 30 个主回合冷却所必需的事实（冷却用 `petTurn - lastEvolutionPetTurn` 计算）；`lifetimeStats.momentCount` 决定相处片段的三轴轮转。`pendingMoment` 只保存当前 moment id，其 trait 由冻结目录推导；它和第一人称记忆必须跨重启保留。舞台点击、动画、连点计数、抽屉开关和临时颜文字只属于 Controller 生命周期，绝不写库。
-
-删除：`luring`、`dormant`、wake、交互窗口、begging deadline、idle 惩罚、tap/BGM/pat/hit 长期计数、`dormantCount`、`tameness/generosity/brightness` 及所有旧历史/replay 壳。
 
 ## 4. 阶段与生命节律
 
@@ -83,7 +58,7 @@ Phone 页面只有四种玩家交互：
 - **给它东西**：食物和玩具收进一个次级入口，是礼物，不是动作按钮墙。
 - **相处片段**：偶尔出现一段小情境，处理、留空间或跳过都合理；处理结果写入第一人称记忆。
 
-“拍打”删除为领域动作。任何类似“戳一下”的探索只在舞台临时层表现，绝不改变长期人格。
+不提供“拍打”领域动作。任何类似“戳一下”的探索只在舞台临时层表现，绝不改变长期人格。
 
 ## 7. 事件、回流与剧情插曲
 
@@ -95,7 +70,7 @@ Home 图标只在 hatch、成年、待处理相处片段、带回 Curio 或新�
 
 ## 8. 聊天与演化
 
-LLM 聊天不读取主线、角色卡或世界书，只知道手机暗室和它自己的窝。输入规范化、Unicode code-point 120 上限、JSON 宽进严存、模型失败保留输入等边界保持不变。失败 UI 是“它没听清”，不能把 API/解析错误表演成“它不想理你”。
+LLM 聊天不读取主线、角色卡或世界书，只知道手机暗室和它自己的窝。输入规范化、Unicode code-point 120 上限、JSON 宽进严存、模型失败保留输入等边界保持不变。模型/解析失败明确表达请求失败，不能表演成角色主动拒绝。
 
 聊天写当前情绪和 `chatMemory`，不直接写 traits。相处片段的第一人称 memory 注入聊天 Prompt，因此它能记得“你曾给我留过空间”。成年演化仍要求 20–80 code points、恰好三句、每句以 `。！？` 结束；写入前的 canonical 校验继续严格。
 
@@ -105,4 +80,16 @@ LLM 聊天不读取主线、角色卡或世界书，只知道手机暗室和它�
 
 “让它离开”必须二次确认，原子清空三张全局 Pet 表，不退款。新建后从 revision 1 开始。
 
-最少稳定契约：即时蛋与下一回合孵化；A/B 共享同一只且分别推进；同会话重放不重复成长；回滚只退款不退 Companion；无打开不会坏；moment 不过期且三轴轮转；聊天幼体即可用；来源插曲只注入原会话；双会话 CAS 无丢更新；reset 清空全部 Pet 数据；v29 只丢 Pet 数据，其他正式领域不受影响。
+最少稳定契约：即时蛋与下一回合孵化；A/B 共享同一只且分别推进；同会话重放不重复成长；回滚只退款不退 Companion；无打开不会坏；moment 不过期且三轴轮转；聊天幼体即可用；来源插曲只注入原会话；双会话 CAS 无丢更新；reset 清空全部 Pet 数据；升级清理只丢旧 Pet 数据，其他正式领域不受影响。
+
+## 10. 内容与编译边界
+
+[pet-copy.ts](../shared/pet/pet-copy.ts)拥有阶段、自然状态、相处片段、静态回应、礼物和插曲文案；[pet-events.ts](../shared/pet/pet-events.ts)拥有事件目录，[pet-personas.ts](../shared/pet/pet-personas.ts)拥有人格映射。文档不另维护台词、模板或目录副本。食欲只以自然语言呈现，不做催促型百分比进度；幼体短句是风格，不是三字回复硬规则。
+
+相处片段围绕三条偏好轴轮转，每段有两个方向选择和一个留白选择；完成后写第一人称记忆。选择不扣钱、不改食欲、不影响聊天资格。舞台临时动作不改 traits、不累计点击；蛋阶段静态回应不调用模型。食物价格与效果由第 4 节定义，玩具花费 20 小白币，只产生普通情绪或舞台反应，不写永久 trait。
+
+动态文字先 NFKC、清控制字符、整理空白，再按 Unicode code-point 上限截断或严格拒绝；结构化 Prompt 的动态值转义 `& < >`。插曲禁词只校验冻结模板，不扫描联系人名或用户内容；袖口事件还须验证来源联系人及来源楼层之前的有效上下文。失败处理遵守第 7 节，不阻断主 RP。
+
+聊天 Prompt 和响应编译由 [pet-chat.ts](../shared/pet/pet-chat.ts)拥有。输入边界去代码围栏、枚举平衡对象并优先最后一个可用对象，可接受 response 包装；无 JSON 时可用普通正文。未知字段丢弃并报告，表情/动作/情绪按各自规则处理，文字超长截断；不能把没有可用文字、网络失败、取消或过期 CAS 当成功。入库仍严格验证完整 canonical 字段与枚举，不把宽进变成宽存。
+
+演化只解释冻结的 traits 与自身统计，不读取来源主线；静态判词也必须通过第 8 节同一严格校验。

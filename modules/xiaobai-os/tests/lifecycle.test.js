@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
+import { installDialogDom } from './fixtures/dialog-dom.js';
 
 import { createXiaobaiOsLifecycle } from '../host/lifecycle.js';
 import { xiaobaiOsLaunchers } from '../shell/app-launchers.js';
@@ -19,6 +20,7 @@ function createHarness({ appRuntime = {}, captureChatBinding = () => ({
     const { document, window } = parseHTML(`<!doctype html><html><head></head><body>
         <div id="send-controls"><button id="message_preview_btn"></button><button id="send_but"></button></div>
     </body></html>`);
+    installDialogDom(document);
     let chatChanged = null;
     let appDescriptorsChanged = null;
     let appStatusChanged = null;
@@ -120,6 +122,24 @@ test('launcher refuses to open without a chat, then accepts a character or group
         await harness.lifecycle.closeWindow();
     }
     assert.equal(prompts, 1);
+    await harness.lifecycle.cleanup();
+});
+
+test('native dialog cancellation closes the window through the same app lifecycle', async () => {
+    let closed = 0;
+    const harness = createHarness({ appRuntime: { handleWindowClosed: () => { closed++; } } });
+    harness.lifecycle.init(); harness.lifecycle.open();
+    const dialog = harness.document.querySelector('dialog[open]');
+    assert.ok(dialog);
+    const event = new harness.window.Event('cancel', { cancelable: true });
+    dialog.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true);
+    await waitFor(() => closed === 1);
+    assert.equal(harness.lifecycle.isOpen(), false);
+    assert.equal(harness.document.querySelector('iframe'), null);
+    assert.equal(harness.bridgeDisposals(), 1);
+    harness.lifecycle.open();
+    assert.equal(harness.lifecycle.isOpen(), true);
     await harness.lifecycle.cleanup();
 });
 

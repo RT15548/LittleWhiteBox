@@ -34,7 +34,6 @@ export function createHistoryCompactionController(deps) {
         DEFAULT_PRESERVED_TURNS,
         MIN_PRESERVED_TURNS,
         SUMMARY_TRIGGER_TOKENS,
-        HISTORY_SUMMARY_MAX_TOKENS,
         buildContextMeterLabel,
         forceUpdateContextStats,
         toProviderMessages,
@@ -88,14 +87,6 @@ export function createHistoryCompactionController(deps) {
         return lines.join('\n').trim();
     }
 
-    function resolveHistorySummaryMaxTokens(providerConfig = {}) {
-        const configuredMaxTokens = Number(providerConfig?.maxTokens);
-        if (Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0) {
-            return Math.min(Math.floor(configuredMaxTokens), HISTORY_SUMMARY_MAX_TOKENS);
-        }
-        return HISTORY_SUMMARY_MAX_TOKENS;
-    }
-
     function buildFallbackSummary(turns, existingSummary = '') {
         const sections = [];
         if (existingSummary?.trim()) {
@@ -147,7 +138,7 @@ export function createHistoryCompactionController(deps) {
                 tools: [],
                 toolChoice: 'none',
                 temperature: Math.min(providerConfig.temperature ?? 0.2, 0.2),
-                maxTokens: resolveHistorySummaryMaxTokens(providerConfig),
+                maxTokens: providerConfig.maxTokens,
                 reasoning: { mode: 'inherit', output: 'hide' },
                 signal,
             });

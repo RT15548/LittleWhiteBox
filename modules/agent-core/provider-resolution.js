@@ -6,7 +6,8 @@ import {
     normalizeMaxTokens,
     normalizePresetName,
 } from './config.js';
-import { normalizeTavilyApiKey, normalizeTavilyBaseUrl } from './tavily-search.js';
+import { normalizeWebSettings } from './web/settings.js';
+import { supportsModelListAuth } from './model-list-auth.js';
 import {
     resolveRuntimeReasoning,
 } from './reasoning-capabilities.js';
@@ -86,8 +87,8 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
             baseUrl: String(providerConfig.baseUrl || ''),
             model: String(providerConfig.model || ''),
             apiKey: String(providerConfig.apiKey || ''),
-            tavilyApiKey: normalizeTavilyApiKey(config.tavilyApiKey),
-            tavilyBaseUrl: normalizeTavilyBaseUrl(config.tavilyBaseUrl),
+            ...(supportsModelListAuth(provider) ? { modelListAuth: providerConfig.modelListAuth } : {}),
+            ...normalizeWebSettings(config),
             temperature: resolveTemperature(providerConfig),
             sendTemperature: shouldSendTemperature(providerConfig),
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
@@ -121,8 +122,8 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
         baseUrl: String(providerConfig.baseUrl || ''),
         model: String(providerConfig.model || ''),
         apiKey: String(providerConfig.apiKey || ''),
-        tavilyApiKey: normalizeTavilyApiKey(config.tavilyApiKey),
-        tavilyBaseUrl: normalizeTavilyBaseUrl(config.tavilyBaseUrl),
+        ...(supportsModelListAuth(provider) ? { modelListAuth: providerConfig.modelListAuth } : {}),
+        ...normalizeWebSettings(config),
         temperature: resolveTemperature(providerConfig),
         sendTemperature: shouldSendTemperature(providerConfig),
         maxTokens: normalizeMaxTokens(providerConfig.maxTokens),

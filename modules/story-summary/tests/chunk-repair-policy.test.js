@@ -2,16 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectChunksForRepair } from '../vector/pipeline/chunk-repair-policy.js';
 
-// 保护补齐契约：旧材料不因过滤规则变化而重算；缺向量用已存材料，缺材料才用正文。
+// 保护补齐契约：从已选定的材料中只请求缺失/无效配对。
 // 直接检查交给向量化的片段，避免依赖宿主、LLM 或数据库模拟。
 const fingerprint = 'test:model';
 const chunk = (floor, index, text) => ({ chunkId: `c-${floor}-${index}`, floor, chunkIdx: index, text });
 const vector = (item, overrides = {}) => ({ chunkId: item.chunkId, valid: true, fingerprint, ...overrides });
 
-test('过滤后正文变短或为空，不重算已有完整片段', () => {
+test('已有完整配对不重算', () => {
     const stored = [chunk(0, 0, '旧剧情与状态栏'), chunk(0, 1, '旧状态栏尾部')];
     const vectors = stored.map(item => vector(item));
-    assert.deepEqual(selectChunksForRepair([chunk(0, 0, '新过滤后的剧情')], stored, vectors, fingerprint), []);
+    assert.deepEqual(selectChunksForRepair(stored, stored, vectors, fingerprint), []);
     assert.deepEqual(selectChunksForRepair([], stored, vectors, fingerprint), []);
 });
 
@@ -27,8 +27,7 @@ test('缺失、损坏或指纹不符的向量用已存片段补，包括新过�
         vector(stored[2], { fingerprint: 'old:model' }),
         vector(stored[3]),
     ];
-    const expected = [chunk(0, 0, '新过滤后的短文本'), stored[3]];
-    assert.deepEqual(selectChunksForRepair(expected, stored, vectors, fingerprint), stored.slice(0, 3));
+    assert.deepEqual(selectChunksForRepair(stored, stored, vectors, fingerprint), stored.slice(0, 3));
 });
 
 test('材料缺失时从正文补片段，同 ID 的孤立向量不能算完整', () => {

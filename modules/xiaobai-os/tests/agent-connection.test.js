@@ -22,5 +22,6 @@ test('OS connection testing and ordinary sessions share the keyless CORE transpo
     const result = await session.run({ systemPrompt: '', messages: [{ role: 'user', content: 'test' }] });
     assert.equal(result.text, 'OK');
     assert.equal(requests.length, 2);
+    assert.equal(requests[0].body.max_tokens, 1600);
     for (const request of requests) assert.equal(request.headers.authorization, undefined);
 });

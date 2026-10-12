@@ -8,7 +8,7 @@
 
 import { getVectorConfig } from '../../data/config.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
-import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
+import { throwIfSignalAborted } from '../../../../shared/common/abort-utils.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import {
     createEmbeddingFailureError,
@@ -89,14 +89,16 @@ export async function embed(texts, options = {}) {
 
     const { timeout = 30000, signal } = options;
     const controller = new AbortController();
+    const onAbort = () => controller.abort(signal.reason);
     let timedOut = false;
     const timeoutId = setTimeout(() => {
         timedOut = true;
         controller.abort();
     }, timeout);
-    const requestSignal = mergeAbortSignals(signal, controller.signal);
 
     try {
+        signal?.addEventListener('abort', onAbort, { once: true });
+        throwIfSignalAborted(signal);
         const baseUrl = resolveApiBaseUrl(
             String(apiCfg.url || `${BASE_URL}/v1`),
             getDefaultApiPrefix(apiCfg.provider || 'siliconflow')
@@ -122,7 +124,7 @@ export async function embed(texts, options = {}) {
                 model: String(apiCfg.model || EMBEDDING_MODEL),
                 input: texts,
             }),
-            signal: requestSignal,
+            signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -151,7 +153,7 @@ export async function embed(texts, options = {}) {
         if (error?.name === 'AbortError' && timedOut) {
             throw createEmbeddingFailureError(
                 `Embedding request timeout after ${timeout}ms`,
-                { kind: 'timeout' },
+                { kind: 'timeout', timeoutMs: timeout },
                 error,
             );
         }
@@ -165,6 +167,7 @@ export async function embed(texts, options = {}) {
         throw error;
     } finally {
         clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onAbort);
     }
 }
 

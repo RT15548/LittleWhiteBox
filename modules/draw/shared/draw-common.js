@@ -11,13 +11,18 @@ import {
     getPreviewDisplayUrl,
     subscribeGalleryCacheChanges,
     warmSlotPreviewNeighbors,
+    getPreview,
+    storePreview,
+    deletePreview,
 } from "./gallery-cache.js";
+import { patchImageCard, reportImageCardReadError } from './image-card-view.js';
 import {
     ScenePlannerError,
 } from "./scene-plan-contract.js";
 import { ScenePlacementError } from './scene-placement.js';
 import { getRenderedSceneSlotIds, replaceSceneSlotElements } from './scene-slot-dom.js';
 import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.js';
+import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { hasPreviewImage, PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { getSlotActivity } from './slot-activity.js';
@@ -192,7 +197,7 @@ export function ensureDrawImageStyles() {
     style.id = 'xiaobaix-draw-image-styles';
     style.textContent = `
 .xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px;box-sizing:border-box}
-.xb-nd-img[data-state="preview"]{border:1px dashed rgba(255,152,0,0.35)}
+.xb-nd-img[data-state="preview"]{outline:1px dashed rgba(255,152,0,0.35);outline-offset:-1px}
 .xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
 .xb-nd-img[data-state="pending"]{border:1px dashed rgba(212,165,116,0.4);background:rgba(212,165,116,0.06);padding:18px;color:inherit}
 .xb-nd-img.busy img{opacity:0.5}
@@ -223,6 +228,16 @@ export function ensureDrawImageStyles() {
 .xb-nd-dropdown button:hover{background:rgba(255,255,255,.15)}
 .xb-nd-dropdown [data-action="delete-image"]{color:rgba(248,113,113,.9)}
 .xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:8px 16px;border-radius:8px;color:#fff;font-size:12px;z-index:10}
+.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:rgba(0,0,0,.9);color:#fff;max-height:calc(100% - 16px);overflow:auto}
+.xb-nd-status-overlay .xb-nd-indicator{position:static;transform:none;background:none;padding:0}
+.xb-nd-view-notice{padding:12px;overflow-wrap:anywhere}
+.xb-nd-view-notice button{margin-inline-start:8px;min-height:44px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);border-radius:8px;background:rgba(127,127,127,.1);color:inherit;cursor:pointer}
+.xb-nd-view-empty .xb-nd-img-wrap{padding:12px;border:1px solid rgba(127,127,127,.3);background:rgba(127,127,127,.06)}
+.xb-nd-view-empty img{display:none}
+.xb-nd-view-empty .xb-nd-nav-pill{position:static;margin-inline-end:40px}
+.xb-nd-view-empty .xb-nd-menu-wrap{top:16px;right:16px}
+.xb-nd-view-empty .xb-nd-view-notice{padding:12px 0 0}
+.xb-nd-view-empty .xb-nd-status-overlay{position:static;max-height:none}
 .xb-nd-edit{animation:nd-slide-up 0.2s ease-out}
 .xb-nd-edit-scroll{max-height:250px;overflow-y:auto;margin-bottom:8px}
 .xb-nd-edit-scroll::-webkit-scrollbar{width:4px}
@@ -261,7 +276,6 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     if (state === ImageState.SAVING) indicator = '<div class="xb-nd-indicator">💾 保存中...</div>';
     else if (state === ImageState.REFRESHING) indicator = '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>';
 
-    const border = isPreview ? 'border:1px dashed rgba(255,152,0,0.35);' : '';
     const lazyAttr = String(url || '').startsWith('data:') ? '' : 'loading="lazy"';
     const displayVersion = historyCount - currentIndex;
     const navPill = `<div class="xb-nd-nav-pill" data-total="${historyCount}" data-current="${currentIndex}">
@@ -280,7 +294,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
         </div>
     </div>`;
 
-    return `<div class="xb-nd-img ${isBusy ? 'busy' : ''}" data-slot-id="${slotId}" data-img-id="${imgId}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="${state}" data-current-index="${currentIndex}" data-history-count="${historyCount}" style="margin:0.8em auto;position:relative;display:block;width:fit-content;max-width:100%;${border}border-radius:14px;padding:4px;">
+    return `<div class="xb-nd-img ${isBusy ? 'busy' : ''}" data-slot-id="${slotId}" data-img-id="${imgId}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="${state}" data-current-index="${currentIndex}" data-history-count="${historyCount}" style="margin:0.8em auto;position:relative;display:block;width:fit-content;max-width:100%;border-radius:14px;padding:4px;">
 ${indicator}
 <div class="xb-nd-img-wrap" data-total="${historyCount}">
     <img src="${escapeHtml(url)}" style="max-width:100%;width:auto;height:auto;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);${isBusy ? 'opacity:0.5;' : ''}" data-action="open-gallery" ${lazyAttr}>
@@ -306,9 +320,9 @@ function buildTagEditor(tags, failed) {
 // 未完成槽位的统一占位卡。label 由调用方按真实状态给出（等待生成 / 接回后台任务 /
 // 等待重新连接…），绝不伪造进度：chat 正文里只持久化 [image:slotId] 这个排版事实，
 // 状态文案永远是当前运行时和后端状态动态渲染出来的。
-export function buildPendingImageHtml({ slotId, messageId, index = 0, total = 0, label = '等待生成' }) {
+export function buildPendingImageHtml({ slotId, messageId, index = 0, total = 0, label = '等待生成', loading = false }) {
     const progress = total > 0 ? `${Math.max(1, Number(index) || 1)} / ${total}` : '';
-    return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-mesid="${escapeHtml(messageId)}" data-state="pending" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(212,165,116,0.4);border-radius:14px;padding:18px;background:rgba(212,165,116,0.06);color:inherit;">
+    return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-mesid="${escapeHtml(messageId)}" data-state="pending"${loading ? ' data-xb-draw-loading' : ''} style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(212,165,116,0.4);border-radius:14px;padding:18px;background:rgba(212,165,116,0.06);color:inherit;">
 <div class="xb-nd-indicator" style="position:static;transform:none;display:inline-block;">🎨 ${escapeHtml(label)}${progress ? ` · ${progress}` : ''}</div>
 </div>`;
 }
@@ -349,6 +363,20 @@ export function extractSlotIds(mes) {
     const regex = createDrawImageSlotRegex();
     while ((match = regex.exec(mes)) !== null) ids.add(match[1]);
     return ids;
+}
+
+// Project an existing text slot immediately, before gallery I/O. This is only a
+// loading surface: it cannot create slots, claim requests or rebuild host text.
+function mountImageSlotShells(content, messageId, message) {
+    const replacements = [...extractSlotIds(message.mes)]
+        .filter(slotId => !content.querySelector(buildDrawSlotSelector(slotId)))
+        .map(slotId => {
+            const activity = getSlotActivity(slotId);
+            return { slotId, html: buildPendingImageHtml({ slotId, messageId, loading: true,
+                label: activity?.label || DRAW_SLOT_COPY.loading,
+                index: activity ? activity.index + 1 : 0, total: activity?.total || 0 }) };
+        });
+    replaceSceneSlotElements(content, replacements, { shouldReplaceExisting: () => false });
 }
 
 async function persistChatSilently() {
@@ -396,6 +424,44 @@ export function getDrawSavedEntry(message, slotId) {
     const current = normalizeDrawSavedEntry(slotId, getSavedMap(message, DRAW_SAVED_EXTRA_KEY)?.[slotId]);
     if (current) return current;
     return normalizeDrawSavedEntry(slotId, getSavedMap(message, LEGACY_NOVEL_SAVED_EXTRA_KEY)?.[slotId]);
+}
+
+export function getDrawSavedPreview(message, slotId, messageId, chatId) {
+    const saved = getDrawSavedEntry(message, slotId);
+    return saved ? { ...saved, imgId: saved.imgId || `saved-${slotId}`,
+        messageId, chatId, characterName: message.name || '', status: PreviewStatus.SUCCESS } : null;
+}
+
+// A portable chat reference becomes a regular history version before an action
+// can replace it. Editors and redraw delivery share this one materialization.
+export async function materializeDrawSavedPreview(message, slotId, { messageId, chatId, expectedImgId } = {}) {
+    const saved = getDrawSavedPreview(message, slotId, messageId, chatId);
+    if (expectedImgId && saved?.imgId !== expectedImgId) throw new Error(DRAW_SLOT_COPY.missingRecord);
+    if (!saved) return null;
+    const sourceChat = getContext().chat;
+    const stillSaved = () => {
+        const current = getDrawSavedPreview(message, slotId, messageId, chatId);
+        // Saved metadata may outlive a deletion (notably when saving then
+        // switching chats). The original message/slot, including inactive
+        // branches, owns archival authority; a portable URL alone does not.
+        return sourceChat.includes(message) && findImageJobDeliverySlot([message], slotId)
+            && current?.imgId === saved.imgId && current.savedUrl === saved.savedUrl;
+    };
+    if (!stillSaved()) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+    const existing = await getPreview(saved.imgId);
+    if (!stillSaved()) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+    if (existing) {
+        if (existing.slotId !== slotId) throw new Error(DRAW_SLOT_COPY.missingRecord);
+        return existing;
+    }
+    await storePreview(saved);
+    // Explicit deletion can finish while IndexedDB is yielding. An archive is
+    // not an independent image purchase and must not resurrect that old image.
+    if (!stillSaved()) {
+        await deletePreview(saved.imgId);
+        throw new Error(DRAW_SLOT_COPY.sourceChanged);
+    }
+    return saved;
 }
 
 export async function setDrawSavedEntry(messageId, slotId, data) {
@@ -480,12 +546,12 @@ export function insertPreviewIntoRenderedMessage({ messageId, slotId, html }) {
 
 async function resolveRenderPreviewForSlot(message, messageId, slotId) {
     const display = await getDisplayPreviewForSlot(slotId);
-    const savedEntry = getDrawSavedEntry(message, slotId);
+    const savedEntry = getDrawSavedPreview(message, slotId, messageId);
     // The gallery selection is the explicit choice, also after a detached
     // delivery or recovery. A chat's saved URL is only a portable fallback; it
     // must not overrule a newer choice (including a selected failed attempt).
     if (savedEntry?.savedUrl && (!display.selectedImgId || display.selectedImgId === savedEntry.imgId)) {
-        const previews = await getPreviewsBySlot(slotId).catch(() => []);
+        const previews = await getPreviewsBySlot(slotId);
         const successPreviews = previews.filter(hasPreviewImage);
         const selectedIndex = successPreviews.findIndex(p => p.imgId === savedEntry.imgId);
         const matchedPreview = selectedIndex >= 0 ? successPreviews[selectedIndex] : null;
@@ -494,7 +560,7 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
             preview: {
                 ...matchedPreview,
                 slotId,
-                imgId: savedEntry.imgId || matchedPreview?.imgId || `saved-${slotId}`,
+                imgId: savedEntry.imgId,
                 savedUrl: savedEntry.savedUrl,
                 tags: savedEntry.tags ?? matchedPreview?.tags ?? '',
                 positive: savedEntry.positive ?? matchedPreview?.positive ?? '',
@@ -567,6 +633,7 @@ async function rebuildRenderedMessageFromState(messageId, {
     // Host-generated message markup.
     // eslint-disable-next-line no-unsanitized/property
     mesTextEl.innerHTML = formatted;
+    mountImageSlotShells(mesTextEl, messageId, message);
     await notifyMessageRewritten(messageId);
     return true;
 }
@@ -586,27 +653,13 @@ async function renderPreviewsForMessageNow(messageId, {
         || message !== expectedMessage) return;
 
     const sourceText = message.mes;
+    const swipeIndex = message.swipe_id ?? 0;
     const slotIds = extractSlotIds(sourceText);
-    let mesTextEl = getMesTextElement(messageId);
+    const mesTextEl = getMesTextElement(messageId);
     if (!mesTextEl || (content && content !== mesTextEl)) return;
-    // 锚点探测与实际替换共用 DOM 解析；不能因合法空格或换行误判缺失，
-    // 再用尚未提交新槽位的正文重建 DOM，把本批等待卡清掉。
+    // Projection observes the host's DOM, including filtered/hidden markers.
+    // Only an explicit text commit may request a whole-message rebuild.
     const renderedSlots = getRenderedSceneSlotIds(mesTextEl);
-    if ([...slotIds].some(slotId => !renderedSlots.has(slotId))) {
-        // A content lease projects the host's formatted text, including its regex
-        // filters. Missing markers are not permission to rewrite that content.
-        if (content) return;
-        // message.mes 是持久化排版事实。adoption 当下若恰逢聊天切换或宿主 DOM
-        // 尚未挂载，一次局部 patch 可能没有锚点；先按前台生成相同的宿主格式
-        // 重建楼层，再在下面统一投影 pending 卡或图片。
-        const rebuilt = await rebuildRenderedMessageFromState(messageId, {
-            chatId: ctx.chatId,
-            expectedMessage: message,
-        });
-        if (!rebuilt) return;
-        mesTextEl = getMesTextElement(messageId);
-        if (!mesTextEl) return;
-    }
     const refreshSlots = new Set((Array.isArray(refreshSlotIds) ? refreshSlotIds : [])
         .map(slotId => String(slotId || '').trim())
         .filter(Boolean));
@@ -623,17 +676,25 @@ async function renderPreviewsForMessageNow(messageId, {
         return (await pendingSlotsPromise).get(slotId) || null;
     };
     for (const slotId of slotIds) {
-        if (!refreshSlots.has(slotId) && mesTextEl.querySelector(buildDrawSlotSelector(slotId))) continue;
-        let replacementHtml;
+        if (!renderedSlots.has(slotId)) continue;
+        const existing = mesTextEl.querySelector(buildDrawSlotSelector(slotId));
+        if (!refreshSlots.has(slotId) && existing && !existing.hasAttribute('data-xb-draw-loading')) continue;
+        let replacementHtml, imageHtml;
         try {
             const displayData = await resolveRenderPreviewForSlot(message, messageId, slotId);
             const activity = getSlotActivity(slotId);
-            const pendingJob = await resolvePendingSlot(slotId);
-            // An older image is not this attempt's result. Conversely, one
-            // delivered item must remain visible while its batch is finishing.
-            const attemptFinished = pendingJob && displayData.preview?.imgId === pendingJob.imgId
-                && !displayData.isPending;
-            const pendingSlot = attemptFinished ? null : pendingJob;
+            const pendingSlot = await resolvePendingSlot(slotId);
+            if (activity || pendingSlot || displayData.isFailed) {
+                const versions = displayData.hasData ? [] : await getPreviewsBySlot(slotId);
+                const visibleUrl = existing?.querySelector('img')?.getAttribute('src');
+                const retained = displayData.hasData ? displayData.preview
+                    : versions.find(item => hasPreviewImage(item) && getPreviewDisplayUrl(item) === visibleUrl)
+                        ?? versions.find(hasPreviewImage)
+                        ?? getDrawSavedPreview(message, slotId, messageId, String(ctx.chatId));
+                if (retained) imageHtml = buildImageHtml({ slotId, imgId: retained.imgId,
+                    url: getPreviewDisplayUrl(retained), tags: retained.tags || '', positive: retained.positive || '',
+                    messageId, state: retained.savedUrl ? ImageState.SAVED : ImageState.PREVIEW });
+            }
             if (activity || pendingSlot) {
                 replacementHtml = buildPendingImageHtml({
                     slotId,
@@ -682,26 +743,37 @@ async function renderPreviewsForMessageNow(messageId, {
             }
         } catch (error) {
             console.error(`[DrawCommon] 渲染 ${slotId} 失败:`, error);
-            replacementHtml = buildFailedPlaceholderHtml({
-                slotId,
-                messageId,
-                tags: '',
-                positive: '',
-                errorType: ErrorType.UNKNOWN.label,
-                errorMessage: error?.message || '未知错误',
-            });
+            replacements.push({ slotId, error });
+            continue;
         }
-        replacements.push({ slotId, html: replacementHtml });
+        replacements.push({ slotId, html: replacementHtml, imageHtml });
     }
 
     if (replacements.length === 0) return;
-    const live = getContext();
-    if (signal?.aborted || String(live.chatId || '') !== String(ctx.chatId || '')
+    const isMounted = () => {
+        const live = getContext();
+        return !(signal?.aborted || String(live.chatId || '') !== String(ctx.chatId || '')
         || live.chat?.[messageId] !== message
-        || message.mes !== sourceText
+        || (message.swipe_id ?? 0) !== swipeIndex
         || getMesTextElement(messageId) !== mesTextEl
-        || isMessageBeingEdited(messageId)) return;
-    replaceSceneSlotElements(mesTextEl, replacements);
+        || isMessageBeingEdited(messageId));
+    };
+    const isCurrent = () => isMounted() && message.mes === sourceText;
+    if (!isCurrent()) return;
+    for (const replacement of replacements) {
+        const card = mesTextEl.querySelector(buildDrawSlotSelector(replacement.slotId));
+        if (!card) continue;
+        const retry = () => {
+            // A continuation invalidates the old snapshot, not this mounted
+            // slot. Re-read current facts; never let the stale load paint them.
+            if (isMounted() && extractSlotIds(message.mes).has(replacement.slotId)) {
+                void renderPreviewsForMessage(messageId, { refreshSlotIds: [replacement.slotId], content: mesTextEl, signal })
+                    .catch(error => console.error(DRAW_SLOT_COPY.renderFailed, error));
+            }
+        };
+        if (replacement.error) reportImageCardReadError(card, replacement.error, retry);
+        else patchImageCard(card, replacement, { isCurrent, retry });
+    }
 }
 
 // 同一楼层只允许一个异步投影在运行。图片落库、恢复状态变化和消息事件可能在同一时刻
@@ -712,6 +784,11 @@ export function renderPreviewsForMessage(messageId, { refreshSlotIds = [], conte
     const message = ctx.chat?.[messageId];
     if (!message?.mes) return Promise.resolve();
     const expectedChatId = ctx.chatId;
+
+    const root = getMesTextElement(messageId);
+    if (!signal?.aborted && root && (!content || content === root) && !isMessageBeingEdited(messageId)) {
+        mountImageSlotShells(root, messageId, message);
+    }
 
     let queue = drawPreviewRenderQueues.get(message);
     if (!queue) {
@@ -736,7 +813,16 @@ export function renderPreviewsForMessage(messageId, { refreshSlotIds = [], conte
 
 // Draw Run adoption 会在酒馆完成楼层渲染之后才把 slots 写进 message.mes。
 // 仅替换已有 DOM 锚点不够，必须先按宿主规则重建活动楼层，再把 slots 渲染成 pending/图片卡。
-export async function syncRenderedMessageFromState(messageId, { chatId, expectedMessage } = {}) {
+export async function syncRenderedMessageFromState(messageId, { chatId, expectedMessage, insertedSlotIds = [] } = {}) {
+    // A validated placement commit may already have synchronously handed its
+    // slots to the mounted chat view. Do not format that content a second time.
+    const ctx = getContext();
+    const rendered = getRenderedSceneSlotIds(getMesTextElement(messageId));
+    if (insertedSlotIds.length && insertedSlotIds.every(id => rendered.has(id))) {
+        if (String(ctx.chatId) !== String(chatId) || ctx.chat?.[messageId] !== expectedMessage) return false;
+        await renderPreviewsForMessage(messageId);
+        return true;
+    }
     const rebuilt = await rebuildRenderedMessageFromState(messageId, { chatId, expectedMessage });
     if (!rebuilt) return false;
     await renderPreviewsForMessage(messageId);

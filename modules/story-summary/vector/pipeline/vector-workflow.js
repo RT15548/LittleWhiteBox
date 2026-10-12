@@ -3,16 +3,17 @@ function getL0FailureCount(result) {
 }
 
 /**
- * L1 直接来自正文，先独立补齐；L0 再提取事实、为成功事实补向量。
- * 两层分别记录成败，只有取消会阻止后续阶段，不以 L0 完整性限制 L1。
+ * L1/L2 先独立补向量；L0 保持原来的提取事实、为成功事实补向量流程。
+ * 各层分别记录成败，只有取消会阻止后续阶段，不以 L0 完整性限制 L1/L2。
  */
-export async function runVectorMaintenance({ buildChunks, extract, vectorize, inspect, isCancelled = () => false }) {
-    if ([buildChunks, extract, vectorize, inspect].some(stage => typeof stage !== 'function')) {
-        throw new TypeError('Vector maintenance requires chunk, extract, vectorize, and inspect stages');
+export async function runVectorMaintenance({ buildChunks, repairEvents, extract, vectorize, inspect, isCancelled = () => false }) {
+    if ([buildChunks, repairEvents, extract, vectorize, inspect].some(stage => typeof stage !== 'function')) {
+        throw new TypeError('Vector maintenance requires chunk, event, extract, vectorize, and inspect stages');
     }
 
-    const cancelledResult = (chunkResult = null, l0Result = null) => ({
+    const cancelledResult = (chunkResult = null, l0Result = null, eventResult = null) => ({
         chunkResult,
+        eventResult,
         l0Result,
         l0VectorResult: null,
         l0Status: null,
@@ -21,11 +22,14 @@ export async function runVectorMaintenance({ buildChunks, extract, vectorize, in
     });
     if (isCancelled()) return cancelledResult();
     const chunkResult = await buildChunks();
-    if (isCancelled() || chunkResult?.status === 'cancelled') return cancelledResult(chunkResult);
+    if (isCancelled() || chunkResult?.status === 'cancelled' || chunkResult?.cancelled) return cancelledResult(chunkResult);
+
+    const eventResult = await repairEvents();
+    if (isCancelled() || eventResult?.cancelled) return cancelledResult(chunkResult, null, eventResult);
 
     const l0Result = await extract();
     if (isCancelled() || l0Result?.cancelled) {
-        return cancelledResult(chunkResult, l0Result);
+        return cancelledResult(chunkResult, l0Result, eventResult);
     }
 
     const l0VectorResult = await vectorize(l0Result)
@@ -36,6 +40,7 @@ export async function runVectorMaintenance({ buildChunks, extract, vectorize, in
 
     return {
         chunkResult,
+        eventResult,
         l0Result,
         l0VectorResult,
         l0Status,

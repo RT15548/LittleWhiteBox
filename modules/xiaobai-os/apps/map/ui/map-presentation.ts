@@ -11,8 +11,11 @@ import { isAreaElement, sceneElementBounds } from './scene-geometry.js';
 import { materialPaint } from './scene-materials.js';
 import type { MapObjectIcon } from '../../../domains/map/semantics.js';
 import { MAP_BROWSE_COPY } from './map-copy.js';
+import { ORGANIC_SYMBOLS, organicSymbol } from './scene-organic-symbols.js';
+import { isGroundSurface } from './scene-ground-surfaces.js';
 
 const OBJECT_FALLBACKS: Readonly<Record<MapObjectIcon, string>> = {
+    ...Object.fromEntries(Object.entries(ORGANIC_SYMBOLS).map(([key, value]) => [key, value.label])) as Record<keyof typeof ORGANIC_SYMBOLS, string>,
     chair: '椅', stool: '凳', bench: '长凳', sofa: '沙发', bed: '床', table: '桌', counter: '台', shelf: '架', cabinet: '柜', chest: '箱', barrel: '桶',
     stove: '灶', refrigerator: '冰箱', sink: '水槽', toilet: '厕', bathtub: '浴缸', terminal: '终端', machine: '机械', 'vending-machine': '售货', car: '车',
     column: '柱', partition: '屏风', fence: '围栏', 'door-open': '门', ladder: '梯', statue: '雕像', well: '井', fountain: '喷泉', bridge: '桥', tent: '帐篷',
@@ -120,6 +123,7 @@ const KIND_FALLBACKS: Readonly<Record<MapElementKind, string>> = Object.freeze({
 });
 
 const ICON_TOKENS: Readonly<Record<MapIconToken, string>> = Object.freeze({
+    ...Object.fromEntries(Object.entries(ORGANIC_SYMBOLS).map(([key, value]) => [key, value.label])) as Record<keyof typeof ORGANIC_SYMBOLS, string>,
     'door-open': 'door_open',
     stairs: 'stairs',
     elevator: 'elevator',
@@ -233,7 +237,8 @@ export function elementPresentation(element: MapElement, patternPrefix: string):
     const recipe = CATEGORY_RECIPES[element.category];
     const area = isAreaElement(element);
     const materialFill = area && (element.material || element.category === 'water')
-        ? materialPaint(element.material || 'water', patternPrefix)
+        ? element.category === 'terrain' && isGroundSurface(element.material)
+            ? `url(#${patternPrefix}-ground-${element.material})` : materialPaint(element.material || 'water', patternPrefix)
         : '';
     const certaintyDash = element.certainty === 'inferred'
         ? '8 6'
@@ -244,8 +249,8 @@ export function elementPresentation(element: MapElement, patternPrefix: string):
         opacity: element.certainty === 'unknown' ? 0.48 : element.certainty === 'inferred' ? 0.72 : 1,
         dash: certaintyDash,
         icon: element.icon ? ICON_TOKENS[element.icon] : element.kind ? KIND_ICONS[element.kind] : CATEGORY_ICONS[element.category],
-        fallback: element.kind ? KIND_FALLBACKS[element.kind] : element.icon && Object.hasOwn(OBJECT_FALLBACKS, element.icon)
-            ? OBJECT_FALLBACKS[element.icon as MapObjectIcon] : MAP_CATEGORY_LABELS[element.category].slice(0, 1),
+        fallback: organicSymbol(element.icon)?.label || (element.kind ? KIND_FALLBACKS[element.kind] : element.icon && Object.hasOwn(OBJECT_FALLBACKS, element.icon)
+            ? OBJECT_FALLBACKS[element.icon as MapObjectIcon] : MAP_CATEGORY_LABELS[element.category].slice(0, 1)),
         z: CATEGORY_Z[element.category],
     };
 }

@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { provide, ref, shallowRef, watchEffect } from 'vue';
-import { appNavigationKey } from '../navigation/app-navigation.js';
+import { appNavigationKey, topModalLayer, type AppLayer } from '../navigation/app-navigation.js';
 import { createBackStack } from '../navigation/back-stack.js';
 
 const props = defineProps<{ owner: string }>();
 const root = ref<HTMLElement | null>(null);
-const layers = shallowRef<HTMLElement[]>([]);
+const layers = shallowRef<AppLayer[]>([]);
 const stack = createBackStack();
-provide(appNavigationKey, { root, layers, stack });
+const navigation = { root, layers, stack };
+provide(appNavigationKey, navigation);
 watchEffect(cleanup => {
-    const layer = layers.value.at(-1);
+    const layer = topModalLayer(navigation);
     if (!layer || !root.value?.contains(layer)) { return; }
     const changed = new Set<HTMLElement>();
     function protectBackground() {

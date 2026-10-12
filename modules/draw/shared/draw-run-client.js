@@ -1,4 +1,5 @@
 import { DRAW_RUNS_ENDPOINT } from './draw-run-coordinator.js';
+import { createImageBackendJobsClient, hasDrawWorkCancellationCapability, REQUIRED_IMAGE_JOBS_PLUGIN_VERSION } from './backend-image-jobs.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -6,13 +7,14 @@ export const DRAW_RUNS_CAPABILITY = 'draw-runs-v1';
 export const DRAW_RUN_RUNTIME_CAPABILITY = 'draw-run-runtime-v4';
 // 增量能力：后台规划支持 planner.retry。缺少它的旧插件仍可使用，只是后台规划不重试。
 export const DRAW_RUN_PLANNER_RETRY_CAPABILITY = 'draw-run-planner-retry-v1';
-export const REQUIRED_DRAW_RUN_PLUGIN_VERSION = '2.3.0';
+export const REQUIRED_DRAW_RUN_PLUGIN_VERSION = REQUIRED_IMAGE_JOBS_PLUGIN_VERSION;
 
 export function hasDrawRunsCapability(status) {
     return status?.ready === true
         && Array.isArray(status.capabilities)
         && status.capabilities.includes(DRAW_RUNS_CAPABILITY)
-        && status.capabilities.includes(DRAW_RUN_RUNTIME_CAPABILITY);
+        && status.capabilities.includes(DRAW_RUN_RUNTIME_CAPABILITY)
+        && hasDrawWorkCancellationCapability(status);
 }
 
 export class DrawRunClientError extends Error {
@@ -46,19 +48,25 @@ async function readBody(response) {
 }
 
 export function createDrawRunClient({
+    getOwner,
     fetchImpl = globalThis.fetch,
     getHeaders = () => ({}),
     timeoutMs = DEFAULT_TIMEOUT_MS,
 } = {}) {
     if (typeof fetchImpl !== 'function') throw new TypeError('Draw Run client 需要 fetch');
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError('Draw Run client timeout 无效');
+    const cancellationClient = createImageBackendJobsClient({ fetchImpl, getHeaders, getOwner, requestTimeout: timeoutMs });
 
-    async function request(path = '', { method = 'GET', signal } = {}) {
+    function requireActiveRequest(signal) {
         if (signal?.aborted) {
             throw new DrawRunClientError('后台 Draw Run 请求已取消', {
                 code: 'draw_run_aborted',
             });
         }
+    }
+
+    async function request(path = '', { method = 'GET', signal } = {}) {
+        requireActiveRequest(signal);
         const controller = new AbortController();
         const forwardAbort = () => controller.abort();
         let timedOut = false;
@@ -138,11 +146,15 @@ export function createDrawRunClient({
             return body.run;
         },
         async cancelRun(runId, options = {}) {
+            requireActiveRequest(options.signal);
             const expectedRunId = String(runId || '');
-            const body = await request(`/${encodeURIComponent(expectedRunId)}/cancel`, {
-                ...options,
-                method: 'POST',
-            });
+            await cancellationClient.cancelWork({ runIds: [expectedRunId] }, options);
+            let body;
+            try { body = await request(`/${encodeURIComponent(expectedRunId)}`, options); }
+            catch (error) {
+                if (error?.code !== 'draw_run_not_found') throw error;
+                return { id: expectedRunId, state: 'cancelled' };
+            }
             if (!body.run || typeof body.run !== 'object' || body.run.id !== expectedRunId) {
                 throw new DrawRunClientError('后台 Draw Run 取消响应格式无效', { code: 'draw_run_invalid_response' });
             }

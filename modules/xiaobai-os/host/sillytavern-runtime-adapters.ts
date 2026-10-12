@@ -1,6 +1,7 @@
 import {
     isStreamingEnabled,
 } from '../../../../../../../script.js';
+import { is_group_generating } from '../../../../../../group-chats.js';
 import {
     GENERATE_INTERCEPTOR_ORDER,
     registerGenerateInterceptor,
@@ -109,7 +110,8 @@ export const subscribeWorldPromptEvents = (handlers: WorldPromptEventHandlers): 
 
 export function createSillyTavernMainGenerationRuntime(): MainGenerationRuntime {
     return createMainGenerationRuntime({
-        readHostGenerating: () => document.body.dataset.generating === 'true',
+        // The wrapper remains active between members, including on late OS startup.
+        readHostGenerating: () => document.body.dataset.generating === 'true' || is_group_generating,
         subscribe(handlers) {
             const events = createModuleEvents('xiaobaiOsMainGeneration');
             events.on(event_types.GENERATION_STARTED, (type: unknown, _options: unknown, dryRun: unknown) => {

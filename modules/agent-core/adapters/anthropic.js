@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveModelFamily } from '../../../shared/host-llm/model-family.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { requireResponseCompletion } from '../runtime/response-completion.js';
 import {
@@ -14,6 +15,28 @@ import {
     isReasoningOutputVisible,
     normalizeReasoningConfig,
 } from '../reasoning-config.js';
+
+const PROMPT_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' });
+const CACHEABLE_MESSAGE_BLOCKS = new Set(['text', 'image', 'tool_use', 'tool_result']);
+const ANTHROPIC_USAGE_LOG = '[AgentCore][AnthropicUsage]';
+
+function applyPromptCaching(body) {
+    // Separate stable tools/system from the growing conversation. Explicit block
+    // markers also work with Messages proxies that drop top-level cache_control.
+    if (body.system) {
+        body.system = [{ type: 'text', text: body.system }];
+    } else {
+        delete body.system;
+    }
+    const lastMessageBlock = body.messages
+        .flatMap(message => message.content)
+        .filter(block => CACHEABLE_MESSAGE_BLOCKS.has(block.type)
+            && (block.type !== 'text' || block.text.trim()))
+        .at(-1);
+    for (const block of [body.tools?.at(-1), body.system?.at(-1), lastMessageBlock]) {
+        if (block) block.cache_control = { ...PROMPT_CACHE_CONTROL };
+    }
+}
 
 function parseArguments(text) {
     try {
@@ -280,6 +303,7 @@ export class AnthropicAdapter {
             } : {}),
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
+        if (resolveModelFamily(this.config.model) === 'claude') applyPromptCaching(body);
         if (!shouldOmitTemperatureForReasoning(
             { ...this.config, provider: 'anthropic' },
             reasoning,
@@ -460,11 +484,20 @@ export class AnthropicAdapter {
                 .filter((item) => item.text)
             : [];
 
+        const finishReason = requireResponseCompletion('anthropic', response.stop_reason, false, text);
+        const usage = response.usage;
+        console.info(ANTHROPIC_USAGE_LOG, {
+            messageId: response.id,
+            model: response.model || this.config.model,
+            usage,
+        });
+
         return {
             text,
             toolCalls,
             thoughts,
-            finishReason: requireResponseCompletion('anthropic', response.stop_reason),
+            finishReason,
+            usage,
             model: response.model || this.config.model,
             provider: 'anthropic',
             providerPayload: buildProviderPayload(response),

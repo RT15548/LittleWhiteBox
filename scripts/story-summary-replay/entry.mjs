@@ -57,6 +57,8 @@ import { getSummarySourceEnd } from '../../modules/story-summary/generate/source
 import { selectMissingEventVectorPairs } from '../../modules/story-summary/vector/pipeline/event-vector-input.js';
 import { withSummaryRequestOverride } from './summary-request.mjs';
 
+export { __setReplayContext, __setExtensionSettings, applyReplayConfig };
+
 class MemoryStorage {
     #map = new Map();
 
@@ -85,7 +87,7 @@ function defineGlobal(name, value) {
     });
 }
 
-function ensureNodeReplayGlobals() {
+export function ensureNodeReplayGlobals() {
     if (!globalThis.performance) {
         defineGlobal('performance', performance);
     }
@@ -118,8 +120,8 @@ function ensureNodeReplayGlobals() {
     }
 }
 
-async function loadReplayModules(extSettings) {
-    const [{ EXT_ID }, configModule, storeModule, generatorModule, promptModule, chunkStoreModule, chunkBuilderModule, chunkTextModule, stateStoreModule, stateIntegrationModule, recallModule, eventRerankModule, metricsModule, embedderModule, lexicalIndexModule] = await Promise.all([
+export async function loadReplayModules(extSettings) {
+    const [{ EXT_ID }, configModule, storeModule, generatorModule, promptModule, chunkStoreModule, chunkBuilderModule, chunkTextModule, stateStoreModule, stateIntegrationModule, recallModule, eventRerankModule, metricsModule, embedderModule, lexicalIndexModule, chunkMaintenanceModule] = await Promise.all([
         import('../../core/constants.js'),
         import('../../modules/story-summary/data/config.js'),
         import('../../modules/story-summary/data/store.js'),
@@ -135,6 +137,7 @@ async function loadReplayModules(extSettings) {
         import('../../modules/story-summary/vector/retrieval/metrics.js'),
         import('../../modules/story-summary/vector/utils/embedder.js'),
         import('../../modules/story-summary/vector/retrieval/lexical-index.js'),
+        import('../../modules/story-summary/vector/pipeline/chunk-maintenance.js'),
     ]);
 
     extSettings[EXT_ID] = { storySummary: { enabled: true } };
@@ -146,6 +149,7 @@ async function loadReplayModules(extSettings) {
         ...promptModule,
         ...chunkStoreModule,
         ...chunkBuilderModule,
+        ...chunkMaintenanceModule,
         ...chunkTextModule,
         ...stateStoreModule,
         ...stateIntegrationModule,
@@ -250,6 +254,15 @@ function createStreamingGenerationShim(summaryApiConfig) {
     };
 
     return {
+        async startRawGeneration(args) {
+            const sessionId = String(args.id);
+            sessions.set(sessionId, { isStreaming: true, text: '', error: null });
+            const completion = runRequest(args).then(text => {
+                sessions.set(sessionId, { isStreaming: false, text, error: null });
+                return text;
+            });
+            return { sessionId, stream: true, completion };
+        },
         async xbgenrawCommand(args) {
             const wantsStream = String(args?.nonstream || 'false') !== 'true';
             const sessionId = String(args?.id || `story-summary-replay-${Date.now()}`);
@@ -542,7 +555,7 @@ function validateReplaySnapshot(snapshot, samplePath, sample, config) {
     }
 }
 
-async function restoreReplaySnapshot(modules, chatId, snapshot) {
+export async function restoreReplaySnapshot(modules, chatId, snapshot) {
     await resetReplayStores(modules, chatId);
     __setChatMetadata(cloneJsonSafe(snapshot?.summary?.chatMetadata) || {});
 
@@ -799,14 +812,20 @@ async function summarizeNaturalHistory({
 async function maintainNaturalTurnAfterAi(args) {
     // Own the complete turn trace, including work completed before a later stage throws.
     const counted = await withExternalCallTrace(async () => {
-        const maintained = await maintainNaturalHistoryAfterAi(args);
+        const maintained = await maintainNaturalHistoryAfterAi({
+            ...args,
+            repairEvents: async () => {
+                const result = await vectorizeEventSummaries(args.modules, args.chatId, args.panelConfig.vector, args.modules.getSummaryStore()?.json?.events || []);
+                return { success: true, repaired: result.built };
+            },
+        });
         const summary = await summarizeNaturalHistory({ ...args, historyThroughFloor: args.floor, reason: 'after_ai' });
         return { ...maintained, result: { ...maintained.result, summary: summary.result } };
     });
     return { ...counted.value, ...mergeCountedExternal(counted) };
 }
 
-function deserializePromptRecallInput(value = {}) {
+export function deserializePromptRecallInput(value = {}) {
     const { l1ByFloorEntries, ...rest } = value;
     return { ...cloneJsonSafe(rest), l1ByFloor: new Map(
         (l1ByFloorEntries || []).map(([floor, item]) => [Number(floor), cloneJsonSafe(item)]),
@@ -1021,6 +1040,9 @@ export async function runStorySummaryCancellationCheck() {
     const previousStreamingModule = globalThis.window.xiaobaixStreamingGeneration;
     const cancelledSessions = [];
     globalThis.window.xiaobaixStreamingGeneration = {
+        async startRawGeneration() {
+            return { sessionId: 'summary-cancel-check', completion: new Promise(() => {}) };
+        },
         async xbgenrawCommand() {
             return 'summary-cancel-check';
         },
@@ -1196,7 +1218,6 @@ export async function runStorySummaryPromptAssemblyCheck() {
                 directEvidenceL1,
                 directEvidenceContext: null,
             },
-            new Map(),
             [],
             { lastChunkFloor: -1 },
             metrics,
@@ -1927,15 +1948,9 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
                 const rerank = counted.value;
                 const afterEvents = rerank?.events || beforeEvents;
                 const rerankedRecall = { ...recallResult, events: afterEvents };
-                const causalById = new Map(
-                    (rerankedRecall.causalChain || [])
-                        .map(item => [item?.event?.id, item])
-                        .filter(item => item[0]),
-                );
                 const built = await modules.buildVectorPromptForReplay(
                     modules.getSummaryStore(),
                     rerankedRecall,
-                    causalById,
                     rerankedRecall.focusCharacters || [],
                     cloneJsonSafe(promptInput?.production?.meta || {}),
                     cloneJsonSafe(rerankedRecall.metrics || null),
@@ -2105,15 +2120,9 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
                     return { promptText: '', evidenceTrace: { final: [], prompt: [], eventEvidence: [] }, externalCalls: 0 };
                 }
                 const recallResult = deserializePromptRecallInput(productionInput?.recallResult || {});
-                const causalById = new Map(
-                    (recallResult.causalChain || [])
-                        .map(item => [item?.event?.id, item])
-                        .filter(item => item[0]),
-                );
                 const counted = await withExternalCallTrace(() => modules.buildVectorPromptForReplay(
                     modules.getSummaryStore(),
                     recallResult,
-                    causalById,
                     recallResult.focusCharacters || [],
                     cloneJsonSafe(productionInput?.meta || {}),
                     cloneJsonSafe(recallResult.metrics || null),
@@ -2239,6 +2248,16 @@ export async function runStorySummaryAlignmentCheck() {
     const modules = await loadReplayModules(extSettings);
     const { runAlignmentCheck } = await import('./alignment-check.mjs');
     return await runAlignmentCheck({ modules, extSettings, summarize: summarizeNaturalHistory });
+}
+
+export async function runStorySummarySourceLifecycleCheck(samplePaths) {
+    ensureNodeReplayGlobals();
+    const extSettings = {};
+    __setExtensionSettings(extSettings);
+    __setChatMetadata({});
+    const modules = await loadReplayModules(extSettings);
+    const { runSourceLifecycleCheck } = await import('./source-lifecycle-check.mjs');
+    return runSourceLifecycleCheck({ modules, samplePaths });
 }
 
 export async function runStorySummaryPreflight({ rootDir, config }) {

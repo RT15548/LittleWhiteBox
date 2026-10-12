@@ -16,6 +16,7 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
     const { folder, name, title } = providerFixtures[provider];
     const stubs = {
         'extensions.js': 'export const getContext=()=>globalThis.__review.ctx; export const extension_settings={};',
+        'user.js': 'export const getCurrentUserHandle=()=>globalThis.__review.owner ?? "fixture";',
         'script.js': 'export const getRequestHeaders=()=>({});export const syncMesToSwipe=()=>{};export const messageFormatting=x=>globalThis.__review.format?.(x)??x;',
         'utils.js': 'export const uuidv4=()=>crypto.randomUUID();export const saveBase64AsFile=()=>{throw new Error("unexpected upload");};',
         'event-manager.js': `export const event_types=new Proxy({},{get:(_,k)=>k});
@@ -42,7 +43,7 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
         'debug-core.js': 'export const xbLog={error:console.error,warn:console.warn,info(){}};',
         'generate-interceptor.js': 'export const GENERATE_INTERCEPTOR_ORDER={};export const registerGenerateInterceptor=()=>{};export const unregisterGenerateInterceptor=()=>{};',
     };
-    if (realHost) for (const key of ['extensions.js', 'script.js', 'utils.js', 'event-manager.js', 'floating-panel.js']) delete stubs[key];
+    if (realHost) for (const key of ['extensions.js', 'script.js', 'utils.js', 'user.js', 'event-manager.js', 'floating-panel.js']) delete stubs[key];
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
     const bundle = await build({ stdin: { resolveDir: root, contents: `
         export * from '../providers/${folder}/${name}-draw.js';
@@ -51,13 +52,18 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
         export * from './chat-message-images.js';
         export * from './chat-message-image-markup.js';
         export * from './image-card-actions.js';
+        export * from './pending-image-jobs.js';
+        export * from './draw-cancellation-journal.js';
+        export * from './draw-work-cancellation.js';
+        export * from './image-job-recovery-runtime.js';
+        export * from './backend-image-jobs.js';
         export * from './draw-common.js';` }, bundle: true, write: false, format: 'esm', platform,
         footer: { js: '//# sourceURL=production-provider-fixture.mjs' },
         plugins: [{ name: 'host-boundaries', setup(builder) {
             builder.onResolve({ filter: /\.js$/ }, ({ path, importer }) => {
                 if (importer.includes('node_modules')) return;
                 const key = path.split('/').at(-1);
-                if (realHost && ['script.js', 'extensions.js', 'utils.js'].includes(key)) return {
+                if (realHost && ['script.js', 'extensions.js', 'utils.js', 'user.js'].includes(key)) return {
                     path: key === 'script.js' ? '/script.js' : `/scripts/${key}`, external: true,
                 };
                 return stubs[key] ? { path: key, namespace: 'fixture' } : null;

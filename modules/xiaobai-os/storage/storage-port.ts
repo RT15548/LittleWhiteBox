@@ -2,6 +2,11 @@ import type { XiaobaiOsStoragePort } from '../kernel/contracts.js';
 
 export type { XiaobaiOsStoragePort };
 
+/** A successful file download whose body is not JSON; keep it separate from transport failures. */
+export class JsonUserFileParseError extends SyntaxError {
+    constructor(readonly source: string) { super('storage_json_invalid'); }
+}
+
 export class XiaobaiOsStorageError extends Error {
     readonly httpStatus?: number;
 

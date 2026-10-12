@@ -35,7 +35,7 @@ onBeforeUnmount(() => { generation++; });
 <template>
     <section v-if="count" class="admin-process" :class="{ 'is-running': !!live }">
         <button v-if="!live" type="button" class="admin-process-toggle" :aria-expanded="expanded" @click="opened = !opened">
-            <span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>{{ C.process(count) }}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{{ C.process(count) }}
         </button>
         <div v-if="expanded" class="admin-process-body">
             <div v-for="round in rounds" :key="round.index" class="admin-process-round">

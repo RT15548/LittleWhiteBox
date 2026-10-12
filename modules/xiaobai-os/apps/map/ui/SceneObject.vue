@@ -3,12 +3,15 @@ import { computed, useId } from 'vue';
 import type { MapElement } from '../../../domains/map/types.js';
 import { sceneElementBounds } from './scene-geometry.js';
 import { materialFace, materialPaint } from './scene-materials.js';
+import { formSurface } from './scene-forms.js';
+import { organicSymbol } from './scene-organic-symbols.js';
+import SceneSymbol from './SceneSymbol.vue';
 
 const props = defineProps<{ element: MapElement; prefix: string; unitScale: number }>();
 const bounds = computed(() => sceneElementBounds(props.element));
 const detailed = computed(() => Math.min(bounds.value.width, bounds.value.height) / props.unitScale >= 12);
 const round = computed(() => props.element.shape === 'circle');
-const material = computed(() => props.element.material);
+const material = computed(() => formSurface(props.element));
 const face = computed(() => materialFace(material.value, props.prefix));
 const texture = computed(() => materialPaint(material.value, props.prefix));
 const clipId = `scene-object-${useId()}`;
@@ -23,7 +26,8 @@ const clipId = `scene-object-${useId()}`;
             <template v-if="detailed">
                 <circle v-if="round" cx="50" cy="50" r="44" :fill="texture" class="scene-object-inset" />
                 <rect v-else x="5" y="5" width="90" height="90" rx="2" :fill="texture" class="scene-object-inset" />
-                <template v-if="element.icon === 'table' || element.icon === 'counter'">
+                <SceneSymbol v-if="organicSymbol(element.icon)" :icon="element.icon" x="12" y="12" width="76" height="76" style="color: var(--scene-edge)" />
+                <template v-else-if="element.icon === 'table' || element.icon === 'counter'">
                     <path :d="round ? 'M18 36A35 35 0 0 1 72 22' : 'M8 13V8H92'" class="scene-object-shine" />
                     <path v-if="element.icon === 'counter'" d="M9 78H91" class="scene-object-seam" />
                 </template>

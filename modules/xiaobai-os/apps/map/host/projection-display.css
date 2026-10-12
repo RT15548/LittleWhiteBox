@@ -1,0 +1,11 @@
+.xb-map-projection {
+    display: block;
+    margin: 12px 0 0;
+    overflow: hidden;
+    border-radius: 14px;
+    container-type: inline-size;
+}
+/* Follow the host editor DOM, including cancel, without resetting the map. */
+#chat:has(.edit_textarea, .reasoning_edit_textarea) .xb-map-projection {
+    display: none !important;
+}

@@ -25,6 +25,7 @@
 .tasks-balance strong { font-weight: 500; overflow-wrap: anywhere; }
 .tasks-icon-button { display: grid; place-items: center; width: 40px; min-width: 40px; padding: 0; border-radius: 8px; }
 .tasks-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.tasks-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .tasks-page { padding: 6px var(--tasks-page-padding) 28px; max-width: 740px; margin: 0 auto; }
 .tasks-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px; min-height: 44px; }
 .tasks-section-heading h2 { font-size: 18px; font-weight: 550; }
@@ -193,6 +194,17 @@
     .tasks-page { --tasks-page-padding: 18px; }
     .tasks-app-header { padding-inline: 16px; gap: 8px; }
     .tasks-app-header h1 { font-size: 19px; }
+}
+@container os-stage (min-width: 960px) {
+    .tasks-workspace.is-main { display: grid; grid-template-columns: 164px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+    .tasks-nav { grid-column: 1; grid-row: 1; flex-direction: column; justify-content: flex-start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; gap: 6px; padding: 18px 12px; border-top: 0; border-right: 1px solid var(--tasks-line); }
+    .tasks-nav button { flex: 0 0 auto; min-height: 48px; display: flex; align-items: center; gap: 12px; justify-content: flex-start; padding: 6px 14px; font-size: 13px; border-radius: 10px; }
+    .tasks-nav button[aria-current] { background: var(--tasks-tint); }
+    .tasks-content { grid-column: 2; grid-row: 1; min-width: 0; }
+    .tasks-workspace.is-main .tasks-page { max-width: 1000px; --tasks-page-padding: 32px; }
+    .tasks-board-list, .tasks-record-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+    .tasks-ticket:nth-child(-n+2), .tasks-record:nth-child(-n+2) { border-top: 0; }
+    .tasks-ticket-foot, .tasks-record-foot { margin-top: auto; padding-top: 12px; }
 }
 @media (hover:hover) {
     .tasks-ticket:hover .tasks-ticket-title, .tasks-record:hover .tasks-record-title { color: var(--tasks-accent); }

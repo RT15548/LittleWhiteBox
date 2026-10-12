@@ -26,15 +26,16 @@ const PERSON_LEXICON_BLACKLIST = new Set([
     '电脑', '电脑屏幕', '手机', '监控画面', '摄像头', '阳光', '折叠床', '书房', '卫生间隔间',
 ]);
 
-function isBlacklistedPersonTerm(raw) {
-    return PERSON_LEXICON_BLACKLIST.has(normalizeEntityTerm(raw));
+function personMatchTerm(raw) {
+    const term = normalizeEntityTerm(raw);
+    return term.length >= 2 && !PERSON_LEXICON_BLACKLIST.has(term) ? term : '';
 }
 
-function addPersonTerm(set, raw) {
-    const n = normalizeEntityTerm(raw);
-    if (!n || n.length < 2) return;
-    if (isBlacklistedPersonTerm(n)) return;
-    set.add(n);
+function addPersonTerm(set, raw, canonical = raw) {
+    // Length limits literal matches, not the identity of a matched alias.
+    if (!personMatchTerm(raw)) return;
+    const name = normalizeEntityTerm(canonical);
+    if (name && !PERSON_LEXICON_BLACKLIST.has(name)) set.add(name);
 }
 
 function buildUserIdentityKeys(context, aliasResolver = null) {
@@ -53,31 +54,32 @@ function removeUserIdentityTerms(set, context, aliasResolver = null) {
 
 function collectTrustedCharacters(store, context, aliasResolver = buildAliasResolver(store?.json?.characterAliases || [])) {
     const trusted = new Set();
+    const add = raw => addPersonTerm(trusted, raw, aliasResolver.resolveName(raw));
 
     const main = store?.json?.characters?.main || [];
     for (const m of main) {
-        addPersonTerm(trusted, aliasResolver.resolveName(typeof m === 'string' ? m : m.name));
+        add(typeof m === 'string' ? m : m.name);
     }
 
     const arcs = store?.json?.arcs || [];
     for (const a of arcs) {
-        addPersonTerm(trusted, aliasResolver.resolveName(a.name));
+        add(a.name);
     }
 
     if (context?.name2) {
-        addPersonTerm(trusted, aliasResolver.resolveName(context.name2));
+        add(context.name2);
     }
 
     const events = store?.json?.events || [];
     for (const ev of events) {
         for (const p of (ev?.participants || [])) {
-            addPersonTerm(trusted, aliasResolver.resolveName(p));
+            add(p);
         }
     }
 
     for (const alias of aliasResolver.aliases) {
-        addPersonTerm(trusted, aliasResolver.resolveName(alias.from));
-        addPersonTerm(trusted, aliasResolver.resolveName(alias.to));
+        add(alias.from);
+        add(alias.to);
     }
 
     removeUserIdentityTerms(trusted, context, aliasResolver);
@@ -122,7 +124,11 @@ function buildCharacterPools(store, context, atoms, aliasResolver) {
         addPersonTerm(aliasTerms, alias.from);
         addPersonTerm(aliasTerms, alias.to);
     }
-    const allCharacters = new Set([...trustedCharacters, ...candidateCharacters, ...aliasTerms]);
+    // Canonical identities can be single-character; text matching still cannot.
+    const allCharacters = new Set();
+    for (const name of [...trustedCharacters, ...candidateCharacters, ...aliasTerms]) {
+        addPersonTerm(allCharacters, name);
+    }
     removeUserIdentityTerms(allCharacters, context, aliasResolver);
     return { trustedCharacters, candidateCharacters, allCharacters };
 }
@@ -132,9 +138,8 @@ function buildDisplayNameMap(store, context, atoms, aliasResolver) {
     const map = new Map();
 
     const register = (raw, display = raw, force = false) => {
-        const n = normalizeEntityTerm(raw);
-        if (!n || n.length < 2) return;
-        if (isBlacklistedPersonTerm(n)) return;
+        const n = personMatchTerm(raw);
+        if (!n) return;
         if (force || !map.has(n)) {
             map.set(n, String(display || raw).trim());
         }

@@ -75,7 +75,7 @@ export async function testXiaobaiOsAgentConnection(
         messages: [{ role: 'user', content: 'OK' }],
         tools: [],
         temperature: undefined,
-        maxTokens: 16,
+        maxTokens: 1600,
         reasoning: providerConfig.reasoning,
         signal: options.signal,
     }) as UnknownRecord;

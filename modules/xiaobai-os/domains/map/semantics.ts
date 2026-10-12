@@ -2,7 +2,6 @@ import type {
     MapElementCategory,
     MapElementKind,
     MapElementShape,
-    MapMaterial,
 } from './types.js';
 
 export const MAP_ELEMENT_CATEGORIES: readonly MapElementCategory[] = Object.freeze([
@@ -19,13 +18,17 @@ export const MAP_ELEMENT_KINDS: readonly MapElementKind[] = Object.freeze([
     'east', 'west', 'up', 'down', 'trap', 'chest', 'marker', 'player', 'actor',
 ]);
 
-export const MAP_MATERIALS: readonly MapMaterial[] = Object.freeze([
+export const MAP_MATERIALS = Object.freeze([
     'unknown', 'wood', 'stone', 'tile', 'carpet', 'bed-sheet', 'fabric', 'tatami', 'sand',
     'marble', 'blood', 'water', 'grass', 'forest', 'glass', 'dirt', 'snow', 'metal', 'rune', 'warm-light',
-    'cold-light', 'shadow',
-]);
+    'cold-light', 'shadow', 'flesh', 'slime',
+] as const);
 
 export const MAP_CERTAINTIES = Object.freeze(['confirmed', 'inferred', 'unknown'] as const);
+
+export const MAP_LIGHTING_SPACES = Object.freeze(['indoor', 'outdoor'] as const);
+export const MAP_NATURAL_LIGHTS = Object.freeze(['sunlight', 'daylight', 'night'] as const);
+export const MAP_ARTIFICIAL_LIGHTS = Object.freeze(['on', 'off'] as const);
 
 /** Object vocabulary shared by tool guidance and sized-object recognition, not rendering assets. */
 export const MAP_OBJECT_GROUPS = Object.freeze([
@@ -35,6 +38,9 @@ export const MAP_OBJECT_GROUPS = Object.freeze([
     { name: 'Equipment and vehicles', icons: ['terminal', 'machine', 'vending-machine', 'car'], hint: 'terminal is an operator console; machine is general machinery.' },
     { name: 'Site fixtures', icons: ['column', 'partition', 'fence', 'door-open', 'ladder', 'statue', 'well', 'fountain', 'bridge', 'tent'], hint: 'partition is a freestanding screen; fence follows a path; door-open is an entrance marker, not evidence of an open door; ladder is a standalone ladder, not stairs or a floor connection.' },
     { name: 'Plants and natural objects', icons: ['tree', 'potted-plant', 'rock'], hint: 'tree is one tree; a forest is terrain with material forest.' },
+    { name: 'Growing forms and conduits', icons: ['vine', 'root', 'tentacle', 'pipe'], hint: 'Use an open path/curve along the centreline, from base to tip. Thickness and surface details are drawn by the app.' },
+    { name: 'Natural formations', icons: ['mushroom', 'crystal'], hint: 'Use a rect/circle footprint for one formation.' },
+    { name: 'Creatures', icons: ['slime', 'dragon', 'dwarf', 'elf'], hint: 'Actors keep their identity and location marker. A rect/circle also gives their occupied size; a point is only a symbol.' },
     { name: 'Lighting and signs', icons: ['light', 'fire', 'flag', 'sign'], hint: 'light is a freestanding fixture; light regions use category light without an object icon.' },
 ] as const);
 export type MapObjectIcon = (typeof MAP_OBJECT_GROUPS)[number]['icons'][number];

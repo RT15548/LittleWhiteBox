@@ -691,8 +691,8 @@ function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector) 
 /**
  * Spread activation from seed L0 atoms through entity co-occurrence graph.
  *
- * Called from recall.js Stage 7.5, after locateAndPullEvidence and before
- * Causation Trace. Results are merged into l0Selected and consumed by
+ * Called from recall.js Stage 7.5, after locateAndPullEvidence.
+ * Results are merged into l0Selected and consumed by
  * prompt.js through existing budget/formatting pipeline (zero downstream changes).
  *
  * @param {object[]} seeds - l0Selected from recall Stage 6

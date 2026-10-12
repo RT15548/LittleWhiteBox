@@ -1,8 +1,13 @@
+/** Settings (explanationLanguage, level, goal.exam, goal.targetLevel, interests): null means the product default. */
 export interface LearningProfile {
     language: string;
     explanationLanguage: string;
+    /** Empty until the learner states it. */
     selfAssessment: string;
+    level: string | null;
+    interests: string | null;
     goal: {
+        /** Empty until the learner states it. */
         description: string;
         exam: string | null;
         targetLevel: string | null;
@@ -56,19 +61,28 @@ function targetDate(value: unknown, path: string): string | null {
 }
 
 export function parseLearningProfile(value: unknown, path = 'profile'): LearningProfile {
-    const item = learningRecord(value, path, ['language', 'explanationLanguage', 'selfAssessment', 'goal']);
+    const item = learningRecord(value, path, ['language', 'explanationLanguage', 'selfAssessment', 'level', 'interests', 'goal']);
     const goal = learningRecord(item.goal, `${path}.goal`, ['description', 'exam', 'targetLevel', 'targetDate']);
     return {
         language: parseLearningLanguageTag(item.language, `${path}.language`),
         explanationLanguage: parseLearningLanguageTag(item.explanationLanguage, `${path}.explanationLanguage`),
-        selfAssessment: learningText(item.selfAssessment, `${path}.selfAssessment`, 800),
+        selfAssessment: learningText(item.selfAssessment, `${path}.selfAssessment`, 800, true),
+        level: nullableText(item.level, `${path}.level`, 80),
+        interests: nullableText(item.interests, `${path}.interests`, 800),
         goal: {
-            description: learningText(goal.description, `${path}.goal.description`, 800),
+            description: learningText(goal.description, `${path}.goal.description`, 800, true),
             exam: nullableText(goal.exam, `${path}.goal.exam`, 80),
             targetLevel: nullableText(goal.targetLevel, `${path}.goal.targetLevel`, 80),
             targetDate: targetDate(goal.targetDate, `${path}.goal.targetDate`),
         },
     };
+}
+
+export const LEARNING_DEFAULT_EXPLANATION_LANGUAGE = 'zh-CN';
+
+export function defaultLearningProfile(language: string): LearningProfile {
+    return parseLearningProfile({ language, explanationLanguage: LEARNING_DEFAULT_EXPLANATION_LANGUAGE, selfAssessment: '',
+        level: null, interests: null, goal: { description: '', exam: null, targetLevel: null, targetDate: null } });
 }
 
 export function parseTeacherPreference(value: unknown): LearningTeacherPreference {

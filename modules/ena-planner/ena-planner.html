@@ -75,7 +75,7 @@
               </select>
             </div>
           </div>
-          <p class="form-hint">输入中已有 &lt;plot&gt; 标签时会直接发送。开启“合并连续 system”后，会把相邻的 system 消息折叠为一条，不跨过 user / assistant。</p>
+          <p class="form-hint">输入中已有 &lt;plot&gt; 标签时会直接发送。开启“合并连续 system”后，会把相邻的 system 消息折叠为一条，不跨过 user。</p>
         </section>
 
         <section class="card">
@@ -503,7 +503,7 @@
 
       const roleSelect = document.createElement('select');
       roleSelect.className = 'input';
-      ['system', 'user', 'assistant'].forEach(r => {
+      ['system', 'user'].forEach(r => {
         const opt = document.createElement('option');
         opt.value = r;
         opt.textContent = r;

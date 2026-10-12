@@ -42,4 +42,6 @@ test('all Map tools survive the Google SDK as supported schemas with nullable fi
         assert.ok(element[field].description, `${field} keeps its model-facing description`);
     }
     assert.equal(edit.mood.nullable, true);
+    assert.equal(edit.lighting.nullable, true);
+    assert.deepEqual(edit.lighting.required, ['space', 'natural', 'artificial']);
 });

@@ -5,7 +5,7 @@ import { getArchiveEnd } from '../apps/fourth-wall/domain/context-policy.js';
 import { buildFourthWallPrompt } from '../apps/fourth-wall/domain/prompt.js';
 import { buildFourthWallAgentRequest, counterMessages } from '../apps/fourth-wall/domain/agent-request.js';
 import { createFourthWallAgentResponse } from '../apps/fourth-wall/host/agent-response.js';
-import { createFourthWallContextService } from '../apps/fourth-wall/host/context-service.js';
+import { createFourthWallContextService, createGatewayContextService } from '../apps/fourth-wall/host/context-service.js';
 import { createFourthWallHistoryView } from '../apps/fourth-wall/host/history-view.js';
 import { clearSession, deleteMessage, editMessage, updateMemory, addSession, deleteSession } from '../apps/fourth-wall/domain/state.js';
 
@@ -40,6 +40,22 @@ function harness(session, overrides = {}) {
     };
     return { counts, summaries, commits, phases, controller, options, run: patch => service.prepare({ ...options, ...patch }) };
 }
+
+test('memory generation leaves the output budget to the selected Agent API configuration', async () => {
+    const config = { currentPresetName: 'user-selected' };
+    const requests = [], commits = [];
+    const service = createGatewayContextService({ async run(request) {
+        requests.push(request);
+        return { text: 'remembered facts', finishReason: 'stop' };
+    } }, async () => ({ tokens: 100 }));
+    await service.prepare({ session: sessionWithRounds(6), buildPrompt, config, manual: true,
+        signal: new AbortController().signal,
+        commit: async (memory, archivedCount) => commits.push({ memory, archivedCount }) });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].config, config);
+    assert.equal(requests[0].maxTokens, undefined);
+    assert.deepEqual(commits, [{ memory: 'remembered facts', archivedCount: 2 }]);
+});
 
 test('archive retains five complete exchanges, ten originals and pending input; commentary is not a reply', () => {
     for (const rounds of [0, 1, 4, 5, 6, 20]) {

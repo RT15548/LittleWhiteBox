@@ -10,6 +10,7 @@ import type { ActionCheckFrequency, ActionCheckRule } from '../types.js';
 import { readCoc7Sheet, type Coc7Sheet } from '../domain/coc7-sheet.js';
 import { parseDiceRecords } from '../domain/check-records.js';
 import { createActionCheckSession } from '../application/action-check-session.js';
+import { isDiceContinuationPending } from '../application/continuation-state.js';
 import type { DiceContinuationStage, DiceContinuationProgress, DiceHostBlocker } from '../application/host-wait.js';
 import { applyDiceCandidate, captureDiceTarget, clearNewDiceSwipe, isDiceTargetCurrent, readDiceRecords, type DiceCandidate, type DiceTarget } from './message-records.js';
 import { filterDiceGenerationData, type DiceGenerationData } from './request-filter.js';
@@ -244,7 +245,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
         if (unsubscribe) { return; }
         const events = createModuleEvents('xiaobaiOsDice');
         const started = async (type: unknown, options: { signal?: AbortSignal }, dryRun: unknown) => {
-            if (dryRun || intention && type === 'continue' && options.signal === intention.signal
+            if (dryRun || type === 'quiet' || intention && type === 'continue' && options.signal === intention.signal
                 && currentTarget(intention.target)) { return; }
             // Keep an error at the preceding member while the aborted wrapper unwinds.
             if (is_group_generating && wrapperSignal?.aborted) { return; }
@@ -498,7 +499,12 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
             await session.showResult(rolled.target, { body: rolled.target.body, records: parseDiceRecords(rolled.target.records) }, rolled.operationId);
         } else { throw new DiceOperationError('dice_target_changed'); }
     }
-    return { start, stop, cancel,
+    function isReplyPaused(message: unknown): boolean {
+        if (!enabled() || message === null || typeof message !== 'object') { return false; }
+        // The caller selects its floor. Workflow ownership is not a pause in that floor's prose.
+        return isDiceContinuationPending(message);
+    }
+    return { start, stop, cancel, isReplyPaused,
         actions, act, records, current: currentTarget,
         view() {
             const current = session.view();

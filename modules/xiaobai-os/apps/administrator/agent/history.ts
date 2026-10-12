@@ -90,9 +90,9 @@ function summaryMessage({ role, content, tool_calls, tool_call_id, toolName, pro
 }
 export async function summarizeAdministrator(options: { gateway: XiaobaiOsAgentGateway; config: unknown; summary: string; messages: AgentRecord[]; signal: AbortSignal }): Promise<string | null> {
     const input = safePromptJson({ summary: options.summary, exchanges: options.messages.map(summaryMessage) });
-    if (estimateTokenCount(ADMINISTRATOR_SUMMARY_PROMPT) + estimateTokenCount(input) + POLICY.summaryOutput >= POLICY.inputBudget) { throw new Error('administrator_context_full'); }
+    if (estimateTokenCount(ADMINISTRATOR_SUMMARY_PROMPT) + estimateTokenCount(input) >= POLICY.inputBudget) { throw new Error('administrator_context_full'); }
     const session = await options.gateway.openSession(options.config);
-    const result = await session.run({ systemPrompt: ADMINISTRATOR_SUMMARY_PROMPT, messages: [{ role: 'user', content: input }], tools: [], maxTokens: POLICY.summaryOutput, signal: options.signal });
+    const result = await session.run({ systemPrompt: ADMINISTRATOR_SUMMARY_PROMPT, messages: [{ role: 'user', content: input }], tools: [], signal: options.signal });
     const output = typeof result.text === 'string' ? result.text.trim() : '';
     if (result.refused || !output) { throw new Error('administrator_summary_failed'); }
     return estimateTokenCount(output) < estimateTokenCount(input) ? output : null;

@@ -26,6 +26,32 @@ function harness(overrides = {}) {
     return { records, selected, activity, order, options, execute: () => executePreparedSlots(options) };
 }
 
+test('backend delivery receipt precedes slot release and blocks release when it cannot persist', async () => {
+    for (const rejectReceipt of [false, true]) {
+        const h = harness({ backend: true });
+        h.options.run = async callbacks => {
+            await callbacks.recoverable.commitPlacements();
+            const delivery = callbacks.onItemReady({ index: 0, base64: 'YWJj', commitDelivery: async () => {
+                assert.equal(h.activity.has('a'), true);
+                assert.equal(h.selected.get('a'), 'img-a');
+                if (rejectReceipt) throw new Error('receipt quota');
+            } });
+            if (rejectReceipt) {
+                await assert.rejects(delivery, error => error.preserveBackendResult === true);
+                assert.equal(h.activity.has('a'), true);
+                throw Object.assign(new Error('retain for recovery'), { detached: true });
+            }
+            await delivery;
+            assert.equal(h.activity.has('a'), false);
+            assert.equal(h.activity.has('b'), true);
+            await callbacks.onItemReady({ index: 1, base64: 'YWJj' });
+        };
+        if (rejectReceipt) await assert.rejects(h.execute(), error => error.detached === true);
+        else await h.execute();
+        assert.equal(h.records.get('img-a').status, 'success');
+    }
+});
+
 test('cancellation cannot erase an unknown submitted outcome or a delivered success', async () => {
     const controller = new AbortController();
     const h = harness({ signal: controller.signal, run: async callbacks => {

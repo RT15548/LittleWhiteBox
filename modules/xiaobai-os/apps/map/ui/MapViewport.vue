@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { trackMapPointerLifetime } from './map-pointer-lifetime.js';
 const props = withDefaults(defineProps<{
     viewBox: readonly [number, number, number, number];
     resetKey?: string;
@@ -12,14 +13,17 @@ const viewport = ref<[number, number, number, number]>([...props.viewBox]);
 const size = ref<[number, number]>([0, 0]);
 const unitScale = computed(() => size.value[0] && size.value[1] ? Math.max(viewport.value[2] / size.value[0], viewport.value[3] / size.value[1]) : 1);
 let resizeObserver: ResizeObserver | undefined;
+let pointerLifetime: ReturnType<typeof trackMapPointerLifetime> | undefined;
 onMounted(() => {
+    pointerLifetime = trackMapPointerLifetime(svg.value!, finishPointer);
     resizeObserver = new ResizeObserver(entries => {
         const bounds = entries[0].contentRect;
         size.value = [bounds.width, bounds.height];
+        if (!bounds.width || !bounds.height) { pointerLifetime?.cancel(); }
     });
     if (svg.value) {resizeObserver.observe(svg.value);}
 });
-const pointers = new Map<number, [number, number]>();
+const pointers = new Map<number, { position: [number, number]; target: Element }>();
 let dragOrigin: [number, number] | null = null;
 let viewOrigin: [number, number] = [0, 0];
 let pinchDistance = 0;
@@ -52,7 +56,7 @@ function focus(): void {
     viewport.value = [props.focusPoint[0] - width / 2, props.focusPoint[1] - height / 2, width, height];
 }
 function startGesture(): void {
-    const points = [...pointers.values()];
+    const points = [...pointers.values()].map(pointer => pointer.position);
     if (points.length === 1) {dragOrigin = points[0]; viewOrigin = [viewport.value[0], viewport.value[1]];}
     if (points.length === 2) {
         pinchDistance = Math.hypot(points[1][0] - points[0][0], points[1][1] - points[0][1]);
@@ -63,14 +67,17 @@ function startGesture(): void {
 function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0 || pointers.size >= 2) {return;}
     if (!pointers.size) {dragged = false;}
-    pointers.set(event.pointerId, [event.clientX, event.clientY]);
-    (event.target as Element).setPointerCapture(event.pointerId);
+    const target = event.target as Element;
+    pointers.set(event.pointerId, { position: [event.clientX, event.clientY], target });
+    // Keep capture on the original hit target so a tap still selects a place.
+    target.setPointerCapture(event.pointerId);
     startGesture();
 }
 function onPointerMove(event: PointerEvent): void {
-    if (!pointers.has(event.pointerId)) {return;}
-    pointers.set(event.pointerId, [event.clientX, event.clientY]);
-    const points = [...pointers.values()];
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) {return;}
+    pointer.position = [event.clientX, event.clientY];
+    const points = [...pointers.values()].map(pointer => pointer.position);
     if (points.length === 2 && pinchCenter) {
         const distance = Math.hypot(points[1][0] - points[0][0], points[1][1] - points[0][1]);
         const center: [number, number] = [(points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2];
@@ -86,10 +93,11 @@ function onPointerMove(event: PointerEvent): void {
         viewport.value = [viewOrigin[0] - dx * screenScale(), viewOrigin[1] - dy * screenScale(), viewport.value[2], viewport.value[3]];
     }
 }
-function finishPointer(event: PointerEvent): void {
-    if (!pointers.delete(event.pointerId)) {return;}
-    const target = event.target as Element;
-    if (target.hasPointerCapture(event.pointerId)) {target.releasePointerCapture(event.pointerId);}
+function finishPointer(pointerId: number): void {
+    const pointer = pointers.get(pointerId);
+    if (!pointer) {return;}
+    pointers.delete(pointerId);
+    if (pointer.target.hasPointerCapture(pointerId)) {pointer.target.releasePointerCapture(pointerId);}
     startGesture();
     if (!pointers.size) {dragOrigin = null; pinchCenter = null;}
     if (dragged) {
@@ -103,14 +111,14 @@ function captureClick(event: MouseEvent): void {
 }
 watch(() => props.resetKey, reset, { immediate: true });
 watch(() => props.focusSequence, focus, { flush: 'post' });
-onBeforeUnmount(() => {resizeObserver?.disconnect(); if (suppressTimer) {clearTimeout(suppressTimer);}});
+onBeforeUnmount(() => {pointerLifetime?.dispose(); resizeObserver?.disconnect(); if (suppressTimer) {clearTimeout(suppressTimer);}});
 </script>
 <template>
     <div class="map-viewport">
         <svg
             ref="svg" class="map-viewport-svg" :viewBox="viewBoxText" preserveAspectRatio="xMidYMid meet" role="group" :aria-label="label"
             @wheel.prevent="zoom($event.deltaY < 0 ? .84 : 1.19, clientToMap($event.clientX, $event.clientY))"
-            @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="finishPointer" @pointercancel="finishPointer" @click.capture="captureClick"
+            @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="finishPointer($event.pointerId)" @pointercancel="finishPointer($event.pointerId)" @click.capture="captureClick"
         ><slot :unit-scale="unitScale" /></svg>
         <div class="map-viewport-controls" aria-label="地图缩放">
             <button type="button" aria-label="放大地图" @click="zoom(.8)">+</button><button type="button" aria-label="缩小地图" @click="zoom(1.25)">−</button>

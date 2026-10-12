@@ -1,4 +1,5 @@
 // tts-text.js
+import { createTtsDirectiveRegex } from './tts-message-markup.js';
 
 /**
  * TTS 文本提取与情绪处理
@@ -12,7 +13,7 @@ export function extractSpeakText(rawText, rules = {}) {
     let text = rawText;
     
     const ttsPlaceholders = [];
-    text = text.replace(/\[tts:[^\]]*\]/gi, (match) => {
+    text = text.replace(createTtsDirectiveRegex(), (match) => {
         const placeholder = `__TTS_TAG_${ttsPlaceholders.length}__`;
         ttsPlaceholders.push(match);
         return placeholder;
@@ -119,7 +120,7 @@ export function parseTtsSegments(text) {
     if (!text || typeof text !== 'string') return [];
 
     const segments = [];
-    const re = /\[tts:([^\]]*)\]/gi;
+    const re = createTtsDirectiveRegex();
     let lastIndex = 0;
     let match = null;
     // 当前块的配置，每遇到新 [tts:] 块都重置

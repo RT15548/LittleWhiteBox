@@ -1,10 +1,22 @@
-const JOBS_ENDPOINT = '/api/plugins/littlewhitebox-image-jobs/v1/jobs';
-const STATUS_ENDPOINT = '/api/plugins/littlewhitebox-image-jobs/status';
+import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../shared/server-plugin/identity.js';
+import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
+
+const JOBS_ENDPOINT = `${SERVER_PLUGIN_BASE}/v1/jobs`;
+const STATUS_ENDPOINT = `${SERVER_PLUGIN_BASE}/status`;
+const CANCELLATION_ENDPOINT = `${SERVER_PLUGIN_BASE}/v1/cancel`;
 const DEFAULT_REQUEST_TIMEOUT = 15_000;
 const DEFAULT_MAX_CONSECUTIVE_RETRIES = 6;
 const DEFAULT_MAX_RETRY_DELAY = 10_000;
 
 export const IMAGE_BATCH_JOBS_CAPABILITY = 'image-batch-jobs-v1';
+export const DRAW_WORK_CANCELLATION_CAPABILITY = 'draw-work-cancellation-v1';
+export const REQUIRED_IMAGE_JOBS_PLUGIN_VERSION = SERVER_PLUGIN_VERSION;
+export const IMAGE_JOBS_UNAVAILABLE_MESSAGE = `小白X后台任务不可用。${SERVER_PLUGIN_COPY.install}`;
+
+export function hasDrawWorkCancellationCapability(status) {
+    return status?.ready === true && Array.isArray(status.capabilities)
+        && status.capabilities.includes(DRAW_WORK_CANCELLATION_CAPABILITY);
+}
 
 const forcedDetachSignals = new WeakSet();
 
@@ -144,7 +156,8 @@ export function reportImageBackendJobState(onStateChange, state, data = {}) {
 export function hasImageBackendJobsCapability(status) {
     return status?.ready === true
         && Array.isArray(status.capabilities)
-        && status.capabilities.includes(IMAGE_BATCH_JOBS_CAPABILITY);
+        && status.capabilities.includes(IMAGE_BATCH_JOBS_CAPABILITY)
+        && hasDrawWorkCancellationCapability(status);
 }
 
 export function createImageBackendJobMonitorRegistry({ active: initiallyActive = true } = {}) {
@@ -223,6 +236,7 @@ export function createImageBackendJobsClient({
     fetchImpl = globalThis.fetch,
     getHeaders = () => ({}),
     documentRef = globalThis.document,
+    getOwner,
     pollInterval = 1000,
     requestTimeout = DEFAULT_REQUEST_TIMEOUT,
     maxConsecutiveRetries = DEFAULT_MAX_CONSECUTIVE_RETRIES,
@@ -372,9 +386,29 @@ export function createImageBackendJobsClient({
         return requestJson(`${JOBS_ENDPOINT}/${encodeURIComponent(jobId)}/results/${index}`, { method: 'DELETE', signal });
     }
 
+    async function cancelWork({ owner = getOwner?.(), jobIds = [], runIds = [] }, { signal } = {}) {
+        if (typeof owner !== 'string' || !owner) throw new TypeError('CANCELLATION_OWNER_REQUIRED');
+        try {
+            return await requestJson(CANCELLATION_ENDPOINT, { method: 'POST', body: { owner, jobIds, runIds }, signal });
+        } catch (error) {
+            if (error?.status === 404) {
+                error.code = 'backend_cancellation_unsupported';
+                error.message = IMAGE_JOBS_UNAVAILABLE_MESSAGE;
+            }
+            throw error;
+        }
+    }
+
     async function cancelJob(jobId) {
-        const data = await requestJson(`${JOBS_ENDPOINT}/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
-        return data.job;
+        await cancelWork({ jobIds: [jobId] });
+        try {
+            return await getJob(jobId);
+        } catch (error) {
+            // Unlike an ordinary 404, the acknowledged cancellation has fenced
+            // late creation at the server. There is no job left to deliver.
+            if (error?.code !== 'job_not_found') throw error;
+            return { id: jobId, state: 'cancelled', items: [] };
+        }
     }
 
     async function deleteJob(jobId, { signal } = {}) {
@@ -443,19 +477,10 @@ export function createImageBackendJobsClient({
                     }
                     if (abortRequested && !cancelSent) {
                         await beforeCancel?.();
-                        try {
-                            await cancelJob(jobId);
-                            cancelSent = true;
-                        } catch (error) {
-                            if (error?.code === 'job_not_found') {
-                                return {
-                                    job: { id: jobId, state: 'cancelled', items: [] },
-                                    abortRequested: true,
-                                    deliveryErrors,
-                                    preserved,
-                                };
-                            }
-                            throw error;
+                        const cancelled = await cancelJob(jobId);
+                        cancelSent = true;
+                        if (cancelled.state === 'cancelled' && cancelled.items.length === 0) {
+                            return { job: cancelled, abortRequested: true, deliveryErrors, preserved };
                         }
                     }
                     if (detachRequested && !abortRequested) throw createDetachedError(jobId);
@@ -645,11 +670,6 @@ export function createImageBackendJobsClient({
                     cancelAlreadySent = true;
                     break;
                 } catch (error) {
-                    if (error instanceof ImageBackendJobsError && error.code === 'job_not_found') {
-                        const uncertain = createDetachedError(createPayload.requestId);
-                        await safeNotify(options.onStateChange, 'detached', { error: uncertain, jobId: uncertain.jobId });
-                        throw uncertain;
-                    }
                     if (!(error instanceof ImageBackendJobsError) || !error.retriable) {
                         markDetached(error, true);
                         if (error && typeof error === 'object') error.jobId = createPayload.requestId;
@@ -698,6 +718,9 @@ export function createImageBackendJobsClient({
             }
         }
         await safeNotify(options.onStateChange, 'created', { job });
+        if (cancelAlreadySent && job.state === 'cancelled' && job.items.length === 0) {
+            return { job, abortRequested: true, deliveryErrors: new Map(), preserved: new Set() };
+        }
         return attachJob(job.id, { ...options, cancelSignal, detachSignal, cancelAlreadySent });
     }
 
@@ -705,6 +728,7 @@ export function createImageBackendJobsClient({
         acknowledgeResult,
         attachJob,
         cancelJob,
+        cancelWork,
         createJob,
         deleteJob,
         getJob,

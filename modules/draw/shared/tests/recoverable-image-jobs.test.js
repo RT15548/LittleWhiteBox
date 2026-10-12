@@ -8,6 +8,7 @@ import {
     submitRecoverableImageJob,
 } from '../recoverable-image-jobs.js';
 import { PendingImageJobLostError, PendingJobState } from '../pending-image-jobs.js';
+import { holdDrawCancellation } from '../draw-work-cancellation.js';
 
 // 假交付日志：只保留状态机与所有权，不碰 IndexedDB。
 // 被测对象是「什么必须发生在什么之前」，存储实现不在证明范围内。
@@ -39,6 +40,11 @@ function createFakeJournal() {
         async renewLease(jobId, leaseId) {
             const entry = store.get(jobId);
             return entry && entry.leaseId === leaseId ? entry : null;
+        },
+        async commitItem(jobId, leaseId, index) {
+            const entry = await journal.fenceLease(jobId, leaseId);
+            entry.items.find(item => item.index === index).deliveryCommitted = true;
+            return entry;
         },
         async markActive(jobId, leaseId) {
             calls.push(`markActive:${jobId}`);
@@ -100,6 +106,75 @@ function basePlan() {
         items: [{ index: 0, slotId: 'slot-a', imgId: 'img-a', previewMetadata: {} }],
     };
 }
+
+for (const boundary of ['group-request', 'journal-write']) test(`failed cancellation ${boundary} releases delivery ownership without settling an unknown backend job`, async () => {
+    const journal = createFakeJournal();
+    const cancel = new AbortController();
+    if (boundary === 'journal-write') journal.markCancelling = async () => { throw new Error('storage unavailable'); };
+    const client = createFakeClient({ onRun: async options => {
+        let group;
+        if (boundary === 'group-request') {
+            group = holdDrawCancellation([cancel.signal], async () => { throw new Error('network unavailable'); });
+        }
+        cancel.abort();
+        if (group) await assert.rejects(group);
+        await options.beforeCancel();
+    } });
+    await assert.rejects(submitRecoverableImageJob({
+        client, journal, provider: 'novelai', request: {}, plan: basePlan(),
+        cancelSignal: cancel.signal, commitPlacements: async () => true,
+    }), error => error.detached === true);
+    assert.equal(journal.store.size, 1);
+    const record = [...journal.store.values()][0];
+    assert.equal(record.leaseExpiresAt, 0);
+    assert.equal(journal.calls.some(call => call.startsWith('markSettling:') || call.startsWith('forget:')), false);
+});
+
+for (const phase of ['ready', 'failed']) test(`a ${phase} delivery receipt fences replay before backend acknowledgment`, async () => {
+    const journal = createFakeJournal();
+    let writes = 0;
+    let saved;
+    await assert.rejects(submitRecoverableImageJob({ journal, provider: 'sd-webui', plan: basePlan(), request: {},
+        commitPlacements: () => true,
+        onItemReady: () => { writes++; }, onItemSettled: () => { writes++; },
+        client: { runJob: async (_request, callbacks) => {
+            const callback = phase === 'ready' ? callbacks.onItemReady : callbacks.onItemSettled;
+            await callback({ index: 0, state: phase });
+            saved = structuredClone(journal.store.get(callbacks.requestId));
+            assert.equal(saved.items[0].deliveryCommitted, true);
+            throw Object.assign(new Error('refresh before ACK'), { detached: true });
+        } },
+    }), error => error.detached === true);
+    // Fresh attachment, no runtime delivered set; old gallery could be gone.
+    await reattachRecoverableImageJob({ journal, record: saved,
+        client: { attachJob: async (_id, callbacks) => {
+            await callbacks.onItemReady({ index: 0 });
+            await callbacks.onItemSettled({ index: 0, state: 'failed' });
+            return {};
+        } },
+        onItemReady: () => { writes++; }, onItemSettled: () => { writes++; },
+    });
+    assert.equal(writes, 1);
+    assert.equal(journal.store.size, 0);
+});
+
+test('receipt failure preserves the backend copy and never enters settlement', async () => {
+    const journal = createFakeJournal();
+    journal.commitItem = async () => { throw new Error('quota'); };
+    let callbackFailure;
+    await assert.rejects(submitRecoverableImageJob({ journal, provider: 'sd-webui', plan: basePlan(), request: {},
+        commitPlacements: () => true, onItemReady: async () => {},
+        settlePlacements: () => assert.fail('must retain journal'),
+        client: { runJob: async (_request, callbacks) => {
+            try { await callbacks.onItemReady({ index: 0 }); } catch (error) { callbackFailure = error; }
+            assert.equal(callbackFailure.preserveBackendResult, true);
+            return { preserved: new Set([0]) };
+        } },
+    }), error => error.detached === true);
+    const retained = [...journal.store.values()][0];
+    assert.equal(retained.items[0].deliveryCommitted, undefined);
+    assert.equal(retained.leaseExpiresAt, 0);
+});
 
 test('an active owner observes durable cancellation without waiting for its lease to expire', async () => {
     const journal = createFakeJournal();

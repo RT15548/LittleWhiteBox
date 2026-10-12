@@ -4,7 +4,7 @@ import type { ContactView } from '../types.js';
 import MessageIcon from './MessageIcon.vue';
 import ContactAvatar from './ContactAvatar.vue';
 import type { MessageDraft } from './draft.js';
-const props = defineProps<{ contacts: ContactView[]; busyContactId: string; drafts: ReadonlyMap<string, MessageDraft> }>();
+const props = defineProps<{ contacts: ContactView[]; activeContactId: string; busyContactId: string; drafts: ReadonlyMap<string, MessageDraft> }>();
 defineEmits<{ select: [id: string]; add: []; settings: [] }>();
 const search = ref('');
 const filtered = computed(() => props.contacts.filter(contact => `${contact.name} ${contact.note}`.toLocaleLowerCase().includes(search.value.toLocaleLowerCase())));
@@ -27,7 +27,7 @@ function time(value: number | null) {
         </div>
         <div v-else class="messages-contact-rows">
             <p v-if="!filtered.length" class="messages-subtle">没有找到这个人。</p>
-            <button v-for="contact in filtered" :key="contact.id" class="messages-contact-row" @click="$emit('select', contact.id)">
+            <button v-for="contact in filtered" :key="contact.id" class="messages-contact-row" :aria-current="activeContactId === contact.id ? 'true' : undefined" @click="$emit('select', contact.id)">
                 <ContactAvatar :identity="contact.id" :name="contact.name" />
                 <span class="messages-contact-copy"><span class="messages-contact-heading"><strong>{{ contact.name }}</strong><time>{{ time(contact.lastAt) }}</time></span><span v-if="busyContactId === contact.id" class="messages-preview messages-preview-active">正在等待回复…</span><span v-else-if="drafts.get(contact.id)?.text.trim() || drafts.get(contact.id)?.image" class="messages-preview"><em>草稿</em> {{ drafts.get(contact.id)?.image ? '［图片］' : '' }}{{ drafts.get(contact.id)?.text }}</span><span v-else class="messages-preview">{{ contact.preview }}</span></span>
             </button>

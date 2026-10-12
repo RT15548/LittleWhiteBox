@@ -1,0 +1,839 @@
+{
+  "formatVersion": 1,
+  "revision": 21,
+  "commitId": "commit-21-1791076928134",
+  "partitions": {
+    "economy": {
+      "schemaVersion": 3,
+      "transactions": [
+        {
+          "id": "tx-2362bbe5-7515-4352-a687-54b4a976e5a9",
+          "sequence": 1,
+          "idempotencyKey": "economy:opening-grant:v1",
+          "actionId": "economy:opening-grant:v1",
+          "fromAccountId": "system:mint",
+          "toAccountId": "player",
+          "amount": 100,
+          "kind": "opening_grant",
+          "title": "开户赠礼",
+          "note": "欢迎来到小白 OS",
+          "sourceDomain": "economy",
+          "sourceScope": "user",
+          "sourceId": "opening-grant:v1",
+          "createdAt": 1791076400313
+        },
+        {
+          "id": "tx-33e46e0a-9492-42dc-973b-54d8a638c9c0",
+          "sequence": 2,
+          "createdAt": 1791076430179,
+          "sourceScope": "user",
+          "idempotencyKey": "building:ebea45ccfc0de6ba6f6a3bd3f5856e3f:fee",
+          "actionId": "03b5f2a155a171774893ad66fe89332f",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "ebea45ccfc0de6ba6f6a3bd3f5856e3f"
+        },
+        {
+          "id": "tx-505dd939-8a50-4ffd-a3e4-6f054505fdbd",
+          "sequence": 3,
+          "createdAt": 1791076467770,
+          "sourceScope": "user",
+          "idempotencyKey": "building:ebea45ccfc0de6ba6f6a3bd3f5856e3f:ready",
+          "actionId": "be3a2853bc15d72e2b0b1e9c1e62836f",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_ready",
+          "title": "小白筑家 · 基础房屋",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "ebea45ccfc0de6ba6f6a3bd3f5856e3f"
+        },
+        {
+          "id": "tx-09f5ee5f-f49a-4343-8c50-2596935529cb",
+          "sequence": 4,
+          "createdAt": 1791076499013,
+          "sourceScope": "user",
+          "idempotencyKey": "building:ebea45ccfc0de6ba6f6a3bd3f5856e3f:finished",
+          "actionId": "c171c50348c59e44433fa18c2a95828c",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 90,
+          "kind": "building_finished",
+          "title": "小白筑家 · 心愿交付",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "ebea45ccfc0de6ba6f6a3bd3f5856e3f"
+        },
+        {
+          "id": "tx-f3fe1c36-c56c-4190-b990-f3307e337434",
+          "sequence": 5,
+          "createdAt": 1791076884820,
+          "sourceScope": "a",
+          "idempotencyKey": "a:game:game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a:stake",
+          "actionId": "a:game-ui:ac6257de-cbb1-462a-9b66-8db788cd1cdf",
+          "fromAccountId": "player",
+          "toAccountId": "escrow:game:a:game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+          "amount": 100,
+          "kind": "game_stake",
+          "title": "Game stake escrow",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a"
+        },
+        {
+          "id": "tx-40bcf9b6-48b9-4edb-90ba-45c69d90dded",
+          "sequence": 6,
+          "createdAt": 1791076928129,
+          "sourceScope": "a",
+          "idempotencyKey": "a:game:game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a:reserve",
+          "actionId": "a:game-ui:adfe2df7-da59-4ca6-8f40-9d8894c3e791",
+          "fromAccountId": "counterparty:game:a:reserve",
+          "toAccountId": "escrow:game:a:game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+          "amount": 80,
+          "kind": "game_reserve",
+          "title": "Game reserve funding",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a"
+        },
+        {
+          "id": "tx-57aac175-9ceb-4f77-9338-7b6ede1293c0",
+          "sequence": 7,
+          "createdAt": 1791076928129,
+          "sourceScope": "a",
+          "idempotencyKey": "a:game:game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a:payout",
+          "actionId": "a:game-ui:adfe2df7-da59-4ca6-8f40-9d8894c3e791",
+          "fromAccountId": "escrow:game:a:game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+          "toAccountId": "player",
+          "amount": 180,
+          "kind": "game_payout",
+          "title": "Game payout",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a"
+        }
+      ]
+    },
+    "dice": {
+      "sheet": null,
+      "resultOverrides": {}
+    },
+    "learning-rewards": {
+      "retiredUnitIds": []
+    },
+    "building": {
+      "format": 2,
+      "revision": 12,
+      "last": {
+        "id": "c171c50348c59e44433fa18c2a95828c",
+        "fingerprint": "{\"type\":\"finish\"}"
+      },
+      "activeId": "ebea45ccfc0de6ba6f6a3bd3f5856e3f",
+      "projects": [
+        {
+          "id": "ebea45ccfc0de6ba6f6a3bd3f5856e3f",
+          "seed": 17,
+          "tier": "sunroom",
+          "rooms": [
+            {
+              "kind": "hall",
+              "x": 3,
+              "y": 0
+            },
+            {
+              "kind": "wide",
+              "x": 1,
+              "y": 0
+            },
+            {
+              "kind": "wide",
+              "x": 1,
+              "y": 1
+            },
+            {
+              "kind": "study",
+              "x": 0,
+              "y": 0
+            },
+            {
+              "kind": "garden",
+              "x": 4,
+              "y": 0
+            },
+            {
+              "kind": "room",
+              "x": 3,
+              "y": 1
+            },
+            {
+              "kind": "terrace",
+              "x": 0,
+              "y": 1
+            }
+          ],
+          "end": "complete",
+          "saved": false
+        }
+      ],
+      "receipts": [
+        {
+          "runId": "ebea45ccfc0de6ba6f6a3bd3f5856e3f",
+          "tier": "sunroom",
+          "admission": "03b5f2a155a171774893ad66fe89332f",
+          "ready": "be3a2853bc15d72e2b0b1e9c1e62836f",
+          "finished": "c171c50348c59e44433fa18c2a95828c"
+        }
+      ]
+    }
+  },
+  "stories": {
+    "a": {
+      "game": {
+        "schemaVersion": 1,
+        "events": [
+          {
+            "revision": 1,
+            "eventId": "game-event-3e7cdcc4-9c95-4f43-97ad-dae69b636c72",
+            "actionId": "game-ui:ac6257de-cbb1-462a-9b66-8db788cd1cdf",
+            "command": {
+              "kind": "dice-start",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bet": 100
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-started",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": []
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076884818
+          },
+          {
+            "revision": 2,
+            "eventId": "game-event-e83682e1-b296-4222-a739-ddf107ff9f24",
+            "actionId": "game-ui:37d52164-15ae-44cd-9ca2-2857c057363f",
+            "command": {
+              "kind": "dice-bid",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bid": {
+                "count": 1,
+                "face": 2
+              }
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-advanced",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": [
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 2
+                        },
+                        {
+                          "count": 1,
+                          "face": 3,
+                          "by": "dealer"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076903368
+          },
+          {
+            "revision": 3,
+            "eventId": "game-event-44af162e-5ff0-4313-9225-31fa9e082d68",
+            "actionId": "game-ui:f7db9ad1-0782-46bb-ba66-59e7e5104b5c",
+            "command": {
+              "kind": "dice-bid",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bid": {
+                "count": 1,
+                "face": 4
+              }
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-advanced",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": [
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 2
+                        },
+                        {
+                          "count": 1,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 4
+                        },
+                        {
+                          "count": 1,
+                          "face": 5,
+                          "by": "dealer"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076907700
+          },
+          {
+            "revision": 4,
+            "eventId": "game-event-e2ab601d-7dd6-4174-b20b-ec98a63e4a52",
+            "actionId": "game-ui:975fd4c3-fa7e-4ed2-b27d-b3f90fb2f214",
+            "command": {
+              "kind": "dice-bid",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bid": {
+                "count": 1,
+                "face": 6
+              }
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-advanced",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": [
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 2
+                        },
+                        {
+                          "count": 1,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 4
+                        },
+                        {
+                          "count": 1,
+                          "face": 5,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 6
+                        },
+                        {
+                          "count": 2,
+                          "face": 3,
+                          "by": "dealer"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076909023
+          },
+          {
+            "revision": 5,
+            "eventId": "game-event-a1ba7a96-cd53-429c-a6a3-94816bfaed47",
+            "actionId": "game-ui:66257ae2-e2e1-49b4-a4e3-8e54cf42a1c2",
+            "command": {
+              "kind": "dice-bid",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bid": {
+                "count": 3,
+                "face": 3
+              }
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-advanced",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": [
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 2
+                        },
+                        {
+                          "count": 1,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 4
+                        },
+                        {
+                          "count": 1,
+                          "face": 5,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 6
+                        },
+                        {
+                          "count": 2,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 3,
+                          "face": 3
+                        },
+                        {
+                          "count": 3,
+                          "face": 4,
+                          "by": "dealer"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076913143
+          },
+          {
+            "revision": 6,
+            "eventId": "game-event-0b9aa8cc-5198-440b-b50e-e9754ac25857",
+            "actionId": "game-ui:f4384715-dcb3-4e32-ae38-9af62c0ed756",
+            "command": {
+              "kind": "dice-bid",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bid": {
+                "count": 4,
+                "face": 4
+              }
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-advanced",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": [
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 2
+                        },
+                        {
+                          "count": 1,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 4
+                        },
+                        {
+                          "count": 1,
+                          "face": 5,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 6
+                        },
+                        {
+                          "count": 2,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 3,
+                          "face": 3
+                        },
+                        {
+                          "count": 3,
+                          "face": 4,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 4,
+                          "face": 4
+                        },
+                        {
+                          "count": 4,
+                          "face": 6,
+                          "by": "dealer"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076919024
+          },
+          {
+            "revision": 7,
+            "eventId": "game-event-1b0d4013-ca19-42a7-bb04-5e5b8135537d",
+            "actionId": "game-ui:ae8c41e8-e874-421c-99e2-98862c52709d",
+            "command": {
+              "kind": "dice-bid",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+              "bid": {
+                "count": 5,
+                "face": 6
+              }
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-advanced",
+                  "game": {
+                    "kind": "dice",
+                    "game": {
+                      "id": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                      "bet": 100,
+                      "playerDice": [
+                        5,
+                        3,
+                        2,
+                        6,
+                        5
+                      ],
+                      "dealerDice": [
+                        3,
+                        4,
+                        1,
+                        4,
+                        6
+                      ],
+                      "bids": [
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 2
+                        },
+                        {
+                          "count": 1,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 4
+                        },
+                        {
+                          "count": 1,
+                          "face": 5,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 1,
+                          "face": 6
+                        },
+                        {
+                          "count": 2,
+                          "face": 3,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 3,
+                          "face": 3
+                        },
+                        {
+                          "count": 3,
+                          "face": 4,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 4,
+                          "face": 4
+                        },
+                        {
+                          "count": 4,
+                          "face": 6,
+                          "by": "dealer"
+                        },
+                        {
+                          "by": "player",
+                          "count": 5,
+                          "face": 6
+                        },
+                        {
+                          "count": 6,
+                          "face": 4,
+                          "by": "dealer"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "activities": []
+            },
+            "createdAt": 1791076923608
+          },
+          {
+            "revision": 8,
+            "eventId": "game-event-9c4a8fa6-a63b-4f02-b62a-07b3cb200d2a",
+            "actionId": "game-ui:adfe2df7-da59-4ca6-8f40-9d8894c3e791",
+            "command": {
+              "kind": "dice-challenge",
+              "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a"
+            },
+            "result": {
+              "changes": [
+                {
+                  "kind": "game-ended",
+                  "gameId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a"
+                }
+              ],
+              "activities": [
+                {
+                  "id": "game-activity-9b44fb09-1ee4-4f73-862e-e544b6ab938e",
+                  "amountIn": 100,
+                  "sourceId": "game-dice-fddb34f3-ee08-407f-93f2-e6b26913d79a",
+                  "payout": 180,
+                  "net": 80,
+                  "detail": {
+                    "kind": "dice",
+                    "outcome": "player-win",
+                    "challenger": "player",
+                    "finalBid": {
+                      "count": 6,
+                      "face": 4,
+                      "by": "dealer"
+                    },
+                    "bids": [
+                      {
+                        "by": "player",
+                        "count": 1,
+                        "face": 2
+                      },
+                      {
+                        "count": 1,
+                        "face": 3,
+                        "by": "dealer"
+                      },
+                      {
+                        "by": "player",
+                        "count": 1,
+                        "face": 4
+                      },
+                      {
+                        "count": 1,
+                        "face": 5,
+                        "by": "dealer"
+                      },
+                      {
+                        "by": "player",
+                        "count": 1,
+                        "face": 6
+                      },
+                      {
+                        "count": 2,
+                        "face": 3,
+                        "by": "dealer"
+                      },
+                      {
+                        "by": "player",
+                        "count": 3,
+                        "face": 3
+                      },
+                      {
+                        "count": 3,
+                        "face": 4,
+                        "by": "dealer"
+                      },
+                      {
+                        "by": "player",
+                        "count": 4,
+                        "face": 4
+                      },
+                      {
+                        "count": 4,
+                        "face": 6,
+                        "by": "dealer"
+                      },
+                      {
+                        "by": "player",
+                        "count": 5,
+                        "face": 6
+                      },
+                      {
+                        "count": 6,
+                        "face": 4,
+                        "by": "dealer"
+                      }
+                    ],
+                    "playerDice": [
+                      5,
+                      3,
+                      2,
+                      6,
+                      5
+                    ],
+                    "dealerDice": [
+                      3,
+                      4,
+                      1,
+                      4,
+                      6
+                    ],
+                    "matchingDiceCount": 3
+                  }
+                }
+              ]
+            },
+            "createdAt": 1791076928126
+          }
+        ]
+      }
+    }
+  }
+}
