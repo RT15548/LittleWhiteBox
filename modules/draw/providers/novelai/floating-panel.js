@@ -488,7 +488,13 @@ ${MAX_IMAGES_INPUT_CSS}
     z-index: 10000;
     user-select: none;
     will-change: transform;
+    transition: transform 0.25s ease;
 }
+
+/* 貼邊半藏：膠囊一半移出螢幕；吸附時隱藏跳圖鈕 */
+.nd-floating-global.nd-docked-left { transform: translateX(-50%); }
+.nd-floating-global.nd-docked-right { transform: translateX(50%); }
+.nd-floating-global[class*="nd-docked"] .nd-img-jump { display: none; }
 
 .nd-floating-global .nd-capsule {
     background: var(--nd-bg-solid);
@@ -496,6 +502,31 @@ ${MAX_IMAGES_INPUT_CSS}
     touch-action: none;
     cursor: grab;
 }
+
+/* 跳圖上下鈕：絕對定位在膠囊外，不影響膠囊尺寸與拖曳 */
+.nd-floating-global .nd-img-jump {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 34px;
+    height: 22px;
+    border: none;
+    border-radius: 11px;
+    background: transparent;
+    color: #000;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: none;
+    z-index: 1;
+    padding: 0;
+}
+.nd-floating-global .nd-img-jump-prev { bottom: calc(100% + 4px); }
+.nd-floating-global .nd-img-jump-next { top: calc(100% + 4px); }
+.nd-floating-global .nd-img-jump:hover { color: #000; opacity: 0.65; }
 
 .nd-floating-global .nd-capsule:active { cursor: grabbing; }
 
@@ -1285,13 +1316,26 @@ function getFloatingPosition() {
     return { left: window.innerWidth - 110, top: window.innerHeight - 80 };
 }
 
+let floatingDockedSide = null;
+
+// side: 'left' | 'right' | null（null＝完全展開）
+function setFloatingDock(side) {
+    if (!floatingEl) return;
+    floatingDockedSide = side;
+    floatingEl.classList.toggle('nd-docked-left', side === 'left');
+    floatingEl.classList.toggle('nd-docked-right', side === 'right');
+}
+
 function saveFloatingPosition() {
     if (!floatingEl) return;
-    const r = floatingEl.getBoundingClientRect();
+    // 吸附狀態下 getBoundingClientRect 含 translateX 偏移，只能讀 inline 定位
+    const left = parseFloat(floatingEl.style.left) || 0;
+    const top = parseFloat(floatingEl.style.top) || 0;
     try {
         localStorage.setItem(FLOAT_POS_KEY, JSON.stringify({
-            left: Math.round(r.left),
-            top: Math.round(r.top)
+            left: Math.round(left),
+            top: Math.round(top),
+            docked: floatingDockedSide || '',
         }));
     } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveFloatingPosition" }, caughtError); }
 }
@@ -1305,8 +1349,11 @@ function applyFloatingPosition() {
     const pos = getFloatingPosition();
     const w = floatingState === FloatState.IDLE ? FLOATING_WIDTH_IDLE : FLOATING_WIDTH_ACTIVE;
     const h = floatingEl.offsetHeight || 34;
+    // 預留膠囊外上下跳圖鈕的高度
+    const JUMP_RESERVE = 30;
     floatingEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
-    floatingEl.style.top = `${Math.max(0, Math.min(pos.top, window.innerHeight - h))}px`;
+    floatingEl.style.top = `${Math.max(JUMP_RESERVE, Math.min(pos.top, window.innerHeight - h - JUMP_RESERVE))}px`;
+    setFloatingDock(pos.docked === 'left' || pos.docked === 'right' ? pos.docked : null);
 }
 
 function clearFloatingCooldownTimer() {
@@ -1490,6 +1537,14 @@ function updateFloatingDetailPopup() {
 function onFloatingPointerDown(e) {
     if (e.button !== 0) return;
 
+    // 吸附半藏狀態：首次按下只拉回，不起拖曳、不觸發膠囊內按鈕
+    if (floatingDockedSide) {
+        setFloatingDock(null);
+        saveFloatingPosition();
+        e.preventDefault();
+        return;
+    }
+
     floatingDragState = {
         startX: e.clientX,
         startY: e.clientY,
@@ -1517,8 +1572,10 @@ function onFloatingPointerMove(e) {
     if (floatingDragState.moved) {
         const w = floatingEl.offsetWidth || 88;
         const h = floatingEl.offsetHeight || 36;
+        // 預留膠囊外上下跳圖鈕的高度
+        const JUMP_RESERVE = 30;
         floatingEl.style.left = `${Math.max(0, Math.min(floatingDragState.startLeft + dx, window.innerWidth - w))}px`;
-        floatingEl.style.top = `${Math.max(0, Math.min(floatingDragState.startTop + dy, window.innerHeight - h))}px`;
+        floatingEl.style.top = `${Math.max(JUMP_RESERVE, Math.min(floatingDragState.startTop + dy, window.innerHeight - h - JUMP_RESERVE))}px`;
     }
 
     e.preventDefault();
@@ -1533,10 +1590,42 @@ function onFloatingPointerUp(e) {
     floatingDragState = null;
 
     if (moved) {
+        // 離左右邊緣 28px 內放開＝貼邊半藏；其餘位置解除吸附
+        const finalLeft = parseFloat(floatingEl.style.left) || 0;
+        const w = floatingEl.offsetWidth || 88;
+        const EDGE_SNAP = 28;
+        let side = null;
+        if (finalLeft <= EDGE_SNAP) side = 'left';
+        else if (finalLeft >= window.innerWidth - w - EDGE_SNAP) side = 'right';
+        setFloatingDock(side);
         saveFloatingPosition();
     } else {
         routeFloatingClick(originalTarget);
     }
+}
+
+function getVisibleChatImageWrappers() {
+    return [...document.querySelectorAll('#chat .mes .mes_text .xb-nd-img')]
+        .filter(w => w.offsetHeight > 0 && w.offsetWidth > 0 && w.querySelector('img'));
+}
+
+// 以視口中線為「當前位置」：dir=-1 跳到中線上方最近一張，dir=1 跳下方最近一張。
+// 不記樓層，手動滾動後再點仍然正確。
+function jumpToChatImage(dir) {
+    const center = window.innerHeight / 2;
+    let target = null;
+    let best = Infinity;
+    for (const w of getVisibleChatImageWrappers()) {
+        const r = w.getBoundingClientRect();
+        if (dir < 0 && r.bottom < center - 1) {
+            const d = center - r.bottom;
+            if (d < best) { best = d; target = w; }
+        } else if (dir > 0 && r.top > center + 1) {
+            const d = r.top - center;
+            if (d < best) { best = d; target = w; }
+        }
+    }
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function routeFloatingClick(target) {
@@ -1729,7 +1818,15 @@ function createFloatingButton() {
     inner.append(layerIdle, layerActive);
     capsule.append(inner, createPersistMenuBtn('▲'));
 
-    floatingEl.append(detail, menu, capsule);
+    // 上下跳圖鈕在膠囊外部，獨立於膠囊拖曳
+    const imgPrevBtn = createEl('button', 'nd-img-jump nd-img-jump-prev', '▲');
+    imgPrevBtn.title = '跳到上一张图片';
+    const imgNextBtn = createEl('button', 'nd-img-jump nd-img-jump-next', '▼');
+    imgNextBtn.title = '跳到下一张图片';
+    imgPrevBtn.addEventListener('click', (e) => { e.stopPropagation(); jumpToChatImage(-1); });
+    imgNextBtn.addEventListener('click', (e) => { e.stopPropagation(); jumpToChatImage(1); });
+
+    floatingEl.append(detail, menu, imgPrevBtn, capsule, imgNextBtn);
 
     document.body.appendChild(floatingEl);
     cacheFloatingDOM();
