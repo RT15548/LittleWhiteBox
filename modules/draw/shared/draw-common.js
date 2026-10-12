@@ -16,6 +16,7 @@ import {
     deletePreview,
 } from "./gallery-cache.js";
 import { patchImageCard, reportImageCardReadError } from './image-card-view.js';
+import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from './image-save-ui.js';
 import {
     ScenePlannerError,
 } from "./scene-plan-contract.js";
@@ -273,7 +274,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     const isPreview = state === ImageState.PREVIEW;
     const isBusy = state === ImageState.SAVING || state === ImageState.REFRESHING;
     let indicator = '';
-    if (state === ImageState.SAVING) indicator = '<div class="xb-nd-indicator">💾 保存中...</div>';
+    if (state === ImageState.SAVING) indicator = IMAGE_SAVING_INDICATOR_HTML;
     else if (state === ImageState.REFRESHING) indicator = '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>';
 
     const lazyAttr = String(url || '').startsWith('data:') ? '' : 'loading="lazy"';
@@ -287,7 +288,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
         <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">⋮</button>
         <div class="xb-nd-dropdown">
-            ${isPreview ? '<button data-action="save-image" title="保存到服务器">💾</button>' : ''}
+            ${isPreview ? IMAGE_SAVE_BUTTON_HTML : ''}
             <button data-action="refresh-image" title="重新生成">⟳</button>
             <button data-action="edit-tags" title="编辑TAG">✐️</button>
             <button data-action="delete-image" title="删除">✕</button>

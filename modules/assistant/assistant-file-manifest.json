@@ -1546,7 +1546,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 206384
+      "sizeBytes": 206635
     },
     {
       "source": "littlewhitebox",
@@ -1651,7 +1651,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 191589
+      "sizeBytes": 191840
     },
     {
       "source": "littlewhitebox",
@@ -1889,7 +1889,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 166294
+      "sizeBytes": 166545
     },
     {
       "source": "littlewhitebox",
@@ -2155,7 +2155,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 51005
+      "sizeBytes": 51015
     },
     {
       "source": "littlewhitebox",
@@ -2274,7 +2274,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 63771
+      "sizeBytes": 63943
     },
     {
       "source": "littlewhitebox",
@@ -2366,6 +2366,13 @@
       "relativePath": "modules/draw/shared/image-record.js",
       "extension": ".js",
       "sizeBytes": 3340
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-save-ui.js",
+      "relativePath": "modules/draw/shared/image-save-ui.js",
+      "extension": ".js",
+      "sizeBytes": 857
     },
     {
       "source": "littlewhitebox",
