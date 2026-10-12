@@ -287,7 +287,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
         <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">⋮</button>
         <div class="xb-nd-dropdown">
-            ${isPreview ? '<button data-action="save-image" title="保存到服务器">⬇</button>' : ''}
+            ${isPreview ? '<button data-action="save-image" title="保存到服务器">💾</button>' : ''}
             <button data-action="refresh-image" title="重新生成">⟳</button>
             <button data-action="edit-tags" title="编辑TAG">✐️</button>
             <button data-action="delete-image" title="删除">✕</button>
