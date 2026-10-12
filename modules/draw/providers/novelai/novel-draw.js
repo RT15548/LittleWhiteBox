@@ -3290,6 +3290,18 @@ function ensureAgentSettingsSurface() {
     return agentSettingsSurface;
 }
 
+const TEST_SLOT_ID = 'novelai-quick-test';
+
+async function pushTestHistory() {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe) return;
+    const previews = await getPreviewsBySlot(TEST_SLOT_ID);
+    const items = previews
+        .filter(p => p.base64)
+        .map(p => ({ imgId: p.imgId, url: getPreviewDisplayUrl(p) }));
+    postToIframe(iframe, { type: 'TEST_RESULT', items }, 'LittleWhiteBox-NovelDraw');
+}
+
 async function handleFrameMessage(event) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!isTrustedMessage(event, iframe, 'NovelDraw-Frame')) return;
@@ -4077,16 +4089,30 @@ async function handleFrameMessage(event) {
                 const tags = (typeof data.tags === 'string' && data.tags.trim()) ? data.tags.trim() : '1girl, smile';
                 const scene = joinTags(preset?.positivePrefix, tags);
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
-                {
-                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: getPreviewDisplayUrl({ base64 }) }, 'LittleWhiteBox-NovelDraw');
-                }
+                await storePreview({
+                    imgId: `test-${Date.now()}`,
+                    slotId: TEST_SLOT_ID,
+                    base64,
+                    tags,
+                    positive: scene,
+                    negativePrompt: preset?.negativePrefix || '',
+                    source: 'quick-test',
+                });
+                await pushTestHistory();
                 postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {
                 postStatus('error', e?.message);
             }
             break;
         }
+
+        case 'TEST_HISTORY':
+            await pushTestHistory();
+            break;
+
+        case 'OPEN_TEST_GALLERY':
+            await openGallery(TEST_SLOT_ID, null);
+            break;
     }
 }
 

@@ -3853,10 +3853,28 @@ window.addEventListener('message', event => {
             failSlotVersionsRequest(data.charName, data.slotId, data.requestId);
             break;
             
-        case 'TEST_RESULT':
-            $('nd_preview_img').src = data.url;
-            $('nd_preview').classList.add('visible');
+        case 'TEST_RESULT': {
+            const items = data.items || [];
+            const strip = $('nd_test_strip');
+            strip.innerHTML = '';
+            if (items.length) {
+                $('nd_preview_img').src = items[0].url;
+                $('nd_preview').classList.add('visible');
+                items.forEach((item, i) => {
+                    const t = document.createElement('img');
+                    t.src = item.url;
+                    t.className = 'nd-thumb' + (i === 0 ? ' active' : '');
+                    t.addEventListener('click', () => {
+                        $('nd_preview_img').src = item.url;
+                        strip.querySelectorAll('.nd-thumb').forEach(el => el.classList.remove('active'));
+                        t.classList.add('active');
+                    });
+                    strip.appendChild(t);
+                });
+                $('nd_open_gallery').classList.add('visible');
+            }
             break;
+        }
 
         case 'BACKEND_PLUGIN_STATUS': {
             state.backendPluginStatus = data.status || {};
@@ -3985,6 +4003,9 @@ window.addEventListener('beforeunload', () => {
 function initializePage() {
     mountServerPluginGuide(document.getElementById('nd_backend_guide'), 'nd-backend');
     shuffleCredits();
+    postToParent({ type: 'TEST_HISTORY' });
+    $('nd_open_gallery').addEventListener('click', () => postToParent({ type: 'OPEN_TEST_GALLERY' }));
+    $('nd_preview_img').addEventListener('click', () => postToParent({ type: 'OPEN_TEST_GALLERY' }));
     // ═══════════════════════════════════════════════════════════════════════
     // 导航切换
     // ═══════════════════════════════════════════════════════════════════════
