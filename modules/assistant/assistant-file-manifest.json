@@ -1539,7 +1539,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
       "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 58871
+      "sizeBytes": 60853
     },
     {
       "source": "littlewhitebox",
@@ -1588,7 +1588,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 68232
+      "sizeBytes": 70214
     },
     {
       "source": "littlewhitebox",
@@ -1840,7 +1840,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/floating-panel.js",
       "relativePath": "modules/draw/providers/sd-webui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 58830
+      "sizeBytes": 60812
     },
     {
       "source": "littlewhitebox",
@@ -2708,7 +2708,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/draw-cancellation-ui.test.js",
       "relativePath": "modules/draw/shared/tests/draw-cancellation-ui.test.js",
       "extension": ".js",
-      "sizeBytes": 7849
+      "sizeBytes": 10822
     },
     {
       "source": "littlewhitebox",

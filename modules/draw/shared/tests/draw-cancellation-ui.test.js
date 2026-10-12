@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Buffer } from 'node:buffer';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { setImmediate } from 'node:timers/promises';
 import { build } from 'esbuild';
@@ -119,4 +120,51 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} cancella
             assert.deepEqual(serverCalls.at(-1), { owner: 'fixture', jobIds: [record.jobId], runIds: [] });
         });
     }
+});
+
+// While the capsule shows progress/result the idle layer is hidden, so a persistent
+// menu arrow must keep the menu (and settings) reachable without aborting or toggling details.
+for (const provider of Object.keys(providerFixtures)) test(`${provider} menu stays reachable while the capsule is busy`, async t => {
+    const api = await buildPanel(provider);
+    const source = await readFile(fileURLToPath(new URL(`../../providers/${providerFixtures[provider].folder}/floating-panel.js`, import.meta.url)), 'utf8');
+    assert.match(source, /\.nd-btn-menu-persist \{[^}]*display: none/);
+    assert.match(source, /\.nd-float\.error \.nd-capsule \{ width: 98px; \}/);
+    assert.match(source, /padding-right: 30px/);
+
+    const { document, window } = parseHTML('<html><head></head><body><div class="mes" mesid="0"></div></body></html>');
+    Object.assign(globalThis, { document, window, indexedDB, BroadcastChannel: undefined });
+    window.innerWidth = 800; window.innerHeight = 600;
+    window.HTMLElement.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, bottom: 40 });
+    const aborts = [];
+    globalThis.__cancelUi = { ctx: { chatId: `${provider}-menu-persist`, chat: [{ mes: 'hello', swipe_id: 0 }] },
+        abort: (...args) => { aborts.push(args); return Promise.resolve(); } };
+    globalThis.toastr = { error() {}, info() {} };
+    api.initFloatingPanel();
+    const panel = api[`ensure${providerFixtures[provider].title}DrawPanel`](document.querySelector('.mes'), 0, { force: true });
+    t.after(() => api.destroyFloatingPanel());
+
+    const floating = document.querySelector('.nd-floating-global');
+    const click = (root, button) => {
+        if (root === floating) for (const type of ['pointerdown', 'pointerup']) {
+            const event = new window.Event(type, { bubbles: true });
+            Object.assign(event, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+            button.dispatchEvent(event);
+        } else button.click();
+    };
+    for (const [state, data, cls] of [['gen', { current: 1, total: 3 }, 'working'], ['error', { error: { label: 'x' } }, 'error']]) {
+        api.setStateForMessage(0, state, data);
+        for (const root of [panel.root, floating]) {
+            assert.ok(root.classList.contains(cls), `${state} class on ${root.className}`);
+            const buttons = root.querySelectorAll('.nd-btn-menu-persist');
+            assert.equal(buttons.length, 1);
+            assert.ok(buttons[0].classList.contains('nd-btn-menu'));
+            click(root, buttons[0]);
+            assert.ok(root.classList.contains('expanded'), `${state}: opens menu`);
+            click(root, buttons[0]);
+            assert.ok(!root.classList.contains('expanded'), `${state}: closes menu`);
+            assert.ok(!root.classList.contains('show-detail'));
+        }
+    }
+    assert.equal(aborts.length, 0, 'menu arrow never aborts');
+    api.setStateForMessage(0, 'idle');
 });
