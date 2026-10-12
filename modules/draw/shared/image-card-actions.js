@@ -59,7 +59,7 @@ export function redrawImageCard(provider, container) {
     return operation;
 }
 
-// 重生本楼：把当前楼层（当前 swipe）上所有显示“失败 / 结果未知”卡片的图片，作为同一批任务重新提交。
+// 重画本楼失败项：把当前楼层（当前 swipe）上所有显示“失败 / 结果未知”卡片的图片，作为同一批任务重新提交。
 // 沿用各张图自己保存的 TAG 与提示词，不重新规划；每张图与单张“重新生成”一样进入生成状态，
 // 请求仍由 Provider 的串行队列依次执行。已在生成、已在排队或有后台任务的格子会被跳过。
 const FLOOR_REDRAW_PREFIX = 'floor-failed:';

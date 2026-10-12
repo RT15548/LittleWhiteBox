@@ -2120,7 +2120,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 50811
+      "sizeBytes": 50847
     },
     {
       "source": "littlewhitebox",
@@ -2267,7 +2267,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-card-actions.js",
       "relativePath": "modules/draw/shared/image-card-actions.js",
       "extension": ".js",
-      "sizeBytes": 13308
+      "sizeBytes": 13317
     },
     {
       "source": "littlewhitebox",
@@ -2680,7 +2680,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/chat-image-slots.test.js",
       "relativePath": "modules/draw/shared/tests/chat-image-slots.test.js",
       "extension": ".js",
-      "sizeBytes": 116958
+      "sizeBytes": 116967
     },
     {
       "source": "littlewhitebox",

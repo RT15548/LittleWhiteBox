@@ -404,7 +404,7 @@ test('every failed card offers a floor-wide redraw next to the single redraw', a
     for (const card of failedCards(h)) {
         const actions = [...card.querySelectorAll('[data-action]')].map(node => node.dataset.action);
         assert.deepEqual(actions.slice(0, 3), ['retry-image', 'retry-floor-failed', 'edit-tags']);
-        assert.match(card.querySelector('[data-action="retry-floor-failed"]').textContent, /重生本楼/);
+        assert.match(card.querySelector('[data-action="retry-floor-failed"]').textContent, /重画本楼失败项/);
     }
 });
 
