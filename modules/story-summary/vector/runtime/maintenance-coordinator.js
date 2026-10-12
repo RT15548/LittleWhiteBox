@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // 向量写入协调器
 //
-// 唯一的串行写队列。取消不再是"一刀切代际"，而是由任务自己声明作用域：
+// 本地提交使用串行写队列；模型请求及退避使用独立的生成队列。
+// 取消不再是"一刀切代际"，而是由任务自己声明作用域：
 //
 //   scope        | 配置切换 | 取消生成 | 切聊天/停用 | 卸载
 //   -------------|----------|----------|-------------|------
@@ -38,6 +39,9 @@ let nextWriteId = 1;
 let activeWrite = null;
 let pendingWrites = 0;
 let writeTail = Promise.resolve();
+let generationTail = Promise.resolve();
+let activeGeneration = null;
+let pendingGenerations = 0;
 
 let lifecycleController = new AbortController();
 let configController = new AbortController();
@@ -130,7 +134,7 @@ function warningMap(channel) {
     return map;
 }
 
-function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operationId = '', ready }, task) {
+function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operationId = '', ready }, task, generation = false) {
     const cancelSources = SCOPE_CANCEL_SOURCES[scope];
     const operationController = new AbortController();
     const link = linkAbortSignals([
@@ -151,12 +155,16 @@ function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operati
     // queue). Cancellation ownership starts now, before its first async wait.
     const enqueue = () => {
         if (!acceptingWrites || link.signal.aborted) return undefined;
-        pendingWrites += 1;
+        if (generation) pendingGenerations += 1;
+        else pendingWrites += 1;
         epoch += 1;
         publishWriteState();
 
-        const run = writeTail.then(async () => {
-            pendingWrites -= 1;
+        // Read inputs only after preceding local replacements finish. The
+        // writer never waits for model work, so this dependency is one-way.
+        const run = (generation ? Promise.all([generationTail, writeTail]) : writeTail).then(async () => {
+            if (generation) pendingGenerations -= 1;
+            else pendingWrites -= 1;
             if (!acceptingWrites || link.signal.aborted) {
                 epoch += 1;
                 publishWriteState();
@@ -164,19 +172,33 @@ function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operati
             }
 
             const session = { ...descriptor, signal: link.signal, startedAt: Date.now() };
-            activeWrite = session;
+            if (generation) {
+                activeGeneration = session;
+                session.commit = async commit => {
+                    let started = false;
+                    const result = await runVectorWriteTask({ ...descriptor, scope: VECTOR_WRITE_SCOPES.EMBEDDING }, () => {
+                        if (!isVectorWriteSessionCurrent(session)) throw createAbortError(link.signal.reason);
+                        started = true;
+                        return commit();
+                    });
+                    if (!started) throw createAbortError(link.signal.reason);
+                    return result;
+                };
+            } else activeWrite = session;
             epoch += 1;
             publishWriteState();
             try {
                 return await task(session);
             } finally {
                 if (activeWrite === session) activeWrite = null;
+                if (activeGeneration === session) activeGeneration = null;
                 epoch += 1;
                 publishWriteState();
             }
         });
 
-        writeTail = run.catch(() => {});
+        if (generation) generationTail = run.catch(() => {});
+        else writeTail = run.catch(() => {});
         return run;
     };
     const run = ready ? Promise.resolve(ready).then(enqueue) : Promise.resolve(enqueue());
@@ -193,6 +215,14 @@ export function runVectorWriteTask(options = {}, task) {
     }
     if (!acceptingWrites) return Promise.resolve(options.ready).then(() => undefined);
     return enqueueVectorWrite(options, task);
+}
+
+// Network work retains cancellation ownership, but never occupies the writer.
+// Each pipeline uses session.commit only around its actual storage changes.
+export function runVectorGenerationTask(options = {}, task) {
+    if (typeof task !== 'function') throw new TypeError('Vector generation task must be a function');
+    if (!acceptingWrites) return Promise.resolve(options.ready).then(() => undefined);
+    return enqueueVectorWrite({ ...options, scope: VECTOR_WRITE_SCOPES.EMBEDDING }, task, true);
 }
 
 /**
@@ -252,7 +282,7 @@ export async function shutdownVectorWriteCoordinator(reason = 'Vector writer shu
         epoch += 1;
         abortController(lifecycleController, reason);
     }
-    await writeTail;
+    await Promise.all([writeTail, generationTail]);
 }
 
 export function resumeVectorWriteCoordinator() {
@@ -273,7 +303,7 @@ export function isVectorWriteSessionCurrent(session) {
 }
 
 export function captureMaintenanceSnapshot(chatId) {
-    if (activeWrite || pendingWrites) return null;
+    if (activeWrite || pendingWrites || activeGeneration || pendingGenerations) return null;
     return { chatId: String(chatId || ''), epoch, configGeneration };
 }
 
@@ -282,6 +312,8 @@ export function isMaintenanceSnapshotCurrent(snapshot) {
         && acceptingWrites
         && !activeWrite
         && pendingWrites === 0
+        && !activeGeneration
+        && pendingGenerations === 0
         && snapshot.epoch === epoch
         && snapshot.configGeneration === configGeneration;
 }

@@ -4,6 +4,9 @@ import process from 'node:process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { parse } from 'acorn';
 
 const execFileAsync = promisify(execFile);
 const rootDir = fileURLToPath(new URL('../../../', import.meta.url));
@@ -11,6 +14,40 @@ const runnerPath = fileURLToPath(new URL('../../../scripts/story-summary-replay-
 const resultPrefix = '[story-summary-replay] prompt assembly check: ';
 
 let checkPromise;
+
+// Run the production orchestration; retrieval and assembly are boundaries here.
+// Corpus/scoring/assembly semantics have their own real-module tests below.
+for (const failure of [false, true]) test(`a temporarily out-of-range summary boundary does not bypass recall (failure: ${failure})`, async () => {
+    const source = readFileSync(new URL('../generate/prompt.js', import.meta.url), 'utf8');
+    const declaration = parse(source, { sourceType: 'module', ecmaVersion: 'latest' }).body
+        .find(node => node.type === 'ExportNamedDeclaration' && node.declaration?.id?.name === 'buildVectorPromptText').declaration;
+    const savedEvent = { id: 'saved-l2', summary: 'retained memory' };
+    const store = { lastSummarizedMesId: 24, json: { events: [savedEvent] } };
+    const expectedError = new Error('retrieval failed');
+    let recalls = 0, assemblies = 0;
+    const context = vm.createContext({
+        getContext: () => ({ chatId: 'chat', chat: Array(24).fill({ mes: 'current floor' }) }),
+        getSettings: () => ({ storySummary: { enabled: true } }), getSummaryStore: () => store,
+        getVectorConfig: () => ({ enabled: true }), getMeta: async () => ({ fingerprint: 'test', lastChunkFloor: 24 }),
+        recallMemory: async events => {
+            recalls++; assert.equal(events[0], savedEvent);
+            if (failure) throw expectedError;
+            return { events: [{ event: savedEvent }] };
+        },
+        buildVectorPrompt: async (_store, result) => {
+            assemblies++;
+            return { promptText: result.events[0].event.summary };
+        },
+        getSummaryPanelConfig: () => ({ trigger: {} }), createRecallDiagnostics: () => ({}),
+        performance, MODULE_ID: 'test', xbLog: { error() {} },
+    });
+    vm.runInContext(source.slice(declaration.start, declaration.end), context);
+    if (failure) await assert.rejects(context.buildVectorPromptText(), error => error === expectedError);
+    else assert.equal((await context.buildVectorPromptText()).text, savedEvent.summary);
+    assert.equal(recalls, 1);
+    assert.equal(assemblies, failure ? 0 : 1);
+});
+
 async function runAssemblyCheck() {
     if (checkPromise) return checkPromise;
     checkPromise = loadAssemblyCheck();

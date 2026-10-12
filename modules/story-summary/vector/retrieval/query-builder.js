@@ -22,7 +22,7 @@ import {
     normalizeEntityTerm,
 } from './entity-lexicon.js';
 import { getLexicalIdfAccessor } from './lexical-index.js';
-import { getSummaryStore } from '../../data/store.js';
+import { getPublishedSummaryStore as getSummaryStore } from '../../data/store.js';
 import { cleanRecallMessageText as cleanMessageText } from '../utils/text-filter.js';
 import { getTokenizerSnapshot, injectEntities, tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
 import { buildBoundedRerankQuery } from './rerank-query.js';

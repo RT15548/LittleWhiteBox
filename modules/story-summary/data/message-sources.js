@@ -1,3 +1,5 @@
+import { getChatIdentity } from './chat-identity.js';
+
 const selection = message => ({ swipe_id: message?.swipe_id ?? 0, swipeCount: message?.swipes?.length ?? 0,
     swipeText: message?.swipes?.[message?.swipe_id ?? 0] });
 const read = message => ({ message, mes: message?.mes, name: message?.name, is_user: message?.is_user, ...selection(message) });
@@ -25,10 +27,10 @@ export function createMessageSourceTracker() {
     // Only unfinished consistency work survives an owner switch. The baseline
     // is borrowed, not copied again; success or chat deletion releases it.
     const pending = new Map();
-    const capture = ({ chatId, chat }) => ({ owner: chatId, generation, sources: chat.map(read) });
-    const isCurrent = (snapshot, { chatId, chat }) => snapshot?.owner === owner && chatId === owner
-        && snapshot.generation === generation && snapshot.sources.length === chat.length
-        && snapshot.sources.every((source, floor) => equal(source, chat[floor]));
+    const capture = context => ({ owner: getChatIdentity(context), generation, sources: context.chat.map(read) });
+    const isCurrent = (snapshot, context) => snapshot?.owner === owner && getChatIdentity(context) === owner
+        && snapshot.generation === generation && snapshot.sources.length === context.chat.length
+        && snapshot.sources.every((source, floor) => equal(source, context.chat[floor]));
     // Consume each native deletion at its notification boundary, not by count:
     // an intervening candidate addition can leave the total unchanged.
     // Deletion renumbers surviving branches, not their acknowledged prose.
@@ -39,8 +41,9 @@ export function createMessageSourceTracker() {
             swipe_id: source.swipe_id === swipeId ? -1 : source.swipe_id - Number(source.swipe_id > swipeId) };
     }
     function inspect(context, { kind = 'observed', floor: eventFloor = null } = {}) {
-        const { chatId, chat } = context;
-        if (chatId !== owner) return null;
+        const { chat } = context;
+        if (getChatIdentity(context) !== owner) return null;
+        bindLoadedSources(chat);
         const positions = new Map(chat.map((message, floor) => [message, floor]));
         const sharedLength = Math.min(sources.length, chat.length);
         let firstMoved = 0;
@@ -81,8 +84,12 @@ export function createMessageSourceTracker() {
             rollbackFromFloor = firstFloor(rollbackFromFloor, eventFloor);
         }
         if (!editedFloors.length && !lengthChanged && !obligation && rollbackFromFloor === null) return null;
+        // Appended floors need indexing, but are not changes to existing history.
+        const historyFromFloor = firstFloor(structural ? firstMoved : null,
+            editedFloors.find(floor => floor < sources.length) ?? null);
         return {
             fromFloor: firstFloor(obligation?.fromFloor ?? null, structural || lengthChanged ? Math.min(firstMoved, ...editedFloors) : null),
+            historyFromFloor: firstFloor(obligation?.historyFromFloor ?? null, historyFromFloor),
             structural: structural || !!obligation?.structural,
             editedFloors: unionFloors(obligation?.editedFloors || [], editedFloors),
             anchorFloors: unionFloors(obligation?.anchorFloors || [], anchorFloors),
@@ -117,24 +124,25 @@ export function createMessageSourceTracker() {
         }
         return false;
     }
-    function reset({ chatId = null, chat = [] } = {}) {
-        owner = chatId;
-        sources = pending.get(chatId)?.sources || chat.map(read);
-        if (pending.has(chatId)) bindLoadedSources(chat);
+    function reset(context = {}) {
+        const { chat = [] } = context;
+        owner = getChatIdentity(context);
+        sources = pending.get(owner)?.sources || chat.map(read);
+        if (pending.has(owner)) bindLoadedSources(chat);
         completions = new WeakMap(chat.map(message => [message, read(message)]));
         generation++;
     }
     function retain(context, options = {}) {
-        if (context.chatId !== owner) return;
+        if (getChatIdentity(context) !== owner) return;
         const change = inspect(context, options);
         if (!change) return;
         const previous = pending.get(owner);
-        pending.set(owner, { ...previous, sources, change });
+        pending.set(owner, { ...previous, chatId: context.chatId, sources, change });
     }
     return {
         capture, inspect, isCurrent, reset, retain,
         observeSwipeDeleted(context, { messageId, swipeId }) {
-            if (context.chatId !== owner) return;
+            if (getChatIdentity(context) !== owner) return;
             const message = context.chat[messageId];
             const rebase = baseline => baseline.map(source => rebaseDeletedSwipe(source, message, swipeId));
             sources = rebase(sources);
@@ -149,7 +157,9 @@ export function createMessageSourceTracker() {
             if (completion) completions.set(message, rebaseDeletedSwipe(completion, message, swipeId));
             retain(context);
         },
-        forget(chatId) { pending.delete(chatId); },
+        forget(chatId) {
+            for (const [key, entry] of pending) if (entry.chatId === chatId) pending.delete(key);
+        },
         // Explicit L2 import/clear replaces the old undo obligation, not L0/L1 sources.
         // Call only after its confirmed commit, and never release a newer edit's work.
         resolveRollback(snapshot, context) {
@@ -162,18 +172,21 @@ export function createMessageSourceTracker() {
             }
         },
         switchChat(context) {
-            if ((context.chatId || null) !== owner) reset(context);
+            const reloaded = owner !== null && getChatIdentity(context) === owner;
+            if (!reloaded) reset(context);
             else if (bindLoadedSources(context.chat)) generation++;
+            return reloaded;
         },
-        observeCompletion({ chatId, chat }, floor) {
+        observeCompletion(context, floor) {
+            const { chat } = context;
             const message = chat[floor];
-            if (chatId !== owner || !message || message.is_user || equal(completions.get(message), message)) return false;
+            if (getChatIdentity(context) !== owner || !message || message.is_user || equal(completions.get(message), message)) return false;
             completions.set(message, read(message));
             return true;
         },
         // Caller owns the existing serial consistency-write session. No second queue.
         async synchronize(context, apply, readCurrent = () => context) {
-            if (context.chatId !== owner || !readCurrent()) return { status: 'stale' };
+            if (getChatIdentity(context) !== owner || !readCurrent()) return { status: 'stale' };
             const change = inspect(context);
             if (!change) { pending.delete(owner); return { status: 'unchanged' }; }
             retain(context);

@@ -24,7 +24,7 @@ export { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { maintenanceImpact, sameMemory, restoreMaintenance } from '../maintenance/domain.js';
 import { deleteStateVectorsByIds, deleteStateVectorsFromFloor, deleteStateVectorsAtFloors } from '../vector/storage/state-store.js';
-import { readSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
+import { readSummaryMemory, getPublishedSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
     getRuntimeInvalidSourceFloor, noteInvalidMemorySource } from './memory-commit.js';
 import { invalidateMemoryAnchors, invalidateMemoryAnchorsAtFloors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
@@ -291,6 +291,11 @@ export function getSummaryStore() {
     }
 
     return store;
+}
+
+export function getPublishedSummaryStore() {
+    if (!getSummaryStore()) return null;
+    return getPublishedSummaryMemory().storySummary;
 }
 
 export function addSummarySnapshot(store, previousEndMesId, endMesId, undo, policy) {
@@ -610,9 +615,9 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
             }
             throw error;
         }
-        return store?.summaryInvalid ? { status: 'failed', reason: 'history_discontinuous' }
-            : store?.sourceInvalidFromFloor != null ? { status: 'failed', reason: 'source_boundary_invalid' }
-                : { status: 'not_needed' };
+        // L0/L1 cleanup succeeded without an L2 undo. L2 history validity is
+        // checked by its own consumers, not by the raw-source maintenance gate.
+        return { status: 'not_needed' };
     }
     noteInvalidMemorySource(validPrefixLength);
     // Real L2 undo mutates its draft; never let it change the detached baseline.
@@ -773,8 +778,7 @@ export async function clearSummaryData(chatId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getFacts() {
-    const store = getSummaryStore();
-    if (!isSummaryConsumable(store, getContext().chat?.length || 0)) return [];
+    const store = getPublishedSummaryStore();
     return (store?.json?.facts || []).filter(f => !f.retracted);
 }
 

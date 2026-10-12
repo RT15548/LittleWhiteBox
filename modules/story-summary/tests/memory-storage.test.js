@@ -13,6 +13,10 @@ import { memoryPolicy } from '../data/memory-policy.js';
 import { entry } from './helpers/story-summary-entry.js';
 import { createHideStateController } from '../hide-state.js';
 import { memorySaveError } from '../data/memory-copy.js';
+import * as vectorWrites from '../vector/runtime/maintenance-coordinator.js';
+import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
+import { METADATA_CONFIRMATION_TIMEOUT_MS } from '../data/metadata-confirmation.js';
+import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__memoryStorageTest = { metadata: {}, context: {} };
@@ -21,11 +25,12 @@ const shims = {
     'script.js': 'export let chat_metadata=globalThis.__memoryStorageTest.metadata; export function reload(){chat_metadata=globalThis.__memoryStorageTest.metadata;} export const getRequestHeaders=()=>({});',
     'debug-core.js': 'export const xbLog={info(){},warn(){},error(){},debug(){}};',
     'runtime.js': 'export const applyRecallRuntimeMutationBestEffort=(chatId,change)=>globalThis.__memoryStorageTest.mutations.push({chatId,...change}); export const clearRecallRuntime=async()=>{};',
-    'modules/story-summary/data/config.js': 'export const getTextFilterRules=()=>[]; export const getVectorConfig=()=>globalThis.__memoryStorageTest.vectorConfig; export const getSummaryPanelConfig=()=>({memoryMaintenanceEnabled:false});',
+    'modules/story-summary/data/config.js': 'export const getTextFilterRules=()=>[]; export const getVectorConfig=()=>globalThis.__memoryStorageTest.vectorConfig; export const getSummaryPanelConfig=()=>({memoryMaintenanceEnabled:false,trigger:{},ui:{hideSummarized:true,keepVisibleCount:0}}); export const getSettings=()=>({storySummary:{enabled:true}}); export const DEFAULT_MEMORY_PROMPT_TEMPLATE="{$剧情记忆}";',
     'modules/story-summary/generate/llm.js': 'export const generateSummary=(...args)=>globalThis.__memoryStorageTest.generate(...args); export const parseSummaryJson=JSON.parse; export const isSummaryGenerationCancelledError=()=>false;',
     'modules/story-summary/maintenance/runner.js': 'export const createSharedMemoryAgent=()=>{throw Error("unexpected Agent request");}; export const runMemoryAgent=createSharedMemoryAgent;',
     'modules/story-summary/vector/utils/embedder.js': 'export const getEngineFingerprint=()=>"test-engine";',
     'modules/story-summary/vector/llm/siliconflow.js': 'export const embed=(texts)=>globalThis.__memoryStorageTest.embed(texts);',
+    'modules/story-summary/vector/retrieval/recall.js': 'export const recallMemory=(...args)=>globalThis.__memoryStorageTest.recall(...args); export const hydrateDirectEvidence=()=>{throw Error("unexpected hydration");}; export const releaseDirectEvidenceContext=async()=>{};',
 };
 const bundled = await build({
     stdin: { resolveDir: root, contents: [
@@ -45,6 +50,7 @@ const bundled = await build({
         "export * from './modules/story-summary/maintenance/commit.js';",
         "export * from './modules/story-summary/maintenance/host.js';",
         "export * from './modules/story-summary/generate/generator.js';",
+        "export { buildVectorPromptText } from './modules/story-summary/generate/prompt.js';",
         "export * from './modules/story-summary/vector/storage/state-store.js';",
         "export { db, stateVectorsTable, chunksTable, chunkVectorsTable, metaTable } from './modules/story-summary/data/db.js';",
         "export { deleteChunksFromFloor, deleteChunksAtFloor, updateMeta, clearAllChunks, clearEventVectors } from './modules/story-summary/vector/storage/chunk-store.js';",
@@ -74,6 +80,7 @@ beforeEach(async () => {
     host.vectorConfig = { enabled: false, embeddingApi: {} };
     host.generate = () => assert.fail('unexpected summary request');
     host.embed = () => assert.fail('unexpected embedding request');
+    host.recall = () => assert.fail('unexpected recall request');
     host.context = { ...fixture, characterId: 0, characters: [{ name: '角色', chat: fixture.chatId, avatar: 'fixture.png' }],
         saveMetadata: async () => {
             host.writes++;
@@ -98,6 +105,74 @@ async function importFixture() {
     await mod.commitSummaryMemory(host.context.chatId, next);
     return structuredClone(ext().storySummary.json);
 }
+
+test('switching characters with the same filename does not roll back or save the target summary', async () => {
+    await importFixture();
+    const tracker = mod.createMessageSourceTracker();
+    tracker.reset({ ...host.context, characterId: 1, chat: [...host.context.chat, { mes: 'other owner extra floor' }] });
+    tracker.switchChat(host.context);
+    const before = structuredClone(disk());
+    const writes = host.writes;
+    assert.equal((await mod.synchronizeSourceCaches(tracker, host.context)).status, 'unchanged');
+    assert.deepEqual(disk(), before);
+    assert.equal(host.writes, writes);
+});
+
+for (const edited of [false, true]) test(`invalid L2 history does not block raw-source maintenance (edited: ${edited})`, async () => {
+    await importFixture();
+    ext().storySummary.summaryInvalid = true;
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    if (edited) host.context.chat[0].mes += ' edited';
+    const gate = entry(['ensureCurrentSources'], {
+        ...mod, ...vectorWrites, createAbortError, throwIfSignalAborted, memorySaveError,
+        getContext: () => host.context, messageSources: tracker, isChatStale: () => false,
+        isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
+        synchronizeCurrentSources: () => mod.synchronizeSourceCaches(tracker, host.context),
+    });
+    await gate.ensureCurrentSources(null, { requireSummary: false });
+    assert.equal(tracker.inspect(host.context), null);
+    assert.equal(ext().storySummary.summaryInvalid, true);
+    await assert.rejects(gate.ensureCurrentSources(), { code: 'summary_history_invalid' });
+});
+
+test('an uncertain save can be confirmed on the next operation without replaying the save', async () => {
+    await importFixture();
+    const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'saved while offline';
+    host.mode = 'read_fail';
+    await assert.rejects(mod.commitSummaryMemory(host.context.chatId, next), { code: 'metadata_save_unconfirmed' });
+    const writes = host.writes;
+    host.mode = 'save';
+    await mod.waitForMemoryCommit();
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(host.writes, writes);
+    assert.deepEqual(mod.readPublishedSummaryMemory(), next);
+    mod.assertMemoryWritable();
+});
+
+test('stalled readback releases the writer within its deadline, including a noncooperative transport', async t => {
+    await importFixture();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let entered, signal, otherWrite = false;
+    const reading = new Promise(resolve => { entered = resolve; });
+    globalThis.fetch = (_url, options) => {
+        signal = options.signal;
+        entered();
+        return new Promise(() => {});
+    };
+    const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'saved';
+    const saving = assert.rejects(vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.IO },
+        () => mod.commitSummaryMemory(host.context.chatId, next)), { code: 'metadata_save_unconfirmed' });
+    const following = vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.CONFIG }, () => { otherWrite = true; });
+    await reading;
+    assert.equal(otherWrite, false);
+    t.mock.timers.tick(METADATA_CONFIRMATION_TIMEOUT_MS);
+    await Promise.all([saving, following]);
+    assert.equal(signal.aborted, true);
+    assert.equal(otherWrite, true);
+    assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
+    await vectorWrites.shutdownVectorWriteCoordinator();
+    vectorWrites.resumeVectorWriteCoordinator();
+});
 
 async function seedAnchors() {
     const next = mod.readSummaryMemory();
@@ -678,14 +753,11 @@ for (const scenario of ['completion', 'outcome', 'anchor', 'summary', 'source-ed
             try { maintenance = await saved; }
             finally { host.mode = 'save'; result = await generating; }
         }
-        const commits = ['completion', 'outcome', 'anchor', 'save-rejected'].includes(scenario);
+        const commits = ['completion', 'outcome', 'anchor', 'save-rejected', 'save-unconfirmed'].includes(scenario);
         assert.equal(result.success, commits, JSON.stringify(result));
         assert.equal(result.stale === true, ['summary', 'source-edit'].includes(scenario));
         assert.equal(result.cancelled === true, ['cancel', 'chat-switch'].includes(scenario));
-        if (scenario === 'save-unconfirmed') {
-            assert.equal(result.error.code, 'metadata_unconfirmed');
-            assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
-        } else assert.equal(mod.getMemoryCommitState(), 'ready');
+        assert.equal(mod.getMemoryCommitState(), 'ready');
         assert.equal(calls, 1);
         assert.equal(host.writes, writes + 1 + Number(commits));
         assert.equal(ext().storySummary.lastSummarizedMesId, commits ? 25 : 23);
@@ -985,11 +1057,68 @@ test('a local L1 cleanup failure preserves memory and blocks the old source thro
     assert.deepEqual(disk(), ext());
 });
 
-test('in-flight saves publish no draft receipt and reject another writer without overwriting it', async () => {
+for (const cancel of [false, true]) test(`manual summary owns cancellation while an earlier edit is saving (cancel: ${cancel})`, async () => {
     await importFixture();
+    host.context.chat.push({ mes: 'new question', is_user: true }, { mes: 'new answer', is_user: false });
+    const messageSources = mod.createMessageSourceTracker();
+    messageSources.reset(host.context);
+    let finishSave, running = false, requests = 0;
+    host.afterSave = () => new Promise(resolve => { finishSave = resolve; });
+    const next = mod.readSummaryMemory();
+    next.storySummary.json.facts[0].o = 'edited fact';
+    const saving = mod.commitSummaryMemory(host.context.chatId, next);
+    while (!finishSave) await Promise.resolve();
+    const messages = [], errors = [];
+    const noop = () => {};
+    const ui = entry(['handleFrameMessage', 'handleManualGenerate', 'ensureCurrentSources',
+        'isSummaryGenerating', 'beginSummaryExecution', 'cancelActiveSummaryExecution',
+        'finishSummaryExecution', 'notifySummaryState', 'postSummaryExecution'], {
+        ...mod, ...vectorWrites, messageSources, AbortController, createAbortError, throwIfSignalAborted,
+        memorySaveError, SUMMARY_FEEDBACK_COPY, activeSummaryExecution: null, currentMesId: null,
+        getContext: () => host.context, document: { getElementById: noop }, isTrustedMessage: () => true,
+        isStorySummaryEnabledForCurrentChat: () => true,
+        isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
+        isChatStale: () => false, synchronizeCurrentSources: async () => {},
+        guard: { isRunning: () => running, acquire: () => {
+            if (running) return null;
+            running = true;
+            return () => { running = false; };
+        } },
+        postToFrame: message => messages.push(message), cancelPendingHide: noop,
+        reportUnconfirmedMemory: noop, reportMemorySaveFailure: error => errors.push(error),
+        formatErrorDetails: error => error.message, xbLog: { error: (_module, _text, error) => errors.push(error) }, MODULE_ID: 'summary',
+        runSummaryGeneration: async () => { requests++; return { committed: false }; },
+    });
+    const request = ui.handleFrameMessage({ data: { type: 'REQUEST_GENERATE' } });
+    await nextTurn();
+    const registeredWhileSaving = running;
+    const requestsWhileSaving = requests;
+    if (cancel) await ui.handleFrameMessage({ data: { type: 'REQUEST_CANCEL' } });
+    await nextTurn();
+    const runningAfterCancel = running;
+    const saveStateAfterCancel = mod.getMemoryCommitState();
+    finishSave();
+    await saving;
+    await request;
+    await nextTurn();
+    assert.equal(registeredWhileSaving, true);
+    assert.equal(requestsWhileSaving, 0);
+    assert.equal(runningAfterCancel, !cancel);
+    assert.equal(saveStateAfterCancel, 'saving');
+    assert.equal(requests, cancel ? 0 : 1);
+    assert.equal(running, false);
+    assert.equal(messages.some(message => message.type === 'SUMMARY_ERROR'), false);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(disk(), next); // Stopping summary does not cancel the separate edit's save.
+});
+
+test('in-flight saves publish no draft receipt and reject another writer without overwriting it', async () => {
+    await importFixture(); await seedAnchors();
+    const before = mod.readPublishedSummaryMemory();
     let finish;
     host.afterSave = () => new Promise(resolve => { finish = resolve; });
     const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'pending';
+    next.stateAtoms = [];
     const saving = mod.commitSummaryMemory(host.context.chatId, next);
     while (!finish) await Promise.resolve();
     let resumed = false;
@@ -1002,11 +1131,57 @@ test('in-flight saves publish no draft receipt and reject another writer without
     assert.equal(resumed, false);
     assert.equal(mod.getMemoryCommitState(), 'saving');
     assert.notEqual(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o, 'pending');
+    assert.deepEqual(mod.getPublishedSummaryStore(), before.storySummary);
+    assert.deepEqual(mod.getPublishedStateAtoms(), before.stateAtoms);
+    assert.deepEqual(mod.getFacts(), before.storySummary.json.facts.filter(fact => !fact.retracted));
     await assert.rejects(mod.commitSummaryMemory(host.context.chatId, mod.readSummaryMemory()), { code: 'metadata_saving' });
     finish(); await saving;
     await waiting;
     assert.equal(resumed, true);
     assert.equal(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o, 'pending');
+    assert.deepEqual(mod.getPublishedStateAtoms(), []);
+});
+
+for (const mode of ['save', 'old']) test(`recall started before a ${mode} commit never follows its unpublished draft`, async () => {
+    host.fixture.json.arcs = [{ name: '夏实', trajectory: '仍在学习信任旅人', moments: [] }];
+    await importFixture();
+    const publishedArc = structuredClone(mod.getPublishedSummaryStore().json.arcs[0]);
+    const draftArc = { ...publishedArc, trajectory: '已经决定独自离开' };
+    host.vectorConfig.enabled = true;
+    let enterRecall, finishRecall, finishSave;
+    const started = new Promise(resolve => { enterRecall = resolve; });
+    const recalled = new Promise(resolve => { finishRecall = resolve; });
+    host.recall = async events => {
+        enterRecall();
+        await recalled;
+        return { events: [{ event: events[0], similarity: 1, _recallType: 'DIRECT' }], focusCharacters: [publishedArc.name] };
+    };
+    const borrowed = mod.getPublishedSummaryStore();
+    const boundary = borrowed.lastSummarizedMesId;
+    const prompt = mod.buildVectorPromptText();
+    await started;
+    host.mode = mode;
+    host.afterSave = () => new Promise(resolve => { finishSave = resolve; });
+    const next = mod.readSummaryMemory();
+    next.storySummary.json.arcs = [draftArc];
+    next.storySummary.lastSummarizedMesId = boundary + 1;
+    const saving = mod.commitSummaryMemory(host.context.chatId, next).then(() => null, error => error);
+    while (!finishSave) await Promise.resolve();
+    finishRecall();
+    const result = await prompt;
+    const assemblyState = mod.getMemoryCommitState();
+    const borrowedBoundary = borrowed.lastSummarizedMesId;
+    finishSave();
+    const error = await saving;
+    assert.equal(assemblyState, 'saving');
+    // The assertions identify injected fixture data, not prompt wording.
+    assert.ok(result.text.includes(publishedArc.trajectory));
+    assert.equal(result.text.includes(draftArc.trajectory), false);
+    assert.equal(borrowedBoundary, boundary);
+    assert.equal(error?.code ?? null, mode === 'old' ? 'metadata_not_saved' : null);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.deepEqual(borrowed.json.arcs, [publishedArc]);
+    assert.deepEqual(mod.getPublishedSummaryStore().json.arcs, [mode === 'save' ? draftArc : publishedArc]);
 });
 
 test('failed save confirmed old restores the entire previous snapshot in one place', async () => {
@@ -1023,6 +1198,7 @@ test('failed save confirmed old restores the entire previous snapshot in one pla
 for (const mode of ['read_fail', 'different']) {
     test(`${mode}: ambiguous import never restores old memory, gates every write, and reload is read-only recovery`, async () => {
         await importFixture(); await seedAnchors();
+        const before = mod.readPublishedSummaryMemory();
         host.mode = mode;
         if (mode === 'different') host.afterSave = () => { disk().storySummary.json.facts[0].o = 'external disk edit'; };
         const next = mod.prepareImportedSummary(mod.readSummaryMemory(), host.fixture.json, 23);
@@ -1032,11 +1208,15 @@ for (const mode of ['read_fail', 'different']) {
         assert.equal(ext().storySummary.json.facts[0].o, 'new import');
         assert.equal(ext().stateAtoms.length, 0);
         assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
-        await mod.waitForMemoryCommit();
+        assert.deepEqual(mod.getPublishedSummaryStore(), before.storySummary);
+        assert.deepEqual(mod.getPublishedStateAtoms(), before.stateAtoms);
+        assert.deepEqual(mod.getFacts(), before.storySummary.json.facts.filter(fact => !fact.retracted));
+        if (mode === 'read_fail') await assert.rejects(mod.waitForMemoryCommit(), { code: 'metadata_save_unconfirmed' });
+        else await mod.waitForMemoryCommit();
         assert.throws(() => mod.assertMemoryWritable(), { uncertain: true });
         assert.equal(ext().storySummary.summaryInvalid, undefined);
         assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
-        assert.equal(host.reads - reads, mode === 'read_fail' ? 3 : 1);
+        assert.equal(host.reads - reads, mode === 'read_fail' ? 6 : 1);
         const writes = host.writes;
         await assert.rejects(mod.clearSummaryData(host.context.chatId), { uncertain: true });
         await assert.rejects(mod.invalidateSummaryAnchors(host.context.chatId), { uncertain: true });

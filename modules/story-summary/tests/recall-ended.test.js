@@ -21,10 +21,11 @@ const stalled = signal => new Promise((_, reject) => {
 // not source spelling. This keeps the test independent of model/DB requests.
 const source = readFileSync(new URL('../story-summary.js', import.meta.url), 'utf8');
 const entryFunctions = new Set([
-    'registerEvents', 'clearExtensionPrompt',
+    'registerEvents', 'handleChatChange', 'clearExtensionPrompt',
     'handleGenerationAfterCommands', 'runStorySummaryRecallInterceptor',
     'discardIdleRecallPrefetch', 'notifyStorySummaryAfterAi',
     'runContentChangeSync',
+    'cancelRecallAndClearPrompt',
 ]);
 const executable = parse(source, { sourceType: 'module', ecmaVersion: 'latest' }).body
     .filter(node => node.type === 'FunctionDeclaration' && entryFunctions.has(node.id.name))
@@ -81,10 +82,16 @@ async function fixture(t, chat = [{ mes: 'greeting', is_user: false }]) {
         commitMemoryPrompt: value => { state.commits++; prompts[promptKey] = value; return value; },
         selectBestStoryMemoryResult: value => value,
         recallFailureNotice: mod.recallFailureNotice,
-        xbLog: { info: noOp },
+        xbLog: { info: noOp, error: error => { throw error; } },
         window: { addEventListener: noOp }, document: { addEventListener: noOp },
         resumeVectorWriteCoordinator: noOp, memoryMaintenance: { start: noOp, cancel: () => { state.maintenanceStops++; } },
         synchronizeCurrentSources: async () => { state.sourceSyncs++; },
+        handleMessageUpdated: async () => { state.sourceSyncs++; },
+        recallReuse: { invalidate: noOp, historyChanged: noOp },
+        cancelPendingHide: noOp, cancelEmbeddingWriteTasks: noOp,
+        embeddingConnection: { cancel: noOp }, serviceTests: { cancel: noOp },
+        cancelActiveSummaryExecution: noOp, activeSummaryExecution: null,
+        scheduleWithChatGuard: noOp, isChatStale: () => false,
         registerAfterAiGateHandler: noOp, initButtonsForAll: noOp,
         CacheRegistry: { register: noOp },
         handleVisibilityChangeForBackground: noOp, handleViewportChangeForBackground: noOp,
@@ -106,6 +113,9 @@ async function fixture(t, chat = [{ mes: 'greeting', is_user: false }]) {
         prompts, promptKey, notifications, cancellations, coordinator, state, requests,
         respond: callback => { respond = callback; },
         context: hostContext,
+        edit: floor => eventSource.emit(eventTypes.MESSAGE_EDITED, floor),
+        reload: () => eventSource.emit(eventTypes.CHAT_CHANGED),
+        setSaving: () => { context.isStorySummaryConsumableForCurrentChat = () => false; },
         inspectSources: () => context.messageSources.inspect(hostContext),
         received: floor => eventSource.emit(eventTypes.MESSAGE_RECEIVED, floor),
         async swipeDeleted(detail) {
@@ -136,6 +146,27 @@ async function fixture(t, chat = [{ mes: 'greeting', is_user: false }]) {
         stop: () => eventSource.emit(eventTypes.GENERATION_STOPPED),
     };
 }
+
+for (const change of ['saving', 'edit', 'clone', 'reload']) test(`${change} between prefetch and join keeps a successful recall and sends no extra request`, async t => {
+    const host = await fixture(t);
+    host.respond(success);
+    await host.begin();
+    const slot = host.coordinator.getCurrent();
+    await slot.outcome;
+    const cancellations = [...host.cancellations];
+    assert.equal(host.requests.length, 1);
+    if (change === 'saving') host.setSaving();
+    if (change === 'edit') { host.context.chat[0].mes += ' edit'; host.edit(0); }
+    if (change === 'clone' || change === 'reload') host.context.chat = structuredClone(host.context.chat);
+    if (change === 'clone') host.edit(0);
+    if (change === 'reload') host.reload();
+    await host.join();
+    assert.equal(host.state.aborted, 0);
+    assert.equal(host.state.commits, 1);
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.prompts[host.promptKey].text, 'foreground memory');
+    assert.deepEqual(host.cancellations, cancellations);
+});
 
 test('native unselected swipe deletion does not cancel recall, stop maintenance or enqueue consistency writes', async () => {
     const message = { mes: 'greeting', is_user: false, swipes: ['unused', 'greeting'], swipe_id: 1 };

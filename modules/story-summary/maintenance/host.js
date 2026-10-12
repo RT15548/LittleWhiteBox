@@ -5,7 +5,7 @@ import { getSummaryPanelConfig } from '../data/config.js';
 import { getStateAtoms, getL0Index, deleteStateVectorsByIds } from '../vector/storage/state-store.js';
 import { deleteEventVectorsByIds } from '../vector/storage/chunk-store.js';
 import { clearRecallRuntime } from '../vector/runtime/runtime.js';
-import { runVectorWriteTask, VECTOR_WRITE_SCOPES } from '../vector/runtime/maintenance-coordinator.js';
+import { runVectorWriteTask, VECTOR_WRITE_SCOPES, cancelEmbeddingWriteTasks } from '../vector/runtime/maintenance-coordinator.js';
 import { createMemorySession } from './session.js';
 import { commitMemorySession } from './commit.js';
 import { createSharedMemoryAgent, runMemoryAgent } from './runner.js';
@@ -57,6 +57,7 @@ export function createMemoryMaintenanceHost({ canRun, invalidateRecall, refreshS
                             phase('saving');
                             return commitSummaryMemory(task.chatId, next, { previous, validate, maintenanceWrite: true, invalidate: async () => {
                                 if (!impact.summary && !impact.atomIds.length) return;
+                                if (impact.eventIds.length || impact.atomIds.length) cancelEmbeddingWriteTasks('Memory records edited');
                                 invalidateRecall();
                                 if (impact.eventIds.length) await deleteEventVectorsByIds(task.chatId, impact.eventIds);
                                 if (impact.atomIds.length) await deleteStateVectorsByIds(task.chatId, impact.atomIds);

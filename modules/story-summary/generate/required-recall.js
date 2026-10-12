@@ -5,17 +5,12 @@ export async function runRequiredRecall({ coordinator, run, commit, abort, onPro
     let completed = false;
     try {
         onProgress?.(run.diagnostics);
-        for (;;) {
-            const revision = run.revision;
-            const outcome = await coordinator.waitForOutcome(run);
-            if (revision !== run.revision) continue;
-            if (!outcome.ok) throw outcome.error;
-            const value = await commit(outcome.value, run.controller.signal);
-            throwIfSignalAborted(run.controller.signal);
-            if (revision !== run.revision) continue;
-            completed = true;
-            return { ok: true, value };
-        }
+        const outcome = await coordinator.waitForOutcome(run);
+        if (!outcome.ok) throw outcome.error;
+        const value = await commit(outcome.value, run.controller.signal);
+        throwIfSignalAborted(run.controller.signal);
+        completed = true;
+        return { ok: true, value };
     } catch (error) {
         await onFailure?.(error);
         return { ok: false };

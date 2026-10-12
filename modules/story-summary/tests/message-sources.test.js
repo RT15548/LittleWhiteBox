@@ -14,12 +14,40 @@ function fixture() {
     return { tracker, context };
 }
 
+test('same filenames in different owners never share sources or pending rollback work', () => {
+    const { context, tracker } = fixture();
+    context.characterId = 0;
+    tracker.reset(context);
+    context.chat.pop();
+    tracker.retain(context, { kind: 'delete' });
+    const change = tracker.inspect(context);
+    for (const owner of [{ characterId: 1 }, { groupId: 'group' }]) {
+        const other = { ...context, ...owner, chat: [{ mes: 'other character', is_user: false }] };
+        assert.equal(tracker.switchChat(other), false);
+        assert.equal(tracker.inspect(other), null);
+        assert.equal(tracker.switchChat({ ...other, chat: structuredClone(other.chat) }), true);
+        assert.equal(tracker.switchChat(context), false);
+        assert.deepEqual(tracker.inspect(context), change);
+    }
+});
+
 test('saving unchanged text and render/quiet-only metadata are not source edits', () => {
     const { tracker, context } = fixture();
     context.chat[0].is_system = true;
     context.chat[0].extra = { viewed: true };
     assert.equal(tracker.inspect(context, 0), null);
     assert.equal(tracker.inspect(context, 3), null);
+});
+
+test('same-floor equivalent objects need no reload event and do not schedule source retirement', () => {
+    const { tracker, context } = fixture();
+    context.chat = context.chat.map(message => ({ ...message, extra: { anotherPlugin: true } }));
+    assert.equal(tracker.inspect(context), null);
+    context.chat[2].mes += ' real edit';
+    const change = tracker.inspect(context);
+    assert.equal(change.fromFloor, null);
+    assert.deepEqual(change.editedFloors, [2]);
+    assert.equal(change.rollbackFromFloor, null);
 });
 
 test('duplicate chat initialization does not confirm edits; a different owner gets a new baseline', () => {

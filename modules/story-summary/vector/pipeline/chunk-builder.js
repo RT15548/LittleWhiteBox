@@ -148,6 +148,7 @@ async function buildIncrementalChunksInner(options, activity) {
         signal = null,
         shouldCancel = null,
         onRetry = null,
+        commit = task => task(),
     } = options;
     const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
     const cancelledResult = (startFloor = null, endFloor = null) => ({
@@ -270,9 +271,9 @@ async function buildIncrementalChunksInner(options, activity) {
 
     try {
         activity.update({ state: 'saving' });
-        await saveIncrementalChunks(chatId, newChunks, vectorItems, fingerprint, endFloor, () => {
+        await commit(() => saveIncrementalChunks(chatId, newChunks, vectorItems, fingerprint, endFloor, () => {
             if (isCancelled()) throw createAbortError();
-        });
+        }));
     } catch (error) {
         if (isCancelled()) return cancelledResult(startFloor, endFloor);
         xbLog.error(MODULE_ID, '增量 L1 写入失败', error);

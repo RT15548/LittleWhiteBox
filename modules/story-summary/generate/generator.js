@@ -13,6 +13,7 @@ import {
 } from "../data/store.js";
 import { commitSummaryMemory, readSummaryMemory, waitForMemoryCommit } from '../data/memory-commit.js';
 import { memorySaveError } from '../data/memory-copy.js';
+import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import { formatCharacterAliasTableForAI } from "../data/character-aliases.js";
 import {
     generateSummary,
@@ -100,7 +101,7 @@ function isSummaryRunInactive(signal, targetChatId) {
 }
 
 function cancelledResult(onStatus, committed = false) {
-    onStatus?.(committed ? "总结已保存，后续处理已停止" : "已停止");
+    onStatus?.(committed ? "总结已保存，后续处理已停止" : SUMMARY_FEEDBACK_COPY.summaryStopped);
     return { success: committed, cancelled: true, committed };
 }
 
@@ -171,7 +172,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
         await waitForMemoryCommit(signal);
     } catch (err) {
         if (isSummaryGenerationCancelledError(err) || isSummaryRunInactive(signal, targetChatId)) {
-            onStatus?.("已停止");
+            onStatus?.(SUMMARY_FEEDBACK_COPY.summaryStopped);
             return { success: false, cancelled: true };
         }
         xbLog.error(MODULE_ID, '生成失败', err);

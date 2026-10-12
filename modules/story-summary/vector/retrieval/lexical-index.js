@@ -1,5 +1,5 @@
 import { getContext } from '../../../../../../../extensions.js';
-import { getSummaryStore } from '../../data/store.js';
+import { getPublishedSummaryStore as getSummaryStore } from '../../data/store.js';
 import { getAllChunks } from '../storage/chunk-store.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { getTokenizerSnapshot, injectEntities } from '../utils/tokenizer.js';
@@ -353,7 +353,8 @@ export function invalidateLexicalIndex() {
 
 function applyUpdate(update, chatId) {
     if (!chatId || getContext().chatId !== chatId) return null;
-    if (!update.clearChunks && update.floor === undefined && !update.docs?.length && !update.removeIds?.length) return null;
+    if (!update.clearChunks && !update.clearEvents && update.floor === undefined && update.fromFloor === undefined
+        && !update.docs?.length && !update.removeIds?.length) return null;
     if (activeBuild?.chatId === chatId) {
         activeBuild.updates.push(update);
         return activeBuild.promise;
@@ -379,6 +380,14 @@ export function clearChunkDocuments(chatId = getContext().chatId) {
 
 export function removeDocumentsByFloor(floor, chatId = getContext().chatId) {
     return applyUpdate({ floor }, chatId);
+}
+
+export function removeDocumentsFromFloor(fromFloor, chatId = getContext().chatId) {
+    return applyUpdate({ fromFloor }, chatId);
+}
+
+export function replaceEventDocuments(events, chatId = getContext().chatId) {
+    return applyUpdate({ clearEvents: true, docs: collectDocuments([], events).docs }, chatId);
 }
 
 export function addEventDocuments(events, chatId = getContext().chatId) {

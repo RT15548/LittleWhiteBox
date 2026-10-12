@@ -7,7 +7,7 @@ import { invalidateChangedMaintenance } from '../maintenance/ranges.js';
 import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 
 const FIELDS = ['storySummary', 'stateAtoms', 'l0Index'];
-// Scoped to the loaded metadata object: reload discards uncertainty, never replays a write.
+// Scoped to the loaded metadata object. Recovery only rereads; it never replays a save.
 const transactions = new WeakMap();
 const confirmedSnapshots = new WeakMap();
 
@@ -17,7 +17,7 @@ function extension() {
 }
 
 function project(owner) {
-    // Borrowed only for synchronous comparison; snapshots leaving this layer stay detached.
+    // Internal projection borrows the host store; public reads detach its mutable shell.
     return { storySummary: owner.storySummary || {}, stateAtoms: owner.stateAtoms || [],
         l0Index: owner.l0Index || { version: 1, byFloor: {} } };
 }
@@ -41,6 +41,12 @@ export function getPendingMemoryCommit(owner = chat_metadata.extensions?.[EXT_ID
 // A caller can wait for an in-flight save without consuming its unpublished draft.
 export async function waitForMemoryCommit(signal) {
     const owner = extension();
+    const uncertain = transactions.get(owner);
+    throwIfSignalAborted(signal);
+    const recovery = uncertain?.status === 'unconfirmed' ? uncertain.reconfirm?.() : null;
+    // The caller may cancel its wait while the bounded, read-only confirmation
+    // finishes. Observe the result below without leaving an unhandled rejection.
+    recovery?.catch(() => {});
     let pending;
     while ((pending = getPendingMemoryCommit(owner))) {
         throwIfSignalAborted(signal);
@@ -53,6 +59,7 @@ export async function waitForMemoryCommit(signal) {
         finally { signal?.removeEventListener('abort', onAbort); }
     }
     throwIfSignalAborted(signal);
+    await recovery;
 }
 
 export function getRuntimeInvalidSourceFloor() { return transactions.get(chat_metadata.extensions?.[EXT_ID])?.sourceInvalidFloor; }
@@ -66,10 +73,18 @@ export function noteInvalidMemorySource(fromFloor) {
     transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor });
 }
 
-export function readPublishedSummaryMemory() {
+// Borrowed read view: a pending save owns its draft, readers keep the complete
+// previous memory. Persistence uncertainty does not make that memory unreadable.
+export function getPublishedSummaryMemory() {
     const pending = transactions.get(chat_metadata.extensions?.[EXT_ID]);
-    return pending ? structuredClone(pending.previous) : readSummaryMemory();
+    const memory = pending ? pending.previous : project(extension());
+    // install replaces collections but mutates the host store's outer object.
+    // Detach only that shell: async readers keep their published data without
+    // cloning the full memory or following a later save's unpublished draft.
+    return { ...memory, storySummary: { ...memory.storySummary } };
 }
+
+export function readPublishedSummaryMemory() { return structuredClone(getPublishedSummaryMemory()); }
 
 export function assertMemoryWritable(chatId = getContext()?.chatId) {
     if (!chatId || getContext()?.chatId !== chatId) throw new MetadataConfirmationError('summary_chat_changed_before_save');
@@ -88,6 +103,7 @@ function install(owner, snapshot) {
 
 /** The sole durable write for summary JSON, history, anchors and extraction status. */
 export async function commitSummaryMemory(chatId, next, { previous = readSummaryMemory(), invalidate, validate, resolvesSourceInvalidity = false, maintenanceWrite = false } = {}) {
+    if (getMemoryCommitState() === 'unconfirmed') await waitForMemoryCommit();
     assertMemoryWritable(chatId);
     const owner = extension();
     const context = getContext();
@@ -112,6 +128,13 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
         if (sourceInvalidFloor != null && !resolved) transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor });
         else transactions.delete(owner);
     };
+    const confirmAndPublish = async () => {
+        await confirm(expected, rawPrevious, confirmedSnapshots.get(owner));
+        if (!sameMemory(project(owner), expected)) throw new MetadataConfirmationError('metadata_save_conflict', true);
+        release(resolvesSourceInvalidity || expected.storySummary.sourceInvalidFromFloor != null);
+        confirmedSnapshots.set(owner, expected);
+        return expected;
+    };
     transactions.set(owner, transaction);
     let staged = false;
     try {
@@ -124,15 +147,32 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
         try { await context.saveMetadata(); }
         catch (error) { saveError = error; }
         // Even a thrown host save can already have reached disk. Only readback decides.
-        try { await confirm(expected, rawPrevious, confirmedSnapshots.get(owner)); }
+        try { return await confirmAndPublish(); }
         catch (error) { if (saveError) error.cause ||= saveError; throw error; }
-        if (!sameMemory(project(owner), expected)) throw new MetadataConfirmationError('metadata_save_conflict', true);
-        release(resolvesSourceInvalidity || expected.storySummary.sourceInvalidFromFloor != null);
-        confirmedSnapshots.set(owner, expected);
-        return expected;
     } catch (error) {
         if (staged && (error.uncertain || !sameMemory(project(owner), expected))) {
             transaction.status = 'unconfirmed';
+            // A transport failure is not evidence of a conflicting write. The
+            // next write preparation may confirm the same save without reload.
+            if (error.code === 'metadata_save_unconfirmed') {
+                transaction.reconfirm = async () => {
+                    transaction.status = 'saving';
+                    let finish;
+                    transaction.settled = new Promise(resolve => { finish = resolve; });
+                    try {
+                        await confirmAndPublish();
+                    } catch (confirmationError) {
+                        transaction.status = 'unconfirmed';
+                        if (confirmationError.code === 'metadata_not_saved' && sameMemory(project(owner), expected)) {
+                            install(owner, previous);
+                            release(false);
+                        } else if (confirmationError.code !== 'metadata_save_unconfirmed') {
+                            delete transaction.reconfirm;
+                        }
+                        throw confirmationError;
+                    } finally { finish(); }
+                };
+            }
             error.uncertain = true;
         } else {
             if (staged) install(owner, previous);

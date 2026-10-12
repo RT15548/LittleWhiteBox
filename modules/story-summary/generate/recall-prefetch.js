@@ -149,21 +149,9 @@ export function createRecallPrefetchCoordinator(options) {
         slot.diagnostics.stage = 'prepare';
         scheduleExpiry(slot);
         slot.outcome = settle(Promise.resolve().then(async () => {
-            // Maintenance invalidations coalesce. They never abort an in-flight
-            // prepare, replace this generation, or reset its deadline.
-            for (;;) {
-                throwIfSignalAborted(slot.controller.signal);
-                await options.waitForStable?.(slot.controller.signal);
-                throwIfSignalAborted(slot.controller.signal);
-                const revision = slot.revision;
-                slot.diagnostics.finishedAt = null;
-                const result = await settle(prepare(slot.type, slot.controller.signal, slot.diagnostics,
-                    request => withQueryEmbedding(slot, request)));
-                throwIfSignalAborted(slot.controller.signal);
-                if (revision !== slot.revision) continue;
-                if (!result.ok) throw result.error;
-                return result.value;
-            }
+            throwIfSignalAborted(slot.controller.signal);
+            return prepare(slot.type, slot.controller.signal, slot.diagnostics,
+                request => withQueryEmbedding(slot, request));
         })).then(outcome => {
             // Both success and failure are final outcomes. A late host join must
             // neither expire a finished result nor replace its original error.
@@ -221,7 +209,6 @@ export function createRecallPrefetchCoordinator(options) {
                 stage: phase === 'watching' ? 'waiting-for-user' : 'prepare',
             },
             outcome: null,
-            revision: 0,
             pollTimer: null,
             expiryTimer: null,
             queryNoticeTimer: null,
@@ -310,8 +297,6 @@ export function createRecallPrefetchCoordinator(options) {
     function join({ chatId, type, focusRef, runContext, sourceSignal = null }) {
         const slot = current;
         const context = getContext();
-        const chat = Array.isArray(context?.chat) ? context.chat : [];
-        const focusIndex = chat.length - 1;
         const sameChat = !!slot
             && slot.chatId === String(chatId || '')
             && String(context?.chatId || '') === slot.chatId;
@@ -338,12 +323,9 @@ export function createRecallPrefetchCoordinator(options) {
             };
         }
 
-        const canReuse = !!slot
-            && sameGeneration
-            && slot.capturedRef
-            && slot.capturedRef === focusRef
-            && slot.messageIndex === focusIndex
-            && chat[slot.messageIndex] === slot.capturedRef;
+        // The slot belongs to this Generate, not to a mutable host message
+        // object. Local edits/new floors cannot spend another recall or revoke it.
+        const canReuse = sameGeneration && slot.computeStartedAt !== null;
 
         if (!canReuse) {
             const generationSignal = sourceSignal || (sameGeneration ? slot?.sourceSignal : null);
@@ -436,24 +418,12 @@ export function createRecallPrefetchCoordinator(options) {
         abortSlot(slot, 'host-idle');
     }
 
-    function invalidate() {
-        const slot = getActive();
-        if (!slot) return;
-        slot.revision++;
-        if (slot.phase === 'ready') {
-            slot.outcome = null;
-            slot.phase = slot.joinedAt === null ? 'recalling' : 'joined';
-            startCompute(slot);
-        }
-    }
-
     return Object.freeze({
         startWatching,
         join,
         waitForOutcome,
         cancel,
         finish,
-        invalidate,
         discardUnjoined,
         getActive,
         getCurrent: () => current,

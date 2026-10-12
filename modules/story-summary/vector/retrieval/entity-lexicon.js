@@ -8,7 +8,7 @@
 // 硬约束：name1 永不进入词典
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { getStateAtoms } from '../storage/state-store.js';
+import { getPublishedStateAtoms as getStateAtoms } from '../storage/state-store.js';
 import {
     buildAliasResolver,
     normalizeUserIdentityKey,

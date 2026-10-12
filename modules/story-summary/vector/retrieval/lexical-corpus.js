@@ -24,6 +24,8 @@ function* orderedMutations(updates) {
         const update = updates[order];
         if (update.clearChunks) yield { clearChunks: true, order };
         else if (update.floor !== undefined) yield { floor: update.floor, order };
+        else if (update.fromFloor !== undefined) yield { fromFloor: update.fromFloor, order };
+        if (update.clearEvents) yield { clearEvents: true, order };
         // Within one update, removals precede additions (floor replacement).
         for (const id of update.removeIds || []) yield { id, doc: null, order };
         for (const doc of update.docs || []) {
@@ -110,10 +112,14 @@ export class LexicalCorpus {
         const visitInSlices = createSlicedVisitor(isCurrent);
         const changes = new Map();
         const clearedFloors = new Map();
+        const clearedSuffixes = [];
         let clearChunksAt = -1;
+        let clearEventsAt = -1;
         await visitInSlices(orderedMutations(updates), mutation => {
             if (mutation.clearChunks) clearChunksAt = mutation.order;
+            else if (mutation.clearEvents) clearEventsAt = mutation.order;
             else if (mutation.floor !== undefined) clearedFloors.set(mutation.floor, mutation.order);
+            else if (mutation.fromFloor !== undefined) clearedSuffixes.push(mutation);
             else changes.set(mutation.id, mutation);
         });
         if (!isCurrent()) return;
@@ -122,15 +128,25 @@ export class LexicalCorpus {
         // including documents moved to that floor. Additions after it survive.
         await visitInSlices(changes.values(), change => {
             if (change.doc?.type === 'chunk' && (clearChunksAt > change.order
-                || (clearedFloors.get(change.doc.floor) ?? -1) > change.order)) change.doc = null;
+                || (clearedFloors.get(change.doc.floor) ?? -1) > change.order
+                || clearedSuffixes.some(clear => change.doc.floor >= clear.fromFloor && clear.order > change.order))) change.doc = null;
+            if (change.doc?.type === 'event' && clearEventsAt > change.order) change.doc = null;
         });
         if (!isCurrent()) return;
-        const floors = clearChunksAt >= 0 ? this.chunkIdsByFloor.keys() : clearedFloors.keys();
+        const floors = clearChunksAt >= 0 ? this.chunkIdsByFloor.keys()
+            : new Set([...clearedFloors.keys(), ...[...this.chunkIdsByFloor.keys()]
+                .filter(floor => clearedSuffixes.some(clear => floor >= clear.fromFloor))]);
         await visitInSlices(chunkIdsAcrossFloors(this.chunkIdsByFloor, floors), id => {
             // An explicit final version takes precedence over clearing its old
             // floor. This also covers a chunk becoming an event or moving floors.
             if (!changes.has(id)) changes.set(id, { id, doc: null, order: -1 });
         });
+        if (!isCurrent()) return;
+        if (clearEventsAt >= 0) {
+            await visitInSlices(this.records, ([id, record]) => {
+                if (record.doc.type === 'event' && !changes.has(id)) changes.set(id, { id, doc: null, order: -1 });
+            });
+        }
         if (!isCurrent()) return;
 
         await visitInSlices(changes, ([id, change]) => {

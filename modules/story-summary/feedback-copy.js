@@ -4,6 +4,7 @@ export const VECTOR_REBUILD_ADVICE = `请执行${VECTOR_REBUILD_ACTION}（${VECT
 
 export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     title: '剧情总结',
+    summaryStopped: '已停止',
     embeddingTitle: 'Embedding 异常',
     connectionChecking: '连接中…',
     connectionReady: dims => `连接成功 (${dims}维)`,
@@ -14,6 +15,7 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     }),
     connectionCancelled: '测试已取消。',
     configSaveCancelled: '本次保存已取消，配置未保存。请重试。',
+    configLocalCacheUnavailable: '剧情总结本地配置缓存不可写，继续使用内存中的配置。',
     vectorConfigFailed: '向量配置未能保存，任务未开始。请重新保存配置后重试。',
     configLoad: Object.freeze({
         loading: '正在读取已保存的配置…',
@@ -26,7 +28,6 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     embeddingRecall: detail => `记忆召回失败，本次生成已停止。${detail}`,
     recallRetrying: '记忆召回仍在等待向量服务，正在重试；不想继续等待可点击停止生成。',
     recallInterrupted: Object.freeze({
-        edited: '聊天内容已修改，本次生成已停止，请重新发送。',
         configuration: '记忆设置已变更，本次生成已停止，请重新发送。',
         memory: '记忆数据已变更，本次生成已停止，请重新发送。',
     }),
@@ -51,9 +52,9 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     recallHostTimeout: seconds => `剧情记忆等待本轮用户消息超过 ${seconds} 秒，尚未开始召回，本次生成已停止。请检查酒馆生成准备流程。`,
     recallComputeTimeout: seconds => `剧情记忆召回计算超过 ${seconds} 秒，本次生成已停止。请查看召回日志中的阶段和错误详情。`,
     recallFailed: '剧情记忆召回失败，本次生成已停止。请查看召回日志中的阶段和错误详情。',
-    recallSourceUnsafe: '记忆来源尚未确认安全，本次生成已停止。请先处理剧情总结面板中的保存或来源错误，再重新发送。',
     startupFailed: '剧情总结未能完成启动，请刷新页面重试；若仍失败，请反馈控制台中的错误。',
     vectorMaintenance: Object.freeze({
+        loadFailed: '加载时记忆维护未完成',
         started: ({ chatId, floorsText, l0Pending, l0VectorMissing }) => `延迟向量维护开始 chat=${chatId} floors=${floorsText} l0Pending=${l0Pending} l0VectorMissing=${l0VectorMissing}；核对 L1/L2 缺口`,
         l1Failed: 'L1 增量构建或缺口补齐未完成',
         incomplete: ({ chunkResult, eventResult, l0Failed, l0VectorResult }) => `延迟向量维护未完成 l1=${chunkResult.success === false ? (chunkResult.code || 'unknown') : 'ok'} l2=${eventResult?.success === false ? (eventResult.code || 'unknown') : 'ok'} l0Failed=${l0Failed} l0Vector=${l0VectorResult?.code || 'ok'}，保留缺口并恢复完整性检查`,

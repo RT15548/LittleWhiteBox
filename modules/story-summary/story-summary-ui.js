@@ -8,6 +8,7 @@ import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from './maintenance/settings.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
+import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY, writeSummaryConfigLocalCache } from './data/config-local-cache.js';
 
 const UNANNOTATED_LABEL = '未标注';
 
@@ -568,7 +569,7 @@ const UNANNOTATED_LABEL = '未标注';
 
     function loadConfig() {
         try {
-            const s = localStorage.getItem('summary_panel_config');
+            const s = localStorage.getItem(SUMMARY_CONFIG_LOCAL_STORAGE_KEY);
             if (s) {
                 const p = JSON.parse(s);
                 config.memoryMaintenanceEnabled = p.memoryMaintenanceEnabled === true;
@@ -614,7 +615,7 @@ const UNANNOTATED_LABEL = '未标注';
         if (cfg.vector) config.vector = normalizeVectorConfigUI(cfg.vector);
         normalizeTriggerConfig();
         syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
-        localStorage.setItem('summary_panel_config', JSON.stringify(config));
+        writeSummaryConfigLocalCache(config, (message, errorName) => console.warn(message, errorName));
     }
 
     function normalizeSummaryApiConfigUI(apiCfg = {}) {

@@ -14,17 +14,18 @@ export async function repairMissingChunks(options) {
         activity => repairMissingChunksInner(options, activity));
 }
 
-async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, shouldCancel, onProgress }, activity) {
+async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, shouldCancel, onProgress, commit = task => task() }, activity) {
     const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
     let repaired = 0;
+    const chunks = [];
     let phase = 'read';
-    const cancelled = () => ({ success: false, cancelled: true, repaired });
+    const cancelled = () => ({ success: false, cancelled: true, repaired, chunks });
     try {
         if (isCancelled()) return cancelled();
         const fingerprint = getEngineFingerprint(vectorConfig);
         const meta = await getMeta(chatId);
         if (meta.fingerprint && meta.fingerprint !== fingerprint) {
-            return { success: false, repaired, code: 'fingerprint_mismatch' };
+            return { success: false, repaired, chunks, code: 'fingerprint_mismatch' };
         }
         const [stored, vectors] = await Promise.all([getAllChunks(chatId), getChunkVectorDescriptors(chatId)]);
         if (isCancelled()) return cancelled();
@@ -35,7 +36,8 @@ async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, sh
         const newMaterials = materials.filter(chunk => !storedIds.has(chunk.chunkId));
         if (newMaterials.length) {
             phase = 'materials';
-            await saveChunks(chatId, newMaterials);
+            await commit(() => saveChunks(chatId, newMaterials));
+            chunks.push(...newMaterials);
             if (isCancelled()) return cancelled();
         }
         onProgress?.(0, missing.length);
@@ -48,9 +50,9 @@ async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, sh
             if (isCancelled()) return cancelled();
             phase = 'write';
             activity.update({ state: 'saving', activeUnits: 0 });
-            await saveChunkVectors(chatId, batch.map((chunk, index) => ({
+            await commit(() => saveChunkVectors(chatId, batch.map((chunk, index) => ({
                 chunkId: chunk.chunkId, vector: embeddings[index], sourceHash: inputDigest('chunk', chunk.text),
-            })), fingerprint);
+            })), fingerprint));
             repaired += batch.length;
             activity.update({ completed: repaired });
             onProgress?.(repaired, missing.length);
@@ -58,13 +60,13 @@ async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, sh
         if (isCancelled()) return cancelled();
         phase = 'metadata';
         if (meta.lastChunkFloor !== chat.length - 1 || meta.fingerprint !== fingerprint) {
-            await updateMeta(chatId, { lastChunkFloor: chat.length - 1, fingerprint });
+            await commit(() => updateMeta(chatId, { lastChunkFloor: chat.length - 1, fingerprint }));
         }
-        return { success: true, repaired };
+        return { success: true, repaired, chunks };
     } catch (error) {
         if (isCancelled()) return cancelled();
         if (phase === 'embedding') {
-            return { success: false, repaired, ...getEmbeddingFailureDetails(error), error };
+            return { success: false, repaired, chunks, ...getEmbeddingFailureDetails(error), error };
         }
         const code = phase === 'materials'
             ? 'chunk_write_failed'
@@ -73,6 +75,6 @@ async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, sh
                 : phase === 'metadata'
                     ? 'metadata_write_failed'
                     : 'chunk_read_failed';
-        return { success: false, repaired, code, error };
+        return { success: false, repaired, chunks, code, error };
     }
 }

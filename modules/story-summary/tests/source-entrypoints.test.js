@@ -3,16 +3,18 @@ import { test } from 'node:test';
 import { entry } from './helpers/story-summary-entry.js';
 import { createMessageSourceTracker } from '../data/message-sources.js';
 import { createServiceTests } from '../vector/service-tests.js';
-import { throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
+import { createAbortError, commitIfSignalActive, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import * as vectorWrites from '../vector/runtime/maintenance-coordinator.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import { buildVectorIntegrityIssues } from '../vector/integrity-policy.js';
+import { replaceCharacterAliases } from '../data/character-aliases.js';
+import { createRecallReuse } from '../generate/recall-reuse.js';
 
 // Execute production entrypoints; replace only host, storage and transport boundaries.
 // No assertions about source spelling or implementation structure.
 const noop = () => {};
 function chatFixture() {
-    const context = { chatId: 'chat', chat: [
+    const context = { chatId: 'chat', characterId: 0, characters: [{ avatar: 'fixture.png' }], chat: [
         { mes: 'greeting', is_user: false }, { mes: 'question', is_user: true },
         { mes: 'answer', is_user: false }, { mes: 'tail', is_user: false },
     ] };
@@ -20,6 +22,167 @@ function chatFixture() {
     messageSources.reset(context);
     return { context, messageSources };
 }
+
+function sourceSyncDependencies({ context, messageSources }, recallReuse = createRecallReuse()) {
+    return {
+        ...vectorWrites, getContext: () => context, messageSources, recallReuse,
+        isChatStale: () => false, isStorySummaryEnabledForCurrentChat: () => true,
+        retainSourceChange: (tracker, current, options) => { tracker.retain(current, options); return tracker.inspect(current); },
+        waitForMemoryCommit: async () => {},
+        synchronizeSourceCaches: (tracker, current) => tracker.synchronize(current, async () => ({ status: 'not_needed' })),
+        rememberVectorMaintenance: noop, scheduleAutoL0Backfill: noop, AUTO_L0_BACKFILL_DELAY_MS: 0,
+        removeDocumentsFromFloor: noop, removeDocumentsByFloor: noop, scheduleLexicalWarmup: noop,
+        applyHideState: async () => {}, notifyStorySummaryChatState: noop,
+    };
+}
+
+for (const owner of ['character', 'group']) for (const continued of [false, true]) {
+    for (const source of ['message_received', 'generation_ended']) test(`${owner} ${source}: ${continued ? 'continued' : 'new'} AI reply schedules maintenance once`, () => {
+        const { context, messageSources } = chatFixture();
+        if (owner === 'group') context.groupId = 'group';
+        messageSources.reset(context);
+        if (continued) context.chat.at(-1).mes += ' continued';
+        else context.chat.push({ mes: 'new answer', is_user: false });
+        const scheduled = [], hints = [];
+        let timers = 0;
+        const host = entry(['notifyStorySummaryAfterAi'], {
+            getContext: () => context, messageSources, isStorySummaryEnabledForCurrentChat: () => true,
+            getVectorConfig: () => ({ enabled: true }), rememberVectorMaintenance: (...args) => scheduled.push(args),
+            scheduleAutoL0Backfill: () => { timers++; }, notifyAfterAiHint: hint => hints.push(hint),
+            MODULE_ID: 'summary', AUTO_L0_BACKFILL_DELAY_MS: 0,
+        });
+        const floor = context.chat.length - 1;
+        host.notifyStorySummaryAfterAi(floor, source);
+        host.notifyStorySummaryAfterAi(floor, 'message_received');
+        host.notifyStorySummaryAfterAi(undefined, 'generation_ended');
+        assert.deepEqual(scheduled, [[context.chatId, floor, 'after_ai']]);
+        assert.equal(timers, 1);
+        assert.equal(hints.length, 1);
+        host.notifyStorySummaryAfterAi(floor, 'character_message_rendered');
+        assert.equal(timers, 1);
+    });
+}
+
+for (const route of ['background', 'content-change']) for (const history of ['unchanged', 'edit', 'delete', 'reorder']) {
+    test(`${route} sync after a normal send preserves recall unless older history changed (${history})`, async () => {
+        const fixture = chatFixture(), { context } = fixture;
+        const recallReuse = createRecallReuse();
+        context.chat.push({ mes: 'new question', is_user: true });
+        const { ticket } = recallReuse.prepare(context);
+        assert.equal(recallReuse.adopt(ticket, context, { text: 'memory', boundary: 0, role: 'system', report: '' }), true);
+        context.chat.push({ mes: 'new answer', is_user: false });
+        assert.ok(recallReuse.prepare(context, 'swipe').memory);
+        if (history === 'edit') context.chat[0].mes += ' edited';
+        if (history === 'delete') context.chat.shift();
+        if (history === 'reorder') [context.chat[0], context.chat[1]] = [context.chat[1], context.chat[0]];
+        const host = entry(['synchronizeCurrentSources', 'runContentChangeSync'], {
+            ...sourceSyncDependencies(fixture, recallReuse), memoryMaintenance: { cancel: noop },
+            handleMessageUpdated: noop, cancelPendingHide: noop,
+        });
+        let pending;
+        if (route === 'background') pending = host.synchronizeCurrentSources(context.chatId);
+        else host.runContentChangeSync(chatId => (pending = host.synchronizeCurrentSources(chatId)));
+        await pending;
+        assert.equal(!!recallReuse.prepare(context, 'swipe').memory, history === 'unchanged');
+    });
+}
+
+for (const sameOwner of [false, true]) test(`chat-change entry preserves recall only for the same owner (${sameOwner})`, () => {
+    const { context, messageSources } = chatFixture();
+    context.characterId = 0;
+    messageSources.reset(context);
+    const controller = new AbortController();
+    let syncs = 0;
+    const host = entry(['handleChatChange'], {
+        getContext: () => context, messageSources, activeChatId: context.chatId, activeSummaryExecution: null,
+        embeddingConnection: { cancel: noop }, serviceTests: { cancel: noop }, memoryMaintenance: { cancel: noop },
+        cancelRecallAndClearPrompt: () => controller.abort(), cancelActiveSummaryExecution: noop,
+        cancelEmbeddingWriteTasks: noop, cancelPendingHide: noop, scheduleWithChatGuard: noop,
+        runContentChangeSync: () => { syncs++; }, synchronizeCurrentSources: noop,
+    });
+    context.characterId = sameOwner ? 0 : 1;
+    context.chat = structuredClone(context.chat.slice(0, 2));
+    host.handleChatChange();
+    assert.equal(controller.signal.aborted, !sameOwner);
+    assert.equal(syncs, Number(sameOwner));
+    if (!sameOwner) assert.equal(messageSources.inspect(context), null);
+});
+
+test('unchanged aliases neither write nor cancel recall', async () => {
+    const store = { json: { characterAliases: [] } };
+    const host = entry(['handleFrameMessage'], {
+        document: { getElementById: noop }, isTrustedMessage: () => true,
+        getContext: () => ({ chatId: 'chat' }), waitForMemoryCommit: async () => {}, assertMemoryWritable: noop,
+        getSummaryStore: () => store, readSummaryMemory: () => ({ storySummary: store }), structuredClone,
+        replaceCharacterAliases, getCurrentFloorHint: () => 1,
+        cancelRecallAndClearPrompt: () => assert.fail('unchanged aliases cancelled recall'),
+        memoryMaintenance: { cancel: () => assert.fail('unchanged aliases cancelled maintenance') },
+        commitSummaryMemory: () => assert.fail('unchanged aliases saved'), reportMemorySaveFailure: error => { throw error; },
+    });
+    await host.handleFrameMessage({ data: { type: 'UPDATE_CHARACTER_ALIASES', aliases: [] } });
+});
+
+test('manual incremental summary completion preserves an already successful recall', async () => {
+    const execution = { chatId: 'chat', controller: new AbortController() };
+    const controller = new AbortController();
+    let completed = false;
+    const host = entry(['handleManualGenerate'], {
+        isSummaryGenerating: () => false, guard: { acquire: () => noop }, beginSummaryExecution: () => execution,
+        ensureCurrentSources: async () => {}, notifySummaryState: noop, assertSummaryExecutionActive: noop,
+        activeSummaryExecution: execution, getContext: () => ({ chatId: 'chat' }),
+        cancelRecallAndClearPrompt: () => controller.abort(), postToFrame: noop, buildFramePayload: value => value,
+        refreshEntityLexiconAndWarmup: noop, applyHideStateDebounced: noop, updateFrameStatsAfterSummary: noop,
+        autoVectorizeMissingEvents: noop, rebuildActiveVectorCacheAfterSummary: noop, finishSummaryExecution: noop,
+        isStorySummaryConsumableForCurrentChat: () => true, scheduleVectorIntegrityCheck: noop,
+        xbLog: { error: (_module, _message, error) => { throw error; } }, MODULE_ID: 'summary',
+        runSummaryGeneration: async (_floor, _config, callbacks) => {
+            await callbacks.onComplete({ store: {}, newEventIds: [] });
+            completed = true;
+            return { committed: true };
+        },
+    });
+    await host.handleManualGenerate(3, {});
+    assert.equal(completed, true);
+    assert.equal(controller.signal.aborted, false);
+});
+
+for (const change of ['edit', 'append', 'delete', 'stale', 'stale-rollback']) test(`source maintenance ${change} updates only its affected lexical documents`, async () => {
+    const { context, messageSources } = chatFixture();
+    const removals = [], events = [], maintenance = [];
+    let scheduled = 0;
+    if (change === 'append') context.chat.push({ mes: 'new floor', is_user: false });
+    else if (change === 'delete' || change === 'stale-rollback') context.chat.pop();
+    else context.chat[2].mes += ' edited';
+    const store = { json: { events: [{ id: 'retained-l2' }] } };
+    const host = entry(['synchronizeCurrentSources'], {
+        ...sourceSyncDependencies({ context, messageSources }),
+        runVectorWriteTask: async (_options, run) => run(),
+        synchronizeSourceCaches: (tracker, current) => tracker.synchronize(current, async () => {
+            if (change.startsWith('stale')) context.chat[2].mes += ' later';
+            return { status: change === 'delete' || change === 'stale-rollback' ? 'rolled_back' : 'not_needed' };
+        }),
+        recallReuse: { invalidate: noop, historyChanged: noop },
+        rememberVectorMaintenance: (_chat, floor) => maintenance.push(floor),
+        scheduleAutoL0Backfill: () => { scheduled++; }, AUTO_L0_BACKFILL_DELAY_MS: 0,
+        invalidateLexicalIndex: () => assert.fail('local maintenance must retain the corpus'),
+        removeDocumentsFromFloor: floor => removals.push(['suffix', floor]),
+        removeDocumentsByFloor: floor => removals.push(['floor', floor]),
+        replaceEventDocuments: next => events.push(next), getPublishedSummaryStore: () => store,
+        scheduleLexicalWarmup: noop, applyHideState: async () => {}, notifyStorySummaryChatState: noop,
+    });
+    const outcome = await host.synchronizeCurrentSources(context.chatId, change === 'edit' ? 'edit' : 'observed');
+    assert.equal(scheduled, 1);
+    if (change.startsWith('stale')) {
+        assert.equal(outcome.status, 'stale');
+        assert.ok(messageSources.inspect(context));
+        if (change === 'stale') assert.ok(maintenance.includes(2));
+    } else {
+        assert.equal(outcome.status, 'synced');
+        assert.equal(messageSources.inspect(context), null);
+    }
+    assert.deepEqual(removals, [change === 'edit' || change === 'stale' ? ['floor', 2] : ['suffix', change === 'append' ? 4 : 3]]);
+    assert.deepEqual(events, change === 'delete' || change === 'stale-rollback' ? [store.json.events] : []);
+});
 
 for (const transition of ['switch', 'reload', 'save']) test(`chat initialization after visibility wait respects ownership: ${transition}`, async () => {
     const { context } = chatFixture();
@@ -32,6 +195,7 @@ for (const transition of ['switch', 'reload', 'save']) test(`chat initialization
     const host = entry(['handleChatChanged', 'isChatStale'], {
         ...vectorWrites, events: {}, activeChatId: context.chatId,
         getContext: () => context, getSummaryStore: () => store,
+        waitForMemoryCommit: async () => {},
         clearDeferredBackgroundTasks: noop, lastRecallLogText: '', postToFrame: noop,
         notifyStorySummaryChatState: noop, initButtonsForAll: noop,
         isStorySummaryEnabledForCurrentChat: () => true,
@@ -68,13 +232,12 @@ for (const transition of ['switch', 'reload', 'save']) test(`chat initialization
 for (const kind of ['anchor', 'vector-rebuild', 'vector-repair']) for (const interruption of ['stop', 'chat', 'config', 'unload', 'none']) {
     test(`${kind}: ${interruption} during source synchronization owns the subsequent generation request`, async () => {
         let releaseSources, requests = 0, released = false;
+        const fixture = chatFixture();
+        fixture.context.chat.push({ mes: 'not yet synchronized', is_user: true });
         const sources = new Promise(resolve => { releaseSources = resolve; });
-        const host = entry(['handleAnchorGenerate', 'handleGenerateVectors'], {
-            ...vectorWrites, guard: { isAnyRunning: () => false, acquire: () => () => { released = true; } },
-            getContext: () => ({ chatId: 'chat' }), ensureCurrentSources: () => {
-                vectorWrites.cancelEmbeddingWriteTasks('Source synchronization');
-                return sources;
-            },
+        const host = entry(['handleAnchorGenerate', 'handleGenerateVectors', 'ensureCurrentSources', 'synchronizeCurrentSources'], {
+            ...sourceSyncDependencies(fixture), guard: { isAnyRunning: () => false, acquire: () => () => { released = true; } },
+            waitForMemoryCommit: () => sources, createAbortError, throwIfSignalAborted, assertMemoryWritable: noop,
             ANCHOR_GENERATION_OPERATION: 'manual-anchor', VECTOR_GENERATION_OPERATION: 'manual-vector',
             getVectorConfig: () => ({ enabled: true }),
             handleAnchorGenerateNow: async () => { requests++; },
@@ -181,14 +344,14 @@ for (const failed of [false, true]) test(`maintenance releases its lock before i
         'publishVectorIntegrity', 'deferVectorIntegrityUntilMaintenance'], {
         ...vectorWrites, SUMMARY_FEEDBACK_COPY, buildVectorIntegrityIssues,
         getContext: () => context, getVectorConfig: () => ({ enabled: true }),
-        isStorySummaryConsumableForCurrentChat: () => true, isL0FloorDeferred: () => false,
+        isStorySummaryEnabledForCurrentChat: () => true, isL0FloorDeferred: () => false,
         isHostGenerating: () => false, isChatStale: id => id !== context.chatId,
         isBackgroundWorkLive: () => true, ensureCurrentSources: noop,
         guard: { acquire: () => { locked = true; return () => { locked = false; }; }, isAnyRunning: () => locked },
         pendingVectorMaintenanceByChat: pending,
         getAnchorStats: async () => ({ pending: 0, incomplete: 0 }),
         getL0VectorBuildStatus: async () => ({ success: true, missing: 0 }),
-        runVectorWriteTask: async () => { writes++; return {
+        runVectorGenerationTask: async () => { writes++; return {
             chunkResult: { success: !failed, built: 0 }, eventResult: { success: true },
             l0Result: { built: 0 }, l0VectorResult: { success: true }, l0Status: { incomplete: 0 },
         }; },
@@ -230,25 +393,42 @@ for (const target of ['l0', 'rerank']) test(`${target} test releases its button 
     assert.notEqual(messages.at(-1)?.status, 'downloading');
 });
 
-for (const phase of ['before-commit', 'during-notice']) test(`source mutation ${phase} rejects a stale prompt rather than succeeding empty`, async () => {
+for (const change of ['edit', 'append', 'clone', 'saving', 'switch', 'stop']) for (const phase of ['before-commit', 'during-notice']) test(`${change} ${phase}: current recall survives local maintenance, but not stop or chat switch`, async () => {
     const { context, messageSources } = chatFixture();
-    const prompts = { memory: 'old' };
+    const prompts = {};
     const prepared = { chatId: context.chatId, sourceBasis: messageSources.capture(context),
-        text: 'outdated prepared evidence', notice: { message: 'fixture notice' } };
-    let invalidated = false;
-    const host = entry(['commitMemoryPrompt', 'sourceSafetyError', 'clearExtensionPrompt'], {
-        getContext: () => context, messageSources, throwIfSignalAborted,
-        isStorySummaryConsumableForCurrentChat: () => true,
-        recallReuse: { invalidate: () => { invalidated = true; } },
+        text: 'successful evidence', depth: 2, role: 0, notice: { message: 'fixture notice' } };
+    const controller = new AbortController();
+    let saving = false;
+    const mutate = () => {
+        if (change === 'edit') context.chat[0].mes += ' changed';
+        if (change === 'append') context.chat.push({ mes: 'new floor', is_user: false });
+        if (change === 'clone') context.chat = structuredClone(context.chat);
+        if (change === 'saving') saving = true;
+        if (change === 'switch') context.chatId = 'another';
+        if (change === 'stop') controller.abort();
+    };
+    const host = entry(['commitMemoryPrompt'], {
+        getContext: () => context, messageSources, throwIfSignalAborted, createAbortError, commitIfSignalActive,
+        isStorySummaryConsumableForCurrentChat: () => !saving,
+        isStorySummaryEnabledForCurrentChat: () => true,
+        recallReuse: { adopt: noop }, performance, lastRecallLogText: '',
+        formatRecallDiagnostics: () => 'report', postToFrame: noop, xbLog: { info: noop }, MODULE_ID: 'summary',
+        extension_prompt_types: { IN_CHAT: 1 },
         extension_prompts: prompts, EXT_PROMPT_KEY: 'memory',
-        SUMMARY_FEEDBACK_COPY: { recallInterrupted: { edited: 'source changed' } },
         claimWarningCooldown: () => true, RECALL_ADVISORY_COOLDOWN_MS: 0,
-        executeSlashCommand: async () => { context.chat[0].mes += ' changed'; },
+        executeSlashCommand: async () => { if (phase === 'during-notice') mutate(); },
     });
-    if (phase === 'before-commit') [context.chat[1], context.chat[2]] = [context.chat[2], context.chat[1]];
-    await assert.rejects(host.commitMemoryPrompt(prepared), { code: 'MEMORY_SOURCE_CHANGED' });
-    assert.equal(invalidated, true);
-    assert.equal(prompts.memory, undefined);
+    if (phase === 'before-commit') mutate();
+    if (['switch', 'stop'].includes(change)) {
+        await assert.rejects(host.commitMemoryPrompt(prepared, controller.signal), { name: 'AbortError' });
+        assert.equal(prompts.memory, undefined);
+    } else {
+        const result = await host.commitMemoryPrompt(prepared, controller.signal);
+        assert.equal(result.text, prepared.text);
+        assert.equal(prompts.memory.value, prepared.text);
+        assert.equal(prompts.memory.depth, prepared.depth);
+    }
 });
 
 for (const name of ['autoRunSummaryWithRetry', 'handleManualGenerate']) {
@@ -260,7 +440,7 @@ for (const name of ['autoRunSummaryWithRetry', 'handleManualGenerate']) {
             beginSummaryExecution: () => ({ controller: new AbortController() }),
             finishSummaryExecution: noop, notifySummaryState: noop,
             isSummaryGenerating: () => false, isSummaryExecutionActive: () => true,
-            ensureCurrentSources: async () => { throw Object.assign(new Error('unsafe'), { code: 'MEMORY_SOURCE_UNSAFE' }); },
+            ensureCurrentSources: async () => { throw Object.assign(new Error('unconfirmed'), { code: 'metadata_unconfirmed' }); },
             runSummaryGeneration: async () => { calls++; return { success: true }; },
             isStorySummaryConsumableForCurrentChat: () => true, scheduleVectorIntegrityCheck: noop,
             postSummaryExecution: (_run, notice) => notices.push(notice),

@@ -2,6 +2,7 @@ import { extension_settings } from "../../../../../../extensions.js";
 import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { CommonSettingStorage } from "../../../core/server-storage.js";
+import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY, writeSummaryConfigLocalCache } from './config-local-cache.js';
 import { CHARACTER_ALIAS_OUTPUT_TEMPLATE } from './character-aliases.js';
 import { EVENT_MEMORY_ROLES } from "./events.js";
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './summary-delay.js';
@@ -13,7 +14,6 @@ import {
 
 const MODULE_ID = "summaryConfig";
 const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
-const SUMMARY_CONFIG_LOCAL_STORAGE_KEY = "summary_panel_config";
 const VALID_TRIGGER_TIMINGS = new Set(["after_ai", "before_user"]);
 let summaryPanelConfigCache = null;
 
@@ -459,15 +459,11 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
     return result;
 }
 
-function writeConfigToLocalStorage(config) {
-    localStorage.setItem(SUMMARY_CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
-}
-
 function setSummaryPanelConfigCache(config, { persistLocal = true } = {}) {
     const normalized = normalizeSummaryPanelConfig(config);
     summaryPanelConfigCache = normalized;
     if (persistLocal) {
-        writeConfigToLocalStorage(normalized);
+        writeSummaryConfigLocalCache(normalized, (message, errorName) => xbLog.warn(MODULE_ID, message, errorName));
     }
     return normalized;
 }

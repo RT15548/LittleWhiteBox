@@ -23,7 +23,7 @@ const shims = {
     'config.js': 'export const getVectorConfig=()=>globalThis.__vectorPackageTest.config; export const getTextFilterRules=()=>globalThis.__vectorPackageTest.filters;',
     'runtime.js': 'export const refreshRecallRuntime=async()=>{globalThis.__vectorPackageTest.runtimeInvalidations++;}; export const applyRecallRuntimeMutationBestEffort=()=>{globalThis.__vectorPackageTest.runtimeMutations++;}; export const clearRecallRuntime=async()=>{};',
     'lexical-index.js': 'export const invalidateLexicalIndex=()=>{globalThis.__vectorPackageTest.lexicalInvalidations++;};',
-    'siliconflow.js': 'export const embed=async(texts)=>{const host=globalThis.__vectorPackageTest; host.embeddingInputs.push(...texts); host.onEmbed?.(texts); if(host.embeddingError) throw host.embeddingError; return texts.map(()=>[1,0]);};',
+    'siliconflow.js': 'export const embed=async(texts)=>{const host=globalThis.__vectorPackageTest; host.embeddingInputs.push(...texts); await host.onEmbed?.(texts); if(host.embeddingError) throw host.embeddingError; return texts.map(()=>[1,0]);};',
     'llm-service.js': 'export const callLLM=async()=>{throw new Error("unexpected LLM call");};',
 };
 const bundled = await build({
@@ -89,6 +89,33 @@ async function createBytes() { await seedCache(); return (await mod.createVector
 function maintainL1(options = {}) {
     return mod.maintainChunks({ targetChatId: fixture.chatId, chatSnapshot: host.context.chat, vectorConfig: host.config, ...options });
 }
+
+for (const mode of ['incremental', 'repair']) test(`${mode} model wait does not block local writes or refill cleared chunks`, async () => {
+    let release, entered, configRead = false;
+    const gate = new Promise(resolve => { release = resolve; });
+    const requested = new Promise(resolve => { entered = resolve; });
+    host.onEmbed = () => { entered(); return gate; };
+    const generation = mod.coordinator.runVectorGenerationTask({ chatId: fixture.chatId }, session => {
+        const options = { signal: session.signal, commit: session.commit };
+        return mode === 'incremental' ? maintainL1(options) : mod.repairMissingChunks({
+            chatId: fixture.chatId, chat: host.context.chat, vectorConfig: host.config, ...options,
+        });
+    });
+    await requested;
+    try {
+        await mod.coordinator.runVectorWriteTask({ scope: 'config' }, () => { configRead = true; });
+        assert.equal(configRead, true);
+        await mod.coordinator.runVectorWriteTask({ scope: 'io' }, async () => {
+            mod.coordinator.cancelEmbeddingWriteTasks('clear chunks');
+            await mod.store.clearAllChunks(fixture.chatId);
+        });
+    } finally { release(); }
+    const result = await generation;
+    assert.equal(result.success, false);
+    assert.equal(await db.chunks.count(), 0);
+    assert.equal(await db.chunkVectors.count(), 0);
+    assert.equal((await mod.store.getMeta(fixture.chatId)).lastChunkFloor, -1);
+});
 
 // Exact saved inputs, independent of later chat/cleaning changes. Tests use
 // real digests and storage, not source-code or wording assertions.
@@ -331,13 +358,18 @@ test('a long absent floor retains all 28 materials when the second repair batch 
     assert.equal(first.success, false);
     assert.equal(first.repaired, 20);
     assert.equal(await db.chunks.count(), 28);
+    assert.equal(first.chunks.length, 28);
+    const materials = chunks => new Map(chunks.map(chunk => [chunk.chunkId, chunk.text]));
+    assert.deepEqual(materials(first.chunks), materials(await mod.store.getAllChunks(fixture.chatId)));
     assert.equal(await db.chunkVectors.count(), 20);
     assert.equal((await mod.store.getMeta(fixture.chatId)).lastChunkFloor, -1);
     const saved = await db.chunkVectors.toArray();
     host.onEmbed = null;
     host.embeddingError = null;
     host.embeddingInputs = [];
-    assert.equal((await repair()).repaired, 8);
+    const second = await repair();
+    assert.equal(second.repaired, 8);
+    assert.deepEqual(second.chunks, []);
     assert.equal(host.embeddingInputs.length, 8);
     assert.equal(await db.chunkVectors.count(), 28);
     for (const row of saved) assert.deepEqual(await db.chunkVectors.get([row.chatId, row.chunkId]), row);
