@@ -4,6 +4,7 @@
 import { getContext } from "../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../utils.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
+import { toAbsoluteMediaUrl } from './media-url.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -33,6 +34,40 @@ const previewObjectUrlCache = new Map();
 const previewPreloadCache = new Map();
 const cacheChangeListeners = new Set();
 let cacheSyncChannel = null;
+
+// Tauritavern 等客户端把页面装在 about:srcdoc 跨域 iframe 内，<img> 无法直连根相对
+// /user 路径（自定义 origin），但 fetch 走原生 HTTP 栈可能可达。捕获阶段监听图片
+// error，仅对含 /user/ 的来源尝试 fetch → blob 自救，救活已保存的存量图；不可达则
+// 快速失败，不影响其他图片。
+const savedUrlFallbackInflight = new Set();
+if (typeof document !== 'undefined') {
+    document.addEventListener('error', (event) => {
+        const img = event.target;
+        if (!(img instanceof HTMLImageElement)) return;
+        const src = String(img.currentSrc || img.src || '');
+        if (!src.includes('/user/')) return;
+        if (img.dataset.xbSavedRetried === '1') return;
+        img.dataset.xbSavedRetried = '1';
+        const fetchUrl = toAbsoluteMediaUrl(src);
+        if (savedUrlFallbackInflight.has(fetchUrl)) return;
+        savedUrlFallbackInflight.add(fetchUrl);
+        (async () => {
+            // 依次尝试补全后的绝对地址与原始地址，任一可达即救活旧图；都失败则静默降级。
+            const candidates = [...new Set([fetchUrl, src])];
+            for (const candidate of candidates) {
+                try {
+                    const resp = await fetch(candidate);
+                    if (!resp.ok) continue;
+                    const type = resp.headers.get('content-type') || '';
+                    if (type && !type.startsWith('image/')) continue;
+                    img.src = URL.createObjectURL(await resp.blob());
+                    return;
+                } catch { /* 尝试下一个候选地址 */ }
+            }
+            img.classList.add('xb-saved-img-broken');
+        })().finally(() => savedUrlFallbackInflight.delete(fetchUrl));
+    }, true);
+}
 
 function storageWriteError(tx) { return tx.error || new Error(DRAW_SLOT_COPY.storageWriteFailed); }
 
@@ -86,7 +121,7 @@ function blobToDataUrl(blob) {
 }
 
 async function savedUrlToDataUrl(savedUrl = '') {
-    const url = String(savedUrl || '').trim();
+    const url = toAbsoluteMediaUrl(savedUrl);
     if (!url) return '';
     if (/^data:[^;]+;base64,/i.test(url)) return url;
     if (/^blob:/i.test(url)) {
@@ -162,11 +197,10 @@ export function clearPreviewObjectUrls() {
 }
 
 export function getPreviewDisplayUrl(preview = {}) {
-    const savedUrl = String(preview?.savedUrl || '').trim();
-    if (savedUrl) return savedUrl;
-
+    // 本地缓存是完整原图，优先使用：blob URL 同源，不受 Tauritavern 等自定义
+    // origin 客户端对 /user 路径可达性的影响；savedUrl 仅在本地数据缺失时兜底。
     const parsed = parseBase64Image(preview?.base64);
-    if (!parsed?.data) return '';
+    if (!parsed?.data) return toAbsoluteMediaUrl(preview?.savedUrl || '');
 
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
         return `data:${parsed.mime};base64,${parsed.data}`;
@@ -862,7 +896,8 @@ export async function updatePreviewSavedUrl(imgId, savedUrl) {
     if (!preview) return;
 
     preview.savedUrl = savedUrl;
-    preview.base64 = null;
+    // 保留本地原图：Tauritavern 等自定义 origin 客户端无法用 <img> 直连 /user
+    // 路径，清掉 base64 后已存图在画廊必裂；空间交由缓存过期清理负责，不在保存时剥离。
 
     return new Promise((resolve, reject) => {
         try {

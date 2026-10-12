@@ -1503,11 +1503,54 @@ function base64ToObjectUrl(base64, mime) {
     return URL.createObjectURL(new Blob(chunks, { type: mime }));
 }
 
+// 相对路径补全为绝对 URL：本 iframe 是独立 document。Tauritavern 手机 UI 在
+// about:srcdoc 跨域 iframe 内，<img> 直连 /user 路径会以 srcdoc 为基准解析成无效
+// 地址；document.baseURI 在 srcdoc 中继承父文档真实 URL，parent.location 仅兜底。
+function phoneAbsUrl(path) {
+    let raw = String(path || '').trim();
+    if (!raw || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
+    // 旧数据可能存成无前导斜杠的 user/images/...，会被解析成相对扩展目录的错误地址。
+    raw = raw.replace(/^(?:\.\.[\\/])*(user[\\/])/i, '/$1');
+    let base = '';
+    try { if (document.baseURI) base = document.baseURI; } catch { /* 忽略 */ }
+    if (!base) { try { base = String(window.parent?.location?.href || ''); } catch { /* 跨域封锁 */ } }
+    try { return base ? new URL(raw, base).href : raw; } catch { return raw; }
+}
+
+// iframe 是独立 document，需各自挂一份：/user/ 图 <img> 直连失败时用 fetch 转 blob 自救。
+const iframeSavedFallbackInflight = new Set();
+document.addEventListener('error', (event) => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    const src = String(img.currentSrc || img.src || '');
+    if (!src.includes('/user/')) return;
+    if (img.dataset.xbSavedRetried === '1') return;
+    img.dataset.xbSavedRetried = '1';
+    const fetchUrl = phoneAbsUrl(src);
+    if (iframeSavedFallbackInflight.has(fetchUrl)) return;
+    iframeSavedFallbackInflight.add(fetchUrl);
+    (async () => {
+        // 依次尝试补全后的绝对地址与原始地址，任一可达即救活旧图；都失败则静默降级。
+        const candidates = [...new Set([fetchUrl, src])];
+        for (const candidate of candidates) {
+            try {
+                const resp = await fetch(candidate);
+                if (!resp.ok) continue;
+                const type = resp.headers.get('content-type') || '';
+                if (type && !type.startsWith('image/')) continue;
+                img.src = URL.createObjectURL(await resp.blob());
+                return;
+            } catch { /* 尝试下一个候选地址 */ }
+        }
+        img.classList.add('xb-saved-img-broken');
+    })().finally(() => iframeSavedFallbackInflight.delete(fetchUrl));
+}, true);
+
 function getGalleryImageUrl(image = {}) {
-    const savedUrl = String(image.savedUrl || '').trim();
-    if (savedUrl) return savedUrl;
+    // 本地缓存优先：savedUrl 是根相对服务器路径，在 Tauritavern 等自定义 origin
+    // 客户端的 iframe 内不可达会裂图；本地无数据时才回落 savedUrl（补全为绝对 URL）。
     const parsed = parsePreviewBase64(image.base64);
-    if (!parsed?.data) return '';
+    if (!parsed?.data) return phoneAbsUrl(image.savedUrl || '');
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
         return `data:${parsed.mime};base64,${parsed.data}`;
     }
