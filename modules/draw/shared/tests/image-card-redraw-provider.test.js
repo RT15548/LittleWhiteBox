@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createImageCardRedrawProvider } from '../image-card-redraw-provider.js';
-import { acquireFloorImageJob, getFloorImageJobs, getFloorImageJob, getFloorImagePhase,
+import { FloorImageBusyError, acquireFloorImageJob, getFloorImageJobs, getFloorImageJob, getFloorImagePhase,
     releaseFloorImageJob, observeFloorImageJob, getFloorImageState } from '../floor-image-job.js';
 import { publishDrawRunActivity } from '../draw-run-activity.js';
+import { formatScenePlannerProgress, toScenePlannerProgress } from '../draw-capsule-copy.js';
 
 function setup(execute) {
     const message = { mes: '[image:slot]', swipe_id: 0 };
@@ -60,12 +61,21 @@ test('backend handoff is not completion and stays in the aggregate until its del
     assert.equal(h.jobs.size, 0);
 });
 
-test('an occupied floor rejects manual redraw without releasing or resetting the active batch', async () => {
-    const h = setup(() => assert.fail('must not submit'));
+test('an occupied floor lets a manual redraw join the floor aggregate without releasing or resetting the active batch', async () => {
+    let submitted = 0;
+    const h = setup(async input => {
+        submitted += 1;
+        input.onStateChange('success', { success: 1, total: 1 });
+        return { success: 1, total: 1, aborted: false };
+    });
     const active = h.options.createJob(1);
-    await assert.rejects(h.run());
+    await h.run();
+    assert.equal(submitted, 1);
     assert.equal(getFloorImageJob(h.jobs, h.input.ctx, 1), active);
-    assert.equal(h.states.length, 0);
+    assert.equal(active.released, false);
+    assert.equal(h.jobs.has(active), true);
+    // 只有重画能加入已有任务；整楼层的新规划（容器级任务）仍保持锁定，避免与运行中的任务争抢插图位置。
+    assert.throws(() => h.options.createJob(1), FloorImageBusyError);
 });
 
 test('a settled direct request with an unknown result is not an active confirmation spinner', async () => {
@@ -195,4 +205,23 @@ test('text-source work has no synthetic chat floor and cannot be cancelled by a 
     assert.equal(job.controller.signal.aborted, false);
     releaseFloorImageJob(jobs, job);
     assert.equal(jobs.size, 0);
+});
+
+test('the planner retry count stays "retry 1/3" when another job of the same floor joined the aggregate', () => {
+    const h = setup(async () => {});
+    const planning = h.options.createJob(1);
+    const progress = h.observe(planning);
+    // 同楼层另有一个加入同一批次的单张重绘（total 1）：楼层汇总的 total 会被求和成 3 + 1。
+    const redraw = h.options.createJob(1, { join: true });
+    redraw.total = 1;
+    progress('llm', toScenePlannerProgress({ progress: { phase: 'retry', current: 1, total: 3, delayMs: 100 } }));
+    const reported = h.states.at(-1);
+    assert.equal(reported.state, 'llm');
+    assert.equal(formatScenePlannerProgress(reported.data), '重1/3');
+    // 晚挂载的面板读到的是同一份汇总
+    const late = getFloorImageState(h.jobs, h.input.ctx, 1);
+    assert.equal(formatScenePlannerProgress(late.data), '重1/3');
+    // 汇总里的图片张数不受重试次数污染
+    assert.equal(late.data.total, 1);
+    assert.equal(late.data.current, 0);
 });

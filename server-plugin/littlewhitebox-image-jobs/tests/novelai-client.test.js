@@ -267,6 +267,7 @@ test('bounds upstream V5 error bodies to 1 MiB', async () => {
 
 test('advertises and proxies the V5 MessagePack stream route', async () => {
     const {
+        DRAW_RUN_PLANNER_RETRY_CAPABILITY,
         DRAW_RUN_RUNTIME_CAPABILITY,
         REQUIRED_DRAW_RUN_PLUGIN_VERSION,
     } = await import('../../../modules/draw/shared/draw-run-client.js');
@@ -301,7 +302,14 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
         'novelai-v5-final-image-v1',
         'draw-runs-v1',
         DRAW_RUN_RUNTIME_CAPABILITY,
+        DRAW_RUN_PLANNER_RETRY_CAPABILITY,
     ]);
+    // README 的 capability 清单必须与 /status 实际声明一致（升级能力项时不要漏改文档）。
+    const readme = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'README.md'), 'utf8');
+    const blocks = readme.split('```').filter((_, index) => index % 2 === 1);
+    const documented = blocks.map(block => block.split(/\r?\n/).slice(1).map(line => line.trim()).filter(Boolean))
+        .find(lines => lines.includes('draw-runs-v1'));
+    assert.deepEqual(documented, statusResponse.body.capabilities, 'README 的 /status capability 清单与实际不一致');
 
     const req = new EventEmitter();
     req.aborted = false;

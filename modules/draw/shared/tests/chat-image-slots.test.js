@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
+import { setImmediate } from 'node:timers';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
@@ -49,7 +50,7 @@ const bundle = await build({
         'pending-image-jobs', 'image-job-recovery-runtime',
         'image-card-redraw-provider', 'floor-image-job',
         'chat-message-image-markup',
-        'draw-run-controls', 'draw-run-activity', 'draw-run-markers', 'confirmable-chat-save',
+        'draw-run-controls', 'draw-run-activity', 'draw-run-markers', 'confirmable-chat-save', 'slot-activity',
     ].map(name => `export * from './${name}.js';`).join('\n'), resolveDir: fileURLToPath(new URL('..', import.meta.url)) },
     bundle: true, write: false, format: 'esm', platform: 'node', plugins: [{ name: 'host', setup(builder) {
         builder.onResolve({ filter: /\.js$/ }, ({ path }) => {
@@ -116,6 +117,7 @@ function setup(t, source, { legacy = false } = {}) {
     const submissions = [];
     const jobs = new Map(), states = [];
     let prepareBarrier = async () => {};
+    let stateHook;
     const execute = async input => {
         submissions.push(input);
         await prepareBarrier(input);
@@ -137,7 +139,7 @@ function setup(t, source, { legacy = false } = {}) {
         createJob: (messageId, options) => api.acquireFloorImageJob(jobs, host.ctx, messageId, () => ({
             controller: new AbortController(), backendCancel: new AbortController(),
         }), options), releaseJob: job => api.releaseFloorImageJob(jobs, job),
-        getCurrentContext: () => host.ctx, setStateForMessage: (_id, state, data) => states.push({ state, data }),
+        getCurrentContext: () => host.ctx, setStateForMessage: (_id, state, data) => { states.push({ state, data }); stateHook?.(state, data); },
         classifyError: api.classifyError,
     }));
     const root = document.querySelector('.mes_text');
@@ -176,6 +178,7 @@ function setup(t, source, { legacy = false } = {}) {
         set saveMode(value) { saveMode = value; }, set cacheReadsFail(value) { cacheReadsFail = value; },
         set onSave(value) { onSave = value; },
         set prepareBarrier(value) { prepareBarrier = value; },
+        set stateHook(value) { stateHook = value; },
     };
 }
 
@@ -276,6 +279,246 @@ test('edited tags persist for image and interrupted card, redraw reads the selec
     assert.equal(h.submissions[0].tasks[0].scene, 'new tags');
     assert.deepEqual(h.submissions[0].tasks[0].characterPrompts, []);
     assert.equal(h.root.querySelectorAll('img').length, 1);
+});
+
+function markSlotBusy(t, slotId) {
+    const owner = {};
+    api.setSlotActivity(slotId, { index: 0, total: 1, phase: 'generating', label: '生成', owner, discard() {} });
+    t.after(() => api.clearSlotActivity(slotId, owner));
+}
+
+// 图库（IndexedDB）在本文件的所有测试间共享，每个测试必须使用自己的格子名。
+async function storeFailedSlots(h, prefix, slots, status = 'failed') {
+    for (const [name, tags] of slots) {
+        await api.storePreview({ slotId: `${prefix}-${name}`, imgId: `${prefix}-${name}-img`, messageId: 0, tags, positive: tags,
+            characterPrompts: [{ prompt: `${tags} char`, uc: '', center: { x: 0.5, y: 0.5 } }],
+            negativePrompt: `neg ${tags}`, status, errorType: 'failed', errorMessage: 'supplier rejected' });
+    }
+    h.format();
+    await api.renderPreviewsForMessage(0);
+}
+const floorSource = (prefix, names) => names.map(name => `[image:${prefix}-${name}]`).join(' ');
+const failedCards = h => [...h.root.querySelectorAll('.xb-nd-img[data-state="failed"]')];
+
+test('every failed card offers a floor-wide redraw next to the single redraw', async t => {
+    const h = setup(t, floorSource('fr1', ['a', 'b']));
+    await storeFailedSlots(h, 'fr1', [['a', 'tag a'], ['b', 'tag b']]);
+    assert.equal(failedCards(h).length, 2);
+    for (const card of failedCards(h)) {
+        const actions = [...card.querySelectorAll('[data-action]')].map(node => node.dataset.action);
+        assert.deepEqual(actions.slice(0, 3), ['retry-image', 'retry-floor-failed', 'edit-tags']);
+        assert.match(card.querySelector('[data-action="retry-floor-failed"]').textContent, /重生本楼/);
+    }
+});
+
+test('floor-wide redraw submits every failed card of the floor as one batch with its own saved prompts', async t => {
+    const h = setup(t, floorSource('fr2', ['a', 'b', 'c']));
+    await storeFailedSlots(h, 'fr2', [['a', 'tag a'], ['b', 'tag b']]);
+    await api.storePreview({ slotId: 'fr2-c', imgId: 'fr2-c-img', messageId: 0, tags: 'tag c', positive: 'tag c', base64: 'YWJj' });
+    h.format(); await api.renderPreviewsForMessage(0);
+    const failed = failedCards(h);
+    assert.equal(failed.length, 2);
+
+    const result = await api.redrawFloorFailedImageCards('novelai', failed[1]);
+    assert.deepEqual(result, { submitted: 2, skipped: 0 });
+    assert.equal(h.submissions.length, 1);
+    const tasks = h.submissions[0].tasks;
+    assert.deepEqual(tasks.map(task => task.placement), [
+        { mode: 'existing', slotId: 'fr2-a' }, { mode: 'existing', slotId: 'fr2-b' },
+    ]);
+    assert.deepEqual(tasks.map(task => task.scene), ['tag a', 'tag b']);
+    assert.deepEqual(tasks.map(task => task.negativePrompt), ['neg tag a', 'neg tag b']);
+    assert.equal(tasks[0].characterPrompts[0].prompt, 'tag a char');
+    assert.equal(h.requests, 1);
+    assert.equal(h.root.querySelectorAll('.xb-nd-img img').length, 3);
+    assert.equal(failedCards(h).length, 0);
+    assert.equal(h.message.mes, floorSource('fr2', ['a', 'b', 'c']));
+});
+
+test('floor-wide redraw includes result-unknown cards and skips cards that are already running', async t => {
+    const h = setup(t, floorSource('fr3', ['a', 'b', 'c']));
+    await storeFailedSlots(h, 'fr3', [['a', 'tag a'], ['c', 'tag c']]);
+    // “绘图结果未知”与失败同属失败状态，默认一并重新生成。
+    await storeFailedSlots(h, 'fr3', [['b', 'tag b']], 'unknown');
+    const cards = failedCards(h);
+    assert.equal(cards.length, 3);
+    markSlotBusy(t, 'fr3-c');
+    const result = await api.redrawFloorFailedImageCards('novelai', cards[0]);
+    assert.deepEqual(result, { submitted: 2, skipped: 1 });
+    assert.deepEqual(h.submissions[0].tasks.map(task => task.placement.slotId), ['fr3-a', 'fr3-b']);
+});
+
+test('floor-wide redraw ignores a second click while the first is still running and never double-submits', async t => {
+    const h = setup(t, floorSource('fr4', ['a', 'b'])); h.hold = true;
+    await storeFailedSlots(h, 'fr4', [['a', 'tag a'], ['b', 'tag b']]);
+    const card = failedCards(h)[0];
+    const first = api.redrawFloorFailedImageCards('novelai', card);
+    const second = api.redrawFloorFailedImageCards('novelai', card);
+    assert.equal(first, second);
+    await until(() => h.requests === 1);
+    // 整楼重生期间，对其中某一张再点单张“重新生成”同样被挡住：拿到的是同一批的进行中结果，不会新提交。
+    const single = api.redrawImageCard('novelai', card);
+    await tick();
+    assert.equal(h.submissions.length, 1);
+    h.finish();
+    await Promise.all([first, single]);
+    assert.equal(h.submissions.length, 1);
+    assert.equal(h.requests, 1);
+});
+
+test('a redraw queues behind a running job on the same floor instead of failing as busy', async t => {
+    const h = setup(t, floorSource('fr5', ['a', 'b'])); h.hold = true;
+    await storeFailedSlots(h, 'fr5', [['a', 'tag a'], ['b', 'tag b']]);
+    const [cardA, cardB] = failedCards(h);
+    const firstRedraw = api.redrawImageCard('novelai', cardA);
+    await until(() => h.requests === 1);
+    assert.ok(h.jobs.size >= 1);
+    // 同楼层已有任务：以前这里会抛“该楼层已有任务进行中”。
+    const second = api.redrawImageCard('novelai', cardB);
+    await until(() => h.submissions.length === 2);
+    h.finish(); await tick(); h.finish();
+    await Promise.all([firstRedraw, second]);
+    assert.equal(h.submissions.length, 2);
+    assert.equal(h.root.querySelectorAll('.xb-nd-img img').length, 2);
+    assert.equal(h.jobs.size, 0);
+});
+
+test('the whole-floor redraw reports when there is nothing to redraw', async t => {
+    const h = setup(t, floorSource('fr6', ['a']));
+    await storeFailedSlots(h, 'fr6', [['a', 'tag a']]);
+    const card = failedCards(h)[0];
+    markSlotBusy(t, 'fr6-a');
+    const result = await api.redrawFloorFailedImageCards('novelai', card);
+    assert.deepEqual(result, { submitted: 0, skipped: 1 });
+    assert.equal(h.submissions.length, 0);
+});
+
+test('a single redraw during the whole-floor collection phase joins the floor operation instead of double-submitting', async t => {
+    const h = setup(t, floorSource('fr7', ['a', 'b']));
+    await storeFailedSlots(h, 'fr7', [['a', 'tag a'], ['b', 'tag b']]);
+    const [cardA, cardB] = failedCards(h);
+    const floor = api.redrawFloorFailedImageCards('novelai', cardA);
+    // 此刻整楼重生还停在收集阶段（逐格 await 读取记录），尚未占住各格子：单张重新生成必须并入同一操作。
+    const single = api.redrawImageCard('novelai', cardB);
+    const result = await floor;
+    await single;
+    assert.deepEqual(result, { submitted: 2, skipped: 0 });
+    assert.equal(h.submissions.length, 1);
+    assert.equal(h.requests, 1);
+    // 操作结束后认领自动释放：同一格再次单张重生会正常提交。
+    await api.redrawImageCard('novelai', failedCards(h)[0] ?? cardB);
+    assert.equal(h.submissions.length, 2);
+});
+
+test('a card the whole-floor redraw skips is released, so its single redraw is not swallowed by the floor operation', async t => {
+    const h = setup(t, floorSource('fr10', ['a', 'b'])); h.hold = true;
+    t.after(() => h.finish()); // 断言失败时也要放行被挂起的请求，避免测试进程悬挂
+    await storeFailedSlots(h, 'fr10', [['a', 'tag a']]);
+    // b 没有任何 TAG：整楼重生会跳过它。
+    await api.storePreview({ slotId: 'fr10-b', imgId: 'fr10-b-img', messageId: 0, tags: '', positive: '', characterPrompts: [],
+        negativePrompt: '', status: 'failed', errorType: 'failed', errorMessage: 'supplier rejected' });
+    h.format(); await api.renderPreviewsForMessage(0);
+    const [cardA, cardB] = failedCards(h);
+    assert.equal(cardB.dataset.slotId, 'fr10-b');
+    const floor = api.redrawFloorFailedImageCards('novelai', cardA);
+    await until(() => h.requests === 1);
+    // 整楼重生仍在进行（a 已提交并被占住）；b 被跳过，单张重新生成必须独立处理（这里给出“没有 TAG”的错误），而不是等整楼结束后什么都不做。
+    const single = api.redrawImageCard('novelai', cardB);
+    let outcome = 'pending';
+    single.then(() => { outcome = 'resolved'; }, error => { outcome = error.message; });
+    await tick();
+    assert.match(outcome, /TAG|标签|tag/i);
+    // a 仍被整楼重生占住：单张重新生成并入同一批，不会重复提交。
+    const singleA = api.redrawImageCard('novelai', cardA);
+    await tick();
+    assert.equal(h.submissions.length, 1);
+    h.finish();
+    assert.deepEqual(await floor, { submitted: 1, skipped: 1 });
+    await singleA;
+    assert.equal(h.submissions.length, 1);
+});
+
+test('a whole-floor redraw only claims its own failed cards; another card of the floor still queues normally', async t => {
+    const h = setup(t, floorSource('fr8', ['a', 'b', 'c'])); h.hold = true;
+    await storeFailedSlots(h, 'fr8', [['a', 'tag a'], ['b', 'tag b']]);
+    await api.storePreview({ slotId: 'fr8-c', imgId: 'fr8-c-img', messageId: 0, tags: 'tag c', positive: 'tag c', base64: 'YWJj' });
+    h.format(); await api.renderPreviewsForMessage(0);
+    const cardC = h.root.querySelector('.xb-nd-img[data-slot-id="fr8-c"]');
+    assert.ok(cardC);
+    const floor = api.redrawFloorFailedImageCards('novelai', failedCards(h)[0]);
+    await until(() => h.requests === 1);
+    const other = api.redrawImageCard('novelai', cardC);
+    assert.notEqual(other, floor);
+    await until(() => h.submissions.length === 2);
+    h.finish(); await tick(); h.finish();
+    await Promise.all([floor, other]);
+    assert.equal(h.submissions.length, 2);
+});
+
+test('clicking whole-floor redraw twice shows the skipped-cards notice only once', async t => {
+    const notices = [];
+    globalThis.toastr = { info: message => notices.push(['info', message]), error: message => notices.push(['error', message]) };
+    t.after(() => { delete globalThis.toastr; });
+    const h = setup(t, floorSource('fr9', ['a', 'b', 'c'])); h.hold = true;
+    await storeFailedSlots(h, 'fr9', [['a', 'tag a'], ['b', 'tag b'], ['c', 'tag c']]);
+    markSlotBusy(t, 'fr9-c');
+    const card = failedCards(h)[0];
+    const first = api.retryFloorFailedImageCards('novelai', card);
+    const second = api.retryFloorFailedImageCards('novelai', card);
+    await until(() => h.requests === 1);
+    h.finish();
+    await Promise.all([first, second]);
+    assert.equal(h.submissions.length, 1);
+    assert.deepEqual(notices, [['info', '已重新生成 2 张，另有 1 张正在处理中已跳过']]);
+    // 操作结束后再点一次是新的操作，会重新给出提示。
+    notices.length = 0;
+    await api.retryFloorFailedImageCards('novelai', card);
+    assert.equal(notices.length, 1);
+});
+
+test('a failing whole-floor redraw reports its error once, even when a single redraw of a claimed card joined it', async t => {
+    const notices = [];
+    globalThis.toastr = { info: message => notices.push(['info', message]), error: message => notices.push(['error', message]) };
+    t.after(() => { delete globalThis.toastr; });
+    const h = setup(t, floorSource('fr11', ['a', 'b']));
+    await storeFailedSlots(h, 'fr11', [['a', 'tag a'], ['b', 'tag b']]);
+    const [cardA, cardB] = failedCards(h);
+    h.prepareBarrier = async () => { throw new Error('floor boom'); };
+    const floor = api.retryFloorFailedImageCards('novelai', cardA);
+    // 整楼重生还在收集阶段时点单张“重新生成”（并入整楼操作）。供应商入口 refreshSingleImage 对异常再弹一次 error，所以这里不能再抛。
+    const single = api.redrawImageCard('novelai', cardB);
+    await assert.doesNotReject(single);
+    await floor;
+    assert.deepEqual(notices, [['error', 'floor boom']]);
+});
+
+test('a single redraw clicked after the floor batch settled, while the floor only re-renders, is a real redraw instead of being swallowed', async t => {
+    const h = setup(t, floorSource('fr12', ['a', 'b']));
+    await storeFailedSlots(h, 'fr12', [['a', 'tag a'], ['b', 'tag b']]);
+    const [cardA, cardB] = failedCards(h);
+    let single;
+    let floorSettled = false;
+    let settledAtClick = null;
+    let clickedAfterBatch = null;
+    let successes = 0;
+    h.stateHook = (state) => {
+        if (state === 'success' && ++successes === 2) {
+            // 最后一格完成的回调之后的下一轮事件循环：批次已经收场，整楼操作只剩收尾重绘（IndexedDB 读写要好几轮）。
+            clickedAfterBatch = new Promise(resolve => setImmediate(() => {
+                settledAtClick = floorSettled;
+                single = api.redrawImageCard('novelai', cardB);
+                resolve();
+            }));
+        }
+    };
+    const floor = api.redrawFloorFailedImageCards('novelai', cardA).then((result) => { floorSettled = true; return result; });
+    assert.deepEqual(await floor, { submitted: 2, skipped: 0 });
+    await clickedAfterBatch;
+    assert.equal(settledAtClick, false, '前提：点击发生时整楼操作尚未结束');
+    assert.ok(single, '点击确实发生在整楼操作结束前');
+    await single;
+    assert.equal(h.submissions.length, 2, '单张点击走了正常的单张重绘（新提交一次），没有被吞掉');
+    assert.equal(h.requests, 2);
 });
 
 test('removing a slot clears its active swipe, every version and selection; never restores shorthand', async t => {

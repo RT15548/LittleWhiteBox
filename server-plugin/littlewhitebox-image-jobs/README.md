@@ -42,10 +42,12 @@ SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新
 `GET /status` 声明 capability：
 
 ```text
+v5-msgpack-stream
 image-batch-jobs-v1
 novelai-v5-final-image-v1
 draw-runs-v1
 draw-run-runtime-v4
+draw-run-planner-retry-v1
 ```
 
 通用任务接口位于 `/v1/jobs`：

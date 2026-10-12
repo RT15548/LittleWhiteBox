@@ -15,6 +15,7 @@ import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import { createSubmitScenePlanTool } from './scene-plan-tool.js';
 import { buildScenePlannerSystemPrompt, buildScenePlannerUserTask } from './scene-planner-frame.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
+import { normalizePlannerRetry } from './planner-retry.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -345,6 +346,8 @@ export async function prepareScenePlannerInput(options = {}) {
             tool: request.tool,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
+            // 重试设置随快照冻结：后台 Draw Run 只能读到这里，与浏览器流程行为一致。
+            ...(options.plannerRetry ? { retry: normalizePlannerRetry(options.plannerRetry) } : {}),
         },
         agent: {
             channel: String(providerConfig?.provider || ''),

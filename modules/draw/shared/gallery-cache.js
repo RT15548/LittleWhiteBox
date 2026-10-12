@@ -18,6 +18,10 @@ const PREVIEW_CACHE_LIMIT = 64;
 const PREVIEW_OBJECT_URL_LIMIT = 128;
 const PREVIEW_PRELOAD_LIMIT = 128;
 const CACHE_SYNC_CHANNEL_NAME = 'xb_novel_draw_preview_changes';
+// 图片管理分页：每页默认 24 个图组，单次最多 500 个（数据变化后“重新加载到先前数量”一次请求的上限）。
+export const GALLERY_PAGE_DEFAULT_LIMIT = 24;
+export const GALLERY_PAGE_MAX_LIMIT = 500;
+const SLOT_ORDER_CACHE_TTL = 30 * 1000;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -31,6 +35,9 @@ let currentGalleryData = null;
 const previewCache = new Map();
 const previewObjectUrlCache = new Map();
 const previewPreloadCache = new Map();
+// 角色 → 图组完整排序（只含元数据，不含 base64）；任何写入 / 删除 / 跨标签页变更都会清空。
+const slotOrderCache = new Map();
+let slotOrderGeneration = 0;
 const cacheChangeListeners = new Set();
 let cacheSyncChannel = null;
 
@@ -273,6 +280,8 @@ function setCachedPreviews(slotId, data) {
 }
 
 function invalidateCache(slotId) {
+    slotOrderCache.clear();
+    slotOrderGeneration++;
     if (slotId) {
         previewCache.delete(slotId);
     } else {
@@ -1095,6 +1104,159 @@ export async function getCharacterPreviews(charName) {
             resolve({});
         }
     });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 图片管理：按图组分页读取（只把本页图组的“最新一张”带出去，版本按需另取）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function isDisplayableRecord(item) {
+    return !!item && typeof item === 'object' && item.status !== 'failed' && !!(item.base64 || item.savedUrl);
+}
+
+function compareText(a, b) {
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+// 页面只需要这几个字段；已保存的记录只带 savedUrl，不带 base64。
+function toGalleryImage(item) {
+    return {
+        imgId: item.imgId,
+        slotId: item.slotId || item.imgId,
+        timestamp: Number(item.timestamp) || 0,
+        savedUrl: item.savedUrl || null,
+        base64: item.savedUrl ? null : (item.base64 || null),
+    };
+}
+
+// 逐条读取该角色的记录，只保留每个图组的元数据，读完一条就丢掉它的 base64，整个角色的图片不会同时驻留内存。
+function scanCharacterSlotOrder(charName) {
+    return openDB().then((database) => new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const slots = new Map();
+            const visit = (item) => {
+                try {
+                    if (!isDisplayableRecord(item) || (item.characterName || 'Unknown') !== charName) return;
+                    const slotId = item.slotId || item.imgId;
+                    if (!slotId) return;
+                    let slot = slots.get(slotId);
+                    if (!slot) {
+                        slot = { slotId, count: 0, hasSaved: false, latestTimestamp: -1, latestImgId: null };
+                        slots.set(slotId, slot);
+                    }
+                    slot.count++;
+                    if (item.savedUrl) slot.hasSaved = true;
+                    const timestamp = Number(item.timestamp) || 0;
+                    // 游标按主键升序给出记录：时间相同保留先到的（imgId 较小），与版本排序的平手规则一致。
+                    if (timestamp > slot.latestTimestamp) {
+                        slot.latestTimestamp = timestamp;
+                        slot.latestImgId = item.imgId;
+                    }
+                } catch {}
+            };
+            const source = store.indexNames.contains('characterName') && charName !== 'Unknown'
+                ? store.index('characterName').openCursor(charName)
+                : store.openCursor();
+            source.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) return;
+                visit(cursor.value);
+                cursor.continue();
+            };
+            source.onerror = () => reject(source.error);
+            tx.oncomplete = () => resolve(Array.from(slots.values())
+                .sort((a, b) => (b.latestTimestamp - a.latestTimestamp) || compareText(a.slotId, b.slotId)));
+            tx.onabort = () => reject(tx.error || new Error('scan aborted'));
+        } catch (error) {
+            reject(error);
+        }
+    }));
+}
+
+function getCharacterSlotOrder(charName) {
+    const cached = slotOrderCache.get(charName);
+    if (cached && Date.now() - cached.at < SLOT_ORDER_CACHE_TTL) return cached.promise;
+    const generation = slotOrderGeneration;
+    const promise = scanCharacterSlotOrder(charName);
+    const entry = { at: Date.now(), promise };
+    slotOrderCache.set(charName, entry);
+    // 失败、或扫描期间发生过写入（结果可能已过期）：不留缓存，本次调用仍可用这份结果作答。
+    const drop = () => { if (slotOrderCache.get(charName) === entry) slotOrderCache.delete(charName); };
+    promise.then(() => { if (generation !== slotOrderGeneration) drop(); }, drop);
+    return promise;
+}
+
+function readRecordsByKeys(keys) {
+    return openDB().then((database) => new Promise((resolve) => {
+        const results = new Array(keys.length).fill(null);
+        if (!keys.length) { resolve(results); return; }
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            keys.forEach((key, index) => {
+                try {
+                    const request = store.get(key);
+                    request.onsuccess = () => { results[index] = request.result || null; };
+                    request.onerror = (event) => { event.preventDefault?.(); };
+                } catch {}
+            });
+            tx.oncomplete = tx.onabort = tx.onerror = () => resolve(results);
+        } catch {
+            resolve(results);
+        }
+    }));
+}
+
+/**
+ * 某角色的第 offset 起 limit 个图组（按每组最新图时间倒序），每组只带最新一张。
+ * 返回 { slots: {slotId: [最新一张]}, order, slotMeta: {slotId: {count, hasSaved}}, offset, limit, total, hasMore, nextOffset }。
+ * 记录缺失 / 损坏的图组被跳过（order 里没有它，nextOffset 仍然前进），不让整页失败。
+ */
+export async function getCharacterSlotsPage(charName, { offset = 0, limit = GALLERY_PAGE_DEFAULT_LIMIT } = {}) {
+    const start = Math.max(0, Math.floor(Number(offset)) || 0);
+    const size = Math.min(GALLERY_PAGE_MAX_LIMIT, Math.max(1, Math.floor(Number(limit)) || GALLERY_PAGE_DEFAULT_LIMIT));
+    const all = await getCharacterSlotOrder(charName);
+    const pageSlots = all.slice(start, start + size);
+    const records = await readRecordsByKeys(pageSlots.map(slot => slot.latestImgId));
+    const slots = {};
+    const order = [];
+    const slotMeta = {};
+    pageSlots.forEach((slot, index) => {
+        const record = records[index];
+        if (!isDisplayableRecord(record)) return;
+        slots[slot.slotId] = [toGalleryImage(record)];
+        slotMeta[slot.slotId] = { count: slot.count, hasSaved: slot.hasSaved };
+        order.push(slot.slotId);
+    });
+    const nextOffset = start + pageSlots.length;
+    return { slots, order, slotMeta, offset: start, limit: size, total: all.length, hasMore: nextOffset < all.length, nextOffset };
+}
+
+/** 一个图组的全部版本（按时间倒序，时间相同按 imgId），已保存的只带 savedUrl。 */
+export async function getSlotVersions(charName, slotId) {
+    if (!slotId) return [];
+    const database = await openDB();
+    const rows = await new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const found = [];
+            const byIndex = store.indexNames.contains('slotId') ? store.index('slotId').getAll(slotId) : null;
+            const byKey = store.get(slotId); // 没有 slotId 字段的记录以自身 imgId 作图组
+            if (byIndex) byIndex.onsuccess = () => found.push(...(byIndex.result || []));
+            byKey.onsuccess = () => { if (byKey.result && !byKey.result.slotId) found.push(byKey.result); };
+            tx.oncomplete = () => resolve(found);
+            tx.onabort = tx.onerror = () => reject(tx.error || new Error('read aborted'));
+        } catch (error) {
+            reject(error);
+        }
+    });
+    return rows
+        .filter(item => isDisplayableRecord(item) && (item.characterName || 'Unknown') === (charName || 'Unknown'))
+        .sort((a, b) => ((Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)) || compareText(String(a.imgId), String(b.imgId)))
+        .map(toGalleryImage);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

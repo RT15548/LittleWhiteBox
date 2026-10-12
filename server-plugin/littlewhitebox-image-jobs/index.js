@@ -47,6 +47,7 @@ const PLUGIN_CAPABILITIES = Object.freeze([
     'novelai-v5-final-image-v1',
     'draw-runs-v1',
     'draw-run-runtime-v4',
+    'draw-run-planner-retry-v1',
 ]);
 const LOG_PREFIX = '[littlewhitebox-image-jobs]';
 

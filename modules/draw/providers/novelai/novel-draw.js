@@ -27,7 +27,8 @@ import {
     clearExpiredCache,
     clearAllCache,
     getGallerySummary,
-    getCharacterPreviews,
+    getCharacterSlotsPage,
+    getSlotVersions,
     openGallery,
     closeGallery,
     destroyGalleryCache,
@@ -46,11 +47,26 @@ import {
     mergeNovelDrawProviderSettingsIntoStorageRoot,
 } from "../../shared/draw-settings.js";
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import {
+    applyGroupPresetForCurrentChat,
+    getActiveCharacterAvatars,
+    listHostCharacters,
+    onGroupPresetApplied,
+    onGroupPresetContextChanged,
+    saveGroupPresets,
+} from "../../shared/character-group-presets-runtime.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
-import { isCharacterEnabled } from "../../shared/character-selection.js";
+import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
+import { detectPresentCharacters } from "../../shared/present-characters.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
+import {
+    mergeAutoLearnOps,
+    snapshotAutoLearnFields,
+    buildAutoLearnCreateOp,
+    buildAutoLearnUpdateOp,
+} from "../../shared/auto-learn-merge.js";
 import {
     NovelImageResponseError,
     extractImageFromResponse,
@@ -137,7 +153,7 @@ import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
-import { redrawImageCard, removeChatImageSlot, restoreImageCard } from "../../shared/image-card-actions.js";
+import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { persistCardTagEdits } from "../../shared/card-tag-editor.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
 // ═══════════════════════════════════════════════════════════════════════════
@@ -338,6 +354,7 @@ const DEFAULT_SETTINGS = {
     characterTags: [],
     autoLearnCharacters: false,
     autoLearnMode: 'new_only',
+    autoLearnGroupId: '',
     overrideSize: 'default',
     showFloorButton: true,
     showFloatingButton: false,
@@ -447,8 +464,6 @@ function generateSlotId() { return `slot-${Date.now()}-${Math.random().toString(
 function generateImgId() { return `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
 function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
-
-function escapeRegexChars(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function getChatCharacterName() {
     const ctx = getContext();
@@ -781,6 +796,7 @@ function normalizeSettings(saved = {}) {
         characterTags: Array.isArray(source.characterTags) ? source.characterTags : [],
         autoLearnCharacters: source.autoLearnCharacters === true,
         autoLearnMode: source.autoLearnMode,
+        autoLearnGroupId: String(source.autoLearnGroupId || ''),
         overrideSize: String(source.overrideSize || 'default'),
         showFloorButton: source.showFloorButton !== false,
         showFloatingButton: source.showFloatingButton === true,
@@ -929,7 +945,11 @@ function getRuntimeSettings() {
         timeout: sharedSettings.timeout,
         cacheDays: sharedSettings.cacheDays,
         useWorldInfo: sharedSettings.useWorldInfo,
+        plannerMaxRetries: sharedSettings.plannerMaxRetries,
         characterTags: sharedSettings.characterTags,
+        characterGroups: sharedSettings.characterGroups,
+        characterGroupPresets: sharedSettings.characterGroupPresets,
+        characterGroupPresetApplied: sharedSettings.characterGroupPresetApplied,
         worldbooks: sharedSettings.worldbooks,
         danbooruLocalDB: sharedSettings.danbooruLocalDB,
         messageFilterRules: sharedSettings.messageFilterRules,
@@ -1229,35 +1249,6 @@ function normalizeNamedTagList(list = []) {
         .filter(item => item.name || item.tags);
 }
 
-function detectPresentCharacters(messageText, characterTags) {
-    if (!messageText || !characterTags?.length) return [];
-    const text = messageText.toLowerCase();
-    const present = [];
-
-    for (const char of characterTags) {
-        if (!isCharacterEnabled(char) || !char.name) continue;
-        const names = [char.name, ...(char.aliases || [])].filter(Boolean);
-        const isPresent = names.some(name => {
-            const lowerName = name.toLowerCase();
-            return text.includes(lowerName) || new RegExp(`\\b${escapeRegexChars(lowerName)}\\b`, 'i').test(text);
-        });
-
-        if (isPresent) {
-            present.push({
-                name: char.name,
-                aliases: char.aliases || [],
-                type: char.type || 'girl',
-                appearance: char.appearance || '',
-                danbooruTag: char.danbooruTag || '',
-                negativeTags: char.negativeTags || '',
-                outfits: normalizeNamedTagList(char.outfits),
-                dynamicStates: normalizeNamedTagList(char.dynamicStates),
-            });
-        }
-    }
-    return present;
-}
-
 // ── 角色自动学习 ─────────────────────────────────────────────
 
 /** 通用/匿名角色名过滤：预编译为单一正则，避免每次调用迭代 30+ 个 pattern */
@@ -1288,8 +1279,34 @@ function isGenericCharName(name) {
     return GENERIC_NAME_REGEX.test(name.trim());
 }
 
+// 已有角色补字段的学习规则（auto_update 模式）：原样从 autoLearnFromTasks 抽出，
+// 供学习阶段和“写回时合并到最新角色库”共用。对传入角色就地修改，返回是否有改动。
+function fillExistingCharacterFromCandidate(found, char) {
+    let updated = false;
+    if (!found.appearance && char.appear) {
+        found.appearance = char.appear;
+        updated = true;
+    }
+    // 仅在外貌仍为空时更新 type（已有外貌说明角色已配置，不应覆盖 type）
+    if (!found.appearance && char.type && found.type !== char.type) {
+        found.type = char.type;
+        updated = true;
+    }
+    if (!found.danbooruTag && char.danbooru) {
+        found.danbooruTag = char.danbooru;
+        updated = true;
+    }
+    // 本地 DB 自动匹配 danbooruTag（auto_update 模式）
+    if (!found.danbooruTag && isDanbooruDBLoaded()) {
+        const matches = searchLocalDanbooru(found.name, 1);
+        if (matches.length) { found.danbooruTag = matches[0].name; updated = true; }
+    }
+    return updated;
+}
+
+// 学习结果除最终表（settings.characterTags）外还产出操作列表 ops，写回时在最新角色库上重放。
 function autoLearnFromTasks(tasks, settings) {
-    const result = { newChars: [], updatedChars: [] };
+    const result = { newChars: [], updatedChars: [], ops: [] };
     if (!tasks?.length) return result;
 
     // 收集所有有 type 或 appear 的角色（LLM 认定的未知角色）
@@ -1331,6 +1348,11 @@ function autoLearnFromTasks(tasks, settings) {
                 outfits: [],
                 dynamicStates: [],
             };
+            // 新角色进入设置的分组；分组不存在（被删除）时回落到未分组。
+            const learnGroupId = String(settings.autoLearnGroupId || '');
+            if (learnGroupId && (settings.characterGroups || []).some(group => group.id === learnGroupId)) {
+                newChar.groupId = learnGroupId;
+            }
             // 本地 DB 自动匹配 danbooruTag
             if (isDanbooruDBLoaded() && !newChar.danbooruTag) {
                 const matches = searchLocalDanbooru(char.name, 1);
@@ -1338,27 +1360,17 @@ function autoLearnFromTasks(tasks, settings) {
             }
             knownTags.push(newChar);
             result.newChars.push(char.name);
+            result.ops.push(buildAutoLearnCreateOp(newChar, {
+                groupId: settings.autoLearnGroupId,
+                candidate: char,
+            }));
         } else if (mode === 'auto_update') {
-            let updated = false;
-            if (!found.appearance && char.appear) {
-                found.appearance = char.appear;
-                updated = true;
+            const before = snapshotAutoLearnFields(found);
+            if (fillExistingCharacterFromCandidate(found, char)) {
+                result.updatedChars.push(found.name);
+                const op = buildAutoLearnUpdateOp(found, before);
+                if (op) result.ops.push(op);
             }
-            // 仅在外貌仍为空时更新 type（已有外貌说明角色已配置，不应覆盖 type）
-            if (!found.appearance && char.type && found.type !== char.type) {
-                found.type = char.type;
-                updated = true;
-            }
-            if (!found.danbooruTag && char.danbooru) {
-                found.danbooruTag = char.danbooru;
-                updated = true;
-            }
-            // 本地 DB 自动匹配 danbooruTag（auto_update 模式）
-            if (!found.danbooruTag && isDanbooruDBLoaded()) {
-                const matches = searchLocalDanbooru(found.name, 1);
-                if (matches.length) { found.danbooruTag = matches[0].name; updated = true; }
-            }
-            if (updated) result.updatedChars.push(found.name);
         }
     }
 
@@ -1562,7 +1574,7 @@ function createNovelRequestSeed(params = {}) {
 }
 
 export function createNovelGenerationRecipe({
-    settings = getSettings(),
+    settings = getRuntimeSettings(),
     preset = getActiveParamsPreset(),
     itemCount = 0,
     resolveForBackend,
@@ -1586,7 +1598,8 @@ export function createNovelGenerationRecipe({
         params: cloneSettingsObject(params),
         positivePrefix: preset?.positivePrefix || '',
         negativePrefix: preset?.negativePrefix || '',
-        knownCharacters: cloneSettingsObject(settings.characterTags || []),
+        // 只携带有效启用的角色（分组开着且角色自己开着），后台 500 条上限也按这个数计。
+        knownCharacters: cloneSettingsObject(selectEnabledCharacters(characterLibraryFromSettings(settings))),
         autoLearnEnabled: settings.autoLearnCharacters === true,
         autoLearnMode: ['new_only', 'auto_update'].includes(settings.autoLearnMode)
             ? settings.autoLearnMode
@@ -2159,6 +2172,9 @@ async function handleDelegatedClick(e) {
         case 'retry-image':
             await retryFailedImage(container);
             break;
+        case 'retry-floor-failed':
+            await retryFloorFailedImageCards("novelai", container);
+            break;
         case 'restore-image':
             await restoreImageCard(container);
             break;
@@ -2521,16 +2537,29 @@ async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
         const tagsCopy = JSON.parse(JSON.stringify(settings.characterTags || []));
         const settingsCopy = { ...settings, characterTags: tagsCopy };
         const learnResult = autoLearnFromTasks(tasks, settingsCopy);
-        if (learnResult.newChars.length || learnResult.updatedChars.length) {
-            const parts = [];
-            if (learnResult.newChars.length) parts.push(`新角色: ${learnResult.newChars.join(', ')}`);
-            if (learnResult.updatedChars.length) parts.push(`更新: ${learnResult.updatedChars.join(', ')}`);
-            const msg = `已学习 ${parts.join(' | ')}`;
-            const ok = await updateSharedSettingsPersistent((draft) => {
-                draft.characterTags = tagsCopy;
-            }, msg);
-            if (ok && overlayCreated && frameReady) sendInitData();
-        }
+        if (!learnResult.ops.length) return;
+        // 学习用的是任务开始时的快照；写回时把操作列表合并到保存时最新的角色库，
+        // 任务期间用户的整理（分组、移动、复制、删除、导入、启停）原样保留。
+        const mergeOptions = {
+            mode: settings.autoLearnMode || 'new_only',
+            resolve: resolveAutoLearnCharacter,
+            fillExisting: fillExistingCharacterFromCandidate,
+        };
+        const probe = mergeAutoLearnOps(
+            characterLibraryFromSettings(getSharedDrawSettings()),
+            learnResult.ops,
+            mergeOptions,
+        );
+        if (!probe.changed) return;
+        const parts = [];
+        if (probe.created.length) parts.push(`新角色: ${probe.created.join(', ')}`);
+        if (probe.updated.length) parts.push(`更新: ${probe.updated.join(', ')}`);
+        const msg = `已学习 ${parts.join(' | ')}`;
+        const ok = await updateSharedSettingsPersistent((draft) => {
+            const merged = mergeAutoLearnOps(characterLibraryFromSettings(draft), learnResult.ops, mergeOptions);
+            if (merged.changed) draft.characterTags = merged.characters;
+        }, msg);
+        if (ok && overlayCreated && frameReady) sendInitData();
     } catch (e) {
         console.warn('[NovelDraw] 自动学习角色失败:', e);
     }
@@ -2603,6 +2632,7 @@ async function buildNovelScenePlannerOptions({
         absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
         plannerProfile: getNovelPlannerProfile(model),
+        plannerRetry: { maxRetries: settings.plannerMaxRetries },
         onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
         signal,
     };
@@ -2644,7 +2674,7 @@ async function generateImagesFromText(options = {}) {
         const sceneSource = createSceneSource(text, { filterRules });
         if (!sceneSource.content) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
-        const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
+        const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
         job.phase = 'llm';
         options.onStateChange?.('llm', toScenePlannerProgress());
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
@@ -2840,7 +2870,7 @@ async function generateAndInsertImages({
         );
         if (!sceneSource.content) throw new NovelDrawError('消息内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
-        const presentCharacters = detectPresentCharacters(sceneSource.content, settings.characterTags || []);
+        const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
 
         if (isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
@@ -3030,6 +3060,7 @@ function createOverlay() {
     // Guarded by isTrustedMessage (origin + source).
     // eslint-disable-next-line no-restricted-syntax
     window.addEventListener('message', handleFrameMessage);
+    subscribeGroupPresetRefresh();
 }
 
 function showOverlay() {
@@ -3058,6 +3089,7 @@ function hideOverlay() {
     }
 
     window.removeEventListener('message', handleFrameMessage);
+    unsubscribeGroupPresetRefresh();
 }
 
 async function sendInitData() {
@@ -3068,7 +3100,9 @@ async function sendInitData() {
     const settings = getRuntimeSettings();
     console.log('[NovelDraw] sendInitData: autoLearn=%s, advancedMode=%s, promptPresets=%d',
         settings.autoLearnCharacters, settings.advancedMode, settings.promptPresets?.length);
-    const buildPayload = (stats = { count: 0, sizeMB: 0 }, gallerySummary = {}) => ({
+    // 这条先行的 INIT_DATA 故意不带 cacheStats / gallerySummary：它们要等下面的 IndexedDB 统计算完，
+    // 由随后的 CACHE_DATA 带真实数据。带上占位的空摘要会让页面清空预览缓存并把图片管理画成空的，已展开的分组就丢了。
+    const buildPayload = () => ({
         type: 'INIT_DATA',
         settings: {
             enabled: moduleInitialized,
@@ -3084,9 +3118,17 @@ async function sendInitData() {
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             useWorldInfo: settings.useWorldInfo,
+            plannerMaxRetries: settings.plannerMaxRetries,
             characterTags: settings.characterTags,
+            characterGroups: settings.characterGroups || [],
+            // 分组预设：都是真实数据（不是占位），页面直接据此渲染预设行与“当前命中”徽标。
+            characterGroupPresets: settings.characterGroupPresets || [],
+            characterGroupPresetApplied: settings.characterGroupPresetApplied || null,
+            hostCharacters: listHostCharacters(),
+            activeAvatars: getActiveCharacterAvatars(),
             autoLearnCharacters: !!settings.autoLearnCharacters,
             autoLearnMode: settings.autoLearnMode || 'new_only',
+            autoLearnGroupId: settings.autoLearnGroupId || '',
             danbooruLocalDB: !!settings.danbooruLocalDB,
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
@@ -3103,28 +3145,64 @@ async function sendInitData() {
             messageFilterRules: settings.messageFilterRules || [],
         },
         defaultPrompts: { ...DEFAULT_PROMPT_CONFIG },
-        cacheStats: stats,
-        gallerySummary,
     });
     postToIframe(iframe, buildPayload(), 'LittleWhiteBox-NovelDraw');
+    await sendCacheData();
+}
 
-    let stats = { count: 0, sizeMB: 0 };
-    let gallerySummary = {};
-    try { stats = await getCacheStats(); } catch (e) { console.warn('[NovelDraw] getCacheStats failed:', e); }
-    try { gallerySummary = await getGallerySummary(); } catch (e) { console.warn('[NovelDraw] getGallerySummary failed:', e); }
+// 只发图片缓存统计（CACHE_DATA），不重发整份设置：画廊的保存 / 删除 / 刷新统计只改缓存，
+// 整份 INIT_DATA 会让页面所有控件重新赋值、图片管理整页重绘。
+async function sendCacheData() {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe?.contentWindow) return;
+    // 统计失败时对应字段干脆不带：页面收到缺省字段会保持原状，不会被占位的空值冲掉。
+    const cacheData = { type: 'CACHE_DATA' };
+    try { cacheData.cacheStats = await getCacheStats(); } catch (e) { console.warn('[NovelDraw] getCacheStats failed:', e); }
+    try { cacheData.gallerySummary = await getGallerySummary(); } catch (e) { console.warn('[NovelDraw] getGallerySummary failed:', e); }
     const currentIframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (currentIframe?.contentWindow === iframe.contentWindow) {
-        postToIframe(currentIframe, {
-            type: 'CACHE_DATA',
-            cacheStats: stats,
-            gallerySummary,
-        }, 'LittleWhiteBox-NovelDraw');
+        postToIframe(currentIframe, cacheData, 'LittleWhiteBox-NovelDraw');
     }
 }
 
-function postStatus(state, text, target = '') {
+function postStatus(state, text, target = '', extra = {}) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text, target }, 'LittleWhiteBox-NovelDraw');
+    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text, target, ...extra }, 'LittleWhiteBox-NovelDraw');
+}
+
+function postGroupPresetContext() {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe?.contentWindow || !frameReady) return;
+    postToIframe(iframe, {
+        type: 'GROUP_PRESET_CONTEXT',
+        activeAvatars: getActiveCharacterAvatars(),
+        hostCharacters: listHostCharacters(),
+    }, 'LittleWhiteBox-NovelDraw');
+}
+
+// 预设被自动应用 / 手动应用后，iframe 里可能持有旧的分组开关：整份重新下发（带最新 characterGroups）。
+// 聊天切换但没发生应用时，只推轻量的 GROUP_PRESET_CONTEXT。订阅随设置面板建立、关闭时取消。
+let groupPresetUnsubscribers = [];
+
+function subscribeGroupPresetRefresh() {
+    unsubscribeGroupPresetRefresh();
+    groupPresetUnsubscribers = [
+        onGroupPresetApplied(() => { if (frameReady) void sendInitData(); }),
+        onGroupPresetContextChanged(() => postGroupPresetContext()),
+    ];
+}
+
+function unsubscribeGroupPresetRefresh() {
+    groupPresetUnsubscribers.splice(0).forEach((off) => { try { off(); } catch { /* 取消订阅失败可忽略 */ } });
+}
+
+function describeGroupPresetApply(result) {
+    if (result?.status === 'applied') {
+        return result.changed ? `已应用“${result.presetName}”：${result.changedCount} 个分组开关变化` : `“${result.presetName}”的分组开关已是目标状态，无变化`;
+    }
+    if (result?.status === 'preset-missing') return '预设不存在，请刷新后重试';
+    if (result?.status === 'no-presets') return '还没有可应用的预设';
+    return `应用分组预设失败${result?.message ? `：${result.message}` : ''}`;
 }
 
 function getAgentSettingsSurfaceRoot() {
@@ -3556,7 +3634,49 @@ async function handleFrameMessage(event) {
         case 'SAVE_CHARACTER_TAGS': {
             const ok = await updateSharedSettingsPersistent((settings) => {
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
+                if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
             }, '角色标签已保存');
+            if (!ok) await sendInitData();
+            break;
+        }
+
+        case 'SAVE_GROUP_PRESETS': {
+            // 规范化（以保存时最新的分组为准）与持久化在 runtime.saveGroupPresets 里；成功后它会做一次非强制应用。
+            // 页面带来的 seq 原样回给它，用于对账“已发出但还没回执”的保存。
+            const seq = Number(data.seq) || 0;
+            const result = await saveGroupPresets(data.presets);
+            if (result.saved) {
+                // 带上规范化后的预设：页面据此对齐本地显示（回执之前页面一直保留自己乐观更新的版本）。
+                postStatus('success', '分组预设已保存', 'group-presets', { seq, presets: result.presets });
+            } else {
+                const reason = result.message || (result.status === 'invalid' ? '预设数据格式不正确' : '保存失败');
+                postStatus('error', `分组预设保存失败：${reason}`, 'group-presets', { seq });
+                // 页面已乐观更新：失败时回推以回滚显示（同 SAVE_CHARACTER_TAGS）。
+                await sendInitData();
+            }
+            break;
+        }
+
+        case 'APPLY_GROUP_PRESET': {
+            const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+            const result = await applyGroupPresetForCurrentChat({ force: true, presetId: String(data.presetId || '') });
+            const applied = result?.status === 'applied';
+            const text = describeGroupPresetApply(result);
+            postStatus(applied ? 'success' : 'error', text, 'group-presets', {
+                requestId,
+                result: applied
+                    ? { status: 'applied', changed: Boolean(result.changed), changedCount: result.changedCount || 0 }
+                    : { status: 'error', message: result?.status === 'save-failed' || result?.status === 'error' ? (result.message || '') : text },
+            });
+            break;
+        }
+
+        case 'SAVE_PLANNER_RETRY': {
+            const ok = await updateSharedSettingsPersistent((settings) => {
+                settings.plannerMaxRetries = data.plannerMaxRetries;
+            }, '重试次数已保存');
+            // 页面已在本地更新：成功时不回推，避免用可能过期的角色表覆盖页面状态、丢掉卡片里未保存的编辑；
+            // 仅保存失败时回推以回滚页面显示（同 SAVE_CHARACTER_TAGS）。
             if (!ok) await sendInitData();
             break;
         }
@@ -3568,6 +3688,7 @@ async function handleFrameMessage(event) {
                 settings.autoLearnCharacters = nextAutoLearnCharacters;
                 settings.autoLearnMode = ['new_only', 'auto_update'].includes(data.autoLearnMode)
                     ? data.autoLearnMode : 'new_only';
+                if (typeof data.autoLearnGroupId === 'string') settings.autoLearnGroupId = data.autoLearnGroupId;
             }, nextAutoLearnCharacters ? '自动学习已开启' : '自动学习已关闭');
             sendInitData();
             break;
@@ -3685,11 +3806,12 @@ async function handleFrameMessage(event) {
         }
 
         case 'REFRESH_CACHE_STATS':
-            sendInitData();
+            void sendCacheData();
             break;
 
         case 'USE_GALLERY_IMAGE':
-            sendInitData();
+            // 这里没有任何设置变化，只回一个状态提示；不需要整页刷新。
+            void sendCacheData();
             postStatus('success', '已选择', 'gallery');
             break;
 
@@ -3710,7 +3832,7 @@ async function handleFrameMessage(event) {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
                 }
-                sendInitData();
+                void sendCacheData();
                 showToast(`已保存: ${url}`, 'success', 5000);
             } catch (e) {
                 console.error('[NovelDraw] 保存失败:', e);
@@ -3719,17 +3841,31 @@ async function handleFrameMessage(event) {
             break;
         }
 
+        // 图片管理分批加载：每次只取一页图组（每组最新一张），版本由 LOAD_SLOT_VERSIONS 按需再取。
         case 'LOAD_CHARACTER_PREVIEWS': {
+            const charName = data.charName;
+            if (!charName) break;
+            const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
             try {
-                const charName = data.charName;
-                if (!charName) break;
-                const slots = await getCharacterPreviews(charName);
-                {
-                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, slots }, 'LittleWhiteBox-NovelDraw');
-                }
+                const page = await getCharacterSlotsPage(charName, { offset: data.offset, limit: data.limit });
+                if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, ...page }, 'LittleWhiteBox-NovelDraw');
             } catch (e) {
                 console.error('[NovelDraw] 加载预览失败:', e);
+                if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_FAILED', charName }, 'LittleWhiteBox-NovelDraw');
+            }
+            break;
+        }
+
+        case 'LOAD_SLOT_VERSIONS': {
+            const { charName, slotId } = data;
+            if (!charName || !slotId) break;
+            const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+            try {
+                const images = await getSlotVersions(charName, slotId);
+                if (iframe) postToIframe(iframe, { type: 'SLOT_VERSIONS_LOADED', charName, slotId, images }, 'LittleWhiteBox-NovelDraw');
+            } catch (e) {
+                console.error('[NovelDraw] 加载图组版本失败:', e);
+                if (iframe) postToIframe(iframe, { type: 'SLOT_VERSIONS_FAILED', charName, slotId }, 'LittleWhiteBox-NovelDraw');
             }
             break;
         }
@@ -3741,7 +3877,7 @@ async function handleFrameMessage(event) {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-NovelDraw');
                 }
-                sendInitData();
+                void sendCacheData();
                 showToast('已删除');
             } catch (e) {
                 console.error('[NovelDraw] 删除失败:', e);
