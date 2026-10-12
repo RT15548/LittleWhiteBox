@@ -102,6 +102,7 @@ import {
     isDanbooruDBLoaded,
 } from "../../shared/danbooru-local-db.js";
 import { renderScenePlannerChain } from "../../shared/scene-planner-chain-view.js";
+import { parseFieldDescriptions } from '../../shared/scene-plan-descriptions.js';
 import {
     COMFY_PLANNER_PROFILE,
     DEFAULT_PROMPT_CONFIG,
@@ -2002,7 +2003,7 @@ function bindOverlayEvents() {
         setValue('comfy-prompt-guide', defaults.tagGuideContent);
         setValue('comfy-prompt-format', defaults.sceneRules);
         // 字段描述没有独立的表单控件：已存覆写与当前草稿全部打成空串墓碑，保存时一并剔除
-        const savedFieldDescriptions = parseFieldDescriptionOverride(getActivePromptPreset(getSettings())?.fieldDescriptions);
+        const savedFieldDescriptions = parseFieldDescriptions(getActivePromptPreset(getSettings())?.fieldDescriptions);
         [...Object.keys(savedFieldDescriptions), ...promptFieldDraft.keys()].forEach((path) => promptFieldDraft.set(path, ''));
         renderPromptChainPreview();
     });
@@ -2037,6 +2038,7 @@ function bindOverlayEvents() {
             if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.sceneRules !== 'string') {
                 throw new Error('不是有效的提示词模板文件');
             }
+            parseFieldDescriptions(payload.fieldDescriptions);
             const name = (typeof payload.name === 'string' && payload.name.trim())
                 ? payload.name.trim()
                 : (file.name.replace(/\.json$/i, '').trim() || `导入的预设-${(getSettings().promptPresets || []).length + 1}`);
@@ -2047,7 +2049,7 @@ function bindOverlayEvents() {
                 tagGuideContent: payload.tagGuideContent,
                 sceneRules: payload.sceneRules,
                 // 老导出文件没有这一项，落到空覆写（全部用内置文案）
-                fieldDescriptions: typeof payload.fieldDescriptions === 'string' ? payload.fieldDescriptions : '',
+                fieldDescriptions: payload.fieldDescriptions ?? '',
             };
             const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
                 settings.promptPresets = [...settings.promptPresets, preset];
@@ -2297,8 +2299,16 @@ function applyPromptPresetToForm(settings = getSettings()) {
     setValue('comfy-prompt-system', promptPreset.topSystem || '');
     setValue('comfy-prompt-guide', promptPreset.tagGuideContent || '');
     setValue('comfy-prompt-format', promptPreset.sceneRules || '');
-    // 切换预设 / 保存回填时丢弃未保存的字段描述草稿
-    promptFieldDraft.clear();
+    if (promptFieldPresetId !== promptPreset.id) {
+        promptFieldDraft.clear();
+        promptFieldPresetId = promptPreset.id;
+    } else {
+        // A form refresh only acknowledges the saved values, not edits made while saving.
+        const saved = parseFieldDescriptions(promptPreset.fieldDescriptions);
+        for (const [path, text] of promptFieldDraft) {
+            if ((saved[path] || '') === (text.trim() ? text : '')) promptFieldDraft.delete(path);
+        }
+    }
     renderPromptChainPreview(settings);
 }
 
@@ -2312,20 +2322,9 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
     };
 }
 
-/** 预设里存的是 JSON 字符串；坏 JSON / 非对象一律回落空覆写（全部用内置文案）。 */
-function parseFieldDescriptionOverride(value) {
-    if (typeof value !== 'string' || !value.trim()) return {};
-    try {
-        const parsed = JSON.parse(value);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
 /** 已存覆写与当前草稿合并成 JSON 字符串；空串/空白项剔除（= 恢复内置文案）。 */
 function serializeFieldDescriptions(basePreset = getActivePromptPreset(getSettings())) {
-    const merged = { ...parseFieldDescriptionOverride(basePreset?.fieldDescriptions), ...Object.fromEntries(promptFieldDraft) };
+    const merged = { ...parseFieldDescriptions(basePreset?.fieldDescriptions), ...Object.fromEntries(promptFieldDraft) };
     const out = {};
     for (const [key, text] of Object.entries(merged)) {
         if (typeof text === 'string' && text.trim()) out[key] = text;
@@ -3507,6 +3506,8 @@ export async function openSettings() {
 }
 
 export function hideSettings() {
+    promptFieldDraft.clear();
+    promptFieldPresetId = null;
     abortPendingRequest();
     agentSettingsSurface?.destroy();
     destroyCharacterLibraryUi();
@@ -3600,6 +3601,7 @@ function ensureAgentSettingsSurface() {
 
 // submit_scene_plan 字段描述的未保存草稿（路径 → 文案）；保存时与预设里已存的覆写合并。
 const promptFieldDraft = new Map();
+let promptFieldPresetId = null;
 
 function renderPromptChainPreview(settings = getSettings()) {
     const container = getSettingsElement('comfy-prompt-chain');
@@ -3611,7 +3613,7 @@ function renderPromptChainPreview(settings = getSettings()) {
         sceneRules: 'comfy-prompt-format',
     };
     const guideInput = getSettingsElement(editableMap.tagGuide);
-    const savedOverrides = parseFieldDescriptionOverride(getActivePromptPreset(settings)?.fieldDescriptions);
+    const savedOverrides = parseFieldDescriptions(getActivePromptPreset(settings)?.fieldDescriptions);
     const descriptions = { ...savedOverrides, ...Object.fromEntries(promptFieldDraft) };
     const chain = getPromptChainPreview({
         tagGuideContent: guideInput ? guideInput.value : (getActivePromptPreset(settings)?.tagGuideContent || ''),

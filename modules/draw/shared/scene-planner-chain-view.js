@@ -102,6 +102,7 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
                     description.className = 'chain-field-desc';
                     description.rows = 2;
                     description.dataset.path = field.path;
+                    description.setAttribute('aria-label', field.path);
                     description.value = field.description;
                     description.addEventListener('input', () => onFieldEdit(field.path, description.value));
                     fieldRow.append(description);
@@ -110,6 +111,7 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
                         reset.type = 'button';
                         reset.className = 'chain-field-reset';
                         reset.title = '恢复内置文案';
+                        reset.setAttribute('aria-label', `${reset.title} ${field.path}`);
                         reset.textContent = '↺';
                         reset.addEventListener('click', (event) => {
                             event.stopPropagation();

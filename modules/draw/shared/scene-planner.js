@@ -13,6 +13,7 @@ import {
 } from './scene-planner-executor.js';
 import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import { createSubmitScenePlanTool } from './scene-plan-tool.js';
+import { parseFieldDescriptions } from './scene-plan-descriptions.js';
 import { buildScenePlannerSystemPrompt, buildScenePlannerUserTask } from './scene-planner-frame.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
@@ -153,23 +154,6 @@ function buildSessionLimitsLine(maxImages, maxCharactersPerImage, insertPointCou
     else if (maxPlanImages > 0) clauses.push(`images 最多包含 ${maxPlanImages} 项`);
     if (characterLimit) clauses.push(`每项 characters 最多 ${characterLimit} 人`);
     return clauses.length ? `本次提交数量约束：${clauses.join('；')}。` : '';
-}
-
-/** fieldDescriptions 存的是 JSON 字符串；坏 JSON / 非对象一律回落空覆写（全部用内置文案）。 */
-function parseFieldDescriptions(value) {
-    if (typeof value !== 'string' || !value.trim()) return {};
-    try {
-        const parsed = JSON.parse(value);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-        const out = {};
-        for (const [key, text] of Object.entries(parsed)) {
-            if (typeof key === 'string' && key.trim() && typeof text === 'string') out[key] = text;
-        }
-        return out;
-    } catch (error) {
-        console.warn('[Scene Planner] fieldDescriptions 解析失败，已忽略自定义字段描述:', error);
-        return {};
-    }
 }
 
 function resolveRequestedMaxImages(maxImages) {

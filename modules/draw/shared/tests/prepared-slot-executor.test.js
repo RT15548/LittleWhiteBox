@@ -167,6 +167,19 @@ test('backend journal controls placement before its one submission', async () =>
     assert.equal(h.records.get('img-b').status, 'failed');
 });
 
+test('backend recovery plan retains each image post-prompt, including an explicit clearing', async () => {
+    const h = harness({ backend: true });
+    const tails = ['soft backlight', ''];
+    h.options.items.forEach((item, index) => { item.postPrompt = tails[index]; });
+    h.options.run = async callbacks => {
+        assert.deepEqual(callbacks.recoverable.plan.items.map(item => item.previewMetadata.postPrompt), tails);
+        await callbacks.recoverable.commitPlacements();
+        for (const index of h.options.items.keys()) await callbacks.onItemReady({ index, base64: 'YWJj' });
+    };
+    await h.execute();
+    assert.deepEqual([...h.records.values()].map(item => item.postPrompt), tails);
+});
+
 test('lost connection to backend preserves pending input for its original task', async () => {
     const h = harness({ backend: true, run: async callbacks => {
         await callbacks.recoverable.commitPlacements();

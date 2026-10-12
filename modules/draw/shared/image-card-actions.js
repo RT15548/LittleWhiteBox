@@ -152,6 +152,7 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
             if (!tags?.trim()) { claims.delete(slotId); skipped += 1; continue; }
             slotIds.push(slotId);
             tasks.push({ scene: tags, characterPrompts: record?.characterPrompts ?? [],
+                post_prompt: record?.postPrompt ?? '',
                 negativePrompt: record?.negativePrompt ?? undefined,
                 placement: { mode: 'existing', slotId } });
         }

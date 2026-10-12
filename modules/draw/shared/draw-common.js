@@ -415,6 +415,9 @@ function normalizeDrawSavedEntry(slotId, data = {}) {
         savedUrl: data.savedUrl,
         tags: data.tags || '',
         positive: data.positive || '',
+        characterPrompts: data.characterPrompts ?? null,
+        negativePrompt: data.negativePrompt ?? null,
+        postPrompt: data.postPrompt ?? null,
         updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
     };
 }
@@ -478,7 +481,10 @@ export async function setDrawSavedEntry(messageId, slotId, data) {
         previous.imgId === entry.imgId &&
         previous.savedUrl === entry.savedUrl &&
         previous.tags === entry.tags &&
-        previous.positive === entry.positive;
+        previous.positive === entry.positive &&
+        previous.negativePrompt === entry.negativePrompt &&
+        previous.postPrompt === entry.postPrompt &&
+        JSON.stringify(previous.characterPrompts) === JSON.stringify(entry.characterPrompts);
     const legacyMap = getSavedMap(message, LEGACY_NOVEL_SAVED_EXTRA_KEY);
     const hasLegacyEntry = !!legacyMap?.[slotId];
     if (unchanged && !hasLegacyEntry) return true;
@@ -517,12 +523,7 @@ export async function syncDrawSavedFromPreview(messageId, preview, overrides = {
     const slotId = overrides.slotId || preview?.slotId;
     if (!slotId) return false;
 
-    return setDrawSavedEntry(messageId, slotId, {
-        imgId: overrides.imgId || preview?.imgId,
-        savedUrl: overrides.savedUrl || preview?.savedUrl,
-        tags: overrides.tags ?? preview?.tags ?? '',
-        positive: overrides.positive ?? preview?.positive ?? '',
-    });
+    return setDrawSavedEntry(messageId, slotId, { ...preview, ...overrides });
 }
 
 export async function syncDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews = []) {

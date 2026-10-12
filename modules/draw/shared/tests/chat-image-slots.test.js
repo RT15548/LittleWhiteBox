@@ -389,7 +389,7 @@ async function storeFailedSlots(h, prefix, slots, status = 'failed') {
     for (const [name, tags] of slots) {
         await api.storePreview({ slotId: `${prefix}-${name}`, imgId: `${prefix}-${name}-img`, messageId: 0, tags, positive: tags,
             characterPrompts: [{ prompt: `${tags} char`, uc: '', center: { x: 0.5, y: 0.5 } }],
-            negativePrompt: `neg ${tags}`, status, errorType: 'failed', errorMessage: 'supplier rejected' });
+            negativePrompt: `neg ${tags}`, postPrompt: `tail ${tags}`, status, errorType: 'failed', errorMessage: 'supplier rejected' });
     }
     h.format();
     await api.renderPreviewsForMessage(0);
@@ -425,6 +425,7 @@ test('floor-wide redraw submits every failed card of the floor as one batch with
     ]);
     assert.deepEqual(tasks.map(task => task.scene), ['tag a', 'tag b']);
     assert.deepEqual(tasks.map(task => task.negativePrompt), ['neg tag a', 'neg tag b']);
+    assert.deepEqual(tasks.map(task => task.post_prompt), ['tail tag a', 'tail tag b']);
     assert.equal(tasks[0].characterPrompts[0].prompt, 'tag a char');
     assert.equal(h.requests, 1);
     assert.equal(h.root.querySelectorAll('.xb-nd-img img').length, 3);
@@ -1424,6 +1425,47 @@ for (const status of ['failed', 'success']) for (const selected of [false, true]
         assert.deepEqual(await api.getPreview(other.imgId), other);
     });
 }
+
+test('saved redraw input survives cache loss, edits, clearing and portable gallery export', async t => {
+    const slotId = 'saved-full-input', imgId = 'saved-full-input-image';
+    const h = setup(t, `[image:${slotId}]`);
+    const original = { slotId, imgId, messageId: 0, tags: 'portrait', positive: 'portrait, girl, dusk',
+        base64: 'YWJj', savedUrl: '/saved-input.png', postPrompt: 'dusk',
+        characterPrompts: [{ prompt: 'girl' }], negativePrompt: 'blur' };
+    await api.storePreview(original);
+    await api.syncDrawSavedFromPreview(0, original);
+    const portable = await api.exportPortablePreviewsForSlots([slotId]);
+    assert.equal(portable.previews[0].postPrompt, 'dusk');
+    await api.deletePreview(imgId);
+    const saved = api.getDrawSavedPreview(h.message, slotId, 0, h.ctx.chatId);
+    assert.equal(saved.postPrompt, 'dusk');
+    assert.deepEqual(saved.characterPrompts, original.characterPrompts);
+    assert.equal(saved.negativePrompt, original.negativePrompt);
+    await api.renderPreviewsForMessage(0);
+    const card = h.root.querySelector('.xb-nd-img');
+    await api.redrawImageCard('novelai', card);
+    assert.equal(h.submissions[0].tasks[0].post_prompt, 'dusk');
+    assert.deepEqual(h.submissions[0].tasks[0].characterPrompts, original.characterPrompts);
+    await api.importPortablePreviews(portable.previews, portable.selections);
+    assert.equal((await api.getPreview(imgId)).postPrompt, 'dusk');
+    await api.updatePreviewSavedUrl(imgId, original.savedUrl);
+    await api.setSlotSelection(slotId, imgId);
+    await api.syncDrawSavedFromPreview(0, original);
+    h.format(); await api.renderPreviewsForMessage(0);
+    const editable = h.root.querySelector('.xb-nd-img');
+    const tail = document.createElement('textarea');
+    tail.dataset.type = 'post_prompt';
+    editable.querySelector('.xb-nd-edit').append(tail);
+    for (const value of ['moonlight', '']) {
+        tail.value = value;
+        await api.persistCardTagEdits(editable, (_tags, _characters, _record, postPrompt) => {
+            assert.equal(postPrompt, value);
+            return {};
+        });
+        assert.equal((await api.getPreview(imgId)).postPrompt, value);
+        assert.equal(api.getDrawSavedEntry(h.message, slotId).postPrompt, value);
+    }
+});
 
 test('redrawing a portable-only card uses its own input without first editing it', async t => {
     const slotId = 'portable-exact-redraw', imgId = slotId + '-saved';

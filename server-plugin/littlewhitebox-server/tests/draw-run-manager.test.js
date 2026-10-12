@@ -722,6 +722,7 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
             tags: 'portrait',
             positive: 'portrait',
             characterPrompts: [],
+            postPrompt: '',
             negativePrompt: 'bad',
         },
     });
@@ -732,6 +733,34 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
         () => manager.create('alice', conflicting, {}),
         error => error?.status === 409 && error?.code === 'draw_run_id_conflict',
     );
+});
+
+test('ComfyUI handoff preserves the post-prompt as redraw input rather than only flattened output', async (t) => {
+    const task = { scene: 'portrait', chars: [], post_prompt: 'night sky', placement: { insertAfter: 1 } };
+    const { manager, imageJobService } = createManager({ runtime: createRuntime({
+        executePreparedScenePlanner: async () => [task],
+        compileDrawRunImages: drawRuntime.compileDrawRunImages,
+    }) });
+    t.after(() => manager.close());
+    const envelope = createEnvelope('run-post-prompt', { imageProvider: 'comfyui' });
+    Object.assign(envelope.generationRecipe, {
+        workflowMode: 'simple', seeds: [1], params: { model: 'fixture.safetensors' },
+        customWorkflow: { json: '', nodePositive: '', nodeNegative: '', nodeWidth: '', nodeHeight: '', nodeSeed: '', nodeSaveImage: '' },
+    });
+    manager.create('alice', envelope, {});
+    const run = await waitFor(() => {
+        const current = manager.get('alice', envelope.runId);
+        return current.state === 'dispatched' ? current : null;
+    });
+    const metadata = run.handoffManifest.items[0].displayMetadata;
+    assert.equal(metadata.postPrompt, task.post_prompt);
+    assert.equal(metadata.positive, 'portrait, night sky');
+    const repeated = drawRuntime.compileDrawRunImages('comfyui', [{
+        scene: metadata.tags, characterPrompts: metadata.characterPrompts,
+        negativePrompt: metadata.negativePrompt, post_prompt: metadata.postPrompt,
+    }], envelope.generationRecipe);
+    assert.equal(repeated.artifacts[0].promptData.positive, metadata.positive);
+    assert.equal(imageJobService.jobs.size, 1);
 });
 
 test('a later floor can dispatch images while an earlier floor is still planning', async (t) => {

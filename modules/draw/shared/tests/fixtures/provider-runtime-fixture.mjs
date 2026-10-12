@@ -12,7 +12,7 @@ export const providerFixtures = {
 // Production provider, compiler, executor, queue, gallery and native tag session.
 // Only host I/O, planner responses and the optional capsule shell are replaced.
 // Settings are injected into this in-memory test bundle, never user storage.
-export async function buildProviderFixture(provider, { platform = 'node', realHost = false } = {}) {
+export async function buildProviderFixture(provider, { platform = 'node', realHost = false, settingsPanel = false } = {}) {
     const { folder, name, title } = providerFixtures[provider];
     const stubs = {
         'extensions.js': 'export const getContext=()=>globalThis.__review.ctx; export const extension_settings={};',
@@ -43,6 +43,17 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
         'debug-core.js': 'export const xbLog={error:console.error,warn:console.warn,info(){}};',
         'generate-interceptor.js': 'export const GENERATE_INTERCEPTOR_ORDER={};export const registerGenerateInterceptor=()=>{};export const unregisterGenerateInterceptor=()=>{};',
     };
+    if (settingsPanel) {
+        delete stubs[`${name}-prompts.js`];
+        delete stubs['scene-planner.js'];
+        stubs['draw-agent.js'] += `export const beginDrawScenePlannerDiagnostic=()=>null;
+            export const callDrawScenePlannerAgent=()=>{throw new Error('unexpected model');};
+            export const resolveDrawAgentProviderConfig=()=>({});`;
+        stubs['var-commands.js'] = 'export const replaceXbGetVarInString=x=>x; export const replaceXbGetVarYamlInString=x=>x;';
+        stubs['world-info.js'] = 'export const getWorldInfoPrompt=()=>{throw new Error("unexpected world info");};';
+        stubs['server-storage.js'] = `export const ComfyDrawStorage={getStrict:async()=>null,
+            setAndSave:async(key,value)=>globalThis.__review.saveSettings(key,structuredClone(value))};`;
+    }
     if (realHost) for (const key of ['extensions.js', 'script.js', 'utils.js', 'user.js', 'event-manager.js', 'floating-panel.js']) delete stubs[key];
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
     const bundle = await build({ stdin: { resolveDir: root, contents: `
@@ -57,7 +68,8 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
         export * from './draw-work-cancellation.js';
         export * from './image-job-recovery-runtime.js';
         export * from './backend-image-jobs.js';
-        export * from './draw-common.js';` }, bundle: true, write: false, format: 'esm', platform,
+        export * from './draw-common.js';
+        ${settingsPanel ? "export { buildScenePlannerTask, prepareScenePlannerInput, executePreparedScenePlanner } from './scene-planner.js'; export { COMFY_PLANNER_PROFILE } from '../providers/comfyui/comfy-prompts.js';" : ''}` }, bundle: true, write: false, format: 'esm', platform,
         footer: { js: '//# sourceURL=production-provider-fixture.mjs' },
         plugins: [{ name: 'host-boundaries', setup(builder) {
             builder.onResolve({ filter: /\.js$/ }, ({ path, importer }) => {
@@ -70,8 +82,10 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
             });
             builder.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: stubs[path] }));
             builder.onLoad({ filter: new RegExp(`${name}-draw\\.js$`) }, async ({ path }) => ({
-                contents: await readFile(path, 'utf8') + `\nexport function configureFixtureSettings(value){settingsCache=value;settingsLoaded=true;}
-                    export { runPrepared${title}Slots };`, resolveDir: dirname(path),
+                contents: await readFile(path, 'utf8') + `\nexport function configureFixtureSettings(value){settingsCache=${settingsPanel ? 'normalizeSettings(value)' : 'value'};settingsLoaded=true;}
+                    export { runPrepared${title}Slots };
+                    ${settingsPanel ? `export function mountFixtureSettings(frame){hideSettings();overlayFrame=frame;overlayElement=document.body;
+                        eventsBound=false;bindOverlayEvents();fillForm(getSettings());switchSettingsView('prompts');}` : ''}`, resolveDir: dirname(path),
             }));
         } }],
     });

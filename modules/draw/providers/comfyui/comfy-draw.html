@@ -459,6 +459,11 @@ select.input { cursor: pointer; }
     .action-status-row .status-text { flex-basis: 100%; min-width: 0; }
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
     .workflow-mode-btns { flex-direction: column; }
+    .chain-item[data-key="tools"] { flex-direction: column; }
+    .chain-item[data-key="tools"] .chain-summary { width: 100%; }
+    .chain-field { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+    .chain-field-desc { grid-column: 1 / -1; grid-row: 2; min-height: 72px; font-size: 13px; }
+    .chain-field-reset { grid-column: 2; grid-row: 1; min-width: 44px; min-height: 44px; margin: 0; }
 }
 @media (max-width: 400px) {
     .app-header { padding: 8px 10px; }

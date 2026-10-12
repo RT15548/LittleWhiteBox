@@ -99,6 +99,7 @@ function buildDisplayMetadata(artifact = {}) {
         tags: String(artifact.tags || artifact.task?.scene || ''),
         positive: String(promptData.positive || promptData.scene || ''),
         characterPrompts: cloneJson(promptData.characterPrompts || []),
+        postPrompt: String(artifact.task?.post_prompt || ''),
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
     };
     if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {
