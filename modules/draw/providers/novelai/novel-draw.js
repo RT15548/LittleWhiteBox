@@ -737,6 +737,7 @@ function normalizeParamsPreset(preset, index) {
             ? 2
             : Math.max(0, Number(source.maxImages) || 0),
         maxCharactersPerImage: Math.max(0, Number(source.maxCharactersPerImage) || 0),
+        overrideSize: source.overrideSize === 'auto' ? 'auto' : 'default',
         params: {
             model: String(params.model || DEFAULT_PARAMS_PRESET.params.model).trim(),
             sampler: String(params.sampler || DEFAULT_PARAMS_PRESET.params.sampler),
@@ -1155,6 +1156,7 @@ function compactPromptGuideOverrides(value) {
 
 const NOVEL_QUICK_SIZE_OPTIONS = [
     { value: 'default', label: '跟随预设' },
+    { value: 'auto', label: 'AI 自动（按构图）' },
     { value: '832x1216', label: '832 x 1216 竖图' },
     { value: '1216x832', label: '1216 x 832 横图' },
     { value: '1024x1024', label: '1024 x 1024 方图' },
@@ -1623,7 +1625,12 @@ export function createNovelGenerationRecipe({
             min: Number(settings.requestDelay?.min) || DEFAULT_SETTINGS.requestDelay.min,
             max: Number(settings.requestDelay?.max) || DEFAULT_SETTINGS.requestDelay.max,
         },
-        overrideSize: String(settings.overrideSize || 'default'),
+        overrideSize: (() => {
+            // 悬浮囊显式选择（含显式 AI 自动）优先；选「跟随预设」时回落预设自身的尺寸模式。
+            const globalOverride = String(settings.overrideSize || 'default');
+            if (globalOverride !== 'default') return globalOverride;
+            return preset?.overrideSize === 'auto' ? 'auto' : 'default';
+        })(),
         baseHref: globalThis.location?.href,
         resolveForBackend: resolveForBackend === true,
         params: cloneSettingsObject(params),

@@ -141,6 +141,7 @@ export function parsePresetData(data, generateId) {
             maxCharactersPerImage: version === 1
                 ? 0
                 : Math.max(0, Number(data.preset.maxCharactersPerImage) || 0),
+            overrideSize: data.preset.overrideSize === 'auto' ? 'auto' : 'default',
             params: importedParams,
         },
         warnings,
@@ -163,6 +164,7 @@ export function exportPreset(preset) {
             negativePrefix: preset.negativePrefix,
             maxImages: preset.maxImages || 0,
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+            overrideSize: preset.overrideSize === 'auto' ? 'auto' : 'default',
             params: { ...preset.params }
         }
     };

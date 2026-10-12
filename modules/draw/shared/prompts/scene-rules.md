@@ -15,6 +15,7 @@
 - 滤镜: fisheye, lens flare
 - 相机=空间中自由移动的镜头，连续生图应主动变换构图角度
 - 以主角为关键目标定格，区域覆盖关键互动，焦点锚定核心要素
+- 画幅方向（orientation）: 单人/直立站姿/close-up·upper body 等近景/双人贴近→portrait 竖幅；三人以上群像/wide shot·全景远景/开阔环境/左右展开的互动与站位→landscape 横幅。两人同框不必然横幅，方向跟景别走，拿不准用竖幅
 
 ## 背景 & 光影
 - 空间: indoors/outdoors + 地点 + 描述 + 周边事物

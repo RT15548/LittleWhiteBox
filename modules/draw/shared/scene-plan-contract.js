@@ -271,6 +271,11 @@ function normalizeCharacter(value, path, knownNameLookup, centerMode) {
     };
 }
 
+// 画幅方向只认两个合法值；模型漏给或给了协议外取值时回落竖幅，避免中断整批计划。
+function normalizeOrientation(value) {
+    return String(value ?? '').trim().toLowerCase() === 'landscape' ? 'landscape' : 'portrait';
+}
+
 function normalizeImages(images, options = {}) {
     if (!Array.isArray(images)) failSchema('images', '必须是 array', images);
     if (!images.length) {
@@ -330,6 +335,7 @@ function normalizeImages(images, options = {}) {
         return {
             index: imageIndex + 1,
             scene: requireString(image.scene, `${path}.scene`),
+            orientation: normalizeOrientation(image.orientation),
             chars,
             ...(postPrompt ? { post_prompt: postPrompt } : {}),
             placement: {

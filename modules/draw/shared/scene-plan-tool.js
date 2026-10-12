@@ -148,6 +148,14 @@ export function createSubmitScenePlanTool(options = {}) {
                     '画面整体：人数与关系、构图与视角、背景、光影、氛围，逗号分隔的英文 tag。角色个体的外貌与动作不写在这里。拼在正向提示词最前。',
                     { minLength: 1 },
                 ),
+                orientation: {
+                    type: 'string',
+                    enum: ['portrait', 'landscape'],
+                    description: '本图画幅方向，先定景别与主体排布再决定，人数只作参考。'
+                        + 'portrait（竖幅）：单人、直立站姿、close-up / upper body 等近景、双人贴近构图；'
+                        + 'landscape（横幅）：三人及以上群像、wide shot / 全景远景、开阔环境、左右展开的互动与站位。'
+                        + '两人同框不必然横幅；方向须与景别一致。拿不准时填 portrait。',
+                },
                 characters: charactersSchema,
                 // 追加位（可选）：拼在所有角色之后、整条正向提示词的最末尾。
                 // 只有 profile.postPrompt === 'append' 的 provider 才暴露，避免教会模型一个编译器会丢的字段。
