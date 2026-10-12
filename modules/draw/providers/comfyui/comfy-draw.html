@@ -328,6 +328,8 @@ select.input { cursor: pointer; }
 }
 .sd-char-card.character-disabled { border-color: rgba(248, 81, 73, 0.3); }
 .sd-char-card.character-disabled .sd-char-card-title { color: var(--text-muted); }
+.sd-char-card.filtered-hidden { display: none; }
+.lwb-cl-group.filtered-empty { display: none; }
 .sd-char-card-header {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
@@ -1098,7 +1100,10 @@ select.input { cursor: pointer; }
                                     <div class="card-title">👥 角色列表</div>
                                     <p class="form-hint" style="margin-top:6px;">角色底稿定好后，出图只需补当前动作、表情和互动</p>
                                 </div>
-                                <div id="comfy-draw-character-result-count" class="char-list-count">0 / 0</div>
+                                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+                                    <input id="comfy-char-search" type="text" class="input" placeholder="搜索名称、别名、外貌、Danbooru" style="width:240px;padding:6px 10px;min-height:32px;">
+                                    <div id="comfy-draw-character-result-count" class="char-list-count">0 / 0</div>
+                                </div>
                             </div>
                             <div id="comfy-shared-character-toolbar"></div>
                             <div class="char-list-body">

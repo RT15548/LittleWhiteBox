@@ -1387,6 +1387,11 @@ function bindOverlayEvents() {
             showSdDanbooruPanel(danbooruButton.dataset.sdCharDanbooru);
         }
     });
+    querySettings('#sd-char-search')?.addEventListener('input', (event) => {
+        charSearchText = String(event.target.value || '').trim().toLowerCase();
+        // 原样重绘当前草稿：未保存的编辑保留，只是重新套一遍过滤 class。
+        rerenderCharacterTagList();
+    });
 }
 
 function fillForm(settings) {
@@ -1821,7 +1826,7 @@ function ensureCharacterLibraryUi() {
         readCharacters: readCharacterCardsFromForm,
         renderCard: renderCharacterCard,
         renderEmpty: createCharacterEmptyState,
-        onChange: () => refreshSettingsSummary(),
+        onChange: () => { refreshSettingsSummary(); applyCharSearchVisibility(); },
         notify: {
             success: (message) => toastr.success(message),
             warning: (message) => toastr.warning(message),
@@ -1876,6 +1881,29 @@ function destroyGroupPresetBinding() {
     groupPresetBinding = null;
 }
 
+// 角色列表搜索：只给不匹配的卡片加 class 隐藏，不重建 DOM，所以未保存的编辑不会丢。
+let charSearchText = '';
+
+function charMatchesSearch(tag, lower) {
+    return [tag.name, ...(tag.aliases || []), tag.appearance, tag.danbooruTag]
+        .filter(Boolean).join(' ').toLowerCase().includes(lower);
+}
+
+// 每次渲染后同步过滤结果：收起没有可见卡片的分组，并把计数显示成「命中 / 总数」。
+function applyCharSearchVisibility() {
+    const list = querySettings('#sd-shared-character-list');
+    if (!list) return;
+    const cards = Array.from(list.querySelectorAll('.sd-char-card'));
+    list.querySelectorAll('.lwb-cl-group').forEach((section) => {
+        section.classList.toggle('filtered-empty', !section.querySelector('.sd-char-card:not(.filtered-hidden)'));
+    });
+    const counter = querySettings('#sd-draw-character-result-count');
+    if (counter) {
+        const visible = cards.filter(card => !card.classList.contains('filtered-hidden')).length;
+        counter.textContent = `${visible} / ${cards.length}`;
+    }
+}
+
 // 用 tags / groups 重绘整个角色列表（丢弃当前草稿）；groups 缺省时沿用当前草稿的分组。
 function renderCharacterTagList(tags = [], groups) {
     const ui = ensureCharacterLibraryUi();
@@ -1906,6 +1934,7 @@ function renderCharacterCard({ character: tag, ordinal }) {
     const card = document.createElement('div');
     card.className = 'sd-char-card';
     card.dataset.characterId = String(tag.id || `sd-char-${index + 1}`);
+    if (charSearchText && !charMatchesSearch(tag, charSearchText)) card.classList.add('filtered-hidden');
 
     const top = document.createElement('div');
     top.className = 'sd-char-card-header';
