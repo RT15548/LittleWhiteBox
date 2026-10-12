@@ -18,6 +18,7 @@ import {
     chat_metadata,
 } from "../../../../../../script.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
+import { getSafeViewportStyles, observeViewport } from '../../shared/common/viewport.js';
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { formatErrorDetails } from '../../core/error-details.js';
 import { createModuleEvents } from "../../core/event-manager.js";
@@ -2127,21 +2128,16 @@ async function checkVectorIntegrity({ allowEventRepair = true, allowChunkRepair 
 // Overlay 面板
 // ═══════════════════════════════════════════════════════════════════════════
 
+let stopOverlayViewport = null;
+
 function createOverlay() {
     if (overlayCreated) return;
     overlayCreated = true;
 
-    // iPhone 刘海/Home 指示条避让：visualViewport 给出浏览器实际可视区，
-    // 再扣除上下安全区，避免面板顶部被状态栏遮住、底部超出指示条。
-    const offsetTop = window.visualViewport?.offsetTop || 0;
-    const vh = window.visualViewport?.height ?? window.innerHeight;
-
     const $overlay = $(`
         <div id="xiaobaix-story-summary-overlay" style="
             position: fixed !important; left: 0 !important;
-            top: calc(${offsetTop}px + env(safe-area-inset-top, 0px)) !important;
             width: 100vw !important;
-            height: calc(${vh}px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
             z-index: 99999 !important; display: none; overflow: hidden !important;
         ">
             <div class="xb-ss-backdrop" style="
@@ -2173,22 +2169,22 @@ function createOverlay() {
 
     $overlay.on("click", ".xb-ss-backdrop, .xb-ss-close-btn", hideOverlay);
     document.body.appendChild($overlay[0]);
+    stopOverlayViewport = observeViewport(() => {
+        for (const [property, value] of Object.entries(getSafeViewportStyles())) {
+            $overlay[0].style.setProperty(property, value, 'important');
+        }
+    });
     window.addEventListener(MESSAGE_EVENT, handleFrameMessage);
 }
 
 function showOverlay() {
     if (!overlayCreated) createOverlay();
-    const overlay = document.getElementById("xiaobaix-story-summary-overlay");
-    if (overlay) {
-        const offsetTop = window.visualViewport?.offsetTop || 0;
-        const vh = window.visualViewport?.height ?? window.innerHeight;
-        overlay.style.top = `calc(${offsetTop}px + env(safe-area-inset-top, 0px))`;
-        overlay.style.height = `calc(${vh}px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`;
-    }
     $("#xiaobaix-story-summary-overlay").show();
 }
 
 function hideOverlay() {
+    stopOverlayViewport?.();
+    stopOverlayViewport = null;
     removeBackupManagerModal();
     document.getElementById("xiaobaix-story-summary-overlay")?.remove();
     overlayCreated = false;

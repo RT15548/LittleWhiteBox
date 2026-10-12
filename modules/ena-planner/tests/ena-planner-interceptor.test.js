@@ -223,14 +223,6 @@ test('disabled Ena, slash commands, and existing plots pass through untouched', 
             input: '普通输入',
             settings: { enabled: false, api: { stream: true } },
         },
-        {
-            input: '未配置 API URL',
-            settings: { enabled: true, api: { stream: true } },
-        },
-        {
-            input: '空白 API URL',
-            settings: { enabled: true, api: { baseUrl: '   ', stream: true } },
-        },
         { input: '  /echo hello  ' },
         { input: '继续剧情\n<plot>已有规划</plot>' },
     ];
@@ -263,6 +255,31 @@ test('disabled Ena, slash commands, and existing plots pass through untouched', 
     assert.equal(busyCalls, 0);
     assert.equal(busy.summaryReads(), 0);
     busy.interceptor.cleanup();
+});
+
+test('unconfigured API blocks click and Enter, preserves the draft, and reports a configuration error before any planning', async () => {
+    for (const baseUrl of [undefined, '', '   ']) {
+        for (const action of ['click', 'keydown']) {
+            const fixture = createFixture(() => assert.fail('Unconfigured planning must not start'), {
+                settings: { enabled: true, api: { baseUrl } },
+            });
+            const original = fixture.textarea.value;
+            assert.equal(fixture[action]().defaultPrevented, true);
+            await flush();
+            assert.deepEqual(fixture.sentTexts, []);
+            assert.equal(fixture.textarea.value, original);
+            assert.equal(fixture.textarea.disabled, false);
+            assert.equal(fixture.button.getAttribute('aria-disabled'), null);
+            assert.equal(fixture.summaryReads(), 0);
+            assert.equal(fixture.notices.length, 0);
+            assert.equal(fixture.errors.length, 1);
+            assert.equal(fixture.errors[0].code, 'ENA_API_URL_MISSING');
+            fixture.settings.enabled = false;
+            fixture.click();
+            assert.deepEqual(fixture.sentTexts, [original]);
+            fixture.interceptor.cleanup();
+        }
+    }
 });
 
 test('repeated sends are blocked while one planning request owns the draft', async () => {

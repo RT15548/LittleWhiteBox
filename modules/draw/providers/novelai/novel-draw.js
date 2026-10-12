@@ -2229,7 +2229,6 @@ async function handleImageClick(container) {
             void getPreview(imgId)
                 .then(preview => {
                     if (!preview) return;
-                    // 保留本地 blob 源：根相对 /user 路径在 Tauritavern 等 iframe 内不可达会裂图。
                     if (cont) cont.querySelector('img').src = getPreviewDisplayUrl(preview);
                     return syncNovelDrawSavedFromPreview(messageId, preview, { savedUrl: url });
                 })

@@ -1,3 +1,5 @@
+import { getSafeViewportStyles, observeViewport } from '../../shared/common/viewport.js';
+
 const DESKTOP_CHROME_HEIGHT = 36;
 const ASSISTANT_OVERLAY_Z_INDEX = 100001;
 
@@ -144,16 +146,6 @@ export function createAssistantHostWindow(options) {
         const rawValue = getComputedStyle(document.documentElement).getPropertyValue('--topBarBlockSize').trim();
         const parsedValue = Number.parseFloat(rawValue);
         return Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
-    }
-
-    function getAssistantMobileViewportHeight() {
-        const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-        const topOffset = getAssistantMobileTopOffset();
-        return `calc(${viewportHeight}px - ${topOffset}px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`;
-    }
-
-    function getAssistantMobileTopCss() {
-        return `calc(${getAssistantMobileTopOffset()}px + env(safe-area-inset-top, 0px))`;
     }
 
     function getIframe() {
@@ -415,8 +407,6 @@ export function createAssistantHostWindow(options) {
             resizeMask,
             isAssistantMobileDevice,
             getAssistantMobileTopOffset,
-            getAssistantMobileTopCss,
-            getAssistantMobileViewportHeight,
             onCloseRequest,
         });
         overlay._cleanup = controller.cleanup;
@@ -448,8 +438,7 @@ function createWindowInteractionController(options) {
         iframe,
         resizeMask,
         isAssistantMobileDevice,
-        getAssistantMobileTopCss,
-        getAssistantMobileViewportHeight,
+        getAssistantMobileTopOffset,
     } = options;
 
     let shellMetrics = {
@@ -777,15 +766,15 @@ function createWindowInteractionController(options) {
     const updateOverlayHeight = () => {
         if (!overlay || overlay.style.display === 'none') return;
         if (isAssistantMobileDevice()) {
-            const viewportHeight = getAssistantMobileViewportHeight();
-            overlay.style.top = getAssistantMobileTopCss();
-            overlay.style.height = viewportHeight;
+            Object.assign(overlay.style, getSafeViewportStyles(getAssistantMobileTopOffset()));
             shell.style.height = '100%';
             shell.style.maxHeight = '100%';
             shell.style.minHeight = '0';
             return;
         }
         overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100vw';
         overlay.style.height = `${window.innerHeight}px`;
         if (quickLayoutMode !== QUICK_LAYOUT_MODE.FREE) {
             applyQuickLayout(quickLayoutMode);
@@ -882,10 +871,8 @@ function createWindowInteractionController(options) {
     };
 
     const initializeMobileMode = () => {
-        const viewportHeight = getAssistantMobileViewportHeight();
         overlay.style.padding = '0';
-        overlay.style.top = getAssistantMobileTopCss();
-        overlay.style.height = viewportHeight;
+        Object.assign(overlay.style, getSafeViewportStyles(getAssistantMobileTopOffset()));
         titleBar.style.height = '56px';
         titleBar.style.padding = '0 16px';
         titleBar.style.cursor = 'default';
@@ -913,13 +900,13 @@ function createWindowInteractionController(options) {
         resizeMask.style.borderRadius = '0';
     };
 
+    let stopViewport = null;
     const initialize = () => {
         initializeDesktopMode();
-        window.addEventListener('resize', updateOverlayHeight);
-        window.visualViewport?.addEventListener('resize', updateOverlayHeight);
         if (isAssistantMobileDevice()) {
             initializeMobileMode();
         }
+        stopViewport = observeViewport(updateOverlayHeight);
     };
 
     const cleanup = () => {
@@ -930,8 +917,7 @@ function createWindowInteractionController(options) {
             layoutFrame = 0;
             pendingLayout = null;
         }
-        window.removeEventListener('resize', updateOverlayHeight);
-        window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
+        stopViewport?.();
     };
 
     return {

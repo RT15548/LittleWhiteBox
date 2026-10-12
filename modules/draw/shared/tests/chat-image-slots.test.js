@@ -1426,6 +1426,21 @@ for (const status of ['failed', 'success']) for (const selected of [false, true]
     });
 }
 
+for (const savedUrl of ['/user/images/fixture.png', 'user/images/fixture.png']) {
+    test(`saved upload ${savedUrl} remains displayable without its base64 cache`, async t => {
+        const slotId = 'saved-upload-path', imgId = slotId + '-image';
+        const h = setup(t, `[image:${slotId}]`);
+        await api.storePreview({ slotId, imgId, messageId: 0, base64: 'YWJj', tags: 'portrait' });
+        await api.updatePreviewSavedUrl(imgId, savedUrl);
+        const saved = await api.getPreview(imgId);
+        assert.equal(saved.base64, null);
+        assert.equal(api.getPreviewDisplayUrl(saved), '/user/images/fixture.png');
+        await api.renderPreviewsForMessage(0);
+        assert.equal(h.root.querySelector('.xb-nd-img img').getAttribute('src'), '/user/images/fixture.png');
+        assert.equal(h.requests, 0);
+    });
+}
+
 test('saved redraw input survives cache loss, edits, clearing and portable gallery export', async t => {
     const slotId = 'saved-full-input', imgId = 'saved-full-input-image';
     const h = setup(t, `[image:${slotId}]`);

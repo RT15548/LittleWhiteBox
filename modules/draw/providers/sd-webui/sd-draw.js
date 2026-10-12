@@ -3172,7 +3172,6 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
             }
             const preview = await getPreview(imgId).catch(() => null);
             if (preview) {
-                // 保留本地 blob 源：根相对 /user 路径在 Tauritavern 等 iframe 内不可达会裂图。
                 const img = cont?.querySelector('img');
                 if (img) img.src = getPreviewDisplayUrl(preview);
                 await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch(() => {});
@@ -3485,6 +3484,7 @@ async function saveCurrentImage(container) {
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
         const url = await saveBase64AsFile(preview.base64, charName, `sd_${imgId}`, 'png');
         await updatePreviewSavedUrl(imgId, url);
+        preview.savedUrl = url;
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch(() => {});
         const img = container.querySelector('img');
         if (img) img.src = getPreviewDisplayUrl(preview);

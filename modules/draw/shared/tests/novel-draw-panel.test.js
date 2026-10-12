@@ -1,11 +1,13 @@
-// NovelAI 设置页 (novel-draw.html) 的内联脚本没有单独的模块文件，这里把它原样取出、
-// 放进 vm 里跑在 linkedom 解析出的真实页面 DOM 上，只通过末尾追加的一个只读钩子访问内部状态。
+// NovelAI 设置页 (novel-draw.html) 的内联模块转为 CommonJS 后，
+// 放进 vm 里跑在 linkedom 解析出的真实页面 DOM 上，通过末尾追加的钩子访问内部状态。
 // 覆盖角色库面板的几条回归：空库有分组、库操作不丢编辑草稿、空白草稿不被持久化、撤销指纹对规范化免疫。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
+import { transformSync } from 'esbuild';
+import * as mediaUrl from '../media-url.js';
 
 import * as CL from '../character-library.js';
 import * as CD from '../character-library-dialog.js';
@@ -44,7 +46,7 @@ const HOOK = `
 function loadPanel(t, { characters = [], groups = [], intersection = false } = {}) {
     const html = fs.readFileSync(PAGE, 'utf8');
     const { document } = parseHTML(html);
-    const script = html.match(/<script>\n([\s\S]*?)<\/script>/)[1];
+    const script = document.querySelector('script[type="module"]:not([src])').textContent;
     const posted = [];
     const errors = [];
     const dialogs = { alerts: [], confirms: [], prompts: [] };
@@ -72,6 +74,10 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
         createObjectURL: () => 'blob:test', revokeObjectURL() {},
     });
     const sandbox = {
+        require(specifier) {
+            if (new URL(specifier, PAGE).href === new URL('../media-url.js', import.meta.url).href) return mediaUrl;
+            throw new Error(`Unexpected panel module: ${specifier}`);
+        },
         document,
         window: win,
         console: { log() {}, warn() {}, error: (...args) => errors.push(args.map(String).join(' ')), info() {}, debug() {} },
@@ -98,7 +104,7 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
         };
     }
     vm.createContext(sandbox);
-    vm.runInContext(script + HOOK, sandbox, { filename: 'novel-draw.inline.js' });
+    vm.runInContext(transformSync(script + HOOK, { format: 'cjs' }).code, sandbox, { filename: 'novel-draw.inline.js' });
     t.after(() => { for (const id of timers) clearTimeout(id); });
     const nd = sandbox.__nd;
     nd.setCL(CL);
