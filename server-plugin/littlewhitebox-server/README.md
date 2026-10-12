@@ -54,11 +54,13 @@ Scene Planner 支持免密反代，Agent API Key 可以留空；图片生成供�
 `GET /status` 声明 capability：
 
 ```text
+v5-msgpack-stream
 image-batch-jobs-v1
 draw-work-cancellation-v1
 novelai-v5-final-image-v1
 draw-runs-v1
 draw-run-runtime-v4
+draw-run-planner-retry-v1
 exa-web-v1
 ```
 

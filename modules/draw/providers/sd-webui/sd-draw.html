@@ -8,6 +8,9 @@
 <title>SD Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
+<link rel="stylesheet" href="../../shared/character-library-dialog.css">
+<link rel="stylesheet" href="../../shared/character-library-ui.css">
+<link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
 <script type="module" src="../../shared/draw-usage.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -311,6 +314,8 @@ select.input { cursor: pointer; }
 .sd-char-card-title {
     display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px;
 }
+.planner-retry-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.planner-retry-row .input { width: 72px; padding: 4px 8px; }
 .character-enabled-control { min-height: 32px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .gallery-grid { display: grid; gap: 14px; }
 .gallery-char-card {
@@ -424,7 +429,8 @@ select.input { cursor: pointer; }
     .view-title { font-size: 18px; }
     .card { padding: 16px; }
     .form-row { grid-template-columns: 1fr; }
-    .char-management-layout { grid-template-columns: 1fr; }
+    .char-management-layout { grid-template-columns: minmax(0, 1fr); }
+    .char-list-card, .char-list-body, .char-grid { min-width: 0; }
     .char-management-sidebar { position: static; }
     .preset-bar { padding: 10px 12px; }
     .preset-bar select { max-width: none; }
@@ -706,6 +712,16 @@ select.input { cursor: pointer; }
                 <div id="sd-agent-settings-surface" class="draw-agent-settings-surface xb-agent-settings-surface">
                     <div class="draw-agent-settings-state"><i class="fa-solid fa-spinner fa-spin"></i><span>正在读取共享 Agent 主预设…</span></div>
                 </div>
+
+                <div class="card" style="margin-top:12px;">
+                    <div class="card-title">🔁 失败自动重试</div>
+                    <div class="planner-retry-row">
+                        <label for="sd-planner-retries">失败重试次数：</label>
+                        <input id="sd-planner-retries" type="number" class="input" min="0" max="10" step="1" value="3" inputmode="numeric">
+                        <span>次</span>
+                    </div>
+                    <p class="form-hint">仅在场景 Agent 请求失败（超时、供应商或网络错误、返回的 Tool 调用不合格）时重试，画图失败不受影响。从 2 秒开始，每次等待时间翻倍，最长 30 秒。填 0 表示不重试。浏览器流程与后台任务都生效。</p>
+                </div>
             </section>
 
             <section class="view" data-sd-view-panel="prompts">
@@ -889,6 +905,9 @@ select.input { cursor: pointer; }
                             <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、动态外貌、角色负向标签都会被画图流程直接使用。</p>
                         </div>
                         <div class="card">
+                            <div id="sd-group-preset-root"></div>
+                        </div>
+                        <div class="card">
                             <div class="card-title">🔎 Danbooru 资源库</div>
                             <label class="check-row">
                                 <input type="checkbox" id="sd-danbooru-local">
@@ -908,6 +927,7 @@ select.input { cursor: pointer; }
                                 </div>
                                 <div id="sd-draw-character-result-count" class="char-list-count">0 / 0</div>
                             </div>
+                            <div id="sd-shared-character-toolbar"></div>
                             <div class="char-list-body">
                                 <div id="sd-shared-character-list" class="char-grid"></div>
                             </div>

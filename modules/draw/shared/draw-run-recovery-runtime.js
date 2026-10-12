@@ -498,6 +498,7 @@ export async function runDrawRunRecoveryPass({
                         : 'active',
                     runId: entry.run.id,
                     stage: entry.run.progress?.stage || entry.run.state,
+                    ...(entry.run.progress?.retry ? { retry: entry.run.progress.retry } : {}),
                 });
             }
             if (entry.action === DrawRunRecoveryAction.WAIT) {

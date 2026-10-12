@@ -1,5 +1,10 @@
 import { getContext } from "../../../../../../extensions.js";
-import { DRAW_CAPSULE_COPY } from './draw-capsule-copy.js';
+import { formatScenePlannerProgress, toScenePlannerProgress } from './draw-capsule-copy.js';
+
+// 出场角色检测放在 present-characters.js（同样不依赖宿主模块，便于单测），这里保持原有导出位置。
+export { detectPresentCharacters };
+// 纯函数放在 draw-capsule-copy.js（不依赖酒馆宿主模块，便于单测），这里保持原有导出位置。
+export { formatScenePlannerProgress, toScenePlannerProgress };
 import {
     getDisplayPreviewForSlot,
     getPreviewsBySlot,
@@ -22,7 +27,7 @@ import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { hasPreviewImage, PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { getSlotActivity } from './slot-activity.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
-import { isCharacterEnabled } from './character-selection.js';
+import { detectPresentCharacters } from './present-characters.js';
 import { joinTags } from './character-prompts.js';
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
 import {
@@ -88,15 +93,6 @@ export const DEFAULT_MESSAGE_FILTER_RULES = [
     { start: '',           end: '</think>' },
 ];
 
-export function toScenePlannerProgress(diagnostic = {}) {
-    const phase = diagnostic?.progress?.phase;
-    return { phase: phase === 'correction' ? 'correction' : 'analysis' };
-}
-
-export function formatScenePlannerProgress(progress = {}) {
-    return DRAW_CAPSULE_COPY[toScenePlannerProgress({ progress }).phase];
-}
-
 export function createPlaceholder(slotId) {
     return `[image:${slotId}]`;
 }
@@ -158,48 +154,6 @@ export function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
-}
-
-function escapeRegexChars(str) {
-    return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
-
-export function detectPresentCharacters(messageText, characterTags) {
-    if (!messageText || !characterTags?.length) return [];
-    const text = messageText.toLowerCase();
-    const present = [];
-
-    for (const char of characterTags) {
-        if (!isCharacterEnabled(char) || !char.name) continue;
-        const names = [char.name, ...(char.aliases || [])].filter(Boolean);
-        const isPresent = names.some(name => {
-            const lowerName = String(name).toLowerCase();
-            return text.includes(lowerName) || new RegExp(`\\b${escapeRegexChars(lowerName)}\\b`, 'i').test(text);
-        });
-
-        if (isPresent) {
-            present.push({
-                name: char.name,
-                aliases: char.aliases || [],
-                type: char.type || 'girl',
-                appearance: char.appearance || '',
-                danbooruTag: char.danbooruTag || '',
-                negativeTags: char.negativeTags || '',
-                outfits: normalizeNamedTagList(char.outfits),
-                dynamicStates: normalizeNamedTagList(char.dynamicStates),
-            });
-        }
-    }
-    return present;
 }
 
 export function findLastAIMessageId() {
@@ -631,6 +585,7 @@ export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
 <div class="xb-nd-failed-btns">
     <button class="xb-nd-retry-btn" data-action="retry-image">⟳ 重新生成</button>
+    <button class="xb-nd-retry-btn" data-action="retry-floor-failed" title="重新生成本楼层所有失败或结果未知的图片，已成功的不受影响">⟳ 重生本楼失败项</button>
     <button class="xb-nd-edit-btn" data-action="edit-tags">✐ 编辑TAG</button>
     ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
     <button class="xb-nd-remove-btn" data-action="remove-placeholder">✕ 移除</button>

@@ -69,6 +69,58 @@ function createEnvelope(runId, overrides = {}) {
     return Object.assign(envelope, overrides);
 }
 
+test('Draw Run knownCharacters cap counts only effectively enabled characters: a closed group frees its share of the 500', async () => {
+    const { selectEnabledCharacters, setGroupEnabled } = await import('../../../modules/draw/shared/character-library.js');
+    const validate = createEnvelopeValidator(drawRuntime);
+    const characters = Array.from({ length: 700 }, (_, index) => ({
+        id: `c${index}`, name: `角色${index}`, enabled: true, type: 'girl', appearance: 'x', ...(index < 300 ? { groupId: 'big' } : {}),
+    }));
+    const library = { characters, groups: [{ id: 'big', name: '大组' }] };
+    const envelopeWith = (library_) => {
+        const envelope = createEnvelope('run-known-cap');
+        envelope.generationRecipe.knownCharacters = selectEnabledCharacters(library_);
+        return envelope;
+    };
+    // 700 个全开：发给后台会超过上限，被服务端拒绝
+    assert.throws(() => validate(envelopeWith(library)), /knownCharacters must be an array with at most 500 entries/);
+    // 关闭 300 人的分组后只发 400 个：通过，且角色自己的 enabled 没被动过
+    const closed = setGroupEnabled(library, 'big', false);
+    assert.equal(selectEnabledCharacters(closed).length, 400);
+    assert.doesNotThrow(() => validate(envelopeWith(closed)));
+    assert.ok(closed.characters.every(character => character.enabled === true));
+    // 再开启后恢复为 700
+    assert.equal(selectEnabledCharacters(setGroupEnabled(closed, 'big', true)).length, 700);
+});
+
+test('Draw Run accepts a frozen planner.retry and still rejects malformed or unknown planner keys', () => {
+    const validate = createEnvelopeValidator(drawRuntime);
+    const withRetry = createEnvelope('run-retry');
+    withRetry.planner.retry = { maxRetries: 3, baseDelayMs: 2000 };
+    const accepted = validate(withRetry);
+    assert.deepEqual(accepted.envelope.planner.retry, { maxRetries: 3, baseDelayMs: 2000 });
+    assert.doesNotThrow(() => validate(createEnvelope('run-no-retry')));
+    assert.equal(Object.hasOwn(validate(createEnvelope('run-no-retry')).envelope.planner, 'retry'), false);
+
+    for (const retry of [
+        { maxRetries: 11, baseDelayMs: 2000 },
+        { maxRetries: -1, baseDelayMs: 2000 },
+        { maxRetries: 1.5, baseDelayMs: 2000 },
+        { maxRetries: 3, baseDelayMs: 50 },
+        { maxRetries: 3, baseDelayMs: 60_000 },
+        { maxRetries: 3 },
+        { maxRetries: 3, baseDelayMs: 2000, extra: true },
+        'three',
+        null,
+    ]) {
+        const envelope = createEnvelope('run-bad-retry');
+        envelope.planner.retry = retry;
+        assert.throws(() => validate(envelope), /planner\.retry/, JSON.stringify(retry));
+    }
+    const unknown = createEnvelope('run-unknown-key');
+    unknown.planner.unexpected = 1;
+    assert.throws(() => validate(unknown), /planner\.unexpected is not allowed/);
+});
+
 test('Draw Run permits absent or empty Agent keys without relaxing key type or model validation', () => {
     const validate = createEnvelopeValidator(drawRuntime);
     for (const apiKey of [undefined, '', '   ']) {
@@ -332,6 +384,84 @@ test('backend dispatches repaired complete plans and keeps incomplete or invalid
             assert.equal(JSON.parse(terminal.progress.validationFailures[0].modelOutput).toolCalls[0].arguments, rawArguments);
         }
     }
+});
+
+test('backend retries a failed Agent request using the frozen planner.retry and never retries without it', async (t) => {
+    const valid = JSON.stringify({ images: [{ insert_after: 1, scene: 'rain', characters: [] }] });
+    const cases = [
+        // [名称, 冻结的 retry, 前几次失败, 期望终态, 期望调用次数]
+        ['recovers', { maxRetries: 3, baseDelayMs: 100 }, 2, 'dispatched', 3],
+        ['exhausted', { maxRetries: 2, baseDelayMs: 100 }, 99, 'failed', 3],
+        ['no-retry-field', undefined, 1, 'failed', 1],
+        ['zero-retries', { maxRetries: 0, baseDelayMs: 100 }, 1, 'failed', 1],
+    ];
+    for (const [name, retry, failures, expectedState, expectedCalls] of cases) {
+        let calls = 0;
+        const { manager } = createManager({
+            runtime: drawRuntime,
+            managerOptions: {
+                agentCore: {
+                    createAgentAdapter: () => ({
+                        async chat() {
+                            calls += 1;
+                            if (calls <= failures) throw new Error('fetch failed');
+                            return { toolCalls: [{ name: 'submit_scene_plan', arguments: valid }] };
+                        },
+                    }),
+                },
+            },
+        });
+        t.after(() => manager.close());
+        const envelope = createEnvelope(`run-agent-retry-${name}`);
+        if (retry) envelope.planner.retry = retry;
+        manager.create('alice', envelope, {});
+        const terminal = await waitFor(() => {
+            const run = manager.get('alice', envelope.runId);
+            return ['dispatched', 'failed'].includes(run?.state) ? run : null;
+        }, 5000);
+        assert.equal(terminal.state, expectedState, `${name}: ${JSON.stringify(terminal.error)}`);
+        assert.equal(calls, expectedCalls, name);
+        if (expectedState === 'failed') assert.equal(terminal.error.code, 'PROVIDER_REQUEST_FAILED', name);
+    }
+});
+
+test('backend exposes which retry is running and keeps the failed attempts of earlier rounds', async (t) => {
+    const valid = JSON.stringify({ images: [{ insert_after: 1, scene: 'rain', characters: [] }] });
+    let calls = 0;
+    const { manager } = createManager({
+        runtime: drawRuntime,
+        managerOptions: {
+            agentCore: {
+                createAgentAdapter: () => ({
+                    async chat() {
+                        calls += 1;
+                        if (calls <= 2) throw new Error('fetch failed');
+                        return { toolCalls: [{ name: 'submit_scene_plan', arguments: valid }] };
+                    },
+                }),
+            },
+        },
+    });
+    t.after(() => manager.close());
+    const envelope = createEnvelope('run-retry-progress');
+    envelope.planner.retry = { maxRetries: 3, baseDelayMs: 100 };
+    manager.create('alice', envelope, {});
+    const seen = [];
+    await waitFor(() => {
+        const run = manager.get('alice', envelope.runId);
+        seen.push(structuredClone(run.progress));
+        return ['dispatched', 'failed'].includes(run.state);
+    }, 5000);
+    const retrying = seen.filter(progress => progress.stage === 'retry');
+    assert.deepEqual([...new Set(retrying.map(progress => JSON.stringify(progress.retry)))],
+        [JSON.stringify({ current: 1, total: 3 }), JSON.stringify({ current: 2, total: 3 })]);
+    // 重试等待阶段的 total 是“最多重试几次”，不能冒充 Agent 的尝试上限。
+    assert.ok(retrying.every(progress => progress.maxAttempts === 3));
+    const last = seen.at(-1);
+    assert.equal(Object.hasOwn(last, 'retry'), false, '重试结束后不再带 retry');
+    // 前两轮失败的尝试记录没有被后续轮次覆盖。
+    assert.deepEqual(last.attempts.map(item => item.attempt), [1, 2, 3]);
+    assert.deepEqual(last.attempts.map(item => Boolean(item.errorCode)), [true, true, false]);
 });
 
 test('backend dispatches a decorated tagged plan once and retains ambiguous-call diagnostics without dispatch', async (t) => {

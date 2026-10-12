@@ -1,0 +1,183 @@
+/* 分组预设面板（character-group-presets-ui.js）。颜色沿用宿主页面的 CSS 变量，缺省值保证单独使用时也可读。
+   按钮 / 输入框沿用页面已有的 .btn .btn-sm .btn-primary .btn-danger .input .form-hint。 */
+
+.lwb-gp { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.lwb-gp *, .lwb-gp *::before, .lwb-gp *::after { box-sizing: border-box; }
+
+.lwb-gp-head { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lwb-gp-headline { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.lwb-gp-title { font-size: 13px; font-weight: 600; color: var(--text-primary, #e6edf3); }
+.lwb-gp .lwb-gp-hint { margin: 0; overflow-wrap: anywhere; }
+.lwb-gp-status {
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary, #8b949e);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+.lwb-gp-status.matched { background: var(--accent-soft, rgba(212, 165, 116, 0.15)); color: var(--accent, #d4a574); }
+
+.lwb-gp-btn { min-width: 0; }
+.lwb-gp-btn:focus-visible,
+.lwb-gp-input:focus-visible,
+.lwb-gp-select:focus-visible { outline: 2px solid var(--accent, #d4a574); outline-offset: 1px; }
+
+.lwb-gp-saveform { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.lwb-gp-saveform .lwb-gp-input { flex: 1 1 10em; min-width: 0; width: auto; }
+.lwb-gp-saveform-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+.lwb-gp-error {
+    padding: 6px 10px;
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    border-radius: 6px;
+    background: rgba(248, 81, 73, 0.08);
+    color: var(--danger, #f85149);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.lwb-gp-empty { font-size: 12px; color: var(--text-muted, #8b949e); overflow-wrap: anywhere; }
+.lwb-gp-empty-block {
+    padding: 12px;
+    border: 1px dashed var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    line-height: 1.6;
+}
+
+.lwb-gp-list-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
+.lwb-gp-list-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, #8b949e); }
+.lwb-gp-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+.lwb-gp-item {
+    min-width: 0;
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--bg-secondary, #161b22);
+}
+.lwb-gp-item.expanded { border-color: var(--border-focus, rgba(212, 165, 116, 0.5)); }
+.lwb-gp-item > .lwb-gp-error { margin: 0 8px 8px; }
+
+/* 折叠态一行：序号 + 名称（有保底宽度，约 6 个汉字）+ 徽标 / 绑定数 + 按钮；放不下时后两者整体换行，名称不会被挤没。 */
+.lwb-gp-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 8px; min-width: 0; }
+.lwb-gp-prio {
+    flex-shrink: 0;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary, #8b949e);
+    font-size: 11px;
+    line-height: 20px;
+    text-align: center;
+}
+.lwb-gp-name {
+    flex: 1 1 6em;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e6edf3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lwb-gp-meta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; font-size: 11px; color: var(--text-muted, #8b949e); }
+.lwb-gp-bound { white-space: nowrap; }
+.lwb-gp-badge { padding: 1px 6px; border-radius: 4px; font-size: 11px; white-space: nowrap; }
+.lwb-gp-badge-matched { background: var(--accent-soft, rgba(212, 165, 116, 0.15)); color: var(--accent, #d4a574); }
+.lwb-gp-badge-applied { background: rgba(63, 185, 80, 0.12); color: var(--success, #3fb950); }
+.lwb-gp-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+
+.lwb-gp-confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin: 0 8px 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 12px;
+    min-width: 0;
+}
+.lwb-gp-confirm-text { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+.lwb-gp-confirm-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.lwb-gp-detail > .lwb-gp-confirm,
+.lwb-gp-section > .lwb-gp-confirm { margin: 0; }
+
+.lwb-gp-detail { display: flex; flex-direction: column; gap: 14px; padding: 8px; border-top: 1px solid var(--border, rgba(255, 255, 255, 0.1)); min-width: 0; }
+.lwb-gp-section { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lwb-gp-section-title { font-size: 12px; font-weight: 600; color: var(--accent, #d4a574); }
+.lwb-gp-section > .lwb-gp-input { width: 100%; min-width: 0; }
+.lwb-gp-input, .lwb-gp-select { padding: 4px 8px; font-size: 12px; }
+
+/* 分组开关表：名称（省略号）+ 参考计数 + 三段选择；放不下时三段选择换到下一行。 */
+.lwb-gp-grows { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lwb-gp-grow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    min-width: 0;
+}
+.lwb-gp-gname { flex: 1 1 6em; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lwb-gp-gcount { flex-shrink: 0; font-size: 11px; color: var(--text-muted, #8b949e); white-space: nowrap; }
+.lwb-gp-seg-group { display: inline-flex; flex-shrink: 0; margin-left: auto; }
+.lwb-gp-seg { position: relative; display: inline-flex; cursor: pointer; }
+.lwb-gp-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.lwb-gp-seg-text {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 28px;
+    padding: 2px 10px;
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    margin-left: -1px;
+    background: var(--bg-tertiary, #21262d);
+    color: var(--text-secondary, #8b949e);
+    font-size: 12px;
+    white-space: nowrap;
+}
+.lwb-gp-seg:first-child .lwb-gp-seg-text { margin-left: 0; border-radius: 6px 0 0 6px; }
+.lwb-gp-seg:last-child .lwb-gp-seg-text { border-radius: 0 6px 6px 0; }
+.lwb-gp-seg input:checked + .lwb-gp-seg-on { background: rgba(63, 185, 80, 0.18); border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+.lwb-gp-seg input:checked + .lwb-gp-seg-off { background: rgba(248, 81, 73, 0.15); border-color: var(--danger, #f85149); color: var(--danger, #f85149); }
+.lwb-gp-seg input:checked + .lwb-gp-seg-skip { background: var(--accent-soft, rgba(212, 165, 116, 0.15)); border-color: var(--border-focus, rgba(212, 165, 116, 0.5)); color: var(--accent, #d4a574); }
+.lwb-gp-seg input:checked + .lwb-gp-seg-text { position: relative; z-index: 1; }
+.lwb-gp-seg input:focus-visible + .lwb-gp-seg-text { position: relative; z-index: 2; outline: 2px solid var(--accent, #d4a574); outline-offset: 1px; }
+
+.lwb-gp-bindings { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.lwb-gp-binding {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 12px;
+    min-width: 0;
+}
+.lwb-gp-bname { flex: 1 1 6em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lwb-gp-bavatar { flex: 1 1 100%; min-width: 0; font-size: 11px; color: var(--text-muted, #8b949e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lwb-gp-missing { color: var(--danger, #f85149); font-size: 11px; }
+.lwb-gp-warn { flex: 1 1 100%; min-width: 0; font-size: 11px; color: var(--accent, #d4a574); overflow-wrap: anywhere; }
+.lwb-gp-remove { margin-left: auto; flex-shrink: 0; }
+
+.lwb-gp-add { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.lwb-gp-add .lwb-gp-input { flex: 1 1 7em; width: auto; min-width: 0; }
+.lwb-gp-add .lwb-gp-select { flex: 2 1 10em; width: auto; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.lwb-gp-add-active { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.lwb-gp-footer { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--border, rgba(255, 255, 255, 0.1)); }
+
+@media (max-width: 768px) {
+    .lwb-gp-actions { margin-left: 0; flex: 1 1 100%; }
+    .lwb-gp-seg-group { margin-left: 0; }
+    .lwb-gp-seg-text { min-height: 32px; }
+}

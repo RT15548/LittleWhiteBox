@@ -1,0 +1,336 @@
+/* 角色标签导入对话框（character-library-dialog.js）。颜色与间距沿用宿主页面的 CSS 变量，缺省值保证单独使用时也可读。 */
+
+.lwb-cid-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.lwb-cid-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    max-height: min(92vh, 100%);
+    background: var(--bg-secondary, #161b22);
+    color: var(--text-primary, #e6edf3);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow: hidden;
+}
+
+.lwb-cid-overlay [hidden] {
+    display: none !important;
+}
+
+.lwb-cid-title {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 14px 16px;
+    font-size: 15px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+
+.lwb-cid-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.lwb-cid-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 6px 12px;
+    margin: 0;
+    padding: 10px 12px;
+    background: var(--bg-input, rgba(0, 0, 0, 0.25));
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+}
+
+.lwb-cid-meta-item {
+    min-width: 0;
+}
+
+.lwb-cid-meta-item.is-wide {
+    grid-column: 1 / -1;
+}
+
+.lwb-cid-meta-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary, #8b949e);
+}
+
+.lwb-cid-meta-value {
+    display: block;
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.lwb-cid-section {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.lwb-cid-section-title {
+    padding: 0;
+    margin-bottom: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent, #d4a574);
+}
+
+.lwb-cid-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+}
+
+.lwb-cid-mode.is-selected {
+    border-color: var(--accent, #d4a574);
+    background: var(--accent-soft, rgba(212, 165, 116, 0.15));
+}
+
+.lwb-cid-mode.is-disabled {
+    opacity: 0.55;
+}
+
+.lwb-cid-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.lwb-cid-choice input {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    accent-color: var(--accent, #d4a574);
+}
+
+.lwb-cid-choice.is-disabled {
+    cursor: not-allowed;
+}
+
+.lwb-cid-hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary, #8b949e);
+}
+
+.lwb-cid-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lwb-cid-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary, #8b949e);
+}
+
+.lwb-cid-input {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px;
+    background: var(--bg-input, rgba(0, 0, 0, 0.25));
+    color: var(--text-primary, #e6edf3);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.lwb-cid-input:focus {
+    outline: none;
+    border-color: var(--border-focus, rgba(212, 165, 116, 0.5));
+}
+
+.lwb-cid-input[aria-invalid="true"] {
+    border-color: var(--danger, #f85149);
+}
+
+.lwb-cid-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.lwb-cid-preview {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 32vh;
+    overflow-y: auto;
+    margin: 0 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-input, rgba(0, 0, 0, 0.25));
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+}
+
+.lwb-cid-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.lwb-cid-chip {
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    white-space: nowrap;
+}
+
+.lwb-cid-total {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary, #8b949e);
+}
+
+.lwb-cid-warnings {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--warning, #d29922);
+}
+
+.lwb-cid-alert {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--danger, #f85149);
+    background: rgba(248, 81, 73, 0.12);
+    border: 1px solid rgba(248, 81, 73, 0.5);
+}
+
+.lwb-cid-tip {
+    flex: 1 1 160px;
+    align-self: center;
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary, #8b949e);
+}
+
+.lwb-cid-footer {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+}
+
+.lwb-cid-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 8px 18px;
+    background: var(--bg-tertiary, #21262d);
+    color: var(--text-primary, #e6edf3);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.lwb-cid-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.lwb-cid-btn-primary {
+    background: var(--accent, #d4a574);
+    border-color: var(--accent, #d4a574);
+    color: #000;
+    font-weight: 500;
+}
+
+.lwb-cid-btn-primary:hover {
+    background: #e5b685;
+}
+
+.lwb-cid-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.lwb-cid-btn:focus-visible,
+.lwb-cid-choice input:focus-visible {
+    outline: 2px solid var(--accent, #d4a574);
+    outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+    .lwb-cid-overlay {
+        padding: 8px;
+        align-items: flex-end;
+    }
+
+    .lwb-cid-panel {
+        max-height: 96vh;
+    }
+
+    .lwb-cid-footer .lwb-cid-btn {
+        flex: 1;
+    }
+
+    .lwb-cid-tip {
+        flex-basis: 100%;
+    }
+
+    .lwb-cid-preview {
+        max-height: 28vh;
+        margin: 0 12px 8px;
+    }
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .lwb-cid-btn { min-height: 44px; }
+    .lwb-cid-input { min-height: 44px; padding: 12px; }
+    .lwb-cid-choice { min-height: 44px; align-items: center; }
+    .lwb-cid-choice input { width: 22px; height: 22px; margin-top: 0; }
+}
+
+/* 导出对话框（openCharacterExportDialog）：内容少，用更窄的面板；原因提示只在选项不可用时出现。 */
+.lwb-cid-panel-compact {
+    width: min(420px, 100%);
+}
+
+.lwb-cid-panel-compact .lwb-cid-mode.is-disabled .lwb-cid-hint {
+    margin-left: 24px;
+}
