@@ -84,11 +84,11 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} menu has
         const row = input.closest('.nd-row');
         assert.equal(row.querySelector('.nd-label').textContent, '数目');
         assert.equal(input.getAttribute('type'), 'number');
-        assert.equal(input.getAttribute('min'), '1');
+        assert.equal(input.getAttribute('min'), '0');
         assert.equal(input.getAttribute('max'), '20');
         assert.equal(input.getAttribute('step'), '1');
         assert.equal(input.getAttribute('placeholder'), '跟随预设');
-        assert.equal(input.getAttribute('title'), '留空 = 跟随预设（当前预设：2 张）');
+        assert.equal(input.getAttribute('title'), '留空 = 跟随预设（当前预设：2 张）；0 = 不指定');
         assert.equal(input.value, '');
         assert.equal(resets[index].getAttribute('title'), '跟随预设');
         assert.ok(resets[index].hasAttribute('hidden'), 'reset only shows with an override');
@@ -136,7 +136,7 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} menu has
     assert.equal(harness.saves, 3);
 
     // Invalid values are rejected on commit: restored, warned, never written.
-    const rejected = [['0', 'blur'], ['25', 'keydown'], ['-3', 'blur'], ['2.5', 'blur'], ['abc', 'blur']];
+    const rejected = [['-1', 'keydown'], ['25', 'keydown'], ['-3', 'blur'], ['2.5', 'blur'], ['abc', 'blur']];
     for (const [index, [text, how]] of rejected.entries()) {
         const input = inputs[index % 2];
         const before = harness.saves;
@@ -148,7 +148,7 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} menu has
         assert.equal(harness.saves, before, text);
         assert.equal(input.value, '9', `${text} snaps back`);
         assert.equal(warnings.length, index + 1, text);
-        assert.equal(warnings.at(-1), '出图数目需为 1–20 的整数');
+        assert.equal(warnings.at(-1), '出图数目需为 0–20 的整数（0 = 不指定，留空 = 跟随预设）');
     }
     // Unparsable text in a real number input reads as '' with validity.badInput.
     Object.defineProperty(inputs[0], 'validity', { value: { badInput: true }, configurable: true });
@@ -206,5 +206,58 @@ for (const provider of Object.keys(providerFixtures)) test(`${provider} menu has
     await settle();
     assert.equal(harness.settings.overrideMaxImages, null);
     assert.equal(harness.settings.overrideSize, 'default');
+    for (const input of inputs) assert.equal(input.value, '');
+
+    // 0 = override to "unspecified": a real value, distinct from empty, and it beats the preset (maxImages 2).
+    type(inputs[0], '0');
+    fire(inputs[0], 'keydown', { key: 'Enter' });
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, 0, '0 is stored as 0');
+    assert.notEqual(harness.settings.overrideMaxImages, null, '0 is not treated as empty');
+    assert.equal(harness.okTexts.at(-1), '出图数目已设为 不指定');
+    for (const [index, input] of inputs.entries()) {
+        assert.equal(input.value, '0', 'shows "0", not empty');
+        assert.ok(!resets[index].hasAttribute('hidden'), 'reset is visible with a 0 override');
+    }
+    // Re-reading the settings keeps showing 0.
+    for (const input of inputs) input.value = '';
+    api.updateAllMaxImagesInputs();
+    for (const input of inputs) assert.equal(input.value, '0');
+    // Same 0 committed from the other menu / blur: no extra save and never cleared.
+    const savesAtZero = harness.saves;
+    type(inputs[1], '0', 'change');
+    t.mock.timers.tick(350);
+    await settle();
+    fire(inputs[0], 'blur');
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, 0);
+    assert.equal(harness.saves, savesAtZero, 'unchanged 0 is not saved again');
+    // 0 -> 3 -> 0 through the debounce path.
+    type(inputs[1], '3');
+    t.mock.timers.tick(350);
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, 3);
+    type(inputs[1], '0');
+    t.mock.timers.tick(350);
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, 0);
+    // Emptying the input after a 0 override clears it (empty !== 0).
+    type(inputs[0], '', 'change');
+    t.mock.timers.tick(350);
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, null);
+    assert.equal(harness.okTexts.at(-1), '出图数目：跟随预设');
+    for (const [index, input] of inputs.entries()) {
+        assert.equal(input.value, '');
+        assert.ok(resets[index].hasAttribute('hidden'));
+    }
+    // The reset button clears a 0 override back to "follow preset".
+    type(inputs[0], '0');
+    fire(inputs[0], 'keydown', { key: 'Enter' });
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, 0);
+    fire(resets[1], 'click');
+    await settle();
+    assert.equal(harness.settings.overrideMaxImages, null);
     for (const input of inputs) assert.equal(input.value, '');
 });

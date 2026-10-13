@@ -2,7 +2,7 @@ import { getContext } from '../../../../../../../extensions.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 import { DRAW_CAPSULE_COPY } from '../../shared/draw-capsule-copy.js';
-import { normalizeMaxImagesOverride } from '../../shared/max-images-override.js';
+import { buildMaxImagesSavedMessage, normalizeMaxImagesOverride } from '../../shared/max-images-override.js';
 import {
     MAX_IMAGES_INPUT_CLASS,
     MAX_IMAGES_INPUT_CSS,
@@ -1024,12 +1024,12 @@ async function setQuickSize(value) {
     }, updateAllSizeSelects);
 }
 
-// value 已由数字输入框校验：1-20 的整数 = 覆盖，null = 清除覆盖（跟随预设）。
+// value 已由数字输入框校验：0 = 覆盖为不指定，1-20 的整数 = 覆盖，null = 清除覆盖（跟随预设）。
 async function setQuickMaxImages(value) {
     const next = normalizeMaxImagesOverride(value);
     const ok = await persistQuickSetting((settings) => {
         settings.overrideMaxImages = next;
-    }, updateAllMaxImagesInputs, next == null ? '出图数目：跟随预设' : `出图数目已设为 ${next}`);
+    }, updateAllMaxImagesInputs, buildMaxImagesSavedMessage(next));
     if (!ok) updateAllMaxImagesInputs();
     return ok;
 }
