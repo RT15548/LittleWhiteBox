@@ -19,13 +19,16 @@ import {
     exportCharacters,
     getGroupedView,
     isGroupEnabled,
+    isGroupLocked,
     moveCharacters,
     moveGroup,
     parseCharacterImport,
     placeGroup,
     renameGroup,
     setCharactersEnabled,
+    setCharactersLocked,
     setGroupEnabled,
+    setGroupLocked,
     shiftCharacter,
 } from './character-library.js';
 import { buildCharacterExportFileName, openCharacterExportDialog, openCharacterImportDialog } from './character-library-dialog.js';
@@ -43,6 +46,15 @@ const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，�
 const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
 const GROUP_OFF_NOTE = '分组已关闭';
 const GROUP_OFF_NOTE_TITLE = '本分组已关闭，组内角色当前不参与出图；角色自己的开关保持不变';
+// 上锁：本机状态，只在导入“替换”时起保护作用，不限制重命名 / 删除 / 编辑 / 启用 / 拖动。角色锁与分组锁互相独立（有效上锁 = 角色锁 或 分组锁）。
+const CARD_LOCK_TITLE_ON = '已上锁：导入时不会被替换（点击解锁）';
+const CARD_LOCK_TITLE_OFF = '上锁：导入时不会被替换';
+const CARD_LOCK_TITLE_INHERITED = '上锁：导入时不会被替换（所在分组已上锁，当前已受保护）';
+const GROUP_LOCK_TITLE_ON = '已上锁分组：组内角色导入时不会被替换（点击解锁）';
+const GROUP_LOCK_TITLE_OFF = '上锁分组：组内角色导入时不会被替换';
+const LOCK_NOTE_OWN = '已上锁';
+const LOCK_NOTE_GROUP = '分组已上锁';
+const LOCK_NOTE_GROUP_TITLE = '所在分组已上锁，导入时本角色不会被替换；角色自己的锁保持不变';
 
 // ── 纯函数（可单测）──────────────────────────────────────
 
@@ -96,6 +108,13 @@ function stripGroupId(character) {
     const rest = { ...character };
     delete rest.groupId;
     return rest;
+}
+
+/** locked 只在为 true 时保留该键（与 character-library.js 的规范化一致）。 */
+function withLocked(character, locked) {
+    const rest = { ...character };
+    delete rest.locked;
+    return locked ? { ...rest, locked: true } : rest;
 }
 
 /**
@@ -204,12 +223,14 @@ export function createCharacterLibraryUi(options = {}) {
     /** 当前草稿：表单里的所有字段（含未保存的编辑）+ 卡片所在分组 + 记录的数组顺序。 */
     function getLibrary({ keepEmpty = true } = {}) {
         const groupOf = new Map(cardsIn().map(card => [cardId(card), groupIdOfCard(card)]));
+        // 角色自己的锁以卡片上的状态为准（与启用开关一样：DOM 才是草稿的真值），已保存记录里的旧值不会回流。
+        const lockedOf = new Map(cardsIn().map(card => [cardId(card), card.dataset?.characterLocked === 'true']));
         const rank = new Map(state.order.map((id, index) => [id, index]));
         const characters = readCharacters({ keepEmpty })
             .map((character, domIndex) => {
                 const id = String(character.id || '');
                 const groupId = groupOf.get(id) || UNGROUPED_ID;
-                const base = stripGroupId(character);
+                const base = withLocked(stripGroupId(character), lockedOf.get(id) === true);
                 return {
                     character: groupId ? { ...base, groupId } : base,
                     rank: rank.has(id) ? rank.get(id) : Number.MAX_SAFE_INTEGER,
@@ -246,9 +267,13 @@ export function createCharacterLibraryUi(options = {}) {
         const groupScroll = captureGroupScroll();
         const characters = Array.isArray(library?.characters) ? library.characters : [];
         // 分组开关 enabled 随分组一起带着，只在关闭时保留该键（与 character-library.js 的规范化一致）。
-        state.groups = (Array.isArray(library?.groups) ? library.groups : []).map(group => (
-            group.enabled === false ? { id: group.id, name: group.name, enabled: false } : { id: group.id, name: group.name }
-        ));
+        // 分组锁 locked 同理：只在上锁时保留该键。
+        state.groups = (Array.isArray(library?.groups) ? library.groups : []).map(group => ({
+            id: group.id,
+            name: group.name,
+            ...(group.enabled === false ? { enabled: false } : {}),
+            ...(group.locked === true ? { locked: true } : {}),
+        }));
         state.order = characters.map(character => String(character.id || ''));
         const existing = new Set(state.order);
         for (const id of [...state.selected]) if (!existing.has(id)) state.selected.delete(id);
@@ -344,7 +369,10 @@ export function createCharacterLibraryUi(options = {}) {
             }, [iconNode(document, icon)]));
         };
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。文案与状态由 updateGroupHeader 填。
-        if (!group.virtual) addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch');
+        if (!group.virtual) {
+            addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch');
+            addAction('toggle-lock', '', 'fa-solid fa-lock-open', ' lwb-cl-group-lock');
+        }
         addAction('add', '在本组添加角色', 'fa-solid fa-plus');
         if (!group.virtual) {
             addAction('rename', '重命名分组', 'fa-solid fa-pen');
@@ -390,6 +418,49 @@ export function createCharacterLibraryUi(options = {}) {
             toggle.classList.toggle('active', enabled);
             toggle.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? 'fa-toggle-on' : 'fa-toggle-off'}`);
         }
+        const lockButton = section.querySelector('.lwb-cl-group-lock');
+        if (lockButton) {
+            const locked = isGroupLocked({ characters: [], groups: state.groups }, groupId);
+            const title = locked ? GROUP_LOCK_TITLE_ON : GROUP_LOCK_TITLE_OFF;
+            lockButton.setAttribute('title', title);
+            lockButton.setAttribute('aria-label', `${title} ${name}`);
+            lockButton.setAttribute('aria-pressed', String(locked));
+            lockButton.classList.toggle('active', locked);
+            lockButton.querySelector('i')?.setAttribute('class', `fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}`);
+        }
+    }
+
+    /**
+     * 刷新卡片上的上锁显示：按钮（只反映角色自己的锁）与标题旁的小提示（自己上锁 → “已上锁”；
+     * 只有分组上锁 → “分组已上锁”）。groupId 缺省时按卡片当前所在位置判断（装饰时卡片尚未挂到页面上，由调用方传入）。
+     */
+    function syncCardLock(card, groupId = groupIdOfCard(card)) {
+        const own = card.dataset.characterLocked === 'true';
+        const inherited = isGroupLocked({ characters: [], groups: state.groups }, groupId);
+        const label = String(card.querySelector(nameFieldSelector)?.value || '').trim() || '新角色';
+        const button = card.querySelector('.lwb-cl-card-lock');
+        if (button) {
+            const title = own ? CARD_LOCK_TITLE_ON : (inherited ? CARD_LOCK_TITLE_INHERITED : CARD_LOCK_TITLE_OFF);
+            button.setAttribute('title', title);
+            button.setAttribute('aria-label', `${title} ${label}`);
+            button.setAttribute('aria-pressed', String(own));
+            button.classList.toggle('active', own);
+            button.querySelector('i')?.setAttribute('class', `fa-solid ${own ? 'fa-lock' : 'fa-lock-open'}`);
+        }
+        const title = card.querySelector('.sd-char-card-title');
+        if (!title) return;
+        let note = title.querySelector('.lwb-cl-lock-note');
+        if (!own && !inherited) {
+            note?.remove();
+            return;
+        }
+        if (!note) {
+            note = create(document, 'span', { className: 'lwb-cl-lock-note', attrs: { 'data-role': 'lock-note' } });
+            title.appendChild(note);
+        }
+        note.textContent = own ? LOCK_NOTE_OWN : LOCK_NOTE_GROUP;
+        if (own) note.removeAttribute('title');
+        else note.setAttribute('title', LOCK_NOTE_GROUP_TITLE);
     }
 
     function refreshGroupHeaders() {
@@ -430,7 +501,16 @@ export function createCharacterLibraryUi(options = {}) {
             }, [iconNode(document, 'fa-solid fa-clone'), create(document, 'span', { text: '复制' })]);
             const remove = actions.querySelector('[data-sd-char-delete]');
             actions.insertBefore(duplicate, remove || null);
+            // 上锁开关放在启用开关旁边（没有启用开关时放最前）；状态与文案由 syncCardLock 填。
+            const lock = create(document, 'button', {
+                className: 'btn btn-sm lwb-cl-card-lock',
+                attrs: { type: 'button', 'data-lwb-card-action': 'toggle-lock', 'data-id': id },
+            }, [iconNode(document, 'fa-solid fa-lock-open')]);
+            const enabledControl = actions.querySelector('.character-enabled-control');
+            actions.insertBefore(lock, enabledControl ? enabledControl.nextSibling : actions.firstChild);
         }
+        card.dataset.characterLocked = String(character?.locked === true);
+        syncCardLock(card, String(character?.groupId || ''));
         // 所在分组已关闭：卡片上给一个“分组已关闭”提示（启用复选框仍可点，仅表示当前不参与出图）。
         const ownGroup = state.groups.find(group => group.id === String(character?.groupId || ''));
         if (title && ownGroup && ownGroup.enabled === false) {
@@ -663,6 +743,9 @@ export function createCharacterLibraryUi(options = {}) {
             if (action === 'toggle-enabled') {
                 // 只切换分组自己的开关：不改任何角色的 enabled。
                 apply(setGroupEnabled(library, groupId, !isGroupEnabled(library, groupId)));
+            } else if (action === 'toggle-lock') {
+                // 只切换分组自己的锁：不改任何角色的锁。
+                apply(setGroupLocked(library, groupId, !isGroupLocked(library, groupId)));
             } else if (action === 'add') {
                 addCharacter({ groupId });
             } else if (action === 'rename') {
@@ -678,6 +761,18 @@ export function createCharacterLibraryUi(options = {}) {
                 if (removeMembers) members.forEach(character => state.selected.delete(character.id));
                 apply(deleteGroup(library, groupId, { deleteCharacters: removeMembers }));
             }
+        });
+    }
+
+    /** 切换角色自己的锁：只改这一张卡的状态，不重绘，其他卡片里尚未保存的编辑完全不受影响。 */
+    function toggleCardLock(id) {
+        run(() => {
+            const card = findCard(id);
+            if (!card) return;
+            const library = getLibrary();
+            const next = setCharactersLocked(library, [id], card.dataset.characterLocked !== 'true');
+            card.dataset.characterLocked = String(next.characters.find(character => character.id === id)?.locked === true);
+            syncCardLock(card);
         });
     }
 
@@ -978,7 +1073,9 @@ export function createCharacterLibraryUi(options = {}) {
             return;
         }
         const duplicateButton = event.target.closest?.('[data-lwb-card-action="duplicate"]');
-        if (duplicateButton) duplicate([duplicateButton.dataset.id]);
+        if (duplicateButton) { duplicate([duplicateButton.dataset.id]); return; }
+        const lockButton = event.target.closest?.('[data-lwb-card-action="toggle-lock"]');
+        if (lockButton) toggleCardLock(lockButton.dataset.id);
     });
 
     listen(list, 'change', (event) => {

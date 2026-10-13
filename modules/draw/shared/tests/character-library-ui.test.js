@@ -1020,7 +1020,7 @@ test('group header has no up/down/export buttons; the handle is a focusable butt
             assert.equal(view.groupButton(groupId, action), null, `${groupId}/${action}`);
         }
         const actions = Array.from(view.sectionOf(groupId).querySelectorAll('[data-lwb-group-action]')).map(node => node.dataset.lwbGroupAction);
-        assert.deepEqual(actions, ['collapse', 'toggle-enabled', 'add', 'rename', 'delete']);
+        assert.deepEqual(actions, ['collapse', 'toggle-enabled', 'toggle-lock', 'add', 'rename', 'delete']);
         const handle = view.sectionOf(groupId).querySelector('[data-drag-group]');
         assert.equal(handle.getAttribute('role'), 'button');
         assert.equal(handle.getAttribute('tabindex'), '0');
@@ -1394,4 +1394,145 @@ test('syncGroupEnabled turns the given group switches to the latest values and k
     // 缺省同步全部同 id 分组
     assert.equal(view.ui.syncGroupEnabled([{ id: 'g1', name: '主线' }, { id: 'g2', name: '宠物' }]), true);
     assert.deepEqual(view.ui.getGroups(), [{ id: 'g1', name: '主线' }, { id: 'g2', name: '宠物' }]);
+});
+
+// ── 上锁（本机状态，只保护导入时不被替换）──────────────────
+
+const lockButton = (view, id) => view.cardOf(id).querySelector('[data-lwb-card-action="toggle-lock"]');
+const lockNote = (view, id) => view.cardOf(id).querySelector('.lwb-cl-lock-note');
+const lockedOf = (view, id) => view.ui.getLibrary().characters.find(item => item.id === id).locked;
+
+test('card lock toggle sits next to the enabled control, flips only that card without a redraw and keeps unsaved edits', () => {
+    const view = mount({ library: sampleLibrary() });
+    const row = view.cardOf('c2').querySelector('.btn-group');
+    assert.match(row.children[0].className, /character-enabled-control/);
+    assert.match(row.children[1].className, /lwb-cl-card-lock/, '上锁按钮紧跟启用开关');
+
+    const button = lockButton(view, 'c2');
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(button.classList.contains('active'), false);
+    assert.equal(button.getAttribute('title'), '上锁：导入时不会被替换');
+    assert.equal(button.querySelector('i').getAttribute('class'), 'fa-solid fa-lock-open');
+    assert.equal(lockNote(view, 'c2'), null);
+
+    view.type('c1', 'name', '改过的名字（未保存）');
+    const sameCard = view.cardOf('c2');
+    view.click(button);
+    assert.equal(view.cardOf('c2'), sameCard, '不重绘');
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'true');
+    assert.equal(lockButton(view, 'c2').classList.contains('active'), true);
+    assert.equal(lockButton(view, 'c2').getAttribute('title'), '已上锁：导入时不会被替换（点击解锁）');
+    assert.equal(lockButton(view, 'c2').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.equal(lockNote(view, 'c2').textContent, '已上锁');
+    assert.equal(lockedOf(view, 'c2'), true, '草稿（即保存通道）里带 locked:true');
+    assert.equal(view.ui.getCharacters().find(item => item.id === 'c2').locked, true);
+    assert.equal(lockedOf(view, 'c3'), undefined, '其他角色不受影响');
+    assert.equal(view.ui.getLibrary().characters.find(item => item.id === 'c1').name, '改过的名字（未保存）');
+
+    // 上锁不挡住其它操作：启用开关照常可点，重绘后锁仍在
+    const checkbox = view.cardOf('c2').querySelector('[data-character-enabled-control]');
+    checkbox.checked = false;
+    view.fire(checkbox, 'change');
+    view.ui.rerender();
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'true', '重绘后锁保留');
+    assert.equal(lockedOf(view, 'c2'), true);
+
+    // 再点一次解锁：不留 locked 键
+    view.click(lockButton(view, 'c2'));
+    assert.equal(Object.hasOwn(view.ui.getLibrary().characters.find(item => item.id === 'c2'), 'locked'), false);
+    assert.equal(lockNote(view, 'c2'), null);
+    assert.equal(view.log.error.length, 0);
+});
+
+test('group lock toggle flips only the group, never a character, and unlocking drops the key', () => {
+    const view = mount({ library: sampleLibrary() });
+    const toggle = id => view.groupButton(id, 'toggle-lock');
+    assert.equal(toggle(''), null, '未分组没有锁');
+    assert.equal(toggle('g1').getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle('g1').getAttribute('title'), '上锁分组：组内角色导入时不会被替换');
+    assert.notEqual(toggle('g1').closest('.lwb-cl-group-actions'), null);
+
+    view.type('c2', 'name', '改过的名字（未保存）');
+    const charactersBefore = JSON.stringify(view.ui.getLibrary().characters.map(item => [item.id, item.enabled, item.locked]));
+    view.click(toggle('g1'));
+    assert.equal(toggle('g1').getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle('g1').classList.contains('active'), true);
+    assert.equal(toggle('g1').getAttribute('title'), '已上锁分组：组内角色导入时不会被替换（点击解锁）');
+    assert.equal(toggle('g1').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.deepEqual(view.ui.getGroups().find(group => group.id === 'g1'), { id: 'g1', name: '主线', locked: true });
+    assert.equal(view.ui.getGroups().find(group => group.id === 'g2').locked, undefined);
+    assert.equal(JSON.stringify(view.ui.getLibrary().characters.map(item => [item.id, item.enabled, item.locked])), charactersBefore, '角色自己的状态一个都没变');
+    assert.equal(view.ui.getLibrary().characters.find(item => item.id === 'c2').name, '改过的名字（未保存）');
+
+    // 切换分组开关后锁仍在；再点一次解锁并清掉键
+    view.click(view.groupButton('g1', 'toggle-enabled'));
+    assert.equal(view.ui.getGroups().find(group => group.id === 'g1').locked, true);
+    view.click(toggle('g1'));
+    assert.deepEqual(view.ui.getGroups().find(group => group.id === 'g1'), { id: 'g1', name: '主线', enabled: false });
+    assert.equal(view.log.error.length, 0);
+});
+
+test('a character inside a locked group shows the group-lock hint but its own lock button stays unpressed', () => {
+    const library = sampleLibrary();
+    library.groups[0] = { ...library.groups[0], locked: true };
+    library.characters[2] = { ...library.characters[2], locked: true }; // c3：自己也上锁
+    const view = mount({ library });
+    assert.equal(view.groupButton('g1', 'toggle-lock').getAttribute('aria-pressed'), 'true', '锁着的分组头：按钮是激活的');
+
+    assert.equal(lockNote(view, 'c2').textContent, '分组已上锁');
+    assert.match(lockNote(view, 'c2').getAttribute('title'), /分组已上锁/);
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'false', '继承的锁不算角色自己的锁');
+    assert.equal(lockButton(view, 'c2').classList.contains('active'), false);
+    assert.match(lockButton(view, 'c2').getAttribute('title'), /上锁：导入时不会被替换.*所在分组已上锁/);
+    assert.equal(lockedOf(view, 'c2'), undefined, '继承的锁不会写进角色');
+
+    assert.equal(lockNote(view, 'c3').textContent, '已上锁', '自己上锁优先于分组上锁的提示');
+    assert.equal(lockButton(view, 'c3').getAttribute('aria-pressed'), 'true');
+    assert.equal(lockNote(view, 'c1'), null);
+    assert.equal(lockNote(view, 'c4'), null);
+
+    // 点继承锁的角色按钮：给角色自己上锁，分组的锁不动
+    view.click(lockButton(view, 'c2'));
+    assert.equal(lockedOf(view, 'c2'), true);
+    assert.equal(lockNote(view, 'c2').textContent, '已上锁');
+    assert.equal(view.ui.getGroups().find(group => group.id === 'g1').locked, true);
+});
+
+test('locks stay local: they survive redraws and group switch syncs but never reach a copy or the export file', () => {
+    const library = sampleLibrary();
+    library.characters[1] = { ...library.characters[1], locked: true };
+    library.groups[1] = { ...library.groups[1], locked: true };
+    const view = mount({ library });
+    assert.equal(lockedOf(view, 'c2'), true, '初始 locked 渲染到卡片上');
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'true');
+
+    view.ui.rerender();
+    assert.equal(lockedOf(view, 'c2'), true);
+    assert.equal(view.ui.syncGroupEnabled([{ id: 'g2', name: '宠物', enabled: false }], ['g2']), true);
+    assert.deepEqual(view.ui.getGroups().find(group => group.id === 'g2'), { id: 'g2', name: '宠物', enabled: false, locked: true }, '同步分组开关不丢分组锁');
+    assert.equal(lockedOf(view, 'c2'), true);
+
+    // 复制出来的副本不继承锁；导出文件不含 locked
+    view.click(view.cardOf('c2').querySelector('[data-lwb-card-action="duplicate"]'));
+    const copy = view.ui.getLibrary().characters.find(item => item.name.includes('副本'));
+    assert.ok(copy);
+    assert.equal(Object.hasOwn(copy, 'locked'), false);
+    view.click(view.$('[data-role="select-toggle"]'));
+    view.select('c2', 'c4');
+    view.batch('export');
+    const file = view.log.downloads.at(-1).data;
+    assert.equal(JSON.stringify(file).includes('locked'), false);
+});
+
+test('the SD and ComfyUI pages use the shared lock UI and carry no lock code of their own', () => {
+    for (const file of ['../../providers/sd-webui/sd-draw.js', '../../providers/comfyui/comfy-draw.js']) {
+        const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+        assert.match(source, /from "\.\.\/\.\.\/shared\/character-library-ui\.js"/, file);
+        assert.doesNotMatch(source, /toggle-lock|characterLocked|setCharactersLocked|setGroupLocked/, file);
+    }
+    const shared = readFileSync(new URL('../character-library-ui.js', import.meta.url), 'utf8');
+    assert.match(shared, /setCharactersLocked/);
+    assert.match(shared, /setGroupLocked/);
+    assert.match(cssRule(UI_CSS, '.lwb-cl-lock-note'), /white-space:\s*nowrap/);
+    assert.match(cssRule(UI_CSS, '.lwb-cl-card-lock.active'), /color:/);
 });

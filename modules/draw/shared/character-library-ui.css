@@ -86,6 +86,18 @@
     font-weight: 400;
     white-space: nowrap;
 }
+/* 上锁：按钮上锁时用强调色（角色卡与分组头一致）；提示与“分组已关闭”同款小标签。只影响导入替换，不改变其它交互。 */
+.lwb-cl-card-lock.active { color: var(--accent, #d4a574); border-color: var(--accent, #d4a574); }
+.lwb-cl-lock-note {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary, #8b949e);
+    font-size: 11px;
+    font-weight: 400;
+    white-space: nowrap;
+}
 /* 每个展开的分组在自己的区域内滚动，分组头留在滚动区外始终可见；角色少时没有滚动条，也不留空白。
    不设 overscroll-behavior: contain —— 滚到头时滚轮 / 触摸要能继续带动整页。 */
 .lwb-cl-group-body {

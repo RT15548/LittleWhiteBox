@@ -483,7 +483,7 @@ test('the group header has no up/down/export buttons and its drag handle is a fo
     sameJson(sections.map(section => section.dataset.groupId), ['', 'g1', 'g2']);
     for (const section of sections.slice(1)) {
         const actions = Array.from(section.querySelectorAll('[data-group-action]')).map(node => node.dataset.groupAction);
-        sameJson(actions, ['collapse', 'toggle-enabled', 'add', 'rename', 'delete']); // toggle-enabled 是分组自己的开关
+        sameJson(actions, ['collapse', 'toggle-enabled', 'toggle-lock', 'add', 'rename', 'delete']); // toggle-enabled / toggle-lock 是分组自己的开关与锁
         const handle = section.querySelector('[data-drag-group]');
         assert.equal(handle.getAttribute('role'), 'button');
         assert.equal(handle.getAttribute('tabindex'), '0');
@@ -2247,4 +2247,127 @@ test('without a selected preset the overwrite, rename and delete buttons are dis
     const { bar } = loadApiPanel(t);
     for (const action of ['overwrite', 'rename', 'delete']) assert.equal(bar(action).disabled, true, action);
     assert.equal(bar('save-as').disabled, false);
+});
+
+// ── 上锁：只保护导入时不被替换，不限制其它操作 ─────────────────────────
+
+const lockToggle = (panel, id) => panel.$(`#nd_char_list .char-card[data-id="${id}"] [data-action="toggle-lock"]`);
+const groupLock = (panel, id) => groupSection(panel, id)?.querySelector('[data-group-action="toggle-lock"]');
+
+test('the card lock button sits next to the enabled toggle, flips only that card without a redraw and persists', (t) => {
+    const panel = nestedPanel(t);
+    const actions = panel.$('#nd_char_list .char-card[data-id="c1"] .char-actions');
+    const order = Array.from(actions.children).map(node => node.dataset.action);
+    sameJson(order, ['toggle-enabled', 'toggle-lock', 'edit', 'duplicate', 'delete']);
+
+    const button = lockToggle(panel, 'c1');
+    assert.equal(button.classList.contains('char-action-button'), true);
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(button.getAttribute('title'), '上锁：导入时不会被替换');
+    assert.equal(button.querySelector('i').getAttribute('class'), 'fa-solid fa-lock-open');
+    assert.doesNotMatch(statusOf(panel, 'c1'), /已上锁/);
+
+    // 另一张卡正在编辑，里面有尚未保存的输入：点锁不能重绘，输入原样保留
+    startEditing(panel, 'c3').querySelector('.char-edit-name').value = '改过的名字（未保存）';
+    const sameCard = panel.$('#nd_char_list .char-card[data-id="c1"]');
+    panel.posted.length = 0;
+    panel.click(lockToggle(panel, 'c1'));
+    assert.equal(panel.$('#nd_char_list .char-card[data-id="c1"]'), sameCard, '没有重绘');
+    assert.equal(panel.$('.char-card.editing[data-id="c3"] .char-edit-name').value, '改过的名字（未保存）');
+    assert.equal(lockToggle(panel, 'c1').getAttribute('aria-pressed'), 'true');
+    assert.equal(lockToggle(panel, 'c1').classList.contains('active'), true);
+    assert.equal(lockToggle(panel, 'c1').getAttribute('title'), '已上锁：导入时不会被替换（点击解锁）');
+    assert.equal(lockToggle(panel, 'c1').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.match(statusOf(panel, 'c1'), /^已上锁/);
+    assert.equal(panel.state().characterTags.find(char => char.id === 'c1').locked, true);
+    assert.equal(panel.state().characterTags.find(char => char.id === 'c3').locked, undefined);
+    const saved = panel.lastSave();
+    assert.equal(saved.characterTags.find(char => char.id === 'c1').locked, true, '保存通道带着 locked');
+
+    // 上锁不挡住别的操作：启停照常、状态文字顺序稳定（停用在前、上锁紧随）
+    panel.click(panel.$('#nd_char_list .char-card[data-id="c1"] [data-action="toggle-enabled"]'));
+    assert.equal(panel.state().characterTags.find(char => char.id === 'c1').enabled, false);
+    assert.match(statusOf(panel, 'c1'), /^停用 · 已上锁/);
+    panel.click(lockToggle(panel, 'c1'));
+    assert.match(statusOf(panel, 'c1'), /^停用/);
+    assert.doesNotMatch(statusOf(panel, 'c1'), /已上锁/);
+    assert.equal(Object.hasOwn(panel.state().characterTags.find(char => char.id === 'c1'), 'locked'), false, '解锁后不留 locked 键');
+    assert.equal(Object.hasOwn(panel.lastSave().characterTags.find(char => char.id === 'c1'), 'locked'), false);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('the group lock button lives in the group actions, flips only the group and persists with the group switch pattern', (t) => {
+    const panel = nestedPanel(t);
+    assert.equal(groupLock(panel, ''), null, '未分组没有锁');
+    const button = groupLock(panel, 'g1');
+    assert.ok(button.closest('.char-group-actions'));
+    assert.equal(button.classList.contains('char-action-button'), true);
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(button.getAttribute('title'), '上锁分组：组内角色导入时不会被替换');
+
+    const tagsBefore = JSON.stringify(panel.state().characterTags);
+    panel.click(button);
+    assert.equal(groupLock(panel, 'g1').getAttribute('aria-pressed'), 'true');
+    assert.equal(groupLock(panel, 'g1').classList.contains('active'), true);
+    assert.equal(groupLock(panel, 'g1').getAttribute('title'), '已上锁分组：组内角色导入时不会被替换（点击解锁）');
+    assert.equal(groupLock(panel, 'g1').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.equal(groupLock(panel, 'g2').getAttribute('aria-pressed'), 'false');
+    sameJson(panel.state().characterGroups, [{ id: 'g1', name: '主角', locked: true }, { id: 'g2', name: '配角' }]);
+    assert.equal(JSON.stringify(panel.state().characterTags), tagsBefore, '角色整体没有变化');
+    sameJson(panel.lastSave().characterGroups, [{ id: 'g1', name: '主角', locked: true }, { id: 'g2', name: '配角' }]);
+    assert.equal(groupSection(panel, 'g1').classList.contains('group-disabled'), false, '上锁不等于关闭');
+
+    // 分组开关仍可用，两个开关互相独立；再点锁恢复且不留键
+    panel.click(groupSwitch(panel, 'g1'));
+    sameJson(panel.state().characterGroups[0], { id: 'g1', name: '主角', enabled: false, locked: true });
+    panel.click(groupLock(panel, 'g1'));
+    sameJson(panel.state().characterGroups[0], { id: 'g1', name: '主角', enabled: false });
+    assert.deepEqual(panel.errors, []);
+});
+
+test('characters in a locked group get the group-lock hint while their own lock button stays unpressed', (t) => {
+    const panel = nestedPanel(t);
+    panel.click(groupLock(panel, 'g1'));
+    assert.match(statusOf(panel, 'c1'), /^分组已上锁/);
+    assert.match(statusOf(panel, 'c2'), /^停用 · 分组已上锁/, 'c2 自己停用：停用在前，分组上锁紧随');
+    assert.doesNotMatch(statusOf(panel, 'c3'), /上锁/, '其他分组的角色不受影响');
+    assert.doesNotMatch(statusOf(panel, 'c4'), /上锁/);
+    assert.equal(lockToggle(panel, 'c1').getAttribute('aria-pressed'), 'false', '继承的锁不算角色自己的锁');
+    assert.equal(lockToggle(panel, 'c1').classList.contains('active'), false);
+    assert.match(lockToggle(panel, 'c1').getAttribute('title'), /上锁：导入时不会被替换.*所在分组已上锁/);
+    assert.equal(Object.hasOwn(panel.state().characterTags.find(char => char.id === 'c1'), 'locked'), false, '继承的锁不会写进角色');
+
+    // 给角色自己上锁后，状态文字改为“已上锁”；解锁后回到分组提示
+    panel.click(lockToggle(panel, 'c1'));
+    assert.match(statusOf(panel, 'c1'), /^已上锁/);
+    assert.doesNotMatch(statusOf(panel, 'c1'), /分组已上锁/);
+    panel.click(lockToggle(panel, 'c1'));
+    assert.match(statusOf(panel, 'c1'), /^分组已上锁/);
+    // 分组解锁后提示消失
+    panel.click(groupLock(panel, 'g1'));
+    assert.doesNotMatch(statusOf(panel, 'c1'), /上锁/);
+});
+
+test('locks survive the save round trip: iframe save, shared settings normalization and the next INIT_DATA', (t) => {
+    const panel = nestedPanel(t);
+    panel.click(lockToggle(panel, 'c3'));
+    panel.click(groupLock(panel, 'g1'));
+    const saved = panel.lastSave();
+    // 宿主按共享设置规范化后写盘（与 SAVE_CHARACTER_TAGS 的处理一致），锁不能被白名单丢掉
+    const stored = normalizeSharedDrawSettings({ characterTags: saved.characterTags, characterGroups: saved.characterGroups });
+    assert.equal(stored.characterTags.find(char => char.id === 'c3').locked, true);
+    assert.equal(stored.characterTags.find(char => char.id === 'c1').locked, undefined);
+    sameJson(stored.characterGroups.map(group => [group.id, group.locked === true]), [['g1', true], ['g2', false]]);
+
+    // 宿主把规范化后的库推回来：锁状态原样显示
+    panel.initData({ characterTags: stored.characterTags, characterGroups: stored.characterGroups });
+    assert.equal(lockToggle(panel, 'c3').getAttribute('aria-pressed'), 'true');
+    assert.equal(groupLock(panel, 'g1').getAttribute('aria-pressed'), 'true');
+    assert.match(statusOf(panel, 'c3'), /已上锁/);
+    assert.match(statusOf(panel, 'c1'), /分组已上锁/);
+    // 撤销指纹把锁算进去：撤销窗口内改锁会让撤销失效，而不是被快照抹掉
+    panel.nd.deleteCharactersWithUndo(['c4'], '已删除旅人');
+    assert.equal(panel.nd.isUndoStale(), false);
+    panel.click(lockToggle(panel, 'c3'));
+    assert.equal(panel.nd.isUndoStale(), true);
 });

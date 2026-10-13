@@ -1954,6 +1954,38 @@ function isCharacterGroupClosed(char, library = getCharacterLibrary()) {
     return CL ? !CL.isGroupEnabled(library, char.groupId || '') : false;
 }
 
+// 上锁：本机状态，只在导入“替换”时起保护作用，不限制重命名 / 删除 / 编辑 / 启停 / 拖动。
+// 角色锁（char.locked）与分组锁（group.locked）互相独立；有效上锁 = 角色锁 或 分组锁。
+const CHAR_LOCK_TITLE_ON = '已上锁：导入时不会被替换（点击解锁）';
+const CHAR_LOCK_TITLE_OFF = '上锁：导入时不会被替换';
+const CHAR_LOCK_TITLE_INHERITED = '上锁：导入时不会被替换（所在分组已上锁，当前已受保护）';
+const GROUP_LOCK_TITLE_ON = '已上锁分组：组内角色导入时不会被替换（点击解锁）';
+const GROUP_LOCK_TITLE_OFF = '上锁分组：组内角色导入时不会被替换';
+const LOCK_LABEL_OWN = '已上锁';
+const LOCK_LABEL_GROUP = '分组已上锁';
+
+// 角色所在分组是否上锁（未分组、分组不存在、模块未加载都算未锁）。
+function isCharacterGroupLocked(char, library = getCharacterLibrary()) {
+    return CL ? CL.isGroupLocked(library, char.groupId || '') : false;
+}
+
+// 角色摘要里的上锁标签：自己上锁优先显示“已上锁”，只有分组上锁显示“分组已上锁”。
+function characterLockLabel(char, library = getCharacterLibrary()) {
+    if (!CL) return '';
+    if (char.locked === true) return LOCK_LABEL_OWN;
+    return isCharacterGroupLocked(char, library) ? LOCK_LABEL_GROUP : '';
+}
+
+// 角色卡上锁按钮的外观；按钮的 active / aria-pressed 只反映角色自己的锁（继承自分组的锁不算）。
+function describeCharacterLock(char, library = getCharacterLibrary()) {
+    const own = char.locked === true;
+    return {
+        own,
+        title: own ? CHAR_LOCK_TITLE_ON : (isCharacterGroupLocked(char, library) ? CHAR_LOCK_TITLE_INHERITED : CHAR_LOCK_TITLE_OFF),
+        icon: own ? 'fa-lock' : 'fa-lock-open',
+    };
+}
+
 function getFilteredCharacters(chars = []) {
     const query = String(charFilters.query || '').trim().toLowerCase();
     const typeFilter = charFilters.type || 'all';
@@ -2322,9 +2354,12 @@ const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，�
 const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
 
 function describeGroupHeader(library, group) {
-    const { own, total, enabled } = CL.getGroupSummary(library, group.id);
+    const { own, total, enabled, locked } = CL.getGroupSummary(library, group.id);
     return {
         enabled,
+        locked,
+        lockTitle: locked ? GROUP_LOCK_TITLE_ON : GROUP_LOCK_TITLE_OFF,
+        lockIcon: locked ? 'fa-lock' : 'fa-lock-open',
         // 窄栏里分组名优先：计数只写“自己开着数/总数”，完整含义放在 title / aria-label 里。
         countText: `${own}/${total}`,
         countTitle: `组内自己开着的角色 ${own} 个，共 ${total} 个${enabled ? '' : '；分组已关闭，组内角色当前都不参与出图'}`,
@@ -2369,7 +2404,8 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
         const header = describeGroupHeader(library, group);
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。
         const groupSwitch = group.virtual ? '' : `
-                    <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}"></i></button>`;
+                    <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}"></i></button>
+                    <button type="button" class="char-action-button char-group-lock${header.locked ? ' active' : ''}" data-group-action="toggle-lock" data-group-id="${gid}" title="${header.lockTitle}" aria-label="${header.lockTitle} ${gname}" aria-pressed="${header.locked}"><i class="fa-solid ${header.lockIcon}"></i></button>`;
         const manage = group.virtual ? '' : `
                     <button type="button" class="char-action-button" data-group-action="rename" data-group-id="${gid}" title="重命名分组" aria-label="重命名分组 ${gname}"><i class="fa-solid fa-pen"></i></button>
                     <button type="button" class="char-action-button" data-group-action="delete" data-group-id="${gid}" title="删除分组" aria-label="删除分组 ${gname}"><i class="fa-solid fa-trash"></i></button>`;
@@ -2416,6 +2452,9 @@ function handleGroupAction(action, groupId, trigger) {
         if (action === 'toggle-enabled') {
             // 只切换分组自己的开关：不改任何角色的 enabled。
             applyCharacterLibrary(CL.setGroupEnabled(library, groupId, !CL.isGroupEnabled(library, groupId)));
+        } else if (action === 'toggle-lock') {
+            // 只切换分组自己的锁：不改任何角色的锁。
+            applyCharacterLibrary(CL.setGroupLocked(library, groupId, !CL.isGroupLocked(library, groupId)));
         } else if (action === 'add') {
             const { library: next, id } = CL.addCharacter(library, { name: '' }, { groupId });
             state.characterTags = next.characters;
@@ -3052,12 +3091,20 @@ function renderCharList() {
         const statusParts = [];
         const offLabel = characterOffLabel(c, renderLibrary);
         if (offLabel) statusParts.push(offLabel);
+        const lockLabel = characterLockLabel(c, renderLibrary);
+        if (lockLabel) statusParts.push(lockLabel);
         if (appearance) statusParts.push('固定外貌');
         if (c.negativeTags) statusParts.push('负向');
         if (c.danbooruTag) statusParts.push('DB');
         if (outfits.length) statusParts.push('服装');
         if (dynamicStates.length) statusParts.push('动态外貌');
         const toggleTitle = isEnabled ? '停用角色' : '启用角色';
+        const lockInfo = describeCharacterLock(c, renderLibrary);
+        // 上锁按钮需要角色库模块（锁的读写都在 character-library.js），模块未加载时不渲染。
+        const lockButton = CL
+            ? `
+                    <button type="button" class="char-action-button char-lock-control${lockInfo.own ? ' active' : ''}" data-action="toggle-lock" data-id="${charId}" title="${lockInfo.title}" aria-label="${lockInfo.title} ${charName}" aria-pressed="${lockInfo.own}"><i class="fa-solid ${lockInfo.icon}"></i></button>`
+            : '';
         const canDrag = !!CL && !charFiltersActive() && !isEditing;
         const summary = `
             <div class="char-card-summary">
@@ -3069,7 +3116,7 @@ function renderCharList() {
                 </div>
                 <span class="char-status">${statusParts.join(' · ')}</span>
                 <div class="char-actions" aria-label="角色操作">
-                    <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>
+                    <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>${lockButton}
                     <button type="button" class="char-action-button${isEditing ? ' active' : ''}" data-action="edit" data-id="${charId}" title="编辑" aria-label="编辑 ${charName}">${renderCharacterActionIcon('edit')}</button>
                     <button type="button" class="char-action-button" data-action="duplicate" data-id="${charId}" title="复制人设" aria-label="复制 ${charName}"><i class="fa-solid fa-clone"></i></button>
                     <button type="button" class="char-action-button" data-action="delete" data-id="${charId}" title="删除" aria-label="删除 ${charName}">${renderCharacterActionIcon('delete')}</button>
@@ -3209,6 +3256,38 @@ function handleCharAction(action, id, card, trigger) {
             trigger.innerHTML = renderCharacterActionIcon(char.enabled ? 'enabled' : 'disabled');
         }
         refreshEnabledSummary();
+    } else if (action === 'toggle-lock') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!char || !CL) return;
+        // 与启用开关一样只改这一张卡的 DOM、不整体重绘，其他卡片里尚未保存的编辑不受影响。
+        // 结果由纯函数算出，再原地写回现有对象（未保存的空白草稿仍指向同一个对象）；锁只在为 true 时保留该键。
+        runLibraryAction(() => {
+            const next = CL.setCharactersLocked(getCharacterLibrary(), [id], char.locked !== true)
+                .characters.find(c => c.id === id);
+            if (next?.locked === true) char.locked = true; else delete char.locked;
+            saveCharacterLibrary();
+            const library = getCharacterLibrary();
+            const status = card?.querySelector('.char-status');
+            if (status) {
+                const parts = status.textContent.split(' · ').filter(part => part && part !== LOCK_LABEL_OWN && part !== LOCK_LABEL_GROUP);
+                const lockLabel = characterLockLabel(char, library);
+                if (lockLabel) {
+                    // 保持与整体渲染相同的顺序：停用 / 分组已关闭在前，上锁标签紧随其后。
+                    const offLabel = characterOffLabel(char, library);
+                    parts.splice(offLabel && parts[0] === offLabel ? 1 : 0, 0, lockLabel);
+                }
+                status.textContent = parts.join(' · ');
+            }
+            if (trigger) {
+                const info = describeCharacterLock(char, library);
+                trigger.classList.toggle('active', info.own);
+                trigger.title = info.title;
+                trigger.setAttribute('aria-label', `${info.title} ${char.name || '新角色'}`);
+                trigger.setAttribute('aria-pressed', String(info.own));
+                const icon = trigger.querySelector('i');
+                if (icon) icon.className = `fa-solid ${info.icon}`;
+            }
+        });
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
         const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
