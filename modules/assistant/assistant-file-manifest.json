@@ -1574,7 +1574,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
       "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 65177
+      "sizeBytes": 65184
     },
     {
       "source": "littlewhitebox",
@@ -1623,7 +1623,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 74876
+      "sizeBytes": 74883
     },
     {
       "source": "littlewhitebox",
@@ -1875,7 +1875,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/floating-panel.js",
       "relativePath": "modules/draw/providers/sd-webui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 65136
+      "sizeBytes": 65143
     },
     {
       "source": "littlewhitebox",
@@ -2400,14 +2400,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/max-images-input.js",
       "relativePath": "modules/draw/shared/max-images-input.js",
       "extension": ".js",
-      "sizeBytes": 7777
+      "sizeBytes": 7852
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/max-images-override.js",
       "relativePath": "modules/draw/shared/max-images-override.js",
       "extension": ".js",
-      "sizeBytes": 2736
+      "sizeBytes": 3456
     },
     {
       "source": "littlewhitebox",
@@ -3016,14 +3016,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/max-images-floating-panel.test.js",
       "relativePath": "modules/draw/shared/tests/max-images-floating-panel.test.js",
       "extension": ".js",
-      "sizeBytes": 10669
+      "sizeBytes": 13146
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/max-images-override.test.js",
       "relativePath": "modules/draw/shared/tests/max-images-override.test.js",
       "extension": ".js",
-      "sizeBytes": 2629
+      "sizeBytes": 4448
     },
     {
       "source": "littlewhitebox",

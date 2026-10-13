@@ -1,6 +1,6 @@
 // 悬浮菜单“数目”数字输入框：三个 Provider（NovelAI / SD WebUI / ComfyUI）的楼层菜单与全局悬浮菜单共用。
 // 这里只负责 DOM 构建、值同步与防抖提交；设置的读写由各 Provider 通过回调注入。
-// 空值 = 跟随预设；1-20 的整数 = 覆盖（settings.overrideMaxImages）。
+// 空值 = 跟随预设；0 = 覆盖为“不指定”；1-20 的整数 = 覆盖（settings.overrideMaxImages）。0 是合法覆盖，不能当作“空”。
 
 import {
     MAX_IMAGES_INVALID_INPUT_MESSAGE,
@@ -130,7 +130,7 @@ export function syncMaxImagesInput(input, { override, presetMaxImages, force = f
 
 /**
  * 绑定输入框与重置按钮的交互。
- * - input 事件（键盘输入、点步进箭头）与 change 事件：防抖后提交；input 防抖只提交合法的 1-20，
+ * - input 事件（键盘输入、点步进箭头）与 change 事件：防抖后提交；input 防抖只提交合法的 0-20，
  *   中途的空值/非法值留到最终提交；
  * - blur / Enter：立即做最终提交（空 = 清除覆盖，非法 = 恢复原值并提示，不写入）；
  * - 重置按钮：立即清除覆盖。
