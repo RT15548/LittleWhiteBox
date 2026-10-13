@@ -33,6 +33,7 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
+import { normalizeMaxImagesOverride, resolveEffectiveMaxImages } from "../../shared/max-images-override.js";
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
@@ -138,6 +139,7 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     activeApiPresetId: null,
     mode: 'manual',
     overrideSize: 'default',
+    overrideMaxImages: null,
     showFloorButton: true,
     showFloatingButton: true,
     selectedPresetId: 'default',
@@ -292,6 +294,7 @@ function normalizeSettings(raw = {}) {
         ...normalizeApiPresetState(raw, SD_API_PRESET_OPTIONS),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
+        overrideMaxImages: normalizeMaxImagesOverride(raw.overrideMaxImages),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
         timeout: normalizeNumber(raw.timeout, DEFAULT_SD_DRAW_SETTINGS.timeout, 10000, 600000),
@@ -3116,7 +3119,8 @@ async function buildSdScenePlannerOptions({
             customPrompts: promptPreset,
             promptDefaults: DEFAULT_PROMPT_CONFIG,
             worldbookEntries,
-            maxImages: preset.maxImages || 0,
+            // 悬浮菜单“数目”覆盖优先于参数预设；覆盖为空时沿用预设（0 = 不指定）。
+            maxImages: resolveEffectiveMaxImages(sdSettings, preset),
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             plannerProfile: SD_PLANNER_PROFILE,
             plannerRetry: { maxRetries: sharedDrawSettings.plannerMaxRetries },

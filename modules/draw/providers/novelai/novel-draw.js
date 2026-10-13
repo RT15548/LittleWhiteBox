@@ -48,6 +48,7 @@ import {
     normalizeSharedCacheDays,
     mergeNovelDrawProviderSettingsIntoStorageRoot,
 } from "../../shared/draw-settings.js";
+import { normalizeMaxImagesOverride, resolveEffectiveMaxImages } from "../../shared/max-images-override.js";
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import {
     applyGroupPresetForCurrentChat,
@@ -369,6 +370,7 @@ const DEFAULT_SETTINGS = {
     autoLearnMode: 'new_only',
     autoLearnGroupId: '',
     overrideSize: 'default',
+    overrideMaxImages: null,
     showFloorButton: true,
     showFloatingButton: false,
     advancedMode: true,
@@ -824,6 +826,7 @@ function normalizeSettings(saved = {}) {
         autoLearnMode: source.autoLearnMode,
         autoLearnGroupId: String(source.autoLearnGroupId || ''),
         overrideSize: String(source.overrideSize || 'default'),
+        overrideMaxImages: normalizeMaxImagesOverride(source.overrideMaxImages),
         showFloorButton: source.showFloorButton !== false,
         showFloatingButton: source.showFloatingButton === true,
         advancedMode: true,
@@ -2663,7 +2666,8 @@ async function buildNovelScenePlannerOptions({
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
         worldbookEntries,
-        maxImages: preset.maxImages || 0,
+        // 悬浮菜单“数目”覆盖优先于参数预设；覆盖为空时沿用预设（0 = 不指定）。
+        maxImages: resolveEffectiveMaxImages(settings, preset),
         maxCharactersPerImage: preset.maxCharactersPerImage || 0,
         absoluteMaxCharactersPerImage: capability.maxCharactersPerImage,
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
