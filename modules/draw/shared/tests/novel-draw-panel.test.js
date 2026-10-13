@@ -12,6 +12,7 @@ import * as CD from '../character-library-dialog.js';
 import * as CS from '../character-list-scroll.js';
 import * as GP from '../character-group-presets-ui.js';
 import * as GPM from '../character-group-presets.js';
+import * as CM from '../character-card-menu.js';
 import { normalizeSharedDrawSettings } from '../draw-settings.js';
 
 // 页面脚本跑在 vm 的另一个 realm 里，数组原型不同：按 JSON 内容比较。
@@ -30,6 +31,7 @@ const HOOK = `
     setCS: (module) => { CS = module; },
     setGP: (module) => { GP = module; },
     setGPM: (module) => { GPM = module; },
+    setCM: (module) => { CM = module; },
     exportCharacterFile, visibleCharacterIds, switchView,
     getEditingCharId: () => editingCharId,
     setSelectMode: (on) => { charSelectMode = !!on; },
@@ -109,6 +111,7 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     nd.setCS(CS);
     nd.setGP(GP);
     nd.setGPM(GPM);
+    nd.setCM(CM);
     const state = nd.getState();
     state.characterTags = characters;
     state.characterGroups = groups;
@@ -479,7 +482,7 @@ test('the group header has no up/down/export buttons and its drag handle is a fo
     sameJson(sections.map(section => section.dataset.groupId), ['', 'g1', 'g2']);
     for (const section of sections.slice(1)) {
         const actions = Array.from(section.querySelectorAll('[data-group-action]')).map(node => node.dataset.groupAction);
-        sameJson(actions, ['collapse', 'toggle-enabled', 'toggle-lock', 'add', 'rename', 'delete']); // toggle-enabled / toggle-lock 是分组自己的开关与锁
+        sameJson(actions, ['collapse', 'toggle-enabled', 'add', 'rename', 'menu', 'toggle-lock', 'delete']); // toggle-enabled / toggle-lock 是分组自己的开关与锁；锁与删除在“…”菜单里
         const handle = section.querySelector('[data-drag-group]');
         assert.equal(handle.getAttribute('role'), 'button');
         assert.equal(handle.getAttribute('tabindex'), '0');
@@ -2144,19 +2147,26 @@ test('a version reply from before deletion cannot resurrect the deleted image', 
 // ── 上锁：只保护导入时不被替换，不限制其它操作 ─────────────────────────
 
 const lockToggle = (panel, id) => panel.$(`#nd_char_list .char-card[data-id="${id}"] [data-action="toggle-lock"]`);
+const cardMenuButton = (panel, id) => panel.$(`#nd_char_list .char-card[data-id="${id}"] [data-action="menu"]`);
+const cardMenuOf = (panel, id) => panel.$(`#nd_char_list .char-card[data-id="${id}"] [role="menu"]`);
+const openCardMenu = (panel, id) => { panel.click(cardMenuButton(panel, id)); return cardMenuOf(panel, id); };
+const menuIsOpen = (panel, id) => !cardMenuOf(panel, id).hasAttribute('hidden');
 const groupLock = (panel, id) => groupSection(panel, id)?.querySelector('[data-group-action="toggle-lock"]');
+const groupMenuOf = (panel, id) => groupSection(panel, id)?.querySelector('[role="menu"]');
+const openGroupMenu = (panel, id) => { panel.click(groupSection(panel, id).querySelector('[data-group-action="menu"]')); return groupMenuOf(panel, id); };
+const groupMenuIsOpen = (panel, id) => !groupMenuOf(panel, id).hasAttribute('hidden');
 
-test('the card lock button sits next to the enabled toggle, flips only that card without a redraw and persists', (t) => {
+test('the card lock item lives in the more-actions menu, flips only that card without a redraw and persists', (t) => {
     const panel = nestedPanel(t);
-    const actions = panel.$('#nd_char_list .char-card[data-id="c1"] .char-actions');
-    const order = Array.from(actions.children).map(node => node.dataset.action);
-    sameJson(order, ['toggle-enabled', 'toggle-lock', 'edit', 'duplicate', 'delete']);
-
+    openCardMenu(panel, 'c1');
     const button = lockToggle(panel, 'c1');
-    assert.equal(button.classList.contains('char-action-button'), true);
+    assert.ok(cardMenuOf(panel, 'c1').contains(button));
+    assert.equal(button.classList.contains('char-menu-item'), true);
+    assert.equal(button.getAttribute('role'), 'menuitem');
     assert.equal(button.getAttribute('aria-pressed'), 'false');
     assert.equal(button.getAttribute('title'), '上锁：导入时不会被替换');
     assert.equal(button.querySelector('i').getAttribute('class'), 'fa-solid fa-lock-open');
+    assert.equal(button.textContent.trim(), '上锁');
     assert.doesNotMatch(statusOf(panel, 'c1'), /已上锁/);
 
     // 另一张卡正在编辑，里面有尚未保存的输入：点锁不能重绘，输入原样保留
@@ -2164,13 +2174,19 @@ test('the card lock button sits next to the enabled toggle, flips only that card
     const sameCard = panel.$('#nd_char_list .char-card[data-id="c1"]');
     panel.posted.length = 0;
     panel.click(lockToggle(panel, 'c1'));
+    assert.equal(menuIsOpen(panel, 'c1'), false, '选中菜单项后菜单关闭');
     assert.equal(panel.$('#nd_char_list .char-card[data-id="c1"]'), sameCard, '没有重绘');
     assert.equal(panel.$('.char-card.editing[data-id="c3"] .char-edit-name').value, '改过的名字（未保存）');
     assert.equal(lockToggle(panel, 'c1').getAttribute('aria-pressed'), 'true');
     assert.equal(lockToggle(panel, 'c1').classList.contains('active'), true);
     assert.equal(lockToggle(panel, 'c1').getAttribute('title'), '已上锁：导入时不会被替换（点击解锁）');
     assert.equal(lockToggle(panel, 'c1').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.equal(lockToggle(panel, 'c1').textContent.trim(), '解锁', '已上锁时菜单项文字是“解锁”');
+    assert.equal(lockToggle(panel, 'c1').getAttribute('aria-label'), '解锁 阿璃');
     assert.match(statusOf(panel, 'c1'), /^已上锁/);
+    const ownLabel = panel.$('#nd_char_list .char-card[data-id="c1"] .char-status .char-lock-label');
+    assert.equal(ownLabel.textContent, '已上锁', '自己的锁标签包在 span 里，样式里是主文字色');
+    assert.equal(panel.$$('#nd_char_list .char-card[data-id="c1"] .char-status .char-lock-label').length, 1);
     assert.equal(panel.state().characterTags.find(char => char.id === 'c1').locked, true);
     assert.equal(panel.state().characterTags.find(char => char.id === 'c3').locked, undefined);
     const saved = panel.lastSave();
@@ -2180,7 +2196,10 @@ test('the card lock button sits next to the enabled toggle, flips only that card
     panel.click(panel.$('#nd_char_list .char-card[data-id="c1"] [data-action="toggle-enabled"]'));
     assert.equal(panel.state().characterTags.find(char => char.id === 'c1').enabled, false);
     assert.match(statusOf(panel, 'c1'), /^停用 · 已上锁/);
+    assert.equal(panel.$$('#nd_char_list .char-card[data-id="c1"] .char-lock-label').length, 1, '启停后锁标签仍在 span 里');
+    openCardMenu(panel, 'c1');
     panel.click(lockToggle(panel, 'c1'));
+    assert.equal(lockToggle(panel, 'c1').textContent.trim(), '上锁');
     assert.match(statusOf(panel, 'c1'), /^停用/);
     assert.doesNotMatch(statusOf(panel, 'c1'), /已上锁/);
     assert.equal(Object.hasOwn(panel.state().characterTags.find(char => char.id === 'c1'), 'locked'), false, '解锁后不留 locked 键');
@@ -2193,7 +2212,9 @@ test('the group lock button lives in the group actions, flips only the group and
     assert.equal(groupLock(panel, ''), null, '未分组没有锁');
     const button = groupLock(panel, 'g1');
     assert.ok(button.closest('.char-group-actions'));
-    assert.equal(button.classList.contains('char-action-button'), true);
+    assert.ok(groupMenuOf(panel, 'g1').contains(button), '分组锁在“…”菜单里');
+    assert.equal(button.classList.contains('char-menu-item'), true);
+    assert.equal(button.textContent.trim(), '上锁');
     assert.equal(button.getAttribute('aria-pressed'), 'false');
     assert.equal(button.getAttribute('title'), '上锁分组：组内角色导入时不会被替换');
 
@@ -2212,6 +2233,7 @@ test('the group lock button lives in the group actions, flips only the group and
     // 分组开关仍可用，两个开关互相独立；再点锁恢复且不留键
     panel.click(groupSwitch(panel, 'g1'));
     sameJson(panel.state().characterGroups[0], { id: 'g1', name: '主角', enabled: false, locked: true });
+    openGroupMenu(panel, 'g1');
     panel.click(groupLock(panel, 'g1'));
     sameJson(panel.state().characterGroups[0], { id: 'g1', name: '主角', enabled: false });
     assert.deepEqual(panel.errors, []);
@@ -2219,30 +2241,37 @@ test('the group lock button lives in the group actions, flips only the group and
 
 test('characters in a locked group get the group-lock hint while their own lock button stays unpressed', (t) => {
     const panel = nestedPanel(t);
+    openGroupMenu(panel, 'g1');
     panel.click(groupLock(panel, 'g1'));
     assert.match(statusOf(panel, 'c1'), /^分组已上锁/);
     assert.match(statusOf(panel, 'c2'), /^停用 · 分组已上锁/, 'c2 自己停用：停用在前，分组上锁紧随');
     assert.doesNotMatch(statusOf(panel, 'c3'), /上锁/, '其他分组的角色不受影响');
     assert.doesNotMatch(statusOf(panel, 'c4'), /上锁/);
+    assert.equal(panel.$$('#nd_char_list .char-card[data-id="c1"] .char-lock-label').length, 0, '继承的“分组已上锁”不加亮');
     assert.equal(lockToggle(panel, 'c1').getAttribute('aria-pressed'), 'false', '继承的锁不算角色自己的锁');
     assert.equal(lockToggle(panel, 'c1').classList.contains('active'), false);
     assert.match(lockToggle(panel, 'c1').getAttribute('title'), /上锁：导入时不会被替换.*所在分组已上锁/);
     assert.equal(Object.hasOwn(panel.state().characterTags.find(char => char.id === 'c1'), 'locked'), false, '继承的锁不会写进角色');
 
     // 给角色自己上锁后，状态文字改为“已上锁”；解锁后回到分组提示
+    openCardMenu(panel, 'c1');
     panel.click(lockToggle(panel, 'c1'));
     assert.match(statusOf(panel, 'c1'), /^已上锁/);
     assert.doesNotMatch(statusOf(panel, 'c1'), /分组已上锁/);
+    openCardMenu(panel, 'c1');
     panel.click(lockToggle(panel, 'c1'));
     assert.match(statusOf(panel, 'c1'), /^分组已上锁/);
     // 分组解锁后提示消失
+    openGroupMenu(panel, 'g1');
     panel.click(groupLock(panel, 'g1'));
     assert.doesNotMatch(statusOf(panel, 'c1'), /上锁/);
 });
 
 test('locks survive the save round trip: iframe save, shared settings normalization and the next INIT_DATA', (t) => {
     const panel = nestedPanel(t);
+    openCardMenu(panel, 'c3');
     panel.click(lockToggle(panel, 'c3'));
+    openGroupMenu(panel, 'g1');
     panel.click(groupLock(panel, 'g1'));
     const saved = panel.lastSave();
     // 宿主按共享设置规范化后写盘（与 SAVE_CHARACTER_TAGS 的处理一致），锁不能被白名单丢掉
@@ -2260,6 +2289,145 @@ test('locks survive the save round trip: iframe save, shared settings normalizat
     // 撤销指纹把锁算进去：撤销窗口内改锁会让撤销失效，而不是被快照抹掉
     panel.nd.deleteCharactersWithUndo(['c4'], '已删除旅人');
     assert.equal(panel.nd.isUndoStale(), false);
+    openCardMenu(panel, 'c3');
     panel.click(lockToggle(panel, 'c3'));
     assert.equal(panel.nd.isUndoStale(), true);
+});
+
+// ── 角色卡“…”菜单 ─────────────────────────────────────────
+
+test('the card surface shows only the enabled toggle, edit and the more-actions button; the menu holds lock, duplicate and delete', (t) => {
+    const panel = nestedPanel(t);
+    const actions = panel.$('#nd_char_list .char-card[data-id="c1"] .char-actions');
+    const menu = cardMenuOf(panel, 'c1');
+    const surface = Array.from(actions.querySelectorAll('button')).filter(node => !menu.contains(node));
+    sameJson(surface.map(node => node.dataset.action), ['toggle-enabled', 'edit', 'menu']);
+    assert.equal(actions.lastElementChild.contains(surface[2]), true, '“…”在最右');
+
+    const more = cardMenuButton(panel, 'c1');
+    assert.equal(more.classList.contains('char-action-button'), true);
+    assert.equal(more.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(more.getAttribute('aria-expanded'), 'false');
+    assert.equal(more.getAttribute('title'), '更多操作');
+    assert.equal(more.getAttribute('aria-label'), '更多操作 阿璃');
+    assert.equal(more.querySelector('i').getAttribute('class'), 'fa-solid fa-ellipsis');
+
+    assert.equal(menu.getAttribute('role'), 'menu');
+    assert.equal(menu.hasAttribute('hidden'), true);
+    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    sameJson(items.map(item => item.dataset.action), ['toggle-lock', 'duplicate', 'delete']);
+    sameJson(items.map(item => item.textContent.trim()), ['上锁', '复制人设', '删除']);
+    assert.ok(items.every(item => item.tagName === 'BUTTON' && item.querySelector('i')), '图标加文字的按钮');
+    assert.equal(items[2].classList.contains('danger'), true);
+
+    openCardMenu(panel, 'c1');
+    assert.equal(menuIsOpen(panel, 'c1'), true);
+    assert.equal(more.getAttribute('aria-expanded'), 'true');
+    assert.equal(menu.style.position, 'fixed', '用固定定位的浮层，不被分组滚动区裁掉');
+});
+
+test('only one card menu is open at a time; Esc, an outside click and a full redraw close it', (t) => {
+    const panel = nestedPanel(t);
+    openCardMenu(panel, 'c1');
+    openCardMenu(panel, 'c3');
+    assert.equal(menuIsOpen(panel, 'c1'), false);
+    assert.equal(menuIsOpen(panel, 'c3'), true);
+
+    panel.click(panel.$('#nd_char_list .char-card[data-id="c1"] .char-name'));
+    assert.equal(menuIsOpen(panel, 'c3'), false, '点菜单外面关闭');
+
+    openCardMenu(panel, 'c3');
+    const esc = new panel.document.defaultView.Event('keydown', { bubbles: true, cancelable: true });
+    esc.key = 'Escape';
+    panel.document.dispatchEvent(esc);
+    assert.equal(menuIsOpen(panel, 'c3'), false, 'Esc 关闭');
+    assert.equal(cardMenuButton(panel, 'c3').getAttribute('aria-expanded'), 'false');
+
+    openCardMenu(panel, 'c3');
+    panel.nd.renderCharList();
+    assert.equal(menuIsOpen(panel, 'c3'), false, '整体重绘后不留打开的菜单');
+    assert.equal(cardMenuButton(panel, 'c3').getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('choosing duplicate or delete from the menu runs the same action and closes the menu', (t) => {
+    const panel = nestedPanel(t);
+    const before = panel.state().characterTags.length;
+    openCardMenu(panel, 'c1');
+    panel.click(panel.$('#nd_char_list .char-card[data-id="c1"] [data-action="duplicate"]'));
+    assert.equal(panel.state().characterTags.length, before + 1);
+    assert.equal(panel.$$('#nd_char_list .char-menu:not([hidden])').length, 0, '重绘后没有打开的菜单');
+
+    openCardMenu(panel, 'c3');
+    panel.click(panel.$('#nd_char_list .char-card[data-id="c3"] [data-action="delete"]'));
+    assert.equal(panel.state().characterTags.some(char => char.id === 'c3'), false);
+    assert.equal(panel.$$('#nd_char_list .char-menu:not([hidden])').length, 0);
+    assert.deepEqual(panel.errors, []);
+});
+
+// ── 分组头“…”菜单 ─────────────────────────────────────────
+
+test('the group header surface keeps switch, add and rename; lock and delete live in the more-actions menu', (t) => {
+    const panel = nestedPanel(t);
+    const actions = groupSection(panel, 'g1').querySelector('.char-group-actions');
+    const menu = groupMenuOf(panel, 'g1');
+    const surface = Array.from(actions.querySelectorAll('button')).filter(node => !menu.contains(node));
+    sameJson(surface.map(node => node.dataset.groupAction), ['toggle-enabled', 'add', 'rename', 'menu']);
+
+    const more = groupSection(panel, 'g1').querySelector('[data-group-action="menu"]');
+    assert.equal(more.classList.contains('char-action-button'), true);
+    assert.equal(more.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(more.getAttribute('aria-expanded'), 'false');
+    assert.equal(more.getAttribute('title'), '更多操作');
+    assert.equal(more.getAttribute('aria-label'), '更多操作 主角');
+    assert.equal(menu.hasAttribute('hidden'), true);
+    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    sameJson(items.map(item => item.dataset.groupAction), ['toggle-lock', 'delete']);
+    sameJson(items.map(item => item.textContent.trim()), ['上锁', '删除分组']);
+    assert.ok(items.every(item => item.tagName === 'BUTTON' && item.querySelector('i')));
+    assert.equal(items[1].classList.contains('danger'), true);
+    assert.equal(groupSection(panel, '').querySelector('[data-group-action="menu"]'), null, '未分组没有“…”菜单');
+
+    openGroupMenu(panel, 'g1');
+    assert.equal(groupMenuIsOpen(panel, 'g1'), true);
+    assert.equal(more.getAttribute('aria-expanded'), 'true');
+    assert.equal(menu.style.position, 'fixed');
+});
+
+test('group and card menus share the one-open-at-a-time rule; Esc and outside click close the group menu', (t) => {
+    const panel = nestedPanel(t);
+    openGroupMenu(panel, 'g1');
+    openCardMenu(panel, 'c3');
+    assert.equal(groupMenuIsOpen(panel, 'g1'), false);
+    assert.equal(menuIsOpen(panel, 'c3'), true);
+    openGroupMenu(panel, 'g2');
+    assert.equal(menuIsOpen(panel, 'c3'), false);
+    assert.equal(groupMenuIsOpen(panel, 'g2'), true);
+
+    panel.click(panel.$('#nd_char_list .char-card[data-id="c1"] .char-name'));
+    assert.equal(groupMenuIsOpen(panel, 'g2'), false, '点菜单外面关闭');
+    openGroupMenu(panel, 'g1');
+    const esc = new panel.document.defaultView.Event('keydown', { bubbles: true, cancelable: true });
+    esc.key = 'Escape';
+    panel.document.dispatchEvent(esc);
+    assert.equal(groupMenuIsOpen(panel, 'g1'), false, 'Esc 关闭');
+    assert.equal(groupSection(panel, 'g1').querySelector('[data-group-action="menu"]').getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('choosing lock or delete group from the menu runs the action and closes the menu', (t) => {
+    const panel = nestedPanel(t);
+    openGroupMenu(panel, 'g1');
+    panel.click(groupLock(panel, 'g1'));
+    assert.equal(panel.state().characterGroups.find(group => group.id === 'g1').locked, true);
+    assert.equal(groupMenuIsOpen(panel, 'g1'), false, '重绘后菜单是关着的');
+    assert.equal(groupLock(panel, 'g1').textContent.trim(), '解锁');
+    assert.equal(groupLock(panel, 'g1').getAttribute('aria-label'), '解锁分组 主角');
+
+    panel.answers.confirm.push(true, false);
+    openGroupMenu(panel, 'g2');
+    panel.click(groupSection(panel, 'g2').querySelector('[data-group-action="delete"]'));
+    assert.equal(panel.state().characterGroups.some(group => group.id === 'g2'), false);
+    assert.equal(panel.$$('#nd_char_list .char-menu:not([hidden])').length, 0);
+    assert.deepEqual(panel.errors, []);
 });
