@@ -14,6 +14,7 @@ import * as CD from '../character-library-dialog.js';
 import * as CS from '../character-list-scroll.js';
 import * as GP from '../character-group-presets-ui.js';
 import * as GPM from '../character-group-presets.js';
+import * as APUI from '../api-presets-ui.js';
 import { normalizeSharedDrawSettings } from '../draw-settings.js';
 
 // 页面脚本跑在 vm 的另一个 realm 里，数组原型不同：按 JSON 内容比较。
@@ -32,6 +33,8 @@ const HOOK = `
     setCS: (module) => { CS = module; },
     setGP: (module) => { GP = module; },
     setGPM: (module) => { GPM = module; },
+    setAPUI: (module) => { AP_UI = module; },
+    renderApiPresetBar, readApiConfigFromForm,
     exportCharacterFile, visibleCharacterIds, switchView,
     getEditingCharId: () => editingCharId,
     setSelectMode: (on) => { charSelectMode = !!on; },
@@ -115,6 +118,7 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     nd.setCS(CS);
     nd.setGP(GP);
     nd.setGPM(GPM);
+    nd.setAPUI(APUI);
     const state = nd.getState();
     state.characterTags = characters;
     state.characterGroups = groups;
@@ -2145,4 +2149,108 @@ test('a version reply from before deletion cannot resurrect the deleted image', 
         images: [{ imgId: 's1-a' }, { imgId: 's1-old' }] });
     assert.equal(panel.$('#nd_gallery_modal').classList.contains('visible'), false);
     assert.equal(panel.nd.getModalData().images.length, 0);
+});
+
+// ───────────── API 配置预设 ─────────────
+
+const API_PRESETS = [
+    { id: 'ap1', name: '官方', config: { apiKey: 'pst-official', apiBaseUrl: '', sendMode: 'frontend', useImageBackendJobs: false, insecureTLS: false, timeout: 60000, requestDelay: { min: 15000, max: 30000 } } },
+    { id: 'ap2', name: '第三方', config: { apiKey: 'pst-third', apiBaseUrl: 'https://proxy.example', sendMode: 'backend', useImageBackendJobs: true, insecureTLS: true, timeout: 90000, requestDelay: { min: 1000, max: 2000 } } },
+];
+
+function loadApiPanel(t, { activeApiPresetId = null, presets = API_PRESETS } = {}) {
+    const panel = loadPanel(t);
+    panel.initData({
+        apiKey: 'pst-official', apiBaseUrl: '', sendMode: 'frontend', useImageBackendJobs: false, insecureTLS: false,
+        timeout: 60000, requestDelay: { min: 15000, max: 30000 },
+        apiPresets: structuredClone(presets), activeApiPresetId,
+    }, { backendCopy: { checking: '检测中' } });
+    panel.posted.length = 0;
+    const apiPosts = () => panel.posted.filter(message => message.type === 'SAVE_API_PRESETS');
+    const reply = (request, extra = {}) => panel.send('STATUS', {
+        target: 'api-presets', state: 'success', requestId: request.requestId,
+        apiPresets: request.apiPresets, activeApiPresetId: request.activeApiPresetId, config: request.config, ...extra,
+    });
+    const bar = action => panel.$(`#nd_api_presets [data-action="${action}"]`);
+    // linkedom 的 <select> 没有 value setter：用 selected 属性选中（浏览器里等价）。
+    const choose = (id) => {
+        const select = panel.$('#nd_api_presets select');
+        for (const option of select.children) option.removeAttribute('selected');
+        Array.from(select.children).find(option => option.getAttribute('value') === id).setAttribute('selected', '');
+        select.dispatchEvent(new panel.document.defaultView.Event('change', { bubbles: true }));
+    };
+    const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+    return { panel, apiPosts, reply, bar, choose, settle };
+}
+
+test('the API config page shows a preset bar and saving as a new preset sends the whole form config to the host', async (t) => {
+    const { panel, apiPosts, reply, bar, settle } = loadApiPanel(t);
+    assert.equal(panel.$$('#nd_api_presets option').length, 3, '“未保存为预设” + 2 个预设');
+    panel.$('#nd_api_key').value = 'pst-new';
+    panel.$('#nd_timeout').value = '120';
+    panel.answers.prompt.push('我的新预设');
+    panel.click(bar('save-as'));
+    const [request] = apiPosts();
+    assert.equal(request.reason, 'create');
+    assert.equal(request.apiPresets.at(-1).name, '我的新预设');
+    assert.equal(request.activeApiPresetId, request.apiPresets.at(-1).id);
+    sameJson(request.config, { apiKey: 'pst-new', apiBaseUrl: '', sendMode: 'frontend', useImageBackendJobs: false, insecureTLS: false, timeout: 120000, requestDelay: { min: 15000, max: 30000 } });
+    assert.ok(!panel.dialogs.prompts.some(text => text.includes('pst-')), '提示框不含配置内容');
+    reply(request);
+    await settle();
+    assert.equal(panel.$$('#nd_api_presets option').length, 4);
+    assert.equal(panel.$('#nd_api_presets select').value, request.activeApiPresetId);
+    assert.ok(!panel.$('#nd_api_presets').textContent.includes('pst-'), '预设栏文字不含 API Key');
+});
+
+test('switching API presets confirms when the form has unsaved edits, then fills the form from the host reply', async (t) => {
+    const { panel, apiPosts, reply, choose, settle } = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+    const select = panel.$('#nd_api_presets select');
+    panel.$('#nd_api_key').value = 'pst-edited';
+    panel.answers.confirm.push(false);
+    choose('ap2');
+    assert.equal(panel.dialogs.confirms.length, 1);
+    assert.equal(apiPosts().length, 0, '取消后不保存');
+    assert.equal(select.value, 'ap1');
+    assert.equal(panel.$('#nd_api_key').value, 'pst-edited', '取消后表单保持不变');
+
+    panel.answers.confirm.push(true);
+    choose('ap2');
+    const [request] = apiPosts();
+    assert.equal(request.reason, 'select');
+    assert.equal(request.activeApiPresetId, 'ap2');
+    sameJson(request.config, API_PRESETS[1].config);
+    reply(request);
+    await settle();
+    assert.equal(panel.$('#nd_api_key').value, 'pst-third');
+    assert.equal(panel.$('#nd_api_base_url').value, 'https://proxy.example');
+    assert.equal(panel.$('#nd_timeout').value, '90');
+    assert.equal(panel.$('#nd_delay').value, '1000-2000');
+    assert.equal(panel.$('#nd_insecure_tls').checked, true);
+    assert.equal(panel.$('#nd_use_backend_jobs').checked, true);
+    assert.equal(panel.$('#nd_backend_options').classList.contains('hidden'), false, '后端发送的选项组随之显示');
+});
+
+test('the Save button asks the host to sync the active API preset, and the receipt refreshes the bar', (t) => {
+    const { panel, bar } = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+    assert.equal(bar('overwrite').disabled, false);
+    panel.$('#nd_api_key').value = 'pst-rotated';
+    panel.click(panel.$('#nd_save_api'));
+    const save = panel.posted.find(message => message.type === 'SAVE_API_CONFIG');
+    assert.equal(save.syncApiPreset, true);
+    assert.equal(save.apiKey, 'pst-rotated');
+    const synced = structuredClone(API_PRESETS);
+    synced[0].config.apiKey = 'pst-rotated';
+    panel.send('STATUS', {
+        target: 'api', state: 'success', text: '已保存，并同步到预设「官方」',
+        apiPresets: synced, activeApiPresetId: 'ap1', apiConfig: synced[0].config,
+    });
+    assert.equal(panel.$('#nd_api_status').textContent, '已保存，并同步到预设「官方」');
+    assert.match(panel.$('#nd_api_presets .status-text').textContent, /当前预设：官方$/, '表单与预设一致');
+});
+
+test('without a selected preset the overwrite, rename and delete buttons are disabled', (t) => {
+    const { bar } = loadApiPanel(t);
+    for (const action of ['overwrite', 'rename', 'delete']) assert.equal(bar(action).disabled, true, action);
+    assert.equal(bar('save-as').disabled, false);
 });

@@ -1539,14 +1539,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.html",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.html",
       "extension": ".html",
-      "sizeBytes": 72203
+      "sizeBytes": 72277
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 206752
+      "sizeBytes": 212874
     },
     {
       "source": "littlewhitebox",
@@ -1644,14 +1644,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 300849
+      "sizeBytes": 308961
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 191985
+      "sizeBytes": 197804
     },
     {
       "source": "littlewhitebox",
@@ -1882,14 +1882,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.html",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.html",
       "extension": ".html",
-      "sizeBytes": 58725
+      "sizeBytes": 58796
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 166662
+      "sizeBytes": 172009
     },
     {
       "source": "littlewhitebox",
@@ -1939,6 +1939,20 @@
       "relativePath": "modules/draw/shared/agent-settings-surface.js",
       "extension": ".js",
       "sizeBytes": 11569
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/api-presets-ui.js",
+      "relativePath": "modules/draw/shared/api-presets-ui.js",
+      "extension": ".js",
+      "sizeBytes": 13487
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/api-presets.js",
+      "relativePath": "modules/draw/shared/api-presets.js",
+      "extension": ".js",
+      "sizeBytes": 10685
     },
     {
       "source": "littlewhitebox",
@@ -2246,7 +2260,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-settings.js",
       "relativePath": "modules/draw/shared/draw-settings.js",
       "extension": ".js",
-      "sizeBytes": 7422
+      "sizeBytes": 7465
     },
     {
       "source": "littlewhitebox",
@@ -2642,6 +2656,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/api-presets-wiring.test.js",
+      "relativePath": "modules/draw/shared/tests/api-presets-wiring.test.js",
+      "extension": ".js",
+      "sizeBytes": 5533
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/api-presets.test.js",
+      "relativePath": "modules/draw/shared/tests/api-presets.test.js",
+      "extension": ".js",
+      "sizeBytes": 17679
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/auto-learn-merge.test.js",
       "relativePath": "modules/draw/shared/tests/auto-learn-merge.test.js",
       "extension": ".js",
@@ -2988,7 +3016,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/novel-draw-panel.test.js",
       "relativePath": "modules/draw/shared/tests/novel-draw-panel.test.js",
       "extension": ".js",
-      "sizeBytes": 122775
+      "sizeBytes": 129122
     },
     {
       "source": "littlewhitebox",

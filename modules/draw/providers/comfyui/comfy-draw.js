@@ -63,6 +63,13 @@ import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
+import { createApiPresetBar } from "../../shared/api-presets-ui.js";
+import {
+    findApiPreset,
+    normalizeApiPresetState,
+    pickApiConfig,
+    syncActiveApiPreset,
+} from "../../shared/api-presets.js";
 import {
     applyGroupPresetForCurrentChat,
     getActiveCharacterAvatars,
@@ -137,6 +144,8 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
     auth: '',
     timeout: 120000,
     useImageBackendJobs: false,
+    apiPresets: [],
+    activeApiPresetId: null,
     mode: 'manual',
     overrideSize: 'default',
     showFloorButton: true,
@@ -192,6 +201,7 @@ let eventsBound = false;
 let agentSettingsSurface = null;
 let characterLibraryUi = null;
 let groupPresetBinding = null;
+let apiPresetBar = null;
 let promptChainPreviewFrame = 0;
 let ensureComfyDrawPanelRef = null;
 let destroyComfyDrawPanelsRef = null;
@@ -372,6 +382,26 @@ function normalizePresets(rawPresets, rawSettings = {}) {
     }));
 }
 
+// API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
+const COMFY_API_PRESET_FIELDS = Object.freeze(['connectionMode', 'host', 'auth', 'timeout', 'useImageBackendJobs']);
+
+function normalizeComfyApiConfig(raw = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+        connectionMode: source.connectionMode === 'direct' ? 'direct' : 'proxy',
+        host: String(source.host || '').trim(),
+        auth: String(source.auth ?? '').trim(),
+        timeout: normalizeNumber(source.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
+        useImageBackendJobs: source.useImageBackendJobs === true,
+    };
+}
+
+const COMFY_API_PRESET_OPTIONS = Object.freeze({ fields: COMFY_API_PRESET_FIELDS, normalizeConfig: normalizeComfyApiConfig });
+
+function getEffectiveComfyApiConfig(settings = getSettings()) {
+    return pickApiConfig(normalizeComfyApiConfig(settings), COMFY_API_PRESET_FIELDS);
+}
+
 function normalizeSettings(raw = {}) {
     const presets = normalizePresets(raw.presets, raw);
     const workflowPresets = normalizeWorkflowPresets(raw.workflowPresets, raw.customWorkflow);
@@ -395,6 +425,7 @@ function normalizeSettings(raw = {}) {
         auth: String(raw.auth ?? ''),
         timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
         useImageBackendJobs: raw.useImageBackendJobs === true,
+        ...normalizeApiPresetState(raw, COMFY_API_PRESET_OPTIONS),
         selectedPresetId,
         selectedWorkflowPresetId,
         builtinWorkflowId,
@@ -1468,8 +1499,25 @@ function bindOverlayEvents() {
         } catch {}
     });
     querySettings('#comfy-draw-save')?.addEventListener('click', async (event) => {
-        const ok = await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'comfy-draw-api-status' });
-        if (ok) fillForm(getSettings());
+        const syncedPresetName = findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || '';
+        const ok = await saveAllSettings({
+            notify: true,
+            triggerButton: event.currentTarget,
+            statusElementId: 'comfy-draw-api-status',
+            syncApiPreset: true,
+        });
+        if (ok) {
+            fillForm(getSettings());
+            // fillForm 会把状态行重置成连接方式说明：同步到预设时把这条提示补回去。
+            if (syncedPresetName) updateStatusText('comfy-draw-api-status', 'success', `已保存，并同步到 API 预设「${syncedPresetName}」`);
+        }
+    });
+    // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
+    ['input', 'change', 'click'].forEach((type) => {
+        querySettings('[data-comfy-view-panel="api"]')?.addEventListener(type, (event) => {
+            if (event.target?.closest?.('#comfy-api-presets')) return;
+            apiPresetBar?.refresh();
+        });
     });
     querySettings('#comfy-connection-mode')?.addEventListener('change', () => {
         updateConnectionModeUI(getValue('comfy-connection-mode'));
@@ -2124,6 +2172,7 @@ function fillForm(settings) {
     updateConnectionModeUI(settings.connectionMode || 'proxy', settings.useImageBackendJobs === true);
     setValue('comfy-draw-host', settings.host);
     setValue('comfy-draw-timeout', settings.timeout);
+    ensureApiPresetBar();
     setValue('comfy-draw-width', preset.width);
     setValue('comfy-draw-height', preset.height);
     updateSizePresetSelection();
@@ -2254,6 +2303,83 @@ function applySizePresetSelection() {
     }
     customRow.classList.add('hidden');
     refreshBuiltinWorkflowPanel(getSettings());
+}
+
+// ───────────── API 配置预设 ─────────────
+// 预设栏组件在 shared/api-presets-ui.js；这里提供表单读写与落盘。预设里含认证信息，仅存本地，不写日志 / 提示。
+
+/** 表单里现在的 API 配置（与 readForm 里的同名字段一致）。 */
+function readComfyApiConfigFromForm() {
+    return normalizeComfyApiConfig({
+        connectionMode: getValue('comfy-connection-mode'),
+        host: getValue('comfy-draw-host'),
+        auth: getValue('comfy-draw-auth'),
+        timeout: normalizeNumber(getValue('comfy-draw-timeout'), getSettings().timeout, 10000, 600000),
+        useImageBackendJobs: getChecked('comfy-use-image-backend-jobs'),
+    });
+}
+
+/** 只把 API 配置字段填进表单（不动绘图参数、工作流等其它未保存的修改），并刷新连接方式相关的提示与显隐。 */
+function fillComfyApiConfigForm(config) {
+    const next = normalizeComfyApiConfig(config);
+    setValue('comfy-connection-mode', next.connectionMode);
+    setValue('comfy-draw-host', next.host);
+    setValue('comfy-draw-auth', next.auth);
+    setValue('comfy-draw-timeout', next.timeout);
+    setChecked('comfy-use-image-backend-jobs', next.useImageBackendJobs);
+    updateConnectionModeUI(next.connectionMode, next.useImageBackendJobs);
+}
+
+async function commitComfyApiPresets(change) {
+    const incoming = normalizeApiPresetState(
+        { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
+        COMFY_API_PRESET_OPTIONS,
+    );
+    const applied = change.config ? normalizeComfyApiConfig(change.config) : null;
+    const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        draft.apiPresets = incoming.apiPresets;
+        draft.activeApiPresetId = incoming.activeApiPresetId;
+        if (applied) Object.assign(draft, applied);
+    }, 'API 预设已保存', { notify: false, silent: false }));
+    if (ok && change.reason === 'select') fillComfyApiConfigForm(getEffectiveComfyApiConfig());
+    return ok;
+}
+
+function ensureApiPresetBar() {
+    const doc = getSettingsDocument();
+    const container = querySettings('#comfy-api-presets');
+    if (!doc || !container) return null;
+    if (apiPresetBar?.document === doc) {
+        apiPresetBar.render();
+        return apiPresetBar;
+    }
+    apiPresetBar?.destroy();
+    apiPresetBar = createApiPresetBar({
+        document: doc,
+        container,
+        fields: COMFY_API_PRESET_FIELDS,
+        defaults: normalizeComfyApiConfig({}),
+        getState: () => {
+            const { apiPresets, activeApiPresetId } = getSettings();
+            return { apiPresets, activeApiPresetId };
+        },
+        readConfig: readComfyApiConfigFromForm,
+        getEffectiveConfig: () => getEffectiveComfyApiConfig(),
+        onCommit: commitComfyApiPresets,
+        confirm: message => confirm(message),
+        prompt: (message, fallback) => prompt(message, fallback),
+    });
+    return apiPresetBar;
+}
+
+/** “保存”按钮：选中了 API 预设时，把这次保存的 API 配置同步回该预设。 */
+function withSyncedApiPreset(form) {
+    const active = findApiPreset(form.apiPresets, form.activeApiPresetId);
+    if (!active) return form;
+    return {
+        ...form,
+        apiPresets: syncActiveApiPreset(form.apiPresets, active.id, normalizeComfyApiConfig(form), COMFY_API_PRESET_OPTIONS),
+    };
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -3335,10 +3461,16 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
     }, '共享规划设置已保存', { notify, silent: false });
 }
 
-async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '', syncApiPreset = false } = {}) {
+    const syncedPresetName = syncApiPreset
+        ? findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || ''
+        : '';
+    const savedText = syncedPresetName
+        ? `已保存，并同步到 API 预设「${syncedPresetName}」`
+        : '已保存到小白X服务端配置';
     const saveTask = async () => {
         const [comfyOk, sharedOk] = await Promise.all([
-            persistSettings(readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
+            persistSettings(syncApiPreset ? withSyncedApiPreset(readForm()) : readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
             saveSharedDrawSettings({ notify: false }),
         ]);
         return comfyOk && sharedOk;
@@ -3351,13 +3483,14 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
             fp.updateAutoModeUI?.();
         } catch {}
+        apiPresetBar?.render();
     };
 
     if (triggerButton) {
         const ok = await runSaveButtonTask(triggerButton, saveTask, {
             statusElementId,
             pendingText: '正在保存...',
-            successText: '已保存到小白X服务端配置',
+            successText: savedText,
             errorText: '保存失败，请重试',
             notify,
         });
@@ -3378,7 +3511,7 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
         updateStatusText(
             statusElementId,
             ok ? 'success' : 'error',
-            ok ? '已保存到小白X服务端配置' : '保存失败，请重试',
+            ok ? savedText : '保存失败，请重试',
         );
     }
 
@@ -3511,6 +3644,8 @@ export function hideSettings() {
     promptFieldPresetId = null;
     abortPendingRequest();
     agentSettingsSurface?.destroy();
+    apiPresetBar?.destroy();
+    apiPresetBar = null;
     destroyCharacterLibraryUi();
     agentSettingsSurface = null;
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
