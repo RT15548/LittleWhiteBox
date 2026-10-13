@@ -34,6 +34,7 @@ import {
 import { buildCharacterExportFileName, openCharacterExportDialog, openCharacterImportDialog } from './character-library-dialog.js';
 import { getCharacterEnabledFromCard } from './character-enabled-control.js';
 import { autoScrollForPointer } from './character-list-scroll.js';
+import { createCardMenuController } from './character-card-menu.js';
 
 // 与 NovelAI 面板共用同一个键：折叠状态按分组 id 记录，三个面板看到的分组一致。
 export const GROUP_COLLAPSE_STORAGE_KEY = 'lwb.draw.charGroupCollapsed';
@@ -50,6 +51,9 @@ const GROUP_OFF_NOTE_TITLE = '本分组已关闭，组内角色当前不参与�
 const CARD_LOCK_TITLE_ON = '已上锁：导入时不会被替换（点击解锁）';
 const CARD_LOCK_TITLE_OFF = '上锁：导入时不会被替换';
 const CARD_LOCK_TITLE_INHERITED = '上锁：导入时不会被替换（所在分组已上锁，当前已受保护）';
+// “…”菜单里的文字：显示点击后要做的事（已上锁时是“解锁”）。
+const CARD_LOCK_ACTION_ON = '解锁';
+const CARD_LOCK_ACTION_OFF = '上锁';
 const GROUP_LOCK_TITLE_ON = '已上锁分组：组内角色导入时不会被替换（点击解锁）';
 const GROUP_LOCK_TITLE_OFF = '上锁分组：组内角色导入时不会被替换';
 const LOCK_NOTE_OWN = '已上锁';
@@ -136,6 +140,7 @@ function withLocked(character, locked) {
  * @param {function} [options.makeId] 透传给 character-library.js（测试用）
  * @param {function} [options.hitTest] (x, y) => Element，默认 document.elementFromPoint（测试用）
  * @param {function} [options.getRect] (element) => { top, bottom }，默认 getBoundingClientRect（测试用）
+ * @param {function} [options.getViewport] () => { width, height }，卡片“…”菜单定位用的视口尺寸，默认取 document 的视口（测试用）
  * @param {function} [options.download] (fileName, data) => 触发下载，默认用 Blob + a[download]（测试用）
  * @param {string} [options.nameFieldSelector] 新建角色后聚焦的输入框选择器
  */
@@ -168,6 +173,8 @@ export function createCharacterLibraryUi(options = {}) {
     const hitTest = options.hitTest || ((x, y) => document.elementFromPoint?.(x, y) ?? null);
     const getRect = options.getRect || (element => element.getBoundingClientRect());
     const download = options.download || ((fileName, data) => downloadJson(fileName, data));
+    // 角色卡“…”菜单：同一时间只开一个；整体重绘、点外面、Esc、选中菜单项都会关闭。
+    const cardMenu = createCardMenuController({ document, getViewport: options.getViewport });
 
     const state = {
         groups: [],
@@ -264,6 +271,7 @@ export function createCharacterLibraryUi(options = {}) {
     }
 
     function render(library) {
+        cardMenu.close(); // 重绘会换掉所有卡片：已打开的菜单随之失效
         const groupScroll = captureGroupScroll();
         const characters = Array.isArray(library?.characters) ? library.characters : [];
         // 分组开关 enabled 随分组一起带着，只在关闭时保留该键（与 character-library.js 的规范化一致）。
@@ -371,12 +379,34 @@ export function createCharacterLibraryUi(options = {}) {
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。文案与状态由 updateGroupHeader 填。
         if (!group.virtual) {
             addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch');
-            addAction('toggle-lock', '', 'fa-solid fa-lock-open', ' lwb-cl-group-lock');
         }
         addAction('add', '在本组添加角色', 'fa-solid fa-plus');
         if (!group.virtual) {
             addAction('rename', '重命名分组', 'fa-solid fa-pen');
-            addAction('delete', '删除分组', 'fa-solid fa-trash');
+            // 上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一个菜单控制器，同一时间只开一个）。
+            const menuItem = (extraClass, action, title, iconClass, text) => create(document, 'button', {
+                className: `lwb-cl-menu-item${extraClass}`,
+                attrs: { type: 'button', role: 'menuitem', 'data-lwb-group-action': action, title, 'aria-label': `${title} ${group.name}` },
+            }, [iconNode(document, iconClass), create(document, 'span', { className: 'lwb-cl-menu-label', text })]);
+            const moreButton = create(document, 'button', {
+                className: 'lwb-cl-icon-btn lwb-cl-menu-button',
+                attrs: {
+                    type: 'button',
+                    'data-lwb-group-action': 'menu',
+                    title: '更多操作',
+                    'aria-label': `更多操作 ${group.name}`,
+                    'aria-haspopup': 'menu',
+                    'aria-expanded': 'false',
+                },
+            }, [iconNode(document, 'fa-solid fa-ellipsis')]);
+            const menu = create(document, 'div', {
+                className: 'lwb-cl-menu',
+                attrs: { role: 'menu', 'aria-label': `更多操作 ${group.name}`, hidden: '' },
+            }, [
+                menuItem(' lwb-cl-group-lock', 'toggle-lock', '', 'fa-solid fa-lock-open', CARD_LOCK_ACTION_OFF),
+                menuItem(' lwb-cl-menu-danger', 'delete', '删除分组', 'fa-solid fa-trash', '删除分组'),
+            ]);
+            actions.appendChild(create(document, 'span', { className: 'lwb-cl-menu-wrap', attrs: { 'data-card-menu': '' } }, [moreButton, menu]));
         }
         header.appendChild(actions);
         section.appendChild(header);
@@ -422,11 +452,14 @@ export function createCharacterLibraryUi(options = {}) {
         if (lockButton) {
             const locked = isGroupLocked({ characters: [], groups: state.groups }, groupId);
             const title = locked ? GROUP_LOCK_TITLE_ON : GROUP_LOCK_TITLE_OFF;
+            const actionLabel = locked ? CARD_LOCK_ACTION_ON : CARD_LOCK_ACTION_OFF;
             lockButton.setAttribute('title', title);
-            lockButton.setAttribute('aria-label', `${title} ${name}`);
+            lockButton.setAttribute('aria-label', `${actionLabel}分组 ${name}`);
             lockButton.setAttribute('aria-pressed', String(locked));
             lockButton.classList.toggle('active', locked);
             lockButton.querySelector('i')?.setAttribute('class', `fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}`);
+            const text = lockButton.querySelector('.lwb-cl-menu-label');
+            if (text) text.textContent = actionLabel;
         }
     }
 
@@ -441,11 +474,14 @@ export function createCharacterLibraryUi(options = {}) {
         const button = card.querySelector('.lwb-cl-card-lock');
         if (button) {
             const title = own ? CARD_LOCK_TITLE_ON : (inherited ? CARD_LOCK_TITLE_INHERITED : CARD_LOCK_TITLE_OFF);
+            const actionLabel = own ? CARD_LOCK_ACTION_ON : CARD_LOCK_ACTION_OFF;
             button.setAttribute('title', title);
-            button.setAttribute('aria-label', `${title} ${label}`);
+            button.setAttribute('aria-label', `${actionLabel} ${label}`);
             button.setAttribute('aria-pressed', String(own));
             button.classList.toggle('active', own);
             button.querySelector('i')?.setAttribute('class', `fa-solid ${own ? 'fa-lock' : 'fa-lock-open'}`);
+            const text = button.querySelector('.lwb-cl-menu-label');
+            if (text) text.textContent = actionLabel;
         }
         const title = card.querySelector('.sd-char-card-title');
         if (!title) return;
@@ -459,6 +495,7 @@ export function createCharacterLibraryUi(options = {}) {
             title.appendChild(note);
         }
         note.textContent = own ? LOCK_NOTE_OWN : LOCK_NOTE_GROUP;
+        note.classList.toggle('lwb-cl-lock-note-own', own); // 自己上锁：主文字色加粗；仅分组上锁：保持灰色
         if (own) note.removeAttribute('title');
         else note.setAttribute('title', LOCK_NOTE_GROUP_TITLE);
     }
@@ -495,19 +532,40 @@ export function createCharacterLibraryUi(options = {}) {
         }
         const actions = card.querySelector('.sd-char-card-header .btn-group');
         if (actions) {
-            const duplicate = create(document, 'button', {
-                className: 'btn btn-sm',
-                attrs: { type: 'button', 'data-lwb-card-action': 'duplicate', 'data-id': id, title: '复制人设', 'aria-label': `复制 ${label}` },
-            }, [iconNode(document, 'fa-solid fa-clone'), create(document, 'span', { text: '复制' })]);
+            // 卡片头只留启用开关（和宿主自己的按钮，如 Danbooru）与“…”；上锁 / 复制人设 / 删除都收进“…”菜单。
+            // 删除按钮是宿主页面自己的节点（带 data-sd-char-delete，由宿主的点击委托处理），这里只是把它搬进菜单并换成菜单项样式。
+            const menuItem = (extraClass, attrs, iconClass, text) => create(document, 'button', {
+                className: `lwb-cl-menu-item${extraClass}`,
+                attrs: { type: 'button', role: 'menuitem', 'data-id': id, ...attrs },
+            }, [iconNode(document, iconClass), create(document, 'span', { className: 'lwb-cl-menu-label', text })]);
+            const lock = menuItem(' lwb-cl-card-lock', { 'data-lwb-card-action': 'toggle-lock' }, 'fa-solid fa-lock-open', CARD_LOCK_ACTION_OFF);
+            const duplicate = menuItem('', { 'data-lwb-card-action': 'duplicate', title: '复制人设', 'aria-label': `复制人设 ${label}` }, 'fa-solid fa-clone', '复制人设');
+            const items = [lock, duplicate];
             const remove = actions.querySelector('[data-sd-char-delete]');
-            actions.insertBefore(duplicate, remove || null);
-            // 上锁开关放在启用开关旁边（没有启用开关时放最前）；状态与文案由 syncCardLock 填。
-            const lock = create(document, 'button', {
-                className: 'btn btn-sm lwb-cl-card-lock',
-                attrs: { type: 'button', 'data-lwb-card-action': 'toggle-lock', 'data-id': id },
-            }, [iconNode(document, 'fa-solid fa-lock-open')]);
-            const enabledControl = actions.querySelector('.character-enabled-control');
-            actions.insertBefore(lock, enabledControl ? enabledControl.nextSibling : actions.firstChild);
+            if (remove) {
+                remove.className = 'lwb-cl-menu-item lwb-cl-menu-danger';
+                remove.setAttribute('role', 'menuitem');
+                remove.setAttribute('title', '删除');
+                remove.setAttribute('aria-label', `删除 ${label}`);
+                items.push(remove);
+            }
+            const moreButton = create(document, 'button', {
+                className: 'btn btn-sm lwb-cl-menu-button',
+                attrs: {
+                    type: 'button',
+                    'data-lwb-card-action': 'menu',
+                    'data-id': id,
+                    title: '更多操作',
+                    'aria-label': `更多操作 ${label}`,
+                    'aria-haspopup': 'menu',
+                    'aria-expanded': 'false',
+                },
+            }, [iconNode(document, 'fa-solid fa-ellipsis')]);
+            const menu = create(document, 'div', {
+                className: 'lwb-cl-menu',
+                attrs: { role: 'menu', 'aria-label': `更多操作 ${label}`, hidden: '' },
+            }, items);
+            actions.appendChild(create(document, 'span', { className: 'lwb-cl-menu-wrap', attrs: { 'data-card-menu': '' } }, [moreButton, menu]));
         }
         card.dataset.characterLocked = String(character?.locked === true);
         syncCardLock(card, String(character?.groupId || ''));
@@ -1068,10 +1126,17 @@ export function createCharacterLibraryUi(options = {}) {
     listen(list, 'click', (event) => {
         const groupButton = event.target.closest?.('[data-lwb-group-action]');
         if (groupButton) {
+            if (groupButton.dataset.lwbGroupAction === 'menu') { cardMenu.toggle(groupButton); return; }
+            // 选中菜单项：先关菜单（焦点回到“…”按钮），再执行动作。
+            if (groupButton.closest('[role="menu"]')) cardMenu.close({ restoreFocus: true });
             const section = groupButton.closest('.lwb-cl-group');
             handleGroupAction(groupButton.dataset.lwbGroupAction, section?.dataset.groupId || '', groupButton);
             return;
         }
+        const menuButton = event.target.closest?.('[data-lwb-card-action="menu"]');
+        if (menuButton) { cardMenu.toggle(menuButton); return; }
+        // 选中菜单项：先关菜单（焦点回到“…”按钮），再执行动作（删除由宿主自己的点击委托处理）。
+        if (event.target.closest?.('[role="menu"]')) cardMenu.close({ restoreFocus: true });
         const duplicateButton = event.target.closest?.('[data-lwb-card-action="duplicate"]');
         if (duplicateButton) { duplicate([duplicateButton.dataset.id]); return; }
         const lockButton = event.target.closest?.('[data-lwb-card-action="toggle-lock"]');
@@ -1162,6 +1227,7 @@ export function createCharacterLibraryUi(options = {}) {
             state.destroyed = true;
             importDialog?.close();
             exportDialog?.close();
+            cardMenu.destroy();
             listeners.splice(0).forEach(off => off());
             document.body?.classList?.remove('lwb-cl-is-dragging');
         },

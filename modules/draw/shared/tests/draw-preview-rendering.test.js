@@ -661,3 +661,42 @@ test('slot versions load on demand: every displayable version, newest first, sav
     assert.deepEqual(await api.getSlotVersions('PagedChar-Other', 'v1'), [], '角色不符不返回');
     assert.deepEqual(await api.getSlotVersions(who, 'no-such-slot'), []);
 });
+
+// Gallery "save to server": the chat card shows the version's blob URL until it is re-read.
+async function renderBlobCard(t, slotId) {
+    const { root } = mountMessage(t, `[image:${slotId}]`);
+    const imgId = await seedImage(slotId, 'a');
+    await api.renderPreviewsForMessage(0);
+    const card = root.querySelector('.xb-nd-img');
+    const blobUrl = card.querySelector('img').getAttribute('src');
+    assert.match(blobUrl, /^blob:/);
+    const revoked = [];
+    const revoke = URL.revokeObjectURL;
+    t.mock.method(URL, 'revokeObjectURL', url => { revoked.push(url); revoke(url); });
+    return { card, imgId, blobUrl, revoked };
+}
+
+async function saveToServer(imgId, savedUrl) {
+    const preview = await api.getPreview(imgId);
+    await api.updatePreviewSavedUrl(imgId, savedUrl);
+    await api.syncDrawSavedFromPreview(0, preview, { savedUrl });
+    await api.renderPreviewsForMessage(0, { refreshSlotIds: [preview.slotId] });
+    await new Promise(resolve => setImmediate(resolve));
+}
+
+test('saving a gallery version moves the chat card to the saved file without a dead blob URL or an error', async t => {
+    const { card, imgId, blobUrl, revoked } = await renderBlobCard(t, 'gallery-save');
+    await saveToServer(imgId, '/saved/gallery-save.png');
+    assert.equal(card.querySelector('img').getAttribute('src'), '/saved/gallery-save.png');
+    assert.equal(card.dataset.state, 'saved');
+    assert.ok(!card.querySelector('[data-xb-image-view-error]'));
+    assert.ok(!revoked.includes(blobUrl), 'the blob stays valid until the card has left it');
+});
+
+test('saving does not revoke a blob URL a card may still be using', async t => {
+    const { card, imgId, blobUrl, revoked } = await renderBlobCard(t, 'blob-kept');
+    // Without a re-render the card (e.g. a lazy image that never loaded) still references the blob.
+    await api.updatePreviewSavedUrl(imgId, '/saved/blob-kept.png');
+    assert.equal(card.querySelector('img').getAttribute('src'), blobUrl);
+    assert.deepEqual(revoked, []);
+});
