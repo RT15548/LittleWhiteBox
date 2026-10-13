@@ -285,6 +285,8 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
 }
 .char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
+.char-lock-label { color: var(--text-primary); font-weight: 600; }
 .char-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
 .char-action-button {
     display: inline-flex; align-items: center; justify-content: center;
@@ -298,6 +300,27 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
 }
 .char-action-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+/* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
+.char-menu-wrap { display: inline-flex; flex-shrink: 0; }
+.char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }
+.char-menu {
+    position: fixed; z-index: 200; display: flex; flex-direction: column; gap: 2px;
+    min-width: 132px; max-width: calc(100vw - 16px); padding: 4px; overflow-y: auto; box-sizing: border-box;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.char-menu[hidden] { display: none; }
+.char-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; box-sizing: border-box;
+    background: none; border: none; border-radius: 6px; color: var(--text-secondary);
+    font: inherit; font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.char-menu-item i { width: 14px; text-align: center; flex-shrink: 0; }
+.char-menu-item:hover, .char-menu-item:focus-visible { background: rgba(255,255,255,.08); color: var(--text-primary); outline: none; }
+.char-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus); }
+.char-menu-item.active { color: var(--accent); }
+.char-menu-item.danger { color: var(--danger); }
+.char-menu-item.danger:hover, .char-menu-item.danger:focus-visible { background: rgba(248,81,73,.12); color: var(--danger); }
 .char-card.disabled .char-identity,
 .char-card.disabled .char-status { opacity: .45; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
@@ -538,6 +561,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     .nav-item { min-height: 44px; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
     .char-action-button { width: 44px; height: 44px; }
+    .char-menu-item { min-height: 44px; font-size: 13px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -799,6 +823,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
                     <p class="view-desc">NovelAI 服务连接设置</p>
                 </div>
                 <div class="card">
+                    <div id="nd_api_presets" class="preset-bar"></div>
                     <div class="form-group">
                         <label class="form-label">NovelAI API Key</label>
                         <div class="input-row">
@@ -1551,6 +1576,8 @@ let state = {
     sendMode: 'frontend',
     useImageBackendJobs: false,
     insecureTLS: false,
+    apiPresets: [],
+    activeApiPresetId: null,
     timeout: DEFAULTS.timeout,
     requestDelay: { ...DEFAULTS.requestDelay },
     cacheDays: DEFAULTS.cacheDays,
@@ -1951,6 +1978,38 @@ function isCharacterGroupClosed(char, library = getCharacterLibrary()) {
     return CL ? !CL.isGroupEnabled(library, char.groupId || '') : false;
 }
 
+// 上锁：本机状态，只在导入“替换”时起保护作用，不限制重命名 / 删除 / 编辑 / 启停 / 拖动。
+// 角色锁（char.locked）与分组锁（group.locked）互相独立；有效上锁 = 角色锁 或 分组锁。
+const CHAR_LOCK_TITLE_ON = '已上锁：导入时不会被替换（点击解锁）';
+const CHAR_LOCK_TITLE_OFF = '上锁：导入时不会被替换';
+const CHAR_LOCK_TITLE_INHERITED = '上锁：导入时不会被替换（所在分组已上锁，当前已受保护）';
+const GROUP_LOCK_TITLE_ON = '已上锁分组：组内角色导入时不会被替换（点击解锁）';
+const GROUP_LOCK_TITLE_OFF = '上锁分组：组内角色导入时不会被替换';
+const LOCK_LABEL_OWN = '已上锁';
+const LOCK_LABEL_GROUP = '分组已上锁';
+
+// 角色所在分组是否上锁（未分组、分组不存在、模块未加载都算未锁）。
+function isCharacterGroupLocked(char, library = getCharacterLibrary()) {
+    return CL ? CL.isGroupLocked(library, char.groupId || '') : false;
+}
+
+// 角色摘要里的上锁标签：自己上锁优先显示“已上锁”，只有分组上锁显示“分组已上锁”。
+function characterLockLabel(char, library = getCharacterLibrary()) {
+    if (!CL) return '';
+    if (char.locked === true) return LOCK_LABEL_OWN;
+    return isCharacterGroupLocked(char, library) ? LOCK_LABEL_GROUP : '';
+}
+
+// 角色卡上锁按钮的外观；按钮的 active / aria-pressed 只反映角色自己的锁（继承自分组的锁不算）。
+function describeCharacterLock(char, library = getCharacterLibrary()) {
+    const own = char.locked === true;
+    return {
+        own,
+        title: own ? CHAR_LOCK_TITLE_ON : (isCharacterGroupLocked(char, library) ? CHAR_LOCK_TITLE_INHERITED : CHAR_LOCK_TITLE_OFF),
+        icon: own ? 'fa-lock' : 'fa-lock-open',
+    };
+}
+
 function getFilteredCharacters(chars = []) {
     const query = String(charFilters.query || '').trim().toLowerCase();
     const typeFilter = charFilters.type || 'all';
@@ -2115,6 +2174,12 @@ let CD = null; // character-library-dialog.js（导入对话框、导出文件�
 let CS = null; // character-list-scroll.js（拖拽时的自动滚动），与 CL 一同动态引入
 let GP = null; // character-group-presets-ui.js（分组预设面板组件），与 CL 一同动态引入
 let GPM = null; // 分组预设领域操作，与角色库一起加载
+let CM = null; // character-card-menu.js（角色卡“更多操作”下拉菜单的开关与定位），与 CL 一同动态引入
+let cardMenu = null; // 菜单控制器：第一次打开菜单时才创建（它会在 document 上挂监听）
+function getCardMenu() {
+    if (!cardMenu && CM) cardMenu = CM.createCardMenuController({ document });
+    return cardMenu;
+}
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
 
@@ -2319,9 +2384,12 @@ const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，�
 const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
 
 function describeGroupHeader(library, group) {
-    const { own, total, enabled } = CL.getGroupSummary(library, group.id);
+    const { own, total, enabled, locked } = CL.getGroupSummary(library, group.id);
     return {
         enabled,
+        locked,
+        lockTitle: locked ? GROUP_LOCK_TITLE_ON : GROUP_LOCK_TITLE_OFF,
+        lockIcon: locked ? 'fa-lock' : 'fa-lock-open',
         // 窄栏里分组名优先：计数只写“自己开着数/总数”，完整含义放在 title / aria-label 里。
         countText: `${own}/${total}`,
         countTitle: `组内自己开着的角色 ${own} 个，共 ${total} 个${enabled ? '' : '；分组已关闭，组内角色当前都不参与出图'}`,
@@ -2367,9 +2435,17 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。
         const groupSwitch = group.virtual ? '' : `
                     <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}"></i></button>`;
+        // 分组头只留开关 / 添加 / 重命名；上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一套菜单，同一时间只开一个）。
+        const lockActionLabel = header.locked ? '解锁' : '上锁';
         const manage = group.virtual ? '' : `
                     <button type="button" class="char-action-button" data-group-action="rename" data-group-id="${gid}" title="重命名分组" aria-label="重命名分组 ${gname}"><i class="fa-solid fa-pen"></i></button>
-                    <button type="button" class="char-action-button" data-group-action="delete" data-group-id="${gid}" title="删除分组" aria-label="删除分组 ${gname}"><i class="fa-solid fa-trash"></i></button>`;
+                    <span class="char-menu-wrap" data-card-menu>
+                        <button type="button" class="char-action-button char-menu-button" data-group-action="menu" data-group-id="${gid}" title="更多操作" aria-label="更多操作 ${gname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+                        <div class="char-menu" role="menu" aria-label="更多操作 ${gname}" hidden>
+                            <button type="button" role="menuitem" class="char-menu-item char-group-lock${header.locked ? ' active' : ''}" data-group-action="toggle-lock" data-group-id="${gid}" title="${header.lockTitle}" aria-label="${lockActionLabel}分组 ${gname}" aria-pressed="${header.locked}"><i class="fa-solid ${header.lockIcon}" aria-hidden="true"></i><span class="char-menu-label">${lockActionLabel}</span></button>
+                            <button type="button" role="menuitem" class="char-menu-item danger" data-group-action="delete" data-group-id="${gid}" title="删除分组" aria-label="删除分组 ${gname}"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="char-menu-label">删除分组</span></button>
+                        </div>
+                    </span>`;
         const body = group.characters.length
             ? group.characters.map(renderCard).join('')
             : '<div class="char-group-empty">本组暂无角色</div>';
@@ -2392,6 +2468,10 @@ ${groupSwitch}
 }
 
 function handleGroupAction(action, groupId, trigger) {
+    if (action === 'menu') {
+        if (trigger) getCardMenu()?.toggle(trigger);
+        return;
+    }
     if (action === 'collapse') {
         // 只改 DOM，不重绘：避免丢失其他卡片里尚未保存的编辑。
         const section = trigger?.closest('.char-group');
@@ -2413,6 +2493,9 @@ function handleGroupAction(action, groupId, trigger) {
         if (action === 'toggle-enabled') {
             // 只切换分组自己的开关：不改任何角色的 enabled。
             applyCharacterLibrary(CL.setGroupEnabled(library, groupId, !CL.isGroupEnabled(library, groupId)));
+        } else if (action === 'toggle-lock') {
+            // 只切换分组自己的锁：不改任何角色的锁。
+            applyCharacterLibrary(CL.setGroupLocked(library, groupId, !CL.isGroupLocked(library, groupId)));
         } else if (action === 'add') {
             const { library: next, id } = CL.addCharacter(library, { name: '' }, { groupId });
             state.characterTags = next.characters;
@@ -2985,6 +3068,26 @@ function revealCharCard(id) {
 }
 
 // 角色卡摘要里的“关闭”标签：所在分组关闭优先显示“分组已关闭”（此时角色自己的开关仍可点），其次才是自己关闭的“停用”。
+// 状态文字由固定标签用 “ · ” 连接。角色自己的“已上锁”包进 span 以便着色；其余按文本转义，不拼接任何用户输入。
+function renderCharStatusHtml(parts) {
+    return parts.map(part => (part === LOCK_LABEL_OWN ? `<span class="char-lock-label">${escapeHtml(part)}</span>` : escapeHtml(part))).join(' · ');
+}
+// 原地更新状态文字（启用 / 上锁开关不重绘整张卡）：同样的结构，用 DOM 方法构建。
+function setCharStatus(statusEl, parts) {
+    statusEl.textContent = '';
+    parts.forEach((part, index) => {
+        if (index) statusEl.appendChild(document.createTextNode(' · '));
+        if (part === LOCK_LABEL_OWN) {
+            const label = document.createElement('span');
+            label.className = 'char-lock-label';
+            label.textContent = part;
+            statusEl.appendChild(label);
+        } else {
+            statusEl.appendChild(document.createTextNode(part));
+        }
+    });
+}
+
 function characterOffLabel(char, library = getCharacterLibrary()) {
     if (isCharacterGroupClosed(char, library)) return '分组已关闭';
     return char.enabled === false ? '停用' : '';
@@ -2993,6 +3096,7 @@ function characterOffLabel(char, library = getCharacterLibrary()) {
 function renderCharList() {
     const list = $('nd_char_list');
     const empty = $('nd_char_empty');
+    cardMenu?.close(); // 整体重绘会换掉所有卡片，已打开的菜单随之失效
     captureEditingDraft();
     reconcileEditingState();
     const chars = state.characterTags || [];
@@ -3049,12 +3153,21 @@ function renderCharList() {
         const statusParts = [];
         const offLabel = characterOffLabel(c, renderLibrary);
         if (offLabel) statusParts.push(offLabel);
+        const lockLabel = characterLockLabel(c, renderLibrary);
+        if (lockLabel) statusParts.push(lockLabel);
         if (appearance) statusParts.push('固定外貌');
         if (c.negativeTags) statusParts.push('负向');
         if (c.danbooruTag) statusParts.push('DB');
         if (outfits.length) statusParts.push('服装');
         if (dynamicStates.length) statusParts.push('动态外貌');
         const toggleTitle = isEnabled ? '停用角色' : '启用角色';
+        const lockInfo = describeCharacterLock(c, renderLibrary);
+        // 上锁项需要角色库模块（锁的读写都在 character-library.js），模块未加载时不渲染。
+        const lockActionLabel = lockInfo.own ? '解锁' : '上锁';
+        const lockItem = CL
+            ? `
+                        <button type="button" role="menuitem" class="char-menu-item char-lock-control${lockInfo.own ? ' active' : ''}" data-action="toggle-lock" data-id="${charId}" title="${lockInfo.title}" aria-label="${lockActionLabel} ${charName}" aria-pressed="${lockInfo.own}"><i class="fa-solid ${lockInfo.icon}" aria-hidden="true"></i><span class="char-menu-label">${lockActionLabel}</span></button>`
+            : '';
         const canDrag = !!CL && !charFiltersActive() && !isEditing;
         const summary = `
             <div class="char-card-summary">
@@ -3064,12 +3177,17 @@ function renderCharList() {
                     <span class="char-name">${charName}</span>
                     <span class="char-type-badge">${escapeHtml(typeShort)}</span>
                 </div>
-                <span class="char-status">${statusParts.join(' · ')}</span>
+                <span class="char-status">${renderCharStatusHtml(statusParts)}</span>
                 <div class="char-actions" aria-label="角色操作">
                     <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>
                     <button type="button" class="char-action-button${isEditing ? ' active' : ''}" data-action="edit" data-id="${charId}" title="编辑" aria-label="编辑 ${charName}">${renderCharacterActionIcon('edit')}</button>
-                    <button type="button" class="char-action-button" data-action="duplicate" data-id="${charId}" title="复制人设" aria-label="复制 ${charName}"><i class="fa-solid fa-clone"></i></button>
-                    <button type="button" class="char-action-button" data-action="delete" data-id="${charId}" title="删除" aria-label="删除 ${charName}">${renderCharacterActionIcon('delete')}</button>
+                    <span class="char-menu-wrap" data-card-menu>
+                        <button type="button" class="char-action-button char-menu-button" data-action="menu" data-id="${charId}" title="更多操作" aria-label="更多操作 ${charName}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+                        <div class="char-menu" role="menu" aria-label="更多操作 ${charName}" hidden>${lockItem}
+                            <button type="button" role="menuitem" class="char-menu-item" data-action="duplicate" data-id="${charId}" title="复制人设"><i class="fa-solid fa-clone" aria-hidden="true"></i><span class="char-menu-label">复制人设</span></button>
+                            <button type="button" role="menuitem" class="char-menu-item danger" data-action="delete" data-id="${charId}" title="删除"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="char-menu-label">删除</span></button>
+                        </div>
+                    </span>
                 </div>
             </div>`;
 
@@ -3184,7 +3302,9 @@ function renderCharList() {
 }
 
 function handleCharAction(action, id, card, trigger) {
-    if (action === 'toggle-enabled') {
+    if (action === 'menu') {
+        if (trigger) getCardMenu()?.toggle(trigger);
+    } else if (action === 'toggle-enabled') {
         const char = state.characterTags.find(c => c.id === id);
         if (!char) return;
         char.enabled = char.enabled === false;
@@ -3195,7 +3315,7 @@ function handleCharAction(action, id, card, trigger) {
             const parts = status.textContent.split(' · ').filter(part => part && part !== '停用' && part !== '分组已关闭');
             const offLabel = characterOffLabel(char);
             if (offLabel) parts.unshift(offLabel);
-            status.textContent = parts.join(' · ');
+            setCharStatus(status, parts);
         }
         if (trigger) {
             const toggleTitle = char.enabled ? '停用角色' : '启用角色';
@@ -3206,6 +3326,41 @@ function handleCharAction(action, id, card, trigger) {
             trigger.innerHTML = renderCharacterActionIcon(char.enabled ? 'enabled' : 'disabled');
         }
         refreshEnabledSummary();
+    } else if (action === 'toggle-lock') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!char || !CL) return;
+        // 与启用开关一样只改这一张卡的 DOM、不整体重绘，其他卡片里尚未保存的编辑不受影响。
+        // 结果由纯函数算出，再原地写回现有对象（未保存的空白草稿仍指向同一个对象）；锁只在为 true 时保留该键。
+        runLibraryAction(() => {
+            const next = CL.setCharactersLocked(getCharacterLibrary(), [id], char.locked !== true)
+                .characters.find(c => c.id === id);
+            if (next?.locked === true) char.locked = true; else delete char.locked;
+            saveCharacterLibrary();
+            const library = getCharacterLibrary();
+            const status = card?.querySelector('.char-status');
+            if (status) {
+                const parts = status.textContent.split(' · ').filter(part => part && part !== LOCK_LABEL_OWN && part !== LOCK_LABEL_GROUP);
+                const lockLabel = characterLockLabel(char, library);
+                if (lockLabel) {
+                    // 保持与整体渲染相同的顺序：停用 / 分组已关闭在前，上锁标签紧随其后。
+                    const offLabel = characterOffLabel(char, library);
+                    parts.splice(offLabel && parts[0] === offLabel ? 1 : 0, 0, lockLabel);
+                }
+                setCharStatus(status, parts);
+            }
+            if (trigger) {
+                const info = describeCharacterLock(char, library);
+                trigger.classList.toggle('active', info.own);
+                const actionLabel = info.own ? '解锁' : '上锁';
+                trigger.title = info.title;
+                trigger.setAttribute('aria-label', `${actionLabel} ${char.name || '新角色'}`);
+                trigger.setAttribute('aria-pressed', String(info.own));
+                const icon = trigger.querySelector('i');
+                if (icon) icon.className = `fa-solid ${info.icon}`;
+                const labelNode = trigger.querySelector('.char-menu-label');
+                if (labelNode) labelNode.textContent = actionLabel;
+            }
+        });
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
         const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
@@ -4395,6 +4550,148 @@ function renderWorldbookEntriesLocal(book) {
 // 预设与设置
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// API 配置预设
+// ═══════════════════════════════════════════════════════════════════════════
+// 预设栏组件在 shared/api-presets-ui.js（纯函数在 api-presets.js），宿主（novel-draw.js）负责规范化与落盘。
+// 预设里含 API Key：与 apiKey 同样只存本地，这里不把它写进日志 / 提示。
+
+let AP_UI = null; // api-presets-ui.js（API 配置预设栏组件），与角色库模块一同动态引入
+let apiPresetBar = null;
+let apiPresetRequestSeq = 0;
+const apiPresetPending = new Map(); // requestId -> { resolve, timer, change }
+// 与 novel-draw.js 的 NOVEL_API_PRESET_FIELDS 保持一致（api-presets-wiring.test.js 会比对）。
+const API_PRESET_FIELDS = ['apiKey', 'apiBaseUrl', 'sendMode', 'useImageBackendJobs', 'insecureTLS', 'timeout', 'requestDelay'];
+const API_PRESET_DEFAULTS = {
+    apiKey: '', apiBaseUrl: '', sendMode: 'frontend', useImageBackendJobs: false, insecureTLS: false,
+    timeout: DEFAULTS.timeout, requestDelay: { ...DEFAULTS.requestDelay },
+};
+const API_PRESET_REQUEST_TIMEOUT_MS = 15000;
+
+function normalizeApiTimeout(ms) {
+    const value = Number(ms);
+    return value > 0 ? Math.min(600000, Math.max(10000, Math.floor(value))) : DEFAULTS.timeout;
+}
+
+function normalizeApiDelay(delay) {
+    const min = Number(delay?.min) > 0 ? Number(delay.min) : DEFAULTS.requestDelay.min;
+    const max = Number(delay?.max) > 0 ? Number(delay.max) : DEFAULTS.requestDelay.max;
+    return { min: Math.min(min, max), max: Math.max(min, max) };
+}
+
+/** 表单里现在的 API 配置（与“保存”按钮发给宿主的字段一致）。 */
+function readApiConfigFromForm() {
+    return {
+        apiKey: $('nd_api_key').value.trim(),
+        apiBaseUrl: $('nd_api_base_url').value.trim(),
+        sendMode: getSendMode(),
+        useImageBackendJobs: $('nd_use_backend_jobs').checked,
+        insecureTLS: $('nd_insecure_tls').checked,
+        timeout: normalizeApiTimeout(Number($('nd_timeout').value) * 1000 || 180000),
+        requestDelay: normalizeApiDelay(parseDelay($('nd_delay').value)),
+    };
+}
+
+/** 已保存、正在生效的 API 配置（来自宿主推来的 state）。 */
+function getEffectiveApiConfig() {
+    return {
+        apiKey: String(state.apiKey || '').trim(),
+        apiBaseUrl: String(state.apiBaseUrl || '').trim(),
+        sendMode: state.sendMode === 'backend' ? 'backend' : 'frontend',
+        useImageBackendJobs: state.useImageBackendJobs === true,
+        insecureTLS: state.insecureTLS === true,
+        timeout: normalizeApiTimeout(state.timeout),
+        requestDelay: normalizeApiDelay(state.requestDelay),
+    };
+}
+
+/** 宿主回执里的生效配置写回 state（不动表单）。 */
+function applyEffectiveApiConfig(config) {
+    if (!config || typeof config !== 'object') return;
+    state.apiKey = String(config.apiKey || '');
+    state.apiBaseUrl = String(config.apiBaseUrl || '');
+    state.sendMode = config.sendMode === 'backend' ? 'backend' : 'frontend';
+    state.useImageBackendJobs = config.useImageBackendJobs === true;
+    state.insecureTLS = config.insecureTLS === true;
+    state.timeout = normalizeApiTimeout(config.timeout);
+    state.requestDelay = normalizeApiDelay(config.requestDelay);
+}
+
+/** 把一份 API 配置填进表单，并刷新依赖它的界面状态（发送方式分组显隐、后台任务选项、后端面板检测）。 */
+function fillApiConfigForm(config) {
+    const next = { ...API_PRESET_DEFAULTS, ...(config || {}) };
+    $('nd_api_key').value = next.apiKey || '';
+    $('nd_api_base_url').value = next.apiBaseUrl || '';
+    $('nd_use_backend_jobs').checked = next.useImageBackendJobs === true;
+    $('nd_insecure_tls').checked = next.insecureTLS === true;
+    $('nd_timeout').value = Math.round(normalizeApiTimeout(next.timeout) / 1000);
+    const delay = normalizeApiDelay(next.requestDelay);
+    $('nd_delay').value = `${delay.min}-${delay.max}`;
+    updateSendModeUI(next.sendMode === 'backend' ? 'backend' : 'frontend');
+    renderBackendPluginStatus();
+}
+
+function renderApiPresetBar() {
+    if (!AP_UI) return;
+    if (apiPresetBar) {
+        apiPresetBar.render();
+        return;
+    }
+    const container = $('nd_api_presets');
+    if (!container) return;
+    apiPresetBar = AP_UI.createApiPresetBar({
+        document,
+        container,
+        fields: API_PRESET_FIELDS,
+        defaults: API_PRESET_DEFAULTS,
+        getState: () => ({ apiPresets: state.apiPresets, activeApiPresetId: state.activeApiPresetId }),
+        readConfig: readApiConfigFromForm,
+        getEffectiveConfig: getEffectiveApiConfig,
+        onCommit: commitApiPresets,
+        confirm: message => confirm(message),
+        prompt: (message, fallback) => prompt(message, fallback),
+    });
+}
+
+/** 预设栏的每次修改都整体交给宿主落盘；宿主回执（STATUS target=api-presets）到达后才算完成。 */
+function commitApiPresets(change) {
+    return new Promise((resolve) => {
+        const requestId = `api-preset-${++apiPresetRequestSeq}`;
+        const timer = setTimeout(() => {
+            apiPresetPending.delete(requestId);
+            resolve(false);
+        }, API_PRESET_REQUEST_TIMEOUT_MS);
+        apiPresetPending.set(requestId, { resolve, timer, change });
+        postToParent({
+            type: 'SAVE_API_PRESETS',
+            requestId,
+            reason: change.reason,
+            apiPresets: change.apiPresets,
+            activeApiPresetId: change.activeApiPresetId,
+            config: change.config,
+        });
+    });
+}
+
+function handleApiPresetsStatus(data) {
+    if (Array.isArray(data.apiPresets)) {
+        state.apiPresets = data.apiPresets;
+        state.activeApiPresetId = data.activeApiPresetId || null;
+    }
+    applyEffectiveApiConfig(data.config);
+    const pending = apiPresetPending.get(data.requestId);
+    if (!pending) {
+        renderApiPresetBar();
+        return;
+    }
+    clearTimeout(pending.timer);
+    apiPresetPending.delete(data.requestId);
+    const ok = data.state === 'success';
+    // 切换预设：宿主已把预设配置作为生效配置落盘，这里再填进表单。
+    if (ok && pending.change.reason === 'select') fillApiConfigForm(data.config);
+    pending.resolve(ok);
+}
+
 function applyStateToUI() {
     console.log('[ND-UI] applyStateToUI: autoLearn=%s, advMode=%s, presets=%d',
         state.autoLearnCharacters, state.advancedMode, state.promptPresets?.length);
@@ -4413,6 +4710,7 @@ function applyStateToUI() {
         const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
         const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
         $('nd_delay').value = `${dMin}-${dMax}`;
+        renderApiPresetBar();
         $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
@@ -4753,6 +5051,10 @@ window.addEventListener('message', event => {
                 handleGroupPresetStatus(data);
                 break;
             }
+            if (data.target === 'api-presets') {
+                handleApiPresetsStatus(data);
+                break;
+            }
             if (data.target === 'worldbook') {
                 updateStatus($('nd_wb_status'), data.state, data.text);
                 if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
@@ -4760,6 +5062,13 @@ window.addEventListener('message', event => {
             }
             if (data.target === 'api') {
                 updateStatus($('nd_api_status'), data.state, data.text);
+                // “保存”回执带回最新的预设列表与生效配置（保存可能把配置同步进了当前预设）。
+                if (Array.isArray(data.apiPresets)) {
+                    state.apiPresets = data.apiPresets;
+                    state.activeApiPresetId = data.activeApiPresetId || null;
+                }
+                if (data.apiConfig) applyEffectiveApiConfig(data.apiConfig);
+                if (Array.isArray(data.apiPresets) || data.apiConfig) renderApiPresetBar();
             } else if (data.target === 'params') {
                 updateStatus($('nd_params_status'), data.state, data.text);
             } else if (data.target === 'prompt-preset') {
@@ -4977,7 +5286,17 @@ document.addEventListener('DOMContentLoaded', () => {
             useImageBackendJobs: $('nd_use_backend_jobs').checked,
             insecureTLS: $('nd_insecure_tls').checked,
             timeout: Number($('nd_timeout').value) * 1000 || 180000,
-            requestDelay: parseDelay($('nd_delay').value)
+            requestDelay: parseDelay($('nd_delay').value),
+            // 选中了 API 预设时，宿主把这次保存同步回该预设。
+            syncApiPreset: true
+        });
+    });
+
+    // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
+    ['input', 'change', 'click'].forEach((type) => {
+        $('view-api').addEventListener(type, (event) => {
+            if (event.target?.closest?.('#nd_api_presets')) return;
+            apiPresetBar?.refresh();
         });
     });
     
@@ -5097,6 +5416,8 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_char_list').addEventListener('click', e => {
         const groupBtn = e.target.closest('[data-group-action]');
         if (groupBtn) {
+            // 选中菜单项：先关菜单（焦点回到“…”按钮），再走与原来相同的处理函数。
+            if (groupBtn.closest('[role="menu"]')) cardMenu?.close({ restoreFocus: true });
             handleGroupAction(groupBtn.dataset.groupAction, groupBtn.dataset.groupId ?? '', groupBtn);
             return;
         }
@@ -5104,6 +5425,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!btn) return;
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
+        // 选中菜单项：先关菜单（焦点回到“…”按钮），再走与原来相同的处理函数。
+        if (btn.closest('[role="menu"]')) cardMenu?.close({ restoreFocus: true });
         if (id) handleCharAction(btn.dataset.action, id, card, btn);
     });
 
@@ -5450,12 +5773,18 @@ document.addEventListener('DOMContentLoaded', () => {
         import('../../shared/character-library-dialog.js')
             .then((module) => { CD = module; })
             .catch((error) => { console.error('[ND-UI] 角色导入对话框加载失败，导入导出不可用:', error); }),
+        import('../../shared/character-card-menu.js')
+            .then((module) => { CM = module; })
+            .catch((error) => { console.error('[ND-UI] 角色卡菜单模块加载失败，“更多操作”菜单不可用:', error); }),
         import('../../shared/character-list-scroll.js')
             .then((module) => { CS = module; })
             .catch((error) => { console.error('[ND-UI] 拖拽自动滚动模块加载失败，拖拽时不会自动滚动:', error); }),
         import('../../shared/character-group-presets-ui.js')
             .then((module) => { GP = module; })
             .catch((error) => { console.error('[ND-UI] 分组预设模块加载失败，分组预设不可用:', error); }),
+        import('../../shared/api-presets-ui.js')
+            .then((module) => { AP_UI = module; renderApiPresetBar(); })
+            .catch((error) => { console.error('[ND-UI] API 预设模块加载失败，API 配置预设不可用:', error); }),
     ]).finally(() => postToParent({ type: 'FRAME_READY' }));
 });
 </script>

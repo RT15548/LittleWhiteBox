@@ -11,6 +11,7 @@ import {
 } from '../character-library-ui.js';
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from '../character-enabled-control.js';
 import { CHARACTER_EXPORT_TYPE } from '../character-library.js';
+import { computeMenuPosition } from '../character-card-menu.js';
 
 // ── 测试夹具：用与 SD / ComfyUI 面板相同的卡片结构，验证共享模块与卡片约定 ──
 
@@ -136,7 +137,13 @@ function mount({ library, storage = memoryStorage(), confirms = [], prompts = []
         if (input.tagName === 'TEXTAREA') input.textContent = value;
         input.value = value;
     };
-    return { document, window, ui, log, storage, fire, click, $, $$, cardOf, sectionOf, groupButton, batch, select, idsInGroup, allIds, type, rects, hitRef };
+    const menuButton = id => cardOf(id).querySelector('[data-lwb-card-action="menu"]');
+    const openMenu = (id) => { click(menuButton(id)); return cardOf(id).querySelector('[role="menu"]'); };
+    const groupMenuOf = groupId => sectionOf(groupId).querySelector('[role="menu"]');
+    const openGroupMenu = (groupId) => { click(groupButton(groupId, 'menu')); return groupMenuOf(groupId); };
+    // 打开分组的“…”菜单并返回其中的菜单项（锁 / 删除都在菜单里）
+    const groupItem = (groupId, action) => { openGroupMenu(groupId); return groupButton(groupId, action); };
+    return { document, window, ui, log, storage, fire, click, $, $$, cardOf, menuButton, openMenu, groupMenuOf, openGroupMenu, groupItem, sectionOf, groupButton, batch, select, idsInGroup, allIds, type, rects, hitRef };
 }
 
 function sampleLibrary() {
@@ -192,13 +199,14 @@ test('without groups the list stays flat and an empty library shows the placehol
     assert.equal(flat.$$('.lwb-cl-group').length, 0);
     assert.deepEqual(flat.allIds(), ['c1', 'c2']);
     assert.equal(flat.$$('.sd-char-card')[1].querySelector('.sd-char-card-title > span:last-child').textContent, '角色 2');
-    // 没有分组时不出现“所属分组”下拉，但有拖拽手柄与复制按钮
+    // 没有分组时不出现“所属分组”下拉，但有拖拽手柄与“…”菜单（复制人设 / 删除在菜单里）
     assert.equal(flat.$('.lwb-cl-card-group'), null);
     assert.ok(flat.cardOf('c1').querySelector('[data-drag-char="c1"]'));
+    const menu = flat.cardOf('c1').querySelector('[role="menu"]');
     const duplicateButton = flat.cardOf('c1').querySelector('[data-lwb-card-action="duplicate"]');
-    const actions = flat.cardOf('c1').querySelector('.btn-group');
-    assert.equal(duplicateButton.nextElementSibling.hasAttribute('data-sd-char-delete'), true, '复制按钮在删除按钮之前');
-    assert.ok(actions.contains(duplicateButton));
+    assert.ok(menu.contains(duplicateButton));
+    assert.equal(duplicateButton.nextElementSibling.hasAttribute('data-sd-char-delete'), true, '复制人设在删除之前');
+    assert.ok(menu.contains(flat.cardOf('c1').querySelector('[data-sd-char-delete]')));
 });
 
 test('groups render ungrouped first, then groups in order, with counts and card ordinals following display order', () => {
@@ -218,7 +226,7 @@ test('groups render ungrouped first, then groups in order, with counts and card 
     assert.equal(sections[0].querySelector('[data-drag-group]'), null);
     assert.ok(sections[1].querySelector('[data-drag-group="g1"]'));
     assert.ok(view.groupButton('g1', 'rename'));
-    assert.ok(view.groupButton('g1', 'delete'));
+    assert.ok(view.groupMenuOf('g1').contains(view.groupButton('g1', 'delete')), '删除分组在“…”菜单里');
     // 每张卡片带“所属分组”下拉，并选中当前分组
     const picker = view.cardOf('c4').querySelector('.lwb-cl-card-group');
     assert.equal(picker.querySelectorAll('option').length, 3);
@@ -427,7 +435,7 @@ test('the note text is set with textContent and group switch state survives rena
     assert.deepEqual(view.ui.getLibrary().characters.filter(item => ['c2', 'c3'].includes(item.id)).map(item => item.enabled), [false, false]);
     assert.equal(view.ui.getGroups().find(group => group.id === 'g1').enabled, false);
     // 删除另一个分组
-    view.click(view.groupButton('g2', 'delete'));
+    view.click(view.groupItem('g2', 'delete'));
     assert.deepEqual(view.ui.getGroups(), [{ id: 'g1', name: '改名后', enabled: false }]);
 });
 
@@ -567,19 +575,19 @@ test('group actions: add in group, rename, move, delete (dissolve or with member
     // 删除分组，选择保留角色：成员回到未分组
     view.log.confirmMessages.length = 0;
     const confirmed = mount({ library: sampleLibrary(), confirms: [true, false] });
-    confirmed.click(confirmed.groupButton('g1', 'delete'));
+    confirmed.click(confirmed.groupItem('g1', 'delete'));
     assert.equal(confirmed.sectionOf('g1'), undefined);
     assert.deepEqual(confirmed.idsInGroup(''), ['c1', 'c2', 'c3']);
     assert.match(confirmed.log.confirmMessages[0], /确定删除分组“主线”/);
 
     // 删除分组并连同角色
     const purge = mount({ library: sampleLibrary(), confirms: [true, true] });
-    purge.click(purge.groupButton('g1', 'delete'));
+    purge.click(purge.groupItem('g1', 'delete'));
     assert.deepEqual(purge.allIds(), ['c1', 'c4']);
 
     // 第一次确认就取消：什么也不做
     const abort = mount({ library: sampleLibrary(), confirms: [false] });
-    abort.click(abort.groupButton('g1', 'delete'));
+    abort.click(abort.groupItem('g1', 'delete'));
     assert.ok(abort.sectionOf('g1'));
 });
 
@@ -690,6 +698,7 @@ test('batch actions: enable/disable, move, copy-to, copy in place, delete, expor
 test('card duplicate button copies the draft in place with the NovelAI copy naming', () => {
     const view = mount({ library: sampleLibrary() });
     view.type('c2', 'appearance', 'unsaved look');
+    view.openMenu('c2');
     view.click(view.cardOf('c2').querySelector('[data-lwb-card-action="duplicate"]'));
     const ids = view.idsInGroup('g1');
     assert.equal(ids.length, 3);
@@ -1020,7 +1029,7 @@ test('group header has no up/down/export buttons; the handle is a focusable butt
             assert.equal(view.groupButton(groupId, action), null, `${groupId}/${action}`);
         }
         const actions = Array.from(view.sectionOf(groupId).querySelectorAll('[data-lwb-group-action]')).map(node => node.dataset.lwbGroupAction);
-        assert.deepEqual(actions, ['collapse', 'toggle-enabled', 'add', 'rename', 'delete']);
+        assert.deepEqual(actions, ['collapse', 'toggle-enabled', 'add', 'rename', 'menu', 'toggle-lock', 'delete']); // 锁与删除在“…”菜单里
         const handle = view.sectionOf(groupId).querySelector('[data-drag-group]');
         assert.equal(handle.getAttribute('role'), 'button');
         assert.equal(handle.getAttribute('tabindex'), '0');
@@ -1394,4 +1403,311 @@ test('syncGroupEnabled turns the given group switches to the latest values and k
     // 缺省同步全部同 id 分组
     assert.equal(view.ui.syncGroupEnabled([{ id: 'g1', name: '主线' }, { id: 'g2', name: '宠物' }]), true);
     assert.deepEqual(view.ui.getGroups(), [{ id: 'g1', name: '主线' }, { id: 'g2', name: '宠物' }]);
+});
+
+// ── 上锁（本机状态，只保护导入时不被替换）──────────────────
+
+const lockButton = (view, id) => view.cardOf(id).querySelector('[data-lwb-card-action="toggle-lock"]');
+const lockNote = (view, id) => view.cardOf(id).querySelector('.lwb-cl-lock-note');
+const lockedOf = (view, id) => view.ui.getLibrary().characters.find(item => item.id === id).locked;
+
+test('card lock toggle sits next to the enabled control, flips only that card without a redraw and keeps unsaved edits', () => {
+    const view = mount({ library: sampleLibrary() });
+    const row = view.cardOf('c2').querySelector('.btn-group');
+    assert.match(row.children[0].className, /character-enabled-control/);
+    assert.ok(row.children[1].querySelector('[data-lwb-card-action="menu"]'), '启用开关之后是“…”');
+    assert.ok(row.children[1].querySelector('[role="menu"]').contains(lockButton(view, 'c2')), '上锁收在“…”菜单里');
+
+    view.openMenu('c2');
+    const button = lockButton(view, 'c2');
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(button.classList.contains('active'), false);
+    assert.equal(button.getAttribute('title'), '上锁：导入时不会被替换');
+    assert.equal(button.querySelector('i').getAttribute('class'), 'fa-solid fa-lock-open');
+    assert.equal(button.textContent.trim(), '上锁');
+    assert.equal(lockNote(view, 'c2'), null);
+
+    view.type('c1', 'name', '改过的名字（未保存）');
+    const sameCard = view.cardOf('c2');
+    view.click(button);
+    assert.equal(view.cardOf('c2'), sameCard, '不重绘');
+    assert.equal(view.cardOf('c2').querySelector('[role="menu"]').hasAttribute('hidden'), true, '选中后菜单关闭');
+    assert.equal(lockButton(view, 'c2').textContent.trim(), '解锁', '已上锁时菜单项文字变成“解锁”');
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'true');
+    assert.equal(lockButton(view, 'c2').classList.contains('active'), true);
+    assert.equal(lockButton(view, 'c2').getAttribute('title'), '已上锁：导入时不会被替换（点击解锁）');
+    assert.equal(lockButton(view, 'c2').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.equal(lockNote(view, 'c2').textContent, '已上锁');
+    assert.equal(lockNote(view, 'c2').classList.contains('lwb-cl-lock-note-own'), true, '自己上锁的提示用主文字色');
+    assert.equal(lockedOf(view, 'c2'), true, '草稿（即保存通道）里带 locked:true');
+    assert.equal(view.ui.getCharacters().find(item => item.id === 'c2').locked, true);
+    assert.equal(lockedOf(view, 'c3'), undefined, '其他角色不受影响');
+    assert.equal(view.ui.getLibrary().characters.find(item => item.id === 'c1').name, '改过的名字（未保存）');
+
+    // 上锁不挡住其它操作：启用开关照常可点，重绘后锁仍在
+    const checkbox = view.cardOf('c2').querySelector('[data-character-enabled-control]');
+    checkbox.checked = false;
+    view.fire(checkbox, 'change');
+    view.ui.rerender();
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'true', '重绘后锁保留');
+    assert.equal(lockedOf(view, 'c2'), true);
+
+    // 再点一次解锁：不留 locked 键
+    view.openMenu('c2');
+    view.click(lockButton(view, 'c2'));
+    assert.equal(lockButton(view, 'c2').textContent.trim(), '上锁');
+    assert.equal(Object.hasOwn(view.ui.getLibrary().characters.find(item => item.id === 'c2'), 'locked'), false);
+    assert.equal(lockNote(view, 'c2'), null);
+    assert.equal(view.log.error.length, 0);
+});
+
+test('group lock toggle flips only the group, never a character, and unlocking drops the key', () => {
+    const view = mount({ library: sampleLibrary() });
+    const toggle = id => view.groupButton(id, 'toggle-lock');
+    assert.equal(toggle(''), null, '未分组没有锁');
+    assert.equal(toggle('g1').getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle('g1').getAttribute('title'), '上锁分组：组内角色导入时不会被替换');
+    assert.notEqual(toggle('g1').closest('.lwb-cl-group-actions'), null);
+
+    view.type('c2', 'name', '改过的名字（未保存）');
+    const charactersBefore = JSON.stringify(view.ui.getLibrary().characters.map(item => [item.id, item.enabled, item.locked]));
+    assert.equal(toggle('g1').textContent.trim(), '上锁');
+    view.openGroupMenu('g1');
+    view.click(toggle('g1'));
+    assert.equal(view.groupMenuOf('g1').hasAttribute('hidden'), true, '选中后菜单关闭');
+    assert.equal(toggle('g1').textContent.trim(), '解锁', '已上锁时菜单项文字变成“解锁”');
+    assert.equal(toggle('g1').getAttribute('aria-pressed'), 'true');
+    assert.equal(toggle('g1').classList.contains('active'), true);
+    assert.equal(toggle('g1').getAttribute('title'), '已上锁分组：组内角色导入时不会被替换（点击解锁）');
+    assert.equal(toggle('g1').querySelector('i').getAttribute('class'), 'fa-solid fa-lock');
+    assert.deepEqual(view.ui.getGroups().find(group => group.id === 'g1'), { id: 'g1', name: '主线', locked: true });
+    assert.equal(view.ui.getGroups().find(group => group.id === 'g2').locked, undefined);
+    assert.equal(JSON.stringify(view.ui.getLibrary().characters.map(item => [item.id, item.enabled, item.locked])), charactersBefore, '角色自己的状态一个都没变');
+    assert.equal(view.ui.getLibrary().characters.find(item => item.id === 'c2').name, '改过的名字（未保存）');
+
+    // 切换分组开关后锁仍在；再点一次解锁并清掉键
+    view.click(view.groupButton('g1', 'toggle-enabled'));
+    assert.equal(view.ui.getGroups().find(group => group.id === 'g1').locked, true);
+    view.openGroupMenu('g1');
+    view.click(toggle('g1'));
+    assert.deepEqual(view.ui.getGroups().find(group => group.id === 'g1'), { id: 'g1', name: '主线', enabled: false });
+    assert.equal(view.log.error.length, 0);
+});
+
+test('a character inside a locked group shows the group-lock hint but its own lock button stays unpressed', () => {
+    const library = sampleLibrary();
+    library.groups[0] = { ...library.groups[0], locked: true };
+    library.characters[2] = { ...library.characters[2], locked: true }; // c3：自己也上锁
+    const view = mount({ library });
+    assert.equal(view.groupButton('g1', 'toggle-lock').getAttribute('aria-pressed'), 'true', '锁着的分组头：按钮是激活的');
+
+    assert.equal(lockNote(view, 'c2').textContent, '分组已上锁');
+    assert.equal(lockNote(view, 'c2').classList.contains('lwb-cl-lock-note-own'), false, '仅分组上锁保持灰色');
+    assert.match(lockNote(view, 'c2').getAttribute('title'), /分组已上锁/);
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'false', '继承的锁不算角色自己的锁');
+    assert.equal(lockButton(view, 'c2').classList.contains('active'), false);
+    assert.match(lockButton(view, 'c2').getAttribute('title'), /上锁：导入时不会被替换.*所在分组已上锁/);
+    assert.equal(lockedOf(view, 'c2'), undefined, '继承的锁不会写进角色');
+
+    assert.equal(lockNote(view, 'c3').textContent, '已上锁', '自己上锁优先于分组上锁的提示');
+    assert.equal(lockNote(view, 'c3').classList.contains('lwb-cl-lock-note-own'), true);
+    assert.equal(lockButton(view, 'c3').getAttribute('aria-pressed'), 'true');
+    assert.equal(lockNote(view, 'c1'), null);
+    assert.equal(lockNote(view, 'c4'), null);
+
+    // 点继承锁的角色按钮：给角色自己上锁，分组的锁不动
+    view.click(lockButton(view, 'c2'));
+    assert.equal(lockedOf(view, 'c2'), true);
+    assert.equal(lockNote(view, 'c2').textContent, '已上锁');
+    assert.equal(view.ui.getGroups().find(group => group.id === 'g1').locked, true);
+});
+
+test('locks stay local: they survive redraws and group switch syncs but never reach a copy or the export file', () => {
+    const library = sampleLibrary();
+    library.characters[1] = { ...library.characters[1], locked: true };
+    library.groups[1] = { ...library.groups[1], locked: true };
+    const view = mount({ library });
+    assert.equal(lockedOf(view, 'c2'), true, '初始 locked 渲染到卡片上');
+    assert.equal(lockButton(view, 'c2').getAttribute('aria-pressed'), 'true');
+
+    view.ui.rerender();
+    assert.equal(lockedOf(view, 'c2'), true);
+    assert.equal(view.ui.syncGroupEnabled([{ id: 'g2', name: '宠物', enabled: false }], ['g2']), true);
+    assert.deepEqual(view.ui.getGroups().find(group => group.id === 'g2'), { id: 'g2', name: '宠物', enabled: false, locked: true }, '同步分组开关不丢分组锁');
+    assert.equal(lockedOf(view, 'c2'), true);
+
+    // 复制出来的副本不继承锁；导出文件不含 locked
+    view.openMenu('c2');
+    view.click(view.cardOf('c2').querySelector('[data-lwb-card-action="duplicate"]'));
+    const copy = view.ui.getLibrary().characters.find(item => item.name.includes('副本'));
+    assert.ok(copy);
+    assert.equal(Object.hasOwn(copy, 'locked'), false);
+    view.click(view.$('[data-role="select-toggle"]'));
+    view.select('c2', 'c4');
+    view.batch('export');
+    const file = view.log.downloads.at(-1).data;
+    assert.equal(JSON.stringify(file).includes('locked'), false);
+});
+
+test('the SD and ComfyUI pages use the shared lock UI and carry no lock code of their own', () => {
+    for (const file of ['../../providers/sd-webui/sd-draw.js', '../../providers/comfyui/comfy-draw.js']) {
+        const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+        assert.match(source, /from "\.\.\/\.\.\/shared\/character-library-ui\.js"/, file);
+        assert.doesNotMatch(source, /toggle-lock|characterLocked|setCharactersLocked|setGroupLocked/, file);
+    }
+    const shared = readFileSync(new URL('../character-library-ui.js', import.meta.url), 'utf8');
+    assert.match(shared, /setCharactersLocked/);
+    assert.match(shared, /setGroupLocked/);
+    assert.match(cssRule(UI_CSS, '.lwb-cl-lock-note'), /white-space:\s*nowrap/);
+    assert.match(cssRule(UI_CSS, '.lwb-cl-lock-note.lwb-cl-lock-note-own'), /color:\s*var\(--text-primary/);
+    assert.match(cssRule(UI_CSS, '.lwb-cl-card-lock.active'), /color:/);
+});
+
+// ── 角色卡“…”菜单 ─────────────────────────────────────────
+
+test('the card header keeps only the enabled control and the more-actions button; lock, duplicate and delete live in the menu', () => {
+    const view = mount({ library: sampleLibrary() });
+    const card = view.cardOf('c2');
+    const row = card.querySelector('.btn-group');
+    const menu = card.querySelector('[role="menu"]');
+    assert.equal(menu.hasAttribute('hidden'), true, '菜单默认收起');
+    const surface = Array.from(row.querySelectorAll('button, input')).filter(node => !menu.contains(node));
+    assert.deepEqual(surface.map(node => (node.hasAttribute('data-character-enabled-control') ? 'enabled' : node.getAttribute('data-lwb-card-action'))), ['enabled', 'menu']);
+
+    const more = view.menuButton('c2');
+    assert.equal(more.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(more.getAttribute('aria-expanded'), 'false');
+    assert.equal(more.getAttribute('title'), '更多操作');
+    assert.equal(more.getAttribute('aria-label'), '更多操作 芙蕾雅');
+    assert.equal(more.querySelector('i').getAttribute('class'), 'fa-solid fa-ellipsis');
+
+    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    assert.deepEqual(items.map(item => item.textContent.trim()), ['上锁', '复制人设', '删除']);
+    assert.deepEqual(items.map(item => item.getAttribute('data-lwb-card-action') || item.getAttribute('data-sd-char-delete') !== null), ['toggle-lock', 'duplicate', true]);
+    assert.ok(items.every(item => item.tagName === 'BUTTON'), '菜单项是可聚焦的按钮');
+    assert.ok(items.slice(0, 2).every(item => item.querySelector('i') && item.textContent.trim()), '图标加文字（删除按钮是宿主自己带图标的节点）');
+    assert.match(items[2].className, /lwb-cl-menu-danger/);
+
+    view.click(more);
+    assert.equal(menu.hasAttribute('hidden'), false);
+    assert.equal(more.getAttribute('aria-expanded'), 'true');
+    assert.equal(menu.style.position, 'fixed');
+    view.click(more);
+    assert.equal(menu.hasAttribute('hidden'), true, '再点“…”收起');
+    assert.equal(more.getAttribute('aria-expanded'), 'false');
+});
+
+test('only one card menu is open at a time; outside click, Esc and a redraw close it', () => {
+    const view = mount({ library: sampleLibrary() });
+    const first = view.openMenu('c1');
+    const second = view.openMenu('c2');
+    assert.equal(first.hasAttribute('hidden'), true, '打开另一张卡的菜单会关掉前一个');
+    assert.equal(second.hasAttribute('hidden'), false);
+    assert.equal(view.menuButton('c1').getAttribute('aria-expanded'), 'false');
+
+    view.click(view.document.body);
+    assert.equal(second.hasAttribute('hidden'), true, '点菜单外面关闭');
+
+    view.openMenu('c2');
+    const event = view.fire(view.document, 'keydown', { key: 'Escape' });
+    assert.equal(view.cardOf('c2').querySelector('[role="menu"]').hasAttribute('hidden'), true, 'Esc 关闭');
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(view.menuButton('c2').getAttribute('aria-expanded'), 'false');
+
+    const stale = view.openMenu('c4');
+    view.ui.rerender();
+    assert.equal(stale.isConnected, false, '重绘换掉了旧卡片');
+    assert.equal(view.cardOf('c4').querySelector('[role="menu"]').hasAttribute('hidden'), true, '重绘后不留打开的菜单');
+    assert.equal(view.cardOf('c4').querySelector('[data-lwb-card-action="menu"]').getAttribute('aria-expanded'), 'false');
+});
+
+test('choosing duplicate or delete from the menu runs the action; the delete item still reaches the host delegate', () => {
+    const view = mount({ library: sampleLibrary() });
+    const deleted = [];
+    view.$('#list').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-sd-char-delete]');
+        if (button) deleted.push(button.getAttribute('data-sd-char-delete'));
+    });
+    view.openMenu('c4');
+    view.click(view.cardOf('c4').querySelector('[data-sd-char-delete]'));
+    assert.deepEqual(deleted, ['c4']);
+    assert.equal(view.menuButton('c4').getAttribute('aria-expanded'), 'false', '选中删除后菜单关闭');
+
+    view.openMenu('c1');
+    view.click(view.cardOf('c1').querySelector('[data-lwb-card-action="duplicate"]'));
+    assert.equal(view.allIds().length, 5);
+    assert.equal(view.$$('[role="menu"]:not([hidden])').length, 0);
+});
+
+test('computeMenuPosition aligns to the button, flips upward near the bottom and clamps to the viewport', () => {
+    const viewport = { width: 400, height: 600 };
+    const menu = { width: 140, height: 120 };
+    const normal = computeMenuPosition({ top: 100, bottom: 134, left: 330, right: 364 }, menu, viewport);
+    assert.deepEqual([normal.left, normal.top, normal.flipped], [224, 138, false]);
+    const nearBottom = computeMenuPosition({ top: 540, bottom: 574, left: 330, right: 364 }, menu, viewport);
+    assert.equal(nearBottom.flipped, true);
+    assert.equal(nearBottom.top, 540 - 4 - 120);
+    const nearLeft = computeMenuPosition({ top: 100, bottom: 134, left: 0, right: 34 }, menu, viewport);
+    assert.equal(nearLeft.left, 8, '夹在视口左边内');
+    const tall = computeMenuPosition({ top: 100, bottom: 134, left: 330, right: 364 }, { width: 140, height: 900 }, viewport);
+    assert.equal(tall.maxHeight, 584);
+    assert.equal(tall.top, 8);
+});
+
+// ── 分组头“…”菜单 ─────────────────────────────────────────
+
+test('the group header surface keeps switch, add and rename; lock and delete live in the more-actions menu', () => {
+    const view = mount({ library: sampleLibrary() });
+    const actions = view.sectionOf('g1').querySelector('.lwb-cl-group-actions');
+    const menu = view.groupMenuOf('g1');
+    const surface = Array.from(actions.querySelectorAll('button')).filter(node => !menu.contains(node));
+    assert.deepEqual(surface.map(node => node.dataset.lwbGroupAction), ['toggle-enabled', 'add', 'rename', 'menu']);
+
+    const more = view.groupButton('g1', 'menu');
+    assert.equal(more.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(more.getAttribute('aria-expanded'), 'false');
+    assert.equal(more.getAttribute('title'), '更多操作');
+    assert.equal(more.getAttribute('aria-label'), '更多操作 主线');
+    assert.equal(menu.hasAttribute('hidden'), true);
+    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    assert.deepEqual(items.map(item => item.dataset.lwbGroupAction), ['toggle-lock', 'delete']);
+    assert.deepEqual(items.map(item => item.textContent.trim()), ['上锁', '删除分组']);
+    assert.match(items[1].className, /lwb-cl-menu-danger/);
+    assert.equal(view.groupButton('', 'menu'), null, '未分组没有“…”菜单');
+
+    view.click(more);
+    assert.equal(menu.hasAttribute('hidden'), false);
+    assert.equal(more.getAttribute('aria-expanded'), 'true');
+    assert.equal(menu.style.position, 'fixed');
+});
+
+test('group and card menus share the one-open-at-a-time rule; Esc, outside click and a redraw close the group menu', () => {
+    const view = mount({ library: sampleLibrary() });
+    const groupMenu = view.openGroupMenu('g1');
+    const cardMenu = view.openMenu('c4');
+    assert.equal(groupMenu.hasAttribute('hidden'), true, '打开卡片菜单会关掉分组菜单');
+    assert.equal(cardMenu.hasAttribute('hidden'), false);
+    view.openGroupMenu('g2');
+    assert.equal(view.cardOf('c4').querySelector('[role="menu"]').hasAttribute('hidden'), true, '反过来也一样');
+
+    view.click(view.document.body);
+    assert.equal(view.groupMenuOf('g2').hasAttribute('hidden'), true, '点菜单外面关闭');
+    view.openGroupMenu('g1');
+    const event = view.fire(view.document, 'keydown', { key: 'Escape' });
+    assert.equal(view.groupMenuOf('g1').hasAttribute('hidden'), true, 'Esc 关闭');
+    assert.equal(event.defaultPrevented, true);
+
+    view.openGroupMenu('g1');
+    view.ui.rerender();
+    assert.equal(view.groupMenuOf('g1').hasAttribute('hidden'), true, '重绘后不留打开的菜单');
+    assert.equal(view.groupButton('g1', 'menu').getAttribute('aria-expanded'), 'false');
+});
+
+test('choosing delete group from the menu runs the action and closes the menu', () => {
+    const view = mount({ library: sampleLibrary(), confirms: [true, false] });
+    const menu = view.openGroupMenu('g1');
+    view.click(view.groupButton('g1', 'delete'));
+    assert.equal(view.sectionOf('g1'), undefined);
+    assert.equal(menu.isConnected, false);
+    assert.equal(view.$$('[role="menu"]:not([hidden])').length, 0);
 });

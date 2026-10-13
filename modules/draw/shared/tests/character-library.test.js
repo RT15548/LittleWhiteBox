@@ -18,7 +18,9 @@ import {
     getGroupSummary,
     getGroupedView,
     isCharacterEffectivelyEnabled,
+    isCharacterLocked,
     isGroupEnabled,
+    isGroupLocked,
     moveCharacters,
     moveGroup,
     normalizeCharacter,
@@ -31,7 +33,9 @@ import {
     renameGroup,
     selectEnabledCharacters,
     setCharactersEnabled,
+    setCharactersLocked,
     setGroupEnabled,
+    setGroupLocked,
     shiftCharacter,
 } from '../character-library.js';
 
@@ -175,15 +179,15 @@ test('getGroupedView lists ungrouped first, then groups, members keep array orde
 
 test('getGroupSummary reports own enabled count, total and the group switch (no tri-state)', () => {
     const library = lib(
-        [char('1', 'A', { groupId: 'g1' }), char('2', 'B', { groupId: 'g1', enabled: false }),
+        [char('1', 'A', { groupId: 'g1' }), char('2', 'B', { groupId: 'g1', enabled: false, locked: false }),
             char('3', 'C', { groupId: 'g2' }), char('4', 'D')],
-        [{ id: 'g1', name: '1' }, { id: 'g2', name: '2', enabled: false }, { id: 'g3', name: '3' }],
+        [{ id: 'g1', name: '1' }, { id: 'g2', name: '2', enabled: false, locked: false }, { id: 'g3', name: '3' }],
     );
-    assert.deepEqual(getGroupSummary(library, 'g1'), { own: 1, total: 2, enabled: true });
-    assert.deepEqual(getGroupSummary(library, 'g2'), { own: 1, total: 1, enabled: false }, 'own ignores the group switch');
-    assert.deepEqual(getGroupSummary(library, 'g3'), { own: 0, total: 0, enabled: true });
-    assert.deepEqual(getGroupSummary(library, ''), { own: 1, total: 1, enabled: true });
-    assert.deepEqual(getGroupSummary(library, 'nope'), { own: 1, total: 1, enabled: true }, 'unknown group falls back to ungrouped');
+    assert.deepEqual(getGroupSummary(library, 'g1'), { own: 1, total: 2, enabled: true, locked: false });
+    assert.deepEqual(getGroupSummary(library, 'g2'), { own: 1, total: 1, enabled: false, locked: false }, 'own ignores the group switch');
+    assert.deepEqual(getGroupSummary(library, 'g3'), { own: 0, total: 0, enabled: true, locked: false });
+    assert.deepEqual(getGroupSummary(library, ''), { own: 1, total: 1, enabled: true, locked: false });
+    assert.deepEqual(getGroupSummary(library, 'nope'), { own: 1, total: 1, enabled: true, locked: false }, 'unknown group falls back to ungrouped');
     const view = getGroupedView(library);
     assert.deepEqual(view.map(g => [g.id, g.enabled, g.own, g.total]), [['', true, 1, 1], ['g1', true, 1, 2], ['g2', false, 1, 1], ['g3', true, 0, 0]]);
 });
@@ -982,4 +986,170 @@ test('keep-both copies avoid names added earlier in the same import and names al
     const plan = planCharacterImport(library, parsed, { mode: 'existing-group', groupId: '', sameIdPolicy: 'keep-both' }, { makeId: counterIds() });
     const names = plan.library.characters.map(character => character.name);
     assert.deepEqual(names, ['Hero', 'Hero', 'Hero 副本 2', 'Hero 副本', 'Hero 副本 3']);
+});
+
+// ───────────── 上锁 ─────────────
+
+function lockedLibrary() {
+    return lib(
+        [char('1', '锁角色', { appearance: 'old1', locked: true }),
+            char('2', '组内角色', { groupId: 'g1', appearance: 'old2' }),
+            char('3', '普通角色', { groupId: 'g2', appearance: 'old3' })],
+        [{ id: 'g1', name: '锁组', locked: true }, { id: 'g2', name: '普通组' }],
+    );
+}
+
+test('locked is kept only when it is exactly true, so old data stays byte-identical', () => {
+    assert.equal(Object.hasOwn(normalizeCharacter({ name: 'A' }), 'locked'), false);
+    assert.equal(Object.hasOwn(normalizeCharacter({ name: 'A', locked: 'yes' }), 'locked'), false);
+    assert.equal(Object.hasOwn(normalizeCharacter({ name: 'A', locked: false }), 'locked'), false);
+    assert.equal(normalizeCharacter({ name: 'A', locked: true }).locked, true);
+    const groups = normalizeCharacterGroups([
+        { id: 'a', name: '甲', enabled: false, locked: true },
+        { id: 'b', name: '乙', locked: 1 },
+        { id: 'c', name: '丙', locked: true },
+    ]);
+    assert.deepEqual(groups, [
+        { id: 'a', name: '甲', enabled: false, locked: true },
+        { id: 'b', name: '乙' },
+        { id: 'c', name: '丙', locked: true },
+    ]);
+    assert.deepEqual(Object.keys(groups[0]), ['id', 'name', 'enabled', 'locked']);
+});
+
+test('isGroupLocked and isCharacterLocked: own lock or group lock; ungrouped and unknown groups are never locked', () => {
+    const library = lockedLibrary();
+    assert.equal(isGroupLocked(library, 'g1'), true);
+    assert.equal(isGroupLocked(library, 'g2'), false);
+    assert.equal(isGroupLocked(library, ''), false);
+    assert.equal(isGroupLocked(library, 'nope'), false);
+    const [own, inGroup, plain] = library.characters;
+    assert.equal(isCharacterLocked(library, own), true);
+    assert.equal(isCharacterLocked(library, inGroup), true);
+    assert.equal(isCharacterLocked(library, plain), false);
+    assert.equal(isCharacterLocked(library, undefined), false);
+});
+
+test('setCharactersLocked toggles only the listed characters, no-ops keep the same object, unlock removes the key', () => {
+    const library = lib([char('1', 'A'), char('2', 'B', { locked: true }), char('3', 'C')]);
+    const next = setCharactersLocked(library, ['1', '2'], true);
+    assert.equal(next.characters[0].locked, true);
+    assert.equal(next.characters[1], library.characters[1], 'already locked: same reference');
+    assert.equal(next.characters[2], library.characters[2]);
+    const back = setCharactersLocked(next, ['1', '2'], false);
+    assert.equal(Object.hasOwn(back.characters[0], 'locked'), false);
+    assert.equal(Object.hasOwn(back.characters[1], 'locked'), false);
+    assert.deepEqual(back.characters, lib([char('1', 'A'), char('2', 'B'), char('3', 'C')]).characters);
+    assert.equal(setCharactersLocked(library, ['3'], false).characters[2], library.characters[2]);
+});
+
+test('setGroupLocked only touches the group lock; errors and no-op identity mirror setGroupEnabled', () => {
+    const library = lib([char('1', 'A', { groupId: 'g1' })], [{ id: 'g1', name: '甲', enabled: false }, { id: 'g2', name: '乙' }]);
+    const on = setGroupLocked(library, 'g1', true);
+    assert.deepEqual(on.groups, [{ id: 'g1', name: '甲', enabled: false, locked: true }, { id: 'g2', name: '乙' }]);
+    assert.equal(on.characters, library.characters);
+    const off = setGroupLocked(on, 'g1', false);
+    assert.deepEqual(off.groups, library.groups);
+    assert.equal(Object.hasOwn(off.groups[0], 'locked'), false);
+    assert.equal(setGroupLocked(library, 'g1', false), library);
+    assert.equal(setGroupLocked(on, 'g1', true), on);
+    assert.throws(() => setGroupLocked(library, '', true), TypeError);
+    assert.throws(() => setGroupLocked(library, 'nope', true), TypeError);
+    assert.throws(() => setGroupLocked(library, 'g1', 'yes'), TypeError);
+});
+
+test('group view and summary expose locked; the virtual ungrouped group is never locked', () => {
+    const view = getGroupedView(lockedLibrary());
+    assert.deepEqual(view.map(group => group.locked), [false, true, false]);
+    assert.equal(getGroupSummary(lockedLibrary(), 'g1').locked, true);
+    assert.equal(getGroupSummary(lockedLibrary(), 'g2').locked, false);
+    assert.equal(getGroupSummary(lockedLibrary(), '').locked, false);
+});
+
+test('duplicates are not locked, and the original keeps its lock', () => {
+    const library = lockedLibrary();
+    const { library: next, newIds } = duplicateCharacters(library, ['1'], { makeId: counterIds() });
+    const copy = next.characters.find(c => c.id === newIds[0]);
+    assert.equal(Object.hasOwn(copy, 'locked'), false);
+    assert.equal(next.characters.find(c => c.id === '1').locked, true);
+});
+
+test('export strips locked from characters and groups; import ignores locked in the file', () => {
+    const library = lockedLibrary();
+    const payload = exportCharacters(library, { scope: 'all' }, { now: 0 });
+    assert.equal(payload.characters.some(c => Object.hasOwn(c, 'locked')), false);
+    assert.equal(payload.groups.some(g => Object.hasOwn(g, 'locked')), false);
+    assert.equal(library.characters[0].locked, true, 'export does not mutate the library');
+    const parsed = parseCharacterImport({
+        type: CHARACTER_EXPORT_TYPE,
+        version: 4,
+        groups: [{ id: 'fg', name: '文件组', locked: true }],
+        characters: [char('x', 'X', { locked: true, groupId: 'fg' })],
+    });
+    assert.equal(Object.hasOwn(parsed.entries[0].character, 'locked'), false);
+    assert.equal(Object.hasOwn(parsed.groups[0], 'locked'), false);
+    const plan = planCharacterImport(lib([]), parsed, {}, { makeId: counterIds() });
+    assert.equal(plan.library.characters.some(c => Object.hasOwn(c, 'locked')), false);
+    assert.equal(plan.library.groups.some(g => Object.hasOwn(g, 'locked')), false);
+});
+
+test('auto import does not replace locked characters (own or via group) and reports them once', () => {
+    const library = lockedLibrary();
+    const parsed = parsedOf([
+        char('1', '新1', { appearance: 'new1' }),
+        char('2', '新2', { appearance: 'new2' }),
+        char('3', '新3', { appearance: 'new3' }),
+    ]);
+    const plan = planCharacterImport(library, parsed, { mode: 'auto' }, { makeId: counterIds() });
+    assert.deepEqual(plan.library.characters[0], library.characters[0]);
+    assert.deepEqual(plan.library.characters[1], library.characters[1]);
+    assert.equal(plan.library.characters[2].name, '新3');
+    assert.equal(plan.summary.lockedSkipped, 2);
+    assert.equal(plan.summary.replaced, 1);
+    assert.equal(plan.summary.skipped, 0, 'lock skips are counted separately');
+    assert.deepEqual(plan.details.map(d => d.action), ['locked', 'locked', 'replaced']);
+    const warnings = plan.warnings.filter(w => w.code === 'locked-skipped');
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].count, 2);
+    assert.deepEqual(warnings[0].names, ['锁角色', '组内角色']);
+    assert.equal(warnings[0].message, '2 个已上锁的角色未被替换');
+    assert.equal(planCharacterImport(library, parsedOf([char('9', 'N')]), {}, { makeId: counterIds() }).summary.lockedSkipped, 0);
+});
+
+test('locked characters are not moved into the target group when replacing into an existing group', () => {
+    const library = lockedLibrary();
+    const parsed = parsedOf([char('1', '新1'), char('3', '新3'), char('n', '新人')]);
+    const plan = planCharacterImport(library, parsed, { mode: 'existing-group', groupId: 'g1' }, { makeId: counterIds() });
+    const byId = Object.fromEntries(plan.library.characters.map(c => [c.id, c]));
+    assert.equal(Object.hasOwn(byId['1'], 'groupId'), false, 'locked character stays ungrouped');
+    assert.equal(byId['1'].name, '锁角色');
+    assert.equal(byId['3'].groupId, 'g1', 'unlocked character is replaced and moved');
+    assert.equal(byId.n.groupId, 'g1', 'new characters may enter a locked group');
+    assert.equal(plan.summary.lockedSkipped, 1);
+});
+
+test('replaceLocked replaces locked characters and keeps their lock', () => {
+    const library = lockedLibrary();
+    const parsed = parsedOf([char('1', '新1', { appearance: 'new1' }), char('2', '新2', { appearance: 'new2' })]);
+    const plan = planCharacterImport(library, parsed, { replaceLocked: true }, { makeId: counterIds() });
+    assert.equal(plan.summary.replaced, 2);
+    assert.equal(plan.summary.lockedSkipped, 0);
+    assert.equal(plan.warnings.some(w => w.code === 'locked-skipped'), false);
+    assert.equal(plan.library.characters[0].appearance, 'new1');
+    assert.equal(plan.library.characters[0].locked, true);
+    assert.equal(plan.library.characters[1].appearance, 'new2');
+    assert.equal(plan.library.groups[0].locked, true);
+});
+
+test('skip and keep-both policies are unaffected by locks', () => {
+    const library = lockedLibrary();
+    const parsed = parsedOf([char('1', '锁角色'), char('2', '组内角色')]);
+    const skip = planCharacterImport(library, parsed, { mode: 'existing-group', groupId: 'g2', sameIdPolicy: 'skip' }, { makeId: counterIds() });
+    assert.equal(skip.summary.skipped, 2);
+    assert.equal(skip.summary.lockedSkipped, 0);
+    const both = planCharacterImport(library, parsed, { mode: 'existing-group', groupId: 'g2', sameIdPolicy: 'keep-both' }, { makeId: counterIds() });
+    assert.equal(both.summary.keptBoth, 2);
+    assert.equal(both.summary.lockedSkipped, 0);
+    assert.equal(both.library.characters.some(c => c.locked === true && c.id !== '1'), false, 'copies are not locked');
+    assert.equal(both.library.characters.length, 5);
 });

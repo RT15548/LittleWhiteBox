@@ -686,3 +686,34 @@ test('导入预览里的“已启用”和 500 警告按有效启用计：已关
     assert.match(open.q('total').textContent, /已启用 602 个/);
     assert.equal(open.q('limit-warning').hasAttribute('hidden'), false);
 });
+
+test('“同时替换已上锁的角色”默认不勾选；已上锁未替换的角色显示芯片，勾选后随选项重算', () => {
+    const library = {
+        groups: [{ id: 'g1', name: '主线' }],
+        characters: [char('c1', '阿璃', { locked: true }), char('c2', '芙蕾雅', { groupId: 'g1' })],
+    };
+    const parsed = fileOf([char('c1', '阿璃', { appearance: 'new' }), char('c2', '芙蕾雅', { appearance: 'new' })]);
+    const ui = mount({ library, parsed });
+    assert.ok(!ui.q('replace-locked').checked);
+    assert.equal(ui.summaryText('lockedSkipped'), '已上锁未替换 1');
+    assert.equal(ui.summaryText('replaced'), '替换 1');
+    assert.equal(ui.q('confirm').disabled, false);
+
+    const box = ui.q('replace-locked');
+    box.checked = true;
+    ui.fire(box, 'change');
+    assert.equal(ui.summaryText('lockedSkipped'), null);
+    assert.equal(ui.summaryText('replaced'), '替换 2');
+    ui.q('confirm').click();
+    assert.equal(ui.calls.confirm[0].options.replaceLocked, true);
+    assert.equal(ui.calls.confirm[0].plan.library.characters[0].appearance, 'new');
+});
+
+test('全部因上锁被跳过时禁用导入，并在提示里说明可勾选替换已上锁的角色', () => {
+    const library = { groups: [], characters: [char('c1', '阿璃', { locked: true })] };
+    const ui = mount({ library, parsed: fileOf([char('c1', '阿璃', { appearance: 'new' })]) });
+    assert.equal(ui.q('confirm').disabled, true);
+    assert.match(ui.q('error').textContent, /全部被跳过或已上锁/);
+    assert.match(ui.q('error').textContent, /同时替换已上锁的角色/);
+    assert.equal(ui.q('error').hasAttribute('hidden'), false);
+});

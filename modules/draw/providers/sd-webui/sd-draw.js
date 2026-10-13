@@ -33,6 +33,7 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
+import { normalizeMaxImagesOverride, resolveEffectiveMaxImages } from "../../shared/max-images-override.js";
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
@@ -54,6 +55,13 @@ import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
+import { createApiPresetBar } from "../../shared/api-presets-ui.js";
+import {
+    findApiPreset,
+    normalizeApiPresetState,
+    pickApiConfig,
+    syncActiveApiPreset,
+} from "../../shared/api-presets.js";
 import {
     applyGroupPresetForCurrentChat,
     getActiveCharacterAvatars,
@@ -127,8 +135,11 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     timeout: 120000,
     transport: 'st-proxy',
     useImageBackendJobs: false,
+    apiPresets: [],
+    activeApiPresetId: null,
     mode: 'manual',
     overrideSize: 'default',
+    overrideMaxImages: null,
     showFloorButton: true,
     showFloatingButton: true,
     selectedPresetId: 'default',
@@ -173,6 +184,7 @@ let eventsBound = false;
 let agentSettingsSurface = null;
 let characterLibraryUi = null;
 let groupPresetBinding = null;
+let apiPresetBar = null;
 let promptChainPreviewFrame = 0;
 let ensureSdDrawPanelRef = null;
 let destroySdDrawPanelsRef = null;
@@ -250,6 +262,25 @@ function cloneSettingsObject(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
+// API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
+const SD_API_PRESET_FIELDS = Object.freeze(['host', 'auth', 'timeout', 'useImageBackendJobs']);
+
+function normalizeSdApiConfig(raw = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+        host: String(source.host || '').trim(),
+        auth: String(source.auth || '').trim(),
+        timeout: normalizeNumber(source.timeout, DEFAULT_SD_DRAW_SETTINGS.timeout, 10000, 600000),
+        useImageBackendJobs: source.useImageBackendJobs === true,
+    };
+}
+
+const SD_API_PRESET_OPTIONS = Object.freeze({ fields: SD_API_PRESET_FIELDS, normalizeConfig: normalizeSdApiConfig });
+
+function getEffectiveSdApiConfig(settings = getSettings()) {
+    return pickApiConfig(normalizeSdApiConfig(settings), SD_API_PRESET_FIELDS);
+}
+
 function normalizeSettings(raw = {}) {
     const presets = normalizePresets(raw.presets, raw);
     const selectedPresetId = presets.some(p => p.id === raw.selectedPresetId)
@@ -260,8 +291,10 @@ function normalizeSettings(raw = {}) {
         auth: String(raw.auth || ''),
         transport: 'st-proxy',
         useImageBackendJobs: raw.useImageBackendJobs === true,
+        ...normalizeApiPresetState(raw, SD_API_PRESET_OPTIONS),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
+        overrideMaxImages: normalizeMaxImagesOverride(raw.overrideMaxImages),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
         timeout: normalizeNumber(raw.timeout, DEFAULT_SD_DRAW_SETTINGS.timeout, 10000, 600000),
@@ -1002,8 +1035,20 @@ function bindOverlayEvents() {
         } catch {}
     });
     querySettings('#sd-draw-save')?.addEventListener('click', async (event) => {
-        const ok = await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'sd-draw-api-status' });
+        const ok = await saveAllSettings({
+            notify: true,
+            triggerButton: event.currentTarget,
+            statusElementId: 'sd-draw-api-status',
+            syncApiPreset: true,
+        });
         if (ok) fillForm(getSettings());
+    });
+    // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
+    ['input', 'change', 'click'].forEach((type) => {
+        querySettings('[data-sd-view-panel="api"]')?.addEventListener(type, (event) => {
+            if (event.target?.closest?.('#sd-api-presets')) return;
+            apiPresetBar?.refresh();
+        });
     });
     querySettings('#sd-draw-test')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
@@ -1357,6 +1402,7 @@ function fillForm(settings) {
     setValue('sd-draw-timeout', settings.timeout);
     setChecked('sd-use-image-backend-jobs', settings.useImageBackendJobs === true);
     getSettingsElement('sd-backend-guide').classList.toggle('hidden', settings.useImageBackendJobs !== true);
+    ensureApiPresetBar();
     setValue('sd-draw-steps', preset.steps ?? '');
     setValue('sd-draw-cfg', preset.cfg_scale ?? '');
     setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) ? preset.seed : -1);
@@ -1489,6 +1535,81 @@ function updateHiresOptionsVisibility() {
     const row = getSettingsElement('sd-draw-hires-options');
     if (!row) return;
     row.classList.toggle('hidden', !getChecked('sd-draw-hires-enabled'));
+}
+
+// ───────────── API 配置预设 ─────────────
+// 预设栏组件在 shared/api-presets-ui.js；这里提供表单读写与落盘。预设里含认证信息，仅存本地，不写日志 / 提示。
+
+/** 表单里现在的 API 配置（与 readForm 里的同名字段一致）。 */
+function readSdApiConfigFromForm() {
+    return normalizeSdApiConfig({
+        host: getValue('sd-draw-host'),
+        auth: getValue('sd-draw-auth'),
+        timeout: normalizeNumber(getValue('sd-draw-timeout'), getSettings().timeout, 10000, 600000),
+        useImageBackendJobs: getChecked('sd-use-image-backend-jobs'),
+    });
+}
+
+/** 只把 API 配置字段填进表单（不动绘图参数等其它未保存的修改）。 */
+function fillSdApiConfigForm(config) {
+    const next = normalizeSdApiConfig(config);
+    setValue('sd-draw-host', next.host);
+    setValue('sd-draw-auth', next.auth);
+    setValue('sd-draw-timeout', next.timeout);
+    setChecked('sd-use-image-backend-jobs', next.useImageBackendJobs);
+    getSettingsElement('sd-backend-guide')?.classList.toggle('hidden', !next.useImageBackendJobs);
+}
+
+async function commitSdApiPresets(change) {
+    const incoming = normalizeApiPresetState(
+        { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
+        SD_API_PRESET_OPTIONS,
+    );
+    const applied = change.config ? normalizeSdApiConfig(change.config) : null;
+    const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        draft.apiPresets = incoming.apiPresets;
+        draft.activeApiPresetId = incoming.activeApiPresetId;
+        if (applied) Object.assign(draft, applied);
+    }, 'API 预设已保存', { notify: false, silent: false }));
+    if (ok && change.reason === 'select') fillSdApiConfigForm(getEffectiveSdApiConfig());
+    return ok;
+}
+
+function ensureApiPresetBar() {
+    const doc = getSettingsDocument();
+    const container = querySettings('#sd-api-presets');
+    if (!doc || !container) return null;
+    if (apiPresetBar?.document === doc) {
+        apiPresetBar.render();
+        return apiPresetBar;
+    }
+    apiPresetBar?.destroy();
+    apiPresetBar = createApiPresetBar({
+        document: doc,
+        container,
+        fields: SD_API_PRESET_FIELDS,
+        defaults: normalizeSdApiConfig({}),
+        getState: () => {
+            const { apiPresets, activeApiPresetId } = getSettings();
+            return { apiPresets, activeApiPresetId };
+        },
+        readConfig: readSdApiConfigFromForm,
+        getEffectiveConfig: () => getEffectiveSdApiConfig(),
+        onCommit: commitSdApiPresets,
+        confirm: message => confirm(message),
+        prompt: (message, fallback) => prompt(message, fallback),
+    });
+    return apiPresetBar;
+}
+
+/** “保存”按钮：选中了 API 预设时，把这次保存的 API 配置同步回该预设。 */
+function withSyncedApiPreset(form) {
+    const active = findApiPreset(form.apiPresets, form.activeApiPresetId);
+    if (!active) return form;
+    return {
+        ...form,
+        apiPresets: syncActiveApiPreset(form.apiPresets, active.id, normalizeSdApiConfig(form), SD_API_PRESET_OPTIONS),
+    };
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -2408,10 +2529,16 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
     }, '共享规划设置已保存', { notify, silent: false });
 }
 
-async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '', syncApiPreset = false } = {}) {
+    const syncedPresetName = syncApiPreset
+        ? findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || ''
+        : '';
+    const savedText = syncedPresetName
+        ? `已保存，并同步到 API 预设「${syncedPresetName}」`
+        : '已保存到小白X服务端配置';
     const saveTask = async () => {
         const [sdOk, sharedOk] = await Promise.all([
-            persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: false }),
+            persistSettings(syncApiPreset ? withSyncedApiPreset(readForm()) : readForm(), 'SD WebUI 设置已保存', { notify: false, silent: false }),
             saveSharedDrawSettings({ notify: false }),
         ]);
         return sdOk && sharedOk;
@@ -2424,13 +2551,14 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
             fp.updateAutoModeUI?.();
         } catch {}
+        apiPresetBar?.render();
     };
 
     if (triggerButton) {
         const ok = await runSaveButtonTask(triggerButton, saveTask, {
             statusElementId,
             pendingText: '正在保存...',
-            successText: '已保存到小白X服务端配置',
+            successText: savedText,
             errorText: '保存失败，请重试',
             notify,
         });
@@ -2453,7 +2581,7 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
         updateStatusText(
             statusElementId,
             ok ? 'success' : 'error',
-            ok ? '已保存到小白X服务端配置' : '保存失败，请重试',
+            ok ? savedText : '保存失败，请重试',
         );
     }
 
@@ -2638,6 +2766,8 @@ function hideSettings() {
     abortPendingRequest();
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
+    apiPresetBar?.destroy();
+    apiPresetBar = null;
     destroyCharacterLibraryUi();
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
     promptChainPreviewFrame = 0;
@@ -2989,7 +3119,8 @@ async function buildSdScenePlannerOptions({
             customPrompts: promptPreset,
             promptDefaults: DEFAULT_PROMPT_CONFIG,
             worldbookEntries,
-            maxImages: preset.maxImages || 0,
+            // 悬浮菜单“数目”覆盖优先于参数预设；覆盖为空时沿用预设（0 = 不指定）。
+            maxImages: resolveEffectiveMaxImages(sdSettings, preset),
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             plannerProfile: SD_PLANNER_PROFILE,
             plannerRetry: { maxRetries: sharedDrawSettings.plannerMaxRetries },
