@@ -2302,7 +2302,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 64728
+      "sizeBytes": 65134
     },
     {
       "source": "littlewhitebox",
@@ -2891,6 +2891,13 @@
       "relativePath": "modules/draw/shared/tests/draw-work-cancellation.test.js",
       "extension": ".js",
       "sizeBytes": 7856
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/fixtures/gallery-browser-check.mjs",
+      "relativePath": "modules/draw/shared/tests/fixtures/gallery-browser-check.mjs",
+      "extension": ".mjs",
+      "sizeBytes": 8014
     },
     {
       "source": "littlewhitebox",
