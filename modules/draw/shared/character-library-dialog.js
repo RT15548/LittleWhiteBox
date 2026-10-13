@@ -102,6 +102,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         newGroupName: defaultGroupNameFromFileName(fileName),
         policy: 'replace',
         importNewAsDisabled: false,
+        replaceLocked: false,
         plan: null,
         error: '',
         closed: false,
@@ -206,6 +207,16 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     disabledField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: '已有角色的替换不受影响。' }));
     body.appendChild(disabledField);
 
+    // 同时替换已上锁的角色
+    const lockedField = create(document, 'div', { className: 'lwb-cid-field' });
+    const lockedBox = create(document, 'input', { attrs: { type: 'checkbox', 'data-role': 'replace-locked' } });
+    lockedField.appendChild(create(document, 'label', { className: 'lwb-cid-choice' }, [
+        lockedBox,
+        create(document, 'span', { text: '同时替换已上锁的角色' }),
+    ]));
+    lockedField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: '默认不替换上锁的角色（含上锁分组里的角色）。' }));
+    body.appendChild(lockedField);
+
     // 预览
     const preview = create(document, 'div', { className: 'lwb-cid-preview', attrs: { 'data-role': 'preview', 'aria-live': 'polite' } });
     const errorBox = create(document, 'p', { className: 'lwb-cid-alert', attrs: { role: 'alert', 'data-role': 'error' } });
@@ -233,6 +244,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         newGroupName: state.newGroupName,
         sameIdPolicy: state.policy,
         importNewAsDisabled: state.importNewAsDisabled,
+        replaceLocked: state.replaceLocked,
     });
 
     const computePlan = () => {
@@ -294,6 +306,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         addChip('added', `新增 ${summary.added}`);
         addChip('replaced', `替换 ${summary.replaced}`);
         addChip('skipped', `跳过 ${summary.skipped}`);
+        if (summary.lockedSkipped) addChip('lockedSkipped', `已上锁未替换 ${summary.lockedSkipped}`);
         if (summary.keptBoth) addChip('keptBoth', `保留两者 ${summary.keptBoth}`);
         if (summary.groupsCreated) addChip('groupsCreated', `新建分组 ${summary.groupsCreated}`);
         setShown(chips, true);
@@ -317,7 +330,9 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         // 没有任何会写入的内容时不允许点“导入”
         const changes = summary.added + summary.replaced + summary.keptBoth;
         if (changes === 0) {
-            errorBox.textContent = '没有可导入的角色（全部被跳过或文件为空）';
+            errorBox.textContent = summary.lockedSkipped
+                ? '没有可导入的角色（全部被跳过或已上锁；可勾选“同时替换已上锁的角色”）'
+                : '没有可导入的角色（全部被跳过或文件为空）';
             setShown(errorBox, true);
         }
         confirmBtn.disabled = changes === 0;
@@ -347,6 +362,11 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     });
     disabledBox.addEventListener('change', () => {
         state.importNewAsDisabled = Boolean(disabledBox.checked);
+        refresh();
+    });
+
+    lockedBox.addEventListener('change', () => {
+        state.replaceLocked = Boolean(lockedBox.checked);
         refresh();
     });
 
