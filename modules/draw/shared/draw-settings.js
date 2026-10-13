@@ -2,6 +2,7 @@
 import { normalizeGroupPresetState } from './character-group-presets.js';
 import { normalizeCharacterLibrary } from './character-library.js';
 import { normalizePlannerRetry } from './planner-retry.js';
+import { API_PRESET_COPY } from './api-presets-copy.js';
 
 const SERVER_FILE_KEY = 'settings';
 export const DEFAULT_SHARED_GALLERY_CACHE_DAYS = 3;
@@ -158,6 +159,22 @@ export function getSharedDrawSettings() {
     return settingsCache;
 }
 
+// 同一存储文件的跨所有者更新也只上传一次，存储确认后才发布共享运行时视图。
+export async function updateDrawSettingsRootPersistent(mutator, { silent = true } = {}) {
+    if (!settingsLoaded || !settingsCache) {
+        throw Object.assign(new Error(API_PRESET_COPY.notLoaded), { code: 'DRAW_SETTINGS_NOT_LOADED' });
+    }
+    const storage = await getStorage();
+    let committed;
+    const ok = await storage.updateAndSave(async (storageRoot) => {
+        committed = await mutator(storageRoot[SERVER_FILE_KEY] || {});
+        storageRoot[SERVER_FILE_KEY] = committed;
+    }, { silent });
+    if (ok === false) return null;
+    settingsCache = normalizeSharedDrawSettings(committed);
+    return committed;
+}
+
 export async function updateSharedDrawSettingsPersistent(mutator, okText = '已保存', options = {}) {
     const { notify = false, silent = true } = options;
     if (!settingsLoaded || !settingsCache) {
@@ -165,32 +182,25 @@ export async function updateSharedDrawSettingsPersistent(mutator, okText = '已�
         if (window.toastr) toastr.error('共享画图配置尚未成功加载，已禁止保存');
         return false;
     }
-    const previous = cloneSettingsObject(settingsCache);
-
     try {
-        const storage = await getStorage();
-        const ok = await storage.updateAndSave(async (storageRoot) => {
-            const saved = storageRoot[SERVER_FILE_KEY];
-            const current = normalizeSharedDrawSettings(saved || settingsCache);
+        const committed = await updateDrawSettingsRootPersistent(async (saved) => {
+            const current = normalizeSharedDrawSettings(saved);
             const draft = cloneSettingsObject(current);
             if (typeof mutator === 'function') {
                 await mutator(draft);
             }
             const next = normalizeSharedDrawSettings(draft);
             next.updatedAt = Date.now();
-            settingsCache = next;
-            storageRoot[SERVER_FILE_KEY] = mergeSharedDrawSettingsIntoStorageRoot(saved, next);
+            return mergeSharedDrawSettingsIntoStorageRoot(saved, next);
         }, { silent });
-        if (ok !== false) {
+        if (committed) {
             if (notify && window.toastr) toastr.success(okText);
             return true;
         }
         if (notify && window.toastr) toastr.error('保存失败');
-        settingsCache = previous;
         return false;
     } catch (error) {
         console.error('[DrawSettings] 保存共享画图设置失败:', error);
-        settingsCache = previous;
         if (notify && window.toastr) toastr.error(`保存失败：${error?.message || '网络异常'}`);
         return false;
     }

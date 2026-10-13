@@ -64,10 +64,9 @@ import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../.
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetBar } from "../../shared/api-presets-ui.js";
+import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import {
-    findApiPreset,
     normalizeApiPresetState,
-    pickApiConfig,
     syncActiveApiPreset,
 } from "../../shared/api-presets.js";
 import {
@@ -383,7 +382,7 @@ function normalizePresets(rawPresets, rawSettings = {}) {
 }
 
 // API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
-const COMFY_API_PRESET_FIELDS = Object.freeze(['connectionMode', 'host', 'auth', 'timeout', 'useImageBackendJobs']);
+const COMFY_API_PRESET_FIELDS = Object.freeze(Object.keys(normalizeComfyApiConfig()));
 
 function normalizeComfyApiConfig(raw = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
@@ -399,7 +398,7 @@ function normalizeComfyApiConfig(raw = {}) {
 const COMFY_API_PRESET_OPTIONS = Object.freeze({ fields: COMFY_API_PRESET_FIELDS, normalizeConfig: normalizeComfyApiConfig });
 
 function getEffectiveComfyApiConfig(settings = getSettings()) {
-    return pickApiConfig(normalizeComfyApiConfig(settings), COMFY_API_PRESET_FIELDS);
+    return normalizeComfyApiConfig(settings);
 }
 
 function normalizeSettings(raw = {}) {
@@ -416,15 +415,11 @@ function normalizeSettings(raw = {}) {
         : DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
     const activeWorkflowPreset = workflowPresets.find((item) => item.id === selectedWorkflowPresetId) || workflowPresets[0] || createDefaultWorkflowPreset();
     const merged = {
-        host: String(raw.host || ''),
+        ...normalizeComfyApiConfig(raw),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
-        connectionMode: raw.connectionMode === 'direct' ? 'direct' : 'proxy',
-        auth: String(raw.auth ?? ''),
-        timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
-        useImageBackendJobs: raw.useImageBackendJobs === true,
         ...normalizeApiPresetState(raw, COMFY_API_PRESET_OPTIONS),
         selectedPresetId,
         selectedWorkflowPresetId,
@@ -573,18 +568,19 @@ export function getGenerationSnapshot() {
     };
 }
 
-async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
+let settingsUpdateQueue = Promise.resolve();
+
+async function persistSettingsNow(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     if (!settingsLoaded) {
         console.error('[ComfyDraw] 设置尚未成功加载，拒绝保存');
         if (notify) toastr.error('配置尚未成功加载，已禁止保存', 'ComfyUI');
         return false;
     }
     const next = normalizeSettings(nextSettings);
-    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
     try {
-        settingsCache = next;
         const ok = await ComfyDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
+            settingsCache = next;
             if (notify) {
                 toastr.success(okText, 'ComfyUI');
             }
@@ -593,10 +589,8 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
         if (notify) {
             toastr.error('保存失败', 'ComfyUI');
         }
-        settingsCache = previous;
         return false;
     } catch (error) {
-        settingsCache = previous;
         if (notify) {
             toastr.error(error?.message || '保存失败', 'ComfyUI');
         }
@@ -604,12 +598,22 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
     }
 }
 
-export async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
-    const draft = cloneSettingsObject(getSettings());
-    if (typeof mutator === 'function') {
-        await mutator(draft);
-    }
-    return await persistSettings(draft, okText, options);
+function enqueueSettingsUpdate(update) {
+    const result = settingsUpdateQueue.then(update, update);
+    settingsUpdateQueue = result.catch(() => {});
+    return result;
+}
+
+function persistSettings(nextSettings, okText = '已保存', options = {}) {
+    return enqueueSettingsUpdate(() => persistSettingsNow(nextSettings, okText, options));
+}
+
+export function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    return enqueueSettingsUpdate(async () => {
+        const draft = cloneSettingsObject(getSettings());
+        if (typeof mutator === 'function') await mutator(draft);
+        return persistSettingsNow(draft, okText, options);
+    });
 }
 
 function getActivePreset(settings = getSettings()) {
@@ -1498,19 +1502,14 @@ function bindOverlayEvents() {
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         } catch {}
     });
-    querySettings('#comfy-draw-save')?.addEventListener('click', async (event) => {
-        const syncedPresetName = findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || '';
-        const ok = await saveAllSettings({
-            notify: true,
-            triggerButton: event.currentTarget,
-            statusElementId: 'comfy-draw-api-status',
-            syncApiPreset: true,
+    querySettings('#comfy-draw-save')?.addEventListener('click', async () => {
+        const bar = ensureApiPresetBar();
+        await bar.runSave(() => {
+            const { apiPresets, activeApiPresetId } = getSettings();
+            const config = readComfyApiConfigFromForm();
+            return commitComfyApiPresets({ reason: 'save', activeApiPresetId, config,
+                apiPresets: syncActiveApiPreset(apiPresets, activeApiPresetId, config, COMFY_API_PRESET_OPTIONS) });
         });
-        if (ok) {
-            fillForm(getSettings());
-            // fillForm 会把状态行重置成连接方式说明：同步到预设时把这条提示补回去。
-            if (syncedPresetName) updateStatusText('comfy-draw-api-status', 'success', `已保存，并同步到 API 预设「${syncedPresetName}」`);
-        }
     });
     // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
     ['input', 'change', 'click'].forEach((type) => {
@@ -1526,11 +1525,11 @@ function bindOverlayEvents() {
         updateConnectionModeUI(getValue('comfy-connection-mode'));
     });
     querySettings('#comfy-draw-test')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await testConnection();
     });
     querySettings('#comfy-draw-test-generate')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await testGenerateFromSettingsPanel();
     });
     querySettings('#comfy-draw-size-preset')?.addEventListener('change', () => {
@@ -2331,6 +2330,7 @@ function fillComfyApiConfigForm(config) {
 }
 
 async function commitComfyApiPresets(change) {
+    const doc = getSettingsDocument();
     const incoming = normalizeApiPresetState(
         { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
         COMFY_API_PRESET_OPTIONS,
@@ -2340,8 +2340,8 @@ async function commitComfyApiPresets(change) {
         draft.apiPresets = incoming.apiPresets;
         draft.activeApiPresetId = incoming.activeApiPresetId;
         if (applied) Object.assign(draft, applied);
-    }, 'API 预设已保存', { notify: false, silent: false }));
-    if (ok && change.reason === 'select') fillComfyApiConfigForm(getEffectiveComfyApiConfig());
+    }, API_PRESET_COPY.saved, { notify: false, silent: false }));
+    if (ok && applied && getSettingsDocument() === doc) fillComfyApiConfigForm(getEffectiveComfyApiConfig());
     return ok;
 }
 
@@ -2358,6 +2358,7 @@ function ensureApiPresetBar() {
         document: doc,
         container,
         fields: COMFY_API_PRESET_FIELDS,
+        form: querySettings('#comfy-api-form'),
         defaults: normalizeComfyApiConfig({}),
         getState: () => {
             const { apiPresets, activeApiPresetId } = getSettings();
@@ -2370,16 +2371,6 @@ function ensureApiPresetBar() {
         prompt: (message, fallback) => prompt(message, fallback),
     });
     return apiPresetBar;
-}
-
-/** “保存”按钮：选中了 API 预设时，把这次保存的 API 配置同步回该预设。 */
-function withSyncedApiPreset(form) {
-    const active = findApiPreset(form.apiPresets, form.activeApiPresetId);
-    if (!active) return form;
-    return {
-        ...form,
-        apiPresets: syncActiveApiPreset(form.apiPresets, active.id, normalizeComfyApiConfig(form), COMFY_API_PRESET_OPTIONS),
-    };
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -3461,16 +3452,17 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
     }, '共享规划设置已保存', { notify, silent: false });
 }
 
-async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '', syncApiPreset = false } = {}) {
-    const syncedPresetName = syncApiPreset
-        ? findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || ''
-        : '';
-    const savedText = syncedPresetName
-        ? `已保存，并同步到 API 预设「${syncedPresetName}」`
-        : '已保存到小白X服务端配置';
+async function saveAllSettings(options = {}) {
+    const bar = ensureApiPresetBar();
+    if (!bar) return false;
+    return bar.runSave(() => persistAllSettings(options));
+}
+
+async function persistAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+    const savedText = API_PRESET_COPY.saved;
     const saveTask = async () => {
         const [comfyOk, sharedOk] = await Promise.all([
-            persistSettings(syncApiPreset ? withSyncedApiPreset(readForm()) : readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
+            persistSettings(readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
             saveSharedDrawSettings({ notify: false }),
         ]);
         return comfyOk && sharedOk;
@@ -3627,6 +3619,7 @@ function populateSelect(id, options, { value, emptyLabel = '' } = {}) {
 export async function openSettings() {
     try {
         await loadSettings();
+        await settingsUpdateQueue;
         await loadSharedDrawSettings();
     } catch {
         return false;

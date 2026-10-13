@@ -1,15 +1,22 @@
 // 画图 API 配置预设：保存多套 API 设置并随时切换的纯函数（NovelAI / SD WebUI / ComfyUI 共用）。
-// 零依赖：不得 import 任何模块，NovelAI 设置页在 iframe 里会动态 import 本文件（经 api-presets-ui.js）。
+// 不依赖宿主；NovelAI iframe 与两个宿主 Provider 共用。
 // 预设数组元素：{ id, name, config: { ...API 配置字段 } }。三个 Provider 的 API 字段各不相同，
 // 字段白名单（fields）由调用方传入，config 里不在白名单内的键一律丢弃；本模块不认识任何具体字段名。
 // config 里可能含 API Key / 认证信息：本模块的错误信息、返回值都不带 config 内容，调用方也不得把它写进日志、提示或导出文件。
 // 所有函数返回新对象，不修改入参；没有实际变化时返回原引用（便于调用方判断“有没有改动”）。
-// 数据只存在各 Provider 自己的本地设置文件里，不进入角色库导入导出，也不参与任何云端同步。
+// 数据存入各 Provider 的酒馆设置文件，不进入角色库导入导出。
+import { API_PRESET_COPY } from './api-presets-copy.js';
 
 export const MAX_API_PRESETS = 30;
 export const MAX_API_PRESET_NAME_LENGTH = 40;
 
-const FALLBACK_PRESET_NAME = '未命名预设';
+export class ApiPresetError extends Error {
+    constructor(code, message) {
+        super(message);
+        this.name = 'ApiPresetError';
+        this.code = code;
+    }
+}
 
 function isPlainObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -122,7 +129,7 @@ export function normalizeApiPresets(raw, { fields, normalizeConfig, makeId } = {
         const config = typeof normalizeConfig === 'function'
             ? pickApiConfig(normalizeConfig(picked), fields)
             : picked;
-        presets.push({ id, name: takeUniqueName(rawName || FALLBACK_PRESET_NAME, usedNames), config });
+        presets.push({ id, name: takeUniqueName(rawName || API_PRESET_COPY.unnamed, usedNames), config });
     }
     return presets;
 }
@@ -153,25 +160,25 @@ export function findApiPreset(presets, presetId) {
 
 function validateName(presets, name, exceptId = '') {
     const trimmed = String(typeof name === 'string' ? name : '').trim();
-    if (!trimmed) throw new TypeError('预设名称不能为空');
+    if (!trimmed) throw new ApiPresetError('EMPTY_NAME', API_PRESET_COPY.emptyName);
     if (Array.from(trimmed).length > MAX_API_PRESET_NAME_LENGTH) {
-        throw new TypeError(`预设名称不能超过 ${MAX_API_PRESET_NAME_LENGTH} 个字符`);
+        throw new ApiPresetError('NAME_TOO_LONG', API_PRESET_COPY.nameTooLong(MAX_API_PRESET_NAME_LENGTH));
     }
     if (presets.some(preset => preset.id !== exceptId && lowerKey(preset.name) === lowerKey(trimmed))) {
-        throw new TypeError(`预设“${trimmed}”已存在`);
+        throw new ApiPresetError('DUPLICATE_NAME', API_PRESET_COPY.duplicateName(trimmed));
     }
     return trimmed;
 }
 
 function requirePreset(presets, presetId) {
     const preset = findApiPreset(presets, presetId);
-    if (!preset) throw new TypeError('预设不存在');
+    if (!preset) throw new ApiPresetError('PRESET_NOT_FOUND', API_PRESET_COPY.missingPreset);
     return preset;
 }
 
 /** 新建预设（名称非空、不超长、与现有预设不重名，数量上限 MAX_API_PRESETS）。追加在末尾。 */
 export function createApiPreset(presets, name, config, { fields, makeId } = {}) {
-    if (presets.length >= MAX_API_PRESETS) throw new TypeError(`预设数量不能超过 ${MAX_API_PRESETS} 个`);
+    if (presets.length >= MAX_API_PRESETS) throw new ApiPresetError('PRESET_LIMIT', API_PRESET_COPY.tooMany(MAX_API_PRESETS));
     const trimmed = validateName(presets, name);
     const used = new Set(presets.map(preset => preset.id));
     const id = takeUniqueId('apipreset', used, makeId);

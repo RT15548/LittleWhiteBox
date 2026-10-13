@@ -47,6 +47,7 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
     mergeNovelDrawProviderSettingsIntoStorageRoot,
+    updateDrawSettingsRootPersistent,
 } from "../../shared/draw-settings.js";
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
 import {
@@ -63,10 +64,11 @@ import { characterLibraryFromSettings, selectEnabledCharacters } from "../../sha
 import { restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
 import {
     findApiPreset,
-    normalizeApiPresetState,
     pickApiConfig,
     syncActiveApiPreset,
 } from "../../shared/api-presets.js";
+import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
+import { NOVEL_API_FIELDS, NOVEL_API_PRESET_OPTIONS, normalizeNovelApiConfig, normalizeNovelApiPresets } from './novel-api-config.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
@@ -352,17 +354,11 @@ const DEFAULT_SETTINGS = {
     configVersion: CONFIG_VERSION,
     updatedAt: 0,
     mode: 'manual',
-    apiKey: '',
-    apiBaseUrl: '',
-    sendMode: 'frontend',
-    useImageBackendJobs: false,
-    insecureTLS: false,
+    ...normalizeNovelApiConfig(),
     apiPresets: [],
     activeApiPresetId: null,
     selectedParamsPresetId: null,
     paramsPresets: [],
-    requestDelay: { min: 15000, max: 30000 },
-    timeout: 60000,
     useWorldInfo: false,    
     characterTags: [],
     autoLearnCharacters: false,
@@ -752,39 +748,9 @@ function normalizeParamsPreset(preset, index) {
     };
 }
 
-// API 配置预设：只保存“API 配置”页里的字段（含 API Key，仅存本地，与 apiKey 本身的存储位置相同）。
-// 页面（novel-draw.html）里有一份同样的字段清单，改动时两处同步（api-presets-wiring.test.js 会比对）。
-const NOVEL_API_PRESET_FIELDS = Object.freeze([
-    'apiKey', 'apiBaseUrl', 'sendMode', 'useImageBackendJobs', 'insecureTLS', 'timeout', 'requestDelay',
-]);
-
-function normalizeNovelApiConfig(raw = {}) {
-    const source = raw && typeof raw === 'object' ? raw : {};
-    const delay = source.requestDelay && typeof source.requestDelay === 'object' ? source.requestDelay : {};
-    const delayMin = Number(delay.min) > 0 ? Number(delay.min) : DEFAULT_SETTINGS.requestDelay.min;
-    const delayMax = Number(delay.max) > 0 ? Number(delay.max) : DEFAULT_SETTINGS.requestDelay.max;
-    const timeout = Number(source.timeout);
-    return {
-        apiKey: String(source.apiKey || '').trim(),
-        apiBaseUrl: String(source.apiBaseUrl || '').trim(),
-        sendMode: source.sendMode === 'backend' ? 'backend' : 'frontend',
-        useImageBackendJobs: source.useImageBackendJobs === true,
-        insecureTLS: source.insecureTLS === true,
-        timeout: Number.isFinite(timeout) && timeout > 0
-            ? Math.min(600000, Math.max(10000, Math.floor(timeout)))
-            : DEFAULT_SETTINGS.timeout,
-        requestDelay: { min: Math.min(delayMin, delayMax), max: Math.max(delayMin, delayMax) },
-    };
-}
-
-const NOVEL_API_PRESET_OPTIONS = Object.freeze({
-    fields: NOVEL_API_PRESET_FIELDS,
-    normalizeConfig: normalizeNovelApiConfig,
-});
-
 /** 当前生效的 API 配置（timeout 在共享设置里，所以取运行时视图）。 */
 function getEffectiveNovelApiConfig() {
-    return pickApiConfig(normalizeNovelApiConfig(getRuntimeSettings()), NOVEL_API_PRESET_FIELDS);
+    return normalizeNovelApiConfig(getRuntimeSettings());
 }
 
 function normalizeSettings(saved = {}) {
@@ -793,30 +759,18 @@ function normalizeSettings(saved = {}) {
         && !Array.isArray(source.worldbooks)
         ? source.worldbooks
         : {};
-    const rawDelay = source.requestDelay && typeof source.requestDelay === 'object'
-        ? source.requestDelay
-        : {};
     const merged = {
         configVersion: Number(source.configVersion) || 0,
         updatedAt: Number(source.updatedAt) || 0,
         mode: source.mode === 'auto' ? 'auto' : 'manual',
-        apiKey: String(source.apiKey || ''),
-        apiBaseUrl: String(source.apiBaseUrl || '').trim(),
-        sendMode: source.sendMode === 'backend' ? 'backend' : 'frontend',
-        useImageBackendJobs: source.useImageBackendJobs === true,
-        insecureTLS: source.insecureTLS === true,
-        ...normalizeApiPresetState(source, NOVEL_API_PRESET_OPTIONS),
+        ...normalizeNovelApiConfig(source),
+        ...normalizeNovelApiPresets(source),
         selectedParamsPresetId: source.selectedParamsPresetId == null
             ? null
             : String(source.selectedParamsPresetId),
         paramsPresets: Array.isArray(source.paramsPresets)
             ? source.paramsPresets.map(normalizeParamsPreset)
             : [],
-        requestDelay: {
-            min: Number(rawDelay.min) > 0 ? Number(rawDelay.min) : DEFAULT_SETTINGS.requestDelay.min,
-            max: Number(rawDelay.max) > 0 ? Number(rawDelay.max) : DEFAULT_SETTINGS.requestDelay.max,
-        },
-        timeout: Number(source.timeout) > 0 ? Number(source.timeout) : DEFAULT_SETTINGS.timeout,
         cacheDays: normalizeSharedCacheDays(source.cacheDays),
         useWorldInfo: source.useWorldInfo === true,
         characterTags: Array.isArray(source.characterTags) ? source.characterTags : [],
@@ -1110,6 +1064,38 @@ async function runSettingsPersistentUpdate(mutator, okText, options) {
 
 function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
     const update = () => runSettingsPersistentUpdate(mutator, okText, options);
+    const result = settingsUpdateQueue.then(update, update);
+    settingsUpdateQueue = result.catch(() => {});
+    return result;
+}
+
+// API 生效配置、选中预设与共享 timeout 在同一次存储事务中提交。
+function updateApiSettingsPersistent({ config, presetState, syncApiPreset = false }) {
+    const update = async () => {
+        if (!settingsLoaded) return false;
+        try {
+            const committed = await updateDrawSettingsRootPersistent((root) => {
+                const next = normalizeSettings(root);
+                if (presetState) Object.assign(next, presetState);
+                if (config) Object.assign(next, normalizeNovelApiConfig({ ...root, ...config }));
+                if (syncApiPreset) {
+                    next.apiPresets = syncActiveApiPreset(next.apiPresets, next.activeApiPresetId,
+                        normalizeNovelApiConfig(next), NOVEL_API_PRESET_OPTIONS);
+                }
+                next.configVersion = CONFIG_VERSION;
+                next.updatedAt = Date.now();
+                const merged = mergeNovelDrawProviderSettingsIntoStorageRoot(root, next);
+                if (config) merged.timeout = next.timeout;
+                return { ...merged, updatedAt: next.updatedAt };
+            }, { silent: false });
+            if (!committed) return false;
+            settingsCache = normalizeSettings(committed);
+            return true;
+        } catch (error) {
+            console.error('[NovelDraw] API settings save failed:', error);
+            return false;
+        }
+    };
     const result = settingsUpdateQueue.then(update, update);
     settingsUpdateQueue = result.catch(() => {});
     return result;
@@ -3132,6 +3118,8 @@ function hideOverlay() {
 }
 
 async function sendInitData() {
+    // 重开面板不能在上一页保存尚未完成时拿到旧 API，再用旧表单覆盖新预设。
+    await settingsUpdateQueue;
     console.log('[NovelDraw] sendInitData called');
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!iframe?.contentWindow) { console.warn('[NovelDraw] sendInitData: no iframe'); return; }
@@ -3330,96 +3318,36 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_API_CONFIG': {
-            const nextTimeout = typeof data.timeout === 'number' && data.timeout > 0
-                ? data.timeout
-                : null;
-            let syncedPresetName = '';
-            const providerOk = await updateSettingsPersistent((settings) => {
-                if (typeof data.apiKey === 'string') {
-                    settings.apiKey = data.apiKey.trim();
-                }
-                if (typeof data.apiBaseUrl === 'string') {
-                    settings.apiBaseUrl = data.apiBaseUrl.trim();
-                }
-                if (data.sendMode === 'frontend' || data.sendMode === 'backend') {
-                    settings.sendMode = data.sendMode;
-                }
-                if (typeof data.useImageBackendJobs === 'boolean') {
-                    settings.useImageBackendJobs = data.useImageBackendJobs;
-                }
-                if (typeof data.insecureTLS === 'boolean') {
-                    settings.insecureTLS = data.insecureTLS;
-                }
-                if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) {
-                    settings.requestDelay = data.requestDelay;
-                }
-                // “保存”按钮：选中了 API 预设时，把这次保存的配置同步回该预设（预设与生效配置保持一致）。
-                if (data.syncApiPreset === true) {
-                    const active = findApiPreset(settings.apiPresets, settings.activeApiPresetId);
-                    if (active) {
-                        const config = normalizeNovelApiConfig({
-                            ...settings,
-                            timeout: nextTimeout ?? getSharedDrawSettings().timeout,
-                        });
-                        settings.apiPresets = syncActiveApiPreset(settings.apiPresets, active.id, config, NOVEL_API_PRESET_OPTIONS);
-                        syncedPresetName = active.name;
-                    }
-                }
-            }, '已保存', { notify: false, silent: false });
-            const sharedOk = nextTimeout == null || await updateSharedSettingsPersistent((settings) => {
-                settings.timeout = nextTimeout;
-            }, '已保存', { notify: false, silent: false });
-            const apiSaved = providerOk && sharedOk;
-            postStatus(
-                apiSaved ? 'success' : 'error',
-                apiSaved ? (syncedPresetName ? `已保存，并同步到预设「${syncedPresetName}」` : '已保存') : '保存失败',
-                'api',
-                {
+            const ok = await updateApiSettingsPersistent({
+                config: pickApiConfig(data, NOVEL_API_FIELDS),
+                syncApiPreset: data.syncApiPreset === true,
+            });
+            const active = data.syncApiPreset && findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId);
+            postStatus(ok ? 'success' : 'error',
+                ok ? (active ? API_PRESET_COPY.synced(active.name) : API_PRESET_COPY.saved) : API_PRESET_COPY.saveFailed,
+                'api', {
+                    requestId: data.requestId,
                     apiPresets: getSettings().apiPresets,
                     activeApiPresetId: getSettings().activeApiPresetId,
-                    apiConfig: getEffectiveNovelApiConfig(),
-                },
-            );
+                    config: getEffectiveNovelApiConfig(),
+                });
             break;
         }
 
-        // API 配置预设：页面把算好的预设列表（和需要作为生效配置写入的 config）交过来，这里规范化后一次性落盘。
-        // 回执（含 requestId）带回宿主侧最终的预设列表与生效配置，页面据此对齐显示；日志里不记录任何配置内容。
         case 'SAVE_API_PRESETS': {
-            const requestId = typeof data.requestId === 'string' ? data.requestId : '';
-            const replyPresets = (ok, text) => postStatus(ok ? 'success' : 'error', text, 'api-presets', {
-                requestId,
-                apiPresets: getSettings().apiPresets,
-                activeApiPresetId: getSettings().activeApiPresetId,
-                config: getEffectiveNovelApiConfig(),
+            const valid = Array.isArray(data.apiPresets);
+            const ok = valid && await updateApiSettingsPersistent({
+                presetState: normalizeNovelApiPresets(data),
+                config: data.config ? normalizeNovelApiConfig(data.config) : null,
             });
-            if (!Array.isArray(data.apiPresets)) {
-                replyPresets(false, '预设数据格式不正确');
-                break;
-            }
-            const applied = data.config && typeof data.config === 'object' && !Array.isArray(data.config)
-                ? normalizeNovelApiConfig(data.config)
-                : null;
-            const incoming = normalizeApiPresetState(
-                { apiPresets: data.apiPresets, activeApiPresetId: data.activeApiPresetId },
-                NOVEL_API_PRESET_OPTIONS,
-            );
-            const providerOk = await updateSettingsPersistent((settings) => {
-                settings.apiPresets = incoming.apiPresets;
-                settings.activeApiPresetId = incoming.activeApiPresetId;
-                if (applied) {
-                    settings.apiKey = applied.apiKey;
-                    settings.apiBaseUrl = applied.apiBaseUrl;
-                    settings.sendMode = applied.sendMode;
-                    settings.useImageBackendJobs = applied.useImageBackendJobs;
-                    settings.insecureTLS = applied.insecureTLS;
-                    settings.requestDelay = applied.requestDelay;
-                }
-            }, '已保存', { notify: false, silent: false });
-            const sharedOk = !applied || !providerOk || await updateSharedSettingsPersistent((settings) => {
-                settings.timeout = applied.timeout;
-            }, '已保存', { notify: false, silent: false });
-            replyPresets(providerOk && sharedOk, providerOk && sharedOk ? '已保存' : '保存失败');
+            postStatus(ok ? 'success' : 'error',
+                !valid ? API_PRESET_COPY.invalidData : ok ? API_PRESET_COPY.saved : API_PRESET_COPY.saveFailed,
+                'api-presets', {
+                    requestId: data.requestId,
+                    apiPresets: getSettings().apiPresets,
+                    activeApiPresetId: getSettings().activeApiPresetId,
+                    config: getEffectiveNovelApiConfig(),
+                });
             break;
         }
 

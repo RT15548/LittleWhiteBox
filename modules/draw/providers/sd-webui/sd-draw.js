@@ -55,10 +55,9 @@ import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../.
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetBar } from "../../shared/api-presets-ui.js";
+import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import {
-    findApiPreset,
     normalizeApiPresetState,
-    pickApiConfig,
     syncActiveApiPreset,
 } from "../../shared/api-presets.js";
 import {
@@ -261,7 +260,7 @@ function cloneSettingsObject(obj) {
 }
 
 // API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
-const SD_API_PRESET_FIELDS = Object.freeze(['host', 'auth', 'timeout', 'useImageBackendJobs']);
+const SD_API_PRESET_FIELDS = Object.freeze(Object.keys(normalizeSdApiConfig()));
 
 function normalizeSdApiConfig(raw = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
@@ -276,7 +275,7 @@ function normalizeSdApiConfig(raw = {}) {
 const SD_API_PRESET_OPTIONS = Object.freeze({ fields: SD_API_PRESET_FIELDS, normalizeConfig: normalizeSdApiConfig });
 
 function getEffectiveSdApiConfig(settings = getSettings()) {
-    return pickApiConfig(normalizeSdApiConfig(settings), SD_API_PRESET_FIELDS);
+    return normalizeSdApiConfig(settings);
 }
 
 function normalizeSettings(raw = {}) {
@@ -285,16 +284,13 @@ function normalizeSettings(raw = {}) {
         ? raw.selectedPresetId
         : presets[0]?.id || 'default';
     const merged = {
-        host: String(raw.host || ''),
-        auth: String(raw.auth || ''),
+        ...normalizeSdApiConfig(raw),
         transport: 'st-proxy',
-        useImageBackendJobs: raw.useImageBackendJobs === true,
         ...normalizeApiPresetState(raw, SD_API_PRESET_OPTIONS),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
-        timeout: normalizeNumber(raw.timeout, DEFAULT_SD_DRAW_SETTINGS.timeout, 10000, 600000),
         selectedPresetId,
         presets,
         selectedModel: String(raw.selectedModel || ''),
@@ -468,18 +464,19 @@ export function getGenerationSnapshot() {
     };
 }
 
-async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
+let settingsUpdateQueue = Promise.resolve();
+
+async function persistSettingsNow(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     if (!settingsLoaded) {
         console.error('[SdDraw] 设置尚未成功加载，拒绝保存');
         if (notify) toastr.error('配置尚未成功加载，已禁止保存', 'SD WebUI');
         return false;
     }
     const next = normalizeSettings(nextSettings);
-    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
     try {
-        settingsCache = next;
         const ok = await SdDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
+            settingsCache = next;
             if (notify) {
                 toastr.success(okText, 'SD WebUI');
             }
@@ -488,10 +485,8 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
         if (notify) {
             toastr.error('保存失败', 'SD WebUI');
         }
-        settingsCache = previous;
         return false;
     } catch (error) {
-        settingsCache = previous;
         if (notify) {
             toastr.error(error?.message || '保存失败', 'SD WebUI');
         }
@@ -499,12 +494,22 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
     }
 }
 
-export async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
-    const draft = cloneSettingsObject(getSettings());
-    if (typeof mutator === 'function') {
-        await mutator(draft);
-    }
-    return await persistSettings(draft, okText, options);
+function enqueueSettingsUpdate(update) {
+    const result = settingsUpdateQueue.then(update, update);
+    settingsUpdateQueue = result.catch(() => {});
+    return result;
+}
+
+function persistSettings(nextSettings, okText = '已保存', options = {}) {
+    return enqueueSettingsUpdate(() => persistSettingsNow(nextSettings, okText, options));
+}
+
+export function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    return enqueueSettingsUpdate(async () => {
+        const draft = cloneSettingsObject(getSettings());
+        if (typeof mutator === 'function') await mutator(draft);
+        return persistSettingsNow(draft, okText, options);
+    });
 }
 
 function getActivePreset(settings = getSettings()) {
@@ -1031,14 +1036,14 @@ function bindOverlayEvents() {
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         } catch {}
     });
-    querySettings('#sd-draw-save')?.addEventListener('click', async (event) => {
-        const ok = await saveAllSettings({
-            notify: true,
-            triggerButton: event.currentTarget,
-            statusElementId: 'sd-draw-api-status',
-            syncApiPreset: true,
+    querySettings('#sd-draw-save')?.addEventListener('click', async () => {
+        const bar = ensureApiPresetBar();
+        await bar.runSave(() => {
+            const { apiPresets, activeApiPresetId } = getSettings();
+            const config = readSdApiConfigFromForm();
+            return commitSdApiPresets({ reason: 'save', activeApiPresetId, config,
+                apiPresets: syncActiveApiPreset(apiPresets, activeApiPresetId, config, SD_API_PRESET_OPTIONS) });
         });
-        if (ok) fillForm(getSettings());
     });
     // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
     ['input', 'change', 'click'].forEach((type) => {
@@ -1048,15 +1053,15 @@ function bindOverlayEvents() {
         });
     });
     querySettings('#sd-draw-test')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await testConnection();
     });
     querySettings('#sd-draw-refresh-options')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await refreshSdOptions({ notify: true });
     });
     querySettings('#sd-draw-test-generate')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await testGenerateFromSettingsPanel();
     });
     querySettings('#sd-draw-size-preset')?.addEventListener('change', () => {
@@ -1558,6 +1563,7 @@ function fillSdApiConfigForm(config) {
 }
 
 async function commitSdApiPresets(change) {
+    const doc = getSettingsDocument();
     const incoming = normalizeApiPresetState(
         { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
         SD_API_PRESET_OPTIONS,
@@ -1567,8 +1573,8 @@ async function commitSdApiPresets(change) {
         draft.apiPresets = incoming.apiPresets;
         draft.activeApiPresetId = incoming.activeApiPresetId;
         if (applied) Object.assign(draft, applied);
-    }, 'API 预设已保存', { notify: false, silent: false }));
-    if (ok && change.reason === 'select') fillSdApiConfigForm(getEffectiveSdApiConfig());
+    }, API_PRESET_COPY.saved, { notify: false, silent: false }));
+    if (ok && applied && getSettingsDocument() === doc) fillSdApiConfigForm(getEffectiveSdApiConfig());
     return ok;
 }
 
@@ -1585,6 +1591,7 @@ function ensureApiPresetBar() {
         document: doc,
         container,
         fields: SD_API_PRESET_FIELDS,
+        form: querySettings('#sd-api-form'),
         defaults: normalizeSdApiConfig({}),
         getState: () => {
             const { apiPresets, activeApiPresetId } = getSettings();
@@ -1597,16 +1604,6 @@ function ensureApiPresetBar() {
         prompt: (message, fallback) => prompt(message, fallback),
     });
     return apiPresetBar;
-}
-
-/** “保存”按钮：选中了 API 预设时，把这次保存的 API 配置同步回该预设。 */
-function withSyncedApiPreset(form) {
-    const active = findApiPreset(form.apiPresets, form.activeApiPresetId);
-    if (!active) return form;
-    return {
-        ...form,
-        apiPresets: syncActiveApiPreset(form.apiPresets, active.id, normalizeSdApiConfig(form), SD_API_PRESET_OPTIONS),
-    };
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -2526,16 +2523,17 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
     }, '共享规划设置已保存', { notify, silent: false });
 }
 
-async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '', syncApiPreset = false } = {}) {
-    const syncedPresetName = syncApiPreset
-        ? findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || ''
-        : '';
-    const savedText = syncedPresetName
-        ? `已保存，并同步到 API 预设「${syncedPresetName}」`
-        : '已保存到小白X服务端配置';
+async function saveAllSettings(options = {}) {
+    const bar = ensureApiPresetBar();
+    if (!bar) return false;
+    return bar.runSave(() => persistAllSettings(options));
+}
+
+async function persistAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+    const savedText = API_PRESET_COPY.saved;
     const saveTask = async () => {
         const [sdOk, sharedOk] = await Promise.all([
-            persistSettings(syncApiPreset ? withSyncedApiPreset(readForm()) : readForm(), 'SD WebUI 设置已保存', { notify: false, silent: false }),
+            persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: false }),
             saveSharedDrawSettings({ notify: false }),
         ]);
         return sdOk && sharedOk;
@@ -2746,6 +2744,7 @@ async function refreshSdOptions({ notify = false } = {}) {
 export async function openSettings() {
     try {
         await loadSettings();
+        await settingsUpdateQueue;
         await loadSharedDrawSettings();
     } catch {
         return false;

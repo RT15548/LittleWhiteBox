@@ -8,6 +8,8 @@ import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
 import { transformSync } from 'esbuild';
 import * as mediaUrl from '../media-url.js';
+import * as novelApiConfig from '../../providers/novelai/novel-api-config.js';
+import * as apiPresetCopy from '../api-presets-copy.js';
 
 import * as CL from '../character-library.js';
 import * as CD from '../character-library-dialog.js';
@@ -79,6 +81,8 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     const sandbox = {
         require(specifier) {
             if (new URL(specifier, PAGE).href === new URL('../media-url.js', import.meta.url).href) return mediaUrl;
+            if (specifier === './novel-api-config.js') return novelApiConfig;
+            if (specifier === '../../shared/api-presets-copy.js') return apiPresetCopy;
             throw new Error(`Unexpected panel module: ${specifier}`);
         },
         document,
@@ -2231,8 +2235,8 @@ test('switching API presets confirms when the form has unsaved edits, then fills
     assert.equal(panel.$('#nd_backend_options').classList.contains('hidden'), false, '后端发送的选项组随之显示');
 });
 
-test('the Save button asks the host to sync the active API preset, and the receipt refreshes the bar', (t) => {
-    const { panel, bar } = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+test('the Save button asks the host to sync the active API preset, and the receipt refreshes the bar', async (t) => {
+    const { panel, bar, settle } = loadApiPanel(t, { activeApiPresetId: 'ap1' });
     assert.equal(bar('overwrite').disabled, false);
     panel.$('#nd_api_key').value = 'pst-rotated';
     panel.click(panel.$('#nd_save_api'));
@@ -2242,15 +2246,100 @@ test('the Save button asks the host to sync the active API preset, and the recei
     const synced = structuredClone(API_PRESETS);
     synced[0].config.apiKey = 'pst-rotated';
     panel.send('STATUS', {
-        target: 'api', state: 'success', text: '已保存，并同步到预设「官方」',
-        apiPresets: synced, activeApiPresetId: 'ap1', apiConfig: synced[0].config,
+        target: 'api', state: 'success', requestId: save.requestId,
+        apiPresets: synced, activeApiPresetId: 'ap1', config: synced[0].config,
     });
-    assert.equal(panel.$('#nd_api_status').textContent, '已保存，并同步到预设「官方」');
-    assert.match(panel.$('#nd_api_presets .status-text').textContent, /当前预设：官方$/, '表单与预设一致');
+    await settle();
+    assert.equal(panel.state().apiPresets[0].config.apiKey, 'pst-rotated');
+    assert.equal(panel.$('#nd_api_presets .status-text').dataset.state, 'success');
 });
 
 test('without a selected preset the overwrite, rename and delete buttons are disabled', (t) => {
     const { bar } = loadApiPanel(t);
     for (const action of ['overwrite', 'rename', 'delete']) assert.equal(bar(action).disabled, true, action);
     assert.equal(bar('save-as').disabled, false);
+});
+
+test('pending API preset switch excludes Save and immediate-save controls, then unlocks after the receipt', async t => {
+    const h = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+    h.choose('ap2');
+    assert.equal(h.panel.$('#nd_api_form').hasAttribute('disabled'), true);
+    for (const selector of ['#nd_save_api', '#nd_reset_base_url', '[data-send-mode="backend"]']) h.panel.click(h.panel.$(selector));
+    assert.equal(h.panel.posted.filter(message => message.type.startsWith('SAVE_API')).length, 1);
+    assert.equal(h.panel.$('#nd_api_key').value, API_PRESETS[0].config.apiKey);
+    h.reply(h.apiPosts()[0]);
+    await h.settle();
+    assert.equal(h.panel.$('#nd_api_form').hasAttribute('disabled'), false);
+    assert.equal(h.panel.$('#nd_api_key').value, API_PRESETS[1].config.apiKey);
+    h.panel.click(h.panel.$('#nd_save_api'));
+    assert.equal(h.panel.posted.at(-1).apiKey, API_PRESETS[1].config.apiKey);
+});
+
+test('API save receipt arriving after the slow threshold still updates the form and releases the gate', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const h = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+    h.choose('ap2');
+    t.mock.timers.tick(15000);
+    await Promise.resolve();
+    assert.equal(h.panel.$('#nd_api_presets .status-text').dataset.state, 'pending');
+    assert.equal(h.panel.$('#nd_api_form').hasAttribute('disabled'), true);
+    h.panel.click(h.panel.$('#nd_save_api'));
+    assert.equal(h.panel.posted.filter(message => message.type.startsWith('SAVE_API')).length, 1);
+    h.reply(h.apiPosts()[0]);
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(h.panel.state().apiBaseUrl, API_PRESETS[1].config.apiBaseUrl);
+    assert.equal(h.panel.$('#nd_api_base_url').value, API_PRESETS[1].config.apiBaseUrl);
+    assert.equal(h.panel.$('#nd_api_form').hasAttribute('disabled'), false);
+});
+
+test('failed API switch keeps the draft, and duplicate or unrecognized receipts cannot retarget a later save', async t => {
+    const h = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+    h.panel.$('#nd_api_key').value = 'unsaved-key';
+    h.choose('ap2');
+    const first = h.apiPosts()[0];
+    h.reply(first, { state: 'error', activeApiPresetId: 'ap1', config: API_PRESETS[0].config });
+    await h.settle();
+    assert.equal(h.panel.$('#nd_api_key').value, 'unsaved-key');
+    assert.equal(h.panel.$('#nd_api_presets select').value, 'ap1');
+    assert.equal(h.panel.$('#nd_api_presets .status-text').dataset.state, 'error');
+    h.panel.click(h.panel.$('#nd_save_api'));
+    h.reply(first);
+    assert.equal(h.panel.state().activeApiPresetId, 'ap1');
+    assert.equal(h.panel.$('#nd_api_key').value, 'unsaved-key');
+    assert.equal(h.panel.$('#nd_api_form').hasAttribute('disabled'), true);
+});
+
+test('normal API Save excludes preset operations until its matching receipt', async t => {
+    const h = loadApiPanel(t, { activeApiPresetId: 'ap1' });
+    h.panel.click(h.panel.$('#nd_save_api'));
+    const save = h.panel.posted.at(-1);
+    h.choose('ap2');
+    h.panel.click(h.bar('delete'));
+    assert.equal(h.apiPosts().length, 0);
+    h.panel.send('STATUS', { target: 'api', state: 'success', requestId: save.requestId,
+        apiPresets: API_PRESETS, activeApiPresetId: 'ap1', config: API_PRESETS[0].config });
+    await h.settle();
+    assert.equal(h.panel.$('#nd_api_presets select').value, 'ap1');
+    assert.equal(h.panel.$('#nd_api_form').hasAttribute('disabled'), false);
+});
+
+test('API controls stay disabled until the host supplies the persisted configuration', t => {
+    const panel = loadPanel(t);
+    panel.nd.renderApiPresetBar();
+    panel.click(panel.$('#nd_save_api'));
+    assert.equal(panel.$('#nd_api_form').hasAttribute('disabled'), true);
+    assert.equal(panel.posted.some(message => message.type === 'SAVE_API_CONFIG'), false);
+    panel.initData({ ...API_PRESETS[0].config, apiPresets: API_PRESETS, activeApiPresetId: 'ap1' });
+    assert.equal(panel.$('#nd_api_form').hasAttribute('disabled'), false);
+    assert.equal(panel.$('#nd_api_key').value, API_PRESETS[0].config.apiKey);
+});
+
+test('character export is independent of API preset credentials', t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1000 });
+    const panel = loadPanel(t, { characters: [person('c1', 'Alice')] });
+    panel.nd.exportCharacterFile({ scope: 'all' });
+    const baseline = JSON.parse(panel.blobs.at(-1));
+    Object.assign(panel.state(), API_PRESETS[0].config, { apiPresets: API_PRESETS, activeApiPresetId: 'ap1' });
+    panel.nd.exportCharacterFile({ scope: 'all' });
+    assert.deepEqual(JSON.parse(panel.blobs.at(-1)), baseline);
 });

@@ -16,19 +16,7 @@ import {
     renameApiPreset,
 } from './api-presets.js';
 
-export const API_PRESET_NONE_LABEL = '未保存为预设';
-export const API_PRESET_COPY = Object.freeze({
-    selectLabel: 'API 配置预设',
-    saveAs: '另存为新预设',
-    overwrite: '覆盖保存到当前预设',
-    rename: '重命名预设',
-    remove: '删除预设',
-    promptNew: '输入新预设名称：',
-    promptRename: '输入预设名称：',
-    emptyList: '尚未保存预设，可把当前配置另存为预设',
-    noActive: '当前配置未选择预设',
-    saveFailed: '保存失败，请重试',
-});
+import { API_PRESET_COPY } from './api-presets-copy.js';
 
 const ACTIONS = [
     { action: 'save-as', icon: 'fa-plus', title: API_PRESET_COPY.saveAs, className: 'btn btn-icon' },
@@ -55,12 +43,13 @@ function setDisabled(node, disabled) {
 }
 
 function errorMessage(error) {
-    return error instanceof Error && error.message ? error.message : String(error || '操作失败');
+    return error instanceof Error && error.message ? error.message : String(error || API_PRESET_COPY.operationFailed);
 }
 
 /**
  * options:
  *  document, container            挂载点（组件清空并重建 container 的内容；container 自带 .preset-bar 样式）
+ *  form                           API 页的 fieldset；预设操作和 runSave 中的普通保存共用禁用范围
  *  fields                         API 配置字段白名单（由 Provider 传入）
  *  defaults                       缺省配置（可选，用于判断“没有东西可丢”）
  *  getState()                     → { apiPresets, activeApiPresetId }
@@ -72,7 +61,7 @@ function errorMessage(error) {
  *  confirm(message) / prompt(message, fallback)   可选，缺省用 document.defaultView 上的同名函数
  */
 export function createApiPresetBar(options = {}) {
-    const { document, container, fields, defaults, getState, readConfig, getEffectiveConfig, onCommit } = options;
+    const { document, container, form, fields, defaults, getState, readConfig, getEffectiveConfig, onCommit } = options;
     if (!document || !container) throw new TypeError('createApiPresetBar 需要 document 和 container');
     const view = document.defaultView;
     const confirmFn = options.confirm || (message => (typeof view?.confirm === 'function' ? view.confirm(message) : true));
@@ -106,22 +95,24 @@ export function createApiPresetBar(options = {}) {
     }
 
     function setStatus(kind, text) {
+        if (destroyed) return;
         status.textContent = text || '';
         status.setAttribute('class', `status-text inline-status${kind ? ` ${kind}` : ''}`);
+        status.dataset.state = kind || 'idle';
     }
 
     function describe(state) {
         const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
         if (!active) return state.apiPresets.length ? API_PRESET_COPY.noActive : API_PRESET_COPY.emptyList;
         const same = isSameApiConfig(readConfig(), active.config, fields);
-        return same ? `当前预设：${active.name}` : `当前预设：${active.name}（表单与预设不一致，点击保存或覆盖保存可同步）`;
+        return same ? API_PRESET_COPY.current(active.name) : API_PRESET_COPY.modified(active.name);
     }
 
     function render() {
         if (destroyed) return;
         const state = readState();
         while (select.firstChild) select.removeChild(select.firstChild);
-        select.appendChild(create(document, 'option', { text: API_PRESET_NONE_LABEL, attrs: { value: '' } }));
+        select.appendChild(create(document, 'option', { text: API_PRESET_COPY.none, attrs: { value: '' } }));
         for (const preset of state.apiPresets) {
             select.appendChild(create(document, 'option', { text: preset.name, attrs: { value: preset.id } }));
         }
@@ -136,32 +127,44 @@ export function createApiPresetBar(options = {}) {
             setDisabled(button, busy || (needsActive && !hasActive));
         }
         setDisabled(select, busy);
-        setStatus('', describe(state));
+        if (form) {
+            setDisabled(form, busy);
+            form.setAttribute('aria-busy', String(busy));
+        }
+        if (!busy) {
+            const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
+            const modified = active && !isSameApiConfig(readConfig(), active.config, fields);
+            setStatus(modified ? 'modified' : '', describe(state));
+        }
     }
 
-    async function commit(change, successText) {
-        if (busy) return false;
+    // 所有会改变当前 API 的入口都用此门禁；fieldset 不改动控件自身的业务 disabled 状态。
+    async function runSave(operation, successText = API_PRESET_COPY.saved) {
+        if (busy || destroyed) return false;
         busy = true;
         render();
+        setStatus('pending', API_PRESET_COPY.saving);
         let ok = false;
         try {
-            ok = (await onCommit(change)) !== false;
+            ok = (await operation()) !== false;
         } catch (error) {
             console.warn('[ApiPresets] 保存失败:', errorMessage(error));
             ok = false;
         }
         busy = false;
         render();
-        setStatus(ok ? 'success' : 'error', ok ? successText : API_PRESET_COPY.saveFailed);
+        setStatus(ok ? 'success' : 'error', ok ? (typeof successText === 'function' ? successText() : successText) : API_PRESET_COPY.saveFailed);
         return ok;
     }
 
+    const commit = (change, successText) => runSave(() => onCommit(change), successText);
+
     function suggestName(presets) {
         for (let n = presets.length + 1; n < presets.length + 100; n += 1) {
-            const name = `API 预设 ${n}`;
+            const name = API_PRESET_COPY.defaultName(n);
             if (!presets.some(preset => preset.name === name)) return name;
         }
-        return 'API 预设';
+        return API_PRESET_COPY.unnamed;
     }
 
     // 询问名称：取消返回 null；空名称给出错误提示并返回 null。
@@ -169,7 +172,7 @@ export function createApiPresetBar(options = {}) {
         const answer = promptFn(message, fallback);
         if (answer === null || answer === undefined) return null;
         if (!String(answer).trim()) {
-            setStatus('error', '预设名称不能为空');
+            setStatus('error', API_PRESET_COPY.emptyName);
             return null;
         }
         return String(answer).trim();
@@ -180,7 +183,7 @@ export function createApiPresetBar(options = {}) {
         const targetId = select.value;
         if (targetId === (state.activeApiPresetId || '')) return;
         if (!targetId) {
-            await commit({ reason: 'deselect', apiPresets: state.apiPresets, activeApiPresetId: null, config: null }, '已取消选择预设，当前 API 配置不变');
+            await commit({ reason: 'deselect', apiPresets: state.apiPresets, activeApiPresetId: null, config: null }, API_PRESET_COPY.deselected);
             return;
         }
         const target = findApiPreset(state.apiPresets, targetId);
@@ -193,7 +196,7 @@ export function createApiPresetBar(options = {}) {
             defaults,
             fields,
         });
-        if (unsaved && !confirmFn('当前 API 配置有尚未保存到预设的修改，切换预设会覆盖它们。确定切换吗？')) {
+        if (unsaved && !confirmFn(API_PRESET_COPY.confirmSwitch)) {
             render();
             return;
         }
@@ -202,7 +205,7 @@ export function createApiPresetBar(options = {}) {
             apiPresets: state.apiPresets,
             activeApiPresetId: target.id,
             config: pickApiConfig(target.config, fields),
-        }, `已切换到预设「${target.name}」，并作为当前 API 配置生效`);
+        }, API_PRESET_COPY.selected(target.name));
     }
 
     async function handleSaveAs() {
@@ -222,7 +225,7 @@ export function createApiPresetBar(options = {}) {
             apiPresets: created.presets,
             activeApiPresetId: created.presetId,
             config,
-        }, `已另存为预设「${name}」`);
+        }, API_PRESET_COPY.created(name));
     }
 
     async function handleOverwrite() {
@@ -235,7 +238,7 @@ export function createApiPresetBar(options = {}) {
             apiPresets: overwriteApiPreset(state.apiPresets, active.id, config, { fields }),
             activeApiPresetId: active.id,
             config,
-        }, `已覆盖保存到预设「${active.name}」`);
+        }, API_PRESET_COPY.overwritten(active.name));
     }
 
     async function handleRename() {
@@ -251,20 +254,20 @@ export function createApiPresetBar(options = {}) {
             setStatus('error', errorMessage(error));
             return;
         }
-        await commit({ reason: 'rename', apiPresets: next, activeApiPresetId: active.id, config: null }, `已重命名为「${name}」`);
+        await commit({ reason: 'rename', apiPresets: next, activeApiPresetId: active.id, config: null }, API_PRESET_COPY.renamed(name));
     }
 
     async function handleDelete() {
         const state = readState();
         const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
         if (!active) return;
-        if (!confirmFn(`删除 API 预设「${active.name}」？当前正在使用的 API 配置不会改变。`)) return;
+        if (!confirmFn(API_PRESET_COPY.confirmDelete(active.name))) return;
         await commit({
             reason: 'delete',
             apiPresets: deleteApiPreset(state.apiPresets, active.id),
             activeApiPresetId: null,
             config: null,
-        }, `已删除预设「${active.name}」`);
+        }, API_PRESET_COPY.deleted(active.name));
     }
 
     const handlers = {
@@ -292,6 +295,7 @@ export function createApiPresetBar(options = {}) {
         render,
         refresh: render,
         setStatus,
+        runSave,
         isBusy: () => busy,
         destroy() {
             destroyed = true;

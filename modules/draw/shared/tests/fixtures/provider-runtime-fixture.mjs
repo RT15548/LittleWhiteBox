@@ -12,7 +12,7 @@ export const providerFixtures = {
 // Production provider, compiler, executor, queue, gallery and native tag session.
 // Only host I/O, planner responses and the optional capsule shell are replaced.
 // Settings are injected into this in-memory test bundle, never user storage.
-export async function buildProviderFixture(provider, { platform = 'node', realHost = false, settingsPanel = false } = {}) {
+export async function buildProviderFixture(provider, { platform = 'node', realHost = false, settingsPanel = false, apiSettings = false } = {}) {
     const { folder, name, title } = providerFixtures[provider];
     const stubs = {
         'extensions.js': 'export const getContext=()=>globalThis.__review.ctx; export const extension_settings={};',
@@ -54,6 +54,14 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
         stubs['server-storage.js'] = `export const ComfyDrawStorage={getStrict:async()=>null,
             setAndSave:async(key,value)=>globalThis.__review.saveSettings(key,structuredClone(value))};`;
     }
+    if (apiSettings) {
+        stubs['server-storage.js'] = `const storage = name => Object.fromEntries(['getStrict','setAndSave','updateAndSave']
+            .map(method => [method, (...args) => globalThis.__review.storages[name][method](...args)]));
+            export const NovelDrawStorage=storage('novelai'); export const SdDrawStorage=storage('sdwebui');
+            export const ComfyDrawStorage=storage('comfyui');`;
+        stubs['iframe-messaging.js'] = `export const isTrustedMessage=()=>true;
+            export const postToIframe=(_frame,payload)=>globalThis.__review.replies.push(payload);`;
+    }
     if (realHost) for (const key of ['extensions.js', 'script.js', 'utils.js', 'user.js', 'event-manager.js', 'floating-panel.js']) delete stubs[key];
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
     const bundle = await build({ stdin: { resolveDir: root, contents: `
@@ -69,6 +77,7 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
         export * from './image-job-recovery-runtime.js';
         export * from './backend-image-jobs.js';
         export * from './draw-common.js';
+        ${apiSettings ? "export * from './draw-settings.js';" : ''}
         ${settingsPanel ? "export { buildScenePlannerTask, prepareScenePlannerInput, executePreparedScenePlanner } from './scene-planner.js'; export { COMFY_PLANNER_PROFILE } from '../providers/comfyui/comfy-prompts.js';" : ''}` }, bundle: true, write: false, format: 'esm', platform,
         footer: { js: '//# sourceURL=production-provider-fixture.mjs' },
         plugins: [{ name: 'host-boundaries', setup(builder) {
@@ -82,9 +91,10 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
             });
             builder.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ contents: stubs[path] }));
             builder.onLoad({ filter: new RegExp(`${name}-draw\\.js$`) }, async ({ path }) => ({
-                contents: await readFile(path, 'utf8') + `\nexport function configureFixtureSettings(value){settingsCache=${settingsPanel ? 'normalizeSettings(value)' : 'value'};settingsLoaded=true;}
+                contents: await readFile(path, 'utf8') + `\nexport function configureFixtureSettings(value){settingsCache=${settingsPanel || apiSettings ? 'normalizeSettings(value)' : 'value'};settingsLoaded=true;}
                     export { runPrepared${title}Slots };
-                    ${settingsPanel ? `export function mountFixtureSettings(frame){hideSettings();overlayFrame=frame;overlayElement=document.body;
+                    ${apiSettings && provider === 'novelai' ? 'export { handleFrameMessage };' : ''}
+                    ${settingsPanel || (apiSettings && provider !== 'novelai') ? `export function mountFixtureSettings(frame){hideSettings();overlayFrame=frame;overlayElement=document.body;
                         eventsBound=false;bindOverlayEvents();fillForm(getSettings());switchSettingsView('prompts');}` : ''}`, resolveDir: dirname(path),
             }));
         } }],

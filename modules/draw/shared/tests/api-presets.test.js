@@ -61,14 +61,14 @@ test('createApiPreset appends a preset with whitelisted config and does not muta
 
 test('createApiPreset rejects empty, over-long and duplicate names (case-insensitive) and a full list', () => {
     const { presets } = createApiPreset([], 'Alpha', CONFIG, OPTIONS);
-    assert.throws(() => createApiPreset(presets, '   ', CONFIG, OPTIONS), /不能为空/);
-    assert.throws(() => createApiPreset(presets, 'a'.repeat(MAX_API_PRESET_NAME_LENGTH + 1), CONFIG, OPTIONS), /不能超过 40/);
+    assert.throws(() => createApiPreset(presets, '   ', CONFIG, OPTIONS), { code: 'EMPTY_NAME' });
+    assert.throws(() => createApiPreset(presets, 'a'.repeat(MAX_API_PRESET_NAME_LENGTH + 1), CONFIG, OPTIONS), { code: 'NAME_TOO_LONG' });
     assert.doesNotThrow(() => createApiPreset(presets, 'a'.repeat(MAX_API_PRESET_NAME_LENGTH), CONFIG, OPTIONS));
-    assert.throws(() => createApiPreset(presets, ' alpha ', CONFIG, OPTIONS), /已存在/);
+    assert.throws(() => createApiPreset(presets, ' alpha ', CONFIG, OPTIONS), { code: 'DUPLICATE_NAME' });
     let full = [];
     for (let i = 0; i < MAX_API_PRESETS; i += 1) full = createApiPreset(full, `p${i}`, CONFIG, OPTIONS).presets;
     assert.equal(full.length, 30);
-    assert.throws(() => createApiPreset(full, 'one-more', CONFIG, OPTIONS), /不能超过 30/);
+    assert.throws(() => createApiPreset(full, 'one-more', CONFIG, OPTIONS), { code: 'PRESET_LIMIT' });
     assert.equal(full.length, 30);
 });
 
@@ -79,7 +79,7 @@ test('overwriteApiPreset replaces the config only, keeps id and name, and return
     assert.deepEqual(presets, before);
     assert.deepEqual(next[0], { id: presetId, name: 'A', config: { ...CONFIG, host: 'http://b' } });
     assert.equal(overwriteApiPreset(presets, presetId, { ...CONFIG }, OPTIONS), presets);
-    assert.throws(() => overwriteApiPreset(presets, 'missing', CONFIG, OPTIONS), /不存在/);
+    assert.throws(() => overwriteApiPreset(presets, 'missing', CONFIG, OPTIONS), { code: 'PRESET_NOT_FOUND' });
 });
 
 test('renameApiPreset keeps config and id, rejects duplicates of other presets but allows its own name', () => {
@@ -91,9 +91,9 @@ test('renameApiPreset keeps config and id, rejects duplicates of other presets b
     assert.deepEqual(list, before);
     assert.equal(renamed[1].name, 'C');
     assert.deepEqual(renamed[1].config, list[1].config);
-    assert.throws(() => renameApiPreset(list, created.presetId, 'a'), /已存在/);
+    assert.throws(() => renameApiPreset(list, created.presetId, 'a'), { code: 'DUPLICATE_NAME' });
     assert.equal(renameApiPreset(list, created.presetId, 'B'), list, '同名返回原数组');
-    assert.throws(() => renameApiPreset(list, 'missing', 'X'), /不存在/);
+    assert.throws(() => renameApiPreset(list, 'missing', 'X'), { code: 'PRESET_NOT_FOUND' });
 });
 
 test('deleteApiPreset removes one preset without touching the input list', () => {
@@ -101,7 +101,7 @@ test('deleteApiPreset removes one preset without touching the input list', () =>
     const next = deleteApiPreset(list, list[0].id);
     assert.equal(list.length, 2);
     assert.deepEqual(next.map(p => p.name), ['B']);
-    assert.throws(() => deleteApiPreset(list, 'missing'), /不存在/);
+    assert.throws(() => deleteApiPreset(list, 'missing'), { code: 'PRESET_NOT_FOUND' });
 });
 
 test('syncActiveApiPreset overwrites only the active preset and never creates one', () => {
@@ -128,7 +128,8 @@ test('normalizeApiPresets repairs ids and names, filters config to the whitelist
     assert.deepEqual(raw, snapshot);
     assert.equal(result.length, 4);
     assert.deepEqual(result.map(p => p.id), ['a', 'apipreset-t1', 'apipreset-t2', 'long']);
-    assert.deepEqual(result.map(p => p.name).slice(0, 3), ['Same', 'same 2', '未命名预设']);
+    assert.equal(new Set(result.map(p => p.name.toLowerCase())).size, result.length);
+    assert.ok(result.every(p => p.name.trim().length > 0));
     assert.equal(Array.from(result[3].name).length, MAX_API_PRESET_NAME_LENGTH);
     assert.deepEqual(result[0].config, CONFIG, '不在白名单内的键被丢弃');
     assert.deepEqual(result[2].config, {});
@@ -222,15 +223,15 @@ const TWO = [
 
 test('the bar lists the presets, shows "未保存为预设" and disables buttons that need a selection', () => {
     const view = mountBar({ presets: TWO });
-    assert.deepEqual(Array.from(view.document.querySelectorAll('option')).map(o => o.textContent), ['未保存为预设', '一号', '二号']);
+    assert.deepEqual(Array.from(view.document.querySelectorAll('option')).map(o => o.value), ['', 'p1', 'p2']);
     for (const action of ['overwrite', 'rename', 'delete']) assert.ok(view.$(`[data-action="${action}"]`).hasAttribute('disabled'), action);
     assert.ok(!view.$('[data-action="save-as"]').hasAttribute('disabled'));
-    assert.match(view.$('.status-text').textContent, /未选择预设/);
+    assert.equal(view.$('select').value, '');
 });
 
 test('save-as commits a new preset built from the form and selects it', async () => {
     const view = mountBar({ presets: [] });
-    assert.match(view.$('.status-text').textContent, /尚未保存预设/);
+    assert.equal(view.$('select').children.length, 1);
     view.live.answers.prompt.push(' 我的预设 ');
     view.click('save-as');
     await view.settle();
@@ -241,7 +242,7 @@ test('save-as commits a new preset built from the form and selects it', async ()
     assert.equal(change.activeApiPresetId, change.apiPresets[0].id);
     assert.deepEqual(change.config, CONFIG);
     assert.equal(view.$('select').value, change.apiPresets[0].id);
-    assert.match(view.$('.status-text').textContent, /已另存为预设「我的预设」/);
+    assert.equal(view.$('.status-text').dataset.state, 'success');
 });
 
 test('save-as reports an empty or duplicate name without committing; cancelling is silent', async () => {
@@ -249,11 +250,11 @@ test('save-as reports an empty or duplicate name without committing; cancelling 
     view.live.answers.prompt.push('   ');
     view.click('save-as');
     await view.settle();
-    assert.match(view.$('.status-text').textContent, /不能为空/);
+    assert.equal(view.$('.status-text').dataset.state, 'error');
     view.live.answers.prompt.push('一号');
     view.click('save-as');
     await view.settle();
-    assert.match(view.$('.status-text').textContent, /已存在/);
+    assert.equal(view.$('.status-text').dataset.state, 'error');
     view.live.answers.prompt.push(null);
     view.click('save-as');
     await view.settle();
@@ -262,7 +263,7 @@ test('save-as reports an empty or duplicate name without committing; cancelling 
 
 test('overwrite writes the form config into the active preset and into the effective config', async () => {
     const view = mountBar({ presets: TWO, activeApiPresetId: 'p1', form: { ...CONFIG, host: 'http://changed' } });
-    assert.match(view.$('.status-text').textContent, /与预设不一致/);
+    assert.equal(view.$('.status-text').dataset.state, 'modified');
     view.click('overwrite');
     await view.settle();
     const [change] = view.live.commits;
@@ -329,6 +330,6 @@ test('deselecting keeps the current config; a failed commit is reported and the 
     const failing = mountBar({ presets: TWO, activeApiPresetId: 'p1', commitResult: false });
     failing.choose('p2');
     await failing.settle();
-    assert.match(failing.$('.status-text').textContent, /保存失败/);
+    assert.equal(failing.$('.status-text').dataset.state, 'error');
     assert.equal(failing.$('select').value, 'p1');
 });

@@ -1539,14 +1539,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.html",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.html",
       "extension": ".html",
-      "sizeBytes": 72277
+      "sizeBytes": 72337
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 212874
+      "sizeBytes": 212183
     },
     {
       "source": "littlewhitebox",
@@ -1627,6 +1627,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-api-config.js",
+      "relativePath": "modules/draw/providers/novelai/novel-api-config.js",
+      "extension": ".js",
+      "sizeBytes": 1687
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-backend-job-result.js",
       "relativePath": "modules/draw/providers/novelai/novel-backend-job-result.js",
       "extension": ".js",
@@ -1644,14 +1651,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 308961
+      "sizeBytes": 303391
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 197804
+      "sizeBytes": 193618
     },
     {
       "source": "littlewhitebox",
@@ -1882,14 +1889,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.html",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.html",
       "extension": ".html",
-      "sizeBytes": 58796
+      "sizeBytes": 58853
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 172009
+      "sizeBytes": 171834
     },
     {
       "source": "littlewhitebox",
@@ -1942,17 +1949,24 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/api-presets-copy.js",
+      "relativePath": "modules/draw/shared/api-presets-copy.js",
+      "extension": ".js",
+      "sizeBytes": 1924
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/api-presets-ui.js",
       "relativePath": "modules/draw/shared/api-presets-ui.js",
       "extension": ".js",
-      "sizeBytes": 13487
+      "sizeBytes": 13733
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/api-presets.js",
       "relativePath": "modules/draw/shared/api-presets.js",
       "extension": ".js",
-      "sizeBytes": 10685
+      "sizeBytes": 10870
     },
     {
       "source": "littlewhitebox",
@@ -2260,7 +2274,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-settings.js",
       "relativePath": "modules/draw/shared/draw-settings.js",
       "extension": ".js",
-      "sizeBytes": 7465
+      "sizeBytes": 7976
     },
     {
       "source": "littlewhitebox",
@@ -2656,17 +2670,17 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/api-presets-wiring.test.js",
-      "relativePath": "modules/draw/shared/tests/api-presets-wiring.test.js",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/api-presets-persistence.test.js",
+      "relativePath": "modules/draw/shared/tests/api-presets-persistence.test.js",
       "extension": ".js",
-      "sizeBytes": 5533
+      "sizeBytes": 9080
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/api-presets.test.js",
       "relativePath": "modules/draw/shared/tests/api-presets.test.js",
       "extension": ".js",
-      "sizeBytes": 17679
+      "sizeBytes": 17704
     },
     {
       "source": "littlewhitebox",
@@ -2960,7 +2974,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/fixtures/provider-runtime-fixture.mjs",
       "relativePath": "modules/draw/shared/tests/fixtures/provider-runtime-fixture.mjs",
       "extension": ".mjs",
-      "sizeBytes": 9699
+      "sizeBytes": 10559
     },
     {
       "source": "littlewhitebox",
@@ -3016,7 +3030,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/novel-draw-panel.test.js",
       "relativePath": "modules/draw/shared/tests/novel-draw-panel.test.js",
       "extension": ".js",
-      "sizeBytes": 129122
+      "sizeBytes": 134007
     },
     {
       "source": "littlewhitebox",

@@ -798,7 +798,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
                     <h2 class="view-title">API 配置</h2>
                     <p class="view-desc">NovelAI 服务连接设置</p>
                 </div>
-                <div class="card">
+                <fieldset id="nd_api_form" class="card" style="min-width:0;margin:0;" disabled>
                     <div id="nd_api_presets" class="preset-bar"></div>
                     <div class="form-group">
                         <label class="form-label">NovelAI API Key</label>
@@ -853,7 +853,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
                         <button id="nd_test_api" class="btn"><i class="fa-solid fa-plug"></i> 测试连接</button>
                     </div>
                     <div id="nd_api_status" class="status-text"></div>
-                </div>
+                </fieldset>
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
@@ -1500,13 +1500,14 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
      ═══════════════════════════════════════════════════════════════════════════ -->
 <script type="module">
 import { normalizeMediaUrl } from '../../shared/media-url.js';
+import { NOVEL_API_DEFAULTS, NOVEL_API_FIELDS, normalizeNovelApiConfig } from './novel-api-config.js';
+import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
 
 const DEFAULTS = {
-    timeout: 60000,
-    requestDelay: { min: 15000, max: 30000 },
+    ...NOVEL_API_DEFAULTS,
     cacheDays: 3,
     params: {
         model: 'nai-diffusion-4-5-full',
@@ -1548,15 +1549,9 @@ const CHARACTER_TYPES = [
 let state = {
     enabled: false,
     mode: 'manual',
-    apiKey: '',
-    apiBaseUrl: '',
-    sendMode: 'frontend',
-    useImageBackendJobs: false,
-    insecureTLS: false,
+    ...normalizeNovelApiConfig(),
     apiPresets: [],
     activeApiPresetId: null,
-    timeout: DEFAULTS.timeout,
-    requestDelay: { ...DEFAULTS.requestDelay },
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
     selectedParamsPresetId: null,
@@ -4405,139 +4400,96 @@ function renderWorldbookEntriesLocal(book) {
 // 预设栏组件在 shared/api-presets-ui.js（纯函数在 api-presets.js），宿主（novel-draw.js）负责规范化与落盘。
 // 预设里含 API Key：与 apiKey 同样只存本地，这里不把它写进日志 / 提示。
 
-let AP_UI = null; // api-presets-ui.js（API 配置预设栏组件），与角色库模块一同动态引入
+let AP_UI = null;
 let apiPresetBar = null;
-let apiPresetRequestSeq = 0;
-const apiPresetPending = new Map(); // requestId -> { resolve, timer, change }
-// 与 novel-draw.js 的 NOVEL_API_PRESET_FIELDS 保持一致（api-presets-wiring.test.js 会比对）。
-const API_PRESET_FIELDS = ['apiKey', 'apiBaseUrl', 'sendMode', 'useImageBackendJobs', 'insecureTLS', 'timeout', 'requestDelay'];
-const API_PRESET_DEFAULTS = {
-    apiKey: '', apiBaseUrl: '', sendMode: 'frontend', useImageBackendJobs: false, insecureTLS: false,
-    timeout: DEFAULTS.timeout, requestDelay: { ...DEFAULTS.requestDelay },
-};
-const API_PRESET_REQUEST_TIMEOUT_MS = 15000;
+let apiSettingsReady = false;
+let apiSavePending = null;
+let apiSaveSequence = 0;
+const API_SAVE_SLOW_MS = 15000;
 
-function normalizeApiTimeout(ms) {
-    const value = Number(ms);
-    return value > 0 ? Math.min(600000, Math.max(10000, Math.floor(value))) : DEFAULTS.timeout;
-}
-
-function normalizeApiDelay(delay) {
-    const min = Number(delay?.min) > 0 ? Number(delay.min) : DEFAULTS.requestDelay.min;
-    const max = Number(delay?.max) > 0 ? Number(delay.max) : DEFAULTS.requestDelay.max;
-    return { min: Math.min(min, max), max: Math.max(min, max) };
-}
-
-/** 表单里现在的 API 配置（与“保存”按钮发给宿主的字段一致）。 */
 function readApiConfigFromForm() {
-    return {
-        apiKey: $('nd_api_key').value.trim(),
-        apiBaseUrl: $('nd_api_base_url').value.trim(),
+    return normalizeNovelApiConfig({
+        apiKey: $('nd_api_key').value,
+        apiBaseUrl: $('nd_api_base_url').value,
         sendMode: getSendMode(),
         useImageBackendJobs: $('nd_use_backend_jobs').checked,
         insecureTLS: $('nd_insecure_tls').checked,
-        timeout: normalizeApiTimeout(Number($('nd_timeout').value) * 1000 || 180000),
-        requestDelay: normalizeApiDelay(parseDelay($('nd_delay').value)),
-    };
+        timeout: Number($('nd_timeout').value) * 1000,
+        requestDelay: parseDelay($('nd_delay').value),
+    });
 }
 
-/** 已保存、正在生效的 API 配置（来自宿主推来的 state）。 */
 function getEffectiveApiConfig() {
-    return {
-        apiKey: String(state.apiKey || '').trim(),
-        apiBaseUrl: String(state.apiBaseUrl || '').trim(),
-        sendMode: state.sendMode === 'backend' ? 'backend' : 'frontend',
-        useImageBackendJobs: state.useImageBackendJobs === true,
-        insecureTLS: state.insecureTLS === true,
-        timeout: normalizeApiTimeout(state.timeout),
-        requestDelay: normalizeApiDelay(state.requestDelay),
-    };
+    return normalizeNovelApiConfig(state);
 }
 
-/** 宿主回执里的生效配置写回 state（不动表单）。 */
-function applyEffectiveApiConfig(config) {
-    if (!config || typeof config !== 'object') return;
-    state.apiKey = String(config.apiKey || '');
-    state.apiBaseUrl = String(config.apiBaseUrl || '');
-    state.sendMode = config.sendMode === 'backend' ? 'backend' : 'frontend';
-    state.useImageBackendJobs = config.useImageBackendJobs === true;
-    state.insecureTLS = config.insecureTLS === true;
-    state.timeout = normalizeApiTimeout(config.timeout);
-    state.requestDelay = normalizeApiDelay(config.requestDelay);
-}
-
-/** 把一份 API 配置填进表单，并刷新依赖它的界面状态（发送方式分组显隐、后台任务选项、后端面板检测）。 */
 function fillApiConfigForm(config) {
-    const next = { ...API_PRESET_DEFAULTS, ...(config || {}) };
-    $('nd_api_key').value = next.apiKey || '';
-    $('nd_api_base_url').value = next.apiBaseUrl || '';
-    $('nd_use_backend_jobs').checked = next.useImageBackendJobs === true;
-    $('nd_insecure_tls').checked = next.insecureTLS === true;
-    $('nd_timeout').value = Math.round(normalizeApiTimeout(next.timeout) / 1000);
-    const delay = normalizeApiDelay(next.requestDelay);
-    $('nd_delay').value = `${delay.min}-${delay.max}`;
-    updateSendModeUI(next.sendMode === 'backend' ? 'backend' : 'frontend');
+    const next = normalizeNovelApiConfig(config);
+    $('nd_api_key').value = next.apiKey;
+    $('nd_api_base_url').value = next.apiBaseUrl;
+    $('nd_use_backend_jobs').checked = next.useImageBackendJobs;
+    $('nd_insecure_tls').checked = next.insecureTLS;
+    $('nd_timeout').value = next.timeout / 1000;
+    $('nd_delay').value = `${next.requestDelay.min}-${next.requestDelay.max}`;
+    updateSendModeUI(next.sendMode);
     renderBackendPluginStatus();
 }
 
 function renderApiPresetBar() {
-    if (!AP_UI) return;
+    if (!AP_UI || !apiSettingsReady) return;
     if (apiPresetBar) {
         apiPresetBar.render();
         return;
     }
-    const container = $('nd_api_presets');
-    if (!container) return;
     apiPresetBar = AP_UI.createApiPresetBar({
         document,
-        container,
-        fields: API_PRESET_FIELDS,
-        defaults: API_PRESET_DEFAULTS,
+        container: $('nd_api_presets'),
+        form: $('nd_api_form'),
+        fields: NOVEL_API_FIELDS,
+        defaults: NOVEL_API_DEFAULTS,
         getState: () => ({ apiPresets: state.apiPresets, activeApiPresetId: state.activeApiPresetId }),
         readConfig: readApiConfigFromForm,
         getEffectiveConfig: getEffectiveApiConfig,
-        onCommit: commitApiPresets,
+        onCommit: change => requestApiSave('SAVE_API_PRESETS', change, Boolean(change.config)),
         confirm: message => confirm(message),
         prompt: (message, fallback) => prompt(message, fallback),
     });
 }
 
-/** 预设栏的每次修改都整体交给宿主落盘；宿主回执（STATUS target=api-presets）到达后才算完成。 */
-function commitApiPresets(change) {
-    return new Promise((resolve) => {
-        const requestId = `api-preset-${++apiPresetRequestSeq}`;
+// 超时只表示尚未收到结果，不代表存储失败；保留请求及互斥直到真实回执到达。
+// requestId 跨 iframe 实例唯一，关闭重开后的迟到回执不能改写新页面。
+function requestApiSave(type, payload, applyForm) {
+    return new Promise(resolve => {
+        const requestId = `api-${Date.now()}-${Math.random().toString(36).slice(2)}-${++apiSaveSequence}`;
         const timer = setTimeout(() => {
-            apiPresetPending.delete(requestId);
-            resolve(false);
-        }, API_PRESET_REQUEST_TIMEOUT_MS);
-        apiPresetPending.set(requestId, { resolve, timer, change });
-        postToParent({
-            type: 'SAVE_API_PRESETS',
-            requestId,
-            reason: change.reason,
-            apiPresets: change.apiPresets,
-            activeApiPresetId: change.activeApiPresetId,
-            config: change.config,
-        });
+            apiPresetBar.setStatus('pending', API_PRESET_COPY.awaitingReceipt);
+        }, API_SAVE_SLOW_MS);
+        apiSavePending = { requestId, resolve, timer, applyForm };
+        postToParent({ type, ...payload, requestId });
     });
 }
 
-function handleApiPresetsStatus(data) {
-    if (Array.isArray(data.apiPresets)) {
-        state.apiPresets = data.apiPresets;
-        state.activeApiPresetId = data.activeApiPresetId || null;
-    }
-    applyEffectiveApiConfig(data.config);
-    const pending = apiPresetPending.get(data.requestId);
-    if (!pending) {
-        renderApiPresetBar();
-        return;
-    }
+function submitApiConfig(syncApiPreset = false) {
+    if (!apiPresetBar || apiPresetBar.isBusy()) return;
+    void apiPresetBar.runSave(() => requestApiSave('SAVE_API_CONFIG', {
+        ...readApiConfigFromForm(), syncApiPreset,
+    }, true), () => {
+        const active = syncApiPreset && state.apiPresets.find(item => item.id === state.activeApiPresetId);
+        return active ? API_PRESET_COPY.synced(active.name) : API_PRESET_COPY.saved;
+    });
+}
+
+function handleApiSaveStatus(data) {
+    const pending = apiSavePending;
+    if (!pending || pending.requestId !== data.requestId || !['success', 'error'].includes(data.state)) return;
     clearTimeout(pending.timer);
-    apiPresetPending.delete(data.requestId);
+    apiSavePending = null;
+    state.apiPresets = data.apiPresets;
+    state.activeApiPresetId = data.activeApiPresetId;
+    Object.assign(state, normalizeNovelApiConfig(data.config));
     const ok = data.state === 'success';
-    // 切换预设：宿主已把预设配置作为生效配置落盘，这里再填进表单。
-    if (ok && pending.change.reason === 'select') fillApiConfigForm(data.config);
+    if (ok && pending.applyForm) fillApiConfigForm(data.config);
+    if (data.target === 'api') updateStatus($('nd_api_status'), data.state, data.text);
     pending.resolve(ok);
 }
 
@@ -4550,15 +4502,7 @@ function applyStateToUI() {
         $('nd_show_floor').checked = state.showFloorButton !== false;
         $('nd_show_floating').checked = state.showFloatingButton === true;
 
-        $('nd_api_key').value = state.apiKey || '';
-        $('nd_api_base_url').value = state.apiBaseUrl || '';
-        $('nd_use_backend_jobs').checked = state.useImageBackendJobs === true;
-        updateSendModeUI(state.sendMode === 'backend' ? 'backend' : 'frontend');
-        $('nd_insecure_tls').checked = state.insecureTLS === true;
-        $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
-        const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
-        const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
-        $('nd_delay').value = `${dMin}-${dMax}`;
+        if (!apiSavePending) fillApiConfigForm(state);
         renderApiPresetBar();
         $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
@@ -4840,6 +4784,7 @@ window.addEventListener('message', event => {
             if (Array.isArray(incoming.characterGroupPresets)) groupPresetHostPresets = incoming.characterGroupPresets;
             if (groupPresetPendingSaves.size) delete incoming.characterGroupPresets;
             state = { ...state, ...incoming, cacheStats: data.cacheStats || state.cacheStats };
+            apiSettingsReady = true;
             // 宿主推来的是已保存的角色表，不含本页还没保存的空白草稿；编辑中的草稿放回去，
             // 表单内容由 renderCharList 重绘前读回并恢复。
             reattachDraftCharacters();
@@ -4900,8 +4845,8 @@ window.addEventListener('message', event => {
                 handleGroupPresetStatus(data);
                 break;
             }
-            if (data.target === 'api-presets') {
-                handleApiPresetsStatus(data);
+            if (data.target === 'api-presets' || (data.target === 'api' && data.requestId)) {
+                handleApiSaveStatus(data);
                 break;
             }
             if (data.target === 'worldbook') {
@@ -4911,13 +4856,6 @@ window.addEventListener('message', event => {
             }
             if (data.target === 'api') {
                 updateStatus($('nd_api_status'), data.state, data.text);
-                // “保存”回执带回最新的预设列表与生效配置（保存可能把配置同步进了当前预设）。
-                if (Array.isArray(data.apiPresets)) {
-                    state.apiPresets = data.apiPresets;
-                    state.activeApiPresetId = data.activeApiPresetId || null;
-                }
-                if (data.apiConfig) applyEffectiveApiConfig(data.apiConfig);
-                if (Array.isArray(data.apiPresets) || data.apiConfig) renderApiPresetBar();
             } else if (data.target === 'params') {
                 updateStatus($('nd_params_status'), data.state, data.text);
             } else if (data.target === 'prompt-preset') {
@@ -5064,82 +5002,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     $('nd_reset_base_url').addEventListener('click', () => {
+        if (apiPresetBar?.isBusy()) return;
         $('nd_api_base_url').value = '';
-        setSavingState($('nd_save_api'));
-        postToParent({
-            type: 'SAVE_API_CONFIG',
-            apiKey: $('nd_api_key').value.trim(),
-            apiBaseUrl: '',
-            sendMode: getSendMode(),
-            useImageBackendJobs: $('nd_use_backend_jobs').checked,
-            insecureTLS: $('nd_insecure_tls').checked,
-            timeout: Number($('nd_timeout').value) * 1000 || 180000,
-            requestDelay: parseDelay($('nd_delay').value)
-        });
+        submitApiConfig();
     });
 
     $('nd_send_mode_group').querySelectorAll('.nd-mode-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-            const mode = btn.dataset.sendMode === 'backend' ? 'backend' : 'frontend';
-            updateSendModeUI(mode);
-            postToParent({
-                type: 'SAVE_API_CONFIG',
-                apiKey: $('nd_api_key').value.trim(),
-                apiBaseUrl: $('nd_api_base_url').value.trim(),
-                sendMode: mode,
-                useImageBackendJobs: $('nd_use_backend_jobs').checked,
-                insecureTLS: $('nd_insecure_tls').checked,
-                timeout: Number($('nd_timeout').value) * 1000 || 180000,
-                requestDelay: parseDelay($('nd_delay').value)
-            });
+            if (apiPresetBar?.isBusy()) return;
+            updateSendModeUI(btn.dataset.sendMode);
+            submitApiConfig();
         });
     });
 
-    $('nd_insecure_tls').addEventListener('change', () => {
-        postToParent({
-            type: 'SAVE_API_CONFIG',
-            apiKey: $('nd_api_key').value.trim(),
-            apiBaseUrl: $('nd_api_base_url').value.trim(),
-            sendMode: getSendMode(),
-            useImageBackendJobs: $('nd_use_backend_jobs').checked,
-            insecureTLS: $('nd_insecure_tls').checked,
-            timeout: Number($('nd_timeout').value) * 1000 || 180000,
-            requestDelay: parseDelay($('nd_delay').value)
-        });
-    });
-
+    $('nd_insecure_tls').addEventListener('change', () => submitApiConfig());
     $('nd_use_backend_jobs').addEventListener('change', () => {
+        if (apiPresetBar?.isBusy()) return;
         updateSendModeUI(getSendMode());
         renderBackendPluginStatus();
-        postToParent({
-            type: 'SAVE_API_CONFIG',
-            apiKey: $('nd_api_key').value.trim(),
-            apiBaseUrl: $('nd_api_base_url').value.trim(),
-            sendMode: getSendMode(),
-            useImageBackendJobs: $('nd_use_backend_jobs').checked,
-            insecureTLS: $('nd_insecure_tls').checked,
-            timeout: Number($('nd_timeout').value) * 1000 || 180000,
-            requestDelay: parseDelay($('nd_delay').value)
-        });
+        submitApiConfig();
     });
-
     $('nd_backend_recheck').addEventListener('click', () => requestBackendPluginCheck());
-
-    $('nd_save_api').addEventListener('click', () => {
-        setSavingState($('nd_save_api'));
-        postToParent({
-            type: 'SAVE_API_CONFIG',
-            apiKey: $('nd_api_key').value.trim(),
-            apiBaseUrl: $('nd_api_base_url').value.trim(),
-            sendMode: getSendMode(),
-            useImageBackendJobs: $('nd_use_backend_jobs').checked,
-            insecureTLS: $('nd_insecure_tls').checked,
-            timeout: Number($('nd_timeout').value) * 1000 || 180000,
-            requestDelay: parseDelay($('nd_delay').value),
-            // 选中了 API 预设时，宿主把这次保存同步回该预设。
-            syncApiPreset: true
-        });
-    });
+    $('nd_save_api').addEventListener('click', () => submitApiConfig(true));
 
     // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
     ['input', 'change', 'click'].forEach((type) => {
