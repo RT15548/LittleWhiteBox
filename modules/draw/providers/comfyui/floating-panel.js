@@ -2,7 +2,14 @@ import { getContext } from '../../../../../../../extensions.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 import { DRAW_CAPSULE_COPY } from '../../shared/draw-capsule-copy.js';
-import { fillMaxImagesSelect, resolveMaxImagesChange } from '../../shared/max-images-override.js';
+import { normalizeMaxImagesOverride } from '../../shared/max-images-override.js';
+import {
+    MAX_IMAGES_INPUT_CLASS,
+    MAX_IMAGES_INPUT_CSS,
+    bindMaxImagesInput,
+    createMaxImagesInputRow,
+    syncMaxImagesInput,
+} from '../../shared/max-images-input.js';
 import {
     resolveCurrentDrawRunActivityTarget,
     subscribeDrawRunActivity,
@@ -356,6 +363,7 @@ const STYLES = `
 .nd-select:focus { border-color: rgba(255, 255, 255, 0.3); }
 .nd-select option { background: #1a1a1e; color: #eee; text-align: left; }
 .nd-select.size { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
+${MAX_IMAGES_INPUT_CSS}
 .nd-inner-sep { display: none; }
 .nd-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .nd-auto {
@@ -488,18 +496,34 @@ function fillSizeSelect(selectEl) {
     });
 }
 
-function fillMaxImagesOptions(selectEl) {
-    fillMaxImagesSelect(selectEl, getSettings().overrideMaxImages);
+function getCurrentPresetMaxImages() {
+    const settings = getSettings();
+    const presets = settings.presets || [];
+    const preset = presets.find((item) => item.id === settings.selectedPresetId) || presets[0];
+    return preset?.maxImages || 0;
+}
+
+function fillMaxImagesInput(inputEl, force = false) {
+    syncMaxImagesInput(inputEl, {
+        override: getSettings().overrideMaxImages,
+        presetMaxImages: getCurrentPresetMaxImages(),
+        force,
+    });
 }
 
 function createMaxImagesRow() {
-    const row = createEl('div', 'nd-row');
-    row.appendChild(createEl('span', 'nd-label', '数目'));
-    const select = createEl('select', 'nd-select nd-max-images-select');
-    select.title = '要求出图数：覆盖参数预设里的数量，选“跟随预设”恢复';
-    fillMaxImagesOptions(select);
-    row.appendChild(select);
+    const row = createMaxImagesInputRow(document);
+    fillMaxImagesInput(row.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`));
     return row;
+}
+
+function bindMaxImagesInputEvents(inputEl) {
+    bindMaxImagesInput(inputEl, {
+        getOverride: () => getSettings().overrideMaxImages,
+        save: setQuickMaxImages,
+        refresh: fillMaxImagesInput,
+        notify: (message) => globalThis.toastr?.warning?.(message),
+    });
 }
 
 function createFloorPanelData(messageId) {
@@ -615,7 +639,7 @@ function cachePanelDOM(panelData) {
         time: el.querySelector('.nd-time'),
         presetSelect: el.querySelector('.nd-preset-select'),
         sizeSelect: el.querySelector('.nd-size-select'),
-        maxImagesSelect: el.querySelector('.nd-max-images-select'),
+        maxImagesInput: el.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`),
         autoToggle: el.querySelector('.nd-auto-toggle'),
     };
 }
@@ -931,7 +955,7 @@ function bindFloorPanelEvents(panelData) {
         if (!el.classList.contains('expanded')) {
             refreshFloorPresetSelect(messageId);
             refreshFloorSizeSelect(messageId);
-            refreshFloorMaxImagesSelect(messageId);
+            refreshFloorMaxImagesInput(messageId);
         }
         el.classList.toggle('expanded');
     }));
@@ -950,9 +974,7 @@ function bindFloorPanelEvents(panelData) {
     panelData.cache.sizeSelect?.addEventListener('change', async (e) => {
         await setQuickSize(e.target.value);
     });
-    panelData.cache.maxImagesSelect?.addEventListener('change', async (e) => {
-        await setQuickMaxImages(e.target.value);
-    });
+    bindMaxImagesInputEvents(panelData.cache.maxImagesInput);
     panelData.cache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
     });
@@ -980,12 +1002,12 @@ function refreshFloorSizeSelect(messageId) {
     fillSizeSelect(panelMap.get(messageId)?.cache?.sizeSelect);
 }
 
-function refreshFloorMaxImagesSelect(messageId) {
-    fillMaxImagesOptions(panelMap.get(messageId)?.cache?.maxImagesSelect);
+function refreshFloorMaxImagesInput(messageId) {
+    fillMaxImagesInput(panelMap.get(messageId)?.cache?.maxImagesInput);
 }
 
-async function persistQuickSetting(mutator, afterSave) {
-    const ok = await updateSettingsPersistent(mutator);
+async function persistQuickSetting(mutator, afterSave, okText) {
+    const ok = await updateSettingsPersistent(mutator, okText);
     if (ok && typeof afterSave === 'function') afterSave();
     return ok;
 }
@@ -1002,19 +1024,13 @@ async function setQuickSize(value) {
     }, updateAllSizeSelects);
 }
 
-async function setQuickMaxImages(rawValue) {
-    const change = resolveMaxImagesChange(rawValue, getSettings().overrideMaxImages, {
-        prompt: typeof window.prompt === 'function' ? (message, fallback) => window.prompt(message, fallback) : undefined,
-        notify: (message) => globalThis.toastr?.warning?.(message),
-    });
-    if (change.type === 'keep') {
-        updateAllMaxImagesSelects();
-        return false;
-    }
+// value 已由数字输入框校验：1-20 的整数 = 覆盖，null = 清除覆盖（跟随预设）。
+async function setQuickMaxImages(value) {
+    const next = normalizeMaxImagesOverride(value);
     const ok = await persistQuickSetting((settings) => {
-        settings.overrideMaxImages = change.value;
-    }, updateAllMaxImagesSelects);
-    if (!ok) updateAllMaxImagesSelects();
+        settings.overrideMaxImages = next;
+    }, updateAllMaxImagesInputs, next == null ? '出图数目：跟随预设' : `出图数目已设为 ${next}`);
+    if (!ok) updateAllMaxImagesInputs();
     return ok;
 }
 
@@ -1370,7 +1386,7 @@ function routeFloatingClick(target) {
         if (!floatingEl.classList.contains('expanded')) {
             refreshFloatingPresetSelect();
             refreshFloatingSizeSelect();
-            refreshFloatingMaxImagesSelect();
+            refreshFloatingMaxImagesInput();
         }
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
@@ -1440,8 +1456,8 @@ function refreshFloatingSizeSelect() {
     fillSizeSelect(floatingCache.sizeSelect);
 }
 
-function refreshFloatingMaxImagesSelect() {
-    fillMaxImagesOptions(floatingCache.maxImagesSelect);
+function refreshFloatingMaxImagesInput() {
+    fillMaxImagesInput(floatingCache.maxImagesInput);
 }
 
 function cacheFloatingDOM() {
@@ -1456,7 +1472,7 @@ function cacheFloatingDOM() {
         detailTime: floatingEl.querySelector('.nd-time'),
         presetSelect: floatingEl.querySelector('.nd-preset-select'),
         sizeSelect: floatingEl.querySelector('.nd-size-select'),
-        maxImagesSelect: floatingEl.querySelector('.nd-max-images-select'),
+        maxImagesInput: floatingEl.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`),
         autoToggle: floatingEl.querySelector('.nd-auto-toggle'),
     };
 }
@@ -1518,9 +1534,7 @@ function createFloatingButton() {
     floatingCache.sizeSelect?.addEventListener('change', async (e) => {
         await setQuickSize(e.target.value);
     });
-    floatingCache.maxImagesSelect?.addEventListener('change', async (e) => {
-        await setQuickMaxImages(e.target.value);
-    });
+    bindMaxImagesInputEvents(floatingCache.maxImagesInput);
     floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
     });
@@ -1552,6 +1566,8 @@ function destroyFloatingButton() {
 function updateAllPresetSelects() {
     panelMap.forEach((data) => fillPresetSelect(data.cache?.presetSelect));
     fillPresetSelect(floatingCache.presetSelect);
+    // “数目”输入框的提示里带当前预设的出图数，切换预设后一并刷新。
+    updateAllMaxImagesInputs();
 }
 
 function updateAllSizeSelects() {
@@ -1559,9 +1575,9 @@ function updateAllSizeSelects() {
     fillSizeSelect(floatingCache.sizeSelect);
 }
 
-function updateAllMaxImagesSelects() {
-    panelMap.forEach((data) => fillMaxImagesOptions(data.cache?.maxImagesSelect));
-    fillMaxImagesOptions(floatingCache.maxImagesSelect);
+function updateAllMaxImagesInputs() {
+    panelMap.forEach((data) => fillMaxImagesInput(data.cache?.maxImagesInput));
+    fillMaxImagesInput(floatingCache.maxImagesInput);
 }
 
 export function updateAutoModeUI() {
@@ -1635,7 +1651,7 @@ export {
     SIZE_OPTIONS,
     updateAllPresetSelects,
     updateAllSizeSelects,
-    updateAllMaxImagesSelects,
+    updateAllMaxImagesInputs,
     createFloatingButton,
     destroyFloatingButton,
 };
