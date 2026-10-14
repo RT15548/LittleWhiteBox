@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { Lt as M, o as S } from "./xiaobai-os-three.module-Ah3xIFOr.js";
+import { Wt as M, s as S } from "./xiaobai-os-three.module-Bxd-t3Ck.js";
 var g = new M();
 function a(u, n, i, y, f, e) {
   const x = 2 * Math.PI * f / 4, l = Math.max(e - 2 * f, 0), m = Math.PI / 4;

@@ -1,7 +1,7 @@
 /* eslint-disable */
-import { c as p, s as y } from "./xiaobai-os-three.module-Ah3xIFOr.js";
+import { c as p, l as y } from "./xiaobai-os-three.module-Bxd-t3Ck.js";
 function E(i, a = !1) {
-  const r = i[0].index !== null, m = new Set(Object.keys(i[0].attributes)), n = new Set(Object.keys(i[0].morphAttributes)), f = {}, t = {}, h = i[0].morphTargetsRelative, u = new p();
+  const r = i[0].index !== null, m = new Set(Object.keys(i[0].attributes)), n = new Set(Object.keys(i[0].morphAttributes)), f = {}, t = {}, h = i[0].morphTargetsRelative, u = new y();
   let g = 0;
   for (let e = 0; e < i.length; ++e) {
     const s = i[e];
@@ -76,7 +76,7 @@ function b(i) {
       return console.error("THREE.BufferGeometryUtils: .mergeAttributes() failed. BufferAttribute.gpuType must be consistent across matching attributes."), null;
     f += e.count * r;
   }
-  const t = new a(f), h = new y(t, r, m);
+  const t = new a(f), h = new p(t, r, m);
   let u = 0;
   for (let g = 0; g < i.length; ++g) {
     const e = i[g];

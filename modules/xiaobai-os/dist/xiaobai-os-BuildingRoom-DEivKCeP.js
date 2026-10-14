@@ -1,12 +1,12 @@
 /* eslint-disable */
 import { D as Ee, E as Ye, I as Wt, M as ct, N as qt, P as Ut, R as Rt, S as m, T as At, U as ke, V as c, X as Ze, at as vt, b as Ve, dt as _t, ft as k, h as D, i as Zt, lt as t, m as Gt, r as Yt, rt as Q, ut as tt, v as K, w as mt, x as B, y as v } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
-import { A as Ft, B as at, C as Kt, D as Pt, E as Xt, F as De, H as O, I as Jt, L as Bt, M as Qt, N as Ae, O as ea, P as Z, R as Lt, S as Nt, T as wt, U as Mt, V as ta, W as St, _ as aa, a as Ge, b as la, c as ia, d as Ot, f as na, g as xt, h as oa, i as Ct, j as sa, k as ra, l as $t, m as ua, n as da, o as jt, p as ca, r as o, s as lt, t as va, u as ma, v as It, w as fa, x as it, y as Vt, z as st } from "./xiaobai-os-outfit-Bu9V9bRI.js";
-import { C as Pe, Ft as pa, Lt as bt, St as ha, X as ft, Y as ba, _ as ya, a as ka, d as ga, et as wa, h as xa, kt as _a, n as Ma, o as Sa, st as Ca, w as $a, xt as Ia } from "./xiaobai-os-three.module-Ah3xIFOr.js";
+import { A as Ft, B as at, C as Kt, D as Pt, E as Xt, F as De, H as N, I as Jt, L as Bt, M as Qt, N as Ae, O as ea, P as Z, R as Ot, S as Lt, T as wt, U as Mt, V as ta, W as St, _ as aa, a as Ge, b as la, c as ia, d as Nt, f as na, g as xt, h as oa, i as Ct, j as sa, k as ra, l as $t, m as ua, n as da, o as jt, p as ca, r as o, s as lt, t as va, u as ma, v as It, w as fa, x as it, y as Vt, z as st } from "./xiaobai-os-outfit-Bu9V9bRI.js";
+import { $ as pa, D as Pe, Dt as ha, Et as ba, Ft as ya, O as ka, Vt as ga, Wt as bt, b as wa, dt as xa, et as ft, it as _a, m as Ma, n as Sa, o as Ca, s as $a, v as Ia } from "./xiaobai-os-three.module-Bxd-t3Ck.js";
 import { t as za } from "./xiaobai-os-design-Bb2ApHR1.js";
 import { a as Ea, i as Ta, o as Ra, r as Aa } from "./xiaobai-os-performance-BD3WuJCC.js";
-import { t as Pa } from "./xiaobai-os-RoundedBoxGeometry-6yGznEQp.js";
-import { t as Ba } from "./xiaobai-os-BufferGeometryUtils-BLglYbHr.js";
-function La(e, l) {
+import { t as Pa } from "./xiaobai-os-RoundedBoxGeometry-Cuf6zpAz.js";
+import { t as Ba } from "./xiaobai-os-BufferGeometryUtils-Cb-FyMS_.js";
+function Oa(e, l) {
   const a = xt(e, l), n = {
     bedroom: a.habitable,
     lounge: a.spaces.some((i) => i.activity === "relax" && !i.issue),
@@ -32,7 +32,7 @@ function La(e, l) {
     wishes: b
   };
 }
-function Na(e) {
+function La(e) {
   const l = st[e];
   return {
     minWidth: e === "courtyard" ? 5 : 4,
@@ -42,9 +42,9 @@ function Na(e) {
     maxMaterials: l.materials + 1
   };
 }
-function Oa(e, l) {
+function Na(e, l) {
   let a = e >>> 0;
-  const n = (S) => (a = Math.imul(a, 1664525) + 1013904223 >>> 0, Math.floor(a / 4294967296 * S)), u = Na(l), b = u.minWidth + n(u.maxWidth - u.minWidth + 1), i = st[l], y = {
+  const n = (S) => (a = Math.imul(a, 1664525) + 1013904223 >>> 0, Math.floor(a / 4294967296 * S)), u = La(l), b = u.minWidth + n(u.maxWidth - u.minWidth + 1), i = st[l], y = {
     seed: e,
     tier: l,
     width: b,
@@ -139,7 +139,7 @@ function Va() {
   return [...crypto.getRandomValues(new Uint32Array(4))].map((e) => e.toString(16).padStart(8, "0")).join("");
 }
 function yt(e) {
-  return (!Number.isInteger(e.z) || Number(e.z) < 0 || Number(e.z) >= Ae.maxDepth || !Number.isInteger(e.x) || !Number.isInteger(e.y) || Number(e.x) < 0 || Number(e.x) >= Ae.maxWidth || Number(e.y) < 0 || Number(e.y) > Math.max(...Lt.map((l) => st[l].floors))) && de("invalid"), {
+  return (!Number.isInteger(e.z) || Number(e.z) < 0 || Number(e.z) >= Ae.maxDepth || !Number.isInteger(e.x) || !Number.isInteger(e.y) || Number(e.x) < 0 || Number(e.x) >= Ae.maxWidth || Number(e.y) < 0 || Number(e.y) > Math.max(...Ot.map((l) => st[l].floors))) && de("invalid"), {
     x: Number(e.x),
     y: Number(e.y),
     z: Number(e.z)
@@ -233,16 +233,16 @@ function Ha(e, l, a) {
         runId: n.value.active.id,
         request: R
       }));
-      const N = await e.request(`game/building/${z}`, {
+      const L = await e.request(`game/building/${z}`, {
         chatIdentity: l,
         ...R
       }, 35e3), P = s;
-      return x(P && P.revision >= N.result.revision ? P : N.result), $(), d.value = !1, n.value?.writeState === "ready" && !n.value.pending && (!y.value || n.value.revision > y.value.revision) && (y.value = null), !0;
-    } catch (N) {
+      return x(P && P.revision >= L.result.revision ? P : L.result), $(), d.value = !1, n.value?.writeState === "ready" && !n.value.pending && (!y.value || n.value.revision > y.value.revision) && (y.value = null), !0;
+    } catch (L) {
       if (!S) {
-        if (s && x(s), z === "sound") throw N;
-        b.value = $t(N);
-        const P = N && typeof N == "object" && "code" in N ? String(N.code) : N instanceof Error ? N.message : "";
+        if (s && x(s), z === "sound") throw L;
+        b.value = $t(L);
+        const P = L && typeof L == "object" && "code" in L ? String(L.code) : L instanceof Error ? L.message : "";
         if (P === "building_recovery" && (d.value = !0), R && "command" in R && (P.startsWith("building_save_") || P.startsWith("host_request_"))) y.value = R;
         else if (z === "act" && P !== "building_recovery") try {
           a.clear(), y.value = null;
@@ -266,17 +266,17 @@ function Ha(e, l, a) {
   }
   async function j(z) {
     if (p.value) return !1;
-    const R = n.value, N = R.active?.rooms ? structuredClone(R.active.rooms) : null, P = h.value?.runId === R.active?.id && h.value?.revision === R.revision ? h.value.layouts : [], G = await T("act", {
+    const R = n.value, L = R.active?.rooms ? structuredClone(R.active.rooms) : null, P = h.value?.runId === R.active?.id && h.value?.revision === R.revision ? h.value.layouts : [], G = await T("act", {
       actionId: Va(),
       revision: R.revision,
       command: z
     }), J = n.value;
-    if (G && N && J && J.active?.id === R.active?.id && J.revision === R.revision + 1) {
+    if (G && L && J && J.active?.id === R.active?.id && J.revision === R.revision + 1) {
       const W = z.type === "restore" ? P.slice(0, -1) : [
         "put",
         "remove",
         "refit"
-      ].includes(z.type) ? [...P, N] : [];
+      ].includes(z.type) ? [...P, L] : [];
       h.value = {
         runId: R.active.id,
         revision: J.revision,
@@ -337,14 +337,14 @@ var Wa = {
 function qa() {
   const e = {
     box: new Pa(1, 1, 1, 2, 0.055),
-    flat: new Sa(1, 1, 1),
-    sphere: new _a(1, 24, 16),
-    rod: new xa(1, 1, 1, 16),
-    ring: new pa(1, 0.1, 8, 24)
+    flat: new $a(1, 1, 1),
+    sphere: new ya(1, 24, 16),
+    rod: new Ia(1, 1, 1, 16),
+    ring: new ga(1, 0.1, 8, 24)
   }, l = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Set();
   function n(i, y = "chalk") {
     const d = `${i}:${y}`;
-    return l.has(d) || l.set(d, new wa({
+    return l.has(d) || l.set(d, new _a({
       color: i,
       ...Wa[y],
       emissive: y === "light" ? i : 0
@@ -360,7 +360,7 @@ function qa() {
     i.traverse((S) => {
       if (!(S instanceof ft)) return;
       const s = S.geometry.index ? S.geometry.toNonIndexed() : S.geometry.clone();
-      s.applyMatrix4(new ba().multiplyMatrices(y, S.matrixWorld));
+      s.applyMatrix4(new pa().multiplyMatrices(y, S.matrixWorld));
       const p = S.material, x = d.get(p) ?? [];
       x.push(s), d.set(p, x);
     }), i.clear();
@@ -472,7 +472,7 @@ function Ga(e, l, a, n, u, b) {
       0.05,
       0
     ]);
-    const x = at(n).some((C) => E.has(O({
+    const x = at(n).some((C) => E.has(N({
       ...C,
       z: C.z - 1
     })));
@@ -495,7 +495,7 @@ function Ga(e, l, a, n, u, b) {
       -0.52
     ]);
     for (const C of [-1, 1]) {
-      const I = E.get(O({
+      const I = E.get(N({
         x: C < 0 ? n.x - 1 : n.x + y.width,
         y: n.y,
         z: n.z
@@ -654,7 +654,7 @@ function Ga(e, l, a, n, u, b) {
       0.115,
       0
     ]);
-    const $ = S && at(n).some((C) => O(C) === O(S));
+    const $ = S && at(n).some((C) => N(C) === N(S));
     if ($ && !x) {
       const C = (S.x - n.x - (y.width - 1) / 2) * Z.width;
       s(r.mint, [
@@ -935,7 +935,7 @@ function Ga(e, l, a, n, u, b) {
       ]);
     }
     const T = ra(l, a);
-    for (const C of at(n).filter((I) => T.has(O(I)))) {
+    for (const C of at(n).filter((I) => T.has(N(I)))) {
       const I = (C.x - n.x - (y.width - 1) / 2) * Z.width;
       for (let z = 0; z < 8; z++) s(r.porcelain, [
         0.14,
@@ -1089,7 +1089,7 @@ function Ga(e, l, a, n, u, b) {
       0.18,
       0.46
     ]);
-    if (!E.has(O({
+    if (!E.has(N({
       ...n,
       z: n.z - 1
     }))) {
@@ -1491,27 +1491,27 @@ var Ka = {
 function Ja(e, l, a, n) {
   const u = Ta(l), b = Aa(l), i = new Pe();
   i.position.set(0, -0.01, 0.39), i.rotation.x = -0.35, l.add(i);
-  for (const L of [-1, 1]) {
+  for (const O of [-1, 1]) {
     const A = e.mesh(i, "box", r.mint, [
       0.25,
       0.035,
       0.33
     ], [
-      L * 0.126,
+      O * 0.126,
       0,
       0
     ]);
-    A.rotation.z = L * -0.16;
+    A.rotation.z = O * -0.16;
     const w = e.mesh(i, "box", r.porcelain, [
       0.22,
       0.032,
       0.3
     ], [
-      L * 0.12,
+      O * 0.12,
       0.03,
       0
     ]);
-    w.rotation.z = L * -0.16;
+    w.rotation.z = O * -0.16;
   }
   const y = e.mesh(i, "box", r.milk, [
     0.22,
@@ -1540,30 +1540,30 @@ function Ja(e, l, a, n) {
     0
   ]), i.visible = !1, d.visible = !1;
   let h, E = [], S = null, s = [], p = null, x = !1, $ = 0, T = !1, C = [], I = new bt();
-  const j = (L) => new bt(ze(h, L.x), L.y * Z.height + 0.14 + a, Me(h, L.z) + 0.39);
-  function z(L) {
-    p = L, n(L);
+  const j = (O) => new bt(ze(h, O.x), O.y * Z.height + 0.14 + a, Me(h, O.z) + 0.39);
+  function z(O) {
+    p = O, n(O);
   }
   function R() {
     S = null, l.position.set(ze(h, h.entrance), 0.05 + a, Me(h, h.entryZ) + 0.72);
   }
-  function N() {
+  function L() {
     i.visible = !1, d.visible = !1, b.reset();
   }
-  function P(L, A, w) {
-    h = L, E = A, s = [], T = !1, x = !1, N(), w || !S || !Xt(h, E).has(O(S)) ? R() : l.position.copy(j(S)), z(null);
+  function P(O, A, w) {
+    h = O, E = A, s = [], T = !1, x = !1, L(), w || !S || !Xt(h, E).has(N(S)) ? R() : l.position.copy(j(S)), z(null);
   }
-  function G(L) {
-    const A = j(L.part);
-    return L.activity === "read" && (A.x -= 0.18, A.z = Me(h, L.part.z) + 0.06, A.y += 0.15), L.activity === "sunbathe" && (A.x -= 0.31, A.z = Me(h, L.part.z) + 0.03, A.y += 0.18), L.activity === "rest" && (A.z = Me(h, L.part.z) - 0.13, A.y = L.part.y * Z.height + 0.68), L.activity === "relax" && (A.x += 0.2, A.z = Me(h, L.part.z) + 0.1, A.y += 0.23), A;
+  function G(O) {
+    const A = j(O.part);
+    return O.activity === "read" && (A.x -= 0.18, A.z = Me(h, O.part.z) + 0.06, A.y += 0.15), O.activity === "sunbathe" && (A.x -= 0.31, A.z = Me(h, O.part.z) + 0.03, A.y += 0.18), O.activity === "rest" && (A.z = Me(h, O.part.z) - 0.13, A.y = O.part.y * Z.height + 0.68), O.activity === "relax" && (A.x += 0.2, A.z = Me(h, O.part.z) + 0.1, A.y += 0.23), A;
   }
-  function J(L) {
+  function J(O) {
     const A = p.space;
-    i.visible = A.activity === "read", d.visible = A.activity === "relax", b.pose(Ka[A.activity], I, $, L);
-    const w = L ? 0 : Math.max(0, Math.sin($ / 470));
-    y.rotation.z = -w * Math.PI, y.position.x = 0.12 * Math.cos(w * Math.PI), d.position.y = 0.03 + (L ? 0.035 : Math.sin($ / 650) * 0.035);
+    i.visible = A.activity === "read", d.visible = A.activity === "relax", b.pose(Ka[A.activity], I, $, O);
+    const w = O ? 0 : Math.max(0, Math.sin($ / 470));
+    y.rotation.z = -w * Math.PI, y.position.x = 0.12 * Math.cos(w * Math.PI), d.position.y = 0.03 + (O ? 0.035 : Math.sin($ / 650) * 0.035);
   }
-  function W(L) {
+  function W(O) {
     const A = p.space;
     S = {
       x: A.part.x,
@@ -1572,9 +1572,9 @@ function Ja(e, l, a, n) {
     }, $ = 0, z({
       phase: "using",
       space: A
-    }), J(L);
+    }), J(O);
   }
-  function ve(L) {
+  function ve(O) {
     const A = s.shift();
     if (!A) {
       x = !1;
@@ -1582,24 +1582,24 @@ function Ja(e, l, a, n) {
     }
     const w = ea(h, E, A.part, S ?? void 0);
     if (!w.length) throw new Error("building_life_route");
-    N(), I = G(A), C = [l.position.clone()], w.forEach((H, Se) => {
+    L(), I = G(A), C = [l.position.clone()], w.forEach((H, Se) => {
       const se = w[Se - 1];
       if (se && se.y !== H.y) {
         const ye = Math.sign(H.y - se.y), le = j(se), ne = j(H);
         le.x -= 0.43 * ye, ne.x += 0.43 * ye, C.push(le, ne);
       }
       C.push(j(H));
-    }), C.push(I.clone()), $ = 0, x = !L, z({
+    }), C.push(I.clone()), $ = 0, x = !O, z({
       phase: "walking",
       space: A
-    }), L && (s = [], W(!0));
+    }), O && (s = [], W(!0));
   }
-  function ie(L, A = !1) {
-    const w = L ? Nt(h, E).filter((H) => !H.issue && O(H.part) === O(L)) : it(h, E);
+  function ie(O, A = !1) {
+    const w = O ? Lt(h, E).filter((H) => !H.issue && N(H.part) === N(O)) : it(h, E);
     w.length && (s = w, T = !0, (!x || A || p?.phase === "using") && (T = !1, ve(A)));
   }
-  function ae(L) {
-    return !x || !p ? !1 : ($ += L, p.phase === "walking" ? u.walk(C, $) || (W(!1), T && (T = !1, ve(!1))) : (J(!1), $ >= Xa && ve(!1)), x);
+  function ae(O) {
+    return !x || !p ? !1 : ($ += O, p.phase === "walking" ? u.walk(C, $) || (W(!1), T && (T = !1, ve(!1))) : (J(!1), $ >= Xa && ve(!1)), x);
   }
   function te() {
     s = [], x = !1, p && (I = G(p.space), W(!0));
@@ -1611,20 +1611,20 @@ function Ja(e, l, a, n) {
     reduce: te
   };
 }
-var ot = Oa(17, Lt[0]), Et = wt(ot, ja(ot)[1]);
+var ot = Na(17, Ot[0]), Et = wt(ot, ja(ot)[1]);
 function Qa(e, l, a, n, u, b) {
   return Ua((i) => {
-    const y = new Ma({
+    const y = new Sa({
       antialias: !0,
       alpha: !1,
       powerPreference: "low-power"
     });
-    i.defer(() => y.domElement.remove()), i.defer(() => y.forceContextLoss()), i.own(y), y.domElement.className = "build-canvas", e.append(y.domElement), y.outputColorSpace = Ia, y.toneMapping = 7, y.shadowMap.enabled = !0, y.shadowMap.type = 2;
+    i.defer(() => y.domElement.remove()), i.defer(() => y.forceContextLoss()), i.own(y), y.domElement.className = "build-canvas", e.append(y.domElement), y.outputColorSpace = ba, y.toneMapping = 7, y.shadowMap.enabled = !0, y.shadowMap.type = 2;
     const d = new ha();
-    d.background = new ga(r.sky);
-    const h = new Ca(-5, 5, 5, -5, 0.1, 100), E = i.own(qa());
-    d.add(new $a(r.porcelain, r.mint, 2.1));
-    const S = new ya(r.milk, 2.6);
+    d.background = new Ma(r.sky);
+    const h = new xa(-5, 5, 5, -5, 0.1, 100), E = i.own(qa());
+    d.add(new ka(r.porcelain, r.mint, 2.1));
+    const S = new wa(r.milk, 2.6);
     S.position.set(-5, 10, 8), S.castShadow = !0, S.shadow.mapSize.setScalar(kt.shadow), S.shadow.camera.left = -8, S.shadow.camera.right = 8, S.shadow.camera.top = 8, S.shadow.camera.bottom = -8, S.shadow.normalBias = 0.03, i.own(S.shadow), d.add(S, S.target);
     const s = new Pe();
     d.add(s);
@@ -1650,21 +1650,21 @@ function Qa(e, l, a, n, u, b) {
       }
     }, p, va);
     let x = null, $ = !1, T = null;
-    const C = -new ka().setFromObject(p).min.y, I = Ja(E, p, C, (g) => {
+    const C = -new Ca().setFromObject(p).min.y, I = Ja(E, p, C, (g) => {
       T = g, g?.phase === "using" && (x = null), b(g), $ && re();
     });
-    let j = [], z = null, R = [], N = {
+    let j = [], z = null, R = [], L = {
       project: null,
       enabled: !0,
       floor: null
-    }, P = ot, G = Et, J = "", W = 1, ve = 1, ie = 1, ae = 0.55, te = null, L = 0, A = 0, w = 0, H = !1, Se = !1, se = !1, ye = !1, le = null, ne = null;
+    }, P = ot, G = Et, J = "", W = 1, ve = 1, ie = 1, ae = 0.55, te = null, O = 0, A = 0, w = 0, H = !1, Se = !1, se = !1, ye = !1, le = null, ne = null;
     const ge = matchMedia("(prefers-reduced-motion: reduce)"), ce = /* @__PURE__ */ new Map();
     let me = !1;
     i.defer(() => {
       se = !0, we(), R.forEach((g) => g.dispose()), j.forEach((g) => g.model.dispose()), z?.dispose();
     });
     function q() {
-      return !se && !ye && !H && !Se && !document.hidden && N.enabled;
+      return !se && !ye && !H && !Se && !document.hidden && L.enabled;
     }
     function re() {
       const g = Mt(P), U = [...G.filter((F) => F.kind !== "roof").flatMap(at), ...g], V = Math.min(...U.map((F) => F.x)), Y = Math.max(...U.map((F) => F.x)), oe = W / ve, Ce = Math.max(1, ...G.map((F) => F.y + (F.kind === "roof" ? 0.6 : 1)), ...g.map((F) => F.y + 1)) * Z.height, _e = $ ? x ?? T?.space.part : null, Re = Math.max((Ce + P.depth * Z.depth + 2) / 2, ((Y - V + 1) * Z.width + P.depth * Z.depth * 0.65 + 1.2) / (2 * oe)) * ie, je = _e ? (_e.y + 0.48) * Z.height : Ce / 2 - 0.12, ee = _e ? ze(P, _e.x) : ze(P, (V + Y) / 2);
@@ -1673,7 +1673,7 @@ function Qa(e, l, a, n, u, b) {
       h.position.set(ee + Math.sin(ae) * 12, je + 13, fe + Math.cos(ae) * 12), h.lookAt(ee, je, fe), h.updateProjectionMatrix(), h.updateMatrixWorld();
       const X = [];
       for (const F of Mt(P)) {
-        if (N.floor !== null && F.y !== N.floor) continue;
+        if (L.floor !== null && F.y !== L.floor) continue;
         const $e = [
           [-0.49, -0.49],
           [0.49, -0.49],
@@ -1705,14 +1705,14 @@ function Qa(e, l, a, n, u, b) {
         g.project?.state,
         g.project?.memories,
         V
-      ]), oe = N.project?.id !== g.project?.id;
+      ]), oe = L.project?.id !== g.project?.id;
       oe && (x = null, ie = 1, ae = 0.55, $ = !1, ce.clear());
-      const Ce = oe ? null : V.find((ee) => ee.kind !== "roof" && !G.some((fe) => fe.kind !== "roof" && O(fe) === O(ee))), _e = oe ? null : g.project?.memories.find((ee) => !N.project?.memories.includes(ee)), Re = !oe && N.project?.state === "building" && g.project?.state === "living", je = new Set(Nt(P, G).filter((ee) => !ee.issue).map((ee) => `${O(ee.part)}:${ee.activity}`));
-      if (N = g, P = U, J !== Y) {
+      const Ce = oe ? null : V.find((ee) => ee.kind !== "roof" && !G.some((fe) => fe.kind !== "roof" && N(fe) === N(ee))), _e = oe ? null : g.project?.memories.find((ee) => !L.project?.memories.includes(ee)), Re = !oe && L.project?.state === "building" && g.project?.state === "living", je = new Set(Lt(P, G).filter((ee) => !ee.issue).map((ee) => `${N(ee.part)}:${ee.activity}`));
+      if (L = g, P = U, J !== Y) {
         Ie(), le = null, ne = null, a(!1), R.forEach((X) => X.dispose()), j.forEach((X) => X.model.dispose()), s.clear(), z?.dispose(), z && d.remove(z.root), G = V, J = Y, z = Ya(E, P), d.add(z.root);
-        const ee = g.project ? Ot(P, g.project.rooms, g.project.memories) : [];
+        const ee = g.project ? Nt(P, g.project.rooms, g.project.memories) : [];
         R = G.map((X) => {
-          const F = Ga(E, P, G, X, !0, ee.filter(($e) => O($e.part) === O(X) && $e.part.kind === X.kind).map(($e) => $e.id));
+          const F = Ga(E, P, G, X, !0, ee.filter(($e) => N($e.part) === N(X) && $e.part.kind === X.kind).map(($e) => $e.id));
           return s.add(F.root), F;
         }), j = ee.map((X) => {
           const F = Fa(E, P, X);
@@ -1721,7 +1721,7 @@ function Qa(e, l, a, n, u, b) {
             floor: X.part.y
           };
         }), I.configure(P, G, oe), S.position.x = P.sunSide * 7;
-        const fe = it(P, G).find((X) => !je.has(`${O(X.part)}:${X.activity}`));
+        const fe = it(P, G).find((X) => !je.has(`${N(X.part)}:${X.activity}`));
         if (Ce && g.enabled && !ge.matches) {
           const X = R[G.indexOf(Ce)].root;
           le = {
@@ -1737,9 +1737,9 @@ function Qa(e, l, a, n, u, b) {
         } else Re ? (u("reward"), I.visit(void 0, ge.matches)) : fe && !oe ? le ? ne = fe.part : I.visit(fe.part, ge.matches) : (!g.project || oe && g.project.state === "living") && I.visit(it(P, G)[0]?.part, ge.matches);
       }
       R.forEach((ee, fe) => {
-        ee.root.visible = N.floor === null || G[fe].kind !== "roof" && G[fe].y <= N.floor;
+        ee.root.visible = L.floor === null || G[fe].kind !== "roof" && G[fe].y <= L.floor;
       }), j.forEach((ee) => {
-        ee.model.root.visible = N.floor === null || ee.floor <= N.floor;
+        ee.model.root.visible = L.floor === null || ee.floor <= L.floor;
       }), re(), pe();
     }
     function rt(g) {
@@ -1755,15 +1755,15 @@ function Qa(e, l, a, n, u, b) {
       }
       let V = !1;
       try {
-        V = I.tick(U), p.visible = N.floor === null || p.position.y - C < (N.floor + 1) * Z.height, y.render(d, h);
+        V = I.tick(U), p.visible = L.floor === null || p.position.y - C < (L.floor + 1) * Z.height, y.render(d, h);
       } catch (Y) {
         ye = !0, we(), n(Y);
         return;
       }
-      le || V ? pe() : (w = 0, !ge.matches && N.project?.state === "living" && te === null && (te = setTimeout(() => {
+      le || V ? pe() : (w = 0, !ge.matches && L.project?.state === "living" && te === null && (te = setTimeout(() => {
         if (te = null, q()) {
           const Y = it(P, G);
-          Y.length && (I.visit(Y[L++ % Y.length].part), pe());
+          Y.length && (I.visit(Y[O++ % Y.length].part), pe());
         }
       }, 6500)));
     }
@@ -1785,11 +1785,11 @@ function Qa(e, l, a, n, u, b) {
     function Be(g) {
       g.preventDefault(), ye = !0, we(), n(/* @__PURE__ */ new Error("building_webgl_context_lost"));
     }
-    function Le(g) {
+    function Oe(g) {
       ie = Math.max(0.48, Math.min(2, ie * g)), re(), pe();
     }
     function Xe(g) {
-      g.preventDefault(), Le(Math.exp(g.deltaY * (g.deltaMode === 1 ? 16 : g.deltaMode === 2 ? ve : 1) * 1e-3));
+      g.preventDefault(), Oe(Math.exp(g.deltaY * (g.deltaMode === 1 ? 16 : g.deltaMode === 2 ? ve : 1) * 1e-3));
     }
     function dt(g) {
       ce.size || (me = !1), !g.target.closest("button:not(.build-cell)") && (ce.size && (me = !0), ce.set(g.pointerId, {
@@ -1797,20 +1797,20 @@ function Qa(e, l, a, n, u, b) {
         y: g.clientY
       }), g.target.closest("button") || e.setPointerCapture(g.pointerId));
     }
-    function Ne(g) {
+    function Le(g) {
       const U = ce.get(g.pointerId);
       if (!U) return;
       const V = [...ce.entries()].find(([Y]) => Y !== g.pointerId)?.[1];
       if (V) {
         const Y = Math.hypot(U.x - V.x, U.y - V.y), oe = Math.hypot(g.clientX - V.x, g.clientY - V.y);
-        Y && oe && Le(Y / oe);
+        Y && oe && Oe(Y / oe);
       } else g.target.closest("button") || (Math.hypot(g.clientX - U.x, g.clientY - U.y) > 3 && (me = !0), ae = Math.max(-1.2, Math.min(1.2, ae - (g.clientX - U.x) * 8e-3)), re(), pe());
       ce.set(g.pointerId, {
         x: g.clientX,
         y: g.clientY
       });
     }
-    function Oe(g) {
+    function Ne(g) {
       ce.delete(g.pointerId);
     }
     function Je(g) {
@@ -1831,22 +1831,22 @@ function Qa(e, l, a, n, u, b) {
       [
         e,
         "pointermove",
-        Ne
+        Le
       ],
       [
         e,
         "pointerup",
-        Oe
+        Ne
       ],
       [
         e,
         "pointercancel",
-        Oe
+        Ne
       ],
       [
         e,
         "lostpointercapture",
-        Oe
+        Ne
       ],
       [
         document,
@@ -1870,14 +1870,14 @@ function Qa(e, l, a, n, u, b) {
     const et = new IntersectionObserver((g) => {
       H = !g[0].isIntersecting, xe();
     });
-    return i.defer(() => et.disconnect()), et.observe(e), Ke(N), Te(), {
+    return i.defer(() => et.disconnect()), et.observe(e), Ke(L), Te(), {
       set: Ke,
       visit: ue,
       focus() {
         T && (x = null, $ = !0, ie = 0.6, re(), pe());
       },
       zoom(g) {
-        Le(Math.exp(g));
+        Oe(Math.exp(g));
       },
       reset() {
         x = null, $ = !1, ie = 1, ae = 0.55, re(), pe();
@@ -2251,11 +2251,11 @@ var al = {
   "data-build-memory-id",
   "data-memory-earned",
   "data-memory-displayed"
-], Ll = { "aria-hidden": "true" }, Nl = { class: "build-memory-note" }, Ol = /* @__PURE__ */ Ee({
+], Ol = { "aria-hidden": "true" }, Ll = { class: "build-memory-note" }, Nl = /* @__PURE__ */ Ee({
   __name: "MemoryAlbum",
   props: { project: {} },
   setup(e) {
-    const l = e, a = K(() => Ot(Fe(l.project), l.project.rooms, l.project.memories));
+    const l = e, a = K(() => Nt(Fe(l.project), l.project.rooms, l.project.memories));
     return (n, u) => (c(), m(D, null, [
       v("p", null, k(t(o).memoryProgress(e.project.memories.length)), 1),
       v("ol", Pl, [(c(!0), m(D, null, ke(t(ua)(e.project.seed), (b) => (c(), m("li", {
@@ -2270,12 +2270,12 @@ var al = {
           v("p", null, k(e.project.memories.includes(b) ? t(Ge)[b].thanks : t(Ge)[b].wish), 1),
           v("small", null, k(e.project.memories.includes(b) ? a.value.some((i) => i.id === b) ? t(o).memoryPlaced(a.value.find((i) => i.id === b).part.kind) : t(o).memoryStored : t(o).memoryLocked), 1)
         ]),
-        v("span", Ll, k(e.project.memories.includes(b) ? "✓" : "○"), 1)
+        v("span", Ol, k(e.project.memories.includes(b) ? "✓" : "○"), 1)
       ], 8, Bl))), 128))]),
-      v("p", Nl, k(t(o).memoryCollection), 1)
+      v("p", Ll, k(t(o).memoryCollection), 1)
     ], 64));
   }
-}), jl = Ol, Vl = ["viewBox"], Dl = ["d"], Hl = ["transform"], Wl = {
+}), jl = Nl, Vl = ["viewBox"], Dl = ["d"], Hl = ["transform"], Wl = {
   key: 0,
   d: "M0 22 12 10 24 22Z",
   fill: "#a8cbb9"
@@ -2317,7 +2317,7 @@ var al = {
       "stroke-width": "5",
       "stroke-linecap": "round"
     }, null, 8, Dl), (c(!0), m(D, null, ke(a.value, (b) => (c(), m("g", {
-      key: t(O)(b),
+      key: t(N)(b),
       transform: `translate(${b.x * 24 + b.z * 10} ${(e.brief.floors - b.y) * 23 + b.z * 12})`
     }, [b.kind === "roof" ? (c(), m("path", Wl)) : b.kind === "path" ? (c(), m("path", ql)) : b.kind === "garden" ? (c(), m(D, { key: 2 }, [u[0] || (u[0] = v("path", {
       d: "M12 23V8",
@@ -2410,7 +2410,7 @@ var al = {
 }, Ii = ["disabled"], zi = ["disabled"], Ei = ["disabled"], Ti = {
   key: 3,
   class: "build-context"
-}, Ri = ["aria-label"], Ai = { key: 0 }, Pi = { class: "build-context-actions" }, Bi = ["disabled"], Li = ["disabled"], Ni = ["disabled"], Oi = { key: 1 }, ji = ["aria-label"], Vi = [
+}, Ri = ["aria-label"], Ai = { key: 0 }, Pi = { class: "build-context-actions" }, Bi = ["disabled"], Oi = ["disabled"], Li = ["disabled"], Ni = { key: 1 }, ji = ["aria-label"], Vi = [
   "data-build-kind",
   "aria-label",
   "aria-pressed",
@@ -2447,20 +2447,20 @@ var al = {
       getItem: (M) => localStorage.getItem(M),
       setItem: (M, _) => localStorage.setItem(M, _),
       removeItem: (M) => localStorage.removeItem(M)
-    }), n = Ha(l.bridge, l.chatIdentity, a), { view: u, busy: b, blocked: i, failed: y, notice: d, generating: h, canUndo: E } = n, S = Q(null), s = Q(null), p = Q(null), x = Q("desk"), $ = Q(!1), T = Q(null), C = Q("room"), I = Q(null), j = Q([]), z = Q(!1), R = Q(!0), N = Q(!1), P = Q(""), G = Q(!1), J = Q(!1), W = Q(null), ve = Q(""), ie = Q(null), ae = Q(null);
-    let te = null, L = !1;
-    const A = el(), w = K(() => T.value ? u.value?.collection.find((M) => M.id === T.value) ?? null : u.value?.active ?? null), H = K(() => w.value ? Fe(w.value) : null), Se = K(() => H.value && w.value ? xt(H.value, w.value.rooms) : null), se = K(() => H.value && w.value ? La(H.value, w.value.rooms) : null), ye = K(() => w.value?.supply ? sa(w.value.supply, w.value.rooms) : null), le = K(() => w.value?.supply?.offers ?? []), ne = K(() => x.value === "house" && !T.value && !!w.value?.supply?.remaining), ge = K(() => w.value && se.value?.bonus ? st[w.value.tier].award : Ae.habitableAward), ce = K(() => H.value && w.value?.state === "living" ? oa(H.value, w.value.rooms, w.value.memories) : null), me = K(() => Pt(w.value?.rooms ?? [])), q = K(() => I.value ? me.value.get(O(I.value)) ?? null : null), re = K(() => x.value === "house" && !!w.value && !T.value && !ne.value && (w.value.state === "building" || J.value)), Te = K(() => R.value && !l.generationActive && !p.value && !N.value), ue = K(() => !Te.value || i.value || z.value), Ke = K(() => Bt.filter((M) => M !== "terrace" || H.value?.terraces)), rt = K(() => H.value && w.value && C.value ? new Set(aa(H.value, w.value.rooms, C.value).map(O)) : /* @__PURE__ */ new Set()), pe = K(() => j.value.filter((M) => W.value !== null && (me.value.has(O(M)) || re.value && M.y < ta(H.value, M.x, M.z)))), Ie = K(() => Se.value?.spaces.find((M) => q.value && O(M.part) === O(q.value))), we = K(() => H.value && w.value && q.value ? pt(w.value, w.value.rooms.filter((M) => O(M) !== O(q.value))) : null), xe = K(() => {
+    }), n = Ha(l.bridge, l.chatIdentity, a), { view: u, busy: b, blocked: i, failed: y, notice: d, generating: h, canUndo: E } = n, S = Q(null), s = Q(null), p = Q(null), x = Q("desk"), $ = Q(!1), T = Q(null), C = Q("room"), I = Q(null), j = Q([]), z = Q(!1), R = Q(!0), L = Q(!1), P = Q(""), G = Q(!1), J = Q(!1), W = Q(null), ve = Q(""), ie = Q(null), ae = Q(null);
+    let te = null, O = !1;
+    const A = el(), w = K(() => T.value ? u.value?.collection.find((M) => M.id === T.value) ?? null : u.value?.active ?? null), H = K(() => w.value ? Fe(w.value) : null), Se = K(() => H.value && w.value ? xt(H.value, w.value.rooms) : null), se = K(() => H.value && w.value ? Oa(H.value, w.value.rooms) : null), ye = K(() => w.value?.supply ? sa(w.value.supply, w.value.rooms) : null), le = K(() => w.value?.supply?.offers ?? []), ne = K(() => x.value === "house" && !T.value && !!w.value?.supply?.remaining), ge = K(() => w.value && se.value?.bonus ? st[w.value.tier].award : Ae.habitableAward), ce = K(() => H.value && w.value?.state === "living" ? oa(H.value, w.value.rooms, w.value.memories) : null), me = K(() => Pt(w.value?.rooms ?? [])), q = K(() => I.value ? me.value.get(N(I.value)) ?? null : null), re = K(() => x.value === "house" && !!w.value && !T.value && !ne.value && (w.value.state === "building" || J.value)), Te = K(() => R.value && !l.generationActive && !p.value && !L.value), ue = K(() => !Te.value || i.value || z.value), Ke = K(() => Bt.filter((M) => M !== "terrace" || H.value?.terraces)), rt = K(() => H.value && w.value && C.value ? new Set(aa(H.value, w.value.rooms, C.value).map(N)) : /* @__PURE__ */ new Set()), pe = K(() => j.value.filter((M) => W.value !== null && (me.value.has(N(M)) || re.value && M.y < ta(H.value, M.x, M.z)))), Ie = K(() => Se.value?.spaces.find((M) => q.value && N(M.part) === N(q.value))), we = K(() => H.value && w.value && q.value ? pt(w.value, w.value.rooms.filter((M) => N(M) !== N(q.value))) : null), xe = K(() => {
       if (!q.value || !w.value || !H.value) return null;
       const M = q.value.kind === "room" ? "study" : "room", _ = la(w.value.rooms, q.value, M);
       return _ ? {
         kind: M,
         issue: pt(w.value, _)
       } : null;
-    }), ut = K(() => ce.value ? ce.value.need ? jt[ce.value.need] : o.memoryReady : o.memoryComplete), Be = K(() => q.value ? j.value.find((M) => O(M) === O(q.value)) : null);
+    }), ut = K(() => ce.value ? ce.value.need ? jt[ce.value.need] : o.memoryReady : o.memoryComplete), Be = K(() => q.value ? j.value.find((M) => N(M) === N(q.value)) : null);
     Zt(s, () => {
       p.value = null;
     }), Yt(() => I.value ? (I.value = null, !0) : T.value ? (fe(), !0) : x.value === "house" ? (Ce(), !0) : !1);
-    function Le() {
+    function Oe() {
       te?.set({
         project: w.value,
         enabled: Te.value,
@@ -2468,32 +2468,32 @@ var al = {
       });
     }
     function Xe() {
-      te?.dispose(), te = null, N.value = !1, z.value = !1;
+      te?.dispose(), te = null, L.value = !1, z.value = !1;
       try {
         te = Qa(S.value, (M) => {
           j.value = M;
         }, (M) => {
           z.value = M;
         }, () => {
-          N.value = !0, Ne();
+          L.value = !0, Le();
         }, dt, (M) => {
           ae.value = M;
-        }), Le();
+        }), Oe();
       } catch {
-        N.value = !0;
+        L.value = !0;
       }
     }
     function dt(M) {
       u.value?.soundEnabled && Te.value && !document.hidden && A.play(M);
     }
-    async function Ne() {
+    async function Le() {
       try {
         await A.pause();
       } catch {
         P.value = o.soundError;
       }
     }
-    async function Oe() {
+    async function Ne() {
       if (u.value?.soundEnabled) try {
         await A.unlock();
       } catch {
@@ -2515,12 +2515,12 @@ var al = {
     }
     async function he(M) {
       const _ = M.type === "remember" ? ce.value?.part : null;
-      Oe(), P.value = "", await n.act(M) && (I.value = null, M.type === "start" && (T.value = null, x.value = "house", $.value = !1, C.value = "room", J.value = !1, W.value = 0), M.type === "remember" && w.value?.memories.includes(M.memory) && (ie.value = M.memory, J.value = !1, W.value = _?.y ?? null), M.type === "finish" && (J.value = !1, $.value = !0, W.value = null), M.type === "reside" && (T.value = null, x.value = "house", $.value = !1, J.value = !0, W.value = 0), M.type === "collect" && !M.save && (T.value = null));
+      Ne(), P.value = "", await n.act(M) && (I.value = null, M.type === "start" && (T.value = null, x.value = "house", $.value = !1, C.value = "room", J.value = !1, W.value = 0), M.type === "remember" && w.value?.memories.includes(M.memory) && (ie.value = M.memory, J.value = !1, W.value = _?.y ?? null), M.type === "finish" && (J.value = !1, $.value = !0, W.value = null), M.type === "reside" && (T.value = null, x.value = "house", $.value = !1, J.value = !0, W.value = 0), M.type === "collect" && !M.save && (T.value = null));
     }
     function Qe(M) {
       if (ue.value) return;
-      const _ = me.value.get(O(M));
-      if (_) I.value = I.value && O(I.value) === O(_) ? null : {
+      const _ = me.value.get(N(M));
+      if (_) I.value = I.value && N(I.value) === N(_) ? null : {
         x: _.x,
         y: _.y,
         z: _.z
@@ -2602,7 +2602,7 @@ var al = {
         }
     }
     function F() {
-      document.hidden && Ne();
+      document.hidden && Le();
     }
     function $e(M) {
       te?.zoom(M);
@@ -2614,27 +2614,27 @@ var al = {
       ae.value && (W.value = ae.value.space.part.y, await ct()), te?.focus();
     }
     async function qe(M) {
-      const _ = Se.value?.spaces.find((f) => O(f.part) === O(M));
-      !_ || _.issue || (ve.value = o.invited(_.activity), W.value = M.y, Oe(), await ct(), te?.visit(M), I.value = null);
+      const _ = Se.value?.spaces.find((f) => N(f.part) === N(M));
+      !_ || _.issue || (ve.value = o.invited(_.activity), W.value = M.y, Ne(), await ct(), te?.visit(M), I.value = null);
     }
     Ze([
       w,
       Te,
       W
-    ], Le), Ze(() => w.value?.id, () => {
+    ], Oe), Ze(() => w.value?.id, () => {
       J.value = !1, $.value = !1, ie.value = null, W.value = w.value?.state === "building" ? 0 : null, ve.value = "", I.value = null;
     }), Ze(() => u.value?.active?.state, (M, _) => {
       M === "living" && _ === "building" && ($.value = !0, W.value = null, I.value = null);
     }), Ze(ae, () => {
       ae.value?.phase === "using" && (ve.value = "");
     }), Ze(Te, (M) => {
-      M || Ne();
+      M || Le();
     }), Rt(async () => {
-      Xe(), document.addEventListener("visibilitychange", F), await n.read(), u.value?.active?.state === "building" && (x.value = "house"), L = !0;
+      Xe(), document.addEventListener("visibilitychange", F), await n.read(), u.value?.active?.state === "building" && (x.value = "house"), O = !0;
     }), qt(() => {
-      R.value = !0, te?.resume(), L && n.read();
+      R.value = !0, te?.resume(), O && n.read();
     }), Wt(() => {
-      R.value = !1, te?.suspend(), Ne();
+      R.value = !1, te?.suspend(), Le();
     }), Ut(() => {
       n.dispose(), te?.dispose(), document.removeEventListener("visibilitychange", F), A.dispose().catch((M) => console.error(o.audioDispose, M));
     });
@@ -2716,12 +2716,12 @@ var al = {
             W.value = f - 1, I.value = null;
           }
         }, k(t(o).floor(f - 1)), 9, fi))), 128))], 8, vi)) : B("", !0),
-        w.value && x.value === "house" && !N.value ? (c(), m("div", pi, [(c(!0), m(D, null, ke(pe.value, (f) => (c(), m("button", {
-          key: t(O)(f),
+        w.value && x.value === "house" && !L.value ? (c(), m("div", pi, [(c(!0), m(D, null, ke(pe.value, (f) => (c(), m("button", {
+          key: t(N)(f),
           type: "button",
           class: tt(["build-cell", {
-            "is-occupied": me.value.has(t(O)(f)),
-            "is-selected": q.value && me.value.get(t(O)(f)) === q.value
+            "is-occupied": me.value.has(t(N)(f)),
+            "is-selected": q.value && me.value.get(t(N)(f)) === q.value
           }]),
           style: _t({
             left: f.left + "%",
@@ -2730,9 +2730,9 @@ var al = {
             height: f.height + "%",
             clipPath: `polygon(${f.polygon})`
           }),
-          "data-build-cell": t(O)(f),
-          "data-build-place": !me.value.has(t(O)(f)),
-          "aria-label": me.value.has(t(O)(f)) ? t(lt)[me.value.get(t(O)(f)).kind] + "，" + t(o).cell(f.x, f.y, f.z) : t(o).place({
+          "data-build-cell": t(N)(f),
+          "data-build-place": !me.value.has(t(N)(f)),
+          "aria-label": me.value.has(t(N)(f)) ? t(lt)[me.value.get(t(N)(f)).kind] + "，" + t(o).cell(f.x, f.y, f.z) : t(o).place({
             kind: C.value,
             x: f.x,
             y: f.y,
@@ -2740,7 +2740,7 @@ var al = {
           }),
           disabled: ue.value || ne.value,
           onClick: (be) => Qe(f)
-        }, [(c(), m("svg", bi, [v("polygon", { points: f.polygon.replaceAll("%", "").replaceAll(",", " ") }, null, 8, yi)])), !me.value.has(t(O)(f)) && C.value ? (c(), Ve(gt, {
+        }, [(c(), m("svg", bi, [v("polygon", { points: f.polygon.replaceAll("%", "").replaceAll(",", " ") }, null, 8, yi)])), !me.value.has(t(N)(f)) && C.value ? (c(), Ve(gt, {
           key: 0,
           kind: C.value,
           class: "build-cell-preview"
@@ -2753,7 +2753,7 @@ var al = {
             top: Be.value.top + "%"
           })
         }, k(t(o).selected(q.value)), 5)) : B("", !0),
-        ae.value && w.value && x.value === "house" && !N.value ? (c(), m("div", {
+        ae.value && w.value && x.value === "house" && !L.value ? (c(), m("div", {
           key: 5,
           class: "build-life-status",
           "data-build-life": ae.value.space.activity,
@@ -2781,7 +2781,7 @@ var al = {
             onClick: He
           }, k(t(o).resetView), 1)
         ])) : B("", !0),
-        N.value ? (c(), m("div", Mi, [v("p", null, k(t(o).graphics), 1), v("button", {
+        L.value ? (c(), m("div", Mi, [v("p", null, k(t(o).graphics), 1), v("button", {
           type: "button",
           onClick: Ue
         }, k(t(o).reload), 1)])) : e.generationActive ? (c(), m("div", Si, k(t(o).storyBusy), 1)) : B("", !0)
@@ -2859,7 +2859,7 @@ var al = {
               disabled: ue.value || !!xe.value.issue,
               "data-build-action": "refit",
               onClick: Re
-            }, k(t(o).refit(xe.value.kind)), 9, Li)) : B("", !0),
+            }, k(t(o).refit(xe.value.kind)), 9, Oi)) : B("", !0),
             re.value ? (c(), m("button", {
               key: 2,
               type: "button",
@@ -2871,9 +2871,9 @@ var al = {
                 y: q.value.y,
                 z: q.value.z
               }))
-            }, k(t(o).remove), 9, Ni)) : B("", !0)
+            }, k(t(o).remove), 9, Li)) : B("", !0)
           ]),
-          re.value && (we.value || xe.value?.issue) ? (c(), m("small", Oi, k(t(Ct)[we.value || xe.value.issue]), 1)) : B("", !0)
+          re.value && (we.value || xe.value?.issue) ? (c(), m("small", Ni, k(t(Ct)[we.value || xe.value.issue]), 1)) : B("", !0)
         ])) : B("", !0),
         re.value && !ne.value ? (c(), m(D, { key: 4 }, [
           q.value ? B("", !0) : (c(), m("div", {
