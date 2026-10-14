@@ -34,6 +34,7 @@ import { syncAgentSettingsPanelFeedback } from '../../agent-core/ui/settings-mar
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 import { createLocalSourcesManager } from './workspace/local-sources.js';
 import { buildWorkspaceTree } from './workspace/local-workspace-tree.js';
+import { WORKSPACE_COPY } from './workspace/workspace-copy.js';
 import {
     destroyWorkspaceEditorCache,
     renderWorkspace as renderWorkspaceUi,
@@ -545,13 +546,6 @@ async function saveSkillFile(targetPath = '') {
     }
 }
 
-function getWorkspacePanelModes() {
-    return [
-        { key: 'workspace', label: '工作区' },
-        { key: 'memory', label: '记忆区' },
-    ];
-}
-
 function renderWorkspacePanel(container, options = {}) {
     if (state.workspacePanelMode === 'memory') {
         ensureSkillSelection({ fallbackToFirst: false });
@@ -579,15 +573,10 @@ function renderWorkspacePanel(container, options = {}) {
             summary,
             workspaceTree,
             selectedMatch,
-            panelModes: getWorkspacePanelModes(),
             activePanelMode: 'memory',
-            navTitle: '记忆区',
             hideNavActions: true,
             hideTreeActions: true,
-            emptyTreeText: summary.fileCount ? '当前筛选下没有记忆文件' : '还没有记忆文件',
-            emptyViewerTitle: '还没有选中记忆文件',
-            emptyViewerDescription: '从左侧记忆树里点一个文件，我会在这里显示并允许编辑正文。',
-            viewerMetaLabel: '记忆区',
+            emptyTreeText: summary.fileCount ? WORKSPACE_COPY.emptyFilter : WORKSPACE_COPY.emptyMemory,
             workspaceState: {
                 selectedSourceId: 'all',
                 selectedFilePath: state.selectedSkillFilePath,
@@ -675,9 +664,7 @@ function renderWorkspacePanel(container, options = {}) {
         summary,
         workspaceTree,
         selectedMatch,
-        panelModes: getWorkspacePanelModes(),
         activePanelMode: 'workspace',
-        navTitle: '文件工作区',
         workspaceState: {
             selectedSourceId: 'all',
             selectedFilePath: state.selectedFilePath,

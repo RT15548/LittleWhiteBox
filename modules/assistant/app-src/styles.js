@@ -511,7 +511,26 @@ export function injectAssistantStyles(rootId) {
             border-bottom: 1px solid var(--xb-assistant-border);
         }
         .xb-assistant-mobile-topbar .xb-assistant-toolbar { flex: 1; }
-        #xb-assistant-open-workspace { margin-right: auto; }
+        #xb-assistant-open-workspace {
+            position: relative;
+            margin-right: auto;
+            border: none;
+            border-radius: 6px;
+        }
+        #xb-assistant-open-workspace.is-active {
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
+        }
+        #xb-assistant-open-workspace.has-changes::after {
+            content: '';
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--xb-assistant-accent);
+        }
         .xb-assistant-chrome-button,
         .xb-assistant-toolbar .xb-assistant-chrome-button {
             display: inline-flex;
@@ -631,163 +650,107 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-backdrop {
             display: none;
         }
-        .xb-assistant-workspace-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 15px 18px 11px;
-            border-bottom: none;
-        }
-        .xb-assistant-workspace-header-info {
-            display: grid;
-            gap: 4px;
-            min-width: 0;
-        }
-        .xb-assistant-workspace-header-info strong {
-            font-size: 14px;
-            color: #814733;
-        }
-        .xb-assistant-workspace-header-info span {
-            color: #7d7468;
-            font-size: 12px;
-        }
-        .xb-assistant-workspace-header-actions,
-        .xb-assistant-workspace-viewer-actions {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-        .xb-assistant-workspace-header-button,
-        .xb-assistant-workspace-viewer-button,
-        .xb-assistant-workspace-mode-button {
-            border: none;
-            border-radius: 6px;
-            min-height: 24px;
-            padding: 0 10px;
-            background: transparent;
-            color: #6f675d;
-            cursor: pointer;
-            font: inherit;
-            font-size: 12px;
-            font-weight: 600;
-            transition: all 0.15s ease;
-        }
-        .xb-assistant-workspace-header-button:hover,
-        .xb-assistant-workspace-viewer-button:hover,
-        .xb-assistant-workspace-mode-button:hover {
-            background: rgba(122, 76, 54, 0.06);
-            color: #3a352f;
-        }
-        .xb-assistant-workspace-header-button.is-icon {
-            min-width: 28px;
-            min-height: 28px;
-            padding: 0;
-            font-size: 18px;
-            line-height: 1;
+        .xb-assistant-workspace-action {
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            flex: 0 0 auto;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--xb-assistant-text-soft);
+            cursor: pointer;
         }
-        .xb-assistant-workspace-mode-button.is-active {
-            background: rgba(122, 76, 54, 0.1);
-            color: #3a352f;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        .xb-assistant-workspace-action svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.6;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .xb-assistant-workspace-action:hover:not(:disabled) {
+            background: var(--xb-assistant-surface-muted);
+            color: var(--xb-assistant-text);
+        }
+        .xb-assistant-workspace-action:focus-visible {
+            outline: 2px solid var(--xb-assistant-accent);
+            outline-offset: 1px;
+        }
+        .xb-assistant-workspace-action:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+        .xb-assistant-workspace-action.is-active {
+            background: var(--xb-assistant-accent-soft);
+            color: var(--xb-assistant-accent-strong);
+        }
+        .xb-assistant-workspace-action-group {
+            display: inline-flex;
+            flex: 0 0 auto;
+            align-items: center;
+            gap: 2px;
         }
         .xb-assistant-workspace-body {
             display: grid;
-            grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+            grid-template-columns: clamp(176px, 38%, 240px) minmax(0, 1fr);
             height: 100%;
             min-height: 0;
         }
         .xb-assistant-workspace-nav {
-            display: grid;
-            grid-template-rows: auto auto minmax(0, 1fr);
+            display: flex;
+            flex-direction: column;
             min-width: 0;
             min-height: 0;
-            border-right: none;
+            border-right: 1px solid var(--xb-assistant-border);
             background: var(--xb-assistant-surface-soft);
         }
         .xb-assistant-workspace-filters {
             display: grid;
-            gap: 10px;
-            padding: 12px 14px 14px;
-            border-bottom: none;
+            flex: 0 0 auto;
+            gap: 8px;
+            padding: 8px;
         }
-        .xb-assistant-workspace-nav-header {
+        .xb-assistant-workspace-nav-header,
+        .xb-assistant-workspace-tree-actions {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 8px;
+            gap: 4px;
         }
-        .xb-assistant-workspace-nav-title {
-            min-width: 0;
-            color: #814733;
-            font-size: 14px;
-        }
-        .xb-assistant-workspace-nav-header-actions {
-            display: inline-flex;
+        .xb-assistant-workspace-search-row {
+            display: flex;
             align-items: center;
             gap: 4px;
         }
-        .xb-assistant-workspace-select,
         .xb-assistant-workspace-search {
             width: 100%;
+            min-width: 0;
+            height: 30px;
             box-sizing: border-box;
             border: 1px solid transparent;
-            border-radius: 12px;
-            padding: 10px 12px;
+            border-radius: 6px;
+            padding: 4px 8px;
             font: inherit;
+            font-size: 12px;
             background: var(--xb-assistant-surface);
             color: var(--xb-assistant-text);
         }
-        .xb-assistant-workspace-select:focus,
         .xb-assistant-workspace-search:focus {
             outline: none;
-            border-color: rgba(167, 95, 67, 0.36);
-            box-shadow: 0 0 0 3px rgba(167, 95, 67, 0.1);
-        }
-        .xb-assistant-workspace-modified-toggle {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            color: #6d6459;
-            font-size: 12px;
-            font-weight: 600;
+            border-color: var(--xb-assistant-accent);
         }
         .xb-assistant-workspace-tree-actions {
-            display: grid;
-            gap: 10px;
-            padding: 12px 14px;
-            border-bottom: none;
-            background: var(--xb-assistant-surface-soft);
-        }
-        .xb-assistant-workspace-tree-actions-context {
-            display: grid;
-            gap: 4px;
-            min-width: 0;
-        }
-        .xb-assistant-workspace-tree-actions-title {
-            color: #814733;
-            font-size: 12px;
-        }
-        .xb-assistant-workspace-tree-actions-path {
-            min-width: 0;
-            color: #81776b;
-            font-size: 11px;
-            line-height: 1.5;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .xb-assistant-workspace-tree-actions-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
+            flex: 0 0 auto;
+            padding: 0 8px 6px;
+            border-bottom: 1px solid var(--xb-assistant-border);
         }
         .xb-assistant-workspace-tree {
+            flex: 1 1 auto;
             min-height: 0;
             overflow: auto;
             padding: 8px 8px 14px;
@@ -857,52 +820,47 @@ export function injectAssistantStyles(rootId) {
             background: var(--xb-assistant-surface);
         }
         .xb-assistant-workspace-viewer-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 10px 14px;
-            border-bottom: none;
+            display: grid;
+            gap: 6px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--xb-assistant-border);
             background: var(--xb-assistant-surface);
-            backdrop-filter: blur(10px);
-            z-index: 10;
         }
-        .xb-assistant-workspace-mobile-back {
+        .xb-assistant-workspace-action.xb-assistant-workspace-mobile-back {
             display: none;
-            background: transparent;
-            border: none;
-            color: #814733;
-            cursor: pointer;
-            padding: 0;
-            margin-right: 8px;
-            align-items: center;
-            justify-content: center;
-            flex: 0 0 auto;
         }
         .xb-assistant-workspace-viewer-info {
             display: flex;
             align-items: center;
+            gap: 8px;
             min-width: 0;
+            min-height: 24px;
         }
-        .xb-assistant-workspace-viewer-info-text {
-            display: grid;
-            gap: 4px;
-            min-width: 0;
-        }
-        .xb-assistant-workspace-viewer-info-text strong,
-        .xb-assistant-workspace-viewer-info-text span {
+        .xb-assistant-workspace-viewer-info strong {
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-        }
-        .xb-assistant-workspace-viewer-info-text strong {
-            color: #3a352f;
-            font-size: 13px;
-        }
-        .xb-assistant-workspace-viewer-info-text span {
-            color: #81776b;
+            color: var(--xb-assistant-text);
             font-size: 12px;
+            font-weight: 500;
+        }
+        .xb-assistant-workspace-modified-indicator {
+            flex: 0 0 5px;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--xb-assistant-accent);
+        }
+        .xb-assistant-workspace-viewer-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px 10px;
+        }
+        .xb-assistant-workspace-viewer-actions > .xb-assistant-workspace-action-group + .xb-assistant-workspace-action-group {
+            padding-left: 10px;
+            border-left: 1px solid var(--xb-assistant-border);
         }
         .xb-assistant-workspace-code-wrap {
             min-width: 0;
@@ -1994,11 +1952,11 @@ export function injectAssistantStyles(rootId) {
                 border-radius: 0;
                 box-shadow: none;
             }
-            .xb-assistant-workspace-header-button.is-icon {
-                min-width: 44px;
-                min-height: 44px;
-                font-size: 20px;
+            .xb-assistant-workspace-action {
+                width: 36px;
+                height: 36px;
             }
+            .xb-assistant-workspace-search { height: 36px; }
             .xb-assistant-workspace-resizer {
                 display: none;
             }
@@ -2041,7 +1999,7 @@ export function injectAssistantStyles(rootId) {
                 transform: translateX(0);
                 pointer-events: auto;
             }
-            .xb-assistant-workspace-mobile-back {
+            .xb-assistant-workspace-action.xb-assistant-workspace-mobile-back {
                 display: inline-flex;
             }
         }

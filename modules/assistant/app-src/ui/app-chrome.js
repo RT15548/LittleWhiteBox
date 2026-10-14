@@ -1,6 +1,7 @@
 import { describeMemoryFile, findMemoryFileByPath } from '../memory/memory-files.js';
 import { ACTIVITY_COPY as C } from './activity-copy.js';
 import { updateChromeIcon } from './chrome-icons.js';
+import { WORKSPACE_COPY as W } from '../workspace/workspace-copy.js';
 
 function appendSvgPath(svg, d) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -191,10 +192,13 @@ export function renderAppChrome(root, state, options = {}) {
     const workspaceButton = root.querySelector('#xb-assistant-open-workspace');
     if (workspaceButton) {
         workspaceButton.disabled = false;
-        workspaceButton.textContent = localSourceSummary.modifiedFileCount
-            ? `工作区 ${localSourceSummary.modifiedFileCount}`
-            : '工作区';
-        workspaceButton.title = state.isWorkspaceOpen ? '关闭工作区' : '打开工作区';
+        updateChromeIcon(workspaceButton, 'workspace');
+        const label = W.toggle(state.isWorkspaceOpen);
+        const modifiedCount = localSourceSummary.modifiedFileCount;
+        workspaceButton.title = modifiedCount ? `${label} · ${W.modifiedFiles(modifiedCount)}` : label;
+        workspaceButton.setAttribute('aria-label', workspaceButton.title);
+        workspaceButton.setAttribute('aria-expanded', String(!!state.isWorkspaceOpen));
+        workspaceButton.classList.toggle('has-changes', modifiedCount > 0);
         workspaceButton.classList.toggle('is-active', !!state.isWorkspaceOpen);
     }
 

@@ -2,6 +2,7 @@ import { buildAgentSettingsPanelMarkup } from '../../../agent-core/ui/settings-m
 import { ACTIVITY_COPY as C } from './activity-copy.js';
 import { chromeIcon } from './chrome-icons.js';
 import { contextMeterMarkup } from './context-meter.js';
+import { WORKSPACE_COPY as W } from '../workspace/workspace-copy.js';
 
 export function buildAppMarkup(state) {
     const markup = `
@@ -30,7 +31,7 @@ export function buildAppMarkup(state) {
                 <div class="xb-assistant-mobile-topbar">
                     <section class="xb-assistant-toolbar">
                             <div class="xb-assistant-toolbar-cluster">
-                                <button id="xb-assistant-open-workspace" type="button" class="secondary ghost">工作区</button>
+                                <button id="xb-assistant-open-workspace" type="button" class="xb-assistant-chrome-button" aria-controls="xb-assistant-workspace" aria-expanded="${!!state.isWorkspaceOpen}" aria-label="${W.toggle(state.isWorkspaceOpen)}" title="${W.toggle(state.isWorkspaceOpen)}">${chromeIcon('workspace')}</button>
                                 ${contextMeterMarkup()}
                                 <button id="xb-assistant-clear" type="button" class="xb-assistant-chrome-button" aria-label="${C.clearConversation}" title="${C.clearConversation}">${chromeIcon('clear')}</button>
                             </div>
