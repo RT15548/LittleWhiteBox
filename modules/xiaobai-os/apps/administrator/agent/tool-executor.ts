@@ -14,6 +14,7 @@ import { ADMINISTRATOR_RESULT_READ } from './result-tools.js';
 import { createAdministratorToolLoader, TOOLS_LOAD, TOOL_NOT_LOADED } from './tool-loader.js';
 import { ADMINISTRATOR_REFERENCE_TEXT } from './reference-data.js';
 import { requireToolArgumentsObject, ToolArgumentsError } from '../../../capabilities/agent/tool-arguments.js';
+import { createAdministratorSourceTools } from './source-tools.js';
 
 type Reader = ReturnType<typeof createAdministratorChatReader>;
 const STORY_EVIDENCE_CHANGED = 'The story floors listed in floors changed after you read them. This write was not executed; earlier successful writes are unaffected.';
@@ -59,9 +60,11 @@ export async function createAdministratorToolExecutor(options: {
         for (const tool of participant.tools) { register(tool, participant.id, participant); }
     }
     const web = createAdministratorWebTools(options.webConfig, options.signal);
+    const source = createAdministratorSourceTools({ signal: options.signal, assertCurrent: options.reader.assertCurrent });
+    for (const tool of source.package.tools) { register(tool, source.package.id, null); }
     const common = [...ADMINISTRATOR_CHAT_TOOLS, ADMINISTRATOR_OS_INSPECT, ADMINISTRATOR_RESULT_READ, ...web.tools];
     for (const tool of common) { register(tool, ADMINISTRATOR_CHAT_TOOLS.includes(tool) ? 'story' : 'administrator', null); }
-    const loader = createAdministratorToolLoader(domains, common, options.loadedApps);
+    const loader = createAdministratorToolLoader([...domains, source.package], common, options.loadedApps);
     register(loader.tool, 'administrator', null);
     function inspectEnvironment() {
         options.reader.assertCurrent();
@@ -81,8 +84,8 @@ export async function createAdministratorToolExecutor(options: {
             ? ADMINISTRATOR_COPY.itemReport(report.applied?.length ?? 0, report.skipped?.length ?? 0) : ADMINISTRATOR_COPY.operations[result.status]);
         const projected = tool === ADMINISTRATOR_RESULT_READ ? result
             : evidence.project(operation.id, result, {
-                sourcePaged: tool !== undefined && ADMINISTRATOR_CHAT_TOOLS.includes(tool),
-                boundedSource: tool !== undefined && web.tools.includes(tool),
+                sourcePaged: tool !== undefined && (ADMINISTRATOR_CHAT_TOOLS.includes(tool) || source.owns(tool.definition.function.name)),
+                boundedSource: tool !== undefined && (web.tools.includes(tool) || source.owns(tool.definition.function.name)),
             });
         const output = { ...projected, receipt: { ...operation } };
         options.onChange();
@@ -139,6 +142,10 @@ export async function createAdministratorToolExecutor(options: {
                     try { result = await session.execute(name, args, options.guard); }
                     catch (error) { if (route.tool.effect === 'write') { pending = { id, operation, session, messageIndex }; } throw error; }
                     if (route.tool.effect === 'read') { options.reader.assertCurrent(); }
+                } else if (source.owns(name)) {
+                    options.reader.assertCurrent();
+                    result = await source.execute(name, args);
+                    options.reader.assertCurrent();
                 } else if (web.owns(name)) {
                     options.reader.assertCurrent();
                     result = await web.execute(name, args);

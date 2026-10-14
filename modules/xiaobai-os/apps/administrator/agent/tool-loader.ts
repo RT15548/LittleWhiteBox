@@ -47,11 +47,11 @@ export function createAdministratorToolLoader(apps: readonly ToolPackage[], comm
         definition: { type: 'function', function: {
             name: TOOLS_LOAD,
             description: [
-                'Add the selected APPs’ record tools to this conversation.',
+                'Add the selected APPs’ tool packages to this conversation.',
                 'data contains apps (all loaded APP IDs) and tools (all currently available tool names, including this entry). Full tool definitions become available on the next model request.',
-                'Choose the packages that help with the user’s request. Each package includes both read and write tools, ready for the next steps of the work.',
+                'Choose the packages that help with the user’s request. Each selection adds the complete package; the catalog lists whether each tool reads or writes.',
                 'Successful selections in the retained conversation history stay available across requests and reopening. Clearing the conversation resets the selection; removed APPs are unavailable.',
-                'This call opens access to the tools; reading and changing records happen through those tools afterward.',
+                'This call opens access to the tools; the selected tools perform their reads or changes afterward.',
                 'An invalid request loads nothing. data.unavailableApps identifies any requested APPs that could not be loaded.',
                 '',
                 ...apps.map(app => `APP ${app.id} (${app.label}): ${describe(app.tools)}`),
