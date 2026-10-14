@@ -20,7 +20,6 @@ import {
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { getSafeViewportStyles, observeViewport } from '../../shared/common/viewport.js';
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
-import { formatErrorDetails } from '../../core/error-details.js';
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
@@ -34,7 +33,7 @@ import {
     createRecallRetryNotice,
     notifyRecallFailure,
     notifySummaryStartupFailure,
-    notifyUnconfirmedMemory,
+    shouldNotifyMemoryFailure,
     runClearWithFeedback,
 } from './user-feedback.js';
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
@@ -241,14 +240,9 @@ const memoryMaintenance = createMemoryMaintenanceHost({
         postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(getSummaryStore()) });
     },
     changed: () => {
-        reportUnconfirmedMemory();
         void sendMemoryMaintenanceResults();
     },
 });
-
-function reportUnconfirmedMemory() {
-    return notifyUnconfirmedMemory(getMemoryCommitState(), chat_metadata.extensions?.[EXT_ID]);
-}
 
 async function sendMemoryMaintenanceResults(offset = 0) {
     const chatId = getContext()?.chatId;
@@ -735,9 +729,18 @@ function isSummaryExecutionActive(execution) {
 function postSummaryExecution(execution, payload) {
     // A stopped run may still report its final status, but never into another chat/run.
     if (activeSummaryExecution === execution && getContext()?.chatId === execution.chatId) {
-        if (payload.type === 'SUMMARY_ERROR') reportUnconfirmedMemory();
         postToFrame(payload);
     }
+}
+
+function reportSummaryExecutionFailure(execution, error) {
+    // Source revalidation can cancel independently of the run's own controller.
+    if (error?.name === 'AbortError' || execution.controller.signal.aborted) {
+        postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryStopped });
+        return;
+    }
+    xbLog.error(MODULE_ID, SUMMARY_FEEDBACK_COPY.summaryFailed, error);
+    postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: SUMMARY_FEEDBACK_COPY.summaryFailed });
 }
 
 function assertSummaryExecutionActive(execution) {
@@ -872,6 +875,7 @@ async function handleAnchorGenerateNow(targetChatId, writeSession) {
     } catch (error) {
         if (error?.name === 'AbortError' || isCancelled()) return;
         xbLog.error(MODULE_ID, '记忆锚点生成失败', error);
+        if (!shouldNotifyMemoryFailure(error)) return;
         await executeSlashCommand('/echo severity=error 记忆锚点生成失败：internal_error');
     } finally {
         await sendAnchorStatsToFrame();
@@ -914,7 +918,7 @@ async function handleAnchorClear() {
     await runClearWithFeedback({
         kind: 'anchors',
         isCurrent: () => getContext()?.chatId === targetChatId,
-        reportUnconfirmed: reportUnconfirmedMemory,
+        getMemoryState: getMemoryCommitState,
         clear: () => runVectorWriteTask(
             { chatId: targetChatId, kind: 'clear-anchors', scope: VECTOR_WRITE_SCOPES.IO },
             async () => {
@@ -1205,7 +1209,7 @@ async function repairVectorsNow(vectorCfg, targetChatId, writeSession) {
         })],
         ['L2', () => repairMissingEventVectorsNow(targetChatId, writeSession, progress('L2'))],
     ];
-    const failures = [];
+    const failedStages = [];
     let repaired = 0;
     for (const [phase, run] of stages) {
         if (isCancelled()) return;
@@ -1219,6 +1223,7 @@ async function repairVectorsNow(vectorCfg, targetChatId, writeSession) {
             result = {
                 success: false,
                 code: String(error?.code || 'repair_failed'),
+                error,
                 ...(Number.isInteger(Number(error?.httpStatus)) ? { httpStatus: Number(error.httpStatus) } : {}),
             };
         }
@@ -1229,11 +1234,14 @@ async function repairVectorsNow(vectorCfg, targetChatId, writeSession) {
             scheduleLexicalWarmup();
         }
         if (isCancelled() || result.cancelled) return;
-        if (!result.success) failures.push(`${phase}（${formatSafeFailure(result.code, result.httpStatus)}）`);
+        if (!result.success) failedStages.push({ phase, result });
     }
+    const failures = failedStages
+        .filter(({ result }) => shouldNotifyMemoryFailure(result.error ?? result))
+        .map(({ phase, result }) => `${phase}（${formatSafeFailure(result.code, result.httpStatus)}）`);
     if (failures.length) {
         await executeSlashCommand(`/echo severity=warning 已补齐 ${repaired} 条向量；${failures.join('、')} 未完成，请检查 API 或存储后再点“补齐缺漏”。`);
-    } else {
+    } else if (!failedStages.length) {
         await executeSlashCommand(`/echo severity=info ${repaired ? `已补齐 ${repaired} 条向量` : '已有材料的向量已完整'}`);
     }
 }
@@ -1267,6 +1275,7 @@ async function handleGenerateVectors(mode = 'rebuild') {
         );
     } catch (error) {
         xbLog.error(MODULE_ID, '向量任务失败', error);
+        if (!shouldNotifyMemoryFailure(error)) return;
         await executeSlashCommand('/echo severity=error 向量任务未完成，请检查 API 或存储后重试');
     } finally {
         release();
@@ -1282,7 +1291,7 @@ async function handleClearVectors() {
     await runClearWithFeedback({
         kind: 'vectors',
         isCurrent: () => getContext()?.chatId === targetChatId,
-        reportUnconfirmed: reportUnconfirmedMemory,
+        getMemoryState: getMemoryCommitState,
         clear: () => runVectorWriteTask(
             { chatId: targetChatId, kind: 'clear-vectors', scope: VECTOR_WRITE_SCOPES.IO },
             async () => {
@@ -2860,7 +2869,7 @@ const hideState = createHideStateController({
             ? '读取向量隐藏边界失败，已按有效总结边界恢复原文'
             : stage === 'save' ? memorySaveError(error) : '更新楼层显隐失败';
         xbLog.error(MODULE_ID, message, error);
-        window.toastr?.warning(message, '剧情总结');
+        if (stage !== 'save' || shouldNotifyMemoryFailure(error, getMemoryCommitState())) window.toastr?.warning(message, '剧情总结');
     },
 });
 
@@ -3052,15 +3061,14 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
         }
 
         if (!isSummaryExecutionActive(execution)) return;
-        if (reportUnconfirmedMemory()) return;
+        if (!shouldNotifyMemoryFailure(lastResult?.error, getMemoryCommitState())) return;
         if (lastResult?.stale) {
             await executeSlashCommand("/echo severity=warning 对话在总结期间持续变化，本次结果未保存；下次触发时会重新总结。");
         } else {
             await executeSlashCommand("/echo severity=error 剧情总结失败（已尝试 3 次）。请稍后再试。");
         }
     } catch (error) {
-        xbLog.error(MODULE_ID, '自动总结执行失败', error);
-        postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: `自动总结执行失败：${formatErrorDetails(error, { includeStack: false })}` });
+        reportSummaryExecutionFailure(execution, error);
     } finally {
         finishSummaryExecution(execution);
         release();
@@ -3082,7 +3090,7 @@ async function updateFrameStatsAfterSummary(store, execution) {
 
 function reportMemorySaveFailure(error) {
     const message = memorySaveError(error);
-    if (!reportUnconfirmedMemory()) window.toastr?.error(message);
+    if (shouldNotifyMemoryFailure(error, getMemoryCommitState())) window.toastr?.error(message);
     postToFrame({ type: 'SUMMARY_ERROR', message });
     postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(readPublishedSummaryMemory().storySummary) });
     notifyStorySummaryChatState();
@@ -3756,12 +3764,7 @@ async function handleManualGenerate(mesId, config) {
             scheduleVectorIntegrityCheck();
         }
     } catch (error) {
-        if (error?.name === 'AbortError' && execution.controller.signal.aborted) {
-            postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryStopped });
-            return;
-        }
-        xbLog.error(MODULE_ID, '手动总结执行失败', error);
-        postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: `总结执行失败：${formatErrorDetails(error, { includeStack: false })}` });
+        reportSummaryExecutionFailure(execution, error);
     } finally {
         finishSummaryExecution(execution);
         release();
@@ -4929,7 +4932,7 @@ $(document).on(STORY_SUMMARY_TOGGLE_EVENT, async (_e, enabled) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function reportStartupFailure(error) {
-    const shouldNotify = Boolean(getSettings().storySummary?.enabled) && !reportUnconfirmedMemory();
+    const shouldNotify = Boolean(getSettings().storySummary?.enabled) && shouldNotifyMemoryFailure(error, getMemoryCommitState());
     notifySummaryStartupFailure(error, shouldNotify);
 }
 

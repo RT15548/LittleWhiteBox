@@ -5,6 +5,9 @@ export const VECTOR_REBUILD_ADVICE = `请执行${VECTOR_REBUILD_ACTION}（${VECT
 export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     title: '剧情总结',
     summaryStopped: '已停止',
+    summaryFailed: '总结未能完成，请稍后重试。',
+    summaryResultInvalid: '模型返回的总结格式不正确，请重试。',
+    summaryFollowupFailed: '总结已保存，但后续处理未完成；详情见日志。',
     embeddingTitle: 'Embedding 异常',
     connectionChecking: '连接中…',
     connectionReady: dims => `连接成功 (${dims}维)`,

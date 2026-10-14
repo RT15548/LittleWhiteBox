@@ -2,15 +2,17 @@ import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import {
     clearEmbeddingFailureNotice, clearRecallFailureNotice, notifyRecallFailure,
-    notifySummaryStartupFailure, notifyUnconfirmedMemory, runClearWithFeedback,
+    notifySummaryStartupFailure, shouldNotifyMemoryFailure, runClearWithFeedback,
     createRecallRetryNotice,
 } from '../user-feedback.js';
 import { recallFailureNotice } from '../generate/recall-failure.js';
 import { createRecallPrefetchCoordinator } from '../generate/recall-prefetch.js';
 import { runRequiredRecall } from '../generate/required-recall.js';
+import { memorySaveError } from '../data/memory-copy.js';
+import { entry } from './helpers/story-summary-entry.js';
 
 // Only the host toast/console boundary is replaced. Exercise the real policy,
-// including replacement of blocked-send notices and loaded-memory ownership.
+// including replacement of blocked-send notices and save uncertainty.
 const originalToastr = globalThis.toastr;
 const originalError = console.error;
 let shown, visible, errors;
@@ -44,20 +46,24 @@ after(() => {
     console.error = originalError;
 });
 
-test('only an unconfirmed save warns, once per loaded memory even after repeated reports', () => {
-    const owner = {};
-    for (const state of ['ready', 'saving', 'source_invalid']) {
-        assert.equal(notifyUnconfirmedMemory(state, owner), false);
-    }
-    assert.equal(shown.length, 0);
-    assert.equal(notifyUnconfirmedMemory('unconfirmed', owner), true);
-    assert.equal(notifyUnconfirmedMemory('unconfirmed', owner), true);
-    clearRecallFailureNotice(); // Reopening/toggling is not a new save or memory load.
-    notifyUnconfirmedMemory('unconfirmed', owner);
-    assert.equal(shown.length, 1);
-    assert.equal(shown[0].level, 'error');
-    notifyUnconfirmedMemory('unconfirmed', {});
-    assert.equal(shown.length, 2);
+for (const { state, error, visible } of [
+    { state: 'unconfirmed', error: { code: 'metadata_unconfirmed' }, visible: false },
+    { state: 'ready', error: { code: 'metadata_save_unconfirmed' }, visible: false },
+    { state: 'ready', error: { uncertain: true }, visible: false },
+    { state: 'ready', error: { code: 'metadata_not_saved' }, visible: true },
+    { state: 'ready', error: { code: 'metadata_draft_conflict' }, visible: true },
+    { state: 'source_invalid', error: { code: 'source_boundary_invalid' }, visible: true },
+]) test(`save feedback only interrupts for confirmed failures: ${state}/${error.code || 'uncertain'}`, () => {
+    const messages = [], published = { storySummary: { lastSummarizedMesId: 12 } };
+    const ui = entry(['reportMemorySaveFailure'], {
+        memorySaveError, shouldNotifyMemoryFailure, getMemoryCommitState: () => state,
+        window: { toastr }, postToFrame: message => messages.push(message),
+        readPublishedSummaryMemory: () => published, buildFramePayload: store => store,
+        notifyStorySummaryChatState() {},
+    });
+    ui.reportMemorySaveFailure(error);
+    assert.deepEqual(shown.map(toast => toast.level), visible ? ['error'] : []);
+    assert.equal(messages.find(message => message.type === 'SUMMARY_FULL_DATA').payload, published.storySummary);
 });
 
 test('a recall retry notice is shown once, survives waiting, and clears only its own run', () => {
@@ -124,7 +130,7 @@ for (const kind of ['vectors', 'anchors']) {
     test(`${kind}: failed clearing has one failure receipt, preserves the cause and never retries`, async () => {
         const failure = new Error('storage failure');
         let calls = 0;
-        await runClearWithFeedback({ kind, isCurrent: () => true, reportUnconfirmed: () => false,
+        await runClearWithFeedback({ kind, isCurrent: () => true, getMemoryState: () => 'ready',
             clear: async () => { calls++; throw failure; },
             refresh: () => assert.fail('no successful clear to refresh'),
         });
@@ -135,7 +141,7 @@ for (const kind of ['vectors', 'anchors']) {
 
     test(`${kind}: failed statistics refresh does not report a failed data clear`, async () => {
         let cleared = false;
-        await runClearWithFeedback({ kind, isCurrent: () => true, reportUnconfirmed: () => false,
+        await runClearWithFeedback({ kind, isCurrent: () => true, getMemoryState: () => 'ready',
             clear: async () => { cleared = true; return true; },
             refresh: async () => { throw new Error('statistics failure'); },
         });
@@ -146,7 +152,7 @@ for (const kind of ['vectors', 'anchors']) {
 
 test('successful clearing refreshes and confirms once; skipped queued work stays silent', async () => {
     let refreshed = 0;
-    const options = { kind: 'vectors', isCurrent: () => true, reportUnconfirmed: () => false,
+    const options = { kind: 'vectors', isCurrent: () => true, getMemoryState: () => 'ready',
         refresh: async () => { refreshed++; } };
     for (const result of [false, undefined]) {
         await runClearWithFeedback({ ...options, clear: async () => result });
@@ -159,7 +165,7 @@ test('successful clearing refreshes and confirms once; skipped queued work stays
 
 test('old-chat operations do not publish success or failure into another chat', async () => {
     for (const failed of [false, true]) {
-        await runClearWithFeedback({ kind: 'anchors', isCurrent: () => false, reportUnconfirmed: () => false,
+        await runClearWithFeedback({ kind: 'anchors', isCurrent: () => false, getMemoryState: () => 'ready',
             clear: async () => { if (failed) throw new Error('late failure'); return true; },
             refresh: () => assert.fail('old chat must not refresh current chat'),
         });
@@ -168,14 +174,15 @@ test('old-chat operations do not publish success or failure into another chat', 
     assert.equal(errors.length, 1);
 });
 
-test('a clear blocked by save uncertainty uses the safety notice, not an extra generic error', async () => {
-    const owner = {};
-    notifyUnconfirmedMemory('unconfirmed', owner);
+test('a clear blocked by save uncertainty keeps diagnostics without a failure or success toast', async () => {
+    const failure = Object.assign(new Error('blocked'), { code: 'metadata_unconfirmed', uncertain: true });
     await runClearWithFeedback({ kind: 'anchors', isCurrent: () => true,
-        reportUnconfirmed: () => notifyUnconfirmedMemory('unconfirmed', owner),
-        clear: async () => { throw new Error('blocked'); }, refresh() {},
+        getMemoryState: () => 'unconfirmed',
+        clear: async () => { throw failure; },
+        refresh: () => assert.fail('an unconfirmed clear cannot refresh as successful'),
     });
-    assert.equal(shown.length, 1);
+    assert.equal(shown.length, 0);
+    assert.equal(errors[0][1], failure);
 });
 
 test('a startup failure is visible and keeps its original diagnostic cause', () => {

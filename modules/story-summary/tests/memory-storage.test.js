@@ -13,6 +13,7 @@ import { memoryPolicy } from '../data/memory-policy.js';
 import { entry } from './helpers/story-summary-entry.js';
 import { createHideStateController } from '../hide-state.js';
 import { memorySaveError } from '../data/memory-copy.js';
+import { shouldNotifyMemoryFailure } from '../user-feedback.js';
 import * as vectorWrites from '../vector/runtime/maintenance-coordinator.js';
 import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import { METADATA_CONFIRMATION_TIMEOUT_MS } from '../data/metadata-confirmation.js';
@@ -251,7 +252,7 @@ function memoryVisibility() {
     let warnings = 0;
     host.context.saveChat = async () => saves.push(host.context.chat.map(message => message.is_system));
     const ui = entry(['hideState', 'applyHideState', 'clearHideState', 'isStorySummaryConsumableForCurrentChat'], {
-        ...mod, createHideStateController, memorySaveError,
+        ...mod, createHideStateController, memorySaveError, shouldNotifyMemoryFailure,
         getContext: () => host.context,
         getStorySummaryEnablement: () => ({ context: host.context, effectiveEnabled: true }),
         getHideUiSettings: () => ({ hideSummarized: true, useVectorBoundary: false, keepVisibleCount: 4 }),
@@ -299,7 +300,7 @@ for (const uncertain of [false, true]) test(`first swipe during initial visibili
         await updating;
     }
     assert.deepEqual(ui.saves, []); // Never write an unconfirmed draft with a visibility save.
-    assert.equal(ui.warnings(), uncertain ? 1 : 0);
+    assert.equal(ui.warnings(), 0);
     assert.deepEqual(ui.errors, uncertain ? ['metadata_unconfirmed'] : []);
     assert.equal(mod.getMemoryCommitState(), uncertain ? 'unconfirmed' : 'ready');
     assert.equal(mod.isSummaryConsumable(mod.getSummaryStore(), context.chat.length), !uncertain);
@@ -1072,7 +1073,7 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
     const noop = () => {};
     const ui = entry(['handleFrameMessage', 'handleManualGenerate', 'ensureCurrentSources',
         'isSummaryGenerating', 'beginSummaryExecution', 'cancelActiveSummaryExecution',
-        'finishSummaryExecution', 'notifySummaryState', 'postSummaryExecution'], {
+        'finishSummaryExecution', 'notifySummaryState', 'postSummaryExecution', 'reportSummaryExecutionFailure'], {
         ...mod, ...vectorWrites, messageSources, AbortController, createAbortError, throwIfSignalAborted,
         memorySaveError, SUMMARY_FEEDBACK_COPY, activeSummaryExecution: null, currentMesId: null,
         getContext: () => host.context, document: { getElementById: noop }, isTrustedMessage: () => true,
@@ -1085,8 +1086,8 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
             return () => { running = false; };
         } },
         postToFrame: message => messages.push(message), cancelPendingHide: noop,
-        reportUnconfirmedMemory: noop, reportMemorySaveFailure: error => errors.push(error),
-        formatErrorDetails: error => error.message, xbLog: { error: (_module, _text, error) => errors.push(error) }, MODULE_ID: 'summary',
+        reportMemorySaveFailure: error => errors.push(error),
+        xbLog: { error: (_module, _text, error) => errors.push(error) }, MODULE_ID: 'summary',
         runSummaryGeneration: async () => { requests++; return { committed: false }; },
     });
     const request = ui.handleFrameMessage({ data: { type: 'REQUEST_GENERATE' } });

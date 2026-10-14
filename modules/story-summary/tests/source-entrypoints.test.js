@@ -6,6 +6,7 @@ import { createServiceTests } from '../vector/service-tests.js';
 import { createAbortError, commitIfSignalActive, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import * as vectorWrites from '../vector/runtime/maintenance-coordinator.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
+import { shouldNotifyMemoryFailure } from '../user-feedback.js';
 import { buildVectorIntegrityIssues } from '../vector/integrity-policy.js';
 import { replaceCharacterAliases } from '../data/character-aliases.js';
 import { createRecallReuse } from '../generate/recall-reuse.js';
@@ -236,6 +237,7 @@ for (const kind of ['anchor', 'vector-rebuild', 'vector-repair']) for (const int
         fixture.context.chat.push({ mes: 'not yet synchronized', is_user: true });
         const sources = new Promise(resolve => { releaseSources = resolve; });
         const host = entry(['handleAnchorGenerate', 'handleGenerateVectors', 'ensureCurrentSources', 'synchronizeCurrentSources'], {
+            shouldNotifyMemoryFailure,
             ...sourceSyncDependencies(fixture), guard: { isAnyRunning: () => false, acquire: () => () => { released = true; } },
             waitForMemoryCommit: () => sources, createAbortError, throwIfSignalAborted, assertMemoryWritable: noop,
             ANCHOR_GENERATION_OPERATION: 'manual-anchor', VECTOR_GENERATION_OPERATION: 'manual-vector',
@@ -435,7 +437,7 @@ for (const name of ['autoRunSummaryWithRetry', 'handleManualGenerate']) {
     test(`${name}: unsafe sources stop before summary or subsequent memory maintenance can spend`, async () => {
         let calls = 0, released = false;
         const notices = [];
-        const host = entry([name], {
+        const host = entry([name, 'reportSummaryExecutionFailure'], {
             guard: { acquire: () => () => { released = true; } },
             beginSummaryExecution: () => ({ controller: new AbortController() }),
             finishSummaryExecution: noop, notifySummaryState: noop,
@@ -444,11 +446,50 @@ for (const name of ['autoRunSummaryWithRetry', 'handleManualGenerate']) {
             runSummaryGeneration: async () => { calls++; return { success: true }; },
             isStorySummaryConsumableForCurrentChat: () => true, scheduleVectorIntegrityCheck: noop,
             postSummaryExecution: (_run, notice) => notices.push(notice),
-            formatErrorDetails: error => error.code, xbLog: { error: noop }, MODULE_ID: 'summary',
+            SUMMARY_FEEDBACK_COPY, xbLog: { error: noop }, MODULE_ID: 'summary',
         });
         await host[name](3, {});
         assert.equal(calls, 0);
         assert.equal(released, true);
         assert.ok(notices.some(notice => notice.type === 'SUMMARY_ERROR'));
     });
+}
+
+for (const name of ['autoRunSummaryWithRetry', 'handleManualGenerate']) {
+    for (const outcome of ['source-abort', 'user-stop', 'chat-switch', 'failure']) {
+        test(`${name}: ${outcome} preserves cancellation and cleanup without exposing exception text`, async () => {
+            const execution = { chatId: 'chat', controller: new AbortController() };
+            const context = { chatId: execution.chatId };
+            const notices = [], errors = [];
+            let calls = 0, released = 0, finished = 0, stateChanges = 0, messageReads = 0;
+            const failure = outcome === 'source-abort' || outcome === 'chat-switch' ? createAbortError() : new Error();
+            Object.defineProperty(failure, 'message', { get() { messageReads++; return 'test-only transport diagnostic'; } });
+            const host = entry([name, 'reportSummaryExecutionFailure', 'postSummaryExecution'], {
+                guard: { acquire: () => () => { released++; } },
+                beginSummaryExecution: () => execution, activeSummaryExecution: execution,
+                getContext: () => context,
+                finishSummaryExecution: () => { finished++; },
+                notifySummaryState: () => { stateChanges++; },
+                isSummaryGenerating: () => false, isSummaryExecutionActive: () => true,
+                ensureCurrentSources: async () => {
+                    if (outcome === 'user-stop') execution.controller.abort();
+                    if (outcome === 'chat-switch') context.chatId = 'other-chat';
+                    throw failure;
+                },
+                runSummaryGeneration: async () => { calls++; },
+                postToFrame: notice => notices.push(notice),
+                SUMMARY_FEEDBACK_COPY, MODULE_ID: 'summary',
+                xbLog: { error: (_module, _message, error) => errors.push(error) },
+            });
+            await host[name](3, {});
+            assert.equal(calls, 0);
+            assert.equal(released, 1);
+            assert.equal(finished, 1);
+            assert.equal(stateChanges, 2);
+            assert.equal(messageReads, 0);
+            assert.deepEqual(errors, outcome === 'failure' ? [failure] : []);
+            assert.deepEqual(notices.map(notice => notice.type), outcome === 'chat-switch' ? []
+                : outcome === 'failure' ? ['SUMMARY_ERROR'] : ['SUMMARY_STATUS']);
+        });
+    }
 }

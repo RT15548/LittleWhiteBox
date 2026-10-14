@@ -3,7 +3,6 @@
 
 import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
-import { formatErrorDetails } from '../../../core/error-details.js';
 import {
     addSummarySnapshot,
     getFacts,
@@ -176,7 +175,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             return { success: false, cancelled: true };
         }
         xbLog.error(MODULE_ID, '生成失败', err);
-        onError?.(`生成失败：${formatErrorDetails(err, { includeStack: false })}`);
+        onError?.(SUMMARY_FEEDBACK_COPY.summaryFailed);
         return { success: false, error: err };
     }
 
@@ -218,8 +217,8 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             endFloor: slice.endMesId + 1,
         });
     } catch (error) {
-        const message = `返回的JSON不是有效总结：${error.message}`;
-        xbLog.error(MODULE_ID, message);
+        const message = SUMMARY_FEEDBACK_COPY.summaryResultInvalid;
+        xbLog.error(MODULE_ID, message, error);
         onError?.(message);
         return { success: false, error: "structure", message };
     }
@@ -281,7 +280,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             return cancelledResult(onStatus, true);
         }
         xbLog.warn(MODULE_ID, '总结已提交，但收尾任务失败', error);
-        onError?.(`总结已保存，但后续处理失败：${formatErrorDetails(error, { includeStack: false })}`);
+        onError?.(SUMMARY_FEEDBACK_COPY.summaryFollowupFailed);
         return result;
     }
 
