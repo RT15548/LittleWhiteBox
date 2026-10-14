@@ -397,14 +397,19 @@ async function storeFailedSlots(h, prefix, slots, status = 'failed') {
 const floorSource = (prefix, names) => names.map(name => `[image:${prefix}-${name}]`).join(' ');
 const failedCards = h => [...h.root.querySelectorAll('.xb-nd-img[data-state="failed"]')];
 
-test('every failed card offers a floor-wide redraw next to the single redraw', async t => {
+test('failed cards keep single redraw primary and floor-wide actions collapsed', async t => {
     const h = setup(t, floorSource('fr1', ['a', 'b']));
     await storeFailedSlots(h, 'fr1', [['a', 'tag a'], ['b', 'tag b']]);
     assert.equal(failedCards(h).length, 2);
     for (const card of failedCards(h)) {
-        const actions = [...card.querySelectorAll('[data-action]')].map(node => node.dataset.action);
-        assert.deepEqual(actions.slice(0, 3), ['retry-image', 'retry-floor-failed', 'edit-tags']);
-        assert.match(card.querySelector('[data-action="retry-floor-failed"]').textContent, /重生本楼失败项/);
+        const retry = card.querySelector('[data-action="retry-image"]');
+        assert.ok(retry);
+        assert.equal(retry.closest('details'), null);
+        for (const action of ['retry-floor-failed', 'edit-tags', 'remove-placeholder']) {
+            const menu = card.querySelector(`[data-action="${action}"]`).closest('details');
+            assert.ok(menu);
+            assert.equal(menu.hasAttribute('open'), false);
+        }
     }
 });
 

@@ -266,6 +266,7 @@ test('redraw progress and failure keep the old image without changing the attemp
     assert.equal(card.dataset.imgId, failedId);
     assert.equal(card.dataset.tags, 'new tags');
     assert.ok(card.querySelector('[data-action="restore-image"]'));
+    assert.equal(card.querySelector('[data-action="restore-image"]').closest('details'), null);
     assert.equal(await api.getSlotSelection(slotId), failedId);
 });
 

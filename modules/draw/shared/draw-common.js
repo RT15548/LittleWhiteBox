@@ -76,7 +76,6 @@ export const ErrorType = {
     SCENE_PLACEMENT: { code: 'scene_placement', label: '插图位置', desc: '正文位置已变化，未写入图片' },
     ABORTED: { code: 'aborted', label: '已取消', desc: '场景规划已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
-    CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
     JOB_EXPIRED: { code: 'job_expired', label: '后台任务已失效', desc: '后台任务已过期或被清理，可重新生成' },
     JOB_NOT_SUBMITTED: { code: 'job_not_submitted', label: '任务未提交', desc: '后台任务未提交成功，可重新生成' },
 };
@@ -250,12 +249,20 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
-.xb-nd-img button:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
-.xb-nd-failed-icon{color:rgba(248,113,113,0.9);font-size:24px;margin-bottom:8px}
-.xb-nd-failed-title{color:inherit;font-size:13px;margin-bottom:4px}
-.xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin-bottom:12px;overflow-wrap:anywhere}
+.xb-nd-img button:focus-visible,.xb-nd-img summary:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.xb-nd-failed-icon{display:inline-block;color:rgba(248,113,113,0.9);font-size:14px;margin-inline-end:6px}
+.xb-nd-failed-title{display:inline;color:inherit;font-size:13px}
+.xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin:8px 0 12px;overflow-wrap:anywhere}
 .xb-nd-failed-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-.xb-nd-failed-btns button{padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer;transition:all 0.15s}
+.xb-nd-failed-btns button{min-height:44px;padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer;transition:all 0.15s}
+.xb-nd-failed-more{min-width:0}
+.xb-nd-failed-more summary{box-sizing:border-box;min-height:44px;padding:8px 12px;display:inline-flex;align-items:center;gap:6px;list-style:none;font-size:12px;cursor:pointer;border-radius:8px}
+.xb-nd-failed-more summary::-webkit-details-marker{display:none}
+.xb-nd-failed-more summary::after{content:'⌄';font-size:14px}
+.xb-nd-failed-more[open]{flex-basis:100%}
+.xb-nd-failed-more[open] summary::after{transform:rotate(180deg)}
+.xb-nd-failed-more summary:hover{background:rgba(127,127,127,.1)}
+.xb-nd-failed-options{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding-top:8px}
 .xb-nd-tag-actions{display:inline-flex;margin-inline-start:12px;vertical-align:middle}
 .xb-nd-tag-actions button{min-height:44px;min-width:64px}
 .xb-nd-retry-btn{border:1px solid rgba(212,165,116,0.5);background:rgba(212,165,116,0.2);color:inherit}
@@ -582,15 +589,20 @@ export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags
     const escapedTags = escapeHtml(tags);
     const escapedPositive = escapeHtml(positive);
     return `<div class="xb-nd-img" data-slot-id="${slotId}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(248,113,113,0.5);border-radius:14px;padding:20px;background:rgba(248,113,113,0.05);">
-<div class="xb-nd-failed-icon">⚠️</div>
-<div class="xb-nd-failed-title">${escapeHtml(errorType || '生成失败')}</div>
-<div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
+<div class="xb-nd-failed-icon" aria-hidden="true">⚠</div>
+<div class="xb-nd-failed-title">${escapeHtml(errorType || DRAW_SLOT_COPY.generationFailed)}</div>
+<div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '')}</div>
 <div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">⟳ 重新生成</button>
-    <button class="xb-nd-retry-btn" data-action="retry-floor-failed" title="重新生成本楼层所有失败或结果未知的图片，已成功的不受影响">⟳ 重生本楼失败项</button>
-    <button class="xb-nd-edit-btn" data-action="edit-tags">✐ 编辑TAG</button>
+    <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.regenerate}</button>
     ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
-    <button class="xb-nd-remove-btn" data-action="remove-placeholder">✕ 移除</button>
+    <details class="xb-nd-failed-more">
+        <summary>${DRAW_SLOT_COPY.moreActions}</summary>
+        <div class="xb-nd-failed-options">
+            <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
+            <button class="xb-nd-edit-btn" data-action="retry-floor-failed" title="${DRAW_SLOT_COPY.regenerateFloorHint}">${DRAW_SLOT_COPY.regenerateFloor}</button>
+            <button class="xb-nd-remove-btn" data-action="remove-placeholder">${DRAW_SLOT_COPY.remove}</button>
+        </div>
+    </details>
 </div>
 ${buildTagEditor(tags, true)}
 </div>`;
@@ -716,8 +728,8 @@ async function renderPreviewsForMessageNow(messageId, {
                     messageId,
                     tags: displayData.failedInfo?.tags || '',
                     positive: displayData.failedInfo?.positive || '',
-                    errorType: interrupted?.label || displayData.failedInfo?.errorType || ErrorType.CACHE_LOST.label,
-                    errorMessage: interrupted?.desc || displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc,
+                    errorType: interrupted?.label || displayData.failedInfo?.errorType || DRAW_SLOT_ERRORS.unavailable.label,
+                    errorMessage: interrupted?.desc || displayData.failedInfo?.errorMessage || DRAW_SLOT_ERRORS.unavailable.desc,
                 });
             } else if (displayData.hasData && displayData.preview) {
                 const url = getPreviewDisplayUrl(displayData.preview);
@@ -739,8 +751,8 @@ async function renderPreviewsForMessageNow(messageId, {
                     messageId,
                     tags: '',
                     positive: '',
-                    errorType: ErrorType.CACHE_LOST.label,
-                    errorMessage: ErrorType.CACHE_LOST.desc,
+                    errorType: DRAW_SLOT_ERRORS.unavailable.label,
+                    errorMessage: DRAW_SLOT_ERRORS.unavailable.desc,
                 });
             }
         } catch (error) {

@@ -319,7 +319,6 @@ const ErrorType = {
     SCENE_PLACEMENT: { code: 'scene_placement', label: '插图位置', desc: '正文位置已变化，未写入图片' },
     ABORTED: { code: 'aborted', label: '已取消', desc: '请求已取消' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
-    CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
 };
 
 const DEFAULT_PARAMS_PRESET = {
