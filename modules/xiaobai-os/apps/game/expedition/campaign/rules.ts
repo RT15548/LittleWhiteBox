@@ -6,19 +6,19 @@ import type { CourtyardFact } from '../content/world-types.js';
 import { fault, random } from '../random.js';
 import { relicRank } from '../relics.js';
 import type { Command, InputFrame, Loadout, Outfit, Relic, Weapon } from '../types.js';
-import { interactWorld, sceneSpace, startWorld, walkWorld } from '../world/exploration.js';
+import { interactWorld, reachableInteractions, sceneSpace, startWorld, walkWorld } from '../world/exploration.js';
 import type { Campaign } from './types.js';
-import { availableChoices, CAMPAIGN_ACTIONS } from '../content/campaign-actions.js';
+import { availableChoices, campaignAction, type CampaignChoice } from '../content/campaign-actions.js';
 import { PERSON_IDS } from '../content/people.js';
-import { initialPeople, personAt, reachablePeople, relocatePeople, tickPeople } from '../world/people.js';
+import { initialPeople, movePerson, personAt, reachablePeople, relocatePeople, tickPeople } from '../world/people.js';
 import { CAPTIVE_IDS, PERSON_PLACES } from '../content/people-places.js';
 import { districtScene } from '../content/living-spaces.js';
 import { hasReturned } from './rescue.js';
-import { isPerson, PARTICIPANT_IDS, type Participant } from '../content/participants.js';
+import { isPerson, isStoryPerson, PARTICIPANT_IDS, type Participant } from '../content/participants.js';
 import { PARLEY_ENEMIES, PARLEY_IDS } from '../content/parley.js';
 import { canParley } from './parley.js';
 import { parseTraveler, type Traveler } from './traveler.js';
-import { FIRST_CHAPTER } from '../content/chapters.js';
+import { FIRST_CHAPTER, SECOND_CHAPTER } from '../content/chapters.js';
 import { greet } from '../content/greetings.js';
 import { pendingEnding } from './reply-checkpoint.js';
 import { SUPPLIES_HANDOFF } from '../content/supplies.js';
@@ -26,6 +26,9 @@ import { grantRewardNode, rewardOffers } from './rewards.js';
 import { campaignObjectVisible, canRebuildLoadout } from './interactions.js';
 import { canStandInWorld } from '../world/geometry.js';
 import { boundedFieldSpace } from '../combat/field.js';
+import { cityPassage } from './city-passages.js';
+import { isCityDistrict } from '../content/inner-city/places.js';
+import { STORY_PEOPLE, STORY_PERSON_IDS } from '../content/inner-city/people.js';
 
 export const CAMPAIGN_RULES = Object.freeze({ explorationSpeed: 1.65, playerTextLimit: 2000, replyTextLimit: 8000 });
 export function campaignLoadout(campaign: Campaign): Loadout {
@@ -51,7 +54,8 @@ export function createCampaign(id: string, seed: number, weapon: Weapon, outfit:
 }
 export function recordFact(campaign: Campaign, fact: CourtyardFact, witnesses?: readonly Participant[]) {
     if (!campaign.facts.includes(fact)) { campaign.facts.push(fact); }
-    const present = witnesses ?? [...PERSON_IDS.filter(id => campaign.people[id].scene === campaign.location.scene), ...PARLEY_IDS.filter(id => PARLEY_ENEMIES[id].scene === campaign.location.scene)];
+    const present = witnesses ?? [...PERSON_IDS.filter(id => campaign.people[id].scene === campaign.location.scene),
+        ...PARLEY_IDS.filter(id => PARLEY_ENEMIES[id].scene === campaign.location.scene), ...STORY_PERSON_IDS.filter(id => STORY_PEOPLE[id].scene === campaign.location.scene)];
     for (const person of present) {
         if (!campaign.knowledge[person].includes(fact)) { campaign.knowledge[person].push(fact); }
     }
@@ -75,6 +79,11 @@ function beginEncounter(campaign: Campaign, id: EncounterSegment) {
 }
 export function canTalk(campaign: Campaign, person: Participant) {
     if (pendingEnding(campaign)) { return false; }
+    if (isStoryPerson(person)) {
+        return campaign.phase === 'exploration' && !campaign.pendingParley
+            && reachableInteractions(COURTYARD[campaign.location.scene], campaign.location, new Set(campaign.facts))
+                .some(i => i.kind === 'object' && i.target.kind === 'resident' && i.target.person === person);
+    }
     if (!isPerson(person)) { return canParley(campaign, person); }
     if (campaign.pendingParley) { return false; }
     return campaign.phase === 'exploration' && reachablePeople(campaign)
@@ -100,11 +109,16 @@ function settleRescue(campaign: Campaign) {
         recordFact(campaign, 'captives_arrived', PERSON_IDS.filter(id => campaign.people[id].scene === 'camp'));
     }
 }
+function settleCityArrivals(campaign: Campaign) {
+    if (!campaign.facts.includes('kouzi_entered_city') && ['south_street', 'workshop_street'].includes(districtScene(campaign.people.kouzi.scene))) {
+        recordFact(campaign, 'kouzi_entered_city', ['kouzi']);
+    }
+}
 function battleReward(campaign: Campaign) {
     const id = campaign.engagement!.id, spec = COURTYARD_ENCOUNTERS[id];
     if (spec.complete) { recordFact(campaign, spec.complete); }
     else if (!campaign.completedSegments.includes(id)) { campaign.completedSegments.push(id); }
-    grantRewardNode(campaign, spec.reward);
+    if (spec.reward) { grantRewardNode(campaign, spec.reward); }
     campaign.phase = 'exploration';
     campaign.battle = null; campaign.checkpoint = null; campaign.engagement = null;
 }
@@ -132,7 +146,7 @@ export function tickCampaign(campaign: Campaign, input: InputFrame) {
                 && canStandInWorld(boundedFieldSpace(sceneSpace(scene, facts), spec.bounds), campaign.location.position, RULES.playerRadius)) { beginEncounter(campaign, id); }
         }
     }
-    if (campaign.phase === 'exploration' || campaign.phase === 'battle') { tickPeople(campaign); settleRescue(campaign); }
+    if (campaign.phase === 'exploration' || campaign.phase === 'battle') { tickPeople(campaign); settleRescue(campaign); settleCityArrivals(campaign); }
 }
 export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { type: 'start' | 'restart' | 'purchase' | 'equip' }>) {
     if (campaign.pendingParley && command.type !== 'resolve_parley') { fault('unavailable'); }
@@ -144,9 +158,10 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             greet(campaign, command.person); break;
         case 'accept_reply': {
             const person = pendingEnding(campaign);
-            if (person !== 'sanniang') { fault('unavailable'); }
+            if (!person) { fault('unavailable'); }
+            const id = campaign.conversations[person].at(-1)!.action as CampaignChoice;
             delete campaign.lastReply;
-            advanceCampaign(campaign, { type: 'choice', id: 'finish', person }); break;
+            advanceCampaign(campaign, { type: 'choice', id, person }); break;
         }
         case 'resolve_parley': {
             const pending = campaign.pendingParley;
@@ -154,7 +169,7 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             const spec = PARLEY_ENEMIES[pending.enemy];
             if (pending.decision === 'pass') {
                 recordFact(campaign, spec.complete); recordFact(campaign, spec.persuaded);
-                grantRewardNode(campaign, COURTYARD_ENCOUNTERS[pending.enemy === 'bajin' ? 'gate' : 'beacon'].reward);
+                grantRewardNode(campaign, COURTYARD_ENCOUNTERS[pending.enemy === 'bajin' ? 'gate' : 'beacon'].reward!);
             } else {
                 beginEncounter(campaign, pending.enemy === 'bajin' ? 'gate' : 'beacon');
             }
@@ -168,8 +183,13 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             if (campaign.phase !== 'exploration') { fault('unavailable'); }
             const result = interactWorld(COURTYARD, campaign.location, facts, command.id);
             if (result.kind === 'travel') {
-                campaign.location = result.location; relocatePeople(campaign); settleRescue(campaign);
+                campaign.location = result.location; relocatePeople(campaign); settleRescue(campaign); settleCityArrivals(campaign);
                 if (campaign.location.scene === 'cells') { grantRewardNode(campaign, 'cells'); }
+                if (isCityDistrict(districtScene(campaign.location.scene))) {
+                    campaign.chapter = SECOND_CHAPTER.id;
+                    if (!facts.has('chapter_completed')) { recordFact(campaign, 'chapter_completed'); }
+                    if (COURTYARD[campaign.location.scene].objects.some(object => object.kind === 'reward' && object.node === 'city_arrival')) { grantRewardNode(campaign, 'city_arrival'); }
+                }
             } else if (!campaignObjectVisible(campaign, result.object)) { fault('unavailable'); }
             else if (result.object.kind === 'reward') {
                 campaign.rewardNode = result.object.node; campaign.phase = 'reward';
@@ -181,14 +201,23 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             } else if (campaign.location.scene === SUPPLIES_HANDOFF.scene && result.object.id === SUPPLIES_HANDOFF.object.id) {
                 recordFact(campaign, SUPPLIES_HANDOFF.fact);
                 campaign.evidence.dispatchNoteSeen = true;
+            } else if (result.object.kind === 'inspect') {
+                const passage = cityPassage(campaign, result.object.passage);
+                if (passage?.ready && !facts.has(passage.fact)) {
+                    recordFact(campaign, passage.fact, passage.witnesses);
+                    if (passage.fact === 'return_plan_found') { grantRewardNode(campaign, 'return_plan'); }
+                }
             }
             break;
         }
         case 'choice': {
-            const action = CAMPAIGN_ACTIONS[command.id];
+            const action = campaignAction(command.id)!;
             const person = command.person;
-            if (!canTalk(campaign, person) || !availableChoices(campaign.facts, person, campaign.people[person]).includes(command.id)) { fault('unavailable'); }
-            recordFact(campaign, action.fact, [person]);
+            if (!canTalk(campaign, person) || !availableChoices(campaign, person).includes(command.id)) { fault('unavailable'); }
+            const witnesses = (action.witnesses ?? []).filter(id => (isPerson(id) ? campaign.people[id].scene
+                : isStoryPerson(id) ? STORY_PEOPLE[id].scene : null) === campaign.location.scene);
+            recordFact(campaign, action.fact, [person, ...action.present ?? [], ...witnesses]);
+            if (action.escort && isPerson(person)) { movePerson(campaign, person, 'follow'); }
             settleRescue(campaign);
             break;
         }

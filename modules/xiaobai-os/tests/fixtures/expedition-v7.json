@@ -1,0 +1,159 @@
+{
+  "formatVersion": 7,
+  "revision": 0,
+  "last": null,
+  "active": {
+    "id": "retained-v7",
+    "seed": 731,
+    "weapon": "blade",
+    "outfit": "traveler",
+    "traveler": {
+      "name": "林川",
+      "gender": "male",
+      "appearanceAge": "twenties"
+    },
+    "chapter": "outpost",
+    "location": {
+      "scene": "camp",
+      "position": {
+        "x": -22,
+        "y": 16
+      },
+      "facing": -1.5707963267948966,
+      "visited": [
+        "camp"
+      ]
+    },
+    "facts": [
+      "briefed"
+    ],
+    "hp": 100,
+    "collection": [
+      {
+        "id": "cinder",
+        "rank": 2
+      }
+    ],
+    "equipped": [
+      "cinder"
+    ],
+    "rewards": {},
+    "rewardNode": null,
+    "completedSegments": [],
+    "engagement": null,
+    "phase": "exploration",
+    "battle": null,
+    "checkpoint": null,
+    "relationships": {
+      "sanniang": {
+        "affection": 84,
+        "highestBand": 4
+      },
+      "anian": {
+        "affection": 0,
+        "highestBand": 0
+      },
+      "kouzi": {
+        "affection": 0,
+        "highestBand": 0
+      },
+      "laobai": {
+        "affection": 0,
+        "highestBand": 0
+      }
+    },
+    "people": {
+      "sanniang": {
+        "scene": "camp",
+        "position": {
+          "x": -13,
+          "y": 12
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      },
+      "anian": {
+        "scene": "cells",
+        "position": {
+          "x": 15,
+          "y": -12
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      },
+      "kouzi": {
+        "scene": "cells",
+        "position": {
+          "x": -15,
+          "y": -12
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      },
+      "laobai": {
+        "scene": "camp",
+        "position": {
+          "x": 7,
+          "y": -39
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      }
+    },
+    "pendingParley": null,
+    "evidence": {
+      "dispatchNoteSeen": false
+    },
+    "conversations": {
+      "sanniang": [
+        {
+          "id": "retained-dialogue",
+          "kind": "dialogue",
+          "player": "到了新地方也记着这件事。",
+          "reply": "我点头。「我记着。」",
+          "action": null,
+          "facts": [
+            "briefed"
+          ],
+          "scene": "camp",
+          "clothing": {
+            "outer": "灰蓝细呢外衣"
+          }
+        }
+      ],
+      "anian": [],
+      "kouzi": [],
+      "laobai": [],
+      "bajin": [],
+      "changyounian": []
+    },
+    "memories": {
+      "sanniang": {
+        "throughId": "retained-dialogue",
+        "text": "旅人请三娘记住这次约定。"
+      },
+      "anian": null,
+      "kouzi": null,
+      "laobai": null,
+      "bajin": null,
+      "changyounian": null
+    },
+    "knowledge": {
+      "sanniang": [
+        "briefed"
+      ],
+      "anian": [],
+      "kouzi": [],
+      "laobai": [],
+      "bajin": [],
+      "changyounian": []
+    }
+  },
+  "awards": [],
+  "purchases": [],
+  "equippedOutfit": "traveler"
+}

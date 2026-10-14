@@ -14,6 +14,8 @@ import { conversationContext } from '../apps/game/expedition/narrative/prompt.ts
 import { courtyardBattle } from '../apps/game/expedition/content/courtyard-encounters.ts';
 import { decodeNarrativeReply } from '../apps/game/expedition/narrative/response.ts';
 import { pendingEnding } from '../apps/game/expedition/campaign/reply-checkpoint.ts';
+import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
+import { personAt } from '../apps/game/expedition/world/people.ts';
 const start = { type: 'start', weapon: 'blade', outfit: 'traveler', ...journey };
 async function setup(files, dependencies = {}) {
     const h = await userEconomyHarness({ files }); await h.economy.ensureOpen();
@@ -23,6 +25,39 @@ async function setup(files, dependencies = {}) {
     const act = command => service.act(request(command), () => true);
     return { ...h, service, request, act, driver: campaignDriver(() => service.view().data.active, act) };
 }
+
+test('a local story person’s paid offer recovers failed saving, rerolls without agreement, and confirms once after reload', async () => {
+    let h, calls = 0;
+    const agent = { loadConfig: async () => ({}), openSession: async () => ({ providerConfig: { model: 'fixture' }, run: async () => {
+        calls++; if (calls === 1) h.state.mode = 'rejected';
+        return { text: narrativeReply({ reply: 'fixture offer', action: calls === 1 ? 'offer_wen_release' : 'offer_wen_independence', affection: null }) };
+    } }) };
+    h = await setup(undefined, { agent }); await h.act(start);
+    // Isolate the save/confirmation boundary; physical journeys are covered separately.
+    await h.store(EXPEDITION_PARTITION).transact(tx => {
+        const data = structuredClone(tx.current), c = data.active; data.revision++;
+        c.chapter = 'inner_city'; c.location.scene = 'wen_house'; c.location.position = { ...COURTYARD.wen_house.anchors.host }; c.location.visited.push('wen_house');
+        c.facts.push('wen_visit_agreed', 'wen_terms_heard'); c.knowledge.wenshoutong.push('wen_terms_heard');
+        c.people.sanniang = personAt({ scene: 'wen_house', anchor: 'table' }); tx.replace(data);
+    });
+    const balance = h.service.view().balance;
+    const talk = (id, regenerate) => h.service.converse({ actionId: id, revision: h.service.view().data.revision, person: 'wenshoutong', text: '你自己的意思呢？', ...(regenerate ? { regenerate } : {}) }, () => true, new AbortController().signal);
+    await assert.rejects(talk('offer-first'));
+    assert.equal(calls, 1); h.state.mode = 'confirmed'; await h.service.confirm(() => true);
+    assert.equal(calls, 1); assert.equal(pendingEnding(h.service.view().data.active), 'wenshoutong');
+    assert.equal(h.service.view().data.active.facts.includes('wen_release_offered'), false);
+    await talk('offer-replacement', 'offer-first');
+    assert.equal(calls, 2);
+    h = await setup(h.state.files, { agent });
+    assert.equal(pendingEnding(h.service.view().data.active), 'wenshoutong');
+    const accept = h.request({ type: 'accept_reply' });
+    await h.service.act(accept, () => true); await h.service.act(accept, () => true);
+    const c = h.service.view().data.active;
+    assert.equal(c.facts.includes('wen_release_offered'), false);
+    assert.equal(c.facts.filter(f => f === 'wen_independence_offered').length, 1);
+    assert.equal(c.facts.includes('wen_independence_agreed'), false);
+    assert.equal(c.relationships.wenshoutong, undefined); assert.equal(h.service.view().balance, balance); assert.equal(calls, 2);
+});
 
 test('complete chapter commits rescue, ending, equipment and wallet rewards and survives a real file reload', async () => {
     const h = await setup(), balance = h.service.view().balance;

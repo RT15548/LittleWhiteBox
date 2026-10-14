@@ -1,4 +1,5 @@
 import type { Participant } from './participants.js';
+import { STORY_PEOPLE, STORY_PERSON_IDS, type StoryPerson } from './inner-city/people.js';
 
 export const CLOTHING_SLOTS = {
     outer: '外衣', lower: '下装', inner: '内衣', underpants: '内裤', shoes: '鞋', socks: '袜',
@@ -9,6 +10,7 @@ export type ClothingChange = Partial<Clothing>;
 
 /** First-meeting clothing, not a catalogue of permitted outfits. */
 export const INITIAL_CLOTHING: Record<Participant, Clothing> = {
+    ...Object.fromEntries(STORY_PERSON_IDS.map(id => [id, STORY_PEOPLE[id].clothing])) as Record<StoryPerson, Clothing>,
     sanniang: {
         outer: '深靛蓝短外搭，米白滚边；内搭米白高领盘扣长衫，束褐红布带',
         lower: '深蓝长裙，腰间收褶，裙摆细密包边',

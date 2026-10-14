@@ -10,18 +10,18 @@ import { startWorld } from '../apps/game/expedition/world/exploration.ts';
 import { TRAVELER_AGE_IDS } from '../apps/game/expedition/content/traveler-ages.ts';
 import { applyReply } from '../apps/game/expedition/narrative/apply-reply.ts';
 const start = { type: 'start', weapon: 'blade', outfit: 'traveler', ...journey };
-test('a journey requires the chosen identity and chapter; the saved profile survives a round trip', () => {
+test('a journey requires identity and starts at the outskirts; the saved profile survives a round trip', () => {
     for (const gender of ['male', 'female']) for (const appearanceAge of TRAVELER_AGE_IDS) {
         const command = parseCommand({ ...start, traveler: { name: '  江雪  ', gender, appearanceAge } });
         const state = advanceExpedition(emptyExpedition(), command, 'identity', 7);
         assert.deepEqual(state.active.traveler, { name: '江雪', gender, appearanceAge });
-        assert.equal(state.active.chapter, journey.chapter);
+        assert.equal(state.active.chapter, 'outpost');
         assert.deepEqual(EXPEDITION_PARTITION.parse(EXPEDITION_PARTITION.serialize(state)).value, state);
     }
     for (const traveler of [null, {}, { name: ' ' }, { name: '江雪' }, { name: '江雪', gender: 'unknown' }, { name: 'a\nb', gender: 'male' }]) {
         assert.throws(() => parseCommand({ ...start, traveler }), { code: 'expedition_invalid' });
     }
-    assert.throws(() => parseCommand({ ...start, chapter: 'future' }), { code: 'expedition_invalid' });
+    assert.equal(advanceExpedition(emptyExpedition(), parseCommand({ ...start, chapter: 'inner_city' }), 'no-skip', 7).active.chapter, 'outpost');
 });
 test('new journeys require a listed adult age without replacing a save on invalid input', () => {
     const current = advanceExpedition(emptyExpedition(), start, 'current', 7), before = structuredClone(current);

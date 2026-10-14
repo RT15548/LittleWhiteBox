@@ -35,5 +35,20 @@ export const LOCAL_LIFE: Partial<Record<CourtyardScene, readonly LocalResident[]
         { id: 'anian-father', name: '阿念的父亲', activity: 'repair', coat: 'blue', phase: 0, route: [stop(8, -4, 0)] },
         { id: 'anian-mother', name: '阿念的母亲', activity: 'mend', coat: 'rose', phase: 2, route: [stop(8, 2, 0)] },
     ],
+    south_street: [
+        { id: 'tea-seller', name: '热水铺掌柜', activity: 'cook', coat: 'cream', phase: 0, route: [stop(7, -17, 0, Math.PI / 2)] },
+        { id: 'tea-drinker', name: '歇脚的街坊', activity: 'warm', coat: 'blue', phase: 1, route: [stop(-7, 19, 0)] },
+        { id: 'city-delivery', name: '送货的伙计', activity: 'deliver', coat: 'rose', phase: 6,
+            route: [stop(11, 23, 7), stop(5, 17, 0), stop(0, 7, 0), stop(0, -5, 5), stop(0, 7, 0), stop(5, 17, 0)] },
+    ],
+    workshop_street: [
+        { id: 'pipe-fitter', name: '修管的工人', activity: 'repair', coat: 'blue', phase: 0, route: [stop(18, -4, 0)] },
+        { id: 'lodging-mender', name: '补衣的寄工', activity: 'mend', coat: 'rose', phase: 1, route: [stop(17, 20, 0)] },
+        { id: 'workshop-water', name: '领水的寄工', activity: 'water', coat: 'cream', phase: 3,
+            route: [stop(-10, 19, 6, -Math.PI / 2), stop(-4, 18, 0), stop(8, 21, 0), stop(14, 20, 7), stop(8, 21, 0), stop(-4, 18, 0)] },
+    ],
+    workers_lodging: [
+        { id: 'old-mender', name: '补鞋的老寄工', activity: 'mend', coat: 'cream', phase: 0, route: [stop(-7, 7, 0)] },
+    ],
 };
 export const LOCAL_ACTIVITY = { mend: '缝补衣物', warm: '捧着热水歇息', dressings: '整理敷料', cook: '照看炉火', water: '提水往来', deliver: '搬送货物', repair: '修理铜管', keep: '照看柜台' } as const;

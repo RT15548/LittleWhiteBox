@@ -30,6 +30,61 @@ const activate = () => runtime.activate({ post: (type, payload) => { events.push
 async function prepare(stage, weapon, cue) {
     await reset(weapon);
     const driver = campaignDriver(() => service.view().data.active, act);
+    const companion = { 'city-sanniang': ['sanniang', 'clinic', 'visit_wen'], 'city-anian': ['anian', 'anian', 'trace_missing_name'],
+        'city-kouzi': ['kouzi', 'kouzi', 'explore_deep_route'], 'city-laobai': ['laobai', 'guard', 'review_gate_book'] }[stage];
+    if (companion) {
+        await driver.complete('waterway');
+        const [person, anchor, invitation] = companion;
+        // Explicit UI scenario boundary, not an affection-speed or model-quality measurement.
+        await harness.store(EXPEDITION_PARTITION).transact(transaction => {
+            const next = structuredClone(transaction.current);
+            next.active.relationships[person] = { affection: 81, highestBand: 4 };
+            transaction.replace(next);
+        });
+        await driver.walk(anchor); await act({ type: 'choice', person, id: invitation });
+        if (person === 'kouzi') {
+            await driver.interact('kouzi_home'); await driver.interact('north'); await driver.walk('winch');
+        } else {
+            await driver.interact('postern'); await driver.interact('hall'); await driver.interact('south_street');
+            if (person === 'sanniang') {
+                await driver.interact('wen_house'); await driver.walk('table');
+                if (cue === 'walk') { await driver.interact('wen_table'); await driver.interact('south'); await driver.walk('eaves'); }
+            } else if (person === 'laobai') {
+                if (cue === 'home') {
+                    await driver.interact('gate_tea'); await driver.interact('audit_office'); await driver.interact('gate_cases');
+                    await driver.walk('register'); await act({ type: 'choice', person, id: 'request_gate_review' });
+                    await driver.interact('south');
+                }
+                await driver.walk('tea');
+            } else {
+                if (cue === 'bridge' || cue === 'home') {
+                    await driver.interact('anian_street'); await driver.interact('workshop_street'); await driver.walk('echo');
+                    if (cue === 'home') {
+                        await driver.interact('anian_bridge'); await driver.interact('south_street'); await driver.interact('hall');
+                        await driver.interact('cells'); await driver.interact('postern'); await driver.walk('registry');
+                    }
+                } else { await driver.walk('stroll'); }
+            }
+        }
+        return activate();
+    }
+    if (['city', 'workshop', 'station', 'city-trial', 'city-boss', 'city-repair', 'city-home'].includes(stage)) {
+        await driver.complete('waterway');
+        await driver.interact('postern'); await driver.interact('hall'); await driver.interact('south_street');
+        if (stage === 'city') { await driver.walk('rest'); return activate(); }
+        await driver.interact('heat_notice'); await driver.interact('workshop_street');
+        if (stage === 'workshop') { await driver.walk('rest'); return activate(); }
+        await driver.interact('pipe_receipt'); await driver.interact('heat_station'); await driver.interact('return_plan');
+        if (stage === 'station') { await driver.walk('foreman'); return activate(); }
+        await driver.interact('pipe_gallery');
+        if (stage === 'city-trial') { await driver.walk('trial'); return activate(); }
+        await driver.interact('return_trial'); await driver.interact('sluice_bridge'); await driver.interact('main_valve');
+        if (stage === 'city-boss') { await driver.walk('encounter', false); return activate(); }
+        if (stage === 'city-repair') { await driver.walk('valve'); return activate(); }
+        await driver.interact('heat_return'); await driver.interact('sluice_bridge'); await driver.interact('pipe_gallery');
+        await driver.interact('heat_station'); await driver.interact('south_street'); await driver.interact('hall');
+        await driver.interact('cells'); await driver.interact('postern'); await driver.walk('rest'); return activate();
+    }
     await driver.walk('clinic'); await act({ type: 'choice', id: 'briefing', person: 'sanniang' });
     if (stage === 'roots') { await driver.complete('waterway'); await driver.interact('road'); await driver.interact('roots'); await driver.walk('encounter', false); }
     else {

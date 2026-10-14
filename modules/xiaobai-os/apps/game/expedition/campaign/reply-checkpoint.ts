@@ -2,6 +2,7 @@ import type { Campaign, ConversationTurn, DialogueEffects } from './types.js';
 import { isPerson, type Participant } from '../content/participants.js';
 import { fault } from '../random.js';
 import { relationshipBand } from './relationships.js';
+import { campaignAction } from '../content/campaign-actions.js';
 
 /** One bounded checkpoint: no transcripts, summaries, battle frames or nested snapshots. */
 export function dialogueEffects(campaign: Campaign): DialogueEffects {
@@ -34,7 +35,8 @@ export function prepareRegeneration(campaign: Campaign, person: Participant, tur
 }
 export function pendingEnding(campaign: Campaign) {
     const reply = latestReply(campaign);
-    return reply?.turn.action === 'finish' && !campaign.facts.includes('chapter_completed') ? reply.person : null;
+    const action = campaignAction(reply?.turn.action ?? null);
+    return reply && action?.confirm && !campaign.facts.includes(action.fact) ? reply.person : null;
 }
 export function rewindReply(campaign: Campaign, person: Participant, turnId: string): Campaign {
     const turn = latestConversationReply(campaign, person), checkpoint = campaign.lastReply;

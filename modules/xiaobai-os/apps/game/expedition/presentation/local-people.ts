@@ -26,7 +26,7 @@ function bakePart(root: Group, material: MeshStandardMaterial) {
     return () => { merged.dispose(); root.clear(); };
 }
 
-function residentModel(k: SceneKit, parent: Group, resident: LocalResident, material: MeshStandardMaterial) {
+export function residentModel(k: SceneKit, parent: Group, resident: Pick<LocalResident, 'coat' | 'activity'>, material: MeshStandardMaterial) {
     const root = k.group(parent), body = k.group(root), arms: Group[] = [], legs: Group[] = [];
     const coat = { blue: LAND.slate, rose: LAND.rose, cream: LAND.cloth }[resident.coat];
     const seated = resident.activity === 'mend' || resident.activity === 'warm', skin = '#dfbda7';

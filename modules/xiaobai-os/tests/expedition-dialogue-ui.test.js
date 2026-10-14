@@ -18,6 +18,7 @@ import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { startWorld } from '../apps/game/expedition/world/exploration.ts';
 import { applyReply } from '../apps/game/expedition/narrative/apply-reply.ts';
 import { prepareRegeneration } from '../apps/game/expedition/campaign/reply-checkpoint.ts';
+import { CITY_COPY } from '../apps/game/expedition/content/inner-city/copy.ts';
 
 // Production entry, dialogue and maps. Visual-only renderers are replaced; the composer
 // supplies draft edits here and is exercised with real sizing/keyboard APIs in the browser.
@@ -49,7 +50,7 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
                         p.conclusion ? h('button',{type:'button',disabled:p.blocked,onClick:()=>emit('continue')},p.conclusion==='fight'?${JSON.stringify(DIALOGUE_COPY.fight)}:${JSON.stringify(DIALOGUE_COPY.continue)})
                         : h('textarea',{value:p.modelValue,onInput:e=>emit('update:modelValue',e.target.value)}),
                         h('button',{type:'submit','data-send':'',disabled:p.blocked})])}}`, loader: 'js' };
-                if (args.path.endsWith('ExplorationField.vue')) return { contents: `import {h} from 'vue'; export default {props:['world','paused'],emits:['interact','input','ready','pause'],setup(p,ctx){ctx.expose({focus(){}});return()=>h('div',{'data-paused':p.paused},[...['sanniang','laobai',...p.world.definition.exits.map(e=>e.id)].map(id=>h('button',{'data-interact':id,onClick:()=>ctx.emit('interact',id)})),h('button',{'data-frame':'',onClick:()=>ctx.emit('ready',p.world.definition.id)}),h('button',{'data-background':'',onClick:()=>ctx.emit('pause')}),h('button',{'data-step':'',onClick:()=>ctx.emit('input',{move:1,dash:false,skill:false})})])}}`, loader: 'js' };
+                if (args.path.endsWith('ExplorationField.vue')) return { contents: `import {h} from 'vue'; export default {props:['world','paused'],emits:['interact','input','ready','pause'],setup(p,ctx){ctx.expose({focus(){}});return()=>h('div',{'data-paused':p.paused},[...['sanniang','laobai',...p.world.definition.exits.map(e=>e.id),...p.world.definition.objects.filter(o=>p.world.objects.has(o.id)).map(o=>o.id)].map(id=>h('button',{'data-interact':id,onClick:()=>ctx.emit('interact',id)})),h('button',{'data-frame':'',onClick:()=>ctx.emit('ready',p.world.definition.id)}),h('button',{'data-background':'',onClick:()=>ctx.emit('pause')}),h('button',{'data-step':'',onClick:()=>ctx.emit('input',{move:1,dash:false,skill:false})})])}}`, loader: 'js' };
                 if (args.path.endsWith('DialogueActor.vue')) return { contents: "import {h} from 'vue'; export default {setup(){return()=>h('i',{'data-dialogue-actor':''})}}", loader: 'js' };
                 if (['ExpeditionWardrobe.vue', 'WorldFrontispiece.vue', 'ExpeditionIcon.vue'].some(name => args.path.endsWith(name))) return { contents: 'export default {render(){return null}}', loader: 'js' };
                 const { descriptor } = parse(readFileSync(args.path, 'utf8'), { filename: args.path });
@@ -69,10 +70,10 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
     const campaign = createCampaign('fixture', 7, 'blade', 'traveler', traveler); campaign.location.position = { ...campaign.people.sanniang.position };
     campaign.people.laobai.position = { ...campaign.location.position };
     const state = { data: { ...emptyExpedition(), active: campaign }, fileRevision: 0, balance: 0, ready: true, pending: false, writeState: 'ready', conversation: null, replyFailure: null, memories: {} };
-    let notify, retriedMemory, replyAction = null, replyClothing, beforeAct = async () => {}, beforeTalk = async () => {};
+    let notify, retriedMemory, replyAction = null, replyClothing, beforeAct = async () => {}, afterAct = async () => {}, beforeTalk = async () => {};
     const bridge = { subscribe(listener) { notify = listener; return () => {}; }, async request(type, payload) {
         if (type === 'game/expedition/retry-memory') { retriedMemory = payload.person; state.memories[payload.person] = { status: 'running' }; }
-        if (type === 'game/expedition/act') { await beforeAct(payload); state.data = advanceExpedition(state.data, payload.command, payload.actionId, 7); }
+        if (type === 'game/expedition/act') { await beforeAct(payload); state.data = advanceExpedition(state.data, payload.command, payload.actionId, 7); await afterAct(payload); }
         if (type === 'game/expedition/talk' || type === 'game/expedition/regenerate') {
             if (payload.turnId) {
                 state.data.active = prepareRegeneration(state.data.active, payload.person, payload.turnId);
@@ -554,6 +555,59 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
     });
 
+    await t.test('mechanism results follow confirmed progress through a lost reply or a retried save', async st => {
+        const baseline = structuredClone(state.data);
+        const publish = async () => {
+            notify({ type: 'game/expedition/state', payload: { chatIdentity: 'fixture', state: structuredClone(state) } }); await settle();
+        };
+        try {
+            for (const failure of ['none', 'reply-lost', 'save-failed', 'save-fails-twice']) await st.test(failure, async () => {
+                const c = createCampaign('mechanism', 7, 'blade', 'traveler', traveler);
+                c.chapter = 'inner_city'; c.location = startWorld(COURTYARD.main_valve, 'valve'); c.facts.push('heatkeeper_defeated');
+                state.data = { ...emptyExpedition(), revision: state.data.revision + 1, active: c }; await publish();
+                let attempts = 0, saves = 0;
+                beforeAct = async () => {
+                    attempts++;
+                    if ((failure === 'save-failed' && attempts === 1) || failure === 'save-fails-twice' && attempts <= 2) {
+                        throw Object.assign(new Error('save'), { code: 'expedition_save_failed' });
+                    }
+                };
+                afterAct = async () => {
+                    saves++;
+                    if (failure === 'reply-lost' && attempts === 1) { throw Object.assign(new Error('reply'), { code: 'host_request_timeout' }); }
+                };
+                // Reading and cancelling do not operate the valve; the obscured toolbar is absent.
+                root.querySelector('[data-interact=heat_return]').click(); await settle();
+                assert.equal(attempts, 0); assert.equal(root.querySelector('.ember-tools'), null);
+                button(CITY_COPY.leave).click(); await settle();
+                assert.ok(root.querySelector('.ember-tools')); assert.equal(state.data.active.facts.includes('heat_restored'), false);
+                root.querySelector('[data-interact=heat_return]').click(); await settle();
+                root.querySelector('.ember-passage-actions .ember-primary').click(); await settle();
+                if (failure !== 'none') {
+                    assert.ok(root.querySelector('[role=alertdialog]'));
+                    root.querySelector('[role=alertdialog] button').click(); await settle();
+                    if (failure === 'save-fails-twice') {
+                        assert.ok(root.querySelector('[role=alertdialog]'));
+                        assert.equal(state.data.active.facts.includes('heat_restored'), false);
+                        root.querySelector('[role=alertdialog] button').click(); await settle();
+                    }
+                }
+                assert.equal(root.querySelector('[role=alertdialog]'), null);
+                assert.ok(root.querySelector('.ember-passage'));
+                assert.equal(root.querySelector('.ember-passage-actions .ember-primary'), null);
+                assert.equal(state.data.active.facts.filter(fact => fact === 'heat_restored').length, 1);
+                assert.equal(saves, 1);
+                assert.equal(attempts, failure === 'save-failed' ? 2 : failure === 'save-fails-twice' ? 3 : 1);
+                button(CITY_COPY.leave).click(); await settle();
+                assert.equal(root.querySelector('[data-interact=heat_return]'), null);
+                assert.ok(root.querySelector('.ember-tools'));
+            });
+        } finally {
+            beforeAct = async () => {}; afterAct = async () => {};
+            state.data = { ...baseline, revision: state.data.revision + 1 }; await publish();
+        }
+    });
+
     await t.test('new journey setup keeps choices while navigating, and only confirmation replaces the save', async () => {
         root.querySelector(`[aria-label="${CAMPAIGN_COPY.pause}"]`).click(); await settle();
         button(JOURNEY_COPY.title).click(); await settle();
@@ -573,8 +627,6 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         const restoredAge = root.querySelector('#ember-traveler-age');
         assert.equal(restoredAge.options[restoredAge.selectedIndex].value, 'forties');
         root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
-        root.querySelector('.entry-sheet').scrollTop = 90;
-        root.querySelector('.entry-chapter').click(); await settle();
         assert.equal(root.querySelector('.entry-sheet').scrollTop, 0);
         root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
         assert.equal(state.data.active.id, priorId);
@@ -620,6 +672,6 @@ test('dialogue keeps drafts and reading position; failed meters never remove the
         age.querySelector('option[value=twenties]').selected = true;
         age.dispatchEvent(new window.Event('change'));
         root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle();
-        assert.ok(root.querySelector('.entry-chapter')); assert.equal(state.data.active, null);
+        assert.ok(root.querySelector('.entry-loadout')); assert.equal(state.data.active, null);
     });
 });

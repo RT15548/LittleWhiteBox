@@ -19,9 +19,13 @@ import hall from './assets/scene-hall.webp?url&no-inline';
 import roots from './assets/scene-roots.webp?url&no-inline';
 import arrival from './assets/cg-arrival.webp?url&no-inline';
 import ending from './assets/cg-ending.webp?url&no-inline';
+import southStreet from './assets/scene-south-street.webp?url&no-inline';
+import workshopStreet from './assets/scene-workshop-street.webp?url&no-inline';
+import heatStation from './assets/scene-heat-station.webp?url&no-inline';
 
 /** Presentation-only assets. Importing a URL never starts an image download. */
 export const WORLD_ART = { city, cityMobile, chapter } as const;
 export const WEAPON_ART = { blade, bow, staff, daggers, grimoire, cannon } satisfies Record<Weapon, string>;
-export const SCENE_ART: Partial<Record<CourtyardScene, string>> = { camp, crossroads, gate, beacon, waterway, cells, hall, roots };
+export const SCENE_ART: Partial<Record<CourtyardScene, string>> = { camp, crossroads, gate, beacon, waterway, cells, hall, roots,
+    south_street: southStreet, workshop_street: workshopStreet, heat_station: heatStation };
 export const STORY_ART = { arrival, ending } as const;

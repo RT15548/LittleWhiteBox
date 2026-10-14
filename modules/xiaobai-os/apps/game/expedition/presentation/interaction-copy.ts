@@ -9,6 +9,7 @@ export function interactionLabel(item: Interaction): string {
     switch (object.kind) {
         case 'person': return `${c.actions.talk} · ${c.people[object.person]}`;
         case 'enemy': return `${c.actions.talk} · ${participantName(object.enemy)}`;
+        case 'resident': return `${c.actions.talk} · ${participantName(object.person)}`;
         case 'inspect': return c.passages[object.passage].title;
         case 'rest': return c.actions.rest;
         case 'reward': return COMBAT_COPY.cache;

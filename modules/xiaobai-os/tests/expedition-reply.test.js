@@ -48,7 +48,7 @@ test('each authored greeting appears once as assistant speech with a valid portr
         greet(c, person); greet(c, person);
         const turns = c.conversations[person]; assert.equal(turns.length, 1);
         assert.equal(turns[0].kind, 'greeting'); assert.equal(turns[0].action, null);
-        assert.deepEqual(readPerformance(person, turns[0].performance), turns[0].performance);
+        assert.deepEqual(readPerformance(person, turns[0].performance), turns[0].performance ?? null);
         const messages = replayTurns(turns); assert.equal(messages.length, 1); assert.equal(messages[0].role, 'assistant');
         assert.equal(decodeNarrativeReply(messages[0].content).reply, turns[0].reply);
     }

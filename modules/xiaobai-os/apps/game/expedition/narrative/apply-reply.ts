@@ -2,9 +2,9 @@ import type { Campaign } from '../campaign/types.js';
 import { advanceCampaign, recordFact } from '../campaign/rules.js';
 import { settleAffection } from '../campaign/relationships.js';
 import { dialogueEffects } from '../campaign/reply-checkpoint.js';
-import { CAMPAIGN_CHOICES, type CampaignChoice } from '../content/campaign-actions.js';
+import { CAMPAIGN_CHOICES, campaignAction, type CampaignChoice } from '../content/campaign-actions.js';
 import { greet } from '../content/greetings.js';
-import { isPerson, type Participant } from '../content/participants.js';
+import { isPerson, isParley, type Participant } from '../content/participants.js';
 import { movePerson } from '../world/people.js';
 import { secretFact, type MovementAction } from './actions.js';
 import type { ConversationResult } from './conversation.js';
@@ -34,13 +34,13 @@ export function applyReply(campaign: Campaign, input: { actionId: string; person
         recordFact(campaign, fact, [person]);
     }
     const choice = response.action && CAMPAIGN_CHOICES.includes(response.action as CampaignChoice) ? response.action as CampaignChoice : null;
-    if (!isPerson(person) && (response.action === 'pass' || response.action === 'attack')) {
+    if (isParley(person) && (response.action === 'pass' || response.action === 'attack')) {
         campaign.pendingParley = { enemy: person, decision: response.action };
-    } else if (isPerson(person) && choice && choice !== 'finish') {
+    } else if (choice && !campaignAction(choice)?.confirm) {
         advanceCampaign(campaign, { type: 'choice', id: choice, person });
     } else if (isPerson(person) && response.action && response.action !== 'share_secret' && !choice) {
         movePerson(campaign, person, response.action as MovementAction);
     }
-    // finish stays on this reply until the player continues. No wallet side effect occurs here.
+    // Confirmed choices stay on this reply until the player continues. No wallet side effect occurs here.
     campaign.lastReply = { person, turnId: input.actionId, before };
 }

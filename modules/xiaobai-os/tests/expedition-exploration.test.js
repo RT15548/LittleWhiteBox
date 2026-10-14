@@ -8,9 +8,9 @@ import { findWorldPath } from '../apps/game/expedition/world/navigation.ts';
 import { interactWorld, reachableInteractions, sceneSpace, startWorld, walkWorld } from '../apps/game/expedition/world/exploration.ts';
 import { buildExplorableWorld } from '../apps/game/expedition/presentation/world-scenery.ts';
 import { createSceneKit } from '../apps/game/expedition/scene-kit.ts';
+import { FACT_COPY } from '../apps/game/expedition/content/campaign-copy.ts';
 
-const allFacts = new Set(['briefed', 'crossroads_cleared', 'patrol_cleared', 'sluice_opened', 'waterway_cleared', 'alarm_silenced',
-    'captives_released', 'postern_opened', 'receiving_arranged', 'captives_arrived', 'warden_defeated', 'roots_cleared']);
+const allFacts = new Set(Object.keys(FACT_COPY));
 const at = (scene, anchor) => ({ scene, position: { ...COURTYARD[scene].anchors[anchor] }, facing: 0, visited: [scene] });
 
 test('every authored entrance and interaction is physically connected once its doors are open', () => {
@@ -38,6 +38,7 @@ test('sluice, prison doors, postern and optional roots have no walkable bypass',
         ['cells', 'latch', 'postern', 'postern_opened'],
         ['camp', 'start', 'postern', 'postern_opened'],
         ['crossroads', 'camp', 'roots', 'warden_defeated'],
+        ['deep_waterway', 'winch', 'south_street', 'deep_gate_opened'],
     ]) {
         const scene = COURTYARD[id], facts = new Set(allFacts); facts.delete(fact);
         assert.equal(findWorldPath(sceneSpace(scene, facts), scene.anchors[from], scene.anchors[to], RULES.playerRadius), null);

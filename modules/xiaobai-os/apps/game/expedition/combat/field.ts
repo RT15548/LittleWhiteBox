@@ -6,7 +6,7 @@ import { findWorldPath } from '../world/navigation.js';
 import type { EncounterSegment } from '../content/courtyard-encounters.js';
 
 export interface FieldSpawn { kind: EnemyKind; position: Point }
-export const supportsFieldEnemy = (kind: EnemyKind) => !isBoss(kind) || kind === 'warden' || kind === 'thornheart' || kind === 'keeper';
+export const supportsFieldEnemy = (kind: EnemyKind) => !isBoss(kind) || ['warden', 'thornheart', 'keeper', 'bridgekeeper', 'heatkeeper'].includes(kind);
 export interface FieldBounds { left: number; right: number; top: number; bottom: number }
 const boundedSpaces = new WeakMap<WorldSpace, WeakMap<FieldBounds, WorldSpace>>();
 export function boundedFieldSpace(space: WorldSpace, bounds: FieldBounds): WorldSpace {

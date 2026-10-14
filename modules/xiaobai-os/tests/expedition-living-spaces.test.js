@@ -3,7 +3,7 @@ import test from 'node:test';
 import { traveler } from './fixtures/expedition-traveler.js';
 import { createCampaign, advanceCampaign, canTalk } from '../apps/game/expedition/campaign/rules.ts';
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
-import { LIVING_SPACES, LIVING_ENTRANCES } from '../apps/game/expedition/content/living-spaces.ts';
+import { LIVING_SPACES, LIVING_ENTRANCES, districtScene } from '../apps/game/expedition/content/living-spaces.ts';
 import { PERSON_PLACES, DESTINATIONS } from '../apps/game/expedition/content/people-places.ts';
 import { movePerson, tickPeople, personAt, personMap } from '../apps/game/expedition/world/people.ts';
 import { conversationContext } from '../apps/game/expedition/narrative/prompt.ts';
@@ -36,7 +36,7 @@ test('every household has bidirectional living-space travel before briefing, wit
     for (const entrance of LIVING_ENTRANCES) {
         door(c, entrance.to);
         assert.equal(c.location.scene, entrance.to);
-        const inner = COURTYARD[entrance.to].exits.find(exit => exit.to !== 'camp');
+        const inner = COURTYARD[entrance.to].exits.find(exit => districtScene(exit.to) === 'camp' && exit.to !== 'camp');
         if (inner) {
             door(c, inner.id); c = reload(c);
             assert.ok(canChangeOutfit(c)); door(c, 'south');
@@ -61,7 +61,7 @@ test('followers enter the actual room; staying survives departure and reload wit
 });
 
 test('every room is physically reachable by solo appointment; movement reloads mid-route and arrival clears only the travel order', () => {
-    for (const id of Object.keys(LIVING_SPACES)) {
+    for (const id of Object.keys(LIVING_SPACES).filter(id => districtScene(id) === 'camp')) {
         let c = create(); movePerson(c, 'sanniang', `go:${id}`);
         assert.equal(c.people.sanniang.scene, PERSON_PLACES.sanniang.initial.scene);
         assert.equal(c.people.sanniang.mode, 'travel');
@@ -92,7 +92,7 @@ test('model context reports the physical room, furniture, ordinary occupants, ne
     door(c, 'north'); const bedroom = conversationContext(c, 'sanniang');
     assert.deepEqual(bedroom.residents, []);
     assert.equal(bedroom.place, LIVING_SPACES.anian_room.name);
-    assert.equal(bedroom.playerLodging, LIVING_SPACES.guest_room.name);
+    assert.deepEqual(bedroom.playerLodging, [LIVING_SPACES.guest_room.name]);
     assert.deepEqual(c.conversations.sanniang, []);
 });
 
@@ -102,7 +102,7 @@ test('clinic work stays in treatment spaces; briefing and chapter handoff remain
     for (const id of Object.keys(LIVING_SPACES)) {
         c.people.sanniang = personAt(DESTINATIONS[id]); c.location.scene = id; c.location.position = { ...c.people.sanniang.position };
         const actions = narrativeActions(c, 'sanniang');
-        assert.ok('briefing' in actions); assert.ok('finish' in actions);
+        assert.equal('briefing' in actions, districtScene(id) === 'camp'); assert.equal('finish' in actions, districtScene(id) === 'camp');
         assert.equal('clinic' in actions, id === 'clinic_front');
     }
 });

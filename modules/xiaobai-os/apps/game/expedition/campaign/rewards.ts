@@ -1,4 +1,4 @@
-import { CHAPTER_GROWTH, NEW_RELIC_NODES, RELIC_PAIRINGS, STARTER_RELICS, type RewardNode } from '../content/campaign-rewards.js';
+import { CHAPTER_GROWTH, NEW_RELIC_NODES, RELIC_PAIRINGS, STARTER_RELICS, rewardRankCap, type RewardNode } from '../content/campaign-rewards.js';
 import { compatibleRelics, RELIC_SPECS, relicReady } from '../relics.js';
 import { sample } from '../random.js';
 import type { Relic, RelicStack } from '../types.js';
@@ -11,7 +11,7 @@ export function grantRewardNode(campaign: Campaign, node: RewardNode) {
     const fresh = NEW_RELIC_NODES.includes(node);
     const pool = compatibleRelics(campaign.weapon).flatMap(id => {
         const rank = campaign.collection.find(r => r.id === id)?.rank ?? 0;
-        return !reserved.has(id) && rank < CHAPTER_GROWTH.rankCap && (!fresh || !rank) && relicReady(loadout, id)
+        return !reserved.has(id) && rank < rewardRankCap(node) && (!fresh || !rank) && relicReady(loadout, id)
             && (RELIC_SPECS[id].chapter === 0 || campaign.facts.includes('warden_defeated')) ? [{ id, rank: rank + 1 }] : [];
     });
     const offers: RelicStack[] = [];

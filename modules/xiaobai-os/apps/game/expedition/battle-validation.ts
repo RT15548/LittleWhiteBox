@@ -34,6 +34,7 @@ export function validateBattle(raw: unknown): asserts raw is Battle {
         const h = point(raw); id(h.id); finite(h.radius, 0, 20); integer(h.wait, 0, 300); integer(h.life, 0, 300); finite(h.damage, 0, 1e5);
         member(h.kind, ['storm', 'fire', 'slam', 'frost', 'poison', 'beam', 'ring', 'mine']); boolean(h.friendly);
         if (h.gap !== undefined) { if (h.kind !== 'ring') { fault('invalid'); } finite(h.gap, 0, Math.PI); }
+        if (h.pull !== undefined) { if (h.kind !== 'beam' || h.friendly) { fault('invalid'); } finite(h.pull, 0, 6); }
         member(h.source, ['attack', 'skill', 'passive', 'lightning', 'companion']);
         unique(list(h.hits, 65, n => integer(n, 0, serial)));
         finite(h.angle, -1e8, 1e8); finite(h.length, 0, 40); finite(h.width, 0, 10); finite(h.inner, 0, Number(h.radius)); return h;

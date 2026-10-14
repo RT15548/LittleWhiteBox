@@ -32,7 +32,7 @@ export function campaignDriver(get, act, observe = {}) {
         const c = structuredClone(get()), spans = [], field = campaignField(c);
         for (let t = 0; t < ticks && c.phase === 'battle'; t++) {
             const input = pilot(c.battle, c.weapon, field), battle = c.battle, segment = c.engagement.id;
-            appendInput(spans, input); tickCampaign(c, input);
+            appendInput(spans, input); tickCampaign(c, input); observe.tick?.(segment, battle);
             if (c.phase !== 'battle') { observe.finished?.(segment, structuredClone(battle), c); }
         }
         if (spans.length) { await act({ type: 'input', spans }); }

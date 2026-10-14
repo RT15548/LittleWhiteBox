@@ -1,9 +1,7 @@
 import type { BOSS_IDS, EFFECT_IDS, ENCOUNTER_IDS, EXPEDITION_FORMAT_VERSION, MOB_IDS, OATH_IDS, OUTFIT_IDS, RELIC_IDS, WEAPON_IDS } from './ids.js';
 import type { Campaign } from './campaign/types.js';
 import type { Traveler } from './campaign/traveler.js';
-import type { ChapterId } from './content/chapters.js';
 import type { CampaignChoice } from './content/campaign-actions.js';
-import type { CourtyardPerson } from './content/world-types.js';
 import type { Participant } from './content/participants.js';
 export type Weapon = typeof WEAPON_IDS[number];
 export type Oath = typeof OATH_IDS[number];
@@ -41,6 +39,8 @@ export interface Hazard extends Point {
     hits: number[];
     /** Angular safe opening of an annulus; absent means a complete ring. */
     gap?: number;
+    /** Distance a landed tether pulls its target toward this hazard's origin. */
+    pull?: number;
 }
 export interface Effect extends Point { id: number; kind: typeof EFFECT_IDS[number]; life: number; angle: number; size: number }
 export interface Obstacle extends Point { radius: number }
@@ -59,7 +59,7 @@ export type PresentationError = 'rendering' | 'sound';
 export interface Route { id: number; kind: RouteKind; encounter: EncounterKind }
 export interface Award { key: string; actionId: string; runId: string; amount: number }
 export interface Purchase { id: Outfit; actionId: string; amount: number }
-export interface JourneySetup { weapon: Weapon; outfit: Outfit; traveler: Traveler; chapter: ChapterId }
+export interface JourneySetup { weapon: Weapon; outfit: Outfit; traveler: Traveler }
 export type Command =
     | (({ type: 'start' } | { type: 'restart' }) & JourneySetup)
     | { type: 'interact'; id: string }
@@ -67,7 +67,7 @@ export type Command =
     | { type: 'relic'; id: Relic; replace?: Relic }
     | { type: 'loadout'; equipped: Relic[] }
     | { type: 'purchase'; id: Outfit } | { type: 'equip'; id: Outfit }
-    | { type: 'choice'; id: CampaignChoice; person: CourtyardPerson }
+    | { type: 'choice'; id: CampaignChoice; person: Participant }
     | { type: 'resolve_parley' }
     | { type: 'greet'; person: Participant }
     | { type: 'accept_reply' }

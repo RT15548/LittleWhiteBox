@@ -2,30 +2,28 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import type { Campaign } from '../campaign/types.js';
 import { TRAVELER_GENDERS, TRAVELER_NAME_LIMIT, type Traveler } from '../campaign/traveler.js';
-import { FIRST_CHAPTER, chapterTitle } from '../content/chapters.js';
+import { WORLD_COPY } from '../content/world-copy.js';
 import { JOURNEY_COPY as j } from '../content/journey-copy.js';
 import { TRAVELER_AGES, type TravelerAge } from '../content/traveler-ages.js';
 import { CAMPAIGN_COPY as c } from '../content/campaign-copy.js';
 import type { JourneySetup, Weapon } from '../types.js';
 import WeaponSelection from './WeaponSelection.vue';
 import WorldFrontispiece from './WorldFrontispiece.vue';
-import { WORLD_ART } from '../artwork.js';
 
 const props = defineProps<{ campaign: Campaign | null; ready: boolean; busy: boolean; blocked: boolean }>();
 const emit = defineEmits<{ start: [setup: Omit<JourneySetup, 'outfit'>]; continue: [] }>();
-const step = ref<'title' | 'identity' | 'chapters' | 'weapon'>('title'), creating = ref(false);
+const step = ref<'title' | 'identity' | 'weapon'>('title');
 const name = ref(props.campaign?.traveler.name ?? ''), gender = ref<Traveler['gender'] | null>(props.campaign?.traveler.gender ?? null);
 const appearanceAge = ref<TravelerAge | ''>(props.campaign?.traveler.appearanceAge ?? '');
 const weapon = ref<Weapon>(props.campaign?.weapon ?? 'blade'), confirmed = ref(false), heading = ref<HTMLElement | null>(null), sheet = ref<HTMLElement | null>(null);
-const headingText = computed(() => ({ title: c.title, identity: j.identity, chapters: j.chooseChapter, weapon: j.chooseWeapon })[step.value]);
+const headingText = computed(() => ({ title: c.title, identity: j.identity, weapon: j.chooseWeapon })[step.value]);
 watch(step, async () => { await nextTick(); if (sheet.value) { sheet.value.scrollTop = 0; } heading.value?.focus({ preventScroll: true }); });
-function begin() { creating.value = true; confirmed.value = false; step.value = 'identity'; }
-function identify() { if (name.value.trim() && gender.value && appearanceAge.value) { name.value = name.value.trim(); step.value = 'chapters'; } }
-function back() { step.value = step.value === 'weapon' ? 'chapters' : step.value === 'chapters' && creating.value ? 'identity' : 'title'; }
-function chooseChapter() { if (props.campaign && !creating.value) { emit('continue'); } else { step.value = 'weapon'; } }
+function begin() { confirmed.value = false; step.value = 'identity'; }
+function identify() { if (name.value.trim() && gender.value && appearanceAge.value) { name.value = name.value.trim(); step.value = 'weapon'; } }
+function back() { step.value = step.value === 'weapon' ? 'identity' : 'title'; }
 function start() {
     if (!gender.value || !appearanceAge.value || !name.value.trim() || props.blocked || props.campaign && !confirmed.value) { return; }
-    emit('start', { traveler: { name: name.value.trim(), gender: gender.value, appearanceAge: appearanceAge.value }, weapon: weapon.value, chapter: FIRST_CHAPTER.id });
+    emit('start', { traveler: { name: name.value.trim(), gender: gender.value, appearanceAge: appearanceAge.value }, weapon: weapon.value });
 }
 defineExpose({ back: () => { if (step.value === 'title') { return false; } back(); return true; } });
 </script>
@@ -38,10 +36,9 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
             <nav :aria-label="c.title">
                 <button v-if="campaign" class="entry-primary" type="button" :disabled="!ready || blocked" @click="emit('continue')">{{ c.resume }}<span aria-hidden="true">→</span></button>
                 <button v-else class="entry-primary" type="button" :disabled="!ready || blocked" @click="begin">{{ ready ? j.begin : j.loading }}<span aria-hidden="true">→</span></button>
-                <button v-if="campaign" type="button" :disabled="!ready || blocked" @click="creating = false; step = 'chapters'">{{ j.chapters }}</button>
                 <button v-if="campaign" type="button" :disabled="!ready || blocked" @click="begin">{{ j.newJourney }}</button>
             </nav>
-            <p v-if="campaign" class="entry-save"><span>{{ campaign.traveler.name }}</span><span>{{ chapterTitle }}</span></p>
+            <p v-if="campaign" class="entry-save"><span>{{ campaign.traveler.name }}</span><span>{{ WORLD_COPY.scenes[campaign.location.scene] }}</span></p>
         </div>
         <div v-else ref="sheet" class="entry-sheet">
             <header><button type="button" :disabled="busy" @click="back">← {{ j.back }}</button><span>{{ c.title }}</span></header>
@@ -63,16 +60,6 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
                 </div>
                 <button class="entry-primary" type="submit">{{ j.next }}<span aria-hidden="true">→</span></button>
             </form>
-            <div v-else-if="step === 'chapters'" class="entry-chapters">
-                <button type="button" class="entry-chapter" @click="chooseChapter">
-                    <img class="entry-chapter-art" :src="WORLD_ART.chapter" alt="" decoding="async">
-                    <span class="entry-numeral" aria-hidden="true">{{ FIRST_CHAPTER.numeral }}</span>
-                    <span class="entry-chapter-body"><small>{{ FIRST_CHAPTER.number }}</small><strong>{{ FIRST_CHAPTER.title }}</strong><span>{{ c.opening }}</span>
-                        <small v-if="campaign && !creating">{{ campaign.facts.includes('chapter_completed') ? j.completeChapter : j.currentChapter }}</small></span>
-                    <span class="entry-chapter-arrow" aria-hidden="true">→</span>
-                </button>
-                <div class="entry-forthcoming"><span>{{ j.nextChapter }}</span><span>{{ j.forthcoming }}</span></div>
-            </div>
             <form v-else class="entry-loadout" @submit.prevent="start">
                 <p class="entry-traveler"><strong>{{ name }}</strong><span>{{ gender ? j.genders[gender] : '' }} · {{ appearanceAge ? TRAVELER_AGES[appearanceAge] : '' }} · {{ j.identityRole }}</span></p>
                 <WeaponSelection v-model="weapon" />
@@ -112,16 +99,6 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
 .entry-identity fieldset label { display:flex; align-items:center; gap:9px; min-height:44px; cursor:pointer; }
 .ember-entry input { accent-color:var(--ember-action); }
 .ember-entry input:focus-visible,.ember-entry select:focus-visible { outline:2px solid #b86f40; outline-offset:4px; }
-.entry-chapters { display:flex; flex-direction:column; gap:28px; margin-block:auto; padding-bottom:28px; }
-.ember-entry .entry-chapter { display:grid; grid-template-columns:64px minmax(0,1fr) 24px; gap:20px 16px; padding:0 0 24px; background:none; border:0; border-bottom:1px solid #839d9c66; position:relative; }
-.entry-chapter-art { grid-column:1/-1; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:2px; }
-.entry-numeral { font-family:Georgia,serif; font-size:72px; line-height:1; color:#b48152; }
-.entry-chapter-body { display:flex; flex-direction:column; gap:14px; }
-.entry-chapter-body strong { font-family:'Songti SC',SimSun,serif; font-size:27px; font-weight:400; }
-.entry-chapter-body>span { font-size:14px; line-height:1.95; color:#547074; }
-.entry-chapter-body small { color:#7e6650; }
-.entry-chapter-arrow { align-self:flex-end; font-size:24px; }
-.entry-forthcoming { display:flex; justify-content:space-between; font-size:13px; color:#6d8283; padding-left:42px; }
 .entry-loadout { display:flex; flex-direction:column; gap:24px; }
 .entry-traveler { display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; overflow-wrap:anywhere; }
 .entry-traveler span { font-size:12px; color:#6d8283; }
@@ -132,7 +109,7 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
  .entry-shade { background:linear-gradient(0deg,#18223ff5,transparent 100%); }.entry-sheet { inset:0; width:100%; padding:18px 24px; background:#f4f5fcf2; gap:24px; }.entry-sheet h2 { font-size:26px; }
 }
 @container journey-entry (max-height:420px) {
- .entry-title { padding:20px 32px; justify-content:center; }.entry-title h1 { font-size:54px; margin:0 0 10px; }.entry-title nav { gap:0; }.entry-city,.entry-save { display:none; }.entry-sheet { padding:12px 24px; gap:12px; }.entry-identity { margin:0; gap:16px; padding-bottom:12px; }.entry-chapters { margin:0; }.entry-sheet h2 { font-size:24px; }
+ .entry-title { padding:20px 32px; justify-content:center; }.entry-title h1 { font-size:54px; margin:0 0 10px; }.entry-title nav { gap:0; }.entry-city,.entry-save { display:none; }.entry-sheet { padding:12px 24px; gap:12px; }.entry-identity { margin:0; gap:16px; padding-bottom:12px; }.entry-sheet h2 { font-size:24px; }
 }
 @container journey-entry (min-width:701px) and (max-height:420px) {
  .entry-sheet { width:100%; }.entry-sheet > h2 { position:absolute; top:18px; left:50%; transform:translateX(-50%); }
@@ -143,6 +120,5 @@ defineExpose({ back: () => { if (step.value === 'title') { return false; } back(
  .entry-traveler { grid-column:2; grid-row:1; flex-direction:column; gap:2px; }
  .entry-restart { grid-column:2; grid-row:2; }
  .entry-loadout > button { grid-column:2; grid-row:3; }
- .entry-chapter-art { grid-column:1; grid-row:1; width:180px; height:120px; }.ember-entry .entry-chapter { grid-template-columns:180px minmax(0,1fr) 24px; padding-bottom:12px; }.entry-numeral { display:none; }
 }
 </style>

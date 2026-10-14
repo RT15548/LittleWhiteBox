@@ -11,7 +11,7 @@ import { createWardShell } from './scene-defense.js';
 import { createWorldStatus } from './scene-status.js';
 import { buildExplorableWorld, type ExplorableScenery } from './presentation/world-scenery.js';
 import type { CourtyardFact, CourtyardScene, SceneDefinition } from './content/world-types.js';
-import type { WorldLocation } from './world/exploration.js';
+import { reachableInteractions, type WorldLocation } from './world/exploration.js';
 import { participantName } from './content/participants.js';
 import { reachablePersonInteractions, type PeopleLocations } from './world/people.js';
 import { parleyInteractions } from './campaign/parley.js';
@@ -23,7 +23,7 @@ import { COMBAT_COPY } from './content/combat-copy.js';
 
 export type SceneMode = 'camp' | 'battle' | 'between';
 export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations;
-    objects: ReadonlySet<string>; completedSegments: readonly EncounterSegment[]; engagement?: EncounterSegment }
+    objects: ReadonlySet<string>; completedSegments: readonly EncounterSegment[]; engagement?: EncounterSegment; reading?: boolean }
 /** Owns presentation lifetime only: camera, meshes and transient damage labels. */
 export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; sceneReady?: (scene: CourtyardScene) => void; artworkStatus?: (failed: number, pending: number) => void }) {
     const renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: options.world ? 'default' : 'high-performance' });
@@ -44,10 +44,11 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
     const enemies = new Map<number, { actor: ReturnType<typeof createEnemyActor>; hp: number; death: number | null; marker: HTMLElement }>();
     const nameplates = new Map<string, HTMLElement>();
     const floaters: { element: HTMLElement; position: Vector3; born: number }[] = [];
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)'), target = new Vector3(), projection = new Vector3();
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)'), sideReading = matchMedia('(max-height:450px) and (min-width:600px)'), target = new Vector3(), projection = new Vector3();
     let disposeWorld: (() => void) | null = null, worldKey = '', lastMode = '', lastAppearance = '', lastBattle: Battle | null = null;
     let worldScenery: ExplorableScenery | null = null;
     let shownWorld: CourtyardScene | null = null;
+    let reading = false;
     let worldX = NaN, worldY = NaN, worldFacing = NaN, drawnFacts: ReadonlySet<CourtyardFact> | null = null, draws = 0, submitMs = 0;
     let width = 1, height = 1, dirty = true, disposed = false, failed = false, lastFrame = 0, lastTick = -1, lastHp = 0, cameraReady = false;
     const worldTextures = options.world ? createWorldTextures(() => { worldKey = ''; dirty = true; options.invalidate?.(); }, (failed, pending) => options.artworkStatus?.(failed, pending)) : null;
@@ -101,12 +102,17 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 clearActors(); lastHp = b?.player.hp ?? 0;
             }
             const portrait = !world && mode !== 'battle', mobile = width < 600, compact = mobile || height < 400, aspect = width / height;
+            if (!!world?.reading !== reading) { reading = !!world?.reading; cameraReady = false; }
             const room = world?.definition.landscape.vista === 'room';
             const horizontal = room ? (mobile ? 20 : Math.max(30, aspect * (height < 400 ? 19 : 25))) : world ? (mobile ? WORLD_CAMERA.mobileWidth : Math.max(WORLD_CAMERA.minimumWidth, aspect * (height < 400 ? WORLD_CAMERA.shortSpan : WORLD_CAMERA.tallSpan))) * (world.definition.safe && !b ? WORLD_CAMERA.settlementScale : 1)
                 : portrait ? mobile ? 13 : 28 : mobile ? 18.5 : Math.max(27, aspect * (height < 400 ? 14 : 23));
             const pan = Math.max(0, RULES.arena - horizontal / 2 + .5);
-            const desiredX = world ? world.location.position.x * (room ? .4 : 1) : b ? compact ? b.player.x * .62 : Math.max(-pan, Math.min(pan, b.player.x * .62)) : mobile ? 0 : 5.5;
-            const desiredZ = world ? room ? world.location.position.y * .4 - 1 : world.location.position.y - WORLD_CAMERA.lead : b ? b.player.y * (compact ? .62 : .2) - .4 : mobile ? -4.2 : -11.8;
+            // Frame the unobscured area beside or above the reading sheet; world actors never move for UI.
+            const bearing = portrait ? 0 : CAMERA_EIGHTH_TURNS * Math.PI / 4;
+            const readingOffset = reading && !sideReading.matches ? horizontal / aspect * .22 : 0;
+            const sideOffset = reading && sideReading.matches ? horizontal * .23 : 0;
+            const desiredX = (world ? world.location.position.x * (room ? .4 : 1) : b ? compact ? b.player.x * .62 : Math.max(-pan, Math.min(pan, b.player.x * .62)) : mobile ? 0 : 5.5) + Math.sin(bearing) * readingOffset + Math.cos(bearing) * sideOffset;
+            const desiredZ = (world ? room ? world.location.position.y * .4 - 1 : world.location.position.y - WORLD_CAMERA.lead : b ? b.player.y * (compact ? .62 : .2) - .4 : mobile ? -4.2 : -11.8) + Math.cos(bearing) * readingOffset - Math.sin(bearing) * sideOffset;
             if (world && Math.hypot(worldX - world.location.position.x, worldY - world.location.position.y) > 8) { cameraReady = false; }
             const cameraSettled = Math.abs(target.x - desiredX) + Math.abs(target.z - desiredZ) < .015;
             const peopleMoved = world && worldScenery?.setPeople(world.people, now);
@@ -118,7 +124,6 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             if (!cameraReady || reduced.matches) { target.set(desiredX, 0, desiredZ); cameraReady = true; }
             else { target.x += (desiredX - target.x) * .14; target.z += (desiredZ - target.z) * .14; }
             camera.left = -horizontal / 2; camera.right = horizontal / 2; camera.top = horizontal / aspect / 2; camera.bottom = -camera.top;
-            const bearing = portrait ? 0 : CAMERA_EIGHTH_TURNS * Math.PI / 4;
             const cameraDistance = world ? WORLD_CAMERA.distance : 25;
             camera.position.set(target.x + Math.sin(bearing) * cameraDistance, world ? WORLD_CAMERA.height : 28, target.z + Math.cos(bearing) * cameraDistance); camera.lookAt(target.x, 0, target.z); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
             if (world) { worldScenery?.setEncounterActive(!!b); worldScenery?.update(world.location.position, bearing); }
@@ -138,8 +143,9 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             const speakers = new Set(world && !b ? [
                 ...reachablePersonInteractions(world.definition, world.location.position, world.facts, world.people),
                 ...parleyInteractions(world.definition.id, world.location.position, world.facts),
+                ...reachableInteractions(world.definition, world.location, world.facts).filter(i => i.kind === 'object' && i.target.kind === 'resident'),
             ].map(item => item.target.id) : []);
-            for (const person of [...worldScenery?.people ?? [], ...worldScenery?.parleyPeople ?? []]) {
+            for (const person of [...worldScenery?.people ?? [], ...worldScenery?.parleyPeople ?? [], ...worldScenery?.storyPeople ?? []]) {
                 if (b || !world || Math.hypot(person.position.x - world.location.position.x, person.position.y - world.location.position.y) > 10) { continue; }
                 let label = nameplates.get(person.id);
                 if (!label) { label = document.createElement('span'); label.className = 'exp-person-name'; label.textContent = participantName(person.id); labels.append(label); nameplates.set(person.id, label); }
@@ -195,6 +201,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             if (world) { worldX = world.location.position.x; worldY = world.location.position.y; worldFacing = world.location.facing; drawnFacts = world.facts; }
         },
         invalidate() { dirty = true; options.invalidate?.(); },
+        needsFrame() { return worldScenery?.animating ?? false; },
         retryArtwork() { worldTextures?.retry(); },
         stats() { return { draws, submitMs, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
             geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }; },

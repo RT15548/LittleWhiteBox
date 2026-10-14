@@ -15,17 +15,18 @@ import type { CourtyardFact, CourtyardScene } from './content/world-types.js';
 import { canStandInWorld } from './world/geometry.js';
 import { sceneSpace } from './world/exploration.js';
 import { CAMPAIGN_RULES } from './campaign/rules.js';
-import { CAMPAIGN_CHOICES } from './content/campaign-actions.js';
+import { CAMPAIGN_CHOICES, campaignAction } from './content/campaign-actions.js';
 import { relationshipBand, RELATIONSHIP_RULES } from './campaign/relationships.js';
 import { DESTINATIONS } from './content/people-places.js';
-import { isPerson, PARTICIPANT_IDS } from './content/participants.js';
+import { isPerson, isParley, PARTICIPANT_IDS } from './content/participants.js';
 import { PERSON_IDS } from './content/people.js';
 import { PARLEY_IDS, PARLEY_ENEMIES } from './content/parley.js';
 import { parseTraveler } from './campaign/traveler.js';
-import { FIRST_CHAPTER } from './content/chapters.js';
+import { CHAPTER_IDS } from './content/chapters.js';
 import { readPerformance } from './performance/catalog.js';
 import { readClothingChange } from './clothing.js';
 import { upgradeExpeditionV6 } from './migration-v6.js';
+import { upgradeExpeditionV7 } from './migration-v7.js';
 import { REWARD_NODES } from './content/campaign-rewards.js';
 import { COURTYARD_ENCOUNTERS, ENCOUNTER_SEGMENTS } from './content/courtyard-encounters.js';
 export { expeditionId } from './validation.js';
@@ -45,10 +46,10 @@ function stacks(v: unknown, max: number): RelicStack[] {
 export function parseCommand(value: unknown): Command {
     const v = object(value);
     switch (v.type) {
-        case 'start': case 'restart': return { type: v.type, weapon: weapon(v.weapon), outfit: outfit(v.outfit), traveler: parseTraveler(v.traveler), chapter: member(v.chapter, [FIRST_CHAPTER.id]) };
+        case 'start': case 'restart': return { type: v.type, weapon: weapon(v.weapon), outfit: outfit(v.outfit), traveler: parseTraveler(v.traveler) };
         case 'purchase': case 'equip': return { type: v.type, id: outfit(v.id) };
         case 'interact': return { type: 'interact', id: expeditionId(v.id) };
-        case 'choice': return { type: 'choice', id: member(v.id, CAMPAIGN_CHOICES), person: member(v.person, PERSON_IDS) };
+        case 'choice': return { type: 'choice', id: member(v.id, CAMPAIGN_CHOICES), person: member(v.person, PARTICIPANT_IDS) };
         case 'greet': return { type: 'greet', person: member(v.person, PARTICIPANT_IDS) };
         case 'loadout': return { type: 'loadout', equipped: unique(list(v.equipped, RULES.relicSlots, relic)) };
         case 'input': {
@@ -66,7 +67,7 @@ export function parseCommand(value: unknown): Command {
 }
 function validateCampaign(raw: unknown, data: ExpeditionData) {
     const r = object(raw); expeditionId(r.id); integer(r.seed, 0, 0xffffffff); const w = weapon(r.weapon);
-    parseTraveler(r.traveler); member(r.chapter, [FIRST_CHAPTER.id]);
+    parseTraveler(r.traveler); member(r.chapter, CHAPTER_IDS);
     if (!ownsOutfit(data, outfit(r.outfit))) { fault('invalid'); }
     const owned = stacks(r.collection, RELICS.length), equipped = unique(list(r.equipped, RULES.relicSlots, relic));
     const rewards = object(r.rewards), offered: RelicStack[] = [];
@@ -134,7 +135,7 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
                 if (t.player !== '' || t.action !== null || t.affectionDelta !== undefined || t.issue !== undefined || t.regeneratedFrom !== undefined) { fault('invalid'); }
             } else { boundedText(t.player, CAMPAIGN_RULES.playerTextLimit); }
             if (t.regeneratedFrom !== undefined) { expeditionId(t.regeneratedFrom); }
-            if (t.action !== null) { member(t.action, isPerson(person) ? [...CAMPAIGN_CHOICES, 'share_secret', 'follow', 'stay', ...Object.keys(DESTINATIONS).map(id => `go:${id}`)] : ['pass', 'attack']); }
+            if (t.action !== null) { member(t.action, isPerson(person) ? [...CAMPAIGN_CHOICES, 'share_secret', 'follow', 'stay', ...Object.keys(DESTINATIONS).map(id => `go:${id}`)] : isParley(person) ? ['pass', 'attack'] : CAMPAIGN_CHOICES.filter(id => campaignAction(id)!.people.includes(person))); }
             if (t.affectionDelta !== undefined) { integer(t.affectionDelta, -RELATIONSHIP_RULES.changeMax, RELATIONSHIP_RULES.changeMax); }
             if (t.performance !== undefined && (t.kind === 'receipt' || !readPerformance(person, t.performance))) { fault('invalid'); }
             if (t.clothing !== undefined) {
@@ -168,11 +169,12 @@ function validateCampaign(raw: unknown, data: ExpeditionData) {
         const checkpoint = object(r.lastReply), person = member(checkpoint.person, PARTICIPANT_IDS);
         const turnId = expeditionId(checkpoint.turnId), turns = conversations[person] as { id: string; kind: string; action: string | null }[];
         const turn = turns.at(-1), before = object(checkpoint.before);
+        const action = campaignAction(turn?.action ?? null);
         const fields = ['seed', 'facts', 'knowledge', 'relationships', 'people', 'pendingParley'];
         if (phase !== 'exploration' || !turn || !['dialogue', 'receipt'].includes(turn.kind) || turn.id !== turnId
             || Object.keys(before).length !== fields.length || fields.some(key => !Object.hasOwn(before, key))
             || facts(before.facts).some(f => !knownFacts.includes(f)) || before.pendingParley !== null
-            || turn.action === 'finish' && (person !== 'sanniang' || knownFacts.includes('chapter_completed'))) { fault('invalid'); }
+            || action?.confirm && (!action.people.includes(person) || knownFacts.includes(action.fact))) { fault('invalid'); }
         // Validate the bounded pre-reply state without recursively copying or walking old transcripts.
         const restored: Record<string, unknown> = { ...r, ...before,
             conversations: Object.fromEntries(PARTICIPANT_IDS.map(id => [id, []])), memories: Object.fromEntries(PARTICIPANT_IDS.map(id => [id, null])) };
@@ -204,7 +206,7 @@ export const EXPEDITION_PARTITION: PartitionRegistration<ExpeditionData> = {
     key: 'expedition', ownerId: 'game', storage: 'user', schemaVersion: EXPEDITION_FORMAT_VERSION, createInitial: emptyExpedition,
     parse(raw) {
         try {
-            const value = upgradeExpeditionV6(structuredClone(raw));
+            const value = upgradeExpeditionV7(upgradeExpeditionV6(structuredClone(raw)));
             validateExpedition(value); return { ok: true, value };
         } catch (error) { return { ok: false, error: { code: 'partition_invalid', message: error instanceof Error ? error.message : 'expedition_invalid' } }; }
     },

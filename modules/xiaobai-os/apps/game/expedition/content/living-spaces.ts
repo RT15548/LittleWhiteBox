@@ -1,21 +1,26 @@
-import type { CourtyardScene, DistrictScene, LivingScene } from './world-types.js';
+import type { CourtyardScene, DistrictScene, LivingScene, SceneObject, WorldCondition } from './world-types.js';
 import type { LandscapeFeature } from '../world/landscape.js';
 import type { Point } from '../types.js';
 import { feature } from './landscape-content.js';
+import { CITY_ROOMS } from './inner-city/rooms.js';
 
-interface LivingSpace {
+export interface LivingSpace {
     name: string;
-    household: readonly ('sanniang' | 'laobai' | 'kouzi' | 'anian' | 'player' | 'anian_parents' | 'innkeeper')[];
+    household: readonly ('sanniang' | 'laobai' | 'kouzi' | 'anian' | 'player' | 'anian_parents' | 'innkeeper' | 'wen_household' | 'clerks' | 'workers')[];
     use: string; enclosure: string;
     width: number; depth: number;
-    doors: readonly { side: 'north' | 'south'; to: CourtyardScene; arrival: string }[];
+    doors: readonly { side: 'north' | 'south'; to: CourtyardScene; arrival: string; condition?: WorldCondition }[];
     furniture: readonly (LandscapeFeature & { label: string })[];
+    rest?: boolean;
+    anchors?: Readonly<Record<string, Point>>;
+    objects?: readonly SceneObject[];
 }
 const furnishing = (id: string, label: string, kind: LandscapeFeature['kind'], x: number, z: number, width: number, depth: number,
     options: Partial<Pick<LandscapeFeature, 'tint' | 'height'>> = {}) => ({ ...feature(id, kind, x, z, width, depth, options), label });
 
 /** Room facts and physical furnishings share this source. Ownership is world content, not a property save. */
 export const LIVING_SPACES = {
+    ...CITY_ROOMS,
     clinic_front: {
         name: '诊棚 · 接诊间', household: ['sanniang'], use: '三娘接诊、换药与整理药材的前间，病人会来候诊。',
         enclosure: '临街木门经过后掩上；北侧木门通向三娘的起居后间。候诊处与诊床间有屏风。',
@@ -55,6 +60,7 @@ export const LIVING_SPACES = {
         ],
     },
     guest_room: {
+        rest: true,
         name: '小客店 · 旅人客房', household: ['player'], use: '旅人在檐下投宿的一间客房，暂住，不是自有房产。',
         enclosure: '独立木门通前厅，经过后掩上；有窗帘，木隔墙不完全隔音。',
         width: 18, depth: 18, doors: [{ side: 'south', to: 'inn', arrival: 'north' }],
@@ -81,7 +87,8 @@ export const LIVING_SPACES = {
     kouzi_home: {
         name: '扣子的管边小窝', household: ['kouzi'], use: '扣子在管线旁自搭的住处，修缮工具和睡铺挤在同一间。',
         enclosure: '木板门经过后掩上，板壁接缝透进管架的光；热管的震声穿过墙板。',
-        width: 18, depth: 18, doors: [{ side: 'south', to: 'camp', arrival: 'kouzi_home' }],
+        width: 18, depth: 18, doors: [{ side: 'south', to: 'camp', arrival: 'kouzi_home' },
+            { side: 'north', to: 'deep_waterway', arrival: 'kouzi_home', condition: { all: ['deep_route_agreed'] } }],
         furniture: [
             furnishing('bed', '挤在工具旁的睡铺', 'bed', -4.5, -3, 3, 4, { tint: 'amber' }),
             furnishing('bench', '钳子、扳手与零件工作台', 'workbench', 5, -4, 6, 2),
@@ -126,4 +133,7 @@ export const LIVING_ENTRANCES: readonly { to: LivingScene; building: string; pos
     { to: 'anian_home', building: 'eastern-home', position: { x: 15, y: 23.5 } },
 ];
 export function livingSpace(scene: CourtyardScene): LivingSpace | undefined { return Object.hasOwn(LIVING_SPACES, scene) ? LIVING_SPACES[scene as LivingScene] : undefined; }
-export function districtScene(scene: CourtyardScene): DistrictScene { return livingSpace(scene) ? 'camp' : scene as DistrictScene; }
+export function districtScene(scene: CourtyardScene): DistrictScene {
+    const room = livingSpace(scene);
+    return room ? districtScene(room.doors[0].to) : scene as DistrictScene;
+}

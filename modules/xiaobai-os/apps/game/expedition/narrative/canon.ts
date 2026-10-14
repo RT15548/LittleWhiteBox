@@ -1,9 +1,10 @@
 import { extensionFolderPath } from '../../../../../../core/constants.js';
-import { isPerson, PARTICIPANT_IDS, type Participant } from '../content/participants.js';
+import { isPerson, isStoryPerson, PARTICIPANT_IDS, type Participant } from '../content/participants.js';
 import { PARLEY_ENEMIES } from '../content/parley.js';
 import { fault } from '../random.js';
 import { parseStages, type RelationshipStage } from './stages.js';
 import { parseRelationshipProfile, type RelationshipProfile } from './relationship-profile.js';
+import { STORY_PEOPLE } from '../content/inner-city/people.js';
 
 export interface NarrativeCanon {
     system: string; world: string; player: string; protocol: string; npcs: string; character: string;
@@ -21,7 +22,7 @@ const readDocument: CanonReader = async (name, signal) => {
 export async function loadNarrativeCanon(person: Participant, signal: AbortSignal, read: CanonReader = readDocument): Promise<NarrativeCanon> {
     const [system, world, player, protocol, cards] = await Promise.all([
         read('system-prompt', signal), read('world', signal), read('player', signal), read('meta-protocol', signal),
-        Promise.all(PARTICIPANT_IDS.map(async id => ({ id, document: await read(isPerson(id) ? id : PARLEY_ENEMIES[id].card, signal) }))),
+        Promise.all(PARTICIPANT_IDS.map(async id => ({ id, document: await read(isPerson(id) || isStoryPerson(id) ? id : PARLEY_ENEMIES[id].card, signal) }))),
     ]);
     const characters = cards.map(({ id, document }) => {
         const blocks = [...document.matchAll(/<!-- public -->\s*([\s\S]*?)\s*<!-- \/public -->/g)];
@@ -31,6 +32,7 @@ export async function loadNarrativeCanon(person: Participant, signal: AbortSigna
     const npcs = characters.map(card => card.introduction).join('\n');
     const document = characters.find(card => card.id === person)!.document;
     const shared = { system, world, player, protocol, npcs };
+    if (isStoryPerson(person)) { return { ...shared, character: document, relationship: null, stages: [], opening: { initial: STORY_PEOPLE[person].greeting, returned: null } }; }
     if (!isPerson(person)) {
         const block = /<!-- opening:([a-z]+\.initial) -->\s*([\s\S]*?)\s*<!-- \/opening -->/.exec(document);
         if (!block || block[1] !== `${person}.initial`) { fault('narrative_unavailable'); }

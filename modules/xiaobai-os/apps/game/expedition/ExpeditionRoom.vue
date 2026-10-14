@@ -5,7 +5,7 @@ import { useAppBack, useAppLayer } from '../../../shell/app-src/navigation/app-n
 import { createExpeditionClient } from './client.js';
 import { createCampaignPlayback } from './presentation/playback.js';
 import { useDialogueWindow } from './presentation/dialogue-window.js';
-import { campaignLoadout, loadoutIssue } from './campaign/rules.js';
+import { campaignLoadout, canTalk, loadoutIssue } from './campaign/rules.js';
 import RelicReward from './presentation/RelicReward.vue';
 import { campaignWorldInteractions, canRebuildLoadout } from './campaign/interactions.js';
 import { relicReady } from './relics.js';
@@ -35,12 +35,15 @@ import DialogueBubble from './performance/DialogueBubble.vue';
 import { SCENE_ART, STORY_ART } from './artwork.js';
 import { JOURNEY_COPY as j } from './content/journey-copy.js';
 import { TRAVELER_AGES } from './content/traveler-ages.js';
-import { chapterTitle } from './content/chapters.js';
+import { FIRST_CHAPTER } from './content/chapters.js';
 import { campaignInteractions } from './world/people.js';
 import { greetingTurn } from './content/greetings.js';
 import { latestConversationReply, pendingEnding, playerTurn } from './campaign/reply-checkpoint.js';
+import { cityPassage } from './campaign/city-passages.js';
 import { CHAPTER_AWARDS } from './campaign/awards.js';
 import { chapterProgress } from './campaign/progress.js';
+import { cityThreads, cityWorkerErrand } from './content/inner-city/progress.js';
+import { CITY_COPY } from './content/inner-city/copy.js';
 import './presentation/campaign.css';
 
 const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; generationActive: boolean }>();
@@ -51,8 +54,17 @@ const performing = ref(false), transition = ref<CourtyardScene | null>(null);
 const entry = ref<InstanceType<typeof JourneyEntry> | null>(null);
 const panel = ref<'map' | 'journal' | 'build' | 'person' | 'passage' | 'ending' | 'arrival' | 'prologue' | null>(null);
 const packTab = ref<'relics' | 'wardrobe'>('relics');
-const panelTitle = computed(() => panel.value === 'map' ? c.map : panel.value === 'journal' ? c.journal : panel.value === 'build' ? c.build : panel.value === 'person' ? participantName(person.value) : panel.value === 'passage' ? w.passages[passage.value].title : panel.value === 'arrival' ? w.scenes.camp : panel.value === 'ending' || panel.value === 'prologue' ? chapterTitle : run.value?.phase === 'reward' ? c.reward : run.value?.phase === 'lost' ? c.fallen : c.pause);
+const panelTitle = computed(() => panel.value === 'map' ? c.map : panel.value === 'journal' ? c.journal : panel.value === 'build' ? c.build : panel.value === 'person' ? participantName(person.value) : panel.value === 'passage' ? w.passages[passage.value].title : panel.value === 'arrival' || panel.value === 'prologue' ? w.scenes.camp : panel.value === 'ending' ? FIRST_CHAPTER.title : run.value?.phase === 'reward' ? c.reward : run.value?.phase === 'lost' ? c.fallen : c.pause);
 const person = ref<Participant>('sanniang'), passage = ref<keyof typeof w.passages>('warning'), dialog = ref<HTMLElement | null>(null);
+const passageContent = ref<HTMLElement | null>(null);
+// Keep the scene being read, not a second completion flag. Both an ordinary reply
+// and recovery of an uncertain save reveal the result from the confirmed fact.
+const passageScene = ref<ReturnType<typeof cityPassage>>(null), passageObject = ref('');
+const passageOperation = computed(() => passageScene.value?.operation && !run.value?.facts.includes(passageScene.value.fact)
+    ? passageScene.value.operation : null);
+const passageBody = computed(() => passageOperation.value?.setup ?? passageScene.value?.body ?? w.passages[passage.value].body);
+const passageSpeakers = computed(() => !passageOperation.value && run.value
+    ? (passageScene.value?.ready ? passageScene.value.witnesses ?? [] : []).filter(id => canTalk(run.value!, id)) : []);
 const drafts = ref<Partial<Record<Participant, string>>>({});
 const draft = computed({ get: () => drafts.value[person.value] ?? '', set: value => { drafts.value[person.value] = value; } });
 const queued = ref<{ person: Participant; text: string } | null>(null), preparingSend = ref(false);
@@ -68,7 +80,8 @@ const worldObjects = computed<ReadonlySet<string>>(previous => {
     return previous && previous.size === ids.length && ids.every(id => previous.has(id)) ? previous : new Set(ids);
 });
 const world = computed(() => run.value ? { definition: COURTYARD[run.value.location.scene], location: run.value.location, facts: facts.value,
-    people: run.value.people, objects: worldObjects.value, completedSegments: run.value.completedSegments, engagement: run.value.engagement?.id } : null);
+    people: run.value.people, objects: worldObjects.value, completedSegments: run.value.completedSegments, engagement: run.value.engagement?.id,
+    reading: panel.value === 'passage' } : null);
 const signal = computed(() => {
     const battle = run.value?.battle;
     if (run.value?.engagement?.id !== 'beacon' || !battle) { return ''; }
@@ -105,10 +118,16 @@ function clearRestFeedback() { clearTimeout(restTimer); restTimer = undefined; r
 const rewardNotice = ref(0);
 const combatNotice = ref('');
 let combatNoticeTimer: ReturnType<typeof setTimeout> | undefined;
-function combatFeedback(text: string) {
+function combatFeedback(text: string, duration = 4000) {
     clearTimeout(combatNoticeTimer); combatNotice.value = text;
-    combatNoticeTimer = setTimeout(() => { combatNotice.value = ''; }, 4000);
+    combatNoticeTimer = setTimeout(() => { combatNotice.value = ''; }, duration);
 }
+watch(() => run.value?.engagement?.id, (next, prior) => {
+    if (next === prior || !run.value) { return; }
+    const tested = run.value.facts.includes('return_flow_tested');
+    if (next === 'sluice_bridge') { combatFeedback(tested ? CITY_COPY.bridgeTested : CITY_COPY.bridgeUntried, 6500); }
+    if (next === 'main_valve') { combatFeedback(tested ? CITY_COPY.valveTested : CITY_COPY.valveUntried, 6500); }
+});
 watch(() => [run.value?.id, run.value ? Object.keys(run.value.rewards).length : 0] as const, (next, previous) => {
     if (next[0] && next[0] === previous[0] && next[1] > previous[1]) { combatFeedback(COMBAT_COPY.cacheReady); }
 });
@@ -117,6 +136,8 @@ const earnedAwards = computed(() => CHAPTER_AWARDS.flatMap(spec => {
     return receipt ? [{ fact: spec.fact, amount: receipt.amount }] : [];
 }));
 const earnedAmount = computed(() => earnedAwards.value.reduce((sum, a) => sum + a.amount, 0));
+const personalThreads = computed(() => run.value ? cityThreads(run.value).filter(thread => thread.task) : []);
+const workerErrand = computed(() => run.value ? cityWorkerErrand(run.value) : null);
 const { messages, hasOlder, hasNewer, expanded, pendingVisible, rememberReading, resetLatest, older, newer } = useDialogueWindow({
     history: computed(() => greeting.value ? [greeting.value] : history.value), pending: computed(() => !!pendingLine.value),
     person, campaignId: computed(() => run.value?.id), transcript, freshReply, talking,
@@ -135,7 +156,7 @@ async function resolveParley() {
     if (await act({ type: 'resolve_parley' })) { panel.value = null; await nextTick(); field.value?.focus(); }
 }
 async function continueDialogue() {
-    if (endingPerson.value) { await act({ type: 'accept_reply' }); }
+    if (endingPerson.value) { if (await act({ type: 'accept_reply' }) && panel.value === 'person') { await resume(); } }
     else { await resolveParley(); }
 }
 useAppLayer(dialog, close);
@@ -158,6 +179,7 @@ async function open(next: NonNullable<typeof panel.value>) {
     await playback.flush();
 }
 async function resume() {
+    if (performing.value) { return; }
     if (endingPerson.value) { return; }
     if (run.value?.pendingParley) { if (run.value.pendingParley.decision === 'pass') { await resolveParley(); } return; }
     if (!notice.value && !props.generationActive) {
@@ -201,18 +223,31 @@ async function interact(id: string) {
     clearRestFeedback();
     const target = [...campaignInteractions(run.value), ...parleyInteractions(run.value.location.scene, run.value.location.position, new Set(run.value.facts))].find(item => item.target.id === id);
     const object = target?.kind === 'object' ? target.target : null;
-    if (object?.kind === 'person' || object?.kind === 'enemy') {
-        const recipient = object.kind === 'person' ? object.person : object.enemy;
-        person.value = recipient; panel.value = 'person';
-        if (await playback.flush() && !run.value.conversations[recipient].length && await client.act({ type: 'greet', person: recipient })) { playback.sync(); }
+    if (object?.kind === 'person' || object?.kind === 'enemy' || object?.kind === 'resident') {
+        await talkTo(object.kind === 'enemy' ? object.enemy : object.person);
         return;
     }
+    if (object?.kind === 'inspect') {
+        passage.value = object.passage; passageObject.value = id;
+        passageScene.value = cityPassage(run.value, object.passage);
+        if (passageOperation.value) { panel.value = 'passage'; await playback.flush(); return; }
+    }
     if (!await act({ type: 'interact', id })) { return; }
-    if (object?.kind === 'inspect') { passage.value = object.passage; panel.value = 'passage'; }
+    if (object?.kind === 'inspect') { panel.value = 'passage'; }
     else if (object?.kind === 'rest') {
         rested.value = true;
         restTimer = setTimeout(clearRestFeedback, 3000);
     }
+}
+async function operatePassage() {
+    if (!passageOperation.value || !await act({ type: 'interact', id: passageObject.value })) { return; }
+    await nextTick();
+    if (passageContent.value) { passageContent.value.scrollTop = 0; passageContent.value.focus({ preventScroll: true }); }
+}
+async function talkTo(recipient: Participant) {
+    if (!run.value || performing.value || !canTalk(run.value, recipient)) { return; }
+    person.value = recipient; panel.value = 'person';
+    if (await playback.flush() && !run.value.conversations[recipient].length && await client.act({ type: 'greet', person: recipient })) { playback.sync(); }
 }
 async function send() {
     const recipient = person.value, text = draft.value.trim();
@@ -251,7 +286,7 @@ watch(() => view.value?.data, (next, previous) => {
     if (!next?.active || !previous?.active || next.active.id !== previous.active.id) { rewardNotice.value = 0; return; }
     rewardNotice.value += next.awards.filter(a => !previous.awards.some(old => old.key === a.key)).reduce((sum, a) => sum + a.amount, 0);
     const before = new Set(previous.active.facts), after = new Set(next.active.facts);
-    if (!before.has('chapter_completed') && after.has('chapter_completed')) { panel.value = 'ending'; }
+    if (!before.has('chapter_completed') && after.has('chapter_completed') && next.active.chapter === 'outpost') { panel.value = 'ending'; }
     else if (!before.has('captives_arrived') && after.has('captives_arrived')) { panel.value = 'arrival'; }
 });
 watch(() => run.value?.id, () => { drafts.value = {}; queued.value = null; });
@@ -279,7 +314,7 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
             <template #status>
                 <template v-if="run">
                     <div class="ember-health"><meter :min="0" :max="RULES.maxHp" :value="run.hp" :aria-label="COPY.hp" /><span>{{ Math.ceil(run.hp) }} / {{ RULES.maxHp }}</span></div>
-                    <p class="ember-objective">{{ campaignObjective(run) }}</p>
+                    <p v-if="run.chapter === FIRST_CHAPTER.id || run.phase === 'battle'" class="ember-objective">{{ campaignObjective(run) }}</p>
                 </template>
             </template>
             <template #threat>
@@ -292,8 +327,8 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
         </ExplorationField>
         <aside v-if="entered && transition && !notice && !renderingError && !panel && !paused" class="ember-transition" role="status">{{ w.transition(w.scenes[transition]) }}</aside>
         <p v-if="entered && rested && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ w.rested }}</p>
-        <p v-else-if="entered && combatNotice && run?.phase === 'exploration' && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ combatNotice }}</p>
-        <nav v-if="entered && run && !run.pendingParley && !endingPerson" class="ember-tools" :aria-label="c.prepare">
+        <p v-else-if="entered && combatNotice && (run?.phase === 'exploration' || run?.phase === 'battle') && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ combatNotice }}</p>
+        <nav v-if="entered && run && panel !== 'passage' && !run.pendingParley && !endingPerson" class="ember-tools" :aria-label="c.prepare">
             <button type="button" :disabled="performing || !!transition" :aria-label="c.map" @click="open('map')"><ExpeditionIcon name="map" /><span>{{ c.map }}</span></button>
             <button type="button" :disabled="performing || !!transition" :aria-label="c.build" @click="open('build')"><ExpeditionIcon name="bag" /><span>{{ c.build }}</span></button>
             <button type="button" :disabled="performing || !!transition" :aria-label="c.journal" @click="open('journal')"><ExpeditionIcon name="journal" /><span>{{ c.journal }}</span></button>
@@ -319,16 +354,18 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
             <button type="button" :aria-label="c.rewardDismiss" @click="rewardNotice = 0">×</button>
         </aside>
         <div v-if="entered && run && !notice && !renderingError && !generationActive && (panel || paused || run.phase === 'reward' || run.phase === 'lost')" class="ember-curtain" :style="panel === 'person' ? sceneArtStyle : undefined">
-            <section ref="dialog" class="ember-panel" :class="{ 'ember-wide': panel === 'map' || panel === 'build' && packTab === 'wardrobe', 'ember-map-panel': panel === 'map', 'ember-wardrobe-panel': panel === 'build' && packTab === 'wardrobe', 'ember-dialogue': panel === 'person' }" role="dialog" aria-modal="true" :aria-label="panelTitle" tabindex="-1">
+            <section ref="dialog" class="ember-panel" :class="{ 'ember-wide': panel === 'map' || panel === 'build' && packTab === 'wardrobe', 'ember-map-panel': panel === 'map', 'ember-wardrobe-panel': panel === 'build' && packTab === 'wardrobe', 'ember-dialogue': panel === 'person', 'ember-passage': panel === 'passage' }" role="dialog" aria-modal="true" :aria-label="panelTitle" tabindex="-1">
                 <header v-if="panel !== 'map' && panel !== 'person'" class="ember-panel-heading">
                     <h2>{{ panelTitle }}</h2>
                     <nav v-if="panel === 'build'" class="ember-pack-tabs" :aria-label="c.build"><button type="button" :aria-pressed="packTab === 'relics'" @click="packTab = 'relics'">{{ j.equipment }}</button><button type="button" :aria-pressed="packTab === 'wardrobe'" @click="packTab = 'wardrobe'">{{ c.wardrobe }}</button></nav>
-                    <button v-if="panel !== 'prologue' && run.pendingParley?.decision !== 'attack' && (panel || run.phase !== 'lost' && run.phase !== 'reward')" type="button" :disabled="!!run.pendingParley && blocked" @click="resume">{{ c.close }}</button>
+                    <button v-if="panel !== 'prologue' && panel !== 'passage' && run.pendingParley?.decision !== 'attack' && (panel || run.phase !== 'lost' && run.phase !== 'reward')" type="button" :disabled="performing || !!run.pendingParley && blocked" @click="resume">{{ c.close }}</button>
                 </header>
                 <template v-if="panel === 'map'"><CampaignMap :campaign="run" @close="resume" /></template>
                 <template v-else-if="panel === 'prologue'"><p class="ember-prose ember-prologue">{{ c.opening }}</p><button class="ember-primary" type="button" @click="resume">{{ c.start }}</button></template>
                 <template v-else-if="panel === 'journal'">
                     <p class="ember-objective-panel">{{ campaignObjective(run) }}</p>
+                    <section v-for="thread in personalThreads" :key="thread.person" class="ember-thread"><h3>{{ thread.name }} · {{ thread.title }}</h3><p>{{ thread.task }}</p></section>
+                    <section v-if="workerErrand" class="ember-thread"><h3>{{ workerErrand.title }}</h3><p>{{ workerErrand.task }}</p></section>
                     <ol class="ember-journal"><li v-for="fact in run.facts" :key="fact">{{ FACT_COPY[fact] }}</li></ol>
                     <template v-if="earnedAwards.length"><h3>{{ c.journeyReward(earnedAmount) }}</h3><ul class="ember-journal"><li v-for="award in earnedAwards" :key="award.fact">{{ FACT_COPY[award.fact] }} <strong>{{ c.rewardReceived(award.amount) }}</strong></li></ul><small>{{ c.rewardRule }}</small></template>
                 </template>
@@ -388,7 +425,14 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
                     <DialogueStatus v-if="conversationProgress?.person === person" :phase="conversationProgress.phase" :started-at="conversationProgress.startedAt" />
                     <DialogueComposer v-model="draft" :blocked="blocked || preparingSend || generationActive" :talking="talking" :can-regenerate="!!regeneratable || retrying" :retrying="retrying" :conclusion="conclusion" @send="send" @regenerate="regenerate" @continue="continueDialogue" @cancel="client.cancelTalk" />
                 </template>
-                <template v-else-if="panel === 'passage'"><p class="ember-prose">{{ w.passages[passage].body }}</p></template>
+                <template v-else-if="panel === 'passage'">
+                    <div ref="passageContent" class="ember-passage-body" tabindex="0"><p v-for="(paragraph, index) in passageBody.split('\n\n')" :key="index" class="ember-prose">{{ paragraph }}</p></div>
+                    <footer class="ember-passage-actions">
+                        <button v-if="passageOperation" class="ember-primary" type="button" :disabled="blocked || performing" @click="operatePassage">{{ passageOperation.label }}</button>
+                        <button v-for="speaker in passageSpeakers" :key="speaker" type="button" :disabled="blocked || performing" @click="talkTo(speaker)">{{ CITY_COPY.talk(participantName(speaker)) }}</button>
+                        <button type="button" :disabled="performing" @click="resume">{{ CITY_COPY.leave }}</button>
+                    </footer>
+                </template>
                 <template v-else-if="panel === 'arrival'"><img class="ember-story-art" :src="STORY_ART.arrival" alt="" decoding="async"><p class="ember-prose">{{ c.received }}</p><button class="ember-primary" type="button" @click="resume">{{ c.resume }}</button></template>
                 <template v-else-if="panel === 'ending'"><img class="ember-story-art" :src="STORY_ART.ending" alt="" decoding="async"><h2>{{ c.endingTitle }}</h2><p class="ember-prose">{{ c.ending }}</p><p>{{ c.freeTime }}</p><p v-if="chapterProgress(run).optionalRoots">{{ c.optionalRoots }}</p><strong v-if="earnedAmount">{{ c.journeyReward(earnedAmount) }}</strong><small>{{ c.continued }}</small><button class="ember-primary" type="button" @click="resume">{{ c.remain }}</button></template>
                 <template v-else-if="run.phase === 'reward'">

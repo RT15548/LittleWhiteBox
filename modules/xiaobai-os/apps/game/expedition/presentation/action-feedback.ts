@@ -3,6 +3,7 @@ import { pendingEnding } from '../campaign/reply-checkpoint.js';
 import { isPerson, participantName, type Participant } from '../content/participants.js';
 import { DESTINATIONS, type DestinationId } from '../content/people-places.js';
 import { ACTION_FEEDBACK_COPY as copy } from '../content/action-feedback-copy.js';
+import { campaignAction } from '../content/campaign-actions.js';
 
 /** Movement is paused in dialogue. Only the latest, still-active order needs a departure reminder. */
 function movementPending(campaign: Campaign, person: Participant, turn: ConversationTurn) {
@@ -23,9 +24,11 @@ export function dialogueActionFeedback(campaign: Campaign, person: Participant, 
     const action = turn.action;
     if (turn.kind !== 'dialogue' || !action) { return null; }
     const last = campaign.conversations[person].at(-1)?.id === turn.id;
-    const pending = movementPending(campaign, person, turn) || last && (action === 'finish' ? pendingEnding(campaign) === person
+    const spec = campaignAction(action);
+    const pending = movementPending(campaign, person, turn) || last && (spec?.confirm ? pendingEnding(campaign) === person
         : (action === 'pass' || action === 'attack') && campaign.pendingParley?.enemy === person);
     const name = participantName(person);
+    if (spec?.feedback) { return { action, phase: pending ? 'pending' as const : 'applied' as const, text: pending ? spec.feedback.pending : spec.feedback.applied }; }
     let text: string;
     switch (action) {
         case 'briefing': case 'receiving': case 'clinic': case 'share_secret': text = copy[action]; break;

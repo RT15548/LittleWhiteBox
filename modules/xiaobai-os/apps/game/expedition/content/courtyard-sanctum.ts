@@ -1,16 +1,19 @@
 import { defineLandscapeScene } from '../world/landscape.js';
 import { feature as f } from './landscape-content.js';
+import { RESCUE_COMPLETE } from './chapters.js';
 
 export const COURTYARD_HALL = defineLandscapeScene({
     id: 'hall', safe: false,
     anchors: {
         beacon: { x: -22, y: 35 }, cells: { x: 22, y: 35 }, encounter: { x: 0, y: 5 }, warden: { x: 0, y: -17 },
         orders: { x: 0, y: -36 }, reinforcementLeft: { x: -24, y: -12 }, reinforcementRight: { x: 24, y: -12 },
-        reward: { x: 4, y: -34 }, rest: { x: 0, y: 24 },
+        reward: { x: 4, y: -34 }, rest: { x: 0, y: 24 }, south_street: { x: 10, y: -38 },
     },
     exits: [
         { id: 'beacon', anchor: 'beacon', to: 'beacon', arrival: 'hall' },
         { id: 'cells', anchor: 'cells', to: 'cells', arrival: 'hall' },
+        { id: 'south_street', anchor: 'south_street', to: 'south_street', arrival: 'hall',
+            condition: { all: RESCUE_COMPLETE } },
     ], objects: [{ id: 'orders', anchor: 'orders', kind: 'inspect', passage: 'orders', condition: { all: ['warden_defeated'] } },
         { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'warden' }, { id: 'rest', anchor: 'rest', kind: 'rest' }],
     landscape: {

@@ -3,7 +3,7 @@ import { relicRank as rank } from '../relics.js';
 import type { Battle, Hazard, Loadout, Point } from '../types.js';
 import { block, hurtEnemy, hurtPlayer, lightning, stagger } from './damage.js';
 import { effect } from './events.js';
-import { angleTo, distance, lineDistance } from './geometry.js';
+import { angleTo, distance, lineDistance, moveBody } from './geometry.js';
 import { type CombatField, fieldVisible } from './field.js';
 
 export function insideHazard(h: Hazard, point: Point, radius: number) {
@@ -60,7 +60,9 @@ function hazardsTick(b: Battle, loadout: Loadout, field?: CombatField) {
             if (h.damage <= 0) { continue; }
             const impact = h.kind === 'slam' || h.kind === 'beam' || h.kind === 'ring';
             if ((impact ? !h.hits.includes(0) : b.tick % 15 === 0) && insideHazard(h, b.player, RULES.playerRadius) && fieldVisible(field, h, b.player)) {
+                const caught = h.pull && !b.player.invulnerable && !b.player.shield && b.player.hp > 0;
                 hurtPlayer(b, h.damage, loadout, field); if (impact) { h.hits.push(0); }
+                if (caught) { moveBody(b, b.player, angleTo(b.player, h), Math.min(h.pull!, Math.max(0, distance(b.player, h) - 1.8)), RULES.playerRadius, field); }
             }
             if (!b.boss && b.encounter === 'siege' && b.tick % 15 === 0 && insideHazard(h, b.objective, .6) && fieldVisible(field, h, b.objective)) { b.objective.hp = Math.max(0, b.objective.hp - h.damage * .35); }
             if (impact || b.tick % 15 === 0) {

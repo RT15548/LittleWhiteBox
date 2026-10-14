@@ -25,5 +25,9 @@ export const DESTINATIONS = {
     cells: { scene: 'cells', anchor: 'release', name: WORLD_COPY.scenes.cells },
     hall: { scene: 'hall', anchor: 'cells', name: WORLD_COPY.scenes.hall },
     roots: { scene: 'roots', anchor: 'crossroads', name: WORLD_COPY.scenes.roots },
+    south_street: { scene: 'south_street', anchor: 'rest', name: WORLD_COPY.scenes.south_street },
+    workshop_street: { scene: 'workshop_street', anchor: 'rest', name: WORLD_COPY.scenes.workshop_street },
+    heat_station: { scene: 'heat_station', anchor: 'rest', name: WORLD_COPY.scenes.heat_station },
+    deep_waterway: { scene: 'deep_waterway', anchor: 'receipt', name: WORLD_COPY.scenes.deep_waterway },
 } as const satisfies Record<string, PersonPlace & { name: string }>;
 export type DestinationId = keyof typeof DESTINATIONS;

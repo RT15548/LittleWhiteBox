@@ -12,7 +12,9 @@ import type { WorldSpace } from './types.js';
 import type { Point } from '../types.js';
 import { RULES } from '../content.js';
 import { fault } from '../random.js';
-import { livingSpace } from '../content/living-spaces.js';
+import { districtScene, livingSpace } from '../content/living-spaces.js';
+import { isCityDistrict } from '../content/inner-city/places.js';
+import { RESCUE_COMPLETE } from '../content/chapters.js';
 import { rescuePhase } from '../campaign/rescue.js';
 
 export interface PersonLocation { scene: CourtyardScene; position: Point; facing: number; mode: 'idle' | 'follow' | 'travel'; destination: DestinationId | null }
@@ -62,7 +64,8 @@ export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to:
 }
 export function personMap(campaign: Campaign, person: CourtyardPerson) {
     const facts = new Set(campaign.facts), location = campaign.people[person];
-    return Object.entries(DESTINATIONS).map(([id, place]) => {
+    return Object.entries(DESTINATIONS).filter(([, place]) => !isCityDistrict(districtScene(place.scene))
+        || RESCUE_COMPLETE.every(fact => facts.has(fact)) && (place.scene !== 'deep_waterway' || facts.has('deep_route_agreed'))).map(([id, place]) => {
         const route = sceneRoute(location, place, facts, false);
         const safe = sceneSafe(place.scene, facts);
         const soloRoute = sceneSafe(location.scene, facts) && safe ? sceneRoute(location, place, facts, true) : null;

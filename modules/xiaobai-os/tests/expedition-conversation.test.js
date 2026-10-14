@@ -8,7 +8,8 @@ import { generateConversation } from '../apps/game/expedition/narrative/conversa
 import { applyReply } from '../apps/game/expedition/narrative/apply-reply.ts';
 import { loadNarrativeCanon } from '../apps/game/expedition/narrative/canon.ts';
 import { narrativeOptions, conversationMemory, loadCanon, narrativeReply, inspectNarrativePrompt, inspectHistoryMessage, promptBlock } from './fixtures/expedition-narrative.js';
-import { PARTICIPANT_IDS, isPerson } from '../apps/game/expedition/content/participants.ts';
+import { PARTICIPANT_IDS, isPerson, isStoryPerson } from '../apps/game/expedition/content/participants.ts';
+import { STORY_PEOPLE } from '../apps/game/expedition/content/inner-city/people.ts';
 import { PARLEY_ENEMIES } from '../apps/game/expedition/content/parley.ts';
 import { decodeNarrativeReply } from '../apps/game/expedition/narrative/response.ts';
 import { OpenAICompatibleAdapter } from '../../agent-core/adapters/openai-compatible.js';
@@ -110,8 +111,8 @@ test('personal witnesses stay personal; returning to camp does not disclose unse
 });
 
 test('every participant receives the same public cast, but only their own private card and opening', async () => {
-    const documents = new Map(PARTICIPANT_IDS.map(id => [isPerson(id) ? id : PARLEY_ENEMIES[id].card,
-        `<!-- public -->public-${id}<!-- /public -->\nprivate-${id}` + (isPerson(id) ? '' : `\n<!-- opening:${id}.initial -->opening-${id}<!-- /opening -->`)]));
+    const documents = new Map(PARTICIPANT_IDS.map(id => [isPerson(id) || isStoryPerson(id) ? id : PARLEY_ENEMIES[id].card,
+        `<!-- public -->public-${id}<!-- /public -->\nprivate-${id}` + (isPerson(id) || isStoryPerson(id) ? '' : `\n<!-- opening:${id}.initial -->opening-${id}<!-- /opening -->`)]));
     documents.set('openings', PARTICIPANT_IDS.filter(isPerson).map(id =>
         `<!-- opening:${id}.initial -->opening-${id}<!-- /opening --><!-- opening:${id}.returned -->returned-${id}<!-- /opening -->`).join('\n'));
     for (const person of PARTICIPANT_IDS) {
@@ -119,7 +120,7 @@ test('every participant receives the same public cast, but only their own privat
             ?? readFile(new URL(`../docs/expedition-cards/${name}.md`, import.meta.url), 'utf8'));
         assert.equal(canon.npcs, PARTICIPANT_IDS.map(id => `public-${id}`).join('\n'));
         assert.equal(canon.character.trim(), `private-${person}`);
-        assert.equal(canon.opening.initial, `opening-${person}`);
+        assert.equal(canon.opening.initial, isStoryPerson(person) ? STORY_PEOPLE[person].greeting : `opening-${person}`);
         const prompt = buildConversationPrompt(campaign(), person, 'hello', canon);
         assert.equal(promptBlock(prompt.systemPrompt, 'NPCs'), `${canon.npcs}\n\n${canon.character.trim()}`);
         assert.deepEqual(prompt.systemPrompt.match(/private-[a-z]+/g), [`private-${person}`]);

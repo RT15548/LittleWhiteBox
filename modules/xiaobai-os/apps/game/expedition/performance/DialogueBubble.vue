@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Participant } from '../content/participants.js';
-import type { Performance } from './catalog.js';
+import { isStoryPerson, type Participant } from '../content/participants.js';
+import { isPerformer, type Performance } from './catalog.js';
 import { segmentDialogue } from './dialogue-text.js';
 import DialogueActor from './DialogueActor.vue';
+import StoryPortrait from './StoryPortrait.vue';
 const props = defineProps<{ person: Participant; reply: string; performance?: Performance; animate: boolean }>();
 const segments = computed(() => segmentDialogue(props.reply));
 </script>
 
 <template>
     <div class="ember-npc-bubble">
-        <DialogueActor :person="person" :performance="performance" :animate="animate" />
+        <DialogueActor v-if="isPerformer(person)" :person="person" :performance="performance" :animate="animate" />
+        <StoryPortrait v-else-if="isStoryPerson(person)" :person="person" />
         <p class="ember-npc-line"><span v-for="(segment, index) in segments" :key="index" :class="{ 'ember-spoken': segment.spoken }">{{ segment.text }}</span></p>
     </div>
 </template>

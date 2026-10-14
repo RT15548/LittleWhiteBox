@@ -19,6 +19,8 @@ export const COURTYARD_CAMP = defineLandscapeScene({
     ],
     objects: [
         { id: 'rest', anchor: 'rest', kind: 'rest' },
+        { id: 'camp_heat', anchor: 'rest', kind: 'inspect', passage: 'camp_heat', condition: { all: ['heat_restored'] } },
+        { id: 'anian_return', anchor: 'registry', kind: 'inspect', passage: 'anian_home', condition: { all: ['anian_walk_finished'] } },
         SUPPLIES_HANDOFF.object,
     ],
     landscape: {

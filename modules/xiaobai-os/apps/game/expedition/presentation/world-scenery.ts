@@ -15,14 +15,19 @@ import { COURTYARD } from '../content/courtyard.js';
 import { PARLEY_ENEMIES, PARLEY_IDS } from '../content/parley.js';
 import { parleyActor } from './world-parley.js';
 import { buildLocalLife } from './local-people.js';
+import { buildStoryPeople } from './story-people.js';
+import { CITY_VENTS } from '../content/inner-city/combat.js';
 import type { EncounterSegment } from '../content/courtyard-encounters.js';
+import { buildCityProps } from './city-props.js';
 
 export interface ExplorableScenery extends LandscapeScenery {
+    readonly animating: boolean;
     setFacts(facts: ReadonlySet<CourtyardFact>): void; setEncounterActive(active: boolean): void;
     animate(player: Point, now: number, reduced: boolean, inView: (point: Point) => boolean): boolean;
     people: ReturnType<typeof person>[];
     setPeople(people: PeopleLocations, now: number): boolean;
     parleyPeople: ReturnType<typeof parleyActor>[];
+    storyPeople: ReturnType<typeof buildStoryPeople>['people'];
     setProgress(completed: readonly EncounterSegment[], objects: ReadonlySet<string>): boolean;
 }
 
@@ -31,6 +36,18 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
     const scenery = buildLandscape(k, root, definition.landscape), objects = k.group(root), residents = k.group(root);
     const sentries = buildSentries(k, root, definition, facts);
     const localLife = buildLocalLife(k, residents, definition.id);
+    const story = buildStoryPeople(k, residents, definition);
+    const cityProps = buildCityProps(k, root, definition, facts);
+    const outlets = k.group(root);
+    if (definition.id === 'pipe_gallery') {
+        for (const vent of CITY_VENTS[definition.id]) {
+            const outlet = k.group(outlets, [vent.x, .65, vent.y]); outlet.rotation.y = Math.PI / 2 - vent.angle;
+            k.mesh(outlet, 'cylinder', LAND.brass, [.4, 1.2, .4], [0, 0, -.6]).rotation.x = Math.PI / 2;
+            k.mesh(outlet, 'torus', LAND.timber, [.42, .42, .14], [0, 0, 0]);
+            k.mesh(outlet, 'disc', LAND.shadow, [.34, .34, 1]);
+        }
+    }
+    const releaseOutlets = k.bake(outlets);
     const caches = definition.objects.filter(o => o.kind === 'reward' || o.kind === 'rest').map(item => {
         const p = definition.anchors[item.anchor], model = k.group(root, [p.x, 0, p.y]);
         if (item.kind === 'reward') {
@@ -55,6 +72,7 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         parleyPeople.forEach(person => person.setFacts(next));
         disposeObjects?.();
         sentries.setFacts(next);
+        cityProps.setFacts(next);
         for (const item of visibleInteractions(definition, next)) {
             const p = item.position;
             if (item.kind === 'exit') {
@@ -74,6 +92,17 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         }
         if (definition.id === 'camp') {
             const clinic = definition.landscape.features.find(f => f.kind === 'clinic')!.footprint;
+            if (next.has('heat_restored')) {
+                const hearth = definition.landscape.features.find(f => f.id === 'hearth')!.footprint;
+                k.mesh(objects, 'disc', LAND.ember, [1.2, 1.2, 1], [hearth.x, .2, hearth.z + 1.12], true).rotation.x = -Math.PI / 2;
+                for (let i = 0; i < 3; i++) {
+                    k.mesh(objects, 'crown', '#f0f5f6', [.24 + i * .1, .38, .24], [hearth.x + (i % 2 ? .17 : -.1), 2.2 + i * .5, hearth.z], true, .32 - i * .06);
+                }
+                for (const side of [-1, 1]) {
+                    k.mesh(objects, 'cylinder', LAND.pottery, [.32, .38, .32], [clinic.x + side * 1.6, .19, clinic.z + clinic.depth / 2 + .6]);
+                    k.mesh(objects, 'disc', '#b5d8e6', [.29, .29, 1], [clinic.x + side * 1.6, .39, clinic.z + clinic.depth / 2 + .6], true).rotation.x = -Math.PI / 2;
+                }
+            }
             if (next.has('clinic_helped')) {
                 const bench = definition.landscape.features.find(f => f.kind === 'bench')!.footprint;
                 for (const side of [-1, 1]) {
@@ -113,6 +142,7 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         }
         const space = sceneSpace(definition, next);
         for (const gate of definition.landscape.gates) {
+            if (definition.id === 'deep_waterway' && gate.id === 'deep_gate') { continue; }
             const f = gate.footprint, alongX = f.width > f.depth, length = Math.max(f.width, f.depth);
             const model = k.group(objects, [f.x, 0, f.z]); if (!alongX) { model.rotation.y = Math.PI / 2; }
             for (const side of [-1, 1]) { k.mesh(model, 'box', LAND.stone, [.35, 3.2, .7], [side * length / 2, 1.6, 0]); }
@@ -137,7 +167,7 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         disposeObjects = k.bake(objects);
     }
     setFacts(facts);
-    return { setFacts, people, parleyPeople,
+    return { setFacts, people, parleyPeople, storyPeople: story.people, get animating() { return cityProps.animating; },
         setProgress(completed, visible) {
             let changed = sentries.setProgress(completed);
             for (const cache of caches) {
@@ -162,9 +192,11 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         animate(player, now, reduced, inView) {
             const frame = Math.floor(now / 80);
             if (frame === animatedAt) { return false; } animatedAt = frame;
-            let changed = sentries.animate(reduced);
+            let changed = cityProps.animate(now, reduced);
+            changed = sentries.animate(reduced) || changed;
             changed = localLife.animate(player, now, reduced, inView) || changed;
             for (const enemy of parleyPeople) { changed = enemy.update(player, reduced) || changed; }
+            for (const person of story.people) { changed = person.update(player, now, reduced) || changed; }
             for (const person of people) {
                 if (Math.hypot(person.position.x - player.x, person.position.y - player.y) < 22) {
                     person.update(player, now, reduced); changed = !reduced || changed;
@@ -172,5 +204,5 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
             }
             return changed;
         },
-        dispose() { caches.forEach(cache => { cache.dispose(); cache.model.removeFromParent(); }); localLife.dispose(); people.splice(0).forEach(person => person.dispose()); parleyPeople.forEach(person => person.dispose()); residents.removeFromParent(); disposeObjects?.(); sentries.dispose(); scenery.dispose(); } };
+        dispose() { cityProps.dispose(); releaseOutlets(); outlets.removeFromParent(); caches.forEach(cache => { cache.dispose(); cache.model.removeFromParent(); }); localLife.dispose(); story.dispose(); people.splice(0).forEach(person => person.dispose()); parleyPeople.forEach(person => person.dispose()); residents.removeFromParent(); disposeObjects?.(); sentries.dispose(); scenery.dispose(); } };
 }

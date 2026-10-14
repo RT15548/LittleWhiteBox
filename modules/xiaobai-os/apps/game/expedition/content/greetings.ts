@@ -2,10 +2,12 @@ import type { Campaign, ConversationTurn } from '../campaign/types.js';
 import { isPerson, type Participant } from './participants.js';
 import type { Performance } from '../performance/catalog.js';
 import { hasReturned } from '../campaign/rescue.js';
+import { STORY_PEOPLE, STORY_PERSON_IDS, type StoryPerson } from './inner-city/people.js';
 
-type Greeting = { reply: string; performance: Performance };
+type Greeting = { reply: string; performance?: Performance };
 /** Authored first speech, shared by the visible transcript and model history. */
 const GREETINGS: Record<Participant, { initial: Greeting; returned?: Greeting }> = {
+    ...Object.fromEntries(STORY_PERSON_IDS.map(id => [id, { initial: { reply: STORY_PEOPLE[id].greeting } }])) as Record<StoryPerson, { initial: Greeting }>,
     sanniang: { initial: { reply: '我将拆下的绷带放到一旁，抬眼朝你轻轻一笑，伸手示意身边的座位。\n「先坐一坐。檐下不常见生面孔，身上可有哪里不舒服？路上受的凉、磕碰的小伤，都可以同我说。」', performance: { expression: 'smile', gesture: 'gesture' } } },
     laobai: { initial: { reply: '我合上签本，靠着门框朝你挑了挑眉。伤腿刚一使劲，嘴角的笑便顿了一下。\n「生面孔啊。找人，还是找路？找人我倒认得几个，找路嘛……我这条腿，眼下只能给你指指。」', performance: { expression: 'teasing', gesture: 'tilt' } } },
     anian: {

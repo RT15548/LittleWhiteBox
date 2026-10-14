@@ -6,11 +6,13 @@ import { sceneSpace } from '../world/exploration.js';
 import { COURTYARD } from './courtyard.js';
 import type { CourtyardFact, CourtyardScene } from './world-types.js';
 import type { RewardNode } from './campaign-rewards.js';
+import { CITY_ENCOUNTERS } from './inner-city/combat.js';
+import { BOSS_SPECS } from '../content.js';
 
-export const ENCOUNTER_SEGMENTS = ['crossroads', 'gate', 'beacon', 'waterway_approach', 'waterway', 'hall', 'roots'] as const;
+export const ENCOUNTER_SEGMENTS = ['crossroads', 'gate', 'beacon', 'waterway_approach', 'waterway', 'hall', 'roots', 'pipe_gallery', 'sluice_bridge', 'main_valve', 'coal_store'] as const;
 export type EncounterSegment = typeof ENCOUNTER_SEGMENTS[number];
-interface EncounterDefinition {
-    scene: CourtyardScene; complete: CourtyardFact | null; reward: RewardNode;
+export interface EncounterDefinition {
+    scene: CourtyardScene; complete: CourtyardFact | null; reward: RewardNode | null;
     trigger: string; triggerRadius: number; prerequisite?: EncounterSegment;
     boss: BossKind | null; bounds: FieldBounds;
     waves: readonly (readonly { kind: EnemyKind; anchor: string }[])[];
@@ -18,6 +20,7 @@ interface EncounterDefinition {
 }
 const enemy = (kind: EnemyKind, anchor: string) => ({ kind, anchor });
 export const COURTYARD_ENCOUNTERS: Record<EncounterSegment, EncounterDefinition> = {
+    ...CITY_ENCOUNTERS,
     crossroads: { scene: 'crossroads', complete: 'crossroads_cleared', reward: 'crossroads', trigger: 'encounter', triggerRadius: 22,
         boss: null, bounds: { left: -26, right: 26, top: -23, bottom: 35 }, summons: [],
         waves: [[enemy('soldier', 'front_left'), enemy('soldier', 'front_right'), enemy('archer', 'front_archer')],
@@ -59,7 +62,8 @@ export function courtyardBattle(id: EncounterSegment, facts: ReadonlySet<Courtya
     if (spec.complete && facts.has(spec.complete)) { return null; }
     const scene = COURTYARD[spec.scene];
     return {
-        setup: { seed, zone: 0, chapter: 0, elite: false, boss: spec.boss !== null, bossKind: spec.boss ?? 'warden', encounter: 'skirmish', hp },
+        setup: { seed, zone: BOSS_SPECS[spec.boss ?? 'warden'].region, chapter: Object.hasOwn(CITY_ENCOUNTERS, id) ? 1 : 0,
+            elite: id === 'coal_store', boss: spec.boss !== null, bossKind: spec.boss ?? 'warden', encounter: 'skirmish', hp },
         field: { space: boundedFieldSpace(sceneSpace(scene, facts), spec.bounds), entry, objective: scene.anchors[spec.trigger],
             waves: spec.waves.map(wave => wave.map(e => ({ kind: e.kind, position: scene.anchors[e.anchor] }))),
             summonPoints: spec.summons.map(anchor => scene.anchors[anchor]),

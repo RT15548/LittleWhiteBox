@@ -5,14 +5,18 @@ import { LAND } from './world-palette.js';
 
 /** Reused roofs, patched shutters and warm windows, not landmark-sized detached villas. */
 export function streetHouse(k: SceneKit, base: Group, upper: Group, item: LandscapeFeature) {
-    const { width, depth } = item.footprint, alongX = width >= depth;
+    const sideways = item.facing === 'east' || item.facing === 'west';
+    const width = sideways ? item.footprint.depth : item.footprint.width;
+    const depth = sideways ? item.footprint.width : item.footprint.depth, alongX = width >= depth;
+    base.rotation.y = upper.rotation.y = item.facing === 'north' ? Math.PI : item.facing === 'east' ? Math.PI / 2 : item.facing === 'west' ? -Math.PI / 2 : 0;
     const count = item.entrance ? 1 : Math.max(1, Math.floor(Math.max(width, depth) / 5));
     k.mesh(base, 'box', LAND.mortar, [width, .4, depth], [0, .2, 0]);
     for (let i = 0; i < count; i++) {
         const w = alongX ? width / count : width, d = alongX ? depth : depth / count;
         const root = k.group(upper, [alongX ? -width / 2 + (i + .5) * w : 0, 0, alongX ? 0 : -depth / 2 + (i + .5) * d]);
         const h = (item.height ?? 4) + (i % 3 - 1) * .35, workshop = item.kind === 'workshop';
-        k.mesh(root, 'box', i % 2 ? LAND.stone : LAND.cloth, [w - .15, h - .4, d - .15], [0, (h + .4) / 2, 0]);
+        const plaster = item.facing ? (item.tint === 'rose' ? '#c9b8cb' : item.tint === 'sage' ? '#b6c5ca' : '#d4c8bb') : i % 2 ? LAND.stone : LAND.cloth;
+        k.mesh(root, 'box', plaster, [w - .15, h - .4, d - .15], [0, (h + .4) / 2, 0]);
         for (const x of [-w / 2 + .12, w / 2 - .12]) {
             k.mesh(root, 'box', LAND.timber, [.18, h, d], [x, h / 2, 0]);
         }
@@ -31,6 +35,31 @@ export function streetHouse(k: SceneKit, base: Group, upper: Group, item: Landsc
         k.mesh(front, 'box', LAND.ember, [.7, .67, .14], [w * .27, 2.25, .1], true);
         k.mesh(front, 'box', LAND.timber, [.07, .85, .16], [w * .27, 2.25, .15]);
         k.mesh(front, 'box', LAND.timber, [.85, .07, .16], [w * .27, 2.25, .15]);
+        if (item.facing) {
+            // Human-scale bays on street-facing and side elevations; footprint remains the collision source.
+            for (const [angle, reach, span] of [[0, d / 2, w], [Math.PI, d / 2, w], [-Math.PI / 2, w / 2, d], [Math.PI / 2, w / 2, d]]) {
+                const facade = k.group(root); facade.rotation.y = angle;
+                for (let x = -span / 2 + 1.8; x < span / 2 - .8; x += 3.2) {
+                    for (let y = 2.1; y < h - .65; y += 2.5) {
+                        if (angle === 0 && y < 3 && (Math.abs(x - doorX) < 1.3 || Math.abs(x - w * .27) < 1.3)) { continue; }
+                        k.mesh(facade, 'box', LAND.shadow, [1.16, 1.45, .12], [x, y, reach]);
+                        k.mesh(facade, 'box', LAND.ember, [.94, 1.17, .07], [x, y, reach + .08], true);
+                        k.mesh(facade, 'box', LAND.timber, [.08, 1.3, .11], [x, y, reach + .14]);
+                        k.mesh(facade, 'box', LAND.timber, [1.03, .09, .11], [x, y, reach + .14]);
+                        k.mesh(facade, 'box', LAND.light, [1.4, .14, .34], [x, y - .76, reach + .09]);
+                    }
+                }
+                if (h > 5.5) { k.mesh(facade, 'box', LAND.light, [span, .17, .17], [0, 3.35, reach]); }
+            }
+            if (item.entrance) {
+                k.mesh(front, 'box', LAND.timber, [2.9, .8, .18], [0, 3.45, .14]);
+                for (const x of [-.8, 0, .8]) { k.mesh(front, 'box', LAND.brass, [.25, .38, .04], [x, 3.45, .25]); }
+                for (const side of [-1, 1]) {
+                    k.mesh(front, 'box', LAND.brass, [.1, .8, .5], [side * 1.6, 2.9, .25]);
+                    k.mesh(front, 'box', LAND.ember, [.35, .48, .3], [side * 1.6, 2.5, .43], true);
+                }
+            }
+        }
         if (d >= 4 && (alongX || i === count - 1)) {
             const shade = k.group(front, [0, 2.8, .55]); shade.rotation.x = .22;
             k.mesh(shade, 'box', item.tint === 'rose' ? LAND.rose : LAND.cloth, [w * .8, .045, 1.6]);

@@ -8,6 +8,8 @@ import { canStandInWorld } from '../apps/game/expedition/world/geometry.ts';
 import { sceneSpace } from '../apps/game/expedition/world/exploration.ts';
 import { buildLocalLife } from '../apps/game/expedition/presentation/local-people.ts';
 import { createSceneKit } from '../apps/game/expedition/scene-kit.ts';
+import { buildStoryPeople } from '../apps/game/expedition/presentation/story-people.ts';
+import { STORY_PEOPLE } from '../apps/game/expedition/content/inner-city/people.ts';
 
 // Authored short routes bypass pathfinding. Sampling every 5 cm catches a walk through a wall or a closed gate.
 test('ordinary residents walk only on accessible ground and stop at every authored destination', () => {
@@ -65,4 +67,25 @@ test('resident batching leaves shared geometry untouched and releases every owne
         assert.deepEqual(item.geometry.getAttribute('position').array, item.positions);
     }
     kit.dispose();
+});
+
+test('story actors release scene-owned batches while shared primitives survive repeated room visits', () => {
+    const kit = createSceneKit(), shared = new Set(Object.values(kit.geometries));
+    const sharedDisposals = [];
+    for (const geometry of shared) geometry.addEventListener('dispose', () => sharedDisposals.push(geometry));
+    try {
+        for (let visit = 0; visit < 3; visit++) for (const spec of Object.values(STORY_PEOPLE)) {
+            const root = new Group(), actors = buildStoryPeople(kit, root, COURTYARD[spec.scene]);
+            const owned = new Set(), disposed = new Set();
+            root.traverse(object => {
+                if (!(object instanceof Mesh)) return;
+                if (!shared.has(object.geometry)) owned.add(object.geometry);
+                if (object.material.vertexColors) owned.add(object.material);
+            });
+            for (const resource of owned) resource.addEventListener('dispose', () => disposed.add(resource));
+            for (const person of actors.people) person.update(person.position, 1234, false);
+            actors.dispose();
+            assert.equal(root.children.length, 0); assert.deepEqual(disposed, owned); assert.deepEqual(sharedDisposals, []);
+        }
+    } finally { kit.dispose(); }
 });

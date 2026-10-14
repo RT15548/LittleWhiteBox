@@ -69,5 +69,5 @@ test('chapter completion becomes public context without inventing eyewitness mem
     c.facts.push('roots_cleared'); assert.equal(chapterProgress(c).optionalRoots, false);
     assert.notEqual(campaignObjective(c), withRoots);
     assert.equal(chapterProgress(c).phase, 'free');
-    assert.equal(availableChoices(c.facts, 'laobai', c.people.laobai).includes('receiving'), false);
+    assert.equal(availableChoices(c, 'laobai').includes('receiving'), false);
 });

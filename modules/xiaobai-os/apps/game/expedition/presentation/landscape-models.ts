@@ -188,6 +188,20 @@ export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item:
             }
             break;
         }
+        case 'bridge': {
+            // The two one-unit parapets also define collision; the flush deck joins either bank.
+            k.mesh(base, 'box', LAND.light, [f.width, .06, f.depth - 2], [0, -.01, 0]);
+            for (const side of [-1, 1]) {
+                const z = side * (f.depth / 2 - .5);
+                k.mesh(base, 'box', LAND.stone, [f.width, .72, 1], [0, .36, z]);
+                k.mesh(base, 'box', LAND.light, [f.width, .15, 1], [0, .795, z]);
+                for (const x of [-f.width / 2 + .5, f.width / 2 - .5]) {
+                    k.mesh(base, 'box', LAND.mortar, [.8, 1.05, 1], [x, .525, z]);
+                    k.mesh(base, 'box', LAND.light, [1, .13, 1], [x, 1.115, z]);
+                }
+            }
+            break;
+        }
         case 'arch': {
             const h = item.height!;
             k.mesh(model, 'arch', LAND.light, [f.width / 2 - .4, 3.1, f.depth * .65], [0, h - 3, 0]);

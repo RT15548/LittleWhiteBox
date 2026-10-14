@@ -8,7 +8,7 @@ import { campaignWorldInteractions } from '../apps/game/expedition/campaign/inte
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { courtyardBattle, COURTYARD_ENCOUNTERS } from '../apps/game/expedition/content/courtyard-encounters.ts';
 import { COMBAT_POLICY } from '../apps/game/expedition/content/combat-policy.ts';
-import { CHAPTER_GROWTH, REWARD_NODES } from '../apps/game/expedition/content/campaign-rewards.ts';
+import { CHAPTER_GROWTH, REWARD_NODES, rewardRankCap } from '../apps/game/expedition/content/campaign-rewards.ts';
 import { startWorld } from '../apps/game/expedition/world/exploration.ts';
 import { createBattle, tickBattle, replayInputs } from '../apps/game/expedition/combat.ts';
 import { chapterEncounterTick, signalActorTick } from '../apps/game/expedition/combat/chapter-encounter.ts';
@@ -37,12 +37,13 @@ test('all six professions receive usable starter and follow-up choices within th
     for (const weapon of WEAPON_IDS) {
         const c = campaign(weapon);
         for (const node of REWARD_NODES) {
-            const id = Object.keys(COURTYARD_ENCOUNTERS).find(id => COURTYARD_ENCOUNTERS[id].reward === node);
-            c.location = startWorld(COURTYARD[id ? COURTYARD_ENCOUNTERS[id].scene : 'cells'], id ? COURTYARD_ENCOUNTERS[id].trigger : 'reward');
+            const source = Object.values(COURTYARD).find(scene => scene.objects.some(object => object.kind === 'reward' && object.node === node));
+            const cache = source.objects.find(object => object.kind === 'reward' && object.node === node);
+            c.location = startWorld(source, cache.anchor);
             grantRewardNode(c, node); c.rewardNode = node; c.phase = 'reward';
             assert.equal(rewardOffers(c).length, CHAPTER_GROWTH.choices);
             for (const offer of rewardOffers(c)) {
-                assert.ok(offer.rank <= CHAPTER_GROWTH.rankCap);
+                assert.ok(offer.rank <= rewardRankCap(node));
                 assert.ok(relicReady(campaignLoadout(c), offer.id));
             }
             advanceCampaign(c, { type: 'relic', id: rewardOffers(c)[0].id });
@@ -140,7 +141,8 @@ test('single aimed arrows are on their sightline, annulus openings are safe, and
 test('the genuine V6 fixture upgrades once, retaining identity, records and ownership; corrupt old combat is not erased into validity', () => {
     const raw = JSON.parse(readFileSync(new URL('./fixtures/expedition-v6.json', import.meta.url), 'utf8')), before = structuredClone(raw);
     const result = EXPEDITION_PARTITION.parse(raw); assert.equal(result.ok, true, JSON.stringify(result));
-    for (const key of ['traveler', 'facts', 'conversations', 'memories', 'relationships', 'knowledge', 'collection', 'equipped']) assert.deepEqual(result.value.active[key], before.active[key], key);
+    for (const key of ['traveler', 'facts', 'relationships', 'collection', 'equipped']) assert.deepEqual(result.value.active[key], before.active[key], key);
+    for (const key of ['conversations', 'memories', 'knowledge']) for (const [person, value] of Object.entries(before.active[key])) assert.deepEqual(result.value.active[key][person], value);
     assert.equal(result.value.active.phase, 'exploration'); assert.equal(result.value.active.hp, 100);
     assert.deepEqual(EXPEDITION_PARTITION.parse(EXPEDITION_PARTITION.serialize(result.value)).value, result.value);
     assert.deepEqual(raw, before);

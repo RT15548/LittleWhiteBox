@@ -61,4 +61,5 @@ onBeforeUnmount(() => {
 .ember-dialogue-actor.actor-failed { float:none; width:auto; aspect-ratio:auto; margin:0 0 8px; }
 .ember-dialogue-actor button { font-size:12px; min-height:32px; padding:4px 8px; background:transparent; }
 @container (max-width:450px) { .ember-dialogue-actor { width:138px; margin-right:8px; } }
+@media (max-height:480px) { .ember-dialogue-actor { width:clamp(80px,calc(40vh - 50px),120px); } }
 </style>

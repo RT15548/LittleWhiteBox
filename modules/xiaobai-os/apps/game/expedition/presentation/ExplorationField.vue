@@ -62,7 +62,10 @@ function render(now: number) {
         }
     } else { accumulator = 0; }
     if (!document.hidden) {
-        try { scene?.draw(props.battle ?? null, props, 0, 'battle', now, props.world); }
+        try {
+            scene?.draw(props.battle ?? null, props, 0, 'battle', now, props.world);
+            if (!animation && scene?.needsFrame()) { animation = requestAnimationFrame(render); }
+        }
         catch (error) { cancelAnimationFrame(animation); animation = 0; clear(); emit('error', error); }
     }
 }
@@ -70,7 +73,7 @@ function render(now: number) {
 watch(nearby, items => { if (!items.some(i => i.target.id === selection.value)) { selection.value = items[0]?.target.id ?? null; } }, { immediate: true });
 watch(() => props.world.definition.id, () => { clear(); selection.value = nearby.value[0]?.target.id ?? null; root.value?.focus({ preventScroll: true }); });
 watch(() => props.paused, value => { clear(); schedule(); if (!value) { root.value?.focus({ preventScroll: true }); } });
-watch(() => [props.world.definition, props.world.facts, props.world.location.position.x, props.world.location.position.y, props.weapon, props.outfit], schedule);
+watch(() => [props.world.definition, props.world.facts, props.world.location.position.x, props.world.location.position.y, props.world.reading, props.weapon, props.outfit], schedule);
 onMounted(() => {
     try { scene = createExpeditionScene(canvas.value!, () => { pause(); emit('error', new Error('expedition_webgl_context_lost')); }, { traveler: props.traveler, world: true, invalidate: schedule, sceneReady: id => emit('ready', id), artworkStatus: (failed, pending) => { artwork.value = { failed, pending }; } }); }
     catch (error) { emit('error', error); return; }

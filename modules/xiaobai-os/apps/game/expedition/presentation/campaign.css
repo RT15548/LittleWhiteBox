@@ -40,6 +40,17 @@
 .ember-map-panel { height:min(100%,820px); overflow:hidden; }
 .ember-panel-heading { display:flex; justify-content:space-between; align-items:center; gap:18px; font-size:12px; letter-spacing:.08em; color:#617d7d; }
 .ember-panel-heading button { padding:5px 14px; background:transparent; }
+.ember-curtain:has(.ember-passage) { align-items:end; background:linear-gradient(transparent 25%,#25334d38); }
+.ember-panel.ember-passage { max-height:62%; gap:14px; padding:18px 24px; overflow:hidden; background:var(--ember-paper); }
+.ember-passage .ember-panel-heading { flex-shrink:0; }
+.ember-passage .ember-panel-heading h2 { color:var(--ember-ink); font-size:20px; }
+.ember-passage-body { min-height:0; overflow:auto; overscroll-behavior:contain; display:grid; gap:12px; }
+.ember-passage-actions { flex-shrink:0; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+@media (max-height:450px) { .ember-panel.ember-passage { max-height:88%; padding:12px 20px; gap:8px; } }
+@media (max-height:450px) and (min-width:600px) {
+ .ember-curtain:has(.ember-passage) { justify-items:end; align-items:center; padding:10px; background:linear-gradient(90deg,transparent 25%,#25334d38); }
+ .ember-panel.ember-passage { width:53%; max-height:100%; padding:14px 18px; }
+}
 .ember-pack-heading { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; flex-shrink:0; overflow-wrap:anywhere; }
 .ember-pack-heading span { font-size:12px; color:var(--ember-muted); }
 .ember-pack-tabs { display:flex; gap:20px; flex-shrink:0; border-bottom:1px solid #34555d26; }
@@ -51,6 +62,9 @@
 .ember-journal { margin:0; padding-left:22px; display:grid; gap:16px; }
 .ember-journal li::marker { color:#a36239; }
 .ember-objective-panel { border-left:3px solid #b87743; padding:8px 16px; }
+.ember-thread { padding:12px 0; border-bottom:1px solid #cbd4df; }
+.ember-thread h3 { margin:0 0 6px; font-size:15px; font-weight:600; }
+.ember-thread p { margin:0; line-height:1.8; font-size:14px; }
 .ember-curtain:has(.ember-dialogue) { place-items:center; background:linear-gradient(105deg,#e0e5f2db,#bbc6dfb8 43%,#27395359); }
 @media (min-width:721px) and (min-height:451px) {
  .ember-curtain:has(.ember-dialogue)::before { content:""; position:absolute; inset:0; background-image:linear-gradient(90deg,#eef0f740,#c4cce688),var(--scene-art); background-size:cover; background-position:center; pointer-events:none; }

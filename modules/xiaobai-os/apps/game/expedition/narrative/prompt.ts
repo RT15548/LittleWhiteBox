@@ -1,5 +1,5 @@
 import type { Campaign } from '../campaign/types.js';
-import { isPerson, participantName, type Participant } from '../content/participants.js';
+import { isPerson, isParley, isStoryPerson, participantName, type Participant } from '../content/participants.js';
 import { PARLEY_ENEMIES } from '../content/parley.js';
 import { OUTFIT_COPY, WEAPON_COPY } from '../copy.js';
 import { narrativeActions, secretFact } from './actions.js';
@@ -23,6 +23,7 @@ export function conversationContext(campaign: Campaign, person: Participant, sta
     const shared = { person: participantName(person), ...conversationScene(campaign, person),
         clothing: currentClothing(campaign, person),
         events: witnessedEvents(campaign.knowledge[person]), actions, actionMeanings };
+    if (isStoryPerson(person)) { return { ...shared, rescued: false }; }
     if (!isPerson(person)) {
         const spec = PARLEY_ENEMIES[person];
         return { ...shared, rescued: false, resolved: campaign.facts.includes(spec.complete) };
@@ -44,7 +45,7 @@ export function buildConversationPrompt(campaign: Campaign, person: Participant,
     const { actions: _actions, actionMeanings, events, ...situation } = context;
     const operations = { actions: actionMeanings, performance, clothing: CLOTHING_SLOTS };
     const story = { memory: memory?.text ?? null, events, ...situation,
-        opening: campaign.conversations[person].some(t => t.kind === 'dialogue') || !isPerson(person) && campaign.facts.includes(PARLEY_ENEMIES[person].complete)
+        opening: campaign.conversations[person].some(t => t.kind === 'dialogue') || isParley(person) && campaign.facts.includes(PARLEY_ENEMIES[person].complete)
             ? null : context.rescued ? canon.opening.returned : canon.opening.initial,
         stage };
     return {

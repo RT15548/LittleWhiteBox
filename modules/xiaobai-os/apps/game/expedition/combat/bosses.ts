@@ -4,10 +4,13 @@ import { beam, effect, fan, hazard, ringShots, slam, spawn } from './events.js';
 import { angleTo, atAngle, TAU } from './geometry.js';
 import type { CombatField } from './field.js';
 import { worldBossAttack } from './world-bosses.js';
+import { cityBossAttack } from './city-bosses.js';
+import type { CityBoss } from '../content/inner-city/combat.js';
+import { fault } from '../random.js';
 
 type Pattern = (b: Battle, e: Enemy, field?: CombatField) => void;
 const charge = (e: Enemy, ticks: number) => { e.motion = ticks; e.motionAngle = angleTo(e, e.target); e.stun = 18; };
-const patterns: Record<BossKind, Pattern> = {
+const patterns: Record<Exclude<BossKind, CityBoss>, Pattern> = {
     keeper(b, e, field) { if (field) { worldBossAttack(b, e, field); } else { slam(b, e.target, 2.5, 24, BOSS_SPECS.keeper.damage); } },
     warden(b, e, field) {
         const n = e.pattern % 3, damage = BOSS_SPECS.warden.damage;
@@ -92,8 +95,12 @@ const patterns: Record<BossKind, Pattern> = {
     },
 };
 export function bossAttack(b: Battle, e: Enemy, loadout: Loadout, field?: CombatField) {
+    if (e.kind === 'bridgekeeper' || e.kind === 'heatkeeper') {
+        if (!field) { fault('invalid'); }
+        cityBossAttack(b, e, field); return;
+    }
     if (field?.segment && ['keeper', 'warden', 'thornheart'].includes(e.kind)) { worldBossAttack(b, e, field); return; }
-    const kind = e.kind as BossKind;
+    const kind = e.kind as Exclude<BossKind, CityBoss>;
     // Enter phases in order so burst damage cannot skip phase-entry effects.
     while (e.phase < (e.hp / e.maxHp < .3 ? 3 : e.hp / e.maxHp < .65 ? 2 : 1)) {
         const nextPhase = e.phase + 1;
