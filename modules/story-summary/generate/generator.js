@@ -247,6 +247,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
 
     xbLog.info(MODULE_ID, `总结完成，已更新至 ${slice.endMesId + 1} 楼`);
+    window.toastr?.success(`📖 剧情总结完成：更新至 #${slice.endMesId + 1} 楼（新增 ${(parsed.events || []).length} 个事件）`);
     notifySummaryCommitted({ chatId: targetChatId, start: lastSummarized + 1, cutoff: slice.endMesId });
 
     if (parsed.factUpdates?.length) {

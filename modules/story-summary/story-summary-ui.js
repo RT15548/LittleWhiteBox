@@ -307,6 +307,7 @@ const UNANNOTATED_LABEL = '未标注';
             enabled: false,
             engine: 'online',
             l0Concurrency: 10,
+            recallTimeoutSec: 30,
             l0Api: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [],
                 providers: {
@@ -846,6 +847,7 @@ const UNANNOTATED_LABEL = '未标注';
             enabled: $('vector-enabled')?.checked || false,
             engine: 'online',
             l0Concurrency: Math.max(1, Math.min(50, Number($('vector-l0-concurrency')?.value) || 10)),
+            recallTimeoutSec: Math.max(1, Number($('vector-recall-timeout')?.value) || 30),
             l0Api: getVectorApiConfig('l0'),
             embeddingApi: getVectorApiConfig('embedding'),
             rerankApi: getVectorApiConfig('rerank'),
@@ -858,6 +860,7 @@ const UNANNOTATED_LABEL = '未标注';
         $('vector-config-area').classList.toggle('hidden', !cfg.enabled);
         syncVectorBoundaryControl(cfg.enabled, config.ui.hideSummarized);
         $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
+        $('vector-recall-timeout').value = String(Math.max(1, Number(cfg.recallTimeoutSec) || 30));
         loadVectorApiConfig('l0', cfg.l0Api || {});
         loadVectorApiConfig('embedding', cfg.embeddingApi || {});
         loadVectorApiConfig('rerank', cfg.rerankApi || {});
@@ -2382,13 +2385,13 @@ const UNANNOTATED_LABEL = '未标注';
         if (section === 'keywords') {
             ta.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
         } else if (section === 'facts') {
-            ta.value = (summaryData.facts || [])
-                .filter(f => !f.retracted)
-                .map(f => {
-                    const parts = [f.s, f.p, f.o];
-                    if (f.trend) parts.push(f.trend);
-                    return parts.join('|');
-                })
+            // 按人物首次出现的插入顺序分组，同一人物的事实保持相邻
+            const grouped = new Map();
+            for (const f of (summaryData.facts || []).filter(f => !f.retracted)) {
+                grouped.set(f.s, [...(grouped.get(f.s) || []), f]);
+            }
+            ta.value = [...grouped.values()].flat()
+                .map(f => [f.s, f.p, f.o].concat(f.trend ? [f.trend] : []).join('|'))
                 .join('\n');
         } else {
             ta.classList.add('hidden');

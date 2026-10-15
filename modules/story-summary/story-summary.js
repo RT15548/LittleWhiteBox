@@ -111,7 +111,7 @@ import {
 import { selectBestStoryMemoryResult } from "./generate/story-memory-result.js";
 import { createRecallReuse, recallConfigKey } from './generate/recall-reuse.js';
 import { createRecallDiagnostics, formatRecallDiagnostics, formatRecallReuseDiagnostics, recordRecallFallback } from './recall-diagnostics.js';
-import { RECALL_TIMEOUT_MS, RECALL_TIMEOUT_REASONS, recallFailureNotice, recallCancellationNotice } from './generate/recall-failure.js';
+import { RECALL_TIMEOUT_REASONS, recallFailureNotice, recallCancellationNotice } from './generate/recall-failure.js';
 import { runRequiredRecall } from './generate/required-recall.js';
 import { isGenerating } from '../../shared/common/sillytavern-generation-state.js';
 
@@ -4034,7 +4034,7 @@ const recallPrefetch = createRecallPrefetchCoordinator({
     prepare: prepareMemoryPrompt,
     createRetryNotice: createRecallRetryNotice,
     pollMs: 16,
-    maxAgeMs: RECALL_TIMEOUT_MS,
+    maxAgeMs: () => Math.max(1, Number(getVectorConfig()?.recallTimeoutSec) || 30) * 1000,
     onJoinedCancel: (run) => {
         if (Object.values(RECALL_TIMEOUT_REASONS).includes(run.cancelReason)) return; // The interceptor owns failure reporting.
         const publish = getContext()?.chatId === run.chatId
@@ -4329,7 +4329,7 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
             commit: commitMemoryPrompt,
             onProgress: diagnostics => runContext?.reportProgress?.(diagnostics),
             onFailure: async error => {
-                const failure = recallFailureNotice(run.cancelReason, error);
+                const failure = recallFailureNotice(run.cancelReason, error, Math.max(1, Number(getVectorConfig()?.recallTimeoutSec) || 30) * 1000);
                 if (!failure) {
                     joinStatus = `cancelled:${run.cancelReason}`;
                     return;
