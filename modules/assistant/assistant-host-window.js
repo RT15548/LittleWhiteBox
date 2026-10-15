@@ -1,3 +1,5 @@
+import { getSafeViewportStyles, observeViewport } from '../../shared/common/viewport.js';
+
 const DESKTOP_CHROME_HEIGHT = 36;
 const ASSISTANT_OVERLAY_Z_INDEX = 100001;
 
@@ -144,10 +146,6 @@ export function createAssistantHostWindow(options) {
         const rawValue = getComputedStyle(document.documentElement).getPropertyValue('--topBarBlockSize').trim();
         const parsedValue = Number.parseFloat(rawValue);
         return Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
-    }
-
-    function getAssistantMobileViewportHeight() {
-        return Math.max(240, window.innerHeight - getAssistantMobileTopOffset());
     }
 
     function getIframe() {
@@ -409,7 +407,6 @@ export function createAssistantHostWindow(options) {
             resizeMask,
             isAssistantMobileDevice,
             getAssistantMobileTopOffset,
-            getAssistantMobileViewportHeight,
             onCloseRequest,
         });
         overlay._cleanup = controller.cleanup;
@@ -442,7 +439,6 @@ function createWindowInteractionController(options) {
         resizeMask,
         isAssistantMobileDevice,
         getAssistantMobileTopOffset,
-        getAssistantMobileViewportHeight,
     } = options;
 
     let shellMetrics = {
@@ -770,16 +766,15 @@ function createWindowInteractionController(options) {
     const updateOverlayHeight = () => {
         if (!overlay || overlay.style.display === 'none') return;
         if (isAssistantMobileDevice()) {
-            const topOffset = getAssistantMobileTopOffset();
-            const viewportHeight = getAssistantMobileViewportHeight();
-            overlay.style.top = `${topOffset}px`;
-            overlay.style.height = `${viewportHeight}px`;
-            shell.style.height = `${viewportHeight}px`;
-            shell.style.maxHeight = `${viewportHeight}px`;
-            shell.style.minHeight = `${viewportHeight}px`;
+            Object.assign(overlay.style, getSafeViewportStyles(getAssistantMobileTopOffset()));
+            shell.style.height = '100%';
+            shell.style.maxHeight = '100%';
+            shell.style.minHeight = '0';
             return;
         }
         overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100vw';
         overlay.style.height = `${window.innerHeight}px`;
         if (quickLayoutMode !== QUICK_LAYOUT_MODE.FREE) {
             applyQuickLayout(quickLayoutMode);
@@ -876,22 +871,19 @@ function createWindowInteractionController(options) {
     };
 
     const initializeMobileMode = () => {
-        const topOffset = getAssistantMobileTopOffset();
-        const viewportHeight = getAssistantMobileViewportHeight();
         overlay.style.padding = '0';
-        overlay.style.top = `${topOffset}px`;
-        overlay.style.height = `${viewportHeight}px`;
+        Object.assign(overlay.style, getSafeViewportStyles(getAssistantMobileTopOffset()));
         titleBar.style.height = '56px';
         titleBar.style.padding = '0 16px';
         titleBar.style.cursor = 'default';
         titleBar.style.display = 'none';
         titleActions.style.display = 'none';
         shell.style.width = '100%';
-        shell.style.height = `${viewportHeight}px`;
+        shell.style.height = '100%';
         shell.style.maxWidth = '100%';
-        shell.style.maxHeight = `${viewportHeight}px`;
+        shell.style.maxHeight = '100%';
         shell.style.minWidth = '100%';
-        shell.style.minHeight = `${viewportHeight}px`;
+        shell.style.minHeight = '0';
         shell.style.left = '0';
         shell.style.top = '0';
         shell.style.borderRadius = '0';
@@ -908,13 +900,13 @@ function createWindowInteractionController(options) {
         resizeMask.style.borderRadius = '0';
     };
 
+    let stopViewport = null;
     const initialize = () => {
         initializeDesktopMode();
-        window.addEventListener('resize', updateOverlayHeight);
-        window.visualViewport?.addEventListener('resize', updateOverlayHeight);
         if (isAssistantMobileDevice()) {
             initializeMobileMode();
         }
+        stopViewport = observeViewport(updateOverlayHeight);
     };
 
     const cleanup = () => {
@@ -925,8 +917,7 @@ function createWindowInteractionController(options) {
             layoutFrame = 0;
             pendingLayout = null;
         }
-        window.removeEventListener('resize', updateOverlayHeight);
-        window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
+        stopViewport?.();
     };
 
     return {

@@ -21,6 +21,8 @@ export function prepareImageInput(provider, tasks, recipe) {
         positive: novel ? promptData.scene : promptData.positive,
         characterPrompts: promptData.characterPrompts,
         negativePrompt: novel ? promptData.negativePrompt : promptData.negative,
+        // ComfyUI 的整图追加位（post_prompt 已被编译器拼进 positive，这里单独带上供编辑重建）
+        postPrompt: task.post_prompt || '',
     }));
     return { compiledBatch, requests, metadata };
 }

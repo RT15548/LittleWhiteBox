@@ -87,9 +87,11 @@ function bindingOf({ chatId, sourceRef, sourceIndex, replyStart }) {
 
 // Visibility settings determine which original passages assembly may inject.
 // Generation API preferences do not change an adopted memory.
+const recallApiKey = api => [api?.provider, api?.url, api?.key, api?.model];
 export function recallConfigKey(config) {
     return JSON.stringify([
-        config?.vector, config?.textFilterRules, config?.prompts?.memoryTemplate,
+        config?.vector?.enabled, recallApiKey(config?.vector?.embeddingApi), recallApiKey(config?.vector?.rerankApi),
+        config?.textFilterRules, config?.prompts?.memoryTemplate,
         config?.trigger?.role, config?.trigger?.wrapperHead, config?.trigger?.wrapperTail,
         config?.ui?.keepVisibleCount,
         config?.ui?.hideSummarized, config?.ui?.useVectorBoundary,

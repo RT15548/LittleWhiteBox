@@ -17,7 +17,7 @@ import {
     scoreRecallRuntimeEvents,
     scoreRecallRuntimeL1,
 } from '../runtime/runtime.js';
-import { getStateAtoms } from '../storage/state-store.js';
+import { getPublishedStateAtoms as getStateAtoms } from '../storage/state-store.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { throwIfSignalAborted } from '../../../../shared/common/abort-utils.js';

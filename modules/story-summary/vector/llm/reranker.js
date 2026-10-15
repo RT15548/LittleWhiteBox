@@ -363,7 +363,7 @@ export async function rerankChunks(query, chunks, options = {}) {
 /**
  * 测试 Rerank 服务连接
  */
-export async function testRerankService(apiConfig = {}) {
+export async function testRerankService(apiConfig = {}, { signal } = {}) {
     const next = {
         provider: String(apiConfig.provider || 'siliconflow').trim(),
         url: String(apiConfig.url || DEFAULT_RERANK_URL).trim(),
@@ -376,6 +376,9 @@ export async function testRerankService(apiConfig = {}) {
 
     const key = getNextRerankKey(next.key);
     const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
     const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
     try {
         const baseUrl = resolveApiBaseUrl(
@@ -408,8 +411,10 @@ export async function testRerankService(apiConfig = {}) {
             message: `连接成功：返回 ${results.length} 个结果`,
         };
     } catch (e) {
+        if (signal?.aborted) throw e;
         throw new Error(`连接失败: ${e.message}`, { cause: e });
     } finally {
         clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', onAbort);
     }
 }

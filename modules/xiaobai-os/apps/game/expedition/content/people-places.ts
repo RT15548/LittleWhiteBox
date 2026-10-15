@@ -1,14 +1,18 @@
-import type { CourtyardPerson, CourtyardScene } from './world-types.js';
+import type { CourtyardFact, CourtyardPerson, CourtyardScene, LivingScene } from './world-types.js';
 import { WORLD_COPY } from './world-copy.js';
+import { LIVING_SPACES } from './living-spaces.js';
+import { PERSON_IDS } from './people.js';
 
 export interface PersonPlace { scene: CourtyardScene; anchor: string }
-export const PERSON_PLACES: Record<CourtyardPerson, { initial: PersonPlace; home: PersonPlace; captive: boolean }> = {
-    sanniang: { initial: { scene: 'camp', anchor: 'clinic' }, home: { scene: 'camp', anchor: 'clinic' }, captive: false },
-    laobai: { initial: { scene: 'camp', anchor: 'guard' }, home: { scene: 'camp', anchor: 'guard' }, captive: false },
-    kouzi: { initial: { scene: 'cells', anchor: 'kouzi' }, home: { scene: 'camp', anchor: 'kouzi' }, captive: true },
-    anian: { initial: { scene: 'cells', anchor: 'anian' }, home: { scene: 'camp', anchor: 'anian' }, captive: true },
+export const PERSON_PLACES: Record<CourtyardPerson, { initial: PersonPlace; station: PersonPlace; returnFact: CourtyardFact | null }> = {
+    sanniang: { initial: { scene: 'camp', anchor: 'clinic' }, station: { scene: 'camp', anchor: 'clinic' }, returnFact: null },
+    laobai: { initial: { scene: 'camp', anchor: 'guard' }, station: { scene: 'camp', anchor: 'guard' }, returnFact: null },
+    kouzi: { initial: { scene: 'cells', anchor: 'kouzi' }, station: { scene: 'camp', anchor: 'kouzi' }, returnFact: 'kouzi_returned' },
+    anian: { initial: { scene: 'cells', anchor: 'anian' }, station: { scene: 'camp', anchor: 'anian' }, returnFact: 'anian_returned' },
 };
+export const CAPTIVE_IDS = PERSON_IDS.filter(id => PERSON_PLACES[id].returnFact !== null);
 export const DESTINATIONS = {
+    ...Object.fromEntries(Object.keys(LIVING_SPACES).map(id => [id, { scene: id, anchor: 'settle', name: WORLD_COPY.scenes[id as LivingScene] }])) as Record<LivingScene, PersonPlace & { name: string }>,
     camp: { scene: 'camp', anchor: 'start', name: '檐下营地' },
     gatehouse: { scene: 'camp', anchor: 'gatehouse', name: '外门门楼' },
     pipewalk: { scene: 'camp', anchor: 'kouzi', name: '管架高处' },
@@ -21,5 +25,9 @@ export const DESTINATIONS = {
     cells: { scene: 'cells', anchor: 'release', name: WORLD_COPY.scenes.cells },
     hall: { scene: 'hall', anchor: 'cells', name: WORLD_COPY.scenes.hall },
     roots: { scene: 'roots', anchor: 'crossroads', name: WORLD_COPY.scenes.roots },
+    south_street: { scene: 'south_street', anchor: 'rest', name: WORLD_COPY.scenes.south_street },
+    workshop_street: { scene: 'workshop_street', anchor: 'rest', name: WORLD_COPY.scenes.workshop_street },
+    heat_station: { scene: 'heat_station', anchor: 'rest', name: WORLD_COPY.scenes.heat_station },
+    deep_waterway: { scene: 'deep_waterway', anchor: 'receipt', name: WORLD_COPY.scenes.deep_waterway },
 } as const satisfies Record<string, PersonPlace & { name: string }>;
 export type DestinationId = keyof typeof DESTINATIONS;

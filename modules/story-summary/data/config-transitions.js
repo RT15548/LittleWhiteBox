@@ -1,6 +1,7 @@
 import { createAbortError } from '../../../shared/common/abort-utils.js';
 import { applySummaryPanelConfigSnapshot, getSummaryPanelConfig, getVectorConfig, readSummaryPanelConfigFromServer } from './config.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
+import { recallConfigKey } from '../generate/recall-reuse.js';
 import {
     VECTOR_WRITE_SCOPES, cancelEmbeddingWriteTasks, isVectorWriteSessionCurrent, runVectorWriteTask, runVectorConfigTransition,
 } from '../vector/runtime/maintenance-coordinator.js';
@@ -13,7 +14,7 @@ export async function changeSummaryConfig({ chatId, reason, vectorChanged = true
         const nextVectorConfig = getVectorConfig();
         const appliedVectorChanged = JSON.stringify(previousVectorConfig) !== JSON.stringify(nextVectorConfig);
         if (appliedVectorChanged && !vectorChanged) cancelEmbeddingWriteTasks('summary-config-changed');
-        if (vectorChanged || appliedVectorChanged) invalidateRecall();
+        if (recallConfigKey(previousConfig) !== recallConfigKey(getSummaryPanelConfig())) invalidateRecall();
         const changed = await afterVectorChange(previousVectorConfig, nextVectorConfig, session);
         return { previousConfig, previousVectorConfig, nextVectorConfig, result, changed };
     };
@@ -22,7 +23,6 @@ export async function changeSummaryConfig({ chatId, reason, vectorChanged = true
     const pending = vectorChanged
         ? runVectorConfigTransition({ chatId, reason }, apply)
         : runVectorWriteTask({ chatId, kind: 'config-save', scope: VECTOR_WRITE_SCOPES.CONFIG }, apply);
-    if (vectorChanged) invalidateRecall();
     const result = await pending;
     // Superseded/shutdown queue entries never ran applyChange, so cannot
     // acknowledge a user save as successful with the previous configuration.

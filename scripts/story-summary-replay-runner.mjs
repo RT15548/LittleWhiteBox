@@ -312,6 +312,16 @@ function applyCliOverrides(config, argv) {
 }
 
 async function main() {
+    if (process.argv.includes('--check-source-lifecycle')) {
+        const samples = process.argv.filter(arg => arg.startsWith('--source-sample=')).map(arg => arg.slice('--source-sample='.length));
+        if (!samples.length) throw new Error('Source lifecycle check requires explicit --source-sample paths');
+        await buildBundle();
+        const bundleUrl = `${pathToFileURL(bundlePath).href}?t=${Date.now()}`;
+        // eslint-disable-next-line no-unsanitized/method -- Only the local bundle built above is loaded.
+        const replayModule = await import(bundleUrl);
+        console.log(JSON.stringify(await replayModule.runStorySummarySourceLifecycleCheck(samples)));
+        return;
+    }
     const checkPreparedResume = process.argv.includes('--check-prepared-resume');
     if (process.argv.includes('--preflight')) {
         if (!explicitConfig) throw new Error('--preflight requires an explicit credential-free --config');

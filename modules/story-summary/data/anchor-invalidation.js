@@ -11,18 +11,26 @@ function mapChanged(items, transform) {
     return next;
 }
 
-const affectedAnchor = (atom, floor) => atom && atom.floor >= floor;
-const affectedChange = (change, floor) => change.collection === 'anchors' && !change.retired
-    && (affectedAnchor(change.before, floor) || affectedAnchor(change.after, floor));
+const affectedChange = (change, affects) => change.collection === 'anchors' && !change.retired
+    && ((change.before && affects(change.before.floor)) || (change.after && affects(change.after.floor)));
 
 /** Pure source retirement. Unchanged branches, including L2 content, are shared read-only. */
 export function invalidateMemoryAnchors(snapshot, fromFloor = 0, reason = 'source_changed') {
     const ranges = [
         { from: fromFloor + 1, to: (snapshot.storySummary.lastSummarizedMesId ?? -1) + 1 },
     ];
+    return retireAnchors(snapshot, floor => floor >= fromFloor, ranges, reason);
+}
+
+export function invalidateMemoryAnchorsAtFloors(snapshot, floors, reason = 'source_changed') {
+    const selected = new Set(floors);
+    return retireAnchors(snapshot, floor => selected.has(floor), floors.map(floor => ({ from: floor + 1, to: floor + 1 })), reason);
+}
+
+function retireAnchors(snapshot, affects, ranges, reason) {
     const ids = new Set();
     const retained = snapshot.stateAtoms.filter(atom => {
-        if (!affectedAnchor(atom, fromFloor)) return true;
+        if (!affects(atom.floor)) return true;
         ids.add(atom.atomId);
         return false;
     });
@@ -35,7 +43,7 @@ export function invalidateMemoryAnchors(snapshot, fromFloor = 0, reason = 'sourc
             const next = invalidateReceiptCompletion(receipt, ranges);
             const operations = mapChanged(receipt.operations, operation => {
                 const changes = mapChanged(operation.changes, change => {
-                    if (!affectedChange(change, fromFloor)) return change;
+                    if (!affectedChange(change, affects)) return change;
                     ids.add(change.key);
                     retired++;
                     return { ...change, retired: { reason, at: Date.now() } };
@@ -48,7 +56,7 @@ export function invalidateMemoryAnchors(snapshot, fromFloor = 0, reason = 'sourc
     });
     let byFloor = snapshot.l0Index.byFloor;
     for (const floor of Object.keys(snapshot.l0Index.byFloor)) {
-        if (!(Number(floor) >= fromFloor)) continue;
+        if (!affects(Number(floor))) continue;
         if (byFloor === snapshot.l0Index.byFloor) byFloor = { ...byFloor };
         delete byFloor[floor];
     }
@@ -61,7 +69,7 @@ export function invalidateMemoryAnchors(snapshot, fromFloor = 0, reason = 'sourc
 
 export function hasActiveAnchorHistoryFromFloor(store, fromFloor) {
     return (store?.summaryHistory || []).some(batch => (batch.maintenance || []).some(receipt =>
-        receipt.operations.some(operation => operation.changes.some(change => affectedChange(change, fromFloor)))));
+        receipt.operations.some(operation => operation.changes.some(change => affectedChange(change, floor => floor >= fromFloor)))));
 }
 
 export function updateMaintainedAnchorIndex(snapshot, floors) {

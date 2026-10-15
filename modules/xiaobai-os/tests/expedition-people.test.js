@@ -44,7 +44,7 @@ test('every follower settles within talking reach instead of waiting just beyond
     for (let t = 0; t < 2000; t++) { tickPeople(c); }
     for (const id of Object.keys(c.people)) { assert.equal(canTalk(c, id), true, id); }
     assert.ok('stay' in narrativeActions(c, 'sanniang'));
-    assert.ok('receiving' in narrativeActions(c, 'laobai'));
+    assert.ok(!('receiving' in narrativeActions(c, 'laobai')));
 });
 
 test('chapter handoff stays available beside Sanniang at a camp appointment, without another model request', () => {
@@ -59,7 +59,7 @@ test('chapter handoff stays available beside Sanniang at a camp appointment, wit
     assert.ok(c.facts.includes('chapter_completed'));
 });
 
-test('captives cannot be walked out; solo appointments cannot route through a hostile scene', () => {
+test('locked captives cannot follow; solo appointments cannot route through a hostile scene', () => {
     const c = create();
     assert.ok(!('follow' in narrativeActions(c, 'kouzi'))); assert.throws(() => movePerson(c, 'kouzi', 'follow'));
     recordFact(c, 'briefed');
@@ -90,11 +90,13 @@ test('following crosses scenes, sees local events and stays outside all combat t
     const followers = c.battle.companions ?? []; assert.ok(!followers.some(p => p.id === 'sanniang'));
 });
 
-test('left-behind NPC returns home only after leaving an outside scene, and conversation reach follows location', () => {
+test('stay preserves the agreed location when the player leaves and returns', () => {
     const c = create(); recordFact(c, 'briefed'); movePerson(c, 'laobai', 'follow');
     c.location.position = { ...COURTYARD.camp.anchors.road }; advanceCampaign(c, { type: 'interact', id: 'road' });
     movePerson(c, 'laobai', 'stay'); assert.equal(canTalk(c, 'laobai'), true);
     advanceCampaign(c, { type: 'interact', id: 'camp' });
-    assert.equal(c.people.laobai.scene, 'camp'); assert.equal(canTalk(c, 'laobai'), false);
-    assert.deepEqual(c.people.laobai.position, COURTYARD.camp.anchors.guard);
+    assert.equal(c.people.laobai.scene, 'crossroads'); assert.equal(canTalk(c, 'laobai'), false);
+    assert.deepEqual(c.people.laobai.position, COURTYARD.crossroads.anchors.camp);
+    advanceCampaign(c, { type: 'interact', id: 'road' });
+    assert.equal(canTalk(c, 'laobai'), true);
 });

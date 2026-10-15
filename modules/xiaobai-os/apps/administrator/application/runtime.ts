@@ -17,6 +17,7 @@ import { administratorError, ADMINISTRATOR_COPY } from '../ui/copy.js';
 import { createAdministratorId } from './identity.js';
 import { administratorProcess } from './process.js';
 import type { AdministratorEnvironmentReader } from '../domain/environment.js';
+import { administratorLoadedApps } from '../agent/tool-loader.js';
 
 interface ActiveRun {
     startedAt: number;
@@ -84,6 +85,7 @@ export function createAdministratorRuntime(deps: {
         try {
             const config = await deps.gateway.loadConfig();
             active.executor = await createAdministratorToolExecutor({ registry: deps.management, reader: active.reader,
+                loadedApps: administratorLoadedApps(active.context!.turns),
                 readEnvironment: deps.readEnvironment, webConfig: config as Record<string, unknown>, signal: active.abort.signal,
                 operations: active.turn.operations,
                 guard: () => sameChat(active) && active.reader.isCurrent(), onChange: () => { if (sameChat(active)) { changed(true); } },
@@ -199,7 +201,9 @@ export function createAdministratorRuntime(deps: {
             if (!current() || run?.promise || deps.capture()?.identityKey !== sourceIdentity) { return; }
             const abort = new AbortController();
             const reader = createAdministratorChatReader(deps.capture, () => abort.signal);
-            const executor = await createAdministratorToolExecutor({ registry: deps.management, reader, webConfig: config as Record<string, unknown>, signal: abort.signal, readEnvironment: deps.readEnvironment, operations: [], guard: () => false, onChange() {}, async saveReceipts() {} });
+            const executor = await createAdministratorToolExecutor({ registry: deps.management, reader,
+                loadedApps: administratorLoadedApps(conversation.read().turns),
+                webConfig: config as Record<string, unknown>, signal: abort.signal, readEnvironment: deps.readEnvironment, operations: [], guard: () => false, onChange() {}, async saveReceipts() {} });
             if (!current() || run?.promise || deps.capture()?.identityKey !== sourceIdentity) { return; }
             const projected = administratorContext(conversation.read());
             usage = contextUsage([ADMINISTRATOR_PROMPT, executor.prompt].join('\n\n'), executor.getTools(),

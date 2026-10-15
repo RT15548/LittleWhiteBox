@@ -95,6 +95,23 @@ export function createAssistantRuntime(deps) {
         TOOL_NAMES,
     } = deps;
 
+    const toolActivity = new WeakMap();
+    function setToolActivity(call, run, phase) {
+        toolActivity.set(call, { run, phase });
+    }
+    function getToolActivity(call) {
+        const activity = toolActivity.get(call);
+        if (!activity) return null;
+        if (state.activeRun === activity.run && !activity.run.controller.signal.aborted) return activity.phase;
+        return activity.phase === 'running' ? 'unconfirmed' : 'not-executed';
+    }
+    function advanceToolActivity(call, run, phase) {
+        if (toolActivity.has(call)) {
+            setToolActivity(call, run, phase);
+            render();
+        }
+    }
+
     function resolveToolDefinitions(options = {}) {
         if (typeof getToolDefinitions === 'function') {
             return getToolDefinitions(options);
@@ -185,12 +202,9 @@ export function createAssistantRuntime(deps) {
     }
     const {
         buildContextMeterLabel,
-        forceUpdateContextStats,
         updateContextStats,
     } = createContextStatsController({
         state,
-        countTokens: deps.countTokens,
-        render,
         getActiveProviderConfig,
         getToolDefinitions: resolveToolDefinitions,
         TOOL_DEFINITIONS,
@@ -219,6 +233,7 @@ export function createAssistantRuntime(deps) {
         persistSession,
         createRequestId,
         filterThoughtsForCurrentTurn,
+        minRenderIntervalMs: 100,
     });
 
     const {
@@ -310,7 +325,7 @@ export function createAssistantRuntime(deps) {
         MIN_PRESERVED_TURNS,
         SUMMARY_TRIGGER_TOKENS,
         buildContextMeterLabel,
-        forceUpdateContextStats,
+        updateContextStats,
         toProviderMessages,
     });
 
@@ -378,8 +393,8 @@ export function createAssistantRuntime(deps) {
                 arguments: JSON.stringify({ id: matchedSkill.id }),
             }],
         });
-        render();
-
+        const toolCall = state.messages.at(-1).toolCalls[0];
+        setToolActivity(toolCall, run, 'preparing');
         state.progressLabel = '工具中';
         render();
 
@@ -388,8 +403,10 @@ export function createAssistantRuntime(deps) {
             toolResult = await callHostTool(TOOL_NAMES.READ_SKILL, { id: matchedSkill.id }, {
                 runId: run.id,
                 signal: run.controller.signal,
+                onDispatched: () => advanceToolActivity(toolCall, run, 'running'),
             });
         } catch (error) {
+            if (isAbortError(error)) throw error;
             toolResult = buildToolFailureResult(TOOL_NAMES.READ_SKILL, { id: matchedSkill.id }, error);
         }
 
@@ -447,7 +464,7 @@ export function createAssistantRuntime(deps) {
         try {
             if (toolCall.name === TOOL_NAMES.RUN_SLASH_COMMAND && shouldRequireSlashCommandApproval(slashCommand)) {
                 state.progressLabel = '确认中';
-                render();
+                advanceToolActivity(toolCall, run, 'approval');
                 const approved = await requestSlashCommandApproval(slashCommand, {
                     runId: run.id,
                     signal: run.controller.signal,
@@ -484,7 +501,7 @@ export function createAssistantRuntime(deps) {
 
                 if (jsApiNeedsApproval) {
                     state.progressLabel = '确认中';
-                    render();
+                    advanceToolActivity(toolCall, run, 'approval');
                     const approved = await requestJsApiApproval(parsedArguments, jsApiAnalysis || {}, {
                         runId: run.id,
                         signal: run.controller.signal,
@@ -501,7 +518,7 @@ export function createAssistantRuntime(deps) {
 
             if (toolCall.name === TOOL_NAMES.GENERATE_SKILL && String(parsedArguments.action || '').trim() === 'propose') {
                 state.progressLabel = '确认中';
-                render();
+                advanceToolActivity(toolCall, run, 'approval');
                 const approved = await requestSkillGenerationApproval(parsedArguments, {
                     runId: run.id,
                     signal: run.controller.signal,
@@ -519,6 +536,8 @@ export function createAssistantRuntime(deps) {
             }
 
             if (!toolResult) {
+                state.progressLabel = '工具中';
+                advanceToolActivity(toolCall, run, 'preparing');
                 if (toolCall.name === TOOL_NAMES.DELEGATE_RUN) {
                     if (options.allowDelegate === false) {
                         toolResult = {
@@ -527,12 +546,14 @@ export function createAssistantRuntime(deps) {
                             message: '子任务不能继续调用 DelegateRun。',
                         };
                     } else {
+                        advanceToolActivity(toolCall, run, 'running');
                         toolResult = await runDelegateTool(parsedArguments, run);
                     }
                 } else if (toolCall.name === TOOL_NAMES.WEB_SEARCH) {
                     const providerConfig = options.role === 'delegate'
                         ? getDelegateProviderConfig?.(run)
                         : getActiveProviderConfig();
+                    advanceToolActivity(toolCall, run, 'running');
                     toolResult = await runWebSearchTool(providerConfig || {}, parsedArguments, {
                         signal: run.controller.signal,
                         isAbortError,
@@ -541,6 +562,7 @@ export function createAssistantRuntime(deps) {
                     toolResult = await callHostTool(toolCall.name, parsedArguments, {
                         runId: run.id,
                         signal: run.controller.signal,
+                        onDispatched: () => advanceToolActivity(toolCall, run, 'running'),
                     });
                 }
             }
@@ -730,16 +752,18 @@ export function createAssistantRuntime(deps) {
                         providerPayload: result.providerPayload,
                     });
                 }
+                const calls = (streamingAssistantMessage || state.messages.at(-1)).toolCalls;
+                for (const call of calls) setToolActivity(call, run, 'queued');
                 render();
 
                 const toolResponses = [];
-                for (const toolCall of resolvedToolCalls) {
+                for (const toolCall of calls) {
                     if (run.controller.signal.aborted) {
                         throw new Error('assistant_aborted');
                     }
                     const parsedArguments = safeJsonParse(toolCall.arguments, {});
                     state.progressLabel = '工具中';
-                    render();
+                    advanceToolActivity(toolCall, run, 'preparing');
                     const toolResult = await executeAssistantToolCall(toolCall, parsedArguments, run);
                     pushMessage(buildToolResultMessage({
                         toolCallId: toolCall.id,
@@ -806,6 +830,7 @@ export function createAssistantRuntime(deps) {
     }
 
     return {
+        getToolActivity,
         resetCompactionState,
         buildContextMeterLabel,
         updateContextStats,

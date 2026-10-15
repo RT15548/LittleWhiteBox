@@ -169,8 +169,8 @@ test('line and annulus hazards preserve their safe side and safe center in actua
     assert.equal(insideHazard(line, { x: 4, y: .3 }, .1), true); assert.equal(insideHazard(line, { x: 4, y: 2 }, .1), false);
 });
 
-test('all twelve bosses produce legal deterministic encounters throughout a full pattern cycle', () => {
-    for (const bossKind of BOSS_IDS) {
+test('arena bosses produce legal deterministic encounters throughout a full pattern cycle', () => {
+    for (const bossKind of BOSS_IDS.filter(id => !['bridgekeeper', 'heatkeeper'].includes(id))) {
         const zone = BOSS_SPECS[bossKind].region, loadout = gear('bow'), b = setup({ zone, chapter: zone % 3, boss: true, bossKind }, loadout);
         const boss = b.enemies[0]; boss.hp = boss.maxHp * .28; b.player.invulnerable = 2000; b.player.attack = 2000;
         const spans = [{ ...idle, ticks: 550 }], first = replayInputs(b, spans, loadout), second = replayInputs(b, spans, loadout);

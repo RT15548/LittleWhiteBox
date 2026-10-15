@@ -13,6 +13,7 @@ import {
     clearRecallRuntime,
 } from '../runtime/runtime.js';
 import { assertFiniteVector } from './vector-validation.js';
+import { getPublishedSummaryMemory } from '../../data/memory-commit.js';
 
 const MODULE_ID = 'state-store';
 
@@ -24,6 +25,7 @@ export function float32ToBuffer(arr) {
 export function bufferToFloat32(buffer) { return new Float32Array(buffer); }
 
 export function getStateAtoms() { return chat_metadata.extensions?.[EXT_ID]?.stateAtoms || []; }
+export function getPublishedStateAtoms() { return getPublishedSummaryMemory().stateAtoms; }
 export function getL0Index() { return chat_metadata.extensions?.[EXT_ID]?.l0Index || { version: 1, byFloor: {} }; }
 export function getL0FloorStatus(floor) { return getL0Index().byFloor?.[String(floor)] || null; }
 export function getStateAtomsCount() { return getStateAtoms().length; }
@@ -137,6 +139,13 @@ export async function deleteStateVectorsFromFloor(chatId, floor) {
         });
         xbLog.info(MODULE_ID, `删除 ${deleted} 个 StateVector (floor >= ${floor})`);
     }
+    return deleted;
+}
+
+export async function deleteStateVectorsAtFloors(chatId, floors) {
+    if (!chatId || !floors.length) return 0;
+    const deleted = await stateVectorsTable.where('[chatId+floor]').anyOf(floors.map(floor => [chatId, floor])).delete();
+    if (deleted) applyRecallRuntimeMutationBestEffort(chatId, { type: 'deleteStateVectorsAtFloors', floors });
     return deleted;
 }
 

@@ -16,10 +16,66 @@ import {
     resumeVectorWriteCoordinator,
     runVectorConfigTransition,
     runVectorWriteTask,
+    runVectorGenerationTask,
     shutdownVectorWriteCoordinator,
 } from '../vector/runtime/maintenance-coordinator.js';
 
 const { EMBEDDING, CONSISTENCY, IO } = VECTOR_WRITE_SCOPES;
+
+test('model waits leave the writer free, while resulting commits still serialize', async () => {
+    const order = [];
+    let releaseModel, releaseWrite, started;
+    const modelGate = new Promise(resolve => { releaseModel = resolve; });
+    const writeGate = new Promise(resolve => { releaseWrite = resolve; });
+    const modelStarted = new Promise(resolve => { started = resolve; });
+    const generation = runVectorGenerationTask({}, async session => {
+        started();
+        await modelGate;
+        await session.commit(() => { order.push('generated-data'); });
+    });
+    await modelStarted;
+    const local = runVectorWriteTask({ scope: IO }, async () => {
+        order.push('local-start');
+        await writeGate;
+        order.push('local-end');
+    });
+    await Promise.resolve();
+    assert.deepEqual(order, ['local-start']);
+    releaseModel();
+    await Promise.resolve();
+    assert.deepEqual(order, ['local-start']);
+    releaseWrite();
+    await Promise.all([generation, local]);
+    assert.deepEqual(order, ['local-start', 'local-end', 'generated-data']);
+});
+
+test('cancelled network results cannot refill data after a destructive write', async () => {
+    let release, started, writes = 0;
+    const model = new Promise(resolve => { release = resolve; });
+    const ready = new Promise(resolve => { started = resolve; });
+    const generation = assert.rejects(runVectorGenerationTask({}, async session => {
+        started();
+        await model; // A provider may deliver a late response even after abort.
+        await session.commit(() => { writes++; });
+    }), { name: 'AbortError' });
+    await ready;
+    await runVectorWriteTask({ scope: IO }, () => cancelEmbeddingWriteTasks('data replaced'));
+    release();
+    await generation;
+    assert.equal(writes, 0);
+});
+
+test('generation reads its inputs after an earlier local replacement finishes', async () => {
+    let release, requests = 0;
+    const gate = new Promise(resolve => { release = resolve; });
+    const replacement = runVectorWriteTask({ scope: IO }, () => gate);
+    const generation = runVectorGenerationTask({}, () => { requests++; });
+    await Promise.resolve();
+    assert.equal(requests, 0);
+    release();
+    await Promise.all([replacement, generation]);
+    assert.equal(requests, 1);
+});
 
 /** 排到队首并挂起，直到自身 signal 被中止。 */
 function blockUntilAborted(order, label, options) {
@@ -162,6 +218,31 @@ test('cancelling embedding work spares consistency and io tasks', async () => {
 
     await Promise.all([embedding, consistency, io]);
     assert.deepEqual(order, ['embedding:start', 'embedding:aborted', 'consistency:ran', 'io:ran']);
+});
+
+test('readiness stays outside the writer; stopping generation still lets source consistency finish', async () => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const completed = [];
+    const ready = runVectorWriteTask({ scope: CONSISTENCY }, async () => {
+        await gate;
+        completed.push('source-committed');
+    });
+    const generation = runVectorWriteTask({ scope: EMBEDDING, operationId: 'preparing', ready }, () => completed.push('model'));
+    const io = runVectorWriteTask({ scope: IO }, () => completed.push('io'));
+    assert.equal(cancelVectorWriteOperation('preparing'), true);
+    release();
+    await Promise.all([ready, generation, io]);
+    assert.deepEqual(completed, ['source-committed', 'io']);
+    assert.equal(cancelVectorWriteOperation('preparing'), false);
+});
+
+test('a failed prerequisite releases its operation and never starts generation', async () => {
+    let requests = 0;
+    await assert.rejects(runVectorWriteTask({ scope: EMBEDDING, operationId: 'preparing',
+        ready: Promise.reject(Object.assign(new Error('source save failed'), { code: 'source_failure' })) }, () => { requests++; }), { code: 'source_failure' });
+    assert.equal(requests, 0);
+    assert.equal(cancelVectorWriteOperation('preparing'), false);
 });
 
 test('shutdown invalidates every scope, drains the writer, and requires an explicit resume', async () => {

@@ -363,7 +363,9 @@ export function compileComfyPromptForTask(task, recipe = {}) {
     const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
     const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
     return {
-        positive: joinTags(recipe.positivePrefix, task?.scene, charPositive),
+        // [K2] post_prompt：整图追加位，拼在所有角色之后（整条提示词最末尾）。
+        // joinTags 过滤空值，未提交时与改造前逐字节一致；负向不跟。
+        positive: joinTags(recipe.positivePrefix, task?.scene, charPositive, task?.post_prompt),
         negative: task?.negativePrompt ?? joinTags(recipe.negativePrefix, negativeOverride, charNegative),
         characterPrompts,
     };

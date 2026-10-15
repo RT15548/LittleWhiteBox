@@ -3,10 +3,11 @@ import type { CourtyardFact, CourtyardPerson } from '../content/world-types.js';
 import type { SceneKit } from '../scene-kit.js';
 import type { Point } from '../types.js';
 import type { PersonLocation } from '../world/people.js';
+import { hasReturned } from '../campaign/rescue.js';
 
 /** Four adult silhouettes. Body and head are batched separately for inexpensive idle/attention motion. */
 export function person(k: SceneKit, root: Group, id: CourtyardPerson, x: number, z: number, facts: ReadonlySet<CourtyardFact>, seated = true) {
-    const arrived = facts.has('captives_arrived');
+    const arrived = hasReturned([...facts], id);
     const actor = k.group(root, [x, 0, z]), furniture = k.group(root), medic = id === 'sanniang', guard = id === 'laobai', worker = id === 'kouzi';
     actor.rotation.y = medic ? .25 : -.35;
     if (seated && (worker || id === 'anian')) { actor.position.y = -.3; }

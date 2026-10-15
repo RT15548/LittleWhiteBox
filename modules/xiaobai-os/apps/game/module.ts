@@ -20,7 +20,10 @@ import { BUILDING_PARTITION } from './building/partition.js';
 import { createBuildingService, type BuildingService } from './building/service.js';
 import { EXPEDITION_PARTITION } from './expedition/partition.js';
 import { createExpeditionService, type ExpeditionService } from './expedition/service.js';
-import { AGENT_CAPABILITY } from '../../capabilities/agent/index.js';
+import { ISLAND_PARTITION } from './island/partition.js';
+import { createIslandService } from './island/service.js';
+import { ISLAND_MEMORY_PARTITION, createIslandMemory, type IslandMemory } from './island/agent/memory-store.js';
+import { AGENT_CAPABILITY, type AgentCapability } from '../../capabilities/agent/index.js';
 
 export { GAME_PARTITION } from './partition.js';
 
@@ -30,6 +33,9 @@ export interface GameModuleInstallContext {
     moving: MovingService;
     building: BuildingService;
     expedition: ExpeditionService;
+    island: ReturnType<typeof createIslandService>;
+    islandMemory: IslandMemory;
+    agent: AgentCapability;
     economy: EconomyReadCapability;
     execution: AppInstallContext['execution'];
 }
@@ -46,7 +52,7 @@ export function createGameModule(dependencies: GameModuleDependencies): XiaobaiO
     return {
         descriptor: GAME_APP_DESCRIPTOR,
         partition: GAME_PARTITION,
-        additionalPartitions: [MOVING_PARTITION, BUILDING_PARTITION, EXPEDITION_PARTITION],
+        additionalPartitions: [MOVING_PARTITION, BUILDING_PARTITION, EXPEDITION_PARTITION, ISLAND_PARTITION, ISLAND_MEMORY_PARTITION],
         capabilities: [ECONOMY_READ_CAPABILITY, ECONOMY_TRANSACTION_CAPABILITY, AGENT_CAPABILITY],
         install(context) {
             if (!context.partition) {throw new Error('Game partition store is unavailable');}
@@ -68,6 +74,9 @@ export function createGameModule(dependencies: GameModuleDependencies): XiaobaiO
                     { idle: () => !dependencies.service?.isMainGenerationActive?.(), soundEnabled: dependencies.buildingSoundEnabled }),
                 expedition: createExpeditionService(context.storeFor(EXPEDITION_PARTITION), context.filesFor(EXPEDITION_PARTITION), economy,
                     { idle: () => !dependencies.service?.isMainGenerationActive?.(), agent: context.useCapability(AGENT_CAPABILITY) }),
+                island: createIslandService(context.storeFor(ISLAND_PARTITION), context.filesFor(ISLAND_PARTITION)),
+                islandMemory: createIslandMemory(context.storeFor(ISLAND_MEMORY_PARTITION), context.filesFor(ISLAND_MEMORY_PARTITION)),
+                agent: context.useCapability(AGENT_CAPABILITY),
                 economy,
                 execution: context.execution,
             });

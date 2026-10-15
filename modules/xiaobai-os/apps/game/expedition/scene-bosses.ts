@@ -8,6 +8,22 @@ export function sculptBoss(k: SceneKit, body: Group, head: Group, weapon: Group,
     const { mesh, group, shape } = k, gold = '#d6b881', eye = '#fff0c1';
     const eyes = (y: number, z: number, gap: number) => { for (const side of [-1, 1]) { mesh(head, 'sphere', eye, [.09, .055, .06], [side * gap, y, z], true); } };
     switch (kind) {
+        case 'bridgekeeper': case 'heatkeeper': {
+            const chief = kind === 'heatkeeper', coat = chief ? '#374e62' : '#667376';
+            for (const side of [-1, 1]) { mesh(body, 'box', '#393d43', [.4, 1.05, .52], [side * .36, .6, 0]); }
+            mesh(body, 'box', coat, [1.2, 1.65, .75], [0, 1.95, 0]);
+            mesh(body, 'box', '#ae8564', [.78, 1.28, .13], [0, 1.85, .44]);
+            mesh(head, 'sphere', '#c9a78b', [.46, .55, .42], [0, 3.02, 0]);
+            mesh(head, 'cylinder', '#656e72', [.56, .25, .49], [0, 3.5, 0]);
+            mesh(head, 'box', gold, [.73, .17, .12], [0, 3.12, .43]); eyes(3.13, .51, .18);
+            mesh(body, 'cylinder', '#ab8257', [.38, 1.55, .38], [-.69, 2.15, -.52]);
+            mesh(body, 'torus', '#4e555a', [.55, .55, .3], [.7, 1.65, -.2]);
+            weapon.position.set(.95, 1.6, .3);
+            mesh(weapon, 'cylinder', '#848b8c', [.09, 2.7, .09]);
+            mesh(weapon, 'torus', '#bd9865', [.4, .4, .2], [0, 1.45, 0]);
+            if (chief) { mesh(body, 'box', '#edbc76', [.16, .38, .07], [.34, 2.45, .46], true); }
+            break;
+        }
         case 'thornheart':
             mesh(body, 'cone', '#576e58', [1.6, 2.9, 1.3], [0, 1.45, 0]); mesh(head, 'rock', '#8da17f', [.8, 1, .65], [0, 2.3, .5]); eyes(2.6, 1.06, .28);
             for (let i = 0; i < 7; i++) {

@@ -16,10 +16,12 @@ function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vector
     const saves = [];
     const errors = [];
     let read = async () => vectorBoundary;
+    let pendingSave = null;
     let save = async captured => saves.push(captured.chat.map(message => message.is_system));
     let refreshes = 0;
     const controller = createHideStateController({
         getState: () => state,
+        getPendingSave: () => pendingSave,
         readVectorBoundary: (...args) => read(...args),
         renderMessage: (id, hidden) => rendered.set(id, hidden),
         refresh: () => { refreshes++; },
@@ -40,10 +42,97 @@ function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vector
         },
         readWith: fn => { read = fn; },
         saveWith: fn => { save = fn; },
+        pendingSave: promise => { pendingSave = promise; },
         visible: () => state.chat.flatMap((message, id) => message.is_system ? [] : [id]),
         refreshes: () => refreshes,
     };
 }
+
+test('automatic visibility waits through consecutive saves and uses the final boundary', async () => {
+    const f = fixture();
+    const first = deferred(), second = deferred();
+    const initial = f.chat.map(message => message.is_system);
+    f.state.enabled = false;
+    f.pendingSave(first.promise);
+    const updating = f.controller.reconcile();
+    assert.deepEqual(f.chat.map(message => message.is_system), initial);
+    assert.equal(f.saves.length, 0);
+    f.pendingSave(second.promise);
+    first.resolve();
+    await Promise.resolve();
+    assert.deepEqual(f.chat.map(message => message.is_system), initial);
+    f.state.enabled = true;
+    f.readWith(async () => 55);
+    f.pendingSave(null);
+    second.resolve();
+    await updating;
+    assert.equal(f.visible()[0], 52);
+    assert.equal(f.saves.length, 1);
+    assert.deepEqual(f.errors, []);
+});
+
+test('a save starting during a vector read discards its boundary and reads the committed one', async () => {
+    const f = fixture();
+    const read = deferred(), saving = deferred();
+    f.readWith(() => read.promise);
+    const updating = f.controller.reconcile();
+    f.pendingSave(saving.promise);
+    f.state.enabled = false;
+    read.resolve(60);
+    await Promise.resolve();
+    assert.equal(f.visible()[0], 57);
+    assert.equal(f.saves.length, 0);
+    f.readWith(async () => 55);
+    f.state.enabled = true;
+    f.pendingSave(null);
+    saving.resolve();
+    await updating;
+    assert.equal(f.visible()[0], 52);
+    assert.equal(f.saves.length, 1);
+    assert.deepEqual(f.errors, []);
+});
+
+test('waiting visibility work cannot outlive cancellation, replacement or a chat reload', async () => {
+    for (const action of ['cancel', 'replace', 'switch', 'reload']) {
+        const f = fixture();
+        const saving = deferred();
+        f.pendingSave(saving.promise);
+        const oldChat = f.chat;
+        const updating = f.controller.reconcile();
+        if (action === 'switch') f.state.chatId = 'another';
+        if (action === 'switch' || action === 'reload') f.state.chat = structuredClone(oldChat);
+        if (action === 'cancel') f.controller.cancel();
+        let replacement;
+        if (action === 'replace') {
+            f.state.enabled = false;
+            replacement = f.controller.reconcile();
+        }
+        f.pendingSave(null);
+        saving.resolve();
+        await Promise.all([updating, replacement]);
+        assert.equal(f.saves.length, action === 'replace' ? 1 : 0);
+        assert.equal(oldChat.filter(message => message.is_system).length, action === 'replace' ? 0 : 57);
+        assert.deepEqual(f.errors, []);
+    }
+});
+
+test('clear restores immediately during saving; teardown may persist it but a chat switch may not', async () => {
+    for (const switchChat of [false, true]) {
+        const f = fixture();
+        const saving = deferred();
+        f.pendingSave(saving.promise);
+        const clearing = f.controller.clear();
+        assert.equal(f.visible().length, f.chat.length);
+        assert.equal(f.saves.length, 0);
+        f.controller.cancel(); // Teardown cancels projections, not the restoration's save.
+        if (switchChat) f.state.chatId = 'another';
+        f.pendingSave(null);
+        saving.resolve();
+        await clearing;
+        assert.equal(f.saves.length, switchChat ? 0 : 1);
+        assert.deepEqual(f.errors, []);
+    }
+});
 
 test('ordinary tail edits inspect only edited visibility flags, including after a reorder was reconciled', async () => {
     for (const reorder of [false, true]) {

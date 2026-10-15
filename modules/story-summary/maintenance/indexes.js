@@ -1,7 +1,7 @@
 import { getContext } from '../../../../../../extensions.js';
 import { getVectorConfig } from '../data/config.js';
 import { getSummaryStore } from '../data/store.js';
-import { assertMemoryWritable } from '../data/memory-commit.js';
+import { assertMemoryWritable, waitForMemoryCommit } from '../data/memory-commit.js';
 import { getStateAtoms, getStateVectorDescriptors, saveStateVectors } from '../vector/storage/state-store.js';
 import { getAllEventVectors, saveEventVectors } from '../vector/storage/chunk-store.js';
 import { getEngineFingerprint } from '../vector/utils/embedder.js';
@@ -9,7 +9,7 @@ import { inputDigest } from '../vector/utils/vector-input-digest.js';
 import { buildEventVectorText } from '../vector/pipeline/event-vector-input.js';
 import { buildRAggregateText } from '../vector/pipeline/state-vector-input.js';
 import { embed } from '../vector/llm/siliconflow.js';
-import { runVectorWriteTask, VECTOR_WRITE_SCOPES } from '../vector/runtime/maintenance-coordinator.js';
+import { runVectorGenerationTask } from '../vector/runtime/maintenance-coordinator.js';
 import { requireMemory } from './errors.js';
 
 export async function inspectMaintenanceIndexes(chatId, impact) {
@@ -30,7 +30,8 @@ export async function inspectMaintenanceIndexes(chatId, impact) {
 
 /** Only derived data. Retrying here cannot issue another semantic maintenance request. */
 export async function repairMaintenanceIndexes(chatId, impact) {
-    return runVectorWriteTask({ chatId, kind: 'memory-maintenance-index', scope: VECTOR_WRITE_SCOPES.EMBEDDING }, async ({ signal }) => {
+    return runVectorGenerationTask({ chatId, kind: 'memory-maintenance-index' }, async ({ signal, commit }) => {
+        await waitForMemoryCommit(signal);
         assertMemoryWritable(chatId);
         const missing = await inspectMaintenanceIndexes(chatId, impact);
         if (missing.status !== 'pending') return { status: missing.status };
@@ -47,26 +48,29 @@ export async function repairMaintenanceIndexes(chatId, impact) {
             requireMemory(result?.length === batch.length, 'index_response_invalid');
             vectors.push(...result);
         }
-        requireMemory(!signal.aborted && getContext().chatId === chatId && getEngineFingerprint(getVectorConfig()) === missing.fingerprint, 'conflict');
-        assertMemoryWritable(chatId);
-        const currentEvents = new Map((getSummaryStore()?.json?.events || []).map(event => [event.id, event]));
-        const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
-        const eventItems = [];
-        const atomItems = new Map();
-        for (const [index, job] of jobs.entries()) {
-            const current = job.kind === 'event' ? buildEventVectorText(currentEvents.get(job.id))
-                : job.kind === 'state' ? currentAtoms.get(job.id)?.semantic : buildRAggregateText(currentAtoms.get(job.id));
-            requireMemory(current === job.text, 'conflict');
-            if (job.kind === 'event') eventItems.push({ eventId: job.id, vector: vectors[index], sourceHash: inputDigest('event', job.text) });
-            else {
-                const item = atomItems.get(job.id) || { atomId: job.id, floor: currentAtoms.get(job.id).floor };
-                if (job.kind === 'state') Object.assign(item, { vector: vectors[index], sourceHash: inputDigest('state', job.text) });
-                else Object.assign(item, { rVector: vectors[index], relationHash: inputDigest('relation', job.text) });
-                atomItems.set(job.id, item);
+        return commit(async () => {
+            await waitForMemoryCommit(signal);
+            requireMemory(!signal.aborted && getContext().chatId === chatId && getEngineFingerprint(getVectorConfig()) === missing.fingerprint, 'conflict');
+            assertMemoryWritable(chatId);
+            const currentEvents = new Map((getSummaryStore()?.json?.events || []).map(event => [event.id, event]));
+            const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
+            const eventItems = [];
+            const atomItems = new Map();
+            for (const [index, job] of jobs.entries()) {
+                const current = job.kind === 'event' ? buildEventVectorText(currentEvents.get(job.id))
+                    : job.kind === 'state' ? currentAtoms.get(job.id)?.semantic : buildRAggregateText(currentAtoms.get(job.id));
+                requireMemory(current === job.text, 'conflict');
+                if (job.kind === 'event') eventItems.push({ eventId: job.id, vector: vectors[index], sourceHash: inputDigest('event', job.text) });
+                else {
+                    const item = atomItems.get(job.id) || { atomId: job.id, floor: currentAtoms.get(job.id).floor };
+                    if (job.kind === 'state') Object.assign(item, { vector: vectors[index], sourceHash: inputDigest('state', job.text) });
+                    else Object.assign(item, { rVector: vectors[index], relationHash: inputDigest('relation', job.text) });
+                    atomItems.set(job.id, item);
+                }
             }
-        }
-        if (eventItems.length) await saveEventVectors(chatId, eventItems, missing.fingerprint);
-        if (atomItems.size) await saveStateVectors(chatId, [...atomItems.values()], missing.fingerprint);
-        return { status: 'ready' };
+            if (eventItems.length) await saveEventVectors(chatId, eventItems, missing.fingerprint);
+            if (atomItems.size) await saveStateVectors(chatId, [...atomItems.values()], missing.fingerprint);
+            return { status: 'ready' };
+        });
     });
 }

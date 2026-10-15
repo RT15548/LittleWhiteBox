@@ -126,6 +126,13 @@ const STYLES = `
 .nd-float.success .nd-capsule { border-color: rgba(62, 207, 142, 0.6); background: rgba(62, 207, 142, 0.1); }
 .nd-float.partial .nd-capsule { border-color: rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.1); }
 .nd-float.error .nd-capsule { border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.1); }
+
+/* 非空闲状态：胶囊右侧多出 24px，放常驻菜单按钮（生成中也能打开菜单/设置） */
+.nd-float.working .nd-capsule,
+.nd-float.cooldown .nd-capsule,
+.nd-float.success .nd-capsule,
+.nd-float.partial .nd-capsule,
+.nd-float.error .nd-capsule { width: 98px; }
 .nd-inner {
     display: grid;
     width: 100%;
@@ -203,6 +210,22 @@ const STYLES = `
 }
 .nd-float:hover .nd-btn-menu { opacity: 1; }
 .nd-btn-menu:hover { background: rgba(255, 255, 255, 0.12); color: var(--nd-text-muted); }
+
+/* 常驻菜单按钮：只在非空闲状态显示（空闲时由 idle 层自己的菜单按钮负责） */
+.nd-btn-menu-persist {
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 2;
+    box-sizing: border-box;
+    border-left: 1px solid var(--nd-border);
+}
+.nd-float.working .nd-btn-menu-persist,
+.nd-float.cooldown .nd-btn-menu-persist,
+.nd-float.success .nd-btn-menu-persist,
+.nd-float.partial .nd-btn-menu-persist,
+.nd-float.error .nd-btn-menu-persist { display: flex; }
 .nd-arrow { transition: transform 0.2s; }
 .nd-float.expanded .nd-arrow { transform: rotate(180deg); }
 .nd-layer-active {
@@ -217,6 +240,7 @@ const STYLES = `
     color: #fff;
     cursor: pointer;
     pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s, padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .nd-float.working .nd-layer-active,
 .nd-float.cooldown .nd-layer-active,
@@ -226,6 +250,7 @@ const STYLES = `
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
+    padding-right: 30px; /* 原 6px + 常驻菜单按钮 24px，文字区宽度保持不变 */
 }
 .nd-float.cooldown .nd-layer-active { color: var(--nd-info); }
 .nd-float.success .nd-layer-active { color: var(--nd-success); }
@@ -425,6 +450,14 @@ function createEl(tag, className, text) {
     return el;
 }
 
+// 常驻菜单按钮：非空闲状态（生成中/成功/失败等）idle 层被隐藏时，仍可点开菜单与设置
+function createPersistMenuBtn(arrow) {
+    const btn = createEl('button', 'nd-btn-menu nd-btn-menu-persist');
+    btn.title = '展开菜单';
+    btn.appendChild(createEl('span', 'nd-arrow', arrow));
+    return btn;
+}
+
 function fillPresetSelect(selectEl) {
     if (!selectEl) return;
     const settings = getSettings();
@@ -493,7 +526,7 @@ function createFloorPanelElement(messageId) {
         createEl('span', 'nd-status-text', DRAW_CAPSULE_COPY.analysis),
     );
     inner.append(layerIdle, layerActive);
-    capsule.appendChild(inner);
+    capsule.append(inner, createPersistMenuBtn('▼'));
 
     const detail = createDetailPopup();
     const menu = createMenu(isAuto);
@@ -875,7 +908,8 @@ function bindFloorPanelEvents(panelData) {
         e.stopPropagation();
         void handleFloorDrawClick(messageId);
     });
-    el.querySelector('.nd-btn-menu')?.addEventListener('click', (e) => {
+    // idle 层的菜单按钮 + 非空闲状态常驻的菜单按钮，行为完全一致
+    el.querySelectorAll('.nd-btn-menu').forEach((menuBtn) => menuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         el.classList.remove('show-detail');
         if (!el.classList.contains('expanded')) {
@@ -883,7 +917,7 @@ function bindFloorPanelEvents(panelData) {
             refreshFloorSizeSelect(messageId);
         }
         el.classList.toggle('expanded');
-    });
+    }));
     el.querySelector('.nd-layer-active')?.addEventListener('click', (e) => {
         e.stopPropagation();
         if ([FloatState.SUBMITTING, FloatState.ACCEPTED, FloatState.UNCERTAIN, FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN, FloatState.RECONNECTING].includes(panelData.state)) {
@@ -1075,10 +1109,14 @@ function saveFloatingPosition() {
     } catch {}
 }
 
+// 胶囊宽度有 0.35s 过渡，夹取位置要用过渡结束后的目标宽度（空闲 74px / 非空闲 98px，含边框）
+const FLOATING_WIDTH_IDLE = 77;
+const FLOATING_WIDTH_ACTIVE = 101;
+
 function applyFloatingPosition() {
     if (!floatingEl) return;
     const pos = getFloatingPosition();
-    const w = floatingEl.offsetWidth || 77;
+    const w = floatingState === FloatState.IDLE ? FLOATING_WIDTH_IDLE : FLOATING_WIDTH_ACTIVE;
     const h = floatingEl.offsetHeight || 34;
     floatingEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
     floatingEl.style.top = `${Math.max(0, Math.min(pos.top, window.innerHeight - h))}px`;
@@ -1114,7 +1152,10 @@ function startFloatingCooldownTimer(data) {
 
 export function setFloatingState(state, data = {}) {
     if (!floatingEl) return;
+    const wasIdle = floatingState === FloatState.IDLE;
     floatingState = state;
+    // 空闲 <-> 非空闲切换会改变胶囊宽度，贴边时重新夹取位置，避免被挤出屏幕
+    if (wasIdle !== (state === FloatState.IDLE)) applyFloatingPosition();
     if (floatingAutoResetTimer) {
         clearTimeout(floatingAutoResetTimer);
         floatingAutoResetTimer = null;
@@ -1410,7 +1451,7 @@ function createFloatingButton() {
         createEl('span', 'nd-status-text', DRAW_CAPSULE_COPY.analysis),
     );
     inner.append(layerIdle, layerActive);
-    capsule.appendChild(inner);
+    capsule.append(inner, createPersistMenuBtn('▲'));
 
     floatingEl.append(detail, menu, capsule);
     document.body.appendChild(floatingEl);

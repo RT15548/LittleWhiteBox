@@ -1,11 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { loadNarrativeCanon } from '../../apps/game/expedition/narrative/canon.ts';
 import { estimateConversationTokens } from '../../../agent-core/runtime/context-tokens.js';
+import { createMemoryJobs } from '../../apps/game/expedition/narrative/memory-jobs.ts';
 
 export const loadCanon = (person, signal) => loadNarrativeCanon(person, signal,
     name => readFile(new URL(`../../docs/expedition-cards/${name}.md`, import.meta.url), 'utf8'));
 export const countTokens = async options => ({ tokens: estimateConversationTokens(options), source: 'estimated' });
-export const narrativeOptions = { loadCanon, countTokens, received() {}, saveMemory: async () => {} };
+export const narrativeOptions = { loadCanon, countTokens, received() {}, memory: { read: () => null, compact: async () => { throw new Error('Fixture must provide memory storage for compaction'); } } };
+export function conversationMemory(campaign, save = async () => {}) {
+    const memories = structuredClone(campaign.memories);
+    const jobs = createMemoryJobs({ countTokens, changed() {}, async save(snapshot, person, memory) { await save(memory); memories[person] = memory; } });
+    return { read: () => memories.sanniang, compact: (session, snapshot) => jobs.start(session, snapshot, 'sanniang') };
+}
 
 // Inspect the actual model boundary, not source text or the wording of prompt paragraphs.
 export function promptBlock(text, tag) {

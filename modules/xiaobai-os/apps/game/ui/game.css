@@ -20,7 +20,6 @@
 .game-header h1 { font-size: 21px; font-weight: 650; letter-spacing: -.03em; }
 .game-funds { margin-left: auto; text-align: right; min-width: 0; max-width: 48%; overflow-wrap: anywhere; }
 .game-funds strong { font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; }
-.game-back { background: transparent; border: 0; color: inherit; width: 32px; height: 40px; font-size: 30px !important; line-height: 1; flex-shrink: 0; }
 .game-nav { display: flex; gap: 24px; border-bottom: 1px solid var(--game-line); padding: 0 20px; flex-shrink: 0; }
 .game-nav button { display: flex; align-items: center; gap: 6px; background: transparent; border: 0; border-bottom: 2px solid transparent; min-height: 42px; color: var(--game-muted); padding: 0 0 8px; white-space: nowrap; }
 .game-nav button[aria-current] { border-bottom-color: var(--game-accent); color: var(--game-ink); font-weight: 600; }
@@ -48,10 +47,10 @@
 .tone-claret .game-tile-art { background: #eee8ff; }
 .tone-amber .game-tile-art { background: #e1f3ff; }
 .tone-moving .game-tile-art { background: #e1eee8; }
-.game-app-standalone .game-header { min-height: 48px; padding-block: 4px; }
-.game-app-standalone .game-header h1 { font-size: 15px; }
 .game-app-standalone .game-scroll { padding: 0; container-type: size; container-name: moving-frame; }
 .game-tile-art img { width: 100%; height: 100%; object-fit: contain; padding: 6px; transition: transform 250ms ease; }
+.tone-expedition .game-tile-art { background: transparent; }
+.tone-expedition .game-tile-art > img { position: absolute; inset: 0; display: block; object-fit: cover; padding: 0; }
 .game-tile-art .game-tile-mascot { position: absolute; width: 29%; height: 46%; left: 17%; bottom: 5%; padding: 0; pointer-events: none; }
 .game-tile-copy { padding: 12px 2px 0; }
 .game-tile h3 { font-size: 15px; font-weight: 600; }
@@ -330,6 +329,7 @@
 @media (hover: hover) {
     .game-tile:hover { transform: translateY(-3px);  }
     .game-tile:hover img { transform: rotate(-3deg) scale(1.04); }
+    .tone-expedition:hover img { transform: scale(1.04); }
     .ladder-paths button:not(:disabled):hover { border-color: var(--game-accent); }
 }
 

@@ -266,6 +266,7 @@ test('redraw progress and failure keep the old image without changing the attemp
     assert.equal(card.dataset.imgId, failedId);
     assert.equal(card.dataset.tags, 'new tags');
     assert.ok(card.querySelector('[data-action="restore-image"]'));
+    assert.equal(card.querySelector('[data-action="restore-image"]').closest('details'), null);
     assert.equal(await api.getSlotSelection(slotId), failedId);
 });
 
@@ -547,4 +548,117 @@ test('a failing MESSAGE_UPDATED listener does not break rebuilding the message',
 
     assert.equal(rebuilt, true);
     assert.ok(root.querySelector(`[data-slot-id="${slotId}"] img`));
+});
+
+// ── 图片管理分页读取（NovelAI 面板“往下拉再加载”的宿主侧）──────────────────
+
+async function seedGalleryImage(characterName, slotId, imgId, { timestamp, ...options } = {}) {
+    host.ctx = { chatId: 'paged-chat', chat: [] };
+    await api.storePreview({ slotId, imgId, messageId: 0, characterName, base64: 'YWJj', ...options });
+    if (timestamp !== undefined) await api.updatePreviewRecord(imgId, { timestamp });
+}
+
+async function deleteRecordBehindTheCache(imgId) {
+    const raw = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('xb_novel_draw_previews');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+    await new Promise((resolve) => {
+        const tx = raw.transaction('previews', 'readwrite');
+        tx.objectStore('previews').delete(imgId);
+        tx.oncomplete = resolve;
+    });
+    raw.close();
+}
+
+test('slot pages are ordered by each slot\'s latest image and carry only that image; saved records carry savedUrl only', async () => {
+    const who = 'PagedChar-A';
+    await seedGalleryImage(who, 'p1', 'p1-a', { timestamp: 100 });
+    await seedGalleryImage(who, 'p1', 'p1-b', { timestamp: 500, savedUrl: '/img/p1-b.png' });
+    await seedGalleryImage(who, 'p2', 'p2-a', { timestamp: 300 });
+    await seedGalleryImage(who, 'p3', 'p3-a', { timestamp: 200 });
+    await seedGalleryImage(who, 'p3', 'p3-failed', { timestamp: 900, status: 'failed', base64: null }); // 失败记录不算
+    await seedGalleryImage(who, 'p4', 'p4-a', { timestamp: 400 });
+    await seedGalleryImage(who, 'p4', 'p4-b', { timestamp: 50 });
+    await seedGalleryImage('PagedChar-Other', 'x1', 'x1-a', { timestamp: 9999 });
+
+    const first = await api.getCharacterSlotsPage(who, { offset: 0, limit: 2 });
+    assert.deepEqual(first.order, ['p1', 'p4']);
+    assert.deepEqual([first.offset, first.limit, first.total, first.hasMore, first.nextOffset], [0, 2, 4, true, 2]);
+    assert.deepEqual(Object.keys(first.slots).sort(), ['p1', 'p4']);
+    assert.equal(first.slots.p1.length, 1, '每组只带最新一张');
+    assert.equal(first.slots.p1[0].imgId, 'p1-b');
+    assert.equal(first.slots.p1[0].savedUrl, '/img/p1-b.png');
+    assert.equal(first.slots.p1[0].base64, null, '已保存的只带 savedUrl');
+    assert.equal(first.slots.p4[0].imgId, 'p4-a');
+    assert.equal(first.slots.p4[0].base64, 'YWJj', '未保存的才带 base64');
+    assert.deepEqual(first.slotMeta.p1, { count: 2, hasSaved: true });
+    assert.deepEqual(first.slotMeta.p4, { count: 2, hasSaved: false });
+
+    const second = await api.getCharacterSlotsPage(who, { offset: 2, limit: 2 });
+    assert.deepEqual(second.order, ['p2', 'p3']);
+    assert.deepEqual([second.total, second.hasMore, second.nextOffset], [4, false, 4]);
+    assert.deepEqual(second.slotMeta.p3, { count: 1, hasSaved: false });
+
+    const all = await api.getCharacterSlotsPage(who);
+    assert.equal(all.limit, 24, '缺省每页 24 个图组');
+    assert.deepEqual(all.order, ['p1', 'p4', 'p2', 'p3']);
+    assert.deepEqual((await api.getCharacterSlotsPage(who, { offset: 99 })).order, []);
+
+    // 写入 / 删除会作废图组排序缓存
+    await seedGalleryImage(who, 'p3', 'p3-new');
+    assert.deepEqual((await api.getCharacterSlotsPage(who)).order, ['p3', 'p1', 'p4', 'p2']);
+    await api.deletePreview('p3-new');
+    assert.deepEqual((await api.getCharacterSlotsPage(who)).order, ['p1', 'p4', 'p2', 'p3']);
+});
+
+test('a slot whose latest record is missing or broken is skipped without failing the page', async () => {
+    const who = 'PagedChar-B';
+    await seedGalleryImage(who, 'q1', 'q1-a', { timestamp: 300 });
+    await seedGalleryImage(who, 'q2', 'q2-a', { timestamp: 200 });
+    await seedGalleryImage(who, 'q3', 'q3-a', { timestamp: 100 });
+    assert.deepEqual((await api.getCharacterSlotsPage(who)).order, ['q1', 'q2', 'q3']);
+    await deleteRecordBehindTheCache('q2-a'); // 排序缓存还在：读最新一张时才发现它没了
+    const page = await api.getCharacterSlotsPage(who);
+    assert.deepEqual(page.order, ['q1', 'q3']);
+    assert.deepEqual([page.hasMore, page.nextOffset], [false, 3], '跳过的图组仍计入已消耗的位置');
+});
+
+for (const failure of ['abort', 'throw']) {
+    test(`slot page ${failure} rejects rather than consuming offsets as an empty successful page; retry recovers`, async t => {
+        const who = `PagedReadFailure-${failure}`;
+        const slotId = `read-failure-${failure}`;
+        await seedGalleryImage(who, slotId, `${slotId}-a`, { timestamp: 100 });
+        assert.deepEqual((await api.getCharacterSlotsPage(who)).order, [slotId]);
+        const originalGet = IDBObjectStore.prototype.get;
+        const injected = new Error('injected read failure');
+        const mock = t.mock.method(IDBObjectStore.prototype, 'get', function (key) {
+            if (this.name !== 'previews') return originalGet.call(this, key);
+            if (failure === 'throw') throw injected;
+            const request = originalGet.call(this, key);
+            this.transaction.abort();
+            return request;
+        });
+        await assert.rejects(api.getCharacterSlotsPage(who), error => failure === 'abort' ? error.name === 'AbortError' : error === injected);
+        mock.mock.restore();
+        const retry = await api.getCharacterSlotsPage(who);
+        assert.deepEqual(retry.order, [slotId]);
+        assert.equal(retry.slots[slotId][0].imgId, `${slotId}-a`);
+    });
+}
+
+test('slot versions load on demand: every displayable version, newest first, saved ones with savedUrl only', async () => {
+    const who = 'PagedChar-C';
+    await seedGalleryImage(who, 'v1', 'v1-a', { timestamp: 100 });
+    await seedGalleryImage(who, 'v1', 'v1-b', { timestamp: 300, savedUrl: '/img/v1-b.png' });
+    await seedGalleryImage(who, 'v1', 'v1-c', { timestamp: 200 });
+    await seedGalleryImage(who, 'v1', 'v1-failed', { timestamp: 999, status: 'failed', base64: null });
+    const versions = await api.getSlotVersions(who, 'v1');
+    assert.deepEqual(versions.map(image => image.imgId), ['v1-b', 'v1-c', 'v1-a']);
+    assert.equal(versions[0].base64, null);
+    assert.equal(versions[0].savedUrl, '/img/v1-b.png');
+    assert.equal(versions[1].base64, 'YWJj');
+    assert.deepEqual(await api.getSlotVersions('PagedChar-Other', 'v1'), [], '角色不符不返回');
+    assert.deepEqual(await api.getSlotVersions(who, 'no-such-slot'), []);
 });

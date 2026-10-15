@@ -6,22 +6,31 @@ import { type WorldMap, worldFault } from './types.js';
 
 export interface Footprint { x: number; z: number; width: number; depth: number }
 export type LandscapeKind = 'clinic' | 'storehouse' | 'tree' | 'planter' | 'wall' | 'tower' | 'water'
-    | 'hearth' | 'wagon' | 'supplies' | 'bench' | 'ruin' | 'thicket' | 'arch' | 'column' | 'beacon' | 'bunk' | 'root';
+    | 'wagon' | 'supplies' | 'bench' | 'ruin' | 'thicket' | 'arch' | 'bridge' | 'column' | 'beacon' | 'bunk' | 'root'
+    | 'dwelling' | 'workshop' | 'stove' | 'medicine' | 'cargo' | 'fuel' | 'ledger'
+    | 'bed' | 'cabinet' | 'wardrobe' | 'toolrack' | 'table' | 'chair' | 'basin' | 'screen' | 'workbench' | 'door';
 export interface LandscapeFeature {
     id: string;
     kind: LandscapeKind;
     footprint: Footprint;
     height?: number;
     tint?: 'sage' | 'amber' | 'rose';
+    wallUse?: 'homes' | 'room';
+    damaged?: boolean;
+    entrance?: boolean;
+    facing?: 'south' | 'north' | 'east' | 'west';
 }
 export interface LandscapeRoad { points: readonly (readonly [number, number])[]; width: number }
+/** Suspended between existing masonry; no posts or ground-level collision. */
+export interface SuspendedDetail { kind: 'pipe' | 'washing'; from: readonly [number, number, number]; to: readonly [number, number, number] }
 export interface Landscape {
     bounds: Footprint;
     features: readonly LandscapeFeature[];
     roads: readonly LandscapeRoad[];
     gates: readonly (SceneGate & { footprint: Footprint })[];
-    vista: 'camp' | 'ramparts' | 'interior' | 'garden';
-    surface: 'grass' | 'paving' | 'wet' | 'marble';
+    vista: 'camp' | 'ramparts' | 'interior' | 'garden' | 'room';
+    surface: 'grass' | 'paving' | 'wet' | 'marble' | 'street' | 'boards';
+    suspended?: readonly SuspendedDetail[];
 }
 
 export function insideFootprint(p: Point, f: Footprint) {
@@ -52,7 +61,8 @@ export function defineLandscapeScene(scene: Omit<SceneDefinition, 'map' | 'gates
         let line = '';
         for (let column = 0; column < bounds.width; column++) {
             const p = { x: origin.x + column + .5, y: origin.y + row + .5 };
-            line += landscape.features.some(f => f.kind !== 'arch' && insideFootprint(p, f.footprint)) ? '#' : '.';
+            line += landscape.features.some(f => f.kind !== 'arch' && insideFootprint(p, f.footprint)
+                && (f.kind !== 'bridge' || Math.abs(p.y - f.footprint.z) >= f.footprint.depth / 2 - 1)) ? '#' : '.';
         }
         rows.push(line);
     }

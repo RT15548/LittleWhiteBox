@@ -1,6 +1,6 @@
 import type { Group } from 'three';
 import type { SceneKit } from '../scene-kit.js';
-import type { LandscapeRoad } from '../world/landscape.js';
+import type { Landscape, LandscapeRoad } from '../world/landscape.js';
 import { LAND } from './world-palette.js';
 
 type Vertex = [number, number];
@@ -59,8 +59,9 @@ export function roadSurface(roads: readonly LandscapeRoad[], padding = 0): Polyg
     return result;
 }
 
-export function buildRoads(k: SceneKit, roads: readonly LandscapeRoad[], marble: boolean, chunk: (x: number, z: number) => Group) {
-    for (const [padding, height, color] of [[.4, .025, marble ? LAND.brass : LAND.mortar], [0, .04, marble ? LAND.slate : LAND.stone]] as const) {
+export function buildRoads(k: SceneKit, roads: readonly LandscapeRoad[], surface: Landscape['surface'], chunk: (x: number, z: number) => Group) {
+    const marble = surface === 'marble', street = surface === 'street';
+    for (const [padding, height, color] of [[.4, .025, marble ? LAND.brass : street ? LAND.streetSeam : LAND.mortar], [0, .04, marble ? LAND.slate : street ? LAND.streetStone : LAND.stone]] as const) {
         for (const polygon of roadSurface(roads, padding)) {
             const x = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length, z = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
             const surface = k.shape(chunk(x, z), polygon.map(p => [p[0], -p[1]]), color, [0, height, 0]);
@@ -76,8 +77,12 @@ export function buildRoads(k: SceneKit, roads: readonly LandscapeRoad[], marble:
             for (let distance = 1.5; distance < length; distance += 1.65) {
                 const x = a[0] + dx * distance / length, z = a[1] + dz * distance / length;
                 if (polygons.some((poly, j) => j !== index && poly.every((v, n) => cross(v, poly[(n + 1) % poly.length], [x, z]) >= -EPSILON))) { continue; }
-                const line = k.mesh(chunk(x, z), 'box', marble ? LAND.shadow : LAND.mortar, [road.width - .08, .012, .025], [x, .049, z]);
+                const line = k.mesh(chunk(x, z), 'box', marble ? LAND.shadow : street ? LAND.streetSeam : LAND.mortar, [road.width - .08, .012, .025], [x, .049, z]);
                 line.rotation.y = Math.atan2(dx, dz); line.castShadow = false;
+                if (street) {
+                    const joint = k.mesh(chunk(x, z), 'box', LAND.streetSeam, [.025, .012, 1.4], [x + Math.cos(distance) * .55, .049, z]);
+                    joint.rotation.y = Math.atan2(dx, dz); joint.castShadow = false;
+                }
             }
         }
         index += road.points.length - 2;

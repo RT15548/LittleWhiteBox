@@ -2250,6 +2250,16 @@ export async function runStorySummaryAlignmentCheck() {
     return await runAlignmentCheck({ modules, extSettings, summarize: summarizeNaturalHistory });
 }
 
+export async function runStorySummarySourceLifecycleCheck(samplePaths) {
+    ensureNodeReplayGlobals();
+    const extSettings = {};
+    __setExtensionSettings(extSettings);
+    __setChatMetadata({});
+    const modules = await loadReplayModules(extSettings);
+    const { runSourceLifecycleCheck } = await import('./source-lifecycle-check.mjs');
+    return runSourceLifecycleCheck({ modules, samplePaths });
+}
+
 export async function runStorySummaryPreflight({ rootDir, config }) {
     ensureNodeReplayGlobals();
     const originalFetch = globalThis.fetch;

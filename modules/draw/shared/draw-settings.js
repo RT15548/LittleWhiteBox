@@ -1,4 +1,9 @@
 // 共享画图设置与 NovelAI Provider 设置共用现行 settings 根对象；此模块只拥有通用字段。
+import { normalizeGroupPresetState } from './character-group-presets.js';
+import { normalizeCharacterLibrary } from './character-library.js';
+import { normalizePlannerRetry } from './planner-retry.js';
+import { API_PRESET_COPY } from './api-presets-copy.js';
+
 const SERVER_FILE_KEY = 'settings';
 export const DEFAULT_SHARED_GALLERY_CACHE_DAYS = 3;
 
@@ -6,7 +11,11 @@ const DEFAULT_SHARED_DRAW_SETTINGS = {
     cacheDays: DEFAULT_SHARED_GALLERY_CACHE_DAYS,
     useWorldInfo: false,
     timeout: 120000,
+    plannerMaxRetries: 3,
     characterTags: [],
+    characterGroups: [],
+    characterGroupPresets: [],
+    characterGroupPresetApplied: null,
     danbooruLocalDB: false,
     messageFilterRules: [],
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
@@ -21,11 +30,14 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'sendMode',
     'useImageBackendJobs',
     'insecureTLS',
+    'apiPresets',
+    'activeApiPresetId',
     'selectedParamsPresetId',
     'paramsPresets',
     'requestDelay',
     'autoLearnCharacters',
     'autoLearnMode',
+    'autoLearnGroupId',
     'overrideSize',
     'showFloorButton',
     'showFloatingButton',
@@ -52,15 +64,6 @@ function cloneSettingsObject(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
-
 export function normalizeSharedCacheDays(value, fallback = DEFAULT_SHARED_GALLERY_CACHE_DAYS) {
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
@@ -76,22 +79,15 @@ export function normalizeSharedDrawSettings(saved = {}) {
     const messageFilterRules = (Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [])
         .filter(rule => rule && typeof rule === 'object')
         .map(rule => ({ start: String(rule.start || ''), end: String(rule.end || '') }));
-    const characterTags = (Array.isArray(source.characterTags) ? source.characterTags : [])
-        .filter(char => char && typeof char === 'object')
-        .map(char => ({
-            id: String(char.id || `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`),
-            enabled: char.enabled !== false,
-            name: String(char.name || ''),
-            aliases: (Array.isArray(char.aliases) ? char.aliases : [])
-                .map(alias => String(alias || '').trim())
-                .filter(Boolean),
-            type: String(char.type || 'girl'),
-            appearance: String(char.appearance || char.tags || ''),
-            negativeTags: String(char.negativeTags || ''),
-            danbooruTag: String(char.danbooruTag || ''),
-            outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
-            dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
-        }));
+    const characterLibrary = normalizeCharacterLibrary({
+        characters: source.characterTags,
+        groups: source.characterGroups,
+    });
+    // 预设里指向已删除分组的键在这里清理；applied 记录指向不存在的预设时置空。
+    const groupPresetState = normalizeGroupPresetState({
+        presets: source.characterGroupPresets,
+        applied: source.characterGroupPresetApplied,
+    }, { groupIds: characterLibrary.groups.map(group => group.id) });
     const timeout = Number(source.timeout);
 
     return {
@@ -100,7 +96,11 @@ export function normalizeSharedDrawSettings(saved = {}) {
         timeout: Number.isFinite(timeout) && timeout > 0
             ? Math.min(600000, Math.max(10000, Math.floor(timeout)))
             : DEFAULT_SHARED_DRAW_SETTINGS.timeout,
-        characterTags,
+        plannerMaxRetries: normalizePlannerRetry({ maxRetries: source.plannerMaxRetries }).maxRetries,
+        characterTags: characterLibrary.characters,
+        characterGroups: characterLibrary.groups,
+        characterGroupPresets: groupPresetState.presets,
+        characterGroupPresetApplied: groupPresetState.applied,
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules,
         worldbooks: {
@@ -159,6 +159,22 @@ export function getSharedDrawSettings() {
     return settingsCache;
 }
 
+// 同一存储文件的跨所有者更新也只上传一次，存储确认后才发布共享运行时视图。
+export async function updateDrawSettingsRootPersistent(mutator, { silent = true } = {}) {
+    if (!settingsLoaded || !settingsCache) {
+        throw Object.assign(new Error(API_PRESET_COPY.notLoaded), { code: 'DRAW_SETTINGS_NOT_LOADED' });
+    }
+    const storage = await getStorage();
+    let committed;
+    const ok = await storage.updateAndSave(async (storageRoot) => {
+        committed = await mutator(storageRoot[SERVER_FILE_KEY] || {});
+        storageRoot[SERVER_FILE_KEY] = committed;
+    }, { silent });
+    if (ok === false) return null;
+    settingsCache = normalizeSharedDrawSettings(committed);
+    return committed;
+}
+
 export async function updateSharedDrawSettingsPersistent(mutator, okText = '已保存', options = {}) {
     const { notify = false, silent = true } = options;
     if (!settingsLoaded || !settingsCache) {
@@ -166,32 +182,25 @@ export async function updateSharedDrawSettingsPersistent(mutator, okText = '已�
         if (window.toastr) toastr.error('共享画图配置尚未成功加载，已禁止保存');
         return false;
     }
-    const previous = cloneSettingsObject(settingsCache);
-
     try {
-        const storage = await getStorage();
-        const ok = await storage.updateAndSave(async (storageRoot) => {
-            const saved = storageRoot[SERVER_FILE_KEY];
-            const current = normalizeSharedDrawSettings(saved || settingsCache);
+        const committed = await updateDrawSettingsRootPersistent(async (saved) => {
+            const current = normalizeSharedDrawSettings(saved);
             const draft = cloneSettingsObject(current);
             if (typeof mutator === 'function') {
                 await mutator(draft);
             }
             const next = normalizeSharedDrawSettings(draft);
             next.updatedAt = Date.now();
-            settingsCache = next;
-            storageRoot[SERVER_FILE_KEY] = mergeSharedDrawSettingsIntoStorageRoot(saved, next);
+            return mergeSharedDrawSettingsIntoStorageRoot(saved, next);
         }, { silent });
-        if (ok !== false) {
+        if (committed) {
             if (notify && window.toastr) toastr.success(okText);
             return true;
         }
         if (notify && window.toastr) toastr.error('保存失败');
-        settingsCache = previous;
         return false;
     } catch (error) {
         console.error('[DrawSettings] 保存共享画图设置失败:', error);
-        settingsCache = previous;
         if (notify && window.toastr) toastr.error(`保存失败：${error?.message || '网络异常'}`);
         return false;
     }

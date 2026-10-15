@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import { parse } from 'acorn';
 import { usesStoryRecall } from '../generate/recall-policy.js';
 import { getRecallPrefetchStartAction } from '../generate/recall-prefetch.js';
+import { createMessageSourceTracker } from '../data/message-sources.js';
 import mod from './fixtures/recall-query.mjs';
 
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
@@ -20,15 +21,17 @@ const stalled = signal => new Promise((_, reject) => {
 // not source spelling. This keeps the test independent of model/DB requests.
 const source = readFileSync(new URL('../story-summary.js', import.meta.url), 'utf8');
 const entryFunctions = new Set([
-    'registerEvents', 'clearExtensionPrompt',
+    'registerEvents', 'handleChatChange', 'clearExtensionPrompt',
     'handleGenerationAfterCommands', 'runStorySummaryRecallInterceptor',
-    'discardIdleRecallPrefetch',
+    'discardIdleRecallPrefetch', 'notifyStorySummaryAfterAi',
+    'runContentChangeSync',
+    'cancelRecallAndClearPrompt',
 ]);
 const executable = parse(source, { sourceType: 'module', ecmaVersion: 'latest' }).body
     .filter(node => node.type === 'FunctionDeclaration' && entryFunctions.has(node.id.name))
     .map(node => source.slice(node.start, node.end)).join('\n');
 
-async function fixture(t) {
+async function fixture(t, chat = [{ mes: 'greeting', is_user: false }]) {
     if (t) {
         t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
         t.mock.method(performance, 'now', () => Date.now());
@@ -36,7 +39,7 @@ async function fixture(t) {
     const eventSource = new EventEmitter();
     const eventTypes = Object.fromEntries([
         'CHAT_CHANGED', 'MESSAGE_DELETED', 'MESSAGE_RECEIVED', 'MESSAGE_SENT',
-        'MESSAGE_SWIPED', 'MESSAGE_EDITED', 'USER_MESSAGE_RENDERED',
+        'MESSAGE_SWIPED', 'MESSAGE_SWIPE_DELETED', 'MESSAGE_EDITED', 'USER_MESSAGE_RENDERED',
         'CHARACTER_MESSAGE_RENDERED', 'GENERATION_AFTER_COMMANDS', 'GENERATION_ENDED', 'GENERATION_STOPPED',
         'GROUP_WRAPPER_FINISHED',
     ].map(type => [type, type]));
@@ -44,8 +47,9 @@ async function fixture(t) {
     const notifications = [];
     const cancellations = [];
     const requests = [];
-    const hostContext = { chatId: 'chat', chat: [] };
-    const state = { generating: false, group: false, commits: 0, aborted: 0, notice: false };
+    const hostContext = { chatId: 'chat', chat };
+    const state = { generating: false, group: false, commits: 0, aborted: 0, notice: false, maintenance: 0,
+        sourceSyncs: 0, maintenanceStops: 0 };
     let respond = signal => stalled(signal);
     if (t) t.mock.method(globalThis, 'fetch', (_url, options) => {
         requests.push(options);
@@ -69,6 +73,8 @@ async function fixture(t) {
         EXT_PROMPT_KEY: promptKey, extension_prompts: prompts,
         event_types: eventTypes, createModuleEvents: () => eventSource,
         getContext: () => hostContext,
+        messageSources: createMessageSourceTracker(),
+        isStorySummaryEnabledForCurrentChat: () => true,
         isGenerating: () => state.generating || state.group,
         isStorySummaryConsumableForCurrentChat: () => true, getVectorConfig: () => ({ enabled: true }),
         recallPrefetch: coordinator, recallSourceSignal: null, performance,
@@ -76,15 +82,24 @@ async function fixture(t) {
         commitMemoryPrompt: value => { state.commits++; prompts[promptKey] = value; return value; },
         selectBestStoryMemoryResult: value => value,
         recallFailureNotice: mod.recallFailureNotice,
-        xbLog: { info: noOp },
+        xbLog: { info: noOp, error: error => { throw error; } },
         window: { addEventListener: noOp }, document: { addEventListener: noOp },
-        resumeVectorWriteCoordinator: noOp, memoryMaintenance: { start: noOp },
+        resumeVectorWriteCoordinator: noOp, memoryMaintenance: { start: noOp, cancel: () => { state.maintenanceStops++; } },
+        synchronizeCurrentSources: async () => { state.sourceSyncs++; },
+        handleMessageUpdated: async () => { state.sourceSyncs++; },
+        recallReuse: { invalidate: noOp, historyChanged: noOp },
+        cancelPendingHide: noOp, cancelEmbeddingWriteTasks: noOp,
+        embeddingConnection: { cancel: noOp }, serviceTests: { cancel: noOp },
+        cancelActiveSummaryExecution: noOp, activeSummaryExecution: null,
+        scheduleWithChatGuard: noOp, isChatStale: () => false,
         registerAfterAiGateHandler: noOp, initButtonsForAll: noOp,
         CacheRegistry: { register: noOp },
         handleVisibilityChangeForBackground: noOp, handleViewportChangeForBackground: noOp,
         registerGenerateInterceptor: (_id, handler) => { interceptor = handler; },
         GENERATE_INTERCEPTOR_ORDER: { STORY_SUMMARY: 200 },
-        notifyStorySummaryAfterAi: (...args) => notifications.push(args),
+        notifyAfterAiHint: hint => notifications.push(hint),
+        rememberVectorMaintenance: () => { state.maintenance++; },
+        scheduleAutoL0Backfill: noOp, AUTO_L0_BACKFILL_DELAY_MS: 5000,
         cancelActiveRecall: (reason, options) => {
             cancellations.push(reason);
             context.recallSourceSignal = null;
@@ -97,6 +112,15 @@ async function fixture(t) {
     return {
         prompts, promptKey, notifications, cancellations, coordinator, state, requests,
         respond: callback => { respond = callback; },
+        context: hostContext,
+        edit: floor => eventSource.emit(eventTypes.MESSAGE_EDITED, floor),
+        reload: () => eventSource.emit(eventTypes.CHAT_CHANGED),
+        setSaving: () => { context.isStorySummaryConsumableForCurrentChat = () => false; },
+        inspectSources: () => context.messageSources.inspect(hostContext),
+        received: floor => eventSource.emit(eventTypes.MESSAGE_RECEIVED, floor),
+        async swipeDeleted(detail) {
+            for (const listener of eventSource.listeners(eventTypes.MESSAGE_SWIPE_DELETED)) await listener(detail);
+        },
         async begin(signal = null) {
             state.generating = true;
             eventSource.emit(eventTypes.GENERATION_AFTER_COMMANDS, 'normal', { signal }, false);
@@ -123,6 +147,44 @@ async function fixture(t) {
     };
 }
 
+for (const change of ['saving', 'edit', 'clone', 'reload']) test(`${change} between prefetch and join keeps a successful recall and sends no extra request`, async t => {
+    const host = await fixture(t);
+    host.respond(success);
+    await host.begin();
+    const slot = host.coordinator.getCurrent();
+    await slot.outcome;
+    const cancellations = [...host.cancellations];
+    assert.equal(host.requests.length, 1);
+    if (change === 'saving') host.setSaving();
+    if (change === 'edit') { host.context.chat[0].mes += ' edit'; host.edit(0); }
+    if (change === 'clone' || change === 'reload') host.context.chat = structuredClone(host.context.chat);
+    if (change === 'clone') host.edit(0);
+    if (change === 'reload') host.reload();
+    await host.join();
+    assert.equal(host.state.aborted, 0);
+    assert.equal(host.state.commits, 1);
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.prompts[host.promptKey].text, 'foreground memory');
+    assert.deepEqual(host.cancellations, cancellations);
+});
+
+test('native unselected swipe deletion does not cancel recall, stop maintenance or enqueue consistency writes', async () => {
+    const message = { mes: 'greeting', is_user: false, swipes: ['unused', 'greeting'], swipe_id: 1 };
+    const host = await fixture(null, [message]);
+    const prepared = { value: 'adopted memory' };
+    host.commit(prepared);
+    message.swipes.splice(0, 1); message.swipe_id = 0;
+    await host.swipeDeleted({ messageId: 0, swipeId: 0, newSwipeId: 0 });
+    assert.equal(host.state.sourceSyncs, 0);
+    assert.equal(host.state.maintenanceStops, 0);
+    assert.equal(host.state.maintenance, 0);
+    assert.deepEqual(host.cancellations, []);
+    assert.equal(host.prompts[host.promptKey], prepared);
+    message.mes += ' ordinary edit'; message.swipes[0] = message.mes;
+    assert.equal(host.inspectSources().rollbackFromFloor, null);
+    assert.deepEqual(host.inspectSources().editedFloors, [0]);
+});
+
 test('quiet ending after foreground memory commit cannot erase memory before prompt assembly', async () => {
     const host = await fixture();
     const prepared = { value: 'foreground memory', position: 1, depth: 2, role: 0 };
@@ -135,8 +197,8 @@ test('quiet ending after foreground memory commit cannot erase memory before pro
     assert.equal(host.prompts[host.promptKey], prepared);
     const request = { messages: [{ role: 'system', content: host.prompts[host.promptKey].value }] };
     assert.equal(request.messages[0].content, prepared.value);
-    assert.equal(host.notifications.length, 1);
-    assert.equal(host.notifications[0][0], 12);
+    assert.equal(host.notifications.length, 0);
+    assert.equal(host.state.maintenance, 0);
     assert.deepEqual(host.cancellations, []);
 });
 
@@ -249,5 +311,21 @@ test('an unattributed end leaves explicit Stop responsible for clearing the memo
     host.stop();
     assert.equal(host.prompts[host.promptKey], undefined);
     assert.equal(host.cancellations.length, 1);
-    assert.equal(host.notifications.length, 1);
+    assert.equal(host.notifications.length, 0);
+});
+
+test('a native reply or continuation schedules maintenance once; quiet and duplicate end do not', async () => {
+    const host = await fixture();
+    host.ended();
+    assert.equal(host.state.maintenance, 0);
+    host.context.chat.push({ mes: 'new native reply', is_user: false });
+    host.received(1);
+    host.ended();
+    assert.equal(host.state.maintenance, 1);
+    host.context.chat[1].mes += ' continued';
+    host.ended();
+    assert.equal(host.state.maintenance, 2);
+    await host.quiet();
+    host.ended();
+    assert.equal(host.state.maintenance, 2);
 });

@@ -1,0 +1,138 @@
+/* 角色标签库界面（character-library-ui.js）。颜色沿用宿主页面的 CSS 变量，缺省值保证单独使用时也可读。 */
+
+.lwb-cl-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.lwb-cl-toolbar-hint { margin: 0; }
+.lwb-cl-toolbar .btn.active { color: var(--accent, #d4a574); border-color: var(--accent, #d4a574); }
+
+.lwb-cl-batch-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+    padding: 8px;
+    border: 1px solid var(--border-focus, rgba(212, 165, 116, 0.5));
+    border-radius: 8px;
+    background: var(--bg-secondary, #161b22);
+}
+.lwb-cl-batch-bar[hidden] { display: none; }
+.lwb-cl-batch-bar .input { width: auto; min-width: 100px; max-width: 160px; padding: 4px 8px; font-size: 12px; }
+.lwb-cl-batch-count { font-size: 12px; font-weight: 600; margin-right: 4px; }
+.lwb-cl-batch-bar button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lwb-cl-group {
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+}
+.lwb-cl-group-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px 8px 0 0;
+}
+.lwb-cl-group.collapsed .lwb-cl-group-header { border-radius: 8px; }
+.lwb-cl-group-collapse {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    background: none;
+    border: none;
+    color: var(--text-secondary, #8b949e);
+    cursor: pointer;
+}
+/* 分组名有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
+.lwb-cl-group-name {
+    flex: 1 1 6em;
+    min-width: 6em;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lwb-cl-group-count { flex-shrink: 0; font-size: 11px; color: var(--text-muted, #8b949e); white-space: nowrap; }
+.lwb-cl-group-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
+.lwb-cl-icon-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-secondary, #8b949e);
+    cursor: pointer;
+}
+.lwb-cl-icon-btn:hover:not(:disabled) { color: var(--text-primary, #e6edf3); background: rgba(255, 255, 255, 0.06); }
+.lwb-cl-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.lwb-cl-icon-btn.active { color: var(--accent, #d4a574); }
+/* 分组关闭：整组变淡、虚线边框；角色自己的启用复选框仍可点，只是组内角色当前不参与出图。 */
+.lwb-cl-group-disabled { border-style: dashed; }
+.lwb-cl-group-disabled .lwb-cl-group-name,
+.lwb-cl-group-disabled .lwb-cl-group-count { opacity: 0.6; }
+.lwb-cl-group-disabled .lwb-cl-group-body > .sd-char-card { opacity: 0.7; }
+.lwb-cl-group-off-note {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary, #8b949e);
+    font-size: 11px;
+    font-weight: 400;
+    white-space: nowrap;
+}
+/* 每个展开的分组在自己的区域内滚动，分组头留在滚动区外始终可见；角色少时没有滚动条，也不留空白。
+   不设 overscroll-behavior: contain —— 滚到头时滚轮 / 触摸要能继续带动整页。 */
+.lwb-cl-group-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 8px;
+    max-height: max(320px, 60vh);
+    overflow-y: auto;
+}
+.lwb-cl-group-body > * { flex-shrink: 0; }
+.lwb-cl-group-body[hidden] { display: none; }
+.lwb-cl-group-empty { padding: 10px; font-size: 12px; color: var(--text-muted, #8b949e); }
+
+.lwb-cl-card-tools { display: inline-flex; align-items: center; gap: 6px; }
+.lwb-cl-card-group-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary, #8b949e); }
+.lwb-cl-card-group-row .input { width: auto; min-width: 120px; max-width: 220px; padding: 4px 8px; font-size: 12px; }
+
+.lwb-cl-handle {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    color: var(--text-muted, #8b949e);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    letter-spacing: -2px;
+}
+.lwb-cl-handle:hover, .lwb-cl-handle:focus-visible { color: var(--text-primary, #e6edf3); }
+.lwb-cl-select, .lwb-cl-group-select { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
+
+body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important; user-select: none; }
+.sd-char-card.lwb-cl-dragging, .lwb-cl-group.lwb-cl-dragging { opacity: 0.45; }
+.lwb-cl-drop-before { box-shadow: 0 -2px 0 0 var(--accent, #d4a574); }
+.lwb-cl-drop-after { box-shadow: 0 2px 0 0 var(--accent, #d4a574); }
+.lwb-cl-drop-into { outline: 2px dashed var(--accent, #d4a574); outline-offset: -2px; }
+
+/* 窄屏（宿主页面切换为单栏的断点）：取消分组内滚动，保持整页滚动。 */
+@media (max-width: 768px) {
+    .lwb-cl-group-body { max-height: none; overflow-y: visible; }
+    /* 窄屏下容器允许收缩；卡片头（手柄、选择框、标题、启用/Danbooru/复制/删除按钮）允许换行，不撑宽页面。 */
+    .lwb-cl-group, .lwb-cl-group-header, .lwb-cl-group-body, .lwb-cl-group-body > .sd-char-card { min-width: 0; max-width: 100%; box-sizing: border-box; }
+    .lwb-cl-group-actions { flex-wrap: wrap; flex-shrink: 1; max-width: 100%; }
+    .lwb-cl-group-body .sd-char-card-header { flex-wrap: wrap; row-gap: 8px; min-width: 0; }
+    .lwb-cl-group-body .sd-char-card-title { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+    .lwb-cl-group-body .sd-char-card-title > span:not(.lwb-cl-card-tools) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lwb-cl-group-body .sd-char-card-header .btn-group { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+    .lwb-cl-card-group-row { flex-wrap: wrap; }
+    .lwb-cl-card-group-row .input { min-width: 0; max-width: 100%; }
+}

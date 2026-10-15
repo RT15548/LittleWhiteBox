@@ -1,0 +1,376 @@
+{
+  "formatVersion": 6,
+  "revision": 22,
+  "last": {
+    "id": "sample-21",
+    "command": {
+      "type": "input",
+      "spans": [
+        {
+          "move": 1,
+          "dash": false,
+          "skill": false,
+          "ticks": 30
+        }
+      ]
+    }
+  },
+  "active": {
+    "id": "v6-fixture",
+    "seed": 1025555898,
+    "weapon": "blade",
+    "outfit": "traveler",
+    "traveler": {
+      "name": "林川",
+      "gender": "male",
+      "appearanceAge": "twenties"
+    },
+    "chapter": "outpost",
+    "location": {
+      "scene": "crossroads",
+      "position": {
+        "x": 7.108615426500694e-16,
+        "y": 31.39075000000011
+      },
+      "facing": -1.5707963267948966,
+      "visited": [
+        "camp",
+        "crossroads"
+      ]
+    },
+    "facts": [
+      "briefed"
+    ],
+    "hp": 100,
+    "collection": [],
+    "equipped": [],
+    "offers": [],
+    "phase": "battle",
+    "battle": {
+      "tick": 30,
+      "seed": 2630631676,
+      "serial": 2,
+      "player": {
+        "x": 7.108615426500694e-16,
+        "y": 31.39075000000011,
+        "hp": 100,
+        "facing": -1.5707963267948966,
+        "attack": 0,
+        "dash": 0,
+        "skill": 0,
+        "invulnerable": 0,
+        "dashTime": 0,
+        "dashAngle": 0,
+        "swing": 0,
+        "shield": 0,
+        "combo": 0,
+        "guard": 0,
+        "resource": 0,
+        "resonance": 0,
+        "ward": 0,
+        "lastHit": 0,
+        "travel": 3.4500000000000384,
+        "rescues": 0
+      },
+      "enemies": [
+        {
+          "id": 1,
+          "kind": "soldier",
+          "x": -3.75820877836255,
+          "y": -5.521774690873131,
+          "hp": 48,
+          "maxHp": 48,
+          "angle": 1.4693320398691267,
+          "cooldown": 23,
+          "windup": 0,
+          "target": {
+            "x": -4,
+            "y": -8
+          },
+          "pattern": 0,
+          "phase": 1,
+          "chill": 0,
+          "burn": 0,
+          "marked": 0,
+          "stun": 0,
+          "bleed": 0,
+          "poison": 0,
+          "exposed": 0,
+          "motion": 0,
+          "motionAngle": 0,
+          "stagger": 0,
+          "memory": []
+        },
+        {
+          "id": 2,
+          "kind": "soldier",
+          "x": 7.614209187226812,
+          "y": -15.540079808858463,
+          "hp": 48,
+          "maxHp": 48,
+          "angle": 1.7316380523394528,
+          "cooldown": 17,
+          "windup": 0,
+          "target": {
+            "x": 8,
+            "y": -18
+          },
+          "pattern": 0,
+          "phase": 1,
+          "chill": 0,
+          "burn": 0,
+          "marked": 0,
+          "stun": 0,
+          "bleed": 0,
+          "poison": 0,
+          "exposed": 0,
+          "motion": 0,
+          "motionAngle": 0,
+          "stagger": 0,
+          "memory": []
+        }
+      ],
+      "shots": [],
+      "hazards": [],
+      "effects": [],
+      "companions": [],
+      "obstacles": [],
+      "wave": 1,
+      "waves": 1,
+      "nextWave": 0,
+      "kills": 0,
+      "damageTaken": 0,
+      "status": "fighting",
+      "zone": 0,
+      "chapter": 0,
+      "elite": false,
+      "boss": false,
+      "bossKind": "warden",
+      "encounter": "skirmish",
+      "objective": {
+        "x": 0,
+        "y": 9,
+        "hp": 100,
+        "progress": 0,
+        "target": 0
+      }
+    },
+    "checkpoint": {
+      "tick": 0,
+      "seed": 2630631676,
+      "serial": 2,
+      "player": {
+        "x": 4.996099697971517e-16,
+        "y": 34.84075000000015,
+        "hp": 100,
+        "facing": -1.5707963267948966,
+        "attack": 0,
+        "dash": 0,
+        "skill": 0,
+        "invulnerable": 30,
+        "dashTime": 0,
+        "dashAngle": 0,
+        "swing": 0,
+        "shield": 0,
+        "combo": 0,
+        "guard": 0,
+        "resource": 0,
+        "resonance": 0,
+        "ward": 0,
+        "lastHit": 0,
+        "travel": 0,
+        "rescues": 0
+      },
+      "enemies": [
+        {
+          "id": 1,
+          "kind": "soldier",
+          "x": -4,
+          "y": -8,
+          "hp": 48,
+          "maxHp": 48,
+          "angle": 1.5707963267948966,
+          "cooldown": 53,
+          "windup": 0,
+          "target": {
+            "x": -4,
+            "y": -8
+          },
+          "pattern": 0,
+          "phase": 1,
+          "chill": 0,
+          "burn": 0,
+          "marked": 0,
+          "stun": 0,
+          "bleed": 0,
+          "poison": 0,
+          "exposed": 0,
+          "motion": 0,
+          "motionAngle": 0,
+          "stagger": 0,
+          "memory": []
+        },
+        {
+          "id": 2,
+          "kind": "soldier",
+          "x": 8,
+          "y": -18,
+          "hp": 48,
+          "maxHp": 48,
+          "angle": 1.5707963267948966,
+          "cooldown": 47,
+          "windup": 0,
+          "target": {
+            "x": 8,
+            "y": -18
+          },
+          "pattern": 0,
+          "phase": 1,
+          "chill": 0,
+          "burn": 0,
+          "marked": 0,
+          "stun": 0,
+          "bleed": 0,
+          "poison": 0,
+          "exposed": 0,
+          "motion": 0,
+          "motionAngle": 0,
+          "stagger": 0,
+          "memory": []
+        }
+      ],
+      "shots": [],
+      "hazards": [],
+      "effects": [],
+      "companions": [],
+      "obstacles": [],
+      "wave": 1,
+      "waves": 1,
+      "nextWave": 0,
+      "kills": 0,
+      "damageTaken": 0,
+      "status": "fighting",
+      "zone": 0,
+      "chapter": 0,
+      "elite": false,
+      "boss": false,
+      "bossKind": "warden",
+      "encounter": "skirmish",
+      "objective": {
+        "x": 0,
+        "y": 9,
+        "hp": 100,
+        "progress": 0,
+        "target": 0
+      }
+    },
+    "alarmTicks": 0,
+    "relationships": {
+      "sanniang": {
+        "affection": 0,
+        "highestBand": 0
+      },
+      "anian": {
+        "affection": 0,
+        "highestBand": 0
+      },
+      "kouzi": {
+        "affection": 0,
+        "highestBand": 0
+      },
+      "laobai": {
+        "affection": 0,
+        "highestBand": 0
+      }
+    },
+    "people": {
+      "sanniang": {
+        "scene": "camp",
+        "position": {
+          "x": -13,
+          "y": 12
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      },
+      "anian": {
+        "scene": "cells",
+        "position": {
+          "x": 15,
+          "y": -12
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      },
+      "kouzi": {
+        "scene": "cells",
+        "position": {
+          "x": -15,
+          "y": -12
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      },
+      "laobai": {
+        "scene": "camp",
+        "position": {
+          "x": 7,
+          "y": -39
+        },
+        "facing": 0,
+        "mode": "idle",
+        "destination": null
+      }
+    },
+    "pendingParley": null,
+    "evidence": {
+      "dispatchNoteSeen": false
+    },
+    "conversations": {
+      "sanniang": [
+        {
+          "id": "greeting-sanniang",
+          "kind": "greeting",
+          "player": "",
+          "reply": "我将拆下的绷带放到一旁，抬眼朝你轻轻一笑，伸手示意身边的座位。\n「先坐一坐。檐下不常见生面孔，身上可有哪里不舒服？路上受的凉、磕碰的小伤，都可以同我说。」",
+          "performance": {
+            "expression": "smile",
+            "gesture": "gesture"
+          },
+          "action": null,
+          "scene": "camp",
+          "facts": []
+        }
+      ],
+      "anian": [],
+      "kouzi": [],
+      "laobai": [],
+      "bajin": [],
+      "changyounian": []
+    },
+    "memories": {
+      "sanniang": null,
+      "anian": null,
+      "kouzi": null,
+      "laobai": null,
+      "bajin": null,
+      "changyounian": null
+    },
+    "knowledge": {
+      "sanniang": [
+        "briefed"
+      ],
+      "anian": [],
+      "kouzi": [],
+      "laobai": [],
+      "bajin": [],
+      "changyounian": []
+    }
+  },
+  "awards": [],
+  "purchases": [],
+  "equippedOutfit": "traveler"
+}

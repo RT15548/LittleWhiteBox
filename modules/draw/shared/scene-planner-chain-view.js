@@ -1,9 +1,10 @@
 /**
- * Read-only request-structure view shared by the SD WebUI and ComfyUI settings panels.
+ * Request-structure view shared by the SD WebUI and ComfyUI settings panels.
  * Renders the chain produced by `buildScenePlannerChainPreview`: system / user sections
- * plus the tool field table. Editable sections resolve their live text via `getEditable`.
+ * plus the tool field table. Editable sections resolve their live text via `getEditable`;
+ * tool field rows become editable textareas when `onFieldEdit` / `onFieldReset` are provided.
  */
-export function renderScenePlannerChain(container, chain, { getEditable } = {}) {
+export function renderScenePlannerChain(container, chain, { getEditable, onFieldEdit, onFieldReset } = {}) {
     container.replaceChildren();
 
     const previewText = (section) => {
@@ -94,9 +95,35 @@ export function renderScenePlannerChain(container, chain, { getEditable } = {}) 
                 fieldRow.className = 'chain-field';
                 const path = document.createElement('code');
                 path.textContent = field.path;
-                const description = document.createElement('span');
-                description.textContent = field.description;
-                fieldRow.append(path, description);
+                fieldRow.append(path);
+                // 没有编辑回调的面板（SD/NAI）保持只读展示，避免渲染一个改了没效果的输入框
+                if (typeof onFieldEdit === 'function') {
+                    const description = document.createElement('textarea');
+                    description.className = 'chain-field-desc';
+                    description.rows = 2;
+                    description.dataset.path = field.path;
+                    description.setAttribute('aria-label', field.path);
+                    description.value = field.description;
+                    description.addEventListener('input', () => onFieldEdit(field.path, description.value));
+                    fieldRow.append(description);
+                    if (typeof onFieldReset === 'function') {
+                        const reset = document.createElement('button');
+                        reset.type = 'button';
+                        reset.className = 'chain-field-reset';
+                        reset.title = '恢复内置文案';
+                        reset.setAttribute('aria-label', `${reset.title} ${field.path}`);
+                        reset.textContent = '↺';
+                        reset.addEventListener('click', (event) => {
+                            event.stopPropagation();
+                            onFieldReset(field.path);
+                        });
+                        fieldRow.appendChild(reset);
+                    }
+                } else {
+                    const description = document.createElement('span');
+                    description.textContent = field.description;
+                    fieldRow.append(description);
+                }
                 fieldList.appendChild(fieldRow);
             });
             summary.appendChild(fieldList);

@@ -3,11 +3,12 @@ import { feature as f } from './landscape-content.js';
 
 export const COURTYARD_GATE = defineLandscapeScene({
     id: 'gate', safe: false,
-    anchors: { crossroads: { x: 0, y: 32 }, beacon: { x: 0, y: -33 }, encounter: { x: 0, y: 0 }, guard: { x: -5, y: -9 }, archer: { x: 8, y: -17 }, parley: { x: 0, y: 19 }, parley_side: { x: -7, y: 19 }, guard_side: { x: -8, y: 9 }, archer_side: { x: 8, y: 9 } },
+    anchors: { crossroads: { x: 0, y: 32 }, beacon: { x: 0, y: -33 }, encounter: { x: 0, y: 0 }, guard: { x: -5, y: -9 }, archer: { x: 8, y: -17 }, parley: { x: 0, y: 19 }, parley_side: { x: -7, y: 19 }, guard_side: { x: -8, y: 9 }, archer_side: { x: 8, y: 9 },
+        archer_left: { x: -8, y: -17 }, flank: { x: 5, y: -4 }, reinforcement: { x: -16, y: 12 }, reward: { x: -8, y: 14 } },
     exits: [
         { id: 'crossroads', anchor: 'crossroads', to: 'crossroads', arrival: 'gate' },
         { id: 'beacon', anchor: 'beacon', to: 'beacon', arrival: 'gate', condition: { all: ['patrol_cleared'] } },
-    ], objects: [],
+    ], objects: [{ id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'approach' }],
     landscape: {
         vista: 'ramparts', surface: 'paving', bounds: { x: 0, z: 0, width: 72, depth: 80 }, gates: [],
         roads: [
@@ -28,8 +29,8 @@ export const COURTYARD_GATE = defineLandscapeScene({
             f('east-pillars', 'ruin', 13, -3, 6, 4, { height: 4.8 }),
             f('western-barracks', 'storehouse', -25, 2, 12, 12),
             f('eastern-barracks', 'storehouse', 25, 2, 12, 12),
-            f('left-border', 'planter', -15, 23, 4, 12),
-            f('right-border', 'planter', 15, 23, 4, 12),
+            f('awaiting-inspection', 'cargo', -15, 23, 4, 12),
+            f('cleared-consignments', 'cargo', 15, 23, 4, 12),
             f('inspection-cart', 'wagon', 25, 19, 4, 6),
             f('inspection-crates', 'supplies', 28, 25, 4, 4),
             f('barracks-tree', 'tree', -27, 26, 4, 4, { height: 9, tint: 'amber' }),
@@ -39,11 +40,12 @@ export const COURTYARD_GATE = defineLandscapeScene({
 
 export const COURTYARD_BEACON = defineLandscapeScene({
     id: 'beacon', safe: false,
-    anchors: { gate: { x: 0, y: 35 }, hall: { x: 0, y: -35 }, beacon: { x: 0, y: 0 }, encounter: { x: 0, y: 9 }, guard: { x: -9, y: -13 }, archer: { x: 12, y: -13 }, parley: { x: 0, y: 28 }, parley_side: { x: -8, y: 28 }, guard_side: { x: -14, y: 2 }, archer_side: { x: 14, y: 2 } },
+    anchors: { gate: { x: 0, y: 35 }, hall: { x: 0, y: -35 }, beacon: { x: 0, y: 0 }, encounter: { x: 0, y: 9 }, guard: { x: -9, y: -13 }, archer: { x: 12, y: -13 }, parley: { x: 0, y: 28 }, parley_side: { x: -8, y: 28 }, guard_side: { x: -14, y: 2 }, archer_side: { x: 14, y: 2 },
+        bomber: { x: -12, y: -20 }, reinforcementLeft: { x: -8, y: -24 }, reinforcementRight: { x: 8, y: -24 }, reward: { x: 10, y: 6 }, signal: { x: 6, y: -5 } },
     exits: [
         { id: 'gate', anchor: 'gate', to: 'gate', arrival: 'beacon' },
         { id: 'hall', anchor: 'hall', to: 'hall', arrival: 'beacon', condition: { all: ['alarm_silenced'] } },
-    ], objects: [],
+    ], objects: [{ id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'passage' }],
     landscape: {
         vista: 'ramparts', surface: 'paving', bounds: { x: 0, z: 0, width: 72, depth: 84 }, gates: [],
         roads: [
@@ -63,8 +65,8 @@ export const COURTYARD_BEACON = defineLandscapeScene({
             f('hall-tower-west', 'tower', -10, -30, 8, 8, { height: 16 }),
             f('hall-tower-east', 'tower', 10, -30, 8, 8, { height: 16 }),
             f('hall-arch', 'arch', 0, -30, 12, 4, { height: 12 }),
-            f('west-garden', 'planter', -27, 19, 8, 22),
-            f('east-garden', 'planter', 27, 19, 8, 22),
+            f('signal-fuel', 'fuel', -27, 19, 8, 22),
+            f('signal-reserve', 'cargo', 27, 19, 8, 22),
             f('west-copper-store', 'supplies', -26, -23, 6, 6),
             f('east-copper-store', 'supplies', 26, -23, 6, 6),
         ],

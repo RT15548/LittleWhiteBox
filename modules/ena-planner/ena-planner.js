@@ -15,6 +15,7 @@ import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.
 import { migratePlannerPromptConfig } from './ena-planner-prompt-migration.js';
 import { buildPlannerTurnMessages } from './ena-planner-messages.js';
 import { createEnaPlannerSendInterceptor } from './ena-planner-interceptor.js';
+import { assertPlannerApiUrlConfigured } from './ena-planner-api-config.js';
 import {
     createAbortError,
     mergeAbortSignals,
@@ -38,7 +39,6 @@ const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
 const HTML_PATH = `${extensionFolderPath}/modules/ena-planner/ena-planner.html`;
 const PLANNER_REQUEST_TIMEOUT_MS = 180000;
 const SLOW_PLANNING_NOTICE_DELAY_MS = 3000;
-const PLANNER_API_URL_MISSING_MESSAGE = '剧情规划未配置 API URL';
 
 /**
  * -------------------------
@@ -1026,7 +1026,6 @@ function filterPlannerPreview(rawPartial) {
  */
 async function callPlanner(messages, options = {}) {
     const s = ensureSettings();
-    if (!s.api.baseUrl) throw new Error(PLANNER_API_URL_MISSING_MESSAGE);
     if (!s.api.apiKey) throw new Error('未配置 API KEY');
     if (!s.api.model) throw new Error('未选择模型');
     setHostRequestHeaders();
@@ -1262,6 +1261,7 @@ async function runPlanningOnce(rawUserInput, silent = false, options = {}) {
     };
 
     try {
+        assertPlannerApiUrlConfigured(s);
         const { messages } = await buildPlannerMessages(rawUserInput, {
             signal: options.signal,
             storyMemoryText: options.storyMemoryText,

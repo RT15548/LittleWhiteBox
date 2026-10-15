@@ -16,7 +16,7 @@ import { createImageCardRedrawProvider } from './image-card-redraw-provider.js';
 import { acquireFloorImageJob, releaseFloorImageJob } from './floor-image-job.js';
 import { createSerialImageRequestQueue } from './serial-image-request-queue.js';
 import { persistCardTagEdits } from './card-tag-editor.js';
-import { redrawImageCard, removeChatImageSlot, restoreImageCard } from './image-card-actions.js';
+import { redrawImageCard, retryFloorFailedImageCards, removeChatImageSlot, restoreImageCard } from './image-card-actions.js';
 import * as jobs from './pending-image-jobs.js';
 import { startImageJobRecovery, stopImageJobRecovery, reconcilePendingImageJobs } from './image-job-recovery-runtime.js';
 import { compileNovelPromptForTask } from '../providers/novelai/compiler.js';
@@ -110,6 +110,7 @@ document.addEventListener('click',async event=>{
             card.querySelector('.xb-nd-edit').style.display='none';
         }
         if(['refresh-image','retry-image','save-tags-retry'].includes(action)||(action==='nav-next'&&Number(card.dataset.currentIndex)===0))await redrawImageCard(provider,card);
+        if(action==='retry-floor-failed')await retryFloorFailedImageCards(provider,card);
         if(action==='remove-placeholder'){if(confirm('移除此图位？'))await removeChatImageSlot(card);}
         if(action==='restore-image')await restoreImageCard(card);
         if(action==='nav-prev'||(action==='nav-next'&&Number(card.dataset.currentIndex)>0)){

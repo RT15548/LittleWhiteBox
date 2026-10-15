@@ -25,7 +25,8 @@ import {
 } from './slash-command-policy.js';
 import { createSessionStore } from './state/session-store.js';
 import { createAttachmentsManager } from './attachments.js';
-import { renderAppChrome, renderContextHint } from './ui/app-chrome.js';
+import { renderAppChrome, renderContextHint, resolveWorkspaceWidth } from './ui/app-chrome.js';
+import { bindContextMeter, renderContextMeter } from './ui/context-meter.js';
 import { buildAppMarkup as buildAssistantAppMarkup } from './ui/app-shell.js';
 import { createChatUi } from './ui/chat-ui.js';
 import { createSettingsPanel } from './ui/settings-panel.js';
@@ -33,6 +34,7 @@ import { syncAgentSettingsPanelFeedback } from '../../agent-core/ui/settings-mar
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 import { createLocalSourcesManager } from './workspace/local-sources.js';
 import { buildWorkspaceTree } from './workspace/local-workspace-tree.js';
+import { WORKSPACE_COPY } from './workspace/workspace-copy.js';
 import {
     destroyWorkspaceEditorCache,
     renderWorkspace as renderWorkspaceUi,
@@ -544,13 +546,6 @@ async function saveSkillFile(targetPath = '') {
     }
 }
 
-function getWorkspacePanelModes() {
-    return [
-        { key: 'workspace', label: '工作区' },
-        { key: 'memory', label: '记忆区' },
-    ];
-}
-
 function renderWorkspacePanel(container, options = {}) {
     if (state.workspacePanelMode === 'memory') {
         ensureSkillSelection({ fallbackToFirst: false });
@@ -578,15 +573,10 @@ function renderWorkspacePanel(container, options = {}) {
             summary,
             workspaceTree,
             selectedMatch,
-            panelModes: getWorkspacePanelModes(),
             activePanelMode: 'memory',
-            navTitle: '记忆区',
             hideNavActions: true,
             hideTreeActions: true,
-            emptyTreeText: summary.fileCount ? '当前筛选下没有记忆文件' : '还没有记忆文件',
-            emptyViewerTitle: '还没有选中记忆文件',
-            emptyViewerDescription: '从左侧记忆树里点一个文件，我会在这里显示并允许编辑正文。',
-            viewerMetaLabel: '记忆区',
+            emptyTreeText: summary.fileCount ? WORKSPACE_COPY.emptyFilter : WORKSPACE_COPY.emptyMemory,
             workspaceState: {
                 selectedSourceId: 'all',
                 selectedFilePath: state.selectedSkillFilePath,
@@ -674,9 +664,7 @@ function renderWorkspacePanel(container, options = {}) {
         summary,
         workspaceTree,
         selectedMatch,
-        panelModes: getWorkspacePanelModes(),
         activePanelMode: 'workspace',
-        navTitle: '文件工作区',
         workspaceState: {
             selectedSourceId: 'all',
             selectedFilePath: state.selectedFilePath,
@@ -1167,8 +1155,7 @@ function getEnabledToolDefinitions(options = {}) {
 
 const chatUi = createChatUi({
     state,
-    toolNames: TOOL_NAMES,
-    formatToolResultDisplay,
+    getToolActivity: call => runtime.getToolActivity(call),
     normalizeThoughtBlocks,
     normalizeAttachments,
     renderAttachmentGallery,
@@ -1400,7 +1387,7 @@ const runtime = createAssistantRuntime({
     pendingToolCalls,
     pendingApprovals,
     persistSession,
-    render,
+    render: renderActivity,
     showToast,
     post,
     createRequestId,
@@ -1563,10 +1550,16 @@ function buildSanitizedHtmlFragment(html) {
     return fragment;
 }
 
+function renderCurrentContextMeter(root = document.getElementById(ROOT_ID)) {
+    if (!root?.firstChild) return;
+    renderContextMeter(root, state, { summaryTriggerTokens: SUMMARY_TRIGGER_TOKENS, buildContextMeterLabel });
+}
+
 function runContextStatsUpdateForRender() {
     contextStatsRenderTimer = null;
     lastContextStatsRenderAt = Date.now();
     updateContextStats(toProviderMessages(getActiveContextMessages()));
+    renderCurrentContextMeter();
 }
 
 function scheduleContextStatsUpdateForRender() {
@@ -1588,6 +1581,15 @@ function scheduleContextStatsUpdateForRender() {
     }
 }
 
+function renderActivity() {
+    const root = document.getElementById(ROOT_ID);
+    if (!root?.firstChild) return;
+    renderMessages(root.querySelector('#xb-assistant-chat'));
+    renderApprovalPanel(root.querySelector('#xb-assistant-approval-slot'));
+    updateChatScrollButtonsVisibility(root);
+    renderCurrentContextMeter(root);
+}
+
 function render() {
     const root = document.getElementById(ROOT_ID);
     if (!root) {
@@ -1604,18 +1606,9 @@ function render() {
     }
     scheduleContextStatsUpdateForRender();
     ensureWorkspaceSelection();
-    const chat = root.querySelector('#xb-assistant-chat');
-    const approvalSlot = root.querySelector('#xb-assistant-approval-slot');
-    renderMessages(chat);
-    renderApprovalPanel(approvalSlot);
-    if (state.autoScroll) {
-        scrollChatToBottom(chat);
-    }
-    updateChatScrollButtonsVisibility(root);
+    renderActivity();
     renderAppChrome(root, state, {
         maxImageAttachments: MAX_IMAGE_ATTACHMENTS,
-        maxContextTokens: MAX_CONTEXT_TOKENS,
-        buildContextMeterLabel,
         getWorkspaceSummary,
         renderAttachmentGallery,
         renderWorkspace: renderWorkspacePanelWhenOpen,
@@ -1640,6 +1633,7 @@ function render() {
 }
 
 function bindEvents(root) {
+    bindContextMeter(root);
     const input = root.querySelector('#xb-assistant-input');
     const imageInput = root.querySelector('#xb-assistant-image-input');
     const localFileInput = root.querySelector('#xb-assistant-local-file-input');
@@ -1732,26 +1726,13 @@ function bindEvents(root) {
     };
     const resizeComposer = () => {
         input.style.height = 'auto';
-        input.style.height = `${Math.min(Math.max(input.scrollHeight, 60), 200)}px`;
-    };
-    const resolveWorkspaceWidth = (width) => {
-        const minWorkspaceWidth = 360;
-        const minConversationWidth = 120;
-        const layoutGap = 16;
-        const requestedWidth = Math.round(Number(width) || 520);
-        const mainBody = root.querySelector('.xb-assistant-main-body');
-        if (!mainBody) {
-            return Math.max(minWorkspaceWidth, Math.min(960, requestedWidth));
-        }
-        const maxWorkspaceWidth = Math.max(
-            minWorkspaceWidth,
-            Math.round(mainBody.clientWidth - minConversationWidth - layoutGap),
-        );
-        return Math.max(minWorkspaceWidth, Math.min(maxWorkspaceWidth, requestedWidth));
+        const style = getComputedStyle(input);
+        const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+        input.style.height = `${input.scrollHeight + borders}px`;
     };
     const applyWorkspaceWidthPreview = (width) => {
-        const normalizedWidth = resolveWorkspaceWidth(width);
         const mainBody = root.querySelector('.xb-assistant-main-body');
+        const normalizedWidth = resolveWorkspaceWidth(mainBody, width);
         const workspaceShell = root.querySelector('#xb-assistant-workspace');
         mainBody?.style.setProperty('--xb-assistant-workspace-width', `${normalizedWidth}px`);
         workspaceShell?.style.setProperty('--xb-assistant-workspace-width', `${normalizedWidth}px`);
@@ -2098,12 +2079,15 @@ function bindEvents(root) {
     input.addEventListener('input', resizeComposer);
     selectionDocument.addEventListener('selectionchange', updateWorkspaceSelectionContextFromDom);
 
-    input.addEventListener('keydown', (event) => {
+    root.querySelector('#xb-assistant-form').addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && state.composeMenuOpen) {
             event.preventDefault();
             closeComposeMenu();
-            return;
+            composeMenuToggle.focus();
         }
+    });
+
+    input.addEventListener('keydown', (event) => {
         const sendOnEnter = !isAssistantMobile();
         if (!event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Enter' && sendOnEnter) {
             event.preventDefault();

@@ -16,8 +16,6 @@ const shims = {
 const bundle = await build({
     stdin: { resolveDir: root, contents: `
         export * from './modules/story-summary/vector/embedding-connection.js';
-        export { clearEmbeddingFailureNotice } from './modules/story-summary/user-feedback.js';
-        export { clearWarningCooldowns } from './modules/story-summary/vector/runtime/maintenance-coordinator.js';
     ` },
     bundle: true, write: false, format: 'esm', platform: 'node',
     plugins: [{ name: 'connection-host-boundaries', setup(api) {
@@ -34,16 +32,14 @@ const original = { fetch: globalThis.fetch, toastr: globalThis.toastr, warn: con
 const apiConfig = () => ({ provider: 'custom', url: 'https://embedding.invalid/v1', key: 'fixture-key', model: 'fixture-model' });
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 let connection;
-const automatic = () => connection.warmup({ isCurrent: () => host.current, warningCooldownMs: 120000 });
+const automatic = () => connection.warmup({ isCurrent: () => host.current });
 const manual = api => connection.test({ apiConfig: api || host.config.embeddingApi, isCurrent: () => host.current });
 
 beforeEach(() => {
     connection?.cancel();
-    mod.clearEmbeddingFailureNotice();
-    mod.clearWarningCooldowns();
     Object.assign(host, {
         config: { enabled: true, embeddingApi: apiConfig() }, current: true,
-        requests: [], notices: [], logs: [], errors: [], steps: [],
+        requests: [], notices: [], logs: [], errors: [], steps: [], states: [],
         async read(assertCurrent) { assertCurrent(); return { vector: host.config }; },
         async prepare() {},
     });
@@ -51,6 +47,7 @@ beforeEach(() => {
         async synchronizeConfig(assertCurrent) { host.steps.push('configuration'); return host.read(assertCurrent); },
         async prepareRuntime(assertCurrent) { host.steps.push('runtime'); return host.prepare(assertCurrent); },
         getVectorConfig: () => host.config,
+        onStatus: state => host.states.push(state),
     });
     console.warn = (...args) => host.errors.push(args);
     globalThis.toastr = { warning: (...args) => { host.notices.push(args); return { finish() {} }; }, clear() {} };
@@ -63,7 +60,6 @@ beforeEach(() => {
 
 after(() => {
     connection.cancel();
-    mod.clearEmbeddingFailureNotice();
     globalThis.fetch = original.fetch;
     if (original.toastr === undefined) delete globalThis.toastr;
     else globalThis.toastr = original.toastr;
@@ -91,10 +87,18 @@ test('automatic and manual probes use the same ordered workflow, request and dea
 test('a manual draft is tested without installing it as the running configuration', async () => {
     const before = structuredClone(host.config);
     const draft = { ...apiConfig(), key: 'draft-key', model: 'draft-model' };
-    await manual(draft);
+    let finish;
+    host.prepare = () => new Promise(resolve => { finish = resolve; });
+    const pending = manual(draft);
+    await flush();
+    assert.equal(connection.getStatus().status, 'downloading'); // Panel refresh must not unlock a running draft test.
+    finish();
+    await pending;
     assert.equal(host.requests[0].headers.Authorization, 'Bearer draft-key');
     assert.equal(host.requests[0].body.model, draft.model);
     assert.deepEqual(host.config, before);
+    assert.equal(connection.getStatus().status, 'idle'); // A draft test is not proof about saved settings.
+    host.prepare = async () => {};
     await automatic();
     assert.equal(host.requests[1].body.model, before.embeddingApi.model);
 });
@@ -116,7 +120,9 @@ for (const [stage, key] of [['configuration', 'read'], ['runtime', 'prepare']]) 
         await automatic();
         assert.equal(calls, 1);
         assert.equal(host.requests.length, 0);
-        assert.equal(host.notices.length, 1);
+        assert.equal(host.notices.length, 0);
+        assert.equal(connection.getStatus().status, 'error');
+        assert.equal(connection.getStatus().stage, stage);
         assert.equal(host.errors[0][1].stage, stage);
         assert.equal(host.errors[0][1].cause, failure);
         await assert.rejects(manual(), error => error.stage === stage && error.cause === failure);
@@ -130,6 +136,7 @@ test('a later initialization can recover from a failed configuration read', asyn
     host.read = read;
     assert.equal((await automatic()).success, true);
     assert.equal(host.requests.length, 1);
+    assert.equal(connection.getStatus().status, 'success');
 });
 
 test('network failure keeps its original cause and repeated failures do not stack notices', async () => {
@@ -138,7 +145,8 @@ test('network failure keeps its original cause and repeated failures do not stac
     globalThis.fetch = async () => { requests++; throw failure; };
     await automatic(); await automatic();
     assert.equal(requests, 2);
-    assert.equal(host.notices.length, 1);
+    assert.equal(host.notices.length, 0);
+    assert.equal(connection.getStatus().status, 'error');
     assert.equal(host.logs.length, 2);
     assert.equal(host.errors[0][1].cause.cause.cause, failure);
 });
@@ -155,7 +163,8 @@ test('a real probe deadline is reported without a second automatic request', asy
     t.mock.timers.runAll();
     await pending;
     assert.equal(requests, 1);
-    assert.equal(host.notices.length, 1);
+    assert.equal(host.notices.length, 0);
+    assert.equal(connection.getStatus().status, 'error');
     assert.equal(host.errors[0][1].cause.cause.embeddingFailure.kind, 'timeout');
 });
 
@@ -165,6 +174,7 @@ test('chat changes during configuration loading prevent applying stale state or 
     assert.deepEqual(host.steps, ['configuration']);
     assert.equal(host.requests.length, 0);
     assert.equal(host.notices.length, 0);
+    assert.equal(connection.getStatus().status, 'idle');
 });
 
 test('a configuration change during preparation prevents a stale request', async () => {

@@ -3,13 +3,25 @@ import { feature as f } from './landscape-content.js';
 
 export const COURTYARD_WATERWAY = defineLandscapeScene({
     id: 'waterway', safe: false,
-    anchors: { crossroads: { x: -21, y: -35 }, cells: { x: 20, y: 35 }, sluice: { x: -9, y: 8 }, encounter: { x: 4, y: 4 }, guard: { x: 10, y: -5 } },
+    anchors: { crossroads: { x: -21, y: -35 }, cells: { x: 20, y: 35 }, sluice: { x: -9, y: 8 }, encounter: { x: 0, y: 5 }, guard: { x: 4, y: 5 },
+        approach: { x: -8, y: -24 }, front_left: { x: -8, y: -18 }, front_right: { x: -4, y: -12 }, front_archer: { x: 4, y: -12 },
+        front_guard: { x: 2, y: -12 }, front_bomber: { x: 9, y: -10 }, front_flank: { x: -7, y: -11 },
+        reinforcementLeft: { x: -8, y: 10 }, reinforcementRight: { x: 8, y: 10 },
+        approach_reward: { x: -7, y: -9 }, rest: { x: -7, y: -6 }, reward: { x: 8, y: 9 } },
     exits: [
         { id: 'crossroads', anchor: 'crossroads', to: 'crossroads', arrival: 'waterway' },
         { id: 'cells', anchor: 'cells', to: 'cells', arrival: 'waterway', condition: { all: ['waterway_cleared'] } },
-    ], objects: [{ id: 'sluice', anchor: 'sluice', kind: 'switch', fact: 'sluice_opened' }],
+    ], objects: [{ id: 'sluice', anchor: 'sluice', kind: 'switch', fact: 'sluice_opened' },
+        { id: 'approach_cache', anchor: 'approach_reward', kind: 'reward', node: 'approach' },
+        { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'passage' },
+        { id: 'rest', anchor: 'rest', kind: 'rest' }],
     landscape: {
         vista: 'interior', surface: 'wet', bounds: { x: 0, z: 0, width: 64, depth: 88 },
+        suspended: [
+            { kind: 'pipe', from: [-28.5, 4.3, -41], to: [-28.5, 4.3, 16] },
+            { kind: 'pipe', from: [-28.5, 4.3, -18], to: [29, 4.3, -18] },
+            { kind: 'pipe', from: [29, 4.3, -18], to: [29, 4.3, 41] },
+        ],
         gates: [{ id: 'sluice', footprint: { x: 0, z: 16, width: 12, depth: 4 }, condition: { all: ['sluice_opened'] } }],
         roads: [{ points: [[-21, -35], [-10, -32], [-10, -12], [3, 0], [0, 16], [14, 28], [20, 35]], width: 5 }],
         features: [
@@ -40,6 +52,7 @@ export const COURTYARD_CELLS = defineLandscapeScene({
     anchors: {
         waterway: { x: -21, y: 21 }, hall: { x: 0, y: -3 }, postern: { x: 23, y: 33 }, latch: { x: 20, y: 16 },
         release: { x: -3, y: 5 }, kouzi: { x: -15, y: -12 }, anian: { x: 15, y: -12 },
+        reward: { x: 4, y: 8 }, rest: { x: 8, y: 6 },
         kouzi_talk: { x: -15, y: -8 }, anian_talk: { x: 15, y: -8 },
     },
     exits: [
@@ -48,6 +61,8 @@ export const COURTYARD_CELLS = defineLandscapeScene({
         { id: 'postern', anchor: 'postern', to: 'camp', arrival: 'postern', condition: { all: ['postern_opened'] } },
     ],
     objects: [
+        { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'cells' },
+        { id: 'rest', anchor: 'rest', kind: 'rest' },
         { id: 'release', anchor: 'release', kind: 'switch', fact: 'captives_released' },
         { id: 'postern_latch', anchor: 'latch', kind: 'switch', fact: 'postern_opened' },
     ],
@@ -78,7 +93,7 @@ export const COURTYARD_CELLS = defineLandscapeScene({
             f('east-bunk', 'bunk', 26, -24, 4, 8),
             f('west-cell-bench', 'bench', -8, -30, 2, 4),
             f('east-cell-bench', 'bench', 8, -30, 2, 4),
-            f('guard-desk', 'supplies', 3, 12, 4, 4),
+            f('guard-desk', 'ledger', 3, 12, 4, 4),
             f('hall-pier-west', 'column', -7, -4, 2, 2, { height: 7 }),
             f('hall-pier-east', 'column', 7, -4, 2, 2, { height: 7 }),
         ],

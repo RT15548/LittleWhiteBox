@@ -8,7 +8,6 @@ export const RECALL_TIMEOUT_REASONS = Object.freeze({
 });
 
 const CANCELLATION_REASONS = Object.freeze({
-    'message-edited': 'edited', 'history-changed': 'edited',
     'vector-config-changed': 'configuration', 'recall-config-reloaded': 'configuration',
     'recall-config-changed': 'configuration', 'evidence-visibility-changed': 'configuration',
     'character-aliases-edited': 'configuration',

@@ -1,7 +1,6 @@
 import { SERVER_PLUGIN_ID } from '../../../shared/server-plugin/identity.js';
 
 export const DRAW_BACKEND_COPY = Object.freeze({
-    requirement: `需安装 ${SERVER_PLUGIN_ID}。`,
     checking: `正在检测 ${SERVER_PLUGIN_ID}…`,
 });
 

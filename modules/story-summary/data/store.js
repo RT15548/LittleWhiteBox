@@ -23,10 +23,10 @@ import { upgradeSummaryHistory, createSummaryBatch } from './summary-history.js'
 export { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { maintenanceImpact, sameMemory, restoreMaintenance } from '../maintenance/domain.js';
-import { deleteStateVectorsByIds, deleteStateVectorsFromFloor } from '../vector/storage/state-store.js';
-import { readSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
+import { deleteStateVectorsByIds, deleteStateVectorsFromFloor, deleteStateVectorsAtFloors } from '../vector/storage/state-store.js';
+import { readSummaryMemory, getPublishedSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
     getRuntimeInvalidSourceFloor, noteInvalidMemorySource } from './memory-commit.js';
-import { invalidateMemoryAnchors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
+import { invalidateMemoryAnchors, invalidateMemoryAnchorsAtFloors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
@@ -291,6 +291,11 @@ export function getSummaryStore() {
     }
 
     return store;
+}
+
+export function getPublishedSummaryStore() {
+    if (!getSummaryStore()) return null;
+    return getPublishedSummaryMemory().storySummary;
 }
 
 export function addSummarySnapshot(store, previousEndMesId, endMesId, undo, policy) {
@@ -568,7 +573,7 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 删除时有效原文前缀由聊天长度决定；swipe 则从被替换楼层起失效。
-export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalidateFromFloor = null } = {}) {
+export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalidateFromFloor = null, invalidateFloors = null, invalidateSourceCache = null } = {}) {
     const { chat, chatId } = getContext();
     const currentLength = Array.isArray(chat) ? chat.length : 0;
     let validPrefixLength = Number.isInteger(changedFromFloor) && changedFromFloor >= 0
@@ -579,10 +584,16 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
     assertMemoryWritable(chatId);
     const previous = readSummaryMemory();
     // Retire before undo, including operations whose anchors were already deleted by the Agent.
-    const invalidFrom = Math.min(validPrefixLength, invalidateFromFloor ?? changedFromFloor ?? currentLength);
-    let { next } = invalidateMemoryAnchors(previous, invalidFrom);
-    const invalidate = () => deleteStateVectorsFromFloor(chatId, invalidFrom);
-    if (!store || !isSummaryRollbackRequired(store, validPrefixLength)) {
+    const rollbackRequired = store && isSummaryRollbackRequired(store, validPrefixLength);
+    const localEdit = invalidateFloors !== null && validPrefixLength === currentLength && changedFromFloor === null && !rollbackRequired;
+    const invalidFrom = Math.min(validPrefixLength, invalidateFromFloor ?? changedFromFloor ?? currentLength, ...(invalidateFloors || []));
+    let { next } = localEdit ? invalidateMemoryAnchorsAtFloors(previous, invalidateFloors) : invalidateMemoryAnchors(previous, invalidFrom);
+    const invalidate = async () => {
+        if (localEdit) await deleteStateVectorsAtFloors(chatId, invalidateFloors);
+        else await deleteStateVectorsFromFloor(chatId, invalidFrom);
+        await invalidateSourceCache?.();
+    };
+    if (!rollbackRequired) {
         if (Object.hasOwn(next.storySummary, 'sourceInvalidFromFloor')) {
             const storySummary = { ...next.storySummary };
             delete storySummary.sourceInvalidFromFloor;
@@ -604,9 +615,9 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
             }
             throw error;
         }
-        return store?.summaryInvalid ? { status: 'failed', reason: 'history_discontinuous' }
-            : store?.sourceInvalidFromFloor != null ? { status: 'failed', reason: 'source_boundary_invalid' }
-                : { status: 'not_needed' };
+        // L0/L1 cleanup succeeded without an L2 undo. L2 history validity is
+        // checked by its own consumers, not by the raw-source maintenance gate.
+        return { status: 'not_needed' };
     }
     noteInvalidMemorySource(validPrefixLength);
     // Real L2 undo mutates its draft; never let it change the detached baseline.
@@ -767,8 +778,7 @@ export async function clearSummaryData(chatId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getFacts() {
-    const store = getSummaryStore();
-    if (!isSummaryConsumable(store, getContext().chat?.length || 0)) return [];
+    const store = getPublishedSummaryStore();
     return (store?.json?.facts || []).filter(f => !f.retracted);
 }
 

@@ -1,4 +1,5 @@
 import { createAbortError } from '../../shared/common/abort-utils.js';
+import { assertPlannerApiUrlConfigured } from './ena-planner-api-config.js';
 
 function appendPlan(baseText, planText) {
     const base = String(baseText ?? '').trimEnd();
@@ -146,6 +147,7 @@ export function createEnaPlannerSendInterceptor({
         activeRun = run;
 
         try {
+            assertPlannerApiUrlConfigured(getSettings());
             try {
                 run.cancelNotice = scheduleNotice();
             } catch {

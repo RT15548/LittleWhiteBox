@@ -19,7 +19,9 @@ function formatDanbooruTag(tag, options = {}) {
 
 export function buildKnownCharacterPrompt(character = {}, options = {}) {
     const danbooruTag = character.danbooruTag ? formatDanbooruTag(character.danbooruTag, options) : '';
-    return joinTags(danbooruTag, toSceneCharacterPromptTag(character.type), character.appearance);
+    // [K2] type 提到最前：type 是角色的自然语言身份短句（K2 下可携带画面方位），应当作为角色提示词的开头。
+    // 上游同步时注意保留此顺序调整。
+    return joinTags(toSceneCharacterPromptTag(character.type), danbooruTag, character.appearance);
 }
 
 function normalizeCharacterCenter(center, { acceptGrid = true } = {}) {
@@ -43,10 +45,14 @@ export function assembleCharacterPrompts(sceneCharacters = [], knownCharacters =
         const known = findEnabledCharacterByName(character?.name, knownCharacters);
         const center = normalizeCharacterCenter(character?.center, options);
         if (known) {
+            // [K2] 场景 type（可携带方位）非空时打头并顶替库 type；为空（原生合同会清空已录入
+            // 角色的场景 type）时回落 buildKnownCharacterPrompt 内的库 type，原生行为不变。
+            const sceneType = toSceneCharacterPromptTag(character?.type);
             return {
                 name: known.name || character.name,
                 prompt: joinTags(
-                    buildKnownCharacterPrompt(known, options),
+                    sceneType,
+                    buildKnownCharacterPrompt(sceneType ? { ...known, type: '' } : known, options),
                     character.costume,
                     character.action,
                     character.interact,
@@ -61,9 +67,10 @@ export function assembleCharacterPrompts(sceneCharacters = [], knownCharacters =
             : '';
         return {
             name: character?.name,
+            // [K2] type 提到最前
             prompt: joinTags(
-                danbooruTag,
                 toSceneCharacterPromptTag(character?.type),
+                danbooruTag,
                 character?.appear,
                 character?.costume,
                 character?.action,

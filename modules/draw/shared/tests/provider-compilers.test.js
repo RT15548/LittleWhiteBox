@@ -276,3 +276,27 @@ test('NovelAI compiler preserves relative URLs for browser-direct delivery', () 
 
     assert.equal(compiled.items[0].request.url, '/novelai-proxy/ai/generate-image');
 });
+
+test('filtering known characters to enabled ones does not change any provider prompt', async () => {
+    const { selectEnabledCharacters } = await import('../character-library.js');
+    const everyone = [
+        { id: 'd1', enabled: false, name: '阿璃', type: 'boy', appearance: 'disabled twin', aliases: ['小璃'] },
+        { id: 'e1', enabled: true, name: '阿璃', type: 'girl', danbooruTag: 'ali_(original)', appearance: 'silver hair', negativeTags: 'wrong hair' },
+        { id: 'd2', enabled: false, name: '停用者', type: 'girl', appearance: 'must not leak' },
+    ];
+    const task = {
+        scene: 'solo',
+        chars: [
+            { name: '阿璃', action: 'smile', costume: 'white dress', center: { x: 0.5, y: 0.5 } },
+            { name: '小璃', type: 'girl', appear: 'brown hair', action: 'wave', center: { x: 0.5, y: 0.5 } },
+            { name: '停用者', type: 'girl', appear: 'llm written', action: 'stand', center: { x: 0.5, y: 0.5 } },
+        ],
+    };
+    for (const compile of [compileNovelPromptForTask, compileSdPromptForTask, compileComfyPromptForTask]) {
+        const withAll = compile(task, { positivePrefix: 'q', negativePrefix: 'n', knownCharacters: everyone });
+        const withEnabled = compile(task, {
+            positivePrefix: 'q', negativePrefix: 'n', knownCharacters: selectEnabledCharacters({ characters: everyone, groups: [] }),
+        });
+        assert.deepEqual(withEnabled, withAll);
+    }
+});

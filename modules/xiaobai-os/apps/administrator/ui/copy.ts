@@ -2,6 +2,7 @@ import { ADMINISTRATOR_APP_DESCRIPTOR } from '../descriptor.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 export const ADMINISTRATOR_COPY = Object.freeze({
     webSearch: '搜索网页', webFetch: '读取网页',
+    sourcePackage: 'OS 源码（只读）', sourceList: '浏览源码目录', sourceGlob: '查找源码文件', sourceGrep: '搜索源码内容', sourceRead: '读取源码',
     title: ADMINISTRATOR_APP_DESCRIPTOR.name, context: '上下文用量', clear: '清空聊天', clearTitle: '清空管理员聊天？',
     clearWarning: '聊天和附件会被删除，已完成的管理修改不会撤销。', cancel: '取消', delete: '删除', regenerate: '重新生成',
     send: '发送', stop: '停止', attach: '选择图片', removeImage: '移除图片', placeholder: '说说需要处理的事…',

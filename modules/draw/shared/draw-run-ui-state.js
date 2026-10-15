@@ -1,5 +1,5 @@
 import { matchesDrawRunActivityTarget } from './draw-run-activity.js';
-import { DRAW_CAPSULE_COPY } from './draw-capsule-copy.js';
+import { DRAW_CAPSULE_COPY, formatPlannerRetryProgress } from './draw-capsule-copy.js';
 
 const DRAW_RUN_UI_STATES = new Set(['submitting', 'accepted', 'uncertain', 'cancelling']);
 const DRAW_RUN_COMPLETION_TARGET_STATES = new Set(['idle', 'accepted', 'uncertain', 'cancelling']);
@@ -20,12 +20,15 @@ function getDrawRunProgressStage(detail) {
 }
 
 export function getDrawRunProgressIcon(detail = {}) {
-    return getDrawRunProgressPhase(detail) === 'analysis' ? '⏳' : '🎨';
+    const phase = getDrawRunProgressPhase(detail);
+    return phase === 'analysis' || phase === 'retry' ? '⏳' : '🎨';
 }
 
 export function getDrawRunProgressPhase(detail = {}) {
     const stage = getDrawRunProgressStage(detail);
     if (stage === 'queued') return 'queued';
+    // 重试包括退避和随后实际执行的规划请求；底层 request / parse 阶段不覆盖轮次信息。
+    if (stage === 'retry' || (ANALYSIS_STAGES.has(stage) && (detail.retry ?? detail.run?.progress?.retry))) return 'retry';
     if (ANALYSIS_STAGES.has(stage)) return 'analysis';
     if (REATTACH_STAGES.has(stage)) return 'reattaching';
     if (stage === 'compiling') return 'preparing';
@@ -36,6 +39,10 @@ export function getDrawRunProgressPhase(detail = {}) {
 
 export function formatDrawRunProgress(detail = {}) {
     const phase = getDrawRunProgressPhase(detail);
+    if (phase === 'retry') {
+        const retry = detail.retry ?? detail.run?.progress?.retry;
+        return formatPlannerRetryProgress(retry?.current, retry?.total);
+    }
     if (phase !== 'generating') return DRAW_CAPSULE_COPY[phase];
     const current = Number(detail.current);
     const total = Number(detail.total);

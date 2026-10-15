@@ -30,9 +30,9 @@ globalThis.fetch = async input => {
 // query construction and cache lifecycle are the actual production modules.
 const shims = {
     'extensions.js': 'export const getContext=()=>globalThis.__lexicalTestHost.context;',
-    'store.js': 'export const getSummaryStore=()=>globalThis.__lexicalTestHost.store;',
+    'store.js': 'export const getPublishedSummaryStore=()=>globalThis.__lexicalTestHost.store;',
     'chunk-store.js': 'export const getAllChunks=()=>globalThis.__lexicalTestHost.readChunks();',
-    'state-store.js': 'export const getStateAtoms=()=>globalThis.__lexicalTestHost.atoms;',
+    'state-store.js': 'export const getPublishedStateAtoms=()=>globalThis.__lexicalTestHost.atoms;',
     'config.js': 'export const getTextFilterRules=()=>globalThis.__lexicalTestHost.filterRules || [];',
     'debug-core.js': 'export const xbLog={info(){},warn(){},error(){},debug(){},isEnabled(){return false;}};',
     'embedder.js': 'export const getEngineFingerprint=()=>"test"; export const embed=async texts=>texts.map(()=>[1,0]);',
@@ -366,6 +366,43 @@ test('writes and removals during the initial build are included before it is pub
     assert.deepEqual(mod.searchLexicalIndex(await mod.getLexicalIndex(), ['Alice']).eventIds, []);
 });
 
+test('local edit, suffix retirement and L2 reconciliation retain a warm corpus without rereading chunks', async () => {
+    host.chunks = [chunk('prefix', 'Alice retained', 0), chunk('edit', 'Bob obsolete', 1), chunk('tail', 'Carol removed', 2)];
+    const event = { id: 'l2', summary: 'Alice historical event' };
+    host.store.json.events = [event];
+    await mod.getLexicalIndex();
+    mod.removeDocumentsByFloor(1);
+    mod.addChunkDocuments([chunk('replacement', 'Bob corrected', 1)]);
+    let index = await mod.getLexicalIndex();
+    assert.deepEqual(hits(index, ['Alice']), ['prefix']);
+    assert.deepEqual(hits(index, ['Bob']), ['replacement']);
+    assert.deepEqual(hits(index, ['Carol']), ['tail']);
+    mod.removeDocumentsFromFloor(2);
+    mod.replaceEventDocuments([event]);
+    index = await mod.getLexicalIndex();
+    assert.deepEqual(hits(index, ['Carol']), []);
+    assert.deepEqual(mod.searchLexicalIndex(index, ['Alice']).eventIds, ['l2']);
+    assert.deepEqual(hits(index, ['Alice']), ['prefix']);
+    assert.equal(host.reads, 1);
+});
+
+test('suffix removal during cold build removes queued old additions but retains later replacements and L2', async () => {
+    const gate = Promise.withResolvers();
+    host.chunks = [chunk('prefix', 'Alice prefix', 0), chunk('obsolete', 'Alice obsolete', 2)];
+    host.readChunks = async function () { this.reads++; await gate.promise; return this.chunks; };
+    host.store.json.events = [{ id: 'l2', summary: 'Alice historical' }];
+    const pending = mod.getLexicalIndex();
+    await Promise.resolve();
+    mod.addChunkDocuments([chunk('queued-old', 'Alice old', 3)]);
+    mod.removeDocumentsFromFloor(2);
+    mod.addChunkDocuments([chunk('latest', 'Alice latest', 2)]);
+    gate.resolve();
+    const result = mod.searchLexicalIndex(await pending, ['Alice']);
+    assert.deepEqual(result.chunkIds.sort(), ['latest', 'prefix']);
+    assert.deepEqual(result.eventIds, ['l2']);
+    assert.equal(host.reads, 1);
+});
+
 test('a name learned during a pending build is searchable when that build finishes', async () => {
     host.store.json.characters.main = ['上官'];
     let release;
@@ -652,6 +689,10 @@ test('batch folding preserves sequential clear, move, replacement and deletion s
     const originals = [moving, other, event];
     const commands = [
         { floor: 0 },
+        { fromFloor: 1 },
+        { fromFloor: 0, docs: [{ ...moving, floor: 2 }] },
+        { clearEvents: true },
+        { clearEvents: true, docs: [event] },
         { floor: 1, docs: [{ ...moving, floor: 1, text: 'alpha gamma' }] },
         { docs: [moving] },
         { clearChunks: true },
@@ -666,10 +707,10 @@ test('batch folding preserves sequential clear, move, replacement and deletion s
         // or batch planning is involved in deciding the expected final sources.
         const expected = new Map(originals.map(doc => [doc.id, doc]));
         for (const update of updates) {
-            if (update.clearChunks || update.floor !== undefined) {
-                for (const [id, doc] of expected) {
-                    if (doc.type === 'chunk' && (update.clearChunks || doc.floor === update.floor)) expected.delete(id);
-                }
+            for (const [id, doc] of expected) {
+                if (doc.type === 'event' && update.clearEvents) expected.delete(id);
+                if (doc.type === 'chunk' && (update.clearChunks || doc.floor === update.floor
+                    || (update.fromFloor !== undefined && doc.floor >= update.fromFloor))) expected.delete(id);
             }
             for (const id of update.removeIds || []) expected.delete(id);
             for (const doc of update.docs || []) {

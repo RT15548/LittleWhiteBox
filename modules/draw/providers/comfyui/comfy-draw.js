@@ -19,7 +19,7 @@ import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
-import { DRAW_BACKEND_COPY } from '../../shared/draw-backend-copy.js';
+import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { ComfyDrawStorage } from "../../../../core/server-storage.js";
 import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
@@ -34,6 +34,7 @@ import {
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
 import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import {
@@ -60,6 +61,22 @@ import { submitRecoverableImageJob } from "../../shared/recoverable-image-jobs.j
 import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
 import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
+import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
+import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
+import { createApiPresetBar } from "../../shared/api-presets-ui.js";
+import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
+import {
+    normalizeApiPresetState,
+    syncActiveApiPreset,
+} from "../../shared/api-presets.js";
+import {
+    applyGroupPresetForCurrentChat,
+    getActiveCharacterAvatars,
+    listHostCharacters,
+    onGroupPresetApplied,
+    onGroupPresetContextChanged,
+    saveGroupPresets,
+} from "../../shared/character-group-presets-runtime.js";
 import { hashStableValue } from "../../shared/generation-fingerprint.js";
 import {
     createScenePlannerDefaultPresets,
@@ -84,6 +101,7 @@ import {
     toScenePlannerProgress,
     buildFailedPlaceholderHtml,
 } from "../../shared/draw-common.js";
+import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import {
     loadLocalDanbooruDB,
     unloadLocalDanbooruDB,
@@ -91,6 +109,7 @@ import {
     isDanbooruDBLoaded,
 } from "../../shared/danbooru-local-db.js";
 import { renderScenePlannerChain } from "../../shared/scene-planner-chain-view.js";
+import { parseFieldDescriptions } from '../../shared/scene-plan-descriptions.js';
 import {
     COMFY_PLANNER_PROFILE,
     DEFAULT_PROMPT_CONFIG,
@@ -105,7 +124,7 @@ import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
-import { redrawImageCard, removeChatImageSlot, restoreImageCard } from "../../shared/image-card-actions.js";
+import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
@@ -124,6 +143,8 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
     auth: '',
     timeout: 120000,
     useImageBackendJobs: false,
+    apiPresets: [],
+    activeApiPresetId: null,
     mode: 'manual',
     overrideSize: 'default',
     showFloorButton: true,
@@ -177,6 +198,9 @@ let pendingController = null;
 let resizeHandler = null;
 let eventsBound = false;
 let agentSettingsSurface = null;
+let characterLibraryUi = null;
+let groupPresetBinding = null;
+let apiPresetBar = null;
 let promptChainPreviewFrame = 0;
 let ensureComfyDrawPanelRef = null;
 let destroyComfyDrawPanelsRef = null;
@@ -301,12 +325,14 @@ function getPromptPresetDefaults(name) {
             topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov || DEFAULT_PROMPT_CONFIG.topSystem,
             tagGuideContent: guide,
             sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
+            fieldDescriptions: '',
         };
     }
     return {
         topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
         tagGuideContent: guide,
         sceneRules: DEFAULT_PROMPT_CONFIG.sceneRules,
+        fieldDescriptions: '',
     };
 }
 
@@ -355,6 +381,26 @@ function normalizePresets(rawPresets, rawSettings = {}) {
     }));
 }
 
+// API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
+const COMFY_API_PRESET_FIELDS = Object.freeze(Object.keys(normalizeComfyApiConfig()));
+
+function normalizeComfyApiConfig(raw = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+        connectionMode: source.connectionMode === 'direct' ? 'direct' : 'proxy',
+        host: String(source.host || '').trim(),
+        auth: String(source.auth ?? '').trim(),
+        timeout: normalizeNumber(source.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
+        useImageBackendJobs: source.useImageBackendJobs === true,
+    };
+}
+
+const COMFY_API_PRESET_OPTIONS = Object.freeze({ fields: COMFY_API_PRESET_FIELDS, normalizeConfig: normalizeComfyApiConfig });
+
+function getEffectiveComfyApiConfig(settings = getSettings()) {
+    return normalizeComfyApiConfig(settings);
+}
+
 function normalizeSettings(raw = {}) {
     const presets = normalizePresets(raw.presets, raw);
     const workflowPresets = normalizeWorkflowPresets(raw.workflowPresets, raw.customWorkflow);
@@ -369,15 +415,12 @@ function normalizeSettings(raw = {}) {
         : DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
     const activeWorkflowPreset = workflowPresets.find((item) => item.id === selectedWorkflowPresetId) || workflowPresets[0] || createDefaultWorkflowPreset();
     const merged = {
-        host: String(raw.host || ''),
+        ...normalizeComfyApiConfig(raw),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
-        connectionMode: raw.connectionMode === 'direct' ? 'direct' : 'proxy',
-        auth: String(raw.auth ?? ''),
-        timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
-        useImageBackendJobs: raw.useImageBackendJobs === true,
+        ...normalizeApiPresetState(raw, COMFY_API_PRESET_OPTIONS),
         selectedPresetId,
         selectedWorkflowPresetId,
         builtinWorkflowId,
@@ -424,6 +467,10 @@ function normalizeSettings(raw = {}) {
                 ? preset.tagGuideContent
                 : defaults.tagGuideContent,
             sceneRules: typeof preset.sceneRules === 'string' ? preset.sceneRules : defaults.sceneRules,
+            // submit_scene_plan 字段描述覆写（JSON 字符串）；空串 = 全部用内置文案
+            fieldDescriptions: typeof preset.fieldDescriptions === 'string'
+                ? preset.fieldDescriptions
+                : defaults.fieldDescriptions,
         };
     });
 
@@ -437,6 +484,7 @@ function normalizeSettings(raw = {}) {
         topSystem: activePromptPreset.topSystem,
         tagGuideContent: activePromptPreset.tagGuideContent,
         sceneRules: activePromptPreset.sceneRules,
+        fieldDescriptions: activePromptPreset.fieldDescriptions,
     };
 
     return merged;
@@ -520,18 +568,19 @@ export function getGenerationSnapshot() {
     };
 }
 
-async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
+let settingsUpdateQueue = Promise.resolve();
+
+async function persistSettingsNow(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     if (!settingsLoaded) {
         console.error('[ComfyDraw] 设置尚未成功加载，拒绝保存');
         if (notify) toastr.error('配置尚未成功加载，已禁止保存', 'ComfyUI');
         return false;
     }
     const next = normalizeSettings(nextSettings);
-    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
     try {
-        settingsCache = next;
         const ok = await ComfyDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
+            settingsCache = next;
             if (notify) {
                 toastr.success(okText, 'ComfyUI');
             }
@@ -540,10 +589,8 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
         if (notify) {
             toastr.error('保存失败', 'ComfyUI');
         }
-        settingsCache = previous;
         return false;
     } catch (error) {
-        settingsCache = previous;
         if (notify) {
             toastr.error(error?.message || '保存失败', 'ComfyUI');
         }
@@ -551,12 +598,22 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
     }
 }
 
-export async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
-    const draft = cloneSettingsObject(getSettings());
-    if (typeof mutator === 'function') {
-        await mutator(draft);
-    }
-    return await persistSettings(draft, okText, options);
+function enqueueSettingsUpdate(update) {
+    const result = settingsUpdateQueue.then(update, update);
+    settingsUpdateQueue = result.catch(() => {});
+    return result;
+}
+
+function persistSettings(nextSettings, okText = '已保存', options = {}) {
+    return enqueueSettingsUpdate(() => persistSettingsNow(nextSettings, okText, options));
+}
+
+export function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    return enqueueSettingsUpdate(async () => {
+        const draft = cloneSettingsObject(getSettings());
+        if (typeof mutator === 'function') await mutator(draft);
+        return persistSettingsNow(draft, okText, options);
+    });
 }
 
 function getActivePreset(settings = getSettings()) {
@@ -674,7 +731,7 @@ function getEffectiveParams(settings = getSettings(), overrides = {}) {
 
 export function createComfyGenerationRecipe({
     settings = getSettings(),
-    characterTags = getSharedDrawSettings().characterTags || [],
+    characterLibrary = characterLibraryFromSettings(getSharedDrawSettings()),
     paramsOverride = {},
     promptOverride = '',
     negativePromptOverride = '',
@@ -700,7 +757,8 @@ export function createComfyGenerationRecipe({
         params: cloneSettingsObject(params),
         positivePrefix: params.positivePrefix,
         negativePrefix: params.negativePrefix,
-        knownCharacters: cloneSettingsObject(characterTags),
+        // 只携带有效启用的角色（分组开着且角色自己开着），后台 500 条上限也按这个数计。
+        knownCharacters: cloneSettingsObject(selectEnabledCharacters(characterLibrary)),
         promptOverride: String(promptOverride || ''),
         negativePromptOverride: String(negativePromptOverride || ''),
         seeds: Array.from({ length: Math.max(0, Math.floor(Number(itemCount) || 0)) }, createComfySeed),
@@ -1355,6 +1413,7 @@ function querySettingsAll(selector) {
 function bindOverlayEvents() {
     if (!overlayElement || eventsBound || !getSettingsDocument()) return;
     eventsBound = true;
+    mountServerPluginGuide(getSettingsElement('comfy-backend-guide'), 'comfy-backend');
     querySettings('#comfy-draw-close')?.addEventListener('click', hideSettings);
     getSettingsDocument()?.addEventListener('click', (event) => {
         const button = event.target?.closest?.('[data-comfy-view]');
@@ -1443,9 +1502,21 @@ function bindOverlayEvents() {
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         } catch {}
     });
-    querySettings('#comfy-draw-save')?.addEventListener('click', async (event) => {
-        const ok = await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'comfy-draw-api-status' });
-        if (ok) fillForm(getSettings());
+    querySettings('#comfy-draw-save')?.addEventListener('click', async () => {
+        const bar = ensureApiPresetBar();
+        await bar.runSave(() => {
+            const { apiPresets, activeApiPresetId } = getSettings();
+            const config = readComfyApiConfigFromForm();
+            return commitComfyApiPresets({ reason: 'save', activeApiPresetId, config,
+                apiPresets: syncActiveApiPreset(apiPresets, activeApiPresetId, config, COMFY_API_PRESET_OPTIONS) });
+        });
+    });
+    // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
+    ['input', 'change', 'click'].forEach((type) => {
+        querySettings('[data-comfy-view-panel="api"]')?.addEventListener(type, (event) => {
+            if (event.target?.closest?.('#comfy-api-presets')) return;
+            apiPresetBar?.refresh();
+        });
     });
     querySettings('#comfy-connection-mode')?.addEventListener('change', () => {
         updateConnectionModeUI(getValue('comfy-connection-mode'));
@@ -1454,11 +1525,11 @@ function bindOverlayEvents() {
         updateConnectionModeUI(getValue('comfy-connection-mode'));
     });
     querySettings('#comfy-draw-test')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await testConnection();
     });
     querySettings('#comfy-draw-test-generate')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
+        if (!await saveAllSettings({ notify: false })) return;
         await testGenerateFromSettingsPanel();
     });
     querySettings('#comfy-draw-size-preset')?.addEventListener('change', () => {
@@ -1824,6 +1895,23 @@ function bindOverlayEvents() {
     querySettings('#comfy-shared-char-import')?.addEventListener('change', async (event) => {
         await importSharedCharacterTags(event.target);
     });
+    querySettings('#comfy-planner-retries')?.addEventListener('change', async (event) => {
+        const input = event.currentTarget;
+        const previous = getSharedDrawSettings().plannerMaxRetries;
+        const raw = String(input.value).trim();
+        const parsed = raw === '' ? Number.NaN : Math.floor(Number(raw));
+        // 留空或非法时恢复上一次的值，而不是当成 0（那样会悄悄关闭重试）。
+        const value = Number.isFinite(parsed) ? Math.min(10, Math.max(0, parsed)) : previous;
+        input.value = String(value);
+        if (value === previous) return;
+        const ok = await withSaveTimeout(updateSharedDrawSettingsPersistent((settings) => {
+            settings.plannerMaxRetries = value;
+        }, '重试次数已保存', { notify: false, silent: false }));
+        if (!ok) {
+            setPlannerRetryInput(getSharedDrawSettings().plannerMaxRetries);
+            toastr.error('重试次数保存失败，请重试');
+        }
+    });
     querySettings('#comfy-danbooru-local')?.addEventListener('change', async (event) => {
         await setComfyDanbooruLocalEnabled(event.target.checked === true);
     });
@@ -1840,6 +1928,7 @@ function bindOverlayEvents() {
                     topSystem: active.topSystem,
                     tagGuideContent: active.tagGuideContent,
                     sceneRules: active.sceneRules,
+                    fieldDescriptions: active.fieldDescriptions,
                 };
             }
         }, '提示词预设已切换', { notify: false, silent: false }));
@@ -1859,6 +1948,7 @@ function bindOverlayEvents() {
                 topSystem: preset.topSystem,
                 tagGuideContent: preset.tagGuideContent,
                 sceneRules: preset.sceneRules,
+                fieldDescriptions: preset.fieldDescriptions,
             };
         }, '已创建提示词预设', { notify: false, silent: false }));
         if (ok) fillForm(getSettings());
@@ -1891,6 +1981,7 @@ function bindOverlayEvents() {
                     topSystem: active.topSystem,
                     tagGuideContent: active.tagGuideContent,
                     sceneRules: active.sceneRules,
+                    fieldDescriptions: active.fieldDescriptions,
                 };
             }
         }, '提示词预设已删除', { notify: false, silent: false }));
@@ -1907,6 +1998,7 @@ function bindOverlayEvents() {
                 topSystem: nextPreset.topSystem,
                 tagGuideContent: nextPreset.tagGuideContent,
                 sceneRules: nextPreset.sceneRules,
+                fieldDescriptions: nextPreset.fieldDescriptions,
             };
         }, '提示词预设已保存', { notify: false, silent: false }), {
             statusElementId: 'comfy-prompt-preset-status',
@@ -1927,6 +2019,7 @@ function bindOverlayEvents() {
                 topSystem: nextPreset.topSystem,
                 tagGuideContent: nextPreset.tagGuideContent,
                 sceneRules: nextPreset.sceneRules,
+                fieldDescriptions: nextPreset.fieldDescriptions,
             };
         }, '提示词预设已保存', { notify: false, silent: false }), {
             statusElementId: 'comfy-prompts-status',
@@ -1957,6 +2050,9 @@ function bindOverlayEvents() {
         setValue('comfy-prompt-system', defaults.topSystem);
         setValue('comfy-prompt-guide', defaults.tagGuideContent);
         setValue('comfy-prompt-format', defaults.sceneRules);
+        // 字段描述没有独立的表单控件：已存覆写与当前草稿全部打成空串墓碑，保存时一并剔除
+        const savedFieldDescriptions = parseFieldDescriptions(getActivePromptPreset(getSettings())?.fieldDescriptions);
+        [...Object.keys(savedFieldDescriptions), ...promptFieldDraft.keys()].forEach((path) => promptFieldDraft.set(path, ''));
         renderPromptChainPreview();
     });
     querySettings('#comfy-prompt-preset-export')?.addEventListener('click', () => {
@@ -1968,6 +2064,7 @@ function bindOverlayEvents() {
             topSystem: getValue('comfy-prompt-system'),
             tagGuideContent: getValue('comfy-prompt-guide'),
             sceneRules: getValue('comfy-prompt-format'),
+            fieldDescriptions: serializeFieldDescriptions(preset),
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1989,6 +2086,7 @@ function bindOverlayEvents() {
             if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.sceneRules !== 'string') {
                 throw new Error('不是有效的提示词模板文件');
             }
+            parseFieldDescriptions(payload.fieldDescriptions);
             const name = (typeof payload.name === 'string' && payload.name.trim())
                 ? payload.name.trim()
                 : (file.name.replace(/\.json$/i, '').trim() || `导入的预设-${(getSettings().promptPresets || []).length + 1}`);
@@ -1998,6 +2096,8 @@ function bindOverlayEvents() {
                 topSystem: payload.topSystem,
                 tagGuideContent: payload.tagGuideContent,
                 sceneRules: payload.sceneRules,
+                // 老导出文件没有这一项，落到空覆写（全部用内置文案）
+                fieldDescriptions: payload.fieldDescriptions ?? '',
             };
             const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
                 settings.promptPresets = [...settings.promptPresets, preset];
@@ -2068,11 +2168,10 @@ function fillForm(settings) {
     setValue('comfy-connection-mode', settings.connectionMode || 'proxy');
     setValue('comfy-draw-auth', settings.auth || '');
     setChecked('comfy-use-image-backend-jobs', settings.useImageBackendJobs === true);
-    const backendRequirement = getSettingsElement('comfy-backend-requirement');
-    if (backendRequirement) backendRequirement.textContent = DRAW_BACKEND_COPY.requirement;
     updateConnectionModeUI(settings.connectionMode || 'proxy', settings.useImageBackendJobs === true);
     setValue('comfy-draw-host', settings.host);
     setValue('comfy-draw-timeout', settings.timeout);
+    ensureApiPresetBar();
     setValue('comfy-draw-width', preset.width);
     setValue('comfy-draw-height', preset.height);
     updateSizePresetSelection();
@@ -2205,6 +2304,75 @@ function applySizePresetSelection() {
     refreshBuiltinWorkflowPanel(getSettings());
 }
 
+// ───────────── API 配置预设 ─────────────
+// 预设栏组件在 shared/api-presets-ui.js；这里提供表单读写与落盘。预设里含认证信息，仅存本地，不写日志 / 提示。
+
+/** 表单里现在的 API 配置（与 readForm 里的同名字段一致）。 */
+function readComfyApiConfigFromForm() {
+    return normalizeComfyApiConfig({
+        connectionMode: getValue('comfy-connection-mode'),
+        host: getValue('comfy-draw-host'),
+        auth: getValue('comfy-draw-auth'),
+        timeout: normalizeNumber(getValue('comfy-draw-timeout'), getSettings().timeout, 10000, 600000),
+        useImageBackendJobs: getChecked('comfy-use-image-backend-jobs'),
+    });
+}
+
+/** 只把 API 配置字段填进表单（不动绘图参数、工作流等其它未保存的修改），并刷新连接方式相关的提示与显隐。 */
+function fillComfyApiConfigForm(config) {
+    const next = normalizeComfyApiConfig(config);
+    setValue('comfy-connection-mode', next.connectionMode);
+    setValue('comfy-draw-host', next.host);
+    setValue('comfy-draw-auth', next.auth);
+    setValue('comfy-draw-timeout', next.timeout);
+    setChecked('comfy-use-image-backend-jobs', next.useImageBackendJobs);
+    updateConnectionModeUI(next.connectionMode, next.useImageBackendJobs);
+}
+
+async function commitComfyApiPresets(change) {
+    const doc = getSettingsDocument();
+    const incoming = normalizeApiPresetState(
+        { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
+        COMFY_API_PRESET_OPTIONS,
+    );
+    const applied = change.config ? normalizeComfyApiConfig(change.config) : null;
+    const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        draft.apiPresets = incoming.apiPresets;
+        draft.activeApiPresetId = incoming.activeApiPresetId;
+        if (applied) Object.assign(draft, applied);
+    }, API_PRESET_COPY.saved, { notify: false, silent: false }));
+    if (ok && applied && getSettingsDocument() === doc) fillComfyApiConfigForm(getEffectiveComfyApiConfig());
+    return ok;
+}
+
+function ensureApiPresetBar() {
+    const doc = getSettingsDocument();
+    const container = querySettings('#comfy-api-presets');
+    if (!doc || !container) return null;
+    if (apiPresetBar?.document === doc) {
+        apiPresetBar.render();
+        return apiPresetBar;
+    }
+    apiPresetBar?.destroy();
+    apiPresetBar = createApiPresetBar({
+        document: doc,
+        container,
+        fields: COMFY_API_PRESET_FIELDS,
+        form: querySettings('#comfy-api-form'),
+        defaults: normalizeComfyApiConfig({}),
+        getState: () => {
+            const { apiPresets, activeApiPresetId } = getSettings();
+            return { apiPresets, activeApiPresetId };
+        },
+        readConfig: readComfyApiConfigFromForm,
+        getEffectiveConfig: () => getEffectiveComfyApiConfig(),
+        onCommit: commitComfyApiPresets,
+        confirm: message => confirm(message),
+        prompt: (message, fallback) => prompt(message, fallback),
+    });
+    return apiPresetBar;
+}
+
 function fillPresetSelect(settings = getSettings()) {
     const select = getSettingsElement('comfy-draw-preset-select');
     if (!select) return;
@@ -2249,6 +2417,16 @@ function applyPromptPresetToForm(settings = getSettings()) {
     setValue('comfy-prompt-system', promptPreset.topSystem || '');
     setValue('comfy-prompt-guide', promptPreset.tagGuideContent || '');
     setValue('comfy-prompt-format', promptPreset.sceneRules || '');
+    if (promptFieldPresetId !== promptPreset.id) {
+        promptFieldDraft.clear();
+        promptFieldPresetId = promptPreset.id;
+    } else {
+        // A form refresh only acknowledges the saved values, not edits made while saving.
+        const saved = parseFieldDescriptions(promptPreset.fieldDescriptions);
+        for (const [path, text] of promptFieldDraft) {
+            if ((saved[path] || '') === (text.trim() ? text : '')) promptFieldDraft.delete(path);
+        }
+    }
     renderPromptChainPreview(settings);
 }
 
@@ -2258,7 +2436,18 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
         topSystem: getValue('comfy-prompt-system'),
         tagGuideContent: getValue('comfy-prompt-guide'),
         sceneRules: getValue('comfy-prompt-format'),
+        fieldDescriptions: serializeFieldDescriptions(basePreset),
     };
+}
+
+/** 已存覆写与当前草稿合并成 JSON 字符串；空串/空白项剔除（= 恢复内置文案）。 */
+function serializeFieldDescriptions(basePreset = getActivePromptPreset(getSettings())) {
+    const merged = { ...parseFieldDescriptions(basePreset?.fieldDescriptions), ...Object.fromEntries(promptFieldDraft) };
+    const out = {};
+    for (const [key, text] of Object.entries(merged)) {
+        if (typeof text === 'string' && text.trim()) out[key] = text;
+    }
+    return Object.keys(out).length ? JSON.stringify(out) : '';
 }
 
 function updateConnectionModeUI(
@@ -2267,6 +2456,7 @@ function updateConnectionModeUI(
 ) {
     const isDirect = mode === 'direct';
     const usesServerJobs = useImageBackendJobs === true;
+    getSettingsElement('comfy-backend-guide').classList.toggle('hidden', !usesServerJobs);
     const authRow = getSettingsElement('comfy-auth-row');
     const connectionHint = getSettingsElement('comfy-connection-hint');
     const connectionModeNote = getSettingsElement('comfy-connection-mode-note');
@@ -2532,116 +2722,208 @@ async function renderGalleryManagement() {
     }
 }
 
-function getSharedCharacterTagsFromForm() {
+// 从表单读出各卡片的字段（不含分组：分组由角色库界面按卡片所在位置补上）。
+// keepEmpty 为 true 时保留全空的新卡片；只有保存 / 导出时才丢弃它们。
+function readCharacterCardsFromForm({ keepEmpty = false } = {}) {
     const existingById = new Map((getSharedDrawSettings().characterTags || [])
         .map((item) => [String(item.id || ''), item])
         .filter(([id]) => id));
 
-    return querySettingsAll('.sd-char-card').map((card, index) => ({
-        ...(existingById.get(String(card.dataset.characterId || '')) || {}),
-        id: card.dataset.characterId || `comfy-char-${Date.now()}-${index}`,
-        enabled: getCharacterEnabledFromCard(card),
-        name: String(card.querySelector('[data-sd-char-field="name"]')?.value || '').trim(),
-        aliases: String(card.querySelector('[data-sd-char-field="aliases"]')?.value || '')
-            .split(',')
-            .map(item => item.trim())
-            .filter(Boolean),
-        type: String(card.querySelector('[data-sd-char-field="type"]')?.value || 'girl').trim() || 'girl',
-        appearance: String(card.querySelector('[data-sd-char-field="appearance"]')?.value || '').trim(),
-        negativeTags: String(card.querySelector('[data-sd-char-field="negativeTags"]')?.value || '').trim(),
-        danbooruTag: String(card.querySelector('[data-sd-char-field="danbooruTag"]')?.value || '').trim(),
-        outfits: parseNamedTagLines(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
-        dynamicStates: parseNamedTagLines(card.querySelector('[data-sd-char-field="dynamicStates"]')?.value || ''),
-    })).filter((item) => item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length);
+    return querySettingsAll('.sd-char-card').map((card, index) => {
+        // 已保存记录里的 groupId 可能已过期（草稿里可能刚换过分组），一律丢弃，以卡片所在位置为准。
+        const saved = { ...(existingById.get(String(card.dataset.characterId || '')) || {}) };
+        delete saved.groupId;
+        return {
+            ...saved,
+            id: card.dataset.characterId || `comfy-char-${Date.now()}-${index}`,
+            enabled: getCharacterEnabledFromCard(card),
+            name: String(card.querySelector('[data-sd-char-field="name"]')?.value || '').trim(),
+            aliases: String(card.querySelector('[data-sd-char-field="aliases"]')?.value || '')
+                .split(',')
+                .map(item => item.trim())
+                .filter(Boolean),
+            type: String(card.querySelector('[data-sd-char-field="type"]')?.value || 'girl').trim() || 'girl',
+            appearance: String(card.querySelector('[data-sd-char-field="appearance"]')?.value || '').trim(),
+            negativeTags: String(card.querySelector('[data-sd-char-field="negativeTags"]')?.value || '').trim(),
+            danbooruTag: String(card.querySelector('[data-sd-char-field="danbooruTag"]')?.value || '').trim(),
+            outfits: parseNamedTagLines(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
+            dynamicStates: parseNamedTagLines(card.querySelector('[data-sd-char-field="dynamicStates"]')?.value || ''),
+        };
+    }).filter((item) => keepEmpty || item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length);
 }
 
-function renderCharacterTagList(tags = []) {
+// 当前草稿里的角色（含未保存的编辑与所属分组，已丢弃全空的新卡片），保存与导出用。
+function getSharedCharacterTagsFromForm() {
+    return characterLibraryUi ? characterLibraryUi.getCharacters() : readCharacterCardsFromForm();
+}
+
+function getSharedCharacterGroupsFromForm() {
+    return characterLibraryUi ? characterLibraryUi.getGroups() : (getSharedDrawSettings().characterGroups || []);
+}
+
+function ensureCharacterLibraryUi() {
+    const doc = getSettingsDocument();
     const list = querySettings('#comfy-shared-character-list');
-    if (!list) return;
-    list.textContent = '';
-    if (!tags.length) {
-        const empty = document.createElement('div');
-        empty.className = 'char-empty sd-char-empty';
-        const icon = document.createElement('i');
-        icon.className = 'fa-solid fa-user-plus';
-        const title = document.createElement('strong');
-        title.textContent = '暂无角色配置';
-        const desc = document.createElement('p');
-        desc.textContent = '点击左侧"添加角色"，开始建立你的共享角色标签库';
-        empty.append(icon, title, desc);
-        list.appendChild(empty);
-        return;
-    }
-
-    tags.forEach((tag, index) => {
-        const card = document.createElement('div');
-        card.className = 'sd-char-card';
-        card.dataset.characterId = String(tag.id || `comfy-char-${index + 1}`);
-
-        const top = document.createElement('div');
-        top.className = 'sd-char-card-header';
-        const title = document.createElement('div');
-        title.className = 'sd-char-card-title';
-        const titleIcon = document.createElement('i');
-        titleIcon.className = 'fa-solid fa-user';
-        const titleText = document.createElement('span');
-        titleText.textContent = `角色 ${index + 1}`;
-        title.append(titleIcon, titleText);
-        const delButton = document.createElement('button');
-        delButton.className = 'btn btn-danger btn-sm';
-        delButton.type = 'button';
-        delButton.dataset.sdCharDelete = card.dataset.characterId;
-        const delIcon = document.createElement('i');
-        delIcon.className = 'fa-solid fa-trash';
-        const delText = document.createElement('span');
-        delText.textContent = '删除';
-        delButton.append(delIcon, delText);
-        const danbooruButton = document.createElement('button');
-        danbooruButton.className = 'btn btn-sm';
-        danbooruButton.type = 'button';
-        danbooruButton.dataset.sdCharDanbooru = card.dataset.characterId;
-        if (!isDanbooruDBLoaded()) {
-            danbooruButton.disabled = true;
-            danbooruButton.style.opacity = '0.35';
-        }
-        const danbooruIcon = document.createElement('i');
-        danbooruIcon.className = 'fa-solid fa-magnifying-glass';
-        const danbooruText = document.createElement('span');
-        danbooruText.textContent = 'Danbooru';
-        danbooruButton.append(danbooruIcon, danbooruText);
-
-        const actions = document.createElement('div');
-        actions.className = 'btn-group';
-        const enabledControl = createCharacterEnabledControl(document, card, {
-            enabled: tag.enabled !== false,
-            label: `角色 ${index + 1}${tag.name ? ` ${tag.name}` : ''}`,
-        });
-        actions.append(enabledControl, danbooruButton, delButton);
-        top.append(title, actions);
-
-        const grid = document.createElement('div');
-        grid.className = 'form-row';
-        grid.append(
-            createCharacterField('角色名', 'name', tag.name || '', '例如 芙蕾雅'),
-            createCharacterField('类型', 'type', tag.type || 'girl', '例如 girl / boy'),
-        );
-
-        card.append(
-            top,
-            grid,
-            createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
-            createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
-            createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
-            createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
-            createCharacterField('服装参考（每行一套）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
-            createCharacterField('动态外貌（每行一条）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
-        );
-        const panel = document.createElement('div');
-        panel.className = 'danbooru-panel hidden';
-        panel.dataset.charId = card.dataset.characterId;
-        card.appendChild(panel);
-        list.appendChild(card);
+    const toolbar = querySettings('#comfy-shared-character-toolbar');
+    if (!doc || !list || !toolbar) return null;
+    if (characterLibraryUi?.document === doc) return characterLibraryUi;
+    characterLibraryUi?.destroy();
+    characterLibraryUi = createCharacterLibraryUi({
+        document: doc,
+        listElement: list,
+        toolbarElement: toolbar,
+        readCharacters: readCharacterCardsFromForm,
+        renderCard: renderCharacterCard,
+        renderEmpty: createCharacterEmptyState,
+        onChange: () => refreshSettingsSummary(),
+        notify: {
+            success: (message) => toastr.success(message),
+            warning: (message) => toastr.warning(message),
+            error: (message) => toastr.error(message),
+        },
     });
+    return characterLibraryUi;
+}
+
+function destroyCharacterLibraryUi() {
+    destroyGroupPresetBinding();
+    characterLibraryUi?.destroy();
+    characterLibraryUi = null;
+}
+
+// 分组预设卡片：预设不属于角色草稿，修改立即持久化；展示用的分组 / 角色取自角色库草稿（用户所见）。
+// 预设自动应用后，把草稿里受影响分组的开关同步成最新值，避免之后“保存角色”写回旧值。
+function ensureGroupPresetBinding() {
+    const doc = getSettingsDocument();
+    const container = querySettings('#comfy-group-preset-root');
+    const ui = characterLibraryUi;
+    if (!doc || !container || !ui) return null;
+    if (groupPresetBinding?.document === doc) {
+        groupPresetBinding.render();
+        return groupPresetBinding;
+    }
+    groupPresetBinding?.destroy();
+    groupPresetBinding = bindGroupPresetPanel({
+        document: doc,
+        container,
+        getLibrary: () => ui.getLibrary(),
+        syncGroupEnabled: (groups, ids) => ui.syncGroupEnabled(groups, ids),
+        runtime: {
+            applyGroupPresetForCurrentChat,
+            getActiveCharacterAvatars,
+            listHostCharacters,
+            onGroupPresetApplied,
+            onGroupPresetContextChanged,
+            saveGroupPresets,
+        },
+        settings: { get: getSharedDrawSettings },
+        toast: (message, level) => {
+            const show = toastr[level] || toastr.info;
+            show.call(toastr, message);
+        },
+    });
+    return groupPresetBinding;
+}
+
+function destroyGroupPresetBinding() {
+    groupPresetBinding?.destroy();
+    groupPresetBinding = null;
+}
+
+// 用 tags / groups 重绘整个角色列表（丢弃当前草稿）；groups 缺省时沿用当前草稿的分组。
+function renderCharacterTagList(tags = [], groups) {
+    const ui = ensureCharacterLibraryUi();
+    if (!ui) return;
+    ui.render({ characters: tags, groups: groups ?? ui.getGroups() });
+}
+
+// 原样重绘当前草稿（用于 Danbooru 状态变化后刷新按钮），未保存的编辑不丢失。
+function rerenderCharacterTagList() {
+    ensureCharacterLibraryUi()?.rerender();
+}
+
+function createCharacterEmptyState() {
+    const empty = document.createElement('div');
+    empty.className = 'char-empty sd-char-empty';
+    const icon = document.createElement('i');
+    icon.className = 'fa-solid fa-user-plus';
+    const title = document.createElement('strong');
+    title.textContent = '暂无角色配置';
+    const desc = document.createElement('p');
+    desc.textContent = '点击左侧"添加角色"，开始建立你的共享角色标签库';
+    empty.append(icon, title, desc);
+    return empty;
+}
+
+function renderCharacterCard({ character: tag, ordinal }) {
+    const index = ordinal - 1;
+    const card = document.createElement('div');
+    card.className = 'sd-char-card';
+    card.dataset.characterId = String(tag.id || `comfy-char-${index + 1}`);
+
+    const top = document.createElement('div');
+    top.className = 'sd-char-card-header';
+    const title = document.createElement('div');
+    title.className = 'sd-char-card-title';
+    const titleIcon = document.createElement('i');
+    titleIcon.className = 'fa-solid fa-user';
+    const titleText = document.createElement('span');
+    titleText.textContent = `角色 ${index + 1}`;
+    title.append(titleIcon, titleText);
+    const delButton = document.createElement('button');
+    delButton.className = 'btn btn-danger btn-sm';
+    delButton.type = 'button';
+    delButton.dataset.sdCharDelete = card.dataset.characterId;
+    const delIcon = document.createElement('i');
+    delIcon.className = 'fa-solid fa-trash';
+    const delText = document.createElement('span');
+    delText.textContent = '删除';
+    delButton.append(delIcon, delText);
+    const danbooruButton = document.createElement('button');
+    danbooruButton.className = 'btn btn-sm';
+    danbooruButton.type = 'button';
+    danbooruButton.dataset.sdCharDanbooru = card.dataset.characterId;
+    if (!isDanbooruDBLoaded()) {
+        danbooruButton.disabled = true;
+        danbooruButton.style.opacity = '0.35';
+    }
+    const danbooruIcon = document.createElement('i');
+    danbooruIcon.className = 'fa-solid fa-magnifying-glass';
+    const danbooruText = document.createElement('span');
+    danbooruText.textContent = 'Danbooru';
+    danbooruButton.append(danbooruIcon, danbooruText);
+
+    const actions = document.createElement('div');
+    actions.className = 'btn-group';
+    const enabledControl = createCharacterEnabledControl(document, card, {
+        enabled: tag.enabled !== false,
+        label: `角色 ${index + 1}${tag.name ? ` ${tag.name}` : ''}`,
+    });
+    actions.append(enabledControl, danbooruButton, delButton);
+    top.append(title, actions);
+
+    const grid = document.createElement('div');
+    grid.className = 'form-row';
+    grid.append(
+        createCharacterField('角色名', 'name', tag.name || '', '例如 芙蕾雅'),
+        createCharacterField('类型', 'type', tag.type || 'girl', '例如 girl / boy'),
+    );
+
+    card.append(
+        top,
+        grid,
+        createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
+        createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
+        createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
+        createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
+        createCharacterField('服装参考（每行一套）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
+        createCharacterField('动态外貌（每行一条）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
+    );
+    const panel = document.createElement('div');
+    panel.className = 'danbooru-panel hidden';
+    panel.dataset.charId = card.dataset.characterId;
+    card.appendChild(panel);
+    return card;
 }
 
 function createCharacterField(labelText, fieldName, value, placeholder, options = {}) {
@@ -2967,7 +3249,7 @@ async function setComfyDanbooruLocalEnabled(enabled) {
             if (status) status.textContent = '未加载';
         }
         if (checkbox) checkbox.checked = enabled;
-        renderCharacterTagList(getSharedCharacterTagsFromForm());
+        rerenderCharacterTagList();
         refreshSettingsSummary();
         return true;
     } catch (error) {
@@ -2979,7 +3261,7 @@ async function setComfyDanbooruLocalEnabled(enabled) {
         if (checkbox) checkbox.checked = false;
         if (status) status.textContent = '加载失败';
         toastr.error('Danbooru 本地库加载失败');
-        renderCharacterTagList(getSharedCharacterTagsFromForm());
+        rerenderCharacterTagList();
         refreshSettingsSummary();
         return false;
     } finally {
@@ -3004,7 +3286,7 @@ async function ensureComfyDanbooruLoadedForForm(sharedDrawSettings = getSharedDr
     try {
         const db = await loadLocalDanbooruDB(DANBOORU_DATA_PATH);
         if (status) status.textContent = db ? `已加载 ${db.length} 条` : '未加载';
-        renderCharacterTagList(getSharedCharacterTagsFromForm());
+        rerenderCharacterTagList();
     } catch (error) {
         console.warn('[ComfyDraw] 预加载 Danbooru 本地库失败:', error);
         if (status) status.textContent = '加载失败';
@@ -3147,16 +3429,20 @@ function fillSharedDrawForm() {
     setSelectValue('comfy-wb-filter-mode', sharedDrawSettings.worldbooks?.keywordFilterMode || 'auto');
     renderUploadedBooks(sharedDrawSettings.worldbooks?.uploadedBooks || []);
     renderFilterRules(sharedDrawSettings.messageFilterRules || []);
-    renderCharacterTagList(sharedDrawSettings.characterTags || []);
+    renderCharacterTagList(sharedDrawSettings.characterTags || [], sharedDrawSettings.characterGroups || []);
+    ensureGroupPresetBinding();
+    setPlannerRetryInput(sharedDrawSettings.plannerMaxRetries);
     void ensureComfyDanbooruLoadedForForm(sharedDrawSettings);
 }
 
 async function saveSharedDrawSettings({ notify = false } = {}) {
     const characterTags = getSharedCharacterTagsFromForm();
+    const characterGroups = getSharedCharacterGroupsFromForm();
     return await updateSharedDrawSettingsPersistent((settings) => {
         settings.useWorldInfo = getChecked('comfy-shared-use-worldinfo');
         settings.messageFilterRules = collectFilterRules();
         settings.characterTags = characterTags;
+        settings.characterGroups = characterGroups;
         settings.worldbooks = {
             ...(settings.worldbooks || {}),
             enabled: getChecked('comfy-wb-enabled'),
@@ -3166,7 +3452,14 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
     }, '共享规划设置已保存', { notify, silent: false });
 }
 
-async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+async function saveAllSettings(options = {}) {
+    const bar = ensureApiPresetBar();
+    if (!bar) return false;
+    return bar.runSave(() => persistAllSettings(options));
+}
+
+async function persistAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+    const savedText = API_PRESET_COPY.saved;
     const saveTask = async () => {
         const [comfyOk, sharedOk] = await Promise.all([
             persistSettings(readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
@@ -3182,13 +3475,14 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
             fp.updateAutoModeUI?.();
         } catch {}
+        apiPresetBar?.render();
     };
 
     if (triggerButton) {
         const ok = await runSaveButtonTask(triggerButton, saveTask, {
             statusElementId,
             pendingText: '正在保存...',
-            successText: '已保存到小白X服务端配置',
+            successText: savedText,
             errorText: '保存失败，请重试',
             notify,
         });
@@ -3209,7 +3503,7 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
         updateStatusText(
             statusElementId,
             ok ? 'success' : 'error',
-            ok ? '已保存到小白X服务端配置' : '保存失败，请重试',
+            ok ? savedText : '保存失败，请重试',
         );
     }
 
@@ -3223,100 +3517,52 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
 }
 
 function addCharacterTagDraft() {
-    const current = getSharedCharacterTagsFromForm();
-    current.push({
-        id: `comfy-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        enabled: true, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', danbooruTag: '', outfits: [], dynamicStates: [],
-    });
-    renderCharacterTagList(current);
-    refreshSettingsSummary();
+    ensureCharacterLibraryUi()?.addCharacter();
 }
 
 function clearCharacterTagsDraft() {
-    const current = getSharedCharacterTagsFromForm();
+    const ui = ensureCharacterLibraryUi();
+    const current = ui ? ui.getCharacters({ keepEmpty: true }) : [];
     if (!current.length) { toastr.warning('没有角色可清除'); return; }
-    if (!confirm(`确定清空全部 ${current.length} 个角色？此操作不可撤销。`)) return;
-    renderCharacterTagList([]);
-    refreshSettingsSummary();
+    if (!confirm(`确定清空全部 ${current.length} 个角色？分组会保留；点击“保存角色”前不会真正生效。`)) return;
+    ui.clearCharacters();
 }
 
 function exportSharedCharacterTags() {
-    const current = getSharedCharacterTagsFromForm();
-    if (!current.length) { toastr.warning('没有可导出的角色'); return; }
-    const data = { type: 'novel-draw-characters', version: 3, characters: current };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'character-tags.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    ensureCharacterLibraryUi()?.openExportDialog();
 }
 
 async function importSharedCharacterTags(input) {
     const file = input?.files?.[0];
-    if (!file) return;
     try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        if (data.type !== 'novel-draw-characters' || !Array.isArray(data.characters)) {
-            throw new Error('无效文件');
-        }
-        const merged = [...getSharedCharacterTagsFromForm()];
-        for (const char of data.characters) {
-            if (!char?.name) continue;
-            const importedId = String(char.id || '').trim();
-            const existingIndex = importedId
-                ? merged.findIndex((item) => String(item.id || '') === importedId)
-                : -1;
-            const nextChar = {
-                id: importedId || `comfy-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                enabled: char.enabled !== false,
-                name: char.name || '', aliases: Array.isArray(char.aliases) ? char.aliases : [],
-                type: char.type || 'girl', appearance: char.appearance || char.tags || '',
-                negativeTags: char.negativeTags || '', danbooruTag: char.danbooruTag || '',
-                outfits: Array.isArray(char.outfits) ? char.outfits : [],
-                dynamicStates: Array.isArray(char.dynamicStates) ? char.dynamicStates : [],
-            };
-            if (existingIndex >= 0) {
-                merged[existingIndex] = { ...merged[existingIndex], ...nextChar, id: merged[existingIndex].id };
-            } else {
-                merged.push(nextChar);
-            }
-        }
-        renderCharacterTagList(merged);
-        refreshSettingsSummary();
-        toastr.success(`已导入 ${data.characters.length} 个角色，请记得保存`);
-    } catch (error) {
-        toastr.error(`导入失败：${error?.message || '文件格式错误'}`);
+        if (file) await ensureCharacterLibraryUi()?.importFile(file);
     } finally {
         if (input) input.value = '';
     }
 }
 
 function deleteCharacterTagDraft(characterId = '') {
-    const current = getSharedCharacterTagsFromForm().filter((item) => String(item.id || '') !== String(characterId || ''));
-    renderCharacterTagList(current);
-    refreshSettingsSummary();
+    ensureCharacterLibraryUi()?.deleteCharacters([String(characterId || '')]);
 }
 
 function refreshSettingsSummary() {
     const settings = getSettings();
     const activePreset = getActivePreset(settings);
-    const draftCharacterCards = querySettingsAll('.sd-char-card').length;
-    const characterCount = draftCharacterCards > 0
-        ? draftCharacterCards
-        : (querySettings('#comfy-shared-character-list .sd-char-empty')
-            ? 0
-            : (getSharedDrawSettings().characterTags?.length || 0));
+    const characterCount = characterLibraryUi?.isRendered()
+        ? characterLibraryUi.getCardCount()
+        : (getSharedDrawSettings().characterTags?.length || 0);
     const presetEl = querySettings('#comfy-draw-summary-preset');
     const charSideEl = querySettings('#comfy-draw-summary-characters-side');
     const charResultEl = querySettings('#comfy-draw-character-result-count');
     if (presetEl) presetEl.textContent = activePreset?.name || '默认';
     if (charSideEl) charSideEl.textContent = String(characterCount);
     if (charResultEl) charResultEl.textContent = `${characterCount} / ${characterCount}`;
+}
+
+function setPlannerRetryInput(value) {
+    const input = getSettingsElement('comfy-planner-retries');
+    // 正在输入时不覆盖，避免打断用户
+    if (input && input.ownerDocument.activeElement !== input) input.value = String(value ?? 3);
 }
 
 function setValue(id, value) {
@@ -3373,6 +3619,7 @@ function populateSelect(id, options, { value, emptyLabel = '' } = {}) {
 export async function openSettings() {
     try {
         await loadSettings();
+        await settingsUpdateQueue;
         await loadSharedDrawSettings();
     } catch {
         return false;
@@ -3386,8 +3633,13 @@ export async function openSettings() {
 }
 
 export function hideSettings() {
+    promptFieldDraft.clear();
+    promptFieldPresetId = null;
     abortPendingRequest();
     agentSettingsSurface?.destroy();
+    apiPresetBar?.destroy();
+    apiPresetBar = null;
+    destroyCharacterLibraryUi();
     agentSettingsSurface = null;
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
     promptChainPreviewFrame = 0;
@@ -3476,6 +3728,10 @@ function ensureAgentSettingsSurface() {
     return agentSettingsSurface;
 }
 
+// submit_scene_plan 字段描述的未保存草稿（路径 → 文案）；保存时与预设里已存的覆写合并。
+const promptFieldDraft = new Map();
+let promptFieldPresetId = null;
+
 function renderPromptChainPreview(settings = getSettings()) {
     const container = getSettingsElement('comfy-prompt-chain');
     if (!container || !container.closest('details')?.open) return;
@@ -3486,11 +3742,22 @@ function renderPromptChainPreview(settings = getSettings()) {
         sceneRules: 'comfy-prompt-format',
     };
     const guideInput = getSettingsElement(editableMap.tagGuide);
+    const savedOverrides = parseFieldDescriptions(getActivePromptPreset(settings)?.fieldDescriptions);
+    const descriptions = { ...savedOverrides, ...Object.fromEntries(promptFieldDraft) };
     const chain = getPromptChainPreview({
         tagGuideContent: guideInput ? guideInput.value : (getActivePromptPreset(settings)?.tagGuideContent || ''),
-    });
+    }, descriptions);
     renderScenePlannerChain(container, chain, {
         getEditable: (key) => getSettingsElement(editableMap[key]),
+        onFieldEdit: (path, value) => {
+            // 只更新草稿，不触发预览重渲染——重渲染会销毁正在输入的文本框。
+            // 空串是墓碑：保存时该路径被剔除（= 恢复内置文案）。
+            promptFieldDraft.set(path, value);
+        },
+        onFieldReset: (path) => {
+            promptFieldDraft.set(path, '');
+            renderPromptChainPreview();
+        },
     });
 }
 
@@ -3710,7 +3977,7 @@ async function buildComfyScenePlannerOptions({
     const sceneSource = createSceneSource(sourceText, { filterRules });
     if (!sceneSource.content) throw new Error('消息内容为空（可能被过滤规则清空）');
 
-    const presentCharacters = detectPresentCharacters(sceneSource.content, sharedDrawSettings.characterTags || []);
+    const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(sharedDrawSettings));
     let worldbookEntries = null;
 
     if (useWorldbook && sharedDrawSettings.worldbooks?.enabled && sharedDrawSettings.worldbooks.uploadedBooks?.length) {
@@ -3738,6 +4005,7 @@ async function buildComfyScenePlannerOptions({
             maxImages: preset.maxImages || 0,
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             plannerProfile: COMFY_PLANNER_PROFILE,
+            plannerRetry: { maxRetries: sharedDrawSettings.plannerMaxRetries },
             onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
             signal,
         },
@@ -3835,7 +4103,7 @@ export async function generateImagesFromText(options = {}) {
     let successCount = 0;
     const generationRecipe = createComfyGenerationRecipe({
         settings: comfySettings,
-        characterTags: sharedDrawSettings.characterTags || [],
+        characterLibrary: characterLibraryFromSettings(sharedDrawSettings),
         paramsOverride: options.paramsOverride || {},
         promptOverride: options.promptOverride || '',
         negativePromptOverride: options.negativePromptOverride || '',
@@ -3877,6 +4145,8 @@ export async function generateImagesFromText(options = {}) {
                 positive: promptData.positive,
                 characterPrompts: promptData.characterPrompts,
                 negativePrompt: promptData.negative,
+                // 整图正向提示词追加位随图落盘，画廊编辑重生成时才能重建
+                postPrompt: task.post_prompt || '',
             });
             await setSlotSelection(slotId, imgId);
             successCount++;
@@ -3944,13 +4214,17 @@ function setImageState(container, state) {
     if (dropdown) {
         const saveItem = dropdown.querySelector('[data-action="save-image"]');
         if (state === ImageState.PREVIEW && !saveItem) {
-            dropdown.insertAdjacentHTML('afterbegin', '<button data-action="save-image" title="保存到服务器">💾</button>');
+            // Static draw-owned markup, without user input.
+            // eslint-disable-next-line no-unsanitized/method
+            dropdown.insertAdjacentHTML('afterbegin', IMAGE_SAVE_BUTTON_HTML);
         } else if (state !== ImageState.PREVIEW && saveItem) {
             saveItem.remove();
         }
     }
     container.querySelector('.xb-nd-indicator')?.remove();
-    if (state === ImageState.SAVING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator">💾 保存中...</div>');
+    // Static draw-owned markup, without user input.
+    // eslint-disable-next-line no-unsanitized/method
+    if (state === ImageState.SAVING) container.insertAdjacentHTML('afterbegin', IMAGE_SAVING_INDICATOR_HTML);
     else if (state === ImageState.REFRESHING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>');
 }
 
@@ -3987,7 +4261,7 @@ function syncContainerToPreview(container, preview, historyCount = 1, currentInd
     void warmSlotPreviewNeighbors(container.dataset.slotId, currentIndex).catch(() => {});
 }
 
-function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEffectiveParams(getSettings())) {
+function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEffectiveParams(getSettings()), postPrompt = '') {
     const charPositive = (Array.isArray(characterPrompts) ? characterPrompts : [])
         .map(item => item?.prompt)
         .filter(Boolean)
@@ -3997,7 +4271,8 @@ function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEff
         .filter(Boolean)
         .join(', ');
     return {
-        positive: joinTags(params.positivePrefix || '', sceneTags, charPositive),
+        // 追加位拼在所有角色之后，与 compileComfyPromptForTask 的顺序保持一致
+        positive: joinTags(params.positivePrefix || '', sceneTags, charPositive, postPrompt),
         negative: joinTags(params.negativePrefix || '', charNegative),
     };
 }
@@ -4066,12 +4341,14 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
         onSave: async (imgId, url) => {
             const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
             if (cont) {
-                const img = cont.querySelector('img');
-                if (img) img.src = url;
                 setImageState(cont, ImageState.SAVED);
             }
             const preview = await getPreview(imgId).catch(() => null);
-            if (preview) await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch(() => {});
+            if (preview) {
+                const img = cont?.querySelector('img');
+                if (img) img.src = getPreviewDisplayUrl(preview);
+                await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch(() => {});
+            }
         },
         onDelete: async (sid, deletedImgId, remainingPreviews) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
@@ -4174,6 +4451,7 @@ async function handleImageDelegatedClick(event) {
     }
 
     if (action === 'retry-image') { await retryFailedImage(container); return; }
+    if (action === 'retry-floor-failed') { await retryFloorFailedImageCards("comfyui", container); return; }
     if (action === 'restore-image') { await restoreImageCard(container); return; }
     if (action === 'edit-tags') { container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open'); toggleEditPanel(container, true); return; }
     if (action === 'cancel-edit') { toggleEditPanel(container, false); return; }
@@ -4224,6 +4502,11 @@ async function toggleEditPanel(container, show) {
             });
         }
 
+        // 追加位：与角色框一致，记录里实际存了 post_prompt 才渲染；为空的图不出框
+        if (preview?.postPrompt) {
+            appendEditGroup(scrollWrap, { label: '追加 (post_prompt)', value: preview.postPrompt, type: 'post_prompt' });
+        }
+
         editPanel.style.display = 'block';
 
         if (btnsPanel) {
@@ -4253,8 +4536,9 @@ async function toggleEditPanel(container, show) {
 
 async function saveEditedTags(container) {
     try {
-        await persistCardTagEdits(container, (tags, characters, record) => {
-            const data = buildEditedPromptData(tags, characters);
+        await persistCardTagEdits(container, (tags, characters, record, postPrompt) => {
+            // 追加位优先用编辑框的值；面板没有该字段时回落记录里存的
+            const data = buildEditedPromptData(tags, characters, undefined, postPrompt ?? record?.postPrompt ?? '');
             return { positive: data.positive, negativePrompt: data.negative ?? record?.negativePrompt ?? '' };
         });
         toggleEditPanel(container, false);
@@ -4328,9 +4612,10 @@ async function saveCurrentImage(container) {
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
         const url = await saveBase64AsFile(preview.base64, charName, `comfy_${imgId}`, 'png');
         await updatePreviewSavedUrl(imgId, url);
+        preview.savedUrl = url;
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch(() => {});
         const img = container.querySelector('img');
-        if (img) img.src = url;
+        if (img) img.src = getPreviewDisplayUrl(preview);
         container.dataset.state = 'saved';
         toastr.success('图片已保存到服务器');
     } catch (error) {
@@ -4361,7 +4646,7 @@ async function runPreparedComfySlots(input) {
 
         const recipe = createComfyGenerationRecipe({
             settings,
-            characterTags: getSharedDrawSettings().characterTags || [],
+            characterLibrary: characterLibraryFromSettings(getSharedDrawSettings()),
             paramsOverride: input.paramsOverride || {},
             promptOverride: input.promptOverride || '',
             negativePromptOverride: input.negativePromptOverride || '',
@@ -4433,7 +4718,7 @@ export async function generateAndInsertImages({
                 },
                 createGenerationRecipe: prepared => createComfyGenerationRecipe({
                     settings: comfySettings,
-                    characterTags: sharedSettingsSnapshot.characterTags || [],
+                    characterLibrary: characterLibraryFromSettings(sharedSettingsSnapshot),
                     paramsOverride,
                     promptOverride,
                     negativePromptOverride,

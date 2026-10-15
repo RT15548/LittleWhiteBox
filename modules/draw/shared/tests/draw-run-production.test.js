@@ -9,6 +9,7 @@ import {
 } from '../draw-run-production.js';
 import {
     DRAW_RUNS_CAPABILITY,
+    DRAW_RUN_PLANNER_RETRY_CAPABILITY,
     DRAW_RUN_RUNTIME_CAPABILITY,
     REQUIRED_DRAW_RUN_PLUGIN_VERSION,
 } from '../draw-run-client.js';
@@ -17,6 +18,8 @@ import {
     subscribeDrawRunActivity,
 } from '../draw-run-activity.js';
 import {
+    formatDrawRunProgress,
+    getDrawRunProgressIcon,
     getDrawRunProgressPhase,
     resolveDrawRunActivityDetail,
     resolveDrawRunUiState,
@@ -436,4 +439,34 @@ test('a cancellation that reached neither chat nor backend returns the pending r
         provider: 'sd-webui',
         messageId: 3,
     }), 'accepted');
+});
+
+test('Draw Run shows the Agent retry stage as planning work with its own label', () => {
+    assert.equal(getDrawRunProgressPhase({ stage: 'retry' }), 'retry');
+    assert.equal(getDrawRunProgressPhase({ run: { progress: { stage: 'retry' } } }), 'retry');
+    assert.equal(formatDrawRunProgress({ stage: 'retry' }), '重试');
+    assert.equal(getDrawRunProgressIcon({ stage: 'retry' }), '⏳');
+});
+
+test('the frozen planner.retry is sent only to a backend that advertises planner retry support', async () => {
+    const message = { mes: 'hello', extra: {} };
+    const retry = { maxRetries: 3, baseDelayMs: 2000 };
+    for (const [capabilities, expected] of [
+        [['image-batch-jobs-v1', DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY], false],
+        [['image-batch-jobs-v1', DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY, DRAW_WORK_CANCELLATION_CAPABILITY, DRAW_RUN_PLANNER_RETRY_CAPABILITY], true],
+    ]) {
+        let submitted;
+        await submitProviderDrawRun(baseOptions({
+            message,
+            ctx: { chat: [message], getRequestHeaders: () => ({}) },
+            statusLoader: async () => ({ ready: true, version: REQUIRED_DRAW_RUN_PLUGIN_VERSION, capabilities }),
+            preparePlanner: async () => ({ planner: { validationContext: { effectiveMaxImages: 1 }, retry: { ...retry } } }),
+            submit: async (input) => {
+                submitted = input.prepared;
+                return { status: 'accepted', runId: 'run-x' };
+            },
+        }));
+        assert.equal(Object.hasOwn(submitted.planner, 'retry'), expected);
+        if (expected) assert.deepEqual(submitted.planner.retry, retry);
+    }
 });

@@ -32,7 +32,7 @@ function joinBlocks(blocks) {
 export function buildScenePlannerFrameText(profile) {
     const { imageModelName } = normalizeScenePlannerProfile(profile);
     return `## 你收到的材料
-- <worldInfo>：世界书。其中的 tag 组合、同人角色资料、姿势库是写 tag 时的参考来源；未知角色的外貌优先参考其中的数据。
+- <worldInfo>：世界书。其中的 tag 组合、同人角色资料、姿势库是写提示词时的参考来源；未知角色的外貌优先参考其中的数据。
 - <content>：本次唯一的叙事来源。开头是【已录入角色】列表，这些角色的身份与外貌由角色库注入，你只写他们在本图中的状态；正文里每个可插图的位置已标为【插图点 N】。
 - 消息末尾的数量约束：可用插图点数、images 数量、每图人数上限。
 
@@ -78,9 +78,9 @@ function flattenSchemaFields(schema, path, out) {
     return out;
 }
 
-/** Field paths with their model-facing descriptions, for the read-only request preview. */
-export function listScenePlanFieldDescriptions(profile) {
-    const tool = createSubmitScenePlanTool({ profile });
+/** Field paths with their model-facing descriptions, for the request preview. */
+export function listScenePlanFieldDescriptions(profile, descriptions = {}) {
+    const tool = createSubmitScenePlanTool({ profile, descriptions });
     return flattenSchemaFields(tool.function.parameters, '', []);
 }
 
@@ -88,7 +88,7 @@ export function listScenePlanFieldDescriptions(profile) {
  * Read-only request structure for the prompt editor: one system, one user, one tool.
  * `editable` sections map onto the three user-editable textareas.
  */
-export function buildScenePlannerChainPreview({ profile, hasTagGuide = true } = {}) {
+export function buildScenePlannerChainPreview({ profile, hasTagGuide = true, descriptions = {} } = {}) {
     const effective = normalizeScenePlannerProfile(profile);
     return [
         {
@@ -130,7 +130,7 @@ export function buildScenePlannerChainPreview({ profile, hasTagGuide = true } = 
             role: 'tools',
             key: 'tools',
             summary: 'tools：submit_scene_plan 字段说明（模型读到的字段语义）',
-            fields: listScenePlanFieldDescriptions(effective),
+            fields: listScenePlanFieldDescriptions(effective, descriptions),
         },
     ];
 }

@@ -17,7 +17,7 @@ import {
 import { L0_FLOOR_MAX_ATTEMPTS, summarizeL0Floors } from './l0-floor-status.js';
 import { trackVectorActivity } from '../runtime/vector-activity.js';
 import { createAnchorExtractionDraft } from '../../data/anchor-extraction.js';
-import { assertMemoryWritable } from '../../data/memory-commit.js';
+import { assertMemoryWritable, waitForMemoryCommit } from '../../data/memory-commit.js';
 import { sameMemory } from '../../maintenance/domain.js';
 import { invalidateSummaryAnchors, getSummaryStore } from '../../data/store.js';
 import { embed } from '../llm/siliconflow.js';
@@ -87,10 +87,15 @@ function buildL0InputText(userMessage, aiMessage) {
 
 export async function incrementalExtractAtoms(chatId, chat, onProgress, options = {}) {
     return trackVectorActivity({ chatId, phase: 'l0-extraction', api: getVectorConfig()?.l0Api, unit: 'floors' }, async activity => {
+        await waitForMemoryCommit(options.signal);
         getSummaryStore();
         const draft = createAnchorExtractionDraft(chatId, chat || []);
         const result = await incrementalExtractAtomsInner(chatId, chat, onProgress, options, draft, activity);
-        if (!result.cancelled) await draft.commit();
+        const commit = options.commit || (task => task());
+        if (!result.cancelled) await commit(async () => {
+            await waitForMemoryCommit(options.signal);
+            await draft.commit();
+        });
         return result;
     });
 }
@@ -386,11 +391,13 @@ export async function vectorizeMissingStateAtoms(chatId, onProgress, options = {
 }
 
 async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, activity) {
+    await waitForMemoryCommit(options.signal);
     assertMemoryWritable(chatId);
     const {
         vectorConfig = getVectorConfig(),
         signal = null,
         shouldCancel = null,
+        commit = task => task(),
     } = options;
     const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
     const cancelledResult = () => ({
@@ -513,10 +520,15 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
 
     try {
         if (isCancelled()) return cancelledResult();
-        assertMemoryWritable(chatId);
-        const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
-        if (atoms.some(atom => !sameMemory(atom, currentAtoms.get(atom.atomId)))) return cancelledResult();
-        await saveStateVectors(chatId, allItems, fingerprint);
+        const saved = await commit(async () => {
+            await waitForMemoryCommit(signal);
+            assertMemoryWritable(chatId);
+            const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
+            if (isCancelled() || atoms.some(atom => !sameMemory(atom, currentAtoms.get(atom.atomId)))) return false;
+            await saveStateVectors(chatId, allItems, fingerprint);
+            return true;
+        });
+        if (!saved) return cancelledResult();
     } catch (error) {
         if (isCancelled()) return cancelledResult();
         xbLog.error(MODULE_ID, 'L0 StateVector 写入失败', error);

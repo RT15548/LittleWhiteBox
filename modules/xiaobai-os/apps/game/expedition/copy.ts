@@ -1,8 +1,8 @@
 import { BOSSES, BOSS_SPECS, RELIC_RULES as R, RULES, WEAPON_LIST } from './content.js';
 import type { EncounterKind, EnemyKind, Oath, Outfit, Relic, RouteKind, Weapon } from './types.js';
 import { CAMPAIGN_COPY } from './content/campaign-copy.js';
-import { DIALOGUE_COPY } from './content/dialogue-copy.js';
 import { JOURNEY_COPY } from './content/journey-copy.js';
+import { expeditionFailure } from './failure.js';
 
 const TITLE = ['余烬', '远征'];
 export const COPY = {
@@ -85,6 +85,8 @@ export const WEAPON_COPY: Record<Weapon, { name: string; equipment: string; deta
 };
 export const skillDetail = (weapon: Weapon) => `${WEAPON_COPY[weapon].action}：${WEAPON_COPY[weapon].skill}`;
 export const ENEMY_NAMES: Record<EnemyKind, string> = {
+    keeper: '闸口看守',
+    bridgekeeper: '闸桥领班', heatkeeper: '执闸长',
     soldier: '失落卫兵', archer: '逐风射手', guard: '重盾守卫', priest: '月灯祭司', charger: '裂角兽',
     stalker: '影爪猎手', bomber: '熔火投弹手', wisp: '游灯',
     warden: '庭院守望者', thornheart: '棘心古树', weaver: '织月者', astrologer: '失明占星师', king: '空冠之王', phoenix: '灰烬不死鸟',
@@ -171,17 +173,14 @@ export const RELIC_COPY: Record<Relic, { name: string; detail: string; family: s
     railgun: { name: '轨道导管', detail: '重炮弹体贯穿敌人，每次命中都能爆炸。强化增加贯穿数量。', family: '炮' },
 };
 export function errorText(cause: unknown) {
-    const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : cause instanceof Error ? cause.message : '';
+    const { code, message } = expeditionFailure(cause);
     if (code === 'expedition_agent_not_configured') { return CAMPAIGN_COPY.noAi; }
-    if (code === 'expedition_agent_auth') { return CAMPAIGN_COPY.aiAuth; }
-    if (code === 'expedition_agent_failed') { return CAMPAIGN_COPY.aiFailed; }
-    if (code === 'expedition_context_capacity') { return CAMPAIGN_COPY.contextFull; }
+    if (code === 'expedition_agent_auth') { return message || CAMPAIGN_COPY.aiAuth; }
+    if (code === 'expedition_agent_failed') { return message || CAMPAIGN_COPY.aiFailed; }
+    if (code === 'expedition_context_capacity') { return message || CAMPAIGN_COPY.contextFull; }
     if (code === 'expedition_data_invalid') { return CAMPAIGN_COPY.dataInvalid; }
     if (code === 'expedition_narrative_unavailable') { return CAMPAIGN_COPY.narrativeFailed; }
     if (code.startsWith('expedition_memory_')) { return CAMPAIGN_COPY.memoryFailed; }
-    if (code === 'expedition_action_rejected') { return DIALOGUE_COPY.issues.action_rejected; }
-    if (code === 'expedition_performance_rejected') { return DIALOGUE_COPY.issues.performance_rejected; }
-    if (code === 'expedition_metadata_invalid') { return DIALOGUE_COPY.issues.metadata_invalid; }
     if (code.startsWith('expedition_reply_')) { return CAMPAIGN_COPY.emptyReply; }
     if (code === 'expedition_stale') { return COPY.stale; }
     if (code === 'expedition_locked') { return COPY.locked; }
@@ -189,7 +188,7 @@ export function errorText(cause: unknown) {
     if (code === 'expedition_unavailable') { return COPY.unavailable; }
     if (code === 'expedition_invalid' || code === 'expedition_identity') { return COPY.invalid; }
     if (code.startsWith('expedition_save_') || code.startsWith('host_request_')) { return COPY.saveError; }
-    return COPY.failure(code);
+    return message || COPY.failure(code);
 }
 export function awardTitle(key: string): string {
     const boss = BOSSES.find(id => BOSS_SPECS[id].awardKey === key);

@@ -8,12 +8,12 @@
 | 资料 | 唯一职责 |
 | --- | --- |
 | [world.md](world.md) | 公共世界规则。 |
-| [player.md](player.md) | 玩家在世界中的旅人身份；姓名和性别由游戏存档注入。 |
+| [player.md](player.md) | 玩家在世界中的旅人身份；姓名、性别和已选择的外貌年龄由游戏存档注入。 |
 | [system-prompt.md](system-prompt.md) | 所有人共用的本次任务。 |
 | [meta-protocol.md](meta-protocol.md) | User 消息中的文笔要求、操作字段和资料说明。 |
 | [三娘](sanniang.md)、[阿念](anian.md)、[扣子](kouzi.md)、[老白](laobai.md) | 公开简介，以及各自的经历、性格、声音、暗面和知情范围。 |
 | [openings.md](openings.md) | 第一章初见场面，以及救出前后的场景素材。 |
-| `人物ID-stages.md` | 按章节与关系段组织的关系资料，投影规则见第一章规划第四节。 |
+| `人物ID-stages.md` | 跨章节的长期关系尺度，以及独立的章节可谈资料；投影规则见第一章规划第四节。 |
 | `enemy-人物ID.md` | 劝退遭遇人物的公开简介、完整人物卡与初见开场；与主要人物使用同一套预设。 |
 
 世界事实只在世界资料定义；人物卡引用这些概念，描述它们对这个人的影响，不另写一套世界规则。
@@ -25,15 +25,20 @@ System 顺序为：共用任务 → `<background>` 世界设定 → `<player>` �
 首条 User 消息先放 `<meta_protocol>`（文笔要求、操作规则、注意事项和本轮操作词表），再打开 `<story>`，放历史摘要、本人亲历的事件及当前处境。
 未压缩的历史保持真实 User / Assistant 消息顺序。历史中地点或已知事件变化时，在该轮 User 正文前用 `<scene>` 标明地点和新增事件 id，引用本人的事件目录；首轮给出该段历史的起始处境。最后一条 User 消息放玩家本次输入，再关闭 `</story>`，接第一人称叙事与 XML 正文、JSON 操作的开工强调。预设包裹只存在于本轮请求，不写进交谈存档或摘要原文。
 当前地点、跟随或赶路状态、目的地与附近人物均从游戏状态投影；附近人物使用交谈距离与遮挡判定，不把同一区域所有人当作在场者。历史和压缩请求共用同一套场景、事件投影；压缩只提供所压缩段已经知晓的事件，不注入之后的进展。
+当前脱困阶段注入 `story.rescue`，现场玩家机关及其位置、状态注入 `story.playerMechanisms`，均从现行地图和战役事实派生，不以初见开场或旧对白代替当前状态。
+当前真实出口注入 `story.exits`，目的地路线来自实际移动所用的场景图；跟随资料包含玩家身份。救援期间 `story.chapter` 提供当前救援进程，`story.supplies` 提供真实物资状态与接收路线；进入内堡后，`story.chapter.situation` 只投影当地公开处境与本人已知结局，`personalThread` 提供本人的邀请与是否已成行、是否已了结，不携带玩家手记的后续任务指引。它们是当前世界资料，不追加进任何人的亲历事件或旧聊天。
+本人当前服饰由同一游戏投影注入 `story.clothing`，规则与所有权见 [当前服饰](chapter1-plan.md#当前服饰)，不在人物卡里重复维护衣物清单。
 各张卡的 `<!-- public -->` 与 `<!-- /public -->` 标记包围一两行公开简介，明确姓名、性别和公开身份；运行时从这里汇总同一份人物设定集，不另存人物简介副本。私密经历、暗面和他人尚不知情的身份不放进公开段。
 开场资料只选当前人物、当前阶段的场面；人物卡中的“救援开始前”明确记录历史处境，当前状态由游戏资料提供。
 作者说明、其他人物的完整卡片、未发生的场面不注入这次对话。
 `openings.md` 以显式 `opening:人物ID.阶段` 注释划分初见场面，显示标题不是程序契约。已有交谈按时间继续，不把新的开场台词插到旧记录前。
 
-分段文件以 `<!-- stage:章节号:段序号 -->` 与 `<!-- /stage -->` 包围一段，段序号从 0 起。
-段内的 `<!-- field:name -->`、`relationship`、`memory`、`shadow`、`intimacy`、`secret` 标记对应字段；值可保留一个以冒号结尾的显示标签。没有秘密就不写 `secret` 字段。
-`name` 只供界面显示，不注入模型；`memory` 在模型资料中命名为 `personalPast`，与交谈摘要区分。
-人物卡、标题和称呼不承担程序键的职责。敌人开场也使用 `opening:人物ID.initial` 标记。
+分段文件包含两种互相独立的资料：
+- 长期关系尺度以 `<!-- relationship:段序号 -->` 与 `<!-- /relationship -->` 包围，段序号从 0 起；`relationship:zero` 单独定义零分心理。普通段的 `field:name` 只供界面显示，零分沿用首段称呼。`field:position`、`longing`、`possession`、`defense`、`surrender`、`balance` 六项分别映射到模型资料 `stage.psychology` 中的位置、渴求、占有、防御、让渡、力量关系。它们描述心理尺度，不安排具体行动、婚姻状态或下一步剧情。
+- 章节可谈资料以 `<!-- stage:章节号:段序号 -->` 与 `<!-- /stage -->` 包围，段序号从 0 起。`field:memory`、`shadow`、`secret` 对应可谈往事、秘密线索与可交出的秘密；没有内容就省略字段。`memory` 在模型资料中命名为 `personalPast`，与交谈摘要区分。
+
+字段值从标记下一行开始，不另加供程序裁掉的显示标签。显示标题、字段正文和称呼均不承担程序键的职责。模型只收到当前心理尺度，不收到全表、其他区间或界面称呼。关系曲线随人物内核分别编写；人物卡中影响关系的惯常反应描述其心理成因，不写成所有关系下永远成立的行为指令。
+敌人开场使用 `opening:人物ID.initial` 标记。
 
 现行协议的依据是 `narrative/response.ts`、`narrative/prompt.ts` 的 `conversationContext`、`buildConversationPrompt` 与 `narrative/conversation.ts` 的 `generateConversation`（均相对 `apps/game/expedition/`）。字段说明在 `meta-protocol.md`，回复的开工强调由 `response.ts` 使用正文标签常量生成。人物卡只负责世界中的本人，不另写传输格式。
 

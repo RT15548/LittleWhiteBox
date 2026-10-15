@@ -1,6 +1,6 @@
 import { Color, DirectionalLight, Fog, Group, HemisphereLight, NeutralToneMapping, OrthographicCamera, PCFSoftShadowMap, Scene,
     SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
-import type { Battle, Weapon, Outfit } from './types.js';
+import type { Battle, Weapon, Outfit, Point } from './types.js';
 import { createSceneKit } from './scene-kit.js';
 import { buildWorld } from './scene-world.js';
 import { createEnemyActor, createHero } from './scene-actors.js';
@@ -10,19 +10,22 @@ import { RULES, isBoss } from './content.js';
 import { createWardShell } from './scene-defense.js';
 import { createWorldStatus } from './scene-status.js';
 import { buildExplorableWorld, type ExplorableScenery } from './presentation/world-scenery.js';
-import type { CourtyardFact, SceneDefinition } from './content/world-types.js';
-import type { WorldLocation } from './world/exploration.js';
+import type { CourtyardFact, CourtyardScene, SceneDefinition } from './content/world-types.js';
+import { reachableInteractions, type WorldLocation } from './world/exploration.js';
 import { participantName } from './content/participants.js';
 import { reachablePersonInteractions, type PeopleLocations } from './world/people.js';
 import { parleyInteractions } from './campaign/parley.js';
 import { WORLD_COPY } from './content/world-copy.js';
 import type { Traveler } from './campaign/traveler.js';
 import { createWorldTextures } from './presentation/world-textures.js';
+import { COURTYARD_ENCOUNTERS, nextEncounter, type EncounterSegment } from './content/courtyard-encounters.js';
+import { COMBAT_COPY } from './content/combat-copy.js';
 
 export type SceneMode = 'camp' | 'battle' | 'between';
-export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations }
+export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations;
+    objects: ReadonlySet<string>; completedSegments: readonly EncounterSegment[]; engagement?: EncounterSegment; reading?: boolean }
 /** Owns presentation lifetime only: camera, meshes and transient damage labels. */
-export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; artworkStatus?: (failed: number, pending: number) => void }) {
+export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; sceneReady?: (scene: CourtyardScene) => void; artworkStatus?: (failed: number, pending: number) => void }) {
     const renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: options.world ? 'default' : 'high-performance' });
     renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = NeutralToneMapping; renderer.toneMappingExposure = 1;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, options.world ? 1.4 : 1.8)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = PCFSoftShadowMap;
@@ -41,9 +44,11 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
     const enemies = new Map<number, { actor: ReturnType<typeof createEnemyActor>; hp: number; death: number | null; marker: HTMLElement }>();
     const nameplates = new Map<string, HTMLElement>();
     const floaters: { element: HTMLElement; position: Vector3; born: number }[] = [];
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)'), target = new Vector3(), projection = new Vector3();
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)'), sideReading = matchMedia('(max-height:450px) and (min-width:600px)'), target = new Vector3(), projection = new Vector3();
     let disposeWorld: (() => void) | null = null, worldKey = '', lastMode = '', lastAppearance = '', lastBattle: Battle | null = null;
     let worldScenery: ExplorableScenery | null = null;
+    let shownWorld: CourtyardScene | null = null;
+    let reading = false;
     let worldX = NaN, worldY = NaN, worldFacing = NaN, drawnFacts: ReadonlySet<CourtyardFact> | null = null, draws = 0, submitMs = 0;
     let width = 1, height = 1, dirty = true, disposed = false, failed = false, lastFrame = 0, lastTick = -1, lastHp = 0, cameraReady = false;
     const worldTextures = options.world ? createWorldTextures(() => { worldKey = ''; dirty = true; options.invalidate?.(); }, (failed, pending) => options.artworkStatus?.(failed, pending)) : null;
@@ -61,6 +66,11 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
         floaters.push({ element, position: new Vector3(x, 2, z), born: tick });
     }
     function clearActors() { for (const entry of enemies.values()) { actors.remove(entry.actor.root); entry.marker.remove(); } enemies.clear(); floaters.splice(0).forEach(f => f.element.remove()); }
+    function inView(point: Point) {
+        if (!cameraReady) { return true; }
+        projection.set(point.x, 1, point.y).project(camera);
+        return Math.abs(projection.x) < 1.15 && Math.abs(projection.y) < 1.15;
+    }
     return {
         draw(battle: Battle | null, loadout: { weapon: Weapon; outfit: Outfit }, zone: number, mode: SceneMode = 'battle', now = 0, world?: ExplorationFrame) {
             if (disposed || failed) { return; }
@@ -72,6 +82,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             lastFrame = now; const c = PALETTES[zone];
             const nextWorld = world ? world.definition.id : `${zone}:${b?.boss ?? false}:${!!b}`;
             if (nextWorld !== worldKey) {
+                hero.resetMotion();
                 nameplates.forEach(label => label.remove()); nameplates.clear();
                 disposeWorld?.();
                 if (world) {
@@ -87,34 +98,54 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             }
             // A confirmed input batch replaces the snapshot, not the encounter or camera.
             if (!!b !== !!lastBattle || b && lastBattle && b.tick < lastTick) {
+                hero.resetMotion();
                 clearActors(); lastHp = b?.player.hp ?? 0;
             }
             const portrait = !world && mode !== 'battle', mobile = width < 600, compact = mobile || height < 400, aspect = width / height;
-            const horizontal = world ? mobile ? WORLD_CAMERA.mobileWidth : Math.max(WORLD_CAMERA.minimumWidth, aspect * (height < 400 ? WORLD_CAMERA.shortSpan : WORLD_CAMERA.tallSpan))
+            if (!!world?.reading !== reading) { reading = !!world?.reading; cameraReady = false; }
+            const room = world?.definition.landscape.vista === 'room';
+            const horizontal = room ? (mobile ? 20 : Math.max(30, aspect * (height < 400 ? 19 : 25))) : world ? (mobile ? WORLD_CAMERA.mobileWidth : Math.max(WORLD_CAMERA.minimumWidth, aspect * (height < 400 ? WORLD_CAMERA.shortSpan : WORLD_CAMERA.tallSpan))) * (world.definition.safe && !b ? WORLD_CAMERA.settlementScale : 1)
                 : portrait ? mobile ? 13 : 28 : mobile ? 18.5 : Math.max(27, aspect * (height < 400 ? 14 : 23));
             const pan = Math.max(0, RULES.arena - horizontal / 2 + .5);
-            const desiredX = world ? world.location.position.x : b ? compact ? b.player.x * .62 : Math.max(-pan, Math.min(pan, b.player.x * .62)) : mobile ? 0 : 5.5;
-            const desiredZ = world ? world.location.position.y - WORLD_CAMERA.lead : b ? b.player.y * (compact ? .62 : .2) - .4 : mobile ? -4.2 : -11.8;
+            // Frame the unobscured area beside or above the reading sheet; world actors never move for UI.
+            const bearing = portrait ? 0 : CAMERA_EIGHTH_TURNS * Math.PI / 4;
+            const readingOffset = reading && !sideReading.matches ? horizontal / aspect * .22 : 0;
+            const sideOffset = reading && sideReading.matches ? horizontal * .23 : 0;
+            const desiredX = (world ? world.location.position.x * (room ? .4 : 1) : b ? compact ? b.player.x * .62 : Math.max(-pan, Math.min(pan, b.player.x * .62)) : mobile ? 0 : 5.5) + Math.sin(bearing) * readingOffset + Math.cos(bearing) * sideOffset;
+            const desiredZ = (world ? room ? world.location.position.y * .4 - 1 : world.location.position.y - WORLD_CAMERA.lead : b ? b.player.y * (compact ? .62 : .2) - .4 : mobile ? -4.2 : -11.8) + Math.cos(bearing) * readingOffset - Math.sin(bearing) * sideOffset;
             if (world && Math.hypot(worldX - world.location.position.x, worldY - world.location.position.y) > 8) { cameraReady = false; }
             const cameraSettled = Math.abs(target.x - desiredX) + Math.abs(target.z - desiredZ) < .015;
             const peopleMoved = world && worldScenery?.setPeople(world.people, now);
-            const npcChanged = world && worldScenery?.animate(world.location.position, now, reduced.matches);
+            const progressChanged = world && worldScenery?.setProgress(world.completedSegments, world.objects);
+            const npcChanged = world && worldScenery?.animate(world.location.position, now, reduced.matches, inView);
             if (world && !dirty && cameraReady && cameraSettled && appearance === lastAppearance && b === lastBattle && !tickChanged
                 && worldX === world.location.position.x && worldY === world.location.position.y
-                && worldFacing === world.location.facing && drawnFacts === world.facts && !npcChanged && !peopleMoved) { return; }
+                && worldFacing === world.location.facing && drawnFacts === world.facts && !npcChanged && !peopleMoved && !progressChanged && !hero.animating) { return; }
             if (!cameraReady || reduced.matches) { target.set(desiredX, 0, desiredZ); cameraReady = true; }
             else { target.x += (desiredX - target.x) * .14; target.z += (desiredZ - target.z) * .14; }
             camera.left = -horizontal / 2; camera.right = horizontal / 2; camera.top = horizontal / aspect / 2; camera.bottom = -camera.top;
-            const bearing = portrait ? 0 : CAMERA_EIGHTH_TURNS * Math.PI / 4;
             const cameraDistance = world ? WORLD_CAMERA.distance : 25;
             camera.position.set(target.x + Math.sin(bearing) * cameraDistance, world ? WORLD_CAMERA.height : 28, target.z + Math.cos(bearing) * cameraDistance); camera.lookAt(target.x, 0, target.z); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
             if (world) { worldScenery?.setEncounterActive(!!b); worldScenery?.update(world.location.position, bearing); }
             nameplates.forEach(label => { label.hidden = true; });
+            if (world && !b) {
+                for (const object of world.definition.objects) {
+                    if (object.kind !== 'reward' || !world.objects.has(object.id)) { continue; }
+                    const id = `reward/${object.id}`, p = world.definition.anchors[object.anchor];
+                    let label = nameplates.get(id);
+                    if (!label) { label = document.createElement('span'); label.className = 'exp-person-name'; label.textContent = `◇ ${COMBAT_COPY.cache}`; labels.append(label); nameplates.set(id, label); }
+                    projection.set(p.x, 1.4, p.y).project(camera);
+                    const x = Math.max(65, Math.min(width - 65, (projection.x * .5 + .5) * width));
+                    const y = Math.max(105, Math.min(height - 145, (-projection.y * .5 + .5) * height));
+                    label.hidden = false; label.style.transform = `translate(${x}px,${y}px) translate(-50%,-100%)`;
+                }
+            }
             const speakers = new Set(world && !b ? [
                 ...reachablePersonInteractions(world.definition, world.location.position, world.facts, world.people),
                 ...parleyInteractions(world.definition.id, world.location.position, world.facts),
+                ...reachableInteractions(world.definition, world.location, world.facts).filter(i => i.kind === 'object' && i.target.kind === 'resident'),
             ].map(item => item.target.id) : []);
-            for (const person of [...worldScenery?.people ?? [], ...worldScenery?.parleyPeople ?? []]) {
+            for (const person of [...worldScenery?.people ?? [], ...worldScenery?.parleyPeople ?? [], ...worldScenery?.storyPeople ?? []]) {
                 if (b || !world || Math.hypot(person.position.x - world.location.position.x, person.position.y - world.location.position.y) > 10) { continue; }
                 let label = nameplates.get(person.id);
                 if (!label) { label = document.createElement('span'); label.className = 'exp-person-name'; label.textContent = participantName(person.id); labels.append(label); nameplates.set(person.id, label); }
@@ -129,7 +160,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 sun.target.updateMatrixWorld();
             }
             const explorer = world ? { ...world.location.position, facing: world.location.facing, dashTime: 0, swing: 0, shield: 0, guard: 0, resonance: 0 } : null;
-            hero.update(b?.player ?? explorer, loadout.weapon, loadout.outfit, time, reduced.matches, portrait, !!b?.effects.some(e => e.kind === 'resonance'));
+            hero.update(b?.player ?? explorer, loadout.weapon, loadout.outfit, time, now / 1000, reduced.matches, portrait, !!b?.effects.some(e => e.kind === 'resonance'));
             for (const e of b?.enemies ?? []) {
                 let entry = enemies.get(e.id);
                 if (!entry) {
@@ -137,7 +168,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                     entry = { actor: createEnemyActor(k, actors, e.kind, c), hp: e.hp, death: null, marker }; enemies.set(e.id, entry);
                 }
                 if (entry.hp > e.hp && tickChanged) { label(entry.hp - e.hp, e.x, e.y, b!.tick); }
-                entry.hp = e.hp; entry.actor.update(e, b!.tick, reduced.matches); entry.actor.bar.quaternion.copy(camera.quaternion);
+                entry.hp = e.hp; entry.actor.update(e, b!.tick, reduced.matches, !!world); entry.actor.bar.quaternion.copy(camera.quaternion);
                 projection.set(e.x, 1.2, e.y).project(camera);
                 const sx = (projection.x * .5 + .5) * width, sy = (-projection.y * .5 + .5) * height;
                 const marginX = Math.min(18, width / 2), top = Math.min(mobile ? 132 : 95, height * .3), bottom = Math.max(top, height - Math.min(130, height * .3));
@@ -152,7 +183,8 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 if (t >= 1 || !b || reduced.matches) { actors.remove(entry.actor.root); entry.marker.remove(); enemies.delete(id); }
             }
             if (b && tickChanged) { if (lastHp !== b.player.hp) { label(lastHp - b.player.hp, b.player.x, b.player.y, b.tick, lastHp > b.player.hp); } lastHp = b.player.hp; }
-            fx.update(b, reduced.matches);
+            const segment = world && (world.engagement ?? nextEncounter(world.definition.id, world.facts, world.completedSegments));
+            fx.update(b, reduced.matches, segment ? COURTYARD_ENCOUNTERS[segment].bounds : undefined);
             const wardHit = b?.effects.filter(e => e.kind === 'ward-hit').at(-1);
             ward.update(b?.player ?? null, wardHit ? Math.max(0, (wardHit.life - 5) / 10) : 0);
             status.update(b, camera, width, height);
@@ -164,10 +196,12 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 f.element.style.opacity = String(Math.min(1, (1 - age) * 3));
             }
             renderer.render(scene, camera); draws++; submitMs += performance.now() - started;
+            if (world && shownWorld !== world.definition.id) { shownWorld = world.definition.id; options.sceneReady?.(shownWorld); }
             dirty = false; lastMode = mode; lastAppearance = appearance; lastBattle = b; lastTick = b?.tick ?? -1;
             if (world) { worldX = world.location.position.x; worldY = world.location.position.y; worldFacing = world.location.facing; drawnFacts = world.facts; }
         },
         invalidate() { dirty = true; options.invalidate?.(); },
+        needsFrame() { return worldScenery?.animating ?? false; },
         retryArtwork() { worldTextures?.retry(); },
         stats() { return { draws, submitMs, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
             geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }; },

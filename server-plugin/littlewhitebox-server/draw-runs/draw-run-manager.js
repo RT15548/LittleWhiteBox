@@ -99,6 +99,7 @@ function buildDisplayMetadata(artifact = {}) {
         tags: String(artifact.tags || artifact.task?.scene || ''),
         positive: String(promptData.positive || promptData.scene || ''),
         characterPrompts: cloneJson(promptData.characterPrompts || []),
+        postPrompt: String(artifact.task?.post_prompt || ''),
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
     };
     if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {
@@ -118,7 +119,14 @@ function createProgressDiagnostic(runId, onUpdate) {
     const apply = (patch = {}) => {
         if (typeof patch.stage === 'string') record.stage = patch.stage;
         if (Number.isInteger(patch.attemptCount)) record.attempt = patch.attemptCount;
-        if (Number.isInteger(patch.progress?.total)) record.maxAttempts = patch.progress.total;
+        const retrying = patch.progress?.phase === 'retry';
+        // 重试等待阶段的 progress.total 是“最多重试几次”，不是 Agent 的尝试上限，不能写进 maxAttempts。
+        if (!retrying && Number.isInteger(patch.progress?.total)) record.maxAttempts = patch.progress.total;
+        if (retrying && Number.isInteger(patch.progress.current) && Number.isInteger(patch.progress.total)) {
+            record.retry = { current: patch.progress.current, total: patch.progress.total };
+        } else if (typeof patch.stage === 'string' && patch.stage !== 'retry') {
+            delete record.retry; // 重试结束，回到普通请求阶段
+        }
         if (Array.isArray(patch.validationFailures)) {
             record.validationFailures = cloneJson(patch.validationFailures) || [];
         }

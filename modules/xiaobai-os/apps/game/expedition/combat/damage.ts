@@ -4,6 +4,7 @@ import type { Battle, DamageSource, Enemy, Loadout, Point } from '../types.js';
 import { effect, hazard, shot, sourceIsDirect } from './events.js';
 import { angleTo, distance, moveBody, TAU } from './geometry.js';
 import { type CombatField, fieldVisible } from './field.js';
+import { COMBAT_POLICY, wardenCarriesShield } from '../content/combat-policy.js';
 
 export function heal(b: Battle, amount: number) {
     if (b.player.hp <= 0) { return; }
@@ -11,7 +12,11 @@ export function heal(b: Battle, amount: number) {
     if (restored > 0) { effect(b, b.player, 'heal'); }
 }
 export function stagger(b: Battle, e: Enemy, ticks: number) {
-    if (isBoss(e.kind)) { e.stagger += ticks; if (e.stagger < 100) { return; } e.stagger = 0; ticks = 24; }
+    if (isBoss(e.kind)) {
+        if (e.controlRecovery > 0) { return; }
+        e.stagger += ticks; if (e.stagger < 100) { return; }
+        e.stagger = 0; ticks = 24; e.controlRecovery = COMBAT_POLICY.bossControlRecovery;
+    }
     e.stun = Math.max(e.stun, ticks); e.windup = 0; e.motion = 0; e.cooldown = Math.max(20, e.cooldown);
     effect(b, e, 'guard', 1.4);
 }
@@ -25,7 +30,7 @@ export function hurtEnemy(b: Battle, e: Enemy, amount: number, loadout: Loadout,
     let damage = amount * (rank(loadout, 'blood-price') ? R.bloodDamage + (rank(loadout, 'blood-price') - 1) * .12 : 1);
     if (rank(loadout, 'execution') && e.hp / e.maxHp < R.executeThreshold) { damage *= R.executeDamage + (rank(loadout, 'execution') - 1) * .1; }
     if (e.exposed > 0) { damage *= 1.25; }
-    if ((e.kind === 'guard' || field && e.kind === 'warden') && source === 'attack' && Math.cos(angleTo(e, origin) - e.angle) > .4 && e.exposed <= 0) { damage *= rank(loadout, 'shield-break') ? .8 : .35; }
+    if ((e.kind === 'guard' || field && e.kind === 'warden' && wardenCarriesShield(e.phase)) && source === 'attack' && Math.cos(angleTo(e, origin) - e.angle) > .4 && e.exposed <= 0) { damage *= rank(loadout, 'shield-break') ? .8 : .35; }
     if (e.kind !== 'priest' && !isBoss(e.kind) && b.enemies.some(other => other.kind === 'priest' && other.hp > 0 && distance(e, other) < 3.5 && fieldVisible(field, e, other))) { damage *= .7; }
     if (source === 'attack' && rank(loadout, 'backstab') && Math.cos(angleTo(e, b.player) - e.angle) < -.3) { damage *= 1.6 + rank(loadout, 'backstab') * .2; e.exposed = Math.max(e.exposed, 55); }
     if (source === 'attack' && rank(loadout, 'duelist')) { stagger(b, e, 9 * rank(loadout, 'duelist')); }

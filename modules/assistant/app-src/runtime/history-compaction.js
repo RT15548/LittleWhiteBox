@@ -35,7 +35,7 @@ export function createHistoryCompactionController(deps) {
         MIN_PRESERVED_TURNS,
         SUMMARY_TRIGGER_TOKENS,
         buildContextMeterLabel,
-        forceUpdateContextStats,
+        updateContextStats,
         toProviderMessages,
     } = deps;
 
@@ -152,10 +152,11 @@ export function createHistoryCompactionController(deps) {
     }
 
     async function ensureContextBudget(adapter, signal, options = {}) {
+        signal?.throwIfAborted();
         const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
         let contextMessages = getActiveContextMessages();
         let providerMessages = toProviderMessages(contextMessages, options);
-        await forceUpdateContextStats(providerMessages, null, signal);
+        updateContextStats(providerMessages);
 
         if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
             return providerMessages;
@@ -185,7 +186,8 @@ export function createHistoryCompactionController(deps) {
 
             contextMessages = getActiveContextMessages();
             providerMessages = toProviderMessages(contextMessages, options);
-            await forceUpdateContextStats(providerMessages, null, signal);
+            signal?.throwIfAborted();
+            updateContextStats(providerMessages);
             if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
                 showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
                 render();

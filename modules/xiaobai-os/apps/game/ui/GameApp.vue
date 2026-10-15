@@ -117,18 +117,9 @@ onBeforeUnmount(() => {
 </script>
 <template>
     <main class="game-app" :class="{ 'game-app-standalone': standaloneRoom }">
-        <header class="game-header">
-            <button
-                v-if="page === 'room'"
-                type="button"
-                class="game-back"
-                aria-label="返回游戏大厅"
-                @click="leave('lobby')"
-            >
-                ‹
-            </button>
+        <header v-if="!standaloneRoom" class="game-header">
             <h1>{{ page === 'room' ? room?.name : '游戏' }}</h1>
-            <div v-if="!standaloneRoom" class="game-funds" aria-label="可用小白币">
+            <div class="game-funds" aria-label="可用小白币">
                 <strong>¤ {{ funds.balance.toLocaleString('zh-CN') }}</strong>
             </div>
         </header>

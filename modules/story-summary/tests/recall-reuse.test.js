@@ -155,8 +155,13 @@ test('only recall and assembly config changes affect the config key', () => {
     const config = { vector: { enabled: true }, trigger: { role: 'system' }, ui: { keepVisibleCount: 6 } };
     const key = recallConfigKey(config);
     assert.equal(recallConfigKey({ ...config, api: { model: 'other' } }), key);
+    assert.equal(recallConfigKey({ ...config, vector: { ...config.vector, l0Api: { model: 'other' }, l0Concurrency: 25 } }), key);
+    assert.equal(recallConfigKey({ ...config, vector: { ...config.vector,
+        embeddingApi: { modelCache: ['cached-list'], providers: { inactive: { model: 'other' } } } } }), key);
     for (const changed of [
         { ...config, vector: { enabled: false } },
+        { ...config, vector: { ...config.vector, embeddingApi: { model: 'other' } } },
+        { ...config, vector: { ...config.vector, rerankApi: { model: 'other' } } },
         { ...config, trigger: { role: 'user' } },
         { ...config, ui: { keepVisibleCount: 4 } },
         { ...config, ui: { ...config.ui, hideSummarized: true } },

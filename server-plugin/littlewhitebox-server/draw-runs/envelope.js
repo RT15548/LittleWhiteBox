@@ -136,7 +136,12 @@ function validateSceneSource(value, runtime) {
 }
 
 function validatePlanner(value, runtime) {
-    const planner = assertExactKeys(value, ['prompt', 'tool', 'validationContext', 'presentCharacters'], 'planner');
+    const planner = assertExactKeys(
+        value,
+        ['prompt', 'tool', 'validationContext', 'presentCharacters', 'retry'],
+        'planner',
+        ['prompt', 'tool', 'validationContext', 'presentCharacters'],
+    );
     const prompt = assertExactKeys(planner.prompt, ['systemPrompt', 'messages'], 'planner.prompt');
     requireString(prompt.systemPrompt, 'planner.prompt.systemPrompt', { allowEmpty: true });
     if (!Array.isArray(prompt.messages) || prompt.messages.length !== 1) {
@@ -185,7 +190,16 @@ function validatePlanner(value, runtime) {
         throw invalid('planner.presentCharacters must be an array with at most 500 entries');
     }
     assertSafeJson(planner.presentCharacters, 'planner.presentCharacters');
+    let retry;
+    if (Object.hasOwn(planner, 'retry')) {
+        const source = assertExactKeys(planner.retry, ['maxRetries', 'baseDelayMs'], 'planner.retry');
+        retry = {
+            maxRetries: requireInteger(source.maxRetries, 'planner.retry.maxRetries', 0, 10),
+            baseDelayMs: requireInteger(source.baseDelayMs, 'planner.retry.baseDelayMs', 100, 30_000),
+        };
+    }
     return {
+        ...(retry ? { retry } : {}),
         prompt: cloneJson(prompt),
         tool: cloneJson(planner.tool),
         validationContext: {

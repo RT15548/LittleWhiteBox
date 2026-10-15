@@ -4,6 +4,7 @@ import { createImageCardRedrawProvider } from '../image-card-redraw-provider.js'
 import { acquireFloorImageJob, getFloorImageJobs, getFloorImageJob, getFloorImagePhase,
     releaseFloorImageJob, observeFloorImageJob, getFloorImageState } from '../floor-image-job.js';
 import { publishDrawRunActivity } from '../draw-run-activity.js';
+import { formatScenePlannerProgress, toScenePlannerProgress } from '../draw-capsule-copy.js';
 
 function setup(execute) {
     const message = { mes: '[image:slot]', swipe_id: 0 };
@@ -209,4 +210,23 @@ test('text-source work has no synthetic chat floor and cannot be cancelled by a 
     assert.equal(job.controller.signal.aborted, false);
     releaseFloorImageJob(jobs, job);
     assert.equal(jobs.size, 0);
+});
+
+test('the planner retry count stays "retry 1/3" when another job of the same floor joined the aggregate', () => {
+    const h = setup(async () => {});
+    const planning = h.options.createJob(1);
+    const progress = h.observe(planning);
+    // 同楼层另有一个加入同一批次的单张重绘（total 1）：楼层汇总的 total 会被求和成 3 + 1。
+    const redraw = h.options.createJob(1, { join: true });
+    redraw.total = 1;
+    progress('llm', toScenePlannerProgress({ progress: { phase: 'retry', current: 1, total: 3, delayMs: 100 } }));
+    const reported = h.states.at(-1);
+    assert.equal(reported.state, 'llm');
+    assert.equal(formatScenePlannerProgress(reported.data), '重1/3');
+    // 晚挂载的面板读到的是同一份汇总
+    const late = getFloorImageState(h.jobs, h.input.ctx, 1);
+    assert.equal(formatScenePlannerProgress(late.data), '重1/3');
+    // 汇总里的图片张数不受重试次数污染
+    assert.equal(late.data.total, 1);
+    assert.equal(late.data.current, 0);
 });

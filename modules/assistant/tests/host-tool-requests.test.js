@@ -61,6 +61,7 @@ test('callHostTool posts tool calls without iframe localSources snapshots', asyn
 
 test('callHostTool waits for pending workspace flush before posting', async () => {
     const posted = [];
+    const dispatches = [];
     const flushSteps = [];
     const pendingToolCalls = new Map();
     const state = {
@@ -89,11 +90,14 @@ test('callHostTool waits for pending workspace flush before posting', async () =
 
     const toolPromise = controller.callHostTool('Read', {
         path: 'local/demo.txt',
+    }, {
+        onDispatched: () => dispatches.push(posted.at(-1)),
     });
 
     await Promise.resolve();
     assert.deepEqual(flushSteps, ['start']);
     assert.equal(posted.length, 0);
+    assert.equal(dispatches.length, 0);
 
     releaseFlush();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -101,6 +105,7 @@ test('callHostTool waits for pending workspace flush before posting', async () =
     assert.deepEqual(flushSteps, ['start', 'done']);
     assert.equal(posted.length, 1);
     assert.equal(posted[0].type, 'xb-assistant:tool-call');
+    assert.deepEqual(dispatches, [posted[0]]);
 
     pendingToolCalls.get('tool-flush')?.resolve({ ok: true });
     const result = await toolPromise;

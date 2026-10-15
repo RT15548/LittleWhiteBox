@@ -7,5 +7,8 @@ export const LAND = {
     water: '#627fba', ripple: '#c7d9f1', ember: '#ffcb92', pottery: '#ad7d74',
     undercroft: '#485977', wetStone: '#98abc9', marble: '#cbd5ea', marbleLight: '#e4eafa',
     root: '#64627a', rootLight: '#9290a1', sky: '#cbd5f0', haze: '#e3e6f6',
-    pavingAccent: '#c5cadd', window: '#c4d1e5', distantGround: '#8596b2', distantLeaf: '#a2b0c8', distantWall: '#bac5df', distantRoof: '#818cac',
+    window: '#c4d1e5', distantGround: '#8596b2', distantLeaf: '#a2b0c8', distantWall: '#bac5df', distantRoof: '#818cac',
+    street: '#a2acc3', streetStone: '#bdc5d7', streetSeam: '#98a3ba',
 } as const;
+
+export const ROOM_WOOD = ['#b9a89e', '#bdada2', '#c1b1a5'] as const;

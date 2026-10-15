@@ -3,12 +3,16 @@ import { relicRank as rank } from '../relics.js';
 import type { Battle, Hazard, Loadout, Point } from '../types.js';
 import { block, hurtEnemy, hurtPlayer, lightning, stagger } from './damage.js';
 import { effect } from './events.js';
-import { angleTo, distance, lineDistance } from './geometry.js';
+import { angleTo, distance, lineDistance, moveBody } from './geometry.js';
 import { type CombatField, fieldVisible } from './field.js';
 
 export function insideHazard(h: Hazard, point: Point, radius: number) {
     if (h.kind === 'beam') { return lineDistance(point, h, h.angle, h.length) < h.width + radius; }
     const d = distance(h, point);
+    if (h.kind === 'ring' && h.gap) {
+        const delta = Math.abs(Math.atan2(Math.sin(angleTo(h, point) - h.angle), Math.cos(angleTo(h, point) - h.angle)));
+        if (delta + Math.asin(Math.min(1, radius / Math.max(radius, d))) < h.gap / 2) { return false; }
+    }
     return d < h.radius + radius && (h.kind !== 'ring' || d > h.inner - radius);
 }
 function shotsTick(b: Battle, loadout: Loadout, field?: CombatField) {
@@ -53,9 +57,14 @@ function hazardsTick(b: Battle, loadout: Loadout, field?: CombatField) {
         if (h.wait > 0) { h.wait--; continue; }
         h.life--;
         if (!h.friendly) {
-            if (insideHazard(h, b.player, RULES.playerRadius) && fieldVisible(field, h, b.player)) { hurtPlayer(b, h.damage, loadout, field); }
-            if (!b.boss && b.encounter === 'siege' && b.tick % 15 === 0 && insideHazard(h, b.objective, .6) && fieldVisible(field, h, b.objective)) { b.objective.hp = Math.max(0, b.objective.hp - h.damage * .35); }
+            if (h.damage <= 0) { continue; }
             const impact = h.kind === 'slam' || h.kind === 'beam' || h.kind === 'ring';
+            if ((impact ? !h.hits.includes(0) : b.tick % 15 === 0) && insideHazard(h, b.player, RULES.playerRadius) && fieldVisible(field, h, b.player)) {
+                const caught = h.pull && !b.player.invulnerable && !b.player.shield && b.player.hp > 0;
+                hurtPlayer(b, h.damage, loadout, field); if (impact) { h.hits.push(0); }
+                if (caught) { moveBody(b, b.player, angleTo(b.player, h), Math.min(h.pull!, Math.max(0, distance(b.player, h) - 1.8)), RULES.playerRadius, field); }
+            }
+            if (!b.boss && b.encounter === 'siege' && b.tick % 15 === 0 && insideHazard(h, b.objective, .6) && fieldVisible(field, h, b.objective)) { b.objective.hp = Math.max(0, b.objective.hp - h.damage * .35); }
             if (impact || b.tick % 15 === 0) {
                 for (const ally of b.companions) {
                     if (ally.hp > 0 && (!impact || !h.hits.includes(ally.id)) && insideHazard(h, ally, .3) && fieldVisible(field, h, ally)) {

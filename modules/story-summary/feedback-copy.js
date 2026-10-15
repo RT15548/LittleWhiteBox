@@ -1,19 +1,24 @@
-const EMBEDDING_ADVICE = '请打开「剧情总结 → 设置 → 向量」，在「Embedding 模型」下点击「测试」检查连接。';
 const VECTOR_REBUILD_ACTION = '「向量数据 → 完整重建」';
 const VECTOR_REBUILD_COST = '会调用 Embedding API';
 export const VECTOR_REBUILD_ADVICE = `请执行${VECTOR_REBUILD_ACTION}（${VECTOR_REBUILD_COST}，不会重新提取 L0 锚点）。`;
 
 export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     title: '剧情总结',
+    summaryStopped: '已停止',
+    summaryFailed: '总结未能完成，请稍后重试。',
+    summaryResultInvalid: '模型返回的总结格式不正确，请重试。',
+    summaryFollowupFailed: '总结已保存，但后续处理未完成；详情见日志。',
     embeddingTitle: 'Embedding 异常',
-    embeddingWarmup: `Embedding 自动预热未成功，记忆召回可能受影响。${EMBEDDING_ADVICE}`,
+    connectionChecking: '连接中…',
+    connectionReady: dims => `连接成功 (${dims}维)`,
     vectorInitialization: Object.freeze({
-        configuration: `无法读取已保存的配置，向量初始化未完成。${EMBEDDING_ADVICE}`,
-        runtime: `本地向量运行态准备失败，初始化未完成。${EMBEDDING_ADVICE}`,
-        embedding: 'Embedding 连接测试失败。',
+        configuration: '无法读取已保存的配置，请重新读取配置后重试。',
+        runtime: '本地向量运行态准备失败，请刷新后重试；仍失败时请查看日志。',
+        embedding: 'Embedding 连接测试失败，请检查模型地址、Key 或网络。',
     }),
     connectionCancelled: '测试已取消。',
     configSaveCancelled: '本次保存已取消，配置未保存。请重试。',
+    configLocalCacheUnavailable: '剧情总结本地配置缓存不可写，继续使用内存中的配置。',
     vectorConfigFailed: '向量配置未能保存，任务未开始。请重新保存配置后重试。',
     configLoad: Object.freeze({
         loading: '正在读取已保存的配置…',
@@ -24,16 +29,15 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     }),
     statsRefreshFailed: '向量统计刷新失败。',
     embeddingRecall: detail => `记忆召回失败，本次生成已停止。${detail}`,
-    recallRetrying: '向量无法成功，建议终止生成后检查向量模型连接状态。',
+    recallRetrying: '记忆召回仍在等待向量服务，正在重试；不想继续等待可点击停止生成。',
     recallInterrupted: Object.freeze({
-        edited: '聊天内容已修改，本次生成已停止，请重新发送。',
         configuration: '记忆设置已变更，本次生成已停止，请重新发送。',
         memory: '记忆数据已变更，本次生成已停止，请重新发送。',
     }),
     embeddingRecallReasons: Object.freeze({
         timeout: attempts => {
             const limits = attempts.map(({ attempt, timeoutMs }) => `第 ${attempt} 次限时 ${timeoutMs / 1000} 秒`).join('；');
-            return `Embedding 请求超时${limits ? `（${limits}）` : ''}。可稍后重发；若反复出现，可尝试${VECTOR_REBUILD_ACTION}（${VECTOR_REBUILD_COST}，不保证解决超时）。`;
+            return `Embedding 请求超时${limits ? `（${limits}）` : ''}。请检查服务和网络后重试。`;
         },
         credentials: () => 'Embedding API Key 无效或没有权限，请检查 Key。',
         rate_limit: () => 'Embedding 服务限流（HTTP 429），请稍后重试；若 L0 共用同一限额，可降低 L0 并发。',
@@ -53,6 +57,7 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     recallFailed: '剧情记忆召回失败，本次生成已停止。请查看召回日志中的阶段和错误详情。',
     startupFailed: '剧情总结未能完成启动，请刷新页面重试；若仍失败，请反馈控制台中的错误。',
     vectorMaintenance: Object.freeze({
+        loadFailed: '加载时记忆维护未完成',
         started: ({ chatId, floorsText, l0Pending, l0VectorMissing }) => `延迟向量维护开始 chat=${chatId} floors=${floorsText} l0Pending=${l0Pending} l0VectorMissing=${l0VectorMissing}；核对 L1/L2 缺口`,
         l1Failed: 'L1 增量构建或缺口补齐未完成',
         incomplete: ({ chunkResult, eventResult, l0Failed, l0VectorResult }) => `延迟向量维护未完成 l1=${chunkResult.success === false ? (chunkResult.code || 'unknown') : 'ok'} l2=${eventResult?.success === false ? (eventResult.code || 'unknown') : 'ok'} l0Failed=${l0Failed} l0Vector=${l0VectorResult?.code || 'ok'}，保留缺口并恢复完整性检查`,
@@ -60,18 +65,20 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     }),
     vectorIntegrity: Object.freeze({
         fingerprintMismatch: '向量引擎/模型已变更',
-        cacheInconsistent: '已有向量缓存不完整或与当前内容不一致',
+        cacheInconsistent: '部分向量缓存与保存的来源不一致',
         l1Gap: count => `${count} 层片段未向量化`,
         l0Gap: count => `${count} 个楼层的锚点或基础向量未完成`,
         eventsMissing: count => `${count} 个事件未向量化`,
-        warning: issues => {
+        checking: '正在检查向量状态…',
+        pending: '等待当前任务结束后检查。',
+        unavailable: '暂时无法读取向量状态，将稍后重试；详情见日志。',
+        status: issues => {
+            if (!issues.length) return '';
             const rebuild = issues.some(issue => issue.action === 'rebuild');
-            const advice = rebuild
-                ? VECTOR_REBUILD_ADVICE
-                : '请到「向量数据」执行「补齐缺漏」；锚点文本缺失则在「记忆锚点」中生成/补齐。';
-            const anchors = rebuild && issues.some(issue => issue.code === 'l0_gap')
-                ? '缺失的锚点文本仍需在「记忆锚点」中生成/补齐。' : '';
-            return `向量数据异常：${issues.map(issue => issue.message).join('、')}。${advice}${anchors}`;
+            const advice = rebuild ? VECTOR_REBUILD_ADVICE : '';
+            const anchors = issues.some(issue => issue.code === 'l0_gap')
+                ? '缺失的锚点文本需在「记忆锚点」中生成/补齐。' : '';
+            return `${issues.map(issue => issue.message).join('、')}。${advice}${anchors}`;
         },
     }),
     anchors: Object.freeze({

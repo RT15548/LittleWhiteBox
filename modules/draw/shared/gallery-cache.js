@@ -4,6 +4,9 @@
 import { getContext } from "../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../utils.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
+import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
+import { normalizeMediaUrl } from './media-url.js';
+import { getSafeViewportStyles, observeViewport } from '../../../shared/common/viewport.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -18,6 +21,10 @@ const PREVIEW_CACHE_LIMIT = 64;
 const PREVIEW_OBJECT_URL_LIMIT = 128;
 const PREVIEW_PRELOAD_LIMIT = 128;
 const CACHE_SYNC_CHANNEL_NAME = 'xb_novel_draw_preview_changes';
+// 图片管理分页：每页默认 24 个图组，单次最多 500 个（数据变化后“重新加载到先前数量”一次请求的上限）。
+export const GALLERY_PAGE_DEFAULT_LIMIT = 24;
+export const GALLERY_PAGE_MAX_LIMIT = 500;
+const SLOT_ORDER_CACHE_TTL = 30 * 1000;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -31,6 +38,9 @@ let currentGalleryData = null;
 const previewCache = new Map();
 const previewObjectUrlCache = new Map();
 const previewPreloadCache = new Map();
+// 角色 → 图组完整排序（只含元数据，不含 base64）；任何写入 / 删除 / 跨标签页变更都会清空。
+const slotOrderCache = new Map();
+let slotOrderGeneration = 0;
 const cacheChangeListeners = new Set();
 let cacheSyncChannel = null;
 
@@ -86,7 +96,7 @@ function blobToDataUrl(blob) {
 }
 
 async function savedUrlToDataUrl(savedUrl = '') {
-    const url = String(savedUrl || '').trim();
+    const url = normalizeMediaUrl(savedUrl);
     if (!url) return '';
     if (/^data:[^;]+;base64,/i.test(url)) return url;
     if (/^blob:/i.test(url)) {
@@ -162,9 +172,8 @@ export function clearPreviewObjectUrls() {
 }
 
 export function getPreviewDisplayUrl(preview = {}) {
-    const savedUrl = String(preview?.savedUrl || '').trim();
+    const savedUrl = normalizeMediaUrl(preview?.savedUrl);
     if (savedUrl) return savedUrl;
-
     const parsed = parseBase64Image(preview?.base64);
     if (!parsed?.data) return '';
 
@@ -273,6 +282,8 @@ function setCachedPreviews(slotId, data) {
 }
 
 function invalidateCache(slotId) {
+    slotOrderCache.clear();
+    slotOrderGeneration++;
     if (slotId) {
         previewCache.delete(slotId);
     } else {
@@ -500,6 +511,7 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             errorMessage: preview.errorMessage || null,
             characterPrompts: preview.characterPrompts || null,
             negativePrompt: preview.negativePrompt || null,
+            postPrompt: preview.postPrompt ?? null,
             timestamp: Number(preview.timestamp) || Date.now(),
         });
         selections.push({ slotId, selectedImgId: imgId });
@@ -597,6 +609,8 @@ export async function storePreview(opts) {
         errorMessage = null,
         characterPrompts = null,
         negativePrompt = null,
+        // 整图正向提示词追加位（ComfyUI 编译器拼在最后），落盘以便画廊编辑重生成时重建
+        postPrompt = null,
         source = '',
         chatId = '',
         characterName = '',
@@ -634,6 +648,7 @@ export async function storePreview(opts) {
                 errorMessage,
                 characterPrompts,
                 negativePrompt,
+                postPrompt,
                 timestamp: Date.now()
             });
             tx.oncomplete = () => {
@@ -668,6 +683,7 @@ export async function storeFailedPlaceholder(opts) {
         errorMessage: opts.errorMessage,
         characterPrompts: opts.characterPrompts ?? null,
         negativePrompt: opts.negativePrompt ?? null,
+        postPrompt: opts.postPrompt ?? null,
     });
 }
 
@@ -1098,6 +1114,154 @@ export async function getCharacterPreviews(charName) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 图片管理：按图组分页读取（只把本页图组的“最新一张”带出去，版本按需另取）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function isDisplayableRecord(item) {
+    return !!item && typeof item === 'object' && item.status !== 'failed' && !!(item.base64 || item.savedUrl);
+}
+
+function compareText(a, b) {
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+// 页面只需要这几个字段；已保存的记录只带 savedUrl，不带 base64。
+function toGalleryImage(item) {
+    return {
+        imgId: item.imgId,
+        slotId: item.slotId || item.imgId,
+        timestamp: Number(item.timestamp) || 0,
+        savedUrl: item.savedUrl || null,
+        base64: item.savedUrl ? null : (item.base64 || null),
+    };
+}
+
+// 逐条读取该角色的记录，只保留每个图组的元数据，读完一条就丢掉它的 base64，整个角色的图片不会同时驻留内存。
+function scanCharacterSlotOrder(charName) {
+    return openDB().then((database) => new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const slots = new Map();
+            const visit = (item) => {
+                try {
+                    if (!isDisplayableRecord(item) || (item.characterName || 'Unknown') !== charName) return;
+                    const slotId = item.slotId || item.imgId;
+                    if (!slotId) return;
+                    let slot = slots.get(slotId);
+                    if (!slot) {
+                        slot = { slotId, count: 0, hasSaved: false, latestTimestamp: -1, latestImgId: null };
+                        slots.set(slotId, slot);
+                    }
+                    slot.count++;
+                    if (item.savedUrl) slot.hasSaved = true;
+                    const timestamp = Number(item.timestamp) || 0;
+                    // 游标按主键升序给出记录：时间相同保留先到的（imgId 较小），与版本排序的平手规则一致。
+                    if (timestamp > slot.latestTimestamp) {
+                        slot.latestTimestamp = timestamp;
+                        slot.latestImgId = item.imgId;
+                    }
+                } catch {}
+            };
+            const source = store.indexNames.contains('characterName') && charName !== 'Unknown'
+                ? store.index('characterName').openCursor(charName)
+                : store.openCursor();
+            source.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) return;
+                visit(cursor.value);
+                cursor.continue();
+            };
+            source.onerror = () => reject(source.error);
+            tx.oncomplete = () => resolve(Array.from(slots.values())
+                .sort((a, b) => (b.latestTimestamp - a.latestTimestamp) || compareText(a.slotId, b.slotId)));
+            tx.onabort = () => reject(tx.error || new Error('scan aborted'));
+        } catch (error) {
+            reject(error);
+        }
+    }));
+}
+
+function getCharacterSlotOrder(charName) {
+    const cached = slotOrderCache.get(charName);
+    if (cached && Date.now() - cached.at < SLOT_ORDER_CACHE_TTL) return cached.promise;
+    const generation = slotOrderGeneration;
+    const promise = scanCharacterSlotOrder(charName);
+    const entry = { at: Date.now(), promise };
+    slotOrderCache.set(charName, entry);
+    // 失败、或扫描期间发生过写入（结果可能已过期）：不留缓存，本次调用仍可用这份结果作答。
+    const drop = () => { if (slotOrderCache.get(charName) === entry) slotOrderCache.delete(charName); };
+    promise.then(() => { if (generation !== slotOrderGeneration) drop(); }, drop);
+    return promise;
+}
+
+function readRecordsByKeys(keys) {
+    return openDB().then((database) => new Promise((resolve, reject) => {
+        const results = new Array(keys.length).fill(null);
+        if (!keys.length) { resolve(results); return; }
+        const tx = database.transaction(DB_STORE, 'readonly');
+        const store = tx.objectStore(DB_STORE);
+        tx.oncomplete = () => resolve(results);
+        tx.onabort = tx.onerror = () => reject(tx.error || new Error(DRAW_SLOT_COPY.storageReadFailed));
+        keys.forEach((key, index) => {
+            const request = store.get(key);
+            request.onsuccess = () => { results[index] = request.result || null; };
+            request.onerror = () => reject(request.error);
+        });
+    }));
+}
+
+/**
+ * 某角色的第 offset 起 limit 个图组（按每组最新图时间倒序），每组只带最新一张。
+ * 返回 { slots: {slotId: [最新一张]}, order, slotMeta: {slotId: {count, hasSaved}}, offset, limit, total, hasMore, nextOffset }。
+ * 记录缺失 / 损坏的图组被跳过（order 里没有它，nextOffset 仍然前进），不让整页失败。
+ */
+export async function getCharacterSlotsPage(charName, { offset = 0, limit = GALLERY_PAGE_DEFAULT_LIMIT } = {}) {
+    const start = Math.max(0, Math.floor(Number(offset)) || 0);
+    const size = Math.min(GALLERY_PAGE_MAX_LIMIT, Math.max(1, Math.floor(Number(limit)) || GALLERY_PAGE_DEFAULT_LIMIT));
+    const all = await getCharacterSlotOrder(charName);
+    const pageSlots = all.slice(start, start + size);
+    const records = await readRecordsByKeys(pageSlots.map(slot => slot.latestImgId));
+    const slots = {};
+    const order = [];
+    const slotMeta = {};
+    pageSlots.forEach((slot, index) => {
+        const record = records[index];
+        if (!isDisplayableRecord(record)) return;
+        slots[slot.slotId] = [toGalleryImage(record)];
+        slotMeta[slot.slotId] = { count: slot.count, hasSaved: slot.hasSaved };
+        order.push(slot.slotId);
+    });
+    const nextOffset = start + pageSlots.length;
+    return { slots, order, slotMeta, offset: start, limit: size, total: all.length, hasMore: nextOffset < all.length, nextOffset };
+}
+
+/** 一个图组的全部版本（按时间倒序，时间相同按 imgId），已保存的只带 savedUrl。 */
+export async function getSlotVersions(charName, slotId) {
+    if (!slotId) return [];
+    const database = await openDB();
+    const rows = await new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const found = [];
+            const byIndex = store.indexNames.contains('slotId') ? store.index('slotId').getAll(slotId) : null;
+            const byKey = store.get(slotId); // 没有 slotId 字段的记录以自身 imgId 作图组
+            if (byIndex) byIndex.onsuccess = () => found.push(...(byIndex.result || []));
+            byKey.onsuccess = () => { if (byKey.result && !byKey.result.slotId) found.push(byKey.result); };
+            tx.oncomplete = () => resolve(found);
+            tx.onabort = tx.onerror = () => reject(tx.error || new Error('read aborted'));
+        } catch (error) {
+            reject(error);
+        }
+    });
+    return rows
+        .filter(item => isDisplayableRecord(item) && (item.characterName || 'Unknown') === (charName || 'Unknown'))
+        .sort((a, b) => ((Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)) || compareText(String(a.imgId), String(b.imgId)))
+        .map(toGalleryImage);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 小画廊 UI
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1105,7 +1269,34 @@ function ensureGalleryStyles() {
     if (document.getElementById('nd-gallery-styles')) return;
     const style = document.createElement('style');
     style.id = 'nd-gallery-styles';
-    style.textContent = `#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100000;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}#nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}.nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}.nd-gallery-close:hover{background:rgba(255,255,255,0.2)}.nd-gallery-main{display:flex;align-items:center;gap:16px;max-width:90vw;max-height:70vh}.nd-gallery-nav{width:48px;height:48px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:24px;cursor:pointer;flex-shrink:0}.nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}.nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}.nd-gallery-img-wrap{position:relative;max-width:calc(90vw - 140px);max-height:70vh}.nd-gallery-img{max-width:100%;max-height:70vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}.nd-gallery-saved-badge{position:absolute;top:12px;left:12px;background:rgba(62,207,142,0.9);padding:4px 10px;border-radius:6px;font-size:11px;color:#fff;font-weight:600}.nd-gallery-thumbs{display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;max-width:90vw;overflow-x:auto}.nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}.nd-gallery-thumb:hover{opacity:0.9}.nd-gallery-thumb.active{border-color:#d4a574;opacity:1}.nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}.nd-gallery-actions{display:flex;gap:12px;margin-top:16px}.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}.nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}.nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}.nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}.nd-gallery-info{text-align:center;margin-top:12px;font-size:12px;color:rgba(255,255,255,0.6)}`;
+    style.textContent = `
+#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100000;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}
+#nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
+.nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
+.nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
+.nd-gallery-main{display:flex;align-items:center;justify-content:center;gap:16px;width:90%;max-height:70%;flex:1;min-height:0}
+.nd-gallery-nav{width:48px;height:48px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:24px;cursor:pointer;flex-shrink:0}
+.nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}
+.nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}
+/* 图片与角标共享居中的图片网格区域，不以撑满高度的外壳作为角标边界。 */
+.nd-gallery-img-wrap{position:relative;max-width:calc(100% - 128px);height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,max-content);align-content:center;justify-content:center}
+.nd-gallery-img,.nd-gallery-saved-badge{grid-area:1/1}
+.nd-gallery-img{min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}
+.nd-gallery-saved-badge{position:absolute;top:min(12px,10%);left:min(12px,10%);background:rgba(62,207,142,0.9);padding:min(4px,5%) min(10px,5%);white-space:nowrap;border-radius:6px;font-size:11px;color:#fff;font-weight:600}
+/* 百分比以安全区内的 overlay 为准，内边距也计入限宽。 */
+.nd-gallery-thumbs{flex-shrink:0;display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;box-sizing:border-box;max-width:90%;overflow-x:auto}
+.nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}
+.nd-gallery-thumb:hover{opacity:0.9}
+.nd-gallery-thumb.active{border-color:#d4a574;opacity:1}
+.nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}
+.nd-gallery-actions{display:flex;flex-shrink:0;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:16px;max-width:100%}
+.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}
+.nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}
+.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}
+.nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}
+.nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}
+.nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:rgba(255,255,255,0.6)}
+@media(max-height:500px){.nd-gallery-thumbs{margin-top:8px;padding:6px}.nd-gallery-thumb{width:40px;height:40px}.nd-gallery-actions{margin-top:8px}.nd-gallery-info{margin-top:6px}}`;
     document.head.appendChild(style);
 }
 
@@ -1118,7 +1309,7 @@ function createGalleryOverlay() {
     overlay.id = 'nd-gallery-overlay';
     // Template-only UI markup.
     // eslint-disable-next-line no-unsanitized/property
-    overlay.innerHTML = `<button class="nd-gallery-close" id="nd-gallery-close">✕</button><div class="nd-gallery-main"><button class="nd-gallery-nav" id="nd-gallery-prev">‹</button><div class="nd-gallery-img-wrap"><img class="nd-gallery-img" id="nd-gallery-img" src="" alt=""><div class="nd-gallery-saved-badge" id="nd-gallery-saved-badge" style="display:none">已保存</div></div><button class="nd-gallery-nav" id="nd-gallery-next">›</button></div><div class="nd-gallery-thumbs" id="nd-gallery-thumbs"></div><div class="nd-gallery-actions" id="nd-gallery-actions"><button class="nd-gallery-btn primary" id="nd-gallery-use">使用此图</button><button class="nd-gallery-btn" id="nd-gallery-save">💾 保存到服务器</button><button class="nd-gallery-btn danger" id="nd-gallery-delete">🗑️ 删除</button></div><div class="nd-gallery-info" id="nd-gallery-info"></div>`;
+    overlay.innerHTML = `<button class="nd-gallery-close" id="nd-gallery-close">✕</button><div class="nd-gallery-main"><button class="nd-gallery-nav" id="nd-gallery-prev">‹</button><div class="nd-gallery-img-wrap"><img class="nd-gallery-img" id="nd-gallery-img" src="" alt=""><div class="nd-gallery-saved-badge" id="nd-gallery-saved-badge" style="display:none">已保存</div></div><button class="nd-gallery-nav" id="nd-gallery-next">›</button></div><div class="nd-gallery-thumbs" id="nd-gallery-thumbs"></div><div class="nd-gallery-actions" id="nd-gallery-actions"><button class="nd-gallery-btn primary" id="nd-gallery-use">使用此图</button><button class="nd-gallery-btn" id="nd-gallery-save">${IMAGE_SAVE_LABEL_HTML}</button><button class="nd-gallery-btn danger" id="nd-gallery-delete">🗑️ 删除</button></div><div class="nd-gallery-info" id="nd-gallery-info"></div>`;
     document.body.appendChild(overlay);
 
     document.getElementById('nd-gallery-close').addEventListener('click', closeGallery);
@@ -1167,13 +1358,19 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
         if (idx >= 0) startIndex = idx;
     }
 
-    currentGalleryData = { slotId, messageId, previews: validPreviews, currentIndex: startIndex, callbacks };
+    currentGalleryData?.stopViewport();
+    currentGalleryData = { slotId, messageId, previews: validPreviews, currentIndex: startIndex, callbacks,
+        stopViewport: observeViewport(() => {
+            Object.assign(document.getElementById('nd-gallery-overlay').style, getSafeViewportStyles());
+        }),
+    };
     renderGalleryThumbs();
     renderGallery();
     document.getElementById('nd-gallery-overlay').classList.add('visible');
 }
 
 export function closeGallery() {
+    currentGalleryData?.stopViewport();
     const el = document.getElementById('nd-gallery-overlay');
     if (el) el.classList.remove('visible');
     currentGalleryData = null;
@@ -1235,7 +1432,9 @@ function renderGallery() {
         saveBtn.textContent = '✓ 已保存';
         saveBtn.disabled = true;
     } else {
-        saveBtn.textContent = '💾 保存到服务器';
+        // Static draw-owned markup, without user input.
+        // eslint-disable-next-line no-unsanitized/property
+        saveBtn.innerHTML = IMAGE_SAVE_LABEL_HTML;
         saveBtn.disabled = false;
     }
 

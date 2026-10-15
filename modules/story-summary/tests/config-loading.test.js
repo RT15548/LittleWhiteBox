@@ -5,6 +5,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StorageFile } from '../../../core/storage-file.js';
+import { writeSummaryConfigLocalCache } from '../data/config-local-cache.js';
 
 // Exercise the real settings normalization and server storage reader. The only
 // replacements are host settings, diagnostics, browser storage and HTTP.
@@ -14,11 +15,15 @@ const previousFetch = globalThis.fetch;
 const local = new Map();
 globalThis.localStorage = {
     getItem: key => local.get(key) ?? null,
-    setItem: (key, value) => local.set(key, String(value)),
+    setItem: (key, value) => {
+        if (host.localError) throw host.localError;
+        local.set(key, String(value));
+    },
 };
 const shims = {
     'extensions.js': 'export const extension_settings={};',
-    'debug-core.js': 'export const xbLog={isEnabled:()=>false,info(){},warn(){},error(){}};',
+    'debug-core.js': `export const xbLog={isEnabled:()=>false,info(){},
+        warn:(...args)=>globalThis.__summaryConfigLoadingTest.warnings.push(args),error(){}};`,
     'server-storage.js': `export const CommonSettingStorage={
         getStrict:(...args)=>globalThis.__summaryConfigLoadingTest.storage.getStrict(...args),
         setAndSave:(...args)=>globalThis.__summaryConfigLoadingTest.storage.setAndSave(...args),
@@ -59,16 +64,22 @@ const save = (candidate, vectorChanged = true) => mod.changeSummaryConfig({
 
 beforeEach(() => {
     local.clear();
+    host.localError = null;
+    host.warnings = [];
     host.requests = [];
     host.status = 200;
+    host.writeStatus = 200;
+    host.persist = true;
     host.document = { storySummaryPanelConfig: config('saved-model'), anotherFeature: { keep: true } };
     host.read = async () => new Response(JSON.stringify(host.document), { status: host.status });
     host.storage = new StorageFile('test-settings.json', { readTimeoutMs: 5000, fetch: async (url, options = {}) => {
         host.requests.push({ url, method: options.method || 'GET' });
         if (options.method === 'POST') {
             const payload = JSON.parse(options.body);
-            host.document = JSON.parse(Buffer.from(payload.data, 'base64').toString('utf8'));
-            return new Response('{}');
+            if (host.writeStatus === 200 && host.persist) {
+                host.document = JSON.parse(Buffer.from(payload.data, 'base64').toString('utf8'));
+            }
+            return new Response('{}', { status: host.writeStatus });
         }
         return host.read(options);
     } });
@@ -110,6 +121,97 @@ test('confirmed absence preserves local settings without creating a server recor
     assert.deepEqual(loaded, mod.getSummaryPanelConfig());
     assert.equal(mod.getVectorConfig().embeddingApi.model, 'cached-model');
     assert.deepEqual(host.requests.map(item => item.method), ['GET']);
+});
+
+// Browser cache availability must not decide whether authoritative server
+// settings can be used. Real storage reads, writes and read-back checks run here.
+for (const errorName of ['QuotaExceededError', 'SecurityError']) {
+    for (const [entry, read] of [['startup', () => mod.loadConfigFromServer()], ['panel', synchronize]]) {
+        test(`${entry} installs server settings when browser caching raises ${errorName}`, async () => {
+            host.localError = new DOMException('fixture storage failure', errorName);
+            const browserBefore = [...local];
+            const serverBefore = structuredClone(host.document);
+            const loaded = await read();
+            assert.equal(loaded.vector.embeddingApi.model, 'saved-model');
+            assert.equal(mod.getVectorConfig().embeddingApi.model, 'saved-model');
+            assert.deepEqual([...local], browserBefore);
+            assert.deepEqual(host.document, serverBefore);
+            assert.deepEqual(host.requests.map(item => item.method), ['GET']);
+            assert.equal(host.warnings.length, 1);
+            assert.equal(JSON.stringify(host.warnings).includes('fixture-key'), false);
+        });
+    }
+
+    test(`verified saving succeeds and caching can recover after ${errorName}`, async () => {
+        host.localError = new DOMException('fixture storage failure', errorName);
+        const browserBefore = [...local];
+        const receipt = await save(config('user-new'));
+        assert.equal(receipt.result.vector.embeddingApi.model, 'user-new');
+        assert.equal(mod.getVectorConfig().embeddingApi.model, 'user-new');
+        assert.equal(host.document.storySummaryPanelConfig.vector.embeddingApi.model, 'user-new');
+        assert.deepEqual(host.document.anotherFeature, { keep: true });
+        assert.deepEqual(host.requests.map(item => item.method), ['GET', 'POST', 'GET']);
+        assert.deepEqual([...local], browserBefore);
+        assert.equal(host.warnings.length, 1);
+
+        host.localError = null;
+        const loaded = await synchronize();
+        assert.deepEqual([...local.values()].map(JSON.parse), [loaded]);
+        assert.equal(host.requests.filter(item => item.method === 'POST').length, 1);
+    });
+}
+
+for (const failure of ['read', 'write', 'verification']) {
+    test(`unavailable browser cache does not hide a server ${failure} failure`, async () => {
+        host.localError = new DOMException('fixture storage failure', 'QuotaExceededError');
+        const before = mod.getSummaryPanelConfig();
+        const browserBefore = [...local];
+        const serverBefore = structuredClone(host.document);
+        if (failure === 'read') host.status = 503;
+        if (failure === 'write') host.writeStatus = 503;
+        if (failure === 'verification') host.persist = false;
+        const candidate = { ...config('unconfirmed'), api: { provider: 'openai', model: 'unconfirmed' } };
+        await assert.rejects(failure === 'read' ? synchronize() : save(candidate));
+        assert.deepEqual(mod.getSummaryPanelConfig(), before);
+        assert.deepEqual([...local], browserBefore);
+        assert.deepEqual(host.document, serverBefore);
+        assert.equal(host.warnings.length, 0);
+    });
+}
+
+test('invalid configuration serialization is not mistaken for an optional cache failure', () => {
+    const browserBefore = [...local];
+    const cyclic = {};
+    cyclic.self = cyclic;
+    assert.throws(() => writeSummaryConfigLocalCache(cyclic, (...args) => host.warnings.push(args)), TypeError);
+    assert.deepEqual([...local], browserBefore);
+    assert.equal(host.warnings.length, 0);
+});
+
+test('background L0 configuration changes and unchanged saves preserve current recall', async () => {
+    for (const field of ['l0Api', 'l0Concurrency', 'unchanged', 'embeddingApi']) {
+        const candidate = mod.getSummaryPanelConfig();
+        if (field === 'l0Concurrency') candidate.vector.l0Concurrency++;
+        else if (field !== 'unchanged') candidate.vector[field].providers[candidate.vector[field].provider].model = 'changed-model';
+        let invalidations = 0;
+        await mod.changeSummaryConfig({ chatId: 'fixture', vectorChanged: true,
+            applyChange: () => mod.saveSummaryPanelConfigVerified(candidate),
+            invalidateRecall: () => { invalidations++; }, afterVectorChange: async () => {} });
+        assert.equal(invalidations, field === 'embeddingApi' ? 1 : 0);
+    }
+});
+
+test('configuration reads complete while a background model request is still pending', async () => {
+    let release, entered, loaded = false;
+    const gate = new Promise(resolve => { release = resolve; });
+    const started = new Promise(resolve => { entered = resolve; });
+    const generation = mod.runVectorGenerationTask({ chatId: 'fixture' }, async () => { entered(); await gate; });
+    await started;
+    const reading = synchronize().then(result => { loaded = true; return result; });
+    try {
+        await flush();
+        assert.equal(loaded, true);
+    } finally { release(); await Promise.all([generation, reading]); }
 });
 
 for (const vectorChanged of [true, false]) {

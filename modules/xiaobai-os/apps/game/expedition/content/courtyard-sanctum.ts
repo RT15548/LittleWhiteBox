@@ -1,16 +1,21 @@
 import { defineLandscapeScene } from '../world/landscape.js';
 import { feature as f } from './landscape-content.js';
+import { RESCUE_COMPLETE } from './chapters.js';
 
 export const COURTYARD_HALL = defineLandscapeScene({
     id: 'hall', safe: false,
     anchors: {
         beacon: { x: -22, y: 35 }, cells: { x: 22, y: 35 }, encounter: { x: 0, y: 5 }, warden: { x: 0, y: -17 },
         orders: { x: 0, y: -36 }, reinforcementLeft: { x: -24, y: -12 }, reinforcementRight: { x: 24, y: -12 },
+        reward: { x: 4, y: -34 }, rest: { x: 0, y: 24 }, south_street: { x: 10, y: -38 },
     },
     exits: [
         { id: 'beacon', anchor: 'beacon', to: 'beacon', arrival: 'hall' },
         { id: 'cells', anchor: 'cells', to: 'cells', arrival: 'hall' },
-    ], objects: [{ id: 'orders', anchor: 'orders', kind: 'inspect', passage: 'orders', condition: { all: ['warden_defeated'] } }],
+        { id: 'south_street', anchor: 'south_street', to: 'south_street', arrival: 'hall',
+            condition: { all: RESCUE_COMPLETE } },
+    ], objects: [{ id: 'orders', anchor: 'orders', kind: 'inspect', passage: 'orders', condition: { all: ['warden_defeated'] } },
+        { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'warden' }, { id: 'rest', anchor: 'rest', kind: 'rest' }],
     landscape: {
         vista: 'interior', surface: 'marble', bounds: { x: 0, z: 0, width: 80, depth: 92 }, gates: [],
         roads: [
@@ -34,7 +39,7 @@ export const COURTYARD_HALL = defineLandscapeScene({
             f('east-gallery', 'planter', 32, 4, 6, 28),
             f('west-gallery-bench', 'bench', -28, 28, 2, 6),
             f('east-gallery-bench', 'bench', 28, 28, 2, 6),
-            f('crown-console', 'supplies', 0, -41, 6, 4),
+            f('crown-console', 'ledger', 0, -41, 6, 4),
             f('northern-west-pillar', 'column', -29, -35, 4, 4, { height: 14 }),
             f('northern-east-pillar', 'column', 29, -35, 4, 4, { height: 14 }),
         ],
@@ -43,10 +48,14 @@ export const COURTYARD_HALL = defineLandscapeScene({
 
 export const COURTYARD_ROOTS = defineLandscapeScene({
     id: 'roots', safe: false,
-    anchors: { crossroads: { x: 0, y: 34 }, encounter: { x: 0, y: 5 }, tree: { x: 0, y: -12 }, rootLeft: { x: -12, y: -13 }, rootRight: { x: 12, y: -13 } },
-    exits: [{ id: 'crossroads', anchor: 'crossroads', to: 'crossroads', arrival: 'roots' }], objects: [],
+    anchors: { crossroads: { x: 0, y: 34 }, encounter: { x: 0, y: 5 }, tree: { x: 0, y: -12 }, rootLeft: { x: -12, y: -13 }, rootRight: { x: 12, y: -13 }, reward: { x: 0, y: -20 } },
+    exits: [{ id: 'crossroads', anchor: 'crossroads', to: 'crossroads', arrival: 'roots' }], objects: [{ id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'roots' }],
     landscape: {
         vista: 'garden', surface: 'grass', bounds: { x: 0, z: 0, width: 80, depth: 84 }, gates: [],
+        suspended: [
+            { kind: 'pipe', from: [-38, 3.2, -29], to: [-3, 3.2, -29] },
+            { kind: 'pipe', from: [3, 2.8, -29], to: [38, 2.8, -29] },
+        ],
         roads: [
             { points: [[0, 35], [0, 23], [-9, 11], [-12, -7], [0, -19]], width: 5 },
             { points: [[0, 23], [11, 12], [13, -5], [0, -19]], width: 4 },

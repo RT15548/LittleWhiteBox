@@ -152,22 +152,22 @@ export async function deleteChunksFromFloor(chatId, fromFloor) {
  * 删除指定楼层的 chunk 和向量
  */
 export async function deleteChunksAtFloor(chatId, floor) {
-    const chunks = await chunksTable
-        .where('[chatId+floor]')
-        .equals([chatId, floor])
-        .toArray();
-
-    const chunkIds = chunks.map(c => c.chunkId);
-
-    await chunksTable.where('[chatId+floor]').equals([chatId, floor]).delete();
-
-    for (const chunkId of chunkIds) {
-        await chunkVectorsTable.delete([chatId, chunkId]);
-    }
-    applyRecallRuntimeMutationBestEffort(chatId, {
+    const result = await db.transaction('rw', chunksTable, chunkVectorsTable, metaTable, async () => {
+        const keys = await chunksTable.where('[chatId+floor]').equals([chatId, floor]).primaryKeys();
+        const meta = await metaTable.get(chatId);
+        const boundaryChanged = meta && meta.lastChunkFloor >= floor;
+        if (keys.length) {
+            await chunksTable.bulkDelete(keys);
+            await chunkVectorsTable.bulkDelete(keys);
+        }
+        if (boundaryChanged) await metaTable.put({ ...meta, lastChunkFloor: floor - 1, updatedAt: Date.now() });
+        return { deleted: keys.length, boundaryChanged };
+    });
+    if (result.deleted || result.boundaryChanged) applyRecallRuntimeMutationBestEffort(chatId, {
         type: 'deleteChunksAtFloor',
         floor,
     });
+    return result.deleted;
 }
 
 export async function clearAllChunks(chatId) {

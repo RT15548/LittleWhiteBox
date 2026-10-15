@@ -41,7 +41,15 @@ export async function persistCardTagEdits(container, compile) {
             const field = panel.querySelector(`textarea[data-type="char"][data-index="${index}"]`);
             return field ? { ...character, prompt: field.value.trim() } : character;
         }) : [];
-    const changes = { tags, characterPrompts, ...compile(tags, characterPrompts, record) };
+    // 追加位（post_prompt）编辑框可选：面板里有就一起保存并交给 compile，没有就不动记录
+    const postPromptField = panel.querySelector('textarea[data-type="post_prompt"]');
+    const postPrompt = postPromptField ? postPromptField.value.trim() : undefined;
+    const changes = {
+        tags,
+        characterPrompts,
+        ...(postPromptField ? { postPrompt } : {}),
+        ...compile(tags, characterPrompts, record, postPrompt),
+    };
     let createdImgId;
     if (!record) {
         const newId = createImageIdentifiers().imgId;

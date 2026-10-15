@@ -21,7 +21,8 @@ export function createBattle(setup: BattleSetup, loadout: Loadout, field?: Comba
         obstacles: boss ? (bossKind === 'warden' || bossKind === 'colossus' ? [{ x: -5, y: 0, radius: .85 }, { x: 5, y: 0, radius: .85 }] : [])
             : [{ x: -5, y: -4, radius: .9 }, { x: 5, y: 3, radius: .9 }],
         wave: 0, waves: boss ? 1 : elite ? 3 : 2, nextWave: 0, kills: 0, damageTaken: 0, status: 'fighting', zone, chapter, elite, boss,
-        bossKind, encounter, objective: { x: 0, y: 0, hp: 100, progress: 0, target: 0 } };
+        bossKind, encounter, objective: { x: 0, y: 0, hp: 100, progress: 0, target: 0 },
+        script: { reinforcements: 'idle', warning: 0, signal: 'idle', signalHp: 0 } };
     if (field) {
         if (boss && !supportsFieldEnemy(bossKind) || field.waves.some(wave => wave.some(enemy => !supportsFieldEnemy(enemy.kind)))) { worldFault('encounter_unsupported'); }
         if (encounter !== 'skirmish' || !field.waves.length
@@ -41,7 +42,7 @@ export function tickBattle(b: Battle, input: InputFrame, loadout: Loadout, field
     companionsTick(b, loadout, field); enemiesTick(b, loadout, velocity, field); projectilesTick(b, loadout, field);
     b.enemies = b.enemies.filter(e => e.hp > 0);
     if (defeatReason(b)) { b.status = 'lost'; }
-    else { encounterTick(b, loadout, field); if (encounterWon(b)) { b.status = 'won'; b.shots = []; b.hazards = []; } }
+    else { encounterTick(b, loadout, field); if (encounterWon(b, field)) { b.status = 'won'; b.shots = []; b.hazards = []; } }
 }
 export function replayInputs(battle: Battle, spans: readonly InputSpan[], loadout: Loadout, field?: CombatField): Battle {
     const next = structuredClone(battle);

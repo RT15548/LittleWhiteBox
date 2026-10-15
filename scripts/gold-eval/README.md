@@ -30,6 +30,14 @@ npm run test:story-summary:alignment
 自检包含评分纯函数与 run/cassette 生命周期契约；只使用临时目录和本地 stub fetch，不调用 API，
 也不写入 `总结测试/runs`。
 
+来源变更回归可指定只读原聊天文件：
+
+```powershell
+node scripts/story-summary-replay-runner.mjs --check-source-lifecycle --source-sample="<聊天 JSONL 绝对路径>"
+```
+
+可重复传入 `--source-sample`。该入口不读取 API 配置，拒绝所有外网传输，在隔离内存数据库中运行正式 L0 提取、L1 维护及 Prompt 装配，检查编辑、重排、quiet 通知和删除后的来源归属。固定 HTTP 响应只提供可追踪凭据，不提供语义判断；输出文件哈希与结构验收结果，不输出聊天原文，也不产生质量档位或改写原收据。
+
 `tests/prepared-lifecycle.test.mjs`从真实CLI启动独立进程，覆盖空库L1/L0/StateVector、Summary/L2、
 两种总结时机、多个查询和捕获；在完整收据落盘、请求飞行中及模拟磁盘满时中断，再启动新进程检查复用/拒绝。
 四种API的429及永久/格式错误也走这条完整路径。预加载替身拒绝所有非fixture URL和真实凭据；

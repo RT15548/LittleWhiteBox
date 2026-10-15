@@ -2,6 +2,9 @@ import type { Group } from 'three';
 import type { SceneKit } from '../scene-kit.js';
 import type { LandscapeFeature } from '../world/landscape.js';
 import { LAND } from './world-palette.js';
+import { cookstove, medicineBench, streetHouse, wallHomes } from './street-models.js';
+import { bunkBelongings, supplyFurniture } from './supply-models.js';
+import { roomDoor, roomFurniture, roomWall } from './room-models.js';
 
 export function lamp(k: SceneKit, root: Group, x: number, z: number, height = 2.8) {
     k.mesh(root, 'cylinder', LAND.shadow, [.055, height, .055], [x, height / 2, z]);
@@ -53,16 +56,24 @@ function house(k: SceneKit, root: Group, item: LandscapeFeature) {
     k.mesh(root, 'box', LAND.shadow, [1.9, 2.65, .13], [0, 1.35, d / 2]);
     for (const side of [-1, 1]) { k.mesh(root, 'box', LAND.wood, [.85, 2.5, .12], [side * .46, 1.3, d / 2 + .08]); }
     k.mesh(root, 'sphere', LAND.brass, [.07, .07, .05], [.23, 1.15, d / 2 + .19]);
-    roof(k, root, w, d, wallHeight, clinic ? 2.4 : 3.2);
+    roof(k, root, w, d, wallHeight, clinic ? 1.15 : 3.2);
     const chimney = k.group(root, [-w * .27, wallHeight, -d * .18]);
-    k.mesh(chimney, 'box', LAND.stone, [1.1, 3.3, 1.2], [0, 1.65, 0]);
-    k.mesh(chimney, 'box', LAND.light, [1.4, .3, 1.5], [0, 3.1, 0]);
-    k.mesh(chimney, 'box', LAND.shadow, [.85, .04, .95], [0, 3.27, 0]);
+    const chimneyHeight = clinic ? 2.1 : 3.3;
+    k.mesh(chimney, 'box', LAND.stone, [1.1, chimneyHeight, 1.2], [0, chimneyHeight / 2, 0]);
+    k.mesh(chimney, 'box', LAND.light, [1.4, .3, 1.5], [0, chimneyHeight - .2, 0]);
+    k.mesh(chimney, 'box', LAND.shadow, [.85, .04, .95], [0, chimneyHeight - .03, 0]);
     if (clinic) {
         // A folded canvas shade and pharmacy sign identify a working clinic without a floating label.
         const shade = k.group(root, [0, 2.9, d / 2 + 1]); shade.rotation.x = .19;
-        for (let i = -3; i <= 3; i++) { k.mesh(shade, 'box', i % 2 ? LAND.light : LAND.cloth, [.59, .06, 2.3], [i * .6, 0, 0]); }
-        for (const side of [-1, 1]) { k.mesh(root, 'cylinder', LAND.timber, [.045, 2.7, .045], [side * 2.1, 1.35, d / 2 + 2.05]); }
+        for (let i = -6; i <= 6; i++) { k.mesh(shade, 'box', i % 3 ? LAND.cloth : LAND.light, [.74, .04, 2.3], [i * .75, 0, 0]); }
+        // Brackets attach to the facade; no invisible posts across the clinic approach.
+        for (const side of [-1, 1]) { k.mesh(root, 'box', LAND.timber, [.09, .12, 2.1], [side * 4.5, 2.6, d / 2 + .95]); }
+        k.mesh(shade, 'box', LAND.rose, [1, .014, .65], [-2.2, .034, .3]);
+        for (let i = -3; i <= 3; i++) {
+            k.mesh(root, 'box', LAND.timber, [.025, .35, .025], [i * .45 - 3, 2.5, d / 2 + .16]);
+            k.mesh(root, 'cone', LAND.leaf, [.17, .6, .15], [i * .45 - 3, 2.05, d / 2 + .16]);
+        }
+        for (const x of [-w * .29, w * .29]) { k.mesh(root, 'box', LAND.ember, [1.35, 1.15, .015], [x, 2.3, d / 2 + .151], true); }
         k.mesh(root, 'box', LAND.slate, [.9, 1.2, .14], [2.8, 2.8, d / 2 + .25]);
         k.mesh(root, 'cylinder', LAND.brass, [.21, .47, .06], [2.8, 2.75, d / 2 + .36]);
         k.mesh(root, 'box', LAND.brass, [.18, .16, .1], [2.8, 3.08, d / 2 + .36]);
@@ -103,6 +114,14 @@ function tower(k: SceneKit, root: Group, item: LandscapeFeature) {
 export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item: LandscapeFeature, interior: boolean) {
     const f = item.footprint, base = k.group(ground, [f.x, 0, f.z]), model = k.group(upper, [f.x, 0, f.z]);
     switch (item.kind) {
+        case 'door': roomDoor(k, model); break;
+        case 'screen': roomFurniture(k, model, item); break;
+        case 'bed': case 'cabinet': case 'wardrobe': case 'toolrack': case 'table': case 'chair': case 'basin': case 'workbench':
+            roomFurniture(k, base, item); break;
+        case 'dwelling': case 'workshop': streetHouse(k, base, model, item); break;
+        case 'stove': cookstove(k, base); break;
+        case 'medicine': medicineBench(k, base, f.width, f.depth); break;
+        case 'cargo': case 'fuel': case 'ledger': supplyFurniture(k, base, item); break;
         case 'clinic': case 'storehouse':
             k.mesh(base, 'box', LAND.mortar, [f.width, .3, f.depth], [0, .15, 0]); house(k, model, item); break;
         case 'tree':
@@ -139,6 +158,7 @@ export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item:
             break;
         }
         case 'bunk':
+            bunkBelongings(k, base, f.width, f.depth);
             for (const y of [.55, 1.9]) {
                 k.mesh(base, 'box', LAND.timber, [f.width - .5, .18, f.depth - .5], [0, y, 0]);
                 k.mesh(base, 'box', LAND.cloth, [f.width - .8, .18, f.depth - .9], [0, y + .16, 0]);
@@ -168,6 +188,20 @@ export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item:
             }
             break;
         }
+        case 'bridge': {
+            // The two one-unit parapets also define collision; the flush deck joins either bank.
+            k.mesh(base, 'box', LAND.light, [f.width, .06, f.depth - 2], [0, -.01, 0]);
+            for (const side of [-1, 1]) {
+                const z = side * (f.depth / 2 - .5);
+                k.mesh(base, 'box', LAND.stone, [f.width, .72, 1], [0, .36, z]);
+                k.mesh(base, 'box', LAND.light, [f.width, .15, 1], [0, .795, z]);
+                for (const x of [-f.width / 2 + .5, f.width / 2 - .5]) {
+                    k.mesh(base, 'box', LAND.mortar, [.8, 1.05, 1], [x, .525, z]);
+                    k.mesh(base, 'box', LAND.light, [1, .13, 1], [x, 1.115, z]);
+                }
+            }
+            break;
+        }
         case 'arch': {
             const h = item.height!;
             k.mesh(model, 'arch', LAND.light, [f.width / 2 - .4, 3.1, f.depth * .65], [0, h - 3, 0]);
@@ -181,7 +215,9 @@ export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item:
             break;
         }
         case 'wall': {
+            if (item.wallUse === 'room') { roomWall(k, base, model, item); break; }
             const h = item.height!, plinth = Math.min(h, .65);
+            if (item.wallUse === 'homes') { wallHomes(k, model, f); }
             k.mesh(base, 'box', LAND.mortar, [f.width, plinth, f.depth], [0, plinth / 2, 0]);
             // The cutaway leaves the plinth standing; its sides must not share the wall's surface.
             if (h > plinth) { k.mesh(model, 'box', interior ? LAND.marble : LAND.stone, [f.width, h - plinth, f.depth], [0, (h + plinth) / 2, 0]); }
@@ -233,26 +269,17 @@ export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item:
                 k.mesh(base, 'crown', t > 0 ? LAND.leaf : LAND.leafLight, [.7, h, .7], [x, h * .75, z]);
                 if (t > .75) { k.mesh(base, 'rock', LAND.amberLight, [.16, .15, .16], [x, h * 1.65, z]); }
             }} break;
-        case 'hearth':
-            k.mesh(base, 'box', LAND.mortar, [f.width, .24, f.depth], [0, .12, 0]);
-            k.mesh(base, 'cylinder', LAND.stone, [1.35, .65, 1.35], [0, .49, 0]);
-            k.mesh(base, 'cylinder', LAND.shadow, [1.06, .06, 1.06], [0, .84, 0]);
-            for (let i = 0; i < 8; i++) {
-                const t = i * Math.PI / 4, log = k.mesh(base, 'cylinder', LAND.timber, [.15, 1.5, .15], [Math.sin(t) * .35, 1, Math.cos(t) * .35]); log.rotation.z = 1.1; log.rotation.y = t;
-            }
-            for (let i = 0; i < 5; i++) { k.mesh(base, 'rock', i % 2 ? LAND.ember : '#ea9963', [.23, .5 + i % 3 * .16, .23], [Math.sin(i * 2.4) * .35, 1.35, Math.cos(i * 2.4) * .35], true); }
-            for (const side of [-1, 1]) {
-                k.mesh(base, 'cylinder', LAND.slate, [.13, 2.15, .13], [side * 1.22, 1.35, 0]);
-                k.mesh(base, 'cone', LAND.brass, [.23, .45, .23], [side * 1.22, 2.65, 0]);
-            }
-            k.mesh(base, 'torus', LAND.brass, [1.2, 1.2, 1.2], [0, 2.22, 0]).rotation.x = Math.PI / 2;
-            k.mesh(base, 'rock', LAND.ember, [.27, .58, .27], [0, 2.42, 0], true);
-            break;
         case 'wagon':
             k.mesh(base, 'box', LAND.wood, [f.width - 1, .35, f.depth - 1.2], [0, 1.1, 0]);
             for (const side of [-1, 1]) {
                 for (let row = 0; row < 3; row++) { k.mesh(base, 'box', LAND.wood, [.12, .24, f.depth - 1], [side * (f.width / 2 - .5), 1.4 + row * .29, 0]); }
                 for (const z of [-f.depth * .28, f.depth * .28]) {
+                    if (item.damaged && side < 0 && z > 0) {
+                        k.mesh(base, 'torus', LAND.shadow, [.7, .7, .7], [-f.width / 2 + .8, .18, z]).rotation.x = Math.PI / 2;
+                        k.mesh(base, 'box', LAND.wood, [1.1, .1, .1], [-f.width / 2 + .8, .18, z]);
+                        k.mesh(base, 'box', LAND.wood, [.1, .1, 1.1], [-f.width / 2 + .8, .18, z]);
+                        continue;
+                    }
                     k.mesh(base, 'torus', LAND.shadow, [.7, .7, .7], [side * (f.width / 2 - .2), .76, z]).rotation.y = Math.PI / 2;
                     for (let i = 0; i < 4; i++) { const spoke = k.mesh(base, 'box', LAND.wood, [.09, 1.25, .09], [side * (f.width / 2 - .2), .76, z]); spoke.rotation.x = i * Math.PI / 4; }
                 }

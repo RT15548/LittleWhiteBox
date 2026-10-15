@@ -20,8 +20,9 @@ export async function maintainChunks(options) {
             vectorConfig: options.vectorConfig,
             signal: options.signal,
             shouldCancel: options.shouldCancel,
+            commit: options.commit,
         });
-        return { ...incremental, ...repair };
+        return { ...incremental, ...repair, chunks: [...(incremental.chunks || []), ...repair.chunks] };
     } catch (error) {
         return {
             ...incremental, success: false, code: 'chunk_read_failed', error,

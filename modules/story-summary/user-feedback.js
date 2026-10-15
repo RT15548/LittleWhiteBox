@@ -1,14 +1,8 @@
-import { MEMORY_DATA_COPY } from './data/memory-copy.js';
-import { claimWarningCooldown } from './vector/runtime/maintenance-coordinator.js';
 import { xbLog } from '../../core/debug-core.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
 
 const MODULE_ID = 'story-summary-feedback';
-const EMBEDDING_CHANNEL = 'embedding-connection';
 const NOTICE_OPTIONS = Object.freeze({ timeOut: 12000, extendedTimeOut: 3000, closeButton: true, escapeHtml: true });
-// The loaded memory object owns this lifetime. Reloading releases the old owner;
-// toggling the feature or reopening its panel must not repeat the same warning.
-const unconfirmedOwners = new WeakSet();
 let embeddingToast = null;
 let recallFailureToast = null;
 
@@ -21,7 +15,7 @@ export function createRecallRetryNotice() {
         show() {
             if (shown) return;
             shown = true;
-            toast = toastr.warning(SUMMARY_FEEDBACK_COPY.recallRetrying, SUMMARY_FEEDBACK_COPY.title,
+            toast = toastr.info(SUMMARY_FEEDBACK_COPY.recallRetrying, SUMMARY_FEEDBACK_COPY.title,
                 { ...NOTICE_OPTIONS, timeOut: 0, extendedTimeOut: 0 });
         },
         clear() {
@@ -33,13 +27,11 @@ export function createRecallRetryNotice() {
     };
 }
 
-export function notifyUnconfirmedMemory(state, owner) {
-    if (state !== 'unconfirmed') return false;
-    if (!unconfirmedOwners.has(owner)) {
-        unconfirmedOwners.add(owner);
-        toastr.error(MEMORY_DATA_COPY.unconfirmed, SUMMARY_FEEDBACK_COPY.title, NOTICE_OPTIONS);
-    }
-    return true;
+// An unknown save outcome is not evidence of failure. Keep diagnostics and
+// on-demand status, but do not interrupt the chat with a speculative alert.
+export function shouldNotifyMemoryFailure(error, state) {
+    return state !== 'unconfirmed' && !error?.uncertain
+        && !['metadata_unconfirmed', 'metadata_save_unconfirmed'].includes(error?.code);
 }
 
 export function notifySummaryStartupFailure(error, shouldNotify = true) {
@@ -50,23 +42,11 @@ export function notifySummaryStartupFailure(error, shouldNotify = true) {
 
 export function clearEmbeddingFailureNotice() {
     if (!embeddingToast) return;
-    // Clear only our toast. Finishing the native hide animation avoids stacking
-    // an upgraded recall failure over the old probe warning, and renews its timer.
+    // Clear only our toast. Finish its hide animation before showing another
+    // blocked-send receipt; never dismiss another feature's notification.
     toastr.clear(embeddingToast, { force: true });
     embeddingToast.finish();
     embeddingToast = null;
-}
-
-function showEmbeddingFailure(message) {
-    clearEmbeddingFailureNotice();
-    embeddingToast = toastr.warning(message, SUMMARY_FEEDBACK_COPY.embeddingTitle, NOTICE_OPTIONS);
-}
-
-export function notifyEmbeddingWarmupFailure(cooldownMs, stage = 'embedding') {
-    if (!claimWarningCooldown(EMBEDDING_CHANNEL, '', 'failed', cooldownMs)) return;
-    showEmbeddingFailure(stage === 'embedding'
-        ? SUMMARY_FEEDBACK_COPY.embeddingWarmup
-        : SUMMARY_FEEDBACK_COPY.vectorInitialization[stage]);
 }
 
 export function clearRecallFailureNotice() {
@@ -82,8 +62,6 @@ export function notifyRecallFailure({ issueCode, notice }) {
     clearRecallFailureNotice();
     const options = { ...NOTICE_OPTIONS, preventDuplicates: false };
     if (embedding) {
-        // Preserve probe suppression, but never suppress an actual blocked send.
-        claimWarningCooldown(EMBEDDING_CHANNEL, '', 'failed', 0);
         embeddingToast = toastr.warning(notice, SUMMARY_FEEDBACK_COPY.embeddingTitle, options);
     } else {
         recallFailureToast = toastr.warning(notice, SUMMARY_FEEDBACK_COPY.title, options);
@@ -91,7 +69,7 @@ export function notifyRecallFailure({ issueCode, notice }) {
 }
 
 /** One receipt for a user-requested clear; a cancelled queued action returns false. */
-export async function runClearWithFeedback({ kind, clear, refresh, isCurrent, reportUnconfirmed }) {
+export async function runClearWithFeedback({ kind, clear, refresh, isCurrent, getMemoryState }) {
     const copy = SUMMARY_FEEDBACK_COPY[kind];
     let cleared = false;
     try {
@@ -105,7 +83,7 @@ export async function runClearWithFeedback({ kind, clear, refresh, isCurrent, re
         const message = cleared ? copy.refreshFailed : copy.failed;
         console.error(message, error);
         xbLog.error(MODULE_ID, message, error);
-        if (!isCurrent() || reportUnconfirmed()) return;
+        if (!isCurrent() || !shouldNotifyMemoryFailure(error, getMemoryState())) return;
         toastr[cleared ? 'warning' : 'error'](message, SUMMARY_FEEDBACK_COPY.title, NOTICE_OPTIONS);
     }
 }

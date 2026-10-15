@@ -176,11 +176,15 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
         throw new DiceOperationError('dice_target_changed');
     }
 
+    // A finished invalid run may be replaced after the caller captures a current continuation point.
+    function canContinue(): boolean {
+        return !run || ['revealing', 'awaiting-choice', 'continue-error', 'invalid'].includes(run.phase.kind);
+    }
+
     async function continueCheck(target: T): Promise<void> {
         if (!port.enabled()) { throw new DiceOperationError('dice_disabled'); }
         if (!port.current(target)) { throw new DiceOperationError('dice_target_changed'); }
-        const current = run;
-        if (current && !['revealing', 'awaiting-choice', 'continue-error', 'invalid'].includes(current.phase.kind)) { return; }
+        if (!canContinue()) { return; }
         const records = parseDiceRecords(target.records);
         const last = referencedActionChecks(target.body, records.checks).at(-1);
         if (!last || !isCheckContinuationPoint(target.body, last)) {
@@ -206,6 +210,6 @@ export function createActionCheckSession<T extends ActionCheckTarget>(port: Dice
         }
     }
 
-    return { accept, drain, cancel, retryRequest, continueCheck, showResult,
+    return { accept, drain, cancel, retryRequest, canContinue, continueCheck, showResult,
         view: () => run ? { target: run.target, phase: run.phase, wait: run.wait } : null };
 }

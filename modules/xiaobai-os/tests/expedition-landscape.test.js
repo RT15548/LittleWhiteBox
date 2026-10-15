@@ -49,8 +49,9 @@ test('every authored outdoor solid and water surface blocks its actual footprint
             for (let x = f.x - f.width / 2 + .5; x < f.x + f.width / 2; x++) {
                 for (let z = f.z - f.depth / 2 + .5; z < f.z + f.depth / 2; z++) {
                     const cell = worldCell(scene.map, { x, y: z });
-                    assert.equal(space.blocked(cell.column, cell.row), true);
-                    assert.equal(canStandInWorld(space, { x, y: z }, .3), false);
+                    const solid = kind !== 'bridge' || Math.abs(z - f.z) >= f.depth / 2 - 1;
+                    assert.equal(space.blocked(cell.column, cell.row), solid, `${scene.id}/${kind}/${x},${z}`);
+                    assert.equal(canStandInWorld(space, { x, y: z }, .3), !solid);
                 }
             }
         }

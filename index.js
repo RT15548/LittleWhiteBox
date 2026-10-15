@@ -47,6 +47,7 @@ import {
 import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
+import { startGroupPresetWatcher, stopGroupPresetWatcher } from "./modules/draw/shared/character-group-presets-runtime.js";
 import { startImageJobRecovery, stopImageJobRecovery } from "./modules/draw/shared/image-job-recovery-runtime.js";
 import {
     checkGeneratedImageCache as checkGeneratedImageCacheRuntime,
@@ -217,6 +218,8 @@ function migrateDrawProviderSettings(targetSettings) {
 
 async function cleanupDrawProvider(provider = settings.drawProvider) {
     clearSharedImageRequestsRuntime();
+    // 分组预设的聊天监听是三个画图 provider 共享的，只在这里统一停；切换 provider 时 init 会重新启动。
+    try { stopGroupPresetWatcher(); } catch (e) { }
     const normalized = normalizeDrawProvider(provider);
     if (normalized === 'novelai') {
         try { await cleanupNovelDraw(); } catch (e) { }
@@ -230,12 +233,19 @@ async function cleanupDrawProvider(provider = settings.drawProvider) {
 async function initActiveDrawProvider() {
     migrateDrawProviderSettings(settings);
     if (!isXiaobaixEnabled) return;
-    if (settings.drawProvider === 'novelai') {
-        await initNovelDraw();
-    } else if (settings.drawProvider === 'sdwebui') {
-        await initSdDraw();
-    } else if (settings.drawProvider === 'comfyui') {
-        await initComfyDraw();
+    try {
+        if (settings.drawProvider === 'novelai') {
+            await initNovelDraw();
+        } else if (settings.drawProvider === 'sdwebui') {
+            await initSdDraw();
+        } else if (settings.drawProvider === 'comfyui') {
+            await initComfyDraw();
+        }
+    } finally {
+        // provider 初始化失败也要启动：分组预设的自动应用不依赖绘图页是否初始化成功（三个 provider 共用一个监听，幂等）。
+        if (['novelai', 'sdwebui', 'comfyui'].includes(settings.drawProvider)) {
+            try { startGroupPresetWatcher(); } catch (e) { console.error('[LittleWhiteBox] 启动分组预设监听失败:', e); }
+        }
     }
 }
 

@@ -1,7 +1,8 @@
 import type { ExpeditionData, Outfit } from './types.js';
 import type { Campaign } from './campaign/types.js';
+import { COURTYARD } from './content/courtyard.js';
 export function canChangeOutfit(campaign: Campaign | null) {
-    return !campaign || campaign.location.scene === 'camp' && campaign.phase === 'exploration';
+    return !campaign || COURTYARD[campaign.location.scene].safe && campaign.phase === 'exploration';
 }
 export interface OutfitSpec { price: number; achievement: string | null; fabric: string; metal: string; glow: string; silhouette: 'cloak' | 'armor' | 'robe' | 'hood' | 'coat'; head: 'none' | 'helm' | 'crown' | 'hat' | 'hood' | 'horns' | 'goggles'; }
 export const OUTFITS: Record<Outfit, OutfitSpec> = {

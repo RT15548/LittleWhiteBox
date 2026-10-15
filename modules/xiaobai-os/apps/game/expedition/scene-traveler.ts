@@ -56,9 +56,8 @@ export function createTraveler(k: SceneKit, parent: Group, gender: Traveler['gen
             for (const mesh of clothMeshes) { mesh.material = k.material(OUTFITS[id].fabric); }
             hair.visible = !['helm', 'hat', 'hood'].includes(OUTFITS[id].head);
         },
-        pose(facing: number, time: number, moving: boolean, dash: boolean, reduced: boolean, attacking: boolean) {
-            const stride = !reduced && moving ? Math.sin(time * .55) * .48 : 0;
-            body.position.y = 1.3 + (!reduced && moving ? Math.abs(Math.sin(time * .55)) * .025 : 0);
+        pose(facing: number, stride: number, lift: number, dash: boolean, reduced: boolean, attacking: boolean) {
+            body.position.y = 1.3 + lift;
             body.rotation.set(!reduced && dash ? .16 : 0, Math.PI / 2 - facing, 0);
             legs.forEach((leg, i) => { leg.rotation.x = (i ? -1 : 1) * stride; });
             arms.forEach((arm, i) => { arm.rotation.set(i && attacking ? -.55 : (i ? 1 : -1) * stride * .65, 0, (i ? -1 : 1) * .1); });

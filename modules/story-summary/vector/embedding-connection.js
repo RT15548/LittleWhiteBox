@@ -1,6 +1,5 @@
 import { testOnlineService } from './utils/embedder.js';
 import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
-import { notifyEmbeddingWarmupFailure } from '../user-feedback.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import { xbLog } from '../../../core/debug-core.js';
 
@@ -11,14 +10,29 @@ const apiIdentity = config => JSON.stringify([
 
 // One transient initialization owns configuration synchronization, runtime
 // preparation and the probe. Neither entry point is allowed to save settings.
-export function createEmbeddingConnection({ synchronizeConfig, prepareRuntime, getVectorConfig }) {
+export function createEmbeddingConnection({ synchronizeConfig, prepareRuntime, getVectorConfig, onStatus = () => {} }) {
     let active = null;
-    const cancel = () => active?.abort(createAbortError());
+    let state = { status: 'idle', message: '' };
+    let stateIdentity = null;
+    const publish = (value, identity = apiIdentity(getVectorConfig())) => {
+        state = value;
+        stateIdentity = identity;
+        onStatus(value);
+    };
+    const cancel = () => {
+        active?.abort(createAbortError());
+        publish({ status: 'idle', message: '' });
+    };
+    const getStatus = () => (active && !active.signal.aborted) || stateIdentity === apiIdentity(getVectorConfig())
+        ? state : { status: 'idle', message: '' };
 
     async function test({ apiConfig = null, isCurrent = () => true } = {}) {
         cancel();
         const controller = new AbortController();
         active = controller;
+        const publishTest = value => publish(value, apiConfig
+            ? apiIdentity({ ...getVectorConfig(), embeddingApi: apiConfig }) : apiIdentity(getVectorConfig()));
+        publishTest({ status: 'downloading', message: SUMMARY_FEEDBACK_COPY.connectionChecking });
         let identity = null;
         let stage = 'configuration';
         const assertCurrent = () => {
@@ -53,21 +67,29 @@ export function createEmbeddingConnection({ synchronizeConfig, prepareRuntime, g
         try {
             // Shared storage/runtime calls may not accept a signal. Stop the
             // caller promptly; assertCurrent prevents their late publication.
-            return await Promise.race([initialize(), aborted]);
+            const result = await Promise.race([initialize(), aborted]);
+            publishTest(result
+                ? { status: 'success', message: SUMMARY_FEEDBACK_COPY.connectionReady(result.dims) }
+                : { status: 'idle', message: '' });
+            return result;
         } catch (cause) {
             assertCurrent();
             if (cause?.name === 'AbortError') throw cause;
             const error = new Error(`${SUMMARY_FEEDBACK_COPY.vectorInitialization[stage]} ${cause.message}`, { cause });
             error.code = 'VECTOR_INITIALIZATION_FAILED';
             error.stage = stage;
+            publishTest({ status: 'error', stage, message: error.message });
             throw error;
         } finally {
             controller.signal.removeEventListener('abort', onAbort);
-            if (active === controller) active = null;
+            if (active === controller) {
+                active = null;
+                if (state.status === 'downloading') publish({ status: 'idle', message: '' });
+            }
         }
     }
 
-    async function warmup({ isCurrent, warningCooldownMs }) {
+    async function warmup({ isCurrent }) {
         // A background entry must not interrupt an explicit test or duplicate
         // an initialization already in progress for this chat.
         if (active) return null;
@@ -77,10 +99,9 @@ export function createEmbeddingConnection({ synchronizeConfig, prepareRuntime, g
             if (error.name === 'AbortError') return null;
             console.warn(error.message, error);
             xbLog.warn(MODULE_ID, error.message, error);
-            notifyEmbeddingWarmupFailure(warningCooldownMs, error.stage);
             return null;
         }
     }
 
-    return { test, warmup, cancel };
+    return { test, warmup, cancel, getStatus };
 }

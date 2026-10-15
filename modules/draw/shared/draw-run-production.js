@@ -2,6 +2,7 @@ import { fetchImageBackendJobsStatus } from './backend-image-jobs.js';
 import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 import { publishDrawRunActivity } from './draw-run-activity.js';
 import {
+    DRAW_RUN_PLANNER_RETRY_CAPABILITY,
     hasDrawRunsCapability,
     REQUIRED_DRAW_RUN_PLUGIN_VERSION,
 } from './draw-run-client.js';
@@ -158,6 +159,10 @@ export async function submitProviderDrawRun({
         const error = new Error('已取消');
         error.name = 'AbortError';
         throw error;
+    }
+    // 旧版后台插件的请求校验不认识 planner.retry；它不会重试，但也不能因此拒绝整个任务。
+    if (prepared?.planner && !status.capabilities.includes(DRAW_RUN_PLANNER_RETRY_CAPABILITY)) {
+        delete prepared.planner.retry;
     }
     const generationRecipe = createGenerationRecipe(prepared);
     let result;

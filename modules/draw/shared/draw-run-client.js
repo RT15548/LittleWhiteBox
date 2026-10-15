@@ -5,6 +5,8 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 export const DRAW_RUNS_CAPABILITY = 'draw-runs-v1';
 export const DRAW_RUN_RUNTIME_CAPABILITY = 'draw-run-runtime-v4';
+// 增量能力：后台规划支持 planner.retry。缺少它的旧插件仍可使用，只是后台规划不重试。
+export const DRAW_RUN_PLANNER_RETRY_CAPABILITY = 'draw-run-planner-retry-v1';
 export const REQUIRED_DRAW_RUN_PLUGIN_VERSION = REQUIRED_IMAGE_JOBS_PLUGIN_VERSION;
 
 export function hasDrawRunsCapability(status) {

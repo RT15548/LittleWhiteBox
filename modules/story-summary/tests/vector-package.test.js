@@ -23,7 +23,7 @@ const shims = {
     'config.js': 'export const getVectorConfig=()=>globalThis.__vectorPackageTest.config; export const getTextFilterRules=()=>globalThis.__vectorPackageTest.filters;',
     'runtime.js': 'export const refreshRecallRuntime=async()=>{globalThis.__vectorPackageTest.runtimeInvalidations++;}; export const applyRecallRuntimeMutationBestEffort=()=>{globalThis.__vectorPackageTest.runtimeMutations++;}; export const clearRecallRuntime=async()=>{};',
     'lexical-index.js': 'export const invalidateLexicalIndex=()=>{globalThis.__vectorPackageTest.lexicalInvalidations++;};',
-    'siliconflow.js': 'export const embed=async(texts)=>{const host=globalThis.__vectorPackageTest; host.embeddingInputs.push(...texts); host.onEmbed?.(texts); if(host.embeddingError) throw host.embeddingError; return texts.map(()=>[1,0]);};',
+    'siliconflow.js': 'export const embed=async(texts)=>{const host=globalThis.__vectorPackageTest; host.embeddingInputs.push(...texts); await host.onEmbed?.(texts); if(host.embeddingError) throw host.embeddingError; return texts.map(()=>[1,0]);};',
     'llm-service.js': 'export const callLLM=async()=>{throw new Error("unexpected LLM call");};',
 };
 const bundled = await build({
@@ -90,9 +90,37 @@ function maintainL1(options = {}) {
     return mod.maintainChunks({ targetChatId: fixture.chatId, chatSnapshot: host.context.chat, vectorConfig: host.config, ...options });
 }
 
+for (const mode of ['incremental', 'repair']) test(`${mode} model wait does not block local writes or refill cleared chunks`, async () => {
+    let release, entered, configRead = false;
+    const gate = new Promise(resolve => { release = resolve; });
+    const requested = new Promise(resolve => { entered = resolve; });
+    host.onEmbed = () => { entered(); return gate; };
+    const generation = mod.coordinator.runVectorGenerationTask({ chatId: fixture.chatId }, session => {
+        const options = { signal: session.signal, commit: session.commit };
+        return mode === 'incremental' ? maintainL1(options) : mod.repairMissingChunks({
+            chatId: fixture.chatId, chat: host.context.chat, vectorConfig: host.config, ...options,
+        });
+    });
+    await requested;
+    try {
+        await mod.coordinator.runVectorWriteTask({ scope: 'config' }, () => { configRead = true; });
+        assert.equal(configRead, true);
+        await mod.coordinator.runVectorWriteTask({ scope: 'io' }, async () => {
+            mod.coordinator.cancelEmbeddingWriteTasks('clear chunks');
+            await mod.store.clearAllChunks(fixture.chatId);
+        });
+    } finally { release(); }
+    const result = await generation;
+    assert.equal(result.success, false);
+    assert.equal(await db.chunks.count(), 0);
+    assert.equal(await db.chunkVectors.count(), 0);
+    assert.equal((await mod.store.getMeta(fixture.chatId)).lastChunkFloor, -1);
+});
+
 // Exact saved inputs, independent of later chat/cleaning changes. Tests use
 // real digests and storage, not source-code or wording assertions.
 async function seedStoredChunkInputs(floor, texts) {
+    const meta = await mod.store.getMeta(fixture.chatId);
     await mod.store.deleteChunksAtFloor(fixture.chatId, floor);
     const chunks = texts.map((text, chunkIdx) => ({
         chunkId: mod.store.makeChunkId(floor, chunkIdx), floor, chunkIdx,
@@ -102,6 +130,7 @@ async function seedStoredChunkInputs(floor, texts) {
     await mod.store.saveChunkVectors(fixture.chatId, chunks.map(chunk => ({
         chunkId: chunk.chunkId, vector: [0, 1], sourceHash: mod.inputDigest('chunk', chunk.text),
     })), fixture.fingerprint);
+    await db.meta.put(meta);
 }
 
 for (const prose of ['First.\n\nSecond.', 'First  word\t next.', 'First.\r\n\r\nSecond.']) {
@@ -253,12 +282,12 @@ for (const currentText of ['她走进屋内。[inventory:sword]'.repeat(100), '[
     });
 }
 
-test('saved-source checks still reject unproven or mixed vector inputs', async () => {
+test('daily checks distinguish absent proof from contradicted or mixed vector inputs', async () => {
     host.context.chat[0].mes = 'red door';
     await seedCache();
     await seedStoredChunkInputs(0, ['red door[image:slot-1]']);
     await db.chunkVectors.toCollection().modify(row => { delete row.sourceHash; });
-    assert.equal((await mod.checkVectorCacheConsistency()).status, 'inconsistent');
+    assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
     await seedStoredChunkInputs(0, ['red door[image:slot-1]']);
     await db.stateVectors.toCollection().modify(row => { row.fingerprint = 'another-model'; });
     assert.equal((await mod.checkVectorCacheConsistency()).status, 'inconsistent');
@@ -329,13 +358,18 @@ test('a long absent floor retains all 28 materials when the second repair batch 
     assert.equal(first.success, false);
     assert.equal(first.repaired, 20);
     assert.equal(await db.chunks.count(), 28);
+    assert.equal(first.chunks.length, 28);
+    const materials = chunks => new Map(chunks.map(chunk => [chunk.chunkId, chunk.text]));
+    assert.deepEqual(materials(first.chunks), materials(await mod.store.getAllChunks(fixture.chatId)));
     assert.equal(await db.chunkVectors.count(), 20);
     assert.equal((await mod.store.getMeta(fixture.chatId)).lastChunkFloor, -1);
     const saved = await db.chunkVectors.toArray();
     host.onEmbed = null;
     host.embeddingError = null;
     host.embeddingInputs = [];
-    assert.equal((await repair()).repaired, 8);
+    const second = await repair();
+    assert.equal(second.repaired, 8);
+    assert.deepEqual(second.chunks, []);
     assert.equal(host.embeddingInputs.length, 8);
     assert.equal(await db.chunkVectors.count(), 28);
     for (const row of saved) assert.deepEqual(await db.chunkVectors.get([row.chatId, row.chunkId]), row);
@@ -396,13 +430,14 @@ for (const [reason, mutate] of [
         const before = await cacheSnapshot();
         const result = await mod.checkVectorCacheConsistency();
         const recoverable = reason === 'l1_count_mismatch';
-        assert.equal(result.status, recoverable ? 'incomplete' : 'inconsistent');
+        const absentProof = ['missing_source_hash', 'missing_relation_hash'].includes(reason);
+        assert.equal(result.status, absentProof ? 'consistent' : recoverable ? 'incomplete' : 'inconsistent');
         if (recoverable) assert.deepEqual(result.missingChunkFloors, [0]);
         else if (reason === 'l1_content_mismatch') assert.equal(result.diagnostic.code, 'source_mismatch');
-        else assert.equal(result.diagnostic.details.reason, reason);
+        else if (!absentProof) assert.equal(result.diagnostic.details.reason, reason);
         assert.equal(result.diagnostic.action, 'automatic');
         const issues = mod.buildVectorIntegrityIssues({ cacheInconsistent: result.status === 'inconsistent' });
-        assert.deepEqual(issues.map(({ code, action }) => ({ code, action })), recoverable ? [] : [{ code: 'cache_inconsistent', action: 'rebuild' }]);
+        assert.deepEqual(issues.map(({ code, action }) => ({ code, action })), recoverable || absentProof ? [] : [{ code: 'cache_inconsistent', action: 'rebuild' }]);
         assert.deepEqual(await cacheSnapshot(), before);
         assert.equal(host.metadataWrites, 0);
         assert.equal(host.embeddingInputs.length, 0);

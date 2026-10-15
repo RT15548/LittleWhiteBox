@@ -1,0 +1,77 @@
+import { defineLandscapeScene } from '../../world/landscape.js';
+import { feature as f } from '../landscape-content.js';
+
+export const HEAT_STATION = defineLandscapeScene({
+    id: 'heat_station', safe: true,
+    anchors: { south_street: { x: -12, y: 29 }, workshop_street: { x: 22, y: 21 }, pipe_gallery: { x: 0, y: -28 },
+        notice: { x: -12, y: 10 }, plan: { x: 12, y: -7 }, foreman: { x: 12, y: -2 }, rest: { x: -16, y: -13 }, reward: { x: 12, y: -14 } },
+    exits: [{ id: 'south_street', anchor: 'south_street', to: 'south_street', arrival: 'heat_station' },
+        { id: 'workshop_street', anchor: 'workshop_street', to: 'workshop_street', arrival: 'heat_station' },
+        { id: 'pipe_gallery', anchor: 'pipe_gallery', to: 'pipe_gallery', arrival: 'heat_station', condition: { all: ['return_plan_found'] } }],
+    objects: [{ id: 'heat_notice', anchor: 'notice', kind: 'inspect', passage: 'heat_notice' },
+        { id: 'return_plan', anchor: 'plan', kind: 'inspect', passage: 'return_plan', condition: { all: ['heat_notice_read', 'pipes_traced'] } },
+        { id: 'rest', anchor: 'rest', kind: 'rest' }, { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'return_plan' }],
+    landscape: { bounds: { x: 0, z: 0, width: 64, depth: 72 }, vista: 'interior', surface: 'paving', gates: [],
+        roads: [{ points: [[-12, 30], [-12, 12], [0, 0], [0, -30]], width: 7 },
+            { points: [[22, 22], [12, 5], [12, -14]], width: 5 }],
+        suspended: [{ kind: 'pipe', from: [-28, 6, -20], to: [28, 6, -20] }, { kind: 'pipe', from: [-24, 7, 30], to: [-24, 7, -30] }],
+        features: [f('plan-table', 'ledger', 18, -7, 6, 4), f('tool-rack', 'toolrack', 22, -16, 6, 2),
+            f('notice-desk', 'ledger', -18, 10, 4, 2), f('bench', 'bench', -20, -13, 2, 6),
+            f('west-boiler', 'tower', -20, -24, 8, 8, { height: 10 }),
+            f('east-boiler', 'tower', 20, -26, 10, 8, { height: 13 }),
+            f('entry-column', 'column', 7, 17, 4, 4, { height: 9 }),
+            f('work-arch', 'arch', 0, -22, 18, 2, { height: 12 }),
+            f('west-wall', 'wall', -31, 0, 2, 72, { height: 8 }), f('east-wall', 'wall', 31, 0, 2, 72, { height: 8 }),
+            f('north-wall', 'wall', 0, -35, 64, 2, { height: 12 }), f('south-wall', 'wall', 0, 35, 64, 2, { height: 7 })] },
+});
+
+export const PIPE_GALLERY = defineLandscapeScene({
+    id: 'pipe_gallery', safe: false,
+    anchors: { heat_station: { x: 0, y: 29 }, sluice_bridge: { x: 0, y: -29 }, encounter: { x: 0, y: 16 },
+        guard: { x: -8, y: -7 }, archer: { x: 8, y: -17 }, flank: { x: 9, y: 4 }, bomber: { x: -9, y: -19 }, trial: { x: 0, y: -24 } },
+    exits: [{ id: 'heat_station', anchor: 'heat_station', to: 'heat_station', arrival: 'pipe_gallery' },
+        { id: 'sluice_bridge', anchor: 'sluice_bridge', to: 'sluice_bridge', arrival: 'pipe_gallery', condition: { all: ['gallery_cleared'] } }],
+    objects: [{ id: 'return_trial', anchor: 'trial', kind: 'inspect', passage: 'return_trial', condition: { all: ['gallery_cleared'], none: ['heat_restored'] } }],
+    landscape: { bounds: { x: 0, z: 0, width: 48, depth: 72 }, vista: 'interior', surface: 'wet', gates: [],
+        roads: [{ points: [[0, 31], [0, 17], [-8, 3], [0, -12], [0, -31]], width: 6 }],
+        suspended: [{ kind: 'pipe', from: [-17, 5, 31], to: [-17, 5, -31] }, { kind: 'pipe', from: [17, 7, 31], to: [17, 7, -31] }],
+        features: [f('west-wall', 'wall', -23, 0, 2, 72, { height: 9 }), f('east-wall', 'wall', 23, 0, 2, 72, { height: 9 }),
+            f('north-wall', 'wall', 0, -35, 48, 2, { height: 9 }), f('south-wall', 'wall', 0, 35, 48, 2, { height: 9 }),
+            f('west-block', 'column', -14, 9, 4, 6, { height: 7 }), f('east-block', 'column', 13, -7, 4, 6, { height: 7 }),
+            f('west-water', 'water', -20, -9, 2, 40), f('east-water', 'water', 20, 9, 2, 40),
+            f('entry-arch', 'arch', 0, 25, 20, 2, { height: 9 })] },
+});
+
+export const SLUICE_BRIDGE = defineLandscapeScene({
+    id: 'sluice_bridge', safe: false,
+    anchors: { pipe_gallery: { x: 0, y: 30 }, main_valve: { x: 0, y: -30 }, encounter: { x: 0, y: 17 },
+        guard: { x: 0, y: -7 }, left: { x: -10, y: -16 }, right: { x: 10, y: -16 }, reward: { x: 7, y: -26 }, rest: { x: -7, y: 25 } },
+    exits: [{ id: 'pipe_gallery', anchor: 'pipe_gallery', to: 'pipe_gallery', arrival: 'sluice_bridge' },
+        { id: 'main_valve', anchor: 'main_valve', to: 'main_valve', arrival: 'sluice_bridge', condition: { all: ['bridge_cleared'] } }],
+    objects: [{ id: 'rest', anchor: 'rest', kind: 'rest' }, { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'bridge' }],
+    landscape: { bounds: { x: 0, z: 0, width: 60, depth: 76 }, vista: 'ramparts', surface: 'paving', gates: [],
+        roads: [{ points: [[0, 33], [0, -33]], width: 10 }],
+        suspended: [{ kind: 'pipe', from: [-27, 5, -23], to: [27, 5, -23] }],
+        features: [f('west-channel', 'water', -23, 0, 10, 60), f('east-channel', 'water', 23, 0, 10, 60),
+            f('west-pier', 'column', -12, 4, 4, 4, { height: 7 }), f('east-pier', 'column', 12, -5, 4, 4, { height: 7 }),
+            f('west-wall', 'wall', -29, 0, 2, 76, { height: 6 }), f('east-wall', 'wall', 29, 0, 2, 76, { height: 6 }),
+            f('north-wall', 'wall', 0, -37, 60, 2, { height: 7 }), f('south-wall', 'wall', 0, 37, 60, 2, { height: 7 }),
+            f('bridge-arch', 'arch', 0, -22, 28, 2, { height: 13 })] },
+});
+
+export const MAIN_VALVE = defineLandscapeScene({
+    id: 'main_valve', safe: false,
+    anchors: { sluice_bridge: { x: 0, y: 34 }, encounter: { x: 0, y: 18 }, keeper: { x: 0, y: -12 },
+        left: { x: -18, y: -17 }, right: { x: 18, y: -17 }, valve: { x: 0, y: -31 }, reward: { x: 10, y: -29 }, rest: { x: -10, y: 28 } },
+    exits: [{ id: 'sluice_bridge', anchor: 'sluice_bridge', to: 'sluice_bridge', arrival: 'main_valve' }],
+    objects: [{ id: 'heat_return', anchor: 'valve', kind: 'inspect', passage: 'heat_return', condition: { all: ['heatkeeper_defeated'], none: ['heat_restored'] } },
+        { id: 'rest', anchor: 'rest', kind: 'rest' }, { id: 'relic_cache', anchor: 'reward', kind: 'reward', node: 'heatkeeper' }],
+    landscape: { bounds: { x: 0, z: 0, width: 68, depth: 84 }, vista: 'interior', surface: 'paving', gates: [],
+        roads: [{ points: [[0, 37], [0, -33]], width: 10 }, { points: [[-20, 15], [-20, -23], [20, -23], [20, 15]], width: 5 }],
+        suspended: [{ kind: 'pipe', from: [-27, 7, -32], to: [27, 7, -32] }, { kind: 'pipe', from: [-28, 6, 25], to: [28, 6, 25] }],
+        features: [f('main-console', 'ledger', 0, -37, 10, 4),
+            f('left-cylinder', 'tower', -26, -29, 8, 12, { height: 14 }), f('right-cylinder', 'tower', 26, -29, 8, 12, { height: 14 }),
+            f('west-cover', 'column', -12, 0, 4, 6, { height: 8 }), f('east-cover', 'column', 12, 0, 4, 6, { height: 8 }),
+            f('west-wall', 'wall', -33, 0, 2, 84, { height: 12 }), f('east-wall', 'wall', 33, 0, 2, 84, { height: 12 }),
+            f('north-wall', 'wall', 0, -41, 68, 2, { height: 14 }), f('south-wall', 'wall', 0, 41, 68, 2, { height: 9 })] },
+});

@@ -13,8 +13,10 @@ import {
 } from './scene-planner-executor.js';
 import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import { createSubmitScenePlanTool } from './scene-plan-tool.js';
+import { parseFieldDescriptions } from './scene-plan-descriptions.js';
 import { buildScenePlannerSystemPrompt, buildScenePlannerUserTask } from './scene-planner-frame.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
+import { normalizePlannerRetry } from './planner-retry.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -29,6 +31,8 @@ const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
     tagGuideContent: '',
     sceneRules: '',
+    // submit_scene_plan 字段描述覆写（JSON 字符串：{ 字段路径: 文案 }），空串 = 全部用内置文案
+    fieldDescriptions: '',
 };
 
 function createSerializableSnapshot(value) {
@@ -212,6 +216,7 @@ async function buildScenePlannerRequest(options = {}) {
         absoluteMaxCharactersPerImage,
     );
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
+    const fieldDescriptions = parseFieldDescriptions(promptConfig.fieldDescriptions);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
     const slots = createPromptSlots(['worldInfo', 'characterInfo', 'lastMessage']);
 
@@ -286,6 +291,7 @@ async function buildScenePlannerRequest(options = {}) {
                 maxCharactersPerImage: effectiveMaxCharactersPerImage,
                 insertPointCount: sceneSource.points.length,
                 profile,
+                descriptions: fieldDescriptions,
             }),
             validationContext: {
                 sceneSource,
@@ -345,6 +351,8 @@ export async function prepareScenePlannerInput(options = {}) {
             tool: request.tool,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
+            // 重试设置随快照冻结：后台 Draw Run 只能读到这里，与浏览器流程行为一致。
+            ...(options.plannerRetry ? { retry: normalizePlannerRetry(options.plannerRetry) } : {}),
         },
         agent: {
             channel: String(providerConfig?.provider || ''),

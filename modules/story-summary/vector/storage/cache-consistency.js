@@ -78,8 +78,30 @@ export function inspectCacheSourceCoverage(cache, operation) {
     }
     const materials = collectChunkMaterials(chat, cache.chunks, cache.chunkVectors);
     const sources = buildSourceIndex(operation.snapshot, materials);
-    buildStoredSourceManifest(cache, { chatId: operation.chatId, sources });
     const cachedIds = new Set(cache.chunks.map(chunk => chunk.chunkId));
+    const fingerprint = (cache.chunkVectors[0] || cache.stateVectors[0] || cache.eventVectors[0])?.fingerprint;
+    // Daily usability and portable provenance are different contracts. Missing
+    // digests do not prove corruption; a present digest must still match. Export
+    // remains strict and never fabricates a digest for an existing vector.
+    for (const [records, index, key, kind] of [
+        [cache.chunkVectors, sources.chunks, 'chunkId', 'chunk'],
+        [cache.stateVectors, sources.states, 'atomId', 'state'],
+        [cache.eventVectors, sources.events, 'eventId', 'event'],
+    ]) {
+        for (const record of records) {
+            if (record.fingerprint !== fingerprint) throw packageError('invalid_package', { field: 'fingerprint' });
+            const source = index.get(record[key]);
+            if (!source || (record.sourceHash && record.sourceHash !== source.sourceHash)
+                || (kind === 'state' && (source.floor !== record.floor || !Number.isInteger(record.floor)
+                    || record.floor < 0 || record.floor >= chat.length
+                    || (record.hasRelationVector && record.relationHash && record.relationHash !== source.relationHash)))
+                // An orphan's material may only be recovered from live prose
+                // when the original vector actually proves that input.
+                || (kind === 'chunk' && !cachedIds.has(record.chunkId) && !record.sourceHash)) {
+                throw packageError('source_mismatch', { kind, id: record[key] });
+            }
+        }
+    }
     const vectorIds = new Set(cache.chunkVectors.map(record => record.chunkId));
     const missingFloors = new Set();
     for (const [id, source] of sources.chunks) {

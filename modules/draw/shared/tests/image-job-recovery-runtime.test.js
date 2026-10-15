@@ -86,7 +86,7 @@ for (const backendState of ['cancelled', 'missing']) for (const preserveSlotsOnC
     const record = await api.recordPendingImageJob({ jobId: 'cancel-job-' + suffix, provider: 'sd-webui',
         delivery: { mode: 'slots', chatId: host.ctx.chatId, messageId: '0', preserveSlotsOnCancel },
         items: [{ index: 0, slotId: keptSlot, imgId: 'committed-old-' + suffix },
-            { index: 1, slotId, imgId: 'pending-' + suffix, previewMetadata: { tags: 'kept tags' } }] });
+            { index: 1, slotId, imgId: 'pending-' + suffix, previewMetadata: { tags: 'kept tags', postPrompt: 'kept tail' } }] });
     await api.markPendingImageJobActive(record.jobId, record.leaseId);
     await api.commitPendingImageJobItem(record.jobId, record.leaseId, 0);
     await api.renewPendingImageJobLease(record.jobId, record.leaseId, { now: 0 });
@@ -107,6 +107,7 @@ for (const backendState of ['cancelled', 'missing']) for (const preserveSlotsOnC
     assert.deepEqual(await api.drawCancellationJournal.list(), []);
     assert.equal(await api.getPendingImageJob(record.jobId), null);
     assert.equal(host.previews.get(record.items[1].imgId)?.status, preserveSlotsOnCancel ? 'failed' : undefined);
+    if (preserveSlotsOnCancel) assert.equal(host.previews.get(record.items[1].imgId)?.postPrompt, 'kept tail');
     assert.equal(isSceneSlotAlive(message.mes, slotId), preserveSlotsOnCancel);
     assert.equal(host.previews.get(reroll.imgId), reroll);
     assert.equal(host.selections.get(keptSlot), reroll.imgId);
@@ -273,6 +274,7 @@ for (const mode of ['complete', 'fail', 'discard']) {
             const marker = { version: 1, provider: 'sd-webui', sourceHash, targetHash: hashSceneSource(original), createdAt: 100 };
             const items = [0, 1].map(index => ({
                 index, ...deriveDrawRunItemIds(runId, index), insertOffset: sourceText.length,
+                displayMetadata: { tags: 'scene', postPrompt: `tail-${index}` },
             }));
             const run = {
                 id: runId, provider: marker.provider, state: 'dispatched', sourceHash,
@@ -288,6 +290,7 @@ for (const mode of ['complete', 'fail', 'discard']) {
                 confirmSlots: () => host.ctx.saveChat(),
             });
             assert.equal(adopted.status, 'ready');
+            assert.deepEqual(adopted.record.items.map(item => item.previewMetadata.postPrompt), ['tail-0', 'tail-1']);
             const { jobId, leaseId } = adopted.record;
             await api.markPendingImageJobOriginRunAckReady(jobId, leaseId, runId);
             await api.activateAdoptingPendingImageJob(jobId, leaseId);
@@ -326,6 +329,7 @@ for (const mode of ['complete', 'fail', 'discard']) {
             }
             if (mode === 'fail') {
                 assert.equal(host.previews.get(items[0].imgId)?.status, 'failed');
+                assert.equal(host.previews.get(items[0].imgId)?.postPrompt, 'tail-0');
                 assert.equal(host.previews.get(items[1].imgId)?.status === 'failed', !userDeletedSlot);
                 if (userDeletedSlot) assert.equal(host.previews.has(items[1].imgId), false);
             }

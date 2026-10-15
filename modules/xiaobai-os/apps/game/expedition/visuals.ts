@@ -3,7 +3,7 @@ import { RELIC_SPECS, type RelicFamily } from './relics.js';
 import { LAND } from './presentation/world-palette.js';
 
 export const CAMERA_EIGHTH_TURNS = 1;
-export const WORLD_CAMERA = { height: 23, distance: 25, lead: 5, minimumWidth: 42, mobileWidth: 26, tallSpan: 28, shortSpan: 19 } as const;
+export const WORLD_CAMERA = { height: 23, distance: 25, lead: 5, minimumWidth: 42, mobileWidth: 26, tallSpan: 28, shortSpan: 19, settlementScale: .88 } as const;
 export const BEACON_CRITICAL_HP = 30;
 export const DEFENSE_COLORS = { ward: '#75c7eb', edge: '#e5f6ff', block: '#dcc08a', parry: '#fff2c9', enamel: '#42647c', silver: '#e4e7df' } as const;
 export const CONTRACT_COLORS = { familiar: '#8cc9bc', empowered: '#f1d89e', crest: '#9daedc', page: '#f2ecda', cover: '#4d5876' } as const;

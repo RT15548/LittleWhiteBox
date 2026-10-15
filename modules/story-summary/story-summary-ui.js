@@ -8,6 +8,7 @@ import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from './maintenance/settings.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
+import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY, writeSummaryConfigLocalCache } from './data/config-local-cache.js';
 
 const UNANNOTATED_LABEL = '未标注';
 
@@ -569,7 +570,7 @@ const UNANNOTATED_LABEL = '未标注';
 
     function loadConfig() {
         try {
-            const s = localStorage.getItem('summary_panel_config');
+            const s = localStorage.getItem(SUMMARY_CONFIG_LOCAL_STORAGE_KEY);
             if (s) {
                 const p = JSON.parse(s);
                 config.memoryMaintenanceEnabled = p.memoryMaintenanceEnabled === true;
@@ -615,7 +616,7 @@ const UNANNOTATED_LABEL = '未标注';
         if (cfg.vector) config.vector = normalizeVectorConfigUI(cfg.vector);
         normalizeTriggerConfig();
         syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
-        localStorage.setItem('summary_panel_config', JSON.stringify(config));
+        writeSummaryConfigLocalCache(config, (message, errorName) => console.warn(message, errorName));
     }
 
     function normalizeSummaryApiConfigUI(apiCfg = {}) {
@@ -949,10 +950,6 @@ const UNANNOTATED_LABEL = '未标注';
         $('vector-event-count').textContent = stats.eventVectors || 0;
     }
 
-    function showVectorMismatchWarning(show) {
-        $('vector-mismatch-warning').classList.toggle('hidden', !show);
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // 记忆锚点（L0）UI
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1106,11 +1103,17 @@ const UNANNOTATED_LABEL = '未标注';
             };
 
             $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
+            for (const field of ['provider', 'url', 'key', 'model-text', 'model-select']) {
+                $(`${prefix}-api-${field}`).addEventListener(field === 'provider' || field === 'model-select' ? 'change' : 'input', () => {
+                    postMsg('VECTOR_CANCEL_TEST', { target: prefix });
+                    updateVectorOnlineStatus(prefix, 'idle', '');
+                });
+            }
             $(`${prefix}-btn-save`).onclick = () => saveVectorApiSection(prefix);
             $(`${prefix}-btn-test`).onclick = () => {
                 const btn = $(`${prefix}-btn-test`);
                 if (btn) btn.disabled = true;
-                setStatusText($(`${prefix}-api-connect-status`), '测试中...', 'loading');
+                setStatusText($(`${prefix}-api-connect-status`), SUMMARY_FEEDBACK_COPY.connectionChecking, 'loading');
                 const cfg = getVectorConfig();
                 postMsg('VECTOR_TEST_ONLINE', {
                     target: prefix,
@@ -2709,7 +2712,10 @@ const UNANNOTATED_LABEL = '未标注';
 
             case 'VECTOR_STATS':
                 updateVectorStats(d.stats);
-                if (d.mismatch !== undefined) showVectorMismatchWarning(d.mismatch);
+                break;
+
+            case 'VECTOR_INTEGRITY':
+                $('vector-integrity-status').textContent = d.message || '';
                 break;
 
             case 'ANCHOR_STATS':

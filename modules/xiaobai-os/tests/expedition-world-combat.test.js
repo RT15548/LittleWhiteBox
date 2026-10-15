@@ -12,7 +12,7 @@ import { WEAPON_IDS } from '../apps/game/expedition/ids.ts';
 import { COURTYARD } from '../apps/game/expedition/content/courtyard.ts';
 import { COURTYARD_ENCOUNTERS, courtyardBattle } from '../apps/game/expedition/content/courtyard-encounters.ts';
 import { findWorldPath } from '../apps/game/expedition/world/navigation.ts';
-import { conditionMet } from '../apps/game/expedition/world/exploration.ts';
+import { conditionMet, sceneSpace } from '../apps/game/expedition/world/exploration.ts';
 
 const map = { origin: { x: -9, y: -7 }, cellSize: 2,
     rows: ['#########', '#...#...#', '#...#...#', '#.......#', '#...#...#', '#...#...#', '#########'], gates: [] };
@@ -104,13 +104,14 @@ test('a field refuses invalid spawns and bosses not yet authored for the explora
     assert.throws(() => createBattle({ ...setup, boss: true, bossKind: 'weaver' }, loadout('blade'), field()), { code: 'expedition_world_encounter_unsupported' });
 });
 
-test('all authored courtyard encounters spawn on reachable ground for every profession and every entrance', () => {
+test('every authored battlefield is reachable from scene entrances and supports every profession', () => {
     const facts = new Set(['sluice_opened', 'postern_opened', 'captives_released']);
     for (const id of Object.keys(COURTYARD_ENCOUNTERS)) {
-        const scene = COURTYARD[id];
+        const spec = COURTYARD_ENCOUNTERS[id], scene = COURTYARD[spec.scene];
         for (const entrance of scene.exits) {
             if (!conditionMet(entrance.condition, facts)) { continue; }
-            const entry = scene.anchors[entrance.anchor], plan = courtyardBattle(id, facts, entry, 29, 80, true);
+            const entry = scene.anchors[spec.trigger], plan = courtyardBattle(id, facts, entry, 29, 80, true);
+            assert.ok(findWorldPath(sceneSpace(scene, facts), scene.anchors[entrance.anchor], entry, RULES.playerRadius));
             for (const weapon of WEAPON_IDS) {
                 const b = createBattle(plan.setup, loadout(weapon), plan.field);
                 assert.equal(b.player.hp, 80);
@@ -121,6 +122,6 @@ test('all authored courtyard encounters spawn on reachable ground for every prof
                 for (let i = 0; i < 10; i++) { tickBattle(b, { ...idle, skill: i === 0 }, loadout(weapon), plan.field); }
             }
         }
-        assert.equal(courtyardBattle(id, new Set([...facts, COURTYARD_ENCOUNTERS[id].complete]), scene.anchors[scene.exits[0].anchor], 29, 80, false), null);
+        if (spec.complete) { assert.equal(courtyardBattle(id, new Set([...facts, spec.complete]), scene.anchors[spec.trigger], 29, 80, false), null); }
     }
 });

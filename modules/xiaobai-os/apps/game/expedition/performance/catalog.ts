@@ -95,13 +95,14 @@ export const PERFORMANCE_PROFILES = {
         },
         gestures: GESTURES,
     },
-} as const satisfies Record<Participant, { expressions: Record<string, string>; gestures: Record<keyof typeof GESTURES, string> }>;
+} as const satisfies Partial<Record<Participant, { expressions: Record<string, string>; gestures: Record<keyof typeof GESTURES, string> }>>;
 export type Performer = keyof typeof PERFORMANCE_PROFILES;
 export type ActorExpression<P extends Performer> = keyof typeof PERFORMANCE_PROFILES[P]['expressions'];
 type Expression = { [P in Performer]: ActorExpression<P> }[Performer];
 export interface Performance { expression: Expression; gesture: keyof typeof GESTURES }
+export function isPerformer(person: Participant): person is Performer { return Object.hasOwn(PERFORMANCE_PROFILES, person); }
 export function performanceOptions(person: Participant) {
-    return PERFORMANCE_PROFILES[person];
+    return isPerformer(person) ? PERFORMANCE_PROFILES[person] : { expressions: {}, gestures: {} };
 }
 export function readPerformance(person: Participant, value: unknown): Performance | null {
     const options = performanceOptions(person);

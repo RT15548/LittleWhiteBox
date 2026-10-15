@@ -38,7 +38,7 @@ function setupPreview() {
     const sun = new DirectionalLight('#fff6e0', 3); sun.position.set(-3, 5, 6); scene.add(sun);
     const camera = new OrthographicCamera(-2.35, 2.35, 2.35, -2.35, .1, 30), bounds = new Box3();
     function posePreview(id: Outfit) {
-        hero.update({ x: 0, y: 0, facing: Math.PI / 2, dashTime: 0, swing: 0, shield: 0, guard: 0, resonance: 0 }, props.weapon, id, 0, true, false);
+        hero.update({ x: 0, y: 0, facing: Math.PI / 2, dashTime: 0, swing: 0, shield: 0, guard: 0, resonance: 0 }, props.weapon, id, 0, 0, true, false);
         hero.root.position.set(0, .1, 0); hero.root.rotation.y = -.2; hero.root.scale.setScalar(1.35);
     }
     for (const id of rack.value) { posePreview(id); bounds.union(new Box3().setFromObject(root)); }
@@ -72,13 +72,13 @@ function setupPreview() {
     function draw(now: number) {
         frame = 0;
         if (failed.value || document.hidden) { return; }
-        if (!dirty && (now > actionUntil || reduced.matches)) { return; }
+        if (!dirty && (now > actionUntil || reduced.matches) && !hero.animating) { return; }
         const playing = now < actionUntil && !reduced.matches, tick = now * .03;
-        hero.update({ x: playing ? Math.sin(tick * .4) * .03 : 0, y: 0, facing: Math.PI / 2, dashTime: 0, swing: playing ? 8 - tick % 8 : 0, shield: 0, guard: 0, resonance: 0 }, props.weapon, selected.value, tick, reduced.matches, false);
+        hero.update({ x: playing ? Math.sin(tick * .4) * .03 : 0, y: 0, facing: Math.PI / 2, dashTime: 0, swing: playing ? 8 - tick % 8 : 0, shield: 0, guard: 0, resonance: 0 }, props.weapon, selected.value, tick, now / 1000, reduced.matches, false);
         hero.root.position.set(0, .1, 0); hero.root.rotation.y = Number(rotation.value) * Math.PI / 180; hero.root.scale.setScalar(1.35);
         try { renderer.render(scene, camera); dirty = false; }
         catch { failed.value = true; }
-        if (playing && !failed.value) { requestDraw(); }
+        if ((playing || hero.animating) && !failed.value) { requestDraw(); }
     }
     requestDraw = () => { if (!frame && !failed.value && !document.hidden) { frame = requestAnimationFrame(draw); } };
     function visibility() { if (document.hidden) { cancelAnimationFrame(frame); frame = 0; } else { dirty = true; requestDraw(); } }

@@ -34,6 +34,7 @@ test('summary hiding preserves searchable and readable original floors without c
     assert.deepEqual(beforeSearch.items.map(item => item.floor), [0, 1]);
     assert.deepEqual(beforeRead.items.map(item => item.role), ['user', 'assistant', 'user']);
     const hiding = createHideStateController({
+        getPendingSave: () => null,
         getState: () => ({ chatId: surface.identityKey, chat: surface.messages, enabled: true,
             summaryBoundary: 1, useVectorBoundary: false, keepVisibleCount: 0 }),
         renderMessage() {}, refresh() {}, async save() {}, onError(error) { throw error; },

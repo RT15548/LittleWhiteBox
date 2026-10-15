@@ -1,4 +1,6 @@
-import { buildMarkdownFragment, enhancePathLinks } from '../../../agent-core/ui/message-markdown.js';
+import { buildMarkdownFragment } from '../../../agent-core/ui/message-markdown.js';
+import { createToolActivityProjection } from './tool-activity.js';
+import { createToolProcess } from './tool-process.js';
 import { expandMessageWindow, getMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 
 function isAssistantToolCallMessageForWindow(message) {
@@ -50,8 +52,7 @@ export function getAssistantVisibleMessageRange(state = {}) {
 export function createChatUi(deps) {
     const {
         state,
-        toolNames,
-        formatToolResultDisplay,
+        getToolActivity,
         normalizeThoughtBlocks,
         normalizeAttachments,
         renderAttachmentGallery,
@@ -64,8 +65,8 @@ export function createChatUi(deps) {
         kind: '',
         units: [],
     };
-    const openToolBatchKeys = new Set();
-    const toolDisplayPreviewCache = new WeakMap();
+    const projectTools = createToolActivityProjection(getToolActivity);
+    const processViews = new WeakMap();
 
     async function copyText(text) {
         const normalized = String(text || '');
@@ -117,17 +118,6 @@ export function createChatUi(deps) {
         return false;
     }
 
-    function buildInteractivePre(text, className = '') {
-        const pre = document.createElement('pre');
-        pre.className = className;
-        pre.textContent = String(text || '');
-        enhancePathLinks(pre, {
-            onPathClick: onLocalPathClick,
-            linkClassName: 'xb-assistant-local-path-link',
-        });
-        return pre;
-    }
-
     function buildTextSignature(text) {
         const value = String(text || '');
         let hash = 2166136261;
@@ -136,34 +126,6 @@ export function createChatUi(deps) {
             hash = Math.imul(hash, 16777619);
         }
         return `${value.length}:${(hash >>> 0).toString(36)}`;
-    }
-
-    function getMessageContentSignature(message = {}) {
-        if (message.role === 'tool') {
-            return [
-                'tool',
-                String(message.toolCallId || ''),
-                String(message.toolName || ''),
-                String(message.content || '').length,
-            ].join(':');
-        }
-        const signature = buildTextSignature(message.content);
-        return signature;
-    }
-
-    function getToolDisplayPreview(message) {
-        const cached = toolDisplayPreviewCache.get(message);
-        if (cached) {
-            return cached;
-        }
-
-        const display = formatToolResultDisplay(message);
-        const preview = {
-            summary: String(display.summary || '') || '工具已返回结果。',
-            hasDetails: Boolean(display.details),
-        };
-        toolDisplayPreviewCache.set(message, preview);
-        return preview;
     }
 
     function getRenderableMessageSignature(message, messageIndex = -1) {
@@ -178,16 +140,7 @@ export function createChatUi(deps) {
             : {};
         return JSON.stringify({
             role: message.role,
-            content: getMessageContentSignature(message),
-            toolCallId: String(message.toolCallId || ''),
-            toolName: String(message.toolName || ''),
-            toolCalls: Array.isArray(message.toolCalls)
-                ? message.toolCalls.map((toolCall) => ({
-                    id: String(toolCall.id || ''),
-                    name: String(toolCall.name || ''),
-                    arguments: buildTextSignature(toolCall.arguments),
-                }))
-                : [],
+            content: buildTextSignature(message.content),
             thoughts: normalizeThoughtBlocks(message.thoughts).map((item) => ({
                 label: item.label,
                 text: buildTextSignature(item.text),
@@ -206,22 +159,6 @@ export function createChatUi(deps) {
                 }
                 : undefined,
         });
-    }
-
-    function isAssistantToolCallMessage(message) {
-        return isAssistantToolCallMessageForWindow(message);
-    }
-
-    function buildToolBatchKey(message, fallbackIndex = 0) {
-        const toolCallIds = Array.isArray(message?.toolCalls)
-            ? message.toolCalls
-                .map((toolCall) => String(toolCall?.id || '').trim())
-                .filter(Boolean)
-            : [];
-        if (toolCallIds.length) {
-            return `tool-batch:${toolCallIds.join('|')}`;
-        }
-        return `tool-batch:fallback:${fallbackIndex}:${getRenderableMessageSignature(message)}`;
     }
 
     function buildThoughtDetails(message) {
@@ -257,99 +194,6 @@ export function createChatUi(deps) {
         });
 
         return details;
-    }
-
-    function buildAssistantToolPreface(message) {
-        const assistantContentText = String(message.content || '').trim();
-        const thoughtDetails = buildThoughtDetails(message);
-        if (!assistantContentText && !thoughtDetails) return null;
-
-        const bubble = document.createElement('div');
-        bubble.className = 'xb-assistant-bubble role-assistant xb-assistant-tool-preface';
-
-        const metaRow = document.createElement('div');
-        metaRow.className = 'xb-assistant-meta-row';
-        const meta = document.createElement('div');
-        meta.className = 'xb-assistant-meta';
-        meta.textContent = '小白助手';
-        metaRow.appendChild(meta);
-
-        bubble.appendChild(metaRow);
-        if (thoughtDetails) {
-            bubble.appendChild(thoughtDetails);
-        }
-        if (assistantContentText) {
-            const content = document.createElement('div');
-            content.className = 'xb-assistant-content xb-assistant-markdown';
-            content.appendChild(buildMarkdownFragment(assistantContentText, {
-                onPathClick: onLocalPathClick,
-                codeBlockClassName: 'xb-assistant-codeblock',
-                codeCopyClassName: 'xb-assistant-code-copy',
-                linkClassName: 'xb-assistant-local-path-link',
-            }));
-            bubble.appendChild(content);
-        }
-        return bubble;
-    }
-
-    function buildToolBatchDetails(message, toolMessages, batchIndex) {
-        const details = document.createElement('details');
-        const batchKey = buildToolBatchKey(message, batchIndex);
-        details.className = 'xb-assistant-tool-batch';
-        details.dataset.toolBatchKey = batchKey;
-        if (openToolBatchKeys.has(batchKey)) {
-            details.open = true;
-        }
-
-        const summary = document.createElement('summary');
-        summary.className = 'xb-assistant-tool-batch-summary';
-        summary.textContent = `小白助手 · 已发起 ${Array.isArray(message.toolCalls) ? message.toolCalls.length : 0} 个工具调用`;
-        details.appendChild(summary);
-
-        const body = document.createElement('div');
-        body.className = 'xb-assistant-tool-batch-body';
-
-        let bodyBuilt = false;
-        const ensureBody = () => {
-            if (bodyBuilt) return;
-            bodyBuilt = true;
-            toolMessages.forEach((toolMessage) => {
-                const toolBubble = buildMessageBubble(toolMessage);
-                toolBubble.dataset.renderSignature = getRenderableMessageSignature(toolMessage);
-                body.appendChild(toolBubble);
-            });
-            details.appendChild(body);
-        };
-
-        details.addEventListener('toggle', () => {
-            if (details.open) {
-                openToolBatchKeys.add(batchKey);
-                ensureBody();
-            } else {
-                openToolBatchKeys.delete(batchKey);
-                if (bodyBuilt) {
-                    body.remove();
-                    body.replaceChildren();
-                    bodyBuilt = false;
-                }
-            }
-        });
-
-        if (details.open) {
-            ensureBody();
-        }
-        return details;
-    }
-
-    function buildToolBatch(message, toolMessages, batchIndex) {
-        const preface = buildAssistantToolPreface(message);
-        const details = buildToolBatchDetails(message, toolMessages, batchIndex);
-        if (!preface) return details;
-
-        const group = document.createElement('div');
-        group.className = 'xb-assistant-tool-turn';
-        group.append(preface, details);
-        return group;
     }
 
     function buildApprovalPanel(approvalRequest) {
@@ -471,17 +315,8 @@ export function createChatUi(deps) {
             bubble.dataset.messageIndex = String(messageIndex);
         }
         const assistantContentText = String(message.content || '').trim();
-        const isAssistantToolCall = message.role === 'assistant'
-            && Array.isArray(message.toolCalls)
-            && message.toolCalls.length > 0;
-        const isMetaOnlyToolCall = isAssistantToolCall && !assistantContentText;
-        const canShowAssistantActions = message.role === 'assistant'
-            && !isAssistantToolCall
-            && !!assistantContentText;
+        const canShowAssistantActions = message.role === 'assistant' && !!assistantContentText;
         const isEditing = canShowAssistantActions && state.editingMessageIndex === messageIndex;
-        if (isMetaOnlyToolCall) {
-            bubble.classList.add('is-tool-call');
-        }
 
         const metaRow = document.createElement('div');
         metaRow.className = 'xb-assistant-meta-row';
@@ -490,11 +325,7 @@ export function createChatUi(deps) {
         meta.className = 'xb-assistant-meta';
         meta.textContent = message.role === 'user'
             ? '你'
-            : message.role === 'assistant'
-                ? Array.isArray(message.toolCalls) && message.toolCalls.length
-                    ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用`
-                    : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
-                : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
+            : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`;
         metaRow.appendChild(meta);
 
         if (canShowAssistantActions) {
@@ -540,45 +371,9 @@ export function createChatUi(deps) {
 
         bubble.appendChild(metaRow);
 
-        if (message.role === 'tool') {
-            const display = getToolDisplayPreview(message);
-            const summary = buildInteractivePre(display.summary || '工具已返回结果。', 'xb-assistant-content tool-summary');
-            bubble.append(summary);
-
-            if (display.hasDetails) {
-                const details = document.createElement('details');
-                details.className = 'xb-assistant-tool-details';
-                const summaryEl = document.createElement('summary');
-                summaryEl.textContent = message.toolName === toolNames.READ ? '展开文件内容' : '展开详细结果';
-                details.appendChild(summaryEl);
-
-                let detailPre = null;
-                const ensureDetail = () => {
-                    if (detailPre) return;
-                    const detailDisplay = formatToolResultDisplay(message);
-                    detailPre = buildInteractivePre(detailDisplay.details, 'xb-assistant-content tool-detail');
-                    details.appendChild(detailPre);
-                };
-                details.addEventListener('toggle', () => {
-                    if (details.open) {
-                        ensureDetail();
-                    } else if (detailPre) {
-                        detailPre.remove();
-                        detailPre = null;
-                    }
-                });
-                if (details.open) {
-                    ensureDetail();
-                }
-                bubble.appendChild(details);
-            }
-
-            return bubble;
-        }
-
         const content = document.createElement('div');
         content.className = 'xb-assistant-content xb-assistant-markdown';
-        const fallbackContent = message.role === 'assistant' && !isAssistantToolCall
+        const fallbackContent = message.role === 'assistant'
             ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
             : '';
         const bodyText = assistantContentText || String(fallbackContent || '').trim();
@@ -626,6 +421,7 @@ export function createChatUi(deps) {
             message: getRenderableMessageSignature(message, messageIndex),
         });
         return {
+            key: message,
             signature,
             build: () => {
                 const node = buildMessageBubble(message, messageIndex);
@@ -635,66 +431,48 @@ export function createChatUi(deps) {
         };
     }
 
-    function createToolRunRenderUnit(startIndex) {
-        const batches = [];
-        let index = startIndex;
-        while (index < state.messages.length && isAssistantToolCallMessage(state.messages[index])) {
-            const message = state.messages[index];
-            const toolMessages = [];
-            let nextIndex = index + 1;
-            while (nextIndex < state.messages.length && state.messages[nextIndex]?.role === 'tool') {
-                toolMessages.push(state.messages[nextIndex]);
-                nextIndex += 1;
-            }
-            batches.push({
-                message,
-                messageIndex: index,
-                toolMessages,
+    function createProcessUnit(messages, running) {
+        const key = messages[0];
+        let view = processViews.get(key);
+        if (!view) {
+            view = createToolProcess({
+                project: projectTools,
+                renderText: text => buildMarkdownFragment(text, {
+                    onPathClick: onLocalPathClick,
+                    codeBlockClassName: 'xb-assistant-codeblock',
+                    codeCopyClassName: 'xb-assistant-code-copy',
+                    linkClassName: 'xb-assistant-local-path-link',
+                }),
             });
-            index = nextIndex;
+            processViews.set(key, view);
         }
-
-        const signature = JSON.stringify({
-            type: 'tool-run',
-            startIndex,
-            batches: batches.map((batch) => ({
-                messageIndex: batch.messageIndex,
-                message: getRenderableMessageSignature(batch.message, batch.messageIndex),
-                toolMessages: batch.toolMessages.map((toolMessage) => getRenderableMessageSignature(toolMessage)),
-            })),
-        });
-
-        return {
-            nextIndex: index,
-            signature,
-            build: () => {
-                const group = document.createElement('div');
-                group.className = 'xb-assistant-tool-run';
-                group.dataset.renderSignature = signature;
-                batches.forEach((batch) => {
-                    group.appendChild(buildToolBatch(batch.message, batch.toolMessages, batch.messageIndex));
-                });
-                return group;
-            },
-        };
+        return { key: view, build: () => view.node, update: () => view.update(messages, running) };
     }
 
-    function collectRenderUnits(startIndex = 0, endIndex = state.messages.length) {
+    function collectRenderUnits(startIndex, endIndex) {
         const units = [];
-        const normalizedStart = Number(startIndex);
-        const normalizedEnd = Number(endIndex);
-        const start = Math.max(0, Number.isFinite(normalizedStart) ? Math.floor(normalizedStart) : 0);
-        const rawEnd = Number.isFinite(normalizedEnd) ? Math.floor(normalizedEnd) : state.messages.length;
-        const end = Math.min(state.messages.length, Math.max(start, rawEnd));
-        for (let index = start; index < end; index += 1) {
-            const message = state.messages[index];
-            if (isAssistantToolCallMessage(message)) {
-                const unit = createToolRunRenderUnit(index);
-                units.push(unit);
-                index = unit.nextIndex - 1;
-                continue;
+        for (let start = startIndex; start < endIndex;) {
+            let end = start + 1;
+            while (end < endIndex && state.messages[end].role !== 'user') end++;
+            let firstTool = -1, lastTool = -1;
+            for (let index = start; index < end; index++) {
+                if (isAssistantToolCallMessageForWindow(state.messages[index])) {
+                    if (firstTool < 0) firstTool = index;
+                    lastTool = index;
+                }
             }
-            units.push(createMessageRenderUnit(message, index));
+            let processEnd = lastTool + 1;
+            while (processEnd < end && state.messages[processEnd].role === 'tool') processEnd++;
+            for (let index = start; index < end; index++) {
+                if (index === firstTool) {
+                    units.push(createProcessUnit(state.messages.slice(firstTool, processEnd),
+                        !!state.isBusy && end === state.messages.length));
+                    index = processEnd - 1;
+                } else if (state.messages[index].role !== 'tool' && !state.messages[index].approvalRequest) {
+                    units.push(createMessageRenderUnit(state.messages[index], index));
+                }
+            }
+            start = end;
         }
         return units;
     }
@@ -702,6 +480,7 @@ export function createChatUi(deps) {
     function createHistoryGateRenderUnit(hiddenBefore = 0) {
         const signature = `history-gate:${hiddenBefore}`;
         return {
+            key: 'history-gate',
             signature,
             build: () => {
                 const gate = document.createElement('div');
@@ -714,32 +493,18 @@ export function createChatUi(deps) {
     }
 
     function applyRenderUnits(container, previousUnits, unitSpecs) {
-        const nextUnits = [];
-
-        unitSpecs.forEach((unit, index) => {
-            const previousUnit = previousUnits[index];
-            const canReuseNode = previousUnit?.signature === unit.signature
-                && previousUnit.node?.parentNode === container;
-            const node = canReuseNode ? previousUnit.node : unit.build();
-            const currentNode = container.children[index] || null;
-
-            if (currentNode !== node) {
-                container.insertBefore(node, currentNode);
-            }
-            if (!canReuseNode && previousUnit?.node?.parentNode === container && previousUnit.node !== node) {
-                previousUnit.node.remove();
-            }
-
-            nextUnits.push({
-                signature: unit.signature,
-                node,
-            });
+        const previous = new Map(previousUnits.map(unit => [unit.key, unit]));
+        const nextUnits = unitSpecs.map((unit, index) => {
+            const retained = previous.get(unit.key);
+            const reuse = retained?.node.parentNode === container
+                && (unit.update || retained.signature === unit.signature);
+            const node = reuse ? retained.node : unit.build();
+            unit.update?.();
+            if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null);
+            return { key: unit.key, signature: unit.signature, node };
         });
-
-        while (container.children.length > unitSpecs.length) {
-            container.lastElementChild?.remove();
-        }
-
+        const nodes = new Set(nextUnits.map(unit => unit.node));
+        for (const child of Array.from(container.children)) if (!nodes.has(child)) child.remove();
         return nextUnits;
     }
 
@@ -770,7 +535,8 @@ export function createChatUi(deps) {
             : visibleUnitSpecs;
         const previousUnits = renderCache.kind === 'messages' ? renderCache.units : [];
         const canReuseAll = previousUnits.length === unitSpecs.length
-            && unitSpecs.every((unit, index) => previousUnits[index]?.signature === unit.signature);
+            && unitSpecs.every((unit, index) => !unit.update && previousUnits[index]?.key === unit.key
+                && previousUnits[index]?.signature === unit.signature);
         if (canReuseAll) {
             return;
         }
