@@ -103,6 +103,26 @@ test('a failed server read rejects instead of returning cached credentials or re
     assert.deepEqual(host.requests.map(item => item.method), ['GET']);
 });
 
+// Contract: a saved recall budget survives reload; malformed imported values
+// cannot overflow browser timers and silently cancel the next chat generation.
+test('recall timeout is normalized, saved and reloaded with the existing vector settings', async () => {
+    assert.equal(mod.getVectorConfig().recallTimeoutSec, 30);
+    const candidate = config('user-model');
+    candidate.vector.recallTimeoutSec = 90;
+    await save(candidate);
+    assert.equal(host.document.storySummaryPanelConfig.vector.recallTimeoutSec, 90);
+    mod.applySummaryPanelConfigSnapshot(config('temporary-model'));
+    const loaded = await mod.loadConfigFromServer();
+    assert.equal(loaded.vector.recallTimeoutSec, 90);
+    assert.equal(mod.getVectorConfig().recallTimeoutSec, 90);
+    assert.equal(mod.getVectorConfig().embeddingApi.model, 'user-model');
+    for (const [input, expected] of [[undefined, 30], ['', 30], ['60', 60], [1.9, 1], [0.5, 1], [-1, 30], [Infinity, 30], [3_000_000, 2_147_483]]) {
+        candidate.vector.recallTimeoutSec = input;
+        mod.applySummaryPanelConfigSnapshot(candidate);
+        assert.equal(mod.getVectorConfig().recallTimeoutSec, expected);
+    }
+});
+
 test('a later attempt reads the server again and installs saved settings without a server write', async () => {
     host.status = 503;
     await assert.rejects(mod.loadConfigFromServer());

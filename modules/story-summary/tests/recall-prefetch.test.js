@@ -71,6 +71,33 @@ async function flushMicrotasks() {
     await Promise.resolve();
 }
 
+// Contract: each host generation owns one budget. Changing settings affects
+// the next run, not an already-watching or computing run (chat interruption).
+test('lazy timeout configuration is captured per run across host wait and recall computation', async () => {
+    let timeoutMs = 60_000;
+    const { context, coordinator, scheduler } = createHarness(() => new Promise(() => {}), {
+        maxAgeMs: () => timeoutMs,
+    });
+    const first = coordinator.startWatching({ chatId: context.chatId, initialLength: 0 });
+    assert.equal(first.timeoutMs, 60_000);
+    timeoutMs = 90_000;
+    context.chat.push({ is_user: true, mes: 'fixture' });
+    scheduler.advanceBy(16);
+    await flushMicrotasks();
+    scheduler.advanceBy(59_999);
+    assert.equal(first.controller.signal.aborted, false);
+    scheduler.advanceBy(1);
+    assert.equal(first.cancelReason, RECALL_TIMEOUT_REASONS.compute);
+    assert.equal(first.timeoutMs, 60_000);
+    const second = coordinator.startWatching({ chatId: context.chatId, initialLength: context.chat.length });
+    assert.equal(second.timeoutMs, 90_000);
+    scheduler.advanceBy(89_999);
+    assert.equal(second.controller.signal.aborted, false);
+    scheduler.advanceBy(1);
+    assert.equal(second.cancelReason, RECALL_TIMEOUT_REASONS.host);
+    assert.equal(scheduler.pendingCount(), 0);
+});
+
 test('long query waiting can join prefetch; remaining preparation budget resumes without resetting', async () => {
     let finishQuery;
     const { context, coordinator, scheduler } = createHarness(async (_type, _signal, _diagnostics, withQueryEmbedding) => {

@@ -238,15 +238,16 @@ export function ensureDrawImageStyles() {
 .xb-nd-view-empty .xb-nd-menu-wrap{top:16px;right:16px}
 .xb-nd-view-empty .xb-nd-view-notice{padding:12px 0 0}
 .xb-nd-view-empty .xb-nd-status-overlay{position:static;max-height:none}
-.xb-nd-edit{animation:nd-slide-up 0.2s ease-out}
-.xb-nd-edit-scroll{max-height:720px;overflow-y:auto;margin-bottom:8px}
+.xb-nd-edit{animation:nd-slide-up 0.2s ease-out;box-sizing:border-box;flex-direction:column;max-height:calc(100dvh - 32px)}
+.xb-nd-edit-overlay{max-height:min(calc(100% - 16px),calc(100dvh - 32px))}
+.xb-nd-edit-scroll{min-height:0;overflow-y:auto;margin-bottom:8px}
 .xb-nd-edit-scroll::-webkit-scrollbar{width:4px}
 .xb-nd-edit-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px}
 .xb-nd-edit-group{margin-bottom:8px}
 .xb-nd-edit-group:last-child{margin-bottom:0}
 .xb-nd-edit-group-label{font-size:11px;color:inherit;opacity:.8;margin-bottom:4px}
-.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:240px;background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
-.xb-nd-edit-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:clamp(100px,20dvh,240px);background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
+.xb-nd-edit-actions{display:flex;flex-shrink:0;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
 .xb-nd-img button:focus-visible,.xb-nd-img summary:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
@@ -313,8 +314,14 @@ ${buildTagEditor(tags, false)}
 </div>`;
 }
 
+export function showDrawTagEditor(editPanel) {
+    editPanel.style.display = 'flex';
+    editPanel.scrollIntoView({ block: 'nearest' });
+    editPanel.querySelector('[data-type="scene"]')?.focus({ preventScroll: true });
+}
+
 function buildTagEditor(tags, failed) {
-    return `<div class="xb-nd-edit" style="display:none;${failed ? 'margin-top:12px;' : 'position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,.94);color:#fff;z-index:15;'}border-radius:10px;padding:10px;text-align:left;">
+    return `<div class="xb-nd-edit${failed ? '' : ' xb-nd-edit-overlay'}" style="display:none;${failed ? 'margin-top:12px;' : 'position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,.94);color:#fff;z-index:15;'}border-radius:10px;padding:10px;text-align:left;">
     <label data-draw-edit-label style="display:block;font-size:11px;margin-bottom:6px;">${DRAW_SLOT_COPY.editTags}</label>
     <textarea class="xb-nd-edit-input" aria-label="${DRAW_SLOT_COPY.editTags}">${escapeHtml(tags)}</textarea>
     <div class="xb-nd-edit-actions">
@@ -565,24 +572,6 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
         const selectedIndex = successPreviews.findIndex(p => p.imgId === savedEntry.imgId);
         const matchedPreview = selectedIndex >= 0 ? successPreviews[selectedIndex] : null;
 
-        // 换设备 / 清缓存后浏览器 IndexedDB 为空，但服务器聊天 extra 里还有这张已保存图的
-        // 完整元数据（含角色提示词）。这里把 extra 重建成本地记录，后续重绘 / 重试 / 画廊
-        // 都能从 IndexedDB 拿回完整提示词，而不是只有场景 tags。
-        if (!matchedPreview) {
-            await storePreview({
-                imgId: savedEntry.imgId || `saved-${slotId}`,
-                slotId,
-                messageId,
-                base64: null,
-                savedUrl: savedEntry.savedUrl,
-                tags: savedEntry.tags || '',
-                positive: savedEntry.positive || '',
-                characterPrompts: savedEntry.characterPrompts || null,
-                negativePrompt: savedEntry.negativePrompt || '',
-                status: 'success',
-            }).catch(() => {});
-        }
-
         return {
             preview: {
                 ...matchedPreview,
@@ -591,8 +580,6 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
                 savedUrl: savedEntry.savedUrl,
                 tags: savedEntry.tags ?? matchedPreview?.tags ?? '',
                 positive: savedEntry.positive ?? matchedPreview?.positive ?? '',
-                characterPrompts: savedEntry.characterPrompts ?? matchedPreview?.characterPrompts ?? null,
-                negativePrompt: savedEntry.negativePrompt ?? matchedPreview?.negativePrompt ?? '',
                 messageId,
             },
             historyCount: selectedIndex >= 0 ? successPreviews.length : 1,

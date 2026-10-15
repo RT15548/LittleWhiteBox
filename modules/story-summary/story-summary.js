@@ -4034,7 +4034,7 @@ const recallPrefetch = createRecallPrefetchCoordinator({
     prepare: prepareMemoryPrompt,
     createRetryNotice: createRecallRetryNotice,
     pollMs: 16,
-    maxAgeMs: () => Math.max(1, Number(getVectorConfig()?.recallTimeoutSec) || 30) * 1000,
+    maxAgeMs: () => getVectorConfig().recallTimeoutSec * 1000,
     onJoinedCancel: (run) => {
         if (Object.values(RECALL_TIMEOUT_REASONS).includes(run.cancelReason)) return; // The interceptor owns failure reporting.
         const publish = getContext()?.chatId === run.chatId
@@ -4329,7 +4329,7 @@ async function runStorySummaryRecallInterceptor(_interceptorChat, _contextSize, 
             commit: commitMemoryPrompt,
             onProgress: diagnostics => runContext?.reportProgress?.(diagnostics),
             onFailure: async error => {
-                const failure = recallFailureNotice(run.cancelReason, error, Math.max(1, Number(getVectorConfig()?.recallTimeoutSec) || 30) * 1000);
+                const failure = recallFailureNotice(run.cancelReason, error, run.timeoutMs);
                 if (!failure) {
                     joinStatus = `cancelled:${run.cancelReason}`;
                     return;

@@ -145,7 +145,7 @@ export function createRecallPrefetchCoordinator(options) {
         // Watching for a USER message consumes no recall computation budget.
         if (slot.computeStartedAt === null) {
             slot.computeStartedAt = now();
-            slot.deadlineAt = slot.computeStartedAt + resolveMaxAgeMs();
+            slot.deadlineAt = slot.computeStartedAt + slot.timeoutMs;
         }
         slot.diagnostics.startedAt = now();
         slot.diagnostics.stage = 'prepare';
@@ -197,6 +197,7 @@ export function createRecallPrefetchCoordinator(options) {
     }
 
     function createSlot({ chatId, type, initialLength, phase }) {
+        const timeoutMs = resolveMaxAgeMs();
         return {
             phase,
             chatId,
@@ -223,7 +224,8 @@ export function createRecallPrefetchCoordinator(options) {
             cancelReason: null,
             computeStartedAt: null,
             joinedAt: null,
-            deadlineAt: now() + resolveMaxAgeMs(),
+            timeoutMs,
+            deadlineAt: now() + timeoutMs,
         };
     }
 
