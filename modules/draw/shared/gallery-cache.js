@@ -1133,8 +1133,27 @@ function createGalleryOverlay() {
 export async function openGallery(slotId, messageId, callbacks = {}) {
     createGalleryOverlay();
 
-    const previews = await getPreviewsBySlot(slotId);
-    const validPreviews = previews.filter(hasPreviewImage);
+    let previews = await getPreviewsBySlot(slotId);
+    let validPreviews = previews.filter(hasPreviewImage);
+
+    const msgIdx = parseInt(messageId, 10);
+    if (!validPreviews.length && !Number.isNaN(msgIdx)) {
+        try {
+            const ctx = getContext();
+            const message = ctx.chat?.[msgIdx];
+            if (message) {
+                const { materializeDrawSavedPreview } = await import('./draw-common.js');
+                await materializeDrawSavedPreview(message, slotId, {
+                    messageId: msgIdx,
+                    chatId: String(ctx.chatId || ''),
+                });
+                previews = await getPreviewsBySlot(slotId);
+                validPreviews = previews.filter(hasPreviewImage);
+            }
+        } catch (error) {
+            console.warn('[Gallery] 尝试从消息记录恢复图片预览失败:', error);
+        }
+    }
 
     if (!validPreviews.length) {
         showToast('没有找到图片历史', 'error');
