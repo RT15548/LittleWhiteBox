@@ -60,6 +60,6 @@ quiet 在总结拦截器入口直接跳过，不召回、不写入，也不清�
 
 ## 检查
 
-稳定行为测试见 `tests/recall-reuse.test.js` 和 `tests/recall-diagnostics.test.js`。可运行 `npm run test:story-summary:runtime`、`npm run test:story-summary:alignment`及现有总结测试。
+可运行 `npm run test:story-summary:runtime`、`npm run test:story-summary:alignment`及现有总结测试。
 
 最终请求、群聊归属和宿主事件顺序需在真实宿主检查。固定接口响应只证明协议与次数，不证明召回质量或用户设备耗时。

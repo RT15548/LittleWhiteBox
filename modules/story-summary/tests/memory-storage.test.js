@@ -124,7 +124,7 @@ for (const edited of [false, true]) test(`invalid L2 history does not block raw-
     ext().storySummary.summaryInvalid = true;
     const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
     if (edited) host.context.chat[0].mes += ' edited';
-    const gate = entry(['ensureCurrentSources'], {
+    const gate = entry(['ensureCurrentSources', 'waitForSummaryPreparation'], {
         ...mod, ...vectorWrites, createAbortError, throwIfSignalAborted, memorySaveError,
         getContext: () => host.context, messageSources: tracker, isChatStale: () => false,
         isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
@@ -251,7 +251,7 @@ function memoryVisibility() {
     const errors = [], rendered = [], saves = [];
     let warnings = 0;
     host.context.saveChat = async () => saves.push(host.context.chat.map(message => message.is_system));
-    const ui = entry(['hideState', 'applyHideState', 'clearHideState', 'isStorySummaryConsumableForCurrentChat'], {
+    const ui = entry(['hideState', 'applyHideState', 'clearHideState', 'isStorySummaryEnabledForCurrentChat'], {
         ...mod, createHideStateController, memorySaveError, shouldNotifyMemoryFailure,
         getContext: () => host.context,
         getStorySummaryEnablement: () => ({ context: host.context, effectiveEnabled: true }),
@@ -301,16 +301,275 @@ for (const uncertain of [false, true]) test(`first swipe during initial visibili
     }
     assert.deepEqual(ui.saves, []); // Never write an unconfirmed draft with a visibility save.
     assert.equal(ui.warnings(), 0);
-    assert.deepEqual(ui.errors, uncertain ? ['metadata_unconfirmed'] : []);
+    assert.deepEqual(ui.errors, []);
     assert.equal(mod.getMemoryCommitState(), uncertain ? 'unconfirmed' : 'ready');
     assert.equal(mod.isSummaryConsumable(mod.getSummaryStore(), context.chat.length), !uncertain);
-    if (uncertain) assert.ok(context.chat.every(message => !message.is_system));
-    else {
+    // The changed tail is beyond the published summary; uncertainty cannot unhide it.
+    assert.deepEqual(context.chat.map(message => message.is_system), initial);
+    assert.deepEqual(ui.rendered, []);
+    if (!uncertain) {
         assert.equal(tracker.inspect(context), null);
-        assert.deepEqual(context.chat.map(message => message.is_system), initial);
-        assert.deepEqual(ui.rendered, []);
         assert.deepEqual(disk(), ext());
     }
+});
+
+// Acceptance: failure of the new range cannot alter the previous 980 floors.
+// Cost: lost memory / unusable summaries. Run the real retry, generator and commit.
+function summaryExecutionHarness(overrides = {}) {
+    const messages = [], errors = [], toasts = [];
+    let running = false;
+    const noop = () => {};
+    const ui = entry(['AUTO_SUMMARY_MAX_ATTEMPTS', 'autoRunSummaryWithRetry', 'handleManualGenerate', 'ensureCurrentSources',
+        'isSummaryGenerating', 'beginSummaryExecution', 'cancelActiveSummaryExecution', 'isSummaryExecutionActive',
+        'finishSummaryExecution', 'notifySummaryState', 'postSummaryExecution', 'reportSummaryExecutionFailure',
+        'assertSummaryExecutionActive', 'handleFrameMessage', 'prepareSummaryExecution', 'waitForSummaryPreparation',
+        'sendFrameBaseData', 'sendFrameFullData', 'buildFramePayload', 'updateFrameStatsAfterSummary'], {
+        ...mod, ...vectorWrites, AbortController, createAbortError, throwIfSignalAborted,
+        createSummaryGenerationCancelledError: createAbortError, memorySaveError, SUMMARY_FEEDBACK_COPY,
+        activeSummaryExecution: null, currentMesId: null, MODULE_ID: 'summary',
+        getContext: () => host.context, document: { getElementById: noop }, isTrustedMessage: () => true,
+        isStorySummaryEnabledForCurrentChat: () => true,
+        isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
+        isChatStale: id => id !== host.context.chatId, messageSources: { inspect: () => null },
+        synchronizeCurrentSources: async () => {},
+        guard: { isRunning: () => running, acquire: () => {
+            if (running) return null;
+            running = true;
+            return () => { running = false; };
+        } },
+        postToFrame: message => messages.push(message), cancelPendingHide: noop,
+        notifyStorySummaryChatState: () => messages.push({ type: 'CHAT_SUMMARY_STATE' }),
+        xbLog: { error: (_module, _text, error) => errors.push(error) },
+        window: { toastr: { error: text => toasts.push(text), warning: text => toasts.push(text) } },
+        shouldNotifyMemoryFailure, sleep: async () => {},
+        refreshEntityLexiconAndWarmup: noop, addEventDocuments: noop, replaceEventDocuments: noop,
+        getHideUiSettings: () => ({ hideSummarized: true, keepVisibleCount: 4 }), getVectorConfig: () => host.vectorConfig,
+        applyHideState: noop, applyHideStateDebounced: noop,
+        autoVectorizeMissingEvents: noop, rebuildActiveVectorCacheAfterSummary: noop,
+        scheduleVectorIntegrityCheck: noop, ...overrides,
+    });
+    return { ...ui, messages, errors, toasts, isRunning: () => running };
+}
+
+for (const failure of ['request', 'empty', 'structure']) {
+    test(`1000 floors with 980 summarized: ${failure} failure preserves memory and permits manual retry`, async () => {
+        host.context.chat = Array.from({ length: 1000 }, (_, i) => ({ mes: `floor ${i + 1}`, is_user: i % 2 === 0 }));
+        await mod.commitSummaryMemory(host.context.chatId, mod.prepareImportedSummary(mod.readSummaryMemory(), host.fixture.json, 979));
+        const visibility = memoryVisibility();
+        await visibility.applyHideState();
+        const before = mod.readSummaryMemory(), flags = host.context.chat.map(message => message.is_system);
+        const writes = host.writes, requests = [];
+        host.generate = async request => {
+            requests.push(request);
+            if (failure === 'request') throw new Error('provider key=never-display-this-secret');
+            return failure === 'empty' ? '' : '{}';
+        };
+        const run = summaryExecutionHarness();
+        const config = { trigger: { delayFloors: 0 } };
+        await run.autoRunSummaryWithRetry(999, config);
+        assert.equal(requests.length, 3);
+        assert.equal(run.isRunning(), false);
+        assert.equal(run.messages.at(-2).isGenerating, false);
+        assert.equal(run.messages.at(-1).type, 'CHAT_SUMMARY_STATE');
+        assert.equal(run.messages.filter(message => message.type === 'SUMMARY_ERROR').at(-1).uncertain, false);
+        assert.equal(JSON.stringify(run.messages).includes('never-display-this-secret'), false);
+        assert.deepEqual(mod.readSummaryMemory(), before);
+        assert.deepEqual(host.context.chat.map(message => message.is_system), flags);
+        assert.equal(host.writes, writes);
+        await visibility.applyHideState();
+        assert.deepEqual(host.context.chat.map(message => message.is_system), flags);
+        const pending = mod.buildIncrementalSlice(999, before.storySummary.lastSummarizedMesId, 100, 0);
+        assert.equal(pending.count, 20);
+        host.generate = async request => {
+            requests.push(request);
+            assert.equal(request.newHistoryText, pending.text);
+            return JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '继续出发', isState: false }] });
+        };
+        await run.handleManualGenerate(999, config);
+        assert.equal(requests.length, 4);
+        assert.equal(mod.getPublishedSummaryStore().lastSummarizedMesId, pending.endMesId);
+        assert.equal(run.isRunning(), false);
+    });
+}
+
+test('unconfirmed new summary keeps published hiding and never saves its draft through visibility', async () => {
+    await importFixture();
+    host.context.chat.push({ mes: 'new question', is_user: true }, { mes: 'new answer', is_user: false });
+    const visibility = memoryVisibility();
+    await visibility.applyHideState();
+    const flags = host.context.chat.map(message => message.is_system), before = mod.readPublishedSummaryMemory();
+    let finishSave;
+    host.mode = 'read_fail';
+    host.afterSave = () => new Promise(resolve => { finishSave = resolve; });
+    const next = mod.readSummaryMemory();
+    next.storySummary.lastSummarizedMesId = 25;
+    next.storySummary.json.facts[0].o = 'unpublished';
+    const saving = assert.rejects(mod.commitSummaryMemory(host.context.chatId, next), { uncertain: true });
+    while (!finishSave) await Promise.resolve();
+    const projecting = visibility.applyHideState();
+    assert.deepEqual(mod.readPublishedSummaryMemory(), before);
+    assert.deepEqual(host.context.chat.map(message => message.is_system), flags);
+    finishSave(); await saving; await projecting;
+    assert.deepEqual(host.context.chat.map(message => message.is_system), flags);
+    const saveCount = visibility.saves.length, writes = host.writes;
+    await visibility.clearHideState();
+    assert.ok(host.context.chat.every(message => !message.is_system));
+    await visibility.applyHideState();
+    assert.deepEqual(host.context.chat.map(message => message.is_system), flags);
+    assert.equal(visibility.saves.length, saveCount);
+    assert.equal(host.writes, writes);
+    assert.deepEqual(mod.readPublishedSummaryMemory(), before);
+});
+
+// Acceptance: confirmation without new content must publish the recovered view.
+// Cost: stale summary / wrong hidden range, or a duplicate paid model request.
+for (const automatic of [false, true]) test(`confirmed retry refreshes data and hiding without another model request (automatic: ${automatic})`, async () => {
+    await importFixture();
+    host.context.chat.push({ mes: 'new question', is_user: true }, { mes: 'new answer', is_user: false });
+    const visibility = memoryVisibility();
+    await visibility.applyHideState();
+    const flags = host.context.chat.map(message => message.is_system);
+    let requests = 0;
+    host.generate = async () => {
+        requests++;
+        return JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '继续出发', isState: false }] });
+    };
+    const run = summaryExecutionHarness({ applyHideState: visibility.applyHideState });
+    host.mode = 'read_fail';
+    await run.handleManualGenerate(25, { trigger: { delayFloors: 0 } });
+    const next = mod.readSummaryMemory();
+    assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
+    assert.equal(mod.getPublishedSummaryStore().lastSummarizedMesId, 23);
+    assert.deepEqual(host.context.chat.map(message => message.is_system), flags);
+    const writes = host.writes;
+    await run.handleManualGenerate(25, { trigger: { delayFloors: 0 } });
+    assert.equal(run.isRunning(), false);
+    assert.equal(run.messages.filter(message => message.type === 'SUMMARY_ERROR').at(-1).uncertain, true);
+    const messageCount = run.messages.length;
+    host.mode = 'save';
+    await (automatic ? run.autoRunSummaryWithRetry : run.handleManualGenerate)(25, { trigger: { delayFloors: 0 } });
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.deepEqual(mod.readPublishedSummaryMemory(), next);
+    assert.equal(host.writes, writes);
+    assert.equal(requests, 1);
+    assert.equal(run.isRunning(), false);
+    const recoveryMessages = run.messages.slice(messageCount);
+    const data = recoveryMessages.find(message => message.type === 'SUMMARY_FULL_DATA')?.payload;
+    assert.equal(data?.lastSummarizedMesId, 25);
+    assert.deepEqual(data.facts, next.storySummary.json.facts);
+    const stats = recoveryMessages.find(message => message.type === 'SUMMARY_BASE_DATA')?.stats;
+    assert.equal(stats?.summarizedUpTo, 26);
+    assert.equal(stats.pendingFloors, 0);
+    assert.equal(stats.hiddenCount, 22);
+    assert.deepEqual(host.context.chat.map(message => !!message.is_system), host.context.chat.map((_, floor) => floor < 22));
+});
+
+// Acceptance: stop frees this run while independent consistency/IO work continues.
+// Cost: locked retry entry, cross-chat late results, or duplicate model requests.
+for (const stage of ['source', 'writer']) for (const automatic of [false, true]) {
+    test(`stop during ${stage} preparation frees the run before independent work settles (automatic: ${automatic})`, async t => {
+        await importFixture();
+        let finish, entered, requests = 0;
+        const pending = new Promise(resolve => { finish = resolve; });
+        const started = new Promise(resolve => { entered = resolve; });
+        let completed = false;
+        const writing = vectorWrites.runVectorWriteTask({ chatId: host.context.chatId, scope: vectorWrites.VECTOR_WRITE_SCOPES.IO }, async () => {
+            entered(); await pending; completed = true;
+        });
+        t.after(async () => { finish(); await writing; });
+        await started;
+        const run = summaryExecutionHarness({
+            synchronizeCurrentSources: stage === 'source' ? () => writing : async () => {},
+            runSummaryGeneration: async () => { requests++; return { success: true }; },
+        });
+        const generate = automatic ? run.autoRunSummaryWithRetry : run.handleManualGenerate;
+        const first = generate(23, {});
+        await nextTurn();
+        await run.handleFrameMessage({ data: { type: 'REQUEST_CANCEL' } });
+        await nextTurn();
+        assert.equal(run.isRunning(), false);
+        assert.equal(completed, false);
+        assert.equal(requests, 0);
+        await first;
+        // Another request owns a new run while the cancelled waiter remains pending.
+        const second = generate(23, {});
+        await nextTurn();
+        assert.equal(run.isRunning(), true);
+        finish(); await writing; await second;
+        assert.equal(requests, 1);
+        assert.equal(run.isRunning(), false);
+        assert.equal(run.messages.some(message => message.type === 'SUMMARY_ERROR'), false);
+    });
+}
+
+test('a cancelled source waiter logs a late failure without touching the new chat or run', async () => {
+    await importFixture();
+    let rejectSource;
+    const source = new Promise((_resolve, reject) => { rejectSource = reject; });
+    const run = summaryExecutionHarness({ synchronizeCurrentSources: () => source });
+    const first = run.handleManualGenerate(23, {});
+    await nextTurn();
+    run.cancelActiveSummaryExecution();
+    host.context = { ...host.context, chatId: 'another-chat' };
+    await first;
+    const messageCount = run.messages.length;
+    const error = new Error('independent source repair failed');
+    rejectSource(error);
+    await nextTurn();
+    assert.equal(run.isRunning(), false);
+    assert.equal(run.messages.length, messageCount);
+    assert.ok(run.errors.includes(error));
+});
+
+test('reconfirmation publishes the saved range even when the remaining-range request fails', async () => {
+    await importFixture();
+    host.context.chat.push(...Array.from({ length: 4 }, (_, i) => ({ mes: `new ${i}`, is_user: i % 2 === 0 })));
+    const visibility = memoryVisibility();
+    const run = summaryExecutionHarness({ applyHideState: visibility.applyHideState });
+    host.mode = 'read_fail';
+    let requests = 0;
+    host.generate = async () => {
+        requests++;
+        return JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '继续出发', isState: false }] });
+    };
+    await run.handleManualGenerate(27, { trigger: { delayFloors: 0, maxPerRun: 2 } });
+    assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
+    const next = mod.readSummaryMemory(), writes = host.writes;
+    host.mode = 'save';
+    host.generate = async request => {
+        requests++;
+        assert.equal(request.newHistoryText, mod.buildIncrementalSlice(27, 25, 2, 0).text);
+        throw new Error('provider offline');
+    };
+    const messageCount = run.messages.length;
+    await run.handleManualGenerate(27, { trigger: { delayFloors: 0, maxPerRun: 2 } });
+    const recovery = run.messages.slice(messageCount);
+    assert.equal(recovery.find(message => message.type === 'SUMMARY_FULL_DATA')?.payload.lastSummarizedMesId, 25);
+    assert.equal(recovery.find(message => message.type === 'SUMMARY_BASE_DATA')?.stats.hiddenCount, 22);
+    assert.deepEqual(mod.readPublishedSummaryMemory(), next);
+    assert.equal(requests, 2);
+    assert.equal(host.writes, writes);
+    assert.equal(run.isRunning(), false);
+});
+
+test('late generation failure after a chat switch does not report into or cancel from the new chat', async () => {
+    await importFixture();
+    host.context.chat.push({ mes: 'new question', is_user: true }, { mes: 'new answer', is_user: false });
+    let rejectRequest;
+    host.generate = () => new Promise((_resolve, reject) => { rejectRequest = reject; });
+    const run = summaryExecutionHarness();
+    const generating = run.handleManualGenerate(25, { trigger: { delayFloors: 0 } });
+    while (!rejectRequest) await nextTurn();
+    host.context = { ...host.context, chatId: 'another-chat' };
+    run.notifySummaryState();
+    assert.equal(run.messages.at(-1).isGenerating, false);
+    const messageCount = run.messages.length;
+    await run.handleFrameMessage({ data: { type: 'REQUEST_CANCEL' } });
+    assert.equal(run.messages.length, messageCount);
+    rejectRequest(new Error('late failure'));
+    await generating;
+    assert.equal(run.messages.slice(messageCount).some(message => message.type === 'SUMMARY_ERROR' || message.type === 'SUMMARY_STATUS'), false);
+    assert.equal(run.isRunning(), false);
 });
 
 test('same-chat reload preserves every persisted L0/L1 row and extraction receipt with zero writes', async t => {
@@ -1071,7 +1330,8 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
     while (!finishSave) await Promise.resolve();
     const messages = [], errors = [];
     const noop = () => {};
-    const ui = entry(['handleFrameMessage', 'handleManualGenerate', 'ensureCurrentSources',
+    const ui = entry(['handleFrameMessage', 'handleManualGenerate', 'ensureCurrentSources', 'waitForSummaryPreparation',
+        'prepareSummaryExecution', 'assertSummaryExecutionActive', 'isSummaryExecutionActive',
         'isSummaryGenerating', 'beginSummaryExecution', 'cancelActiveSummaryExecution',
         'finishSummaryExecution', 'notifySummaryState', 'postSummaryExecution', 'reportSummaryExecutionFailure'], {
         ...mod, ...vectorWrites, messageSources, AbortController, createAbortError, throwIfSignalAborted,
@@ -1085,10 +1345,12 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
             running = true;
             return () => { running = false; };
         } },
-        postToFrame: message => messages.push(message), cancelPendingHide: noop,
+        postToFrame: message => messages.push(message), cancelPendingHide: noop, notifyStorySummaryChatState: noop,
+        applyHideState: noop, replaceEventDocuments: noop, refreshEntityLexiconAndWarmup: noop,
+        sendFrameFullData: noop, updateFrameStatsAfterSummary: noop, createSummaryGenerationCancelledError: createAbortError,
         reportMemorySaveFailure: error => errors.push(error),
         xbLog: { error: (_module, _text, error) => errors.push(error) }, MODULE_ID: 'summary',
-        runSummaryGeneration: async () => { requests++; return { committed: false }; },
+        runSummaryGeneration: async () => { requests++; return { success: true, committed: false }; },
     });
     const request = ui.handleFrameMessage({ data: { type: 'REQUEST_GENERATE' } });
     await nextTurn();

@@ -9,6 +9,7 @@
     <title>剧情总结 · Story Summary</title>
     <link rel="stylesheet" href="story-summary.css">
     <link rel="stylesheet" href="story-summary-timeline.css">
+    <link rel="stylesheet" href="summary-status.css">
     <link rel="stylesheet" href="settings-config.css">
     <link rel="stylesheet" href="maintenance/ui.css">
     <style>
@@ -120,11 +121,14 @@
                     <span>设置</span>
                 </button>
                 <button class="btn" id="btn-clear">清理</button>
-                <button class="btn btn-p" id="btn-generate">总结</button>
+                <button class="btn btn-p" id="btn-generate"></button>
             </div>
         </div>
 
-        <div id="summary-status" class="summary-status" role="status" aria-live="polite" hidden></div>
+        <div id="summary-notice" class="summary-notice" hidden>
+            <div id="summary-status" class="summary-status" role="status" aria-live="polite"></div>
+            <button id="btn-dismiss-summary" class="summary-dismiss" type="button" hidden></button>
+        </div>
 
         <!-- Main Content -->
         <main>

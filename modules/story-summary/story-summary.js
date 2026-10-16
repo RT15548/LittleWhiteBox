@@ -79,6 +79,7 @@ import {
     clearSummaryData,
     getRollbackOnceTargetEndMesId,
     isSummaryConsumable,
+    isSummarySourceValid,
     getPublishedSummaryStore,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
@@ -263,6 +264,7 @@ const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
 const SUMMARY_MODEL_FETCH_PROVIDERS = new Set(["openai"]);
 const SUMMARY_MODEL_FETCH_TIMEOUT_MS = 5000;
+const AUTO_SUMMARY_MAX_ATTEMPTS = 3;
 let chatSummaryStateChanging = false;
 let activeSummaryExecution = null;
 
@@ -279,16 +281,12 @@ function getStorySummaryEnablement() {
 
 export function getStorySummaryChatState() {
     const { context, hasChat, globalEnabled, chatEnabled, effectiveEnabled } = getStorySummaryEnablement();
-    const chat = context?.chat;
-    const consumable = effectiveEnabled
-        && isSummaryConsumable(getSummaryStore(), Array.isArray(chat) ? chat.length : 0);
     return {
         hasChat,
         chatId: context?.chatId || null,
         globalEnabled,
         chatEnabled,
         effectiveEnabled,
-        consumable,
         changing: chatSummaryStateChanging,
     };
 }
@@ -453,7 +451,8 @@ let frameReady = false;
 let currentMesId = null;
 let pendingFrameMessages = [];
 let lastRecallLogText = "";
-let lastSummaryStatus = { type: 'SUMMARY_STATUS', statusText: '' };
+let summaryStatusSequence = 0;
+let lastSummaryStatus = { type: 'SUMMARY_STATUS', statusText: '', statusId: summaryStatusSequence };
 /** @type {ReturnType<typeof createModuleEvents>|null} */
 let events = null;
 let afterAiGateDispose = null;
@@ -713,10 +712,13 @@ function cancelActiveSummaryExecution() {
     return true;
 }
 
-function finishSummaryExecution(execution) {
+function finishSummaryExecution(execution, release) {
     if (activeSummaryExecution === execution) {
         activeSummaryExecution = null;
     }
+    release();
+    notifySummaryState();
+    notifyStorySummaryChatState();
 }
 
 function isSummaryExecutionActive(execution) {
@@ -733,14 +735,24 @@ function postSummaryExecution(execution, payload) {
     }
 }
 
-function reportSummaryExecutionFailure(execution, error) {
+function reportSummaryExecutionFailure(execution, error, { automatic = false, attempts = 1, stale = false } = {}) {
+    if (activeSummaryExecution !== execution || getContext()?.chatId !== execution.chatId) return;
     // Source revalidation can cancel independently of the run's own controller.
     if (error?.name === 'AbortError' || execution.controller.signal.aborted) {
         postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryStopped });
         return;
     }
     xbLog.error(MODULE_ID, SUMMARY_FEEDBACK_COPY.summaryFailed, error);
-    postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: SUMMARY_FEEDBACK_COPY.summaryFailed });
+    const uncertain = getMemoryCommitState() === 'unconfirmed' || error?.uncertain === true;
+    // Only known domain reasons reach the panel; provider errors may contain credentials.
+    const reason = ['metadata_saving', 'source_boundary_invalid', 'summary_history_invalid', 'history_discontinuous'].includes(error?.code)
+        ? memorySaveError(error) : '';
+    const message = SUMMARY_FEEDBACK_COPY.summaryRunEnded({
+        automatic, attempts, uncertain, stale, reason,
+        summarizedThrough: (getPublishedSummaryStore()?.lastSummarizedMesId ?? -1) + 1,
+    });
+    postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message, uncertain });
+    return message;
 }
 
 function assertSummaryExecutionActive(execution) {
@@ -749,8 +761,23 @@ function assertSummaryExecutionActive(execution) {
     }
 }
 
+async function prepareSummaryExecution(execution) {
+    await ensureCurrentSources(execution.controller.signal);
+    assertSummaryExecutionActive(execution);
+    // Confirmation can publish a saved result without another generation. Sync
+    // its visible projection here, including the no-new-content retry path.
+    await waitForSummaryPreparation(() => applyHideState(), execution.controller.signal);
+    assertSummaryExecutionActive(execution);
+    const store = getPublishedSummaryStore();
+    replaceEventDocuments(store?.json?.events || [], execution.chatId);
+    refreshEntityLexiconAndWarmup();
+    sendFrameFullData(store, getContext().chat?.length || 0);
+    await updateFrameStatsAfterSummary(store, execution);
+}
+
 function notifySummaryState() {
-    postToFrame({ type: "GENERATION_STATE", isGenerating: guard.isRunning('summary') });
+    postToFrame({ type: "GENERATION_STATE", isGenerating: guard.isRunning('summary')
+        && activeSummaryExecution?.chatId === getContext()?.chatId });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -761,7 +788,10 @@ function postToFrame(payload) {
     if (payload?.type === "RECALL_LOG") {
         lastRecallLogText = String(payload.text || "");
     }
-    if (payload?.type === 'SUMMARY_STATUS' || payload?.type === 'SUMMARY_ERROR') lastSummaryStatus = payload;
+    if (payload?.type === 'SUMMARY_STATUS' || payload?.type === 'SUMMARY_ERROR') {
+        if (payload !== lastSummaryStatus) payload = { ...payload, statusId: ++summaryStatusSequence };
+        lastSummaryStatus = payload;
+    }
 
     const iframe = document.getElementById("xiaobaix-story-summary-iframe");
     if (!iframe?.contentWindow) return;
@@ -2820,12 +2850,14 @@ function openPanelForMessage(mesId) {
     showOverlay();
 
     const { chat } = getContext();
-    const store = getSummaryStore();
+    const store = getPublishedSummaryStore();
     const totalFloors = chat.length;
 
     sendFrameBaseData(store, totalFloors);
     sendFrameFullData(store, totalFloors);
     notifySummaryState();
+    notifyStorySummaryChatState();
+    postToFrame(lastSummaryStatus);
 
     sendVectorConfigToFrame();
     sendVectorStatsToFrame();
@@ -2842,13 +2874,14 @@ const hideState = createHideStateController({
     getState: () => {
         const context = getContext();
         const ui = getHideUiSettings();
-        const store = getSummaryStore();
+        const store = getPublishedSummaryStore();
         return {
             chatId: context.chatId,
             chat: context.chat,
             saveChat: context.saveChat,
             enabled: !!events && window.isXiaobaixEnabled !== false
-                && isStorySummaryConsumableForCurrentChat() && ui.hideSummarized,
+                && isStorySummaryEnabledForCurrentChat()
+                && isSummarySourceValid(store, context.chat?.length || 0) && ui.hideSummarized,
             summaryBoundary: store?.lastSummarizedMesId ?? -1,
             useVectorBoundary: !!getVectorConfig()?.enabled && ui.useVectorBoundary,
             keepVisibleCount: ui.keepVisibleCount,
@@ -3007,17 +3040,19 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
     }
     notifySummaryState();
 
+    let attempts = 0;
     try {
         let lastResult = null;
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        for (let attempt = 1; attempt <= AUTO_SUMMARY_MAX_ATTEMPTS; attempt++) {
+            attempts = attempt;
             if (!isSummaryExecutionActive(execution)) {
                 postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryStopped });
                 return;
             }
-            await ensureCurrentSources(execution.controller.signal);
+            await prepareSummaryExecution(execution);
             const result = await runSummaryGeneration(targetMesId, configForRun, {
-                onStatus: (text) => postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: `自动总结 ${attempt}/3：${text}` }),
-                onError: (msg) => postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: `自动总结 ${attempt}/3：${msg}` }),
+                onStatus: (text) => postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryAttempt(attempt, AUTO_SUMMARY_MAX_ATTEMPTS, text) }),
+                onError: (msg) => postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: msg }),
                 onComplete: async ({ newEventIds, aliasChanged, store }) => {
                     assertSummaryExecutionActive(execution);
                     postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
@@ -3057,22 +3092,19 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                 return;
             }
 
-            if (attempt < 3) await sleep(1000);
+            if (attempt < AUTO_SUMMARY_MAX_ATTEMPTS) await sleep(1000);
         }
 
         if (!isSummaryExecutionActive(execution)) return;
+        const message = reportSummaryExecutionFailure(execution, lastResult?.error, {
+            automatic: true, attempts, stale: lastResult?.stale,
+        });
         if (!shouldNotifyMemoryFailure(lastResult?.error, getMemoryCommitState())) return;
-        if (lastResult?.stale) {
-            await executeSlashCommand("/echo severity=warning 对话在总结期间持续变化，本次结果未保存；下次触发时会重新总结。");
-        } else {
-            await executeSlashCommand("/echo severity=error 剧情总结失败（已尝试 3 次）。请稍后再试。");
-        }
+        window.toastr?.[lastResult?.stale ? 'warning' : 'error'](message, SUMMARY_FEEDBACK_COPY.title);
     } catch (error) {
-        reportSummaryExecutionFailure(execution, error);
+        reportSummaryExecutionFailure(execution, error, { automatic: true, attempts });
     } finally {
-        finishSummaryExecution(execution);
-        release();
-        notifySummaryState();
+        finishSummaryExecution(execution, release);
     }
 }
 
@@ -3103,6 +3135,11 @@ async function handleFrameMessage(event) {
     const data = event.data;
 
     switch (data.type) {
+        case 'DISMISS_SUMMARY_STATUS':
+            if (data.statusId === lastSummaryStatus.statusId && lastSummaryStatus.type === 'SUMMARY_ERROR') {
+                postToFrame({ type: 'SUMMARY_STATUS', statusText: '' });
+            }
+            break;
         case 'MEMORY_MAINTENANCE_SOURCE':
             postToFrame({ type: 'MEMORY_MAINTENANCE_SOURCE_RESULT', payload: memoryMaintenance.source(data) });
             break;
@@ -3163,6 +3200,7 @@ async function handleFrameMessage(event) {
             if (!isStorySummaryEnabledForCurrentChat()) {
                 postToFrame({ type: "SUMMARY_STATUS", statusText: "请先启用当前聊天的剧情总结" });
                 notifyStorySummaryChatState();
+                notifySummaryState();
                 break;
             }
             const ctx = getContext();
@@ -3172,7 +3210,7 @@ async function handleFrameMessage(event) {
         }
 
         case "REQUEST_CANCEL":
-            if (cancelActiveSummaryExecution()) {
+            if (activeSummaryExecution?.chatId === getContext()?.chatId && cancelActiveSummaryExecution()) {
                 postToFrame({ type: "SUMMARY_STATUS", statusText: "正在停止..." });
             }
             break;
@@ -3645,7 +3683,7 @@ async function handleFrameMessage(event) {
 
             await applyHideState();
             const { chat } = getContext();
-            await sendFrameBaseData(getSummaryStore(), Array.isArray(chat) ? chat.length : 0);
+            await sendFrameBaseData(getPublishedSummaryStore(), Array.isArray(chat) ? chat.length : 0);
             break;
         }
 
@@ -3654,7 +3692,7 @@ async function handleFrameMessage(event) {
 
             await applyHideState();
             const { chat } = getContext();
-            await sendFrameBaseData(getSummaryStore(), Array.isArray(chat) ? chat.length : 0);
+            await sendFrameBaseData(getPublishedSummaryStore(), Array.isArray(chat) ? chat.length : 0);
             break;
         }
 
@@ -3720,6 +3758,7 @@ async function handleFrameMessage(event) {
 async function handleManualGenerate(mesId, config) {
     if (isSummaryGenerating()) {
         postToFrame({ type: "SUMMARY_STATUS", statusText: "上一轮总结仍在进行中..." });
+        notifySummaryState();
         return;
     }
 
@@ -3733,7 +3772,7 @@ async function handleManualGenerate(mesId, config) {
     notifySummaryState();
 
     try {
-        await ensureCurrentSources(execution.controller.signal);
+        await prepareSummaryExecution(execution);
         const result = await runSummaryGeneration(mesId, config, {
             onStatus: (text) => postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: text }),
             onError: (msg) => postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: msg }),
@@ -3760,15 +3799,16 @@ async function handleManualGenerate(mesId, config) {
             signal: execution.controller.signal,
             targetChatId: execution.chatId,
         });
-        if (result.committed && isStorySummaryConsumableForCurrentChat()) {
+        if ((result.committed || result.noContent) && isStorySummaryConsumableForCurrentChat()) {
             scheduleVectorIntegrityCheck();
+        }
+        if (!result.success && !result.cancelled) {
+            reportSummaryExecutionFailure(execution, result.error, { stale: result.stale });
         }
     } catch (error) {
         reportSummaryExecutionFailure(execution, error);
     } finally {
-        finishSummaryExecution(execution);
-        release();
-        notifySummaryState();
+        finishSummaryExecution(execution, release);
     }
 }
 
@@ -3783,6 +3823,7 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
     lastRecallLogText = "";
     postToFrame({ type: 'RECALL_LOG', text: '' });
     postToFrame({ type: 'SUMMARY_STATUS', statusText: '' });
+    notifySummaryState();
     await waitForVectorWrites();
     if (isChatStale(scheduledChatId)) return;
     const { chat } = getContext();
@@ -3953,6 +3994,27 @@ async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null
     return outcome;
 }
 
+async function waitForSummaryPreparation(task, signal) {
+    throwIfSignalAborted(signal);
+    if (!signal) return task();
+    let onAbort;
+    const cancelled = new Promise((_, reject) => {
+        onAbort = () => reject(createAbortError());
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+    // Stop only this waiter. Independent consistency work must finish, and a
+    // late failure remains in the log rather than reaching a newer run's UI.
+    const pending = Promise.resolve().then(() => {
+        throwIfSignalAborted(signal);
+        return task();
+    }).catch(error => {
+        if (signal.aborted && error?.name !== 'AbortError') xbLog.error(MODULE_ID, 'summary_preparation_failed_after_stop', error);
+        throw error;
+    });
+    try { return await Promise.race([pending, cancelled]); }
+    finally { signal.removeEventListener('abort', onAbort); }
+}
+
 async function ensureCurrentSources(signal, { requireSummary = true } = {}) {
     throwIfSignalAborted(signal);
     const chatId = getContext().chatId;
@@ -3960,8 +4022,8 @@ async function ensureCurrentSources(signal, { requireSummary = true } = {}) {
     if (messageSources.inspect(getContext())) cancelEmbeddingWriteTasks('Source synchronization');
     await waitForMemoryCommit(signal);
     if (isChatStale(chatId)) throw createAbortError();
-    await synchronizeCurrentSources(chatId);
-    await waitForVectorWrites();
+    await waitForSummaryPreparation(() => synchronizeCurrentSources(chatId), signal);
+    await waitForSummaryPreparation(() => waitForVectorWrites(), signal);
     throwIfSignalAborted(signal);
     if (isChatStale(chatId) || messageSources.inspect(getContext())) {
         throw createAbortError();

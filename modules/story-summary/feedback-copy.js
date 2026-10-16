@@ -8,6 +8,22 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     summaryFailed: '总结未能完成，请稍后重试。',
     summaryResultInvalid: '模型返回的总结格式不正确，请重试。',
     summaryFollowupFailed: '总结已保存，但后续处理未完成；详情见日志。',
+    summaryControls: Object.freeze({
+        generate: '总结',
+        stop: '停止',
+        dismiss: '关闭提示',
+        noChat: '请先打开一个聊天',
+        changing: '正在同步当前聊天状态',
+        disabled: '请先启用当前聊天的剧情总结',
+    }),
+    summaryAttempt: (attempt, total, text) => `自动总结 ${attempt}/${total}：${text}`,
+    summaryRunEnded: ({ automatic, attempts, summarizedThrough, uncertain, stale, reason }) => {
+        const outcome = uncertain ? '本次总结的保存结果尚未确认。'
+            : stale ? '对话或总结内容已变化，本次结果未保存。'
+                : `${automatic ? '自动' : '本次'}总结未完成${automatic ? `（已尝试 ${attempts} 次）` : ''}。`;
+        const retained = summarizedThrough > 0 ? `已有总结保留至第 ${summarizedThrough} 楼。` : '已有记忆未清空。';
+        return `${outcome}${retained}${reason || ''}${uncertain ? '点击“总结”可重新确认保存结果。' : '可点击“总结”重试。'}`;
+    },
     embeddingTitle: 'Embedding 异常',
     connectionChecking: '连接中…',
     connectionReady: dims => `连接成功 (${dims}维)`,

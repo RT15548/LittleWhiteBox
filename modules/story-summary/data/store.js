@@ -310,10 +310,14 @@ export function isSummaryRollbackRequired(store, currentLength) {
     return length <= lastSummarized && lastSummarized + 1 - length >= 1;
 }
 
-export function isSummaryConsumable(store, currentLength) {
-    return getMemoryCommitState() === 'ready' && store?.summaryInvalid !== true
+export function isSummarySourceValid(store, currentLength) {
+    return getRuntimeInvalidSourceFloor() == null && store?.summaryInvalid !== true
         && store?.sourceInvalidFromFloor == null
         && !isSummaryRollbackRequired(store, currentLength);
+}
+
+export function isSummaryConsumable(store, currentLength) {
+    return getMemoryCommitState() === 'ready' && isSummarySourceValid(store, currentLength);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

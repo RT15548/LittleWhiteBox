@@ -15,3 +15,15 @@ export function entry(names, dependencies) {
         .map(node => source.slice(node.start, node.end)).join('\n'), context);
     return context;
 }
+
+const uiSource = readFileSync(new URL('../../story-summary-ui.js', import.meta.url), 'utf8');
+const uiDeclarations = parse(uiSource, { sourceType: 'module', ecmaVersion: 'latest' }).body
+    .find(node => node.type === 'ExpressionStatement' && node.expression.type === 'CallExpression'
+        && node.expression.callee.type === 'FunctionExpression').expression.callee.body.body;
+
+export function uiEntry(names, dependencies) {
+    const context = vm.createContext({ ...dependencies });
+    vm.runInContext(uiDeclarations.filter(node => node.type === 'FunctionDeclaration' && names.includes(node.id.name))
+        .map(node => uiSource.slice(node.start, node.end)).join('\n'), context);
+    return context;
+}
