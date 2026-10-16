@@ -7,13 +7,14 @@ export const COC7_DIFFICULTIES = {
     extreme: { kind: 'divisor', divisor: 5 },
 } as const;
 export type Coc7Difficulty = keyof typeof COC7_DIFFICULTIES;
-export interface Coc7Request { action: string; stat: string; difficulty: Coc7Difficulty }
+export interface Coc7Request { action: string; stat: string; difficulty: Coc7Difficulty; stakes?: string }
 
 // Parser and model description share the complete field set and constraints.
 export const COC7_REQUEST_FIELDS = {
-    action: { type: 'string', maxLength: ACTION_CHECK_REQUEST_FIELDS.action.maxLength, description: 'The attempt and objective.' },
-    stat: { type: 'string', maxLength: ACTION_CHECK_REQUEST_FIELDS.stat.maxLength, description: 'Capability ID from the list below.' },
-    difficulty: { type: 'enum', values: Object.keys(COC7_DIFFICULTIES), description: 'Difficulty of this specific objective.' },
+    action: { type: 'string', ...ACTION_CHECK_REQUEST_FIELDS.action, description: 'The attempt and objective.' },
+    stat: { type: 'string', ...ACTION_CHECK_REQUEST_FIELDS.stat, description: 'Capability ID from the list below.' },
+    difficulty: { type: 'enum', required: true, values: Object.keys(COC7_DIFFICULTIES), description: 'Difficulty of this specific objective.' },
+    stakes: { type: 'string', ...ACTION_CHECK_REQUEST_FIELDS.stakes },
 } as const;
 
 export function parseCoc7Request(value: unknown): Coc7Request {
@@ -22,6 +23,7 @@ export function parseCoc7Request(value: unknown): Coc7Request {
     if (Object.keys(input).some(key => !Object.hasOwn(COC7_REQUEST_FIELDS, key))) { throw new TypeError('dice_request_unknown_field'); }
     const result: Record<string, string> = {};
     for (const [key, spec] of Object.entries(COC7_REQUEST_FIELDS)) {
+        if (!Object.hasOwn(input, key) && !spec.required) { continue; }
         const raw = input[key];
         if (typeof raw !== 'string' || (spec.type === 'string' ? !raw.trim() || raw.trim().length > spec.maxLength : !(spec.values as readonly string[]).includes(raw))) {
             throw new TypeError(`dice_request_${key}_invalid`);

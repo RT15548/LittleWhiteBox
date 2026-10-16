@@ -1,9 +1,9 @@
 import { ACTION_CHECK_REQUEST_FIELDS } from './action-check.js';
-import { COC7_DIFFICULTIES, type Coc7Difficulty } from './coc7-request.js';
+import { COC7_REQUEST_FIELDS, type Coc7Difficulty } from './coc7-request.js';
 
 // A result keeps the capability name used at the time, independently of today's
 // request catalog. This is a historical fact, never a request to look up a sheet.
-export interface Coc7RecordedRequest { action: string; stat: string; difficulty: Coc7Difficulty }
+export interface Coc7RecordedRequest { action: string; stat: string; difficulty: Coc7Difficulty; stakes?: string }
 // Canonical checks need no annotation. Other checks retain the input mapping or
 // untrained source as a historical fact, without consulting the current catalog.
 export type Coc7Resolution = { kind: 'mapped'; input: string }
@@ -28,10 +28,16 @@ export function parseCoc7RecordedRequest(value: unknown): Coc7RecordedRequest {
     const invalid = (): never => { throw new TypeError('dice_record_invalid'); };
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return invalid(); }
     const input = value as Coc7RecordedRequest;
-    if (Object.keys(input).length !== 3 || !['action', 'stat', 'difficulty'].every(key => Object.hasOwn(input, key))) { return invalid(); }
-    for (const key of ['action', 'stat'] as const) {
-        if (typeof input[key] !== 'string' || !input[key].trim() || input[key].length > ACTION_CHECK_REQUEST_FIELDS[key].maxLength) { return invalid(); }
+    if (Object.keys(input).some(key => !Object.hasOwn(COC7_REQUEST_FIELDS, key))) { return invalid(); }
+    for (const [key, spec] of Object.entries(COC7_REQUEST_FIELDS)) {
+        if (!Object.hasOwn(input, key)) {
+            if (spec.required) { return invalid(); }
+            continue;
+        }
+        const raw = input[key as keyof Coc7RecordedRequest];
+        if (typeof raw !== 'string' || (spec.type === 'string' ? !raw.trim() || raw.length > spec.maxLength
+            : !(spec.values as readonly string[]).includes(raw))) { return invalid(); }
     }
-    if (typeof input.difficulty !== 'string' || !Object.hasOwn(COC7_DIFFICULTIES, input.difficulty)) { return invalid(); }
-    return { action: input.action, stat: input.stat, difficulty: input.difficulty };
+    return { action: input.action, stat: input.stat, difficulty: input.difficulty,
+        ...(Object.hasOwn(input, 'stakes') ? { stakes: input.stakes } : {}) };
 }

@@ -21,7 +21,8 @@ export interface ActionCheckResult {
 
 export const ACTION_CHECK_REQUEST_FIELDS = Object.freeze({
     action: { required: true, maxLength: 240 }, stat: { required: true, maxLength: 120 },
-    character: { required: false, maxLength: 120 }, stakes: { required: false, maxLength: 240 },
+    character: { required: false, maxLength: 120 },
+    stakes: { required: false, maxLength: 240, description: 'What success and failure each mean.' },
 });
 
 export function parseActionCheckRequest(value: unknown): ActionCheckRequest {

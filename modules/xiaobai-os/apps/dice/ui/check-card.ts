@@ -22,7 +22,7 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
     result.rollingSlot.append(rolling);
     const copy = diceSpan('xb-dice-copy');
     copy.append(diceSpan('xb-dice-action', record.request.action));
-    if (record.rule === 'd20' && record.request.stakes) {
+    if (record.request.stakes) {
         const text = diceSpan('xb-dice-stakes-text', record.request.stakes);
         if (record.request.stakes.length > 96) {
             const details = document.createElement('details'); details.className = 'xb-dice-stakes';

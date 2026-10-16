@@ -2,7 +2,8 @@ import { COC7_DIFFICULTIES, COC7_REQUEST_FIELDS, type Coc7Request } from '../dom
 import { COC7_CAPABILITIES } from '../domain/coc7-catalog.js';
 import { ACTION_CHECK_OPEN, ACTION_CHECK_CLOSE } from './markup.js';
 
-const example: Coc7Request = { action: 'Climb the wet wall', stat: 'athletics', difficulty: 'hard' };
+const example: Coc7Request = { action: 'Climb the wet wall', stat: 'athletics', difficulty: 'hard',
+    stakes: 'Success reaches the balcony unseen; failure makes noise and draws a guard.' };
 export const COC7_EXAMPLE = 'You reach for the ledge.\n\n' + ACTION_CHECK_OPEN + JSON.stringify(example) + ACTION_CHECK_CLOSE;
 export function coc7CapabilityProjection() {
     return Object.entries(COC7_CAPABILITIES).map(([id, { label, description }]) => ({
@@ -14,11 +15,11 @@ export function coc7RequestContract(): string {
         .map(([id, rule]) => `${id} (${rule.kind === 'bonus' ? `value + ${rule.amount}, max ${rule.cap}`
             : rule.divisor === 1 ? 'full value' : `1/${rule.divisor} value`})`).join('; ');
     const fields = Object.entries(COC7_REQUEST_FIELDS)
-        .map(([name, spec]) => `${name}${spec.type === 'string' ? ` (max ${spec.maxLength} chars)` : ''}: ${spec.description}`
+        .map(([name, spec]) => `${name} (${spec.required ? 'required' : 'optional'}${spec.type === 'string' ? `, max ${spec.maxLength} chars` : ''}): ${spec.description}`
             + (name === 'difficulty' ? ` ${difficulties}.` : '')).join('\n');
     const capabilities = coc7CapabilityProjection()
         .map(({ id, name, use }) => `${id}=${name} (${use})`).join('; ');
-    return 'Fields: all required, nonempty strings.\n'
+    return 'Fields: nonempty strings; omit unused optional fields.\n'
         + fields + '\n## Player capabilities\n' + capabilities
         + `\nExample:\n${COC7_EXAMPLE}\n`;
 }

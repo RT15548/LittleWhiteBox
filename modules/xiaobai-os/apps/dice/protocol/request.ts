@@ -7,7 +7,7 @@ export const ACTION_CHECK_FIELDS = Object.freeze({
     action: { ...ACTION_CHECK_REQUEST_FIELDS.action, description: 'The attempt and objective.' },
     stat: { ...ACTION_CHECK_REQUEST_FIELDS.stat, description: 'The ability used.' },
     character: { ...ACTION_CHECK_REQUEST_FIELDS.character, description: 'Acting character, if ambiguous.' },
-    stakes: { ...ACTION_CHECK_REQUEST_FIELDS.stakes, description: 'What success and failure each mean.' },
+    stakes: ACTION_CHECK_REQUEST_FIELDS.stakes,
 });
 
 export type ActionCheckParseResult = { kind: 'none' }
