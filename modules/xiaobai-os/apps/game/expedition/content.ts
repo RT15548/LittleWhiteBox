@@ -1,6 +1,7 @@
 import { BOSS_IDS, OATH_IDS, RELIC_IDS, WEAPON_IDS } from './ids.js';
 import { COMBAT_POLICY } from './content/combat-policy.js';
 import { CITY_COMBAT } from './content/inner-city/combat.js';
+import { FURNACE_COMBAT } from './content/furnace/combat.js';
 import type { BossKind, EncounterKind, EnemyKind, MobKind, Weapon } from './types.js';
 
 export const RULES = Object.freeze({ hz: 30, arena: 11, playerRadius: .34, speed: .115, maxHp: 100,
@@ -29,6 +30,7 @@ export const RELIC_RULES = Object.freeze({ bloodDamage: 1.3, bloodHurt: 1.25, hu
 export interface EnemySpec { hp: number; speed: number; radius: number; damage: number; reach: number; windup: number; cooldown: number }
 const mob = (hp: number, speed: number, radius: number, damage: number, reach: number, windup: number, cooldown: number): EnemySpec => ({ hp, speed, radius, damage, reach, windup, cooldown });
 export const MOB_SPECS: Record<MobKind, EnemySpec> = {
+    coupler: mob(FURNACE_COMBAT.couplerHp, 0, .75, 0, 0, 1, 1),
     soldier: mob(48, .083, .4, 11, 1.45, 19, 35),
     archer: mob(36, .058, .36, 10, 11, 26, 55),
     guard: mob(95, .057, .58, 18, 2, 32, 65),
@@ -39,6 +41,8 @@ export const MOB_SPECS: Record<MobKind, EnemySpec> = {
     wisp: mob(30, .062, .3, 8, 10, 22, 60),
 };
 export const BOSS_SPECS: Record<BossKind, EnemySpec & { region: number; awardKey: string }> = {
+    kilnheart: { ...mob(FURNACE_COMBAT.kilnHp, .055, 1.2, 23, 19, 30, 75), region: 2, awardKey: 'furnace-kiln' },
+    furnacemaster: { ...mob(FURNACE_COMBAT.masterHp, .065, 1.45, 29, 24, 32, 80), region: 2, awardKey: 'furnace-master' },
     bridgekeeper: { ...mob(CITY_COMBAT.bridgeHp, .07, .9, 22, 15, 32, 75), region: 1, awardKey: 'city-bridge' },
     heatkeeper: { ...mob(CITY_COMBAT.keeperHp, .065, 1, 25, 20, 34, 80), region: 1, awardKey: 'city-heatkeeper' },
     keeper: { ...mob(COMBAT_POLICY.keeperHp, .062, .85, 20, 12, 30, 65), region: 0, awardKey: 'keeper' },

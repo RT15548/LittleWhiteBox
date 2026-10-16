@@ -2,12 +2,14 @@ import type { Group } from 'three';
 import type { SceneKit } from './scene-kit.js';
 import type { BossKind } from './types.js';
 import type { Palette } from './visuals.js';
+import { sculptFurnaceActor } from './presentation/furnace-actors.js';
 
 /** The original three actors stay in scene-actors; these nine have their own bodies, not reskins. */
 export function sculptBoss(k: SceneKit, body: Group, head: Group, weapon: Group, kind: Exclude<BossKind, 'warden' | 'weaver' | 'king'>, c: Palette) {
     const { mesh, group, shape } = k, gold = '#d6b881', eye = '#fff0c1';
     const eyes = (y: number, z: number, gap: number) => { for (const side of [-1, 1]) { mesh(head, 'sphere', eye, [.09, .055, .06], [side * gap, y, z], true); } };
     switch (kind) {
+        case 'kilnheart': case 'furnacemaster': sculptFurnaceActor(k, body, head, weapon, kind); break;
         case 'bridgekeeper': case 'heatkeeper': {
             const chief = kind === 'heatkeeper', coat = chief ? '#374e62' : '#667376';
             for (const side of [-1, 1]) { mesh(body, 'box', '#393d43', [.4, 1.05, .52], [side * .36, .6, 0]); }

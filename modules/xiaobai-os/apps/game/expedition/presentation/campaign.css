@@ -19,6 +19,7 @@
 .ember-tools button { display:flex; align-items:center; gap:6px; background:#f5f7fded; box-shadow:0 2px 12px #1e41451a; }
 .ember-boss { width:100%; max-width:360px; margin-inline:auto; text-align:center; text-shadow:0 1px 4px #fff; }
 .ember-boss meter { display:block; width:100%; height:14px; accent-color:#bd664d; }
+.ember-combat-notice { margin-top:6px!important; padding:5px 8px; border-left:2px solid #b58961; background:#f5f7fddd; font-size:12px; line-height:1.5; }
 .ember-alarm { width:fit-content; background:#7b3b29e8; color:#fff6e5; padding:7px 12px; border-radius:5px; font-size:13px; }
 .ember-notice { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:min(90%,560px); max-height:calc(100% - 40px); overflow:auto; box-sizing:border-box; z-index:8; background:#fff3dc; border:1px solid #a96741; box-shadow:0 8px 30px #193e4940; padding:16px; display:grid; gap:12px; border-radius:8px; }
 .ember-conversation-notice { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:min(90%,480px); max-height:45%; overflow:auto; box-sizing:border-box; z-index:7; display:grid; gap:8px; padding:12px 16px; border:1px solid #c0cbc2; border-radius:8px; background:#f7faf3; box-shadow:0 5px 22px #193e4928; font-size:13px; }

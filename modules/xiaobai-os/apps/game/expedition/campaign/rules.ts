@@ -18,7 +18,7 @@ import { isPerson, isStoryPerson, PARTICIPANT_IDS, type Participant } from '../c
 import { PARLEY_ENEMIES, PARLEY_IDS } from '../content/parley.js';
 import { canParley } from './parley.js';
 import { parseTraveler, type Traveler } from './traveler.js';
-import { FIRST_CHAPTER, SECOND_CHAPTER } from '../content/chapters.js';
+import { FIRST_CHAPTER, SECOND_CHAPTER, FINAL_CHAPTER } from '../content/chapters.js';
 import { greet } from '../content/greetings.js';
 import { pendingEnding } from './reply-checkpoint.js';
 import { SUPPLIES_HANDOFF } from '../content/supplies.js';
@@ -26,9 +26,10 @@ import { grantRewardNode, rewardOffers } from './rewards.js';
 import { campaignObjectVisible, canRebuildLoadout } from './interactions.js';
 import { canStandInWorld } from '../world/geometry.js';
 import { boundedFieldSpace } from '../combat/field.js';
-import { cityPassage } from './city-passages.js';
+import { campaignPassage } from './passages.js';
 import { isCityDistrict } from '../content/inner-city/places.js';
 import { STORY_PEOPLE, STORY_PERSON_IDS } from '../content/inner-city/people.js';
+import { isPrivateWaterway } from '../world/route-knowledge.js';
 
 export const CAMPAIGN_RULES = Object.freeze({ explorationSpeed: 1.65, playerTextLimit: 2000, replyTextLimit: 8000 });
 export function campaignLoadout(campaign: Campaign): Loadout {
@@ -183,10 +184,13 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
             if (campaign.phase !== 'exploration') { fault('unavailable'); }
             const result = interactWorld(COURTYARD, campaign.location, facts, command.id);
             if (result.kind === 'travel') {
+                if (isPrivateWaterway(campaign.location.scene, result.location.scene)) {
+                    recordFact(campaign, 'deep_route_walked', PERSON_IDS.filter(id => campaign.people[id].mode === 'follow'));
+                }
                 campaign.location = result.location; relocatePeople(campaign); settleRescue(campaign); settleCityArrivals(campaign);
                 if (campaign.location.scene === 'cells') { grantRewardNode(campaign, 'cells'); }
                 if (isCityDistrict(districtScene(campaign.location.scene))) {
-                    campaign.chapter = SECOND_CHAPTER.id;
+                    if (campaign.chapter === FIRST_CHAPTER.id) { campaign.chapter = SECOND_CHAPTER.id; }
                     if (!facts.has('chapter_completed')) { recordFact(campaign, 'chapter_completed'); }
                     if (COURTYARD[campaign.location.scene].objects.some(object => object.kind === 'reward' && object.node === 'city_arrival')) { grantRewardNode(campaign, 'city_arrival'); }
                 }
@@ -202,10 +206,12 @@ export function advanceCampaign(campaign: Campaign, command: Exclude<Command, { 
                 recordFact(campaign, SUPPLIES_HANDOFF.fact);
                 campaign.evidence.dispatchNoteSeen = true;
             } else if (result.object.kind === 'inspect') {
-                const passage = cityPassage(campaign, result.object.passage);
+                const passage = campaignPassage(campaign, result.object.passage);
                 if (passage?.ready && !facts.has(passage.fact)) {
                     recordFact(campaign, passage.fact, passage.witnesses);
                     if (passage.fact === 'return_plan_found') { grantRewardNode(campaign, 'return_plan'); }
+                    if (passage.fact === 'furnace_invited') { campaign.chapter = FINAL_CHAPTER.id; }
+                    if (passage.fact === 'division_tested') { grantRewardNode(campaign, 'furnace_trial'); }
                 }
             }
             break;

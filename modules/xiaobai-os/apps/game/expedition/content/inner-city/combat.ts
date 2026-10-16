@@ -2,7 +2,7 @@ import type { EncounterDefinition } from '../courtyard-encounters.js';
 
 export const CITY_BOSSES = ['bridgekeeper', 'heatkeeper'] as const;
 export type CityBoss = typeof CITY_BOSSES[number];
-export const CITY_COMBAT = Object.freeze({ bridgeHp: 3800, keeperHp: 6200, ventWait: 42, ventDamage: 23, pullDistance: 4 });
+export const CITY_COMBAT = Object.freeze({ bridgeHp: 3800, keeperHp: 6200, pullDistance: 4 });
 /** Fixed outlets: the pipe gallery teaches crossing a warned pressure line before either boss combines attacks. */
 export const CITY_VENTS = {
     pipe_gallery: [{ x: -17, y: -3, angle: 0, length: 34, width: 1, offset: 75, period: 180 }],

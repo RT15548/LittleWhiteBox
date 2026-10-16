@@ -39,7 +39,8 @@ import { FIRST_CHAPTER } from './content/chapters.js';
 import { campaignInteractions } from './world/people.js';
 import { greetingTurn } from './content/greetings.js';
 import { latestConversationReply, pendingEnding, playerTurn } from './campaign/reply-checkpoint.js';
-import { cityPassage } from './campaign/city-passages.js';
+import { campaignPassage } from './campaign/passages.js';
+import { FURNACE_COMBAT_COPY, furnaceMoments } from './content/furnace/progress.js';
 import { CHAPTER_AWARDS } from './campaign/awards.js';
 import { chapterProgress } from './campaign/progress.js';
 import { cityThreads, cityWorkerErrand } from './content/inner-city/progress.js';
@@ -59,7 +60,7 @@ const person = ref<Participant>('sanniang'), passage = ref<keyof typeof w.passag
 const passageContent = ref<HTMLElement | null>(null);
 // Keep the scene being read, not a second completion flag. Both an ordinary reply
 // and recovery of an uncertain save reveal the result from the confirmed fact.
-const passageScene = ref<ReturnType<typeof cityPassage>>(null), passageObject = ref('');
+const passageScene = ref<ReturnType<typeof campaignPassage>>(null), passageObject = ref('');
 const passageOperation = computed(() => passageScene.value?.operation && !run.value?.facts.includes(passageScene.value.fact)
     ? passageScene.value.operation : null);
 const passageBody = computed(() => passageOperation.value?.setup ?? passageScene.value?.body ?? w.passages[passage.value].body);
@@ -102,6 +103,13 @@ const conclusion = computed(() => run.value?.pendingParley ? run.value.pendingPa
 const halted = computed(() => !entered.value || !run.value || !!run.value.pendingParley || !!endingPerson.value || paused.value || !!panel.value || !!notice.value || talking.value || renderingError.value || props.generationActive
     || performing.value || !!transition.value || !['exploration', 'battle'].includes(run.value.phase) || !view.value?.ready || view.value.pending || view.value.writeState !== 'ready');
 const boss = computed(() => run.value?.battle?.enemies.find(e => isBoss(e.kind)));
+watch(() => [boss.value?.kind === 'furnacemaster' && boss.value.hp > 0 ? boss.value.phase : 0,
+    run.value?.battle?.enemies.filter(enemy => enemy.kind === 'coupler' && enemy.hp > 0).length ?? 0] as const, ([phase, count], [priorPhase, priorCount]) => {
+    if (!phase) { return; }
+    if (phase === 3 && phase !== priorPhase) { combatFeedback(FURNACE_COMBAT_COPY.burning, 5500); }
+    else if (count > priorCount) { combatFeedback(FURNACE_COMBAT_COPY.connected, 5500); }
+    else if (count < priorCount) { combatFeedback(FURNACE_COMBAT_COPY.couplerBroken, 3500); }
+});
 const history = computed(() => {
     const turns = run.value?.conversations[person.value] ?? [], replacing = client.replacingReply.value;
     return replacing?.person === person.value ? turns.map(turn => turn.id === replacing.turnId ? playerTurn(turn) : turn) : turns;
@@ -138,6 +146,7 @@ const earnedAwards = computed(() => CHAPTER_AWARDS.flatMap(spec => {
 const earnedAmount = computed(() => earnedAwards.value.reduce((sum, a) => sum + a.amount, 0));
 const personalThreads = computed(() => run.value ? cityThreads(run.value).filter(thread => thread.task) : []);
 const workerErrand = computed(() => run.value ? cityWorkerErrand(run.value) : null);
+const finaleMoments = computed(() => run.value ? furnaceMoments(run.value) : []);
 const { messages, hasOlder, hasNewer, expanded, pendingVisible, rememberReading, resetLatest, older, newer } = useDialogueWindow({
     history: computed(() => greeting.value ? [greeting.value] : history.value), pending: computed(() => !!pendingLine.value),
     person, campaignId: computed(() => run.value?.id), transcript, freshReply, talking,
@@ -229,7 +238,7 @@ async function interact(id: string) {
     }
     if (object?.kind === 'inspect') {
         passage.value = object.passage; passageObject.value = id;
-        passageScene.value = cityPassage(run.value, object.passage);
+        passageScene.value = campaignPassage(run.value, object.passage);
         if (passageOperation.value) { panel.value = 'passage'; await playback.flush(); return; }
     }
     if (!await act({ type: 'interact', id })) { return; }
@@ -314,7 +323,7 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
             <template #status>
                 <template v-if="run">
                     <div class="ember-health"><meter :min="0" :max="RULES.maxHp" :value="run.hp" :aria-label="COPY.hp" /><span>{{ Math.ceil(run.hp) }} / {{ RULES.maxHp }}</span></div>
-                    <p v-if="run.chapter === FIRST_CHAPTER.id || run.phase === 'battle'" class="ember-objective">{{ campaignObjective(run) }}</p>
+                    <p class="ember-objective">{{ campaignObjective(run) }}</p>
                 </template>
             </template>
             <template #threat>
@@ -322,12 +331,13 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
                     <strong>{{ ENEMY_NAMES[boss.kind] }}</strong><meter min="0" :max="boss.maxHp" :value="boss.hp" :aria-label="ENEMY_NAMES[boss.kind]" />
                 </div>
                 <div v-if="entered && signal && !panel" class="ember-alarm" role="status">{{ signal }}</div>
+                <p v-if="entered && combatNotice && run?.phase === 'battle' && !panel && !paused && !notice" class="ember-combat-notice" role="status">{{ combatNotice }}</p>
             </template>
             <template #overlay><span /></template>
         </ExplorationField>
         <aside v-if="entered && transition && !notice && !renderingError && !panel && !paused" class="ember-transition" role="status">{{ w.transition(w.scenes[transition]) }}</aside>
         <p v-if="entered && rested && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ w.rested }}</p>
-        <p v-else-if="entered && combatNotice && (run?.phase === 'exploration' || run?.phase === 'battle') && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ combatNotice }}</p>
+        <p v-else-if="entered && combatNotice && run?.phase === 'exploration' && !panel && !paused && !notice" class="ember-rest-notice" role="status">{{ combatNotice }}</p>
         <nav v-if="entered && run && panel !== 'passage' && !run.pendingParley && !endingPerson" class="ember-tools" :aria-label="c.prepare">
             <button type="button" :disabled="performing || !!transition" :aria-label="c.map" @click="open('map')"><ExpeditionIcon name="map" /><span>{{ c.map }}</span></button>
             <button type="button" :disabled="performing || !!transition" :aria-label="c.build" @click="open('build')"><ExpeditionIcon name="bag" /><span>{{ c.build }}</span></button>
@@ -366,6 +376,7 @@ onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); pl
                     <p class="ember-objective-panel">{{ campaignObjective(run) }}</p>
                     <section v-for="thread in personalThreads" :key="thread.person" class="ember-thread"><h3>{{ thread.name }} · {{ thread.title }}</h3><p>{{ thread.task }}</p></section>
                     <section v-if="workerErrand" class="ember-thread"><h3>{{ workerErrand.title }}</h3><p>{{ workerErrand.task }}</p></section>
+                    <section v-for="moment in finaleMoments" :key="moment.person" class="ember-thread"><h3>{{ moment.name }} · {{ moment.title }}</h3><p>{{ moment.task }}</p></section>
                     <ol class="ember-journal"><li v-for="fact in run.facts" :key="fact">{{ FACT_COPY[fact] }}</li></ol>
                     <template v-if="earnedAwards.length"><h3>{{ c.journeyReward(earnedAmount) }}</h3><ul class="ember-journal"><li v-for="award in earnedAwards" :key="award.fact">{{ FACT_COPY[award.fact] }} <strong>{{ c.rewardReceived(award.amount) }}</strong></li></ul><small>{{ c.rewardRule }}</small></template>
                 </template>

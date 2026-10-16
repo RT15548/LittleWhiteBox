@@ -1,10 +1,11 @@
 import type { Relic, Weapon } from '../types.js';
 
-export const REWARD_NODES = ['crossroads', 'approach', 'passage', 'cells', 'warden', 'roots', 'city_arrival', 'return_plan', 'bridge', 'heatkeeper', 'coal_store'] as const;
+export const REWARD_NODES = ['crossroads', 'approach', 'passage', 'cells', 'warden', 'roots', 'city_arrival', 'return_plan', 'bridge', 'heatkeeper', 'coal_store', 'furnace_trial', 'furnace_convoy', 'furnace_ascent'] as const;
 export type RewardNode = typeof REWARD_NODES[number];
 export const CHAPTER_GROWTH = Object.freeze({ rankCap: 2, choices: 3 });
 export const CITY_REWARD_NODES: readonly RewardNode[] = ['city_arrival', 'return_plan', 'bridge', 'heatkeeper', 'coal_store'];
-export const rewardRankCap = (node: RewardNode) => CITY_REWARD_NODES.includes(node) ? 3 : CHAPTER_GROWTH.rankCap;
+export const FURNACE_REWARD_NODES: readonly RewardNode[] = ['furnace_trial', 'furnace_convoy', 'furnace_ascent'];
+export const rewardRankCap = (node: RewardNode) => CITY_REWARD_NODES.includes(node) || FURNACE_REWARD_NODES.includes(node) ? 3 : CHAPTER_GROWTH.rankCap;
 export const NEW_RELIC_NODES: readonly RewardNode[] = ['crossroads', 'approach', 'passage'];
 export const STARTER_RELICS: Record<Weapon, readonly Relic[]> = {
     blade: ['riposte', 'cinder', 'aegis'], bow: ['pinning', 'cinder', 'aegis'],

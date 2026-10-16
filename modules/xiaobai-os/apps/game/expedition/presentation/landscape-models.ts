@@ -5,6 +5,7 @@ import { LAND } from './world-palette.js';
 import { cookstove, medicineBench, streetHouse, wallHomes } from './street-models.js';
 import { bunkBelongings, supplyFurniture } from './supply-models.js';
 import { roomDoor, roomFurniture, roomWall } from './room-models.js';
+import { furnaceFeature } from './furnace-models.js';
 
 export function lamp(k: SceneKit, root: Group, x: number, z: number, height = 2.8) {
     k.mesh(root, 'cylinder', LAND.shadow, [.055, height, .055], [x, height / 2, z]);
@@ -114,6 +115,7 @@ function tower(k: SceneKit, root: Group, item: LandscapeFeature) {
 export function landscapeFeature(k: SceneKit, ground: Group, upper: Group, item: LandscapeFeature, interior: boolean) {
     const f = item.footprint, base = k.group(ground, [f.x, 0, f.z]), model = k.group(upper, [f.x, 0, f.z]);
     switch (item.kind) {
+        case 'kiln': case 'hoist': case 'cliff': furnaceFeature(k, model, item); break;
         case 'door': roomDoor(k, model); break;
         case 'screen': roomFurniture(k, model, item); break;
         case 'bed': case 'cabinet': case 'wardrobe': case 'toolrack': case 'table': case 'chair': case 'basin': case 'workbench':

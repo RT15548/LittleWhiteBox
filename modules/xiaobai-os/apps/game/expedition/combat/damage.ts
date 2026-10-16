@@ -5,6 +5,7 @@ import { effect, hazard, shot, sourceIsDirect } from './events.js';
 import { angleTo, distance, moveBody, TAU } from './geometry.js';
 import { type CombatField, fieldVisible } from './field.js';
 import { COMBAT_POLICY, wardenCarriesShield } from '../content/combat-policy.js';
+import { furnaceDeath } from './furnace-bosses.js';
 
 export function heal(b: Battle, amount: number) {
     if (b.player.hp <= 0) { return; }
@@ -53,6 +54,7 @@ export function hurtEnemy(b: Battle, e: Enemy, amount: number, loadout: Loadout,
     e.hp = Math.max(0, e.hp - damage); e.marked = 5;
     if (source === 'lightning' && rank(loadout, 'momentum') && b.tick % 6 === 0) { b.player.dash = Math.max(0, b.player.dash - rank(loadout, 'momentum') * 2); }
     if (e.hp > 0) { return; }
+    furnaceDeath(b, e);
     b.kills++; effect(b, e, 'burst', isBoss(e.kind) ? 3 : .8);
     if (rank(loadout, 'wildfire') && burning) { hazard(b, e, 'fire', 1.8 + rank(loadout, 'wildfire') * .2, 0, 90, 3 * rank(loadout, 'wildfire'), true); }
     if (rank(loadout, 'fracture') && chilled) {
@@ -62,7 +64,7 @@ export function hurtEnemy(b: Battle, e: Enemy, amount: number, loadout: Loadout,
     if (rank(loadout, 'execution-chain')) { b.player.dash = Math.max(0, b.player.dash - 12 * rank(loadout, 'execution-chain')); b.player.skill = Math.max(0, b.player.skill - 8); }
     if (rank(loadout, 'soul-harvest')) { b.player.resource = Math.min(CONTRACT.maxPower, b.player.resource + 9 * rank(loadout, 'soul-harvest')); }
     if (source === 'companion' && rank(loadout, 'salvage')) { b.player.skill = Math.max(0, b.player.skill - 12 * rank(loadout, 'salvage')); }
-    if (rank(loadout, 'magnet')) { for (const other of b.enemies) { if (other.hp > 0 && distance(e, other) < 3 + rank(loadout, 'magnet') && fieldVisible(field, e, other)) { moveBody(b, other, angleTo(other, e), .7, ENEMIES[other.kind].radius, field); } } }
+    if (rank(loadout, 'magnet')) { for (const other of b.enemies) { if (other.hp > 0 && other.kind !== 'coupler' && distance(e, other) < 3 + rank(loadout, 'magnet') && fieldVisible(field, e, other)) { moveBody(b, other, angleTo(other, e), .7, ENEMIES[other.kind].radius, field); } } }
 }
 export function lightning(b: Battle, target: Enemy, loadout: Loadout, damage: number, field?: CombatField, origin: Point = b.player) {
     const targets = [target];

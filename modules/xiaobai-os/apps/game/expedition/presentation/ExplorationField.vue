@@ -12,6 +12,7 @@ import { reachableInteractions } from '../world/exploration.js';
 import { reachablePersonInteractions } from '../world/people.js';
 import { parleyInteractions } from '../campaign/parley.js';
 import { interactionLabel } from './interaction-copy.js';
+import { nextInteraction, orderNearbyInteractions } from './interaction-order.js';
 import './world-feedback.css';
 import type { CourtyardScene } from '../content/world-types.js';
 
@@ -20,11 +21,12 @@ const emit = defineEmits<{ input: [frame: InputFrame]; interact: [id: string]; p
 const root = ref<HTMLElement | null>(null), canvas = ref<HTMLElement | null>(null), knob = ref({ x: 0, y: 0 });
 const selection = ref<string | null>(null);
 const artwork = ref({ failed: 0, pending: 0 });
-const nearby = computed(() => props.battle ? [] : [
+const loading = ref(true);
+const nearby = computed(() => props.battle ? [] : orderNearbyInteractions([
     ...parleyInteractions(props.world.definition.id, props.world.location.position, props.world.facts),
     ...reachableInteractions(props.world.definition, props.world.location, props.world.facts).filter(i => i.kind === 'exit' || props.world.objects.has(i.target.id)),
     ...reachablePersonInteractions(props.world.definition, props.world.location.position, props.world.facts, props.world.people),
-]);
+], props.world.facts));
 const selected = computed(() => nearby.value.find(i => i.target.id === selection.value) ?? null);
 const resource = computed(() => props.weapon === 'grimoire' ? combatCopy.contractPower : combatCopy.resource);
 let scene: ReturnType<typeof createExpeditionScene> | null = null, controls: ReturnType<typeof createControls> | null = null;
@@ -52,7 +54,7 @@ function render(now: number) {
     if (disposed || !active) { return; }
     if (!props.paused && !document.hidden) { animation = requestAnimationFrame(render); }
     const elapsed = last ? Math.min(100, now - last) : 0; last = now;
-    if (!props.paused && !document.hidden) {
+    if (!props.paused && !document.hidden && scene?.ready()) {
         accumulator += elapsed;
         while (accumulator >= 1000 / RULES.hz && !props.paused) {
             accumulator -= 1000 / RULES.hz;
@@ -70,12 +72,14 @@ function render(now: number) {
     }
 }
 // Keep the chosen object while in reach; distance sorting alone must not change what E does.
-watch(nearby, items => { if (!items.some(i => i.target.id === selection.value)) { selection.value = items[0]?.target.id ?? null; } }, { immediate: true });
+watch([nearby, () => props.world.facts], ([items, facts], previous) => {
+    selection.value = nextInteraction(items, selection.value, facts, previous?.[1]);
+}, { immediate: true });
 watch(() => props.world.definition.id, () => { clear(); selection.value = nearby.value[0]?.target.id ?? null; root.value?.focus({ preventScroll: true }); });
 watch(() => props.paused, value => { clear(); schedule(); if (!value) { root.value?.focus({ preventScroll: true }); } });
 watch(() => [props.world.definition, props.world.facts, props.world.location.position.x, props.world.location.position.y, props.world.reading, props.weapon, props.outfit], schedule);
 onMounted(() => {
-    try { scene = createExpeditionScene(canvas.value!, () => { pause(); emit('error', new Error('expedition_webgl_context_lost')); }, { traveler: props.traveler, world: true, invalidate: schedule, sceneReady: id => emit('ready', id), artworkStatus: (failed, pending) => { artwork.value = { failed, pending }; } }); }
+    try { scene = createExpeditionScene(canvas.value!, error => { loading.value = false; pause(); emit('error', error); }, { traveler: props.traveler, world: true, invalidate: schedule, sceneReady: id => { loading.value = false; emit('ready', id); }, artworkStatus: (failed, pending) => { artwork.value = { failed, pending }; } }); }
     catch (error) { emit('error', error); return; }
     controls = createControls(root.value!, pause, () => {});
     document.addEventListener('visibilitychange', visibility);
@@ -93,6 +97,7 @@ defineExpose({ stats: () => scene?.stats(), focus: () => root.value?.focus({ pre
 <template>
     <section ref="root" class="journey-field" tabindex="0" :aria-label="battle ? combatCopy.controls : c.actions.controls">
         <div ref="canvas" class="journey-canvas" />
+        <aside v-if="loading && !transitioning" class="ember-transition" role="status">{{ c.transition(c.scenes[world.definition.id]) }}</aside>
         <div class="journey-hud">
             <header class="journey-heading"><h1>{{ c.scenes[world.definition.id] }}</h1><slot name="status" /></header>
             <div class="journey-threat"><slot name="threat" /></div>

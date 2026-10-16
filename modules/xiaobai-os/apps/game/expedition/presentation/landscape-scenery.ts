@@ -7,6 +7,7 @@ import { LAND, ROOM_WOOD } from './world-palette.js';
 import { WORLD_CAMERA } from '../visuals.js';
 import { buildRoads } from './landscape-roads.js';
 import { suspendedDetail } from './street-models.js';
+import { FURNACE_COLORS, furnaceVista } from './furnace-models.js';
 
 export interface LandscapeScenery { dispose(): void; update(player: Point, bearing: number): void }
 
@@ -39,7 +40,8 @@ export function buildLandscape(k: SceneKit, root: Group, land: Landscape): Lands
     let ground = [land.bounds];
     for (const item of land.features.filter(f => f.kind === 'water')) { ground = ground.flatMap(piece => subtract(piece, item.footprint)); }
     const grass = land.surface === 'grass', marble = land.surface === 'marble', street = land.surface === 'street', boards = land.surface === 'boards';
-    const floor = boards ? LAND.wood : grass ? LAND.grass : street ? LAND.street : land.surface === 'wet' ? LAND.wetStone : marble ? LAND.marble : LAND.stone;
+    const snow = land.surface === 'snow';
+    const floor = land.surface === 'iron' ? FURNACE_COLORS.deck : snow ? FURNACE_COLORS.snow : boards ? LAND.wood : grass ? LAND.grass : street ? LAND.street : land.surface === 'wet' ? LAND.wetStone : marble ? LAND.marble : LAND.stone;
     for (const piece of ground) {
         // Flat contiguous surfaces, not visible navigation cells.
         k.mesh(chunk(piece.x, piece.z), 'box', floor, [piece.width, .6, piece.depth], [piece.x, -.32, piece.z]).castShadow = false;
@@ -50,7 +52,7 @@ export function buildLandscape(k: SceneKit, root: Group, land: Landscape): Lands
                     k.mesh(chunk(x, z), 'box', ROOM_WOOD[Math.abs(x + z) % ROOM_WOOD.length], [.985, .018, d - .025], [x + .5, -.009, z + d / 2]).castShadow = false;
                 }
             }
-        } else if (!grass && !street) {
+        } else if (!grass && !street && !snow) {
             for (let x = piece.x - piece.width / 2; x < piece.x + piece.width / 2; x += 4) {
                 for (let z = piece.z - piece.depth / 2; z < piece.z + piece.depth / 2; z += 4) {
                     const w = Math.min(4, piece.x + piece.width / 2 - x), d = Math.min(4, piece.z + piece.depth / 2 - z);
@@ -60,7 +62,20 @@ export function buildLandscape(k: SceneKit, root: Group, land: Landscape): Lands
             }
         }
     }
-    buildRoads(k, land.roads, land.surface, chunk);
+    // Room navigation lines are not paved outdoor roads laid over the floorboards.
+    if (land.vista !== 'room') { buildRoads(k, land.roads, land.surface, chunk); }
+    if (snow) {
+        // Low wind-scoured ridges, not falling particles or extra movement obstacles.
+        for (let i = 0; i < 70; i++) {
+            const x = land.bounds.x + Math.sin(i * 31.7) * (land.bounds.width / 2 - 4);
+            const z = land.bounds.z + Math.cos(i * 19.3) * (land.bounds.depth / 2 - 5), point = { x, y: z };
+            if (land.features.some(feature => insideFootprint(point, feature.footprint))
+                || land.roads.some(road => road.points.slice(1).some((b, j) => roadDistance(point, road.points[j], b) < road.width / 2 + 1.5))) { continue; }
+            const drift = k.mesh(chunk(x, z), 'rock', i % 3 ? FURNACE_COLORS.snowCrest : FURNACE_COLORS.ice,
+                [1.2 + i % 3, .06 + i % 2 * .03, .3 + i % 4 * .1], [x, .025, z]);
+            drift.rotation.y = -.35; drift.castShadow = false;
+        }
+    }
     if (street) {
         // Scattered repairs and worn setts break the broad fill without another texture or obstacle.
         for (let i = 0; i < 320; i++) {
@@ -124,7 +139,7 @@ export function buildLandscape(k: SceneKit, root: Group, land: Landscape): Lands
             } else { upper.removeFromParent(); }
         }
     }
-    for (const road of land.roads.slice(0, 1)) {
+    for (const road of land.vista === 'room' ? [] : land.roads.slice(0, 1)) {
         for (let i = 1; i < road.points.length; i++) {
             const [x, z] = road.points[i];
             if (land.vista === 'camp' && Math.hypot(x, z - 8) < 13) { continue; }
@@ -134,7 +149,9 @@ export function buildLandscape(k: SceneKit, root: Group, land: Landscape): Lands
     // Distant city occupies its own cheap batches; it is not loaded as an offscreen playable district.
     const vista = k.group(root);
     const interior = land.vista === 'interior' || land.vista === 'room';
-    k.mesh(vista, 'box', interior ? LAND.undercroft : LAND.distantGround, [300, 8, 300], [0, -4.65, 0]).castShadow = false;
+    const finale = land.vista === 'snow' || land.vista === 'furnace';
+    k.mesh(vista, 'box', finale ? '#93acbb' : interior ? LAND.undercroft : LAND.distantGround, [300, 8, 300], [0, finale ? -25 : -4.65, 0]).castShadow = false;
+    if (finale) { furnaceVista(k, vista, land); }
     if (land.vista === 'camp') {
         // Continuation beyond the playable boundary: roofs, not a bare floating diorama edge.
         for (let i = 0; i < 13; i++) {
@@ -144,18 +161,18 @@ export function buildLandscape(k: SceneKit, root: Group, land: Landscape): Lands
             for (let j = -1; j <= 1; j++) { k.mesh(vista, 'box', i % 4 ? LAND.shadow : LAND.ember, [.05, .7, .6], [x + 5.03, h - 1.7, z + j * 1.6], i % 4 === 0); }
         }
     }
-    for (let i = 0; i < (interior ? 0 : 12); i++) {
+    for (let i = 0; i < (interior || finale ? 0 : 12); i++) {
         const side = i % 2 ? 1 : -1, x = side * (bounds.width / 2 + 15 + i % 3 * 8), z = bounds.z - 25 + i * 7;
         k.mesh(vista, 'crown', i % 3 ? LAND.distantGround : LAND.distantLeaf, [17 + i % 4 * 3, 6 + i % 3 * 2, 22], [x, -3, z]);
     }
-    for (let i = 0; i < (interior || land.vista === 'garden' ? 0 : 9); i++) {
+    for (let i = 0; i < (interior || finale || land.vista === 'garden' ? 0 : 9); i++) {
         const x = (i - 4) * 12, z = bounds.z - bounds.depth / 2 - 15 - i % 3 * 6;
         const h = 9 + i % 4 * 3;
         k.mesh(vista, 'box', LAND.distantWall, [9, h, 9], [x, h / 2 - 2, z]);
         k.mesh(vista, 'cone', LAND.distantRoof, [7, 6, 7], [x, h + 1, z]);
         for (let j = -1; j <= 1; j++) { k.mesh(vista, 'box', LAND.distantGround, [.8, 2.5, .08], [x + j * 2.2, h - 4, z + 4.55]); }
     }
-    if (!interior && land.vista !== 'garden') {
+    if (!interior && !finale && land.vista !== 'garden') {
     const furnaceZ = bounds.z - bounds.depth / 2 - 28;
     k.mesh(vista, 'cylinder', LAND.distantWall, [9, 36, 9], [-17, 17, furnaceZ]);
     for (const y of [10, 22, 33]) { k.mesh(vista, 'cylinder', LAND.distantRoof, [10, 1.2, 10], [-17, y, furnaceZ]); }

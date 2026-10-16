@@ -5,7 +5,7 @@ import { beam, hazard, spawn } from './events.js';
 import { distance, TAU } from './geometry.js';
 import type { CombatField } from './field.js';
 import { chapterEncounterTick } from './chapter-encounter.js';
-import { cityEncounterTick } from './city-encounter.js';
+import { pressureVentTick } from './pressure-vents.js';
 
 export const ENCOUNTER_RULES = Object.freeze({ ritualTicks: 330, survivalTicks: 1500, pursuitInterval: 390, reinforcementInterval: 270, warningAfter: 1800 });
 const capturePoints = [{ x: -4, y: 0 }, { x: 4, y: -3 }, { x: 0, y: 4 }] as const;
@@ -28,7 +28,7 @@ export function spawnWave(b: Battle, loadout: Loadout, field?: CombatField) {
     }
 }
 export function encounterTick(b: Battle, loadout: Loadout, field?: CombatField) {
-    if (field?.segment) { chapterEncounterTick(b, field); cityEncounterTick(b, field); }
+    if (field?.segment) { chapterEncounterTick(b, field); pressureVentTick(b, field); }
     if (b.boss) { return; }
     const o = b.objective, live = b.enemies.some(e => e.hp > 0);
     if (b.encounter === 'ritual') {

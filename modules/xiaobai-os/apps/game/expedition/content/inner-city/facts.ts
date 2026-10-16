@@ -20,6 +20,7 @@ export const INNER_CITY_FACTS = {
     wen_marriage_ended: '三娘与文守桐当面确认解除婚姻，文家停止以家庭名义供给药物。三娘继续在檐下居住行医。',
     wen_independence_agreed: '文家确认三娘独立居住行医、自己安排药物来源，暂时保留婚籍。文守桐不再以返家作为条件。',
     deep_route_agreed: '扣子约旅人走自己掌握的深水道，绕过大门，从地下去看内堡。',
+    deep_route_walked: '走过了扣子住处通往深水道的暗口，认得了这段私路。',
     deep_gate_opened: '扣子在上层管架卸下锈闸的扣销，旅人在下方压住绞柄，两人一起打开通往南街的水道闸。',
     kouzi_entered_city: '扣子第一次实际踏上了内堡南坊的街面。',
     deep_trade_found: '深水道的旧药瓶、零件与收条留下扣子交易的痕迹。新的测量线沿着她曾带人走过的路延伸；收条本身不能说明那些人拿通路做过什么。',

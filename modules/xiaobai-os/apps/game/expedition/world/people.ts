@@ -16,6 +16,7 @@ import { districtScene, livingSpace } from '../content/living-spaces.js';
 import { isCityDistrict } from '../content/inner-city/places.js';
 import { RESCUE_COMPLETE } from '../content/chapters.js';
 import { rescuePhase } from '../campaign/rescue.js';
+import { knownPersonRoutes } from './route-knowledge.js';
 
 export interface PersonLocation { scene: CourtyardScene; position: Point; facing: number; mode: 'idle' | 'follow' | 'travel'; destination: DestinationId | null }
 export type PeopleLocations = Record<CourtyardPerson, PersonLocation>;
@@ -47,7 +48,8 @@ export function sceneSafe(scene: CourtyardScene, facts: ReadonlySet<CourtyardFac
     });
 }
 /** Scene graph traversal uses exactly the same exits as player travel; solo travel excludes every hostile intermediate scene. */
-export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: PersonPlace, facts: ReadonlySet<CourtyardFact>, safeOnly: boolean): SceneExit[] | null {
+export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to: PersonPlace, facts: ReadonlySet<CourtyardFact>, safeOnly: boolean,
+    knowsExit?: (from: CourtyardScene, to: CourtyardScene) => boolean): SceneExit[] | null {
     const queue: { scene: CourtyardScene; position: Point; route: SceneExit[] }[] = [{ ...from, route: [] }], visited = new Set<string>();
     while (queue.length) {
         const item = queue.shift()!;
@@ -55,7 +57,7 @@ export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to:
         if (item.scene === to.scene && nextWaypoint(space, item.position, scene.anchors[to.anchor])) { return item.route; }
         for (const exit of COURTYARD[item.scene].exits) {
             const key = `${exit.to}/${exit.arrival}`;
-            if (visited.has(key) || !conditionMet(exit.condition, facts) || safeOnly && !sceneSafe(exit.to, facts)
+            if (visited.has(key) || knowsExit && !knowsExit(item.scene, exit.to) || !conditionMet(exit.condition, facts) || safeOnly && !sceneSafe(exit.to, facts)
                 || !nextWaypoint(space, item.position, scene.anchors[exit.anchor])) { continue; }
             visited.add(key); queue.push({ scene: exit.to, position: COURTYARD[exit.to].anchors[exit.arrival], route: [...item.route, exit] });
         }
@@ -63,12 +65,12 @@ export function sceneRoute(from: Pick<PersonLocation, 'scene' | 'position'>, to:
     return null;
 }
 export function personMap(campaign: Campaign, person: CourtyardPerson) {
-    const facts = new Set(campaign.facts), location = campaign.people[person];
-    return Object.entries(DESTINATIONS).filter(([, place]) => !isCityDistrict(districtScene(place.scene))
-        || RESCUE_COMPLETE.every(fact => facts.has(fact)) && (place.scene !== 'deep_waterway' || facts.has('deep_route_agreed'))).map(([id, place]) => {
-        const route = sceneRoute(location, place, facts, false);
+    const facts = new Set(campaign.facts), location = campaign.people[person], known = knownPersonRoutes(campaign, person);
+    return Object.entries(DESTINATIONS).filter(([, place]) => known.place(place.scene) && (!isCityDistrict(districtScene(place.scene))
+        || RESCUE_COMPLETE.every(fact => facts.has(fact)) && (place.scene !== 'deep_waterway' || facts.has('deep_route_agreed')))).map(([id, place]) => {
+        const route = sceneRoute(location, place, facts, false, known.exit);
         const safe = sceneSafe(place.scene, facts);
-        const soloRoute = sceneSafe(location.scene, facts) && safe ? sceneRoute(location, place, facts, true) : null;
+        const soloRoute = sceneSafe(location.scene, facts) && safe ? sceneRoute(location, place, facts, true, known.exit) : null;
         return { id: id as DestinationId, name: place.name,
         ...(livingSpace(place.scene) ? { use: livingSpace(place.scene)!.use } : {}),
         personHere: location.scene === place.scene && (id === place.scene || distance(location.position, COURTYARD[place.scene].anchors[place.anchor]) <= INTERACTION_REACH),
@@ -131,7 +133,7 @@ export function tickPeople(campaign: Campaign) {
             target = campaign.location.position;
             if (distance(state.position, target) < followDistance(id)) { continue; }
         } else {
-            const destination = DESTINATIONS[state.destination!], route = sceneRoute(state, destination, facts, true);
+            const destination = DESTINATIONS[state.destination!], route = sceneRoute(state, destination, facts, true, knownPersonRoutes(campaign, id).exit);
             if (!route) { fault('unavailable'); }
             exit = route[0]; target = scene.anchors[exit?.anchor ?? destination.anchor];
             if (distance(state.position, target) < .2) {

@@ -16,9 +16,11 @@ import { PARLEY_ENEMIES, PARLEY_IDS } from '../content/parley.js';
 import { parleyActor } from './world-parley.js';
 import { buildLocalLife } from './local-people.js';
 import { buildStoryPeople } from './story-people.js';
-import { CITY_VENTS } from '../content/inner-city/combat.js';
+import { pressureVents } from '../content/pressure-vents.js';
 import type { EncounterSegment } from '../content/courtyard-encounters.js';
 import { buildCityProps } from './city-props.js';
+import { buildFurnaceProps } from './furnace-props.js';
+import type { SanniangAsset } from './sanniang-asset.js';
 
 export interface ExplorableScenery extends LandscapeScenery {
     readonly animating: boolean;
@@ -32,15 +34,16 @@ export interface ExplorableScenery extends LandscapeScenery {
 }
 
 /** Map geometry lives for one visit; a door or NPC change only rebuilds its small stateful layer. */
-export function buildExplorableWorld(k: SceneKit, root: Group, definition: SceneDefinition, facts: ReadonlySet<CourtyardFact>): ExplorableScenery {
+export function buildExplorableWorld(k: SceneKit, root: Group, definition: SceneDefinition, facts: ReadonlySet<CourtyardFact>, sanniang: SanniangAsset): ExplorableScenery {
     const scenery = buildLandscape(k, root, definition.landscape), objects = k.group(root), residents = k.group(root);
     const sentries = buildSentries(k, root, definition, facts);
     const localLife = buildLocalLife(k, residents, definition.id);
     const story = buildStoryPeople(k, residents, definition);
     const cityProps = buildCityProps(k, root, definition, facts);
+    const furnaceProps = buildFurnaceProps(k, root, definition);
     const outlets = k.group(root);
-    if (definition.id === 'pipe_gallery') {
-        for (const vent of CITY_VENTS[definition.id]) {
+    {
+        for (const vent of pressureVents(definition.id)) {
             const outlet = k.group(outlets, [vent.x, .65, vent.y]); outlet.rotation.y = Math.PI / 2 - vent.angle;
             k.mesh(outlet, 'cylinder', LAND.brass, [.4, 1.2, .4], [0, 0, -.6]).rotation.x = Math.PI / 2;
             k.mesh(outlet, 'torus', LAND.timber, [.42, .42, .14], [0, 0, 0]);
@@ -64,7 +67,7 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
     });
     const people: ReturnType<typeof person>[] = [];
     const parleyPeople = PARLEY_IDS.filter(id => PARLEY_ENEMIES[id].scene === definition.id).map(id => parleyActor(k, residents, id, facts));
-    let animatedAt = -1;
+    let animatedAt = -1, characterAt = -1;
     let disposeObjects: (() => void) | null = null, factKey: string | null = null;
     function setFacts(next: ReadonlySet<CourtyardFact>) {
         const key = [...next].sort().join('/');
@@ -72,7 +75,9 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
         parleyPeople.forEach(person => person.setFacts(next));
         disposeObjects?.();
         sentries.setFacts(next);
+        localLife.setFacts(next);
         cityProps.setFacts(next);
+        furnaceProps.setFacts(next);
         for (const item of visibleInteractions(definition, next)) {
             const p = item.position;
             if (item.kind === 'exit') {
@@ -184,25 +189,36 @@ export function buildExplorableWorld(k: SceneKit, root: Group, definition: Scene
                 let model = people.find(p => p.id === id);
                 if (model && (location.scene !== definition.id || model.seated !== seated)) { model.dispose(); people.splice(people.indexOf(model), 1); model = undefined; changed = true; }
                 if (location.scene !== definition.id) { continue; }
-                if (!model) { model = person(k, residents, id, location.position.x, location.position.y, new Set(factKey?.split('/') as CourtyardFact[]), seated); people.push(model); changed = true; }
+                if (!model) { model = person(k, residents, id, location.position.x, location.position.y, new Set(factKey?.split('/') as CourtyardFact[]), sanniang, seated); people.push(model); changed = true; }
                 changed = model.locate(location, now) || changed;
             }
             return changed;
         }, setEncounterActive(active) { sentries.setEncounterActive(active); parleyPeople.forEach(person => { person.root.visible = !active; }); }, update: scenery.update,
         animate(player, now, reduced, inView) {
+            let changed = false;
+            // Skinned gait gets its own 30 Hz visual cadence; background life keeps its existing budget.
+            const characterFrame = Math.floor(now / (1000 / 30));
+            if (characterFrame !== characterAt) {
+                characterAt = characterFrame;
+                const model = people.find(person => person.id === 'sanniang');
+                if (model && Math.hypot(model.position.x - player.x, model.position.y - player.y) < 22 && inView(model.position)) {
+                    model.update(player, now, reduced); changed = !reduced;
+                } else if (model) { model.ring.visible = false; }
+            }
             const frame = Math.floor(now / 80);
-            if (frame === animatedAt) { return false; } animatedAt = frame;
-            let changed = cityProps.animate(now, reduced);
+            if (frame === animatedAt) { return changed; } animatedAt = frame;
+            changed = cityProps.animate(now, reduced) || changed;
             changed = sentries.animate(reduced) || changed;
             changed = localLife.animate(player, now, reduced, inView) || changed;
             for (const enemy of parleyPeople) { changed = enemy.update(player, reduced) || changed; }
             for (const person of story.people) { changed = person.update(player, now, reduced) || changed; }
             for (const person of people) {
+                if (person.id === 'sanniang') { continue; }
                 if (Math.hypot(person.position.x - player.x, person.position.y - player.y) < 22) {
                     person.update(player, now, reduced); changed = !reduced || changed;
                 } else { person.ring.visible = false; }
             }
             return changed;
         },
-        dispose() { cityProps.dispose(); releaseOutlets(); outlets.removeFromParent(); caches.forEach(cache => { cache.dispose(); cache.model.removeFromParent(); }); localLife.dispose(); story.dispose(); people.splice(0).forEach(person => person.dispose()); parleyPeople.forEach(person => person.dispose()); residents.removeFromParent(); disposeObjects?.(); sentries.dispose(); scenery.dispose(); } };
+        dispose() { furnaceProps.dispose(); cityProps.dispose(); releaseOutlets(); outlets.removeFromParent(); caches.forEach(cache => { cache.dispose(); cache.model.removeFromParent(); }); localLife.dispose(); story.dispose(); people.splice(0).forEach(person => person.dispose()); parleyPeople.forEach(person => person.dispose()); residents.removeFromParent(); disposeObjects?.(); sentries.dispose(); scenery.dispose(); } };
 }

@@ -14,7 +14,8 @@ export function citySituation(campaign: Campaign, person: Participant) {
     const personScene = person in STORY_PEOPLE ? STORY_PEOPLE[person as keyof typeof STORY_PEOPLE].scene
         : person in campaign.people ? campaign.people[person as keyof typeof campaign.people].scene : campaign.location.scene;
     const inCity = isCityDistrict(districtScene(personScene));
-    if (facts.has('heat_restored')) { current.push('heat_restored'); }
+    if (facts.has('city_rekindled')) { /* The new public settlement supersedes the provisional return circuit. */ }
+    else if (facts.has('heat_restored')) { current.push('heat_restored'); }
     else if (known.has('heat_notice_read') || inCity) { current.push('heat_notice_read'); }
     const resolved = CITY_THREADS.flatMap(thread => {
         const latest = thread.resolved.find(fact => facts.has(fact));

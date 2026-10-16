@@ -55,7 +55,7 @@ function skill(b: Battle, loadout: Loadout, target: Enemy | undefined, field?: C
                 if (e.hp <= 0 || distance(p, e) > 3.6 + ENEMIES[e.kind].radius || !fieldVisible(field, p, e)) { continue; }
                 if (rank(loadout, 'shield-break')) { e.exposed = Math.max(e.exposed, 70 + 30 * rank(loadout, 'shield-break')); }
                 hurtEnemy(b, e, spec.skill * power, loadout, 'skill', p, field); stagger(b, e, 40);
-                if (!isBoss(e.kind)) { moveBody(b, e, angleTo(p, e), 1.5, ENEMIES[e.kind].radius, field); }
+                if (!isBoss(e.kind) && e.kind !== 'coupler') { moveBody(b, e, angleTo(p, e), 1.5, ENEMIES[e.kind].radius, field); }
             }
             if (rank(loadout, 'valor')) { grantWard(p, 12 * rank(loadout, 'valor') * power); }
             break;
@@ -69,7 +69,7 @@ function skill(b: Battle, loadout: Loadout, target: Enemy | undefined, field?: C
             const center = target ?? p, power = 1 + p.resource / 125;
             p.resource = 0;
             if (rank(loadout, 'convergence')) {
-                for (const e of b.enemies) { if (distance(e, center) < 4 + rank(loadout, 'convergence') && fieldVisible(field, center, e)) { moveBody(b, e, angleTo(e, center), 1.2, ENEMIES[e.kind].radius, field); } }
+                for (const e of b.enemies) { if (e.kind !== 'coupler' && distance(e, center) < 4 + rank(loadout, 'convergence') && fieldVisible(field, center, e)) { moveBody(b, e, angleTo(e, center), 1.2, ENEMIES[e.kind].radius, field); } }
             }
             for (let i = 0; i < 3; i++) {
                 const offset = atAngle(center, i * TAU / 3, .7);

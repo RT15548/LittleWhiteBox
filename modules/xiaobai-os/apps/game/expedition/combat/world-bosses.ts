@@ -4,8 +4,10 @@ import { beam, fan, hazard, slam } from './events.js';
 import { angleTo, atAngle } from './geometry.js';
 import { ENEMIES } from '../content.js';
 import { COMBAT_POLICY } from '../content/combat-policy.js';
+import { FURNACE_COMBAT } from '../content/furnace/combat.js';
 
 export function worldBossPhase(e: Enemy) {
+    if (e.kind === 'furnacemaster') { return e.hp <= e.maxHp * FURNACE_COMBAT.burningAt ? 3 : e.hp <= e.maxHp * FURNACE_COMBAT.connectedAt ? 2 : 1; }
     if (e.kind === 'warden') { return e.hp <= e.maxHp * .3 ? 3 : e.hp <= e.maxHp * .65 ? 2 : 1; }
     return e.hp <= e.maxHp * .5 ? 2 : 1;
 }

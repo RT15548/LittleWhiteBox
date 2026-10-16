@@ -1,15 +1,15 @@
 import type { Campaign } from './types.js';
-import { CITY_PASSAGES, type CityPassage, type CityPassageId } from '../content/inner-city/passages.js';
-import { INNER_CITY_FACTS } from '../content/inner-city/facts.js';
+import { findStoryPassage } from '../content/story-passages.js';
+import { FACT_COPY } from '../content/campaign-copy.js';
 import { CITY_COPY } from '../content/inner-city/copy.js';
 import { isPerson, isStoryPerson, participantName } from '../content/participants.js';
 import { STORY_PEOPLE } from '../content/inner-city/people.js';
 import { CITY_THREADS } from '../content/inner-city/progress.js';
 import { reachablePeople } from '../world/people.js';
 
-export function cityPassage(campaign: Campaign, id: string) {
-    if (!Object.hasOwn(CITY_PASSAGES, id)) { return null; }
-    const spec: CityPassage = CITY_PASSAGES[id as CityPassageId], facts = new Set(campaign.facts);
+export function campaignPassage(campaign: Campaign, id: string) {
+    const spec = findStoryPassage(id), facts = new Set(campaign.facts);
+    if (!spec) { return null; }
     const read = facts.has(spec.fact);
     const nearby = new Set(read ? [] : reachablePeople(campaign).map(item => item.target.id));
     // Companions must actually share the player's interaction space. Fixed residents
@@ -24,8 +24,8 @@ export function cityPassage(campaign: Campaign, id: string) {
         if (operation) { operation = { ...operation, setup: CITY_COPY.trialAfterBridgeSetup }; }
     }
     if (read) {
-        body = `${CITY_COPY.reviewed}\n${INNER_CITY_FACTS[spec.fact]}`;
-        if (resolved) { body += `\n\n${CITY_COPY.now}\n${INNER_CITY_FACTS[resolved as keyof typeof INNER_CITY_FACTS]}`; }
+        body = `${CITY_COPY.reviewed}\n${FACT_COPY[spec.fact]}`;
+        if (resolved) { body += `\n\n${CITY_COPY.now}\n${FACT_COPY[resolved]}`; }
     }
     if (facts.has('heat_restored')) {
         if (id === 'heat_notice') { body = CITY_COPY.restoredNotice; }

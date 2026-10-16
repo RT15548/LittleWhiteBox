@@ -2,6 +2,7 @@ import type { Group } from 'three';
 import type { SceneKit } from '../scene-kit.js';
 import type { Landscape, LandscapeRoad } from '../world/landscape.js';
 import { LAND } from './world-palette.js';
+import { FURNACE_COLORS } from './furnace-models.js';
 
 type Vertex = [number, number];
 type Polygon = Vertex[];
@@ -60,14 +61,16 @@ export function roadSurface(roads: readonly LandscapeRoad[], padding = 0): Polyg
 }
 
 export function buildRoads(k: SceneKit, roads: readonly LandscapeRoad[], surface: Landscape['surface'], chunk: (x: number, z: number) => Group) {
-    const marble = surface === 'marble', street = surface === 'street';
-    for (const [padding, height, color] of [[.4, .025, marble ? LAND.brass : street ? LAND.streetSeam : LAND.mortar], [0, .04, marble ? LAND.slate : street ? LAND.streetStone : LAND.stone]] as const) {
+    if (surface === 'boards') { return; } // The authored plank deck is already walkable, with its own joints.
+    const marble = surface === 'marble', street = surface === 'street', iron = surface === 'iron', snow = surface === 'snow';
+    for (const [padding, height, color] of [[snow ? 1.1 : .4, .025, snow ? FURNACE_COLORS.snowCrest : iron ? FURNACE_COLORS.copper : marble ? LAND.brass : street ? LAND.streetSeam : LAND.mortar], [0, .04, snow ? FURNACE_COLORS.snowPath : iron ? FURNACE_COLORS.walkway : marble ? LAND.slate : street ? LAND.streetStone : LAND.stone]] as const) {
         for (const polygon of roadSurface(roads, padding)) {
             const x = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length, z = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
             const surface = k.shape(chunk(x, z), polygon.map(p => [p[0], -p[1]]), color, [0, height, 0]);
             surface.rotation.x = -Math.PI / 2; surface.castShadow = false;
         }
     }
+    if (snow) { return; }
     // Joints end before a junction. They cannot cut a gold border across another road.
     const polygons = outlines(roads, .4);
     let index = 0;
@@ -77,7 +80,7 @@ export function buildRoads(k: SceneKit, roads: readonly LandscapeRoad[], surface
             for (let distance = 1.5; distance < length; distance += 1.65) {
                 const x = a[0] + dx * distance / length, z = a[1] + dz * distance / length;
                 if (polygons.some((poly, j) => j !== index && poly.every((v, n) => cross(v, poly[(n + 1) % poly.length], [x, z]) >= -EPSILON))) { continue; }
-                const line = k.mesh(chunk(x, z), 'box', marble ? LAND.shadow : street ? LAND.streetSeam : LAND.mortar, [road.width - .08, .012, .025], [x, .049, z]);
+                const line = k.mesh(chunk(x, z), 'box', iron ? FURNACE_COLORS.iron : marble ? LAND.shadow : street ? LAND.streetSeam : LAND.mortar, [road.width - .08, .012, .025], [x, .049, z]);
                 line.rotation.y = Math.atan2(dx, dz); line.castShadow = false;
                 if (street) {
                     const joint = k.mesh(chunk(x, z), 'box', LAND.streetSeam, [.025, .012, 1.4], [x + Math.cos(distance) * .55, .049, z]);

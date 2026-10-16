@@ -20,12 +20,13 @@ import type { Traveler } from './campaign/traveler.js';
 import { createWorldTextures } from './presentation/world-textures.js';
 import { COURTYARD_ENCOUNTERS, nextEncounter, type EncounterSegment } from './content/courtyard-encounters.js';
 import { COMBAT_COPY } from './content/combat-copy.js';
+import { loadSanniangAsset, type SanniangAsset } from './presentation/sanniang-asset.js';
 
 export type SceneMode = 'camp' | 'battle' | 'between';
 export interface ExplorationFrame { definition: SceneDefinition; location: WorldLocation; facts: ReadonlySet<CourtyardFact>; people: PeopleLocations;
     objects: ReadonlySet<string>; completedSegments: readonly EncounterSegment[]; engagement?: EncounterSegment; reading?: boolean }
 /** Owns presentation lifetime only: camera, meshes and transient damage labels. */
-export function createExpeditionScene(host: HTMLElement, onError: () => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; sceneReady?: (scene: CourtyardScene) => void; artworkStatus?: (failed: number, pending: number) => void }) {
+export function createExpeditionScene(host: HTMLElement, onError: (error: unknown) => void, options: { traveler: Traveler; world?: boolean; invalidate?: () => void; sceneReady?: (scene: CourtyardScene) => void; artworkStatus?: (failed: number, pending: number) => void }) {
     const renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: options.world ? 'default' : 'high-performance' });
     renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = NeutralToneMapping; renderer.toneMappingExposure = 1;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, options.world ? 1.4 : 1.8)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = PCFSoftShadowMap;
@@ -52,12 +53,20 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
     let worldX = NaN, worldY = NaN, worldFacing = NaN, drawnFacts: ReadonlySet<CourtyardFact> | null = null, draws = 0, submitMs = 0;
     let width = 1, height = 1, dirty = true, disposed = false, failed = false, lastFrame = 0, lastTick = -1, lastHp = 0, cameraReady = false;
     const worldTextures = options.world ? createWorldTextures(() => { worldKey = ''; dirty = true; options.invalidate?.(); }, (failed, pending) => options.artworkStatus?.(failed, pending)) : null;
+    const characterLoad = new AbortController();
+    let sanniang: SanniangAsset | null = null;
+    if (options.world) {
+        void loadSanniangAsset(characterLoad.signal).then(asset => {
+            if (disposed) { asset.dispose(); return; }
+            sanniang = asset; dirty = true; options.invalidate?.();
+        }).catch(error => { if (!disposed) { failed = true; onError(error); } });
+    }
     function resize() {
         const rect = host.getBoundingClientRect(); width = Math.max(1, rect.width); height = Math.max(1, rect.height);
         renderer.setSize(width, height, false); dirty = true; cameraReady = false; options.invalidate?.();
     }
     const observer = new ResizeObserver(resize); observer.observe(host); resize();
-    function contextLost(event: Event) { event.preventDefault(); failed = true; onError(); }
+    function contextLost(event: Event) { event.preventDefault(); failed = true; onError(new Error('expedition_webgl_context_lost')); }
     renderer.domElement.addEventListener('webglcontextlost', contextLost);
     function label(amount: number, x: number, z: number, tick: number, hurt = false) {
         if (Math.abs(amount) < 1) { return; }
@@ -73,7 +82,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
     }
     return {
         draw(battle: Battle | null, loadout: { weapon: Weapon; outfit: Outfit }, zone: number, mode: SceneMode = 'battle', now = 0, world?: ExplorationFrame) {
-            if (disposed || failed) { return; }
+            if (disposed || failed || options.world && !sanniang) { return; }
             const started = performance.now();
             const b = mode === 'battle' ? battle : null, time = b?.tick ?? (reduced.matches ? 0 : now * .025), tickChanged = (b?.tick ?? -1) !== lastTick;
             const appearance = `${loadout.weapon}/${loadout.outfit}/${zone}`;
@@ -87,7 +96,7 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
                 disposeWorld?.();
                 if (world) {
                     const worldKit = createSceneKit(worldTextures?.maps);
-                    worldScenery = buildExplorableWorld(worldKit, environment, world.definition, world.facts);
+                    worldScenery = buildExplorableWorld(worldKit, environment, world.definition, world.facts, sanniang!);
                     const scenery = worldScenery;
                     disposeWorld = () => { scenery.dispose(); worldKit.dispose(); };
                 } else { worldScenery = null; disposeWorld = buildWorld(k, environment, zone, b); }
@@ -201,13 +210,15 @@ export function createExpeditionScene(host: HTMLElement, onError: () => void, op
             if (world) { worldX = world.location.position.x; worldY = world.location.position.y; worldFacing = world.location.facing; drawnFacts = world.facts; }
         },
         invalidate() { dirty = true; options.invalidate?.(); },
+        ready() { return !disposed && !failed && (!options.world || !!sanniang); },
         needsFrame() { return worldScenery?.animating ?? false; },
         retryArtwork() { worldTextures?.retry(); },
         stats() { return { draws, submitMs, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
             geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }; },
         dispose() {
             disposed = true; observer.disconnect(); renderer.domElement.removeEventListener('webglcontextlost', contextLost);
-            clearActors(); hero.dispose(); status.dispose(); ward.dispose(); disposeWorld?.(); worldTextures?.dispose(); sun.shadow.dispose(); k.dispose(); scene.clear(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); labels.remove();
+            characterLoad.abort();
+            clearActors(); hero.dispose(); status.dispose(); ward.dispose(); disposeWorld?.(); sanniang?.dispose(); worldTextures?.dispose(); sun.shadow.dispose(); k.dispose(); scene.clear(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); labels.remove();
         },
     };
 }

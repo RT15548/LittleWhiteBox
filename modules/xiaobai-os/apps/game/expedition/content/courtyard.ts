@@ -7,13 +7,17 @@ import { COURTYARD_HOMES } from './courtyard-homes.js';
 import { CITY_SCENES } from './inner-city/scenes.js';
 import { STORY_PEOPLE, STORY_PERSON_IDS } from './inner-city/people.js';
 import { defineLandscapeScene } from '../world/landscape.js';
+import { FURNACE_SCENES } from './furnace/scenes.js';
+import { connectFurnace } from './furnace/connections.js';
 
 const SCENES: Record<CourtyardScene, SceneDefinition> = {
     camp: COURTYARD_CAMP, crossroads: COURTYARD_CROSSROADS, gate: COURTYARD_GATE, beacon: COURTYARD_BEACON,
     waterway: COURTYARD_WATERWAY, cells: COURTYARD_CELLS, hall: COURTYARD_HALL, roots: COURTYARD_ROOTS,
     ...COURTYARD_HOMES,
     ...CITY_SCENES,
+    ...FURNACE_SCENES,
 };
+for (const id of Object.keys(SCENES) as CourtyardScene[]) { SCENES[id] = connectFurnace(SCENES[id]); }
 for (const person of STORY_PERSON_IDS) {
     const { scene, anchor } = STORY_PEOPLE[person], definition = SCENES[scene];
     SCENES[scene] = defineLandscapeScene({ ...definition,

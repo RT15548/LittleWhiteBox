@@ -11,6 +11,7 @@ import { createGuardShield } from './scene-defense.js';
 import { createGrimoire } from './scene-grimoire.js';
 import { createTravelerGait } from './traveler-gait.js';
 import { wardenCarriesShield } from './content/combat-policy.js';
+import { sculptFurnaceActor } from './presentation/furnace-actors.js';
 export type HeroPose = Pick<Player, 'x' | 'y' | 'facing' | 'dashTime' | 'swing' | 'shield' | 'guard' | 'resonance'>;
 
 function addBow(k: SceneKit, parent: Group, scale = 1) {
@@ -98,7 +99,9 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
         mesh(parent, 'box', color, [.2, length, .13], [0, length / 2 + .35, 0], false, 1, true);
         mesh(parent, 'cone', color, [.15, .4, .13], [0, length + .5, 0]);
     }
-    if (kind === 'charger') {
+    if (kind === 'coupler') {
+        sculptFurnaceActor(k, body, head, weapon, kind);
+    } else if (kind === 'charger') {
         mesh(body, 'rock', c.stone, [.58, .58, .9], [0, .7, 0]);
         mesh(head, 'rock', armor, [.43, .45, .46], [0, .73, .7]);
         for (const x of [-.27, .27]) {
@@ -199,6 +202,7 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
     body.traverse(o => { if (o instanceof Mesh) { originals.push({ mesh: o, material: o.material }); } });
     let previousWindup = 0, struckAt = -100, previousX = 0, previousY = 0;
     const baseWeaponZ = weapon.rotation.z;
+    const furnaceArmor = [body.getObjectByName('furnace-armor-left'), body.getObjectByName('furnace-armor-right')];
     return { root, bar,
         update(e: Enemy, tick: number, reduced: boolean, chapter = false) {
             const moving = Math.abs(e.x - previousX) + Math.abs(e.y - previousY) > .005;
@@ -215,6 +219,7 @@ export function createEnemyActor(k: SceneKit, parent: Group, kind: EnemyKind, c:
                 armorShield.visible = kind !== 'warden' || wardenCarriesShield(e.phase);
                 armorShield.rotation.x = e.exposed ? -Math.PI / 3 : 0;
             }
+            furnaceArmor.forEach((plate, i) => { if (plate) { plate.rotation.y = e.phase === 3 ? (i ? 1 : -1) * 1.1 : 0; } });
             for (let i = 0; i < limbs.length; i++) { limbs[i].rotation.x = !reduced && moving ? Math.sin(tick * .32 + i * Math.PI) * .28 : 0; }
             for (const o of originals) { o.mesh.material = e.marked > 2 && !reduced ? k.material('#fff6dd') : o.material; }
             bar.visible = !boss && e.hp < e.maxHp;

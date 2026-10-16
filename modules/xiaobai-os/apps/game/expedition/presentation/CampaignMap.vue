@@ -10,12 +10,11 @@ import type { DistrictScene } from '../content/world-types.js';
 import { districtScene } from '../content/living-spaces.js';
 import { discoveredRoutes, mapMarkers, mapMarkerScale } from './map-projection.js';
 import { SCENE_ART } from '../artwork.js';
-import { MAP_REGIONS, type MapRegion } from './map-regions.js';
-import { isCityDistrict } from '../content/inner-city/places.js';
+import { MAP_REGIONS, mapRegionFor, visibleMapRegions } from './map-regions.js';
 const props = defineProps<{ campaign: Campaign }>();
 const emit = defineEmits<{ close: [] }>();
 const overview = ref(false);
-const region = ref<MapRegion>(isCityDistrict(districtScene(props.campaign.location.scene)) ? 'city' : 'outskirts');
+const region = ref(mapRegionFor(districtScene(props.campaign.location.scene)));
 const root = ref<HTMLElement | null>(null), wide = ref(false);
 const routeMap = ref<SVGSVGElement | null>(null), mapSize = ref({ width: 400, height: 400 });
 const observer = new ResizeObserver(entries => {
@@ -37,7 +36,7 @@ const positions = computed(() => Object.fromEntries(discovery.value.scenes.filte
     return [id, wide.value ? [50 + (104 - y) / 104 * (width - 100), 10 + (x - 10) / 80 * (height - 40)] : [45 + x / 104 * (width - 90), 10 + y / 104 * (height - 40)]];
 })) as Record<DistrictScene, [number, number]>);
 const links = computed(() => discovery.value.links.filter(link => positions.value[link.from] && positions.value[link.to]));
-const regions = computed(() => Object.entries(MAP_REGIONS).filter(([id]) => id === 'outskirts' || props.campaign.location.visited.some(scene => isCityDistrict(districtScene(scene)))) as [MapRegion, typeof MAP_REGIONS[MapRegion]][]);
+const regions = computed(() => visibleMapRegions(props.campaign.location.visited.map(districtScene)).map(id => [id, MAP_REGIONS[id]] as const));
 const scene = computed(() => COURTYARD[props.campaign.location.scene]);
 const bounds = computed(() => scene.value.landscape.bounds);
 const markerScale = computed(() => mapMarkerScale(bounds.value));
@@ -86,7 +85,7 @@ text { font-size:3.5px; fill:#234958; paint-order:stroke; stroke:#f5f6e8; stroke
 .ember-map-places { display:grid; grid-template-columns:repeat(3,1fr); gap:4px 24px; font-size:13px; color:#35575c; margin:0; padding-left:20px; }
 .ember-map-places li::marker { font-weight:700; color:#a3642a; }
 .ember-map-key { font-size:12px; color:#567373; text-align:center; }
-.ember-map-regions { display:flex; gap:8px; justify-content:center; }.ember-map-regions button[aria-pressed="true"] { background:#366678; color:#fff; }
+.ember-map-regions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }.ember-map-regions button[aria-pressed="true"] { background:#366678; color:#fff; }
 .ember-map-wide.ember-map-local { grid-template-columns:minmax(0,1fr) minmax(170px,28%); grid-template-rows:auto minmax(0,1fr); }
 .ember-map-wide .ember-map-header { grid-column:1/-1; }
 .ember-map-wide .ember-map-places { grid-template-columns:1fr; overflow:auto; align-content:start; }

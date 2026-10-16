@@ -76,6 +76,7 @@ export function enemiesTick(b: Battle, loadout: Loadout, velocity: Point, field?
             }
         }
         if (e.hp <= 0) { continue; }
+        if (e.kind === 'coupler') { continue; }
         if (signalActorTick(b, e, field)) { continue; }
         if (e.stun > 0) { e.stun--; continue; }
         if (e.motion > 0) { motion(b, e, loadout, field); continue; }

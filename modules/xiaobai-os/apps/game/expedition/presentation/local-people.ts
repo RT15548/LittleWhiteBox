@@ -2,7 +2,8 @@ import { Float32BufferAttribute, Matrix4, Mesh, MeshStandardMaterial, type Buffe
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { SceneKit } from '../scene-kit.js';
 import { LOCAL_LIFE, type LocalResident } from '../content/local-life.js';
-import type { CourtyardScene } from '../content/world-types.js';
+import type { CourtyardScene, CourtyardFact } from '../content/world-types.js';
+import { conditionMet } from '../world/exploration.js';
 import type { Point } from '../types.js';
 import { localElapsed, localPose } from '../world/local-life.js';
 import { LAND } from './world-palette.js';
@@ -29,7 +30,7 @@ function bakePart(root: Group, material: MeshStandardMaterial) {
 export function residentModel(k: SceneKit, parent: Group, resident: Pick<LocalResident, 'coat' | 'activity'>, material: MeshStandardMaterial) {
     const root = k.group(parent), body = k.group(root), arms: Group[] = [], legs: Group[] = [];
     const coat = { blue: LAND.slate, rose: LAND.rose, cream: LAND.cloth }[resident.coat];
-    const seated = resident.activity === 'mend' || resident.activity === 'warm', skin = '#dfbda7';
+    const seated = resident.activity === 'mend' || resident.activity === 'warm' || resident.activity === 'register', skin = '#dfbda7';
     const height = seated ? .75 : 1.05;
     k.mesh(body, 'box', coat, [.59, .68, .38], [0, height, 0]);
     k.mesh(body, 'crown', skin, [.23, .27, .21], [0, height + .61, 0]);
@@ -50,8 +51,9 @@ export function residentModel(k: SceneKit, parent: Group, resident: Pick<LocalRe
     } else if (resident.activity === 'deliver') {
         k.mesh(body, 'box', LAND.wood, [.65, .47, .5], [0, height - .05, .45]);
         k.mesh(body, 'box', LAND.light, [.18, .17, .025], [0, height - .05, .72]);
-    } else if (resident.activity === 'mend' || resident.activity === 'dressings') {
+    } else if (resident.activity === 'mend' || resident.activity === 'dressings' || resident.activity === 'register') {
         k.mesh(body, 'box', LAND.light, [.52, .055, .4], [0, height - .22, .36]);
+        if (resident.activity === 'register') { k.mesh(body, 'box', LAND.timber, [.025, .025, .26], [.18, height - .17, .38]); }
     } else if (resident.activity === 'warm') {
         k.mesh(body, 'box', LAND.pottery, [.2, .22, .2], [0, height + .1, .38]);
     }
@@ -66,13 +68,15 @@ export function buildLocalLife(k: SceneKit, parent: Group, scene: CourtyardScene
     const residents = (LOCAL_LIFE[scene] ?? []).map(spec => ({ spec, model: residentModel(k, parent, spec, material), time: 0 }));
     let previous: number | null = null;
     let wasReduced: boolean | null = null;
+    let facts: ReadonlySet<CourtyardFact> = new Set();
     return {
+        setFacts(next: ReadonlySet<CourtyardFact>) { facts = next; },
         animate(player: Point, now: number, reduced: boolean, inView: (point: Point) => boolean) {
             const elapsed = reduced ? 0 : localElapsed(previous, now); previous = now;
             let changed = residents.length > 0 && wasReduced !== reduced; wasReduced = reduced;
             for (const resident of residents) {
                 const { spec, model } = resident, before = localPose(spec, resident.time);
-                const visible = Math.hypot(before.position.x - player.x, before.position.y - player.y) < 27 && inView(before.position);
+                const visible = conditionMet(spec.condition, facts) && Math.hypot(before.position.x - player.x, before.position.y - player.y) < 27 && inView(before.position);
                 if (model.root.visible !== visible) { model.root.visible = visible; changed = true; }
                 if (!visible) { continue; }
                 resident.time += elapsed;
