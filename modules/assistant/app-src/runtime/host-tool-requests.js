@@ -3,6 +3,7 @@ import {
     buildWorkspaceOpMeta,
     isWorkspaceMutationTool,
 } from '../../shared/workspace-protocol.js';
+import { applyWorkspaceObservations, buildWorkspacePreconditions } from '../../shared/workspace-preconditions.js';
 
 export function createHostToolRequestController(deps) {
     const {
@@ -43,9 +44,13 @@ export function createHostToolRequestController(deps) {
     }
 
     function buildWorkspaceRequestMeta(name, args, options = {}) {
+        const run = state.activeRun?.id === options.runId ? state.activeRun : null;
         return buildWorkspaceOpMeta(options.workspaceMeta, {
             source: isWorkspaceMutationTool(name) ? WORKSPACE_SOURCES.TOOL : WORKSPACE_SOURCES.HYDRATE,
             baseVersion: Number(state.runtime?.workspace?.version) || 0,
+            preconditions: isWorkspaceMutationTool(name)
+                ? buildWorkspacePreconditions(name, args, run ? run.workspaceBaseline : state.localSources)
+                : undefined,
             path: typeof args?.path === 'string'
                 ? args.path
                 : (typeof args?.filePath === 'string'
@@ -70,23 +75,16 @@ export function createHostToolRequestController(deps) {
     }
 
     async function callHostTool(name, args, options = {}) {
-        if (typeof flushBeforeToolCall === 'function') {
-            await flushBeforeToolCall({
-                toolName: String(name || ''),
-                args,
-                runId: options.runId || '',
-            });
-        }
-        const workspaceMeta = buildWorkspaceRequestMeta(name, args, options);
         const requestId = createRequestId('tool');
-        const run = state.activeRun;
-        if (run && run.id === options.runId) {
+        const run = state.activeRun?.id === options.runId ? state.activeRun : null;
+        if (run) {
             run.toolRequestIds.add(requestId);
         }
         return await new Promise((resolve, reject) => {
             let settled = false;
             let timer = null;
             let abortHandler = null;
+            let dispatched = false;
 
             const cleanup = () => {
                 if (timer) {
@@ -110,21 +108,24 @@ export function createHostToolRequestController(deps) {
                 reject(error);
             };
 
-            const finishResolve = (value) => {
+            const finishResolve = (value, observations = [], conflictSnapshot) => {
                 if (settled) return;
                 settled = true;
                 pendingToolCalls.delete(requestId);
                 cleanup();
+                if (run && observations.length) run.workspaceBaseline = applyWorkspaceObservations(run.workspaceBaseline, observations);
+                options.onWorkspaceObserved?.(observations);
+                if (conflictSnapshot) options.onWorkspaceConflict?.(conflictSnapshot);
                 resolve(value);
             };
 
             abortHandler = () => {
-                post('xb-assistant:tool-abort', { requestId });
+                if (dispatched) post('xb-assistant:tool-abort', { requestId });
                 finishReject(new Error('tool_aborted'));
             };
 
             timer = setTimeout(() => {
-                post('xb-assistant:tool-abort', { requestId });
+                if (dispatched) post('xb-assistant:tool-abort', { requestId });
                 finishReject(new Error('tool_timeout'));
             }, REQUEST_TIMEOUT_MS);
 
@@ -143,16 +144,19 @@ export function createHostToolRequestController(deps) {
                 options.signal.addEventListener('abort', abortHandler, { once: true });
             }
 
-            postHostToolCall(requestId, name, args, workspaceMeta);
-            options.onDispatched?.();
+            const dispatch = async () => {
+                if (options.runId && isWorkspaceMutationTool(name) && typeof flushBeforeToolCall === 'function') {
+                    const flushed = await flushBeforeToolCall({ toolName: name, args });
+                    if (flushed === false) throw new Error('workspace_unsaved_changes');
+                }
+                if (settled) return;
+                const workspaceMeta = buildWorkspaceRequestMeta(name, args, options);
+                dispatched = true;
+                postHostToolCall(requestId, name, args, workspaceMeta);
+                options.onDispatched?.();
+            };
+            void dispatch().catch(finishReject);
         });
-    }
-
-    function postHostToolCallWithoutResponse(name, args, options = {}) {
-        const workspaceMeta = buildWorkspaceRequestMeta(name, args, options);
-        const requestId = createRequestId('tool');
-        postHostToolCall(requestId, name, args, workspaceMeta);
-        return requestId;
     }
 
     function buildToolFailureResult(toolName, args, error) {
@@ -193,7 +197,6 @@ export function createHostToolRequestController(deps) {
     return {
         buildToolFailureResult,
         callHostTool,
-        postHostToolCallWithoutResponse,
         clearPendingToolCalls,
         recordToolErrorForLightBrake,
         resetToolErrorLightBrake,

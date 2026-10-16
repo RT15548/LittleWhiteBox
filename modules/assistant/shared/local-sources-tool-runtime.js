@@ -3,249 +3,98 @@ import {
     WORKSPACE_SOURCES,
     buildWorkspaceOpMeta,
     isWorkspaceMutationTool,
-    normalizeWorkspaceSource,
-    simpleHashText,
 } from './workspace-protocol.js';
 import { getWorkspaceMutationPermissionError } from './workspace-mutation-policy.js';
+import { captureWorkspacePath, workspaceMutationScopes } from './workspace-preconditions.js';
+import { LOOKUP_SCOPE_LOCAL, normalizeLookupScope } from './lookup-scope.js';
 
-export function createLocalSourcesToolRuntime(deps = {}) {
-    const getLocalSources = typeof deps.getLocalSources === 'function'
-        ? deps.getLocalSources
-        : () => [];
-    const setLocalSources = typeof deps.setLocalSources === 'function'
-        ? deps.setLocalSources
-        : () => {};
-    const normalizeLocalSourcesSnapshot = typeof deps.normalizeLocalSourcesSnapshot === 'function'
-        ? deps.normalizeLocalSourcesSnapshot
-        : (localSources) => Array.isArray(localSources) ? localSources : [];
-    const executeToolCall = typeof deps.executeToolCall === 'function'
-        ? deps.executeToolCall
-        : async () => {
-            throw new Error('local_sources_tool_runtime_missing_executor');
-        };
-    const validateLocalSources = typeof deps.validateLocalSources === 'function'
-        ? deps.validateLocalSources
-        : () => ({ ok: true, errors: [] });
-
+export function createLocalSourcesToolRuntime(deps) {
+    const { getLocalSources, setLocalSources, normalizeLocalSourcesSnapshot, executeToolCall, repository } = deps;
     let stateWriteQueue = Promise.resolve();
-    let workspaceVersion = Number.isFinite(Number(deps.initialVersion)) ? Number(deps.initialVersion) : 0;
-    let recentOpIds = new Map();
-
-    function summarizeLocalSources(localSources) {
-        const normalized = normalizeLocalSourcesSnapshot(localSources);
-        const files = normalized.flatMap((source) => Array.isArray(source?.files) ? source.files : []);
-        return {
-            sourceCount: normalized.length,
-            fileCount: files.length,
-            samplePaths: files.slice(0, 6).map((file) => String(file?.publicPath || file?.path || '')).filter(Boolean),
-            version: workspaceVersion,
-        };
-    }
-
-    function buildSnapshotHash(localSources) {
-        return simpleHashText(JSON.stringify(normalizeLocalSourcesSnapshot(localSources)));
-    }
-
-    function trimRecentOpIds() {
-        const entries = Array.from(recentOpIds.entries());
-        if (entries.length <= 64) return;
-        entries
-            .sort((left, right) => Number(left[1]?.seenAt || 0) - Number(right[1]?.seenAt || 0))
-            .slice(0, Math.max(0, entries.length - 64))
-            .forEach(([key]) => {
-                recentOpIds.delete(key);
-            });
-    }
+    let workspaceVersion = 0;
+    const recentOpIds = new Map();
 
     function enqueueStateWrite(task) {
-        const queued = stateWriteQueue.catch(() => {}).then(task);
+        const queued = stateWriteQueue.then(task, task);
         stateWriteQueue = queued.then(() => undefined, () => undefined);
         return queued;
     }
 
-    function buildWorkspaceState() {
-        const snapshot = normalizeLocalSourcesSnapshot(getLocalSources());
-        return {
-            version: workspaceVersion,
-            kernelVersion: WORKSPACE_KERNEL_VERSION,
-            snapshot,
-            snapshotHash: buildSnapshotHash(snapshot),
-        };
-    }
-
-    function validateAndSetLocalSources(nextSources, options = {}) {
-        const normalizedSources = normalizeLocalSourcesSnapshot(nextSources);
-        const validation = validateLocalSources(normalizedSources);
-        if (validation?.ok === false) {
-            const error = new Error('workspace_invariant_failed');
-            error.validation = validation;
-            throw error;
-        }
-        setLocalSources(normalizedSources);
-        if (options.bumpVersion !== false) {
-            workspaceVersion += 1;
-        }
-        console.info('[Assistant][LocalSourcesRuntime] syncLocalSources', summarizeLocalSources(normalizedSources));
-        return normalizedSources;
-    }
-
-    function syncLocalSources(nextSources, options = {}) {
-        return validateAndSetLocalSources(nextSources, {
-            bumpVersion: options.bumpVersion !== false,
-        });
-    }
-
-    async function hydrateLocalSources(nextSources) {
-        return await enqueueStateWrite(() => validateAndSetLocalSources(nextSources, { bumpVersion: false }));
-    }
-
-    async function syncLocalSourcesQueued(nextSources) {
-        return await hydrateLocalSources(nextSources);
-    }
-
-    function clearLocalSources() {
-        console.info('[Assistant][LocalSourcesRuntime] clearLocalSources');
-        setLocalSources([]);
-        workspaceVersion = 0;
-        recentOpIds = new Map();
-    }
-
     function getSnapshot() {
-        const snapshot = normalizeLocalSourcesSnapshot(getLocalSources());
-        console.info('[Assistant][LocalSourcesRuntime] getSnapshot', summarizeLocalSources(snapshot));
-        return snapshot;
+        return normalizeLocalSourcesSnapshot(getLocalSources());
     }
 
     function getWorkspaceState() {
-        return buildWorkspaceState();
+        return { version: workspaceVersion, kernelVersion: WORKSPACE_KERNEL_VERSION, snapshot: getSnapshot() };
     }
 
-    function buildStaleResult(meta = {}) {
-        const state = buildWorkspaceState();
-        return {
-            ok: false,
-            error: 'stale_workspace_version',
-            workspaceVersion: state.version,
-            kernelVersion: state.kernelVersion,
-            currentSnapshot: state.snapshot,
-            currentSnapshotHash: state.snapshotHash,
-            source: normalizeWorkspaceSource(meta.source || WORKSPACE_SOURCES.TOOL),
-            path: String(meta.path || '').trim(),
-            opId: String(meta.opId || '').trim(),
-        };
+    function hydrateLocalSources(sources) {
+        // Hydration is the window's observed snapshot, never a database write.
+        return enqueueStateWrite(() => setLocalSources(normalizeLocalSourcesSnapshot(sources)));
     }
 
-    function rememberOpResult(meta = {}, result = null) {
-        const opId = String(meta.opId || '').trim();
-        if (!opId) return;
-        recentOpIds.set(opId, {
-            seenAt: Date.now(),
-            result,
-        });
-        trimRecentOpIds();
+    function clearLocalSources() {
+        setLocalSources([]);
+        workspaceVersion = 0;
+        recentOpIds.clear();
     }
 
     async function execute(name, args, options = {}) {
+        const mutation = isWorkspaceMutationTool(name);
         const run = async () => {
-            if (options.signal?.aborted) {
-                throw new Error('tool_aborted');
-            }
-
-            const mutation = isWorkspaceMutationTool(name);
-            const effectiveLocalSources = getSnapshot();
-            const workspaceMeta = buildWorkspaceOpMeta(options.workspaceMeta, {
+            if (options.signal?.aborted) throw new Error('tool_aborted');
+            const meta = buildWorkspaceOpMeta(options.workspaceMeta, {
                 source: mutation ? WORKSPACE_SOURCES.TOOL : WORKSPACE_SOURCES.HYDRATE,
-                baseVersion: workspaceVersion,
-                path: typeof args?.path === 'string'
-                    ? args.path
-                    : (typeof args?.filePath === 'string'
-                        ? args.filePath
-                        : (typeof args?.fromPath === 'string' ? args.fromPath : '')),
             });
+            const permissionError = getWorkspaceMutationPermissionError(name, meta, args);
+            if (permissionError) return { ok: false, error: permissionError };
+            if (mutation && meta.opId && recentOpIds.has(meta.opId)) return recentOpIds.get(meta.opId);
 
-            console.info('[Assistant][LocalSourcesRuntime] execute:start', {
-                toolName: String(name || ''),
-                snapshot: summarizeLocalSources(effectiveLocalSources),
-                workspaceMeta,
-            });
-
-            if (mutation && workspaceMeta.opId) {
-                const cached = recentOpIds.get(workspaceMeta.opId);
-                if (cached?.result) {
-                    return cached.result;
-                }
-            }
-
+            let result;
             if (mutation) {
-                const permissionError = getWorkspaceMutationPermissionError(name, workspaceMeta, args);
-                if (permissionError) {
-                    return {
-                        ok: false,
-                        error: permissionError,
-                        workspaceVersion,
-                        kernelVersion: WORKSPACE_KERNEL_VERSION,
-                    };
+                const saved = await repository.commitWorkspaceMutation({
+                    name, args, preconditions: meta.preconditions, signal: options.signal,
+                    retryContent: meta.source === WORKSPACE_SOURCES.EDITOR ? meta.retryContent : undefined,
+                    execute: async localSources => {
+                        let nextSources = null;
+                        const result = await executeToolCall(name, args, {
+                            ...options, localSources, workspaceMeta: meta,
+                            onLocalSourcesUpdated: value => { nextSources = value; },
+                        });
+                        return { result, nextSources };
+                    },
+                });
+                result = saved.result;
+                if (saved.conflictSnapshot) options.onWorkspaceConflict?.(saved.conflictSnapshot);
+                if (saved.committed) {
+                    setLocalSources(saved.localSources);
+                    workspaceVersion += 1;
+                    options.onLocalSourcesUpdated?.(saved.localSources, getWorkspaceState());
+                    options.onWorkspaceObserved?.(workspaceMutationScopes(name, args).map(item => ({
+                        ...item, expected: captureWorkspacePath(saved.localSources, item.path, item.scope),
+                    })));
+                }
+            } else {
+                const readsWorkspace = ['Read', 'Glob', 'Grep'].includes(name)
+                    && normalizeLookupScope(args?.scope) === LOOKUP_SCOPE_LOCAL;
+                const localSources = readsWorkspace ? (await repository.readWorkspace()).localSources : getSnapshot();
+                result = await executeToolCall(name, args, { ...options, localSources, workspaceMeta: meta });
+                const path = String(result?.path || '').replace(/\/+$/, '');
+                if (name === 'Read' && result?.ok !== false && (path === 'local' || path.startsWith('local/'))) {
+                    options.onWorkspaceObserved?.([{ path, scope: 'entry', expected: captureWorkspacePath(localSources, path) }]);
                 }
             }
-
-            if (mutation && workspaceMeta.baseVersion !== workspaceVersion) {
-                return buildStaleResult(workspaceMeta);
-            }
-
-            let updatedSources = null;
-            const result = await executeToolCall(name, args, {
-                ...options,
-                localSources: effectiveLocalSources,
-                workspaceMeta,
-                workspaceVersion,
-                kernelVersion: WORKSPACE_KERNEL_VERSION,
-                onLocalSourcesUpdated: (nextSources) => {
-                    updatedSources = normalizeLocalSourcesSnapshot(nextSources);
-                },
-            });
-
-            let normalizedSources = effectiveLocalSources;
-            let nextResult = result;
-            if (mutation && result?.ok !== false && updatedSources) {
-                normalizedSources = syncLocalSources(updatedSources, { bumpVersion: true });
-                console.info('[Assistant][LocalSourcesRuntime] execute:onLocalSourcesUpdated', {
-                    toolName: String(name || ''),
-                    snapshot: summarizeLocalSources(normalizedSources),
-                });
-                options.onLocalSourcesUpdated?.(normalizedSources, buildWorkspaceState());
-                nextResult = {
-                    ...(result && typeof result === 'object' ? result : { ok: true }),
-                    workspaceVersion,
-                    kernelVersion: WORKSPACE_KERNEL_VERSION,
-                };
-            } else if (result && typeof result === 'object') {
-                nextResult = {
-                    ...result,
-                    workspaceVersion,
-                    kernelVersion: WORKSPACE_KERNEL_VERSION,
-                };
-            }
-
-            if (mutation && workspaceMeta.opId) {
-                rememberOpResult(workspaceMeta, nextResult);
+            const nextResult = result && typeof result === 'object'
+                ? { ...result, workspaceVersion, kernelVersion: WORKSPACE_KERNEL_VERSION }
+                : result;
+            if (mutation && meta.opId && result?.ok !== false) {
+                recentOpIds.set(meta.opId, nextResult);
+                if (recentOpIds.size > 64) recentOpIds.delete(recentOpIds.keys().next().value);
             }
             return nextResult;
         };
-
-        if (!isWorkspaceMutationTool(name)) {
-            return await run();
-        }
-
-        return await enqueueStateWrite(run);
+        return mutation ? enqueueStateWrite(run) : run();
     }
 
-    return {
-        syncLocalSources,
-        hydrateLocalSources,
-        syncLocalSourcesQueued,
-        clearLocalSources,
-        getSnapshot,
-        getWorkspaceState,
-        execute,
-    };
+    return { hydrateLocalSources, clearLocalSources, getSnapshot, getWorkspaceState, execute, flush: () => stateWriteQueue };
 }

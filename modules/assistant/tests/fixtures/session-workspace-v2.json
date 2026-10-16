@@ -1,0 +1,53 @@
+{
+  "id": "default",
+  "updatedAt": 1700000000001,
+  "historySummary": "previous conversation",
+  "localSources": [
+    {
+      "sourceId": "story",
+      "label": "story",
+      "rootPath": "local/story/",
+      "importedAt": 1700000000000,
+      "files": [
+        {
+          "path": "local/story/chapter.md",
+          "publicPath": "local/story/chapter.md",
+          "relativePath": "chapter.md",
+          "name": "chapter.md",
+          "sizeBytes": 15,
+          "content": "Revised chapter",
+          "originalContent": "Original chapter",
+          "source": "session-local-source",
+          "extension": ".md",
+          "rootPath": "local/story/"
+        },
+        {
+          "path": "local/story/new.md",
+          "publicPath": "local/story/new.md",
+          "relativePath": "new.md",
+          "name": "new.md",
+          "sizeBytes": 8,
+          "content": "New work",
+          "originalContent": null,
+          "source": "session-local-source",
+          "extension": ".md",
+          "rootPath": "local/story/"
+        }
+      ],
+      "directories": ["empty"]
+    }
+  ],
+  "isWorkspaceOpen": true,
+  "workspaceWidth": 520,
+  "workspacePanelMode": "workspace",
+  "selectedSourceId": "all",
+  "selectedFilePath": "local/story/chapter.md",
+  "selectedTreePath": "",
+  "selectedSkillFilePath": "",
+  "fileSearchQuery": "",
+  "showModifiedOnly": false,
+  "viewerMode": "current",
+  "mobileWorkspacePane": "tree",
+  "treeExpandedKeys": ["local/story/"],
+  "skillTreeExpandedKeys": []
+}

@@ -12,6 +12,7 @@ export const ACTIVITY_COPY = {
         'not-executed': '未执行',
         unconfirmed: '结果未确认',
     },
+    searchTimeout: '搜索超时',
     process: count => `处理经过 · ${count} 项操作`,
     failures: count => `${count} 项失败`,
     unresolved: count => `${count} 项未完成或未确认`,
@@ -23,6 +24,10 @@ export const ACTIVITY_COPY = {
     contextPolicy: trigger => `达到 ${trigger}k 时，在下次请求前自动总结。`,
     contextSummarized: '已压缩较早历史',
     clearConversation: '清空对话',
+    conversationCleared: '对话已清空，工作区已保留',
+    clearFailed: reason => `对话清空失败：${reason}`,
+    restoreFailed: '存档读取失败，已停止加载。请重新打开助手。',
+    configLoadFailed: reason => `配置读取失败，请重新打开助手：${reason}`,
     settingsToggle: collapsed => collapsed ? '展开 API 配置' : '收起 API 配置',
     closeAssistant: '关闭小白助手',
 };

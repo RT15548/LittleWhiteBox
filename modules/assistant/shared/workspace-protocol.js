@@ -1,8 +1,9 @@
-export const WORKSPACE_KERNEL_VERSION = '2026.04.24-v3';
+export const WORKSPACE_KERNEL_VERSION = '2026.10.15-write-receipts';
 
 export const WORKSPACE_MESSAGE_TYPES = Object.freeze({
     HYDRATE: 'xb-assistant:workspace-hydrate',
     UPDATED: 'xb-assistant:local-sources-updated',
+    FLUSH: 'xb-assistant:workspace-flush',
 });
 
 export const WORKSPACE_SOURCES = Object.freeze({
@@ -59,16 +60,8 @@ export function buildWorkspaceOpMeta(meta = {}, fallback = {}) {
         source: normalizedSource,
         opId,
         baseVersion,
+        preconditions: meta.preconditions ?? fallback.preconditions,
+        retryContent: typeof meta.retryContent === 'string' ? meta.retryContent : undefined,
         path: String(path || '').trim(),
     };
-}
-
-export function simpleHashText(value = '') {
-    const text = String(value || '');
-    let hash = 2166136261;
-    for (let index = 0; index < text.length; index += 1) {
-        hash ^= text.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
 }

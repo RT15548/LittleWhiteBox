@@ -19,13 +19,15 @@ import {
     normalizeWritableLocalFilePath as kernelNormalizeWritableLocalFilePath,
     pickUniqueLocalSourceLabel as kernelPickUniqueLocalSourceLabel,
     summarizeLocalSources as kernelSummarizeLocalSources,
-    upsertLocalSourceDirectory as kernelUpsertLocalSourceDirectory,
+    upsertLocalSourceFile as kernelUpsertLocalSourceFile,
 } from '../../shared/local-workspace-kernel.js';
 import {
     INTERNAL_WORKSPACE_TOOL_NAMES,
     WORKSPACE_KERNEL_VERSION,
     WORKSPACE_SOURCES,
 } from '../../shared/workspace-protocol.js';
+import { buildWorkspacePreconditions, workspaceMutationScopes, WORKSPACE_CONFLICT } from '../../shared/workspace-preconditions.js';
+import { WORKSPACE_COPY } from './workspace-copy.js';
 import { TOOL_NAMES } from '../tooling.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
 
@@ -258,10 +260,6 @@ function findLocalDirectoryByPath(localSources = [], targetPath = '') {
     return kernelFindLocalDirectoryByPath(localSources, targetPath);
 }
 
-function upsertLocalDirectoryInSources(localSources = [], targetPath = '') {
-    return kernelUpsertLocalSourceDirectory(localSources, targetPath);
-}
-
 function buildExpandedKeysForWorkspaceTarget(sourceId, relativePath = '') {
     const expandedKeys = new Set([`source:${sourceId}`]);
     const segments = String(relativePath || '').split('/').filter(Boolean);
@@ -293,15 +291,15 @@ export function createLocalSourcesManager(deps) {
         setImportProgress,
         render,
         renderWorkspaceOnly,
-        persistSession,
+        persistWorkspaceUiState: saveWorkspaceUiState,
         onWorkspaceClosed,
         onWorkspaceSelectionChanged,
         callHostTool,
-        postHostToolCallWithoutResponse,
         renderWorkspaceUi = () => {},
     } = deps;
     let workspaceUiPersistTimer = 0;
     const pendingEditorWrites = new Map();
+    const pendingWorkspaceOperations = new Set();
 
     function getWorkspaceRuntimeMeta() {
         const workspace = state.runtime?.workspace && typeof state.runtime.workspace === 'object'
@@ -369,28 +367,31 @@ export function createLocalSourcesManager(deps) {
         return entry;
     }
 
-    function reconcileWorkspaceTransientState(nextSources = []) {
-        const normalizedSources = normalizeLocalSources(nextSources);
-        const livePaths = new Set(flattenLocalSourceFiles(normalizedSources).map((file) => String(file.path || '').trim()).filter(Boolean));
+    function getDisplaySources() {
+        let sources = normalizeLocalSources(state.localSources);
+        for (const [path, draft] of Object.entries(state.workspaceDrafts || {})) {
+            const match = findLocalFileByPath(sources, path);
+            if (match) {
+                sources = sources.map(source => ({ ...source, files: source.files.map(file => (
+                    file.path === path ? { ...file, content: draft.content } : file
+                )) }));
+            } else {
+                sources.push(createLocalSourceRecord({
+                    sourceId: `draft:${path}`, label: WORKSPACE_COPY.unsavedDraft,
+                    rootPath: draft.file.rootPath, files: [{ ...draft.file, content: draft.content }],
+                }));
+            }
+        }
+        return sources;
+    }
 
-        Object.keys(state.workspaceDrafts || {}).forEach((path) => {
-            const draft = getDraftRecord(path);
-            if (!draft) return;
-            const match = livePaths.has(path) ? findLocalFileByPath(normalizedSources, path) : null;
-            if (!match) {
-                discardPendingEditorWrite(path);
-                return;
-            }
-            if (String(match.file.content || '') === String(draft.content || '')) {
-                clearDraftRecord(path);
-            }
-        });
-
-        Array.from(pendingEditorWrites.keys()).forEach((path) => {
-            if (!livePaths.has(path)) {
-                discardPendingEditorWrite(path, { clearDraft: false });
-            }
-        });
+    function captureRunWorkspaceBaseline() {
+        let sources = normalizeLocalSources(state.localSources);
+        for (const entry of pendingEditorWrites.values()) {
+            if (entry.status === 'error' || entry.status === 'conflict') continue;
+            sources = kernelUpsertLocalSourceFile(sources, entry.path, getDraftRecord(entry.path).content).nextSources;
+        }
+        return sources;
     }
 
     function primeWorkspaceSelection(targetPath = '', options = {}) {
@@ -419,40 +420,6 @@ export function createLocalSourcesManager(deps) {
         return true;
     }
 
-    function collectBeforeUnloadWorkspaceWrites() {
-        const writesByPath = new Map();
-        Array.from(pendingEditorWrites.values()).forEach((entry) => {
-            if (!entry || entry.disposed || !entry.path) return;
-            const draftContent = getDraftRecord(entry.path)?.content;
-            const queuedContent = entry.queuedContent;
-            const latestContent = draftContent ?? queuedContent ?? entry.inFlightContent;
-            if (latestContent === null || latestContent === undefined) return;
-            if (entry.inFlightPromise && queuedContent === null && draftContent === entry.inFlightContent) {
-                return;
-            }
-            writesByPath.set(entry.path, {
-                path: entry.path,
-                content: String(latestContent),
-            });
-        });
-        return Array.from(writesByPath.values());
-    }
-
-    function postPendingWorkspaceWritesForUnload() {
-        const writes = collectBeforeUnloadWorkspaceWrites();
-        if (!writes.length || typeof postHostToolCallWithoutResponse !== 'function') return false;
-        postHostToolCallWithoutResponse(INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES, {
-            files: writes,
-        }, {
-            workspaceMeta: {
-                source: WORKSPACE_SOURCES.EDITOR,
-                baseVersion: getWorkspaceRuntimeMeta().version,
-                path: writes[0]?.path || LOCAL_SOURCE_PREFIX,
-            },
-        });
-        return true;
-    }
-
     async function callWorkspaceHostTool(toolName, args = {}, options = {}) {
         if (typeof callHostTool !== 'function') {
             throw new Error('workspace_host_tool_unavailable');
@@ -464,42 +431,64 @@ export function createLocalSourcesManager(deps) {
                 : (typeof args?.filePath === 'string'
                     ? args.filePath
                     : (typeof args?.fromPath === 'string' ? args.fromPath : '')));
-        const result = await callHostTool(toolName, args, {
+        if (options.source !== WORKSPACE_SOURCES.EDITOR && !await flushPendingWorkspaceChanges({ toolName, args })) {
+            return { ok: false, error: 'workspace_unsaved_changes' };
+        }
+        let conflictSnapshot;
+        const request = callHostTool(toolName, args, {
+            onWorkspaceObserved: options.onWorkspaceObserved,
+            onWorkspaceConflict: snapshot => { conflictSnapshot = snapshot; },
             workspaceMeta: {
                 source: options.source || WORKSPACE_SOURCES.UI_ACTION,
                 opId: createRequestId('workspace-op'),
+                preconditions: options.preconditions ?? buildWorkspacePreconditions(toolName, args, state.localSources),
+                retryContent: options.retryContent,
                 baseVersion: Number.isFinite(Number(options.baseVersion))
                     ? Number(options.baseVersion)
                     : getWorkspaceRuntimeMeta().version,
                 path,
             },
         });
+        pendingWorkspaceOperations.add(request);
+        let result;
+        try { result = await request; }
+        catch (error) { result = { ok: false, error: String(error?.message || error) }; }
+        finally { pendingWorkspaceOperations.delete(request); }
+        if (result?.error === WORKSPACE_CONFLICT) {
+            options.onWorkspaceConflict?.(conflictSnapshot);
+            if (options.source !== WORKSPACE_SOURCES.EDITOR) {
+                await applyExternalLocalSources(conflictSnapshot);
+                showToast?.(WORKSPACE_COPY.operationConflict);
+            }
+        }
         if (options.updateRuntimeMeta !== false && result && typeof result === 'object') {
             updateWorkspaceRuntimeMeta(result);
         }
         return result;
     }
-    async function flushPendingWorkspaceChanges() {
-        const writes = Array.from(pendingEditorWrites.values());
-        await Promise.all(writes.map(async (entry) => {
-            if (entry?.timer) {
+    function hasPendingWorkspaceChanges() {
+        return pendingEditorWrites.size > 0 || pendingWorkspaceOperations.size > 0 || !!state.localImportProgress?.active;
+    }
+
+    async function flushPendingWorkspaceChanges({ toolName, args } = {}) {
+        const scopes = toolName ? workspaceMutationScopes(toolName, args) : null;
+        const isAffected = path => !scopes || scopes.some(item => (
+            path === item.path || (item.scope === 'tree' && path.startsWith(`${item.path}/`))
+        ));
+        if (!scopes && workspaceUiPersistTimer) persistWorkspaceUiStateImmediately();
+        for (const entry of Array.from(pendingEditorWrites.values()).filter(item => isAffected(item.path))) {
+            if (entry.timer) {
                 clearTimeout(entry.timer);
                 entry.timer = 0;
                 await sendEditorWrite(entry.path);
             }
-            if (entry?.inFlightPromise) {
-                await entry.inFlightPromise.catch(() => {});
-            }
-        }));
-        return Array.from(pendingEditorWrites.values()).every((entry) => (
-            entry?.disposed
-            || (
-                entry?.status !== 'error'
-                && !entry?.timer
-                && !entry?.inFlightPromise
-                && entry?.queuedContent === null
-            )
-        ));
+            if (entry.inFlightPromise) await entry.inFlightPromise;
+        }
+        if (!scopes) {
+            await Promise.all(Array.from(pendingWorkspaceOperations));
+            if (state.localImportProgress?.active) return false;
+        }
+        return !Array.from(pendingEditorWrites.keys()).some(isAffected);
     }
 
     function shouldSkipAuthoritativeRender(nextSources = []) {
@@ -530,11 +519,6 @@ export function createLocalSourcesManager(deps) {
         if (!shouldSkipAuthoritativeRender(normalizedNextSources)) {
             render?.();
         }
-        const persistResult = await persistSession?.();
-        if (persistResult && persistResult.ok === false) {
-            showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${persistResult.error || 'unknown_error'}`);
-            return false;
-        }
         if (toastText) {
             showToast?.(toastText);
         }
@@ -546,7 +530,7 @@ export function createLocalSourcesManager(deps) {
             clearTimeout(workspaceUiPersistTimer);
             workspaceUiPersistTimer = 0;
         }
-        persistSession?.();
+        void saveWorkspaceUiState();
     }
 
     function persistWorkspaceUiState() {
@@ -555,7 +539,7 @@ export function createLocalSourcesManager(deps) {
         }
         workspaceUiPersistTimer = window.setTimeout(() => {
             workspaceUiPersistTimer = 0;
-            persistSession?.();
+            void saveWorkspaceUiState();
         }, 180);
     }
 
@@ -611,7 +595,7 @@ export function createLocalSourcesManager(deps) {
     }
 
     function selectWorkspaceFile(targetPath, options = {}) {
-        const match = findLocalFileByPath(state.localSources, targetPath);
+        const match = findLocalFileByPath(getDisplaySources(), targetPath);
         if (!match) return false;
 
         state.isWorkspaceOpen = true;
@@ -667,7 +651,7 @@ export function createLocalSourcesManager(deps) {
     }
 
     function ensureWorkspaceSelection() {
-        const normalizedSources = normalizeLocalSources(state.localSources);
+        const normalizedSources = getDisplaySources();
         if (!normalizedSources.length) {
             state.selectedSourceId = 'all';
             state.selectedFilePath = '';
@@ -713,7 +697,7 @@ export function createLocalSourcesManager(deps) {
             state.mobileWorkspacePane = state.selectedFilePath ? 'viewer' : 'tree';
         }
 
-        const selected = findLocalFileByPath(state.localSources, state.selectedFilePath);
+        const selected = findLocalFileByPath(normalizedSources, state.selectedFilePath);
         if (selected) {
             if (state.viewerMode === 'original' && !hasOriginalSnapshot(selected.file)) {
                 state.viewerMode = isLocalSourceFileModified(selected.file) ? 'diff' : 'current';
@@ -730,7 +714,6 @@ export function createLocalSourcesManager(deps) {
     async function applyExternalLocalSources(nextSources, toastText = '') {
         console.info('[Assistant][LocalSources] host->iframe applyExternalLocalSources', summarizeLocalSources(nextSources));
         const normalizedNextSources = normalizeLocalSources(nextSources);
-        reconcileWorkspaceTransientState(normalizedNextSources);
         return await applyAuthoritativeLocalSources(normalizedNextSources, toastText);
     }
 
@@ -907,7 +890,7 @@ export function createLocalSourcesManager(deps) {
         const normalizedId = String(sourceId || '').trim();
         if (!normalizedId) return false;
 
-        const source = normalizeLocalSources(state.localSources).find((item) => item.sourceId === normalizedId);
+        const source = getDisplaySources().find((item) => item.sourceId === normalizedId);
         if (!source || !Array.isArray(source.files) || !source.files.length) {
             showToast?.('没有可下载的工作区内容');
             return false;
@@ -932,7 +915,7 @@ export function createLocalSourcesManager(deps) {
     }
 
     function downloadAllLocalSources() {
-        const normalizedSources = normalizeLocalSources(state.localSources);
+        const normalizedSources = getDisplaySources();
         if (!normalizedSources.length) {
             showToast?.('没有可下载的工作区内容');
             return false;
@@ -948,7 +931,7 @@ export function createLocalSourcesManager(deps) {
     }
 
     function downloadLocalFile(targetPath) {
-        const match = findLocalFileByPath(state.localSources, targetPath);
+        const match = findLocalFileByPath(getDisplaySources(), targetPath);
         if (!match) {
             showToast?.('目标文件不存在');
             return false;
@@ -976,9 +959,6 @@ export function createLocalSourcesManager(deps) {
                 showToast?.(`清空失败：${String(result?.error || 'unknown_error')}`);
                 return false;
             }
-            if (normalizeLocalSources(state.localSources).length) {
-                await applyExternalLocalSources([]);
-            }
         } catch (error) {
             showToast?.(`清空失败：${String(error?.message || error || 'unknown_error')}`);
             return false;
@@ -987,77 +967,76 @@ export function createLocalSourcesManager(deps) {
         return true;
     }
 
-    async function resolveEditorStaleConflict(entry, staleResult) {
-        const confirmed = window.confirm('文件已被其他操作修改。\n确定：用当前编辑内容覆盖远端\n取消：丢弃当前改动并加载远端');
-        if (confirmed) {
-            entry.baseVersion = Number(staleResult?.workspaceVersion) || getWorkspaceRuntimeMeta().version;
-            entry.error = '';
-            entry.queuedContent = null;
-            await sendEditorWrite(entry.path);
-            return;
-        }
-        if (Array.isArray(staleResult?.currentSnapshot)) {
-            updateWorkspaceRuntimeMeta(staleResult);
-            await applyExternalLocalSources(staleResult.currentSnapshot);
-        }
-        discardPendingEditorWrite(entry.path);
-        showToast?.('已加载远端版本，当前改动已丢弃');
+    function updateEditorStatus(entry, status, error = '') {
+        entry.status = status;
+        entry.error = error;
+        setDraftRecord(entry.path, { status, error });
     }
 
-    async function sendEditorWrite(targetPath) {
-        const normalizedPath = String(targetPath || '').trim();
-        const entry = pendingEditorWrites.get(normalizedPath);
-        if (!entry || entry.disposed || entry.inFlightPromise) return entry?.inFlightPromise || null;
-        const content = entry.queuedContent;
-        entry.queuedContent = null;
-        entry.inFlightContent = content;
-        entry.status = 'saving';
-        const writePromise = callWorkspaceHostTool(TOOL_NAMES.WRITE, {
-            path: normalizedPath,
-            content,
-        }, {
-            source: WORKSPACE_SOURCES.EDITOR,
-            baseVersion: entry.baseVersion,
-            path: normalizedPath,
-        }).then(async (result) => {
-            entry.inFlightPromise = null;
-            if (entry.disposed) {
-                return result;
-            }
-            if (!result || result.ok === false) {
-                if (result?.error === 'stale_workspace_version') {
-                    await resolveEditorStaleConflict(entry, result);
-                    return result;
-                }
-                entry.status = 'error';
-                entry.error = String(result?.error || 'workspace_write_failed');
-                showToast?.(`保存失败：${entry.error}`);
-                return result;
-            }
+    async function resolveEditorConflict(path, action) {
+        const entry = pendingEditorWrites.get(path);
+        if (!entry || entry.inFlightPromise) return false;
+        if (action === 'saved') {
+            if (entry.conflictSnapshot) await applyExternalLocalSources(entry.conflictSnapshot);
+            discardPendingEditorWrite(path);
+            ensureWorkspaceSelection();
+            render?.();
+            return true;
+        }
+        if (action === 'mine' && entry.conflictSnapshot) {
+            entry.preconditions = buildWorkspacePreconditions(TOOL_NAMES.WRITE, { path }, entry.conflictSnapshot);
+        }
+        entry.queuedContent = getDraftRecord(path).content;
+        updateEditorStatus(entry, 'queued');
+        await sendEditorWrite(path, { retryContent: action === 'retry' ? entry.inFlightContent : undefined });
+        return !pendingEditorWrites.has(path);
+    }
 
-            entry.baseVersion = Number(result.workspaceVersion) || getWorkspaceRuntimeMeta().version;
-            entry.status = 'idle';
-            entry.error = '';
-            if (entry.queuedContent !== null && entry.queuedContent !== entry.inFlightContent) {
-                await sendEditorWrite(normalizedPath);
+    async function sendEditorWrite(targetPath, { retryContent } = {}) {
+        const entry = pendingEditorWrites.get(targetPath);
+        if (!entry || entry.disposed || entry.inFlightPromise) return entry?.inFlightPromise || null;
+        if (entry.status === 'conflict' || entry.status === 'error' || entry.queuedContent === null) return null;
+        // Confirm the same uncertain write before advancing to newer typing.
+        // A failed retry must not replace the only evidence of that write.
+        const content = typeof retryContent === 'string' ? retryContent : entry.queuedContent;
+        if (entry.queuedContent === content) entry.queuedContent = null;
+        entry.inFlightContent = content;
+        updateEditorStatus(entry, 'saving');
+        const writePromise = callWorkspaceHostTool(TOOL_NAMES.WRITE, { path: targetPath, content }, {
+            source: WORKSPACE_SOURCES.EDITOR,
+            preconditions: entry.preconditions,
+            retryContent,
+            onWorkspaceObserved: observations => { entry.preconditions = observations; },
+            onWorkspaceConflict: snapshot => { entry.conflictSnapshot = normalizeLocalSources(snapshot); },
+            path: targetPath,
+        }).then(async result => {
+            entry.inFlightPromise = null;
+            if (entry.disposed) return result;
+            if (!result || result.ok === false) {
+                if (result?.error === WORKSPACE_CONFLICT) {
+                    updateEditorStatus(entry, 'conflict');
+                    await applyExternalLocalSources(entry.conflictSnapshot);
+                } else {
+                    updateEditorStatus(entry, 'error', String(result?.error || 'workspace_write_failed'));
+                }
+                renderWorkspaceOnly?.();
                 return result;
             }
-            if (entry.queuedContent === entry.inFlightContent) {
-                entry.queuedContent = null;
+            updateEditorStatus(entry, 'idle');
+            if (entry.queuedContent !== null && entry.queuedContent !== content) {
+                await sendEditorWrite(targetPath);
+                return result;
             }
-            if (entry.queuedContent === null) {
-                clearDraftRecord(normalizedPath);
-                pendingEditorWrites.delete(normalizedPath);
-            }
+            clearDraftRecord(targetPath);
+            pendingEditorWrites.delete(targetPath);
+            renderWorkspaceOnly?.();
             return result;
-        }).catch((error) => {
+        }).catch(error => {
             entry.inFlightPromise = null;
-            if (entry.disposed) {
-                return null;
+            if (!entry.disposed) {
+                updateEditorStatus(entry, 'error', String(error?.message || error));
+                renderWorkspaceOnly?.();
             }
-            entry.status = 'error';
-            entry.error = String(error?.message || error || 'workspace_write_failed');
-            showToast?.(`保存失败：${entry.error}`);
             return null;
         });
         entry.inFlightPromise = writePromise;
@@ -1066,43 +1045,33 @@ export function createLocalSourcesManager(deps) {
 
     function updateLocalFileContent(targetPath, content, options = {}) {
         const match = findLocalFileByPath(state.localSources, targetPath);
-        const existingDraft = getDraftRecord(targetPath);
-        if (!match && !existingDraft) return false;
-        const nextContent = typeof content === 'string' ? content : String(content ?? '');
-        const currentText = existingDraft?.content ?? String(match?.file?.content || '');
-        if (nextContent === currentText) return true;
-        const draft = setDraftRecord(targetPath, {
-            content: nextContent,
-            status: 'queued',
-            error: '',
-        });
+        const previous = getDraftRecord(targetPath);
+        if (!match && !previous) return false;
+        const nextContent = String(content ?? '');
+        if (nextContent === (previous?.content ?? match?.file.content)) {
+            if (options.flush) void flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.WRITE, args: { path: targetPath } });
+            return true;
+        }
         const entry = pendingEditorWrites.get(targetPath) || {
             path: targetPath,
-            baseVersion: getWorkspaceRuntimeMeta().version,
-            inFlightPromise: null,
-            inFlightContent: null,
-            queuedContent: null,
-            timer: 0,
-            status: 'queued',
-            error: '',
+            preconditions: buildWorkspacePreconditions(TOOL_NAMES.WRITE, { path: targetPath }, state.localSources),
+            inFlightPromise: null, inFlightContent: null, queuedContent: null, timer: 0, status: 'queued',
         };
+        setDraftRecord(targetPath, {
+            file: previous?.file || { ...match.file },
+            content: nextContent, status: entry.status, error: entry.error || '',
+        });
         entry.queuedContent = nextContent;
-        entry.status = draft?.status || 'queued';
-        entry.error = '';
-        if (entry.timer) {
-            clearTimeout(entry.timer);
-        }
-        entry.timer = window.setTimeout(() => {
-            entry.timer = 0;
-            void sendEditorWrite(targetPath);
-        }, 16);
         pendingEditorWrites.set(targetPath, entry);
-        if (options.flush) {
-            void flushPendingWorkspaceChanges();
+        if (entry.timer) clearTimeout(entry.timer);
+        if (entry.status !== 'conflict' && entry.status !== 'error') {
+            entry.timer = window.setTimeout(() => {
+                entry.timer = 0;
+                void sendEditorWrite(targetPath);
+            }, 16);
         }
-        if (options.render) {
-            render?.();
-        }
+        if (options.flush) void flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.WRITE, args: { path: targetPath } });
+        if (options.render) render?.();
         return true;
     }
 
@@ -1188,10 +1157,6 @@ export function createLocalSourcesManager(deps) {
             if (!result || result.ok === false) {
                 showToast?.(`新建目录失败：${String(result?.error || 'workspace_write_failed')}`);
                 return false;
-            }
-            if (!findLocalDirectoryByPath(state.localSources, normalizedPath)) {
-                const upsert = upsertLocalDirectoryInSources(state.localSources, normalizedPath);
-                await applyExternalLocalSources(upsert.nextSources);
             }
         } catch (error) {
             showToast?.(`新建目录失败：${String(error?.message || error || 'workspace_write_failed')}`);
@@ -1410,7 +1375,7 @@ export function createLocalSourcesManager(deps) {
 
     function renderWorkspace(container, options = {}) {
         ensureWorkspaceSelection();
-        const normalizedSources = normalizeLocalSources(state.localSources);
+        const normalizedSources = getDisplaySources();
         const summary = summarizeLocalSources(normalizedSources);
         const workspaceTree = buildWorkspaceTree(normalizedSources, {
             selectedSourceId: 'all',
@@ -1418,7 +1383,7 @@ export function createLocalSourcesManager(deps) {
             modifiedOnly: state.showModifiedOnly,
             isModifiedFile: isLocalSourceFileModified,
         });
-        const selectedMatch = findLocalFileByPath(state.localSources, state.selectedFilePath);
+        const selectedMatch = findLocalFileByPath(normalizedSources, state.selectedFilePath);
         const selectedDraft = getDraftRecord(state.selectedFilePath);
         const renderedSelectedMatch = selectedMatch && selectedDraft
             ? {
@@ -1435,6 +1400,9 @@ export function createLocalSourcesManager(deps) {
             summary,
             workspaceTree,
             selectedMatch: renderedSelectedMatch,
+            editorDraft: selectedDraft,
+            savedFileExists: !!findLocalFileByPath(state.localSources, state.selectedFilePath),
+            onResolveConflict: action => { void resolveEditorConflict(state.selectedFilePath, action); },
             workspaceState: {
                 selectedSourceId: 'all',
                 selectedFilePath: state.selectedFilePath,
@@ -1536,6 +1504,8 @@ export function createLocalSourcesManager(deps) {
         getWorkspaceSummary,
         openFirstModifiedFile,
         flushPendingWorkspaceChanges,
-        postPendingWorkspaceWritesForUnload,
+        hasPendingWorkspaceChanges,
+        resolveEditorConflict,
+        captureRunWorkspaceBaseline,
     };
 }

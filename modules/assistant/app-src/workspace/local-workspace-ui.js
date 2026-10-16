@@ -297,11 +297,44 @@ function renderWorkspaceTreeNodes(container, nodes = [], options = {}) {
     });
 }
 
+function renderSaveNotice(viewer, { editorDraft, savedFileExists, onResolveConflict }) {
+    viewer.querySelector('.xb-assistant-workspace-save-notice')?.remove();
+    const visible = editorDraft?.status === 'conflict' || editorDraft?.status === 'error';
+    viewer.classList.toggle('has-save-notice', visible);
+    if (!visible) return;
+    const notice = document.createElement('div');
+    notice.className = 'xb-assistant-workspace-save-notice';
+    notice.setAttribute('role', 'status');
+    const message = document.createElement('span');
+    message.textContent = editorDraft.status === 'conflict'
+        ? (savedFileExists ? C.conflict : C.deletedConflict)
+        : C.editorSaveFailed;
+    notice.appendChild(message);
+    const actions = editorDraft.status === 'conflict'
+        ? [
+            ['saved', savedFileExists ? C.useSaved : C.discardDeletedDraft],
+            ['mine', savedFileExists ? C.overwriteWithDraft : C.recreateFromDraft],
+        ]
+        : [['retry', C.retrySave]];
+    for (const [action, label] of actions) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.dataset.conflictAction = action;
+        button.addEventListener('click', () => onResolveConflict(action));
+        notice.appendChild(button);
+    }
+    viewer.insertBefore(notice, viewer.querySelector('.xb-assistant-workspace-code-wrap'));
+}
+
 export function renderWorkspace(container, options = {}) {
     const {
         summary = { sourceCount: 0, fileCount: 0, modifiedFileCount: 0 },
         workspaceTree = { nodes: [] },
         selectedMatch = null,
+        editorDraft = null,
+        savedFileExists = true,
+        onResolveConflict = () => {},
         workspaceState = {},
         panelModes = C.panelModes,
         activePanelMode = 'workspace',
@@ -362,6 +395,9 @@ export function renderWorkspace(container, options = {}) {
                 onUpdateFileContent(selectedMatch.file.path, nextValue, { render: true, flush: true });
             }
             : (() => {});
+        renderSaveNotice(existingEditorCache.view.dom.closest('.xb-assistant-workspace-viewer'), {
+            editorDraft, savedFileExists, onResolveConflict,
+        });
         return;
     }
     container.replaceChildren();
@@ -556,6 +592,8 @@ export function renderWorkspace(container, options = {}) {
 
     viewerHeader.appendChild(viewerActions);
     viewer.appendChild(viewerHeader);
+
+    renderSaveNotice(viewer, { editorDraft, savedFileExists, onResolveConflict });
 
     const codeWrap = document.createElement('div');
     codeWrap.className = 'xb-assistant-workspace-code-wrap';

@@ -24,6 +24,9 @@ import {
     shouldRequireSlashCommandApproval,
 } from './slash-command-policy.js';
 import { createSessionStore } from './state/session-store.js';
+import { createWorkspaceStore } from './workspace/workspace-store.js';
+import { closeAssistantWorkspace } from './workspace/workspace-lifecycle.js';
+import { ACTIVITY_COPY } from './ui/activity-copy.js';
 import { createAttachmentsManager } from './attachments.js';
 import { renderAppChrome, renderContextHint, resolveWorkspaceWidth } from './ui/app-chrome.js';
 import { bindContextMeter, renderContextMeter } from './ui/context-meter.js';
@@ -90,6 +93,8 @@ const state = {
     },
     isBusy: false,
     isPreparingRun: false,
+    isClearingConversation: false,
+    isClosingAssistant: false,
     currentRound: 0,
     progressLabel: '',
     activeRun: null,
@@ -155,7 +160,6 @@ let contextStatsRenderTimer = null;
 let lastContextStatsRenderAt = 0;
 const workspaceToolBridge = {
     callHostTool: null,
-    postHostToolCallWithoutResponse: null,
 };
 const WORKSPACE_KERNEL_RELOAD_KEY = 'xb-assistant-workspace-kernel-reload';
 
@@ -255,6 +259,13 @@ function ensureWorkspaceKernelVersion(runtime = state.runtime) {
 }
 
 let sessionStore = null;
+const workspaceStore = createWorkspaceStore({ state });
+
+async function persistWorkspaceUiState() {
+    const result = await workspaceStore.persistWorkspaceUiState();
+    if (!result.ok) showToast(WORKSPACE_COPY.saveFailed(result.error));
+    return result;
+}
 
 function persistSession() {
     return sessionStore?.persistSession();
@@ -269,13 +280,13 @@ function restoreSession() {
 }
 
 async function closeAssistantAfterWorkspaceFlush() {
-    const ok = await flushPendingWorkspaceChanges();
-    if (!ok) {
-        showToast('工作区还有未保存修改，已取消关闭。');
-        return false;
-    }
-    post('xb-assistant:close');
-    return true;
+    return closeAssistantWorkspace({
+        state, cancelRun: () => cancelActiveRun(''),
+        flushEditorChanges: flushPendingWorkspaceChanges,
+        flushHostWrites: () => requestHost(WORKSPACE_MESSAGE_TYPES.FLUSH),
+        workspaceStore, hasPendingChanges: hasPendingWorkspaceChanges,
+        close: () => post('xb-assistant:close'), render, showToast, describeError,
+    });
 }
 
 function renderWorkspaceOnly() {
@@ -285,7 +296,7 @@ function renderWorkspaceOnly() {
     if (!workspacePanel) return;
     if (!state.isWorkspaceOpen) {
         renderWorkspacePanelWhenOpen(workspacePanel, {
-            disabled: state.isBusy,
+            disabled: state.isBusy || state.isClosingAssistant,
             onEditorSelectionChange: handleWorkspaceEditorSelectionChange,
         });
         renderContextHint(root, state);
@@ -297,7 +308,7 @@ function renderWorkspaceOnly() {
         ensureWorkspaceSelection();
     }
     renderWorkspacePanelWhenOpen(workspacePanel, {
-        disabled: state.isBusy,
+        disabled: state.isBusy || state.isClosingAssistant,
         onEditorSelectionChange: handleWorkspaceEditorSelectionChange,
     });
     renderContextHint(root, state);
@@ -385,7 +396,7 @@ function setWorkspacePanelMode(mode = 'workspace', options = {}) {
         ensureSkillSelection();
     }
     if (options.persist !== false) {
-        persistSession();
+        void persistWorkspaceUiState();
     }
     if (options.render !== false) {
         renderWorkspaceOnly();
@@ -409,7 +420,7 @@ function selectSkillFile(targetPath = '', options = {}) {
     state.selectedTreePath = '';
     state.mobileWorkspacePane = 'viewer';
     if (options.persist !== false) {
-        persistSession();
+        void persistWorkspaceUiState();
     }
     return true;
 }
@@ -426,7 +437,7 @@ function updateSkillFileContent(targetPath, content) {
         };
     });
     if (changed) {
-        persistSession();
+        void persistWorkspaceUiState();
     }
     return changed;
 }
@@ -444,7 +455,7 @@ function restoreSkillFile(targetPath = '') {
         };
     });
     if (changed) {
-        persistSession();
+        void persistWorkspaceUiState();
         renderWorkspaceOnly();
     }
     return changed;
@@ -598,13 +609,13 @@ function renderWorkspacePanel(container, options = {}) {
             onSearchChange: (value) => {
                 state.fileSearchQuery = String(value || '');
                 ensureSkillSelection();
-                persistSession();
+                void persistWorkspaceUiState();
                 renderWorkspaceOnly();
             },
             onToggleModifiedOnly: (value) => {
                 state.showModifiedOnly = !!value;
                 ensureSkillSelection();
-                persistSession();
+                void persistWorkspaceUiState();
                 renderWorkspaceOnly();
             },
             onToggleNode: (nodeKey) => {
@@ -612,7 +623,7 @@ function renderWorkspacePanel(container, options = {}) {
                 if (next.has(nodeKey)) next.delete(nodeKey);
                 else next.add(nodeKey);
                 state.skillTreeExpandedKeys = Array.from(next);
-                persistSession();
+                void persistWorkspaceUiState();
                 renderWorkspaceOnly();
             },
             onSelectFile: (targetPath) => {
@@ -622,7 +633,7 @@ function renderWorkspacePanel(container, options = {}) {
             onSelectNode: () => {},
             onSetViewerMode: (mode) => {
                 state.viewerMode = mode;
-                persistSession();
+                void persistWorkspaceUiState();
                 renderWorkspaceOnly();
             },
             onShowTree: () => {
@@ -648,106 +659,10 @@ function renderWorkspacePanel(container, options = {}) {
         return;
     }
 
-    ensureWorkspaceSelection();
-    const normalizedSources = normalizeLocalSources(state.localSources);
-    const summary = summarizeLocalSources(normalizedSources);
-    const workspaceTree = buildWorkspaceTree(normalizedSources, {
-        selectedSourceId: 'all',
-        searchQuery: state.fileSearchQuery,
-        modifiedOnly: state.showModifiedOnly,
-        isModifiedFile: isTrackedFileModified,
-    });
-    const selectedMatch = findTrackedFileByPath(normalizedSources, state.selectedFilePath);
-    renderWorkspaceUi(container, {
+    localSourcesManager.renderWorkspace(container, {
         ...options,
-        localSources: normalizedSources,
-        summary,
-        workspaceTree,
-        selectedMatch,
         activePanelMode: 'workspace',
-        workspaceState: {
-            selectedSourceId: 'all',
-            selectedFilePath: state.selectedFilePath,
-            selectedTreePath: state.selectedTreePath,
-            fileSearchQuery: state.fileSearchQuery,
-            showModifiedOnly: state.showModifiedOnly,
-            viewerMode: state.viewerMode,
-            mobileWorkspacePane: state.mobileWorkspacePane,
-            treeExpandedKeys: state.treeExpandedKeys,
-        },
-        isModifiedFile: isTrackedFileModified,
-        hasOriginalSnapshot,
-        onSelectPanelMode: (mode) => {
-            setWorkspacePanelMode(mode);
-        },
-        onDownloadAll: () => {
-            downloadAllLocalSources();
-        },
-        onClearAll: () => {
-            void clearLocalSources();
-        },
-        onCloseWorkspace: () => {
-            closeWorkspace();
-        },
-        onSearchChange: (value) => {
-            state.fileSearchQuery = String(value || '');
-            ensureWorkspaceSelection();
-            persistSession();
-            renderWorkspaceOnly();
-        },
-        onToggleModifiedOnly: (value) => {
-            state.showModifiedOnly = !!value;
-            ensureWorkspaceSelection();
-            persistSession();
-            renderWorkspaceOnly();
-        },
-        onToggleNode: (nodeKey) => {
-            const next = new Set(Array.isArray(state.treeExpandedKeys) ? state.treeExpandedKeys : []);
-            if (next.has(nodeKey)) next.delete(nodeKey);
-            else next.add(nodeKey);
-            state.treeExpandedKeys = Array.from(next);
-            persistSession();
-            renderWorkspaceOnly();
-        },
-        onSelectFile: (targetPath) => {
-            selectWorkspaceFile(targetPath, {
-                preserveSourceFilter: true,
-                preserveSearch: true,
-                preserveModifiedOnly: true,
-            });
-            renderWorkspaceOnly();
-        },
-        onSelectNode: (targetPath) => {
-            selectWorkspaceNode(targetPath);
-        },
-        onSetViewerMode: (mode) => {
-            state.viewerMode = mode;
-            ensureWorkspaceSelection();
-            persistSession();
-            renderWorkspaceOnly();
-        },
-        onShowTree: () => {
-            setMobileWorkspacePane('tree', { render: true });
-        },
-        onDownloadFile: (targetPath) => {
-            downloadLocalFile(targetPath);
-        },
-        onRestoreFile: (targetPath) => {
-            void restoreLocalFile(targetPath);
-        },
-        onUpdateFileContent: (targetPath, content, nextOptions = {}) => updateLocalFileContent(targetPath, content, nextOptions),
-        onCreateFile: (targetPath) => {
-            void createLocalFileAt(targetPath);
-        },
-        onCreateDirectory: (targetPath) => {
-            void createLocalDirectoryAt(targetPath);
-        },
-        onRenamePath: (targetPath) => {
-            void renameLocalPath(targetPath);
-        },
-        onDeletePath: (targetPath) => {
-            void deleteLocalPath(targetPath);
-        },
+        onSelectPanelMode: mode => setWorkspacePanelMode(mode),
         showDownloadButton: true,
         showRestoreButton: true,
         showRenameButton: true,
@@ -1039,7 +954,7 @@ const localSourcesManager = createLocalSourcesManager({
     setImportProgress: setLocalImportProgress,
     render,
     renderWorkspaceOnly,
-    persistSession,
+    persistWorkspaceUiState,
     onWorkspaceClosed: clearWorkspaceSelectionContext,
     onWorkspaceSelectionChanged: () => {
         clearWorkspaceSelectionContext();
@@ -1047,7 +962,6 @@ const localSourcesManager = createLocalSourcesManager({
     },
     post,
     callHostTool: (...args) => workspaceToolBridge.callHostTool?.(...args),
-    postHostToolCallWithoutResponse: (...args) => workspaceToolBridge.postHostToolCallWithoutResponse?.(...args),
     renderWorkspaceUi,
 });
 
@@ -1063,18 +977,9 @@ const {
     ensureWorkspaceSelection,
     getWorkspaceSummary,
     flushPendingWorkspaceChanges,
-    postPendingWorkspaceWritesForUnload,
-    selectWorkspaceFile,
-    selectWorkspaceNode,
+    hasPendingWorkspaceChanges,
+    captureRunWorkspaceBaseline,
     setMobileWorkspacePane,
-    updateLocalFileContent,
-    downloadLocalFile,
-    downloadAllLocalSources,
-    restoreLocalFile,
-    createLocalFileAt,
-    createLocalDirectoryAt,
-    renameLocalPath,
-    deleteLocalPath,
 } = localSourcesManager;
 
 function describeError(error) {
@@ -1435,11 +1340,9 @@ const {
     getActiveContextMessages,
     runAssistantLoop,
     callHostTool,
-    postHostToolCallWithoutResponse,
 } = runtime;
 
 workspaceToolBridge.callHostTool = callHostTool;
-workspaceToolBridge.postHostToolCallWithoutResponse = postHostToolCallWithoutResponse;
 
 sessionStore = createSessionStore({
     state,
@@ -1461,20 +1364,32 @@ function applyConfig(config) {
 }
 
 async function createAssistantRun() {
-    return {
+    const run = {
         id: createRequestId('run'),
         controller: new AbortController(),
         toolRequestIds: new Set(),
-        userContextSnapshotText: await getRunUserContextSnapshotText(),
+        workspaceBaseline: captureRunWorkspaceBaseline(),
+        userContextSnapshotText: '',
         cancelNotice: '',
         lightBrakeMessage: '',
         lastLightBrakeKey: '',
         toolErrorStreakKey: '',
         toolErrorStreakCount: 0,
     };
+    state.activeRun = run;
+    try {
+        run.userContextSnapshotText = await getRunUserContextSnapshotText();
+        return run.controller.signal.aborted ? null : run;
+    } catch (error) {
+        if (state.activeRun === run) state.activeRun = null;
+        throw error;
+    } finally {
+        if (run.controller.signal.aborted && state.activeRun === run) state.activeRun = null;
+    }
 }
 
 async function executeAssistantRun(run) {
+    if (run.controller.signal.aborted) return;
     state.activeRun = run;
     state.isBusy = true;
     state.currentRound = 0;
@@ -1595,7 +1510,11 @@ function render() {
     if (!root) {
         return;
     }
-    if (!root.firstChild) {
+    if (!state.config) {
+        root.textContent = state.configLoadError ? ACTIVITY_COPY.configLoadFailed(state.configLoadError) : '';
+        return;
+    }
+    if (!root.querySelector('#xb-assistant-form')) {
         root.replaceChildren(buildSanitizedHtmlFragment(buildAssistantAppMarkup(state)));
         bindEvents(root);
     }
@@ -1855,7 +1774,7 @@ function bindEvents(root) {
         const messageIndex = Number.parseInt(actionButton.dataset.messageIndex || '', 10);
         const action = String(actionButton.dataset.messageAction || '').trim();
         if (!Number.isInteger(messageIndex) || messageIndex < 0 || !action) return;
-        if (state.isBusy && action !== 'cancel-edit') return;
+        if (state.isClosingAssistant || state.isClearingConversation || (state.isBusy && action !== 'cancel-edit')) return;
         const message = state.messages[messageIndex];
         if (!isEditableAssistantTextMessage(message)) return;
 
@@ -1927,15 +1846,18 @@ function bindEvents(root) {
 
             state.isPreparingRun = true;
             try {
+                const run = await createAssistantRun();
+                if (!run) return;
                 state.messages = nextMessages;
                 state.pendingApproval = null;
                 state.editingMessageIndex = -1;
                 await persistSession();
                 render();
 
-                const run = await createAssistantRun();
                 state.isPreparingRun = false;
                 await executeAssistantRun(run);
+            } catch (error) {
+                showToast(WORKSPACE_COPY.saveFailed(describeError(error)));
             } finally {
                 state.isPreparingRun = false;
             }
@@ -1947,18 +1869,35 @@ function bindEvents(root) {
     bindSettingsPanelEvents(root);
 
     root.querySelector('#xb-assistant-clear').addEventListener('click', async () => {
-        if (state.isBusy) return;
-        state.messages = [];
-        state.draftAttachments = [];
-        state.historySummary = '';
-        state.archivedTurnCount = 0;
-        resetMessageWindow(state);
-        state.pendingApproval = null;
-        state.editingMessageIndex = -1;
-        resetCompactionState();
-        await clearSession();
-        showToast('对话已清空');
+        if (state.isClosingAssistant || state.isBusy || state.isPreparingRun || state.isClearingConversation) return;
+        state.isClearingConversation = true;
         render();
+        try {
+            if (!await flushPendingWorkspaceChanges()) {
+                showToast(WORKSPACE_COPY.pendingBeforeClear);
+                return;
+            }
+            const savedWorkspace = await workspaceStore.flushWorkspace();
+            if (!savedWorkspace.ok) {
+                showToast(WORKSPACE_COPY.saveFailed(savedWorkspace.error));
+                return;
+            }
+            const result = await clearSession();
+            if (!result.ok) {
+                showToast(ACTIVITY_COPY.clearFailed(result.error));
+                return;
+            }
+            state.draftAttachments = [];
+            state.pendingApproval = null;
+            state.editingMessageIndex = -1;
+            resetCompactionState();
+            showToast(ACTIVITY_COPY.conversationCleared);
+        } catch (error) {
+            showToast(ACTIVITY_COPY.clearFailed(describeError(error)));
+        } finally {
+            state.isClearingConversation = false;
+            render();
+        }
     });
 
     root.querySelector('#xb-assistant-add-image').addEventListener('click', () => {
@@ -2052,25 +1991,28 @@ function bindEvents(root) {
             cancelActiveRun('本轮请求已终止。');
             return;
         }
-        if (state.isPreparingRun) return;
+        if (state.isClosingAssistant || state.isPreparingRun || state.isClearingConversation) return;
         const value = input.value.trim();
         const attachments = normalizeAttachments(state.draftAttachments);
         if (!value && !attachments.length) return;
 
         state.isPreparingRun = true;
-        resetMessageWindow(state);
-        pushMessage({ role: 'user', content: value, attachments });
-        input.value = '';
-        state.draftAttachments = [];
-        state.composeMenuOpen = false;
-        resizeComposer();
-        render();
-
-        state.editingMessageIndex = -1;
         try {
             const run = await createAssistantRun();
+            if (!run) return;
+            resetMessageWindow(state);
+            pushMessage({ role: 'user', content: value, attachments });
+            input.value = '';
+            state.draftAttachments = [];
+            state.composeMenuOpen = false;
+            resizeComposer();
+            render();
+
+            state.editingMessageIndex = -1;
             state.isPreparingRun = false;
             await executeAssistantRun(run);
+        } catch (error) {
+            showToast(WORKSPACE_COPY.saveFailed(describeError(error)));
         } finally {
             state.isPreparingRun = false;
         }
@@ -2231,7 +2173,7 @@ window.addEventListener('message', (event) => {
     if (data.type === 'xb-assistant:tool-result') {
         const entry = pendingToolCalls.get(data.payload?.requestId || '');
         if (!entry) return;
-        entry.resolve(data.payload.result);
+        entry.resolve(data.payload.result, data.payload.workspaceObservations, data.payload.workspaceConflictSnapshot);
         return;
     }
 
@@ -2242,15 +2184,15 @@ window.addEventListener('message', (event) => {
     }
 });
 
-window.addEventListener('beforeunload', () => {
-    postPendingWorkspaceWritesForUnload();
-    void flushPendingWorkspaceChanges();
+window.addEventListener('beforeunload', (event) => {
+    if (!hasPendingWorkspaceChanges()) return;
+    event.preventDefault();
+    event.returnValue = '';
 });
 
 async function bootstrap() {
-    await restoreSession();
+    await Promise.all([restoreSession(), workspaceStore.restoreWorkspace()]);
     injectAssistantStyles(ROOT_ID);
-    render();
     post(WORKSPACE_MESSAGE_TYPES.HYDRATE, {
         localSources: normalizeLocalSources(state.localSources),
         kernelVersion: WORKSPACE_KERNEL_VERSION,
@@ -2262,13 +2204,5 @@ async function bootstrap() {
 
 bootstrap().catch((error) => {
     console.error('[Assistant] 启动失败:', error);
-    injectAssistantStyles(ROOT_ID);
-    render();
-    post(WORKSPACE_MESSAGE_TYPES.HYDRATE, {
-        localSources: normalizeLocalSources(state.localSources),
-        kernelVersion: WORKSPACE_KERNEL_VERSION,
-    });
-    post('xb-assistant:ready', {
-        kernelVersion: WORKSPACE_KERNEL_VERSION,
-    });
+    document.getElementById(ROOT_ID).textContent = ACTIVITY_COPY.restoreFailed;
 });

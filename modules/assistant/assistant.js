@@ -16,8 +16,10 @@ import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
 import { applyPatchUpdateToText, parseApplyPatch } from "../agent-core/tools/apply-patch.js";
 import { buildPatchFailureResult, runPatchValidationAndApply } from "../agent-core/tools/apply-patch-execution.js";
 import { createLocalSourcesToolRuntime } from "./shared/local-sources-tool-runtime.js";
+import { workspaceRepository } from './shared/workspace-repository.js';
 import { MAX_READ_RETURN_CHARS, MAX_READ_LINE_CHARS, headPreviewLines, sliceLinesWithBudget, truncateReadLine } from './shared/read-window.js';
 import { readTextPreview } from '../agent-core/runtime/text-preview.js';
+import { orderedConcurrentRead } from '../agent-core/runtime/ordered-concurrent-read.js';
 import {
     LOOKUP_SCOPE_PROJECT,
     LOOKUP_SCOPE_LOCAL,
@@ -57,7 +59,6 @@ import {
     removeLocalSourcePath as kernelRemoveLocalSourcePath,
     upsertLocalSourceDirectory as kernelUpsertLocalSourceDirectory,
     upsertLocalSourceFile as kernelUpsertLocalSourceFile,
-    validateLocalSourcesSnapshot as kernelValidateLocalSourcesSnapshot,
 } from "./shared/local-workspace-kernel.js";
 import {
     INTERNAL_WORKSPACE_TOOL_NAMES,
@@ -354,10 +355,6 @@ function findLocalDirectoryByPath(publicPath, localSources = localSourcesCache) 
         directories: match.directories,
         source: match.source,
     };
-}
-
-function validateLocalSourcesSnapshot(localSources = []) {
-    return kernelValidateLocalSourcesSnapshot(localSources);
 }
 
 function getWritableLocalPathError(rawPath) {
@@ -1908,89 +1905,91 @@ async function grepFiles(args = {}, options = {}) {
     let totalMatches = 0;
     let seenContentMatches = 0;
     let skippedFiles = 0;
-    const skippedPaths = [];
-    for (const entry of candidateFiles) {
+    const readErrors = [];
+    const reads = orderedConcurrentRead(candidateFiles,
+        (entry, signal) => readTextFile(entry.publicPath, { ...options, signal }), options.signal);
+    for await (const read of reads) {
         ensureNotAborted(options.signal);
+        const entry = read.item;
         scannedFiles += 1;
-
-        try {
-            const text = await readTextFile(entry.publicPath, options);
-            const lines = text.split('\n');
-            const matches = [];
-
-            lines.forEach((line, lineIndex) => {
-                const isMatch = useRegex
-                    ? regex.test(line)
-                    : line.toLowerCase().includes(loweredPattern);
-
-                if (!isMatch) return;
-
-                const lineNumber = lineIndex + 1;
-                const contextStart = Math.max(0, lineIndex - contextLines);
-                const contextEnd = Math.min(lines.length, lineIndex + contextLines + 1);
-                const contextText = lines.slice(contextStart, contextEnd)
-                    .map((contextLine, contextIndex) => {
-                        const num = contextStart + contextIndex + 1;
-                        const prefix = num === lineNumber ? '>' : ' ';
-                        return `${prefix} ${num}: ${truncateSearchLine(contextLine)}`;
-                    })
-                    .join('\n');
-
-                matches.push({
-                    line: lineNumber,
-                    text: truncateSearchLine(line),
-                    context: contextLines > 0 ? contextText : null,
-                });
-            });
-
-            if (!matches.length) continue;
-            matchedFiles += 1;
-            totalMatches += matches.length;
-
-            if (outputMode === 'count') {
-                if (matchedFiles <= offset) continue;
-                results.push({
-                    path: entry.publicPath,
-                    source: entry.source,
-                    matchCount: matches.length,
-                });
-            } else if (outputMode === 'files_with_matches') {
-                if (matchedFiles <= offset) continue;
-                results.push({
-                    path: entry.publicPath,
-                    source: entry.source,
-                    matchCount: matches.length,
-                });
-            } else {
-                matches.forEach((match) => {
-                    seenContentMatches += 1;
-                    if (seenContentMatches <= offset) return;
-                    if (results.length >= limit) return;
-                    results.push({
-                        path: entry.publicPath,
-                        source: entry.source,
-                        line: match.line,
-                        text: match.text,
-                        context: match.context,
-                    });
-                });
-            }
-            if (results.length >= limit) {
-                truncated = outputMode === 'content'
-                    ? totalMatches > offset + results.length || scannedFiles < candidateFiles.length
-                    : matchedFiles < candidateFiles.length || scannedFiles < candidateFiles.length;
-                break;
-            }
-        } catch {
+        if (!read.ok) {
+            if (read.error?.name === 'AbortError') throw read.error;
             skippedFiles += 1;
-            if (skippedPaths.length < MAX_PATH_SUGGESTIONS) {
-                skippedPaths.push(entry.publicPath);
+            if (readErrors.length < MAX_PATH_SUGGESTIONS) {
+                readErrors.push({ path: entry.publicPath, cause: String(read.error?.message || read.error) });
             }
             continue;
         }
+        const lines = read.value.split('\n');
+        const matches = [];
+
+        lines.forEach((line, lineIndex) => {
+            const isMatch = useRegex
+                ? regex.test(line)
+                : line.toLowerCase().includes(loweredPattern);
+
+            if (!isMatch) return;
+
+            const lineNumber = lineIndex + 1;
+            const contextStart = Math.max(0, lineIndex - contextLines);
+            const contextEnd = Math.min(lines.length, lineIndex + contextLines + 1);
+            const contextText = lines.slice(contextStart, contextEnd)
+                .map((contextLine, contextIndex) => {
+                    const num = contextStart + contextIndex + 1;
+                    const prefix = num === lineNumber ? '>' : ' ';
+                    return `${prefix} ${num}: ${truncateSearchLine(contextLine)}`;
+                })
+                .join('\n');
+
+            matches.push({
+                line: lineNumber,
+                text: truncateSearchLine(line),
+                context: contextLines > 0 ? contextText : null,
+            });
+        });
+
+        if (!matches.length) continue;
+        matchedFiles += 1;
+        totalMatches += matches.length;
+
+        if (outputMode === 'count') {
+            if (matchedFiles <= offset) continue;
+            results.push({
+                path: entry.publicPath,
+                source: entry.source,
+                matchCount: matches.length,
+            });
+        } else if (outputMode === 'files_with_matches') {
+            if (matchedFiles <= offset) continue;
+            results.push({
+                path: entry.publicPath,
+                source: entry.source,
+                matchCount: matches.length,
+            });
+        } else {
+            matches.forEach((match) => {
+                seenContentMatches += 1;
+                if (seenContentMatches <= offset) return;
+                if (results.length >= limit) return;
+                results.push({
+                    path: entry.publicPath,
+                    source: entry.source,
+                    line: match.line,
+                    text: match.text,
+                    context: match.context,
+                });
+            });
+        }
+        if (results.length >= limit) {
+            truncated = outputMode === 'content'
+                ? totalMatches > offset + results.length || scannedFiles < candidateFiles.length
+                : matchedFiles < candidateFiles.length || scannedFiles < candidateFiles.length;
+            break;
+        }
     }
 
-    const searchComplete = !truncated && scannedFiles >= candidateFiles.length;
+    ensureNotAborted(options.signal);
+    const searchComplete = !truncated && scannedFiles >= candidateFiles.length && skippedFiles === 0;
     const matchesFound = totalMatches;
 
     return {
@@ -2011,7 +2010,8 @@ async function grepFiles(args = {}, options = {}) {
         truncated,
         scannedFiles,
         skippedFiles,
-        skippedPaths,
+        skippedPaths: readErrors.map(error => error.path),
+        readErrors,
         candidateFiles: candidateFiles.length,
         indexedFiles: files.length,
         searchComplete,
@@ -3248,7 +3248,7 @@ function getLocalSourcesToolRuntime() {
             },
             normalizeLocalSourcesSnapshot,
             executeToolCall,
-            validateLocalSources: validateLocalSourcesSnapshot,
+            repository: workspaceRepository,
         });
     }
     return localSourcesToolRuntime;
@@ -3424,6 +3424,10 @@ async function handleIframeMessage(event) {
             console.info('[Assistant][HostBridge] workspace-hydrate:received', summarizeLocalSourcesForDebug(payload?.localSources));
             await getLocalSourcesToolRuntime().hydrateLocalSources(payload?.localSources);
             break;
+        case WORKSPACE_MESSAGE_TYPES.FLUSH:
+            await getLocalSourcesToolRuntime().flush();
+            replyAssistantHostResult(String(payload?.requestId || ''), { ok: true });
+            break;
         case 'xb-assistant:tool-call': {
             const requestId = payload?.requestId || '';
             const toolName = payload?.name || '';
@@ -3437,11 +3441,13 @@ async function handleIframeMessage(event) {
                 requestId,
                 toolName,
                 cache: summarizeLocalSourcesForDebug(localSourcesCache),
-                workspaceMeta,
+                workspaceMeta: { source: workspaceMeta.source, opId: workspaceMeta.opId, path: workspaceMeta.path },
             });
             const controller = new AbortController();
             activeToolControllers.set(requestId, controller);
             try {
+                let workspaceObservations = [];
+                let workspaceConflictSnapshot;
                 let result = isPlanToolName(toolName)
                     ? await executeToolCall(toolName, args, {
                         signal: controller.signal,
@@ -3450,6 +3456,8 @@ async function handleIframeMessage(event) {
                     : await getLocalSourcesToolRuntime().execute(toolName, args, {
                         signal: controller.signal,
                         workspaceMeta,
+                        onWorkspaceObserved: observations => { workspaceObservations = observations; },
+                        onWorkspaceConflict: snapshot => { workspaceConflictSnapshot = snapshot; },
                         onLocalSourcesUpdated: (nextSources, workspaceState) => {
                             postToIframe(iframe, {
                                 type: LOCAL_SOURCES_UPDATED,
@@ -3511,7 +3519,7 @@ async function handleIframeMessage(event) {
                 }
                 postToIframe(iframe, {
                     type: TOOL_RESULT,
-                    payload: { requestId, name: toolName, result },
+                    payload: { requestId, name: toolName, result, workspaceObservations, workspaceConflictSnapshot },
                 });
             } catch (error) {
                 postToIframe(iframe, {

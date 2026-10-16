@@ -1,4 +1,5 @@
 import { extensionFolderPath } from '../../../../../core/constants.js';
+import { orderedConcurrentRead } from '../../../../agent-core/runtime/ordered-concurrent-read.js';
 import { AdministratorSourceError as SourceError, OS_SOURCE_ROOT as ROOT, OS_SOURCE_RELATIVE_ROOT, OS_SOURCE_LIMITS as LIMITS, SOURCE_HINTS as HINTS, type SourceFile } from '../domain/source-code.js';
 import { buildDirectoryItems, compileGlobPattern, directoryContent, escapeRegExp, filterFilesByPath, findPathSuggestions, sliceLinesWithBudget, truncateReadLine } from '../domain/source-query.js';
 import { sourceTextPreview } from './source-text.js';
@@ -26,11 +27,12 @@ export function createAdministratorSourceReader(options: { signal?: AbortSignal;
     const request = options.fetch ?? globalThis.fetch;
     let index: Promise<SourceFile[]> | undefined;
     function current() { options.signal?.throwIfAborted(); options.assertCurrent(); }
-    async function fetchSource<T>(path: string, read: (response: Response) => Promise<T>) {
+    async function fetchSource<T>(path: string, read: (response: Response) => Promise<T>, signal = options.signal) {
         current();
+        signal?.throwIfAborted();
         try {
             const response = await request(`/${path.split('/').map(encodeURIComponent).join('/')}`, {
-                signal: options.signal, cache: 'no-store', redirect: 'error',
+                signal, cache: 'no-store', redirect: 'error',
             });
             current();
             if (!response.ok) { throw new SourceError('source_fetch_failed', { path, status: response.status, cause: `file_read_failed:${response.status}`, suggestion: HINTS.fetch }); }
@@ -39,11 +41,12 @@ export function createAdministratorSourceReader(options: { signal?: AbortSignal;
             return data;
         } catch (error) {
             current();
+            signal?.throwIfAborted();
             if (error instanceof SourceError) { throw error; }
             throw new SourceError('source_fetch_failed', { path, cause: error instanceof Error ? error.message : String(error), suggestion: HINTS.fetch });
         }
     }
-    const text = (path: string) => fetchSource(path, response => response.text());
+    const text = (path: string, signal = options.signal) => fetchSource(path, response => response.text(), signal);
     async function loadIndex() {
         let manifest: { version?: unknown; files?: unknown };
         const body = await text(MANIFEST_PATH);
@@ -166,17 +169,18 @@ export function createAdministratorSourceReader(options: { signal?: AbortSignal;
             const offset = Math.max(0, Math.trunc(args.offset ?? 0)), contextLines = Math.max(0, Math.min(Math.trunc(args.contextLines ?? 0), LIMITS.contextLines));
             const items: Record<string, unknown>[] = [], readErrors: Record<string, unknown>[] = [];
             let scannedFiles = 0, matchedFiles = 0, totalMatches = 0, seenContentMatches = 0, skippedFiles = 0, truncated = false;
-            for (const entry of candidates) {
+            const reads = orderedConcurrentRead(candidates, (entry, signal) => text(entry.publicPath, signal), options.signal);
+            for await (const read of reads) {
                 current(); scannedFiles++;
-                let content: string;
-                try { content = await text(entry.publicPath); }
-                catch (error) {
+                const entry = read.item;
+                if (!read.ok) {
+                    const error = read.error;
                     if (!(error instanceof SourceError) || error.code !== 'source_fetch_failed') { throw error; }
                     skippedFiles++;
                     if (readErrors.length < LIMITS.suggestions) { readErrors.push({ error: error.code, message: error.message, ...error.details }); }
                     continue;
                 }
-                const lines = content.split('\n'), matches: { line: number; text: string; context: string | null }[] = [];
+                const lines = read.value.split('\n'), matches: { line: number; text: string; context: string | null }[] = [];
                 for (let index = 0; index < lines.length; index++) {
                     if (index % 500 === 0) { await new Promise(resolve => setTimeout(resolve, 0)); current(); }
                     if (!regex.test(lines[index])) { continue; }
@@ -199,6 +203,7 @@ export function createAdministratorSourceReader(options: { signal?: AbortSignal;
                     break;
                 }
             }
+            current();
             const searchComplete = !truncated && scannedFiles >= candidates.length && skippedFiles === 0;
             return { pattern, scope, useRegex, outputMode, glob: args.include ?? '', include: args.include ?? '', searchPath,
                 limit, offset, contextLines, matchesFound: totalMatches, returned: items.length, matchedFilesSeen: matchedFiles,

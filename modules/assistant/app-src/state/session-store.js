@@ -1,12 +1,10 @@
-import { createPlanLedger } from '../../../agent-core/plan-ledger.js';
 import { resetMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 import db, { metaTable, messagesTable, plansTable, sessionsTable } from './session-db.js';
-import { normalizeLocalSources } from '../workspace/local-sources.js';
+import { describePersistenceError } from '../../shared/persistence-error.js';
 
 const LEGACY_SESSION_ID = 'default';
 const CURRENT_SESSION_META_KEY = 'currentSessionId';
 let writeQueue = Promise.resolve();
-const planLedger = createPlanLedger({ plansTable });
 
 function createAssistantSessionId() {
     return `asst-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -101,13 +99,14 @@ export function createSessionStore(deps) {
     let currentSessionId = '';
 
     async function persistCurrentSessionId(sessionId) {
-        currentSessionId = String(sessionId || '').trim() || createAssistantSessionId();
-        state.assistantSessionId = currentSessionId;
+        const nextSessionId = String(sessionId || '').trim() || createAssistantSessionId();
         await metaTable.put({
             key: CURRENT_SESSION_META_KEY,
-            value: currentSessionId,
+            value: nextSessionId,
             updatedAt: Date.now(),
         });
+        currentSessionId = nextSessionId;
+        state.assistantSessionId = currentSessionId;
         return currentSessionId;
     }
 
@@ -144,20 +143,6 @@ export function createSessionStore(deps) {
         return {
             sessionId,
             historySummary: String(state.historySummary || ''),
-            localSources: normalizeLocalSources(state.localSources),
-            isWorkspaceOpen: !!state.isWorkspaceOpen,
-            workspaceWidth: Number.isFinite(Number(state.workspaceWidth)) ? Number(state.workspaceWidth) : 520,
-            workspacePanelMode: String(state.workspacePanelMode || 'workspace') === 'memory' ? 'memory' : 'workspace',
-            selectedSourceId: String(state.selectedSourceId || 'all') || 'all',
-            selectedFilePath: String(state.selectedFilePath || ''),
-            selectedTreePath: String(state.selectedTreePath || ''),
-            selectedSkillFilePath: String(state.selectedSkillFilePath || ''),
-            fileSearchQuery: String(state.fileSearchQuery || ''),
-            showModifiedOnly: !!state.showModifiedOnly,
-            viewerMode: String(state.viewerMode || 'current'),
-            mobileWorkspacePane: String(state.mobileWorkspacePane || 'tree') === 'viewer' ? 'viewer' : 'tree',
-            treeExpandedKeys: Array.isArray(state.treeExpandedKeys) ? state.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean) : [],
-            skillTreeExpandedKeys: Array.isArray(state.skillTreeExpandedKeys) ? state.skillTreeExpandedKeys.map((item) => String(item || '')).filter(Boolean) : [],
             messages: activeMessages,
         };
     }
@@ -168,40 +153,12 @@ export function createSessionStore(deps) {
                 id: snapshot.sessionId,
                 updatedAt: Date.now(),
                 historySummary: snapshot.historySummary,
-                localSources: snapshot.localSources,
-                isWorkspaceOpen: snapshot.isWorkspaceOpen,
-                workspaceWidth: snapshot.workspaceWidth,
-                workspacePanelMode: snapshot.workspacePanelMode,
-                selectedSourceId: snapshot.selectedSourceId,
-                selectedFilePath: snapshot.selectedFilePath,
-                selectedTreePath: snapshot.selectedTreePath,
-                selectedSkillFilePath: snapshot.selectedSkillFilePath,
-                fileSearchQuery: snapshot.fileSearchQuery,
-                showModifiedOnly: snapshot.showModifiedOnly,
-                viewerMode: snapshot.viewerMode,
-                mobileWorkspacePane: snapshot.mobileWorkspacePane,
-                treeExpandedKeys: snapshot.treeExpandedKeys,
-                skillTreeExpandedKeys: snapshot.skillTreeExpandedKeys,
             });
             await messagesTable.where('sessionId').equals(snapshot.sessionId).delete();
             if (snapshot.messages.length) {
                 await messagesTable.bulkPut(snapshot.messages);
             }
         });
-    }
-
-    function describeSessionStoreError(error) {
-        const message = String(error?.message || error || 'unknown_error').trim();
-        const lowered = message.toLowerCase();
-        if (
-            error?.name === 'QuotaExceededError'
-            || lowered.includes('quota')
-            || lowered.includes('insufficient space')
-            || lowered.includes('disk full')
-        ) {
-            return '浏览器存储空间不足';
-        }
-        return message || 'unknown_error';
     }
 
     function persistSession() {
@@ -216,7 +173,7 @@ export function createSessionStore(deps) {
                     console.error('[Assistant] 保存会话失败:', error);
                     return {
                         ok: false,
-                        error: describeSessionStoreError(error),
+                        error: describePersistenceError(error),
                     };
                 }
             });
@@ -229,12 +186,19 @@ export function createSessionStore(deps) {
             .then(async () => {
                 try {
                     const previousSessionId = await resolveCurrentSessionId();
-                    await db.transaction('rw', sessionsTable, messagesTable, async () => {
+                    const nextSessionId = createAssistantSessionId();
+                    await db.transaction('rw', sessionsTable, messagesTable, plansTable, metaTable, async () => {
                         await messagesTable.where('sessionId').equals(previousSessionId).delete();
                         await sessionsTable.delete(previousSessionId);
+                        await plansTable.where('sessionId').equals(previousSessionId).delete();
+                        await metaTable.put({ key: CURRENT_SESSION_META_KEY, value: nextSessionId, updatedAt: Date.now() });
                     });
-                    await planLedger.clearSessionPlans(previousSessionId);
-                    const nextSessionId = await persistCurrentSessionId(createAssistantSessionId());
+                    currentSessionId = nextSessionId;
+                    state.assistantSessionId = nextSessionId;
+                    state.messages = [];
+                    state.historySummary = '';
+                    state.archivedTurnCount = 0;
+                    resetMessageWindow(state);
                     return {
                         ok: true,
                         sessionId: nextSessionId,
@@ -244,7 +208,7 @@ export function createSessionStore(deps) {
                     console.error('[Assistant] 清空会话失败:', error);
                     return {
                         ok: false,
-                        error: describeSessionStoreError(error),
+                        error: describePersistenceError(error),
                     };
                 }
             });
@@ -252,89 +216,17 @@ export function createSessionStore(deps) {
     }
 
     async function restoreSession() {
-        try {
-            const sessionId = await resolveCurrentSessionId();
-            state.assistantSessionId = sessionId;
-            const session = await sessionsTable.get(sessionId);
-            if (!session) {
-                state.messages = [];
-                state.historySummary = '';
-                state.archivedTurnCount = 0;
-                resetMessageWindow(state);
-                state.sidebarCollapsed = true;
-                state.localSources = [];
-                state.isWorkspaceOpen = false;
-                state.workspaceWidth = 520;
-                state.workspacePanelMode = 'workspace';
-                state.selectedSourceId = 'all';
-                state.selectedFilePath = '';
-                state.selectedTreePath = '';
-                state.selectedSkillFilePath = '';
-                state.fileSearchQuery = '';
-                state.showModifiedOnly = false;
-                state.viewerMode = 'current';
-                state.mobileWorkspacePane = 'tree';
-                state.treeExpandedKeys = [];
-                state.skillTreeExpandedKeys = [];
-                return;
-            }
-
-            const messages = await messagesTable.where('sessionId').equals(sessionId).toArray();
-            messages.sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
-
-            state.messages = messages
-                .map((message) => normalizeRestoredMessage(message, {
-                    normalizeAttachments,
-                    normalizeThoughtBlocks,
-                    createRequestId,
-                }))
-                .filter(Boolean);
-            state.historySummary = String(session.historySummary || '');
-            state.archivedTurnCount = 0;
-            resetMessageWindow(state);
-            state.sidebarCollapsed = true;
-            state.localSources = normalizeLocalSources(session.localSources);
-            state.isWorkspaceOpen = !!session.isWorkspaceOpen;
-            state.workspaceWidth = Number.isFinite(Number(session.workspaceWidth)) ? Number(session.workspaceWidth) : 520;
-            state.workspacePanelMode = ['memory', 'skills'].includes(String(session.workspacePanelMode || 'workspace'))
-                ? 'memory'
-                : 'workspace';
-            state.selectedSourceId = String(session.selectedSourceId || 'all') || 'all';
-            state.selectedFilePath = String(session.selectedFilePath || '');
-            state.selectedTreePath = String(session.selectedTreePath || '');
-            state.selectedSkillFilePath = String(session.selectedSkillFilePath || '');
-            state.fileSearchQuery = String(session.fileSearchQuery || '');
-            state.showModifiedOnly = !!session.showModifiedOnly;
-            state.viewerMode = String(session.viewerMode || 'current');
-            state.mobileWorkspacePane = String(session.mobileWorkspacePane || 'tree') === 'viewer' ? 'viewer' : 'tree';
-            state.treeExpandedKeys = Array.isArray(session.treeExpandedKeys)
-                ? session.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean)
-                : [];
-            state.skillTreeExpandedKeys = Array.isArray(session.skillTreeExpandedKeys)
-                ? session.skillTreeExpandedKeys.map((item) => String(item || '')).filter(Boolean)
-                : [];
-        } catch (error) {
-            console.error('[Assistant] 恢复会话失败:', error);
-            state.messages = [];
-            state.historySummary = '';
-            state.archivedTurnCount = 0;
-            resetMessageWindow(state);
-            state.sidebarCollapsed = true;
-            state.localSources = [];
-            state.isWorkspaceOpen = false;
-            state.workspaceWidth = 520;
-            state.workspacePanelMode = 'workspace';
-            state.selectedSourceId = 'all';
-            state.selectedFilePath = '';
-            state.selectedTreePath = '';
-            state.selectedSkillFilePath = '';
-            state.fileSearchQuery = '';
-            state.showModifiedOnly = false;
-            state.viewerMode = 'current';
-            state.mobileWorkspacePane = 'tree';
-            state.treeExpandedKeys = [];
-            state.skillTreeExpandedKeys = [];
-        }
+        const sessionId = await resolveCurrentSessionId();
+        const session = await sessionsTable.get(sessionId);
+        const messages = await messagesTable.where('sessionId').equals(sessionId).toArray();
+        messages.sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+        state.messages = messages.map(message => normalizeRestoredMessage(message, {
+            normalizeAttachments, normalizeThoughtBlocks, createRequestId,
+        })).filter(Boolean);
+        state.historySummary = String(session?.historySummary || '');
+        state.archivedTurnCount = 0;
+        resetMessageWindow(state);
+        state.sidebarCollapsed = true;
     }
 
     return {

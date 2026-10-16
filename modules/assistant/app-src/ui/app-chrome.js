@@ -147,7 +147,7 @@ export function renderAppChrome(root, state, options = {}) {
     } = options;
 
     const sendButton = root.querySelector('#xb-assistant-send');
-    sendButton.disabled = false;
+    sendButton.disabled = !!state.isClearingConversation || !!state.isClosingAssistant;
     sendButton.classList.toggle('is-busy', state.isBusy);
     sendButton.textContent = state.isBusy ? '■' : '➤';
     sendButton.title = state.isBusy ? '终止' : '发送';
@@ -187,7 +187,7 @@ export function renderAppChrome(root, state, options = {}) {
     addLocalDirectoryButton.title = supportsDirectoryImport ? '导入本地文件夹源码' : '当前环境不支持文件夹导入';
 
     const clearButton = root.querySelector('#xb-assistant-clear');
-    clearButton.disabled = state.isBusy || !state.messages.length;
+    clearButton.disabled = state.isBusy || state.isPreparingRun || state.isClearingConversation || !state.messages.length;
 
     const workspaceButton = root.querySelector('#xb-assistant-open-workspace');
     if (workspaceButton) {
@@ -312,7 +312,7 @@ export function renderAppChrome(root, state, options = {}) {
     }
 
     const workspacePanel = root.querySelector('#xb-assistant-workspace-panel');
-    renderWorkspace(workspacePanel, { disabled: state.isBusy });
+    renderWorkspace(workspacePanel, { disabled: state.isBusy || state.isClosingAssistant });
 
     const workspaceShell = root.querySelector('#xb-assistant-workspace');
     const workspaceBackdrop = root.querySelector('#xb-assistant-workspace-backdrop');

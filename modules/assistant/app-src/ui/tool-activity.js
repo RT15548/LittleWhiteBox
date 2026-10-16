@@ -1,4 +1,5 @@
-import { describeToolCall } from '../tooling.js';
+import { describeToolCall, TOOL_NAMES } from '../tooling.js';
+import { ACTIVITY_COPY } from './activity-copy.js';
 
 const shortText = value => String(value ?? '').replace(/\s+/gu, ' ').trim().slice(0, 160);
 
@@ -12,9 +13,14 @@ function parseRecord(text) {
     }
 }
 
-export function toolOutcome(result) {
+export function toolOutcome(result, toolName = result?.toolName) {
     if (!result) return { status: 'unconfirmed', note: '' };
     if (result.error === 'tool_timeout' || result.error === 'tool_aborted') {
+        if (toolName === TOOL_NAMES.GREP) {
+            return result.error === 'tool_timeout'
+                ? { status: 'failed', note: ACTIVITY_COPY.searchTimeout }
+                : { status: 'stopped', note: '' };
+        }
         return { status: 'unconfirmed', note: '' };
     }
     if (result.skipped === true || result.approved === false) return { status: 'skipped', note: '' };
@@ -44,7 +50,7 @@ export function createToolActivityProjection(getActivity = () => null) {
     function outcome(message) {
         const cached = receipts.get(message);
         if (cached?.content === message.content) return cached.value;
-        const value = toolOutcome(parseRecord(message.content));
+        const value = toolOutcome(parseRecord(message.content), message.toolName);
         receipts.set(message, { content: message.content, value });
         return value;
     }

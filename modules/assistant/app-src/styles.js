@@ -23,6 +23,20 @@ export function injectAssistantStyles(rootId) {
             --xb-assistant-accent-soft: rgba(167, 95, 67, 0.1);
             --xb-assistant-shadow: rgba(67, 55, 43, 0.12);
         }
+        .xb-assistant-workspace-save-notice {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+            padding: 10px 14px; border-bottom: 1px solid var(--xb-assistant-border);
+            background: var(--xb-assistant-accent-soft); font-size: 12px;
+        }
+        .xb-assistant-workspace-save-notice span { flex: 1 1 200px; }
+        .xb-assistant-workspace-save-notice button {
+            min-height: 36px; padding: 6px 10px; border-radius: 6px;
+            border: 1px solid var(--xb-assistant-border); background: var(--xb-assistant-surface);
+            color: var(--xb-assistant-text); cursor: pointer; font: inherit;
+        }
+        .xb-assistant-workspace-save-notice button:focus-visible {
+            outline: 2px solid var(--xb-assistant-accent); outline-offset: 2px;
+        }
         html, body { height: 100%; width: 100%; overflow: hidden; }
         body {
             margin: 0;
@@ -818,6 +832,9 @@ export function injectAssistantStyles(rootId) {
             min-width: 0;
             min-height: 0;
             background: var(--xb-assistant-surface);
+        }
+        .xb-assistant-workspace-viewer.has-save-notice {
+            grid-template-rows: auto auto minmax(0, 1fr);
         }
         .xb-assistant-workspace-viewer-header {
             display: grid;

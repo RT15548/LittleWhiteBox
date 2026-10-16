@@ -103,7 +103,8 @@ export function createAssistantRuntime(deps) {
         const activity = toolActivity.get(call);
         if (!activity) return null;
         if (state.activeRun === activity.run && !activity.run.controller.signal.aborted) return activity.phase;
-        return activity.phase === 'running' ? 'unconfirmed' : 'not-executed';
+        if (activity.phase !== 'running') return 'not-executed';
+        return call.name === TOOL_NAMES.GREP ? 'stopped' : 'unconfirmed';
     }
     function advanceToolActivity(call, run, phase) {
         if (toolActivity.has(call)) {
@@ -253,7 +254,6 @@ export function createAssistantRuntime(deps) {
         buildToolFailureResult,
         callHostTool,
         clearPendingToolCalls,
-        postHostToolCallWithoutResponse,
         recordToolErrorForLightBrake,
         resetToolErrorLightBrake,
     } = createHostToolRequestController({
@@ -271,9 +271,9 @@ export function createAssistantRuntime(deps) {
         if (!run) return;
         run.cancelNotice = notice;
         state.progressLabel = '终止中';
+        run.controller.abort();
         clearPendingToolCalls(run.id, new Error('tool_aborted'));
         clearPendingApprovals(run.id, new Error('tool_aborted'));
-        run.controller.abort();
         render();
     }
 
@@ -840,6 +840,5 @@ export function createAssistantRuntime(deps) {
         getActiveContextMessages,
         runAssistantLoop,
         callHostTool,
-        postHostToolCallWithoutResponse,
     };
 }
