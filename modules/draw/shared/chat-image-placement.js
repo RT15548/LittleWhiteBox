@@ -43,16 +43,6 @@ export function commitChatImageRemoval({ message, swipeIndex, slotId }) {
     return change;
 }
 
-export function rollbackChatImageRemoval(change) {
-    const { message, swipeIndex, before, after, edits } = change;
-    if (message.mes !== after || (message.swipe_id ?? 0) !== swipeIndex) return;
-    setActiveMessageText(message, before);
-    notify({ message, swipeIndex, before: after, after: before, rollbackOf: change, edits: edits.map(edit => ({
-        start: rebaseImageOffset(edit.start, edits), end: rebaseImageOffset(edit.start, edits),
-        marker: '', content: edit.marker,
-    })) });
-}
-
 export function commitChatImagePlacement({ message, swipeIndex, before, edits, owner, restored = false }) {
     const tags = parseChatImageTags(before);
     let boundary = before.length;

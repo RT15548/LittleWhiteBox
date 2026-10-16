@@ -33,7 +33,9 @@ export function withdrawEditedImagePlacements(ctx, messageId) {
         const records = await getPreviewsForMessage(String(ctx.chatId), messageId);
         await clearPreviewPlacements(owner, records.filter(record => record.placement?.owner === owner
             && record.placement.swipeIndex === swipeIndex && !attached.has(record.slotId)).map(record => record.slotId));
-    })().finally(() => { if (editing.get(message) === operation) editing.delete(message); });
+    })().then(() => { if (editing.get(message) === operation) editing.delete(message); });
+    // Failed withdrawal must not give a viewport refresh permission to undo
+    // the user's edit. A subsequent explicit edit retries this same boundary.
     editing.set(message, operation);
     return operation;
 }

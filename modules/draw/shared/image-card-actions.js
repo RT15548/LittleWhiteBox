@@ -1,11 +1,13 @@
 import { getContext } from '../../../../../../extensions.js';
-import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection, updatePreviewRecord } from './gallery-cache.js';
+import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
 import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
 import { generatePreparedChatImages } from './prepared-chat-images.js';
 import { getSlotActivity } from './slot-activity.js';
 import { getPendingImageJobSlots, discardPendingImageSlot } from './pending-image-jobs.js';
-import { discardChatImagePlacement, commitChatImageRemoval, rollbackChatImageRemoval } from './chat-image-placement.js';
-import { isMessageBeingEdited, renderPreviewsForMessage, syncRenderedMessageFromState, clearDrawSavedEntry, syncDrawSavedFromPreview, getDrawSavedPreview } from './draw-common.js';
+import { discardChatImagePlacement, commitChatImageRemoval } from './chat-image-placement.js';
+import { isMessageBeingEdited, renderPreviewsForMessage, removeDrawSavedEntry, clearDrawSavedEntry, syncDrawSavedFromPreview, getDrawSavedPreview } from './draw-common.js';
+import { withdrawEditedImagePlacements } from './chat-image-tag-migration.js';
+import { getImageChatIdentity } from './chat-image-persistence.js';
 import { isSceneSlotAlive } from './scene-placement.js';
 import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
@@ -207,41 +209,49 @@ export async function removeChatImageSlot(container) {
     const slotId = container.dataset.slotId;
     const message = ctx.chat[messageId];
     const swipeIndex = message?.swipe_id ?? 0;
-    const isCurrentTarget = () => String(getContext().chatId) === String(ctx.chatId)
+    const identity = getImageChatIdentity(ctx);
+    const isCurrentTarget = () => getImageChatIdentity(getContext()) === identity
         && getContext().chat[messageId] === message && (message.swipe_id ?? 0) === swipeIndex;
-    const assertRemovable = () => {
-        if (!isCurrentTarget() || isMessageBeingEdited(messageId) || !isSceneSlotAlive(message.mes, slotId)) {
-            throw new Error(DRAW_SLOT_COPY.sourceChanged);
-        }
-    };
-    if (!message || !isSceneSlotAlive(message.mes, slotId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-    await withConfirmableChatMutation(ctx, async () => {
-        assertRemovable();
-        // Mark only this item, not its batch. This intent precedes cleanup and
-        // survives refresh even if native persistence of the deletion fails.
-        getSlotActivity(slotId)?.discard?.();
-        discardChatImagePlacement(slotId);
-        await discardPendingImageSlot(slotId);
-        assertRemovable();
-        // Withdraw reattachment authority before removing the marker. Keep the
-        // paid images until deletion is confirmed, but never resurrect this
-        // explicit removal while the host save is pending or after a restart.
-        for (const record of await getPreviewsBySlot(slotId)) {
-            if (record.placement) await updatePreviewRecord(record.imgId, { placement: null });
-        }
-        assertRemovable();
-        const change = commitChatImageRemoval({ message, swipeIndex, slotId });
-        try {
-            await saveChatAndConfirm({ ctx, verify: persisted => !findImageJobDeliverySlot(persisted, slotId) });
-        } catch (error) {
-            if (error.saveAttempted === false && isCurrentTarget()) {
-                rollbackChatImageRemoval(change);
-            }
-            throw error;
-        }
-        if (isCurrentTarget()) await clearDrawSavedEntry(messageId, slotId);
+    if (!message || !isCurrentTarget() || isMessageBeingEdited(messageId) || !isSceneSlotAlive(message.mes, slotId)) {
+        throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
+    }
+    // Acknowledgement is the removal itself, before the first storage/lock/network
+    // await. In-flight renders compare the changed source and cannot repaint it.
+    getSlotActivity(slotId)?.discard?.();
+    discardChatImagePlacement(slotId);
+    commitChatImageRemoval({ message, swipeIndex, slotId });
+    removeDrawSavedEntry(message, slotId);
+    const withdrawal = withdrawEditedImagePlacements(ctx, messageId);
+    container.remove();
+
+    try {
+        await Promise.all([withdrawal, discardPendingImageSlot(slotId)]);
+    } catch (cause) {
+        throw new Error(DRAW_SLOT_COPY.removeLocalSaveFailed, { cause });
+    }
+    try {
+        await withConfirmableChatMutation(ctx, async () => {
+            const assertSaveTarget = () => {
+                if (!isCurrentTarget() || findImageJobDeliverySlot(ctx.chat, slotId)) {
+                    throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
+                }
+            };
+            assertSaveTarget();
+            await saveChatAndConfirm({ ctx: { ...ctx, saveChat: () => {
+                // Web Locks may wait too: never let a late deletion save B's chat.
+                assertSaveTarget();
+                return ctx.saveChat();
+            } }, verify: persisted => !findImageJobDeliverySlot(persisted, slotId) });
+        });
+    } catch (cause) {
+        // Keep local removal and all image records. Never silently roll back the
+        // visible action or delete paid data when only the chat save is uncertain.
+        throw new Error(DRAW_SLOT_COPY.removeSaveFailed, { cause });
+    }
+    try {
         for (const record of await getPreviewsBySlot(slotId)) await deletePreview(record.imgId);
         await clearSlotSelection(slotId);
-        await syncRenderedMessageFromState(messageId, { chatId: ctx.chatId, expectedMessage: message });
-    });
+    } catch (cause) {
+        throw new Error(DRAW_SLOT_COPY.removeCleanupFailed, { cause });
+    }
 }

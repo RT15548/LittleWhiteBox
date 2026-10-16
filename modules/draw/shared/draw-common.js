@@ -520,9 +520,8 @@ export async function setDrawSavedEntry(messageId, slotId, data) {
     return true;
 }
 
-export async function clearDrawSavedEntry(messageId, slotId) {
-    const ctx = getContext();
-    const message = ctx.chat?.[messageId];
+// Synchronous message edit for callers that already own the subsequent save.
+export function removeDrawSavedEntry(message, slotId) {
     if (!message?.extra || !slotId) return false;
 
     let changed = false;
@@ -534,7 +533,11 @@ export async function clearDrawSavedEntry(messageId, slotId) {
         if (Object.keys(savedMap).length === 0) delete message.extra[key];
     }
 
-    if (!changed) return false;
+    return changed;
+}
+
+export async function clearDrawSavedEntry(messageId, slotId) {
+    if (!removeDrawSavedEntry(getContext().chat?.[messageId], slotId)) return false;
     await persistChatSilently();
     return true;
 }

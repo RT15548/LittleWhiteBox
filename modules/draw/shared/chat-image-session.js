@@ -111,8 +111,7 @@ export function createChatImageSession({ context, provider, changed, report }) {
                     }
                 }
                 if (!change.restored && observation?.last === change.message && observation.swipeIndex === change.swipeIndex) {
-                    if (change.rollbackOf) observation.placements = observation.placements.filter(item => item !== change.rollbackOf);
-                    else observation.placements.push(change);
+                    observation.placements.push(change);
                 }
             });
         },

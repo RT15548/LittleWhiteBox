@@ -38,7 +38,7 @@ export async function fixture(sources, options = {}) {
  'script.js':'export const messageFormatting=(text)=>text;'
  };
  const result=await build({stdin:{contents:[
- 'draw-common.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js'
+ 'draw-common.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js','confirmable-chat-save.js'
  ].map(f=>'export * from "./'+f+'";').join('\n'),resolveDir:fileURLToPath(new URL('../../', import.meta.url))},bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'host-boundary',setup(b){b.onResolve({filter:/\.js$/},({path:p})=>{const name=p.split('/').at(-1);return Object.hasOwn(stubs,name)?{path:name,namespace:'host'}:null});b.onLoad({filter:/.*/,namespace:'host'},({path:p})=>({contents:stubs[p]}));}}]});
  // Only locally bundled source and fixed test stubs enter this module.
  // eslint-disable-next-line no-unsanitized/method
