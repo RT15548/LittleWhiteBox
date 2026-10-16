@@ -122,8 +122,7 @@ modules/tavern/
 │  └─ TavernBankActionDialog.vue
 ├─ app-src/styles/phone-os/bank.css
 └─ tests/
-   ├─ bank.test.ts
-   └─ bank-controller.test.ts
+   └─ bank.test.ts
 ```
 
 三个游戏已有独立规则、状态和测试，因此分别属于三个纯逻辑文件；Vue 不得拥有游戏判断或概率计算。

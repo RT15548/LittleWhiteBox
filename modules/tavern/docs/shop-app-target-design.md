@@ -73,8 +73,7 @@ modules/tavern/
 │  └─ TavernShopActionDialog.vue
 ├─ app-src/styles/phone-os/shop.css
 └─ tests/
-   ├─ shop.test.ts
-   └─ shop-controller.test.ts
+   └─ shop.test.ts
 ```
 
 纯展示组件可按职责合并，但存储和 Prompt 逻辑不属于 Vue 文件。
