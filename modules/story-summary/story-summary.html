@@ -440,6 +440,14 @@
                             </div>
                         </div>
 
+                        <div class="settings-checkbox-group">
+                            <label class="settings-checkbox">
+                                <input type="checkbox" id="trigger-notify-on-complete">
+                                <span class="checkbox-mark"></span>
+                                <span class="checkbox-label">总结完成提醒</span>
+                            </label>
+                        </div>
+
                         <!-- Auto Summary with sub-options -->
                         <div class="settings-checkbox-group">
                             <label class="settings-checkbox">
@@ -509,6 +517,10 @@
                                 <input type="checkbox" id="vector-enabled">
                                 <span class="checkbox-mark"></span>
                                 <span class="checkbox-label">启用向量检索</span>
+                            </label>
+                            <label class="settings-field" style="margin-top:12px;">
+                                <span>召回超时（秒）</span>
+                                <input type="number" id="vector-recall-timeout" min="1" step="1" value="30">
                             </label>
                         </div>
 

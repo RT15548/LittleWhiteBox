@@ -1273,6 +1273,9 @@ const UNANNOTATED_LABEL = '未标注';
         $('gen-top-k').value = config.gen.top_k ?? '';
         $('gen-presence').value = config.gen.presence_penalty ?? '';
         $('gen-frequency').value = config.gen.frequency_penalty ?? '';
+        if ($('trigger-notify-on-complete')) {
+            $('trigger-notify-on-complete').checked = !!config.trigger.notifyOnComplete;
+        }
         $('trigger-enabled').checked = config.trigger.enabled;
         $('trigger-interval').value = config.trigger.interval;
         $('trigger-delay-floors').value = normalizeSummaryDelayFloors(config.trigger.delayFloors);
@@ -1345,6 +1348,9 @@ const UNANNOTATED_LABEL = '未标注';
         const timing = $('trigger-timing').value;
         config.trigger.timing = normalizeTriggerTiming(timing);
         config.trigger.role = $('trigger-role').value || 'system';
+        if ($('trigger-notify-on-complete')) {
+            config.trigger.notifyOnComplete = $('trigger-notify-on-complete').checked;
+        }
         config.trigger.enabled = $('trigger-enabled').checked;
         config.trigger.interval = Math.max(1, Math.min(30, parseInt($('trigger-interval').value) || 20));
         config.trigger.delayFloors = normalizeSummaryDelayFloors($('trigger-delay-floors').value);
