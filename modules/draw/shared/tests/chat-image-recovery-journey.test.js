@@ -22,6 +22,55 @@ async function setup(t, sources, options) {
     return h;
 }
 
+// Gallery acceptance (cost: lost saved inputs / cross-chat writes): a new device
+// can open a saved image without generation; navigation/deletion cannot lend
+// another message's authority while the initial IndexedDB read is pending.
+async function savedGallery(t) {
+    const h = await setup(t, ['[image:portable-slot]']);
+    window.HTMLElement.prototype.scrollIntoView = () => {};
+    h.ctx.chat[0].extra = { xiaobaixDrawSaved: { 'portable-slot': {
+        imgId: 'portable-image', savedUrl: '/user/images/saved.png', tags: 'saved tags',
+        characterPrompts: [{ name: 'Alice', prompt: 'green dress' }], postPrompt: 'fine detail',
+    } } };
+    return h;
+}
+
+test('opening a portable image materializes its inputs once without changing the chat or buying a result', async t => {
+    const h = await savedGallery(t);
+    const before = structuredClone(h.ctx.chat);
+    await h.api.openGallery('portable-slot', 0);
+    const record = await h.api.getPreview('portable-image');
+    assert.equal(record.chatId, h.ctx.chatId);
+    assert.equal(record.negativePrompt, null);
+    assert.equal(record.postPrompt, 'fine detail');
+    assert.deepEqual(record.characterPrompts, [{ name: 'Alice', prompt: 'green dress' }]);
+    assert.equal(document.getElementById('nd-gallery-img').getAttribute('src'), '/user/images/saved.png');
+    h.api.closeGallery();
+    await h.api.openGallery('portable-slot', 0);
+    assert.equal((await h.api.getPreviewsBySlot('portable-slot')).length, 1);
+    assert.deepEqual(h.ctx.chat, before);
+    assert.equal(h.counters.saves, 0);
+    assert.deepEqual(h.counters.requests, []);
+    h.api.closeGallery();
+});
+
+for (const change of ['chat', 'group', 'account', 'message', 'swipe', 'delete']) {
+    test(`portable gallery refuses a changed source during initial read: ${change}`, async t => {
+        const h = await savedGallery(t);
+        const opening = h.api.openGallery('portable-slot', 0);
+        if (change === 'chat') h.ctx.chatId = 'another-chat';
+        if (change === 'group') h.ctx.groupId = 'another-group';
+        if (change === 'account') globalThis.__drawJourneyReview.user = 'another-account';
+        if (change === 'message') h.ctx.chat[0] = structuredClone(h.ctx.chat[0]);
+        if (change === 'swipe') h.ctx.chat[0].swipe_id = 1;
+        if (change === 'delete') h.ctx.chat[0].mes = '';
+        await assert.rejects(opening);
+        assert.equal(await h.api.getPreview('portable-image'), undefined);
+        assert.equal(document.getElementById('nd-gallery-overlay').classList.contains('visible'), false);
+        assert.deepEqual(h.counters.requests, []);
+    });
+}
+
 async function legacyDatabase(h, prompt) {
     const db = await new Promise((resolve, reject) => {
         const request = h.idb.open('xb_draw_generated_images', 1);

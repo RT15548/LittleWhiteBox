@@ -448,6 +448,7 @@ const UNANNOTATED_LABEL = '未标注';
             base.enabled = !!raw.enabled;
             base.engine = 'online';
             base.l0Concurrency = Math.max(1, Math.min(50, Number(raw.l0Concurrency) || 10));
+            base.recallTimeoutSec = normalizeRecallTimeoutSec(raw.recallTimeoutSec);
             Object.assign(base.l0Api, {
                 provider: raw.l0Api?.provider || legacyOnline.provider || base.l0Api.provider,
                 url: raw.l0Api?.url || sharedUrl || base.l0Api.url,

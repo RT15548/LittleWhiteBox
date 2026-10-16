@@ -7,6 +7,7 @@ import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.j
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
 import { normalizeMediaUrl } from './media-url.js';
 import { getSafeViewportStyles, observeViewport } from '../../../shared/common/viewport.js';
+import { getImageChatIdentity } from './chat-image-persistence.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -1385,28 +1386,34 @@ function createGalleryOverlay() {
 }
 
 export async function openGallery(slotId, messageId, callbacks = {}) {
+    // Capture before IndexedDB yields; the host can reuse its chat array when
+    // navigating, so neither an index nor a chat filename identifies the source.
+    const ctx = getContext();
+    const owner = getImageChatIdentity(ctx);
+    const chatId = String(ctx.chatId || '');
+    const msgIdx = Number(messageId);
+    const message = Number.isInteger(msgIdx) ? ctx.chat?.[msgIdx] : null;
+    const swipeIndex = message?.swipe_id ?? 0;
+    const assertCurrent = () => {
+        const current = getContext();
+        if (current.chat !== ctx.chat || getImageChatIdentity(current) !== owner
+            || (Number.isInteger(msgIdx) && current.chat?.[msgIdx] !== message)
+            || (message?.swipe_id ?? 0) !== swipeIndex) throw new Error(DRAW_SLOT_COPY.sourceChanged);
+    };
     createGalleryOverlay();
 
     let previews = await getPreviewsBySlot(slotId);
+    assertCurrent();
     let validPreviews = previews.filter(hasPreviewImage);
 
-    const msgIdx = parseInt(messageId, 10);
-    if (!validPreviews.length && !Number.isNaN(msgIdx)) {
-        try {
-            const ctx = getContext();
-            const message = ctx.chat?.[msgIdx];
-            if (message) {
-                const { materializeDrawSavedPreview } = await import('./draw-common.js');
-                await materializeDrawSavedPreview(message, slotId, {
-                    messageId: msgIdx,
-                    chatId: String(ctx.chatId || ''),
-                });
-                previews = await getPreviewsBySlot(slotId);
-                validPreviews = previews.filter(hasPreviewImage);
-            }
-        } catch (error) {
-            console.warn('[Gallery] 尝试从消息记录恢复图片预览失败:', error);
-        }
+    if (!validPreviews.length && message && owner) {
+        const { materializeDrawSavedPreview } = await import('./draw-common.js');
+        assertCurrent();
+        await materializeDrawSavedPreview(message, slotId, { messageId: msgIdx, chatId });
+        assertCurrent();
+        previews = await getPreviewsBySlot(slotId);
+        assertCurrent();
+        validPreviews = previews.filter(hasPreviewImage);
     }
 
     if (!validPreviews.length) {
@@ -1415,6 +1422,7 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
     }
 
     const selectedImgId = await getSlotSelection(slotId);
+    assertCurrent();
     let startIndex = 0;
     if (selectedImgId) {
         const idx = validPreviews.findIndex(p => p.imgId === selectedImgId);

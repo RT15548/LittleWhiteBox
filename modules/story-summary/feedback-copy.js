@@ -8,6 +8,7 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     summaryFailed: '总结未能完成，请稍后重试。',
     summaryResultInvalid: '模型返回的总结格式不正确，请重试。',
     summaryFollowupFailed: '总结已保存，但后续处理未完成；详情见日志。',
+    summaryCompleted: (floor, count) => `剧情总结完成：更新至 #${floor} 楼（新增 ${count} 个事件）`,
     summaryControls: Object.freeze({
         generate: '总结',
         stop: '停止',

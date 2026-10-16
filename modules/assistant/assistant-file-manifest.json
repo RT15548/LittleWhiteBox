@@ -2120,7 +2120,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 68499
+      "sizeBytes": 69806
     },
     {
       "source": "littlewhitebox",
@@ -2498,7 +2498,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/chat-image-recovery-journey.test.js",
       "relativePath": "modules/draw/shared/tests/chat-image-recovery-journey.test.js",
       "extension": ".js",
-      "sizeBytes": 20100
+      "sizeBytes": 22723
     },
     {
       "source": "littlewhitebox",
@@ -3051,7 +3051,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/config.js",
       "relativePath": "modules/story-summary/data/config.js",
       "extension": ".js",
-      "sizeBytes": 23976
+      "sizeBytes": 24098
     },
     {
       "source": "littlewhitebox",
@@ -3219,7 +3219,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/feedback-copy.js",
       "relativePath": "modules/story-summary/feedback-copy.js",
       "extension": ".js",
-      "sizeBytes": 8360
+      "sizeBytes": 8479
     },
     {
       "source": "littlewhitebox",
@@ -3268,7 +3268,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/generator.js",
       "relativePath": "modules/story-summary/generate/generator.js",
       "extension": ".js",
-      "sizeBytes": 12397
+      "sizeBytes": 12559
     },
     {
       "source": "littlewhitebox",
@@ -3618,7 +3618,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary-ui.js",
       "relativePath": "modules/story-summary/story-summary-ui.js",
       "extension": ".js",
-      "sizeBytes": 148209
+      "sizeBytes": 148584
     },
     {
       "source": "littlewhitebox",
@@ -3632,7 +3632,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.html",
       "relativePath": "modules/story-summary/story-summary.html",
       "extension": ".html",
-      "sizeBytes": 79263
+      "sizeBytes": 79699
     },
     {
       "source": "littlewhitebox",
@@ -3800,7 +3800,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/memory-storage.test.js",
       "relativePath": "modules/story-summary/tests/memory-storage.test.js",
       "extension": ".js",
-      "sizeBytes": 93477
+      "sizeBytes": 94952
     },
     {
       "source": "littlewhitebox",
@@ -3850,6 +3850,13 @@
       "relativePath": "modules/story-summary/tests/recall-reuse.test.js",
       "extension": ".js",
       "sizeBytes": 8029
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/recall-timeout.test.js",
+      "relativePath": "modules/story-summary/tests/recall-timeout.test.js",
+      "extension": ".js",
+      "sizeBytes": 2926
     },
     {
       "source": "littlewhitebox",

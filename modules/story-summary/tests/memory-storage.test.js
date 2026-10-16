@@ -107,6 +107,29 @@ async function importFixture() {
     return structuredClone(ext().storySummary.json);
 }
 
+// Acceptance: opt-in success feedback means both persistence and follow-up
+// work finished. Cost: a hidden failed save or misleading completion signal.
+for (const scenario of ['default', 'enabled', 'save-failed', 'followup-failed', 'chat-changed']) {
+    test(`summary completion notification observes the actual result: ${scenario}`, async t => {
+        await importFixture();
+        host.context.chat.push({ mes: '次日', is_user: true }, { mes: '共同出发', is_user: false });
+        host.generate = async () => JSON.stringify({ events: [], factUpdates: [] });
+        const notices = [], previousWindow = globalThis.window;
+        globalThis.window = { toastr: { success: value => notices.push(value) } };
+        t.after(() => { globalThis.window = previousWindow; });
+        if (scenario === 'save-failed') host.mode = 'old';
+        const result = await mod.runSummaryGeneration(25, {
+            trigger: { delayFloors: 0, ...(scenario === 'default' ? {} : { notifyOnComplete: true }) },
+        }, { onComplete: async () => {
+            assert.equal(notices.length, 0);
+            if (scenario === 'followup-failed') throw new Error('index unavailable');
+            if (scenario === 'chat-changed') host.context = { ...host.context, chatId: 'another-chat' };
+        } });
+        assert.equal(notices.length, scenario === 'enabled' ? 1 : 0);
+        if (scenario === 'enabled' || scenario === 'default') assert.equal(result.success, true);
+    });
+}
+
 test('switching characters with the same filename does not roll back or save the target summary', async () => {
     await importFixture();
     const tracker = mod.createMessageSourceTracker();

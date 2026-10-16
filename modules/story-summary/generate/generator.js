@@ -247,9 +247,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
 
     xbLog.info(MODULE_ID, `总结完成，已更新至 ${slice.endMesId + 1} 楼`);
-    if (config.trigger?.notifyOnComplete) {
-        window.toastr?.success(`📖 剧情总结完成：更新至 #${slice.endMesId + 1} 楼（新增 ${(parsed.events || []).length} 个事件）`);
-    }
     notifySummaryCommitted({ chatId: targetChatId, start: lastSummarized + 1, cutoff: slice.endMesId });
 
     if (parsed.factUpdates?.length) {
@@ -292,5 +289,8 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
 
     onStatus?.(`总结完成，已保存至 ${slice.endMesId + 1} 楼`);
+    if (config.trigger?.notifyOnComplete) {
+        window.toastr?.success(SUMMARY_FEEDBACK_COPY.summaryCompleted(slice.endMesId + 1, newEventIds.length));
+    }
     return result;
 }
