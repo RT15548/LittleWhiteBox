@@ -10,7 +10,7 @@ from mathutils.bvhtree import BVHTree
 from mesh_tools import bind_weights, join_meshes, material, mesh_object
 
 
-def hair_material(*, scalp=False):
+def hair_material(*, scalp=False, color=(0.100, 0.059, 0.037)):
     """Cutout fibers export as glTF MASK, not depth-sorted transparent sheets."""
     width, height = 512, 1024
     u, v = np.meshgrid(np.linspace(0, 1, width), np.linspace(0, 1, height))
@@ -36,7 +36,7 @@ def hair_material(*, scalp=False):
     grain = shade.copy()
     shade = 0.43 + shade * 0.57
     pixels = np.ones((height, width, 4), dtype=np.float32)
-    for channel, base in enumerate((0.100, 0.059, 0.037)):
+    for channel, base in enumerate(color):
         pixels[:, :, channel] = base * shade
     if not scalp:
         pixels[:, :, 3] = alpha
@@ -147,8 +147,8 @@ def lock(points, normals, width, mat):
     return surface("hair.lock", rows, mat)
 
 
-def build_hair(data, rig, body, shirt):
-    rng, mat = random.Random(145), hair_material()
+def build_hair(data, rig, body, shirt, *, color=(0.100, 0.059, 0.037), length_scale=1.0, wave_scale=1.0):
+    rng, mat = random.Random(145), hair_material(color=color)
     vertices = [v.co.copy() for v in body.data.vertices]
     faces = [list(p.vertices) for p in body.data.polygons]
     offset = len(vertices)
@@ -183,13 +183,13 @@ def build_hair(data, rig, body, shirt):
             point, _ = project(center + direction, 0.003)
             points.append(point)
         rows.append(points)
-    objects.append(surface("hair.scalp", rows, hair_material(scalp=True), repeat=24))
+    objects.append(surface("hair.scalp", rows, hair_material(scalp=True, color=color), repeat=24))
 
     # Overlapping individual lengths, not a continuous shoulder-length sheet.
     for index in range(68):
         angle = 1.05 + (math.tau - 2.10) * index / 67
         phase = 0.8 * math.sin(angle * 3) + rng.uniform(-0.16, 0.16)
-        length = 0.30 + 0.025 * math.cos(angle * 2) + rng.uniform(-0.014, 0.014)
+        length = (0.30 + 0.025 * math.cos(angle * 2) + rng.uniform(-0.014, 0.014)) * length_scale
         guides = []
         for step in range(8):
             q = step / 7
@@ -203,7 +203,7 @@ def build_hair(data, rig, body, shirt):
         outward = Vector((math.sin(angle), -math.cos(angle), 0))
         for step in range(1, 7):
             r = step / 6
-            wave = 0.016 * (math.sin(r * 9 + phase) - math.sin(phase)) * math.sin(r * math.pi / 2)
+            wave = 0.016 * wave_scale * (math.sin(r * 9 + phase) - math.sin(phase)) * math.sin(r * math.pi / 2)
             point = anchor + outward * (0.014 * r + wave)
             point.z -= length * r
             point.y += 0.017 * r
@@ -223,7 +223,7 @@ def build_hair(data, rig, body, shirt):
             spread = index / (count - 1)
             phase = spread * 1.8 + rng.uniform(-0.12, 0.12)
             guides = []
-            end = neck.z - (0.14 + 0.045 * math.sin(spread * math.pi)) + rng.uniform(-0.012, 0.012)
+            end = neck.z - (0.14 + 0.045 * math.sin(spread * math.pi)) * length_scale + rng.uniform(-0.012, 0.012)
             for step in range(8):
                 q = step / 7
                 point = Vector((-0.022 * (1 - q) + side * (0.078 + spread * 0.024) * math.sin(q * math.pi / 2),
@@ -235,7 +235,7 @@ def build_hair(data, rig, body, shirt):
             for step in range(1, 8):
                 r = step / 7
                 point = anchor.copy()
-                wave = (math.sin(r * 9 + phase) - math.sin(phase)) * math.sin(r * math.pi / 2)
+                wave = wave_scale * (math.sin(r * 9 + phase) - math.sin(phase)) * math.sin(r * math.pi / 2)
                 point.x += side * (0.013 * r + 0.020 * wave)
                 point.y -= 0.018 * math.sin(r * math.pi) + 0.008 * wave
                 point.z = anchor.z * (1 - r) + end * r

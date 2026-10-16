@@ -3,25 +3,27 @@
 import argparse
 import json
 import math
-import subprocess
 import sys
 from pathlib import Path
 
 import bpy
 from mathutils import Vector
 
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).parent))
+from authoring import prepare_build
+from design import load_design
 from face import build_brows, build_eyes, build_lashes, paint_skin, skin_material
 from hair import build_hair
 from makehuman_data import HumanData, SOURCE_COMMIT
 from mesh_tools import apply_modifier, bind_weights, build_rig, material, normalize_weights, source_mesh
 from motion import author_clips, relaxed_pose
 from wardrobe import build_wardrobe
-from ye_design import HEIGHT, MORPHS
 
 
 def args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--design", required=True, help="Local Python module exporting DESIGN")
     parser.add_argument("--source", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--render", choices=["none", "portrait", "all"], default="all")
@@ -93,15 +95,14 @@ def render(camera, directory, name, location, target, width, height, lens):
 
 def main():
     options = args()
-    revision = subprocess.check_output(["git", "-C", str(Path(options.source).resolve()), "rev-parse", "HEAD"], text=True).strip()
-    if revision != SOURCE_COMMIT:
-        raise ValueError(f"Unexpected source revision: {revision}")
-    destination = Path(options.output).resolve()
-    destination.mkdir(parents=True, exist_ok=True)
+    design = load_design(options.design)
+    if design.sample_style != "ye":
+        raise ValueError("This design has no authored clothed sample; use clay_review.py instead")
+    source, destination = prepare_build(options.source, options.output, design)
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     bpy.context.preferences.filepaths.save_version = 0
-    data = HumanData(options.source, MORPHS, HEIGHT)
+    data = HumanData(source, design.morphs, design.identity.height_m)
     rig = build_rig(data)
     body, indices = source_mesh("body.skin", data, data.group_faces("body"), skin_material())
     paint_skin(data, body, indices)
@@ -118,32 +119,32 @@ def main():
     apply_modifier(body, reduction)
     normalize_weights(body)
     wardrobe = build_wardrobe(data, rig, body)
-    objects = [body, build_eyes(data, rig), build_brows(data, body, rig), build_lashes(data, rig),
+    objects = [body, build_eyes(data, rig), build_brows(data, body, rig, design.brow_arch), build_lashes(data, rig),
                build_hair(data, rig, body, wardrobe[0]), *wardrobe]
     for obj in objects:
         obj["asset_role"] = obj.name
     rig["source_commit"] = SOURCE_COMMIT
     rig["sample_status"] = "art-review; not yet wired to game inventory"
-    author_clips(rig)
+    author_clips(rig, design.standing_pose, design.walk_arm_clearance)
     # Export the rest pose and intact separate wardrobe, not a posed static statue.
     bpy.ops.object.select_all(action="DESELECT")
     rig.select_set(True)
     for obj in objects:
         obj.select_set(True)
     bpy.context.view_layer.objects.active = rig
-    bpy.ops.export_scene.gltf(filepath=str(destination / "ye-sample.glb"), export_format="GLB",
+    bpy.ops.export_scene.gltf(filepath=str(destination / f"{design.identity.key}-sample.glb"), export_format="GLB",
                               use_selection=True, export_extras=True, export_animations=True,
                               export_animation_mode="ACTIONS",
                               export_optimize_animation_keep_anim_armature=False,
                               export_skins=True, export_all_influences=False)
-    relaxed_pose(rig)
+    relaxed_pose(rig, design.standing_pose)
     camera = studio(options.samples)
     camera.location = (2.6, -4.8, 2.2)
     aim(camera, (0, 0, 0.85))
     bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y = 800, 1000
     camera.data.lens = 85
-    bpy.ops.wm.save_as_mainfile(filepath=str(destination / "ye-sample.blend"))
-    statistics = {"source_commit": SOURCE_COMMIT, "height_m": HEIGHT,
+    bpy.ops.wm.save_as_mainfile(filepath=str(destination / f"{design.identity.key}-sample.blend"))
+    statistics = {"source_commit": SOURCE_COMMIT, "character": design.identity.key, "height_m": design.identity.height_m,
                   "bones": len(rig.data.bones), "objects": {o.name: {
                       "vertices": len(o.data.vertices),
                       "triangles": sum(len(p.vertices) - 2 for p in o.data.polygons),

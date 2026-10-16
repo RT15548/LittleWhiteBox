@@ -5,6 +5,7 @@ import { fail } from './fault.js';
 import { isPerishable } from './food.js';
 import { coconutWater, plainWater } from './water.js';
 import { GARMENTS } from './clothing.js';
+import { buriedBodies } from './burial-state.js';
 
 export function carriedWeight(world: Journey, actor: PersonId): number {
     return Object.values(world.items).reduce((sum, item) => item.quantity > 0 && item.location.kind !== 'ground' && item.location.person === actor
@@ -17,13 +18,13 @@ export function carryLimit(world: Journey, actor: PersonId): number {
 export function accessibleItem(world: Journey, actor: PersonId, id: string) {
     const item = Object.hasOwn(world.items, id) ? world.items[id] : null;
     if (!item || item.quantity <= 0) { fail('unavailable'); }
-    if (item.location.kind !== 'ground' && item.location.person !== actor) { fail('unavailable'); }
+    if (item.location.kind === 'dressing' || item.location.kind !== 'ground' && (item.location.person !== actor || buriedBodies(world).has(item.location.person))) { fail('unavailable'); }
     const position = itemPosition(world, id)!;
     if (!withinReach(world.people[actor].position, position)) { fail('unavailable'); }
     return item;
 }
 export function accessibleItems(world: Journey, actor: PersonId) {
-    return Object.values(world.items).filter(item => item.quantity > 0 && (item.location.kind === 'ground'
+    return Object.values(world.items).filter(item => item.quantity > 0 && item.location.kind !== 'dressing' && (item.location.kind === 'ground'
         ? withinReach(item.location.position, world.people[actor].position) : item.location.person === actor));
 }
 export function readMaterials(world: Journey, actor: PersonId, uses: MaterialUse[]) {
@@ -37,11 +38,11 @@ export function readMaterials(world: Journey, actor: PersonId, uses: MaterialUse
 export function consumeMaterials(world: Journey, uses: MaterialUse[]) {
     for (const use of uses) { world.items[use.item].quantity -= use.units; }
 }
-export function createItem(world: Journey, actor: PersonId, kind: ItemKind, quantity: number, wetness = 0): string {
+export function createItem(world: Journey, actor: PersonId, kind: ItemKind, quantity: number, wetness = 0, soiling = 0): string {
     const id = `item-${Object.keys(world.items).length + 1}`;
     const weight = ITEMS[kind].kilograms * quantity + (kind === 'coconut_open' ? ITEMS[kind].capacity / 1000 : 0);
     const canCarry = carriedWeight(world, actor) + weight <= carryLimit(world, actor);
-    world.items[id] = { kind, quantity, wetness, foodSince: isPerishable(kind) ? world.clock : null,
+    world.items[id] = { kind, quantity, wetness, soiling, foodSince: isPerishable(kind) ? world.clock : null,
         location: canCarry ? { kind: 'carried', person: actor } : { kind: 'ground', position: { ...world.people[actor].position } },
         water: kind === 'coconut_open' ? coconutWater(ITEMS[kind].capacity, world.clock) : ITEMS[kind].capacity ? plainWater() : null };
     return id;

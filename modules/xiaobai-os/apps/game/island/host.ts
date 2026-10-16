@@ -7,6 +7,7 @@ import { interpretPlayerIntent } from './agent/intent-runner.js';
 import { RULES } from './content.js';
 import { identifier, integer, member, object, parseOperation, text } from './validation.js';
 import { fail } from './fault.js';
+import { parsePlayerIdentity } from './identity.js';
 
 export function withIslandRuntime(primary: XiaobaiOsAppRuntime, service: IslandService, memory: IslandMemory, agent: AgentCapability,
     identity: () => string, idle: () => boolean): XiaobaiOsAppRuntime {
@@ -40,7 +41,7 @@ export function withIslandRuntime(primary: XiaobaiOsAppRuntime, service: IslandS
                 if (message.type === 'game/island/dismiss-intent') { service.dismissIntent(identifier(p.intentId)); return settledView(); }
                 const request = { id: identifier(p.actionId), revision: integer(p.revision) };
                 switch (message.type) {
-                    case 'game/island/start': await service.start(request, member(p.mode, ['start', 'restart']), guard); break;
+                    case 'game/island/start': await service.start(request, member(p.mode, ['start', 'restart']), parsePlayerIdentity(p.identity), guard); break;
                     case 'game/island/act': await service.player(request, parseOperation(p.operation), guard); break;
                     case 'game/island/advance': await service.elapse(request, integer(p.seconds, 1), guard); break;
                     case 'game/island/accept-intent': await service.acceptIntent(request, guard); break;

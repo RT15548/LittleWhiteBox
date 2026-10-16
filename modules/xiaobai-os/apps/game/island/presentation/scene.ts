@@ -16,11 +16,11 @@ import { createWeatherLayer } from './weather-layer.js';
 import { createVegetationLayer } from './vegetation-layer.js';
 import { itemMesh } from './item-mesh.js';
 import { waterBasin } from './water-basin.js';
-import { wasteMesh } from './waste-mesh.js';
-import type { CharacterAsset } from './character-asset.js';
+import { graveMesh, wasteMesh } from './waste-mesh.js';
+import type { CharacterRoster } from './character-loader.js';
 
 type Observation = NonNullable<IslandView['player']>;
-export function createIslandScene(container: HTMLElement, select: (point: Point) => void, selectPerson: (id: NpcId) => void, onError: () => void, characters: CharacterAsset) {
+export function createIslandScene(container: HTMLElement, select: (point: Point) => void, selectPerson: (id: NpcId) => void, onError: () => void, characters: CharacterRoster) {
     const renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'low-power' });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
     renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
@@ -52,7 +52,8 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
     }
     function render(time = performance.now()) {
         frame = 0; if (disposed || !active || !observation || document.hidden || !container.clientHeight) { return; }
-        people.animate(time);
+        try { people.animate(time); }
+        catch (error) { console.error(error); onError(); return; }
         const p = people.player()!, target = new T.Vector3(p.x, elevationAt({ x: p.x, y: p.z }), p.z);
         camera.position.copy(target).add(new T.Vector3(10, 25, 32)); camera.lookAt(target);
         camera.updateMatrixWorld();
@@ -69,6 +70,7 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
         observation = next; vegetation.update(next.self.position); disposeGroup(dynamic, [...foliage.materials, ...cutaway.materials, ground.reefRock, poolWater]); dynamic.clear();
         people.update(next, media.matches);
         for (const waste of next.waste) { const trace = wasteMesh(waste); trace.position.set(waste.position.x, 0, waste.position.y); dynamic.add(trace); }
+        for (const grave of next.graves) { const mound = graveMesh(); mound.position.set(grave.position.x, 0, grave.position.y); dynamic.add(mound); }
         for (const site of next.structures) { const g = structure(site, foliage); cutaway.apply(g); g.position.set(site.position.x, 0, site.position.y); dynamic.add(g); }
         for (const item of next.items) {
             if (item.location.kind !== 'ground') { continue; }

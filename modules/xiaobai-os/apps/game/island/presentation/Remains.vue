@@ -6,6 +6,7 @@ import { ITEMS } from '../survival-content.js';
 import { coveringMaterial } from '../remains.js';
 import { withinReach } from '../space.js';
 import { COPY as c } from '../copy.js';
+import DiggingWork from './DiggingWork.vue';
 const props = defineProps<{ observation: NonNullable<IslandView['player']>; subject: NpcId; disabled: boolean }>();
 const emit = defineEmits<{ act: [operation: Operation]; drag: [subject: NpcId] }>();
 const selected = ref('');
@@ -24,6 +25,7 @@ watch(materials, items => { if (!items.some(i => i.id === selected.value)) { sel
             <button :disabled="busy || !selected">{{ c.coverBody }}</button>
         </form>
         <p v-else>{{ c.noCoverMaterial }}</p>
+        <DiggingWork :observation="observation" :task="{ kind: 'bury_body', subject }" :disabled="busy" @work="emit('act', { kind: 'work', task: $event })" />
     </section>
 </template>
 <style scoped>

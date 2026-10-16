@@ -1,9 +1,10 @@
 import type { Item, ItemKind } from './model.js';
 import type { ObservedWater } from './water.js';
 import { FOOD } from './survival-content.js';
+import type { Cleanliness } from './hygiene.js';
 
 export type FoodObservation = 'unexamined' | 'no_obvious_spoilage' | 'off_odor';
-export type ObservedItem = Omit<Item, 'foodSince' | 'water'> & { id: string; water: ObservedWater | null; food: FoodObservation | null };
+export type ObservedItem = Omit<Item, 'foodSince' | 'water' | 'soiling'> & { id: string; water: ObservedWater | null; food: FoodObservation | null; cleanliness: Cleanliness };
 
 export function isPerishable(kind: ItemKind): boolean { return kind === 'fish' || kind === 'cooked_fish' || kind === 'coconut_open'; }
 

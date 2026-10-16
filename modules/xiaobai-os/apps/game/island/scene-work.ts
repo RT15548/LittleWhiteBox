@@ -3,7 +3,7 @@ import { openScene, observe } from './scene.js';
 import { operate } from './operations.js';
 import { memoryScope } from './memory.js';
 import { fail } from './fault.js';
-import { awaitingDecision } from './attention.js';
+import { awaitingDecision, decisionDetails } from './attention.js';
 import { createAgentKnowledge } from './agent-knowledge.js';
 
 // In-memory work segment. The caller may discard it; only finish() supplies a candidate.
@@ -16,13 +16,16 @@ export function createSceneWork(source: Journey, anchor: PersonId, land: Landsca
         ...createAgentKnowledge(() => candidate, readers, land),
         scope: () => structuredClone(scene),
         due: () => awaitingDecision(candidate).filter(id => readers.includes(id)),
+        decisions: () => decisionDetails(candidate).filter(d => readers.includes(d.actor)),
         act(actor: NpcId, operation: Operation) {
             const before = candidate.experiences.length;
             candidate = operate(candidate, { kind: 'gm', scene }, actor, operation, land);
             operations.push({ actor, operation: structuredClone(operation) });
-            return { observer: actor, self: observe(candidate, actor, land).self,
+            const { identity: _identity, ...self } = observe(candidate, actor, land).self;
+            return { observer: actor, self,
                 recorded: candidate.experiences.slice(before).map(e => ({ sequence: e.sequence, kind: e.payload.kind, audience: [...e.audience] })),
-                due: awaitingDecision(candidate).filter(id => readers.includes(id)) };
+                due: awaitingDecision(candidate).filter(id => readers.includes(id)),
+                decisions: decisionDetails(candidate).filter(d => readers.includes(d.actor)) };
         },
         finish() {
             if (!operations.length) { fail('invalid'); }

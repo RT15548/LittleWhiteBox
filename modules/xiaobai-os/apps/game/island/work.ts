@@ -1,5 +1,5 @@
 import { PERSON_IDS, type Journey, type Landscape, type MaterialUse, type Needs, type PersonId, type Water, type WorkTask } from './model.js';
-import { BLUEPRINTS, DRINKING, HYGIENE, ITEMS, RECIPES, RESOURCE_RULES, SURVIVAL, materialAmounts } from './survival-content.js';
+import { BLUEPRINTS, CARE, DRINKING, HYGIENE, ITEMS, RECIPES, RESOURCE_RULES, SANITATION, SURVIVAL, materialAmounts } from './survival-content.js';
 import { accessibleItem, accessibleItems, consumeMaterials, createItem, readMaterials, carriedWeight, carryLimit } from './inventory.js';
 import { craftBlocker } from './crafting.js';
 import { buildingGround, fireAt, shelterAt, sitesConflict, weatherAt } from './environment.js';
@@ -7,10 +7,13 @@ import { canStand, withinReach } from './space.js';
 import { fail, isActionFault } from './fault.js';
 import { record } from './experience.js';
 import { depositWaste } from './physiology.js';
-import { checkBodyCover } from './remains.js';
+import { checkBodyCover, checkBurial, checkExhumation } from './remains.js';
+import { wasteRemaining } from './sanitation.js';
 import { resourceAccessible } from './resources.js';
 import { foodIllness } from './food.js';
-import { drawWater, mixWater, plainWater, waterIllness } from './water.js';
+import { plainWater, waterIllness } from './water.js';
+import { putWater, sourceWater, takeWater, washable, washFloor, washingWater, washVolume } from './hygiene.js';
+import { careDuration, finishCare, requireCareConsent, settleCare } from './care.js';
 
 function near(world: Journey, actor: PersonId, position: { x: number; y: number }) {
     if (!withinReach(world.people[actor].position, position)) { fail('unavailable'); }
@@ -23,27 +26,10 @@ function materialCheck(world: Journey, actor: PersonId, inputs: MaterialUse[], n
 function fuelDuration(world: Journey, actor: PersonId, inputs: MaterialUse[]) {
     return materialAmounts(readMaterials(world, actor, inputs)).capabilities.fuel! * SURVIVAL.fireSecondsPerFuel;
 }
-function sourceWater(world: Journey, actor: PersonId, id: string) {
-    const resource = Object.hasOwn(world.resources, id) ? world.resources[id] : null;
-    if (resource?.kind === 'seep') {
-        near(world, actor, resource.position);
-        return { available: resource.stock, take: (ml: number) => { resource.stock -= ml; return plainWater(ml); } };
-    }
-    const site = Object.hasOwn(world.structures, id) ? world.structures[id] : null;
-    if (!site?.water || site.workLeft > 0) { fail('unavailable'); }
-    near(world, actor, site.position);
-    return { available: site.water.millilitres, take: (ml: number) => drawWater(site.water!, ml) };
-}
 function siteFor(world: Journey, actor: PersonId, id: string) {
     const site = Object.hasOwn(world.structures, id) ? world.structures[id] : null;
     if (!site || site.kind !== 'firepit' || site.workLeft !== 0) { fail('unavailable'); }
     near(world, actor, site.position); return site;
-}
-function washingWater(world: Journey, actor: PersonId, supply: Extract<WorkTask, { kind: 'wash' }>['supply']) {
-    if (supply.kind === 'source') { return sourceWater(world, actor, supply.id); }
-    const container = accessibleItem(world, actor, supply.id);
-    if (!container.water) { fail('conditions'); }
-    return { available: container.water.millilitres, take: (ml: number) => drawWater(container.water!, ml) };
 }
 function drinkWater(needs: Needs, water: Water, clock: number) {
     const { millilitres } = water;
@@ -84,9 +70,19 @@ export function workDuration(world: Journey, actor: PersonId, task: WorkTask, la
         }
         case 'wash': {
             if (task.millilitres < HYGIENE.minimumWashMl) { fail('conditions'); }
-            if (washingWater(world, actor, task.supply).available < task.millilitres) { fail('unavailable'); }
+            if (washingWater(world, actor, task.supply, weatherAt(world).tide).available < task.millilitres) { fail('unavailable'); }
             return SURVIVAL.washSeconds;
         }
+        case 'wash_item': {
+            const item = accessibleItem(world, actor, task.item);
+            if (!washable(item) || task.supply.kind === 'container' && task.supply.id === task.item) { fail('wash_item'); }
+            if (task.millilitres < washVolume(item)) { fail('wash_volume'); }
+            if (washingWater(world, actor, task.supply, weatherAt(world).tide).available < task.millilitres) { fail('unavailable'); }
+            return CARE.itemWashSeconds * item.quantity;
+        }
+        case 'tend':
+            requireCareConsent(world, actor, task.subject);
+            return careDuration(world, actor, task.subject, task.wound, task.treatment, land);
         case 'drink': case 'empty': {
             const container = accessibleItem(world, actor, task.container);
             if (!container.water || container.water.millilitres < task.millilitres) { fail('unavailable'); }
@@ -116,11 +112,15 @@ export function workDuration(world: Journey, actor: PersonId, task: WorkTask, la
             return task.waste === 'urine' ? SURVIVAL.urineSeconds : SURVIVAL.fecesSeconds;
         case 'cover_waste': {
             const waste = Object.hasOwn(world.waste, task.waste) ? world.waste[task.waste] : null;
-            if (!waste || waste.covered || !buildingGround(waste.position)) { fail('unavailable'); }
+            if (!waste || waste.covered || !wasteRemaining(waste, world.clock) || !buildingGround(waste.position)) { fail('unavailable'); }
             near(world, actor, waste.position); return SURVIVAL.coverSeconds;
         }
         case 'cover_body':
             checkBodyCover(world, actor, task.subject, task.item, land); return SURVIVAL.coverBodySeconds;
+        case 'bury_body':
+            checkBurial(world, actor, task.subject, task.tool, land); return SANITATION.burySeconds;
+        case 'exhume_body':
+            checkExhumation(world, actor, task.grave, task.tool, land); return SANITATION.exhumeSeconds;
         case 'ignite': {
             const site = siteFor(world, actor, task.site), tinder = accessibleItem(world, actor, task.tinder), drill = accessibleItem(world, actor, task.drill);
             if (site.burning || site.fuelSeconds <= 0 || tinder.kind !== 'tinder' || tinder.wetness > 0.25 || drill.kind !== 'fire_drill'
@@ -146,9 +146,12 @@ function claims(task: WorkTask): string[] {
     switch (task.kind) {
         case 'craft': case 'build': case 'fuel': return task.materials.map(m => m.item);
         case 'drink': case 'fill': case 'boil': case 'empty': return [task.container];
-        case 'wash': return task.supply.kind === 'container' ? [task.supply.id] : [];
+        case 'wash': case 'wash_item': return [...(task.kind === 'wash_item' ? [task.item] : []), ...(task.supply.kind === 'container' ? [task.supply.id] : [])];
+        case 'tend': return task.treatment.kind === 'dress' ? [task.treatment.item]
+            : task.treatment.kind === 'rinse' && task.treatment.supply.kind === 'container' ? [task.treatment.supply.id] : [];
         case 'pour': return [task.from, task.container];
         case 'eat': case 'cover_body': return [task.item];
+        case 'bury_body': case 'exhume_body': return [task.tool];
         case 'ignite': return [task.tinder, task.drill];
         default: return [];
     }
@@ -162,23 +165,23 @@ function finish(world: Journey, actor: PersonId, task: WorkTask, land: Landscape
     switch (task.kind) {
         case 'gather': {
             const source = world.resources[task.source]; source.stock--;
-            outputs.push(createItem(world, actor, RESOURCE_RULES[source.kind].output!, 1, weatherAt(world).rain ? 0.8 : 0.2));
+            outputs.push(createItem(world, actor, RESOURCE_RULES[source.kind].output!, 1, weatherAt(world).rain ? 0.8 : 0.2, .2));
             target = task.source;
             if (task.units > 1) { person.activity = { kind: 'work', task: { ...task, units: task.units - 1 }, remaining: RESOURCE_RULES[source.kind].seconds }; }
             break;
         }
         case 'fill': {
-            const container = world.items[task.container]; mixWater(container.water!, sourceWater(world, actor, task.source).take(task.millilitres));
+            const container = world.items[task.container]; putWater(container, sourceWater(world, actor, task.source).take(task.millilitres));
             target = task.container; break;
         }
         case 'pour':
-            mixWater(world.items[task.container].water!, drawWater(world.items[task.from].water!, task.millilitres));
+            putWater(world.items[task.container], takeWater(world.items[task.from], task.millilitres));
             record(world, { kind: 'poured', actor, from: task.from, to: task.container, millilitres: task.millilitres }, person.position, 'sight', land, [actor]); return;
         case 'empty':
-            drawWater(world.items[task.container].water!, task.millilitres);
+            takeWater(world.items[task.container], task.millilitres);
             record(world, { kind: 'poured', actor, from: task.container, to: null, millilitres: task.millilitres }, person.position, 'sight', land, [actor]); return;
         case 'drink': {
-            const water = drawWater(world.items[task.container].water!, task.millilitres);
+            const water = takeWater(world.items[task.container], task.millilitres);
             drinkWater(needs, water, world.clock);
             target = task.container; break;
         }
@@ -186,24 +189,34 @@ function finish(world: Journey, actor: PersonId, task: WorkTask, land: Landscape
             drinkWater(needs, sourceWater(world, actor, task.source).take(task.millilitres), world.clock); target = task.source; break;
         }
         case 'wash': {
-            washingWater(world, actor, task.supply).take(task.millilitres);
-            needs.soiling = Math.max(0, needs.soiling - task.millilitres / HYGIENE.fullWashMl); target = task.supply.id; break;
+            const supply = washingWater(world, actor, task.supply, weatherAt(world).tide);
+            supply.take(task.millilitres);
+            needs.soiling = Math.max(Math.min(needs.soiling, washFloor(task.supply, supply.clean)), needs.soiling - task.millilitres / HYGIENE.fullWashMl);
+            target = task.supply.kind === 'sea' ? null : task.supply.id; break;
         }
+        case 'wash_item': {
+            const supply = washingWater(world, actor, task.supply, weatherAt(world).tide), item = world.items[task.item];
+            supply.take(task.millilitres);
+            item.soiling = washFloor(task.supply, supply.clean); item.wetness = 1;
+            target = task.item; break;
+        }
+        case 'tend': finishCare(world, actor, task.subject, task.wound, task.treatment, land); return;
         case 'eat': {
             const item = world.items[task.item];
             needs.energy = Math.min(SURVIVAL.maxEnergy, needs.energy + ITEMS[item.kind].energy); needs.bowel += ITEMS[item.kind].energy / 15;
             needs.illness = Math.min(1, needs.illness + foodIllness(item, world.clock) + needs.soiling * 0.004);
             if (item.kind === 'coconut_open') {
-                const shell = createItem(world, actor, 'shell', 1); world.items[shell].water = structuredClone(item.water); outputs.push(shell); item.water = null;
+                const shell = createItem(world, actor, 'shell', 1, item.wetness, item.soiling); world.items[shell].water = structuredClone(item.water); outputs.push(shell); item.water = null;
             }
             item.quantity--; target = task.item; break;
         }
         case 'craft': {
             const wetness = Math.max(...task.materials.map(m => world.items[m.item].wetness));
+            const soiling = Math.max(...task.materials.map(m => world.items[m.item].soiling));
             const foodInputs = task.materials.map(m => world.items[m.item].foodSince).filter((since): since is number => since !== null);
             consumeMaterials(world, task.materials);
             for (const [kind, quantity] of Object.entries(RECIPES[task.recipe].outputs)) {
-                const output = createItem(world, actor, kind as keyof typeof ITEMS, quantity, RECIPES[task.recipe].fire ? 0 : wetness);
+                const output = createItem(world, actor, kind as keyof typeof ITEMS, quantity, RECIPES[task.recipe].fire ? 0 : wetness, soiling);
                 if (world.items[output].foodSince !== null && foodInputs.length) { world.items[output].foodSince = Math.min(...foodInputs); }
                 outputs.push(output);
             }
@@ -226,14 +239,23 @@ function finish(world: Journey, actor: PersonId, task: WorkTask, land: Landscape
         case 'cover_waste': world.waste[task.waste].covered = true; needs.soiling = Math.min(1, needs.soiling + 0.1); target = task.waste; break;
         case 'cover_body':
             world.items[task.item].location = { kind: 'covering', person: task.subject };
+            needs.soiling = Math.min(1, needs.soiling + SANITATION.handlingSoiling);
             record(world, { kind: 'body_covered', actor, subject: task.subject, item: task.item }, world.people[task.subject].position, 'sight', land, [actor]);
             return;
+        case 'bury_body':
+            needs.soiling = Math.min(1, needs.soiling + SANITATION.handlingSoiling);
+            record(world, { kind: 'body_buried', actor, subject: task.subject }, world.people[task.subject].position, 'sight', land, [actor]); return;
+        case 'exhume_body': {
+            const subject = checkExhumation(world, actor, task.grave, task.tool, land);
+            needs.soiling = Math.min(1, needs.soiling + SANITATION.handlingSoiling);
+            record(world, { kind: 'body_exhumed', actor, subject, grave: task.grave }, world.people[subject].position, 'sight', land, [actor]); return;
+        }
         case 'fuel': {
             const duration = fuelDuration(world, actor, task.materials);
             consumeMaterials(world, task.materials); world.structures[task.site].fuelSeconds += duration; target = task.site; break;
         }
         case 'ignite': world.items[task.tinder].quantity--; world.structures[task.site].burning = true; target = task.site; break;
-        case 'boil': world.items[task.container].water!.quality = 'treated'; target = task.container; break;
+        case 'boil': world.items[task.container].water!.quality = 'treated'; world.items[task.container].soiling = 0; target = task.container; break;
     }
     record(world, { kind: 'worked', actor, task: task.kind, target, outputs }, person.position, task.kind === 'relieve' || task.kind === 'wash' ? 'self' : 'sight', land, [actor]);
 }
@@ -258,9 +280,11 @@ export function workTick(world: Journey, land: Landscape) {
         for (const id of ids) { itemClaims.set(id, [...(itemClaims.get(id) ?? []), actor]); }
         if (ready.has(actor) && activity?.kind === 'work') {
             const task = activity.task;
+            const washing = task.kind === 'wash' || task.kind === 'wash_item' ? task
+                : task.kind === 'tend' && task.treatment.kind === 'rinse' ? task.treatment : null;
             const claim = task.kind === 'gather' ? { source: task.source, amount: 1 }
                 : task.kind === 'fill' || task.kind === 'sip' ? { source: task.source, amount: task.millilitres }
-                : task.kind === 'wash' && task.supply.kind === 'source' ? { source: task.supply.id, amount: task.millilitres } : null;
+                : washing?.supply.kind === 'source' ? { source: washing.supply.id, amount: washing.millilitres } : null;
             if (claim) { sourceClaims.set(claim.source, [...(sourceClaims.get(claim.source) ?? []), { actor, amount: claim.amount }]); }
         }
     }
@@ -299,6 +323,7 @@ export function workTick(world: Journey, land: Landscape) {
             record(world, { kind: 'work_failed', actor, task: activity.task.kind, reason: error.code }, world.people[actor].position, 'self', land, [actor]);
         }
     }
+    settleCare(world, land);
     const crews = new Map<string, PersonId[]>();
     for (const actor of PERSON_IDS) {
         const a = world.people[actor].activity;

@@ -1,7 +1,7 @@
 import type { createIntentWork, IntentClarification } from '../intent-work.js';
-import { CAST } from '../content.js';
+import { CAST } from '../characters.js';
 import { PERSON_IDS } from '../model.js';
-import { BLUEPRINTS, ITEMS, RECIPES } from '../survival-content.js';
+import { BLUEPRINTS, CARE, HYGIENE, ITEMS, RECIPES } from '../survival-content.js';
 import { runIslandToolLoop, type IslandAgentOptions } from './tool-loop.js';
 import { knowledgeExecutor, type MemoryOptions } from './knowledge-tools.js';
 import { KNOWLEDGE_TOOLS, PLAYER_OPERATION_SCHEMA, tool } from './tool-contract.js';
@@ -14,14 +14,14 @@ const INTENT_TOOLS = [...KNOWLEDGE_TOOLS,
 ];
 
 export async function interpretPlayerIntent(work: ReturnType<typeof createIntentWork>, intent: string, options: IslandAgentOptions & MemoryOptions, clarifications: IntentClarification[] = []) {
-    const read = knowledgeExecutor(work, work.journey, options);
-    await runIslandToolLoop({ ...options, prompt: INTENT_PROMPT, tools: INTENT_TOOLS,
-        initial: { intent, clarifications, observations: work.context(), recent: work.recent(),
-            people: PERSON_IDS.map(id => ({ id, name: CAST[id].name })), materials: ITEMS, recipes: RECIPES, blueprints: BLUEPRINTS },
+    const knowledge = knowledgeExecutor(work, work.journey, options);
+    await runIslandToolLoop({ ...options, prompt: INTENT_PROMPT, tools: INTENT_TOOLS, formatInitial: JSON.stringify,
+        initial: { intent, clarifications, player: work.playerIdentity(), ...knowledge.initial, recent: work.recent(),
+            people: PERSON_IDS.map(id => ({ id, name: id === 'player' ? knowledge.initial.identities.find(p => p.id === 'player')!.name : CAST[id].name })), materials: ITEMS, recipes: RECIPES, blueprints: BLUEPRINTS, hygiene: HYGIENE, care: CARE },
         async execute(name, args) {
             if (name === 'ProposeAction') { return work.propose(args.operation); }
             if (name === 'AskPlayer') { return work.ask(args.text); }
-            return read(name, args);
+            return knowledge.execute(name, args);
         },
         complete: work.done, terminal: work.done,
     });

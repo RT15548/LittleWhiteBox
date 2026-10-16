@@ -1,22 +1,29 @@
 import * as T from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
-import type { Activity, Item, WorkTask } from '../model.js';
+import type { Activity, WorkTask } from '../model.js';
 import { GARMENTS, type GarmentShape, type GarmentSpec } from '../clothing.js';
-import type { SurvivorVisual, WornGarment } from './survivor-visual.js';
-import { wetFabric } from './garment-material.js';
+import type { FabricAppearance, SurvivorVisual, WornGarment } from './survivor-visual.js';
+import { fabricAppearance, wetFabric } from './garment-material.js';
+import { createDressings } from './dressing-visual.js';
+import { createCarePose } from './care-pose.js';
+import { createContactPose } from './contact-pose.js';
+import { libraryClips } from './motion-library.js';
+import { createConflictPose } from './conflict-pose.js';
 
 export const CHARACTER_CLIPS = ['idle', 'walk', 'rest', 'work', 'construct', 'drink', 'wash', 'offer', 'drag', 'dead'] as const;
-type Clip = typeof CHARACTER_CLIPS[number];
+type Clip = typeof CHARACTER_CLIPS[number] | 'contact-base';
 const workClips: Record<WorkTask['kind'], Clip> = {
     gather: 'work', fill: 'work', pour: 'work', empty: 'work', drink: 'drink', sip: 'drink', eat: 'drink',
     craft: 'work', build: 'construct', relieve: 'work', wash: 'wash', cover_waste: 'work', cover_body: 'work',
-    ignite: 'work', fuel: 'work', boil: 'work',
+    ignite: 'work', fuel: 'work', boil: 'work', wash_item: 'wash', tend: 'work', bury_body: 'work', exhume_body: 'work',
 };
 function clipFor(dead: boolean, moving: boolean, activity: Activity['kind'] | null, work: WorkTask['kind'] | null): Clip {
     if (dead) { return 'dead'; }
     if (moving) { return activity === 'drag' ? 'drag' : 'walk'; }
+    if (activity === 'contact' || activity === 'offer_contact') { return 'contact-base'; }
     if (activity === 'work') { return work ? workClips[work] : 'work'; }
+    if (activity === 'receive_care') { return 'rest'; }
     if (activity === 'rest' || activity === 'construct' || activity === 'offer') { return activity; }
     return activity === 'take' ? 'work' : 'idle';
 }
@@ -71,12 +78,11 @@ function ownFabric(source: T.MeshStandardMaterial): Fabric {
     if (typeof source.userData.garment_tint !== 'boolean') { throw new Error('island_character_missing_fabric_role'); }
     return { material: source.clone(), dry: source.color.clone(), roughness: source.roughness, tint: source.userData.garment_tint };
 }
-function updateFabric(fabrics: readonly Fabric[], spec: GarmentSpec, wetness: number) {
+function updateFabric(fabrics: readonly Fabric[], spec: GarmentSpec, appearance: FabricAppearance) {
     for (const fabric of fabrics) {
-        if (fabric.tint) { wetFabric(fabric.material, spec, wetness); }
+        if (fabric.tint) { wetFabric(fabric.material, spec, appearance); }
         else {
-            fabric.material.color.copy(fabric.dry).multiplyScalar(1 - wetness * .28);
-            fabric.material.roughness = Math.max(.05, fabric.roughness - wetness * .24);
+            fabricAppearance(fabric.material, fabric.dry, fabric.roughness, appearance);
         }
     }
 }
@@ -96,12 +102,15 @@ function disposeModel(root: T.Object3D) {
 }
 
 // One immutable asset per island scene. Instances own materials/skeletons, not the shared geometry or textures.
-export function createCharacterAsset(gltf: GLTF) {
+export function createCharacterAsset(gltf: GLTF, id: string, height: number, gender: 'male' | 'female') {
     const template = gltf.scene, clips = new Map(gltf.animations.map(clip => [clip.name, clip]));
     const loose = new Map<GarmentShape, { geometry: T.BufferGeometry; materials: T.MeshStandardMaterial[] }[]>();
     let disposed = false;
     try {
         for (const clip of CHARACTER_CLIPS) { if (!clips.has(clip)) { throw new Error(`island_character_missing_animation:${clip}`); } }
+        // Authored contact deltas were made against this pose, not Mixamo's idle.
+        const contactBase = clips.get('idle')!.clone(); contactBase.name = 'contact-base'; clips.set(contactBase.name, contactBase);
+        for (const clip of libraryClips(template, gender)) { clips.set(clip.name, clip); }
         bone(template, 'head'); bone(template, 'wrist.R'); bone(template, 'finger3-1.R');
         const garments = taggedGarments(template), mixer = new T.AnimationMixer(template);
         mixer.clipAction(clips.get('idle')!).play(); mixer.update(0); template.updateMatrixWorld(true);
@@ -144,7 +153,7 @@ export function createCharacterAsset(gltf: GLTF) {
         create(worn: readonly WornGarment[], dead: boolean): SurvivorVisual {
             ensureActive();
             const body = cloneSkeleton(template), root = new T.Group(), hand = new T.Group(), covering = new T.Group(), headAnchor = new T.Object3D();
-            root.name = 'ye'; body.name = 'ye-body'; root.add(body, hand, covering, headAnchor); covering.position.y = .35;
+            root.name = id; body.name = `${id}-body`; root.add(body, hand, covering, headAnchor); covering.position.y = .35;
             const garments = taggedGarments(body), fabrics = new Map<GarmentShape, Fabric[]>(), skeletons = new Set<T.Skeleton>();
             body.traverse(object => {
                 if (object instanceof T.Mesh) { object.castShadow = object.receiveShadow = true; object.frustumCulled = false; }
@@ -161,19 +170,37 @@ export function createCharacterAsset(gltf: GLTF) {
             }
             const head = bone(body, 'head'), wrist = bone(body, 'wrist.R'), fingers = bone(body, 'finger3-1.R'), supports = supportPoints(body);
             const point = new T.Vector3(), palm = new T.Vector3(), mixer = new T.AnimationMixer(body);
-            const actions = new Map(CHARACTER_CLIPS.map(name => [name, mixer.clipAction(clips.get(name)!)]));
+            const actions = new Map([...clips].map(([name, clip]) => [name, mixer.clipAction(clip)]));
+            const dressings = createDressings(body, name => bone(body, name));
+            const carePose = createCarePose(root, name => bone(body, name));
+            const contact = createContactPose(root, body, name => bone(body, name), height);
+            const conflictPose = createConflictPose(root, name => bone(body, name), height);
+            let clothingShape = '';
             let current: T.AnimationAction | null = null, previousPhase: number | null = null;
             const visual: SurvivorVisual = {
-                root, hand, covering, headAnchor,
+                root, hand, covering, headAnchor, contact,
                 wetness(items) {
+                    const shape = items.map(i => GARMENTS[i.kind]?.shape).sort().join(',');
+                    if (shape !== clothingShape) { clothingShape = shape; contact.invalidate(); }
                     for (const [shape, garment] of garments) {
                         const item = items.find(item => GARMENTS[item.kind]?.shape === shape);
                         garment.visible = !!item;
-                        if (item) { updateFabric(fabrics.get(shape)!, GARMENTS[item.kind]!, item.wetness); }
+                        if (item) { updateFabric(fabrics.get(shape)!, GARMENTS[item.kind]!, item); }
                     }
                 },
-                pose(phase, moving, activity, work = null) {
-                    const clip = clipFor(dead, moving, activity, work), next = actions.get(clip)!;
+                dressings: dressings.update,
+                careAnchor: dressings.anchor,
+                care(target, phase, selfWound) {
+                    carePose.apply(target, phase, selfWound === 'skin'); root.updateMatrixWorld(true);
+                    wrist.getWorldPosition(palm); fingers.getWorldPosition(point); palm.lerp(point, .55);
+                    hand.position.copy(root.worldToLocal(palm));
+                },
+                pose(phase, moving, activity, work = null, conflict = null) {
+                    contact.reset();
+                    carePose.reset();
+                    conflictPose.reset();
+                    const combat = dead ? null : conflict;
+                    const clip = combat?.kind === 'punch' || combat?.kind === 'guard' ? combat.kind : clipFor(dead, moving, activity, work), next = actions.get(clip)!;
                     body.position.y = 0;
                     if (current !== next) {
                         const old = current; current = next; current.reset().play();
@@ -183,7 +210,11 @@ export function createCharacterAsset(gltf: GLTF) {
                     // Reduced motion still applies the complete pose of a newly confirmed activity.
                     if (phase === 0) { for (const action of actions.values()) { if (action !== current) { action.stop(); } } current.stopFading().setEffectiveWeight(1); }
                     mixer.update(elapsed); previousPhase = phase; root.updateMatrixWorld(true);
-                    if (clip === 'idle' || clip === 'walk') {
+                    if (combat?.kind === 'punch' || combat?.kind === 'guard') {
+                        current.time = T.MathUtils.clamp(combat.progress, 0, .999) * current.getClip().duration;
+                        mixer.update(0); root.updateMatrixWorld(true);
+                    }
+                    if (clip === 'idle' || clip === 'contact-base' || clip === 'walk' || clip === 'punch' || clip === 'guard') {
                         const inverse = new T.Matrix4().copy(root.matrixWorld).invert(); let floor = Infinity;
                         for (const contact of supports) {
                             if (!visible(contact.mesh)) { continue; }
@@ -195,22 +226,24 @@ export function createCharacterAsset(gltf: GLTF) {
                         if (!Number.isFinite(floor)) { throw new Error('island_character_invalid_foot_contact'); }
                         body.position.y = -floor; root.updateMatrixWorld(true);
                     }
+                    if (combat) { conflictPose.apply(combat); }
                     wrist.getWorldPosition(palm); fingers.getWorldPosition(point); palm.lerp(point, .55);
                     hand.position.copy(root.worldToLocal(palm));
                     head.getWorldPosition(point); headAnchor.position.copy(root.worldToLocal(point)); headAnchor.position.y += .16;
                 },
                 dispose() {
                     mixer.stopAllAction(); mixer.uncacheRoot(body);
+                    dressings.dispose();
                     skeletons.forEach(skeleton => skeleton.dispose()); fabrics.forEach(parts => parts.forEach(fabric => fabric.material.dispose()));
                 },
             };
-            visual.wetness(worn); visual.pose(0, false, null); return visual;
+            visual.wetness(worn); visual.dressings([]); visual.pose(0, false, null); return visual;
         },
-        garment(item: Pick<Item, 'kind' | 'wetness'>) {
+        garment(item: WornGarment) {
             ensureActive(); const spec = GARMENTS[item.kind]; if (!spec) { throw new Error('island_not_garment'); }
             const root = new T.Group(); root.userData.garment = true;
             for (const part of loose.get(spec.shape)!) {
-                const fabrics = part.materials.map(ownFabric); updateFabric(fabrics, spec, item.wetness);
+                const fabrics = part.materials.map(ownFabric); updateFabric(fabrics, spec, item);
                 const materials = fabrics.map(fabric => fabric.material);
                 const mesh = new T.Mesh(part.geometry.clone(), materials.length === 1 ? materials[0] : materials);
                 mesh.castShadow = mesh.receiveShadow = true; root.add(mesh);

@@ -6,23 +6,34 @@ import { fail, isActionFault } from '../fault.js';
 import { AGENT_POLICY as P } from './policy.js';
 
 type RecordValue = Record<string, unknown>;
+export type IslandAgentContext = RecordValue & { recent: { entries: unknown[]; earlier: boolean } };
 export interface IslandAgentOptions {
     agent: XiaobaiOsAgentGateway; signal: AbortSignal; guard: () => boolean;
 }
 export async function runIslandToolLoop(options: IslandAgentOptions & {
-    prompt: string; tools: RecordValue[]; initial: RecordValue;
+    prompt: string; tools: RecordValue[]; initial: IslandAgentContext;
+    formatInitial: (initial: IslandAgentContext) => string;
     execute: (name: string, args: RecordValue) => Promise<unknown>;
     complete: () => boolean; terminal?: () => boolean;
 }) {
-    const { agent, signal, guard, execute, prompt, tools } = options;
+    const { agent, signal, guard, execute, prompt, tools, formatInitial } = options;
     const config = await agent.loadConfig(), session = await agent.openSession(config);
-    const messages: RecordValue[] = [{ role: 'user', content: JSON.stringify(options.initial) }];
+    const initial = { ...options.initial, recent: { ...options.initial.recent, entries: [...options.initial.recent.entries] } };
+    const messages: RecordValue[] = [{ role: 'user', content: formatInitial(initial) }];
+    const inputTokens = () => estimateConversationTokens({ messages: [{ role: 'system', content: prompt }, ...messages], tools, providerConfig: session.providerConfig });
+    // Leave one output allowance for the next exchange. Only omit the oldest
+    // recent entries; originals stay readable and all current facts remain.
+    while (inputTokens() > P.inputTokens - P.outputTokens) {
+        if (!initial.recent.entries.length) { fail('context_full'); }
+        initial.recent.entries.shift(); initial.recent.earlier = true;
+        messages[0].content = formatInitial(initial);
+    }
     let responses: RecordValue[] | undefined;
     for (let round = 0; round < P.rounds; round++) {
         signal.throwIfAborted(); if (!guard()) { fail('stale'); }
         // Count the entire logical request, including tool schemas and retained tool exchanges,
         // even when the provider carries earlier exchanges in its own session.
-        const used = estimateConversationTokens({ messages: [{ role: 'system', content: prompt }, ...messages], tools, providerConfig: session.providerConfig });
+        const used = inputTokens();
         if (used > P.inputTokens) { fail('context_full'); }
         const native = session.supportsSessionToolLoop && responses !== undefined;
         const result = await session.run({ systemPrompt: prompt, messages: native ? [] : messages,

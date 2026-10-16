@@ -2,9 +2,9 @@
 import { ref, watch } from 'vue';
 import type { IslandView } from '../service.js';
 import type { Operation } from '../model.js';
-import { COPY as c } from '../copy.js';
-import { CAST, RULES } from '../content.js';
-const props = defineProps<{ agreements: NonNullable<IslandView['player']>['agreements']; disabled: boolean }>();
+import { COPY as c, personName } from '../copy.js';
+import { RULES } from '../content.js';
+const props = defineProps<{ agreements: NonNullable<IslandView['player']>['agreements']; playerName: string; disabled: boolean }>();
 const emit = defineEmits<{ act: [operation: Operation] }>();
 const composing = ref(false), draft = ref(''), submitted = ref<{ text: string; after: number } | null>(null);
 watch(() => props.agreements, agreements => {
@@ -35,9 +35,9 @@ function relay(reference: number) {
         </form>
         <p v-if="!agreements.length && !composing" class="island-agreement-empty">{{ c.noAgreements }}</p>
         <article v-for="a in agreements" :key="a.proposal" class="island-agreement">
-            <strong>{{ c.proposalBy(a.proposer) }}</strong><small>{{ c.time(a.learnedAt) }} · {{ c.through(a.through) }}</small>
+            <strong>{{ c.proposalBy(a.proposer, playerName) }}</strong><small>{{ c.time(a.learnedAt) }} · {{ c.through(a.through) }}</small>
             <p class="island-agreement-terms">{{ a.terms }}</p>
-            <ul><li v-for="answer in a.commitments" :key="answer.actor"><span>{{ CAST[answer.actor].name }}</span><span :class="answer.stance">{{ c.commitment[answer.stance] }}</span><details v-if="answer.reference !== a.proposal"><summary :aria-label="`${CAST[answer.actor].name} · ${c.look}`">{{ c.look }}</summary><small>{{ c.time(answer.learnedAt) }} · {{ c.through(answer.through) }}</small><p class="island-agreement-terms">{{ answer.text }}</p><button :disabled="disabled" @click="relay(answer.reference)">{{ c.relayResponse }}</button></details></li></ul>
+            <ul><li v-for="answer in a.commitments" :key="answer.actor"><span>{{ personName(answer.actor, playerName) }}</span><span :class="answer.stance">{{ c.commitment[answer.stance] }}</span><details v-if="answer.reference !== a.proposal"><summary :aria-label="`${personName(answer.actor, playerName)} · ${c.look}`">{{ c.look }}</summary><small>{{ c.time(answer.learnedAt) }} · {{ c.through(answer.through) }}</small><p class="island-agreement-terms">{{ answer.text }}</p><button :disabled="disabled" @click="relay(answer.reference)">{{ c.relayResponse }}</button></details></li></ul>
             <div class="island-item-actions"><button v-if="!a.commitments.some(s => s.actor === 'player' && s.stance === 'accept')" :disabled="disabled" @click="respond(a.proposal, 'accept')">{{ c.accept }}</button><button v-if="!a.commitments.some(s => s.actor === 'player' && s.stance === 'decline')" :disabled="disabled" @click="respond(a.proposal, 'decline')">{{ a.commitments.some(s => s.actor === 'player' && s.stance === 'accept') ? c.withdraw : c.decline }}</button><button :disabled="disabled" @click="relay(a.proposal)">{{ c.relayTerms }}</button></div>
         </article>
     </section>

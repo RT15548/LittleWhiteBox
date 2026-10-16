@@ -24,7 +24,7 @@ export function acceptOffer(world: Journey, actor: PersonId, from: PersonId, lan
     if (offer.units === item.quantity) { item.location = { kind: 'carried', person: actor }; }
     else {
         item.quantity -= offer.units;
-        received = createItem(world, actor, item.kind, offer.units, item.wetness);
+        received = createItem(world, actor, item.kind, offer.units, item.wetness, item.soiling);
         world.items[received].foodSince = item.foodSince;
     }
     world.people[from].activity = null;
@@ -38,6 +38,12 @@ export function cancelBrokenOffers(world: Journey, land: Landscape) {
         person.activity = null;
         record(world, { kind: 'interrupted', actor }, person.position, 'sight', land, [actor]);
     }
+}
+export function declineOffer(world: Journey, actor: PersonId, from: PersonId, land: Landscape) {
+    const offer = world.people[from].activity;
+    if (offer?.kind !== 'offer' || offer.to !== actor || !canOffer(world, from, actor, offer.item, offer.units, land)) { fail('unavailable'); }
+    world.people[from].activity = null;
+    record(world, { kind: 'offer_declined', actor, from, item: offer.item }, world.people[actor].position, 'sight', land, [actor, from]);
 }
 
 export function visibleOffers(world: Journey, observer: PersonId, land: Landscape) {

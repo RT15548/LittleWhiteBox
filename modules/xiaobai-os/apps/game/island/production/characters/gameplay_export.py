@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from gameplay_motion import CLIP_FRAMES, HAND_BONE, author_gameplay_clips, world_points
 from gameplay_wardrobe import add_gameplay_wardrobe
 from motion import relaxed_pose
+from ye_design import DESIGN
 
 SOURCE = Path("output/island-characters/ye-hair-review/ye-sample.blend")
 OUTPUT = Path("output/island-characters/ye-game")
@@ -223,10 +224,10 @@ def main():
     objects = [*approved, *additions]
     # Wraps are an alternative to shoes, not simultaneously worn starting clothing.
     starting = [o for o in objects if o.get("garment_id") != "wraps"]
-    author_gameplay_clips(rig, starting)
+    author_gameplay_clips(rig, starting, DESIGN.standing_pose)
     assert source_mesh_hashes == {o.name: mesh_digest(o) for o in approved}
     assert source_actions == {name: action_digest(bpy.data.actions[name]) for name in source_actions}
-    contract = {"character_id": "ye", "height_m": 1.60, "world_root": rig.name,
+    contract = {"character_id": DESIGN.identity.key, "height_m": DESIGN.identity.height_m, "world_root": rig.name,
                 "root_bone": "root", "head_bone": "head", "hand_bone": HAND_BONE,
                 "hand_tip_bone": "finger3-1.R", "forward_axis_gltf": "+Z", "up_axis_gltf": "+Y",
                 "world_root_motion": False, "clip_grounding": "authored bone-local; no runtime crouch/death offset",
@@ -259,7 +260,7 @@ def main():
                               export_optimize_animation_keep_anim_armature=True,
                               export_skins=True, export_all_influences=False)
     checked = verify_glb(asset, source.with_suffix(".glb"))
-    relaxed_pose(rig)
+    relaxed_pose(rig, DESIGN.standing_pose)
     bpy.data.objects["clothing.wraps"].hide_render = True
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'

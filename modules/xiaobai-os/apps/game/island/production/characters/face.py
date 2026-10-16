@@ -8,7 +8,6 @@ from mathutils.bvhtree import BVHTree
 
 from makehuman_data import read_obj
 from mesh_tools import bind_weights, join_meshes, material, mesh_object, rigid_bind, source_mesh, tube
-from ye_design import BROW_ARCH
 
 
 def skin_material():
@@ -23,7 +22,7 @@ def skin_material():
     return mat
 
 
-def paint_skin(data, body, indices):
+def paint_skin(data, body, indices, skin=(0.57, 0.365, 0.272), lip_strength=0.82):
     lip_fields = []
     for region in ("upperlip", "lowerlip"):
         field = {}
@@ -38,7 +37,7 @@ def paint_skin(data, body, indices):
     colors = body.data.color_attributes.new(name="SkinColor", type="FLOAT_COLOR", domain="POINT")
     for vertex, source_index in zip(body.data.vertices, indices):
         x, y, z = vertex.co
-        color = Vector((0.57, 0.365, 0.272))
+        color = Vector(skin)
         if y < eye.y + 0.02:
             cheek = math.exp(-((abs(x) - eye.x * 1.45) / 0.019) ** 2 - ((z - eye.z + 0.028) / 0.020) ** 2)
             color = color.lerp(Vector((0.61, 0.287, 0.251)), cheek * 0.19)
@@ -47,7 +46,7 @@ def paint_skin(data, body, indices):
         # away lower-lip pigment when their height or projection changes.
         lip = max(field.get(source_index, 0) for field in lip_fields)
         weight = max(0, min(1, (lip - 0.20) / 0.55))
-        color = color.lerp(Vector((0.39, 0.118, 0.116)), weight * 0.82)
+        color = color.lerp(Vector((0.39, 0.118, 0.116)), weight * lip_strength)
         colors.data[vertex.index].color = (*color, 1)
 
 
@@ -76,7 +75,7 @@ def build_eyes(data, rig):
     return obj
 
 
-def build_brows(data, body, rig):
+def build_brows(data, body, rig, brow_arch):
     bvh = BVHTree.FromPolygons([v.co for v in body.data.vertices], [list(p.vertices) for p in body.data.polygons])
     mat = material("Brows", (0.047, 0.024, 0.014), 0.87)
     pieces = []
@@ -91,8 +90,8 @@ def build_brows(data, body, rig):
             for j in range(17):
                 t = j / 16
                 x = side * (start + t * (end - start) + 0.0005 * (row % 3) * (1 - t))
-                arch = BROW_ARCH["height"] * math.sin(math.pi * t ** BROW_ARCH["peak_curve"])
-                z = brow_z + arch - BROW_ARCH["tail_drop"] * t + (row - 3.5) * 0.00065 * (1 - t * 0.8)
+                arch = brow_arch["height"] * math.sin(math.pi * t ** brow_arch["peak_curve"])
+                z = brow_z + arch - brow_arch["tail_drop"] * t + (row - 3.5) * 0.00065 * (1 - t * 0.8)
                 hit, _, _, _ = bvh.ray_cast(Vector((x, -0.5, z)), Vector((0, 1, 0)))
                 if hit is None:
                     raise ValueError("Brow is outside the head surface")

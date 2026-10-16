@@ -5,6 +5,28 @@ import { fail } from './fault.js';
 import { AGENT_POLICY } from './agent/policy.js';
 import { knownExperiences } from './experience.js';
 import { experienceView } from './cooperation.js';
+import { CAST } from './characters.js';
+
+function rememberedNames(world: Journey, observer: PersonId) {
+    const names = new Map<PersonId, { id: PersonId; name: string; source: number }>();
+    const remember = (id: PersonId, source: number) => {
+        if (id !== observer && !names.has(id)) {
+            names.set(id, { id, name: id === 'player' ? world.playerIdentity.name : CAST[id].name, source });
+        }
+    };
+    for (let i = world.experiences.length - 1; i >= 0; i--) {
+        const event = world.experiences[i], p = event.payload;
+        if (!event.audience.includes(observer)) { continue; }
+        if (p.kind === 'encounter' && p.actor === observer) { remember(p.subject, event.sequence); }
+        if (p.kind === 'speech' || p.kind === 'declaration') {
+            remember(p.actor, event.sequence);
+            if (p.kind === 'declaration' && p.choice.kind === 'relay') {
+                remember(experienceView(world, event).shared!.actor, event.sequence);
+            }
+        }
+    }
+    return [...names.values()];
+}
 
 function previewText(text: string) {
     let end = Math.min(text.length, AGENT_POLICY.statementPreviewCharacters);
@@ -22,23 +44,28 @@ function pageObservation(view: ReturnType<typeof observe>, offset: number, count
     const end = offset + count;
     return { ...view, items: view.items.slice(offset, end), resources: view.resources.slice(offset, end), structures: view.structures.slice(offset, end),
         intention: view.intention ? previewExperience(view.intention) : null,
-        waste: view.waste.slice(offset, end), declarations: view.declarations.slice(offset, end).map(previewExperience), offset,
+        waste: view.waste.slice(offset, end), graves: view.graves.slice(offset, end), declarations: view.declarations.slice(offset, end).map(previewExperience), offset,
         knownPlaces: view.knownPlaces.slice(offset, end),
         agreements: view.agreements.slice(offset, end).map(({ terms, commitments, ...a }) => ({ ...a,
             termsPreview: previewText(terms), termsTruncated: previewText(terms).length < terms.length,
             commitments: commitments.map(({ text: _text, ...response }) => response) })),
-        next: Math.max(view.items.length, view.resources.length, view.structures.length, view.waste.length, view.declarations.length, view.knownPlaces.length, view.agreements.length) > end ? end : null };
+        next: Math.max(view.items.length, view.resources.length, view.structures.length, view.waste.length, view.graves.length, view.declarations.length, view.knownPlaces.length, view.agreements.length) > end ? end : null };
 }
 
 
 // Each caller fixes its readers. Player interpretation never uses the GM knowledge union.
 export function createAgentKnowledge(current: () => Journey, readers: PersonId[], land: Landscape) {
+    const reader = (observer: PersonId) => {
+        if (!readers.includes(observer)) { fail('memory_unavailable'); }
+        return [observer];
+    };
     return {
+        playerIdentity: () => structuredClone(current().playerIdentity),
         context(offset = 0) {
             const candidate = current();
-            const views = readers.map(id => observe(candidate, id, land));
+            const views = readers.map(id => ({ ...observe(candidate, id, land), knownNames: rememberedNames(candidate, id) }));
             for (let count = AGENT_POLICY.pageSize as number; count > 0; count--) {
-                const page = views.map(v => pageObservation(v, offset, count));
+                const page = views.map(v => ({ ...pageObservation(v, offset, count), knownNames: v.knownNames }));
                 if (JSON.stringify(page).length <= AGENT_POLICY.observationCharacters) { return page; }
             }
             return fail('context_full');
@@ -54,16 +81,17 @@ export function createAgentKnowledge(current: () => Journey, readers: PersonId[]
             }
             return { entries, earlier: entries.length < known.length };
         },
-        indexInputs() {
+        indexInputs(observer: PersonId) {
             const candidate = current();
-            return chunks(candidate, AGENT_POLICY.chunkCharacters).filter(c => readers.some(id => c.audience.includes(id))).map(c => ({
-                chunk: c.id, digest: c.digest, text: JSON.stringify(readChunk(candidate, readers, c)),
+            const permitted = reader(observer);
+            return chunks(candidate, AGENT_POLICY.chunkCharacters).filter(c => c.audience.includes(observer)).map(c => ({
+                chunk: c.id, digest: c.digest, text: JSON.stringify(readChunk(candidate, permitted, c)),
             }));
         },
-        read: (sequence: number) => readExperience(current(), readers, sequence),
-        browse: (after: number, limit: number) => browse(current(), readers, after, limit),
-        recall(index: VectorIndex, query: { space: string; vector: number[] }, limit: number, chunkCharacters: number) {
-            return recall(current(), readers, chunks(current(), chunkCharacters), index, query, limit);
+        read: (observer: PersonId, sequence: number) => readExperience(current(), reader(observer), sequence),
+        browse: (observer: PersonId, after: number, limit: number) => browse(current(), reader(observer), after, limit),
+        recall(observer: PersonId, index: VectorIndex, query: { space: string; vector: number[] }, limit: number, chunkCharacters: number) {
+            return recall(current(), reader(observer), chunks(current(), chunkCharacters), index, query, limit);
         },
     };
 }

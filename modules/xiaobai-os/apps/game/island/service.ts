@@ -1,4 +1,5 @@
-import type { PartitionStore, XiaobaiOsFileControls } from '../../../kernel/contracts.js';
+import type { PartitionSnapshot, PartitionStore, XiaobaiOsFileControls } from '../../../kernel/contracts.js';
+import { createPartitionDocument } from '../../../kernel/partition-document.js';
 import { ISLAND_FORMAT_VERSION, type IslandData, type Journey, type Operation, type PersonId } from './model.js';
 import { sha256 } from 'js-sha256';
 import { LANDSCAPE, RULES } from './content.js';
@@ -14,6 +15,8 @@ import { browse } from './memory.js';
 import { knownExperiences } from './experience.js';
 import { experienceView } from './cooperation.js';
 import { createIntentWork, type IntentClarification, type PlayerIntent } from './intent-work.js';
+import type { PlayerIdentity } from './characters.js';
+import { parsePlayerIdentity } from './identity.js';
 
 export interface RequestIdentity { id: string; revision: number }
 type SceneWork = ReturnType<typeof createSceneWork>;
@@ -22,16 +25,28 @@ export function createIslandService(store: PartitionStore<IslandData>, files: Xi
     let running = false;
     let step: AdvanceResult['stop'] | null = null;
     let intent: PlayerIntent | null = null;
-    const current = () => store.peekCurrent()?.value ?? emptyIsland();
+    let unreadable: PartitionSnapshot<unknown> | null = null;
+    const document = createPartitionDocument(store, ISLAND_PARTITION);
+    const current = () => unreadable ? emptyIsland() : store.peekCurrent()?.value ?? emptyIsland();
     function view() {
         const data = current(), world = data.active;
-        return { revision: data.revision, phase: !world ? 'unstarted' as const : isEnded(world) ? 'ended' as const : 'living' as const,
-            journey: world?.id ?? null, lastRequest: data.last?.id ?? null, player: world ? observe(world, 'player', LANDSCAPE) : null,
+        return { revision: data.revision, phase: unreadable ? 'unreadable' as const : !world ? 'unstarted' as const : isEnded(world) ? 'ended' as const : 'living' as const,
+            journey: world?.id ?? null, identity: world ? structuredClone(world.playerIdentity) : null, lastRequest: data.last?.id ?? null, player: world ? observe(world, 'player', LANDSCAPE) : null,
             scene: world && !isEnded(world) ? openScene(world, 'player', LANDSCAPE).mode : null,
             needsDecision: !!world && !isEnded(world) && awaitingDecision(world).length > 0,
             recent: world ? knownExperiences(world, ['player']).slice(-60).map(e => experienceView(world, e)) : [], step,
             intent: intent?.revision === data.revision ? structuredClone(intent) : null,
             busy: running, pending: files.hasPendingCommit(ISLAND_PARTITION.key), writeState: files.getFileState() };
+    }
+    async function refresh() {
+        try { await store.read(); unreadable = null; }
+        catch (error) {
+            if ((error as { code?: string })?.code !== 'partition_invalid') { throw error; }
+            const raw = await document.read();
+            unreadable = raw.validation.valid ? null : raw.snapshot;
+            if (unreadable) { step = null; intent = null; }
+        }
+        return view();
     }
     async function execute(request: RequestIdentity, input: string, guard: () => boolean,
         build: (world: Journey | null) => Journey | Promise<Journey>) {
@@ -59,15 +74,35 @@ export function createIslandService(store: PartitionStore<IslandData>, files: Xi
             if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') { fail(`save_${result.status}`); }
         } finally { running = false; }
     }
+    async function replaceUnreadable(expected: PartitionSnapshot<unknown>, request: RequestIdentity, identity: PlayerIdentity, guard: () => boolean) {
+        identifier(request.id); integer(request.revision);
+        if (running || files.hasPendingCommit()) { fail('busy'); }
+        if (request.revision !== 0 || !guard()) { fail('stale'); }
+        running = true;
+        try {
+            const candidate: IslandData = { formatVersion: ISLAND_FORMAT_VERSION, revision: 1,
+                active: newJourney(request.id, identity), last: { id: request.id, fingerprint: sha256(JSON.stringify({ kind: 'restart', identity })) } };
+            const result = await document.replace(expected, candidate, guard);
+            if (result.status === 'failed') { fail('restart_save_failed'); }
+            if (result.status === 'unconfirmed' || result.status === 'conflict') { fail(`save_${result.status}`); }
+            unreadable = null; step = null; intent = null;
+            await refresh();
+        } finally { running = false; }
+    }
     function requireWorld(world: Journey | null): Journey { if (!world) { fail('missing'); } return world; }
     return {
-        view,
-        async refresh() { await store.read(); return view(); },
-        async start(request: RequestIdentity, mode: 'start' | 'restart', guard: () => boolean) {
+        view, refresh,
+        async start(request: RequestIdentity, mode: 'start' | 'restart', rawIdentity: PlayerIdentity, guard: () => boolean) {
             if (mode !== 'start' && mode !== 'restart') { fail('invalid'); }
-            await execute(request, JSON.stringify({ kind: mode }), guard, world => {
+            const identity = parsePlayerIdentity(rawIdentity);
+            if (unreadable) {
+                if (mode !== 'restart') { fail('unavailable'); }
+                await replaceUnreadable(unreadable, request, identity, guard);
+                return view();
+            }
+            await execute(request, JSON.stringify({ kind: mode, identity }), guard, world => {
                 if (mode === 'start' ? !!world : !world) { fail('unavailable'); }
-                return newJourney(request.id);
+                return newJourney(request.id, identity);
             });
             step = null;
             return view();
@@ -146,7 +181,7 @@ export function createIslandService(store: PartitionStore<IslandData>, files: Xi
             if (running || !guard() || files.hasPendingCommit() && !files.hasPendingCommit(ISLAND_PARTITION.key)) { fail('busy'); }
             const result = await files.retryPending({ beforeRetry: guard });
             if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') { fail(`save_${result.status}`); }
-            await store.read(); return view();
+            return refresh();
         },
     };
 }

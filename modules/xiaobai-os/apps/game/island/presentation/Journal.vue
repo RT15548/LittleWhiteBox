@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import type { ExperienceView } from '../cooperation.js';
 import { COPY as c, eventText } from '../copy.js';
-const props = defineProps<{ journey: string; recent: ExperienceView[]; load: (after: number) => Promise<{ entries: ExperienceView[]; next: number | null } | null> }>();
+const props = defineProps<{ journey: string; playerName: string; recent: ExperienceView[]; load: (after: number) => Promise<{ entries: ExperienceView[]; next: number | null } | null> }>();
 const page = ref<{ entries: ExperienceView[]; next: number | null } | null>(null), loading = ref(false);
 watch(() => props.journey, () => { page.value = null; });
 async function read(after: number) {
@@ -13,6 +13,6 @@ async function read(after: number) {
 </script>
 <template>
     <div class="island-history-controls"><button :disabled="loading" @click="read(0)">{{ c.earlier }}</button><button v-if="page" @click="page = null">{{ c.recent }}</button></div>
-    <article v-for="event in page?.entries ?? recent" :key="event.sequence" class="island-log"><small>{{ c.time(event.at) }}</small><p>{{ eventText(event.payload, event.shared) }}</p></article>
+    <article v-for="event in page?.entries ?? recent" :key="event.sequence" class="island-log"><small>{{ c.time(event.at) }}</small><p>{{ eventText(event.payload, event.shared, playerName) }}</p></article>
     <p v-if="page && !page.entries.length">{{ c.historyEmpty }}</p><button v-if="page?.next" :disabled="loading" @click="read(page.next)">{{ c.nextPage }}</button>
 </template>

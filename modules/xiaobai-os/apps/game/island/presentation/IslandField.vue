@@ -3,16 +3,16 @@ import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } fr
 import type { IslandView } from '../service.js';
 import type { NpcId, Point } from '../model.js';
 import { createIslandScene } from './scene.js';
-import { loadCharacterAsset } from './character-loader.js';
-import type { CharacterAsset } from './character-asset.js';
+import { loadCharacters, type CharacterRoster } from './character-loader.js';
+import type { PlayerIdentity } from '../characters.js';
 import { COPY } from '../copy.js';
-const props = defineProps<{ observation: NonNullable<IslandView['player']>; disabled: boolean }>();
+const props = defineProps<{ observation: NonNullable<IslandView['player']>; identity: PlayerIdentity; disabled: boolean }>();
 const emit = defineEmits<{ move: [point: Point]; person: [person: NpcId]; error: [] }>();
 const root = ref<HTMLElement | null>(null), loading = ref(true), controller = new AbortController();
-let scene: ReturnType<typeof createIslandScene> | null = null, characters: CharacterAsset | null = null, active = true;
+let scene: ReturnType<typeof createIslandScene> | null = null, characters: CharacterRoster | null = null, active = true;
 onMounted(async () => {
     try {
-        characters = await loadCharacterAsset(controller.signal);
+        characters = await loadCharacters(props.identity, controller.signal);
         scene = createIslandScene(root.value!, point => { if (!props.disabled) { emit('move', point); } }, person => emit('person', person), () => emit('error'), characters);
         scene.update(props.observation); scene.setActive(active); loading.value = false;
     } catch (error) {
@@ -32,6 +32,6 @@ function keyboard(event: KeyboardEvent) {
 <template><div ref="root" class="island-field" tabindex="0" :aria-label="COPY.mapLabel" @keydown.self="keyboard"><p v-if="loading" class="island-field-loading" role="status">{{ COPY.loadingScene }}</p><div v-else class="island-camera"><button :aria-label="COPY.zoomIn" @click="changeZoom(-2)">＋</button><button :aria-label="COPY.zoomOut" @click="changeZoom(2)">−</button></div></div></template>
 <style scoped>
 .island-field{position:absolute;inset:0;outline:none;touch-action:manipulation}.island-field:focus-visible{outline:3px solid #3b817f;outline-offset:-3px}.island-field :deep(canvas){position:absolute;inset:0;width:100%;height:100%;display:block}
-.island-field-loading{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:8px;background:#f8fcf0e6;color:#244b47;z-index:2}
-.island-camera{position:absolute;z-index:2;left:12px;top:175px;display:flex;flex-direction:column;gap:4px}.island-camera button{width:32px;min-height:32px;padding:0;background:#f8fcf0d9;font-size:17px}
+.island-field-loading{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:6px;background:#fffdf9ed;color:var(--island-ink);z-index:2;white-space:nowrap;font-size:13px}
+.island-camera{position:absolute;z-index:2;left:14px;top:190px;display:flex;flex-direction:column;gap:5px}.island-camera button{width:36px;min-height:36px;padding:0;background:#fffdf9e8;font-size:20px}
 </style>

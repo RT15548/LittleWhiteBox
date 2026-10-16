@@ -3,11 +3,12 @@ import type { Item } from '../model.js';
 import { mesh, pole } from './meshes.js';
 import type { Foliage } from './foliage.js';
 import { GARMENTS } from '../clothing.js';
-import type { CharacterAsset } from './character-asset.js';
+import type { CharacterRoster } from './character-loader.js';
+import type { FabricAppearance } from './survivor-visual.js';
 
-export function itemMesh(item: Pick<Item, 'kind' | 'quantity' | 'wetness'>, foliage: Foliage, characters: CharacterAsset) {
+export function itemMesh(item: Pick<Item, 'kind' | 'quantity'> & FabricAppearance, foliage: Foliage, characters: CharacterRoster) {
     if (GARMENTS[item.kind]) { return characters.garment(item); }
-    const g = new T.Group(), brown = '#a38b61', cloth = item.wetness > .25 ? '#a6b9bd' : '#d0dcd8';
+    const g = new T.Group(), brown = '#a38b61', cloth = item.cleanliness === 'dirty' ? '#9b947c' : item.wetness > .25 ? '#a6b9bd' : '#d0dcd8';
     switch (item.kind) {
         case 'bottle': {
             const body = mesh(new T.CylinderGeometry(.1, .1, .3, 10), '#aeddda', g, 0, .11, 0); body.rotation.z = Math.PI / 2;
@@ -68,7 +69,7 @@ export function itemMesh(item: Pick<Item, 'kind' | 'quantity' | 'wetness'>, foli
     return g;
 }
 
-export function heldItemMesh(item: Pick<Item, 'kind' | 'quantity' | 'wetness'>, foliage: Foliage, characters: CharacterAsset) {
+export function heldItemMesh(item: Pick<Item, 'kind' | 'quantity' | 'wetness'>, foliage: Foliage, characters: CharacterRoster) {
     const held = itemMesh(item, foliage, characters);
     if (held.userData.garment && !['shoes', 'wraps'].includes(item.kind)) {
         const bounds = new T.Box3().setFromObject(held);

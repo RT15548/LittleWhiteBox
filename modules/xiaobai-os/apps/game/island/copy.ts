@@ -1,15 +1,26 @@
-import { CAST } from './content.js';
-import type { EventPayload, PersonId } from './model.js';
+import { CAST } from './characters.js';
+import type { Activity, ContactForm, EventPayload, PersonId, WorkTask } from './model.js';
 import type { CooperationStatement } from './cooperation.js';
 import { ERRORS } from './fault.js';
-import { BLUEPRINTS, ITEMS, RECIPES, RESOURCE_RULES, WORK_NAMES } from './survival-content.js';
+import { BLUEPRINTS, ITEMS, RECIPES, RESOURCE_RULES, SANITATION, WORK_NAMES } from './survival-content.js';
 const dragBody = '搬动遗体';
+const contactNames = { embrace: '拥抱', handhold: '牵手', kiss: '亲吻', lean: '依偎' } as const;
+const strikeNames = { push: '推搡', punch: '挥拳' } as const;
 export const COPY = {
-    name: '荒岛', category: '生存 · 群像', tagline: '七个人，各自活下去', entry: '登岛',
+    name: '荒岛', category: '生存 · 群像', tagline: '七个人，各自活下去', entry: '登岛', you: '你',
+    identity: { title: '你是谁', name: '姓名', namePlaceholder: '别人会怎样称呼你', gender: '性别', age: '外观年龄', agePlaceholder: '选择外观年龄',
+        background: '阅历、特长简介', optional: '可选', backgroundPlaceholder: '做过什么，擅长什么，或不擅长什么……',
+        preview: '选择你的模样', backgroundCount: (count: number, limit: number) => `${count} / ${limit}`,
+        adult: '所有可选身份均为成年人。',
+        newJourney: '开始新旅程', enter: '以这个身份登岛', entering: '正在开启旅程…', restart: '确认替换这一局', continueEnded: '查看这一局', saved: '这一局的你',
+        confirmed: '我知道新旅程会替换这一局，无法返回。', unreadable: '这一局暂时无法打开，原存档还没有被改动。你可以重新选择身份，确认后开始新旅程。' },
     start: '开始旅程', resume: '回到岛上', restart: '重新开始', restartWarning: '重开会结束并替换这一局，无法返回。',
     opening: '海浪把你推上沙滩。六个人散落在不远处，有人咳嗽，有人还没站起来。你的衣服是湿的。',
     back: '返回', close: '关闭', yes: '确认重开', cancel: '取消', journal: '经历', inventory: '随身', craft: '制作', build: '营地', body: '身体',
-    speak: '说话', sayPlaceholder: '说些什么……', send: '说出口', thinking: '有人正在作出决定…', stopGm: '停止本轮',
+    speak: '说话', sayPlaceholder: '说些什么……', send: '说出口', thinking: '有人正在回应…', stopGm: '停止本轮',
+    conversation: '交谈', expandConversation: '展开交谈', collapseConversation: '收起交谈', conversationNext: '听他们说',
+    latest: '回到最新', nearbyPeople: '附近的人', viewAll: '查看全部', more: '更多', surroundings: '环顾四周',
+    conversationExcerpt: (name: string, text: string) => `${name}：${text}`, awaitingResponse: (count: number) => `${count} 件事等你回应`,
     action: '行动', actionPlaceholder: '想做什么？例如：脱下救生衣', interpretAction: '看看怎么做', interpreting: '正在理解行动…',
     proposedAction: '这一步', confirmAction: '执行这一步', dismissAction: '放弃这步', actionQuestion: '还需要确认',
     actionCost: '会调用当前模型理解意图；确认后才行动。',
@@ -24,12 +35,30 @@ export const COPY = {
     alone: '交谈范围内无人', private: '两人交谈', group: '多人在场', nearby: '附近', nobody: '视线内没有人',
     continue: '继续行动', wait: '等一会儿', rest: '休息十分钟', pause: '停下', approach: '走近', take: '拾取', drop: '放下', wear: '穿上', unwear: '脱下',
     offer: '递给', offerTo: '递给谁', receive: '接过', incoming: '递到你面前', takeBack: '收回',
-    offering: (person: PersonId) => `正递给${CAST[person].name}`,
-    offeredBy: (person: PersonId) => `${CAST[person].name}递来的`,
+    declineOffer: '不收',
+    offering: (person: PersonId) => `正递给${personName(person)}`,
+    offeredBy: (person: PersonId) => `${personName(person)}递来的`,
     noRecipient: '附近没人能接过物品，先走近对方。',
     gather: '收集', eat: '吃', drink: '喝水', wash: '用水清洁', fill: '装水', relieveUrine: '小便', relieveFeces: '排便', cover: '掩埋',
     washSupply: '清洁用水', washAmount: '用水量（毫升）', washNote: '会消耗这些水；清洁身体不等于消毒、治伤或洗净衣物。',
     noWashWater: '手边没有可用的水。', groundTraces: '附近痕迹',
+    seaWater: '近处海水', washItem: WORK_NAMES.wash_item, cleanItem: '清洗这件物品',
+    cleanliness: { clean: '较清洁', used: '有使用残留', dirty: '脏污', unexamined: '还未近看' },
+    wetItem: '尚湿', dryItem: '已干', washingNote: '衣物洗后仍湿，放在避雨处随时间晾干；海水只能粗洗。',
+    care: '伤口照料', woundPart: '处理部位', wounds: { foot: '足部伤口', skin: '身体擦伤' },
+    treatments: { rinse: '冲洗伤口', dress: '包扎或换布', uncover: '拆下包扎' },
+    offerCare: '提出照料', acceptCare: '接受照料', declineCare: '谢绝照料', dressing: '包扎在身上',
+    careNote: '清理和包扎不会立即治愈，仍需要休息与食水。', noCareCloth: '没有干燥、清洁的布片。',
+    careCloth: '包扎用布', careOfferedBy: (person: PersonId) => `${personName(person)}提出照料`,
+    careWaiting: '等对方决定是否接受。', careBusy: '先停下当前活动，再接受照料。',
+    contactNames, strikeNames,
+    offerContact: '提出亲近', acceptContact: '接受', declineContact: '婉拒', releaseContact: '松开', withdrawContact: '收回邀请',
+    contactOfferedBy: (person: PersonId, form: ContactForm) => `${personName(person)}想与你${contactNames[form]}`,
+    contactWith: (person: PersonId, form: ContactForm) => `与${personName(person)}${contactNames[form]}`,
+    contactWaiting: '等对方决定是否接受。', contactBusy: '先停下手里的事，再接受。', contactMoment: '陪伴片刻',
+    conflict: '冲突', guard: '停下并护住自己', strikeWarning: '出手会伤人、消耗体力，也可能遭到反击。伤势会保留在本局。',
+    confirmStrike: '确认出手', threat: (person: PersonId) => `${personName(person)}正向你出手`, responseMoment: '继续一秒',
+    strikeOutcome: { missed: '落空了', blocked: '被挡住了', hit: '击中了对方' },
     wasteKind: { urine: '尿液湿痕', feces: '未掩埋的粪便', disturbed_ground: '翻动过的土面' },
     foodCondition: { unexamined: '还未凑近查看', no_obvious_spoilage: '没有明显异味，不代表食用安全', off_odor: '已有变质异味，食用会增加疾病负担' },
     eatDespiteSpoilage: '仍然吃', spoiledCooking: '材料已有异味，烤熟不会消除已累积的变质风险。',
@@ -38,11 +67,19 @@ export const COPY = {
     water: '水', materials: '使用材料', make: '开始制作', place: '在这里搭建', work: '继续施工', empty: '没有可用物品',
     choose: '选择', quantity: '数量', ml: '毫升', untreated: '未处理', treated: '已处理', worn: '穿戴中', ground: '地面',
     hunger: '饥饿', thirst: '口渴', fatigue: '疲劳', bladder: '便意 · 小便', bowel: '便意 · 排便', wound: '脚伤', hygiene: '清洁',
-    dead: '旅程到此为止', deadDetail: '你没能活下来。这一局已结束，只能重新开始。', remains: '遗体',
+    skinWound: '身体擦伤', infection: '伤口不适', illness: '身体不适',
+    dead: '旅程到此为止', deadDetail: '你没能活下来。这一局已结束，留下的是你经历过的事。', remains: '遗体',
     dragBody, coverBody: WORK_NAMES.cover_body, covering: '遮盖在遗体上',
-    dragDestination: (person: PersonId) => `搬动${CAST[person].name}的遗体：选择要走到的地面`,
+    dragDestination: (person: PersonId) => `搬动${personName(person)}的遗体：选择要走到的地面`,
     coverMaterial: '用来遮盖的衣物或枝叶', noCoverMaterial: '手边没有脱下的衣物、布片或棕榈叶。',
     bodyHandlingNote: '拖移较慢，也更耗体力；随身物件与遮盖物会一起移动。',
+    grave: '隆起的土堆',
+    burialNote: '在遗体所在处掩埋，需干燥高地并远离水源。随身物件一起埋入，挖开后才能取回。',
+    exhumationNote: '挖开后，埋在下面的遗体和物件会重新露出。',
+    diggingTool: '挖掘工具', noDiggingTool: `手边没有能挖掘的${SANITATION.diggingTools.map(kind => ITEMS[kind].name).join('或')}。`,
+    remainsCondition: { fresh: '尚未明显变化', changing: '遗体已开始腐败', weathered: '遗体已风化' },
+    odor: { none: '', noticeable: '周围有异味，休息不太安稳。', strong: '周围异味很重，难以安歇。' },
+    flies: '附近有蝇虫。', fadedTrace: '痕迹正在变淡',
     recover: '确认保存状态', retry: '重新读取', error: '操作未完成', saved: '已保存', saving: '保存中',
     gmFailed: '人物回应未完成', retryGm: '重试人物回应', errorDetails: '查看原因', modelSettings: '模型设置',
     gmFailureDetail: '已保存的行动和说话仍保留。重试只重新请求人物回应，会使用当前模型。',
@@ -51,7 +88,7 @@ export const COPY = {
     stairs: '行动', fire: '生火', fuel: '添柴', boil: '煮水', waterContainer: '容器', materialMissing: '材料不足',
     people: '人与立场', visiblePeople: '眼前的人', ownChoices: '我的选择', residence: '住处', settleHere: '决定住在这里',
     noResidence: '还没决定住处', declareResidence: '我打算住在这里。', stance: { with: '支持', against: '反对', neutral: '不站队' },
-    declaration: (person: PersonId, stance: 'with' | 'against' | 'neutral') => ({ with: `我愿意支持${CAST[person].name}。`, against: `我不赞同${CAST[person].name}，不再站在同一边。`, neutral: `对${CAST[person].name}，我暂不站队。` })[stance],
+    declaration: (person: PersonId, stance: 'with' | 'against' | 'neutral') => ({ with: `我愿意支持${personName(person)}。`, against: `我不赞同${personName(person)}，不再站在同一边。`, neutral: `对${personName(person)}，我暂不站队。` })[stance],
     declarationNote: '这是你公开表达的选择。只有现场能听见的人会知道；不会替对方作出承诺。',
     knownChoices: '我知道的表态', noChoices: '还没有听到明确表态。', returnHome: '走回住处', look: '查看',
     agreements: '合作约定', propose: '提出约定', proposalTerms: '我愿意怎样合作', proposalPlaceholder: '说清各自做什么、物资怎么用……',
@@ -59,9 +96,9 @@ export const COPY = {
     commitment: { accept: '愿意履行', decline: '不参与' }, noCommitment: '尚未回应', accept: '我愿意', decline: '不参与', withdraw: '退出约定',
     respondAgreement: (accept: boolean) => accept ? '这份约定，我愿意履行。' : '这份约定，我不参与。',
     relayTerms: '转述原提议', relayResponse: '转述这次回应', relayStatement: '我把听到的原话转述给你们。',
-    proposalBy: (person: PersonId) => `${CAST[person].name}的提议`,
-    through: (person: PersonId) => person === 'player' ? '本人' : `听自${CAST[person].name}`,
-    quote: (statement: CooperationStatement) => `${CAST[statement.actor].name}的${statement.choice.kind === 'proposal' ? '提议' : '回应'}：「${statement.text}」`,
+    proposalBy: (person: PersonId, playerName?: string) => `${personName(person, playerName)}的提议`,
+    through: (person: PersonId) => person === 'player' ? '本人' : `听自${personName(person)}`,
+    quote: (statement: CooperationStatement, playerName?: string) => `${personName(statement.actor, playerName)}的${statement.choice.kind === 'proposal' ? '提议' : '回应'}：「${statement.text}」`,
     earlier: '查看早期经历', nextPage: '下一页', recent: '近期', historyEmpty: '没有更早的经历。',
     zoomIn: '拉近', zoomOut: '拉远', inSight: '视线内', idle: '停留',
     dismantleWarning: (names: string[]) => `会拆用正在穿着的${names.join('、')}，拆用后不能再穿。`,
@@ -70,6 +107,7 @@ export const COPY = {
     feeling: { thirst: ['还不太渴', '口干，想喝水', '很渴，需要补水'], hunger: ['还不饿', '肚子饿了', '持续缺食，体力恢复变慢'],
         fatigue: ['尚有余力', '有些累', '很累，需要休息'], relief: ['不急', '需要找地方处理'], foot: ['行走无脚伤妨碍', '脚痛，行走变慢'], clean: ['还算清洁', '身上脏了，需要清洁'] },
     wetClothing: '身上的衣物还湿着，休息恢复较慢。',
+    injuryFeelings: { skin: ['没有明显擦伤', '擦伤仍在，需要照料'], infection: ['没有明显发炎不适', '伤处不适加重', '伤处明显恶化'], illness: ['没有明显不适', '身体不舒服', '明显虚弱不适'] },
     sip: WORK_NAMES.sip, rawWaterRisk: '水未经处理，直接饮用有生病风险。',
     gatherAvailable: (count: number) => `可收集 ${count} 份`,
     poolExposed: '当前水位较低，可以下池采集。', poolFlooded: '当前水位较高，暂不能下池采集。', sourceDepleted: '眼下没有可收集的东西。',
@@ -79,16 +117,20 @@ export const COPY = {
     contactPause: '遇见了人，行动暂歇',
     fireBurning: '火在燃烧', fireUnlit: '未点燃', fireNeedsFuel: '先添入燃料',
     fuelTime: (seconds: number) => `现有燃料约可燃烧 ${Math.ceil(seconds / 60)} 分钟`,
-    active: { travel: '行走', drag: dragBody, rest: '休息', take: '拾取', work: '劳作', construct: '施工', offer: '递出物品，等对方接过' },
+    active: { travel: '行走', drag: dragBody, rest: '休息', take: '拾取', work: '劳作', construct: '施工', offer: '递出物品，等对方接过', offer_care: '提出照料，等待回应', receive_care: '接受照料', offer_contact: '提出亲近，等待回应', contact: '亲近相伴', strike: '出手', guard: '护住自己' },
     terrain: { sand: '西岸沙滩', scrub: '岛中林地', reef: '东岸礁滩', mangrove: '南端红树林' },
     time: (clock: number) => { const local = clock + 9 * 3600; return `第 ${Math.floor(local / 86400) + 1} 天 · ${String(Math.floor(local / 3600) % 24).padStart(2, '0')}:${String(Math.floor(local / 60) % 60).padStart(2, '0')}`; },
     distance: (metres: number) => `${Math.round(metres)} 米`,
 } as const;
-const name = (id: PersonId) => CAST[id].name;
-export function eventText(p: EventPayload, shared?: CooperationStatement): string {
+export function personName(id: PersonId, playerName?: string): string { return id === 'player' ? playerName ?? COPY.you : CAST[id].name; }
+export function activityText(activity: Activity['kind'] | null, work: WorkTask['kind'] | null = null): string {
+    return activity === 'work' && work ? WORK_NAMES[work] : activity ? COPY.active[activity] : COPY.idle;
+}
+export function eventText(p: EventPayload, shared?: CooperationStatement, playerName?: string): string {
+    const name = (id: PersonId) => personName(id, playerName);
     switch (p.kind) {
         case 'speech': return p.text;
-        case 'declaration': return shared ? `${p.text}\n${COPY.quote(shared)}` : p.text;
+        case 'declaration': return shared ? `${p.text}\n${COPY.quote(shared, playerName)}` : p.text;
         case 'intention': return p.text;
         case 'encounter': return `${name(p.actor)}看见了${name(p.subject)}。`;
         case 'started': return `${name(p.actor)}开始${COPY.active[p.activity]}。`;
@@ -99,6 +141,15 @@ export function eventText(p: EventPayload, shared?: CooperationStatement): strin
         case 'taken': return `${name(p.actor)}拾起一件物品。`;
         case 'offered': return `${name(p.actor)}向${name(p.to)}递出${ITEMS[p.form].name} × ${p.units}。`;
         case 'received': return `${name(p.actor)}接过${name(p.from)}递来的${ITEMS[p.form].name} × ${p.units}。`;
+        case 'offer_declined': return `${name(p.actor)}没有收下${name(p.from)}递来的东西。`;
+        case 'care_offered': return `${name(p.actor)}提出为${name(p.to)}${COPY.treatments[p.treatment]}。`;
+        case 'care_response': return `${name(p.actor)}${p.accepted ? '接受' : '谢绝'}了${name(p.from)}的照料。`;
+        case 'contact_offered': return `${name(p.actor)}提出与${name(p.to)}${contactNames[p.form]}。`;
+        case 'contact_response': return `${name(p.actor)}${p.accepted ? '接受' : '婉拒'}了${name(p.from)}的${contactNames[p.form]}邀请。`;
+        case 'contact_ended': return `${name(p.actor)}与${name(p.with)}结束了${contactNames[p.form]}。`;
+        case 'strike_started': return `${name(p.actor)}向${name(p.to)}${strikeNames[p.form]}。`;
+        case 'strike_resolved': return `${name(p.actor)}对${name(p.to)}的${strikeNames[p.form]}${COPY.strikeOutcome[p.outcome]}。`;
+        case 'tended': return `${name(p.actor)}为${p.actor === p.subject ? '自己' : name(p.subject)}完成了${COPY.wounds[p.wound]}的${COPY.treatments[p.treatment]}。`;
         case 'poured': return p.to === null ? `${name(p.actor)}倒掉了 ${p.millilitres} ml 液体。` : `${name(p.actor)}把 ${p.millilitres} ml 液体倒入了另一只容器。`;
         case 'dropped': return `${name(p.actor)}放下一件物品。`;
         case 'worn': case 'unworn': return `${name(p.actor)}调整了穿戴。`;
@@ -108,10 +159,12 @@ export function eventText(p: EventPayload, shared?: CooperationStatement): strin
         case 'noticed_body': return `${name(p.actor)}发现了${name(p.subject)}的遗体。`;
         case 'body_handling': return p.stage === 'started' ? `${name(p.actor)}开始搬动${name(p.subject)}的遗体。` : `${name(p.actor)}放下了${name(p.subject)}的遗体。`;
         case 'body_covered': return `${name(p.actor)}遮盖了${name(p.subject)}的遗体。`;
+        case 'body_buried': return `${name(p.actor)}掩埋了${name(p.subject)}的遗体。`;
+        case 'body_exhumed': return `${name(p.actor)}挖开土堆，露出了${name(p.subject)}的遗体。`;
         case 'discovered': return `${name(p.actor)}发现了${p.subject.kind === 'resource' ? RESOURCE_RULES[p.subject.form].name : BLUEPRINTS[p.subject.form].name}。`;
         case 'worked': return `${name(p.actor)}完成了${p.task === 'craft' && p.target && Object.hasOwn(RECIPES, p.target) ? RECIPES[p.target as keyof typeof RECIPES].name : WORK_NAMES[p.task]}。`;
         case 'work_failed': return `${name(p.actor)}的工作停了下来：${errorText({ code: p.reason })}`;
-        case 'need': return `${name(p.actor)}感到${({ thirst: COPY.thirst, hunger: COPY.hunger, fatigue: COPY.fatigue, bladder: '需要小便', bowel: '需要排便', wound: '脚痛' })[p.need]}。`;
+        case 'need': return `${name(p.actor)}感到${({ thirst: COPY.thirst, hunger: COPY.hunger, fatigue: COPY.fatigue, bladder: '需要小便', bowel: '需要排便', wound: '脚痛', infection: '伤口不适加重', illness: '身体不适加重', hygiene: '身上脏污难受' })[p.need]}。`;
         case 'accident': return `${name(p.actor)}没能及时处理便意，需要清洁。`;
     }
 }

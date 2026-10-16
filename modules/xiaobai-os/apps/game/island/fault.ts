@@ -6,7 +6,11 @@ export const ERRORS = {
     stale_scene: '现场已经改变，需要重新确认在场者。',
     blocked: '这条路线无法通行。',
     occupied: '当前活动尚未结束。',
-    body_held: '有人正在搬动这具遗体，需要先放下。',
+    body_held: '有人正在搬动或处理这具遗体，需要先停下。',
+    digging_tool: '手边缺少适用的挖掘工具。',
+    burial_ground: '这里过湿或过硬，需要先把遗体搬到高潮线以上的沙地或林地。',
+    burial_water: '这里离取水处太近，不适合掩埋遗体。',
+    burial_overlap: '这里已有土堆，需要留出挖掘空间。',
     unavailable: '当前无法接触或使用这个物件。',
     stale: '旅程已更新，请读取当前状态。',
     identity: '操作身份与原请求不一致。',
@@ -14,12 +18,23 @@ export const ERRORS = {
     memory_unavailable: '这段经历不在当前可查阅范围内。',
     vector_space: '向量空间或维度不一致。',
     save_failed: '荒岛保存失败，完整候选仍待确认。',
+    restart_save_failed: '新旅程没能保存，原存档未改动。请再试一次。',
     save_unconfirmed: '荒岛保存结果尚未确认。',
     save_conflict: '荒岛保存发生冲突。',
     busy: '请先处理正在保存的荒岛操作。',
     materials: '材料的数量或用途不满足这次加工。',
     capacity: '容器空间或携带能力不足。',
     conditions: '现场条件不满足这项活动。',
+    wash_item: '先脱下衣物或倒空容器，再用另一处水清洗。',
+    wash_volume: '这些水不够清洗选中的整份物品。',
+    no_wound: '这里没有需要处理的伤口。',
+    care_water: '冲洗伤口需要足量、处理过且没有食物残留的水；先清洗容器并煮水。',
+    care_cloth: '需要干燥、清洁且已经拆下的布片。',
+    covered_wound: '先拆下原有包扎，再冲洗伤口。',
+    care_consent: '先提出照料，等对方停下手里的事并接受。',
+    contact_reach: '先走近对方，彼此看得见且中间没有阻挡。',
+    contact_offer: '对方已经不在近处，或已收回这次邀请。',
+    strike_reach: '对方不在出手可及的距离，或中间有阻挡。',
     tool_missing: '手边缺少适合这次加工的工具。',
     fire_missing: '附近没有可用的火。',
     material_wet: '引火材料还太湿，需要先晾干。',
@@ -37,7 +52,9 @@ export const ERRORS = {
 } as const;
 export type FaultCode = keyof typeof ERRORS;
 const ACTION_FAULTS: readonly FaultCode[] = ['blocked', 'occupied', 'body_held', 'unavailable', 'materials', 'capacity', 'conditions',
-    'tool_missing', 'fire_missing', 'material_wet', 'building_ground', 'building_overlap'];
+    'tool_missing', 'fire_missing', 'material_wet', 'building_ground', 'building_overlap',
+    'wash_item', 'wash_volume', 'no_wound', 'care_water', 'care_cloth', 'covered_wound', 'care_consent',
+    'digging_tool', 'burial_ground', 'burial_water', 'burial_overlap', 'contact_reach', 'contact_offer', 'strike_reach'];
 export function isActionFault(error: unknown): error is { code: string } {
     return !!error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
         && ACTION_FAULTS.some(code => error.code === `island_${code}`);

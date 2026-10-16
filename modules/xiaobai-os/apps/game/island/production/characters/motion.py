@@ -4,8 +4,6 @@ import math
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
-from ye_design import STANDING_POSE, WALK_ARM_CLEARANCE
-
 
 REVIEW_POSES = ("raise_arms", "bend_elbows", "bend_spine", "bend_knee")
 
@@ -18,26 +16,26 @@ def rotate(rig, name, axis, degrees, base=None):
     bone.rotation_quaternion = (base @ delta) if base is not None else delta
 
 
-def relaxed_pose(rig):
+def relaxed_pose(rig, standing_pose):
     for bone in rig.pose.bones:
         bone.rotation_mode = "QUATERNION"
         bone.rotation_quaternion.identity()
         bone.location = (0, 0, 0)
     # Retract the neck without tilting the gaze upward. Rotations are authored
     # in the rest rig's frame; the child head compensates the neck chain.
-    rotate(rig, "neck01", (1, 0, 0), -10)
-    rotate(rig, "neck02", (1, 0, 0), -3)
-    rotate(rig, "head", (1, 0, 0), 13)
+    rotate(rig, "neck01", (1, 0, 0), standing_pose["neck_lower"])
+    rotate(rig, "neck02", (1, 0, 0), standing_pose["neck_upper"])
+    rotate(rig, "head", (1, 0, 0), standing_pose["head"])
     for side, sign in [("L", 1), ("R", -1)]:
-        rotate(rig, f"clavicle.{side}", (0, 1, 0), sign * STANDING_POSE["shoulder_drop"])
-        rotate(rig, f"upperarm01.{side}", (0, 1, 0), sign * STANDING_POSE["upperarm_in"])
-        rotate(rig, f"lowerarm01.{side}", (1, 0, 0), STANDING_POSE["elbow_unbend"])
+        rotate(rig, f"clavicle.{side}", (0, 1, 0), sign * standing_pose["shoulder_drop"])
+        rotate(rig, f"upperarm01.{side}", (0, 1, 0), sign * standing_pose["upperarm_in"])
+        rotate(rig, f"lowerarm01.{side}", (1, 0, 0), standing_pose["elbow_unbend"])
         # Preserve a small carrying angle: bringing elbows inward must not
         # rotate the hands into the thighs or leave the forearms held forward.
-        turn(rig, f"lowerarm01.{side}", (0, 1, 0), -sign * STANDING_POSE["forearm_out"])
-        turn(rig, f"wrist.{side}", (0, 1, 0), -sign * STANDING_POSE["wrist_out"])
-        turn(rig, f"finger1-1.{side}", (0, 1, 0), -sign * STANDING_POSE["thumb_fold"])
-        rotate(rig, f"upperleg01.{side}", (0, 1, 0), sign * 5)
+        turn(rig, f"lowerarm01.{side}", (0, 1, 0), -sign * standing_pose["forearm_out"])
+        turn(rig, f"wrist.{side}", (0, 1, 0), -sign * standing_pose["wrist_out"])
+        turn(rig, f"finger1-1.{side}", (0, 1, 0), -sign * standing_pose["thumb_fold"])
+        rotate(rig, f"upperleg01.{side}", (0, 1, 0), sign * standing_pose["thigh_out"])
         # A mirrored anatomical palm axis, not one Euler axis copied to both
         # hands. The slight increasing curl leaves the fingertips separated.
         index = rig.data.bones[f"finger2-1.{side}"].head_local
@@ -59,8 +57,8 @@ def turn(rig, name, axis, degrees):
     bpy.context.view_layer.update()
 
 
-def exercise_pose(rig, name):
-    relaxed_pose(rig)
+def exercise_pose(rig, name, standing_pose):
+    relaxed_pose(rig, standing_pose)
     if name == "raise_arms":
         for side, sign in (("L", 1), ("R", -1)):
             turn(rig, f"clavicle.{side}", (0, 1, 0), sign * -12)
@@ -79,8 +77,8 @@ def exercise_pose(rig, name):
         raise ValueError(f"Unknown review pose: {name}")
 
 
-def author_clips(rig):
-    relaxed_pose(rig)
+def author_clips(rig, standing_pose, walk_arm_clearance):
+    relaxed_pose(rig, standing_pose)
     base = {bone.name: bone.rotation_quaternion.copy() for bone in rig.pose.bones}
     affected = ["spine01", "head"] + [f"{name}.{side}" for side in ["L", "R"] for name in
                                           ["upperarm01", "lowerarm01", "upperleg01", "lowerleg01", "foot"]]
@@ -90,7 +88,7 @@ def author_clips(rig):
         rig.animation_data.action = action
         for frame in range(frames + 1):
             phase = frame / frames * math.tau
-            relaxed_pose(rig)
+            relaxed_pose(rig, standing_pose)
             if name == "idle":
                 rotate(rig, "spine01", (1, 0, 0), math.sin(phase) * 0.8, base["spine01"])
                 rotate(rig, "head", (0, 0, 1), math.sin(phase) * 0.8, base["head"])
@@ -105,7 +103,7 @@ def author_clips(rig):
                     # Swing around the current joints, not the binding-pose
                     # axes. A small gait-only clearance keeps the relaxed hand
                     # outside the hip without widening the standing pose.
-                    turn(rig, f"upperarm01.{side}", (0, 1, 0), -sign * abs(swing) * WALK_ARM_CLEARANCE)
+                    turn(rig, f"upperarm01.{side}", (0, 1, 0), -sign * abs(swing) * walk_arm_clearance)
             # Neck retraction and relaxed fingers are part of each clip too.
             # Key the static base once; otherwise export resets those joints.
             for bone in (base if frame == 0 else affected):

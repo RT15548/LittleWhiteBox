@@ -1,8 +1,10 @@
 """Art direction for the first adult, fictional survivor sample; not a face scan."""
 
-# User-supplied design constraints, not measurements inferred from the reference photos.
-BRIEF = {"height_m": 1.60, "mass_kg": 45, "bra_cup": "C", "age_years": 45}
-HEIGHT = BRIEF["height_m"]
+from design import CharacterDesign, npc_identity
+
+# Additional user-supplied art constraints, not measurements inferred from photos.
+# Age and height are read only from character-catalog.json by npc_identity below.
+BRIEF = {"mass_kg": 45, "bra_cup": "C"}
 
 # Visual authoring controls. These are not a kilograms/cup-size conversion formula.
 LEAN_BLEND = 0.68
@@ -14,6 +16,10 @@ BROW_ARCH = {"height": 0.0048, "peak_curve": 1.5, "tail_drop": 0.0012}
 # Rest geometry stays in its binding pose. These angles describe the character's
 # presentation stance, shared by the clay review and both exported motion clips.
 STANDING_POSE = {
+    "neck_lower": -10,
+    "neck_upper": -3,
+    "head": 13,
+    "thigh_out": 5,
     "shoulder_drop": 1.5,
     "upperarm_in": 36,
     "elbow_unbend": 30,
@@ -84,3 +90,8 @@ for weight, contribution in (("averageweight", 1 - LEAN_BLEND), ("minweight", LE
     MORPHS[f"breast/{stem}-maxcup-averagefirmness.target"] = CUP_VOLUME_BLEND * (1 - FIRMNESS_BLEND) * contribution
     MORPHS[f"breast/{stem}-averagecup-maxfirmness.target"] = (1 - CUP_VOLUME_BLEND) * FIRMNESS_BLEND * contribution
     MORPHS[f"breast/{stem}-maxcup-maxfirmness.target"] = CUP_VOLUME_BLEND * FIRMNESS_BLEND * contribution
+
+
+DESIGN = CharacterDesign(identity=npc_identity("ye"), morphs=MORPHS,
+                         standing_pose=STANDING_POSE, walk_arm_clearance=WALK_ARM_CLEARANCE,
+                         brow_arch=BROW_ARCH, sample_style="ye")

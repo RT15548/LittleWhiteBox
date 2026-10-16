@@ -40,14 +40,14 @@ def reach(rig, side, target, pole):
     solve_chain(rig, f"upperarm01.{side}", f"lowerarm01.{side}", f"wrist.{side}", target, pole)
 
 
-def seated_legs(rig):
+def seated_legs(rig, scale=1):
     root = rig.pose.bones['root']
     hip_height = rig.pose.bones['upperleg01.L'].head.z
-    root.matrix = Matrix.Translation((0, 0, 0.080 - hip_height)) @ root.matrix
+    root.matrix = Matrix.Translation((0, 0, 0.080 * scale - hip_height)) @ root.matrix
     bpy.context.view_layer.update()
     for side, sign in (("L", 1), ("R", -1)):
         solve_chain(rig, f"upperleg01.{side}", f"lowerleg01.{side}", f"foot.{side}",
-                    (sign * 0.11, -0.65, 0.069), (sign * 0.15, -0.34, 0.40))
+                    Vector((sign * 0.11, -0.65, 0.069)) * scale, Vector((sign * 0.15, -0.34, 0.40)) * scale)
         foot = rig.pose.bones[f"foot.{side}"]
         foot.matrix = Matrix.Translation(foot.head) @ foot.bone.matrix_local.to_3x3().to_4x4()
         bpy.context.view_layer.update()
@@ -93,20 +93,22 @@ def legs(rig, hip, knee, ankle):
         turn(rig, f"foot.{side}", (1, 0, 0), ankle)
 
 
-def pose(rig, name, phase, ground_objects):
+def pose(rig, name, phase, ground_objects, standing_pose, contact_scale=1):
+    def contact(side, target, pole):
+        reach(rig, side, Vector(target) * contact_scale, Vector(pole) * contact_scale)
     for bone in rig.pose.bones:
         bone.matrix_basis = Matrix.Identity(4)
-    relaxed_pose(rig)
+    relaxed_pose(rig, standing_pose)
     wave = math.sin(phase)
     if name == "rest":
-        seated_legs(rig)
+        seated_legs(rig, contact_scale)
         turn(rig, "spine05", (1, 0, 0), 8)
         turn(rig, "spine03", (1, 0, 0), -3 + wave * 0.45)
         ground(rig, ground_objects)
         for side, sign in (("L", 1), ("R", -1)):
             knee = rig.pose.bones[f"lowerleg01.{side}"].head
-            reach(rig, side, (sign * 0.145, knee.y - 0.02, knee.z + 0.12),
-                  (sign * 0.35, -0.17, 0.65))
+            reach(rig, side, (sign * 0.145 * contact_scale, knee.y - 0.02 * contact_scale, knee.z + 0.12 * contact_scale),
+                  Vector((sign * 0.35, -0.17, 0.65)) * contact_scale)
         turn(rig, "head", (1, 0, 0), 4)
     elif name == "work":
         legs(rig, -48, 84, -36)
@@ -114,7 +116,7 @@ def pose(rig, name, phase, ground_objects):
         turn(rig, "spine03", (1, 0, 0), 16 + wave * 2)
         ground(rig, ground_objects)
         for side, sign in (("L", 1), ("R", -1)):
-            reach(rig, side, (sign * 0.17, -0.40 + sign * wave * 0.035, 0.47 + wave * 0.025),
+            contact(side, (sign * 0.17, -0.40 + sign * wave * 0.035, 0.47 + wave * 0.025),
                   (sign * 0.40, -0.16, 0.70))
         turn(rig, "head", (1, 0, 0), 9)
     elif name == "construct":
@@ -122,14 +124,14 @@ def pose(rig, name, phase, ground_objects):
         turn(rig, "spine05", (1, 0, 0), 10)
         turn(rig, "spine03", (1, 0, 0), 8 + wave)
         ground(rig, ground_objects)
-        reach(rig, "L", (0.16, -0.36, 0.81), (0.38, -0.14, 0.95))
-        reach(rig, "R", (-0.16, -0.39, 0.90 + 0.11 * wave), (-0.40, -0.12, 1.08))
+        contact("L", (0.16, -0.36, 0.81), (0.38, -0.14, 0.95))
+        contact("R", (-0.16, -0.39, 0.90 + 0.11 * wave), (-0.40, -0.12, 1.08))
         curl(rig, "R", 23)
         turn(rig, "head", (1, 0, 0), 8)
     elif name == "drink":
         ground(rig, ground_objects)
         sip = (1 - math.cos(phase)) / 2
-        reach(rig, "R", (-0.055, -0.29, 1.12 + 0.235 * sip), (-0.33, -0.18, 1.13))
+        contact("R", (-0.055, -0.29, 1.12 + 0.235 * sip), (-0.33, -0.18, 1.13))
         turn(rig, "wrist.R", (1, 0, 0), -10 * sip)
         turn(rig, "head", (1, 0, 0), -3 * sip)
         curl(rig, "R", 25)
@@ -138,12 +140,12 @@ def pose(rig, name, phase, ground_objects):
         turn(rig, "spine05", (1, 0, 0), 12)
         turn(rig, "spine03", (1, 0, 0), 7)
         ground(rig, ground_objects)
-        reach(rig, "R", (-0.032, -0.405, 0.91 + wave * 0.014), (-0.33, -0.20, 1.00))
-        reach(rig, "L", (0.032, -0.37, 0.91 - wave * 0.014), (0.33, -0.20, 1.00))
+        contact("R", (-0.032, -0.405, 0.91 + wave * 0.014), (-0.33, -0.20, 1.00))
+        contact("L", (0.032, -0.37, 0.91 - wave * 0.014), (0.33, -0.20, 1.00))
         turn(rig, "head", (1, 0, 0), 10)
     elif name == "offer":
         ground(rig, ground_objects)
-        reach(rig, "R", (-0.13, -0.425 - 0.012 * wave, 1.035), (-0.34, -0.16, 1.0))
+        contact("R", (-0.13, -0.425 - 0.012 * wave, 1.035), (-0.34, -0.16, 1.0))
         turn(rig, "wrist.R", (0, 1, 0), -26)
         curl(rig, "R", 10)
         turn(rig, "head", (0, 0, 1), -3)
@@ -156,7 +158,7 @@ def pose(rig, name, phase, ground_objects):
         turn(rig, "spine05", (1, 0, 0), 12)
         ground(rig, ground_objects)
         for side, sign in (("L", 1), ("R", -1)):
-            reach(rig, side, (sign * 0.23, 0.16, 0.85 + sign * wave * 0.014),
+            contact(side, (sign * 0.23, 0.16, 0.85 + sign * wave * 0.014),
                   (sign * 0.40, 0.12, 1.06))
             curl(rig, side, 22)
     elif name == "dead":
@@ -174,7 +176,7 @@ def pose(rig, name, phase, ground_objects):
     bpy.context.view_layer.update()
 
 
-def author_gameplay_clips(rig, objects):
+def author_gameplay_clips(rig, objects, standing_pose, contact_scale=1):
     """Add only new actions; saved source idle/walk datablocks remain byte-equivalent."""
     if set(CLIP_FRAMES) & {a.name for a in bpy.data.actions}:
         raise ValueError("Gameplay actions already exist; load the approved source afresh")
@@ -186,7 +188,7 @@ def author_gameplay_clips(rig, objects):
         step = 1 if name == "drag" else 4
         for frame in sorted(set(range(0, frames + 1, step)) | {frames}):
             rig.animation_data.action = None
-            pose(rig, name, frame / frames * math.tau, objects)
+            pose(rig, name, frame / frames * math.tau, objects, standing_pose, contact_scale)
             rig.animation_data.action = action
             for bone in rig.pose.bones:
                 bone.keyframe_insert("rotation_quaternion", frame=frame)
@@ -202,5 +204,5 @@ def author_gameplay_clips(rig, objects):
                             key.handle_left_type = key.handle_right_type = "AUTO_CLAMPED"
         print(f"Authored gameplay clip {name}: {frames / 30:.2f}s", flush=True)
     rig.animation_data.action = None
-    relaxed_pose(rig)
+    relaxed_pose(rig, standing_pose)
     bpy.context.scene.render.fps = 30

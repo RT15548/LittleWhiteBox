@@ -1,9 +1,10 @@
-import type { BlueprintId, ItemKind, MaterialUse, RecipeId, Resource, ResourceKind, WorkTask } from './model.js';
+import type { BlueprintId, ItemKind, MaterialUse, NeedKind, Needs, RecipeId, Resource, ResourceKind, WorkTask } from './model.js';
 import { GARMENTS, GARMENT_KINDS, type GarmentKind, type WearSlot } from './clothing.js';
 
 export const WORK_NAMES: Record<WorkTask['kind'] | 'construct', string> = {
     gather: '收集', fill: '装水', drink: '饮水', sip: '原地捧饮', eat: '进食', craft: '制作', build: '备料施工',
     pour: '倒入容器', empty: '倒掉液体',
+    wash_item: '清洗物品', tend: '照料伤口', bury_body: '掩埋遗体', exhume_body: '挖开土堆',
     relieve: '如厕', wash: '清洁', cover_waste: '掩埋排泄物', cover_body: '遮盖遗体', ignite: '点火', fuel: '添柴', boil: '煮水', construct: '搭建',
 };
 
@@ -120,9 +121,38 @@ export const FOOD = {
 } as const;
 export const DRINKING = { portionMl: 250, untreatedIllness: .012, soilingIllness: .004 } as const;
 export const HYGIENE = { minimumWashMl: 50, fullWashMl: 500, portionMl: 250 } as const;
+export const NEED_SIGNALS: Record<NeedKind, { field: keyof Needs; levels: readonly number[]; falling?: boolean }> = {
+    thirst: { field: 'waterDeficit', levels: [SURVIVAL.thirstSignal, SURVIVAL.lethalWaterDeficit * .5, SURVIVAL.lethalWaterDeficit * .8] },
+    hunger: { field: 'energy', levels: [SURVIVAL.hungerSignal, 0, SURVIVAL.lethalEnergyBalance * .5], falling: true },
+    fatigue: { field: 'fatigue', levels: [SURVIVAL.fatigueSignal, 95] },
+    bladder: { field: 'bladder', levels: [SURVIVAL.bladderSignal, SURVIVAL.bladderLimit * .9] },
+    bowel: { field: 'bowel', levels: [SURVIVAL.bowelSignal, SURVIVAL.bowelLimit * .9] },
+    wound: { field: 'footWound', levels: [.2, .5, .8] },
+    infection: { field: 'infection', levels: [.2, .6, .85] }, illness: { field: 'illness', levels: [.2, .6, .85] },
+    hygiene: { field: 'soiling', levels: [.5, .85] },
+};
+// Simplified living conditions for this game, not medical treatment thresholds.
+export const CARE = {
+    cleanLimit: .15, dirtyLimit: .5, seaWashFloor: .2, untreatedWashFloor: .1,
+    garmentWashMl: 500, containerWashMl: 100, itemWashSeconds: 120,
+    rinseMl: 250, rinseSeconds: 120, dressSeconds: 180, uncoverSeconds: 30,
+    cleanWoundDirt: .05, roughWoundDirt: .35, dressingMaxWetness: .25, dressingSoilPerHour: .01,
+    wornSoilPerHour: .015, groundSoilPerHour: .04, bodySoilPerHour: .004,
+    woundSoilPerHour: .02, healingPerHour: .008, infectionRecoveryPerHour: .003,
+    untreatedResidue: .35, coconutResidue: .1,
+} as const;
 // Shallow-water movement and garment contact, not a swimming or wave-force model.
 export const WADING = {
     speedLossPerMetre: .6, minimumSpeedFactor: .35, groundContactMetres: .025,
+} as const;
+
+// Authored environmental pacing, not decomposition or epidemiological measurements.
+export const SANITATION = {
+    urineSeconds: 6 * 3600, fecesSeconds: 5 * 86400, wasteRadius: 4, wastePortion: 150,
+    bodyOdorAfter: 6 * 3600, bodyWeatheredAfter: 10 * 86400, bodyRadius: 12,
+    bodyOdorEnds: 30 * 86400, weatheredOdor: .12, coverOdorFactor: .65, noticeableOdor: .15, strongOdor: .65, fliesThreshold: .3, restLoss: .4,
+    burySeconds: 7200, exhumeSeconds: 3600, graveRadius: 1.2, waterSeparation: 30, handlingSoiling: .2,
+    diggingTools: ['coral_stone', 'metal_edge'] as readonly ItemKind[],
 } as const;
 
 export function materialAmounts(items: readonly { kind: ItemKind; units: number }[]) {

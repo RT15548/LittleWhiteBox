@@ -9,8 +9,12 @@ import { beginConstruction, workDuration } from './work.js';
 import { accessibleItem, carriedWeight, carryLimit } from './inventory.js';
 import { ITEMS, WEAR_SLOTS } from './survival-content.js';
 import { cooperationHistory } from './cooperation.js';
-import { acceptOffer, canOffer } from './handoff.js';
+import { acceptOffer, canOffer, declineOffer } from './handoff.js';
 import { dragRoute, placeBody } from './remains.js';
+import { careDuration, respondToCare, settleCare } from './care.js';
+import { buriedBodies } from './burial-state.js';
+import { offerContact, releaseContact, respondToContact, settleContacts } from './contact.js';
+import { beginStrike, stopForConflict } from './conflict.js';
 
 export function canTake(world: Journey, actor: PersonId, itemId: string, land: Landscape): boolean {
     const item = Object.hasOwn(world.items, itemId) ? world.items[itemId] : null, position = itemPosition(world, itemId);
@@ -18,7 +22,7 @@ export function canTake(world: Journey, actor: PersonId, itemId: string, land: L
         || !perceives(world, actor, position, 'sight', land)) { return false; }
     if (carriedWeight(world, actor) + ITEMS[item.kind].kilograms * item.quantity + (item.water?.millilitres ?? 0) / 1000 > carryLimit(world, actor)) { return false; }
     // A living holder is a physical counterparty, not an ownership permission flag.
-    return item.location.kind === 'ground' || world.people[item.location.person].body.kind === 'dead';
+    return item.location.kind === 'ground' || world.people[item.location.person].body.kind === 'dead' && !buriedBodies(world).has(item.location.person);
 }
 
 export function operate(source: Journey, authority: Authority, actor: PersonId, operation: Operation, land: Landscape): Journey {
@@ -41,13 +45,37 @@ export function operate(source: Journey, authority: Authority, actor: PersonId, 
         return world;
     }
     if (operation.kind === 'cancel') {
+        releaseContact(world, actor, land);
         placeBody(world, actor, land);
         if (person.activity) { person.activity = null; record(world, { kind: 'interrupted', actor }, person.position, 'sight', land, [actor]); }
+        settleCare(world, land);
+        settleContacts(world, land);
         return world;
     }
+    if (operation.kind === 'accept_contact' || operation.kind === 'decline_contact') {
+        respondToContact(world, actor, operation.from, operation.kind === 'accept_contact', land); return world;
+    }
+    if (operation.kind === 'accept_care' || operation.kind === 'decline_care') {
+        respondToCare(world, actor, operation.from, operation.kind === 'accept_care', land); return world;
+    }
     if (operation.kind === 'accept') { acceptOffer(world, actor, operation.from, land); return world; }
+    if (operation.kind === 'decline_offer') { declineOffer(world, actor, operation.from, land); return world; }
+    if (operation.kind === 'guard') {
+        stopForConflict(world, actor, land);
+        person.activity = { kind: 'guard', until: world.clock + operation.seconds };
+        record(world, { kind: 'started', actor, activity: 'guard' }, person.position, 'sight', land, [actor]);
+        return world;
+    }
     if (person.activity) { fail('occupied'); }
     switch (operation.kind) {
+        case 'offer_contact': offerContact(world, actor, operation.to, operation.form, land); break;
+        case 'strike': beginStrike(world, actor, operation.to, operation.form, land); break;
+        case 'offer_care':
+            if (operation.to === actor) { fail('invalid'); }
+            careDuration(world, actor, operation.to, operation.wound, operation.treatment, land);
+            person.activity = structuredClone(operation);
+            record(world, { kind: 'care_offered', actor, to: operation.to, wound: operation.wound, treatment: operation.treatment.kind }, person.position, 'self', land, [actor, operation.to]);
+            break;
         case 'drag':
             dragRoute(world, actor, operation.subject, operation.route, land);
             person.activity = structuredClone(operation);
@@ -79,7 +107,7 @@ export function operate(source: Journey, authority: Authority, actor: PersonId, 
             record(world, { kind: 'started', actor, activity: 'take' }, person.position, 'sight', land, [actor]); break;
         case 'drop': {
             const item = Object.hasOwn(world.items, operation.item) ? world.items[operation.item] : null;
-            if (!item?.quantity || item.location.kind === 'ground' || item.location.person !== actor) { fail('unavailable'); }
+            if (!item?.quantity || item.location.kind === 'ground' || item.location.kind === 'dressing' || item.location.person !== actor) { fail('unavailable'); }
             item.location = { kind: 'ground', position: { ...person.position } };
             record(world, { kind: 'dropped', actor, item: operation.item }, person.position, 'sight', land, [actor]); break;
         }

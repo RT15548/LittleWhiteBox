@@ -2,12 +2,13 @@ import { computed, ref, shallowRef } from 'vue';
 import type { XiaobaiOsFrameBridge } from '../../../shell/app-src/frame-bridge.js';
 import type { IslandHostView } from './host.js';
 import type { Operation } from './model.js';
+import type { PlayerIdentity } from './characters.js';
 import type { PlayerOperation } from './intent-work.js';
 import type { ExperienceView } from './cooperation.js';
 import { errorText } from './copy.js';
 
-export const startsActivity = (operation: Operation) => ['travel', 'drag', 'rest', 'take', 'work', 'construct'].includes(operation.kind);
-const needsResponse = (operation: Operation) => ['say', 'declare', 'offer', 'accept'].includes(operation.kind);
+export const startsActivity = (operation: Operation) => ['travel', 'drag', 'rest', 'take', 'work', 'construct', 'accept_care', 'strike', 'guard'].includes(operation.kind);
+const needsResponse = (operation: Operation) => ['say', 'declare', 'offer', 'accept', 'decline_offer', 'offer_care', 'decline_care', 'offer_contact', 'accept_contact', 'decline_contact', 'strike', 'guard'].includes(operation.kind);
 
 export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: string) {
     const view = shallowRef<IslandHostView | null>(null), busy = ref(false), error = ref(''), uncertain = ref(false);
@@ -15,7 +16,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
     let disposed = false, pushed: IslandHostView | null = null;
     let pendingInput: { id: string; accepted: () => void } | null = null;
     function apply(next: IslandHostView) {
-        if (disposed || view.value && next.revision < view.value.revision) { return; }
+        if (disposed || view.value && next.phase !== 'unreadable' && view.value.phase !== 'unreadable' && next.revision < view.value.revision) { return; }
         view.value = next;
         if (pendingInput?.id === next.lastRequest) { const accept = pendingInput.accepted; pendingInput = null; accept(); }
     }
@@ -31,7 +32,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         try {
             const { result } = await bridge.request(`game/island/${type}`, { chatIdentity, actionId: crypto.randomUUID(), revision: view.value?.revision ?? 0, ...args }, type === 'think' || type === 'interpret' ? 360000 : 35000) as { result: IslandHostView };
             const latest = pushed as IslandHostView | null;
-            apply(latest && latest.revision >= result.revision ? latest : result); uncertain.value = false; return true;
+            apply(latest && (latest.phase === 'unreadable' || result.phase === 'unreadable' || latest.revision >= result.revision) ? latest : result); uncertain.value = false; return true;
         } catch (cause) {
             error.value = errorText(cause); failedRequest.value = type;
             const code = (cause as { code?: string })?.code ?? '';
@@ -50,7 +51,45 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
     const lastExperience = () => view.value?.recent.at(-1)?.sequence ?? 0;
     const responseDueSince = (sequence: number) => view.value?.recent.some(e => e.sequence > sequence && e.audience.includes('player')
         && ((e.payload.kind === 'speech' || e.payload.kind === 'declaration') && e.payload.actor !== 'player'
-            || e.payload.kind === 'offered' && e.payload.to === 'player'));
+            || (e.payload.kind === 'offered' || e.payload.kind === 'care_offered' || e.payload.kind === 'contact_offered') && e.payload.to === 'player'
+            || e.payload.kind === 'contact_ended' && e.payload.with === 'player'
+            || e.payload.kind === 'strike_started' || e.payload.kind === 'strike_resolved'));
+    async function completeContactEntry() {
+        const current = view.value, activity = current?.player?.self.activity;
+        if (activity?.kind !== 'contact') { return true; }
+        // The confirmed response, not a UI click or a reload, authorizes this first step.
+        const acceptedNow = current!.recent.some(({ at, payload }) => at === current!.player!.clock
+            && payload.kind === 'contact_response' && payload.accepted
+            && (payload.actor === 'player' && payload.from === activity.with || payload.from === 'player' && payload.actor === activity.with));
+        return !acceptedNow || await advance(1);
+    }
+    async function respond() {
+        if (view.value?.scene !== 'alone' && !await request('think', { reason: 'response' })) { return false; }
+        return completeContactEntry();
+    }
+    async function advance(seconds: number) {
+        const beforeChoices = lastExperience();
+        if (blocked.value || !await decisions()) { return false; }
+        if (responseDueSince(beforeChoices)) { return true; }
+        const startedAt = view.value!.player!.clock;
+        const playerWasActive = !!view.value!.player!.self.activity;
+        // Continue through NPC-only completion boundaries, not through encounters or a
+        // player's finished action. Each physical advance is saved before asking the GM.
+        for (let boundary = 0; boundary < 6; boundary++) {
+            const remaining = seconds - (view.value!.player!.clock - startedAt);
+            if (remaining <= 0) { return true; }
+            const beforeAdvance = lastExperience();
+            if (!await request('advance', { seconds: remaining })) { return false; }
+            const physicalResponse = responseDueSince(beforeAdvance);
+            if (view.value?.step === 'contact') { return await decisions(); }
+            if (view.value?.step !== 'decision' || view.value.phase !== 'living') { return true; }
+            const beforeResponse = lastExperience();
+            if (!await decisions()) { return false; }
+            if (physicalResponse || responseDueSince(beforeResponse)) { return true; }
+            if (playerWasActive && !view.value?.player?.self.activity) { return true; }
+        }
+        return true;
+    }
     return { view, busy, error, blocked, uncertain, failedRequest,
         read: () => request('read'), recover: () => request('confirm'), settings: () => request('settings'),
         async history(after: number) {
@@ -59,10 +98,10 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
                 return result;
             } catch (cause) { error.value = errorText(cause); return null; }
         },
-        async start(mode: 'start' | 'restart') { return await request('start', { mode }) && await decisions(); },
+        async start(mode: 'start' | 'restart', identity: PlayerIdentity) { return await request('start', { mode, identity }) && await decisions(); },
         async act(operation: Operation) {
             if (blocked.value || !await request('act', { operation })) { return false; }
-            if (needsResponse(operation) && view.value?.scene !== 'alone') { return request('think', { reason: 'response' }); }
+            if (needsResponse(operation)) { return respond(); }
             return true;
         },
         async speak(text: string, accepted: () => void) {
@@ -72,7 +111,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
                 if (!uncertain.value) { pendingInput = null; }
                 return false;
             }
-            return view.value?.scene === 'alone' || await request('think', { reason: 'response' });
+            return respond();
         },
         async interpret(text: string) {
             if (blocked.value) { return false; }
@@ -91,31 +130,15 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
                 if (!uncertain.value) { pendingInput = null; }
                 return null;
             }
-            if (needsResponse(operation) && view.value?.scene !== 'alone' && !await request('think', { reason: 'response' })) { return null; }
+            if (needsResponse(operation) && !await respond()) { return null; }
             return operation;
         },
-        async advance(seconds: number) {
-            const beforeChoices = lastExperience();
-            if (blocked.value || !await decisions()) { return false; }
-            if (responseDueSince(beforeChoices)) { return true; }
-            const startedAt = view.value!.player!.clock;
-            const playerWasActive = !!view.value!.player!.self.activity;
-            // Continue through NPC-only completion boundaries, not through encounters or a
-            // player's finished action. Each physical advance is saved before asking the GM.
-            for (let boundary = 0; boundary < 6; boundary++) {
-                const remaining = seconds - (view.value!.player!.clock - startedAt);
-                if (remaining <= 0) { return true; }
-                if (!await request('advance', { seconds: remaining })) { return false; }
-                if (view.value?.step === 'contact') { return await decisions(); }
-                if (view.value?.step !== 'decision' || view.value.phase !== 'living') { return true; }
-                const beforeResponse = lastExperience();
-                if (!await decisions()) { return false; }
-                if (responseDueSince(beforeResponse)) { return true; }
-                if (playerWasActive && !view.value?.player?.self.activity) { return true; }
-            }
-            return true;
+        advance,
+        async think() {
+            if (blocked.value) { return false; }
+            if (!view.value?.needsDecision) { return respond(); }
+            return await decisions() && await completeContactEntry();
         },
-        async think() { if (blocked.value) { return false; } return view.value?.needsDecision ? decisions() : request('think', { reason: 'response' }); },
         async cancel() {
             try { await bridge.request('game/island/cancel', { chatIdentity }, 35000); }
             catch (cause) { error.value = errorText(cause); }

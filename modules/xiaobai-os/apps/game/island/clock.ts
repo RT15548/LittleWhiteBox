@@ -12,12 +12,16 @@ import { awaitingDecision, decisionIndex } from './attention.js';
 import { cancelBrokenOffers } from './handoff.js';
 import { placeBody } from './remains.js';
 import { SURVIVAL } from './survival-content.js';
+import { settleCare } from './care.js';
+import { approachContacts, settleContacts } from './contact.js';
+import { buriedBodies } from './burial-state.js';
+import { conflictTick } from './conflict.js';
 export { awaitingDecision } from './attention.js';
 
 function contacts(world: Journey, land: Landscape) {
     return PERSON_IDS.map(a => PERSON_IDS.map(b => a !== b
         ? [world.people[b].body.kind === 'living' && perceives(world, a, world.people[b].position, 'sound', land),
-            perceives(world, a, world.people[b].position, 'sight', land)] : null));
+            !buriedBodies(world).has(b) && perceives(world, a, world.people[b].position, 'sight', land)] : null));
 }
 function newPlayerEncounter(before: ReturnType<typeof contacts>, now: ReturnType<typeof contacts>, world: Journey): boolean {
     const player = PERSON_IDS.indexOf('player');
@@ -61,11 +65,11 @@ function travelTick(world: Journey, actor: PersonId, land: Landscape): 'arrived'
 }
 function noticeBodies(world: Journey, land: Landscape) {
     for (const subject of PERSON_IDS) {
-        if (world.people[subject].body.kind !== 'dead') { continue; }
+        if (world.people[subject].body.kind !== 'dead' || buriedBodies(world).has(subject)) { continue; }
         for (const actor of PERSON_IDS) {
             if (!perceives(world, actor, world.people[subject].position, 'sight', land)) { continue; }
             const known = world.experiences.some(e => e.audience.includes(actor)
-                && (e.payload.kind === 'died' && e.payload.actor === subject || (e.payload.kind === 'noticed_body' || e.payload.kind === 'body_handling' || e.payload.kind === 'body_covered') && e.payload.subject === subject));
+                && (e.payload.kind === 'died' && e.payload.actor === subject || (e.payload.kind === 'noticed_body' || e.payload.kind === 'body_handling' || e.payload.kind === 'body_covered' || e.payload.kind === 'body_exhumed') && e.payload.subject === subject));
             if (!known) { record(world, { kind: 'noticed_body', actor, subject }, world.people[subject].position, 'sight', land, [actor]); }
         }
     }
@@ -108,19 +112,22 @@ export function advance(source: Journey, seconds: number, land: Landscape): Adva
             const body = world.people[id].body;
             return [id, body.kind === 'living' ? { ...body.needs } : null];
         })) as Record<PersonId, Needs | null>;
-        const walked = Object.fromEntries(PERSON_IDS.map(id => [id, 0])) as Record<PersonId, number>;
         world.clock++;
+        const walked = approachContacts(world, land);
         const movement: { actor: PersonId; kind: 'arrived' | 'interrupted' }[] = [];
         for (const actor of PERSON_IDS) {
             const person = world.people[actor];
             if (person.body.kind === 'dead') { continue; }
             const from = person.position, kind = travelTick(world, actor, land);
-            walked[actor] = distance(from, person.position);
+            walked[actor] += distance(from, person.position);
             if (kind) { movement.push({ actor, kind }); }
         }
         // Observe results only after everybody has moved for this instant.
         for (const receipt of movement) { record(world, receipt, world.people[receipt.actor].position, 'sight', land, [receipt.actor]); }
+        conflictTick(world, land);
         cancelBrokenOffers(world, land);
+        settleCare(world, land);
+        settleContacts(world, land);
         noticeBodies(world, land);
         workTick(world, land);
         completeHandling(world, land);

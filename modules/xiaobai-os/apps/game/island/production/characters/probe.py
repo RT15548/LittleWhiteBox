@@ -1,13 +1,20 @@
-"""Print geometry landmarks needed while authoring this sample."""
+"""Print geometry landmarks for an explicitly selected local character design."""
 
+import argparse
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).parent))
+from design import load_design
 from makehuman_data import HumanData
-from ye_design import HEIGHT, MORPHS
 
-data = HumanData(sys.argv[sys.argv.index("--") + 1], MORPHS, HEIGHT)
+parser = argparse.ArgumentParser()
+parser.add_argument("--design", required=True)
+parser.add_argument("--source", required=True)
+options = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
+design = load_design(options.design)
+data = HumanData(options.source, design.morphs, design.identity.height_m)
 for group in ["body", "helper-tights", "helper-hair", "helper-l-eye", "joint-mouth", "joint-jaw", "helper-l-eyelashes-1"]:
     faces = data.group_faces(group)
     ids = {i for _, face, _ in faces for i in face}

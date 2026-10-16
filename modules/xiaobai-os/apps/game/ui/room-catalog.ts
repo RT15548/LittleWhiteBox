@@ -9,7 +9,7 @@ import { BUILDING_GAME } from '../building/catalog.js';
 import { EXPEDITION_GAME } from '../expedition/catalog.js';
 import expeditionCover from '../expedition/assets/game-cover.webp?url&no-inline';
 import { ISLAND_GAME } from '../island/catalog.js';
-import islandCover from '../island/assets/shore-cover.png?url&no-inline';
+import islandCover from '../island/assets/coast-cover.webp?url&no-inline';
 
 export const GAME_ROOMS = [
     { ...gameInfo('dice'), record: DiceRecord, artwork: new URL('./rooms/dice/art.svg', import.meta.url).href, load: () => import('./rooms/dice/DiceRoom.vue') },
