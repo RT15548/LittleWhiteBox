@@ -141,10 +141,9 @@ export default defineConfig(({ mode }) => {
                     manualChunks: undefined,
                     chunkFileNames: 'xiaobai-os-[name]-[hash].js',
                     assetFileNames: asset => asset.originalFileNames.some(name => name.replace(/\\/g, '/').includes('/game/island/assets/'))
-                        ? 'island-assets/[name]-[hash][extname]' : asset.names.some(name => name.endsWith('.glb'))
-                            ? 'map-assets/[name]-[hash][extname]'
-                            : asset.originalFileNames.some(name => name.replace(/\\/g, '/').includes('/game/expedition/assets/'))
-                                ? 'ember-assets/[name]-[hash][extname]' : '[name][extname]',
+                        ? 'island-assets/[name]-[hash][extname]' : asset.originalFileNames.some(name => name.replace(/\\/g, '/').includes('/game/expedition/assets/'))
+                            ? 'ember-assets/[name]-[hash][extname]' : asset.names.some(name => name.endsWith('.glb'))
+                                ? 'map-assets/[name]-[hash][extname]' : '[name][extname]',
                     paths: buildHost
                         ? (id) => {
                             if (!path.isAbsolute(id)) return id;
