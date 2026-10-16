@@ -1,4 +1,5 @@
 import { parseShopEffectReceipt } from '../../../domains/shop/invariants.js';
+import { createStorageId } from '../../../kernel/identity.js';
 import { buildShopPromptBlock } from '../../../domains/shop/prompt.js';
 import { createShopEffectReceipt, projectShopState } from '../../../domains/shop/timeline.js';
 import {
@@ -48,10 +49,8 @@ export type ShopPromptRuntime = Pick<
     'startBackground' | 'stopBackground' | 'handleChatChanged' | 'cancelAll'
 >;
 
-let fallbackId = 0;
-
 function defaultActionId(): string {
-    return `shop-delivery:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${++fallbackId}`}`;
+    return `shop-delivery:${createStorageId()}`;
 }
 
 function generationMode(type: string): ShopGenerationMode | null {

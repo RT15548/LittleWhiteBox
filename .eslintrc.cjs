@@ -69,6 +69,15 @@ module.exports = {
     },
     overrides: [
         {
+            files: ['modules/xiaobai-os/**/*.{js,ts,vue}'],
+            rules: {
+                'no-restricted-properties': ['error', {
+                    property: 'randomUUID',
+                    message: 'randomUUID requires a secure context and is unavailable on LAN HTTP. Use createStorageId from modules/xiaobai-os/kernel/identity.ts instead.',
+                }],
+            },
+        },
+        {
             files: ['modules/xiaobai-os/**/*.js'],
             rules: {
                 'no-restricted-imports': ['error', { patterns: ['**/tavern/**'] }],

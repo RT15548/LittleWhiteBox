@@ -3,6 +3,7 @@ import {
     type EconomyReadCapability,
     type EconomyTransactionCapability,
 } from '../../../capabilities/economy/index.js';
+import { createStorageId } from '../../../kernel/identity.js';
 import type {
     PendingCommitRecoveryResult,
     PartitionStore,
@@ -115,10 +116,7 @@ interface PreparedResult {
 }
 
 function defaultId(prefix: string): string {
-    const suffix = globalThis.crypto?.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    return `${prefix}-${suffix}`;
+    return `${prefix}-${createStorageId()}`;
 }
 
 function transactionError(result: {

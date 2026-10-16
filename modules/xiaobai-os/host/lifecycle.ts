@@ -6,6 +6,7 @@ import {
 } from './frame-bridge.js';
 import type { XiaobaiOsAppDescriptor, XiaobaiOsAppRuntimeRouter } from '../types.js';
 import type { CapturedChatBinding } from '../kernel/contracts.js';
+import { createStorageId } from '../kernel/identity.js';
 import type { AppStatus } from '../kernel/execution-scope.js';
 import { xiaobaiOsLaunchers } from '../shell/app-launchers.js';
 import { createQuickLauncher } from './quick-launcher.js';
@@ -137,8 +138,7 @@ export function createXiaobaiOsLifecycle({
     captureChatBinding = () => null,
     onChatRequired = () => undefined,
     isChatBindingCurrent = () => true,
-    createActivationToken = () => globalThis.crypto?.randomUUID?.()
-        ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
+    createActivationToken = createStorageId,
     appRuntime = {},
     bridgeFactory = createXiaobaiOsFrameBridge,
     onError = (error) => console.error('[LittleWhiteBox] 小白 OS 运行失败', error),

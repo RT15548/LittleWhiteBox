@@ -1,4 +1,5 @@
 import { computed, ref, shallowRef } from 'vue';
+import { createStorageId } from '../../../kernel/identity.js';
 import type { XiaobaiOsFrameBridge } from '../../../shell/app-src/frame-bridge.js';
 import type { IslandHostView } from './host.js';
 import type { Operation } from './model.js';
@@ -30,7 +31,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         if (disposed || busy.value) { return false; }
         busy.value = true; error.value = ''; failedRequest.value = null; pushed = null;
         try {
-            const { result } = await bridge.request(`game/island/${type}`, { chatIdentity, actionId: crypto.randomUUID(), revision: view.value?.revision ?? 0, ...args }, type === 'think' || type === 'interpret' ? 360000 : 35000) as { result: IslandHostView };
+            const { result } = await bridge.request(`game/island/${type}`, { chatIdentity, actionId: createStorageId(), revision: view.value?.revision ?? 0, ...args }, type === 'think' || type === 'interpret' ? 360000 : 35000) as { result: IslandHostView };
             const latest = pushed as IslandHostView | null;
             apply(latest && (latest.phase === 'unreadable' || result.phase === 'unreadable' || latest.revision >= result.revision) ? latest : result); uncertain.value = false; return true;
         } catch (cause) {
@@ -106,7 +107,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         },
         async speak(text: string, accepted: () => void) {
             if (blocked.value) { return false; }
-            const id = crypto.randomUUID(); pendingInput = { id, accepted };
+            const id = createStorageId(); pendingInput = { id, accepted };
             if (!await request('act', { actionId: id, operation: { kind: 'say', text } })) {
                 if (!uncertain.value) { pendingInput = null; }
                 return false;

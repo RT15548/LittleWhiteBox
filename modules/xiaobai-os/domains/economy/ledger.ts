@@ -1,4 +1,5 @@
 import { validateLedger } from './invariants.js';
+import { createStorageId } from '../../kernel/identity.js';
 import {
     ECONOMY_SCHEMA_VERSION,
     OPENING_GRANT_ACTION_ID,
@@ -20,9 +21,7 @@ interface LedgerDependencies {
 }
 
 function defaultCreateId(): string {
-    return globalThis.crypto?.randomUUID
-        ? `tx-${globalThis.crypto.randomUUID()}`
-        : `tx-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    return `tx-${createStorageId()}`;
 }
 
 function normalizedInput(input: PostTransactionInput): Omit<EconomyTransaction, 'id' | 'sequence' | 'createdAt'> {

@@ -1,4 +1,5 @@
 import { createDefaultFourthWallChatState, createDefaultFourthWallGlobalSettings } from '../domain/defaults.js';
+import { createStorageId } from '../../../kernel/identity.js';
 import {
     addSession,
     appendMessage,
@@ -108,10 +109,7 @@ function identityKey(identity: ControllerDependencies['getChatIdentity'] extends
 }
 
 function createSessionId(): string {
-    if (globalThis.crypto?.randomUUID) {
-        return `session-${globalThis.crypto.randomUUID()}`;
-    }
-    return `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    return `session-${createStorageId()}`;
 }
 
 function describeError(error: unknown): string {

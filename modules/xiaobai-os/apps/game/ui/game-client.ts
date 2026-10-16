@@ -1,4 +1,5 @@
 import { computed, ref, toRaw } from 'vue';
+import { createStorageId } from '../../../kernel/identity.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { GameClientState, GameRecordPageView } from '../types.js';
 import type { GameAction, GameSettlement } from './room-contract.js';
@@ -31,10 +32,8 @@ export function createGameClient(bridge: XiaobaiOsAppProps['bridge'], initial: G
     let pushed = 0;
     let readSequence = 0;
     let bindingGeneration = 0;
-    let actionSequence = 0;
     function actionId(): string {
-        if (typeof globalThis.crypto?.randomUUID === 'function') {return 'game-ui:' + globalThis.crypto.randomUUID();}
-        return 'game-ui:' + Date.now() + ':' + (++actionSequence);
+        return 'game-ui:' + createStorageId();
     }
     const needsSave = computed(() => ['unconfirmed', 'save-failed'].includes(state.value.status));
     const busy = computed(() => reading.value || Boolean(inFlight.value));

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw } from 'vue';
+import { createStorageId } from '../../../kernel/identity.js';
 import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import { HostRequestError } from '../../../shell/app-src/frame-bridge.js';
@@ -69,8 +70,7 @@ const pendingDisabledReason = computed(() => {
 });
 
 function createActionId(): string {
-    if (typeof globalThis.crypto?.randomUUID === 'function') {return `shop-ui:${globalThis.crypto.randomUUID()}`;}
-    return `shop-ui:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+    return `shop-ui:${createStorageId()}`;
 }
 
 function binding(): { chatIdentity: string } {

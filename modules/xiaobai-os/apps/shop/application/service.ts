@@ -10,6 +10,7 @@ import type {
     XiaobaiOsFileState,
 } from '../../../kernel/contracts.js';
 import { parseShopEffectReceipt } from '../../../domains/shop/invariants.js';
+import { createStorageId } from '../../../kernel/identity.js';
 import {
     activateShopItem,
     createEmptyShopState,
@@ -102,7 +103,7 @@ export function createShopService(
         getCurrentChatIdentity,
         now = Date.now,
         createEventId,
-        createActivationId = () => `shop-activation-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
+        createActivationId = () => `shop-activation-${createStorageId()}`,
         isMainGenerationActive = () => false,
     }: ShopServiceDependencies,
 ): ShopService {

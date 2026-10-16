@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRaw } from 'vue';
+import { createStorageId } from '../../../kernel/identity.js';
 import { useAppBack } from '../../../shell/app-src/navigation/app-navigation.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type {
@@ -61,8 +62,7 @@ const refreshDisabled = computed(() => refreshing.value || actionBusy.value || r
 const noticeMessage = computed(() => errorMessage.value || state.value.message || (state.value.status !== 'loading' && !pending.value ? writeDisabledReason.value : ''));
 
 function createActionId(): string {
-    if (typeof globalThis.crypto?.randomUUID === 'function') {return `bank-ui:${globalThis.crypto.randomUUID()}`;}
-    return `bank-ui:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+    return `bank-ui:${createStorageId()}`;
 }
 
 function binding(): { chatIdentity: string } {

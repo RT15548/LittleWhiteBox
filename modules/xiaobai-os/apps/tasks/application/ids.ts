@@ -5,6 +5,7 @@ import {
     normalizeTaskIdentity,
 } from '../../../domains/tasks/invariants.js';
 import { TaskError } from '../../../domains/tasks/types.js';
+import { createStorageId } from '../../../kernel/identity.js';
 
 export type TaskOpaqueIdKind = 'task' | 'event' | 'action' | 'board' | 'listing' | 'candidate';
 
@@ -27,7 +28,7 @@ const PREFIXES: Readonly<Record<TaskOpaqueIdKind, string>> = Object.freeze({
 });
 
 export function createTaskIdFactory({
-    randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto) ?? null,
+    randomUuid = createStorageId,
     now = Date.now,
 }: TaskIdFactoryDependencies = {}): TaskIdFactory {
     let fallbackSequence = 0;

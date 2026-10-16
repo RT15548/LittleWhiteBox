@@ -1,4 +1,5 @@
 import { getShopContract, getShopShelfContract } from './catalog.js';
+import { createStorageId } from '../../kernel/identity.js';
 import {
     normalizeShopParameters,
     parseShopEffectReceipt,
@@ -30,9 +31,7 @@ import {
 const MAX_DATE_MS = 8_640_000_000_000_000;
 
 function defaultCreateEventId(): string {
-    return globalThis.crypto?.randomUUID
-        ? `shop-event-${globalThis.crypto.randomUUID()}`
-        : `shop-event-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    return `shop-event-${createStorageId()}`;
 }
 
 function normalizeId(value: unknown, code: 'shop_action_required' | 'shop_activation_id_required'): string {

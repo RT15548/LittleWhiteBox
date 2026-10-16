@@ -4,6 +4,7 @@ import {
     type EconomyTransactionCapability,
 } from '../../../capabilities/economy/index.js';
 import { gameRandomSource } from '../../../domains/game/random.js';
+import { createStorageId } from '../../../kernel/identity.js';
 import {
     appendGameEvent,
     createEmptyGameDomain,
@@ -119,11 +120,8 @@ interface TransactionProjection {
     balance: number;
 }
 
-let fallbackId = 0;
-
 function defaultId(prefix: string): string {
-    const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${++fallbackId}`;
-    return `${prefix}-${suffix}`;
+    return `${prefix}-${createStorageId()}`;
 }
 
 function transactionError(result: {
