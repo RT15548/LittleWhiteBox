@@ -82,6 +82,7 @@ import {
     DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
     ensureDrawImageStyles,
+    showDrawTagEditor,
     classifyError,
     ErrorType,
     syncDrawSavedFromPreview,
@@ -3499,14 +3500,12 @@ async function toggleEditPanel(container, show) {
             });
         }
 
-        editPanel.style.display = 'block';
-
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
             btnsPanel.style.pointerEvents = 'none';
         }
 
-        scrollWrap.querySelector('[data-type="scene"]')?.focus();
+        showDrawTagEditor(editPanel);
 
     } else {
         const scrollWrap = editPanel.querySelector('.xb-nd-edit-scroll');

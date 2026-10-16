@@ -155,6 +155,7 @@ import {
     buildImageHtml,
     buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
+    showDrawTagEditor,
 } from "../../shared/draw-common.js";
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
@@ -2350,14 +2351,12 @@ async function toggleEditPanel(container, show) {
         // Escaped data used in template.
         // eslint-disable-next-line no-unsanitized/property
         scrollWrap.innerHTML = html;
-        editPanel.style.display = 'block';
-
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
             btnsPanel.style.pointerEvents = 'none';
         }
 
-        scrollWrap.querySelector('[data-type="scene"]')?.focus();
+        showDrawTagEditor(editPanel);
 
     } else {
         const scrollWrap = editPanel.querySelector('.xb-nd-edit-scroll');

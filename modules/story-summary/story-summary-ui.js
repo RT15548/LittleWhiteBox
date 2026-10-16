@@ -3,6 +3,7 @@
 
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './data/summary-delay.js';
+import { DEFAULT_RECALL_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec } from './data/recall-settings.js';
 import { RELATION_TRENDS } from './data/fact-predicates.js';
 import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
@@ -307,6 +308,7 @@ const UNANNOTATED_LABEL = '未标注';
             enabled: false,
             engine: 'online',
             l0Concurrency: 10,
+            recallTimeoutSec: DEFAULT_RECALL_TIMEOUT_SEC,
             l0Api: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [],
                 providers: {
@@ -872,6 +874,7 @@ const UNANNOTATED_LABEL = '未标注';
             enabled: $('vector-enabled')?.checked || false,
             engine: 'online',
             l0Concurrency: Math.max(1, Math.min(50, Number($('vector-l0-concurrency')?.value) || 10)),
+            recallTimeoutSec: normalizeRecallTimeoutSec($('vector-recall-timeout')?.value),
             l0Api: getVectorApiConfig('l0'),
             embeddingApi: getVectorApiConfig('embedding'),
             rerankApi: getVectorApiConfig('rerank'),
@@ -884,6 +887,8 @@ const UNANNOTATED_LABEL = '未标注';
         $('vector-config-area').classList.toggle('hidden', !cfg.enabled);
         syncVectorBoundaryControl(cfg.enabled, config.ui.hideSummarized);
         $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
+        $('vector-recall-timeout').max = String(MAX_RECALL_TIMEOUT_SEC);
+        $('vector-recall-timeout').value = String(normalizeRecallTimeoutSec(cfg.recallTimeoutSec));
         loadVectorApiConfig('l0', cfg.l0Api || {});
         loadVectorApiConfig('embedding', cfg.embeddingApi || {});
         loadVectorApiConfig('rerank', cfg.rerankApi || {});
@@ -2408,13 +2413,14 @@ const UNANNOTATED_LABEL = '未标注';
         if (section === 'keywords') {
             ta.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
         } else if (section === 'facts') {
-            ta.value = (summaryData.facts || [])
-                .filter(f => !f.retracted)
-                .map(f => {
-                    const parts = [f.s, f.p, f.o];
-                    if (f.trend) parts.push(f.trend);
-                    return parts.join('|');
-                })
+            // 按人物首次出现的插入顺序分组，同一人物的事实保持相邻
+            const grouped = new Map();
+            for (const f of (summaryData.facts || []).filter(f => !f.retracted)) {
+                if (!grouped.has(f.s)) grouped.set(f.s, []);
+                grouped.get(f.s).push(f);
+            }
+            ta.value = [...grouped.values()].flat()
+                .map(f => [f.s, f.p, f.o].concat(f.trend ? [f.trend] : []).join('|'))
                 .join('\n');
         } else {
             ta.classList.add('hidden');
