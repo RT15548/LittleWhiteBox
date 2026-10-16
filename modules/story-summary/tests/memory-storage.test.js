@@ -1398,15 +1398,15 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
     assert.deepEqual(disk(), next); // Stopping summary does not cancel the separate edit's save.
 });
 
-test('in-flight saves publish no draft receipt and reject another writer without overwriting it', async () => {
+test('in-flight saves publish no draft receipt and queue another writer without overwriting it', async () => {
     await importFixture(); await seedAnchors();
     const before = mod.readPublishedSummaryMemory();
-    let finish;
-    host.afterSave = () => new Promise(resolve => { finish = resolve; });
+    const releases = [];
+    host.afterSave = () => new Promise(resolve => releases.push(resolve));
     const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'pending';
     next.stateAtoms = [];
     const saving = mod.commitSummaryMemory(host.context.chatId, next);
-    while (!finish) await Promise.resolve();
+    while (!releases.length) await Promise.resolve();
     let resumed = false;
     const waiting = mod.waitForMemoryCommit().then(() => { resumed = true; });
     const controller = new AbortController();
@@ -1420,9 +1420,15 @@ test('in-flight saves publish no draft receipt and reject another writer without
     assert.deepEqual(mod.getPublishedSummaryStore(), before.storySummary);
     assert.deepEqual(mod.getPublishedStateAtoms(), before.stateAtoms);
     assert.deepEqual(mod.getFacts(), before.storySummary.json.facts.filter(fact => !fact.retracted));
-    await assert.rejects(mod.commitSummaryMemory(host.context.chatId, mod.readSummaryMemory()), { code: 'metadata_saving' });
-    finish(); await saving;
+    // Busy is not an error: the second writer queues behind the in-flight save.
+    const queued = mod.commitSummaryMemory(host.context.chatId, mod.readSummaryMemory());
+    releases.forEach(resolve => resolve());
+    await saving;
     await waiting;
+    for (let i = 0; i < 100 && releases.length < 2; i++) await Promise.resolve();
+    assert.equal(releases.length, 2);
+    releases.forEach(resolve => resolve());
+    await queued;
     assert.equal(resumed, true);
     assert.equal(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o, 'pending');
     assert.deepEqual(mod.getPublishedStateAtoms(), []);

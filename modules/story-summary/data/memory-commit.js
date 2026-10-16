@@ -105,12 +105,12 @@ function install(owner, snapshot) {
 export async function commitSummaryMemory(chatId, next, { previous = readSummaryMemory(), invalidate, validate, resolvesSourceInvalidity = false, maintenanceWrite = false } = {}) {
     // Atomic acquisition: the stretch from this check to transactions.set below stays
     // synchronous, so exactly one writer holds the transaction. A loser that wakes to
-    // an unconfirmed save keeps waiting here instead of being rejected. No await may be
+    // 'saving' keeps waiting here instead of being rejected as busy. No await may be
     // introduced in that stretch (prep is sync by design; validate callbacks are sync).
     const owner = extension();
     for (;;) {
         const existing = transactions.get(owner);
-        if (existing?.reconfirm) { await waitForMemoryCommit(); continue; }
+        if (existing?.status === 'saving' || existing?.reconfirm) { await waitForMemoryCommit(); continue; }
         assertMemoryWritable(chatId);
         break;
     }
