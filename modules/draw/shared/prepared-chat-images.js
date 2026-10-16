@@ -1,10 +1,10 @@
 import { getContext } from '../../../../../../extensions.js';
-import { uuidv4 } from '../../../../../../utils.js';
 import { storePreview, deletePreview, setSlotSelection, clearSlotSelection } from './gallery-cache.js';
 import { createPlaceholder, renderPreviewsForMessage, syncRenderedMessageFromState,
     isMessageBeingEdited, classifyError, clearDrawSavedEntry, materializeDrawSavedPreview } from './draw-common.js';
-import { withConfirmableChatMutation, saveChatAndConfirm } from './confirmable-chat-save.js';
-import { setActiveMessageText, insertScenePlacementsPreservingSlots, isSceneSlotAlive } from './scene-placement.js';
+import { setActiveMessageText, isSceneSlotAlive } from './scene-placement.js';
+import { createImageIdentifiers, placePreparedImageSlots } from './prepared-image-placement.js';
+import { captureImagePlacement, saveChatImagePlacements, getImageChatIdentity } from './chat-image-persistence.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { executePreparedSlots } from './prepared-slot-executor.js';
 import { setSlotActivity, clearSlotActivity } from './slot-activity.js';
@@ -36,41 +36,13 @@ export function prepareNativeChatImages(provider, input) {
     return { prepared, completed };
 }
 
-export function createImageIdentifiers() {
-    const id = uuidv4();
-    return { slotId: `slot-${id}`, imgId: `img-${id}` };
-}
-
-export function placePreparedImageSlots(source, tasks, ids) {
-    if (tasks.every(task => task.placement?.mode === 'existing')) {
-        if (ids.some(item => !isSceneSlotAlive(source, item.slotId))) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-        return source;
-    }
-    if (!tasks.some(task => task.placement?.mode === 'replace')) {
-        return insertScenePlacementsPreservingSlots(source, tasks.map((task, index) => ({
-            placement: task.placement, content: createPlaceholder(ids[index].slotId),
-        })), { block: true });
-    }
-    let result = source;
-    let lastStart = source.length;
-    const edits = tasks.map((task, index) => ({ ...task.placement, slotId: ids[index].slotId }))
-        .sort((a, b) => b.start - a.start);
-    for (const edit of edits) {
-        if (edit.mode !== 'replace' || !Number.isInteger(edit.start) || !Number.isInteger(edit.end)
-            || edit.start < 0 || edit.end > lastStart || edit.end <= edit.start
-            || source.slice(edit.start, edit.end) !== edit.marker) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-        result = result.slice(0, edit.start) + createPlaceholder(edit.slotId) + result.slice(edit.end);
-        lastStart = edit.start;
-    }
-    return result;
-}
-
 // The two input adapters supply already compiled metadata and the same provider
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
     tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource,
     swipeIndex = message.swipe_id ?? 0 }) {
     const chatId = String(ctx.chatId);
+    const chatIdentity = getImageChatIdentity(ctx);
     const ids = tasks.map(task => ({ ...createImageIdentifiers(),
         ...(task.placement?.mode === 'existing' ? { slotId: task.placement.slotId } : {}) }));
     // Rerolls own an existing slot and captured input, not a frozen text edit.
@@ -83,14 +55,18 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
     const owner = {};
     const items = metadata.map((data, index) => ({ ...data, ...ids[index], messageId,
         chatId, characterName: message.name || '',
+        placement: existingSlots ? null : captureImagePlacement(chatIdentity, sourceText, swipeIndex, tasks[index].placement, index),
         delivery: { mode: 'slots', chatId, messageId: String(messageId), swipeIndex,
-            ...(nativeMessage ? { retainWithoutSlot: true } : {}) },
+            // A provider result is already paid work. If chat persistence or
+            // navigation fails after transport, keep the gallery record so the
+            // user can attach/retry it instead of silently discarding it.
+            retainWithoutSlot: true },
     }));
     const resolveTarget = slotId => {
         const live = getContext();
         // A local request may finish after navigating away. Its original message
         // remains the delivery target; never write into the newly opened chat.
-        if (String(live.chatId) === chatId) {
+        if (getImageChatIdentity(live) === chatIdentity) {
             const target = findImageJobDeliverySlot(live.chat, slotId);
             return !nativeMessage || target?.message === message ? target : null;
         }
@@ -98,7 +74,7 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         return original ? { ...original, messageId } : null;
     };
     const render = async (changedSlots = items.map(item => item.slotId)) => {
-        if (String(getContext().chatId) !== chatId) return;
+        if (getImageChatIdentity(getContext()) !== chatIdentity) return;
         const byMessage = new Map();
         for (const item of items) {
             if (!changedSlots.includes(item.slotId)) continue;
@@ -113,9 +89,9 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
     const assertSource = (expectedText = sourceText) => {
         const live = getContext();
         const liveId = live.chat?.indexOf(message) ?? -1;
-        if (nativeMessage && String(live.chatId) === chatId && liveId >= 0 && !placementSource?.invalid
+        if (nativeMessage && getImageChatIdentity(live) === chatIdentity && liveId >= 0 && !placementSource?.invalid
             && (message.swipe_id ?? 0) === swipeIndex) restoreChatImagePlacements(message);
-        if (String(live.chatId) !== chatId || liveId < 0
+        if (getImageChatIdentity(live) !== chatIdentity || liveId < 0
             || (message.swipe_id ?? 0) !== swipeIndex || placementSource?.invalid
             || !(existingSlots ? ids.every(item => isSceneSlotAlive(message.mes, item.slotId))
                 : nativeMessage ? message.mes.startsWith(placementSource?.sourceText ?? sourceText) : message.mes === expectedText)
@@ -135,7 +111,7 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         select: async (slotId, imgId) => {
             await setSlotSelection(slotId, imgId);
             const target = resolveTarget(slotId);
-            if (target && String(getContext().chatId) === chatId) await clearDrawSavedEntry(target.messageId, slotId);
+            if (target && getImageChatIdentity(getContext()) === chatIdentity) await clearDrawSavedEntry(target.messageId, slotId);
         }, resolveTarget, render, run, signal, onStateChange, classifyError,
         activity: (slotId, state) => state
             ? setSlotActivity(slotId, { ...state, owner }) : clearSlotActivity(slotId, owner),
@@ -151,34 +127,27 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
                 insertedSlotIds: ids.map(item => item.slotId) }).catch(error => console.error(DRAW_SLOT_COPY.renderFailed, error));
             onPlacement?.();
             return true;
-        } : () => withConfirmableChatMutation(ctx, async () => {
+        } : () => {
             validateSource();
-            // Manual tags use the same synchronous text/card handoff as native
-            // tags. Persistence still gates transport, not the visible card.
-            if (replacesTags) placeTags();
-            else if (!existingSlots) setActiveMessageText(message, plannedText);
-            // This save has no precondition: it confirms placement or reports
-            // uncertainty. Never restore raw tags over a possibly persisted slot.
-            // Confirm slot identities because floor/swipe indices may move.
-            await saveChatAndConfirm({ ctx, verify: persisted =>
-                items.every(item => findImageJobDeliverySlot(persisted, item.slotId)) });
-            // Source changes still revoke placement. A cancellation after the
-            // save keeps the provider's existing unsubmitted-abort settlement.
-            try { assertSource(plannedText); }
-            catch (error) {
-                error.placementsCommitted = true;
-                throw error;
-            }
-            const liveId = getContext().chat.indexOf(message);
-            try {
-                // Tags already own their card; redraws do not change the text.
-                // Only newly inserted scene placements require host formatting.
-                if (existingSlots || plannedText === sourceText) await render();
-                else await syncRenderedMessageFromState(liveId, { chatId, expectedMessage: message,
-                    insertedSlotIds: ids.map(item => item.slotId) });
+            // Existing-slot redraws already have a durable chat target. They
+            // must not be blocked by a redundant save/readback round trip.
+            if (existingSlots) {
                 onPlacement?.();
-            } catch (error) { console.error(DRAW_SLOT_COPY.renderFailed, error); }
+                return true;
+            }
+            // Manual tags use the same synchronous text/card handoff as native
+            // tags. Persistence is a follow-up, not a prerequisite for paid
+            // transport; a busy/failed host save must never suppress the call.
+            if (replacesTags) placeTags();
+            else setActiveMessageText(message, plannedText);
+            // Save follows placement independently. Neither slow host I/O nor
+            // readback uncertainty may hold the provider queue or undo this edit.
+            void saveChatImagePlacements(ctx, ids.map(item => item.slotId));
+            const liveId = getContext().chat.indexOf(message);
+            void syncRenderedMessageFromState(liveId, { chatId, expectedMessage: message,
+                insertedSlotIds: ids.map(item => item.slotId) }).catch(error => console.error(DRAW_SLOT_COPY.renderFailed, error));
+            onPlacement?.();
             return true;
-        }),
+        },
     });
 }

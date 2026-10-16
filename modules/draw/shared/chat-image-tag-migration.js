@@ -1,161 +1,172 @@
 import { getContext } from '../../../../../../extensions.js';
 import { parseChatImageTags } from './chat-message-image-markup.js';
 import { readGeneratedImageForAdoption } from './generated-image-runtime.js';
-import { storePreview, deletePreview, setSlotSelection, clearSlotSelection } from './gallery-cache.js';
-import { createImageIdentifiers, placePreparedImageSlots } from './prepared-chat-images.js';
-import { getImageJobDeliveryTextAt } from './image-job-delivery-target.js';
+import { getPreview, getPreviewsBySlot, getPreviewsForMessage, storePreview, updatePreviewRecord, clearPreviewPlacements,
+    getSlotSelection, setSlotSelection } from './gallery-cache.js';
+import { placePreparedImageSlots } from './prepared-image-placement.js';
+import { captureImagePlacement, saveChatImagePlacements, getImageChatIdentity } from './chat-image-persistence.js';
+import { hashSceneSource } from './scene-source.js';
+import { hashStableValue } from './generation-fingerprint.js';
+import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { setActiveMessageText } from './scene-placement.js';
-import { saveChatAndConfirm, withConfirmableChatMutation, CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS } from './confirmable-chat-save.js';
-import { syncRenderedMessageFromState, isAnyMessageBeingEdited } from './draw-common.js';
-import { PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
+import { commitChatImagePlacement } from './chat-image-placement.js';
+import { syncRenderedMessageFromState, renderPreviewsForMessage, isMessageBeingEdited } from './draw-common.js';
+import { PreviewStatus, hasPreviewImage, DRAW_SLOT_ERRORS } from './image-record.js';
 
-export const CHAT_IMAGE_TAG_FORMAT_KEY = 'xbDrawTagFormat';
-export const CHAT_IMAGE_TAG_FORMAT_VERSION = 1;
-const migrations = new WeakMap();
-const freshChats = new WeakSet();
-let prepareChatBranches = async () => {};
+const admissions = new WeakMap();
+const editing = new WeakMap();
 
-// The drawing domain owns migration. A host with lazy chat payloads supplies
-// the one preparation step required before the complete branch scan.
-export function configureChatImageTagMigration({ prepareBranches } = {}) {
-    prepareChatBranches = prepareBranches || (async () => {});
+export function releaseChatImageAdmission(message) {
+    if (message) admissions.delete(message);
 }
 
-async function confirmFormat(ctx, persisted) {
-    const header = persisted[0]?.chat_metadata;
-    if (header) return header[CHAT_IMAGE_TAG_FORMAT_KEY] === CHAT_IMAGE_TAG_FORMAT_VERSION;
-    if (!ctx.groupId) return false;
-    // SillyTavern 1.14 group chats store metadata in the group JSON, not in the
-    // chat header. Only this upgrade boundary needs the released group format;
-    // remove it when support for pre-header SillyTavern group chats ends.
-    if (getContext().chatMetadata !== ctx.chatMetadata) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-    const controller = new AbortController();
-    let timer;
-    const timeout = new Promise((_, reject) => {
-        timer = setTimeout(() => {
-            controller.abort();
-            reject(new Error(DRAW_SLOT_COPY.formatReadFailed));
-        }, CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS);
-    });
-    const confirm = async () => {
-        await ctx.saveMetadata();
-        const response = await fetch('/api/groups/all', { method: 'POST', headers: ctx.getRequestHeaders(),
-            body: JSON.stringify({}), cache: 'no-cache', signal: controller.signal });
-        if (!response.ok) throw new Error(DRAW_SLOT_COPY.formatReadFailed);
-        const groups = await response.json();
-        const group = groups.find(group => String(group.id) === String(ctx.groupId));
-        const metadata = String(group?.chat_id) === String(ctx.chatId)
-            ? group.chat_metadata : group?.past_metadata?.[ctx.chatId];
-        return metadata?.[CHAT_IMAGE_TAG_FORMAT_KEY] === CHAT_IMAGE_TAG_FORMAT_VERSION;
-    };
-    try { return await Promise.race([confirm(), timeout]); }
-    finally { clearTimeout(timer); }
-}
-
-export function markFreshImageTagChat(ctx) { freshChats.add(ctx.chatMetadata); }
-
-export function listChatImageBranches(chat) {
-    return chat.flatMap((message, messageId) => {
-        const active = message.swipe_id ?? 0;
-        const branches = [{ message, messageId, swipeIndex: active, source: String(message.mes || '') }];
-        message.swipes?.forEach((source, swipeIndex) => {
-            if (swipeIndex !== active) branches.push({ message, messageId, swipeIndex, source });
-        });
-        return branches;
-    });
-}
-
-export function ensureChatImageTagFormat(ctx) {
-    const identity = ctx.chatMetadata;
-    const existing = migrations.get(identity);
-    if (existing) return existing;
-    if (ctx.chatMetadata?.[CHAT_IMAGE_TAG_FORMAT_KEY] === CHAT_IMAGE_TAG_FORMAT_VERSION) return Promise.resolve();
-    const operation = migrate(ctx).catch(error => {
-        if (!error.uncertain) migrations.delete(identity);
-        throw error;
-    });
-    migrations.set(identity, operation);
+// The native editor has already changed message.mes when MESSAGE_EDITED fires.
+// Cancel any old admission immediately, then revoke only the removed slots on
+// this edited branch. A concurrent viewport refresh waits for this local edit.
+export function withdrawEditedImagePlacements(ctx, messageId) {
+    const message = ctx.chat?.[messageId];
+    if (!message) return Promise.resolve();
+    admissions.delete(message);
+    const owner = getImageChatIdentity(ctx), swipeIndex = message.swipe_id ?? 0;
+    const attached = new Set([...message.mes.matchAll(createDrawImageSlotRegex())].map(match => match[1]));
+    const operation = (async () => {
+        const records = await getPreviewsForMessage(String(ctx.chatId), messageId);
+        await clearPreviewPlacements(owner, records.filter(record => record.placement?.owner === owner
+            && record.placement.swipeIndex === swipeIndex && !attached.has(record.slotId)).map(record => record.slotId));
+    })().finally(() => { if (editing.get(message) === operation) editing.delete(message); });
+    editing.set(message, operation);
     return operation;
 }
 
-async function migrate(ctx) {
+// Compatibility boundary for released 3.1.6-3.1.8 chat tags and mis-migrated
+// legacy failures. Retire only when those user chats have been converted.
+// No whole-chat version flag: unloaded floors/swipes have not been inspected.
+export function adoptChatImageMessage(ctx, messageId) {
+    const message = ctx.chat?.[messageId];
+    if (!message || isMessageBeingEdited(messageId)) return Promise.resolve(false);
+    if (editing.has(message)) return editing.get(message).then(() => adoptChatImageMessage(ctx, messageId));
+    const source = message.mes, swipeIndex = message.swipe_id ?? 0;
+    const previous = admissions.get(message);
+    if (previous?.source === source && previous.swipeIndex === swipeIndex) return previous.operation.then(() => false, () => false);
+    const entry = { source, swipeIndex, operation: null };
+    entry.operation = recoverMessage(ctx, messageId, message, source, swipeIndex, entry).then(result => {
+        // Only the source actually inspected may be marked complete. A user
+        // edit during an IDB read belongs to the next admission.
+        if (!result?.complete && admissions.get(message) === entry) admissions.delete(message);
+        return result?.changed ?? false;
+    });
+    admissions.set(message, entry);
+    return entry.operation;
+}
+
+async function recoverMessage(ctx, messageId, message, initialSource, swipeIndex, entry) {
     const chatId = String(ctx.chatId);
-    const isCurrentChat = () => String(getContext().chatId) === chatId
-        && getContext().chat === ctx.chat && getContext().chatMetadata === ctx.chatMetadata;
-    const loaded = new Map(ctx.chat.map(message => [message, { source: message.mes, swipe: message.swipe_id }]));
-    if (!freshChats.has(ctx.chatMetadata)) await prepareChatBranches(ctx);
-    if (!isCurrentChat()) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-    const branches = listChatImageBranches(ctx.chat).map(branch => ({ ...branch, tags: parseChatImageTags(branch.source) }))
-        .filter(branch => branch.tags.length && loaded.has(branch.message)
-            && loaded.get(branch.message).source === branch.message.mes
-            && loaded.get(branch.message).swipe === branch.message.swipe_id);
-    const prepared = [];
-    // Read all candidates before changing data. Failed reads do not mean lost images.
-    for (const branch of branches) {
-        if (freshChats.has(ctx.chatMetadata)) break;
-        const images = [];
-        for (const tag of branch.tags) {
-            const cached = await readGeneratedImageForAdoption({ prompt: tag.tags, cacheNamespace: 'fourth-wall' });
-            images.push({ ...createImageIdentifiers(), ...cached, tags: tag.tags });
-        }
-        prepared.push({ ...branch, images, next: placePreparedImageSlots(branch.source,
-            branch.tags.map(tag => ({ placement: { ...tag, mode: 'replace' } })), images) });
+    const owner = getImageChatIdentity(ctx);
+    let source = initialSource;
+    const current = () => admissions.get(message) === entry && getContext().chat === ctx.chat && getImageChatIdentity(getContext()) === owner
+        && ctx.chat[messageId] === message && message.mes === source
+        && (message.swipe_id ?? 0) === swipeIndex && !isMessageBeingEdited(messageId);
+    let changed = false;
+    const restoredSlots = new Set();
+    const repairedSlots = new Set();
+    const records = (await getPreviewsForMessage(chatId, messageId)).filter(record => owner && record.placement?.owner === owner);
+    if (!current()) return false;
+
+    // A paid result whose text save failed reuses its original slot/attempt.
+    // Match only this exact branch/source, never a merely similar earlier floor.
+    for (let pass = 0; pass < records.length; pass++) {
+        const sourceHash = hashSceneSource(source);
+        const slots = new Map(records.filter(record => record.placement?.sourceHash === sourceHash
+            && record.placement.swipeIndex === swipeIndex).map(record => [record.slotId, record]));
+        if (!slots.size) break;
+        const items = [...slots.values()].sort((a, b) => a.placement.order - b.placement.order);
+        const next = placePreparedImageSlots(source, items.map(item => ({ placement: item.placement.task })), items);
+        if (next === source) break;
+        if (items.every(item => item.placement.task.mode === 'replace')) {
+            commitChatImagePlacement({ message, swipeIndex, before: source, edits: items.map(item => ({
+                ...item.placement.task, slotId: item.slotId, content: `[image:${item.slotId}]`,
+            })) });
+        } else setActiveMessageText(message, next);
+        source = message.mes;
+        entry.source = source;
+        items.forEach(item => restoredSlots.add(item.slotId));
+        changed = true;
     }
-    const staged = [];
-    let attemptedSave = false;
-    let changes = [];
-    const previousVersion = ctx.chatMetadata[CHAT_IMAGE_TAG_FORMAT_KEY];
-    try {
-        await withConfirmableChatMutation(ctx, async () => {
-            if (!isCurrentChat() || isAnyMessageBeingEdited()) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-            changes = freshChats.has(ctx.chatMetadata) ? [] : prepared;
-            for (const branch of changes) {
-                if (ctx.chat[branch.messageId] !== branch.message
-                    || getImageJobDeliveryTextAt(ctx.chat, branch) !== branch.source) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-                for (const image of branch.images) {
-                    await storePreview({ ...image, messageId: branch.messageId, chatId,
-                        characterName: branch.message.name || '', positive: image.promptData.positive || image.tags,
-                        characterPrompts: image.promptData.characterPrompts || [],
-                        negativePrompt: image.promptData.negativePrompt || '',
-                        status: image.base64 ? PreviewStatus.SUCCESS : PreviewStatus.FAILED,
-                        errorType: image.base64 ? null : DRAW_SLOT_ERRORS.legacy.label,
-                        errorMessage: image.base64 ? null : DRAW_SLOT_ERRORS.legacy.desc });
-                    staged.push(image);
-                    await setSlotSelection(image.slotId, image.imgId);
-                }
+
+    const adoptCandidates = async (slotId, tags, placement) => {
+        const candidates = await readGeneratedImageForAdoption({ prompt: tags });
+        if (!current()) return [];
+        const ids = [];
+        for (const candidate of candidates) {
+            const imgId = `img-legacy-${hashStableValue([slotId, candidate.cacheKey])}`;
+            if (!await getPreview(imgId)) {
+                if (!current()) return [];
+                await storePreview({ imgId, slotId, chatId, messageId, placement,
+                    characterName: message.name || '', tags, positive: tags, base64: candidate.base64,
+                    status: PreviewStatus.SUCCESS });
             }
-            if (!isCurrentChat() || isAnyMessageBeingEdited()
-                || changes.some(branch => ctx.chat[branch.messageId] !== branch.message
-                    || getImageJobDeliveryTextAt(ctx.chat, branch) !== branch.source)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-            for (const branch of changes) {
-                if ((branch.message.swipe_id ?? 0) === branch.swipeIndex) setActiveMessageText(branch.message, branch.next);
-                else branch.message.swipes[branch.swipeIndex] = branch.next;
-            }
-            ctx.chatMetadata[CHAT_IMAGE_TAG_FORMAT_KEY] = CHAT_IMAGE_TAG_FORMAT_VERSION;
-            attemptedSave = true;
-            await saveChatAndConfirm({ ctx, verify: persisted =>
-                changes.every(branch => getImageJobDeliveryTextAt(persisted, branch) === branch.next)
-                && confirmFormat(ctx, persisted) });
-            for (const messageId of new Set(changes.map(branch => branch.messageId))) {
-                try {
-                    await syncRenderedMessageFromState(messageId, { chatId, expectedMessage: ctx.chat[messageId] });
-                } catch (error) { console.error(DRAW_SLOT_COPY.renderFailed, error); }
-            }
-        });
-    } catch (error) {
-        if (!attemptedSave || error.saveAttempted === false) {
-            for (const branch of changes) {
-                if (getImageJobDeliveryTextAt(ctx.chat, branch) !== branch.next) continue;
-                if ((branch.message.swipe_id ?? 0) === branch.swipeIndex) setActiveMessageText(branch.message, branch.source);
-                else branch.message.swipes[branch.swipeIndex] = branch.source;
-            }
-            if (previousVersion === undefined) delete ctx.chatMetadata[CHAT_IMAGE_TAG_FORMAT_KEY];
-            else ctx.chatMetadata[CHAT_IMAGE_TAG_FORMAT_KEY] = previousVersion;
-            for (const image of staged) {
-                await clearSlotSelection(image.slotId);
-                await deletePreview(image.imgId);
-            }
+            ids.push(imgId);
         }
-        throw error;
+        if (!current()) return [];
+        if (ids.length) {
+            const selected = await getSlotSelection(slotId);
+            if (!current()) return [];
+            if (!selected || !hasPreviewImage(await getPreview(selected))) await setSlotSelection(slotId, ids[0]);
+        }
+        return ids;
+    };
+
+    // Repair already-migrated records even when xbDrawTagFormat was set early.
+    // Only the released migration's frozen legacy failure is an ungenerated
+    // input. Real failed/unknown provider attempts retain their truthful state.
+    for (const match of source.matchAll(createDrawImageSlotRegex())) {
+        const slotId = match[1];
+        const previews = await getPreviewsBySlot(slotId);
+        if (!current()) return false;
+        for (const record of previews.filter(item => item.status === PreviewStatus.UNGENERATED
+            || item.status === PreviewStatus.FAILED && item.errorType === DRAW_SLOT_ERRORS.legacy.label)) {
+            if (record.status !== PreviewStatus.UNGENERATED) {
+                await updatePreviewRecord(record.imgId, { status: PreviewStatus.UNGENERATED, errorType: null, errorMessage: null });
+                changed = true;
+                repairedSlots.add(slotId);
+                // The input is usable even if the separate old-cache lookup
+                // fails or is blocked by a still-open older tab.
+                await renderPreviewsForMessage(messageId, { refreshSlotIds: [slotId] });
+            }
+            if (!current()) return false;
+            if (!previews.some(hasPreviewImage) && (await adoptCandidates(slotId, record.tags)).length) {
+                repairedSlots.add(slotId);
+                changed = true;
+            }
+            if (!current()) return false;
+        }
     }
+
+    const edits = [];
+    for (const [order, tag] of parseChatImageTags(source).entries()) {
+        const slotId = `slot-legacy-${hashStableValue([owner, messageId, swipeIndex, source, tag.start])}`;
+        const placement = captureImagePlacement(owner, source, swipeIndex, { ...tag, mode: 'replace' }, order);
+        if ((await adoptCandidates(slotId, tag.tags, placement)).length) {
+            edits.push({ ...tag, slotId, content: `[image:${slotId}]` });
+        }
+        if (!current()) return false;
+    }
+    if (edits.length) {
+        commitChatImagePlacement({ message, swipeIndex, before: source, edits });
+        source = message.mes;
+        entry.source = source;
+        edits.forEach(edit => restoredSlots.add(edit.slotId));
+        changed = true;
+    }
+    // Re-entering a floor also retries attachment persistence, even if its
+    // in-memory text already contains the slot from an earlier failed save.
+    const attached = new Set([...source.matchAll(createDrawImageSlotRegex())].map(match => match[1]));
+    const saveSlots = new Set([...restoredSlots, ...records.filter(record => record.placement && attached.has(record.slotId)).map(record => record.slotId)]);
+    if (saveSlots.size) void saveChatImagePlacements(ctx, [...saveSlots]);
+    if (restoredSlots.size) {
+        await syncRenderedMessageFromState(messageId, { chatId, expectedMessage: message,
+            insertedSlotIds: [...restoredSlots] });
+    }
+    if (repairedSlots.size && current()) await renderPreviewsForMessage(messageId, { refreshSlotIds: [...repairedSlots] });
+    return { changed, complete: current() };
 }

@@ -1,5 +1,5 @@
 import { getContext } from '../../../../../../extensions.js';
-import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
+import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection, updatePreviewRecord } from './gallery-cache.js';
 import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
 import { generatePreparedChatImages } from './prepared-chat-images.js';
 import { getSlotActivity } from './slot-activity.js';
@@ -10,6 +10,7 @@ import { isSceneSlotAlive } from './scene-placement.js';
 import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { DRAW_SLOT_COPY, hasPreviewImage } from './image-record.js';
+import { withDrawActionFeedback } from './draw-action-feedback.js';
 
 const redraws = new Map();
 
@@ -53,7 +54,10 @@ export function redrawImageCard(provider, container) {
             () => undefined,
         );
     }
-    if (getSlotActivity(slotId)) return Promise.resolve();
+    if (getSlotActivity(slotId)) {
+        globalThis.toastr?.info?.(DRAW_SLOT_COPY.slotBusy);
+        return renderPreviewsForMessage(Number(container.dataset.mesid), { refreshSlotIds: [slotId] });
+    }
     const operation = redraw(provider, container).finally(() => redraws.delete(slotId));
     redraws.set(slotId, operation);
     return operation;
@@ -109,7 +113,7 @@ export async function retryFloorFailedImageCards(provider, container) {
     // 同一楼层已有整楼重生在进行：本次点击只是并入同一个操作，结果和错误提示由第一次点击负责，不重复弹提示。
     const joining = redraws.has(floorRedrawKey(container));
     try {
-        const result = await redrawFloorFailedImageCards(provider, container);
+        const result = await withDrawActionFeedback(container, () => redrawFloorFailedImageCards(provider, container));
         if (joining || !result) return;
         if (result.submitted === 0) globalThis.toastr?.info?.('本楼层没有可重新生成的失败图片');
         else if (result.skipped > 0) {
@@ -179,7 +183,10 @@ async function redraw(provider, container) {
     try {
         // A refresh drops runtime activity, not the submitted backend job. Do
         // not turn a journal read failure into permission for a paid resubmit.
-        if ((await getPendingImageJobSlots()).has(slotId)) return;
+        if ((await getPendingImageJobSlots()).has(slotId)) {
+            globalThis.toastr?.info?.(DRAW_SLOT_COPY.slotBusy);
+            return;
+        }
         const record = await readImageCardTarget(target);
         target.assertCurrent();
         const tags = record?.tags ?? container.dataset.tags;
@@ -215,6 +222,13 @@ export async function removeChatImageSlot(container) {
         getSlotActivity(slotId)?.discard?.();
         discardChatImagePlacement(slotId);
         await discardPendingImageSlot(slotId);
+        assertRemovable();
+        // Withdraw reattachment authority before removing the marker. Keep the
+        // paid images until deletion is confirmed, but never resurrect this
+        // explicit removal while the host save is pending or after a restart.
+        for (const record of await getPreviewsBySlot(slotId)) {
+            if (record.placement) await updatePreviewRecord(record.imgId, { placement: null });
+        }
         assertRemovable();
         const change = commitChatImageRemoval({ message, swipeIndex, slotId });
         try {

@@ -115,6 +115,7 @@ import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImag
 import { createImageRequestAttempt, imageHttpFailure } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
+import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
@@ -3542,7 +3543,7 @@ async function saveEditedTags(container) {
 }
 
 async function refreshSingleImage(container) {
-    try { await redrawImageCard("sdwebui", container); }
+    try { await withDrawActionFeedback(container, () => redrawImageCard("sdwebui", container)); }
     catch (error) { console.error(DRAW_SLOT_COPY.redrawFailed, error); globalThis.toastr?.error(error.message); }
 }
 
@@ -3551,7 +3552,9 @@ async function retryFailedImage(container) {
 }
 
 async function saveTagsAndRetry(container) {
-    if (await saveEditedTags(container)) await retryFailedImage(container);
+    await withDrawActionFeedback(container, async () => {
+        if (await saveEditedTags(container)) await retryFailedImage(container);
+    });
 }
 
 async function removePlaceholder(container) {

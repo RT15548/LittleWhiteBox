@@ -56,10 +56,10 @@ export function createChatImageSession({ context, provider, changed, report }) {
             phase: 'preparing', error: null, prepared: null, edited: false,
             get invalid() { return this.edited || revision !== targetRevision; } };
         branch.push(own);
-        changed();
+        changed(message);
         const input = { ctx, message, messageId, sourceText, swipeIndex, placementSource: own,
             tasks: own.candidates.map(candidate => ({ scene: candidate.tags, chars: [], characterPrompts: [],
-                placement: candidate })), onPlacement: changed };
+                placement: candidate })), onPlacement: () => changed(message) };
         try {
             const selectedProvider = provider();
             if (!selectedProvider) throw new Error(DRAW_SLOT_COPY.unavailable);
@@ -76,10 +76,15 @@ export function createChatImageSession({ context, provider, changed, report }) {
         } catch (error) {
             own.phase = 'failed'; own.error = error;
             report(error);
-        } finally { changed(); }
+        } finally { changed(message); }
     }
 
     return {
+        isBusy(message) {
+            const ctx = context();
+            return Boolean(observation && validTarget(ctx, observation, ctx.chat.indexOf(message)))
+                || [...(claims.get(message)?.values() || [])].some(branch => branch.some(own => own.phase === 'preparing'));
+        },
         connect() {
             unsubscribe ??= subscribeChatImagePlacement(change => {
                 if (change.restoreMessage) {

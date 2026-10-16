@@ -1,6 +1,6 @@
 // A preview is also the durable input of an image attempt. Progress is not a
 // record state: only a live operation/backend job may claim to be generating.
-export const PreviewStatus = Object.freeze({ PENDING: 'pending', UNKNOWN: 'unknown', SUCCESS: 'success', FAILED: 'failed' });
+export const PreviewStatus = Object.freeze({ UNGENERATED: 'ungenerated', PENDING: 'pending', UNKNOWN: 'unknown', SUCCESS: 'success', FAILED: 'failed' });
 
 export function hasPreviewImage(record) {
     return record?.status !== PreviewStatus.FAILED && record?.status !== PreviewStatus.PENDING && record?.status !== PreviewStatus.UNKNOWN
@@ -41,6 +41,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     editTargetChanged: '图片版本已变化，草稿已保留，请重新打开编辑后保存。',
     tagSaved: 'TAG 已保存',
     tagSaveFailed: 'TAG 保存失败',
+    attachmentSaveFailed: '聊天尚未保存成功，TAG 和图片已保留在图片管理中；重新打开本楼会接回，不会重新绘图。',
     tagReadFailed: 'TAG 读取失败',
     tagAdoptionFailed: '图片标签接管失败',
     redrawFailed: '图片重绘失败',
@@ -56,6 +57,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     sourceUnresolved: '此图片标签无法定位到聊天原文，未自动绘图。',
     formatReadFailed: '无法确认聊天图片格式已保存。',
     cacheReadFailed: '旧图片缓存读取失败，未重新绘图。',
+    cacheUpgradeBlocked: '旧页面占用了图片缓存，请关闭其他酒馆页面后重新打开聊天以恢复旧图；未重新绘图。',
 });
 
 export const DRAW_SLOT_ERRORS = Object.freeze({

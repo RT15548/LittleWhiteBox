@@ -3,7 +3,7 @@ import { DRAW_SLOT_COPY } from './image-record.js';
 
 const DB_NAME = 'xb_draw_generated_images';
 const DB_STORE = 'images';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 const inflightRequests = new Map();
@@ -67,13 +67,26 @@ function openDatabase() {
     if (databasePromise) return databasePromise;
     databasePromise = new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
+        let blocked = false;
+        request.onblocked = () => {
+            blocked = true;
+            reject(new Error(DRAW_SLOT_COPY.cacheUpgradeBlocked));
+        };
         request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result);
+        request.onsuccess = () => {
+            const database = request.result;
+            if (blocked) { database.close(); return; }
+            database.onversionchange = () => { database.close(); databasePromise = null; };
+            database.onclose = () => { databasePromise = null; };
+            resolve(database);
+        };
         request.onupgradeneeded = (event) => {
+            if (blocked) { request.transaction.abort(); return; }
             const database = event.target.result;
-            if (!database.objectStoreNames.contains(DB_STORE)) {
-                database.createObjectStore(DB_STORE, { keyPath: 'cacheKey' });
-            }
+            const store = database.objectStoreNames.contains(DB_STORE)
+                ? request.transaction.objectStore(DB_STORE)
+                : database.createObjectStore(DB_STORE, { keyPath: 'cacheKey' });
+            if (!store.indexNames.contains('prompt')) store.createIndex('prompt', 'prompt');
         };
     }).catch((error) => {
         databasePromise = null;
@@ -108,6 +121,26 @@ async function readCache(descriptor, strict = false) {
     }
 }
 
+// Upgrade/adoption reads are deliberately different from the live generation
+// cache.  Old records were keyed by a previous fingerprint and may be older
+// than the short-lived request TTL, but they are still the user's already-paid
+// image.  Read only by the stable facts the old schema actually persisted and
+// never fall through to generation.
+async function readHistoricalCandidates(prompt) {
+    const database = await openDatabase();
+    return await new Promise((resolve, reject) => {
+        const transaction = database.transaction(DB_STORE, 'readonly');
+        const request = transaction.objectStore(DB_STORE).index('prompt').getAll(prompt);
+        request.onerror = () => reject(request.error);
+        // v1 stored no namespace or generation settings. Preserve every match
+        // as a version; the current provider/preset cannot identify an old image.
+        transaction.oncomplete = () => resolve(request.result.filter(record => record.base64
+            && (!record.namespace || record.namespace === 'fourth-wall'))
+            .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0)));
+        transaction.onabort = () => reject(transaction.error || new Error(DRAW_SLOT_COPY.cacheReadFailed));
+    });
+}
+
 async function writeCache(descriptor, base64) {
     if (!descriptor.cacheEnabled || !base64 || typeof indexedDB === 'undefined') return;
     try {
@@ -121,6 +154,7 @@ async function writeCache(descriptor, base64) {
                 cacheKey: descriptor.cacheKey,
                 provider: descriptor.provider,
                 prompt: descriptor.prompt,
+                namespace: String(descriptor.payload.cacheNamespace || 'shared'),
                 base64,
                 timestamp: Date.now(),
             });
@@ -245,10 +279,8 @@ export async function checkGeneratedImageCache(input = {}) {
 // Upgrade-only reader. It must never conflate a failed read with a cache miss,
 // and must never call the generation branch of this runtime.
 export async function readGeneratedImageForAdoption(input) {
-    const descriptor = buildDescriptor(input);
     if (typeof indexedDB === 'undefined') throw new Error(DRAW_SLOT_COPY.cacheReadFailed);
-    const base64 = await readCache(descriptor, true);
-    return { base64, promptData: descriptor.generationPlan?.fingerprint?.promptData || {} };
+    return readHistoricalCandidates(String(input?.prompt || '').trim());
 }
 
 export function clearSharedImageRequests() {
@@ -269,7 +301,11 @@ export async function clearExpiredGeneratedImageCache() {
             request.onsuccess = (event) => {
                 const cursor = event.target.result;
                 if (!cursor) return;
-                if (Number(cursor.value?.timestamp || 0) < cutoff) cursor.delete();
+                // v1 rows can be the only copy referenced by an unopened chat.
+                // Request-cache expiry is not authority to delete those images.
+                const record = cursor.value;
+                if (record.namespace && record.namespace !== 'fourth-wall'
+                    && Number(record.timestamp || 0) < cutoff) cursor.delete();
                 cursor.continue();
             };
             request.onerror = () => reject(request.error);

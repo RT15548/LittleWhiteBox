@@ -1,14 +1,5 @@
 import { renderPreviewsForMessage } from '../../../../modules/draw/shared/draw-common.js';
 import { mountChatMessageImages } from '../../../../modules/draw/shared/chat-message-images.js';
-import { configureChatImageTagMigration } from '../../../../modules/draw/shared/chat-image-tag-migration.js';
-import { prepareTauriTavernDrawBranches } from './chat-branches.js';
-
-export function configureTauriTavernDraw(environment) {
-    configureChatImageTagMigration({
-        prepareBranches: environment.isTauriTavern ? prepareTauriTavernDrawBranches : undefined,
-    });
-}
-
 export function mountTauriTavernDrawPanel(element, mesid) {
     if (element.getAttribute('is_user') === 'true') return;
     return window.xiaobaixDraw?.mountMessagePanel(element, mesid);

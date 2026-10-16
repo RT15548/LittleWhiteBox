@@ -1,3 +1,5 @@
+import { getChatIdentity } from './chat-identity.js';
+
 export const CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS = 15_000;
 
 export class ConfirmableChatSaveUncertainError extends Error {
@@ -48,6 +50,7 @@ export function createConfirmableChatTarget(ctx) {
         return Object.freeze({
             kind: 'group',
             chatId,
+            identity: getChatIdentity(ctx),
             endpoint: '/api/chats/group/get',
             body: Object.freeze({ id: chatId }),
         });
@@ -64,6 +67,7 @@ export function createConfirmableChatTarget(ctx) {
     return Object.freeze({
         kind: 'character',
         chatId,
+        identity: getChatIdentity(ctx),
         endpoint: '/api/chats/get',
         body: Object.freeze({
             ch_name: String(character.name || ''),
@@ -115,7 +119,7 @@ async function saveWithinTimeout(ctx, timeoutMs) {
 }
 
 function chatSaveLockName(target) {
-    return `littlewhitebox:chat-save:${target.kind}:${target.chatId}`;
+    return `littlewhitebox:chat-save:${target.identity}`;
 }
 
 async function withLocalSaveLock(name, task) {
@@ -153,6 +157,7 @@ export async function withConfirmableChatMutation(ctx, task) {
     const identity = {
         kind: isPresent(ctx?.groupId) ? 'group' : 'character',
         chatId: String(ctx.chatId),
+        identity: getChatIdentity(ctx),
     };
     return withLocalSaveLock(`${chatSaveLockName(identity)}:memory`, () => task(identity));
 }

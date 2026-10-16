@@ -1,7 +1,7 @@
 import { getCardPreview, storePreview, updatePreviewRecord, setSlotSelection } from './gallery-cache.js';
 import { materializeDrawSavedPreview, syncDrawSavedFromPreview } from './draw-common.js';
 import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
-import { createImageIdentifiers } from './prepared-chat-images.js';
+import { createImageIdentifiers } from './prepared-image-placement.js';
 import { DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, PreviewStatus } from './image-record.js';
 
 export async function readCardTagEditor(container) {

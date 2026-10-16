@@ -2,17 +2,18 @@ import { getContext } from '../../../../../../extensions.js';
 import { xbLog } from '../../../core/debug-core.js';
 import { createModuleEvents, event_types } from '../../../core/event-manager.js';
 import { parseChatImageTags, findRenderedChatImageTags } from './chat-message-image-markup.js';
-import { ensureChatImageTagFormat, markFreshImageTagChat } from './chat-image-tag-migration.js';
+import { adoptChatImageMessage, releaseChatImageAdmission, withdrawEditedImagePlacements } from './chat-image-tag-migration.js';
 import { createChatImageSession } from './chat-image-session.js';
-import { buildPendingImageHtml, ensureDrawImageStyles, isMessageBeingEdited, renderPreviewsForMessage } from './draw-common.js';
+import { buildPendingImageHtml, ensureDrawImageStyles, isMessageBeingEdited } from './draw-common.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
 import { subscribeChatImagePlacement } from './chat-image-placement.js';
+import { withDrawActionFeedback } from './draw-action-feedback.js';
+import { drawMessageViewport } from './draw-message-viewport.js';
 
 const events = createModuleEvents('chatMessageImages');
 const leases = new Map();
 let initialized = false;
-let queued = false;
-let observer;
+let unsubscribeViews;
 let unsubscribePlacement;
 
 function available() { return initialized && window.xiaobaixDraw?.getStatus?.().ready === true; }
@@ -32,14 +33,11 @@ function releaseProvisional(lease) {
     lease.nodes.clear();
 }
 
-function requestRefresh() {
-    if (!initialized || queued) return;
-    queued = true;
-    queueMicrotask(() => {
-        queued = false;
-        if (!initialized) return;
-        try { processAllMessages(); } catch (error) { report(error); }
-    });
+function requestRefresh(message) {
+    if (!initialized) return;
+    const ctx = getContext();
+    const id = message ? ctx.chat?.indexOf(message) : (ctx.chat?.length ?? 0) - 1;
+    if (id >= 0) drawMessageViewport.invalidate(document.querySelector(`.mes[mesid="${id}"] .mes_text`));
 }
 
 function createPendingCard(document, options) {
@@ -76,7 +74,7 @@ function updateTagCard(card, entry, input, view) {
         button.dataset.xbDrawTagAction = ''; button.textContent = view.action;
         button.addEventListener('click', event => {
             event.stopPropagation();
-            void session.retry(entry.input);
+            void withDrawActionFeedback(button, () => session.retry(entry.input)).catch(report);
         });
         actions.append(button); card.append(actions);
     }
@@ -117,10 +115,6 @@ function enhance(lease) {
         }
         updateTagCard(card, entry, { ctx, message, messageId: lease.messageId, source, swipeIndex, candidate }, view);
     }
-    // A DOM-only host repaint may expose existing slots without a message event.
-    // This is a read-only projection; the content lease cannot rebuild filtered
-    // host text, prepare input, or submit a drawing task.
-    void renderPreviewsForMessage(lease.messageId, { content: lease.content }).catch(report);
 }
 
 // Transfer the already visible tag to the committed slot in the same synchronous
@@ -128,10 +122,13 @@ function enhance(lease) {
 function adoptPlacedCards(change) {
     const ctx = getContext();
     if (!available() || !change.edits || change.message?.mes !== change.after) return;
-    for (const lease of leases.values()) {
+    const id = ctx.chat?.indexOf(change.message) ?? -1;
+    const content = document.querySelector(`.mes[mesid="${id}"] .mes_text`);
+    const lease = leases.get(content);
+    if (lease && drawMessageViewport.isActive(content)) {
         const messageId = currentMessageId(lease);
         if (!lease.content.isConnected || ctx.chat?.[messageId] !== change.message
-            || (change.message.swipe_id ?? 0) !== change.swipeIndex || isMessageBeingEdited(messageId)) continue;
+            || (change.message.swipe_id ?? 0) !== change.swipeIndex || isMessageBeingEdited(messageId)) return;
         const { matched } = findRenderedChatImageTags(lease.content, parseChatImageTags(change.before), lease.nodes);
         for (const match of matched.reverse()) {
             const edit = change.edits.find(item => item.start === match.candidate.start && item.end === match.candidate.end);
@@ -151,65 +148,67 @@ function adoptPlacedCards(change) {
             }
         }
     }
-    requestRefresh();
+    requestRefresh(change.message);
 }
 
 // A content lease owns display subscriptions only. Releasing it never cancels
 // the floor's job, and mounting it never submits an image request.
 export function mountChatMessageImages(content, messageId = Number(content.closest('.mes')?.getAttribute('mesid'))) {
-    leases.get(content)?.release();
-    const lease = { content, messageId, nodes: new Map() };
-    lease.observer = new MutationObserver(requestRefresh);
-    lease.release = () => {
-        lease.observer.disconnect();
-        releaseProvisional(lease);
-        if (leases.get(content) === lease) leases.delete(content);
-    };
-    leases.set(content, lease);
-    requestRefresh();
-    return lease.release;
+    return drawMessageViewport.mount(content, messageId);
 }
 
-function processAllMessages() {
-    observer?.disconnect();
-    for (const lease of leases.values()) lease.observer.disconnect();
-    try {
-        for (const [content, lease] of leases) if (!content.isConnected || !available()) lease.release();
-        if (!available()) return;
-        ensureDrawImageStyles();
-        for (const content of document.querySelectorAll('#chat .mes .mes_text')) {
-            if (!leases.has(content)) mountChatMessageImages(content);
-        }
-        for (const lease of leases.values()) enhance(lease);
-    } finally {
-        // Disconnect around our own DOM writes to avoid an observer/repaint loop.
-        for (const lease of leases.values()) lease.observer.observe(lease.content, { subtree: true, childList: true, characterData: true });
-        const chat = document.querySelector('#chat');
-        if (chat) observer?.observe(chat, { childList: true, subtree: true, characterData: true });
+function releaseContent(content) {
+    const lease = leases.get(content);
+    if (lease) {
+        releaseChatImageAdmission(lease.message);
+        drawMessageViewport.write(() => releaseProvisional(lease));
     }
+    leases.delete(content);
+}
+
+async function refreshContent(content, messageId) {
+    if (!available()) { releaseContent(content); return; }
+    let lease = leases.get(content);
+    if (!lease) { lease = { content, messageId, nodes: new Map() }; leases.set(content, lease); }
+    ensureDrawImageStyles();
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    lease.message = message;
+    try {
+        // Only admitted, settled messages enter the compatibility boundary.
+        // Streaming keeps its native observation and does no history/cache I/O.
+        if (message && !session.isBusy(message)) {
+            const changed = await adoptChatImageMessage(ctx, messageId);
+            if (changed) drawMessageViewport.invalidate(content);
+        }
+    }
+    catch (error) { report(error); }
+    // A failed history read is reported, but must not remove the user's
+    // explicit Generate action or hold it behind a database upgrade.
+    if (!available() || leases.get(content) !== lease || !drawMessageViewport.isActive(content)) return;
+    drawMessageViewport.write(() => enhance(lease));
 }
 
 async function loadChat() {
     session.targetChanged();
-    for (const lease of leases.values()) lease.release();
-    const ctx = getContext();
-    // History normalization is a load boundary, never a renderer or received hook.
-    if (enabled() && ctx.chatId && ctx.chatMetadata) {
-        try { await ensureChatImageTagFormat(ctx); } catch (error) { report(error); }
-    }
-    requestRefresh();
+    for (const content of leases.keys()) releaseContent(content);
+    // Legacy adoption is viewport-scoped in refreshContent. Opening a chat must
+    // never synchronously scan or rewrite every historical floor.
+    if (!initialized) return;
+    drawMessageViewport.refresh();
+    drawMessageViewport.invalidateAll();
 }
 
 export function initChatMessageImages() {
-    if (initialized) { requestRefresh(); return true; }
+    if (initialized) { refreshChatMessageImages(); return true; }
     initialized = true;
     session.connect();
     unsubscribePlacement = subscribeChatImagePlacement(change => {
-        try { adoptPlacedCards(change); } catch (error) { report(error); }
+        try { drawMessageViewport.write(() => adoptPlacedCards(change)); } catch (error) { report(error); }
     });
-    observer = new MutationObserver(requestRefresh);
-    events.on(event_types.CHAT_CREATED, () => { markFreshImageTagChat(getContext()); requestRefresh(); });
-    events.on(event_types.GROUP_CHAT_CREATED, () => { markFreshImageTagChat(getContext()); requestRefresh(); });
+    unsubscribeViews = drawMessageViewport.subscribe({ refresh: refreshContent, release: releaseContent });
+    events.on(event_types.CHAT_CREATED, () => requestRefresh());
+    events.on(event_types.GROUP_CHAT_CREATED, () => requestRefresh());
     events.on(event_types.CHAT_CHANGED, loadChat);
     events.on(event_types.GENERATION_STARTED, (type, _options, dryRun) => session.start(type, dryRun));
     events.on(event_types.GENERATION_AFTER_COMMANDS, (...args) => { if (enabled()) session.observe(...args); });
@@ -217,24 +216,29 @@ export function initChatMessageImages() {
     events.on(event_types.GENERATION_STOPPED, () => session.stop());
     events.on(event_types.MESSAGE_DELETED, () => session.deleted());
     events.on(event_types.MESSAGE_RECEIVED, (index, type) => enabled() ? session.received(index, type) : session.stop());
-    events.on(event_types.MESSAGE_EDITED, index => session.edited(index));
+    events.on(event_types.MESSAGE_EDITED, async index => {
+        session.edited(index);
+        try { await withdrawEditedImagePlacements(getContext(), index); }
+        catch (error) { report(error); }
+    });
     events.on(event_types.MESSAGE_SWIPED, () => session.targetChanged());
-    for (const event of [event_types.USER_MESSAGE_RENDERED, event_types.CHARACTER_MESSAGE_RENDERED,
-        event_types.MESSAGE_UPDATED, event_types.MORE_MESSAGES_LOADED]) events.on(event, requestRefresh);
+    events.on(event_types.MORE_MESSAGES_LOADED, () => drawMessageViewport.refresh());
     void loadChat();
     return true;
 }
 
 export function refreshChatMessageImages() {
     if (!initialized) return false;
-    requestRefresh(); return true;
+    drawMessageViewport.refresh();
+    drawMessageViewport.invalidateAll();
+    return true;
 }
 
 export function cleanupChatMessageImages() {
     if (!initialized) return false;
     initialized = false; session.disconnect();
     unsubscribePlacement?.(); unsubscribePlacement = null;
-    events.cleanup(); observer?.disconnect(); observer = null;
-    for (const lease of leases.values()) lease.release();
+    events.cleanup();
+    unsubscribeViews?.(); unsubscribeViews = null;
     return true;
 }

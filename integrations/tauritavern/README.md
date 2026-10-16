@@ -69,13 +69,11 @@ the integration owns no persistent data. Do not leave old-path re-export shims.
 ## Validation
 
 ```sh
-npm run test:tauritavern-chat-surface
-node --test modules/story-summary/tests/chat-toggle.test.js modules/story-summary/tests/hide-state.test.js
+npm test
 npm run lint:imports
 npm run test:story-summary:runtime
 npm run test:story-summary:bundle
 npm run build:assistant:manifest
-node --test modules/assistant/tests/file-manifest.test.js
 ```
 
 Moving files requires rebuilding the assistant file manifest. The TT portable

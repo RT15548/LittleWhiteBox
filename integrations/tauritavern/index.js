@@ -14,7 +14,7 @@ import { configureTauriTavernIframeRenderer, prepareTauriTavernIframeRuntimes } 
 import { createTauriTavernMessageDecorator } from './message-decorators.js';
 import { registerTauriTavernIntegration } from './registration.js';
 import { lockTauriTavernChatSurfaceSettings } from './settings-ui.js';
-import { configureTauriTavernDraw, createTauriTavernDrawDecorator } from './features/draw/index.js';
+import { createTauriTavernDrawDecorator } from './features/draw/index.js';
 import { updateMessageBlock } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
 
@@ -53,7 +53,6 @@ export function configureTauriTavernRuntime() {
     configureVariablesPanelRuntime({ ownsMessageButtons });
     configureTauriTavernStorySummary(environment);
     configureTauriTavernIframeRenderer(environment);
-    configureTauriTavernDraw(environment);
     configureStoryOutlineRuntime({ ownsMessageButtons });
     configureButtonCollapseRuntime({ ownsMessageButtons });
     configureTtsRuntime({ ownsMessageDom: ownsMessageButtons, onUiChanged: syncTauriTavernEnabledState });
