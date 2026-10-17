@@ -103,9 +103,17 @@ function install(owner, snapshot) {
 
 /** The sole durable write for summary JSON, history, anchors and extraction status. */
 export async function commitSummaryMemory(chatId, next, { previous = readSummaryMemory(), invalidate, validate, resolvesSourceInvalidity = false, maintenanceWrite = false } = {}) {
-    if (getMemoryCommitState() === 'unconfirmed') await waitForMemoryCommit();
-    assertMemoryWritable(chatId);
+    // Atomic acquisition: the stretch from this check to transactions.set below stays
+    // synchronous, so exactly one writer holds the transaction. A loser that wakes to
+    // an unconfirmed save keeps waiting here instead of being rejected. No await may be
+    // introduced in that stretch (prep is sync by design; validate callbacks are sync).
     const owner = extension();
+    for (;;) {
+        const existing = transactions.get(owner);
+        if (existing?.reconfirm) { await waitForMemoryCommit(); continue; }
+        assertMemoryWritable(chatId);
+        break;
+    }
     const context = getContext();
     const rawPrevious = structuredClone(Object.fromEntries(FIELDS.map(key => [key, owner[key]])));
     if (typeof context.saveMetadata !== 'function') throw new MetadataConfirmationError('summary_metadata_save_unavailable');
