@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import { createSourceAssetPlugin } from './scripts/vite-source-assets.mjs';
 
 const xiaobaiOsRoot = path.resolve('modules/xiaobai-os');
 
@@ -28,18 +29,6 @@ function createEslintDisableBannerPlugin() {
                     item.code = `/* eslint-disable */\n${item.code}`;
                 }
             });
-        },
-    };
-}
-
-function createMapAssetCreditsPlugin() {
-    return {
-        name: 'xiaobai-os-map-asset-credits',
-        generateBundle() {
-            for (const file of ['SOURCES.md', 'LICENSE-furniture.txt', 'LICENSE-nature.txt', 'LICENSE-car.txt', 'LICENSE-survival.txt']) {
-                this.emitFile({ type: 'asset', fileName: `map-assets/${file}`,
-                    source: fs.readFileSync(path.join(xiaobaiOsRoot, 'apps/map/ui/three/assets/kenney', file)) });
-            }
         },
     };
 }
@@ -99,7 +88,7 @@ export default defineConfig(({ mode }) => {
         plugins: [
             ...(buildAgent ? [createAgentCompatibilityPlugin()] : []),
             ...(buildHost ? [createHostExternalPlugin()] : []),
-            ...(buildShell ? [vue(), createMapAssetCreditsPlugin()] : []),
+            ...(buildShell ? [vue(), createSourceAssetPlugin({ root: xiaobaiOsRoot, outputDirectory })] : []),
             createEslintDisableBannerPlugin(),
         ],
         define: {
@@ -108,8 +97,8 @@ export default defineConfig(({ mode }) => {
         },
         experimental: {
             renderBuiltUrl(filename, { hostType }) {
-                // Map models and the atlas tile worker live beside the lazy UI chunk, not at SillyTavern's web root.
-                if (hostType === 'js' && (filename.startsWith('map-assets/') || filename.startsWith('ember-assets/') || filename.startsWith('island-assets/') || /\.worker-[\w-]+\.js$/.test(filename))) {
+                // The atlas tile worker lives beside the lazy UI chunk, not at SillyTavern's web root.
+                if (hostType === 'js' && /\.worker-[\w-]+\.js$/.test(filename)) {
                     return { runtime: `new URL(${JSON.stringify(filename)}, import.meta.url).href` };
                 }
             },
@@ -140,10 +129,7 @@ export default defineConfig(({ mode }) => {
                 output: {
                     manualChunks: undefined,
                     chunkFileNames: 'xiaobai-os-[name]-[hash].js',
-                    assetFileNames: asset => asset.originalFileNames.some(name => name.replace(/\\/g, '/').includes('/game/island/assets/'))
-                        ? 'island-assets/[name]-[hash][extname]' : asset.originalFileNames.some(name => name.replace(/\\/g, '/').includes('/game/expedition/assets/'))
-                            ? 'ember-assets/[name]-[hash][extname]' : asset.names.some(name => name.endsWith('.glb'))
-                                ? 'map-assets/[name]-[hash][extname]' : '[name][extname]',
+                    assetFileNames: '[name][extname]',
                     paths: buildHost
                         ? (id) => {
                             if (!path.isAbsolute(id)) return id;

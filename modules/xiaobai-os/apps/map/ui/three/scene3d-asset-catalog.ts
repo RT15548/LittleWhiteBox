@@ -1,4 +1,4 @@
-// Local, static assets only. URLs are emitted as separate files by Vite.
+// Local, static assets only. Production bundles reference these same files without copying them.
 import tableUrl from './assets/kenney/table.glb?url&no-inline';
 import chairUrl from './assets/kenney/chairRounded.glb?url&no-inline';
 import bedUrl from './assets/kenney/bedSingle.glb?url&no-inline';
