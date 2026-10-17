@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { $ as te, D as W, G as J, M as Z, P as ne, S as m, T as le, U as Q, V as o, X as O, at as re, b as V, d as oe, f as ie, ft as y, g as se, h as j, lt as t, ot as P, r as ue, rt as h, ut as Y, v as L, x as k, y as a } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { t as de } from "./xiaobai-os-identity-DpYJdX5Y.js";
-import { n as ve, r as K, t as ee } from "./xiaobai-os-room-catalog-Bp0rzKxc.js";
+import { n as ve, r as K, t as ee } from "./xiaobai-os-room-catalog-2OUrvL0a.js";
 function ae(i) {
   return i && typeof i == "object" && "code" in i ? String(i.code) : "";
 }

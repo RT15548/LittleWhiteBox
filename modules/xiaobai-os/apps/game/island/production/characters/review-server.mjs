@@ -12,13 +12,18 @@ const directory = dirname(fileURLToPath(import.meta.url));
 const asset = resolve(values.asset);
 const vendor = resolve(dirname(fileURLToPath(import.meta.resolve('three'))), '..');
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-    '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.glb': 'model/gltf-binary' };
+    '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.glb': 'model/gltf-binary',
+    '.png': 'image/png', '.jpg': 'image/jpeg' };
 const files = new Map([['/', resolve(directory, 'review.html')], ['/review.js', resolve(directory, 'review.js')],
     ['/review.css', resolve(directory, 'review.css')], ['/review-copy.mjs', resolve(directory, 'review-copy.mjs')], ['/model.glb', asset]]);
 const server = createServer(async (request, response) => {
     try {
         const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
         let path = files.get(pathname);
+        // Only the published, content-addressed sibling textures; never arbitrary asset-directory files.
+        if (/^\/shared\/[a-f0-9]{64}\.(png|jpg)$/.test(pathname)) {
+            path = resolve(dirname(asset), pathname.slice(1));
+        }
         if (pathname.startsWith('/three/')) {
             const candidate = resolve(vendor, pathname.slice('/three/'.length));
             if (candidate.startsWith(vendor + sep)) path = candidate;
@@ -30,4 +35,4 @@ const server = createServer(async (request, response) => {
         response.writeHead(error.code === 'ENOENT' ? 404 : 500).end(error.message);
     }
 });
-server.listen(Number(values.port), '127.0.0.1', () => console.info(`http://127.0.0.1:${values.port}/`));
+server.listen(Number(values.port), '127.0.0.1', () => console.info(`http://127.0.0.1:${server.address().port}/`));

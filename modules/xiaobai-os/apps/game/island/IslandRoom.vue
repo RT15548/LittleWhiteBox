@@ -20,6 +20,7 @@ import Conversation from './presentation/Conversation.vue';
 import ChatDock from './presentation/ChatDock.vue';
 import FeedbackToasts from './presentation/FeedbackToasts.vue';
 import RoomFeedback from './presentation/RoomFeedback.vue';
+import GmFailure from './presentation/GmFailure.vue';
 import IslandIcon from './presentation/IslandIcon.vue';
 import People from './presentation/People.vue';
 import Journal from './presentation/Journal.vue';
@@ -175,9 +176,10 @@ function useResource() {
         </template>
         <KeepAlive :key="view?.journey ?? undefined" :max="1">
             <Conversation v-if="conversationVisible" :view="view!" :client="client" :disabled="disabled" @act="act" @accepted="actionAccepted" @person="selectPerson" @journal="panel = 'journal'" @close="closeConversation">
-                <RoomFeedback :client="client" :disabled="disabled" />
+                <GmFailure v-if="client.gmFailure.value" :error="client.gmFailure.value" :busy="busy" :disabled="disabled" @retry="client.think()" @settings="client.settings()" @dismiss="client.dismissGmFailure()" />
+                <RoomFeedback :client="client" />
             </Conversation>
         </KeepAlive>
-        <RoomFeedback v-if="!conversationVisible" :client="client" :disabled="disabled" />
+        <RoomFeedback v-if="!conversationVisible" :client="client" />
     </section>
 </template>

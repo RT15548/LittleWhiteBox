@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { REVIEW_COPY as c } from './review-copy.mjs';
 
@@ -69,7 +70,11 @@ function group(label, options, selected, run) {
     return container;
 }
 try {
-    const gltf = await new GLTFLoader().loadAsync('/model.glb');
+    const manager = new T.LoadingManager();
+    let imageError;
+    manager.onError = url => { imageError = new Error(`Character resource failed: ${url}`); };
+    const gltf = await new GLTFLoader(manager).setMeshoptDecoder(MeshoptDecoder).loadAsync('/model.glb');
+    if (imageError) throw imageError;
     gltf.scene.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; obj.frustumCulled = false; } });
     scene.add(gltf.scene);
     mixer = new T.AnimationMixer(gltf.scene);

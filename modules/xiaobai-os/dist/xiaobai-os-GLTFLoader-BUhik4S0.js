@@ -1,7 +1,7 @@
 /* eslint-disable */
-import { $ as pe, A as me, C as oe, Ct as ge, E as j, F as Te, G as Re, Gt as Q, H as xe, I as ae, It as Ee, J as D, K as N, M as Ae, Mt as _e, N as ve, Nt as Le, P as Me, Q as G, R as Se, Rt as J, Tt as H, U as ye, Ut as ce, V as Ne, W as we, Wt as O, X as B, Z as be, a as Ie, at as Oe, c as V, ct as Z, dt as Ce, et as k, f as Fe, gt as Pe, ht as ke, it as De, j as He, jt as Ge, k as Ue, l as Ke, lt as le, m as $, mt as je, nt as L, o as Be, ot as Ve, p as b, pt as ze, q as Xe, r as qe, rt as ue, st as We, ut as Ye, vt as he, y as Qe, yt as ee, z as Je, zt as Ze } from "./xiaobai-os-three.module-CEf4RC2U.js";
-import { n as te } from "./xiaobai-os-BufferGeometryUtils-Dxy-eeb2.js";
-var Pt = class extends Xe {
+import { $ as G, A as pe, Bt as me, C as oe, E as B, Et as H, F as ge, G as Te, Gt as O, H as Re, I as ae, J as D, K as N, Kt as Q, Lt as xe, M as Ee, Mt as Ae, N as _e, Nt as ve, P as Le, Pt as Me, Q as Se, R as ye, U as Ne, V as we, W as be, Wt as ce, Z as j, _t as Ie, a as Oe, at as Ce, bt as J, c as V, ct as Fe, dt as Pe, et as ke, f as De, ft as He, gt as Ge, ht as Ue, it as le, j as Ke, k as Be, l as je, lt as Z, m as $, mt as Ve, o as ze, ot as Xe, p as b, q as qe, r as We, rt as L, st as Ye, tt as k, ut as ue, wt as Qe, y as Je, yt as he, z as Ze, zt as ee } from "./xiaobai-os-three.module-DZLCEE7H.js";
+import { n as te } from "./xiaobai-os-BufferGeometryUtils-BVwpfAe2.js";
+var Pt = class extends qe {
   constructor(t) {
     super(t), this.dracoLoader = null, this.ktx2Loader = null, this.meshoptDecoder = null, this.pluginCallbacks = [], this.register(function(e) {
       return new nt(e);
@@ -200,13 +200,13 @@ var m = {
     const c = n.range !== void 0 ? n.range : 0;
     switch (n.type) {
       case "directional":
-        o = new Qe(a), o.target.position.set(0, 0, -1), o.add(o.target);
+        o = new Je(a), o.target.position.set(0, 0, -1), o.add(o.target);
         break;
       case "point":
-        o = new ze(a), o.distance = c;
+        o = new Ve(a), o.distance = c;
         break;
       case "spot":
-        o = new Ee(a), o.distance = c, n.spot = n.spot || {}, n.spot.innerConeAngle = n.spot.innerConeAngle !== void 0 ? n.spot.innerConeAngle : 0, n.spot.outerConeAngle = n.spot.outerConeAngle !== void 0 ? n.spot.outerConeAngle : Math.PI / 4, o.angle = n.spot.outerConeAngle, o.penumbra = 1 - n.spot.innerConeAngle / n.spot.outerConeAngle, o.target.position.set(0, 0, -1), o.add(o.target);
+        o = new xe(a), o.distance = c, n.spot = n.spot || {}, n.spot.innerConeAngle = n.spot.innerConeAngle !== void 0 ? n.spot.innerConeAngle : 0, n.spot.outerConeAngle = n.spot.outerConeAngle !== void 0 ? n.spot.outerConeAngle : Math.PI / 4, o.angle = n.spot.outerConeAngle, o.penumbra = 1 - n.spot.innerConeAngle / n.spot.outerConeAngle, o.target.position.set(0, 0, -1), o.add(o.target);
         break;
       default:
         throw new Error("THREE.GLTFLoader: Unexpected light type: " + n.type);
@@ -496,14 +496,14 @@ var m = {
     return n.length < 1 ? null : (n.push(this.parser.createNodeMesh(t)), Promise.all(n).then((a) => {
       const c = a.pop(), u = c.isGroup ? c.children : [c], l = a[0].count, h = [];
       for (const f of u) {
-        const p = new G(), T = new O(), d = new he(), g = new O(1, 1, 1), x = new He(f.geometry, f.material, l);
+        const p = new G(), T = new O(), d = new he(), g = new O(1, 1, 1), x = new Ke(f.geometry, f.material, l);
         for (let R = 0; R < l; R++)
           o.TRANSLATION && T.fromBufferAttribute(o.TRANSLATION, R), o.ROTATION && d.fromBufferAttribute(o.ROTATION, R), o.SCALE && g.fromBufferAttribute(o.SCALE, R), x.setMatrixAt(R, p.compose(T, d, g));
         for (const R in o) if (R === "_COLOR_0") {
           const E = o[R];
-          x.instanceColor = new me(E.array, E.itemSize, E.normalized);
+          x.instanceColor = new pe(E.array, E.itemSize, E.normalized);
         } else R !== "TRANSLATION" && R !== "ROTATION" && R !== "SCALE" && f.geometry.setAttribute(R, o[R]);
-        le.prototype.copy.call(x, f), this.parser.assignFinalMaterial(x), h.push(x);
+        ue.prototype.copy.call(x, f), this.parser.assignFinalMaterial(x), h.push(x);
       }
       return c.isGroup ? (c.clear(), c.add(...h), c) : h[0];
     }));
@@ -579,7 +579,7 @@ var m = {
   constructor() {
     this.name = m.KHR_MESH_QUANTIZATION;
   }
-}, de = class extends Me {
+}, de = class extends Le {
   constructor(t, e, i, s) {
     super(t, e, i, s);
   }
@@ -628,16 +628,16 @@ var m = {
   5125: Uint32Array,
   5126: Float32Array
 }, ne = {
-  9728: Oe,
-  9729: ye,
-  9984: We,
-  9985: Re,
-  9986: Ve,
-  9987: we
+  9728: Xe,
+  9729: Ne,
+  9984: Fe,
+  9985: Te,
+  9986: Ye,
+  9987: be
 }, re = {
-  33071: Fe,
-  33648: De,
-  10497: ge
+  33071: De,
+  33648: Ce,
+  10497: Qe
 }, z = {
   SCALAR: 1,
   VEC2: 2,
@@ -665,14 +665,14 @@ var m = {
 }, Lt = {
   CUBICSPLINE: void 0,
   LINEAR: ae,
-  STEP: Te
+  STEP: ge
 }, X = {
   OPAQUE: "OPAQUE",
   MASK: "MASK",
   BLEND: "BLEND"
 };
 function Mt(t) {
-  return t.DefaultMaterial === void 0 && (t.DefaultMaterial = new ue({
+  return t.DefaultMaterial === void 0 && (t.DefaultMaterial = new le({
     color: 16777215,
     emissive: 0,
     metalness: 1,
@@ -778,7 +778,7 @@ var bt = new G(), It = class {
       const a = o.match(/Version\/(\d+)/);
       s = i && a ? parseInt(a[1], 10) : -1, r = o.indexOf("Firefox") > -1, n = r ? o.match(/Firefox\/([0-9]+)\./)[1] : -1;
     }
-    typeof createImageBitmap > "u" || i && s < 17 || r && n < 98 ? this.textureLoader = new Ze(this.options.manager) : this.textureLoader = new Ue(this.options.manager), this.textureLoader.setCrossOrigin(this.options.crossOrigin), this.textureLoader.setRequestHeader(this.options.requestHeader), this.fileLoader = new oe(this.options.manager), this.fileLoader.setResponseType("arraybuffer"), this.options.crossOrigin === "use-credentials" && this.fileLoader.setWithCredentials(!0);
+    typeof createImageBitmap > "u" || i && s < 17 || r && n < 98 ? this.textureLoader = new me(this.options.manager) : this.textureLoader = new Be(this.options.manager), this.textureLoader.setCrossOrigin(this.options.crossOrigin), this.textureLoader.setRequestHeader(this.options.requestHeader), this.fileLoader = new oe(this.options.manager), this.fileLoader.setResponseType("arraybuffer"), this.options.crossOrigin === "use-credentials" && this.fileLoader.setWithCredentials(!0);
   }
   setExtensions(t) {
     this.extensions = t;
@@ -959,7 +959,7 @@ var bt = new G(), It = class {
       if (f && f !== l) {
         const g = Math.floor(h / f), x = "InterleavedBuffer:" + s.bufferView + ":" + s.componentType + ":" + g + ":" + s.count;
         let R = e.cache.get(x);
-        R || (T = new c(o, g * f, s.count * f / u), R = new Ae(T, f / u), e.cache.add(x, R)), d = new ve(R, a, h % f / u, p);
+        R || (T = new c(o, g * f, s.count * f / u), R = new Ee(T, f / u), e.cache.add(x, R)), d = new _e(R, a, h % f / u, p);
       } else
         o === null ? T = new c(s.count * a) : T = new c(o, h, s.count * a), d = new V(T, a, p);
       if (s.sparse !== void 0) {
@@ -1010,7 +1010,7 @@ var bt = new G(), It = class {
       return new Promise(function(h, f) {
         let p = h;
         e.isImageBitmapLoader === !0 && (p = function(T) {
-          const d = new J(T);
+          const d = new ee(T);
           d.needsUpdate = !0, h(d);
         }), e.load(D.resolveURL(l, r.path), p, void 0, f);
       });
@@ -1042,11 +1042,11 @@ var bt = new G(), It = class {
     if (t.isPoints) {
       const o = "PointsMaterial:" + i.uuid;
       let a = this.cache.get(o);
-      a || (a = new ke(), B.prototype.copy.call(a, i), a.color.copy(i.color), a.map = i.map, a.sizeAttenuation = !1, this.cache.add(o, a)), i = a;
+      a || (a = new Ge(), j.prototype.copy.call(a, i), a.color.copy(i.color), a.map = i.map, a.sizeAttenuation = !1, this.cache.add(o, a)), i = a;
     } else if (t.isLine) {
       const o = "LineBasicMaterial:" + i.uuid;
       let a = this.cache.get(o);
-      a || (a = new Je(), B.prototype.copy.call(a, i), a.color.copy(i.color), a.map = i.map, this.cache.add(o, a)), i = a;
+      a || (a = new Ze(), j.prototype.copy.call(a, i), a.color.copy(i.color), a.map = i.map, this.cache.add(o, a)), i = a;
     }
     if (s || r || n) {
       let o = "ClonedMaterial:" + i.uuid + ":";
@@ -1057,7 +1057,7 @@ var bt = new G(), It = class {
     t.material = i;
   }
   getMaterialType() {
-    return ue;
+    return le;
   }
   loadMaterial(t) {
     const e = this, i = this.json, s = this.extensions, r = i.materials[t];
@@ -1094,7 +1094,7 @@ var bt = new G(), It = class {
     });
   }
   createUniqueName(t) {
-    const e = Pe.sanitizeNodeName(t || "");
+    const e = Ie.sanitizeNodeName(t || "");
     return e in this.nodeNamesUsed ? e + "_" + ++this.nodeNamesUsed[e] : (this.nodeNamesUsed[e] = 0, e);
   }
   loadGeometries(t) {
@@ -1110,7 +1110,7 @@ var bt = new G(), It = class {
       if (l) n.push(l.promise);
       else {
         let h;
-        c.extensions && c.extensions[m.KHR_DRACO_MESH_COMPRESSION] ? h = r(c) : h = ie(new Ke(), c, e), s[u] = {
+        c.extensions && c.extensions[m.KHR_DRACO_MESH_COMPRESSION] ? h = r(c) : h = ie(new je(), c, e), s[u] = {
           primitive: c,
           promise: h
         }, n.push(h);
@@ -1131,11 +1131,11 @@ var bt = new G(), It = class {
         let g;
         const x = c[f];
         if (d.mode === A.TRIANGLES || d.mode === A.TRIANGLE_STRIP || d.mode === A.TRIANGLE_FAN || d.mode === void 0)
-          g = r.isSkinnedMesh === !0 ? new _e(T, x) : new pe(T, x), g.isSkinnedMesh === !0 && g.normalizeSkinWeights(), d.mode === A.TRIANGLE_STRIP ? g.geometry = te(g.geometry, 1) : d.mode === A.TRIANGLE_FAN && (g.geometry = te(g.geometry, 2));
-        else if (d.mode === A.LINES) g = new xe(T, x);
-        else if (d.mode === A.LINE_STRIP) g = new Se(T, x);
-        else if (d.mode === A.LINE_LOOP) g = new Ne(T, x);
-        else if (d.mode === A.POINTS) g = new je(T, x);
+          g = r.isSkinnedMesh === !0 ? new ve(T, x) : new ke(T, x), g.isSkinnedMesh === !0 && g.normalizeSkinWeights(), d.mode === A.TRIANGLE_STRIP ? g.geometry = te(g.geometry, 1) : d.mode === A.TRIANGLE_FAN && (g.geometry = te(g.geometry, 2));
+        else if (d.mode === A.LINES) g = new Re(T, x);
+        else if (d.mode === A.LINE_STRIP) g = new ye(T, x);
+        else if (d.mode === A.LINE_LOOP) g = new we(T, x);
+        else if (d.mode === A.POINTS) g = new Ue(T, x);
         else throw new Error("THREE.GLTFLoader: Primitive mode unsupported: " + d.mode);
         Object.keys(g.geometry.morphAttributes).length > 0 && yt(g, r), g.name = e.createUniqueName(r.name || "mesh_" + t), v(g, r), d.extensions && w(s, g, d), e.assignFinalMaterial(g), l.push(g);
       }
@@ -1145,7 +1145,7 @@ var bt = new G(), It = class {
       });
       if (l.length === 1)
         return r.extensions && w(s, l[0], r), l[0];
-      const h = new j();
+      const h = new B();
       r.extensions && w(s, h, r), e.associations.set(h, { meshes: t });
       for (let f = 0, p = l.length; f < p; f++) h.add(l[f]);
       return h;
@@ -1158,7 +1158,7 @@ var bt = new G(), It = class {
       console.warn("THREE.GLTFLoader: Missing camera parameters.");
       return;
     }
-    return i.type === "perspective" ? e = new Ce(be.radToDeg(s.yfov), s.aspectRatio || 1, s.znear || 1, s.zfar || 2e6) : i.type === "orthographic" && (e = new Ye(-s.xmag, s.xmag, s.ymag, -s.ymag, s.znear, s.zfar)), i.name && (e.name = this.createUniqueName(i.name)), v(e, i), Promise.resolve(e);
+    return i.type === "perspective" ? e = new He(Se.radToDeg(s.yfov), s.aspectRatio || 1, s.znear || 1, s.zfar || 2e6) : i.type === "orthographic" && (e = new Pe(-s.xmag, s.xmag, s.ymag, -s.ymag, s.znear, s.zfar)), i.name && (e.name = this.createUniqueName(i.name)), v(e, i), Promise.resolve(e);
   }
   loadSkin(t) {
     const e = this.json.skins[t], i = [];
@@ -1173,7 +1173,7 @@ var bt = new G(), It = class {
           r !== null && h.fromArray(r.array, c * 16), a.push(h);
         } else console.warn('THREE.GLTFLoader: Joint "%s" could not be found.', e.joints[c]);
       }
-      return new Ge(o, a);
+      return new Ae(o, a);
     });
   }
   loadAnimation(t) {
@@ -1197,7 +1197,7 @@ var bt = new G(), It = class {
         const U = i._createAnimationTracks(M, S, _, F, I);
         if (U) for (let K = 0; K < U.length; K++) g.push(U[K]);
       }
-      const x = new qe(r, void 0, g);
+      const x = new We(r, void 0, g);
       return v(x, s), x;
     });
   }
@@ -1242,7 +1242,7 @@ var bt = new G(), It = class {
       o.push(c);
     }), this.nodeCache[t] = Promise.all(o).then(function(c) {
       let u;
-      if (r.isBone === !0 ? u = new Ie() : c.length > 1 ? u = new j() : c.length === 1 ? u = c[0] : u = new le(), u !== c[0]) for (let l = 0, h = c.length; l < h; l++) u.add(c[l]);
+      if (r.isBone === !0 ? u = new Oe() : c.length > 1 ? u = new B() : c.length === 1 ? u = c[0] : u = new ue(), u !== c[0]) for (let l = 0, h = c.length; l < h; l++) u.add(c[l]);
       if (r.name && (u.userData.name = r.name, u.name = n), v(u, r), r.extensions && w(i, u, r), r.matrix !== void 0) {
         const l = new G();
         l.fromArray(r.matrix), u.applyMatrix4(l);
@@ -1257,7 +1257,7 @@ var bt = new G(), It = class {
     }), this.nodeCache[t];
   }
   loadScene(t) {
-    const e = this.extensions, i = this.json.scenes[t], s = this, r = new j();
+    const e = this.extensions, i = this.json.scenes[t], s = this, r = new B();
     i.name && (r.name = s.createUniqueName(i.name)), v(r, i), i.extensions && w(e, r, i);
     const n = i.nodes || [], o = [];
     for (let a = 0, c = n.length; a < c; a++) o.push(s.getDependency("node", n[a]));
@@ -1265,7 +1265,7 @@ var bt = new G(), It = class {
       for (let u = 0, l = a.length; u < l; u++) r.add(a[u]);
       const c = (u) => {
         const l = /* @__PURE__ */ new Map();
-        for (const [h, f] of s.associations) (h instanceof B || h instanceof J) && l.set(h, f);
+        for (const [h, f] of s.associations) (h instanceof j || h instanceof ee) && l.set(h, f);
         return u.traverse((h) => {
           const f = s.associations.get(h);
           f != null && l.set(h, f);
@@ -1285,7 +1285,7 @@ var bt = new G(), It = class {
         c = Z;
         break;
       case y.rotation:
-        c = ee;
+        c = J;
         break;
       case y.translation:
       case y.scale:
@@ -1313,12 +1313,12 @@ var bt = new G(), It = class {
   }
   _createCubicSplineTrackInterpolant(t) {
     t.createInterpolant = function(i) {
-      return new (this instanceof ee ? vt : de)(this.times, this.values, this.getValueSize() / 3, i);
+      return new (this instanceof J ? vt : de)(this.times, this.values, this.getValueSize() / 3, i);
     }, t.createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline = !0;
   }
 };
 function Ot(t, e, i) {
-  const s = e.attributes, r = new Be();
+  const s = e.attributes, r = new ze();
   if (s.POSITION !== void 0) {
     const a = i.json.accessors[s.POSITION], c = a.min, u = a.max;
     if (c !== void 0 && u !== void 0) {
@@ -1350,7 +1350,7 @@ function Ot(t, e, i) {
     r.expandByVector(a);
   }
   t.boundingBox = r;
-  const o = new Le();
+  const o = new Me();
   r.getCenter(o.center), o.radius = r.min.distanceTo(r.max) / 2, t.boundingSphere = o;
 }
 function ie(t, e, i) {

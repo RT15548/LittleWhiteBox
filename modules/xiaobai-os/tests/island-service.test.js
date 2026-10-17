@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as settle } from 'node:timers/promises';
 import { userEconomyHarness } from './user-economy-harness.js';
 import { createIslandService } from '../apps/game/island/service.js';
 import { ISLAND_PARTITION } from '../apps/game/island/partition.js';
@@ -11,6 +12,7 @@ import { observe, openScene } from '../apps/game/island/scene.js';
 import { createIntentWork } from '../apps/game/island/intent-work.js';
 import { actionPreview } from '../apps/game/island/presentation/action-preview.js';
 import { withIslandRuntime } from '../apps/game/island/host.js';
+import { createIslandClient } from '../apps/game/island/client.js';
 
 const identity = { name: 'Test player', gender: 'female', appearanceAge: 'twenties' };
 const guard = () => true;
@@ -230,6 +232,59 @@ test('ordinary available item previews remain confirmable', () => {
     work.propose({ kind: 'take', item: 'salvage_bottle' });
     assert.equal(actionPreview(work.finish(), observe(world, 'player', LANDSCAPE)).available, true);
 });
+
+for (const code of ['island_context_full', 'island_agent_empty', 'island_memory_save', 'island_save_unconfirmed']) {
+    test(`${code} uses conversation feedback without losing explicit save recovery`, async t => {
+        const h = await harness({ world: worldFixture() }), posts = [], subscribers = new Set();
+        let attempts = 0;
+        h.service.plan = async () => { attempts++; throw Object.assign(new Error(code), { code }); };
+        const host = withIslandRuntime({}, h.service, { pending: () => false }, {}, () => 'test-chat', guard);
+        t.after(() => host.stopBackground());
+        await host.activate({ post(type, payload) {
+            const message = { type, payload }; posts.push(message);
+            for (const subscriber of subscribers) { subscriber(message); }
+        } });
+        const client = createIslandClient({
+            subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); },
+            async request(type, payload) { return { result: await host.handleMessage({ type, payload }) }; },
+        }, 'test-chat');
+        t.after(() => client.dispose());
+        await client.read(); await client.think(); await settle();
+        const saving = code === 'island_memory_save' || code.startsWith('island_save_');
+        assert.equal(client.view.value.planFault, code);
+        assert.equal(posts.filter(message => message.type === 'game/island/error').length, saving ? 1 : 0);
+        assert.equal(client.uncertain.value, saving);
+        assert.equal(Boolean(client.error.value), saving);
+        assert.equal(Boolean(client.gmFailure.value), !saving);
+        client.dismissGmFailure();
+        await client.settings(); await host.deactivate('test'); await host.activate({ post() {} }); await client.settings();
+        assert.equal(attempts, 1);
+        assert.equal(client.gmFailure.value, '');
+        assert.equal(client.view.value.planFault, code);
+        assert.equal(client.uncertain.value, saving);
+        assert.equal(Boolean(client.error.value), saving);
+        if (!saving) {
+            await client.think(); await settle(); await client.read();
+            assert.equal(attempts, 2);
+            assert.ok(client.gmFailure.value);
+        }
+    });
+}
+
+for (const code of ['island_stale', 'island_unavailable', 'island_cancelled']) {
+    test(`${code} remains a quiet plan ending rather than a character warning`, async t => {
+        const h = await harness({ world: worldFixture() }), posts = [];
+        h.service.plan = async () => { throw Object.assign(new Error(code), { code }); };
+        const host = withIslandRuntime({}, h.service, { pending: () => false }, {}, () => 'test-chat', guard);
+        t.after(() => host.stopBackground());
+        await host.activate({ post(type, payload) { posts.push({ type, payload }); } });
+        await host.handleMessage({ type: 'game/island/think', payload: { chatIdentity: 'test-chat', reason: 'response' } });
+        await settle();
+        const state = await host.handleMessage({ type: 'game/island/read', payload: { chatIdentity: 'test-chat' } });
+        assert.equal(state.planFault, null);
+        assert.equal(posts.some(message => message.type === 'game/island/error'), false);
+    });
+}
 
 for (const boundary of ['handleChatChanged', 'cancelAll', 'stopBackground', 'deactivate', 'cancelForeground']) {
     test(`${boundary} clears host steering before the same global journey is reused`, async t => {

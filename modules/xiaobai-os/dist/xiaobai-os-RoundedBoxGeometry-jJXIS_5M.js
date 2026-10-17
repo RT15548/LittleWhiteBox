@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { Wt as M, s as S } from "./xiaobai-os-three.module-CEf4RC2U.js";
+import { Gt as M, s as S } from "./xiaobai-os-three.module-DZLCEE7H.js";
 var g = new M();
 function a(u, n, i, y, f, e) {
   const x = 2 * Math.PI * f / 4, l = Math.max(e - 2 * f, 0), m = Math.PI / 4;
@@ -7,7 +7,7 @@ function a(u, n, i, y, f, e) {
   const t = 0.5 * x / (x + l), b = 1 - g.angleTo(u) / m;
   return Math.sign(g[i]) === 1 ? b * t : l / (x + l) + t + t * (1 - b);
 }
-var A = class p extends S {
+var R = class p extends S {
   constructor(n = 1, i = 1, y = 1, f = 2, e = 0.1) {
     const x = f * 2 + 1;
     if (e = Math.min(n / 2, i / 2, y / 2, e), super(1, 1, 1, x, x, x), this.type = "RoundedBoxGeometry", this.parameters = {
@@ -47,5 +47,5 @@ var A = class p extends S {
   }
 };
 export {
-  A as t
+  R as t
 };

@@ -32,7 +32,7 @@
 - `roster_finish.py`：读取已制作场景，整理发型、曲面预算和衣物贴合，保留既有动作，生成正式资产与头像。
 - `restyle_hair.py`：从正式可编辑场景只替换头发，保留其他网格、材质、骨架和动作；输出新场景、GLB 与发型多角度实渲，不覆盖插画头像。
 
-`.blend` 是可编辑生成物。需要手工雕刻时另存工作文件，不把需要保留的手工修改放进下一次制作输出。制作、缓存、参考照片和实渲工作图全部留在本地 `output`；运行包只包含 `assets/characters` 的 GLB 和头像。
+`.blend` 是可编辑生成物。需要手工雕刻时另存工作文件，不把需要保留的手工修改放进下一次制作输出。制作、缓存、参考照片和实渲工作图全部留在本地 `output`；角色运行资产包含 `assets/characters` 的 GLB、头像及 `shared` 中按内容哈希命名的原始共享贴图。
 
 ## 衣物与运行边界
 
@@ -52,6 +52,29 @@
 
 [人物头像](../../presentation/Portrait.vue)和开局外观预览使用独立角色图片；各图的插画或实渲来源统一记录在[美术来源](../../assets/SOURCES.md)，只用于辨识，不是假装实时身体、衣着或伤病画面。正式模型制作完成不等于真实宿主试玩、手机性能或第一章整体交付验收已经通过；任何测试与试玩另取主人批准。
 
+## 无损运行资产整理
+
+造型定稿与原始 GLB 导出后，先选一个 NPC 和一个玩家外观作样本，再考虑全阵容。原始未压缩导出、可编辑场景与对照截图只在本地保存；已部署的压缩 GLB 不是下一轮 Blender 制作或原始 accessor 检查脚本的输入。
+
+从仓库根运行：
+
+```powershell
+npm run test:island-assets
+npm run optimize:island:characters -- --source output/island-characters/original-exports --output output/island-characters/new-runtime-assets
+```
+
+输入目录应包含待处理人物的原始 GLB，输出必须是独立且不存在的新目录。[整理工具](../../../../../../../scripts/optimize-island-characters.mjs)不原地覆盖源文件，先核对引用及图片字节，再输出候选与本地检查报告。部署时只复制验收后的 GLB 和 `shared` 图片，不复制报告、原始备份或预览。共享贴图是普通同目录静态文件，不是独立资源包或新缓存系统；发布必须包含候选实际引用的全部图片。
+
+处理边界：
+
+- PNG/JPEG 仅在字节完全相同的情况下共享，不缩图、不换脸、不重绘，也不改变 sampler、UV 或材质；文件名是原编码字节的 SHA-256。
+- Meshopt 使用 v0 无损编码，过滤器为 `NONE`，索引采用保序 `INDICES`；不量化、不减面、不重排三角形。每个 bufferView 均用项目自带解码器还原并逐字节对照。
+- accessor / bufferView 只有完整语义元数据及有效数据相同时才合并。人物节点、骨名、蒙皮、顶点色、独立衣物标签、材质 extras、十个命名动作和全部轨道均保留；GLB JSON 整理不涉及模型提示词或人物设定。
+- [GLB 加载](../../presentation/character-gltf.ts)使用 three 内置 MeshoptDecoder；图片 URI 以 GLB 所在目录解析，缺图/解码失败明确报错。取消及失败释放临时资源，不以无贴图人物或占位模型掩盖失败。
+- 静态检查和体积变小不能替代验收：同镜头看脸、身体、发型与衣物；真实运行链检查男女步行/停步、穿脱/掉落/拾取、干湿、四种双人接触和卸载重入。字节压缩不代表三角形、显存或帧率改善。
+- 验收后复制运行资产，并执行 `npm run build:xiaobai-os` 更新构建中的源 GLB 内容哈希引用。只更新二进制而不重建入口，可能继续命中旧 URL。
+- 正式构建必须保留配置中的 `minify: 'esbuild'`，不能用临时关闭压缩的产物替代。Windows 上若 Node 24 的 esbuild 大输入转换报临时文件删除失败，可使用 Node 22.22.0 LTS 执行同一构建命令；仅恢复配置不会重新压缩已经生成的文件，必须重新构建。
+
 ## 输入与许可
 
 人体、形态目标、默认骨骼/权重和眼睛来自 [MakeHuman](https://github.com/makehumancommunity/makehuman)，固定版本由 `makehuman_data.py` 的 `SOURCE_COMMIT` 唯一定义。构建消费 CC0 图形数据，不复制或导入 AGPL 应用代码；许可原文是来源的 `LICENSE.ASSETS.md`，各目标文件也有 CC0 声明。权利声明包括 Manuel Bastioni、Data Collection AB、Joel Palmius、Jonas Hauquier，具体以输入文件为准。核心图形的 CC0 不能延伸为所有社区资产的许可。
@@ -64,7 +87,7 @@
 - `makehuman/data/eyes/low-poly/` 和 `eyes/materials/brown_eye.png`。
 - 主人已认可、本地保留的 `ye` 游戏制作场景，作为共用物件的衣样来源，不改她的人体。
 
-来源缓存是 partial clone，缺失目标应先从固定版本补齐；制作脚本本身不下载。工具只使用 Blender 内置 Python、NumPy、mathutils、bmesh 和 glTF 导出器，不新增游戏运行依赖或服务。私人照片不由脚本读取、不上传、不做贴图，不宣称模型是真人扫描。
+来源缓存是 partial clone，缺失目标应先从固定版本补齐；制作脚本本身不下载。造型导出工具使用 Blender 内置 Python、NumPy、mathutils、bmesh 和 glTF 导出器；无损整理使用固定版本的 Node 开发依赖，运行时复用已有 three 的解码器，不新增服务。私人照片不由脚本读取、不上传、不做贴图，不宣称模型是真人扫描。
 
 动作库的逐项来源及授权与 CC0 人体分开记录在[美术来源](../../assets/SOURCES.md#动作库)。下载的原始 FBX 只留在本地制作目录，不上传、不作为独立素材包分发；运行包仅嵌入游戏所用的重定向数据。
 
@@ -107,7 +130,7 @@
 ```powershell
 & 'D:/Blender/blender.exe' -b --factory-startup -t 4 --python-exit-code 1 `
   --python modules/xiaobai-os/apps/game/island/production/characters/fit-motion-weights.py -- `
-  --input modules/xiaobai-os/apps/game/island/assets/characters `
+  --input output/island-characters/original-exports `
   --output output/island-characters/new-motion-wardrobe
 ```
 

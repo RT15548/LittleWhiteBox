@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { c as p, l as y } from "./xiaobai-os-three.module-CEf4RC2U.js";
+import { c as p, l as y } from "./xiaobai-os-three.module-DZLCEE7H.js";
 function E(i, a = !1) {
   const r = i[0].index !== null, m = new Set(Object.keys(i[0].attributes)), n = new Set(Object.keys(i[0].morphAttributes)), f = {}, t = {}, h = i[0].morphTargetsRelative, u = new y();
   let g = 0;

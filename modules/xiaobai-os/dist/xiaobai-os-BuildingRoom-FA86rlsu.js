@@ -1,11 +1,11 @@
 /* eslint-disable */
 import { D as Ee, E as Ye, I as Wt, M as ct, N as qt, P as Ut, R as Rt, S as m, T as At, U as ke, V as c, X as Ze, at as vt, b as Ve, dt as _t, ft as k, h as D, i as Zt, lt as t, m as Gt, r as Yt, rt as Q, ut as tt, v as K, w as mt, x as B, y as v } from "./xiaobai-os-app-navigation-DvMnPkC0.js";
 import { A as Ft, B as at, C as Kt, D as Pt, E as Xt, F as De, H as O, I as Jt, L as Bt, M as Qt, N as Ae, O as ea, P as Z, R as Lt, S as Nt, T as wt, U as Mt, V as ta, W as St, _ as aa, a as Ge, b as la, c as ia, d as Ot, f as na, g as xt, h as oa, i as Ct, j as sa, k as ra, l as $t, m as ua, n as da, o as jt, p as ca, r as o, s as lt, t as va, u as ma, v as It, w as fa, x as it, y as Vt, z as st } from "./xiaobai-os-outfit-Bu9V9bRI.js";
-import { $ as ft, Bt as pa, D as ha, E as Pe, Et as ba, Pt as ya, Q as ka, Tt as ga, Wt as bt, _ as wa, n as xa, o as _a, p as Ma, rt as Sa, s as Ca, ut as $a, y as Ia } from "./xiaobai-os-three.module-CEf4RC2U.js";
+import { $ as pa, D as ha, Dt as ba, E as Pe, Et as ya, Ft as ka, Gt as bt, Vt as ga, _ as wa, dt as xa, et as ft, it as _a, n as Ma, o as Sa, p as Ca, s as $a, y as Ia } from "./xiaobai-os-three.module-DZLCEE7H.js";
 import { t as za } from "./xiaobai-os-design-Bb2ApHR1.js";
 import { a as Ea, i as Ta, o as Ra, r as Aa } from "./xiaobai-os-performance-BD3WuJCC.js";
-import { t as Pa } from "./xiaobai-os-RoundedBoxGeometry-Bg3Zrs7v.js";
-import { t as Ba } from "./xiaobai-os-BufferGeometryUtils-Dxy-eeb2.js";
+import { t as Pa } from "./xiaobai-os-RoundedBoxGeometry-jJXIS_5M.js";
+import { t as Ba } from "./xiaobai-os-BufferGeometryUtils-BVwpfAe2.js";
 function La(e, l) {
   const a = xt(e, l), n = {
     bedroom: a.habitable,
@@ -337,14 +337,14 @@ var Wa = {
 function qa() {
   const e = {
     box: new Pa(1, 1, 1, 2, 0.055),
-    flat: new Ca(1, 1, 1),
-    sphere: new ya(1, 24, 16),
+    flat: new $a(1, 1, 1),
+    sphere: new ka(1, 24, 16),
     rod: new wa(1, 1, 1, 16),
-    ring: new pa(1, 0.1, 8, 24)
+    ring: new ga(1, 0.1, 8, 24)
   }, l = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Set();
   function n(i, y = "chalk") {
     const d = `${i}:${y}`;
-    return l.has(d) || l.set(d, new Sa({
+    return l.has(d) || l.set(d, new _a({
       color: i,
       ...Wa[y],
       emissive: y === "light" ? i : 0
@@ -360,7 +360,7 @@ function qa() {
     i.traverse((S) => {
       if (!(S instanceof ft)) return;
       const s = S.geometry.index ? S.geometry.toNonIndexed() : S.geometry.clone();
-      s.applyMatrix4(new ka().multiplyMatrices(y, S.matrixWorld));
+      s.applyMatrix4(new pa().multiplyMatrices(y, S.matrixWorld));
       const p = S.material, x = d.get(p) ?? [];
       x.push(s), d.set(p, x);
     }), i.clear();
@@ -1614,15 +1614,15 @@ function Ja(e, l, a, n) {
 var ot = Oa(17, Lt[0]), Et = wt(ot, ja(ot)[1]);
 function Qa(e, l, a, n, u, b) {
   return Ua((i) => {
-    const y = new xa({
+    const y = new Ma({
       antialias: !0,
       alpha: !1,
       powerPreference: "low-power"
     });
-    i.defer(() => y.domElement.remove()), i.defer(() => y.forceContextLoss()), i.own(y), y.domElement.className = "build-canvas", e.append(y.domElement), y.outputColorSpace = ga, y.toneMapping = 7, y.shadowMap.enabled = !0, y.shadowMap.type = 2;
+    i.defer(() => y.domElement.remove()), i.defer(() => y.forceContextLoss()), i.own(y), y.domElement.className = "build-canvas", e.append(y.domElement), y.outputColorSpace = ya, y.toneMapping = 7, y.shadowMap.enabled = !0, y.shadowMap.type = 2;
     const d = new ba();
-    d.background = new Ma(r.sky);
-    const h = new $a(-5, 5, 5, -5, 0.1, 100), E = i.own(qa());
+    d.background = new Ca(r.sky);
+    const h = new xa(-5, 5, 5, -5, 0.1, 100), E = i.own(qa());
     d.add(new ha(r.porcelain, r.mint, 2.1));
     const S = new Ia(r.milk, 2.6);
     S.position.set(-5, 10, 8), S.castShadow = !0, S.shadow.mapSize.setScalar(kt.shadow), S.shadow.camera.left = -8, S.shadow.camera.right = 8, S.shadow.camera.top = 8, S.shadow.camera.bottom = -8, S.shadow.normalBias = 0.03, i.own(S.shadow), d.add(S, S.target);
@@ -1650,7 +1650,7 @@ function Qa(e, l, a, n, u, b) {
       }
     }, p, va);
     let x = null, $ = !1, T = null;
-    const C = -new _a().setFromObject(p).min.y, I = Ja(E, p, C, (g) => {
+    const C = -new Sa().setFromObject(p).min.y, I = Ja(E, p, C, (g) => {
       T = g, g?.phase === "using" && (x = null), b(g), $ && re();
     });
     let j = [], z = null, R = [], N = {
