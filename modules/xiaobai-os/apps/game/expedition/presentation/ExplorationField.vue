@@ -4,7 +4,7 @@ import { CONTRACT, RULES } from '../content.js';
 import { COPY as combatCopy, WEAPON_COPY } from '../copy.js';
 import { WORLD_COPY as c } from '../content/world-copy.js';
 import { createControls } from '../controls.js';
-import { createJoystick } from '../joystick.js';
+import { createJoystick } from '../../joystick.js';
 import { createExpeditionScene, type ExplorationFrame } from '../scene.js';
 import type { Battle, InputFrame, Outfit, Weapon } from '../types.js';
 import type { Traveler } from '../campaign/traveler.js';

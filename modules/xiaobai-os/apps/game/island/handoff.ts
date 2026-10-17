@@ -6,6 +6,7 @@ import { record } from './experience.js';
 import { fail } from './fault.js';
 import { observeFood } from './food.js';
 import { observeWater } from './water.js';
+import { invitationSequence } from './invitation.js';
 
 export function canOffer(world: Journey, from: PersonId, to: PersonId, itemId: string, units: number, land: Landscape) {
     const item = Object.hasOwn(world.items, itemId) ? world.items[itemId] : null;
@@ -52,7 +53,7 @@ export function visibleOffers(world: Journey, observer: PersonId, land: Landscap
         if (offer?.kind !== 'offer' || !perceives(world, observer, world.people[from].position, 'sight', land)) { return []; }
         const item = world.items[offer.item];
         const near = withinReach(world.people[observer].position, world.people[from].position);
-        return [{ from, to: offer.to, item: offer.item, form: item.kind, units: offer.units, wetness: item.wetness,
+        return [{ from, to: offer.to, sequence: invitationSequence(world, offer.to, { kind: 'accept', from }), item: offer.item, form: item.kind, units: offer.units, wetness: item.wetness,
             water: observeWater(item.water, world.clock, near), food: observeFood(item, world.clock, near) }];
     });
 }

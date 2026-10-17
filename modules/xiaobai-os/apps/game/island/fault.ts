@@ -60,3 +60,7 @@ export function isActionFault(error: unknown): error is { code: string } {
         && ACTION_FAULTS.some(code => error.code === `island_${code}`);
 }
 export function fail(code: FaultCode): never { throw Object.assign(new Error(ERRORS[code]), { code: `island_${code}` }); }
+/** Any rule refusal raised through fail(); other errors are programming or host faults. */
+export function isFault(error: unknown): error is { code: string } {
+    return !!error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && error.code.startsWith('island_');
+}

@@ -6,6 +6,7 @@ import { requireLivingWorld } from './world.js';
 import { fail } from './fault.js';
 import { observe } from './scene.js';
 import { AGENT_POLICY } from './agent/policy.js';
+import { invitationSequence } from './invitation.js';
 
 function knownTargets(operation: PlayerOperation, view: ReturnType<typeof observe>) {
     const known = (id: string, values: { id: string }[]) => { if (!values.some(v => v.id === id)) { fail('unavailable'); } };
@@ -29,9 +30,10 @@ function knownTargets(operation: PlayerOperation, view: ReturnType<typeof observ
 }
 
 export type PlayerOperation = Exclude<Operation, { kind: 'intend' }>;
-export type IntentResult = { kind: 'action'; operation: PlayerOperation; seconds: number | null } | { kind: 'question'; text: string };
+export type IntentResult = { kind: 'action'; operation: PlayerOperation; seconds: number | null; invitation: number | null } | { kind: 'question'; text: string };
 export interface IntentClarification { input: string; question: string }
-export interface PlayerIntent { id: string; revision: number; text: string; clarifications: IntentClarification[]; result: IntentResult }
+// `generation` counts the player's own changes to the world; time passing does not invalidate an interpretation.
+export interface PlayerIntent { id: string; generation: number; text: string; clarifications: IntentClarification[]; result: IntentResult }
 
 export function createIntentWork(source: Journey, land: Landscape) {
     requireLivingWorld(source);
@@ -50,7 +52,7 @@ export function createIntentWork(source: Journey, land: Landscape) {
             const seconds = operation.kind === 'work' && activity?.kind === 'work' ? activity.remaining
                 : operation.kind === 'rest' || operation.kind === 'take' || operation.kind === 'strike' || operation.kind === 'guard' ? (activity as { until: number }).until - world.clock
                     : operation.kind === 'construct' ? world.structures[operation.site].workLeft : null;
-            result = { kind: 'action', operation, seconds };
+            result = { kind: 'action', operation, seconds, invitation: invitationSequence(world, 'player', operation) };
             return { ready: true };
         },
         ask(raw: unknown) {

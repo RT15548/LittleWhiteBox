@@ -7,15 +7,27 @@ import { BLUEPRINTS, ITEMS, RECIPES, RESOURCE_RULES, WORK_NAMES } from '../survi
 export function actionPreview(result: Extract<IntentResult, { kind: 'action' }>, view: ReturnType<typeof observe>) {
     const name = (id: PersonId) => personName(id, view.self.identity.name);
     const fields: { label: string; value: string }[] = [], warnings: string[] = [];
+    let available = true;
+    const missing = () => { available = false; return ''; };
+    const invitation = <T extends { from: PersonId; to: PersonId; sequence: number | null }>(offers: T[], from: PersonId) => {
+        const offer = offers.find(o => o.from === from && o.to === 'player' && o.sequence === result.invitation);
+        if (!offer) { missing(); }
+        return offer;
+    };
     const field = (label: string, value: string) => fields.push({ label, value });
     const position = (point: Point) => c.actionCoordinates(point);
     const item = (id: string) => {
-        const value = view.items.find(i => i.id === id)!, location = value.location;
+        const value = view.items.find(i => i.id === id);
+        if (!value) { return missing(); }
+        const location = value.location;
         const where = location.kind === 'ground' ? `${c.ground} · ${position(location.position)}`
             : `${name(location.person)} · ${location.kind === 'worn' ? c.worn : location.kind === 'covering' ? c.covering : c.carried}`;
         return c.actionItem(ITEMS[value.kind].name, `${where}${value.food ? ` · ${c.foodCondition[value.food]}` : ''}`);
     };
-    const site = (id: string) => { const value = view.structures.find(s => s.id === id)!; return c.actionItem(BLUEPRINTS[value.kind].name, position(value.position)); };
+    const site = (id: string) => {
+        const value = view.structures.find(s => s.id === id);
+        return value ? c.actionItem(BLUEPRINTS[value.kind].name, position(value.position)) : missing();
+    };
     const source = (id: string) => {
         const resource = view.resources.find(r => r.id === id);
         return resource ? c.actionItem(RESOURCE_RULES[resource.kind].name, position(resource.position)) : site(id);
@@ -53,15 +65,25 @@ export function actionPreview(result: Extract<IntentResult, { kind: 'action' }>,
         case 'take': case 'drop': case 'wear': case 'unwear': title = c[op.kind]; field(c.actionTarget, item(op.item)); break;
         case 'offer': title = c.offer; field(c.actionTarget, `${name(op.to)} · ${item(op.item)} ${c.actionQuantity(op.units)}`); break;
         case 'offer_care': title = c.offerCare; field(c.actionTarget, `${name(op.to)} · ${c.wounds[op.wound]}`); treatment(op.treatment); warnings.push(c.careWaiting); break;
-        case 'accept_care': case 'decline_care': title = op.kind === 'accept_care' ? c.acceptCare : c.declineCare; field(c.actionTarget, name(op.from)); break;
+        case 'accept_care': case 'decline_care': {
+            title = op.kind === 'accept_care' ? c.acceptCare : c.declineCare;
+            const offer = invitation(view.careOffers, op.from);
+            if (offer) { field(c.actionTarget, `${name(op.from)} · ${c.wounds[offer.wound]} · ${c.treatments[offer.treatment]}`); }
+            break;
+        }
         case 'offer_contact': title = c.contactNames[op.form]; field(c.actionTarget, name(op.to)); warnings.push(c.contactWaiting); break;
-        case 'accept_contact': case 'decline_contact': title = op.kind === 'accept_contact' ? c.acceptContact : c.declineContact; field(c.actionTarget, name(op.from)); break;
+        case 'accept_contact': case 'decline_contact': {
+            title = op.kind === 'accept_contact' ? c.acceptContact : c.declineContact;
+            const offer = invitation(view.contactOffers, op.from);
+            if (offer) { field(c.actionTarget, `${name(op.from)} · ${c.contactNames[offer.form]}`); }
+            break;
+        }
         case 'strike': title = c.strikeNames[op.form]; field(c.actionTarget, name(op.to)); warnings.push(c.strikeWarning); break;
         case 'guard': title = c.guard; break;
-        case 'decline_offer': title = c.declineOffer; field(c.actionTarget, name(op.from)); break;
-        case 'accept': {
-            title = c.receive;
-            const offer = view.offers.find(o => o.from === op.from && o.to === 'player')!;
+        case 'accept': case 'decline_offer': {
+            title = op.kind === 'accept' ? c.receive : c.declineOffer;
+            const offer = invitation(view.offers, op.from);
+            if (!offer) { break; }
             field(c.actionTarget, `${name(op.from)} · ${ITEMS[offer.form].name} ${c.actionQuantity(offer.units)}`);
             if (offer.food) { warnings.push(c.foodCondition[offer.food]); }
             if (offer.water?.food) { warnings.push(`${c.liquid} · ${c.foodCondition[offer.water.food]}`); }
@@ -74,7 +96,10 @@ export function actionPreview(result: Extract<IntentResult, { kind: 'action' }>,
             if ('item' in task) { field(c.actionTarget, item(task.item)); }
             if ('tool' in task) { field(c.diggingTool, item(task.tool)); }
             if (task.kind === 'bury_body') { warnings.push(c.burialNote); }
-            if (task.kind === 'exhume_body') { field(c.actionPosition, position(view.graves.find(g => g.grave === task.grave)!.position)); warnings.push(c.exhumationNote); }
+            if (task.kind === 'exhume_body') {
+                const grave = view.graves.find(g => g.grave === task.grave);
+                field(c.actionPosition, grave ? position(grave.position) : missing()); warnings.push(c.exhumationNote);
+            }
             if ('subject' in task) { field(c.actionTarget, name(task.subject)); }
             if ('source' in task) { field(c.actionTarget, source(task.source)); }
             if ('container' in task) { field(c.waterContainer, item(task.container)); }
@@ -86,7 +111,7 @@ export function actionPreview(result: Extract<IntentResult, { kind: 'action' }>,
             if ('materials' in task) {
                 field(c.materials, task.materials.map(m => `${item(m.item)} ${c.actionQuantity(m.units)}`).join('\n'));
                 warnings.push(c.actionMaterialsNote);
-                const worn = task.materials.map(m => view.items.find(i => i.id === m.item)!).filter(i => i.location.kind === 'worn');
+                const worn = view.items.filter(i => i.location.kind === 'worn' && task.materials.some(m => m.item === i.id));
                 if (worn.length) { warnings.push(c.dismantleWarning(worn.map(i => ITEMS[i.kind].name))); }
                 if (task.materials.some(m => view.items.find(i => i.id === m.item)?.food === 'off_odor')) { warnings.push(c.spoiledCooking); }
             }
@@ -95,7 +120,10 @@ export function actionPreview(result: Extract<IntentResult, { kind: 'action' }>,
             if (task.kind === 'gather') { field(c.quantity, c.actionQuantity(task.units)); }
             if (task.kind === 'ignite') { field(c.tools, item(task.drill)); field(c.materials, item(task.tinder)); }
             if (task.kind === 'relieve') { title = task.waste === 'urine' ? c.relieveUrine : c.relieveFeces; field(c.actionPosition, c.actionAtFeet); warnings.push(c.actionReliefNote); }
-            if (task.kind === 'cover_waste') { field(c.actionPosition, position(view.waste.find(w => w.id === task.waste)!.position)); }
+            if (task.kind === 'cover_waste') {
+                const waste = view.waste.find(w => w.id === task.waste);
+                field(c.actionPosition, waste ? position(waste.position) : missing());
+            }
             if (task.kind === 'sip' || task.kind === 'drink' && view.items.find(i => i.id === task.container)?.water?.quality === 'untreated') { warnings.push(c.rawWaterRisk); }
             if (task.kind === 'drink' || task.kind === 'pour' || task.kind === 'boil') {
                 const water = view.items.find(i => i.id === (task.kind === 'pour' ? task.from : task.container))?.water;
@@ -106,5 +134,5 @@ export function actionPreview(result: Extract<IntentResult, { kind: 'action' }>,
         }
     }
     if (result.seconds !== null) { field(c.actionTime, c.duration(result.seconds)); }
-    return { title, fields, warnings };
+    return available ? { available, title, fields, warnings } : { available, title: c.actionUnavailable, fields: [], warnings: [] };
 }

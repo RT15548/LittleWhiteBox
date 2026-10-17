@@ -15,7 +15,7 @@ import type { ConflictMotion } from './conflict-pose.js';
 import { alignContactFaces } from './contact-pose.js';
 
 type Observation = NonNullable<IslandView['player']>;
-type Figure = { visual: SurvivorVisual; ring: T.Mesh<T.RingGeometry, T.MeshBasicMaterial> | null; label: HTMLButtonElement | null; leader: SVGLineElement | null; signature: string; attachments: string;
+type Figure = { visual: SurvivorVisual; ring: T.Mesh<T.RingGeometry, T.MeshBasicMaterial> | null; label: HTMLElement | null; leader: SVGLineElement | null; signature: string; attachments: string;
     from: T.Vector3; to: T.Vector3; started: number; duration: number; activity: Activity['kind'] | null; work: WorkTask['kind'] | null; reducedMotion: boolean;
     contact: { partner: PersonId | null; active: boolean; weight: number; upper: boolean; form: ContactForm }; invitation: number;
     threat: PersonId | null; lastConflict: number; replay: { started: number; target: PersonId; kind: ConflictMotion['kind'] } | null };
@@ -51,16 +51,19 @@ export function createPeopleLayer(scene: T.Scene, container: HTMLElement, select
                 const visual = characters.create(person.id, clothing, dead);
                 visual.root.position.x = previous?.x ?? person.position.x; visual.root.position.z = previous?.z ?? person.position.y;
                 visual.root.rotation.y = direction;
-                let label: HTMLButtonElement | null = null, leader: SVGLineElement | null = null;
+                let label: HTMLElement | null = null, leader: SVGLineElement | null = null;
                 let ring: Figure['ring'] = null;
+                leader = document.createElementNS('http://www.w3.org/2000/svg', 'line'); leaders.append(leader);
                 if (person.id !== 'player') {
-                    const id = person.id as NpcId; label = document.createElement('button'); label.textContent = person.identity.name;
-                    label.setAttribute('aria-label', `${c.look} · ${person.identity.name}`); label.addEventListener('click', () => select(id)); labels.append(label);
-                    leader = document.createElementNS('http://www.w3.org/2000/svg', 'line'); leaders.append(leader);
+                    const id = person.id as NpcId, button = document.createElement('button'); button.textContent = person.identity.name;
+                    button.setAttribute('aria-label', `${c.look} · ${person.identity.name}`); button.addEventListener('click', () => select(id)); label = button;
                 } else {
+                    // The player is named on the map too, but cannot be looked at like someone else.
+                    label = document.createElement('span'); label.className = 'island-people-self'; label.textContent = person.identity.name;
                     ring = new T.Mesh(new T.RingGeometry(.4, .47, 36), new T.MeshBasicMaterial({ color: '#245d61', side: T.DoubleSide }));
                     ring.rotation.x = -Math.PI / 2; ring.position.y = .04; visual.root.add(ring);
                 }
+                labels.append(label);
                 figure = { visual, ring, label, leader, signature, attachments: '', from: visual.root.position.clone(), to: visual.root.position.clone(),
                     started: 0, duration: 0, activity: null, work: null, reducedMotion,
                     contact: { partner: null, active: false, weight: 0, upper: false, form: 'embrace' }, invitation: 0, threat: null, lastConflict: 0, replay: null };

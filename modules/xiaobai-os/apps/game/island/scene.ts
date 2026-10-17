@@ -13,6 +13,7 @@ import { npcIdentity, playerAppearance } from './characters.js';
 import { cleanliness, seaWithinReach } from './hygiene.js';
 import { buriedBodies } from './burial-state.js';
 import { remainsCondition, sanitationAt, wasteRemaining } from './sanitation.js';
+import { invitationSequence } from './invitation.js';
 
 export function openScene(world: Journey, anchor: PersonId, land: Landscape): SceneScope {
     requireLivingWorld(world);
@@ -87,11 +88,12 @@ export function observe(world: Journey, observer: PersonId, land: Landscape) {
         careOffers: PERSON_IDS.flatMap(from => {
             const a = world.people[from].activity;
             return a?.kind === 'offer_care' && (from === observer || a.to === observer)
-                ? [{ from, to: a.to, wound: a.wound, treatment: a.treatment.kind }] : [];
+                ? [{ from, to: a.to, sequence: invitationSequence(world, a.to, { kind: 'accept_care', from }), wound: a.wound, treatment: a.treatment.kind }] : [];
         }),
         contactOffers: PERSON_IDS.flatMap(from => {
             const a = world.people[from].activity;
-            return a?.kind === 'offer_contact' && (from === observer || a.to === observer) ? [{ from, to: a.to, form: a.form }] : [];
+            return a?.kind === 'offer_contact' && (from === observer || a.to === observer)
+                ? [{ from, to: a.to, sequence: invitationSequence(world, a.to, { kind: 'accept_contact', from }), form: a.form }] : [];
         }),
         contacts: PERSON_IDS.flatMap(from => {
             const a = world.people[from].activity, visible = (id: PersonId) => id === observer || people.some(p => p.id === id);

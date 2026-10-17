@@ -66,6 +66,9 @@ export function operate(source: Journey, authority: Authority, actor: PersonId, 
         record(world, { kind: 'started', actor, activity: 'guard' }, person.position, 'sight', land, [actor]);
         return world;
     }
+    // Pointing somewhere else while walking changes the destination; it is not a new departure.
+    const retargeting = operation.kind === 'travel' && person.activity?.kind === 'travel';
+    if (retargeting) { person.activity = null; }
     if (person.activity) { fail('occupied'); }
     switch (operation.kind) {
         case 'offer_contact': offerContact(world, actor, operation.to, operation.form, land); break;
@@ -94,7 +97,7 @@ export function operate(source: Journey, authority: Authority, actor: PersonId, 
                 from = point;
             }
             person.activity = { kind: 'travel', route: structuredClone(operation.route) };
-            record(world, { kind: 'departed', actor }, person.position, 'sight', land, [actor]);
+            if (!retargeting) { record(world, { kind: 'departed', actor }, person.position, 'sight', land, [actor]); }
             break;
         }
         case 'rest':

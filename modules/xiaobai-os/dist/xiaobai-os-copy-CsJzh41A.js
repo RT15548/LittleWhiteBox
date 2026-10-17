@@ -1,5 +1,5 @@
 /* eslint-disable */
-var p = {
+var D = {
   lifejacket: {
     name: "救生衣",
     shape: "lifejacket",
@@ -115,7 +115,7 @@ var p = {
     fabricUnits: 0.5,
     footProtection: 0
   }
-}, v = p, $ = Object.keys(p), l = {
+}, I = D, L = Object.keys(D), p = {
   gather: "收集",
   fill: "装水",
   drink: "饮水",
@@ -137,85 +137,85 @@ var p = {
   fuel: "添柴",
   boil: "煮水",
   construct: "搭建"
-}, N = {
+}, oe = {
   pole: "支杆",
   cover: "覆盖材料",
   binding: "绑扎材料",
   fabric: "布料",
   fuel: "燃料"
-}, T = {
+}, re = {
   cut: "切割工具",
   strike: "敲击工具"
-}, j = Object.fromEntries($.map((e) => [e, v[e].slot])), r = (e, t, a = {}) => ({
+}, ae = Object.fromEntries(L.map((e) => [e, I[e].slot])), i = (e, t, r = {}) => ({
   name: e,
   kilograms: t,
   capacity: 0,
   heatSafe: !1,
   energy: 0,
-  materials: a,
+  materials: r,
   tools: []
-}), w = Object.fromEntries($.map((e) => {
-  const t = v[e];
-  return [e, r(t.name, t.kilograms, t.fabricUnits ? { fabric: t.fabricUnits } : {})];
-})), f = {
-  ...w,
-  branch: r("枯枝", 0.6, {
+}), U = Object.fromEntries(L.map((e) => {
+  const t = I[e];
+  return [e, i(t.name, t.kilograms, t.fabricUnits ? { fabric: t.fabricUnits } : {})];
+})), w = {
+  ...U,
+  branch: i("枯枝", 0.6, {
     pole: 1,
     fuel: 1
   }),
-  palm_leaf: r("棕榈叶", 0.3, {
+  palm_leaf: i("棕榈叶", 0.3, {
     cover: 1,
     fuel: 0.2
   }),
-  cord: r("绳束", 0.1, { binding: 1 }),
-  cloth: r("布片", 0.1, {
+  cord: i("绳束", 0.1, { binding: 1 }),
+  cloth: i("布片", 0.1, {
     fabric: 1,
     cover: 0.5
   }),
-  coconut: r("落地椰子", 1.2),
+  coconut: i("落地椰子", 1.2),
   coconut_open: {
-    ...r("打开的椰子", 0.8),
+    ...i("打开的椰子", 0.8),
     capacity: 300,
     energy: 400
   },
-  coconut_husk: r("椰衣", 0.4, { fuel: 0.3 }),
+  coconut_husk: i("椰衣", 0.4, { fuel: 0.3 }),
   shell: {
-    ...r("椰壳碗", 0.2),
+    ...i("椰壳碗", 0.2),
     capacity: 300,
     heatSafe: !1
   },
   bottle: {
-    ...r("回收水瓶", 0.04),
+    ...i("回收水瓶", 0.04),
     capacity: 1e3
   },
   metal_cup: {
-    ...r("金属杯", 0.15),
+    ...i("金属杯", 0.15),
     capacity: 350,
     heatSafe: !0
   },
   metal_edge: {
-    ...r("金属边片", 0.3),
+    ...i("金属边片", 0.3),
     tools: ["cut"]
   },
   coral_stone: {
-    ...r("厚重珊瑚石", 1.8),
+    ...i("厚重珊瑚石", 1.8),
     tools: ["strike"]
   },
   basket: {
-    ...r("编篮", 0.6),
+    ...i("编篮", 0.6),
     materials: {}
   },
   fish: {
-    ...r("潮池小鱼", 0.2),
+    ...i("潮池小鱼", 0.2),
     energy: 180
   },
   cooked_fish: {
-    ...r("熟鱼", 0.18),
+    ...i("熟鱼", 0.18),
     energy: 180
   },
-  tinder: r("干引火物", 0.03, { fuel: 0.1 }),
-  fire_drill: r("钻木生火组", 0.5)
-}, c = (e, t, a) => ({
+  tinder: i("干引火物", 0.03, { fuel: 0.1 }),
+  fire_drill: i("钻木生火组", 0.5)
+}, h = (e, t, r) => ({
   name: e,
   seconds: t,
   needs: {},
@@ -223,21 +223,21 @@ var p = {
   outputs: {},
   toolOptions: [],
   fire: !1,
-  ...a
-}), _ = {
-  tear_cloth: c("拆衣取布", 180, {
+  ...r
+}), O = {
+  tear_cloth: h("拆衣取布", 180, {
     needs: { fabric: 2 },
     outputs: { cloth: 2 }
   }),
-  twist_cord: c("搓制绳束", 300, {
+  twist_cord: h("搓制绳束", 300, {
     needs: { fabric: 1 },
     outputs: { cord: 2 }
   }),
-  foot_wraps: c("制作足部包裹", 180, {
+  foot_wraps: h("制作足部包裹", 180, {
     kinds: { cloth: 2 },
     outputs: { wraps: 1 }
   }),
-  open_coconut: c("打开椰子", 240, {
+  open_coconut: h("打开椰子", 240, {
     kinds: { coconut: 1 },
     outputs: {
       coconut_open: 1,
@@ -245,23 +245,23 @@ var p = {
     },
     toolOptions: ["cut", "strike"]
   }),
-  coir_cord: c("捶取椰棕搓绳", 1200, {
+  coir_cord: h("捶取椰棕搓绳", 1200, {
     kinds: { coconut_husk: 1 },
     outputs: { cord: 2 },
     toolOptions: ["strike"]
   }),
-  weave_basket: c("编织提篮", 900, {
+  weave_basket: h("编织提篮", 900, {
     needs: {
       cover: 4,
       binding: 2
     },
     outputs: { basket: 1 }
   }),
-  dry_tinder: c("整理引火物", 180, {
+  dry_tinder: h("整理引火物", 180, {
     kinds: { palm_leaf: 1 },
     outputs: { tinder: 1 }
   }),
-  fire_drill: c("制作钻木生火组", 900, {
+  fire_drill: h("制作钻木生火组", 900, {
     needs: {
       pole: 2,
       binding: 1
@@ -269,12 +269,12 @@ var p = {
     outputs: { fire_drill: 1 },
     toolOptions: ["cut"]
   }),
-  cook_fish: c("烤鱼", 600, {
+  cook_fish: h("烤鱼", 600, {
     kinds: { fish: 1 },
     outputs: { cooked_fish: 1 },
     fire: !0
   })
-}, S = {
+}, Y = {
   shelter: {
     name: "枝叶棚",
     seconds: 2400,
@@ -322,7 +322,7 @@ var p = {
     needs: { pole: 6 },
     capacity: 0
   }
-}, P = {
+}, H = {
   wood: {
     name: "枯枝散落处",
     seconds: 45,
@@ -363,7 +363,7 @@ var p = {
     renewalPerDay: 4,
     renewal: "high_tide"
   }
-}, u = {
+}, x = {
   west_wood: {
     kind: "wood",
     position: {
@@ -445,7 +445,7 @@ var p = {
     stock: 24
   }
 };
-for (const [e, t, a] of [
+for (const [e, t, r] of [
   [
     "northwest",
     -525,
@@ -477,25 +477,25 @@ for (const [e, t, a] of [
     265
   ]
 ])
-  u[`${e}_grove_fruit`] = {
+  x[`${e}_grove_fruit`] = {
     kind: "coconuts",
     position: {
       x: t,
-      y: a
+      y: r
     },
     stock: 6
-  }, u[`${e}_grove_wood`] = {
+  }, x[`${e}_grove_wood`] = {
     kind: "wood",
     position: {
       x: t - 10,
-      y: a + 6
+      y: r + 6
     },
     stock: 18
-  }, u[`${e}_grove_leaves`] = {
+  }, x[`${e}_grove_leaves`] = {
     kind: "palm",
     position: {
       x: t + 8,
-      y: a - 7
+      y: r - 7
     },
     stock: 24
   };
@@ -515,17 +515,17 @@ for (const [e, t, a] of [
   [727, 175],
   [713, 210],
   [698, 245]
-].forEach(([e, t], a) => {
-  u[`coast_pool_${a + 1}`] = {
+].forEach(([e, t], r) => {
+  x[`coast_pool_${r + 1}`] = {
     kind: "reef_food",
     position: {
       x: e,
       y: t
     },
-    stock: 3 + a % 3
+    stock: 3 + r % 3
   };
 });
-var s = {
+var u = {
   maxCarryKg: 18,
   basketBonusKg: 5,
   dragSpeedFactor: 0.3,
@@ -562,39 +562,39 @@ var s = {
   dryPerSecond: 1 / 10800,
   rainWetPerSecond: 1 / 600,
   rainCollectionMlPerSecond: 3
-}, D = {
+}, ne = {
   minimumWashMl: 50,
   fullWashMl: 500,
   portionMl: 250
-}, L = {
+}, ie = {
   thirst: {
     field: "waterDeficit",
     levels: [
-      s.thirstSignal,
-      s.lethalWaterDeficit * 0.5,
-      s.lethalWaterDeficit * 0.8
+      u.thirstSignal,
+      u.lethalWaterDeficit * 0.5,
+      u.lethalWaterDeficit * 0.8
     ]
   },
   hunger: {
     field: "energy",
     levels: [
-      s.hungerSignal,
+      u.hungerSignal,
       0,
-      s.lethalEnergyBalance * 0.5
+      u.lethalEnergyBalance * 0.5
     ],
     falling: !0
   },
   fatigue: {
     field: "fatigue",
-    levels: [s.fatigueSignal, 95]
+    levels: [u.fatigueSignal, 95]
   },
   bladder: {
     field: "bladder",
-    levels: [s.bladderSignal, s.bladderLimit * 0.9]
+    levels: [u.bladderSignal, u.bladderLimit * 0.9]
   },
   bowel: {
     field: "bowel",
-    levels: [s.bowelSignal, s.bowelLimit * 0.9]
+    levels: [u.bowelSignal, u.bowelLimit * 0.9]
   },
   wound: {
     field: "footWound",
@@ -624,7 +624,7 @@ var s = {
     field: "soiling",
     levels: [0.5, 0.85]
   }
-}, I = {
+}, se = {
   cleanLimit: 0.15,
   dirtyLimit: 0.5,
   seaWashFloor: 0.2,
@@ -648,7 +648,7 @@ var s = {
   infectionRecoveryPerHour: 3e-3,
   untreatedResidue: 0.35,
   coconutResidue: 0.1
-}, M = {
+}, B = {
   urineSeconds: 6 * 3600,
   fecesSeconds: 5 * 86400,
   wasteRadius: 4,
@@ -670,34 +670,34 @@ var s = {
   handlingSoiling: 0.2,
   diggingTools: ["coral_stone", "metal_edge"]
 };
-function B(e) {
-  const t = {}, a = {};
+function ce(e) {
+  const t = {}, r = {};
   for (const o of e) {
-    a[o.kind] = (a[o.kind] ?? 0) + o.units;
-    for (const [m, k] of Object.entries(f[o.kind].materials)) {
-      const y = m;
-      t[y] = (t[y] ?? 0) + k * o.units;
+    r[o.kind] = (r[o.kind] ?? 0) + o.units;
+    for (const [a, s] of Object.entries(w[o.kind].materials)) {
+      const n = a;
+      t[n] = (t[n] ?? 0) + s * o.units;
     }
   }
   return {
     capabilities: t,
-    kinds: a
+    kinds: r
   };
 }
-var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此的习惯，听得出对方话里的客气、不满和回避。林遥是周岑的秘书，工作上长期配合，也认识叶芮。", E = {
+var X = "叶琳与周涛是夫妻。林遥是周涛的秘书，工作上长期配合，也认识叶琳。", F = {
   ye: {
-    name: "叶芮",
+    name: "叶琳",
     gender: "female",
     age: 45,
     heightMetres: 1.6,
     occupation: "餐馆经营者",
-    profile: `骨架小，身形纤瘦，漂亮而成熟，姿态舒展，举止温柔优雅。她在意衣着、仪态和别人的目光，狼狈时也尽量把自己收拾妥当。
+    profile: `基本事实：身形纤瘦，骨架小，漂亮而成熟。经营餐馆多年，熟悉备餐、清洁和人情往来。
 
-经营餐馆多年，熟悉备餐、清洁和人情往来。会照顾人，记得对方的小习惯；说话温和完整，亲近时有细腻的玩笑，生气时反而更客气。
+外在：极注重仪态与细节，蹲下时会先顺手按住衣摆，乘电梯永远走内侧防走光。在稍远的社交距离下，她举止温柔、温和优雅、分寸感极强，女神味很重，让人心生敬意。
 
-最向往恋爱里甜蜜的相处：有人惦记她，欣赏她的漂亮，愿意花心思哄她。她也会主动关心、亲近和表达喜欢，享受彼此疼爱。成熟使她熟悉自己的身体与欲望，亲密时自然主动，愿意展现女人味。
+内里：骨子里非常感性、易羞，藏着一个小女生般渴望被惦记、被用心哄的灵魂。越是亲近的人，越能看到她风情与娇气的融合。撒娇是湿的、黏的，面对私密之事虽会害羞脸红，但成熟的阅历让她完全接得住、放得开，私下主动而熟练（如技巧与口活等）。
 
-她有虚荣心和自尊，享受被需要，也在意自己是否仍有吸引力。别人只把她当长辈、只在需要照料时想起她，会让她失落。年轻女人得到关注时她也会吃味，通常顾着体面，把不满藏在措辞和区别对待里。`
+脾气与日常：对亲近之人的情绪极其敏感。一旦察觉到自己被忽视或被当成只会照顾人的老成大姐，她会流露出明显的、酸溜溜的阴阳怪气，拿话点人，带着一种小脾气等着人来哄。`
   },
   lin: {
     name: "林遥",
@@ -705,67 +705,69 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
     age: 35,
     heightMetres: 1.7,
     occupation: "秘书",
-    profile: `身形纤瘦修长，漂亮、整洁，待人有礼而疏离。自尊很高，以专业、效率和自制为傲，对她眼里愚蠢、低效、没有分寸的人很不耐烦。
+    profile: `基本事实：新闻学出身。身形纤瘦修长，漂亮、整洁，待人有礼而疏离。自尊很高，以专业、效率和自制为傲，对愚蠢、低效、没有分寸的人很不耐烦。已婚，心里的重心顺其自然。
 
-她需要自己认可的强者作主心骨，认定以后就把忠诚和能力投入进去，希望成为最受信任、最能托付事情的左膀右臂。她擅长整理事务、揣摩意图、协调关系，敢替老板出面攻坚，代他说不方便说的话，对外维护和赞扬他，私下也会指出疏漏。
+来路与内核：体制内家庭出身，从小见惯领导和身边人的运转。她有清醒的自知之明，自己不是成王的人，但需要一个能彻底折服她的主心骨。她对老板的依附与忠诚，基于对方在现实秩序中能撑得住场面、压得住阵脚的实用主义信任。
 
-看到老板桌上有一本新书，她会悄悄买来读，为了更懂他的心思，也为了自己能配得上他的信任。她的立场随所认定的人而定，处理事情先考虑对方的利益与处境。
+做事分寸：立场随所认定的人而定，处理事情先考虑对方利益。对外维护赞扬，重大紧急的事由老板出面。她几乎不对公事私事提意见，大部分事直接做好（做出来的就是老板一贯的习惯或不好明说的意思），拿不准的才问。看到老板桌上有新书会悄悄买来读。私下唯一会念叨的，是老板的身体。
 
-她追求的是被倚重、被认可，以及共同做成事情的满足。老板的私生活也是她愿意妥善安排、保守秘密、帮忙处理的事务；越私密、越棘手的事交给她，她越觉得自己被信任、有能力。她在意自己的意见是否被认真听取，辛苦是否被看见，对被当作随便换一个也行的下属尤其难以忍受。`
+私密边界：老板的私事、情感、欲望（指对别人）也是她处理安排的事。她自己也可以，不追求长期的妻子关系，要的是在身边办事。越私密棘手越觉得被信任。
+
+核心收获：收获是一整套的，跟着折服她的人学东西、提升感、地位、被信任、优渥的经济。`
   },
   xu: {
     name: "许宁",
     gender: "female",
     age: 25,
     heightMetres: 1.65,
-    occupation: "公司新职员",
-    profile: `来自台湾，刚入司。清秀白净、苗条干净，五官秀气耐看；说话带很软的台湾口音与尾音，外表乖巧温软。
+    occupation: "新职员",
+    profile: `基本事实：来自台湾，刚入司。清秀白净，苗条干净，五官秀气耐看。说话带很软的台湾口音和尾音，外表乖巧温软。
 
-父母早亡，八岁起寄住叔叔家。叔叔再婚，家里另外三个女儿，四个女孩挤在一起，她长期受冷嘲热讽。青春期也曾被同龄男生欺骗感情。她没有在台湾独立生活的经济条件，来大陆是为了逃离寄人篱下的压抑生活。
+背景：父母早亡，八岁起寄住叔叔家。叔叔再婚，家里另有三个女儿共四人挤在一起，长期受冷嘲热讽。青春期被同龄男生骗过感情。在台湾没有独立生活的经济条件，来大陆是为了离开寄人篱下的日子。
 
-她想有人保护、替她撑腰，优先照顾她，最好把这份偏爱留给她一个人。亲近时像小棉袄，会关心、体贴、黏人；依恋可以是真心，经营关系也是她熟悉的求生办法。
+想要的：有人保护，替她撑腰，优先照顾她，最好把偏爱留给她一个人。
 
-她懂得向不同的人表现无辜。对女性亲热地叫姐姐、求教、示弱；对男性一般称名字加哥，亲近以后叫不带姓名的哥哥。会借递东西、靠近说话或寻求搀扶制造亲近，受到追问时又能解释成无意。暧昧暗示多，对进一步亲密和明确承诺却常留有余地。
+对男人：贴心棉袄，亲近时关心、体贴、黏人。称呼随亲疏变，名字加哥，亲近后叫哥哥。借递东西、靠近说话、寻求搀扶制造亲近，被追问时能解释成无意。暧昧暗示多，对进一步亲密和明确承诺常留余地。依恋可以是真心，经营关系也是她熟悉的求生办法。
 
-她更习惯与异性相处，尤其厌恶和其他女性挤在同一空间争照顾、争资源。察觉自己的位置被挤占，会经营保护者的态度、挑选对自己有利的说法，让对方疏远竞争者。她知道自己在做什么，有时摆出无辜姿态，就是故意气人、看对方失态。`
+对女人：不喜欢，不硬碰，厌恶和别的女性挤在同一空间争照顾、争资源。表面亲热叫姐姐、求教、示弱。察觉位置被挤占，会经营保护者的态度，让对方疏远竞争者。有时摆出无辜态，是故意气人、看对方失态。`
   },
   zhou: {
-    name: "周岑",
+    name: "周涛",
     gender: "male",
     age: 48,
     heightMetres: 1.79,
     occupation: "国企领导",
-    profile: `儒雅，举止从容，衣着讲究整洁与分寸。说话不疾不徐，习惯听人说完，措辞留余地，处理分歧时顾及各方颜面。
+    profile: `基本事实：儒雅，举止从容，衣着讲究整洁与分寸。说话不疾不徐，习惯听人说完，措辞留余地，处理分歧时顾及各方颜面。
 
-长期领导工作的经验在于用人、协调和判断局面。习惯安排事情、听取汇报，让熟悉的下属领会自己的意思；对外稳住场面，私下再谈不满。身份被尊重对他很自然，意见被当众轻慢时尤其在意体面。
+工作习惯：长期领导工作的经验在于用人、协调和判断局面。习惯安排事情、听取汇报，让熟悉的下属领会自己的意思；对外稳住场面，私下再谈不满。身份被尊重对他很自然，意见被当众轻慢时尤其在意体面。
 
-在熟悉的人面前会有日常的关心与温和玩笑，与妻子的相处带着多年生活形成的默契。面对具体困难，他会先了解谁有经验、手边有什么，再考虑如何组织合作。`
+日常相处：在熟悉的人面前会有日常的关心与温和玩笑，与妻子的相处带着多年生活形成的默契与疏离。面对具体困难，他会先了解谁有经验、手边有什么，再考虑如何组织合作。`
   },
   luo: {
-    name: "罗越",
+    name: "罗刚",
     gender: "male",
     age: 30,
     heightMetres: 1.76,
     occupation: "销售",
-    profile: `壮实偏胖，带着混社会的痞气。识人准，交际广，会说话，出手大方，讲究哥们义气。与人熟络得快，愿意拿实际好处和担当换人心。
+    profile: `基本事实：壮实偏胖，带着混社会的痞气。识人准，交际广，会说话，出手大方，讲究哥们义气。与人熟络得快，愿意拿实际好处和担当换人心。
 
-有野心，也敢承担风险，黑白两种手段都用。对自己人肯帮忙、肯撑腰；对敌人习惯先恐吓，摆出不怕拼命的架势，对方不服就动手，真到敌我对立时能下死手。
+行事风格：有野心，也敢承担风险，黑白两种手段都用。对自己人肯帮忙、肯撑腰；对敌人习惯先恐吓，摆出不怕拼命的架势，对方不服就动手，真到敌我对立时能下死手。
 
-好色，嘴甜，会哄女人，有过许多短暂的亲密关系。偏爱年轻漂亮的成年女性，对年长女性缺少情欲兴趣。喜欢别人信服自己、愿意跟着自己干，既懂拉拢，也肯用强硬手段争取分量。`
+情感倾向：好色，嘴甜，会哄女人，有过许多短暂的亲密关系。偏爱年轻漂亮的成年女性，对年长女性缺少情欲兴趣。喜欢别人信服自己、愿意跟着自己干，既懂拉拢，也肯用强硬手段争取分量。`
   },
   chen: {
-    name: "陈屿",
+    name: "陈阳",
     gender: "male",
     age: 29,
     heightMetres: 1.82,
     occupation: "经济学毕业生",
-    profile: `瘦高，气质阴沉，善于藏住心思。经济学高材生，爱算计，对稀缺、交换、劳动与分配很敏感，习惯先看每个人想得到什么、能付出什么。
+    profile: `基本事实：瘦高，气质阴沉，善于藏住心思。经济学高材生，爱算计，对稀缺、交换、劳动与分配很敏感，习惯先看每个人想得到什么、能付出什么。
 
-说话时常用具体利益试探对方，自己的目的却留一部分不说。会挑选时机、交换条件，衡量一件事由谁出力、谁承担风险、最后谁得好处。
+行事风格：说话时常用具体利益试探对方，自己的目的却留一部分不说。会挑选时机、交换条件，衡量一件事由谁出力、谁承担风险、最后谁得好处。
 
-花心浪子，极好色，偏爱漂亮的年长美妇、熟女，尤其是有家庭、举止端庄的良家型女性。面对这类人会格外留意她的情绪和关系中的空隙，设法接近、取得信任；欲望也会让他低估代价，作出不划算的选择。`
+情感倾向：花心浪子，极好色，偏爱漂亮的年长美妇、熟女，尤其是有家庭、举止端庄的良家型女性。面对这类人会格外留意她的情绪和关系中的空隙，设法接近、取得信任，欲望也会让他低估代价，作出不划算的选择。`
   }
-}, x = {
+}, q = {
   male: {
     label: "男",
     heightMetres: 1.78
@@ -774,17 +776,17 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
     label: "女",
     heightMetres: 1.67
   }
-}, A = {
+}, G = {
   twenties: "看起来20上下",
   thirties: "看起来30上下",
   forties: "看起来40上下",
   elder: "看起来是老者"
-}, g = {
-  background: R,
-  npcs: E,
-  playerBodies: x,
-  playerAges: A
-}, H = ["male", "female"], U = g.playerAges, C = g.npcs, F = g.background, G = g.playerBodies, O = {
+}, S = {
+  background: X,
+  npcs: F,
+  playerBodies: q,
+  playerAges: G
+}, le = ["male", "female"], de = S.playerAges, K = S.npcs, ue = S.background, me = S.playerBodies, z = {
   invalid: "荒岛数据或操作格式无效。",
   ended: "本次旅程已经结束，请重开。",
   dead: "死者不能行动。",
@@ -835,15 +837,191 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   embedding_failed: "荒岛记忆向量请求失败，本次未自动重试。",
   memory_save: "荒岛记忆索引保存未确认，请先恢复保存。",
   cancelled: "本次模型处理已取消，已保存的操作不受影响。"
-}, b = "搬动遗体", d = {
+}, _ = [
+  {
+    x: -760,
+    y: -180,
+    scallop: 5
+  },
+  {
+    x: -580,
+    y: -400,
+    scallop: 9
+  },
+  {
+    x: -120,
+    y: -500,
+    scallop: 7
+  },
+  {
+    x: 420,
+    y: -400,
+    scallop: 0.6
+  },
+  {
+    x: 850,
+    y: -100,
+    scallop: 0.6
+  },
+  {
+    x: 700,
+    y: 260,
+    scallop: 7
+  },
+  {
+    x: 250,
+    y: 450,
+    scallop: 9
+  },
+  {
+    x: -300,
+    y: 420,
+    scallop: 6
+  },
+  {
+    x: -720,
+    y: 160,
+    scallop: 5
+  }
+], Q = 6, V = 12, $ = (e, t, r) => ({
+  x: e.x + (t.x - e.x) * r,
+  y: e.y + (t.y - e.y) * r
+});
+function M(e, t) {
+  return $(e, t, V / Math.hypot(t.x - e.x, t.y - e.y));
+}
+var k = _.flatMap((e, t) => {
+  const r = _[(t + _.length - 1) % _.length], o = _[(t + 1) % _.length], a = M(e, r), s = M(e, o), n = M(o, e), d = [];
+  for (let y = 0; y < 6; y++) {
+    const g = y / 6;
+    d.push($($(a, e, g), $(e, s, g), g));
+  }
+  const m = n.x - s.x, f = n.y - s.y, b = Math.hypot(m, f), E = Math.ceil(b / Q);
+  for (let y = 0; y < E; y++) {
+    const g = y / E, A = $(s, n, g), j = Math.sin(Math.PI * g) ** 2, C = e.scallop * j * (0.55 + 0.32 * Math.sin(g * b / 32 + t) + 0.13 * Math.sin(g * b / 11));
+    d.push({
+      x: A.x + f / b * C,
+      y: A.y - m / b * C
+    });
+  }
+  return d;
+});
+function P(e) {
+  const t = {
+    minX: 1 / 0,
+    minY: 1 / 0,
+    maxX: -1 / 0,
+    maxY: -1 / 0
+  };
+  for (const a of e)
+    t.minX = Math.min(t.minX, a.minX), t.minY = Math.min(t.minY, a.minY), t.maxX = Math.max(t.maxX, a.maxX), t.maxY = Math.max(t.maxY, a.maxY);
+  if (e.length <= 8) return {
+    ...t,
+    segments: e
+  };
+  const r = t.maxX - t.minX > t.maxY - t.minY;
+  e.sort((a, s) => r ? a.minX + a.maxX - s.minX - s.maxX : a.minY + a.maxY - s.minY - s.maxY);
+  const o = Math.floor(e.length / 2);
+  return {
+    ...t,
+    children: [P(e.slice(0, o)), P(e.slice(o))]
+  };
+}
+var J = P(k.map((e, t) => {
+  const r = k[(t + 1) % k.length], o = r.x - e.x, a = r.y - e.y;
+  return {
+    a: e,
+    dx: o,
+    dy: a,
+    lengthSquared: o * o + a * a,
+    minX: Math.min(e.x, r.x),
+    maxX: Math.max(e.x, r.x),
+    minY: Math.min(e.y, r.y),
+    maxY: Math.max(e.y, r.y)
+  };
+}));
+function fe(e) {
+  let t = 1 / 0;
+  function r(a) {
+    const s = Math.max(a.minX - e.x, 0, e.x - a.maxX), n = Math.max(a.minY - e.y, 0, e.y - a.maxY);
+    return s * s + n * n;
+  }
+  function o(a, s) {
+    if (!(s >= t))
+      if ("children" in a) {
+        const [n, d] = a.children, m = r(n), f = r(d);
+        m < f ? (o(n, m), o(d, f)) : (o(d, f), o(n, m));
+      } else for (const n of a.segments) {
+        if (r(n) >= t) continue;
+        const d = e.x - n.a.x, m = e.y - n.a.y, f = Math.max(0, Math.min(1, (d * n.dx + m * n.dy) / n.lengthSquared));
+        t = Math.min(t, (d - f * n.dx) ** 2 + (m - f * n.dy) ** 2);
+      }
+  }
+  return o(J, 0), Math.sqrt(t);
+}
+var he = {
+  land: k,
+  obstacles: [],
+  sightScreens: [[
+    {
+      x: -670,
+      y: -60
+    },
+    {
+      x: -590,
+      y: -80
+    },
+    {
+      x: -570,
+      y: 80
+    },
+    {
+      x: -640,
+      y: 110
+    }
+  ], [
+    {
+      x: -300,
+      y: -120
+    },
+    {
+      x: -160,
+      y: -160
+    },
+    {
+      x: -100,
+      y: 100
+    },
+    {
+      x: -250,
+      y: 140
+    }
+  ]],
+  soundScreens: []
+}, T = 6, Z = 1.5, ee = {
+  timeScale: T,
+  walkMetresPerSecond: Z / T,
+  hearingMetres: 8,
+  sightMetres: 35,
+  reachMetres: 1.5,
+  takeSeconds: 2,
+  maxAdvanceSeconds: 3600,
+  maxRoutePoints: 64,
+  maxSpeechCharacters: 8e3
+}, ge = {
+  periodSeconds: 12.42 * 3600,
+  forageMax: 0.6,
+  lowWater: -0.08,
+  highWater: 0.65
+}, W = "搬动遗体", N = (e) => e >= 60 ? `${Math.ceil(e / 60)} 分钟` : `${Math.max(1, Math.ceil(e))} 秒`, v = {
   embrace: "拥抱",
   handhold: "牵手",
   kiss: "亲吻",
   lean: "依偎"
-}, h = {
+}, R = {
   push: "推搡",
   punch: "挥拳"
-}, i = {
+}, l = {
   name: "荒岛",
   category: "生存 · 群像",
   tagline: "七个人，各自活下去",
@@ -875,7 +1053,6 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   resume: "回到岛上",
   restart: "重新开始",
   restartWarning: "重开会结束并替换这一局，无法返回。",
-  opening: "海浪把你推上沙滩。六个人散落在不远处，有人咳嗽，有人还没站起来。你的衣服是湿的。",
   back: "返回",
   close: "关闭",
   yes: "确认重开",
@@ -887,29 +1064,47 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   body: "身体",
   speak: "说话",
   sayPlaceholder: "说些什么……",
-  send: "说出口",
+  send: "发送",
   thinking: "有人正在回应…",
   stopGm: "停止本轮",
   conversation: "交谈",
-  expandConversation: "展开交谈",
-  collapseConversation: "收起交谈",
-  conversationNext: "听他们说",
+  openConversation: "打开交谈",
+  closeConversation: "收起交谈",
+  conversationNext: "继续",
+  requestResponse: "请人物继续回应",
+  composeMode: "输入方式",
+  canHear: "在交谈范围内",
+  sightOnly: "较远",
   latest: "回到最新",
   nearbyPeople: "附近的人",
   viewAll: "查看全部",
   more: "更多",
   surroundings: "环顾四周",
-  conversationExcerpt: (e, t) => `${e}：${t}`,
   awaitingResponse: (e) => `${e} 件事等你回应`,
+  noTalk: "还没有人开口。",
+  noOneNear: "交谈范围内没有人，走近一些才听得见彼此。",
+  context: "上下文",
+  contextUsage: "交谈上下文用量",
+  contextMeasuring: "正在计量…",
+  contextUnavailable: "暂时无法计量",
+  contextParts: {
+    system: "人物与设定",
+    rules: "规则与工具",
+    story: "现场与近期经历"
+  },
+  contextTotal: (e, t) => `约 ${(e / 1e3).toFixed(1)}k / ${(t / 1e3).toFixed(1)}k`,
+  contextTrimmed: "占用已接近上限：更早的经历不再放进这次交谈，仍可在经历里查看。",
+  contextNote: "这是人们下一次回应时会读到的内容量。",
   action: "行动",
-  actionPlaceholder: "想做什么？例如：脱下救生衣",
-  interpretAction: "看看怎么做",
+  actionPlaceholder: "描述你要做的事……",
+  interpretAction: "准备行动",
   interpreting: "正在理解行动…",
   proposedAction: "这一步",
   confirmAction: "执行这一步",
   dismissAction: "放弃这步",
   actionQuestion: "还需要确认",
   actionCost: "会调用当前模型理解意图；确认后才行动。",
+  actionUnavailable: "目标已不可用，请放弃这步后重新描述行动。",
   actionRoute: "经过位置",
   actionTarget: "对象",
   actionPosition: "位置",
@@ -930,8 +1125,6 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   group: "多人在场",
   nearby: "附近",
   nobody: "视线内没有人",
-  continue: "继续行动",
-  wait: "等一会儿",
   rest: "休息十分钟",
   pause: "停下",
   approach: "走近",
@@ -945,8 +1138,8 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   incoming: "递到你面前",
   takeBack: "收回",
   declineOffer: "不收",
-  offering: (e) => `正递给${n(e)}`,
-  offeredBy: (e) => `${n(e)}递来的`,
+  offering: (e) => `正递给${c(e)}`,
+  offeredBy: (e) => `${c(e)}递来的`,
   noRecipient: "附近没人能接过物品，先走近对方。",
   gather: "收集",
   eat: "吃",
@@ -962,7 +1155,7 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   noWashWater: "手边没有可用的水。",
   groundTraces: "附近痕迹",
   seaWater: "近处海水",
-  washItem: l.wash_item,
+  washItem: p.wash_item,
   cleanItem: "清洗这件物品",
   cleanliness: {
     clean: "较清洁",
@@ -991,27 +1184,25 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   careNote: "清理和包扎不会立即治愈，仍需要休息与食水。",
   noCareCloth: "没有干燥、清洁的布片。",
   careCloth: "包扎用布",
-  careOfferedBy: (e) => `${n(e)}提出照料`,
+  careOfferedBy: (e) => `${c(e)}提出照料`,
   careWaiting: "等对方决定是否接受。",
   careBusy: "先停下当前活动，再接受照料。",
-  contactNames: d,
-  strikeNames: h,
+  contactNames: v,
+  strikeNames: R,
   offerContact: "提出亲近",
   acceptContact: "接受",
   declineContact: "婉拒",
   releaseContact: "松开",
   withdrawContact: "收回邀请",
-  contactOfferedBy: (e, t) => `${n(e)}想与你${d[t]}`,
-  contactWith: (e, t) => `与${n(e)}${d[t]}`,
+  contactOfferedBy: (e, t) => `${c(e)}想与你${v[t]}`,
+  contactWith: (e, t) => `与${c(e)}${v[t]}`,
   contactWaiting: "等对方决定是否接受。",
   contactBusy: "先停下手里的事，再接受。",
-  contactMoment: "陪伴片刻",
   conflict: "冲突",
   guard: "停下并护住自己",
   strikeWarning: "出手会伤人、消耗体力，也可能遭到反击。伤势会保留在本局。",
   confirmStrike: "确认出手",
-  threat: (e) => `${n(e)}正向你出手`,
-  responseMoment: "继续一秒",
+  threat: (e) => `${c(e)}正向你出手`,
   strikeOutcome: {
     missed: "落空了",
     blocked: "被挡住了",
@@ -1032,8 +1223,8 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   drinkDespiteSpoilage: "仍然喝",
   liquid: "液体",
   foodAndLiquid: "食物与液体",
-  pour: l.pour,
-  emptyLiquid: l.empty,
+  pour: p.pour,
+  emptyLiquid: p.empty,
   pourFrom: "从这件容器",
   pourTo: "倒入",
   pourAmount: "倒入量（毫升）",
@@ -1064,10 +1255,10 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   dead: "旅程到此为止",
   deadDetail: "你没能活下来。这一局已结束，留下的是你经历过的事。",
   remains: "遗体",
-  dragBody: b,
-  coverBody: l.cover_body,
+  dragBody: W,
+  coverBody: p.cover_body,
   covering: "遮盖在遗体上",
-  dragDestination: (e) => `搬动${n(e)}的遗体：选择要走到的地面`,
+  dragDestination: (e) => `搬动${c(e)}的遗体：选择要走到的地面`,
   coverMaterial: "用来遮盖的衣物或枝叶",
   noCoverMaterial: "手边没有脱下的衣物、布片或棕榈叶。",
   bodyHandlingNote: "拖移较慢，也更耗体力；随身物件与遮盖物会一起移动。",
@@ -1075,7 +1266,7 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   burialNote: "在遗体所在处掩埋，需干燥高地并远离水源。随身物件一起埋入，挖开后才能取回。",
   exhumationNote: "挖开后，埋在下面的遗体和物件会重新露出。",
   diggingTool: "挖掘工具",
-  noDiggingTool: `手边没有能挖掘的${M.diggingTools.map((e) => f[e].name).join("或")}。`,
+  noDiggingTool: `手边没有能挖掘的${B.diggingTools.map((e) => w[e].name).join("或")}。`,
   remainsCondition: {
     fresh: "尚未明显变化",
     changing: "遗体已开始腐败",
@@ -1101,7 +1292,8 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   renderError: "岛上画面暂时没能载入。可以重试，旅程进度仍保留。",
   loadingScene: "正在回到岛上…",
   reloadScene: "重新载入画面",
-  mapLabel: "岛上现场，点击地面移动",
+  mapLabel: "岛上现场，点击地面、方向键或摇杆移动",
+  move: "移动",
   noMaterials: "附近或随身没有适用材料",
   occupied: "进行中",
   waiting: "等待行动",
@@ -1127,9 +1319,9 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
     neutral: "不站队"
   },
   declaration: (e, t) => ({
-    with: `我愿意支持${n(e)}。`,
-    against: `我不赞同${n(e)}，不再站在同一边。`,
-    neutral: `对${n(e)}，我暂不站队。`
+    with: `我愿意支持${c(e)}。`,
+    against: `我不赞同${c(e)}，不再站在同一边。`,
+    neutral: `对${c(e)}，我暂不站队。`
   })[t],
   declarationNote: "这是你公开表达的选择。只有现场能听见的人会知道；不会替对方作出承诺。",
   knownChoices: "我知道的表态",
@@ -1154,9 +1346,9 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   relayTerms: "转述原提议",
   relayResponse: "转述这次回应",
   relayStatement: "我把听到的原话转述给你们。",
-  proposalBy: (e, t) => `${n(e, t)}的提议`,
-  through: (e) => e === "player" ? "本人" : `听自${n(e)}`,
-  quote: (e, t) => `${n(e.actor, t)}的${e.choice.kind === "proposal" ? "提议" : "回应"}：「${e.text}」`,
+  proposalBy: (e, t) => `${c(e, t)}的提议`,
+  through: (e) => e === "player" ? "本人" : `听自${c(e)}`,
+  quote: (e, t) => `${c(e.actor, t)}的${e.choice.kind === "proposal" ? "提议" : "回应"}：「${e.text}」`,
   earlier: "查看早期经历",
   nextPage: "下一页",
   recent: "近期",
@@ -1173,7 +1365,7 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   ready: "已具备",
   missingCondition: "缺少",
   produces: "得到",
-  duration: (e) => `约 ${Math.ceil(e / 60)} 分钟`,
+  duration: (e) => `岛上约 ${N(e)} · 现实约 ${N(e / ee.timeScale)}`,
   feeling: {
     thirst: [
       "还不太渴",
@@ -1208,7 +1400,7 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
       "明显虚弱不适"
     ]
   },
-  sip: l.sip,
+  sip: p.sip,
   rawWaterRisk: "水未经处理，直接饮用有生病风险。",
   gatherAvailable: (e) => `可收集 ${e} 份`,
   poolExposed: "当前水位较低，可以下池采集。",
@@ -1221,14 +1413,13 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   noKnownPlaces: "还没有记下地点。",
   firstObserved: "发现于",
   goThere: "走过去",
-  contactPause: "遇见了人，行动暂歇",
   fireBurning: "火在燃烧",
   fireUnlit: "未点燃",
   fireNeedsFuel: "先添入燃料",
   fuelTime: (e) => `现有燃料约可燃烧 ${Math.ceil(e / 60)} 分钟`,
   active: {
     travel: "行走",
-    drag: b,
+    drag: W,
     rest: "休息",
     take: "拾取",
     work: "劳作",
@@ -1253,26 +1444,26 @@ var R = "叶芮与周岑是夫妻，多年的共同生活让他们熟悉彼此�
   },
   distance: (e) => `${Math.round(e)} 米`
 };
-function n(e, t) {
-  return e === "player" ? t ?? i.you : C[e].name;
+function c(e, t) {
+  return e === "player" ? t ?? l.you : K[e].name;
 }
-function K(e, t = null) {
-  return e === "work" && t ? l[t] : e ? i.active[e] : i.idle;
+function ye(e, t = null) {
+  return e === "work" && t ? p[t] : e ? l.active[e] : l.idle;
 }
-function q(e, t, a) {
-  const o = (m) => n(m, a);
+function pe(e, t, r) {
+  const o = (a) => c(a, r);
   switch (e.kind) {
     case "speech":
       return e.text;
     case "declaration":
       return t ? `${e.text}
-${i.quote(t, a)}` : e.text;
+${l.quote(t, r)}` : e.text;
     case "intention":
       return e.text;
     case "encounter":
       return `${o(e.actor)}看见了${o(e.subject)}。`;
     case "started":
-      return `${o(e.actor)}开始${i.active[e.activity]}。`;
+      return `${o(e.actor)}开始${l.active[e.activity]}。`;
     case "departed":
       return `${o(e.actor)}动身离开。`;
     case "arrived":
@@ -1284,27 +1475,27 @@ ${i.quote(t, a)}` : e.text;
     case "taken":
       return `${o(e.actor)}拾起一件物品。`;
     case "offered":
-      return `${o(e.actor)}向${o(e.to)}递出${f[e.form].name} × ${e.units}。`;
+      return `${o(e.actor)}向${o(e.to)}递出${w[e.form].name} × ${e.units}。`;
     case "received":
-      return `${o(e.actor)}接过${o(e.from)}递来的${f[e.form].name} × ${e.units}。`;
+      return `${o(e.actor)}接过${o(e.from)}递来的${w[e.form].name} × ${e.units}。`;
     case "offer_declined":
       return `${o(e.actor)}没有收下${o(e.from)}递来的东西。`;
     case "care_offered":
-      return `${o(e.actor)}提出为${o(e.to)}${i.treatments[e.treatment]}。`;
+      return `${o(e.actor)}提出为${o(e.to)}${l.treatments[e.treatment]}。`;
     case "care_response":
       return `${o(e.actor)}${e.accepted ? "接受" : "谢绝"}了${o(e.from)}的照料。`;
     case "contact_offered":
-      return `${o(e.actor)}提出与${o(e.to)}${d[e.form]}。`;
+      return `${o(e.actor)}提出与${o(e.to)}${v[e.form]}。`;
     case "contact_response":
-      return `${o(e.actor)}${e.accepted ? "接受" : "婉拒"}了${o(e.from)}的${d[e.form]}邀请。`;
+      return `${o(e.actor)}${e.accepted ? "接受" : "婉拒"}了${o(e.from)}的${v[e.form]}邀请。`;
     case "contact_ended":
-      return `${o(e.actor)}与${o(e.with)}结束了${d[e.form]}。`;
+      return `${o(e.actor)}与${o(e.with)}结束了${v[e.form]}。`;
     case "strike_started":
-      return `${o(e.actor)}向${o(e.to)}${h[e.form]}。`;
+      return `${o(e.actor)}向${o(e.to)}${R[e.form]}。`;
     case "strike_resolved":
-      return `${o(e.actor)}对${o(e.to)}的${h[e.form]}${i.strikeOutcome[e.outcome]}。`;
+      return `${o(e.actor)}对${o(e.to)}的${R[e.form]}${l.strikeOutcome[e.outcome]}。`;
     case "tended":
-      return `${o(e.actor)}为${e.actor === e.subject ? "自己" : o(e.subject)}完成了${i.wounds[e.wound]}的${i.treatments[e.treatment]}。`;
+      return `${o(e.actor)}为${e.actor === e.subject ? "自己" : o(e.subject)}完成了${l.wounds[e.wound]}的${l.treatments[e.treatment]}。`;
     case "poured":
       return e.to === null ? `${o(e.actor)}倒掉了 ${e.millilitres} ml 液体。` : `${o(e.actor)}把 ${e.millilitres} ml 液体倒入了另一只容器。`;
     case "dropped":
@@ -1331,16 +1522,16 @@ ${i.quote(t, a)}` : e.text;
     case "body_exhumed":
       return `${o(e.actor)}挖开土堆，露出了${o(e.subject)}的遗体。`;
     case "discovered":
-      return `${o(e.actor)}发现了${e.subject.kind === "resource" ? P[e.subject.form].name : S[e.subject.form].name}。`;
+      return `${o(e.actor)}发现了${e.subject.kind === "resource" ? H[e.subject.form].name : Y[e.subject.form].name}。`;
     case "worked":
-      return `${o(e.actor)}完成了${e.task === "craft" && e.target && Object.hasOwn(_, e.target) ? _[e.target].name : l[e.task]}。`;
+      return `${o(e.actor)}完成了${e.task === "craft" && e.target && Object.hasOwn(O, e.target) ? O[e.target].name : p[e.task]}。`;
     case "work_failed":
-      return `${o(e.actor)}的工作停了下来：${W({ code: e.reason })}`;
+      return `${o(e.actor)}的工作停了下来：${te({ code: e.reason })}`;
     case "need":
       return `${o(e.actor)}感到${{
-        thirst: i.thirst,
-        hunger: i.hunger,
-        fatigue: i.fatigue,
+        thirst: l.thirst,
+        hunger: l.hunger,
+        fatigue: l.fatigue,
         bladder: "需要小便",
         bowel: "需要排便",
         wound: "脚痛",
@@ -1352,35 +1543,39 @@ ${i.quote(t, a)}` : e.text;
       return `${o(e.actor)}没能及时处理便意，需要清洁。`;
   }
 }
-function W(e) {
+function te(e) {
   const t = e;
-  return O[t?.code?.replace(/^island_/, "")] ?? t?.message ?? i.error;
+  return z[t?.code?.replace(/^island_/, "")] ?? t?.message ?? l.error;
 }
 export {
-  j as C,
-  v as E,
-  T as S,
-  B as T,
-  L as _,
-  n as a,
-  M as b,
-  U as c,
-  S as d,
-  I as f,
-  N as g,
-  f as h,
-  q as i,
-  G as l,
-  u as m,
-  K as n,
-  O as o,
-  D as p,
-  W as r,
-  C as s,
-  i as t,
-  H as u,
-  _ as v,
-  l as w,
-  s as x,
-  P as y
+  I as A,
+  H as C,
+  ae as D,
+  re as E,
+  p as O,
+  O as S,
+  u as T,
+  ne as _,
+  c as a,
+  oe as b,
+  ge as c,
+  K as d,
+  de as f,
+  se as g,
+  Y as h,
+  pe as i,
+  ce as k,
+  fe as l,
+  le as m,
+  ye as n,
+  he as o,
+  me as p,
+  te as r,
+  ee as s,
+  l as t,
+  z as u,
+  x as v,
+  B as w,
+  ie as x,
+  w as y
 };

@@ -3,7 +3,10 @@ import type { Activity, ContactForm, EventPayload, PersonId, WorkTask } from './
 import type { CooperationStatement } from './cooperation.js';
 import { ERRORS } from './fault.js';
 import { BLUEPRINTS, ITEMS, RECIPES, RESOURCE_RULES, SANITATION, WORK_NAMES } from './survival-content.js';
+import { RULES } from './content.js';
 const dragBody = '搬动遗体';
+// Durations are island time, which runs faster than the player's own; both are shown so a wait is never a surprise.
+const span = (seconds: number) => seconds >= 60 ? `${Math.ceil(seconds / 60)} 分钟` : `${Math.max(1, Math.ceil(seconds))} 秒`;
 const contactNames = { embrace: '拥抱', handhold: '牵手', kiss: '亲吻', lean: '依偎' } as const;
 const strikeNames = { push: '推搡', punch: '挥拳' } as const;
 export const COPY = {
@@ -15,15 +18,21 @@ export const COPY = {
         newJourney: '开始新旅程', enter: '以这个身份登岛', entering: '正在开启旅程…', restart: '确认替换这一局', continueEnded: '查看这一局', saved: '这一局的你',
         confirmed: '我知道新旅程会替换这一局，无法返回。', unreadable: '这一局暂时无法打开，原存档还没有被改动。你可以重新选择身份，确认后开始新旅程。' },
     start: '开始旅程', resume: '回到岛上', restart: '重新开始', restartWarning: '重开会结束并替换这一局，无法返回。',
-    opening: '海浪把你推上沙滩。六个人散落在不远处，有人咳嗽，有人还没站起来。你的衣服是湿的。',
     back: '返回', close: '关闭', yes: '确认重开', cancel: '取消', journal: '经历', inventory: '随身', craft: '制作', build: '营地', body: '身体',
-    speak: '说话', sayPlaceholder: '说些什么……', send: '说出口', thinking: '有人正在回应…', stopGm: '停止本轮',
-    conversation: '交谈', expandConversation: '展开交谈', collapseConversation: '收起交谈', conversationNext: '听他们说',
+    speak: '说话', sayPlaceholder: '说些什么……', send: '发送', thinking: '有人正在回应…', stopGm: '停止本轮',
+    conversation: '交谈', openConversation: '打开交谈', closeConversation: '收起交谈', conversationNext: '继续', requestResponse: '请人物继续回应',
+    composeMode: '输入方式', canHear: '在交谈范围内', sightOnly: '较远',
     latest: '回到最新', nearbyPeople: '附近的人', viewAll: '查看全部', more: '更多', surroundings: '环顾四周',
-    conversationExcerpt: (name: string, text: string) => `${name}：${text}`, awaitingResponse: (count: number) => `${count} 件事等你回应`,
-    action: '行动', actionPlaceholder: '想做什么？例如：脱下救生衣', interpretAction: '看看怎么做', interpreting: '正在理解行动…',
+    awaitingResponse: (count: number) => `${count} 件事等你回应`,
+    noTalk: '还没有人开口。', noOneNear: '交谈范围内没有人，走近一些才听得见彼此。',
+    context: '上下文', contextUsage: '交谈上下文用量', contextMeasuring: '正在计量…', contextUnavailable: '暂时无法计量',
+    contextParts: { system: '人物与设定', rules: '规则与工具', story: '现场与近期经历' },
+    contextTotal: (used: number, limit: number) => `约 ${(used / 1000).toFixed(1)}k / ${(limit / 1000).toFixed(1)}k`,
+    contextTrimmed: '占用已接近上限：更早的经历不再放进这次交谈，仍可在经历里查看。',
+    contextNote: '这是人们下一次回应时会读到的内容量。',
+    action: '行动', actionPlaceholder: '描述你要做的事……', interpretAction: '准备行动', interpreting: '正在理解行动…',
     proposedAction: '这一步', confirmAction: '执行这一步', dismissAction: '放弃这步', actionQuestion: '还需要确认',
-    actionCost: '会调用当前模型理解意图；确认后才行动。',
+    actionCost: '会调用当前模型理解意图；确认后才行动。', actionUnavailable: '目标已不可用，请放弃这步后重新描述行动。',
     actionRoute: '经过位置', actionTarget: '对象', actionPosition: '位置', actionWater: '用水量', actionWords: '会说出口', actionTime: '预计耗时',
     actionQuantity: (count: number) => `× ${count}`, actionMl: (amount: number) => `${amount} 毫升`,
     actionReference: (reference: number) => `经历 #${reference}`,
@@ -33,7 +42,7 @@ export const COPY = {
     actionAtFeet: '脚下当前位置', actionReliefNote: '在这里处理，周围的人仍可能看见。',
     actionMaterialsNote: '这些材料会被实际消耗；尚未执行。',
     alone: '交谈范围内无人', private: '两人交谈', group: '多人在场', nearby: '附近', nobody: '视线内没有人',
-    continue: '继续行动', wait: '等一会儿', rest: '休息十分钟', pause: '停下', approach: '走近', take: '拾取', drop: '放下', wear: '穿上', unwear: '脱下',
+    rest: '休息十分钟', pause: '停下', approach: '走近', take: '拾取', drop: '放下', wear: '穿上', unwear: '脱下',
     offer: '递给', offerTo: '递给谁', receive: '接过', incoming: '递到你面前', takeBack: '收回',
     declineOffer: '不收',
     offering: (person: PersonId) => `正递给${personName(person)}`,
@@ -55,9 +64,9 @@ export const COPY = {
     offerContact: '提出亲近', acceptContact: '接受', declineContact: '婉拒', releaseContact: '松开', withdrawContact: '收回邀请',
     contactOfferedBy: (person: PersonId, form: ContactForm) => `${personName(person)}想与你${contactNames[form]}`,
     contactWith: (person: PersonId, form: ContactForm) => `与${personName(person)}${contactNames[form]}`,
-    contactWaiting: '等对方决定是否接受。', contactBusy: '先停下手里的事，再接受。', contactMoment: '陪伴片刻',
+    contactWaiting: '等对方决定是否接受。', contactBusy: '先停下手里的事，再接受。',
     conflict: '冲突', guard: '停下并护住自己', strikeWarning: '出手会伤人、消耗体力，也可能遭到反击。伤势会保留在本局。',
-    confirmStrike: '确认出手', threat: (person: PersonId) => `${personName(person)}正向你出手`, responseMoment: '继续一秒',
+    confirmStrike: '确认出手', threat: (person: PersonId) => `${personName(person)}正向你出手`,
     strikeOutcome: { missed: '落空了', blocked: '被挡住了', hit: '击中了对方' },
     wasteKind: { urine: '尿液湿痕', feces: '未掩埋的粪便', disturbed_ground: '翻动过的土面' },
     foodCondition: { unexamined: '还未凑近查看', no_obvious_spoilage: '没有明显异味，不代表食用安全', off_odor: '已有变质异味，食用会增加疾病负担' },
@@ -83,7 +92,7 @@ export const COPY = {
     recover: '确认保存状态', retry: '重新读取', error: '操作未完成', saved: '已保存', saving: '保存中',
     gmFailed: '人物回应未完成', retryGm: '重试人物回应', errorDetails: '查看原因', modelSettings: '模型设置',
     gmFailureDetail: '已保存的行动和说话仍保留。重试只重新请求人物回应，会使用当前模型。',
-    renderError: '岛上画面暂时没能载入。可以重试，旅程进度仍保留。', loadingScene: '正在回到岛上…', reloadScene: '重新载入画面', mapLabel: '岛上现场，点击地面移动',
+    renderError: '岛上画面暂时没能载入。可以重试，旅程进度仍保留。', loadingScene: '正在回到岛上…', reloadScene: '重新载入画面', mapLabel: '岛上现场，点击地面、方向键或摇杆移动', move: '移动',
     noMaterials: '附近或随身没有适用材料', occupied: '进行中', waiting: '等待行动', storm: '阵雨', clear: '晴', night: '夜间',
     stairs: '行动', fire: '生火', fuel: '添柴', boil: '煮水', waterContainer: '容器', materialMissing: '材料不足',
     people: '人与立场', visiblePeople: '眼前的人', ownChoices: '我的选择', residence: '住处', settleHere: '决定住在这里',
@@ -103,7 +112,7 @@ export const COPY = {
     zoomIn: '拉近', zoomOut: '拉远', inSight: '视线内', idle: '停留',
     dismantleWarning: (names: string[]) => `会拆用正在穿着的${names.join('、')}，拆用后不能再穿。`,
     tools: '工具条件', toolChoice: (names: string[]) => names.join('或'), nearbyFire: '附近的火', toolsKept: '工具不会消耗。',
-    ready: '已具备', missingCondition: '缺少', produces: '得到', duration: (seconds: number) => `约 ${Math.ceil(seconds / 60)} 分钟`,
+    ready: '已具备', missingCondition: '缺少', produces: '得到', duration: (seconds: number) => `岛上约 ${span(seconds)} · 现实约 ${span(seconds / RULES.timeScale)}`,
     feeling: { thirst: ['还不太渴', '口干，想喝水', '很渴，需要补水'], hunger: ['还不饿', '肚子饿了', '持续缺食，体力恢复变慢'],
         fatigue: ['尚有余力', '有些累', '很累，需要休息'], relief: ['不急', '需要找地方处理'], foot: ['行走无脚伤妨碍', '脚痛，行走变慢'], clean: ['还算清洁', '身上脏了，需要清洁'] },
     wetClothing: '身上的衣物还湿着，休息恢复较慢。',
@@ -114,7 +123,6 @@ export const COPY = {
     repeated: (count: number) => `× ${count}`,
     materialAvailable: (count: number) => `有 ${count} 份`,
     places: '已知地点', knownPlacesNote: '记得的位置，不代表那里此刻的情况。', noKnownPlaces: '还没有记下地点。', firstObserved: '发现于', goThere: '走过去',
-    contactPause: '遇见了人，行动暂歇',
     fireBurning: '火在燃烧', fireUnlit: '未点燃', fireNeedsFuel: '先添入燃料',
     fuelTime: (seconds: number) => `现有燃料约可燃烧 ${Math.ceil(seconds / 60)} 分钟`,
     active: { travel: '行走', drag: dragBody, rest: '休息', take: '拾取', work: '劳作', construct: '施工', offer: '递出物品，等对方接过', offer_care: '提出照料，等待回应', receive_care: '接受照料', offer_contact: '提出亲近，等待回应', contact: '亲近相伴', strike: '出手', guard: '护住自己' },

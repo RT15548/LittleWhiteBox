@@ -17,9 +17,14 @@ export const LANDING: Record<PersonId, Point> = {
     chen: { x: -727, y: 3 }, ye: { x: -729, y: -3 }, luo: { x: -731, y: 0 },
 };
 
+// Game seconds per real second while the island is live, and walking pace as the player sees it. Both are tuning
+// parameters calibrated by play. Time runs fast but people do not: the walking step per game second is derived.
+const TIME_SCALE = 6, WALK_METRES_PER_REAL_SECOND = 1.5;
+
 // Game-scale parameters only. Physiology, terrain hazards and medical rates are not implied.
 export const RULES = {
-    walkMetresPerSecond: 1,
+    timeScale: TIME_SCALE,
+    walkMetresPerSecond: WALK_METRES_PER_REAL_SECOND / TIME_SCALE,
     hearingMetres: 8,
     sightMetres: 35,
     reachMetres: 1.5,

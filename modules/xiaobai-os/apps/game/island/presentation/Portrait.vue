@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { NpcId } from '../model.js';
-import { characterPortrait } from './character-media.js';
-const props = defineProps<{ person: NpcId }>();
-const appearance = computed(() => ({ backgroundImage: `url(${characterPortrait(props.person)})` }));
+import type { PersonId } from '../model.js';
+import type { PlayerIdentity } from '../characters.js';
+import { characterPortrait, playerCharacterKey } from './character-media.js';
+// The player has no fixed portrait: it follows the look chosen at the start, so it needs that identity.
+const props = defineProps<{ person: PersonId; identity?: Pick<PlayerIdentity, 'gender' | 'appearanceAge'> | null }>();
+const appearance = computed(() => ({ backgroundImage: `url(${characterPortrait(props.person === 'player' ? playerCharacterKey(props.identity!) : props.person)})` }));
 </script>
 <template><span class="island-portrait" aria-hidden="true" :style="appearance" /></template>
 <style scoped>

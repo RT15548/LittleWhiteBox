@@ -14,6 +14,16 @@ export function knownExperiences(world: Journey, people: readonly PersonId[]): E
     return world.experiences.filter(e => people.some(id => e.audience.includes(id)));
 }
 
+/** The latest `limit` known experiences, read from the end so the cost does not grow with the length of the journey. */
+export function recentKnownExperiences(world: Journey, people: readonly PersonId[], limit: number): Experience[] {
+    const found: Experience[] = [];
+    for (let i = world.experiences.length - 1; i >= 0 && found.length < limit; i--) {
+        const e = world.experiences[i];
+        if (people.some(id => e.audience.includes(id))) { found.push(e); }
+    }
+    return found.reverse();
+}
+
 export function knownDeclarations(world: Journey, observer: PersonId) {
     const current = new Map<string, Experience>();
     for (const event of knownExperiences(world, [observer])) {

@@ -50,16 +50,24 @@ export function createIslandMemory(store: PartitionStore<IslandIndex>, files: Xi
                 const batch = missing.slice(offset, offset + AGENT_POLICY.embedBatch), vectors = await connection.embed(batch.map(b => b.text), signal);
                 signal.throwIfAborted(); if (!guard()) { fail('stale'); }
                 if (vectors.length !== batch.length) { fail('vector_space'); }
-                index ??= { space: connection.space, dimensions: vectors[0]?.length ?? 0, entries: [] };
-                for (const [i, input] of batch.entries()) {
-                    entries.set(input.chunk, { chunk: input.chunk, digest: input.digest, vector: vectors[i] });
-                }
-                index.entries = [...entries.values()];
-                const value = { journey, index }; validate(value);
                 let accepted = false;
-                const result = await store.transact(tx => { if (!guard()) { fail('stale'); } tx.replace(value); accepted = true; },
-                    { retainFailedCandidate: true, commitGuard: () => accepted || guard() });
-                if (['failed', 'unconfirmed', 'conflict'].includes(result.status)) { fail('memory_save'); }
+                const result = await store.transact(tx => {
+                    if (!guard()) { fail('stale'); }
+                    const current = tx.current;
+                    const merged = current?.journey === journey && current.index?.space === connection.space
+                        ? structuredClone(current.index) : { space: connection.space, dimensions: vectors[0]?.length ?? 0, entries: [] };
+                    // Only this paid batch is new; the earlier read may predate another indexer's commit.
+                    const latest = new Map(merged.entries.map(e => [e.chunk, e]));
+                    for (const [i, input] of batch.entries()) {
+                        latest.set(input.chunk, { chunk: input.chunk, digest: input.digest, vector: vectors[i] });
+                    }
+                    merged.entries = [...latest.values()];
+                    const value = { journey, index: merged }; validate(value);
+                    tx.replace(value); accepted = true;
+                    return merged;
+                }, { retainFailedCandidate: true, commitGuard: () => accepted || guard() });
+                if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') { fail('memory_save'); }
+                index = result.result;
             }
             return index;
         },

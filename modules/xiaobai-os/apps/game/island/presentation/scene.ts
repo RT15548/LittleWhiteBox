@@ -10,6 +10,7 @@ import { createCutaway } from './cutaway.js';
 import { groundMaterial } from './terrain-materials.js';
 import { createOcean } from './ocean.js';
 import { createPeopleLayer } from './people-layer.js';
+import { CAMERA_OFFSET } from './camera.js';
 import { islandGround } from './terrain-mesh.js';
 import { elevationAt } from '../terrain.js';
 import { createWeatherLayer } from './weather-layer.js';
@@ -47,7 +48,10 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
     const media = matchMedia('(prefers-reduced-motion: reduce)');
     function resize() {
         const w = container.clientWidth, h = container.clientHeight; if (!w || !h) { return; }
-        renderer.setSize(w, h, false); camera.left = -zoom * w / h; camera.right = zoom * w / h; camera.top = zoom; camera.bottom = -zoom; camera.updateProjectionMatrix();
+        // A conversation gets its own space. Keep people readable when the remaining scene is short,
+        // instead of fitting the same expanse of empty ground into a smaller viewport.
+        const halfHeight = zoom * Math.min(1, h / 640);
+        renderer.setSize(w, h, false); camera.left = -halfHeight * w / h; camera.right = halfHeight * w / h; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix();
         schedule();
     }
     function render(time = performance.now()) {
@@ -55,7 +59,7 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
         try { people.animate(time); }
         catch (error) { console.error(error); onError(); return; }
         const p = people.player()!, target = new T.Vector3(p.x, elevationAt({ x: p.x, y: p.z }), p.z);
-        camera.position.copy(target).add(new T.Vector3(10, 25, 32)); camera.lookAt(target);
+        camera.position.copy(target).add(new T.Vector3(CAMERA_OFFSET.x, CAMERA_OFFSET.y, CAMERA_OFFSET.z)); camera.lookAt(target);
         camera.updateMatrixWorld();
         cutaway.update(p, camera);
         sunlight.position.copy(target).add(new T.Vector3(-35, 65, -25)); sunlight.target.position.copy(target);
@@ -66,9 +70,27 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
         if (!media.matches) { frame = requestAnimationFrame(render); }
     }
     function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(render); }
+    // The world updates several times a second while people walk; the props around them rarely change.
+    let propsSignature = '';
     function update(next: Observation) {
-        observation = next; vegetation.update(next.self.position); disposeGroup(dynamic, [...foliage.materials, ...cutaway.materials, ground.reefRock, poolWater]); dynamic.clear();
+        observation = next; vegetation.update(next.self.position);
         people.update(next, media.matches);
+        const activity = next.self.activity;
+        const destination = activity?.kind === 'travel' || activity?.kind === 'drag' ? activity.route.at(-1) : null;
+        marker.visible = !!destination;
+        if (destination) { marker.position.set(destination.x, elevationAt(destination), destination.y); }
+        const signature = JSON.stringify([next.waste, next.graves, next.structures, next.items, next.resources, Math.round(next.weather.tide * 100)]);
+        if (signature !== propsSignature) { propsSignature = signature; rebuildProps(next); }
+        renderer.toneMappingExposure = next.weather.daylight ? next.weather.rain ? 1.05 : 1.25 : .58;
+        const sky = next.weather.daylight ? next.weather.rain ? '#b4d4df' : '#c0e8ef' : '#5c788c';
+        scene.background = new T.Color(sky); (scene.fog as T.Fog).color.set(sky);
+        sunlight.intensity = next.weather.daylight ? next.weather.rain ? 1.4 : 3 : .6;
+        sea.update(next.weather.tide, next.weather.daylight, next.weather.rain);
+        ground.update(next.weather.tide);
+        weather.setRain(next.weather.rain); schedule();
+    }
+    function rebuildProps(next: Observation) {
+        disposeGroup(dynamic, [...foliage.materials, ...cutaway.materials, ground.reefRock, poolWater]); dynamic.clear();
         for (const waste of next.waste) { const trace = wasteMesh(waste); trace.position.set(waste.position.x, 0, waste.position.y); dynamic.add(trace); }
         for (const grave of next.graves) { const mound = graveMesh(); mound.position.set(grave.position.x, 0, grave.position.y); dynamic.add(mound); }
         for (const site of next.structures) { const g = structure(site, foliage); cutaway.apply(g); g.position.set(site.position.x, 0, site.position.y); dynamic.add(g); }
@@ -90,13 +112,6 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
             }
         }
         for (const object of dynamic.children) { object.position.y += elevationAt({ x: object.position.x, y: object.position.z }); }
-        renderer.toneMappingExposure = next.weather.daylight ? next.weather.rain ? 1.05 : 1.25 : .58;
-        const sky = next.weather.daylight ? next.weather.rain ? '#b4d4df' : '#c0e8ef' : '#5c788c';
-        scene.background = new T.Color(sky); (scene.fog as T.Fog).color.set(sky);
-        sunlight.intensity = next.weather.daylight ? next.weather.rain ? 1.4 : 3 : .6;
-        sea.update(next.weather.tide, next.weather.daylight, next.weather.rain);
-        ground.update(next.weather.tide);
-        weather.setRain(next.weather.rain); schedule();
     }
     function click(event: PointerEvent) {
         if (!observation || event.button !== 0) { return; }
@@ -106,7 +121,7 @@ export function createIslandScene(container: HTMLElement, select: (point: Point)
         const hit = raycaster.intersectObject(land, false)[0]; if (!hit) { return; }
         const p = { x: hit.point.x, y: hit.point.z };
         if (!canStand(p, LANDSCAPE) || distance(p, observation.self.position) > 90) { return; }
-        marker.visible = true; marker.position.set(p.x, elevationAt(p), p.y); schedule(); select(p);
+        select(p);
     }
     function changeZoom(by: number) { zoom = Math.max(3, Math.min(36, zoom + by)); resize(); }
     function wheel(event: WheelEvent) { event.preventDefault(); changeZoom(Math.sign(event.deltaY) * 2); }
