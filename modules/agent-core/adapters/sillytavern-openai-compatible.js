@@ -1,4 +1,5 @@
 import { readResponseCompletion } from '../runtime/response-completion.js';
+import { parseCustomParameters } from '../config.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -96,6 +97,7 @@ export class SillyTavernOpenAICompatibleAdapter {
                 reasoning,
             ) ? undefined : task.temperature,
         };
+        const customParams = parseCustomParameters(this.config.customParameters);
         const payload = buildHostOpenAICompatibleGeneratePayload(
             this.config,
             taggedMode
@@ -108,6 +110,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             messages,
             typeof task.onStreamProgress === 'function',
         );
+        Object.assign(payload, customParams);
         return applyOpenAICompatibleReasoningControls(payload, reasoning);
     }
 

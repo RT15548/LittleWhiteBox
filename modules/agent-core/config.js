@@ -26,6 +26,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
+        customParameters: '',
     },
     'openai-compatible': {
         baseUrl: 'https://api.openai.com/v1',
@@ -35,6 +36,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
         toolMode: 'tagged-json',
+        customParameters: '',
     },
     'sillytavern-openai-compatible': {
         baseUrl: '',
@@ -44,6 +46,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
         toolMode: 'tagged-json',
+        customParameters: '',
     },
     'sillytavern-claude': {
         baseUrl: '',
@@ -53,6 +56,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
+        customParameters: '',
     },
     'sillytavern-google': {
         baseUrl: '',
@@ -61,6 +65,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
+        customParameters: '',
     },
     anthropic: {
         baseUrl: 'https://api.anthropic.com',
@@ -70,6 +75,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
+        customParameters: '',
     },
     google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -78,6 +84,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
+        customParameters: '',
     },
 };
 
@@ -146,9 +153,28 @@ export function normalizeModelConfigs(modelConfigs = {}) {
                 ? { toolMode: String(source.toolMode || defaults.toolMode || 'native') }
                 : {}),
             reasoning: normalizeReasoningConfig(source.reasoning),
+            customParameters: typeof source.customParameters === 'string'
+                ? source.customParameters
+                : (source.customParameters && typeof source.customParameters === 'object'
+                    ? JSON.stringify(source.customParameters, null, 2)
+                    : (defaults.customParameters || '')),
         };
     });
     return next;
+}
+
+export function parseCustomParameters(value) {
+    if (!value) return {};
+    if (typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value !== 'string') return {};
+    const trimmed = value.trim();
+    if (!trimmed) return {};
+    try {
+        const parsed = JSON.parse(trimmed);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
 }
 
 function normalizeProvider(provider) {

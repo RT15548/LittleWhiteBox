@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { parseCustomParameters } from '../config.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
@@ -395,6 +396,8 @@ export class OpenAIResponsesAdapter {
         if (reasoning.mode !== 'off' && reasoning.profileId.startsWith('openai-')) {
             body.include = ['reasoning.encrypted_content'];
         }
+        const customParams = parseCustomParameters(this.config.customParameters);
+        Object.assign(body, customParams);
         return body;
     }
 
