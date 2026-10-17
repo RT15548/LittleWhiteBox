@@ -34,7 +34,7 @@ export interface ExplorableScenery extends LandscapeScenery {
 }
 
 /** Map geometry lives for one visit; a door or NPC change only rebuilds its small stateful layer. */
-export function buildExplorableWorld(k: SceneKit, root: Group, definition: SceneDefinition, facts: ReadonlySet<CourtyardFact>, sanniang: SanniangAsset): ExplorableScenery {
+export function buildExplorableWorld(k: SceneKit, root: Group, definition: SceneDefinition, facts: ReadonlySet<CourtyardFact>, sanniang: () => SanniangAsset): ExplorableScenery {
     const scenery = buildLandscape(k, root, definition.landscape), objects = k.group(root), residents = k.group(root);
     const sentries = buildSentries(k, root, definition, facts);
     const localLife = buildLocalLife(k, residents, definition.id);

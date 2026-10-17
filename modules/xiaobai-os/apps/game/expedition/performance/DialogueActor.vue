@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
-import { ACTOR_ART } from './artwork.js';
+import { ACTOR_ART, spriteStyle } from './artwork.js';
 import type { Performance, Performer } from './catalog.js';
 import { performGesture } from './motion.js';
 import { DIALOGUE_COPY as c } from '../content/dialogue-copy.js';
@@ -8,6 +8,7 @@ import { DIALOGUE_COPY as c } from '../content/dialogue-copy.js';
 const props = defineProps<{ person: Performer; performance?: Performance; animate: boolean }>();
 const root = ref<HTMLElement | null>(null), head = ref<HTMLElement | null>(null), arm = ref<HTMLElement | null>(null);
 const art = computed(() => ACTOR_ART[props.person]);
+const face = computed(() => art.value.heads[props.performance?.expression ?? 'neutral']!);
 const failed = ref(false), retry = ref(0);
 let loaded = 0, visible = false, spent = false, animation: Animation | null = null;
 let observer: IntersectionObserver | undefined, reduced: MediaQueryList | undefined;
@@ -47,9 +48,9 @@ onBeforeUnmount(() => {
 <template>
     <span ref="root" class="ember-dialogue-actor" :class="{ 'actor-failed': failed }">
         <template v-if="!failed">
-            <img :key="'body-' + retry" :src="art.body" alt="" width="420" height="495" decoding="async" loading="lazy" @load="imageLoaded" @error="imageFailed">
-            <img :key="'head-' + retry" ref="head" class="actor-head" :src="art.heads[performance?.expression ?? 'neutral']" :style="{ transformOrigin: art.headOrigin }" alt="" width="420" height="495" decoding="async" loading="lazy" @load="imageLoaded" @error="imageFailed">
-            <img :key="'arm-' + retry" ref="arm" class="actor-arm" :src="art.arm" :style="{ transformOrigin: art.armOrigin }" alt="" width="420" height="495" decoding="async" loading="lazy" @load="imageLoaded" @error="imageFailed">
+            <img :key="'body-' + retry" :src="art.body.src" :style="spriteStyle(art.body)" alt="" :width="art.body.width" :height="art.body.height" decoding="async" loading="lazy" @load="imageLoaded" @error="imageFailed">
+            <img :key="'head-' + retry" ref="head" class="actor-head" :src="face.src" :style="spriteStyle(face, art.headOrigin)" alt="" :width="face.width" :height="face.height" decoding="async" loading="lazy" @load="imageLoaded" @error="imageFailed">
+            <img :key="'arm-' + retry" ref="arm" class="actor-arm" :src="art.arm.src" :style="spriteStyle(art.arm, art.armOrigin)" alt="" :width="art.arm.width" :height="art.arm.height" decoding="async" loading="lazy" @load="imageLoaded" @error="imageFailed">
         </template>
         <button v-else type="button" @click="reload">{{ c.reloadArtwork }}</button>
     </span>
@@ -57,7 +58,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .ember-dialogue-actor { position:relative; float:left; display:block; width:160px; aspect-ratio:420/495; margin:0 14px 6px -8px; shape-outside:polygon(0 0,85% 0,88% 42%,100% 70%,95% 100%,0 100%); }
-.ember-dialogue-actor img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none; }
+.ember-dialogue-actor img { position:absolute; object-fit:contain; pointer-events:none; }
 .ember-dialogue-actor.actor-failed { float:none; width:auto; aspect-ratio:auto; margin:0 0 8px; }
 .ember-dialogue-actor button { font-size:12px; min-height:32px; padding:4px 8px; background:transparent; }
 @container (max-width:450px) { .ember-dialogue-actor { width:138px; margin-right:8px; } }
