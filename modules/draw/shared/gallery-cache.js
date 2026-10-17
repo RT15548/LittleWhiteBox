@@ -1338,17 +1338,19 @@ function ensureGalleryStyles() {
 #nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
 .nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
-.nd-gallery-main{display:flex;align-items:center;justify-content:center;gap:16px;width:90%;max-height:70%;flex:1;min-height:0}
-.nd-gallery-nav{width:48px;height:48px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:24px;cursor:pointer;flex-shrink:0}
+.nd-gallery-main{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:75%;flex:1;min-height:0}
+.nd-gallery-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:none;background:rgba(0,0,0,0.35);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:24px;cursor:pointer}
+#nd-gallery-prev{left:16px}
+#nd-gallery-next{right:16px}
 .nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}
 .nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}
 /* 图片与角标共享居中的图片网格区域，不以撑满高度的外壳作为角标边界。 */
-.nd-gallery-img-wrap{position:relative;max-width:calc(100% - 128px);height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,max-content);align-content:center;justify-content:center}
+.nd-gallery-img-wrap{position:relative;width:100%;height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,max-content);align-content:center;justify-content:center;touch-action:none}
 .nd-gallery-img,.nd-gallery-saved-badge{grid-area:1/1}
-.nd-gallery-img{min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}
-.nd-gallery-saved-badge{position:absolute;top:min(12px,10%);left:min(12px,10%);background:rgba(62,207,142,0.9);padding:min(4px,5%) min(10px,5%);white-space:nowrap;border-radius:6px;font-size:11px;color:#fff;font-weight:600}
-/* 百分比以安全区内的 overlay 为准，内边距也计入限宽。 */
-.nd-gallery-thumbs{flex-shrink:0;display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;box-sizing:border-box;max-width:90%;overflow-x:auto}
+.nd-gallery-img{min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);user-select:none;-webkit-user-drag:none;will-change:transform}
+.nd-gallery-saved-badge{position:absolute;top:min(12px,10%);left:min(12px,10%);z-index:10;background:rgba(62,207,142,0.9);padding:min(4px,5%) min(10px,5%);white-space:nowrap;border-radius:6px;font-size:11px;color:#fff;font-weight:600}
+.nd-gallery-thumbs{flex-shrink:0;display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;box-sizing:border-box;max-width:90%;overflow-x:auto;transition:opacity 0.15s ease,visibility 0.15s ease}
+#nd-gallery-overlay.zoomed .nd-gallery-thumbs{opacity:0;pointer-events:none;visibility:hidden}
 .nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}
 .nd-gallery-thumb:hover{opacity:0.9}
 .nd-gallery-thumb.active{border-color:#d4a574;opacity:1}
@@ -1362,6 +1364,31 @@ function ensureGalleryStyles() {
 .nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:rgba(255,255,255,0.6)}
 @media(max-height:500px){.nd-gallery-thumbs{margin-top:8px;padding:6px}.nd-gallery-thumb{width:40px;height:40px}.nd-gallery-actions{margin-top:8px}.nd-gallery-info{margin-top:6px}}`;
     document.head.appendChild(style);
+}
+
+let galleryZoomScale = 1;
+let galleryZoomX = 0;
+let galleryZoomY = 0;
+let galleryPanning = false;
+let pinchStartDist = 0;
+let pinchStartScale = 1;
+
+function applyGalleryZoom(smooth = false) {
+    const img = document.getElementById('nd-gallery-img');
+    if (!img) return;
+    img.style.transition = smooth ? 'transform 0.15s ease-out' : 'none';
+    img.style.transform = galleryZoomScale > 1 ? `translate3d(${galleryZoomX}px, ${galleryZoomY}px, 0) scale(${galleryZoomScale})` : '';
+    img.style.cursor = galleryZoomScale > 1 ? (galleryPanning ? 'grabbing' : 'grab') : '';
+    document.getElementById('nd-gallery-overlay')?.classList.toggle('zoomed', galleryZoomScale > 1);
+}
+
+function resetGalleryZoom(smooth = false) {
+    galleryZoomScale = 1;
+    galleryZoomX = 0;
+    galleryZoomY = 0;
+    galleryPanning = false;
+    pinchStartDist = 0;
+    applyGalleryZoom(smooth);
 }
 
 function createGalleryOverlay() {
@@ -1383,6 +1410,92 @@ function createGalleryOverlay() {
     document.getElementById('nd-gallery-save').addEventListener('click', saveCurrentGalleryImage);
     document.getElementById('nd-gallery-delete').addEventListener('click', deleteCurrentGalleryImage);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeGallery(); });
+
+    const img = document.getElementById('nd-gallery-img');
+
+    img.addEventListener('wheel', (e) => {
+        if (!img.src) return;
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.2 : 0.833;
+        const newScale = Math.max(1, Math.min(6, galleryZoomScale * factor));
+        if (newScale === galleryZoomScale) return;
+        if (newScale <= 1.01) {
+            galleryZoomScale = 1;
+            galleryZoomX = 0;
+            galleryZoomY = 0;
+        } else {
+            const rect = img.getBoundingClientRect();
+            const cx = e.clientX - (rect.left + rect.width / 2);
+            const cy = e.clientY - (rect.top + rect.height / 2);
+            const ratio = newScale / galleryZoomScale;
+            galleryZoomX += cx * (1 - ratio);
+            galleryZoomY += cy * (1 - ratio);
+            galleryZoomScale = newScale;
+        }
+        applyGalleryZoom(false);
+    }, { passive: false });
+
+    img.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            galleryPanning = false;
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            pinchStartDist = Math.hypot(dx, dy);
+            pinchStartScale = galleryZoomScale;
+            if (e.cancelable) e.preventDefault();
+        }
+    }, { passive: false });
+
+    img.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && pinchStartDist > 0) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const dist = Math.hypot(dx, dy);
+            const newScale = Math.max(1, Math.min(6, pinchStartScale * (dist / pinchStartDist)));
+            if (newScale <= 1.01) {
+                galleryZoomScale = 1;
+                galleryZoomX = 0;
+                galleryZoomY = 0;
+            } else {
+                galleryZoomScale = newScale;
+            }
+            applyGalleryZoom(false);
+            if (e.cancelable) e.preventDefault();
+        }
+    }, { passive: false });
+
+    img.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) pinchStartDist = 0;
+    });
+
+    let panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0, isPointerDown = false;
+    img.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || !img.src || galleryZoomScale <= 1) return;
+        isPointerDown = true;
+        galleryPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        panOrigX = galleryZoomX;
+        panOrigY = galleryZoomY;
+        applyGalleryZoom(false);
+        try { img.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    img.addEventListener('pointermove', (e) => {
+        if (!isPointerDown || !galleryPanning || galleryZoomScale <= 1) return;
+        galleryZoomX = panOrigX + (e.clientX - panStartX);
+        galleryZoomY = panOrigY + (e.clientY - panStartY);
+        applyGalleryZoom(false);
+    });
+
+    const endPan = () => {
+        if (!isPointerDown) return;
+        isPointerDown = false;
+        galleryPanning = false;
+        applyGalleryZoom(false);
+    };
+    img.addEventListener('pointerup', endPan);
+    img.addEventListener('pointercancel', endPan);
 }
 
 export async function openGallery(slotId, messageId, callbacks = {}) {
@@ -1441,6 +1554,7 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
 }
 
 export function closeGallery() {
+    resetGalleryZoom(false);
     currentGalleryData?.stopViewport();
     const el = document.getElementById('nd-gallery-overlay');
     if (el) el.classList.remove('visible');
@@ -1486,6 +1600,7 @@ function updateGalleryThumbState() {
 
 function renderGallery() {
     if (!currentGalleryData) return;
+    resetGalleryZoom(false);
 
     const { previews, currentIndex } = currentGalleryData;
     const current = previews[currentIndex];
