@@ -6,7 +6,7 @@ import { measureGmContext, runIslandGm } from './agent/runner.js';
 import { interpretPlayerIntent } from './agent/intent-runner.js';
 import { RULES } from './content.js';
 import { identifier, integer, member, object, parseOperation, text } from './validation.js';
-import { fail } from './fault.js';
+import { fail, savesUncertain } from './fault.js';
 import { parsePlayerIdentity } from './identity.js';
 
 const PULSE_MILLISECONDS = 200;
@@ -72,7 +72,9 @@ export function withIslandRuntime(primary: XiaobaiOsAppRuntime, service: IslandS
             const code = (error as { code?: string })?.code ?? '';
             if (QUIET_PLAN_ENDINGS.includes(code)) { nextPlanAt = Date.now() + PLAN_PAUSE_MILLISECONDS; return; }
             planFault = { code: code || 'island_failed', message: error instanceof Error ? error.message : String(error) };
-            report(error, a);
+            // Model failures belong to conversation, not the room's global recovery banner.
+            // Save failures still need the client's uncertainty/recovery tracking.
+            if (savesUncertain(code)) { report(error, a); }
         }).finally(() => {
             if (!ownsPlan()) { return; }
             planning = null; planReason = null;

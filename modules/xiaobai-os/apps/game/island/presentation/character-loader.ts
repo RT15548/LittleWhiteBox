@@ -1,4 +1,4 @@
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadCharacterGltf } from './character-gltf.js';
 import { CAST, PLAYER_BODIES, type PlayerIdentity } from '../characters.js';
 import type { NpcId, PersonId } from '../model.js';
 import { createCharacterAsset, type CharacterAsset } from './character-asset.js';
@@ -6,10 +6,7 @@ import { characterModel, playerCharacterKey } from './character-media.js';
 import type { WornGarment } from './survivor-visual.js';
 
 async function loadAsset(id: string, url: string, height: number, gender: PlayerIdentity['gender'], signal: AbortSignal) {
-    const response = await fetch(url, { signal });
-    if (!response.ok) { throw new Error(`island_character_load:${response.status}`); }
-    const bytes = await response.arrayBuffer(); signal.throwIfAborted();
-    const gltf = await new GLTFLoader().parseAsync(bytes, new URL('.', url).href);
+    const gltf = await loadCharacterGltf(url, signal);
     const asset = createCharacterAsset(gltf, id, height, gender);
     if (signal.aborted) { asset.dispose(); signal.throwIfAborted(); }
     return asset;

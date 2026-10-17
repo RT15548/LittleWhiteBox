@@ -55,6 +55,8 @@ const { appNavigationKey } = await import('../shell/app-src/navigation/app-navig
 const { createBackStack } = await import('../shell/app-src/navigation/back-stack.ts');
 const { default: IslandRoom } = await import('../apps/game/island/IslandRoom.vue');
 const { default: IslandField } = await import('../apps/game/island/presentation/IslandField.vue');
+const { default: GmFailure } = await import('../apps/game/island/presentation/GmFailure.vue');
+const { createIslandClient } = await import('../apps/game/island/client.ts');
 const { newJourney } = await import('../apps/game/island/world.ts');
 const { LANDSCAPE } = await import('../apps/game/island/content.ts');
 const { observe, openScene } = await import('../apps/game/island/scene.ts');
@@ -199,6 +201,118 @@ test('a conversation following the latest line resumes at the latest line after 
     await click(ui.root.querySelector('.island-chat-button'));
     assert.equal(ui.root.querySelector('[role=log]').scrollTop, log.scrollHeight - log.clientHeight);
     assert.equal(ui.root.querySelector('.island-latest'), null);
+});
+
+test('a failed character response stays inside conversation, never the island entry, map or ending', async t => {
+    const failed = { ...hostView(), planFault: 'island_context_full' }, ui = await room(t, bridgeFor(failed));
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    await click(ui.root.querySelector('.island-entry-start'));
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    await click(ui.root.querySelector('.island-chat-button'));
+    assert.equal(ui.root.querySelectorAll('.island-gm-failure').length, 1);
+    assert.ok(ui.root.querySelector('.island-conversation .island-gm-failure'));
+    await click(ui.root.querySelector('.island-conversation-close'));
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    ui.back(); await flush();
+    assert.ok(ui.root.querySelector('.island-entry-start'));
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    await click(ui.root.querySelector('.island-entry-start'));
+    ui.publish({ ...failed, phase: 'ended' }); await flush();
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+});
+
+test('dismissing a response failure survives pushes, panel switches, entry and KeepAlive without a model call', async t => {
+    const failed = { ...hostView(), planFault: 'island_context_full' }, ui = await room(t, bridgeFor(failed));
+    await click(ui.root.querySelector('.island-entry-start'));
+    await click(ui.root.querySelector('.island-chat-button'));
+    const before = ui.calls.length;
+    await click(ui.root.querySelector('.island-gm-failure-close'));
+    assert.equal(ui.calls.length, before);
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    for (let i = 0; i < 3; i++) { ui.publish(failed); await flush(); }
+    await click(ui.root.querySelector('.island-presence button'));
+    await click(ui.root.querySelector('.island-panel > header button'));
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    ui.back(); await flush(); ui.back(); await flush();
+    await click(ui.root.querySelector('.island-entry-start'));
+    await click(ui.root.querySelector('.island-chat-button'));
+    ui.active.value = false; await flush(); ui.active.value = true; await flush();
+    assert.ok(!ui.root.querySelector('.island-gm-failure'));
+    assert.equal(ui.calls.some(call => ['game/island/think', 'game/island/cancel'].includes(call.type)), false);
+    // A distinct attempt can fail with the same code within one Vue render tick.
+    ui.publish(hostView()); ui.publish(failed); await flush();
+    assert.ok(ui.root.querySelector('.island-gm-failure'));
+    await click(ui.root.querySelector('.island-gm-failure-close'));
+    ui.publish({ ...hostView('next-journey'), planFault: failed.planFault }); await flush();
+    assert.ok(ui.root.querySelector('.island-gm-failure'));
+});
+
+test('the response failure close button remains usable while model actions are disabled', async t => {
+    let dismissed = 0;
+    const ui = mount(t, () => h(GmFailure, { error: 'test failure', busy: true, disabled: true, onDismiss: () => dismissed++ }));
+    await flush();
+    const close = ui.root.querySelector('.island-gm-failure-close');
+    assert.ok(close);
+    assert.equal(close.disabled, false);
+    await click(close); assert.equal(dismissed, 1);
+    assert.equal(ui.root.querySelectorAll('button[disabled]').length, 2);
+});
+
+test('save and memory recovery remain visible on entry and cannot be dismissed as a character failure', async t => {
+    for (const flag of ['pending', 'memoryPending']) {
+        const failed = { ...hostView(), planFault: 'island_memory_save', [flag]: true };
+        const ui = await room(t, bridgeFor(failed));
+        assert.match(ui.root.querySelector('.island-recovery-save').textContent, /确认保存状态/);
+        assert.ok(!ui.root.querySelector('.island-gm-failure'));
+        await click(ui.root.querySelector('.island-entry-start'));
+        await click(ui.root.querySelector('.island-chat-button'));
+        assert.ok(ui.root.querySelector('.island-recovery-save'));
+        assert.ok(!ui.root.querySelector('.island-gm-failure'));
+        await click(ui.root.querySelector('.island-recovery-save button'));
+        assert.ok(ui.calls.some(call => call.type === 'game/island/confirm'));
+    }
+});
+
+test('response retry and settings remain available within conversation', async t => {
+    const failed = { ...hostView(), planFault: 'island_context_full' }, ui = await room(t, bridgeFor(failed));
+    await click(ui.root.querySelector('.island-entry-start'));
+    await click(ui.root.querySelector('.island-chat-button'));
+    const action = label => [...ui.root.querySelectorAll('.island-gm-failure button')].find(button => button.textContent === label);
+    await click(action('模型设置'));
+    assert.ok(ui.calls.some(call => call.type === 'game/island/settings'));
+    await click(action('重试人物回应'));
+    assert.ok(ui.calls.some(call => call.type === 'game/island/think'));
+    assert.ok(ui.root.querySelector('.island-gm-failure'));
+});
+
+test('a new explicit response re-arms dismissal even when the same-code final snapshot overtakes its acknowledgement', async t => {
+    let state = { ...hostView(), planFault: 'island_context_full' }, subscriber;
+    const bridge = {
+        subscribe(fn) { subscriber = fn; return () => {}; },
+        async request(type) {
+            if (type === 'game/island/think') {
+                const earlier = { ...state, stamp: state.stamp + 1, planFault: null, thinking: true };
+                state = { ...state, stamp: state.stamp + 2 };
+                subscriber({ type: 'game/island/state', payload: { chatIdentity: 'ui-chat', state } });
+                return { result: earlier };
+            }
+            return { result: state };
+        },
+    };
+    const client = createIslandClient(bridge, 'ui-chat'); t.after(() => client.dispose());
+    await client.read(); assert.ok(client.gmFailure.value);
+    client.dismissGmFailure(); assert.equal(client.gmFailure.value, '');
+    await client.read(); assert.equal(client.gmFailure.value, '');
+    await client.think(); assert.ok(client.gmFailure.value);
+    assert.equal(client.view.value.planFault, 'island_context_full');
+    client.dismissGmFailure();
+    subscriber({ type: 'game/island/state', payload: { chatIdentity: 'ui-chat', state: { ...state, stamp: 1, planFault: null } } });
+    assert.equal(client.gmFailure.value, '');
+    subscriber({ type: 'game/island/error', payload: { chatIdentity: 'ui-chat', code: 'island_save_unconfirmed' } });
+    assert.equal(client.uncertain.value, true);
+    const error = client.error.value;
+    client.dismissGmFailure();
+    assert.equal(client.uncertain.value, true); assert.equal(client.error.value, error);
 });
 
 for (const control of ['keyboard', 'stick']) {

@@ -837,7 +837,7 @@ var X = "叶琳与周涛是夫妻。林遥是周涛的秘书，工作上长期�
   embedding_failed: "荒岛记忆向量请求失败，本次未自动重试。",
   memory_save: "荒岛记忆索引保存未确认，请先恢复保存。",
   cancelled: "本次模型处理已取消，已保存的操作不受影响。"
-}, _ = [
+}, fe = (e) => e.startsWith("island_save_") || e === "island_memory_save", _ = [
   {
     x: -760,
     y: -180,
@@ -940,7 +940,7 @@ var J = P(k.map((e, t) => {
     maxY: Math.max(e.y, r.y)
   };
 }));
-function fe(e) {
+function he(e) {
   let t = 1 / 0;
   function r(a) {
     const s = Math.max(a.minX - e.x, 0, e.x - a.maxX), n = Math.max(a.minY - e.y, 0, e.y - a.maxY);
@@ -959,7 +959,7 @@ function fe(e) {
   }
   return o(J, 0), Math.sqrt(t);
 }
-var he = {
+var ge = {
   land: k,
   obstacles: [],
   sightScreens: [[
@@ -1008,7 +1008,7 @@ var he = {
   maxAdvanceSeconds: 3600,
   maxRoutePoints: 64,
   maxSpeechCharacters: 8e3
-}, ge = {
+}, ye = {
   periodSeconds: 12.42 * 3600,
   forageMax: 0.6,
   lowWater: -0.08,
@@ -1447,10 +1447,10 @@ var he = {
 function c(e, t) {
   return e === "player" ? t ?? l.you : K[e].name;
 }
-function ye(e, t = null) {
+function pe(e, t = null) {
   return e === "work" && t ? p[t] : e ? l.active[e] : l.idle;
 }
-function pe(e, t, r) {
+function _e(e, t, r) {
   const o = (a) => c(a, r);
   switch (e.kind) {
     case "speech":
@@ -1548,34 +1548,35 @@ function te(e) {
   return z[t?.code?.replace(/^island_/, "")] ?? t?.message ?? l.error;
 }
 export {
-  I as A,
-  H as C,
-  ae as D,
-  re as E,
-  p as O,
-  O as S,
-  u as T,
-  ne as _,
+  ce as A,
+  O as C,
+  re as D,
+  u as E,
+  ae as O,
+  ie as S,
+  B as T,
+  se as _,
   c as a,
-  oe as b,
-  ge as c,
-  K as d,
-  de as f,
-  se as g,
-  Y as h,
-  pe as i,
-  ce as k,
-  fe as l,
-  le as m,
-  ye as n,
-  he as o,
-  me as p,
+  w as b,
+  ye as c,
+  fe as d,
+  K as f,
+  Y as g,
+  le as h,
+  _e as i,
+  I as j,
+  p as k,
+  he as l,
+  me as m,
+  pe as n,
+  ge as o,
+  de as p,
   te as r,
   ee as s,
   l as t,
   z as u,
-  x as v,
-  B as w,
-  ie as x,
-  w as y
+  ne as v,
+  H as w,
+  oe as x,
+  x as y
 };

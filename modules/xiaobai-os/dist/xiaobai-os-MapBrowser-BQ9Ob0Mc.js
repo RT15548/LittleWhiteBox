@@ -2521,7 +2521,7 @@ var mn = { key: 0 }, bn = ["id"], wn = ["values"], kn = ["id"], Mn = ["d", "tran
     return Ae(async () => {
       a = !0;
       try {
-        if (d = (await import("./xiaobai-os-three-runtime-D9xB8R0I.js")).createThreeRuntime, !a) return;
+        if (d = (await import("./xiaobai-os-three-runtime-Bgu3oHyQ.js")).createThreeRuntime, !a) return;
         y = new ResizeObserver(r), y.observe(l.value), document.addEventListener("visibilitychange", r), r();
       } catch {
         f();

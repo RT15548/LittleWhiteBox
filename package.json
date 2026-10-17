@@ -5,7 +5,7 @@
     "scripts": {
         "build:server-plugin": "node scripts/build-server-plugin.mjs",
         "check:server-plugin": "node scripts/build-server-plugin.mjs --check",
-        "test": "npm run check:server-plugin && npm run check:novelai:vendor && npm run check:sha256:vendor && npm run check:message-markdown && node --import tsx --test core/*.test.js integrations/tauritavern/tests/*.test.js modules/agent-core/tests/*.test.js modules/assistant/tests/*.test.js modules/draw/shared/tests/*.test.js modules/draw/providers/novelai/tests/*.test.js modules/plugin-update/tests/*.test.js modules/story-summary/tests/*.test.js modules/tavern/tests/*.test.ts modules/tts/tests/*.test.js modules/variables/tests/*.test.js modules/xiaobai-os/tests/*.test.js scripts/gold-eval/tests/*.test.mjs server-plugin/littlewhitebox-server/tests/*.test.js",
+        "test": "npm run test:island-assets && npm run check:server-plugin && npm run check:novelai:vendor && npm run check:sha256:vendor && npm run check:message-markdown && node --import tsx --test core/*.test.js integrations/tauritavern/tests/*.test.js modules/agent-core/tests/*.test.js modules/assistant/tests/*.test.js modules/draw/shared/tests/*.test.js modules/draw/providers/novelai/tests/*.test.js modules/plugin-update/tests/*.test.js modules/story-summary/tests/*.test.js modules/tavern/tests/*.test.ts modules/tts/tests/*.test.js modules/variables/tests/*.test.js modules/xiaobai-os/tests/*.test.js scripts/gold-eval/tests/*.test.mjs server-plugin/littlewhitebox-server/tests/*.test.js",
         "build:message-markdown": "node scripts/build-message-markdown.mjs",
         "check:message-markdown": "node scripts/build-message-markdown.mjs --check",
         "build:agent-core": "vite build --config vite.agent-core.config.mjs",
@@ -50,7 +50,9 @@
         "lint:xiaobai-os": "eslint \"modules/xiaobai-os/**/*.{ts,vue}\"",
         "lint:fix:tavern": "eslint \"modules/tavern/**/*.{ts,vue}\" --fix",
         "lint:fix:xiaobai-os": "eslint \"modules/xiaobai-os/**/*.{ts,vue}\" --fix",
-        "lint:fix": "eslint \"**/*.js\" --fix && npm run lint:fix:tavern && npm run lint:fix:xiaobai-os"
+        "lint:fix": "eslint \"**/*.js\" --fix && npm run lint:fix:tavern && npm run lint:fix:xiaobai-os",
+        "test:island-assets": "node --test scripts/island-glb-lossless.test.mjs scripts/island-glb-meshopt.test.mjs",
+        "optimize:island:characters": "node scripts/optimize-island-characters.mjs"
     },
     "devDependencies": {
         "@types/three": "0.180.0",
@@ -74,7 +76,9 @@
         "vite": "^8.0.16",
         "vue": "^3.5.42",
         "vue-eslint-parser": "^10.4.0",
-        "vue-tsc": "^3.3.2"
+        "vue-tsc": "^3.3.2",
+        "gltf-validator": "2.0.0-dev.3.10",
+        "meshoptimizer": "1.3.0"
     },
     "dependencies": {
         "three": "0.180.0",

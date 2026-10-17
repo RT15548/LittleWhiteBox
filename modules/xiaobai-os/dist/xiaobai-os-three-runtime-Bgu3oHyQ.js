@@ -1,10 +1,10 @@
 /* eslint-disable */
-import { C as ot, D as at, S as it, _ as nt, a as rt, b as ct, c as je, d as lt, f as Te, g as ht, h as Ne, i as pe, l as dt, m as ft, n as ut, o as he, p as se, r as pt, s as mt, u as bt, v as gt, x as yt, y as wt } from "./xiaobai-os-MapBrowser-eMnnTodk.js";
-import { $ as Y, B as _t, Ct as Ie, D as xt, E as me, Et as Be, Ft as be, L as Mt, Lt as Q, O as Ge, Ot as St, Pt as xe, Q as q, R as vt, S as Et, Tt as Me, U as Se, Ut as Z, W as Ye, Wt as E, Y as re, Z as ge, _ as ve, b as Pt, bt as Ee, d as kt, et as At, ft as Tt, g as Lt, h as Ze, j as J, l as de, lt as Rt, n as zt, nt as Dt, o as te, p as ye, pt as Ke, rt as Le, s as He, t as Ot, tt as Ct, ut as Ft, v as Pe, vt as we, w as ce, xt as Ut, y as Re } from "./xiaobai-os-three.module-CEf4RC2U.js";
-import { t as ze } from "./xiaobai-os-RoundedBoxGeometry-Bg3Zrs7v.js";
-import { t as jt } from "./xiaobai-os-BufferGeometryUtils-Dxy-eeb2.js";
-import { t as Nt } from "./xiaobai-os-GLTFLoader-cY1YnDku.js";
-var De = { type: "change" }, ke = { type: "start" }, We = { type: "end" }, le = new Ut(), Oe = new Tt(), It = Math.cos(70 * ge.DEG2RAD), G = new E(), H = 2 * Math.PI, C = {
+import { C as ot, D as at, S as it, _ as nt, a as rt, b as ct, c as Ue, d as lt, f as Te, g as ht, h as Ne, i as pe, l as dt, m as ft, n as ut, o as he, p as se, r as pt, s as mt, u as bt, v as gt, x as yt, y as wt } from "./xiaobai-os-MapBrowser-BQ9Ob0Mc.js";
+import { $ as q, B as _t, D as xt, Dt as Ie, E as me, Et as xe, Ft as Me, Gt as E, It as be, L as Mt, O as Be, Q as ge, R as St, Rt as Q, S as vt, St as Et, U as Se, W as Ge, Wt as Z, X as re, _ as ve, b as Pt, d as kt, dt as At, et as Y, g as Tt, h as Ye, it as Le, j as J, kt as Lt, l as de, mt as Ze, n as Rt, nt as Dt, o as te, p as ye, pt as zt, rt as Ot, s as Ke, t as Ct, tt as Ft, ut as jt, v as Ee, w as ce, wt as He, xt as Pe, y as Re, yt as we } from "./xiaobai-os-three.module-DZLCEE7H.js";
+import { t as De } from "./xiaobai-os-RoundedBoxGeometry-jJXIS_5M.js";
+import { t as Ut } from "./xiaobai-os-BufferGeometryUtils-BVwpfAe2.js";
+import { t as Nt } from "./xiaobai-os-GLTFLoader-BUhik4S0.js";
+var ze = { type: "change" }, ke = { type: "start" }, We = { type: "end" }, le = new Et(), Oe = new zt(), It = Math.cos(70 * ge.DEG2RAD), G = new E(), H = 2 * Math.PI, C = {
   NONE: -1,
   ROTATE: 0,
   DOLLY: 1,
@@ -13,7 +13,7 @@ var De = { type: "change" }, ke = { type: "start" }, We = { type: "end" }, le = 
   TOUCH_PAN: 4,
   TOUCH_DOLLY_PAN: 5,
   TOUCH_DOLLY_ROTATE: 6
-}, ue = 1e-6, Bt = class extends Lt {
+}, ue = 1e-6, Bt = class extends Tt {
   constructor(e, s = null) {
     super(e, s), this.state = C.NONE, this.target = new E(), this.cursor = new E(), this.minDistance = 0, this.maxDistance = 1 / 0, this.minZoom = 0, this.maxZoom = 1 / 0, this.minTargetRadius = 0, this.maxTargetRadius = 1 / 0, this.minPolarAngle = 0, this.maxPolarAngle = Math.PI, this.minAzimuthAngle = -1 / 0, this.maxAzimuthAngle = 1 / 0, this.enableDamping = !1, this.dampingFactor = 0.05, this.enableZoom = !0, this.zoomSpeed = 1, this.enableRotate = !0, this.rotateSpeed = 1, this.keyRotateSpeed = 1, this.enablePan = !0, this.panSpeed = 1, this.screenSpacePanning = !0, this.keyPanSpeed = 7, this.zoomToCursor = !1, this.autoRotate = !1, this.autoRotateSpeed = 2, this.keys = {
       LEFT: "ArrowLeft",
@@ -60,7 +60,7 @@ var De = { type: "change" }, ke = { type: "start" }, We = { type: "end" }, le = 
     this.target0.copy(this.target), this.position0.copy(this.object.position), this.zoom0 = this.object.zoom;
   }
   reset() {
-    this.target.copy(this.target0), this.object.position.copy(this.position0), this.object.zoom = this.zoom0, this.object.updateProjectionMatrix(), this.dispatchEvent(De), this.update(), this.state = C.NONE;
+    this.target.copy(this.target0), this.object.position.copy(this.position0), this.object.zoom = this.zoom0, this.object.updateProjectionMatrix(), this.dispatchEvent(ze), this.update(), this.state = C.NONE;
   }
   update(e = null) {
     const s = this.object.position;
@@ -94,7 +94,7 @@ var De = { type: "change" }, ke = { type: "start" }, We = { type: "end" }, le = 
       const i = this.object.zoom;
       this.object.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.object.zoom / this._scale)), i !== this.object.zoom && (this.object.updateProjectionMatrix(), n = !0);
     }
-    return this._scale = 1, this._performCursorZoom = !1, n || this._lastPosition.distanceToSquared(this.object.position) > ue || 8 * (1 - this._lastQuaternion.dot(this.object.quaternion)) > ue || this._lastTargetPosition.distanceToSquared(this.target) > ue ? (this.dispatchEvent(De), this._lastPosition.copy(this.object.position), this._lastQuaternion.copy(this.object.quaternion), this._lastTargetPosition.copy(this.target), !0) : !1;
+    return this._scale = 1, this._performCursorZoom = !1, n || this._lastPosition.distanceToSquared(this.object.position) > ue || 8 * (1 - this._lastQuaternion.dot(this.object.quaternion)) > ue || this._lastTargetPosition.distanceToSquared(this.target) > ue ? (this.dispatchEvent(ze), this._lastPosition.copy(this.object.position), this._lastQuaternion.copy(this.object.quaternion), this._lastTargetPosition.copy(this.target), !0) : !1;
   }
   _getAutoRotationAngle(e) {
     return e !== null ? H / 60 * this.autoRotateSpeed * e : H / 60 / 60 * this.autoRotateSpeed;
@@ -477,7 +477,7 @@ function ss(e, s) {
   };
 }
 function os(e, s) {
-  const t = new Et(new St(e.map((a) => new Z(a.x, -a.y))), {
+  const t = new vt(new Lt(e.map((a) => new Z(a.x, -a.y))), {
     depth: s,
     bevelEnabled: !1,
     steps: 1,
@@ -572,8 +572,8 @@ function ns(e, s) {
       255
     ], (o * 128 + r) * 4);
   }
-  const i = new Pe(a, 128, 128, Ee);
-  return i.colorSpace = Me, i.wrapS = i.wrapT = Ie, s && e === "wood" && i.repeat.set(0.28, 0.28), i.magFilter = Se, i.minFilter = Ye, i.generateMipmaps = !0, i.anisotropy = 4, i.needsUpdate = !0, i;
+  const i = new Ee(a, 128, 128, Pe);
+  return i.colorSpace = xe, i.wrapS = i.wrapT = He, s && e === "wood" && i.repeat.set(0.28, 0.28), i.magFilter = Se, i.minFilter = Ge, i.generateMipmaps = !0, i.anisotropy = 4, i.needsUpdate = !0, i;
 }
 function rs(e, s) {
   const t = yt(e), a = ct[e];
@@ -585,8 +585,8 @@ function rs(e, s) {
       i[f],
       255
     ], f * 4);
-    const l = s.own(new Pe(r, t.size, t.size, Ee));
-    return o && (l.colorSpace = Me), l.wrapS = l.wrapT = Ie, l.repeat.setScalar(1 / a.size), l.magFilter = Se, l.minFilter = Ye, l.generateMipmaps = !0, l.anisotropy = 4, l.needsUpdate = !0, l;
+    const l = s.own(new Ee(r, t.size, t.size, Pe));
+    return o && (l.colorSpace = xe), l.wrapS = l.wrapT = He, l.repeat.setScalar(1 / a.size), l.magFilter = Se, l.minFilter = Ge, l.generateMipmaps = !0, l.anisotropy = 4, l.needsUpdate = !0, l;
   }
   return {
     map: n(t.color, !0),
@@ -634,16 +634,16 @@ function ls(e, s, t) {
         "shadow"
       ].includes(g), O = `${g}:${d}`;
       u && !o.has(O) && o.set(O, e.own(ns(g, d)));
-      const D = u ? o.get(O) : null;
+      const z = u ? o.get(O) : null;
       y && !r.has(y) && r.set(y, rs(y, e));
-      const U = y ? r.get(y) : void 0, B = [
+      const j = y ? r.get(y) : void 0, B = [
         "water",
         "slime",
         "flesh",
         "blood",
         "glass"
       ].includes(g);
-      M = e.own(new Dt({
+      M = e.own(new Ot({
         color: w,
         roughness: g === "metal" ? 0.35 : B ? 0.26 : g === "wood" ? 0.63 : 0.86,
         metalness: g === "metal" ? 0.65 : 0,
@@ -654,8 +654,8 @@ function ls(e, s, t) {
         dithering: !0,
         depthWrite: x >= 1,
         side: 2,
-        map: D,
-        bumpMap: D,
+        map: z,
+        bumpMap: z,
         bumpScale: g === "stone" || g === "dirt" ? 0.055 : B ? 0.018 : 0.014,
         emissive: [
           "rune",
@@ -663,8 +663,8 @@ function ls(e, s, t) {
           "cold-light"
         ].includes(g) ? w : "#000000",
         emissiveIntensity: g === "warm-light" || g === "cold-light" ? a.lampEmission : 0.18,
-        ...U && {
-          ...U,
+        ...j && {
+          ...j,
           roughness: 1
         }
       })), n.set(P, M);
@@ -753,13 +753,13 @@ function hs(e, s, t, a) {
   }
 }
 function ds(e, s) {
-  const t = e.own(new ze(1, 1, 1, 3, 0.035)), a = e.own(new ze(1, 1, 1, 4, 0.16)), n = e.own(t.clone()), i = n.getAttribute("position");
+  const t = e.own(new De(1, 1, 1, 3, 0.035)), a = e.own(new De(1, 1, 1, 4, 0.16)), n = e.own(t.clone()), i = n.getAttribute("position");
   for (let c = 0; c < i.count; c += 1) {
     const p = 0.72 + 0.28 * (i.getY(c) + 0.5);
     i.setX(c, i.getX(c) * p), i.setZ(c, i.getZ(c) * p);
   }
   n.computeVertexNormals();
-  const o = e.own(new ve(0.5, 0.5, 1, 32)), r = e.own(new xe(0.5, 16, 10)), l = e.own(new Pt(0.5, 0)), f = e.own(new Ze(0.5, 1, 9)), h = e.own(new Mt([
+  const o = e.own(new ve(0.5, 0.5, 1, 32)), r = e.own(new Me(0.5, 16, 10)), l = e.own(new Pt(0.5, 0)), f = e.own(new Ye(0.5, 1, 9)), h = e.own(new Mt([
     [0.35, -0.5],
     [0.5, -0.5],
     [0.5, 0.5],
@@ -768,7 +768,7 @@ function ds(e, s) {
   ].map(([c, p]) => new Z(c, p)), 32));
   return function(p, b, g, y, P) {
     const M = Math.min(1.6, Math.min(y, P)), _ = /* @__PURE__ */ new Map();
-    function d(u, O, D, U, B, A, k = 0, S = t, F) {
+    function d(u, O, z, j, B, A, k = 0, S = t, F) {
       const N = s.mesh(F ? {
         ...b,
         material: F
@@ -777,10 +777,10 @@ function ds(e, s) {
         geometry: S,
         material: N,
         matrices: []
-      }), _.get(L).matrices.push(new q().makeScale(U * y, B * M, A * P).setPosition(u * y, O * M, D * P));
+      }), _.get(L).matrices.push(new q().makeScale(j * y, B * M, A * P).setPosition(u * y, O * M, z * P));
     }
     function m(u) {
-      for (const O of [-0.37, 0.37]) for (const D of [-0.36, 0.36]) d(O, u / 2, D, 0.075, u, 0.075, -0.16, n);
+      for (const O of [-0.37, 0.37]) for (const z of [-0.36, 0.36]) d(O, u / 2, z, 0.075, u, 0.075, -0.16, n);
     }
     function w() {
       switch (g) {
@@ -856,9 +856,9 @@ function ds(e, s) {
       }
     }
     const x = w();
-    for (const { geometry: u, material: O, matrices: D } of _.values()) {
-      const U = e.own(new J(u, O, D.length));
-      D.forEach((B, A) => U.setMatrixAt(A, B)), U.castShadow = O.opacity >= 0.8, U.receiveShadow = !0, p.add(U);
+    for (const { geometry: u, material: O, matrices: z } of _.values()) {
+      const j = e.own(new J(u, O, z.length));
+      z.forEach((B, A) => j.setMatrixAt(A, B)), j.castShadow = O.opacity >= 0.8, j.receiveShadow = !0, p.add(j);
     }
     return x;
   };
@@ -1013,7 +1013,7 @@ function _e(e, s, t = 10) {
   return r.setAttribute("position", new ce(a, 3)), r.setAttribute("uv", new ce(i, 2)), r.setIndex(n), r.computeVertexNormals(), r;
 }
 function ws(e, s, t, a, n) {
-  const i = s.icon, o = je(s), r = t.filter((y, P) => !P || !y.equals(t[P - 1]));
+  const i = s.icon, o = Ue(s), r = t.filter((y, P) => !P || !y.equals(t[P - 1]));
   if (r.length < 2) return 0;
   const l = [0];
   for (let y = 1; y < r.length; y++) l.push(l[y - 1] + r[y].distanceTo(r[y - 1]));
@@ -1025,7 +1025,7 @@ function ws(e, s, t, a, n) {
     material: o
   }));
   if (g.castShadow = g.receiveShadow = !0, e.add(g), i === "vine" || i === "tentacle") {
-    const y = Math.min(24, Math.max(2, Math.floor(f * 3))), P = a.own(new xe(1, 8, 6)), M = a.own(new J(P, n.mesh({
+    const y = Math.min(24, Math.max(2, Math.floor(f * 3))), P = a.own(new Me(1, 8, 6)), M = a.own(new J(P, n.mesh({
       ...s,
       material: o
     }, i === "vine" ? 0.12 : 0.3), y));
@@ -1033,26 +1033,26 @@ function ws(e, s, t, a, n) {
     for (let d = 0; d < y; d++) {
       const m = (d + 0.5) / y * f;
       for (; _ < r.length - 2 && l[_ + 1] < m; ) _++;
-      const w = (m - l[_]) / (l[_ + 1] - l[_]), x = b[_].clone().lerp(b[_ + 1], w), u = p[_] + (p[_ + 1] - p[_]) * w, O = d % 2 ? -1 : 1, D = r[_ + 1].clone().sub(r[_]).normalize();
-      x.add(new E(D.y, 0, -D.x).multiplyScalar(i === "vine" ? O * u * 1.2 : 0)), x.y += u * 0.65;
-      const U = new we().setFromAxisAngle(new E(0, 1, 0), Math.atan2(D.x, D.y) + O * 0.75), B = i === "vine" ? new E(u * 2.1, u * 0.3, u * 0.8) : new E(u * 0.5, u * 0.28, u * 0.55);
-      M.setMatrixAt(d, new q().compose(x, U, B));
+      const w = (m - l[_]) / (l[_ + 1] - l[_]), x = b[_].clone().lerp(b[_ + 1], w), u = p[_] + (p[_ + 1] - p[_]) * w, O = d % 2 ? -1 : 1, z = r[_ + 1].clone().sub(r[_]).normalize();
+      x.add(new E(z.y, 0, -z.x).multiplyScalar(i === "vine" ? O * u * 1.2 : 0)), x.y += u * 0.65;
+      const j = new we().setFromAxisAngle(new E(0, 1, 0), Math.atan2(z.x, z.y) + O * 0.75), B = i === "vine" ? new E(u * 2.1, u * 0.3, u * 0.8) : new E(u * 0.5, u * 0.28, u * 0.55);
+      M.setMatrixAt(d, new q().compose(x, j, B));
     }
     M.castShadow = M.receiveShadow = !0, e.add(M);
   }
   return Math.max(...b.map((y) => y.y)) + h;
 }
 function _s(e, s) {
-  const t = e.own(new xe(1, 20, 14)), a = e.own(new Ze(1, 1, 6)), n = e.own(new ve(1, 1, 1, 12)), i = e.own(new Ge(1, 0)), o = /* @__PURE__ */ new Map();
+  const t = e.own(new Me(1, 20, 14)), a = e.own(new Ye(1, 1, 6)), n = e.own(new ve(1, 1, 1, 12)), i = e.own(new Be(1, 0)), o = /* @__PURE__ */ new Map();
   return (r, l, f, h) => {
-    const c = l.icon, p = je(l), b = `${c}:${p}:${l.certainty}:${l.category}`;
+    const c = l.icon, p = Ue(l), b = `${c}:${p}:${l.certainty}:${l.category}`;
     if (!o.has(b)) {
-      let x = function(A, k, S, F, N, L, z, R = 0, I = p) {
-        const j = new Y(A, s.mesh({
+      let x = function(A, k, S, F, N, L, D, R = 0, I = p) {
+        const U = new Y(A, s.mesh({
           ...l,
           material: I
         }, R));
-        return j.position.set(k, S, F), j.scale.set(N, L, z), j.castShadow = j.material.opacity >= 0.8, j.receiveShadow = !0, w.add(j), j;
+        return U.position.set(k, S, F), U.scale.set(N, L, D), U.castShadow = U.material.opacity >= 0.8, U.receiveShadow = !0, w.add(U), U;
       }, u = function(A, k, S, F) {
         for (const N of [-1, 1]) x(t, N * A, k, S, F, F * 1.4, F * 0.65, -0.92, "stone");
       };
@@ -1136,10 +1136,10 @@ function _s(e, s) {
               0.21
             ]
           ];
-          N.setAttribute("position", new ce(L.flatMap(([R, I, j]) => [
+          N.setAttribute("position", new ce(L.flatMap(([R, I, U]) => [
             k * R,
             I,
-            j
+            U
           ]), 3)), N.setAttribute("uv", new ce(L.flatMap(([R, , I]) => [R, I]), 2)), N.setIndex([
             0,
             1,
@@ -1157,11 +1157,11 @@ function _s(e, s) {
             5,
             6
           ]), N.computeVertexNormals();
-          const z = new Y(N, s.mesh({
+          const D = new Y(N, s.mesh({
             ...l,
             material: p
           }, -0.18));
-          z.castShadow = z.receiveShadow = !0, w.add(z);
+          D.castShadow = D.receiveShadow = !0, w.add(D);
         }
         const A = e.own(_e([
           new E(0, 0.27, -0.16),
@@ -1196,7 +1196,7 @@ function _s(e, s) {
       for (const [A, k] of O) {
         let S;
         try {
-          S = jt(k);
+          S = Ut(k);
         } finally {
           k.forEach((N) => N.dispose());
         }
@@ -1204,18 +1204,18 @@ function _s(e, s) {
         const F = new Y(e.own(S), A);
         F.castShadow = A.opacity >= 0.8, F.receiveShadow = !0, w.add(F);
       }
-      const D = new te().setFromObject(w), U = D.getCenter(new E());
+      const z = new te().setFromObject(w), j = z.getCenter(new E());
       let B = 0;
       w.traverse((A) => {
         if (!(A instanceof Y)) return;
         const k = A.geometry.getAttribute("position");
         for (let S = 0; S < k.count; S++) {
-          const F = new E().fromBufferAttribute(k, S).sub(U);
+          const F = new E().fromBufferAttribute(k, S).sub(j);
           B = Math.max(B, Math.hypot(F.x, F.z));
         }
       }), o.set(b, {
         group: w,
-        box: D,
+        box: z,
         radius: B
       });
     }
@@ -1229,13 +1229,13 @@ function xs(e) {
     const f = Math.hypot((l + 0.5) / 48 * 2 - 1, (r + 0.5) / 48 * 2 - 1);
     t[(r * 48 + l) * 4 + 3] = Math.round(Math.max(0, 1 - f) ** 1.5 * 120);
   }
-  const a = e.own(new Pe(t, 48, 48, Ee));
+  const a = e.own(new Ee(t, 48, 48, Pe));
   a.magFilter = a.minFilter = Se, a.needsUpdate = !0;
   const n = e.own(new kt(0.5, 32).rotateX(-Math.PI / 2)), i = /* @__PURE__ */ new Map();
   let o = 0;
   return (r, l, f, h) => {
     if (o++ >= 96) return;
-    i.has(h) || i.set(h, e.own(new At({
+    i.has(h) || i.set(h, e.own(new Ft({
       map: a,
       transparent: !0,
       opacity: h,
@@ -1259,68 +1259,68 @@ function Ms(e, s) {
 function Ss(e, s, t, a = ts(e)) {
   const n = new $e(), i = new me();
   try {
-    const o = ls(n, s, e.lighting), r = ds(n, o), l = _s(n, o), f = xs(n), h = n.own(new He(1, 1, 1)), c = n.own(new Ge(0.5, 1)), p = n.own(new ve(0.055, 0.08, 1, 6)), b = lt(e.elements), g = /* @__PURE__ */ new Map(), y = /* @__PURE__ */ new Map(), P = [], M = new te();
+    const o = ls(n, s, e.lighting), r = ds(n, o), l = _s(n, o), f = xs(n), h = n.own(new Ke(1, 1, 1)), c = n.own(new Be(0.5, 1)), p = n.own(new ve(0.055, 0.08, 1, 6)), b = lt(e.elements), g = /* @__PURE__ */ new Map(), y = /* @__PURE__ */ new Map(), P = [], M = new te();
     for (const [d, m] of mt(e.elements).entries()) {
       const w = ss(m, a.scale), x = new me();
       let u = 0.015, O = !1;
-      const D = es(m), U = dt(m), B = bt(m), A = Ve(m), k = A && t?.get(A), S = m.icon === "fence" && ["path", "curve"].includes(m.shape) && !se(m) && !["wall", "grid"].includes(m.category), F = !D && !se(m) && Te(m) && (ft(m) || ["furniture", "decoration"].includes(m.category));
+      const z = es(m), j = dt(m), B = bt(m), A = Ve(m), k = A && t?.get(A), S = m.icon === "fence" && ["path", "curve"].includes(m.shape) && !se(m) && !["wall", "grid"].includes(m.category), F = !z && !se(m) && Te(m) && (ft(m) || ["furniture", "decoration"].includes(m.category));
       if (m.shape === "icon" || m.shape === "label") u = 0.08;
       else if (m.category === "wall") {
         u = 1.1;
-        const L = Xe(w.points, w.closed), z = n.own(new J(h, o.mesh(m, 0.12), L.length));
-        z.castShadow = z.receiveShadow = !0, x.add(z), L.forEach((R, I) => {
-          const j = new q().makeRotationY(R.rotation).scale(new E(R.length, u, 0.08)).setPosition(R.x, u / 2, R.z);
-          z.setMatrixAt(I, j);
-        }), P.push(z);
+        const L = Xe(w.points, w.closed), D = n.own(new J(h, o.mesh(m, 0.12), L.length));
+        D.castShadow = D.receiveShadow = !0, x.add(D), L.forEach((R, I) => {
+          const U = new q().makeRotationY(R.rotation).scale(new E(R.length, u, 0.08)).setPosition(R.x, u / 2, R.z);
+          D.setMatrixAt(I, U);
+        }), P.push(D);
       } else if (S) u = ys(x, w.points, w.closed, h, o.mesh(m), n);
       else if (B) u = ws(x, m, w.points, n, o);
-      else if (U) u = l(x, m, w.width, w.depth);
+      else if (j) u = l(x, m, w.width, w.depth);
       else if (A && k) u = gs(x, m, A, k, w.width, w.depth, n, o);
-      else if (D) u = r(x, m, D, w.width, w.depth);
+      else if (z) u = r(x, m, z, w.width, w.depth);
       else if (Te(m)) {
         u = F ? 0.2 : 0.015;
-        const L = m.category === "terrain" ? 0.14 : u, z = n.own(os(w.points, L));
-        z.translate(0, u - L, 0);
-        const R = new Y(z, m.category === "terrain" && !F ? o.ground(m) : o.mesh(m));
+        const L = m.category === "terrain" ? 0.14 : u, D = n.own(os(w.points, L));
+        D.translate(0, u - L, 0);
+        const R = new Y(D, m.category === "terrain" && !F ? o.ground(m) : o.mesh(m));
         R.castShadow = u > 0.1, R.receiveShadow = !0, x.add(R);
       } else if (m.category === "road" || m.category === "water") {
         const L = new Y(n.own(is(w.points, w.closed, m.category === "road" ? 0.16 : 0.08).translate(0, u, 0)), o.mesh(m));
         L.receiveShadow = !0, x.add(L);
       }
-      if (D || k || U) {
-        const L = new te().setFromObject(x), z = Math.max(w.width, w.depth) * 1e-6;
-        O = L.min.x > -w.width / 2 + z || L.max.x < w.width / 2 - z || L.min.z > -w.depth / 2 + z || L.max.z < w.depth / 2 - z;
+      if (z || k || j) {
+        const L = new te().setFromObject(x), D = Math.max(w.width, w.depth) * 1e-6;
+        O = L.min.x > -w.width / 2 + D || L.max.x < w.width / 2 - D || L.min.z > -w.depth / 2 + D || L.max.z < w.depth / 2 - D;
       }
-      if ((D || k || U) && w.width > 0 && w.depth > 0 && f(x, w.width, w.depth, he(m, "").opacity), w.points.length && !B && (O || !D && !k && !U)) {
-        const L = new vt(n.own(as(w.points, w.closed, O ? 0.019 : m.category === "wall" ? 0.012 : u + 4e-3)), o.line(m));
+      if ((z || k || j) && w.width > 0 && w.depth > 0 && f(x, w.width, w.depth, he(m, "").opacity), w.points.length && !B && (O || !z && !k && !j)) {
+        const L = new St(n.own(as(w.points, w.closed, O ? 0.019 : m.category === "wall" ? 0.012 : u + 4e-3)), o.line(m));
         L.computeLineDistances(), x.add(L);
       }
       const N = (b.get(m.id) || []).flatMap((L) => {
-        const z = new Z((L.x - w.center[0]) / a.scale, (L.y - w.center[1]) / a.scale), R = L.size / a.scale / 2;
-        return Array.from({ length: 8 }, (I, j) => new Z(z.x + R * Math.cos(j * Math.PI / 4), z.y + R * Math.sin(j * Math.PI / 4))).every((I) => Ms(I, w.points)) ? [{
-          center: z,
+        const D = new Z((L.x - w.center[0]) / a.scale, (L.y - w.center[1]) / a.scale), R = L.size / a.scale / 2;
+        return Array.from({ length: 8 }, (I, U) => new Z(D.x + R * Math.cos(U * Math.PI / 4), D.y + R * Math.sin(U * Math.PI / 4))).every((I) => Ms(I, w.points)) ? [{
+          center: D,
           radius: R
         }] : [];
       });
       if (N.length) {
-        const L = new J(c, o.mesh(m, -0.03), N.length * 3), z = n.own(new J(p, o.mesh({
+        const L = new J(c, o.mesh(m, -0.03), N.length * 3), D = n.own(new J(p, o.mesh({
           ...m,
           material: "wood"
         }, -0.25), N.length));
-        N.forEach(({ center: R, radius: I }, j) => {
+        N.forEach(({ center: R, radius: I }, U) => {
           const K = I * 1.6;
-          z.setMatrixAt(j, new q().makeScale(I, K, I).setPosition(R.x, K / 2 + u, R.y));
+          D.setMatrixAt(U, new q().makeScale(I, K, I).setPosition(R.x, K / 2 + u, R.y));
           for (let X = 0; X < 3; X++) {
-            const oe = j * 3 + X, ae = X === 0 ? 1.55 : 1.1;
-            L.setMatrixAt(oe, new q().makeRotationY(j * 2.4 + X).scale(new E(I * ae, I * ae * 0.9, I * ae)).setPosition(R.x + (X === 1 ? -0.3 : X === 2 ? 0.3 : 0) * I, u + I * (X === 0 ? 1.8 : 1.35), R.y)), L.setColorAt(oe, new ye().setScalar(0.84 + j % 5 * 0.03 + (X === 0 ? 0.08 : 0)));
+            const oe = U * 3 + X, ae = X === 0 ? 1.55 : 1.1;
+            L.setMatrixAt(oe, new q().makeRotationY(U * 2.4 + X).scale(new E(I * ae, I * ae * 0.9, I * ae)).setPosition(R.x + (X === 1 ? -0.3 : X === 2 ? 0.3 : 0) * I, u + I * (X === 0 ? 1.8 : 1.35), R.y)), L.setColorAt(oe, new ye().setScalar(0.84 + U % 5 * 0.03 + (X === 0 ? 0.08 : 0)));
           }
-        }), L.castShadow = L.receiveShadow = !0, z.castShadow = z.receiveShadow = !0, n.own(L), x.add(z, L);
+        }), L.castShadow = L.receiveShadow = !0, D.castShadow = D.receiveShadow = !0, n.own(L), x.add(D, L);
       }
       if (x.position.copy(a.point(...w.center, d * 2e-3)), x.rotation.y = w.rotation, i.add(x), A) {
         const L = bs(m, A, w.width, w.depth) + 0.1;
         x.updateMatrix(), M.union(new te(new E(-w.width / 2, 0, -w.depth / 2), new E(w.width / 2, L, w.depth / 2)).applyMatrix4(x.matrix));
       }
-      se(m) ? (g.set(m.id, a.point(...w.center, x.position.y + 0.025)), U && y.set(m.id, a.point(...w.center, x.position.y + u + 0.06))) : D || A || F || U ? g.set(m.id, a.point(...w.center, x.position.y + u + 0.1)) : g.set(m.id, a.point(...ht(m, 0), x.position.y + (S || B ? u : 0) + 0.1));
+      se(m) ? (g.set(m.id, a.point(...w.center, x.position.y + 0.025)), j && y.set(m.id, a.point(...w.center, x.position.y + u + 0.06))) : z || A || F || j ? g.set(m.id, a.point(...w.center, x.position.y + u + 0.1)) : g.set(m.id, a.point(...ht(m, 0), x.position.y + (S || B ? u : 0) + 0.1));
     }
     const _ = new te().setFromObject(i).union(M);
     for (const d of g.values()) _.expandByPoint(d);
@@ -1342,14 +1342,14 @@ function Ss(e, s, t, a = ts(e)) {
     throw n.dispose(), i.clear(), o;
   }
 }
-var Ue = (e, s) => e.x < s.x + s.w + 3 && e.x + e.w + 3 > s.x && e.y < s.y + s.h + 3 && e.y + e.h + 3 > s.y;
+var je = (e, s) => e.x < s.x + s.w + 3 && e.x + e.w + 3 > s.x && e.y < s.y + s.h + 3 && e.y + e.h + 3 > s.y;
 function vs(e, s, t, a = []) {
   const n = /* @__PURE__ */ new Map(), i = [...e].sort((h, c) => h.priority - c.priority || h.id.localeCompare(c.id)), o = [...a], r = i.filter((h) => h.badge).map(({ anchor: h }) => ({
     x: h.x - 3,
     y: h.y - 3,
     w: 6,
     h: 6
-  })), l = (h) => h.x >= 3 && h.y >= 3 && h.x + h.w <= s - 3 && h.y + h.h <= t - 3, f = (h) => l(h) && !o.some((c) => Ue(h, c)) && !r.some((c) => Ue(h, c));
+  })), l = (h) => h.x >= 3 && h.y >= 3 && h.x + h.w <= s - 3 && h.y + h.h <= t - 3, f = (h) => l(h) && !o.some((c) => je(h, c)) && !r.some((c) => je(h, c));
   for (const h of i) {
     const c = { anchor: { ...h.anchor } };
     if (n.set(h.id, c), !h.badge) continue;
@@ -1589,11 +1589,11 @@ var As = new URL(
   /* @vite-ignore */
   "../apps/map/ui/three/assets/kenney/bookcaseOpenLow.glb?v=c67a8d18cd802afb",
   import.meta.url
-).href, zs = new URL(
+).href, Ds = new URL(
   /* @vite-ignore */
   "../apps/map/ui/three/assets/kenney/tree_oak.glb?v=adb24a59f159f214",
   import.meta.url
-).href, Ds = new URL(
+).href, zs = new URL(
   /* @vite-ignore */
   "../apps/map/ui/three/assets/kenney/stone_largeE.glb?v=07185b2e5f8ce40f",
   import.meta.url
@@ -1609,11 +1609,11 @@ var As = new URL(
   /* @vite-ignore */
   "../apps/map/ui/three/assets/kenney/loungeSofa.glb?v=a4a0b16aa48731b6",
   import.meta.url
-).href, Us = new URL(
+).href, js = new URL(
   /* @vite-ignore */
   "../apps/map/ui/three/assets/kenney/kitchenCabinet.glb?v=0f9b3693f3de853f",
   import.meta.url
-).href, js = new URL(
+).href, Us = new URL(
   /* @vite-ignore */
   "../apps/map/ui/three/assets/kenney/chest.glb?v=dfaf5cf144a7465e",
   import.meta.url
@@ -1666,13 +1666,13 @@ var As = new URL(
   chair: Ts,
   bed: Ls,
   shelf: Rs,
-  tree: zs,
-  rock: Ds,
+  tree: Ds,
+  rock: zs,
   stool: Os,
   bench: Cs,
   sofa: Fs,
-  cabinet: Us,
-  chest: js,
+  cabinet: js,
+  chest: Us,
   barrel: Ns,
   stove: Is,
   refrigerator: Bs,
@@ -1711,7 +1711,7 @@ function qs(e) {
       for (; i.length > P.length; ) o();
       P.forEach((M, _) => {
         let d = i[_];
-        d || (d = new Ke(), i.push(d), e.add(d), d.shadow.mapSize.set(512, 512), d.shadow.normalBias = 0.025, d.shadow.bias = -2e-4, d.shadow.radius = 2, d.shadow.autoUpdate = !1);
+        d || (d = new Ze(), i.push(d), e.add(d), d.shadow.mapSize.set(512, 512), d.shadow.normalBias = 0.025, d.shadow.bias = -2e-4, d.shadow.radius = 2, d.shadow.autoUpdate = !1);
         const m = M.radius / l.scale, w = M.overhead ? Math.max(2.2, m * 0.44) : Math.max(1, h.get(M.id)?.y || 0);
         d.color.set(M.color), d.position.copy(l.point(M.x, M.y, w)), d.distance = Math.hypot(m, w), d.decay = 2, d.intensity = w * w * (M.overhead ? 6 : 9), d.castShadow = _ < 1, d.shadow.camera.near = 0.08, d.shadow.camera.far = d.distance, d.shadow.camera.updateProjectionMatrix(), d.shadow.needsUpdate = !0;
       });
@@ -1725,16 +1725,16 @@ function qs(e) {
     }
   };
 }
-var Qs = class extends Be {
+var Qs = class extends Ie {
   constructor() {
     super();
-    const e = new He();
+    const e = new Ke();
     e.deleteAttribute("uv");
-    const s = new Le({ side: 1 }), t = new Le(), a = new Ke(16777215, 900, 28, 2);
+    const s = new Le({ side: 1 }), t = new Le(), a = new Ze(16777215, 900, 28, 2);
     a.position.set(0.418, 16.199, 0.3), this.add(a);
     const n = new Y(e, s);
     n.position.set(-0.757, 13.219, 0.717), n.scale.set(31.713, 28.305, 28.591), this.add(n);
-    const i = new J(e, t, 6), o = new Rt();
+    const i = new J(e, t, 6), o = new jt();
     o.position.set(-10.906, 2.009, 1.846), o.rotation.set(0, -0.195, 0), o.scale.set(2.328, 7.905, 4.651), o.updateMatrix(), i.setMatrixAt(0, o.matrix), o.position.set(-5.607, -0.754, -0.758), o.rotation.set(0, 0.994, 0), o.scale.set(1.97, 1.534, 3.955), o.updateMatrix(), i.setMatrixAt(1, o.matrix), o.position.set(6.167, 0.857, 7.803), o.rotation.set(0, 0.561, 0), o.scale.set(3.927, 6.285, 3.687), o.updateMatrix(), i.setMatrixAt(2, o.matrix), o.position.set(-2.017, 0.018, 6.124), o.rotation.set(0, 0.333, 0), o.scale.set(2.002, 4.566, 2.064), o.updateMatrix(), i.setMatrixAt(3, o.matrix), o.position.set(2.291, -0.756, -2.621), o.rotation.set(0, -0.286, 0), o.scale.set(1.546, 1.552, 1.496), o.updateMatrix(), i.setMatrixAt(4, o.matrix), o.position.set(-2.193, -0.369, -5.547), o.rotation.set(0, 0.516, 0), o.scale.set(3.875, 3.487, 2.986), o.updateMatrix(), i.setMatrixAt(5, o.matrix), this.add(i);
     const r = new Y(e, ne(50));
     r.position.set(-16.116, 14.37, 8.208), r.scale.set(0.1, 2.428, 2.739), this.add(r);
@@ -1758,14 +1758,14 @@ var Qs = class extends Be {
   }
 };
 function ne(e) {
-  return new Ct({
+  return new Dt({
     color: 0,
     emissive: 16777215,
     emissiveIntensity: e
   });
 }
 function Js(e, s) {
-  const t = new Ot(e), a = new Qs();
+  const t = new Ct(e), a = new Qs();
   let n;
   try {
     n = t.fromScene(a, 0.06, 0.1, 100, { size: 128 });
@@ -1782,25 +1782,25 @@ function Js(e, s) {
   };
 }
 function io(e, s, t) {
-  let a, n, i, o, r, l, f, h, c, p, b = !1, g = !1, y = !0, P = 0, M = 0, _ = 0, d = !0, m = !1, w = !1, x, u = "", O = "", D = !1, U = 14, B = 14;
-  const A = new AbortController(), k = new Be(), S = new Ft(-10, 10, 10, -10, 0.01, 1e3), F = new Z(), N = qs(k), L = () => !!e.closest(".theme-dark");
-  let z = L();
+  let a, n, i, o, r, l, f, h, c, p, b = !1, g = !1, y = !0, P = 0, M = 0, _ = 0, d = !0, m = !1, w = !1, x, u = "", O = "", z = !1, j = 14, B = 14;
+  const A = new AbortController(), k = new Ie(), S = new At(-10, 10, 10, -10, 0.01, 1e3), F = new Z(), N = qs(k), L = () => !!e.closest(".theme-dark");
+  let D = L();
   function R() {
     P && (cancelAnimationFrame(P), P = 0);
   }
   function I() {
     b || (b = !0, R(), A.abort(), h?.disconnect(), c?.disconnect(), p?.disconnect(), i?.dispose(), n?.dispose(), l?.dispose(), o?.dispose(), r?.dispose(), N.dispose(), f?.dispose(), a?.dispose(), a?.forceContextLoss(), a?.domElement.remove(), k.clear());
   }
-  function j(T) {
+  function U(T) {
     b || g || (g = !0, R(), t.fallback(T));
   }
   function K() {
     b || g || P || document.hidden || !e.isConnected || !y || M <= 0 || _ <= 0 || (P = requestAnimationFrame(() => {
       if (P = 0, !(document.hidden || !e.isConnected || !e.getClientRects().length))
         try {
-          D && x && (D = !1, Qe(x)), a.getSize(F), (F.x !== M || F.y !== _) && a.setSize(M, _, !1), a.render(k, S), l?.update(S, M, _, d);
+          z && x && (z = !1, Qe(x)), a.getSize(F), (F.x !== M || F.y !== _) && a.setSize(M, _, !1), a.render(k, S), l?.update(S, M, _, d);
         } catch {
-          j("三维画面暂不可用，已切换二维。");
+          U("三维画面暂不可用，已切换二维。");
         }
     }));
   }
@@ -1817,8 +1817,8 @@ function io(e, s, t) {
       const Ae = new E(et, tt, st).applyMatrix4(S.matrixWorldInverse);
       V = Math.max(V, Math.abs(Ae.x)), W = Math.max(W, Math.abs(Ae.y));
     }
-    U = V, B = W;
-    const ee = Math.max(B, U / (M / _ || 1)) * 1.09;
+    j = V, B = W;
+    const ee = Math.max(B, j / (M / _ || 1)) * 1.09;
     S.top = ee, S.bottom = -ee, S.left = -ee * (M / _ || 1), S.right = -S.left, S.zoom = 1, S.updateProjectionMatrix(), n.update(), K();
   }
   function ae() {
@@ -1828,7 +1828,7 @@ function io(e, s, t) {
       i?.cancel(), R();
       return;
     }
-    S.top = Math.max(B, U / (M / _)) * 1.09, S.bottom = -S.top, S.left = -S.top * M / _, S.right = -S.left, S.updateProjectionMatrix(), K();
+    S.top = Math.max(B, j / (M / _)) * 1.09, S.bottom = -S.top, S.left = -S.top * M / _, S.right = -S.left, S.updateProjectionMatrix(), K();
   }
   function Qe(T) {
     const v = O !== T.key, $ = v ? void 0 : o?.frame;
@@ -1837,8 +1837,8 @@ function io(e, s, t) {
       if (!ee.ok) throw new Error(`HTTP ${ee.status}`);
       return Ps(await ee.arrayBuffer());
     }, () => {
-      D = !0, K();
-    }, (V, W) => console.warn(`[Map 3D] ${V}: keeping procedural shape`, W))), o = Ss(T, z, r, $), O = T.key, k.add(o.group), o.updateWalls(m), l = Es(s, T, o.anchors, o.markerTops), l.symbols(w), N.update(T, o.frame, X(), o.anchors), f?.update(T.lighting), v && oe(), r?.sync(T.elements.flatMap((V) => {
+      z = !0, K();
+    }, (V, W) => console.warn(`[Map 3D] ${V}: keeping procedural shape`, W))), o = Ss(T, D, r, $), O = T.key, k.add(o.group), o.updateWalls(m), l = Es(s, T, o.anchors, o.markerTops), l.symbols(w), N.update(T, o.frame, X(), o.anchors), f?.update(T.lighting), v && oe(), r?.sync(T.elements.flatMap((V) => {
       const W = Ve(V);
       return W ? [W] : [];
     }));
@@ -1846,17 +1846,17 @@ function io(e, s, t) {
   function Je(T) {
     if (b || g) return;
     const v = JSON.stringify(T);
-    v !== u && (u = v, x = T, D = !0, K());
+    v !== u && (u = v, x = T, z = !0, K());
   }
   function fe(T) {
     S.zoom = ge.clamp(S.zoom * T, 0.4, 6), S.updateProjectionMatrix(), K();
   }
   try {
-    a = new zt({
+    a = new Rt({
       antialias: !0,
       alpha: !0,
       powerPreference: "low-power"
-    }), a.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8)), a.setClearColor(0, 0), a.outputColorSpace = Me, a.toneMapping = 7, a.toneMappingExposure = 1.1, a.shadowMap.enabled = !0, a.shadowMap.type = 2, f = Js(a, k), a.debug.onShaderError = () => j("图形驱动无法绘制三维，已切换二维。");
+    }), a.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8)), a.setClearColor(0, 0), a.outputColorSpace = xe, a.toneMapping = 7, a.toneMappingExposure = 1.1, a.shadowMap.enabled = !0, a.shadowMap.type = 2, f = Js(a, k), a.debug.onShaderError = () => U("图形驱动无法绘制三维，已切换二维。");
     const T = a.domElement;
     T.setAttribute("aria-label", "三维场景：左键拖动旋转，Shift + 左键拖动平移，滚轮缩放；单指平移，双指拖动旋转、捏合缩放；方向键旋转，Home 全图"), T.title = "左键拖动旋转 · Shift + 左键拖动平移 · 滚轮缩放", T.setAttribute("role", "group"), T.tabIndex = 0, e.prepend(T), n = new Bt(S, T), i = at(T, (v) => {
       T.dispatchEvent(new PointerEvent("pointercancel", { pointerId: v }));
@@ -1864,7 +1864,7 @@ function io(e, s, t) {
       ONE: Q.PAN,
       TWO: Q.DOLLY_ROTATE
     }, n.enableDamping = !1, n.minPolarAngle = 0.08, n.maxPolarAngle = Math.PI * 0.46, n.minZoom = 0.4, n.maxZoom = 6, n.rotateSpeed = 0.65, n.zoomSpeed = 0.8, n.addEventListener("change", K), T.addEventListener("webglcontextlost", (v) => {
-      v.preventDefault(), j("图形连接已中断，已切换二维。重新打开地图可重试。");
+      v.preventDefault(), U("图形连接已中断，已切换二维。重新打开地图可重试。");
     }, { signal: A.signal }), T.addEventListener("keydown", (v) => {
       if (!(v.ctrlKey || v.metaKey || v.altKey)) {
         if (v.key === "Home") oe();
@@ -1885,7 +1885,7 @@ function io(e, s, t) {
       try {
         ae();
       } catch {
-        j("三维画面尺寸调整失败，已切换二维。");
+        U("三维画面尺寸调整失败，已切换二维。");
       }
     }), h.observe(e), ae(), c = new IntersectionObserver((v) => {
       y = v[0].isIntersecting, y ? K() : R();
@@ -1893,7 +1893,7 @@ function io(e, s, t) {
       document.hidden ? R() : K();
     }, { signal: A.signal }), p = new MutationObserver(() => {
       const v = L();
-      v !== z && (z = v, D = !0, K());
+      v !== D && (D = v, z = !0, K());
     });
     for (let v = e; v; v = v.parentElement) p.observe(v, {
       attributes: !0,

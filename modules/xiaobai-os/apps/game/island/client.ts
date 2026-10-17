@@ -8,18 +8,20 @@ import type { PlayerIdentity } from './characters.js';
 import type { PlayerOperation } from './intent-work.js';
 import type { ExperienceView } from './cooperation.js';
 import { errorText } from './copy.js';
+import { savesUncertain } from './fault.js';
 
 export const startsActivity = (operation: Operation) => ['travel', 'drag', 'rest', 'take', 'work', 'construct', 'accept_care', 'strike', 'guard'].includes(operation.kind);
 const needsResponse = (operation: Operation) => ['say', 'declare', 'offer', 'accept', 'decline_offer', 'offer_care', 'decline_care', 'offer_contact', 'accept_contact', 'decline_contact', 'strike', 'guard'].includes(operation.kind);
 // Requests that write the partition take turns. Everything else is applied to the running world at once.
 const EXCLUSIVE = ['read', 'start', 'confirm', 'settings'];
 const WORLD_WRITES = new Set(['act', 'accept-intent', 'start']);
-const savesUncertain = (code: string) => code.startsWith('island_save_') || code === 'island_memory_save';
 interface RequestState { id: string; type: string; waiting: boolean; completed: boolean; failure?: unknown; onCompleted?: () => void }
 
 export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: string) {
     const view = shallowRef<IslandHostView | null>(null), busy = ref(false), error = ref(''), uncertain = ref(false);
-    const failedRequest = ref<string | null>(null);
+    const failedRequest = ref<string | null>(null), dismissedGmFailure = ref(false);
+    const gmFailure = computed(() => !dismissedGmFailure.value && view.value?.planFault && !view.value.pending && !view.value.memoryPending && !uncertain.value
+        ? errorText({ code: view.value.planFault }) : '');
     let disposed = false, errorOwner: RequestState | null = null;
     const requests = new Set<RequestState>(), recovery = new Map<RequestState, 'transport' | 'save'>();
     let pendingInput: { id: string; accepted: () => void } | null = null;
@@ -49,7 +51,11 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
             if (recovery.get(request) === 'transport' || request.type === 'interpret' && !request.failure) { recovered(request); }
             release(request);
         }
-        if (!view.value || next.stamp >= view.value.stamp) { view.value = next; }
+        if (!view.value || next.stamp >= view.value.stamp) {
+            // A pulse/read of the same failure must not reopen a notice the player closed.
+            if (next.journey !== view.value?.journey || next.planFault !== view.value?.planFault) { dismissedGmFailure.value = false; }
+            view.value = next;
+        }
         if (pendingInput?.id === next.lastRequest) { const accept = pendingInput.accepted; pendingInput = null; accept(); }
         for (const request of completedRequests) { request.onCompleted?.(); }
     }
@@ -68,6 +74,8 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
     async function request(type: string, args: Record<string, unknown> = {}, onCompleted?: () => void) {
         const exclusive = EXCLUSIVE.includes(type);
         if (disposed || exclusive && busy.value) { return false; }
+        // Also re-arm at the request boundary: a same-code failure can overtake the cleared-state acknowledgement.
+        if (type === 'think' || type === 'start') { dismissedGmFailure.value = false; }
         if (exclusive) { busy.value = true; }
         if (!uncertain.value) { error.value = ''; failedRequest.value = null; errorOwner = null; }
         const payload = { chatIdentity, actionId: createStorageId(), revision: view.value?.revision ?? 0, ...args };
@@ -124,7 +132,9 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         steerWanted = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }; steerInput++;
         void pumpSteering();
     }
-    return { view, busy, error, blocked, uncertain, failedRequest,
+    return { view, busy, error, blocked, uncertain, failedRequest, gmFailure,
+        // UI-only dismissal: keep the host fault/automatic-retry hold and all save-recovery state intact.
+        dismissGmFailure() { dismissedGmFailure.value = true; },
         read: () => request(uncertain.value ? 'confirm' : 'read'), recover: () => request('confirm'), settings: () => request('settings'),
         async history(after: number) {
             try {

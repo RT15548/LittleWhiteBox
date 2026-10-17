@@ -4,11 +4,11 @@ import { t as st } from "./xiaobai-os-_plugin-vue_export-helper-Dj7HTbfw.js";
 import { n as To, r as Fn, t as Lo } from "./xiaobai-os-composer-keyboard-COt-GHsA.js";
 import { n as Oo, t as jo } from "./xiaobai-os-conversation-window-no8ylrha.js";
 import { t as No } from "./xiaobai-os-constants-CDXgazQ7.js";
-import { $ as bt, Bt as Lr, Ct as Uo, D as ws, Dt as Fo, E as Aa, Et as xs, Mt as _s, O as Or, Ot as jr, Pt as Zo, Q as gr, Rt as qo, S as Nr, St as Do, T as Bo, Tt as vr, Wt as xt, _ as Wo, d as Ho, et as Vo, h as Go, i as Yo, kt as Qo, n as Ms, o as vn, p as yr, rt as br, s as Ko, ut as ks, w as Xo, wt as ln, xt as Jo, y as Qn, zt as ei } from "./xiaobai-os-three.module-CEf4RC2U.js";
-import { t as Ss } from "./xiaobai-os-BufferGeometryUtils-Dxy-eeb2.js";
+import { $ as gr, At as Uo, Bt as Fo, Ct as Zo, D as ws, Dt as xs, E as Aa, Et as vr, Ft as qo, Gt as xt, Nt as _s, O as Lr, Ot as Do, S as Or, St as Bo, T as Wo, Tt as ln, Vt as jr, _ as Ho, d as Vo, dt as Ms, et as bt, h as Go, i as Yo, it as yr, kt as Nr, n as ks, o as vn, p as br, s as Qo, tt as Ko, w as Xo, wt as Jo, y as Qn, zt as ei } from "./xiaobai-os-three.module-DZLCEE7H.js";
+import { t as Ss } from "./xiaobai-os-BufferGeometryUtils-BVwpfAe2.js";
 import { $ as Ia, A as wr, B as ti, C as Rs, D as Va, E as kn, F as ht, G as ai, H as Jt, I as Kn, J as nt, K as ni, L as v, M as Ve, N as Zn, O as se, P as Xn, Q as ze, R as _t, S as Ga, T as Ur, U as $t, V as ri, W as fe, X as Kt, Y as K, Z as Es, _ as si, a as Ht, at as oi, b as ii, c as Me, ct as li, d as Jn, et as Ps, f as qn, g as Cs, h as As, i as da, it as zs, j as xr, k as ci, l as D, lt as $s, m as di, n as er, nt as ui, o as Yt, ot as Ne, p as hi, q as Is, r as Ca, rt as pi, s as fi, st as Ts, t as oe, tt as mi, u as Ya, v as gi, w as _r, x as Ls, y as ua, z as Os } from "./xiaobai-os-copy-_MN2tyQS.js";
 import { n as vi, t as yi } from "./xiaobai-os-SkeletonUtils-C1GE4stQ.js";
-import { t as bi } from "./xiaobai-os-GLTFLoader-cY1YnDku.js";
+import { t as bi } from "./xiaobai-os-GLTFLoader-BUhik4S0.js";
 function Sn(e) {
   return e.seed = Math.imul(e.seed, 1664525) + 1013904223 >>> 0, e.seed / 4294967296;
 }
@@ -8203,23 +8203,23 @@ function Tc(e, t, r) {
   };
 }
 function ir(e) {
-  const t = new jr();
+  const t = new Nr();
   t.absarc(0, 0, 1.1, 0, Math.PI, !1), t.lineTo(-0.86, 0), t.absarc(0, 0, 0.86, Math.PI, 0, !0), t.closePath();
   const r = {
-    box: new Ko(1, 1, 1),
-    sphere: new Zo(1, 20, 14),
-    rock: new Or(1, 0),
-    crown: new Or(1, 1),
-    cylinder: new Wo(1, 1, 1, 24),
+    box: new Qo(1, 1, 1),
+    sphere: new qo(1, 20, 14),
+    rock: new Lr(1, 0),
+    crown: new Lr(1, 1),
+    cylinder: new Ho(1, 1, 1, 24),
     cone: new Go(1, 1, 12),
-    disc: new Ho(1, 48),
+    disc: new Vo(1, 48),
     ring: new ln(0.965, 1, 64),
     openRing: new ln(0.965, 1, 48, 1, Ne.rootRingGap / 2, Math.PI * 2 - Ne.rootRingGap),
     arc: new ln(0.87, 1, 40, 1, -0.2, Math.PI * 1.3),
-    torus: new Lr(1, 0.08, 8, 40),
+    torus: new jr(1, 0.08, 8, 40),
     stroke: new ln(0.975, 1, 48, 1, -0.2, Math.PI * 1.3),
-    crescent: new Lr(1, 0.14, 6, 24, Math.PI * 1.45),
-    arch: new Nr(t, {
+    crescent: new jr(1, 0.14, 6, 24, Math.PI * 1.45),
+    arch: new Or(t, {
       depth: 1,
       bevelEnabled: !1,
       curveSegments: 24
@@ -8228,13 +8228,13 @@ function ir(e) {
   function i(d, f = !1, m = 1, x = !1) {
     const b = `${d}/${f}/${m}/${x}`;
     let y = n.get(b);
-    return y || (y = f ? new Vo({
+    return y || (y = f ? new Ko({
       color: d,
       transparent: m < 1,
       opacity: m,
       depthWrite: m === 1,
       side: 2
-    }) : new br({
+    }) : new yr({
       color: d,
       map: e?.get(d) ?? null,
       roughness: x ? 0.34 : 0.88,
@@ -8291,15 +8291,15 @@ function ir(e) {
     ]);
     let S = a.get(_);
     if (!S) {
-      const L = new jr();
-      if (f.forEach(([w, E], R) => R ? L.lineTo(w, E) : L.moveTo(w, E)), L.closePath(), S = b ? new Nr(L, {
+      const L = new Nr();
+      if (f.forEach(([w, E], R) => R ? L.lineTo(w, E) : L.moveTo(w, E)), L.closePath(), S = b ? new Or(L, {
         depth: b,
         steps: 1,
         bevelEnabled: !0,
         bevelThickness: b * 0.3,
         bevelSize: b * 0.3,
         bevelSegments: 2
-      }) : new Qo(L), y) {
+      }) : new Uo(L), y) {
         const w = S.getAttribute("uv");
         for (let E = 0; E < w.count; E++) w.setXY(E, w.getX(E) / 8, w.getY(E) / 8);
       }
@@ -10697,11 +10697,11 @@ function Uc(e, t) {
   } };
 }
 function Fc(e, t) {
-  const r = e.group(t), a = new Fo({
+  const r = e.group(t), a = new Do({
     transparent: !0,
     depthWrite: !1,
     uniforms: {
-      tint: { value: new yr(tt.ward) },
+      tint: { value: new br(tt.ward) },
       impact: { value: 0 }
     },
     vertexShader: `varying vec3 surfaceNormal; varying vec3 viewDirection;
@@ -15064,7 +15064,7 @@ function Yn(e, t, r) {
   return Math.hypot(e.x - t[0] - a * s, e.y - t[1] - n * s);
 }
 function dd(e, t, r) {
-  const a = [], n = /* @__PURE__ */ new Map(), s = [], i = new Jo(), l = new xt(), c = new Do(), o = [];
+  const a = [], n = /* @__PURE__ */ new Map(), s = [], i = new Bo(), l = new xt(), c = new Zo(), o = [];
   function u(w, E) {
     const R = `${Math.floor(w / 16)}:${Math.floor(E / 16)}`;
     let A = n.get(R);
@@ -16426,7 +16426,7 @@ function wo(e, t, r, a) {
   };
 }
 function bd(e, t, r) {
-  const a = new br({
+  const a = new yr({
     vertexColors: !0,
     roughness: 0.95
   }), n = (bo[r] ?? []).map((c) => ({
@@ -16463,7 +16463,7 @@ function bd(e, t, r) {
   };
 }
 function wd(e, t, r) {
-  const a = new br({
+  const a = new yr({
     vertexColors: !0,
     roughness: 0.9
   }), n = va.filter((s) => Ue[s].scene === r.id).map((s) => {
@@ -17442,7 +17442,7 @@ var kd = new URL(
   import.meta.url
 ).href;
 function Pd(e, t) {
-  const r = new ei(), a = /* @__PURE__ */ new Map(), n = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Map();
+  const r = new Fo(), a = /* @__PURE__ */ new Map(), n = /* @__PURE__ */ new Set(), s = /* @__PURE__ */ new Map();
   let i = 0, l = !1;
   function c(o, u) {
     i++;
@@ -17457,7 +17457,7 @@ function Pd(e, t) {
     }, void 0, () => {
       l || (i--, n.delete(h), h.dispose(), s.set(o, u), t(s.size, i));
     });
-    h.colorSpace = vr, h.wrapS = h.wrapT = Uo, h.anisotropy = 2, n.add(h);
+    h.colorSpace = vr, h.wrapS = h.wrapT = Jo, h.anisotropy = 2, n.add(h);
   }
   for (const [o, u] of [
     [kd, [
@@ -17499,7 +17499,7 @@ function ds(e) {
       t.add(s.geometry);
       for (const i of Array.isArray(s.material) ? s.material : [s.material]) {
         r.add(i);
-        for (const l of Object.values(i)) l instanceof qo && a.add(l);
+        for (const l of Object.values(i)) l instanceof ei && a.add(l);
       }
       s instanceof _s && n.add(s.skeleton);
     }
@@ -17570,7 +17570,7 @@ async function Cd(e) {
   };
 }
 function Ad(e, t, r) {
-  const a = new Ms({
+  const a = new ks({
     antialias: !0,
     alpha: !1,
     powerPreference: r.world ? "default" : "high-performance"
@@ -17578,7 +17578,7 @@ function Ad(e, t, r) {
   a.outputColorSpace = vr, a.toneMapping = 7, a.toneMappingExposure = 1, a.setPixelRatio(Math.min(devicePixelRatio || 1, r.world ? 1.4 : 1.8)), a.shadowMap.enabled = !0, a.shadowMap.type = 2, e.append(a.domElement);
   const n = document.createElement("div");
   n.className = "exp-world-labels", n.setAttribute("aria-hidden", "true"), e.append(n);
-  const s = new xs(), i = new ks(-10, 10, 10, -10, 0.1, 180), l = ir();
+  const s = new xs(), i = new Ms(-10, 10, 10, -10, 0.1, 180), l = ir();
   s.add(new ws("#effbff", "#74918a", 2));
   const c = new Qn("#fff4e5", 1.9);
   c.position.set(-12, 25, 13), c.castShadow = !0;
@@ -17653,7 +17653,7 @@ function Ad(e, t, r) {
           };
         } else
           N = null, A = Lc(l, h, dt, ae);
-        _e = !1, T = an, s.background = new yr(Fa.sky), s.fog = new Bo(Fa.haze, 42, 95);
+        _e = !1, T = an, s.background = new br(Fa.sky), s.fog = new Wo(Fa.haze, 42, 95);
       } else B && $e !== B.facts && N?.setFacts(B.facts);
       (!!ae != !!O || ae && O && ae.tick < qt) && (m.resetMotion(), tn(), ve = ae?.player.hp ?? 0);
       const Za = !B && ot !== "battle", mt = Ce < 600, nn = mt || xe < 400, na = Ce / xe;
@@ -18508,7 +18508,7 @@ var eu = new URL(
       b = !0;
       let R;
       try {
-        R = new Ms({
+        R = new ks({
           antialias: !0,
           alpha: !1
         });
@@ -18518,10 +18518,10 @@ var eu = new URL(
       }
       R.outputColorSpace = vr, R.toneMapping = 7, R.setPixelRatio(Math.min(devicePixelRatio, 1.8));
       const A = new xs(), T = ir(), $ = new Aa(), M = fo(T, $, r.traveler.gender);
-      A.background = new yr("#d1e0e1"), A.add($, new ws("#fff6e3", "#627c93", 2.7));
+      A.background = new br("#d1e0e1"), A.add($, new ws("#fff6e3", "#627c93", 2.7));
       const O = new Qn("#fff6e0", 3);
       O.position.set(-3, 5, 6), A.add(O);
-      const N = new ks(-2.35, 2.35, 2.35, -2.35, 0.1, 30), F = new vn();
+      const N = new Ms(-2.35, 2.35, 2.35, -2.35, 0.1, 30), F = new vn();
       function V(ve) {
         M.update({
           x: 0,
