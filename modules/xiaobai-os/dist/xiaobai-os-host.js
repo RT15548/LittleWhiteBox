@@ -31039,7 +31039,6 @@ async function W6(e, t, n, r, i, a) {
       return await qS(c, {
         ...S,
         tools: [],
-        maxTokens: 2400,
         signal: i,
         onStreamProgress(A) {
           if (!I || i.aborted) return;
@@ -31051,10 +31050,7 @@ async function W6(e, t, n, r, i, a) {
     } catch (A) {
       const E = A.cause;
       if (!E?.partialResponse) throw A;
-      return {
-        ...E.partialResponse,
-        truncated: !0
-      };
+      return E.partialResponse;
     } finally {
       I = !1;
     }
@@ -31072,7 +31068,7 @@ async function W6(e, t, n, r, i, a) {
   a.received(p), s(), typeof p.text != "string" && Y("reply_invalid");
   const m = C6(p.text);
   if (!m) return Em(p.text, p.truncated ? "reply_incomplete" : "reply_invalid");
-  if (p.truncated || !m.complete) return Em(m.reply, "reply_incomplete");
+  if (!m.complete) return Em(m.reply, "reply_incomplete");
   if (m.reply.length > Nc.replyTextLimit) return Em(m.reply, "reply_invalid");
   const g = m.reply;
   if (!m.controls) return {

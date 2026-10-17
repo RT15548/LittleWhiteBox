@@ -1,6 +1,5 @@
 import city from './assets/city-title.webp?url&no-inline';
 import cityMobile from './assets/city-title-mobile.webp?url&no-inline';
-import chapter from './assets/chapter-outpost.webp?url&no-inline';
 import blade from './assets/weapon-blade.webp?url&no-inline';
 import bow from './assets/weapon-bow.webp?url&no-inline';
 import staff from './assets/weapon-staff.webp?url&no-inline';
@@ -24,7 +23,7 @@ import workshopStreet from './assets/scene-workshop-street.webp?url&no-inline';
 import heatStation from './assets/scene-heat-station.webp?url&no-inline';
 
 /** Presentation-only assets. Importing a URL never starts an image download. */
-export const WORLD_ART = { city, cityMobile, chapter } as const;
+export const WORLD_ART = { city, cityMobile } as const;
 export const WEAPON_ART = { blade, bow, staff, daggers, grimoire, cannon } satisfies Record<Weapon, string>;
 export const SCENE_ART: Partial<Record<CourtyardScene, string>> = { camp, crossroads, gate, beacon, waterway, cells, hall, roots,
     south_street: southStreet, workshop_street: workshopStreet, heat_station: heatStation };

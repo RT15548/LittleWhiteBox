@@ -48,7 +48,7 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
     const requestDialogue = async (prepared: typeof prompt) => {
         options.onPhase?.('waiting');
         let streaming = true, text = '', thoughts = '';
-        try { return await runNarrativeRequest(session, { ...prepared, tools: [], maxTokens: 2400, signal,
+        try { return await runNarrativeRequest(session, { ...prepared, tools: [], signal,
             onStreamProgress(snapshot) {
                 if (!streaming || signal.aborted) { return; }
                 const nextText = typeof snapshot.text === 'string' ? snapshot.text : text;
@@ -65,7 +65,9 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
         catch (error) {
             const cause = (error as { cause?: { partialResponse?: Record<string, unknown> } }).cause;
             if (!cause?.partialResponse) { throw error; }
-            return { ...cause.partialResponse, truncated: true };
+            // Provider completion describes the transport, not the validity of the
+            // narrative envelope already received. Decode its body and controls below.
+            return cause.partialResponse;
         }
         finally { streaming = false; }
     };
@@ -86,7 +88,7 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
     if (typeof response.text !== 'string') { fault('reply_invalid'); }
     const decoded = decodeNarrativeReply(response.text);
     if (!decoded) { return receipt(response.text, response.truncated ? 'reply_incomplete' : 'reply_invalid'); }
-    if (response.truncated || !decoded.complete) { return receipt(decoded.reply, 'reply_incomplete'); }
+    if (!decoded.complete) { return receipt(decoded.reply, 'reply_incomplete'); }
     if (decoded.reply.length > CAMPAIGN_RULES.replyTextLimit) { return receipt(decoded.reply, 'reply_invalid'); }
     const reply = decoded.reply;
     if (!decoded.controls) {

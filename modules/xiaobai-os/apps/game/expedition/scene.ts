@@ -54,12 +54,18 @@ export function createExpeditionScene(host: HTMLElement, onError: (error: unknow
     let width = 1, height = 1, dirty = true, disposed = false, failed = false, lastFrame = 0, lastTick = -1, lastHp = 0, cameraReady = false;
     const worldTextures = options.world ? createWorldTextures(() => { worldKey = ''; dirty = true; options.invalidate?.(); }, (failed, pending) => options.artworkStatus?.(failed, pending)) : null;
     const characterLoad = new AbortController();
-    let sanniang: SanniangAsset | null = null;
-    if (options.world) {
-        void loadSanniangAsset(characterLoad.signal).then(asset => {
-            if (disposed) { asset.dispose(); return; }
-            sanniang = asset; dirty = true; options.invalidate?.();
-        }).catch(error => { if (!disposed) { failed = true; onError(error); } });
+    let sanniang: SanniangAsset | null = null, characterRequested = false;
+    function ready(world?: ExplorationFrame) {
+        if (disposed || failed) { return false; }
+        if (!world || world.people.sanniang.scene !== world.definition.id || sanniang) { return true; }
+        if (!characterRequested) {
+            characterRequested = true;
+            void loadSanniangAsset(characterLoad.signal).then(asset => {
+                if (disposed) { asset.dispose(); return; }
+                sanniang = asset; dirty = true; options.invalidate?.();
+            }).catch(error => { if (!disposed) { failed = true; onError(error); } });
+        }
+        return false;
     }
     function resize() {
         const rect = host.getBoundingClientRect(); width = Math.max(1, rect.width); height = Math.max(1, rect.height);
@@ -82,7 +88,7 @@ export function createExpeditionScene(host: HTMLElement, onError: (error: unknow
     }
     return {
         draw(battle: Battle | null, loadout: { weapon: Weapon; outfit: Outfit }, zone: number, mode: SceneMode = 'battle', now = 0, world?: ExplorationFrame) {
-            if (disposed || failed || options.world && !sanniang) { return; }
+            if (!ready(world)) { return; }
             const started = performance.now();
             const b = mode === 'battle' ? battle : null, time = b?.tick ?? (reduced.matches ? 0 : now * .025), tickChanged = (b?.tick ?? -1) !== lastTick;
             const appearance = `${loadout.weapon}/${loadout.outfit}/${zone}`;
@@ -96,7 +102,7 @@ export function createExpeditionScene(host: HTMLElement, onError: (error: unknow
                 disposeWorld?.();
                 if (world) {
                     const worldKit = createSceneKit(worldTextures?.maps);
-                    worldScenery = buildExplorableWorld(worldKit, environment, world.definition, world.facts, sanniang!);
+                    worldScenery = buildExplorableWorld(worldKit, environment, world.definition, world.facts, () => sanniang!);
                     const scenery = worldScenery;
                     disposeWorld = () => { scenery.dispose(); worldKit.dispose(); };
                 } else { worldScenery = null; disposeWorld = buildWorld(k, environment, zone, b); }
@@ -210,7 +216,7 @@ export function createExpeditionScene(host: HTMLElement, onError: (error: unknow
             if (world) { worldX = world.location.position.x; worldY = world.location.position.y; worldFacing = world.location.facing; drawnFacts = world.facts; }
         },
         invalidate() { dirty = true; options.invalidate?.(); },
-        ready() { return !disposed && !failed && (!options.world || !!sanniang); },
+        ready,
         needsFrame() { return worldScenery?.animating ?? false; },
         retryArtwork() { worldTextures?.retry(); },
         stats() { return { draws, submitMs, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,

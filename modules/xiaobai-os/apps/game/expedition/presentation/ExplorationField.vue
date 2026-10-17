@@ -54,7 +54,7 @@ function render(now: number) {
     if (disposed || !active) { return; }
     if (!props.paused && !document.hidden) { animation = requestAnimationFrame(render); }
     const elapsed = last ? Math.min(100, now - last) : 0; last = now;
-    if (!props.paused && !document.hidden && scene?.ready()) {
+    if (!props.paused && !document.hidden && scene?.ready(props.world)) {
         accumulator += elapsed;
         while (accumulator >= 1000 / RULES.hz && !props.paused) {
             accumulator -= 1000 / RULES.hz;

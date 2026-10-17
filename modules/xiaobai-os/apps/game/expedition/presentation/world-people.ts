@@ -8,8 +8,8 @@ import type { SanniangAsset } from './sanniang-asset.js';
 import { sanniangPerson } from './sanniang-person.js';
 
 /** Sanniang uses the authored asset; the remaining three actors retain their current presentation. */
-export function person(k: SceneKit, root: Group, id: CourtyardPerson, x: number, z: number, facts: ReadonlySet<CourtyardFact>, sanniang: SanniangAsset, seated = true) {
-    if (id === 'sanniang') { return sanniangPerson(k, root, sanniang, x, z, seated); }
+export function person(k: SceneKit, root: Group, id: CourtyardPerson, x: number, z: number, facts: ReadonlySet<CourtyardFact>, sanniang: () => SanniangAsset, seated = true) {
+    if (id === 'sanniang') { return sanniangPerson(k, root, sanniang(), x, z, seated); }
     const arrived = hasReturned([...facts], id);
     const actor = k.group(root, [x, 0, z]), furniture = k.group(root), guard = id === 'laobai', worker = id === 'kouzi';
     actor.rotation.y = -.35;
