@@ -1,7 +1,6 @@
 import {
     parseTavernTaskBoardResponse,
     parseTavernTaskCandidatesResponse,
-    throwTavernTaskError,
     type TavernTaskCandidate,
     type TavernTaskListing,
 } from '../../../../../shared/tasks/task-types';
@@ -12,13 +11,6 @@ export function parseTavernTaskBoardGenerationResponse(value = ''): TavernTaskLi
 
 export function parseTavernTaskCandidatesGenerationResponse(value = ''): TavernTaskCandidate[] {
     return parseTavernTaskCandidatesResponse(value);
-}
-
-export function assertTavernTaskGenerationFinished(finishReason = ''): void {
-    const normalized = String(finishReason || '').trim().toUpperCase();
-    if (normalized === 'LENGTH' || normalized === 'MAX_TOKENS' || normalized === 'MAX_OUTPUT_TOKENS') {
-        throwTavernTaskError('task_response_truncated', normalized);
-    }
 }
 
 export function tavernTaskRequestErrorText(error: unknown): string {
@@ -37,7 +29,6 @@ export function tavernTaskRequestErrorText(error: unknown): string {
     if (message.startsWith('task_balance_insufficient') || message.startsWith('economy_balance_insufficient')) {
         return '小白币余额不足，无法冻结这笔委托报酬。';
     }
-    if (message.startsWith('task_response_truncated')) {return '终端输出被模型或供应商截断，没有丢弃为 JSON 格式错误。';}
     if (message.startsWith('task_response_json_invalid')) {return '终端返回内容不是合法 JSON。';}
     if (message.startsWith('task_response_shape_invalid')) {return '终端返回的 JSON 结构不正确：tasks 或 candidates 必须是数组。';}
     if (message.startsWith('task_response_items_invalid')) {return '终端返回了合法 JSON，但其中没有可用条目。';}

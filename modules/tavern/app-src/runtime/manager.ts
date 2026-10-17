@@ -462,7 +462,7 @@ async function runManagerOnceWithAdapter(
         text: String(result?.text || '').trim(),
         provider: String(result?.provider || providerConfig.provider || ''),
         model: String(result?.model || providerConfig.model || ''),
-        toolCalls: Array.isArray(result?.toolCalls) ? result.toolCalls : [],
+        toolCalls: resolveResultToolCalls(result, providerConfig, { fallbackPrefix: 'tavern-manager-tool' }),
         thoughts: normalizeManagerThoughtBlocks(result?.thoughts),
         providerPayload: result?.providerPayload,
     };

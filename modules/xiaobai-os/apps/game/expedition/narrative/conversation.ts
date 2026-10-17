@@ -62,13 +62,6 @@ export async function generateConversation(agent: AgentCapability, campaign: Cam
                 text = nextText; thoughts = nextThoughts;
             },
         }); }
-        catch (error) {
-            const cause = (error as { cause?: { partialResponse?: Record<string, unknown> } }).cause;
-            if (!cause?.partialResponse) { throw error; }
-            // Provider completion describes the transport, not the validity of the
-            // narrative envelope already received. Decode its body and controls below.
-            return cause.partialResponse;
-        }
         finally { streaming = false; }
     };
     let response;

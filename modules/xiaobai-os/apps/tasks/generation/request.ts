@@ -58,10 +58,6 @@ function responseText(result: UnknownRecord): string {
     return String(result.text || '');
 }
 
-function isTruncated(result: UnknownRecord): boolean {
-    return result.truncated === true;
-}
-
 function cancelled<TCompile extends BoardCompileResult | CandidateCompileResult>(
     kind: GenerationKind,
 ): TaskGenerationRequestResult<TCompile> {
@@ -241,10 +237,7 @@ export function createTaskGenerationRequests({
                 () => ready(kind, request, boundary.chatIdentity) && boardCas(boundary.expectedBoardId),
             );
             if (!requestActive(kind, request)) {return cancelled(kind);}
-            const compile = compileTaskBoardResponse(responseText(response), {
-                finishReason: response.finishReason,
-                truncated: isTruncated(response),
-            });
+            const compile = compileTaskBoardResponse(responseText(response));
             const checked = await boundaryStillCurrent(kind, request, boundary);
             if (!checked.valid) {return cancelled(kind);}
             if (!compile.changed || !compile.data) {
@@ -294,10 +287,7 @@ export function createTaskGenerationRequests({
                 () => ready(kind, request, boundary.chatIdentity) && !!candidateRecord(boundary),
             );
             if (!requestActive(kind, request)) {return cancelled(kind);}
-            const compile = compileTaskCandidateResponse(responseText(response), record.candidates, {
-                finishReason: response.finishReason,
-                truncated: isTruncated(response),
-            });
+            const compile = compileTaskCandidateResponse(responseText(response), record.candidates);
             const checked = await boundaryStillCurrent(kind, request, boundary);
             if (!checked.valid) {return cancelled(kind);}
             if (!compile.changed || compile.data?.mode !== 'replace') {

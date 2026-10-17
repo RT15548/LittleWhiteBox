@@ -1,6 +1,6 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { resolveAgentAuth } from '../provider-auth.js';
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -791,7 +791,7 @@ export class GoogleAdapter {
             text,
             toolCalls: normalizedToolCalls,
             thoughts,
-            finishReason: requireResponseCompletion('google', finishReason, false, text),
+            ...readResponseCompletion('google', finishReason),
             model: response.modelVersion || this.config.model,
             provider: 'google',
             providerPayload: buildProviderPayloadFromContents(historyModelContents)

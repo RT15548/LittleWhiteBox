@@ -451,7 +451,7 @@ Candidates 编译规则：
 
 Board 只要至少一项合法即为 changed，因此完整六项为 updated、保留部分合法项为 partial；它没有 unchanged 结果。Candidates 先按五个规范字段和顺序与当前列表比较，不把 candidateId 参与比较：空数组或三至四个合法项、无 skipped 且内容完全相同时返回既有列表及 IDs/unchanged；有 skipped 或非空合法结果少于三人时状态优先为 partial，即使合法 survivors 与当前列表相同，此时`changed:false`且 data mode 为 unchanged；内容确实不同时返回无 ID drafts。完整合法为 updated，协议不完整但有可用 sibling 为 partial。`failed`始终表示没有可提交候选。
 
-Request 只有在 compiler 给出 changed 的 updated/partial 后才调用应用服务。世界书和世界新闻固定使用本次请求取得的参考素材，提交检查不重扫概率世界书。Application 在授权 token、可变上下文（玩家、角色、近期剧情、总结和地图）、board/task CAS、主生成和 Kernel 文件写状态第一次检查全部通过后，使用 Tasks 私有 ID factory 为本次 board/listing 或 candidate batch 分配并查重 ID，再进入唯一 Scoped transaction；上传前 guard 失败时整批候选不安装。unchanged 不分配 ID、不产生事件或保存。Provider 明确以 length/max_tokens 截断时优先使用`response_truncated`，不伪装成普通 JSON 错误。
+Request 只有在 compiler 给出 changed 的 updated/partial 后才调用应用服务。世界书和世界新闻固定使用本次请求取得的参考素材，提交检查不重扫概率世界书。Application 在授权 token、可变上下文（玩家、角色、近期剧情、总结和地图）、board/task CAS、主生成和 Kernel 文件写状态第一次检查全部通过后，使用 Tasks 私有 ID factory 为本次 board/listing 或 candidate batch 分配并查重 ID，再进入唯一 Scoped transaction；上传前 guard 失败时整批候选不安装。unchanged 不分配 ID、不产生事件或保存。完整性按实际收到的 JSON 判断：未闭合内容使用`response_truncated`；完整且符合 schema 的内容不因供应商的输出上限或缺失结束标记而失败。
 
 ## 8. 活动任务 Prompt、工具与 Session
 

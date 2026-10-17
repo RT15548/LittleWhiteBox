@@ -224,7 +224,6 @@ export type TavernTaskErrorCode =
     | 'task_response_json_invalid'
     | 'task_response_shape_invalid'
     | 'task_response_items_invalid'
-    | 'task_response_truncated'
     | 'task_response_invalid';
 
 export class TavernTaskError extends Error {

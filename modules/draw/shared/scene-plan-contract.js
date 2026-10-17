@@ -3,8 +3,6 @@ import { repairScenePlanArguments } from './scene-plan-arguments.js';
 export const SUBMIT_SCENE_PLAN_TOOL_NAME = 'submit_scene_plan';
 
 const REQUIRED_IMAGE_FIELDS = Object.freeze(['insert_after', 'scene', 'characters']);
-// Unknown or interrupted provider finishes must not be promoted into a successful plan.
-const REPAIR_FINISH_REASONS = new Set(['', 'stop', 'completed', 'end_turn', 'tool_use', 'tool_calls', 'function_call']);
 
 export function toSceneCharacterPromptTag(value) {
     const type = String(value || '').trim();
@@ -426,7 +424,7 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         );
     }
     const { parameters, argumentRepair } = parseArguments(toolCall.arguments, {
-        allowRepair: !result.refused && REPAIR_FINISH_REASONS.has(String(result.finishReason || '').toLowerCase()),
+        allowRepair: !result.refused && result.completion !== 'incomplete' && !result.truncated,
     });
     // Planning notes are model-facing data, not part of the image execution contract.
     if (!Object.hasOwn(parameters, 'images')) failSchema('parameters.images', '是必填字段', undefined);

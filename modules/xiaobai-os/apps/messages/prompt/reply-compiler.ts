@@ -76,10 +76,7 @@ export function previewReplies(text: string): MessageReplyPreview {
     return { characterState: characterState ?? '', characterStateDone, replies };
 }
 
-export function compileReplies(response: { text?: unknown; truncated?: unknown; finishReason?: unknown }): MessagePayload[] {
-    if (response.truncated === true || response.finishReason === 'length' || response.finishReason === 'max_tokens') {
-        throw new Error('messages_response_incomplete');
-    }
+export function compileReplies(response: { text?: unknown }): MessagePayload[] {
     const text = String(response.text ?? '');
     if (text.length > 100_000) {throw new Error('messages_response_capacity');}
     const { characterState, characterStateDone, rest } = splitCharacterState(responseContent(text));
@@ -92,7 +89,6 @@ export function compileReplies(response: { text?: unknown; truncated?: unknown; 
     return replies;
 }
 
-export function compileSummary(response: { text?: unknown; truncated?: unknown; finishReason?: unknown }): string {
-    if (response.truncated === true || response.finishReason === 'length' || response.finishReason === 'max_tokens') {throw new Error('messages_summary_incomplete');}
+export function compileSummary(response: { text?: unknown }): string {
     return messageString(parseResponseObject(String(response.text ?? '')).summary, MESSAGE_LIMITS.summary);
 }

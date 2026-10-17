@@ -3,7 +3,6 @@ import { createStreamingMessageController } from '../../../../agent-core/runtime
 import type { AgentMessage } from '../../../../agent-core/runtime/conversation.js';
 import type { LearningMessage } from './messages.js';
 import { estimateConversationTokens } from '../../../../agent-core/runtime/context-tokens.js';
-import { isResponseTruncated } from '../../../../agent-core/runtime/response-completion.js';
 import type { XiaobaiOsAgentSession } from '../../../capabilities/agent/gateway.js';
 import { classifyProviderFailure } from '../../../capabilities/agent/provider-failure.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
@@ -136,7 +135,6 @@ export async function runLearningProviderLoop(options: {
                 if (cancelled()) { return { status: 'cancelled' }; }
                 if (assistant) { assistant.error = true; stream.finalizeStreamingAssistantMessage(assistant); }
                 if (progress.stage === 'summary') { return failure('learning_summary_failed', error); }
-                if (isResponseTruncated(error)) { return failure('learning_response_truncated', error); }
                 if (isLearningContextOverflow(error)) {
                     if (history.length && options.reopen) {
                         try { if (!await compact(round)) { return failure('learning_context_full', error); } }

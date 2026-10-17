@@ -67,7 +67,6 @@ export function learningTeachingFailure(reason: string, cause?: unknown): string
         case 'learning_context_full': return '这次要看的内容太多了。已保存的练习和作答不变；可以分几次说，或在 AI 设置中换用能阅读更长内容的模型。';
         case 'learning_summary_failed': return '没能整理之前的聊天，原对话和已保存的学习内容都还在。请重试。';
         case 'learning_empty_response': return '没有收到有效回复。已保存的修改保留，可以继续。';
-        case 'learning_response_truncated': return '这次回复太长，中途停下了。此前已保存的修改保留；可以继续未完成的工作，或在 AI 设置中调高回复长度。';
         case 'learning_round_limit': return '这次工具调用已到轮数上限。已保存的修改保留，可以继续未完成的工作。';
         case 'learning_read_failed': return '读取学习记录失败，请检查连接后重试。';
         case 'learning_resolve_pending_first': return LEARNING_STORAGE_COPY.unconfirmed;

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { resolveAgentAuth } from '../provider-auth.js';
+import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -180,16 +181,11 @@ function assertResponsesResponseShape(response) {
     throw error;
 }
 
-function responsesTerminationError(status, reason, response) {
-    const error = new Error(status === 'incomplete'
-        ? 'Responses 回复未完整生成。' : status === 'failed'
-            ? 'Responses 生成失败。' : 'Responses 未确认生成完成。');
+function responsesTerminationError(status, reason) {
+    const error = new Error(status === 'failed' ? 'Responses 生成失败。' : 'Responses 生成已取消。');
     error.name = 'OpenAIResponsesTerminationError';
-    error.code = status === 'incomplete' ? 'OPENAI_RESPONSES_INCOMPLETE'
-        : status === 'failed' ? 'OPENAI_RESPONSES_FAILED' : 'OPENAI_RESPONSES_UNFINISHED';
+    error.code = status === 'failed' ? 'OPENAI_RESPONSES_FAILED' : 'OPENAI_RESPONSES_CANCELLED';
     error.reason = reason;
-    const text = extractResponseText(response);
-    if (text) error.partialResponse = { text, finishReason: reason || status, truncated: reason === 'max_output_tokens' };
     return error;
 }
 
@@ -453,8 +449,8 @@ export class OpenAIResponsesAdapter {
         };
         const parseResponse = (response) => {
             assertResponsesResponseShape(response);
-            if (response.status !== 'completed') {
-                throw responsesTerminationError(response.status, response.incomplete_details?.reason, response);
+            if (response.status === 'failed' || response.status === 'cancelled') {
+                throw responsesTerminationError(response.status, response.error?.code);
             }
             const output = response.output;
             const thoughts = isReasoningOutputVisible(effectiveReasoning) ? extractThoughts(output) : [];
@@ -463,7 +459,7 @@ export class OpenAIResponsesAdapter {
                 .map((item, index) => ({
                     id: item.call_id || `response-tool-${index + 1}`,
                     name: item.name || '',
-                    arguments: item.arguments || '{}',
+                    arguments: item.arguments ?? '',
                 }));
             const text = extractResponseText(response);
             return { output, thoughts, toolCalls, text };
@@ -583,13 +579,9 @@ export class OpenAIResponsesAdapter {
                 });
 
                 const response = await stream.finalResponse();
-                // The SDK may finalize an in_progress snapshot on failed/incomplete events or EOF.
-                // Only the wire's completion event authorizes downstream tool execution.
-                if (terminal?.type !== 'response.completed') {
-                    throw responsesTerminationError(terminal?.type?.slice('response.'.length), terminal?.response?.incomplete_details?.reason, response);
-                }
-                if (response.status !== 'completed') { throw responsesTerminationError(response.status, response.incomplete_details?.reason, response); }
-                return response;
+                // The SDK only installs completed terminal snapshots. Incomplete/failed
+                // events carry the actual final output and status in their own response.
+                return terminal?.response || response;
             } catch (error) {
                 throw attachRequestInspection(error);
             }
@@ -633,7 +625,9 @@ export class OpenAIResponsesAdapter {
             text: parsed.text,
             toolCalls: parsed.toolCalls,
             thoughts: parsed.thoughts,
-            finishReason: response.incomplete_details?.reason || response.status || 'stop',
+            ...readResponseCompletion('responses', response.incomplete_details?.reason || response.status,
+                parsed.output.some(item => item?.type === 'message' && Array.isArray(item.content)
+                    && item.content.some(part => part?.type === 'refusal'))),
             // A completed response can still explicitly refuse all or part of the request.
             refused: parsed.output.some(item => item?.type === 'message' && Array.isArray(item.content)
                 && item.content.some(part => part?.type === 'refusal')),

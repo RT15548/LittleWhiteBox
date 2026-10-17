@@ -1436,7 +1436,7 @@ test('OpenAI Responses performs only one empty-response fallback and records bot
     );
 });
 
-test('OpenAI Responses never returns executable tools from non-completed JSON responses', async () => {
+test('OpenAI Responses preserves complete tools from abnormal endings but still rejects failed or cancelled requests', async () => {
     for (const status of ['incomplete', 'failed', 'in_progress', 'cancelled', undefined]) {
         const adapter = new OpenAIResponsesAdapter({ apiKey: 'fixture', baseUrl: 'https://responses-relay.example/v1', model: 'fixture' });
         let requests = 0;
@@ -1446,12 +1446,20 @@ test('OpenAI Responses never returns executable tools from non-completed JSON re
                 type: 'function_call', id: 'fc_fixture', call_id: 'call_fixture', name: 'Write', arguments: '{"text":"unfinished"}',
             }], incomplete_details: status === 'incomplete' ? { reason: 'max_output_tokens' } : null });
         } });
-        await assert.rejects(adapter.chat({ messages: [{ role: 'user', content: 'write' }] }), error => {
-            assert.equal(error.name, 'OpenAIResponsesTerminationError');
-            assert.equal(error.requestInspection.requestCount, 1);
-            if (status === 'incomplete') { assert.equal(error.reason, 'max_output_tokens'); }
-            return true;
-        });
+        const pending = adapter.chat({ messages: [{ role: 'user', content: 'write' }] });
+        if (status === 'failed' || status === 'cancelled') {
+            await assert.rejects(pending, error => {
+                assert.equal(error.name, 'OpenAIResponsesTerminationError');
+                assert.equal(error.requestInspection.requestCount, 1);
+                return true;
+            });
+        } else {
+            const result = await pending;
+            assert.equal(result.completion, 'incomplete');
+            assert.equal(result.truncated, status === 'incomplete');
+            assert.deepEqual(JSON.parse(result.toolCalls[0].arguments), { text: 'unfinished' });
+            assert.equal(result.providerPayload.openAIResponseOutput[0].call_id, 'call_fixture');
+        }
         assert.equal(requests, 1);
     }
 });

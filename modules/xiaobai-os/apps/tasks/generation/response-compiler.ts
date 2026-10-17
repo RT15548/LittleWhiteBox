@@ -19,7 +19,6 @@ import type {
     TaskCompileItemReport,
     TaskCompileReason,
     TaskCompileResult,
-    TaskResponseCompileOptions,
 } from './types.js';
 
 type CollectionName = TaskCompileItemReport['collection'];
@@ -97,21 +96,11 @@ function failed<T>(
     };
 }
 
-function explicitlyTruncated(options: TaskResponseCompileOptions): boolean {
-    if (options.truncated === true) {return true;}
-    const reason = String(options.finishReason ?? '').trim().toLocaleLowerCase();
-    return reason === 'length' || reason === 'max_tokens' || reason === 'max_output_tokens';
-}
-
 function extractRoot(
     value: unknown,
     collection: CollectionName,
     maximumLength: number,
-    options: TaskResponseCompileOptions,
 ): { ok: true; root: UnknownRecord } | { ok: false; result: TaskCompileResult<never> } {
-    if (explicitlyTruncated(options)) {
-        return { ok: false, result: failed(collection, 'response_truncated') };
-    }
     const source = typeof value === 'string' ? value : String(value ?? '');
     if (source.length > maximumLength) {
         return { ok: false, result: failed(collection, 'response_too_large') };
@@ -266,9 +255,8 @@ function nameKey(name: string): string {
 
 export function compileTaskBoardResponse(
     value: unknown,
-    options: TaskResponseCompileOptions = {},
 ): BoardCompileResult {
-    const extracted = extractRoot(value, 'tasks', BOARD_RESPONSE_LIMIT, options);
+    const extracted = extractRoot(value, 'tasks', BOARD_RESPONSE_LIMIT);
     if (!extracted.ok) {return extracted.result as BoardCompileResult;}
     const { root } = extracted;
     const warnings: string[] = [];
@@ -338,9 +326,8 @@ export function compileTaskBoardResponse(
 export function compileTaskCandidateResponse(
     value: unknown,
     currentCandidates: readonly TaskCandidate[] = [],
-    options: TaskResponseCompileOptions = {},
 ): CandidateCompileResult {
-    const extracted = extractRoot(value, 'candidates', CANDIDATE_RESPONSE_LIMIT, options);
+    const extracted = extractRoot(value, 'candidates', CANDIDATE_RESPONSE_LIMIT);
     if (!extracted.ok) {return extracted.result as CandidateCompileResult;}
     const { root } = extracted;
     const warnings: string[] = [];

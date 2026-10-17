@@ -1,4 +1,4 @@
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -283,7 +283,7 @@ function parseContentResult(content = [], options = {}) {
         text,
         toolCalls,
         thoughts,
-        finishReason: requireResponseCompletion('anthropic', options.finishReason, false, text),
+        ...readResponseCompletion('anthropic', options.finishReason),
         model: options.model || '',
         provider: 'sillytavern-claude',
         providerPayload: normalized.length ? { anthropicContent: buildProviderPayloadContent(normalized) } : undefined,
@@ -303,7 +303,6 @@ function emitStreamProgress(task, payload) {
 function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
     const blocks = [];
     let finishReason;
-    let stopped = false;
     let model = config.model || '';
 
     const ensureBlock = (index, initial = {}) => {
@@ -328,7 +327,6 @@ function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
 
     return {
         accept(event = {}) {
-            if (event.type === 'message_stop') { stopped = true; }
             if (event?.message?.model) {
                 model = event.message.model;
             }
@@ -361,7 +359,7 @@ function createClaudeStreamAccumulator(task, effectiveReasoning, config = {}) {
         },
         result() {
             return parseContentResult(blocks, {
-                finishReason: stopped ? finishReason : undefined,
+                finishReason,
                 model,
                 includeReasoningOutput: isReasoningOutputVisible(effectiveReasoning),
             });

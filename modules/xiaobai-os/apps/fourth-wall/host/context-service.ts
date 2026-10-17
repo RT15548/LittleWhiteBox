@@ -83,8 +83,7 @@ export function createFourthWallContextService(deps: {
                     const result = await deps.summarize(request, config, signal);
                     checkSignal(signal);
                     const text = String(result.text || '').trim();
-                    const finishReason = String(result.finishReason || '').trim().toLowerCase();
-                    if (result.refused === true || !text || (finishReason && !['stop', 'end_turn', 'stop_sequence', 'completed'].includes(finishReason))) {
+                    if (result.refused === true || !text) {
                         throw new Error('总结未完整返回，原记忆与聊天保持不变，请重试');
                     }
                     memory = text;

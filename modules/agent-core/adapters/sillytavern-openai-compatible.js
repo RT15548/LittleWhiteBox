@@ -1,4 +1,4 @@
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -198,7 +198,6 @@ export class SillyTavernOpenAICompatibleAdapter {
             onResponseAccepted: options.onResponseAccepted,
         });
 
-        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, extractThinkTaggedContent(getStreamedSnapshotText(assistantSnapshot)).cleaned);
         assertSignedToolCallsIntact(assistantSnapshot);
         const standardToolCalls = getStreamedSnapshotToolCalls(assistantSnapshot);
         const { thinkTagged, cleanedText } = cleanTextForToolMode(
@@ -213,7 +212,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
             thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
-            finishReason: lastFinishReason,
+            ...readResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal),
             model: lastModel,
             provider: 'sillytavern-openai-compatible',
             providerPayload: buildProviderPayload(assistantSnapshot),
@@ -228,7 +227,6 @@ export class SillyTavernOpenAICompatibleAdapter {
         );
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
-        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal, extractThinkTaggedContent(flattenTextContent(message.content)).cleaned);
         assertSignedToolCallsIntact(message);
         const thoughts = extractThoughtsFromMessage(message, choice);
         const standardToolCalls = buildToolCallResultsFromOpenAI(message.tool_calls || []);
@@ -242,7 +240,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             text: cleanedText,
             toolCalls: [...standardToolCalls, ...taggedToolCalls],
             thoughts: isReasoningOutputVisible(effectiveReasoning) ? thoughts : [],
-            finishReason: choice.finish_reason,
+            ...readResponseCompletion('openai', choice.finish_reason, !!message.refusal),
             model: response.model || this.config.model,
             provider: 'sillytavern-openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),

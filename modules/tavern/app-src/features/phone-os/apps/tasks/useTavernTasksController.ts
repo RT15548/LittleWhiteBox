@@ -36,7 +36,6 @@ import {
     buildTavernTaskCandidatesRequestMessages,
 } from './tavern-task-prompts';
 import {
-    assertTavernTaskGenerationFinished,
     parseTavernTaskBoardGenerationResponse,
     parseTavernTaskCandidatesGenerationResponse,
     tavernTaskRequestErrorText,
@@ -323,7 +322,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 promptDiagnostics: { channel: 'phone-tasks', operation: 'refresh-board' },
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return;}
-            assertTavernTaskGenerationFinished(result.finishReason);
             const listings = parseTavernTaskBoardGenerationResponse(result.text);
             const nextBoard = await replaceTavernTaskBoard({
                 sessionId,
@@ -524,7 +522,6 @@ export function useTavernTasksController(options: TavernTasksControllerOptions) 
                 promptDiagnostics: { channel: 'phone-tasks', operation: 'recruit-candidates', taskId: task.taskId },
             });
             if (controller.signal.aborted || sessionId !== currentSessionId()) {return null;}
-            assertTavernTaskGenerationFinished(result.finishReason);
             const candidates = parseTavernTaskCandidatesGenerationResponse(result.text);
             const version = await updateTavernTaskCandidates({
                 sessionId,

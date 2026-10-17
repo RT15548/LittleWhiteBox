@@ -1,4 +1,4 @@
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -277,7 +277,7 @@ function createGoogleStreamAccumulator(task, effectiveReasoning, config = {}) {
                 text,
                 toolCalls,
                 thoughts,
-                finishReason: requireResponseCompletion('google', finishReason, false, text),
+                ...readResponseCompletion('google', finishReason),
                 model,
                 provider: 'sillytavern-google',
                 providerPayload: buildProviderPayload(content),

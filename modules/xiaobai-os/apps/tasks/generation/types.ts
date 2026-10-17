@@ -109,8 +109,3 @@ export type CandidateCompileResult = TaskCompileResult<
     | { readonly mode: 'replace'; readonly candidates: readonly TaskCandidateDraft[] }
     | { readonly mode: 'unchanged'; readonly candidates: readonly TaskCandidate[] }
 >;
-
-export interface TaskResponseCompileOptions {
-    readonly finishReason?: unknown;
-    readonly truncated?: boolean;
-}

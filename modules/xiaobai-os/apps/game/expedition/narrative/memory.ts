@@ -63,8 +63,7 @@ export async function summarizeConversation(session: XiaobaiOsAgentSession, camp
             }
         }
         if (signal.aborted) { fault('cancelled'); }
-        // Provider adapters own completion validation, including protocol-specific reasons such as Google's STOP.
-        if (result.truncated || result.refusal || result.refused
+        if (result.refusal || result.refused
             || typeof result.text !== 'string' || !result.text.trim()) { fault('memory_incomplete'); }
         const reduced = { systemPrompt: SUMMARY_PROMPT, messages: [{ role: 'user', content: result.text }] };
         if (await countPrompt(reduced, session, signal, count) >= await countPrompt(source, session, signal, count)) { fault('memory_not_reduced'); }

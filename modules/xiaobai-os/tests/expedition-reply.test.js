@@ -9,7 +9,7 @@ import { createExpeditionService } from '../apps/game/expedition/service.ts';
 import { loadNarrativeCanon } from '../apps/game/expedition/narrative/canon.ts';
 import { decodeNarrativeReply } from '../apps/game/expedition/narrative/response.ts';
 import { replayTurns } from '../apps/game/expedition/narrative/history.ts';
-import { requireResponseCompletion } from '../../agent-core/runtime/response-completion.js';
+import { readResponseCompletion } from '../../agent-core/runtime/response-completion.js';
 
 // Acceptance contracts:
 // - Dialogue inherits the user's API output budget (paid requests / protocol mismatch).
@@ -38,8 +38,8 @@ async function setup(responses, maxTokens = 16000) {
             assert.ok(response, 'No extra model request is authorized');
             if (typeof response === 'function') { return response(request); }
             if (response.error) { throw response.error; }
-            requireResponseCompletion('openai', response.finish, false, response.text);
-            return { text: response.text, thoughts: [{ text: 'offline reasoning' }], truncated: response.truncated };
+            return { ...readResponseCompletion('openai', response.finish), text: response.text,
+                thoughts: [{ text: 'offline reasoning' }], ...(response.truncated === undefined ? {} : { truncated: response.truncated }) };
         },
     }) };
     const service = createExpeditionService(store, h.transactions, h.economy, {

@@ -93,6 +93,7 @@ export async function summarizeAdministrator(options: { gateway: XiaobaiOsAgentG
     if (estimateTokenCount(ADMINISTRATOR_SUMMARY_PROMPT) + estimateTokenCount(input) >= POLICY.inputBudget) { throw new Error('administrator_context_full'); }
     const session = await options.gateway.openSession(options.config);
     const result = await session.run({ systemPrompt: ADMINISTRATOR_SUMMARY_PROMPT, messages: [{ role: 'user', content: input }], tools: [], signal: options.signal });
+    options.signal.throwIfAborted();
     const output = typeof result.text === 'string' ? result.text.trim() : '';
     if (result.refused || !output) { throw new Error('administrator_summary_failed'); }
     return estimateTokenCount(output) < estimateTokenCount(input) ? output : null;

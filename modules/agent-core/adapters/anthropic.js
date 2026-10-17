@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { resolveModelFamily } from '../../../shared/host-llm/model-family.js';
 import { resolveAgentAuth } from '../provider-auth.js';
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -369,13 +369,14 @@ export class AnthropicAdapter {
         const body = this.buildRequestBody(task, protocol);
         const requestInspection = this.inspectRequest(task, { body, protocol });
         let response;
+        const toolDraftMap = new Map();
 
         if (typeof task.onStreamProgress === 'function') {
             const stream = this.client.messages.stream(body, {
                 signal: task.signal,
             });
             const thoughtMap = new Map();
-            const toolDraftMap = new Map();
+            let receivedMessage;
             let streamText = '';
             const buildThoughts = () => isReasoningOutputVisible(effectiveReasoning)
                 ? Array.from(thoughtMap.entries())
@@ -421,7 +422,8 @@ export class AnthropicAdapter {
                     ...(buildToolDrafts().length ? { text: streamText, toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
             });
-            stream.on('streamEvent', (event) => {
+            stream.on('streamEvent', (event, snapshot) => {
+                receivedMessage = snapshot;
                 if (event?.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
                     const initialInput = event.content_block.input && typeof event.content_block.input === 'object'
                         ? event.content_block.input
@@ -455,20 +457,36 @@ export class AnthropicAdapter {
                     ...(buildToolDrafts().length ? { text: streamText, toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
             });
-            response = await stream.finalMessage();
+            try { response = await stream.finalMessage(); }
+            catch (error) {
+                // done() still rejects real transport/provider errors. A clean EOF
+                // without message_stop only prevents the SDK from publishing its
+                // final message; the accumulated content remains usable.
+                await stream.done();
+                if (!receivedMessage) { throw error; }
+                response = receivedMessage;
+            }
         } else {
             response = await this.client.messages.create(body, {
                 signal: task.signal,
             });
         }
 
+        const completion = readResponseCompletion('anthropic', response.stop_reason);
         const toolCalls = (response.content || [])
             .filter((item) => item.type === 'tool_use' && item.name)
-            .map((item, index) => ({
-                id: item.id || `anthropic-tool-${index + 1}`,
-                name: item.name,
-                arguments: JSON.stringify(item.input || {}),
-            }));
+            .map((item, index) => {
+                const rawInput = toolDraftMap.get(response.content.indexOf(item))?.inputJson;
+                // The SDK's partial JSON parser may complete cut-off input. Keep
+                // the actual received bytes for downstream argument validation.
+                return {
+                    id: item.id || `anthropic-tool-${index + 1}`,
+                    name: item.name,
+                    arguments: completion.completion === 'incomplete'
+                        ? rawInput ?? JSON.stringify(item.input || {})
+                        : rawInput || JSON.stringify(item.input || {}),
+                };
+            });
 
         const text = (response.content || [])
             .filter((item) => item.type === 'text')
@@ -484,7 +502,6 @@ export class AnthropicAdapter {
                 .filter((item) => item.text)
             : [];
 
-        const finishReason = requireResponseCompletion('anthropic', response.stop_reason, false, text);
         const usage = response.usage;
         console.info(ANTHROPIC_USAGE_LOG, {
             messageId: response.id,
@@ -496,7 +513,7 @@ export class AnthropicAdapter {
             text,
             toolCalls,
             thoughts,
-            finishReason,
+            ...completion,
             usage,
             model: response.model || this.config.model,
             provider: 'anthropic',
