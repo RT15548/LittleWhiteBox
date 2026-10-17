@@ -102,6 +102,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         newGroupName: defaultGroupNameFromFileName(fileName),
         policy: 'replace',
         importNewAsDisabled: false,
+        overwriteSameName: false,
         plan: null,
         error: '',
         closed: false,
@@ -206,6 +207,17 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     disabledField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: '已有角色的替换不受影响。' }));
     body.appendChild(disabledField);
 
+    // 同名覆盖
+    const overwriteSameNameField = create(document, 'div', { className: 'lwb-cid-field' });
+    const overwriteSameNameBox = create(document, 'input', { attrs: { type: 'checkbox', 'data-role': 'overwrite-same-name' } });
+    overwriteSameNameBox.checked = state.overwriteSameName;
+    overwriteSameNameField.appendChild(create(document, 'label', { className: 'lwb-cid-choice' }, [
+        overwriteSameNameBox,
+        create(document, 'span', { text: '同名角色直接覆盖' }),
+    ]));
+    overwriteSameNameField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: '遇到同名角色时直接覆盖（保留本地 ID），不追加为重复角色。' }));
+    body.appendChild(overwriteSameNameField);
+
     // 预览
     const preview = create(document, 'div', { className: 'lwb-cid-preview', attrs: { 'data-role': 'preview', 'aria-live': 'polite' } });
     const errorBox = create(document, 'p', { className: 'lwb-cid-alert', attrs: { role: 'alert', 'data-role': 'error' } });
@@ -233,6 +245,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         newGroupName: state.newGroupName,
         sameIdPolicy: state.policy,
         importNewAsDisabled: state.importNewAsDisabled,
+        overwriteSameName: state.overwriteSameName,
     });
 
     const computePlan = () => {
@@ -347,6 +360,10 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     });
     disabledBox.addEventListener('change', () => {
         state.importNewAsDisabled = Boolean(disabledBox.checked);
+        refresh();
+    });
+    overwriteSameNameBox.addEventListener('change', () => {
+        state.overwriteSameName = Boolean(overwriteSameNameBox.checked);
         refresh();
     });
 
