@@ -28,13 +28,7 @@ function getMappedText(mapped) {
     return mapped.map((item) => item.char).join('');
 }
 
-function removeMappedMatches(mapped, regex) {
-    const text = getMappedText(mapped);
-    const ranges = [];
-    for (const match of text.matchAll(regex)) {
-        if (!match[0]) continue;
-        ranges.push([match.index, match.index + match[0].length]);
-    }
+function removeMappedRanges(mapped, ranges) {
     if (!ranges.length) return mapped;
 
     const kept = [];
@@ -47,20 +41,73 @@ function removeMappedMatches(mapped, regex) {
     return kept;
 }
 
+function removeMappedMatches(mapped, regex) {
+    const text = getMappedText(mapped);
+    const ranges = [];
+    for (const match of text.matchAll(regex)) {
+        if (!match[0]) continue;
+        ranges.push([match.index, match.index + match[0].length]);
+    }
+    return removeMappedRanges(mapped, ranges);
+}
+
+// Applies a run of start/end rules in a single left-to-right pass: at every
+// position the block that starts earliest wins (ties go to the earlier rule),
+// so a block removed by one rule can never be cut open by another rule whose
+// start tag merely appears inside it.
+function removeMappedBlocksInOnePass(mapped, rules) {
+    const text = getMappedText(mapped);
+    const candidates = rules.map(({ start, end }) => ({
+        regex: new RegExp(`${escapeRegex(start)}[\\s\\S]*?${escapeRegex(end)}`, 'gi'),
+        range: null,
+        exhausted: false,
+    }));
+    const ranges = [];
+    let position = 0;
+
+    while (position <= text.length) {
+        let best = null;
+        for (const candidate of candidates) {
+            if (candidate.exhausted) continue;
+            // A cached match that starts before `position` was nested inside
+            // a block that has just been removed, so look for the next one.
+            if (!candidate.range || candidate.range[0] < position) {
+                candidate.regex.lastIndex = position;
+                const match = candidate.regex.exec(text);
+                if (!match) {
+                    candidate.exhausted = true;
+                    continue;
+                }
+                candidate.range = [match.index, match.index + match[0].length];
+            }
+            if (!best || candidate.range[0] < best.range[0]) best = candidate;
+        }
+        if (!best) break;
+        ranges.push(best.range);
+        position = best.range[1];
+    }
+    return removeMappedRanges(mapped, ranges);
+}
+
 function applyMappedFilterRules(mapped, rules = []) {
     let result = mapped;
+    let blockRun = [];
+    const flushBlockRun = () => {
+        if (!blockRun.length) return;
+        result = removeMappedBlocksInOnePass(result, blockRun);
+        blockRun = [];
+    };
+
     for (const rule of Array.isArray(rules) ? rules : []) {
         const start = String(rule?.start || '').trim();
         const end = String(rule?.end || '').trim();
         if (!start && !end) continue;
         if (start && end) {
-            result = removeMappedMatches(
-                result,
-                new RegExp(`${escapeRegex(start)}[\\s\\S]*?${escapeRegex(end)}`, 'gi'),
-            );
+            blockRun.push({ start, end });
             continue;
         }
 
+        flushBlockRun();
         const text = getMappedText(result);
         if (start) {
             const index = text.toLocaleLowerCase().indexOf(start.toLocaleLowerCase());
@@ -70,6 +117,7 @@ function applyMappedFilterRules(mapped, rules = []) {
             if (index >= 0) result = result.slice(index + end.length);
         }
     }
+    flushBlockRun();
     return result;
 }
 

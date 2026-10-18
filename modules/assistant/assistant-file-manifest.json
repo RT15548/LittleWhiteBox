@@ -2638,7 +2638,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-source.js",
       "relativePath": "modules/draw/shared/scene-source.js",
       "extension": ".js",
-      "sizeBytes": 8422
+      "sizeBytes": 10190
     },
     {
       "source": "littlewhitebox",
