@@ -89,25 +89,23 @@ function removeMappedBlocksInOnePass(mapped, rules) {
     return removeMappedRanges(mapped, ranges);
 }
 
+// Two-sided (start + end) rules are applied together in one earliest-start-wins
+// pass wherever they sit in the list, so a block removed by one rule can never
+// be cut open by another rule. One-sided rules (truncate from `start`, or drop
+// everything up to `end`) then run afterwards, in list order.
 function applyMappedFilterRules(mapped, rules = []) {
-    let result = mapped;
-    let blockRun = [];
-    const flushBlockRun = () => {
-        if (!blockRun.length) return;
-        result = removeMappedBlocksInOnePass(result, blockRun);
-        blockRun = [];
-    };
-
+    const blockRules = [];
+    const oneSidedRules = [];
     for (const rule of Array.isArray(rules) ? rules : []) {
         const start = String(rule?.start || '').trim();
         const end = String(rule?.end || '').trim();
         if (!start && !end) continue;
-        if (start && end) {
-            blockRun.push({ start, end });
-            continue;
-        }
+        if (start && end) blockRules.push({ start, end });
+        else oneSidedRules.push({ start, end });
+    }
 
-        flushBlockRun();
+    let result = blockRules.length ? removeMappedBlocksInOnePass(mapped, blockRules) : mapped;
+    for (const { start, end } of oneSidedRules) {
         const text = getMappedText(result);
         if (start) {
             const index = text.toLocaleLowerCase().indexOf(start.toLocaleLowerCase());
@@ -117,7 +115,6 @@ function applyMappedFilterRules(mapped, rules = []) {
             if (index >= 0) result = result.slice(index + end.length);
         }
     }
-    flushBlockRun();
     return result;
 }
 

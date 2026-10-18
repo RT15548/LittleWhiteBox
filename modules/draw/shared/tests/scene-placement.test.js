@@ -103,13 +103,52 @@ test('scene source applies default one-sided rules in list order after block rul
     assert.equal(truncating.content, '正文。');
 });
 
-test('scene source keeps one-sided rules in list order relative to block rules', () => {
+test('scene source applies block rules before one-sided rules regardless of list order', () => {
     const original = '<a>1<cut>2</a>3<a>4</a>';
     const block = { start: '<a>', end: '</a>' };
     const cut = { start: '<cut>', end: '' };
 
     assert.equal(createSceneSource(original, { filterRules: [block, cut] }).content, '3');
-    assert.equal(createSceneSource(original, { filterRules: [cut, block] }).content, '<a>1');
+    assert.equal(createSceneSource(original, { filterRules: [cut, block] }).content, '3');
+});
+
+const FRIEND_RULES = [
+    { start: '<think>', end: '</think>' },
+    { start: '<thinking>', end: '</thinking>' },
+    { start: '<system>', end: '</system>' },
+    { start: '<meta>', end: '</meta>' },
+    { start: '<options>', end: '</options>' },
+    { start: '<WorldState>', end: '</WorldState>' },
+    { start: '<state>', end: '</state>' },
+    { start: '<UpdateVariable>', end: '</UpdateVariable>' },
+    { start: '<—', end: '—>' },
+    { start: '', end: '<think>' },
+    { start: '<konatan_planning~>', end: '</konatan_planning~>' },
+    { start: '【', end: '”' },
+    { start: '<tucao>', end: '</tucao>' },
+    { start: '<rule_world_core>', end: '</rule_world_core>' },
+];
+
+test('scene source keeps a planning block intact when a one-sided rule sits mid-list', () => {
+    const storyOne = 'Story sentence one。';
+    const storyTwo = 'Story sentence two。';
+    const original = [
+        '<konatan_planning~>',
+        ' thinking that mentions <rule_check> <options> <UpdateVariable> ',
+        '</konatan_planning~>',
+        '<tucao>t</tucao>',
+        `${storyOne}${storyTwo}`,
+        '<options>real options</options>',
+        '<UpdateVariable>real</UpdateVariable>',
+    ].join('\n');
+
+    const source = createSceneSource(original, { filterRules: FRIEND_RULES });
+
+    assert.equal(source.content, `${storyOne}${storyTwo}`);
+    assert.equal(source.points.length, 2);
+    assert.equal(original.slice(0, source.points[0].offset).endsWith(storyOne), true);
+    assert.equal(original.slice(0, source.points[1].offset).endsWith(storyTwo), true);
+    assert.equal(original.slice(source.points[1].offset).startsWith('\n<options>real options'), true);
 });
 
 test('scene source treats unterminated tail text as the final illustration point', () => {
