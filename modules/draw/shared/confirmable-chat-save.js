@@ -1,4 +1,6 @@
-export const CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS = 15_000;
+// 每个阶段（保存、读回）各自的等待上限。大聊天文件（几十 MB 以上）保存和读回都可能超过 15 秒，
+// 超时只会让这次出图“图位保存未确认”（尚未提交绘图，不会计费），所以宁可多等一会儿。
+export const CONFIRMABLE_CHAT_PHASE_TIMEOUT_MS = 60_000;
 
 export class ConfirmableChatSaveUncertainError extends Error {
     constructor(reason, message, { cause, saveError } = {}) {
