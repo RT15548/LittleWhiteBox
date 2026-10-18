@@ -95,6 +95,7 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
             timeoutMs: Number(options.timeoutMs) || AGENT_REQUEST_TIMEOUT_MS,
             toolMode: providerConfig.toolMode || 'native',
             reasoning: resolveRuntimeReasoning(context, providerConfig.reasoning),
+            customParameters: String(providerConfig.customParameters || ''),
         };
     }
 
@@ -130,5 +131,6 @@ export function resolveActiveProviderConfig(configValue = {}, options = {}) {
         timeoutMs: Number(options.timeoutMs) || AGENT_REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
         reasoning: resolveRuntimeReasoning(context, providerConfig.reasoning),
+        customParameters: String(providerConfig.customParameters || ''),
     };
 }

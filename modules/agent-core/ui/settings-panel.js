@@ -465,6 +465,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || 'native',
+            delegateCustomParameters: String(delegateProviderConfig.customParameters || ''),
         };
     }
 
@@ -482,6 +483,7 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: shouldSendTemperature(providerConfig),
             ...reasoningFields,
             toolMode: providerConfig.toolMode || 'native',
+            customParameters: String(providerConfig.customParameters || ''),
         };
     }
 
@@ -501,6 +503,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: providerConfig.toolMode || 'native',
+            delegateCustomParameters: String(providerConfig.customParameters || ''),
         };
     }
 
@@ -582,6 +585,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(provider)
                 ? (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native')
                 : undefined,
+            customParameters: root.querySelector('#xb-assistant-custom-params')?.value ?? draft.customParameters ?? '',
         };
         const delegateProviderConfig = {
             baseUrl: delegateBaseUrl,
@@ -597,6 +601,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(delegateProvider)
                 ? (root.querySelector('#xb-assistant-delegate-tool-mode')?.value || draft.delegateToolMode || 'native')
                 : undefined,
+            customParameters: root.querySelector('#xb-assistant-delegate-custom-params')?.value ?? draft.delegateCustomParameters ?? '',
         };
         const modelConfigs = {
             ...normalizeModelConfigs(draft.modelConfigs || {}),
@@ -629,6 +634,7 @@ export function createAgentSettingsPanel(deps = {}) {
             reasoningEffort: providerConfig.reasoning.effort || '',
             reasoningBudgetTokens: providerConfig.reasoning.budgetTokens,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
+            customParameters: providerConfig.customParameters,
             ...readWebSettingsForm(root, draft),
             permissionMode: normalizePermissionMode(root.querySelector('#xb-assistant-permission-mode')?.value || draft.permissionMode),
             jsApiPermission: normalizeJsApiPermission(root.querySelector('#xb-assistant-jsapi-permission')?.value || draft.jsApiPermission),
@@ -646,6 +652,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: delegateProviderConfig.reasoning.effort || '',
             delegateReasoningBudgetTokens: delegateProviderConfig.reasoning.budgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || draft.delegateToolMode || 'native',
+            delegateCustomParameters: delegateProviderConfig.customParameters,
         };
     }
 
@@ -672,6 +679,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(draft.provider)
                 ? (draft.toolMode || 'native')
                 : undefined,
+            customParameters: String(draft.customParameters || ''),
         };
     }
 
@@ -692,6 +700,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(draft.delegateProvider)
                 ? (draft.delegateToolMode || 'native')
                 : undefined,
+            customParameters: String(draft.delegateCustomParameters || ''),
         };
     }
 
@@ -723,6 +732,7 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.toolMode || 'native',
+            customParameters: draft.customParameters || '',
             reasoning: resolveRuntimeReasoning({
                 provider: draft.provider,
                 baseUrl: draft.baseUrl,
@@ -749,6 +759,7 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.delegateToolMode || 'native',
+            customParameters: draft.delegateCustomParameters || '',
             reasoning: resolveRuntimeReasoning({
                 provider: draft.delegateProvider,
                 baseUrl: draft.delegateBaseUrl,
@@ -1032,6 +1043,15 @@ export function createAgentSettingsPanel(deps = {}) {
         }
         syncInlinePullStatus(root, '#xb-assistant-model-pull-status', getPullState(provider));
         syncInlinePullStatus(root, '#xb-assistant-delegate-model-pull-status', getPullState(delegateProvider, 'delegate'));
+
+        const customParamsInput = root.querySelector('#xb-assistant-custom-params');
+        if (customParamsInput && customParamsInput.value !== (draft.customParameters || '')) {
+            customParamsInput.value = draft.customParameters || '';
+        }
+        const delegateCustomParamsInput = root.querySelector('#xb-assistant-delegate-custom-params');
+        if (delegateCustomParamsInput && delegateCustomParamsInput.value !== (draft.delegateCustomParameters || '')) {
+            delegateCustomParamsInput.value = draft.delegateCustomParameters || '';
+        }
 
         syncRuntimeText(root);
     }
@@ -1481,6 +1501,14 @@ export function createAgentSettingsPanel(deps = {}) {
                 requestPrefix: 'save-delegate-config',
                 configureDelegate: true,
             });
+        });
+
+        root.querySelector('#xb-assistant-custom-params')?.addEventListener('input', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-delegate-custom-params')?.addEventListener('input', () => {
+            syncConfigDraft(root);
         });
 
         root.querySelector('#xb-assistant-delete-preset')?.addEventListener('click', () => {

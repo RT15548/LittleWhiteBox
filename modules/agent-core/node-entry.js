@@ -4,6 +4,7 @@ import { isSillyTavernProvider } from './provider-resolution.js';
 export {
     normalizeAgentConfig,
     normalizeAgentSettings,
+    parseCustomParameters,
 } from './config.js';
 export {
     AGENT_REQUEST_TIMEOUT_MS,

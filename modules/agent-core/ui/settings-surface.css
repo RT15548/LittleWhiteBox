@@ -130,7 +130,8 @@
 }
 
 .xb-agent-settings-surface .xb-assistant-config input:not([type="checkbox"]):not([type="radio"]),
-.xb-agent-settings-surface .xb-assistant-config select {
+.xb-agent-settings-surface .xb-assistant-config select,
+.xb-agent-settings-surface .xb-assistant-config textarea {
     width: 100%;
     min-height: 42px;
     padding: 9px 11px;
@@ -144,8 +145,17 @@
     transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
 
+.xb-agent-settings-surface .xb-assistant-config textarea {
+    min-height: 72px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
 .xb-agent-settings-surface .xb-assistant-config input:focus,
-.xb-agent-settings-surface .xb-assistant-config select:focus {
+.xb-agent-settings-surface .xb-assistant-config select:focus,
+.xb-agent-settings-surface .xb-assistant-config textarea:focus {
     border-color: var(--border-focus);
     background: var(--bg-secondary);
     box-shadow: 0 0 0 3px var(--accent-soft);
@@ -280,3 +290,5 @@
         animation-iteration-count: 1 !important;
     }
 }
+
+

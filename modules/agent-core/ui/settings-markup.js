@@ -222,6 +222,11 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <input id="xb-assistant-delegate-reasoning-budget" type="number" step="1" inputmode="numeric" />
                     <small>支持 -1 时表示由模型自动决定</small>
                 </label>
+                <label>
+                    <span>自定义发送参数 (JSON)</span>
+                    <textarea id="xb-assistant-delegate-custom-params" rows="3" spellcheck="false" placeholder="例如: { &quot;top_p&quot;: 0.8, &quot;frequency_penalty&quot;: 0.3 }"></textarea>
+                    <small>请求时将作为 JSON 顶层字段合并至 Request Body</small>
+                </label>
             </div>` : '';
 
     return `
@@ -312,6 +317,11 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <span>思考 Token 预算</span>
                 <input id="xb-assistant-reasoning-budget" type="number" step="1" inputmode="numeric" />
                 <small>支持 -1 时表示由模型自动决定</small>
+            </label>
+            <label>
+                <span>自定义发送参数 (JSON)</span>
+                <textarea id="xb-assistant-custom-params" rows="3" spellcheck="false" placeholder="例如: { &quot;top_p&quot;: 0.8, &quot;frequency_penalty&quot;: 0.3 }"></textarea>
+                <small>请求时将作为 JSON 顶层字段合并至 Request Body</small>
             </label>
             </div>
             ${delegatePageMarkup}
