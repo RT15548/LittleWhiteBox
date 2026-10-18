@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
     createSceneSource,
@@ -33,6 +34,82 @@ test('scene source keeps original offsets while hiding image markers and filtere
     assert.equal(source.sourceText.slice(0, source.points[2].offset).endsWith('第三段。'), true);
     assert.equal(source.numberedContent, '第一段。【插图点 1】\n第二段。 【插图点 2】第三段。【插图点 3】');
     assert.equal(stripScenePointMarkers(source.numberedContent), source.content);
+});
+
+// draw-common.js pulls in SillyTavern-only modules, so read the real default
+// rule list out of its source instead of importing it.
+const DEFAULT_MESSAGE_FILTER_RULES = Array.from(
+    readFileSync(new URL('../draw-common.js', import.meta.url), 'utf8')
+        .match(/export const DEFAULT_MESSAGE_FILTER_RULES = \[[\s\S]*?\n\];/)[0]
+        .matchAll(/start:\s*'([^']*)',\s*end:\s*'([^']*)'/g),
+    ([, start, end]) => ({ start, end }),
+);
+
+const NESTED_BLOCK_RULES = [
+    { start: '<think>', end: '</think>' },
+    { start: '<UpdateVariable>', end: '</UpdateVariable>' },
+    { start: '<state>', end: '</state>' },
+    { start: '<konatan_planning~>', end: '</konatan_planning~>' },
+    { start: '<tucao>', end: '</tucao>' },
+];
+
+test('scene source removes a block that mentions the start tag of an earlier rule', () => {
+    const storyOne = '她推开门，雨还在下。';
+    const storyTwo = '“你来了。”他说。';
+    const original = [
+        '<konatan_planning~>先想想要不要写 <UpdateVariable> 这个标签。</konatan_planning~>',
+        '<tucao>吐槽一下。</tucao>',
+        storyOne,
+        storyTwo,
+        '<UpdateVariable>_.set(\'hp\', 1);</UpdateVariable>',
+    ].join('\n');
+
+    const source = createSceneSource(original, { filterRules: NESTED_BLOCK_RULES });
+
+    assert.equal(source.content, `${storyOne}\n${storyTwo}`);
+    assert.equal(source.content.includes('konatan'), false);
+    assert.equal(source.content.includes('tucao'), false);
+    assert.equal(source.content.includes('UpdateVariable'), false);
+    assert.equal(source.points.length, 2);
+    assert.equal(original.slice(0, source.points[0].offset).endsWith(storyOne), true);
+    assert.equal(original.slice(0, source.points[1].offset).endsWith(storyTwo), true);
+    assert.equal(original.slice(source.points[1].offset).startsWith('\n<UpdateVariable>'), true);
+});
+
+test('scene source keeps a start tag without an end tag and still applies later rules', () => {
+    const original = '前文 <state> 没有结束的标签。<think>隐藏</think>后文。';
+    const source = createSceneSource(original, {
+        filterRules: [
+            { start: '<state>', end: '</state>' },
+            { start: '<think>', end: '</think>' },
+        ],
+    });
+
+    assert.equal(source.content, '前文 <state> 没有结束的标签。后文。');
+});
+
+test('scene source applies default one-sided rules in list order after block rules', () => {
+    const original = '<think>推理里提到 <UpdateVariable> 标签</think>正文一。<options>A</options>正文二。';
+    const source = createSceneSource(original, { filterRules: DEFAULT_MESSAGE_FILTER_RULES });
+    assert.equal(source.content, '正文一。正文二。');
+
+    // The trailing `'' -> </think>` rule drops everything up to a dangling closing tag.
+    const dangling = createSceneSource('推理残留</think>正文。<state>x</state>', { filterRules: DEFAULT_MESSAGE_FILTER_RULES });
+    assert.equal(dangling.content, '正文。');
+
+    const truncating = createSceneSource('正文。<cut>后面的都丢弃。', {
+        filterRules: [{ start: '<cut>', end: '' }, { start: '<think>', end: '</think>' }],
+    });
+    assert.equal(truncating.content, '正文。');
+});
+
+test('scene source keeps one-sided rules in list order relative to block rules', () => {
+    const original = '<a>1<cut>2</a>3<a>4</a>';
+    const block = { start: '<a>', end: '</a>' };
+    const cut = { start: '<cut>', end: '' };
+
+    assert.equal(createSceneSource(original, { filterRules: [block, cut] }).content, '3');
+    assert.equal(createSceneSource(original, { filterRules: [cut, block] }).content, '<a>1');
 });
 
 test('scene source treats unterminated tail text as the final illustration point', () => {
