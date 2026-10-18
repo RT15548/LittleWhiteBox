@@ -2,6 +2,8 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useTavernCharacterContext, useTavernSessionContext, useTavernShellContext } from './tavern-app-context';
 import type { TavernSessionRecord } from '../../shared/session-db';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 const {
     avatarAvailable,
@@ -113,14 +115,14 @@ const characterArchivePartLabel = computed(() => {
 });
 
 function scrollSelectedIntoView() {
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         const root = listRef.value;
         const selectedKey = String(selectedCharacter.value?.characterKey || '').trim();
         if (!root || !selectedKey) {return;}
         const target = Array.from(root.querySelectorAll<HTMLElement>('[data-character-card-id]'))
             .find((node) => node.dataset.characterCardId === selectedKey);
         target?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-    });
+    }), { source: import.meta.url, operation: "scrollSelectedIntoView" });
 }
 
 function handleSearchInput(event: Event) {
@@ -245,7 +247,7 @@ function openSession(sessionId: string) {
     const id = String(sessionId || '').trim();
     if (!id) {return;}
     closeSessionArchive();
-    void openSessionById(id);
+    observeBackgroundTask(openSessionById(id), { source: import.meta.url, operation: "openSession" });
 }
 
 async function deleteArchivedSession(sessionId: string, event: Event) {
@@ -262,7 +264,7 @@ watch(
         scrollSelectedIntoView();
         const targetKey = String(characterKey || '').trim();
         if (targetKey) {
-            void syncWorldbookState(targetKey);
+            observeBackgroundTask(syncWorldbookState(targetKey), { source: import.meta.url, operation: "callback" });
         }
     },
     { immediate: true },

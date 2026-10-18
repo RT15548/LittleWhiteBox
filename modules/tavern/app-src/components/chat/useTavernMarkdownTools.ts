@@ -8,6 +8,8 @@ import {
     type TavernActionCheckRenderGroup,
     type TavernActionCheckRuntimeEvent,
 } from '../../../shared/runtime-events';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const TAVERN_IMAGE_MARKER_REGEX = /\[tavern-image:([a-z0-9\-_]+)\]/gi;
 const TAVERN_INLINE_IMAGE_TOKEN_REGEX = /\[(?:img|图片)\s*:\s*([^\]]+)\]/gi;
@@ -310,7 +312,6 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
 
     function postToParentGenerateService(payload: Record<string, unknown>) {
         const safePayload = cloneTavernHtmlMessagePayload(payload);
-        // eslint-disable-next-line no-restricted-syntax -- Tavern HTML iframe callGenerate relay to the top-level service.
         window.parent?.postMessage(safePayload, window.location.origin);
     }
 
@@ -425,8 +426,8 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             if (!isActiveTavernHtmlIframe(iframe)) {return;}
             try {
                 postToIframe(iframe, { type: 'probe' }, undefined, window.location.origin);
-            } catch {
-                // Height probes are best effort; the iframe base script also reports on load/resize.
+            } catch (caughtError) {
+                console.warn({ source: import.meta.url, operation: "send" }, caughtError);
             }
         };
         if (delay > 0) {
@@ -523,8 +524,8 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         try {
             const response = await fetch(url, { mode: 'cors' });
             if (response.ok) {return await response.text();}
-        } catch {
-            // Match the body renderer: CORS fetch failure falls back to direct iframe navigation.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "fetchTavernExternalHtml" }, caughtError);
         }
         return null;
     }
@@ -604,7 +605,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         pre.dataset.xbTavernHtmlFinal = 'true';
         pre.dataset.xbTavernHtmlHash = hash;
         delete pre.dataset.xbTavernHtmlPending;
-        void loadTavernHtmlIframeContent(iframe, html);
+        observeBackgroundTask(loadTavernHtmlIframeContent(iframe, html), { source: import.meta.url, operation: "renderTavernHtmlPre" });
     }
 
     function markPendingTavernHtmlPreviews(root: HTMLElement) {
@@ -836,7 +837,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             retry.addEventListener('click', (event) => {
                 event.stopPropagation();
                 slot.dataset.loaded = '';
-                void loadInlineImageSlot(slot, tags);
+                observeBackgroundTask(loadInlineImageSlot(slot, tags), { source: import.meta.url, operation: "callback" });
             });
             wrap.append(label, retry);
             slot.replaceChildren(wrap);
@@ -903,7 +904,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
                 const slot = entry.target as HTMLElement;
                 if (!canAutoLoadInlineImageSlot(slot)) {return;}
                 inlineImageObserver?.unobserve(slot);
-                void loadInlineImageSlot(slot);
+                observeBackgroundTask(loadInlineImageSlot(slot), { source: import.meta.url, operation: "callback" });
             });
         }, { rootMargin: '200px 0px', threshold: 0.01 });
         return inlineImageObserver;
@@ -928,7 +929,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
                 observer.observe(slot);
                 return;
             }
-            void loadInlineImageSlot(slot);
+            observeBackgroundTask(loadInlineImageSlot(slot), { source: import.meta.url, operation: "callback" });
         });
     }
 

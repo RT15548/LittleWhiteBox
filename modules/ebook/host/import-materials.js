@@ -21,7 +21,7 @@ function getCurrentCharacter() {
         try {
             const character = ctx.getCharacter(id);
             if (character) return character;
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCurrentCharacter" }, caughtError); }
     }
     if (Array.isArray(ctx.characters) && id !== undefined && id !== null) {
         return ctx.characters[id] || null;

@@ -1,3 +1,4 @@
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 import { getRequestHeaders } from '../../../../../../../script.js';
 import { saveBase64AsFile } from '../../../../../../utils.js';
 import { createAdministratorModule } from '../apps/administrator/module.js';
@@ -230,7 +231,7 @@ export function createProductionBootstrap(
         apps: productionApps,
         async install() {
             if (productionInstalled) { return; }
-            mainGeneration.startBackground?.();
+            observeBackgroundTask(mainGeneration.startBackground?.(), { source: import.meta.url, operation: 'install' });
             try {
                 bindingLifecycle.start();
                 await bindingLifecycle.ready();
@@ -246,8 +247,10 @@ export function createProductionBootstrap(
                 productionInstalled = true;
             } catch (error) {
                 await bindingLifecycle.stop();
-                mainGeneration.stopBackground?.();
-                await composition.dispose().catch(() => undefined);
+                observeBackgroundTask(mainGeneration.stopBackground?.(), { source: import.meta.url, operation: 'install:cleanup' });
+                await composition.dispose().catch(cleanupError => {
+                    console.error('[LittleWhiteBox] 小白 OS 安装失败后的资源释放失败', cleanupError);
+                });
                 throw error;
             }
         },
@@ -256,7 +259,7 @@ export function createProductionBootstrap(
             productionInstalled = false;
             await bindingLifecycle.stop();
             bindingEvents.dispose();
-            mainGeneration.stopBackground?.();
+            observeBackgroundTask(mainGeneration.stopBackground?.(), { source: import.meta.url, operation: 'dispose' });
             await composition.dispose();
         },
     };

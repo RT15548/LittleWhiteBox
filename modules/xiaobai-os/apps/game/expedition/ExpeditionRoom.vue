@@ -46,6 +46,8 @@ import { chapterProgress } from './campaign/progress.js';
 import { cityThreads, cityWorkerErrand } from './content/inner-city/progress.js';
 import { CITY_COPY } from './content/inner-city/copy.js';
 import './presentation/campaign.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; generationActive: boolean }>();
 const client = createExpeditionClient(props.bridge, props.chatIdentity), playback = createCampaignPlayback(client);
@@ -158,8 +160,8 @@ const loadoutOptions = computed(() => run.value?.collection.map(relic => {
 const audio = createExpeditionSound(() => { client.error.value = COPY.presentationError.sound; sound.value = false; });
 let mounted = false;
 function close() {
-    if (!panel.value && run.value?.phase === 'reward') { void act({ type: 'leave' }); return; }
-    if (panel.value || run.value && ['exploration', 'battle'].includes(run.value.phase)) { void resume(); }
+    if (!panel.value && run.value?.phase === 'reward') { observeBackgroundTask(act({ type: 'leave' }), { source: import.meta.url, operation: "close" }); return; }
+    if (panel.value || run.value && ['exploration', 'battle'].includes(run.value.phase)) { observeBackgroundTask(resume(), { source: import.meta.url, operation: "close" }); }
 }
 async function resolveParley() {
     if (await act({ type: 'resolve_parley' })) { panel.value = null; await nextTick(); field.value?.focus(); }
@@ -179,7 +181,7 @@ useAppBack(() => {
 useAppLayer(noticePanel, () => {
     if (!busy.value && !renderingError.value && !props.generationActive) { client.dismissError(); }
 });
-function pause() { paused.value = true; void playback.flush(); }
+function pause() { paused.value = true; observeBackgroundTask(playback.flush(), { source: import.meta.url, operation: "pause" }); }
 function menu() { panel.value = null; pause(); }
 async function open(next: NonNullable<typeof panel.value>) {
     if (performing.value || transition.value) { return; }
@@ -199,7 +201,7 @@ async function resume() {
 function continueJourney() {
     entered.value = true;
     if (run.value?.pendingParley || endingPerson.value) { person.value = run.value?.pendingParley?.enemy ?? endingPerson.value!; panel.value = 'person'; paused.value = false; }
-    else { void resume(); }
+    else { observeBackgroundTask(resume(), { source: import.meta.url, operation: "continueJourney" }); }
 }
 async function act(command: Command) {
     if (performing.value || transition.value) { return false; }
@@ -226,7 +228,7 @@ function sceneReady(scene: CourtyardScene) { if (scene === transition.value) { t
 async function start(setup: Omit<JourneySetup, 'outfit'>) {
     if (await act({ type: run.value ? 'restart' : 'start', ...setup, outfit: outfit.value })) { entered.value = true; panel.value = 'prologue'; }
 }
-function returnToTitle() { paused.value = true; panel.value = null; entered.value = false; void playback.flush(); }
+function returnToTitle() { paused.value = true; panel.value = null; entered.value = false; observeBackgroundTask(playback.flush(), { source: import.meta.url, operation: "returnToTitle" }); }
 async function interact(id: string) {
     if (!run.value || performing.value || transition.value) { return; }
     clearRestFeedback();
@@ -288,7 +290,7 @@ watch(() => props.generationActive, value => { if (value) { pause(); } });
 watch(() => [run.value?.pendingParley, endingPerson.value] as const, ([pending, ending]) => {
     if (pending || ending) { person.value = pending?.enemy ?? ending!; panel.value = 'person'; }
 }, { immediate: true });
-watch(sound, value => { void audio.enable(value); });
+watch(sound, value => { observeBackgroundTask(audio.enable(value), { source: import.meta.url, operation: "callback" }); });
 watch(run, value => { if (sound.value && value?.battle) { audio.tick(value.battle); } });
 // Every confirmed source (button, model, recovery or reattached window) presents the same transition.
 watch(() => view.value?.data, (next, previous) => {
@@ -307,7 +309,7 @@ watch(() => [person.value, history.value] as const, ([recipient, next], [priorRe
     if (recipient === priorRecipient && panel.value === 'person' && latest && !previous.some(turn => turn.id === latest.id)) { freshReply.value = latest.id; }
 });
 onMounted(async () => { await client.read(); mounted = true; });
-onActivated(() => { if (mounted && !dirty.value) { void client.read(); } });
+onActivated(() => { if (mounted && !dirty.value) { observeBackgroundTask(client.read(), { source: import.meta.url, operation: "callback" }); } });
 onDeactivated(() => { freshReply.value = null; clearRestFeedback(); pause(); });
 onBeforeUnmount(() => { clearTimeout(combatNoticeTimer); clearRestFeedback(); playback.dispose(); client.dispose(); audio.dispose(); });
 </script>

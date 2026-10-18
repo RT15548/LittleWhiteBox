@@ -74,11 +74,11 @@ export function setLocalVariable(name, value) {
     const envModuleUrl = pathToFileURL(path.join(tempDir, 'mock-env.js')).href;
     const executorModuleUrl = pathToFileURL(path.join(tempDir, 'executor.js')).href;
     const guardModuleUrl = pathToFileURL(path.join(tempDir, 'guard.js')).href;
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- Imports only this test's locally copied environment fixture.
     const env = await import(envModuleUrl);
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- Imports only this test's locally copied executor fixture.
     const executor = await import(executorModuleUrl);
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- Imports only this test's locally copied guard fixture.
     const guard = await import(guardModuleUrl);
 
     return {

@@ -11,7 +11,11 @@ export async function runNarrativeRequest(session: XiaobaiOsAgentSession, reques
         let body: { error?: { code?: unknown } } | null = null;
         if (typeof rejection?.body === 'string') {
             try { body = JSON.parse(rejection.body); }
-            catch { /* Non-JSON rejections retain the original provider failure below. */ }
+            catch (caughtError) {
+                if (!(caughtError instanceof SyntaxError)) {
+                    console.warn({ source: import.meta.url, operation: 'runNarrativeRequest' }, caughtError);
+                }
+            }
         }
         const capacity = rejection?.code === 'context_length_exceeded' || rejection?.error?.code === 'context_length_exceeded'
             || body?.error?.code === 'context_length_exceeded';

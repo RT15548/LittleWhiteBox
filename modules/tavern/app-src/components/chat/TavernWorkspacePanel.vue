@@ -9,6 +9,8 @@ import { useMobileSheetDrag } from './useMobileSheetDrag';
 import { buildSeedLabelId, createSeedMapDocument, isSeedLabelId } from '../../../shared/map-state-seed';
 import { isMapExitSemantic } from '../../../shared/map-material-symbols';
 import type { TavernAtlasDocument, TavernMapDocument, TavernMapElement, TavernMapElementCategory } from '../../../shared/structured-state';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 defineProps<{
     memoryDirectoryOpen: boolean;
@@ -267,11 +269,11 @@ function toggleMemoryDirectory() {
 }
 
 function selectDirectoryMemoryFile(path: string) {
-    void selectMemoryFile(path).then((selected) => {
+    observeBackgroundTask(selectMemoryFile(path).then((selected) => {
         if (selected) {
             emit('close-memory-directory');
         }
-    });
+    }), { source: import.meta.url, operation: "selectDirectoryMemoryFile" });
 }
 
 </script>

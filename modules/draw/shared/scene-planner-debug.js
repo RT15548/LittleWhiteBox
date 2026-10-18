@@ -1,4 +1,6 @@
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
+const ERROR_SOURCE = "modules/draw/shared/scene-planner-debug.js";
+
 
 // Use log, not the monitored error/warn channels or an intercepted module prefix.
 // Planner diagnostics belong in F12 even when the LittleWhiteBox monitor is off.
@@ -16,8 +18,8 @@ export function logScenePlannerValidationFailure(failure, context = {}, logger =
     let output = String(failure.modelOutput || '');
     try {
         output = JSON.parse(output);
-    } catch {
-        // A diagnostic from an older backend may contain a truncated JSON string.
+    } catch (caughtError) {
+        console.warn({ source: ERROR_SOURCE, operation: "logScenePlannerValidationFailure" }, caughtError);
     }
     return logScenePlannerDiagnostic('Tool 返回未通过校验', {
         event: 'scene_planner_tool_validation_failed',

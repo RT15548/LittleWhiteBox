@@ -38,6 +38,8 @@ import {
 } from '../../../shared/message-assembler';
 import { useTavernMediaQuery } from '../useTavernMediaQuery';
 import TavernPhoneOsOverlay from '../phone-os/TavernPhoneOsOverlay.vue';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const shell = useTavernShellContext();
 const character = useTavernCharacterContext();
@@ -217,23 +219,23 @@ function openChatAppWorkspace(workspace: ChatQuickWorkspace) {
     quickSettingsOpen.value = workspace;
     if (workspace === 'characters') {
         clearCharacterSelection();
-        void refreshCharacterList();
+        observeBackgroundTask(refreshCharacterList(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
     }
     if (workspace === 'chatPreset') {
-        void syncChatPresetFromHost();
+        observeBackgroundTask(syncChatPresetFromHost(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
     }
     if (workspace === 'assistantPreset') {
-        void refreshPresets();
+        observeBackgroundTask(refreshPresets(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
     }
     if (workspace === 'worldbooks') {
-        void syncWorldbooksForCurrentCharacter();
-        void syncGlobalWorldbooksFromHost();
+        observeBackgroundTask(syncWorldbooksForCurrentCharacter(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
+        observeBackgroundTask(syncGlobalWorldbooksFromHost(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
     }
     if (workspace === 'regex') {
-        void refreshRegexFromHost();
+        observeBackgroundTask(refreshRegexFromHost(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
     }
     if (workspace === 'base') {
-        void loadTavernUsers();
+        observeBackgroundTask(loadTavernUsers(), { source: "modules/tavern/app-src/components/chat/TavernChatPage.vue", operation: "openChatAppWorkspace" });
     }
 }
 

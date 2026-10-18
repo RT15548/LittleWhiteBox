@@ -652,7 +652,7 @@ function liveCharacterWorldbookNames(context: XbTavernContext = {}): Set<string>
     addUniqueWorldbookName(characterLoreIds, data.avatar);
     try {
         addUniqueWorldbookName(characterLoreIds, getCharaFilename(nativeCharacterId));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "liveCharacterWorldbookNames" }, caughtError); }
     const characterLoreIdSet = new Set(characterLoreIds);
     asRecordList(asRecord(nativeWorldInfo.world_info).charLore).forEach((entry) => {
         if (characterLoreIdSet.has(normalizeText(entry.name))) {

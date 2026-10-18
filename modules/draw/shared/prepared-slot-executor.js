@@ -3,6 +3,8 @@ import { isPendingJobLeaseLost } from './recoverable-image-jobs.js';
 import { deliverPreparedImage } from './prepared-image-delivery.js';
 import { discardPendingImageSlot } from './pending-image-jobs.js';
 import { ImageRequestOutcome } from './image-request-outcome.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 // Both prepared scene plans and shorthand tags use this lifecycle. The host owns
 // placement; providers own transport; neither may acknowledge an unstored image.
@@ -72,7 +74,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         if (!backend || nativeMessage) await commitOnce();
         onPrepared?.();
         for (const [index, item] of items.entries()) setActivity(item, index, 'queued');
-        if (nativeMessage) void refresh();
+        if (nativeMessage) observeBackgroundTask(refresh(), { source: import.meta.url, operation: "executePreparedSlots" });
         else await refresh();
         onStateChange?.('gen', { current: 0, total: items.length });
         await run({
@@ -86,7 +88,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                 started.add(index);
                 if (items[index].discarded) { await deliver(index, {}); return false; }
                 setActivity(items[index], index, 'generating');
-                void refresh([items[index].slotId]);
+                observeBackgroundTask(refresh([items[index].slotId]), { source: import.meta.url, operation: "onItemStarting" });
                 return true;
             },
             recoverable: {
@@ -125,7 +127,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                     }
                 }
                 onStateChange?.(state, data);
-                void refresh(changedSlots);
+                observeBackgroundTask(refresh(changedSlots), { source: import.meta.url, operation: "onStateChange" });
             },
             onItemReady: async ({ index, base64, guard, commitDelivery }) => {
                 if (!base64) throw new Error(DRAW_SLOT_COPY.emptyResult);

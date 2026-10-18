@@ -70,7 +70,6 @@ export async function loadBuildStyles(id, target = document.head) {
 
 export async function loadBuildEntry(id) {
     const entry = await loadBuildStyles(id);
-    // Only paths from this plugin's generated entry manifest are imported.
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- Only paths from this plugin's generated entry manifest are imported.
     return import(/* @vite-ignore */ entry.file);
 }

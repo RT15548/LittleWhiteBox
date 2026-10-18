@@ -1,12 +1,16 @@
 ﻿import { formatErrorDetails } from './error-details.js';
 
+// Bypass our own console interceptor when reporting a logger failure.
+const originalConsoleWarn = console.warn.bind(console);
+const reportLoggerFailure = error => originalConsoleWarn({ source: import.meta.url }, error);
+
 let eventCenterPromise = null;
 
 async function getEventCenter() {
     if (!eventCenterPromise) {
         eventCenterPromise = import("./event-manager.js")
             .then((module) => module.EventCenter)
-            .catch(() => null);
+            .catch(error => { reportLoggerFailure(error); return null; });
     }
     return await eventCenterPromise;
 }
@@ -172,40 +176,40 @@ class LoggerCore {
         if (typeof window !== "undefined") {
             try {
                 this._originalOnError = window.onerror;
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
             try {
                 this._originalOnUnhandledRejection = window.onunhandledrejection;
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
 
             try {
                 window.onerror = (message, source, lineno, colno, error) => {
                     try {
                         const loc = source ? `${source}:${lineno || 0}:${colno || 0}` : "";
                         this.error("window", `${String(message || "error")} ${loc}`.trim(), error || null);
-                    } catch {}
+                    } catch (caughtError) { reportLoggerFailure(caughtError); }
                     try {
                         if (typeof this._originalOnError === "function") {
                             return this._originalOnError(message, source, lineno, colno, error);
                         }
-                    } catch {}
+                    } catch (caughtError) { reportLoggerFailure(caughtError); }
                     return false;
                 };
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
 
             try {
                 window.onunhandledrejection = (event) => {
                     try {
                         const reason = event?.reason;
                         this.error("promise", "Unhandled promise rejection", reason || null);
-                    } catch {}
+                    } catch (caughtError) { reportLoggerFailure(caughtError); }
                     try {
                         if (typeof this._originalOnUnhandledRejection === "function") {
                             return this._originalOnUnhandledRejection(event);
                         }
-                    } catch {}
+                    } catch (caughtError) { reportLoggerFailure(caughtError); }
                     return undefined;
                 };
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
         }
 
     }
@@ -231,11 +235,11 @@ class LoggerCore {
                                 if (this._enabled) this.info(intercepted.moduleId, intercepted.message);
                                 return;
                             }
-                        } catch {}
+                        } catch (caughtError) { reportLoggerFailure(caughtError); }
                         return this._originalConsole.log(...args);
                     };
                 }
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
 
             try {
                 if (typeof this._originalConsole.info === "function") {
@@ -246,11 +250,11 @@ class LoggerCore {
                                 if (this._enabled) this.info(intercepted.moduleId, intercepted.message);
                                 return;
                             }
-                        } catch {}
+                        } catch (caughtError) { reportLoggerFailure(caughtError); }
                         return this._originalConsole.info(...args);
                     };
                 }
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
 
             try {
                 if (typeof this._originalConsole.warn === "function") {
@@ -263,11 +267,11 @@ class LoggerCore {
                             }
                             const msg = args.map(a => (typeof a === "string" ? a : safeStringify(a))).join(" ");
                             this.warn("console", msg);
-                        } catch {}
+                        } catch (caughtError) { reportLoggerFailure(caughtError); }
                         return this._originalConsole.warn(...args);
                     };
                 }
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
 
             try {
                 if (typeof this._originalConsole.error === "function") {
@@ -280,11 +284,11 @@ class LoggerCore {
                             }
                             const msg = args.map(a => (typeof a === "string" ? a : safeStringify(a))).join(" ");
                             this.error("console", msg, null);
-                        } catch {}
+                        } catch (caughtError) { reportLoggerFailure(caughtError); }
                         return this._originalConsole.error(...args);
                     };
                 }
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
         }
     }
 
@@ -298,14 +302,14 @@ class LoggerCore {
                 } else {
                     window.onerror = null;
                 }
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
             try {
                 if (this._originalOnUnhandledRejection !== null && this._originalOnUnhandledRejection !== undefined) {
                     window.onunhandledrejection = this._originalOnUnhandledRejection;
                 } else {
                     window.onunhandledrejection = null;
                 }
-            } catch {}
+            } catch (caughtError) { reportLoggerFailure(caughtError); }
         }
     }
 
@@ -394,14 +398,14 @@ export const CacheRegistry = (() => {
 
 export function enableDebugMode() {
     getEventCenter().then((EventCenter) => {
-        try { EventCenter?.enableDebug?.(); } catch {}
-    });
+        EventCenter.enableDebug();
+    }).catch(reportLoggerFailure);
 }
 
 export function disableDebugMode() {
     getEventCenter().then((EventCenter) => {
-        try { EventCenter?.disableDebug?.(); } catch {}
-    });
+        EventCenter.disableDebug();
+    }).catch(reportLoggerFailure);
 }
 
 export function enablePersistentDebugLogging() {

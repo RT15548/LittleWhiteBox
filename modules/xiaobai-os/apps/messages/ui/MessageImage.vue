@@ -4,6 +4,8 @@ import AppDialog from '../../../shell/app-src/components/AppDialog.vue';
 import type { PrivateMessage } from '../../../domains/messages/types.js';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import MessageIcon from './MessageIcon.vue';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ message: PrivateMessage; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; available: boolean }>();
 const emit = defineEmits<{ resize: [] }>();
@@ -61,7 +63,7 @@ onMounted(() => {
     if (root.value) {observer.observe(root.value);}
 });
 watch([visible, () => props.available], ([inView, available]) => {
-    if (inView && available && !source.value && !error.value) {void load();}
+    if (inView && available && !source.value && !error.value) {observeBackgroundTask(load(), { source: import.meta.url, operation: "callback" });}
 });
 onBeforeUnmount(() => {observer?.disconnect(); unsubscribe(); cancel();});
 </script>

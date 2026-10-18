@@ -1,6 +1,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
 import type { LearningClientState } from '../types.js';
 import { createLearningCompanionScheduler } from '../application/companion.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 /** Lives with the lightweight application, not with the reading or conversation renderer. */
 export function useLearningCompanion(options: {
@@ -28,10 +30,10 @@ export function useLearningCompanion(options: {
         return current ? { materialId: current.dataset.materialId, paragraphId: current.dataset.paragraphId } : null;
     }
     const scheduler = createLearningCompanionScheduler({ setTimer: (callback, delay) => setTimeout(callback, delay),
-        clearTimer: timer => clearTimeout(timer), opportunity: () => { const current = paragraph(); if (current) { void options.request('companion', current); } } });
+        clearTimer: timer => clearTimeout(timer), opportunity: () => { const current = paragraph(); if (current) { observeBackgroundTask(options.request('companion', current), { source: import.meta.url, operation: "opportunity" }); } } });
     watch(eligible, value => scheduler.update(value), { immediate: true });
     watch([available, editing, selecting, recentlyTyped, options.pending, () => options.state.value.companionBusy], ([canRead, input, selection, typed, pending, running]) => {
-        if (running && !pending && (!canRead || input || selection || typed)) { void options.request('cancel-companion'); }
+        if (running && !pending && (!canRead || input || selection || typed)) { observeBackgroundTask(options.request('cancel-companion'), { source: import.meta.url, operation: "callback" }); }
     });
     function onFocus() {
         const element = document.activeElement;

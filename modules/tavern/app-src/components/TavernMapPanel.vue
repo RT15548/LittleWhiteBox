@@ -40,6 +40,8 @@ import {
     resolveMapElementIconName,
     TAVERN_MAP_MATERIAL_SYMBOL_SIZE,
 } from '../../shared/map-material-symbols';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 type MapReplayMode = 'full' | 'patch' | 'timeline';
 type MapRenderLayer = 'fill' | 'avatar' | 'line' | 'light' | 'label';
@@ -1154,14 +1156,14 @@ const vignetteOverlay = computed(() => {
 function scheduleTimelineNext() {
     clearTimelineTimer();
     if (replayMode.value !== 'timeline' || !hasReplayableTimeline.value || timelineFrames.value.length <= 1) {return;}
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         timelineTimer = window.setTimeout(() => {
             if (replayMode.value !== 'timeline') {return;}
             timelineIndex.value = timelineIndex.value + 1 >= timelineFrames.value.length ? 0 : timelineIndex.value + 1;
             replayKey.value += 1;
             scheduleTimelineNext();
         }, totalAnimationMs.value + 420);
-    });
+    }), { source: import.meta.url, operation: "scheduleTimelineNext" });
 }
 
 function itemStyle(item: MapRenderItem) {

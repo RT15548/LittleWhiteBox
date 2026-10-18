@@ -9,6 +9,12 @@ import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { getIframeBaseScript, getWrapperScript, getTemplateExtrasScript } from "../../core/wrapper-inline.js";
 import { postToIframe, getIframeTargetOrigin } from "../../core/iframe-messaging.js";
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+import { tryParseJson } from '../../shared/common/json-candidate.js';
+
+const openEditorEvent = observeAsyncCallback(openEditor, { source: import.meta.url, operation: "openEditor" });
+const checkEmbeddedTemplateEvent = observeAsyncCallback(checkEmbeddedTemplate, { source: import.meta.url, operation: "checkEmbeddedTemplate" });
+
 
 const TEMPLATE_MODULE_NAME = "xiaobaix-template";
 const events = createModuleEvents('templateEditor');
@@ -241,7 +247,7 @@ class TemplateProcessor {
                         Object.assign(vars, jsonVars);
                         continue;
                     }
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "extractJsonFromIncompleteXml" }, caughtError); }
             }
             if (this.isYamlFormat(innerContent)) {
                 try {
@@ -249,7 +255,7 @@ class TemplateProcessor {
                     if (yamlVars && Object.keys(yamlVars).length) {
                         Object.assign(vars, yamlVars);
                     }
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "extractJsonFromIncompleteXml" }, caughtError); }
             }
         }
         return Object.keys(vars).length ? vars : null;
@@ -269,7 +275,7 @@ class TemplateProcessor {
                         Object.assign(vars, jsonVars);
                         continue;
                     }
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "extractJsonFromXmlWrapper" }, caughtError); }
             }
             if (this.isYamlFormat(innerContent)) {
                 try {
@@ -277,7 +283,7 @@ class TemplateProcessor {
                     if (yamlVars && Object.keys(yamlVars).length) {
                         Object.assign(vars, yamlVars);
                     }
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "extractJsonFromXmlWrapper" }, caughtError); }
             }
         }
         return Object.keys(vars).length ? vars : null;
@@ -302,7 +308,7 @@ class TemplateProcessor {
             try {
                 const parsed = parser.call(this, match[1].trim());
                 if (parsed) Object.assign(vars, parsed);
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "extractFromCodeBlocks" }, caughtError); }
         }
         return Object.keys(vars).length ? vars : null;
     }
@@ -318,10 +324,8 @@ class TemplateProcessor {
     static parsePartialJsonDirect(jsonContent) {
         const vars = {};
         if (!jsonContent.startsWith('{')) return vars;
-        try {
-            const parsed = JSON.parse(jsonContent);
-            return parsed;
-        } catch {}
+        const candidate = tryParseJson(jsonContent);
+        if (candidate.ok) return candidate.value;
         const lines = jsonContent.split('\n');
         let currentKey = null;
         let objectContent = '';
@@ -352,7 +356,8 @@ class TemplateProcessor {
                 const closeBrackets = (arrayStartMatch[2].match(/\]/g) || []).length;
                 bracketLevel += openBrackets - closeBrackets;
                 if (bracketLevel === 0) {
-                    try { vars[currentKey] = JSON.parse(objectContent); } catch {}
+                    const candidate = tryParseJson(objectContent);
+                    if (candidate.ok) vars[currentKey] = candidate.value;
                     inArray = false;
                     currentKey = null;
                     objectContent = '';
@@ -369,7 +374,8 @@ class TemplateProcessor {
                 const closeBraces = (objStartMatch[2].match(/\}/g) || []).length;
                 braceLevel += openBraces - closeBraces;
                 if (braceLevel === 0) {
-                    try { vars[currentKey] = JSON.parse(objectContent); } catch {}
+                    const candidate = tryParseJson(objectContent);
+                    if (candidate.ok) vars[currentKey] = candidate.value;
                     inObject = false;
                     currentKey = null;
                     objectContent = '';
@@ -387,7 +393,8 @@ class TemplateProcessor {
                         try { vars[currentKey] = JSON.parse(cleaned); } catch {
                             const attempts = [cleaned + '"]', cleaned + ']'];
                             for (const attempt of attempts) {
-                                try { vars[currentKey] = JSON.parse(attempt); break; } catch {}
+                                const candidate = tryParseJson(attempt);
+                                if (candidate.ok) { vars[currentKey] = candidate.value; break; }
                             }
                         }
                     }
@@ -415,20 +422,18 @@ class TemplateProcessor {
             }
         }
         if (inArray && currentKey && objectContent) {
-            try {
-                const attempts = [objectContent + ']', objectContent.replace(/,\s*$/, '') + ']', objectContent + '"]'];
-                for (const attempt of attempts) {
-                    try { vars[currentKey] = JSON.parse(attempt); break; } catch {}
-                }
-            } catch {}
+            const attempts = [objectContent + ']', objectContent.replace(/,\s*$/, '') + ']', objectContent + '"]'];
+            for (const attempt of attempts) {
+                const candidate = tryParseJson(attempt);
+                if (candidate.ok) { vars[currentKey] = candidate.value; break; }
+            }
         }
         if (inObject && currentKey && objectContent) {
-            try {
-                const attempts = [objectContent + '}', objectContent.replace(/,\s*$/, '') + '}'];
-                for (const attempt of attempts) {
-                    try { vars[currentKey] = JSON.parse(attempt); break; } catch {}
-                }
-            } catch {}
+            const attempts = [objectContent + '}', objectContent.replace(/,\s*$/, '') + '}'];
+            for (const attempt of attempts) {
+                const candidate = tryParseJson(attempt);
+                if (candidate.ok) { vars[currentKey] = candidate.value; break; }
+            }
         }
         return vars;
     }
@@ -650,7 +655,7 @@ class IframeManager {
         try {
             const { substituteParams } = getContext() || {};
             if (typeof substituteParams === 'function') processed = substituteParams(content);
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "createWrapper" }, caughtError); }
 
         const iframeId = `xiaobaix-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const wrapperHtml = `
@@ -674,7 +679,7 @@ class IframeManager {
             iframe.srcdoc = html;
             const probe = () => {
                 const targetOrigin = getIframeTargetOrigin(iframe);
-                try { postToIframe(iframe, { type: 'probe' }, null, targetOrigin); } catch {}
+                try { postToIframe(iframe, { type: 'probe' }, null, targetOrigin); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "probe" }, caughtError); }
             };
             if (iframe.complete) setTimeout(probe, 0);
             else iframe.addEventListener('load', () => setTimeout(probe, 0), { once: true });
@@ -773,7 +778,7 @@ class MessageHandler {
             msg.extra.display_text = displayText;
             updateMessageBlock(messageId, msg, { rerenderMessage: true });
         }
-        setTimeout(async () => { await IframeManager.sendUpdate(messageId, effectiveVars); }, 300);
+        setTimeout(observeAsyncCallback(async () => { await IframeManager.sendUpdate(messageId, effectiveVars); }, { source: import.meta.url, operation: "callback" }), 300);
     }
 
     static clearPreviousIframes(currentMessageId, currentAvatar) {
@@ -843,7 +848,7 @@ class MessageHandler {
     static processBatch(messageIds) {
         const processNextBatch = (deadline) => {
             while (messageIds.length > 0 && deadline.timeRemaining() > 0) {
-                this.process(messageIds.shift());
+                observeBackgroundTask(this.process(messageIds.shift()), { source: import.meta.url, operation: "processNextBatch" });
             }
             if (messageIds.length > 0) requestIdleCallback(processNextBatch);
         };
@@ -888,7 +893,7 @@ class MessageHandler {
             if (lastMsg && !lastMsg.is_system && !lastMsg.is_user) {
                 const avatar = utils.getCharAvatar(lastMsg);
                 const tmplSettings = TemplateSettings.getCharTemplate(avatar);
-                if (tmplSettings) this.process(lastId);
+                if (tmplSettings) observeBackgroundTask(this.process(lastId), { source: import.meta.url, operation: "callback" });
             }
         }, 2000);
     }
@@ -971,12 +976,12 @@ const interceptor = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const eventHandlers = {
-    MESSAGE_UPDATED: id => setTimeout(() => MessageHandler.process(id), 150),
+    MESSAGE_UPDATED: id => setTimeout(observeAsyncCallback(() => MessageHandler.process(id), { source: import.meta.url, operation: "callback" }), 150),
     MESSAGE_SWIPED: id => {
         MessageHandler.stopStreamingCheck();
         state.isStreamingCheckActive = false;
         setTimeout(() => {
-            MessageHandler.process(id);
+            observeBackgroundTask(MessageHandler.process(id), { source: import.meta.url, operation: "callback" });
             const ctx = getContext();
             const msg = ctx.chat?.[id];
             if (msg && !msg.is_system && !msg.is_user) {
@@ -1001,7 +1006,7 @@ const eventHandlers = {
         state.isStreamingCheckActive = false;
         const ctx = getContext();
         const lastId = ctx.chat?.length - 1;
-        if (lastId >= 0) setTimeout(() => MessageHandler.process(lastId), 150);
+        if (lastId >= 0) setTimeout(observeAsyncCallback(() => MessageHandler.process(lastId), { source: import.meta.url, operation: "callback" }), 150);
     },
     CHAT_CHANGED: () => {
         state.clear();
@@ -1015,7 +1020,7 @@ const eventHandlers = {
         setTimeout(() => {
             updateStatus();
             MessageHandler.reapplyAll();
-            checkEmbeddedTemplate();
+            observeBackgroundTask(checkEmbeddedTemplate(), { source: import.meta.url, operation: "callback" });
         }, 300);
     }
 };
@@ -1163,7 +1168,7 @@ async function checkEmbeddedTemplate() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function cleanup() {
-    try { xbLog.info('templateEditor', 'cleanup'); } catch {}
+    try { xbLog.info('templateEditor', 'cleanup'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanup' }, error); }
     events.cleanup();
     MessageHandler.stopStreamingCheck();
     state.observers.message?.disconnect();
@@ -1193,7 +1198,7 @@ function hasCustomTemplateForMessage(messageId) {
 }
 
 function initTemplateEditor() {
-    try { xbLog.info('templateEditor', 'initTemplateEditor'); } catch {}
+    try { xbLog.info('templateEditor', 'initTemplateEditor'); } catch (error) { console.warn({ source: import.meta.url, operation: 'initTemplateEditor' }, error); }
     
     // 启动时执行一次数据迁移
     TemplateSettings.migrateAndCleanup();
@@ -1245,7 +1250,7 @@ function initTemplateEditor() {
         } else cleanup();
     });
     
-    $("#open_template_editor").on("click", openEditor);
+    $("#open_template_editor").on("click", openEditorEvent);
     $("#export_template_settings").on("click", exportGlobal);
     $("#import_template_settings").on("click", () => $("#import_template_file").click());
     $("#import_template_file").on("change", importGlobal);
@@ -1265,7 +1270,7 @@ function initTemplateEditor() {
         }, 600);
     }
     
-    setTimeout(checkEmbeddedTemplate, 1200);
+    setTimeout(checkEmbeddedTemplateEvent, 1200);
 }
 
 export {

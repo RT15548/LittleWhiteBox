@@ -128,7 +128,7 @@ export class TtsPlayer {
         if (this.currentAudio) {
             try {
                 this.currentAudio.playbackRate = nextRate;
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setPlaybackRate" }, caughtError); }
         }
         this._notifyState('ratechange', this.currentItem, { playbackRate: nextRate });
         return nextRate;
@@ -258,7 +258,7 @@ export class TtsPlayer {
                 if (streamEnded && sourceBuffer && !sourceBuffer.updating && queue.length === 0) {
                     try {
                         if (mediaSource?.readyState === 'open') mediaSource.endOfStream();
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "pump" }, caughtError); }
                 }
                 return;
             }
@@ -373,7 +373,7 @@ export class TtsPlayer {
         const audio = this.currentAudio;
         this.currentAudio = null;
         if (abortStream) {
-            try { this.currentStream?.abort?.(); } catch {}
+            try { this.currentStream?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_stopCurrent" }, caughtError); }
         }
         if (audio) {
             audio.onloadedmetadata = audio.ontimeupdate = audio.onplay = audio.onpause = audio.onended = audio.onerror = null;
@@ -386,7 +386,7 @@ export class TtsPlayer {
 
     _notifyState(state, item, info = null) {
         if (typeof this.onStateChange === 'function') {
-            try { this.onStateChange(state, item, info); } catch (e) {}
+            try { this.onStateChange(state, item, info); } catch (e) { console.warn({ source: import.meta.url, operation: "_notifyState" }, e); }
         }
     }
 }

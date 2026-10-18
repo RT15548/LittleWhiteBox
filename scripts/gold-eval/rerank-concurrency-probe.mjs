@@ -195,7 +195,7 @@ async function main() {
             try {
                 const payload = await response.json();
                 protocolOk = Array.isArray(payload?.results);
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "requestBatch" }, caughtError); }
             return {
                 ok: response.ok && protocolOk,
                 status: response.status,

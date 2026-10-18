@@ -117,7 +117,7 @@ export function createMessagesTimeline(service: MessagesService, chat: MessagesC
     function sync(segmentId: string, guard: () => boolean): Promise<void> {
         const identity = chat.identity();
         const preceding = pendingSync.get(identity);
-        const task = preceding ? preceding.catch(() => undefined).then(() => syncNow(segmentId, guard))
+        const task = preceding ? preceding.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "task" }, caughtError); }).then(() => syncNow(segmentId, guard))
             : syncNow(segmentId, guard);
         pendingSync.set(identity, task);
         void task.then(() => {if (pendingSync.get(identity) === task) {pendingSync.delete(identity);}},

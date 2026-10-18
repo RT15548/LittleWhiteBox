@@ -17,6 +17,8 @@ import {
 } from './api-presets.js';
 
 import { API_PRESET_COPY } from './api-presets-copy.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const ACTIONS = [
     { action: 'save-as', icon: 'fa-plus', title: API_PRESET_COPY.saveAs, className: 'btn btn-icon' },
@@ -284,7 +286,7 @@ export function createApiPresetBar(options = {}) {
         if (handler) void handler();
     }
     function onChange(event) {
-        if (event.target === select && !busy) void handleSelect();
+        if (event.target === select && !busy) observeBackgroundTask(handleSelect(), { source: "modules/draw/shared/api-presets-ui.js", operation: "onChange" });
     }
     container.addEventListener('click', onClick);
     container.addEventListener('change', onChange);

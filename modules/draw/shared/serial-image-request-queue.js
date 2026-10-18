@@ -1,3 +1,5 @@
+
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 function defaultAbortError() {
     const error = new Error('已取消');
     error.name = 'AbortError';
@@ -112,7 +114,7 @@ export function createSerialImageRequestQueue({
         detachAbort(item);
         notifyQueued();
 
-        void (async () => {
+        observeBackgroundTask((async () => {
             let result;
             let error = null;
             let started = false;
@@ -150,7 +152,7 @@ export function createSerialImageRequestQueue({
             }
             notifyQueued();
             pump();
-        })();
+        })(), { source: import.meta.url, operation: "pump" });
     }
 
     function enqueue(run, { signal, batchKey, onQueued, onStart, onCooldown } = {}) {

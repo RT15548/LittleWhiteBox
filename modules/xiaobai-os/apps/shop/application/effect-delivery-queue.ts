@@ -1,6 +1,8 @@
 import { parseShopEffectReceipt } from '../../../domains/shop/invariants.js';
 import { deliverShopEffects, getShopCasToken } from '../../../domains/shop/timeline.js';
 import type { ShopDeliveryResult, ShopDomainV2, ShopEffectReceipt } from '../../../domains/shop/types.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface ShopEffectDelivery {
     chatIdentity: string;
@@ -121,7 +123,7 @@ export function createShopEffectDeliveryQueue({
         lane.scheduled = true;
         queueMicrotask(() => {
             lane.scheduled = false;
-            void drain(chatIdentity, lane);
+            observeBackgroundTask(drain(chatIdentity, lane), { source: import.meta.url, operation: "callback" });
         });
     }
 

@@ -12,6 +12,8 @@ import type { MemoryJobState } from '../narrative/memory-jobs.js';
 import { currentClothing } from '../clothing.js';
 import { CLOTHING_COPY } from '../content/clothing.js';
 import ClothingList from './ClothingList.vue';
+import { observeBackgroundTask } from '../../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ campaign: Campaign; person: Participant; draft: string; memoryState?: MemoryJobState; blocked?: boolean }>();
 defineEmits<{ 'retry-memory': [] }>();
@@ -28,7 +30,7 @@ async function load() {
     try { const loaded = await loadNarrativeCanon(props.person, request.signal); if (!request.signal.aborted) { canon.value = loaded; } }
     catch (cause) { if (!request.signal.aborted) { error.value = errorText(cause); } }
 }
-watch(() => props.person, () => { open.value = null; change.value = 0; void load(); }, { immediate: true });
+watch(() => props.person, () => { open.value = null; change.value = 0; observeBackgroundTask(load(), { source: import.meta.url, operation: "callback" }); }, { immediate: true });
 const affection = computed(() => isPerson(props.person) ? props.campaign.relationships[props.person].affection : 0);
 const affectionFillId = `ember-affection-${useId()}`;
 const affectionHeight = computed(() => 19 * affection.value / 100);

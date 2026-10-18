@@ -8,6 +8,12 @@ import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
 import { normalizeMediaUrl } from './media-url.js';
 import { getSafeViewportStyles, observeViewport } from '../../../shared/common/viewport.js';
 import { getImageChatIdentity } from './chat-image-persistence.js';
+import { observeAsyncCallback } from '../../../shared/common/async-errors.js';
+
+const useCurrentGalleryImageEvent = observeAsyncCallback(useCurrentGalleryImage, { source: import.meta.url, operation: "useCurrentGalleryImage" });
+const saveCurrentGalleryImageEvent = observeAsyncCallback(saveCurrentGalleryImage, { source: import.meta.url, operation: "saveCurrentGalleryImage" });
+const deleteCurrentGalleryImageEvent = observeAsyncCallback(deleteCurrentGalleryImage, { source: import.meta.url, operation: "deleteCurrentGalleryImage" });
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -127,7 +133,7 @@ function prunePreviewObjectUrls() {
     for (const [key, url] of previewObjectUrlCache.entries()) {
         if (previewObjectUrlCache.size <= PREVIEW_OBJECT_URL_LIMIT) break;
         if (isObjectUrlInUse(url)) continue;
-        try { URL.revokeObjectURL(url); } catch {}
+        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "prunePreviewObjectUrls" }, caughtError); }
         previewObjectUrlCache.delete(key);
     }
 }
@@ -138,7 +144,7 @@ function prunePreviewPreloads() {
         if (oldestKey === undefined) break;
         const cached = previewPreloadCache.get(oldestKey);
         if (cached?.img) {
-            try { cached.img.src = ''; } catch {}
+            try { cached.img.src = ''; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "prunePreviewPreloads" }, caughtError); }
         }
         previewPreloadCache.delete(oldestKey);
     }
@@ -149,24 +155,24 @@ export function revokePreviewObjectUrl(imgId) {
     if (!key) return;
     const url = previewObjectUrlCache.get(key);
     if (url) {
-        try { URL.revokeObjectURL(url); } catch {}
+        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "revokePreviewObjectUrl" }, caughtError); }
         previewObjectUrlCache.delete(key);
     }
     const preload = previewPreloadCache.get(key);
     if (preload?.img) {
-        try { preload.img.src = ''; } catch {}
+        try { preload.img.src = ''; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "revokePreviewObjectUrl" }, caughtError); }
     }
     previewPreloadCache.delete(key);
 }
 
 export function clearPreviewObjectUrls() {
     for (const url of previewObjectUrlCache.values()) {
-        try { URL.revokeObjectURL(url); } catch {}
+        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearPreviewObjectUrls" }, caughtError); }
     }
     previewObjectUrlCache.clear();
     for (const cached of previewPreloadCache.values()) {
         if (cached?.img) {
-            try { cached.img.src = ''; } catch {}
+            try { cached.img.src = ''; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearPreviewObjectUrls" }, caughtError); }
         }
     }
     previewPreloadCache.clear();
@@ -214,7 +220,7 @@ export async function preloadPreviewDisplayUrl(preview = {}) {
         const done = (ok) => resolve(ok);
         img.onload = async () => {
             if (typeof img.decode === 'function') {
-                try { await img.decode(); } catch {}
+                try { await img.decode(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "promise" }, caughtError); }
             }
             done(true);
         };
@@ -239,7 +245,7 @@ export async function warmSlotPreviewNeighbors(slotId, currentIndex = 0, range =
     for (let index = start; index <= end; index++) {
         if (index === currentIndex) continue;
         const preload = () => {
-            void preloadPreviewDisplayUrl(successPreviews[index]).catch(() => {});
+            void preloadPreviewDisplayUrl(successPreviews[index]).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "preload" }, caughtError); });
         };
         if (typeof requestIdleCallback === 'function') {
             requestIdleCallback(preload, { timeout: 500 });
@@ -335,7 +341,7 @@ function publishCacheChange(slotIds) {
     if (normalized !== null && normalized.length === 0) return;
     try {
         ensureCacheSyncChannel()?.postMessage({ type: 'invalidate', slotIds: normalized });
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "publishCacheChange" }, caughtError); }
 }
 
 export function subscribeGalleryCacheChanges(listener) {
@@ -391,7 +397,7 @@ export async function openDB() {
     }
 
     if (db) {
-        try { db.close(); } catch {}
+        try { db.close(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openDB" }, caughtError); }
         db = null;
     }
 
@@ -1225,7 +1231,7 @@ function scanCharacterSlotOrder(charName) {
                         slot.latestTimestamp = timestamp;
                         slot.latestImgId = item.imgId;
                     }
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "visit" }, caughtError); }
             };
             const source = store.indexNames.contains('characterName') && charName !== 'Unknown'
                 ? store.index('characterName').openCursor(charName)
@@ -1371,17 +1377,16 @@ function createGalleryOverlay() {
 
     const overlay = document.createElement('div');
     overlay.id = 'nd-gallery-overlay';
-    // Template-only UI markup.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
     overlay.innerHTML = `<button class="nd-gallery-close" id="nd-gallery-close">✕</button><div class="nd-gallery-main"><button class="nd-gallery-nav" id="nd-gallery-prev">‹</button><div class="nd-gallery-img-wrap"><img class="nd-gallery-img" id="nd-gallery-img" src="" alt=""><div class="nd-gallery-saved-badge" id="nd-gallery-saved-badge" style="display:none">已保存</div></div><button class="nd-gallery-nav" id="nd-gallery-next">›</button></div><div class="nd-gallery-thumbs" id="nd-gallery-thumbs"></div><div class="nd-gallery-actions" id="nd-gallery-actions"><button class="nd-gallery-btn primary" id="nd-gallery-use">使用此图</button><button class="nd-gallery-btn" id="nd-gallery-save">${IMAGE_SAVE_LABEL_HTML}</button><button class="nd-gallery-btn danger" id="nd-gallery-delete">🗑️ 删除</button></div><div class="nd-gallery-info" id="nd-gallery-info"></div>`;
     document.body.appendChild(overlay);
 
     document.getElementById('nd-gallery-close').addEventListener('click', closeGallery);
     document.getElementById('nd-gallery-prev').addEventListener('click', () => navigateGallery(-1));
     document.getElementById('nd-gallery-next').addEventListener('click', () => navigateGallery(1));
-    document.getElementById('nd-gallery-use').addEventListener('click', useCurrentGalleryImage);
-    document.getElementById('nd-gallery-save').addEventListener('click', saveCurrentGalleryImage);
-    document.getElementById('nd-gallery-delete').addEventListener('click', deleteCurrentGalleryImage);
+    document.getElementById('nd-gallery-use').addEventListener('click', useCurrentGalleryImageEvent);
+    document.getElementById('nd-gallery-save').addEventListener('click', saveCurrentGalleryImageEvent);
+    document.getElementById('nd-gallery-delete').addEventListener('click', deleteCurrentGalleryImageEvent);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeGallery(); });
 }
 
@@ -1453,8 +1458,7 @@ function renderGalleryThumbs() {
     const reversedPreviews = previews.slice().reverse();
     const thumbsContainer = document.getElementById('nd-gallery-thumbs');
 
-    // Generated from local preview data only.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Generated from local preview data only.
     thumbsContainer.innerHTML = reversedPreviews.map((p, i) => {
         const src = getPreviewDisplayUrl(p);
         const originalIndex = previews.length - 1 - i;
@@ -1503,8 +1507,7 @@ function renderGallery() {
         saveBtn.textContent = '✓ 已保存';
         saveBtn.disabled = true;
     } else {
-        // Static draw-owned markup, without user input.
-        // eslint-disable-next-line no-unsanitized/property
+        // eslint-disable-next-line no-unsanitized/property -- Static draw-owned markup, without user input.
         saveBtn.innerHTML = IMAGE_SAVE_LABEL_HTML;
         saveBtn.disabled = false;
     }
@@ -1615,7 +1618,7 @@ export function destroyGalleryCache() {
     galleryOverlayCreated = false;
 
     if (db) {
-        try { db.close(); } catch {}
+        try { db.close(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "destroyGalleryCache" }, caughtError); }
         db = null;
     }
     dbOpening = null;

@@ -3,6 +3,8 @@ import { CONVERSATION_WINDOW as WINDOW, conversationRange, type ConversationRang
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 import type { AdministratorPage, AdministratorState } from '../domain/types.js';
 import { administratorError } from './copy.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 /** Owns only the mounted page and reading position. Host history remains paged and unchanged. */
 export function useAdministratorWindow(options: {
@@ -51,7 +53,7 @@ export function useAdministratorWindow(options: {
         pageError.value = '';
         const focused = list.value?.contains(document.activeElement) ? document.activeElement : null;
         selection.value = null; atBottom.value = true; resident.value = state.value.page;
-        void follow().then(() => restoreFocus(focused));
+        observeBackgroundTask(follow().then(() => restoreFocus(focused)), { source: import.meta.url, operation: "resetLatest" });
     }
     function scrolled() {
         const log = list.value;
@@ -112,13 +114,13 @@ export function useAdministratorWindow(options: {
         return update();
     }
     watch(() => state.value.chatIdentity, resetLatest, { flush: 'sync' });
-    watch([() => state.value.page, pending], () => { void update(); });
-    watch(() => state.value.live, () => { void follow(); });
+    watch([() => state.value.page, pending], () => { observeBackgroundTask(update(), { source: import.meta.url, operation: "callback" }); });
+    watch(() => state.value.live, () => { observeBackgroundTask(follow(), { source: import.meta.url, operation: "callback" }); });
     watch(list, (log, _previous, onCleanup) => {
         if (!log) { return; }
-        const observer = new ResizeObserver(() => { void follow(); });
+        const observer = new ResizeObserver(() => { observeBackgroundTask(follow(), { source: import.meta.url, operation: "callback" }); });
         observer.observe(log); onCleanup(() => observer.disconnect());
-        void follow();
+        observeBackgroundTask(follow(), { source: import.meta.url, operation: "callback" });
     }, { flush: 'post' });
     onBeforeUnmount(() => { version++; navigation = null; });
     return { rows, hasOlder, hasNewer, expanded, pendingVisible, paging, pageError, atBottom, resetLatest, scrolled,

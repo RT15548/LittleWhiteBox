@@ -275,8 +275,8 @@ export function createChatReferencePort(
                     pending.delete(captured.identityKey);
                     return { status: 'confirmed' };
                 }
-            } catch {
-                // Keep the candidate for explicit recovery; an unreadable result proves nothing.
+            } catch (caughtError) {
+                console.warn({ source: import.meta.url, operation: "install" }, caughtError);
             }
         }
         return {

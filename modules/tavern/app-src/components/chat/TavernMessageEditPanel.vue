@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import type { TavernMessageRecord } from '../../../shared/session-db';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{
     message: TavernMessageRecord;
@@ -63,13 +65,13 @@ function autoSizeEditor() {
 }
 
 function focusEditor() {
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         const textarea = textareaRef.value;
         if (!textarea) {return;}
         autoSizeEditor();
         textarea.focus();
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    });
+    }), { source: import.meta.url, operation: "focusEditor" });
 }
 
 function scheduleAutoSizeEditor() {

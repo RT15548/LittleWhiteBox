@@ -43,7 +43,7 @@ export function formatImageBase64(base64, mime) {
 export async function readImageResponse(response, signal) {
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
-        await response.body?.cancel().catch(() => {});
+        await response.body?.cancel().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "readImageResponse" }, caughtError); });
         throw new NovelImageResponseError('图片响应超过 128 MiB 限制');
     }
 
@@ -59,7 +59,7 @@ export async function readImageResponse(response, signal) {
     let aborted = false;
     const abort = () => {
         aborted = true;
-        reader.cancel(createAbortError()).catch(() => {});
+        reader.cancel(createAbortError()).catch((caughtError) => { console.debug({ source: import.meta.url, operation: "abort" }, caughtError); });
     };
     if (signal?.aborted) {
         abort();

@@ -351,7 +351,7 @@ function getCurrentCharacter(ctx: Record<string, unknown> = getContext?.() || {}
             if (character && typeof character === 'object') {
                 return mergeCharacterRecord(runtime, character as Record<string, unknown>);
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCurrentCharacter" }, caughtError); }
     }
     if (Array.isArray(ctx.characters) && id !== undefined && id !== null) {
         const character = ctx.characters[index];
@@ -477,7 +477,7 @@ function collectWorldbookSources(ctx: Record<string, unknown> = getContext?.() |
     addUnique(characterLoreIds, data.avatar);
     try {
         addUnique(characterLoreIds, getCharaFilename(resolveNativeCharacterId(ctx, options) as string | number | null));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "collectWorldbookSources" }, caughtError); }
     const characterLoreIdSet = new Set(characterLoreIds);
     asArray<Record<string, unknown>>(worldInfo.charLore).forEach((entry) => {
         if (characterLoreIdSet.has(normalizeText(entry?.name))) {

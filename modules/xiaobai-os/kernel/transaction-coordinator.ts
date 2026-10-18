@@ -161,7 +161,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
 
     function enqueue<T>(work: () => Promise<T>): Promise<T> {
         const result = queue.then(work, work);
-        queue = result.catch(() => undefined);
+        queue = result.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "enqueue" }, caughtError); });
         return result;
     }
 

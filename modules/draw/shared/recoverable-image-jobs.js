@@ -202,7 +202,7 @@ export async function submitRecoverableImageJob({
     if (!committed) {
         // 占位符没写进去，正文里不存在这批槽位，日志也就没有任何意义了。
         // 此时还没 POST，直接作废是唯一干净的收尾。
-        await journal.forget(jobId, leaseId).catch(() => {});
+        await journal.forget(jobId, leaseId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "submitRecoverableImageJob" }, caughtError); });
         throw new PlacementNotCommittedError();
     }
 
@@ -220,7 +220,7 @@ export async function submitRecoverableImageJob({
             .catch(error => { error.detached = true; throw error; });
         // The owning try/catch awaits this promise; keep a rejected barrier from
         // surfacing as an unhandled rejection before the monitor reaches it.
-        void cancelIntentPromise.catch(() => {});
+        void cancelIntentPromise.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "markCancelIntent" }, caughtError); });
     };
     if (cancelSignal?.aborted) markCancelIntent();
     cancelSignal?.addEventListener('abort', markCancelIntent, { once: true });

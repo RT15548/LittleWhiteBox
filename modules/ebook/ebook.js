@@ -9,6 +9,8 @@ import {
     getDisplayPreviewForSlot,
     importPortablePreviews,
 } from '../draw/shared/gallery-cache.js';
+import { observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 const SOURCE_HOST = 'xb-ebook-host';
 const SOURCE_APP = 'xb-ebook-app';
@@ -43,8 +45,8 @@ function isEbookMobileDevice() {
         if (mobileTypes.includes(platformType)) {
             return true;
         }
-    } catch {
-        // Fall back to pointer/screen heuristics below.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "isEbookMobileDevice" }, caughtError);
     }
     return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
 }
@@ -204,7 +206,7 @@ function openEbookSettings() {
         pendingMessages = [];
         prepareInitialConfig();
         installMessageHandler();
-        void createOverlay();
+        observeBackgroundTask(createOverlay(), { source: import.meta.url, operation: "openEbookSettings" });
     }
     if (frameReady) {
         revealEbookSettings();
@@ -240,7 +242,7 @@ function stopEbookTtsPlayback(playbackId = '') {
     if (playbackId && active.playbackId !== playbackId) return false;
     try {
         active.stop?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "stopEbookTtsPlayback" }, caughtError); }
     postTtsState(active.playbackId, 'stopped');
     activeTtsPlayback = null;
     return true;
@@ -521,40 +523,40 @@ function handleFrameMessage(event) {
             closeEbook();
             break;
         case 'xb-ebook:import-material':
-            void handleImportMaterial(payload);
+            observeBackgroundTask(handleImportMaterial(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:save-config':
-            void handleSaveConfig(payload);
+            observeBackgroundTask(handleSaveConfig(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:get-host-request-headers':
             handleHostRequestHeaders(payload);
             break;
         case 'xb-ebook:draw-status':
-            void handleDrawStatus(payload);
+            observeBackgroundTask(handleDrawStatus(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:tts-status':
-            void handleTtsStatus(payload);
+            observeBackgroundTask(handleTtsStatus(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:tts-play':
-            void handleTtsPlay(payload);
+            observeBackgroundTask(handleTtsPlay(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:tts-stop':
-            void handleTtsStop(payload);
+            observeBackgroundTask(handleTtsStop(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:draw-generate':
-            void handleDrawGenerate(payload);
+            observeBackgroundTask(handleDrawGenerate(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:cancel-request':
             handleCancelRequest(payload);
             break;
         case 'xb-ebook:draw-image':
-            void handleDrawImage(payload);
+            observeBackgroundTask(handleDrawImage(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:export-images':
-            void handleExportImages(payload);
+            observeBackgroundTask(handleExportImages(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         case 'xb-ebook:import-images':
-            void handleImportImages(payload);
+            observeBackgroundTask(handleImportImages(payload), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         default:
             break;
@@ -563,8 +565,7 @@ function handleFrameMessage(event) {
 
 function installMessageHandler() {
     if (messageHandlerInstalled) return;
-    // Guarded by isTrustedMessage in handleFrameMessage.
-    // eslint-disable-next-line no-restricted-syntax
+    // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedMessage in handleFrameMessage.
     window.addEventListener('message', handleFrameMessage);
     messageHandlerInstalled = true;
 }

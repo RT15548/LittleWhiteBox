@@ -4,6 +4,8 @@ import { xiaobaiOsApps, type XiaobaiOsAppDefinition } from '../app-catalog.js';
 import XiaobaiOsDevice from './components/XiaobaiOsDevice.vue';
 import { createFrameBridge, HostRequestError, type FrameMessage } from './frame-bridge.js';
 import { mergeVisibleAppOrder, orderApps } from '../app-order.js';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 interface AppStatus {
     state: 'loading' | 'ready' | 'failed';
@@ -105,7 +107,7 @@ function applyInit(payload: InitPayload): void {
 function navigate(appId: string | null): void {
     if (!appId) { goHome(); return; }
     const app = availableApps.value.find(item => item.id === appId);
-    if (app && activeApp.value?.id !== app.id) { void openApp(app); }
+    if (app && activeApp.value?.id !== app.id) { observeBackgroundTask(openApp(app), { source: import.meta.url, operation: "navigate" }); }
 }
 
 function handleHostMessage(message: FrameMessage): void {

@@ -80,7 +80,7 @@ export function createXiaobaiOsFrameBridge({
         ready = false;
     }
 
-    function handleMessage(event: MessageEvent<unknown>) {
+    async function handleMessage(event: MessageEvent<unknown>): Promise<void> {
         if (disposed || !isTrustedMessage(event, frame, XIAOBAI_OS_FRAME_SOURCE)) {
             return;
         }
@@ -90,13 +90,19 @@ export function createXiaobaiOsFrameBridge({
         }
         if (message.type === 'os/frame-ready') {
             ready = true;
-            void onReady?.(bridge);
+            await onReady?.(bridge);
             return;
         }
         if (!ready) {
             return;
         }
-        void onMessage?.(message, bridge);
+        await onMessage?.(message, bridge);
+    }
+
+    function receiveMessage(event: MessageEvent<unknown>): void {
+        handleMessage(event).catch(error => {
+            console.error('[LittleWhiteBox] 小白 OS 消息桥回调失败', error);
+        });
     }
 
     function dispose() {
@@ -106,12 +112,11 @@ export function createXiaobaiOsFrameBridge({
         disposed = true;
         ready = false;
         frame.removeEventListener('load', handleLoad);
-        windowTarget.removeEventListener('message', handleMessage);
+        windowTarget.removeEventListener('message', receiveMessage);
     }
 
     frame.addEventListener('load', handleLoad);
-    // Origin, contentWindow and protocol source are all checked above.
-    // eslint-disable-next-line no-restricted-syntax
-    windowTarget.addEventListener('message', handleMessage);
+    // eslint-disable-next-line no-restricted-syntax -- Origin, contentWindow and protocol source are all checked above.
+    windowTarget.addEventListener('message', receiveMessage);
     return bridge;
 }

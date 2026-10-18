@@ -16,7 +16,7 @@ const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
     '.png': 'image/png', '.jpg': 'image/jpeg' };
 const files = new Map([['/', resolve(directory, 'review.html')], ['/review.js', resolve(directory, 'review.js')],
     ['/review.css', resolve(directory, 'review.css')], ['/review-copy.mjs', resolve(directory, 'review-copy.mjs')], ['/model.glb', asset]]);
-const server = createServer(async (request, response) => {
+const server = createServer((request, response) => { const respond = async () => {
     try {
         const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
         let path = files.get(pathname);
@@ -34,5 +34,5 @@ const server = createServer(async (request, response) => {
     } catch (error) {
         response.writeHead(error.code === 'ENOENT' ? 404 : 500).end(error.message);
     }
-});
+}; respond().catch(error => response.destroy(error)); });
 server.listen(Number(values.port), '127.0.0.1', () => console.info(`http://127.0.0.1:${server.address().port}/`));

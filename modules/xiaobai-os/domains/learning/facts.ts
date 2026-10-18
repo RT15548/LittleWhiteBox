@@ -22,7 +22,7 @@ export function parseLearningMaterial(value: unknown, path = 'material'): Learni
         const kind = learningEnum(source.kind, `${path}.provenance.kind`, ['original', 'adapted']);
         const url = learningText(source.url, `${path}.provenance.url`, 2048);
         let parsed: URL | undefined;
-        try { parsed = new URL(url); } catch { /* Report the field, not browser parser internals. */ }
+        try { parsed = new URL(url); } catch { parsed = undefined; }
         requireLearning(parsed && ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password, `${path}.provenance.url`, 'Expected an HTTP(S) source URL without credentials');
         provenance = { kind, url, title: learningText(source.title, `${path}.provenance.title`, L.prompt),
             retrievedAt: learningTimestamp(source.retrievedAt, `${path}.provenance.retrievedAt`) };

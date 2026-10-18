@@ -1,6 +1,5 @@
 function setTemplateHtml(template: HTMLTemplateElement, html: string) {
-    // Markdown HTML is sanitized before it reaches this renderer.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Markdown HTML is sanitized before it reaches this renderer.
     template.innerHTML = html;
 }
 

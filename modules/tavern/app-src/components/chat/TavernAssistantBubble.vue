@@ -6,6 +6,8 @@ import { useTavernChatContext, useTavernDrawContext, useTavernShellContext } fro
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
 import { injectActionCheckRenderMarkers } from '../../../shared/runtime-events';
 import type { TavernMessageRecord } from '../../../shared/session-db';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 interface AssistantRenderState {
     text: string;
@@ -140,13 +142,13 @@ function drawTitle() {
 
 function drawMessage() {
     if (props.message) {
-        void draw.drawMessage(props.message);
+        observeBackgroundTask(draw.drawMessage(props.message), { source: import.meta.url, operation: "drawMessage" });
     }
 }
 
 function copyMessage() {
     if (props.message) {
-        void chat.copyMessage(props.message);
+        observeBackgroundTask(chat.copyMessage(props.message), { source: import.meta.url, operation: "copyMessage" });
     }
 }
 
@@ -157,12 +159,12 @@ function startEdit() {
 }
 
 function rerunMessage() {
-    void chat.rerollLatestAssistant();
+    observeBackgroundTask(chat.rerollLatestAssistant(), { source: import.meta.url, operation: "rerunMessage" });
 }
 
 function deleteMessage() {
     if (props.message) {
-        void chat.deleteMessageTurn(props.message);
+        observeBackgroundTask(chat.deleteMessageTurn(props.message), { source: import.meta.url, operation: "deleteMessage" });
     }
 }
 </script>

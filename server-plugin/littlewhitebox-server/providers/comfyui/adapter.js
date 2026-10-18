@@ -114,7 +114,7 @@ async function execute({ context, item, signal }) {
             headers: { ...headers, 'Content-Type': 'application/json' },
             body: JSON.stringify({ delete: [promptId] }),
             signal: AbortSignal.timeout(CANCEL_REQUEST_TIMEOUT_MS),
-        }).catch(() => {});
+        }).catch((caughtError) => { console.warn({ source: __filename, operation: "dropQueuedPrompt" }, caughtError); });
     };
     signal.addEventListener('abort', dropQueuedPrompt, { once: true });
     try {

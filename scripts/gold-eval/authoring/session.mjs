@@ -79,7 +79,7 @@ function describeAuthoringApi(apiConfig) {
     try {
         const parsed = new URL(String(apiConfig?.url || ''));
         endpointBase = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "describeAuthoringApi" }, caughtError); }
     return { ...described, endpointBase };
 }
 

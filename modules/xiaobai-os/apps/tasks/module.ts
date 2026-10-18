@@ -1,3 +1,4 @@
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import {
     ECONOMY_READ_CAPABILITY,
     ECONOMY_TRANSACTION_CAPABILITY,
@@ -102,7 +103,7 @@ export function createTasksModule(dependencies: TasksModuleDependencies): Xiaoba
             }
         },
         async dispose(runtime) {
-            runtime.stopBackground?.();
+            observeBackgroundTask(runtime.stopBackground?.(), { source: import.meta.url, operation: 'dispose' });
             services.get(runtime)?.dispose();
             services.delete(runtime);
             await dependencies.dispose?.(runtime);

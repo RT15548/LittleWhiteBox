@@ -571,7 +571,6 @@ function createModal() {
     overlay.className = 'cloud-presets-overlay';
     
     // Template-only UI markup.
-    // eslint-disable-next-line no-unsanitized/property
     overlay.innerHTML = `
         <div class="cloud-presets-modal">
             <div class="cp-header">
@@ -670,8 +669,7 @@ function renderPage() {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     const pageItems = filteredPresets.slice(start, start + ITEMS_PER_PAGE);
     
-    // Escaped fields are used in the template.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Escaped fields are used in the template.
     grid.innerHTML = pageItems.map(p => `
         <div class="cp-card">
             <div class="cp-card-head">
@@ -701,7 +699,6 @@ function renderPage() {
             errorElement.textContent = '';
             const origHtml = btn.innerHTML;
             // Template-only UI markup.
-            // eslint-disable-next-line no-unsanitized/property
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 导入中';
             
             try {
@@ -709,12 +706,10 @@ function renderPage() {
                 if (onImportCallback) await onImportCallback(data);
                 btn.classList.add('success');
                 // Template-only UI markup.
-                // eslint-disable-next-line no-unsanitized/property
                 btn.innerHTML = '<i class="fa-solid fa-check"></i> 成功';
                 setTimeout(() => {
                     btn.classList.remove('success');
-                    // Template-only UI markup.
-                    // eslint-disable-next-line no-unsanitized/property
+                    // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }, 2000);
@@ -726,12 +721,10 @@ function renderPage() {
                 btn.title = message;
                 btn.classList.add('error');
                 // Template-only UI markup.
-                // eslint-disable-next-line no-unsanitized/property
                 btn.innerHTML = '<i class="fa-solid fa-xmark"></i> 失败';
                 setTimeout(() => {
                     btn.classList.remove('error');
-                    // Template-only UI markup.
-                    // eslint-disable-next-line no-unsanitized/property
+                    // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }, 2000);

@@ -74,7 +74,7 @@ async function listReceipts(stageDir) {
             const receiptPath = path.join(stageDir, entry.name, 'receipt.json');
             try {
                 receipts.push({ receiptPath, receipt: JSON.parse(await fs.readFile(receiptPath, 'utf8')) });
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "listReceipts" }, caughtError); }
         }
         return receipts;
     } catch (error) {

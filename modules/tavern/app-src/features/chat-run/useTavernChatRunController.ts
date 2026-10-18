@@ -21,6 +21,8 @@ import {
     type TavernRunStreamSnapshot,
 } from '../../runtime/run-once';
 import type { TavernManagerLiveProgress } from '../../runtime/manager';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface TavernChatRunOptions {
     messageText?: string;
@@ -241,7 +243,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
     }
 
     function handleChatSubmit() {
-        void runOnce();
+        observeBackgroundTask(runOnce(), { source: import.meta.url, operation: "handleChatSubmit" });
     }
 
     async function runOnce(runOptions: TavernChatRunOptions = {}) {
@@ -312,7 +314,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             if (shouldShowPendingUserMessage) {
                 state.runtimePendingUserMessage.value = messageText;
                 state.currentUserMessage.value = '';
-                void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                observeBackgroundTask(nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value)), { source: import.meta.url, operation: "runOnce" });
                 options.requestUserMessageBottom();
                 options.updateChatScrollButtons();
             } else {
@@ -329,7 +331,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                 }
                 if (pendingUserMessage && !state.currentUserMessage.value.trim()) {
                     state.currentUserMessage.value = pendingUserMessage;
-                    void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                    observeBackgroundTask(nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value)), { source: import.meta.url, operation: "runOnce" });
                 }
                 return;
             }
@@ -387,7 +389,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     state.runtimeUserMessageVisible.value = true;
                     state.runtimePendingUserMessage.value = '';
                     if (!state.currentUserMessage.value) {
-                        void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                        observeBackgroundTask(nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value)), { source: import.meta.url, operation: "onUserMessageSaved" });
                     }
                     options.updateChatScrollButtons();
                     await options.persistSelectedSessionId(sessionId);
@@ -443,7 +445,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             }
             if (pendingUserMessage && !state.currentUserMessage.value.trim()) {
                 state.currentUserMessage.value = pendingUserMessage;
-                void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                observeBackgroundTask(nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value)), { source: import.meta.url, operation: "runOnce" });
             }
             const errorText = options.describeError(error || 'run_failed');
             state.runtimeError.value = errorText;
@@ -456,9 +458,9 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             }
             state.isCancellingRun.value = false;
             state.isRunning.value = false;
-            void nextTick(() => {
+            observeBackgroundTask(nextTick(() => {
                 options.updateChatScrollButtons();
-            });
+            }), { source: import.meta.url, operation: "runOnce" });
         }
     }
 

@@ -9,6 +9,8 @@ import MessageMarkdown from '../../../shell/app-src/components/MessageMarkdown.v
 import AdministratorProcess from './AdministratorProcess.vue';
 import AdministratorStatus from './AdministratorStatus.vue';
 import { readAdministratorText } from './message-text.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 const props = withDefaults(defineProps<{ row: AdministratorRow; live?: AdministratorLive | null; unsavedProcess?: AdministratorProcessRound[] | null; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; disabled: boolean; saveEdit: (row: AdministratorRow, text: string) => Promise<void> }>(), { live: null, unsavedProcess: null });
 const emit = defineEmits<{ delete: [AdministratorRow]; regenerate: [AdministratorRow]; details: [AdministratorRow] }>();
 const menu = ref(false), content = ref(props.row.text), loading = ref(false), error = ref('');
@@ -28,9 +30,9 @@ watch(() => [props.chatIdentity, props.row.id, props.row.revision], (next, previ
     pageRequest++; loading.value = false; error.value = '';
     if (next[0] !== previous[0] || next[1] !== previous[1]) { expandedLength = props.row.text.length; editing.value = null; menu.value = false; }
     if (expandedLength <= props.row.text.length) { content.value = props.row.text; }
-    else { void loadThrough(expandedLength, true); }
+    else { observeBackgroundTask(loadThrough(expandedLength, true), { source: import.meta.url, operation: "callback" }); }
 });
-watch([menu, () => props.chatIdentity, () => props.row.id, () => props.row.revision, () => !!props.live], () => { void prepareActions(); });
+watch([menu, () => props.chatIdentity, () => props.row.id, () => props.row.revision, () => !!props.live], () => { observeBackgroundTask(prepareActions(), { source: import.meta.url, operation: "callback" }); });
 watch(fullText, text => {
     if (editing.value && editing.value.row.revision !== props.row.revision && text === editing.value.text.trim()) { editing.value = null; actionError.value = ''; }
 });

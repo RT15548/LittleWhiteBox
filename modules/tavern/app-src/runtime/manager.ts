@@ -98,6 +98,8 @@ import {
     type TavernStateWriteCasTracker,
 } from './state-write-cas';
 import { buildTavernManagerTaskContextBlock } from './task-context';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 const ACCEPTED_TURN_MANAGER_TRIGGER = 'accepted_turn';
 const TAVERN_MANAGER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -204,12 +206,13 @@ export const MAX_MANAGER_TOOL_ROUNDS = 48;
 async function withSessionStateWriteLock<T>(sessionId = '', operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const id = String(sessionId || '').trim();
     if (!id) {return await operation();}
-    const previous = sessionStateWriteTails.get(id) || Promise.resolve();
+    const previous = (sessionStateWriteTails.get(id) || Promise.resolve())
+        .catch(error => console.debug({ source: import.meta.url, operation: 'withSessionStateWriteLock' }, error));
     let release = () => {};
     const gate = new Promise<void>((resolve) => {release = resolve;});
-    const tail = previous.catch(() => {}).then(() => gate);
+    const tail = previous.then(() => gate);
     sessionStateWriteTails.set(id, tail);
-    await previous.catch(() => {});
+    await previous;
     try {
         throwIfManagerAborted(signal);
         return await operation();
@@ -1208,7 +1211,7 @@ function startManagerRunHeartbeat(managerRunId = '', leaseOwnerId = '', signal?:
             }
         });
         pendingTouches.add(pendingTouch);
-        void pendingTouch.then(() => pendingTouches.delete(pendingTouch));
+        observeBackgroundTask(pendingTouch.then(() => pendingTouches.delete(pendingTouch)), { source: import.meta.url, operation: "touch" });
     };
     const timer = setInterval(touch, TAVERN_MANAGER_HEARTBEAT_INTERVAL_MS);
     return async () => {

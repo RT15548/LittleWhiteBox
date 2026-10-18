@@ -23,6 +23,8 @@ import type { DiceRerollService } from '../application/reroll-service.js';
 import { jsonValuesEqual } from '../../../host/json-values-equal.js';
 import { holdDiceRecoverySave } from './recovery-save-gate.js';
 import { subscribeChatImagePlacement, rebaseImageOffset, rebaseImageText, restoreChatImagePlacements } from '../../../../draw/shared/chat-image-placement.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export type DiceCardAction = 'continue-check' | 'cancel-continue' | 'reroll-check' | 'retry-check';
 // A replacement gets a new in-memory identity even when the paid roll has identical values.
@@ -80,7 +82,7 @@ export function createDiceGenerationAdapter(enabled: () => boolean, frequency: (
         async ready(target, signal, inGroup, report) {
             // TT exposes the full native Promise boundary, including preparation and chat-history cleanup.
             let nativePending = !!native.waitForGenerationIdle;
-            void native.waitForGenerationIdle?.().then(() => { nativePending = false; });
+            observeBackgroundTask(native.waitForGenerationIdle?.().then(() => { nativePending = false; }), { source: import.meta.url, operation: "ready" });
             await waitForDiceHost(target, signal, inGroup,
                 () => nativeBlocker() ?? (intention || nativePending ? 'finalization' : null), report);
             if (!terminalCheck(target.body, target.records) && isDiceMessageBeingEdited()) { throw new DiceOperationError('dice_busy'); }

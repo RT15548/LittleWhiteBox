@@ -34,7 +34,7 @@ function initialize(): void {
         runtime.setScene(props.scene);
         runtime.walls(props.lowWalls); runtime.labels(props.showLabels);
         loading.value = false;
-        void loadMapSymbols().then(() => {if (mounted) {runtime?.symbols(true);}}).catch(() => {});
+        void loadMapSymbols().then(() => {if (mounted) {runtime?.symbols(true);}}).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "initialize" }, caughtError); });
     } catch {unavailable();}
 }
 onMounted(async () => {

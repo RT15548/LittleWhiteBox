@@ -174,7 +174,7 @@ export function createDrawAgentSettingsSurface(options = {}) {
 
     function handleRootClick(event) {
         if (event?.target?.closest?.('[data-draw-agent-settings-retry]')) {
-            void refresh({ force: true }).catch(() => {});
+            void refresh({ force: true }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "handleRootClick" }, caughtError); });
         }
     }
 
@@ -207,8 +207,7 @@ export function createDrawAgentSettingsSurface(options = {}) {
         bindRoot(root);
         const mode = state.loading ? 'loading' : state.loadError ? 'error' : 'panel';
         if (mode !== renderedMode) {
-            // The markup comes exclusively from our first-party AgentCore renderer.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- The markup comes exclusively from our first-party AgentCore renderer.
             root.innerHTML = buildDrawAgentSettingsSurfaceMarkup(state);
             renderedMode = mode;
             boundPanel = null;

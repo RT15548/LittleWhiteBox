@@ -7,6 +7,8 @@ import {
     normalizeMessageLoadBatchSize,
     resetMessageWindow,
 } from '../../message-window';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface TavernScrollPaneOptions {
     totalItems: () => number;
@@ -198,7 +200,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         activeViewportPreservation = { token, snapshot };
         clearViewportPreservationFrames();
         restoreActiveViewportPreservation();
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             if (activeViewportPreservation?.token !== token) {return;}
             restoreActiveViewportPreservation();
             viewportPreservationFrame = requestViewportPreservationFrame(() => {
@@ -214,7 +216,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
                     }
                 });
             });
-        });
+        }), { source: import.meta.url, operation: "scheduleViewportPreservation" });
     }
 
     function preserveViewportDuringMutation<T>(mutation: () => T): T {
@@ -291,7 +293,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         });
         contentResizeObserver.observe(contentNode);
         if (autoScroll.value) {
-            void nextTick(stickToBottom);
+            observeBackgroundTask(nextTick(stickToBottom), { source: import.meta.url, operation: "callback" });
         }
     }, { flush: 'post' });
 
@@ -400,18 +402,18 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     function scrollToBottom(force = false, scrollOptions: TavernScrollToBottomOptions = {}) {
         if (!force && !autoScroll.value) {return;}
         if (force) {autoScroll.value = true;}
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             if (!force && autoScroll.value === false) {return;}
             if (!stickToBottom()) {return;}
             if (scrollOptions.collapseWindow) {
                 collapseMessageWindowIfBottom(true);
-                void nextTick(stickToBottom);
+                observeBackgroundTask(nextTick(stickToBottom), { source: import.meta.url, operation: 'scrollToBottom' });
             }
             updateScrollButtons();
             if (scrollOptions.revealHelpers) {
                 scheduleHideScrollHelpers();
             }
-        });
+        }), { source: import.meta.url, operation: "scrollToBottom" });
     }
 
     function requestUserMessageBottom() {

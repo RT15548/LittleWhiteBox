@@ -126,9 +126,9 @@ async function withLocalSaveLock(name, task) {
     const previous = localSaveQueues.get(name) || Promise.resolve();
     let release;
     const current = new Promise(resolve => { release = resolve; });
-    const tail = previous.catch(() => {}).then(() => current);
+    const tail = previous.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "tail" }, caughtError); }).then(() => current);
     localSaveQueues.set(name, tail);
-    await previous.catch(() => {});
+    await previous.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "withLocalSaveLock" }, caughtError); });
     try {
         return await task();
     } finally {

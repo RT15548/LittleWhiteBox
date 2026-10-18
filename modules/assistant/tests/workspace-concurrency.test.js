@@ -12,6 +12,8 @@ import { createLocalSourcesManager } from '../app-src/workspace/local-sources.js
 import { createHostToolRequestController } from '../app-src/runtime/host-tool-requests.js';
 import { closeAssistantWorkspace } from '../app-src/workspace/workspace-lifecycle.js';
 import { loadWorkspaceHostTools } from './helpers/workspace-host.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 // Acceptance contracts: UI writes cannot lose authored work; disjoint edits
 // commute; overlapping edits/trees fail atomically; failed/conflicting saves
@@ -133,7 +135,7 @@ function editorWindow(t, repository, sources = initial, { beforeReceipt, timeout
                 signal: abort.signal,
                 onWorkspaceObserved: value => { observations = value; },
                 onWorkspaceConflict: value => { conflictSnapshot = value; },
-                onLocalSourcesUpdated: value => { void manager.applyExternalLocalSources(value); },
+                onLocalSourcesUpdated: value => { observeBackgroundTask(manager.applyExternalLocalSources(value), { source: import.meta.url, operation: "onLocalSourcesUpdated" }); },
             }).then(async result => {
                 if (await beforeReceipt?.(payload, result) === false) return;
                 pending.get(payload.requestId)?.resolve(result, observations, conflictSnapshot);

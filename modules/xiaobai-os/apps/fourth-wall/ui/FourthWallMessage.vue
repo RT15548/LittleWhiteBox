@@ -5,6 +5,8 @@ import type { XiaobaiOsFrameBridge } from '../../../shell/app-src/frame-bridge.j
 import type { FourthWallMessageData } from '../types.js';
 import FourthWallContent from './FourthWallContent.js';
 import { parseFourthWallContent, type FourthWallMediaSegment } from './message-content.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 interface MediaState {
     status: 'idle' | 'loading' | 'ready' | 'playing' | 'error' | 'unavailable';
@@ -219,7 +221,7 @@ onMounted(() => {
                 if (!entry.isIntersecting) { continue; }
                 const index = Number((entry.target as HTMLElement).dataset.imageIndex);
                 const segment = content.value.media[index];
-                if (segment?.kind === 'image') { void loadImage(segment, index); }
+                if (segment?.kind === 'image') { observeBackgroundTask(loadImage(segment, index), { source: import.meta.url, operation: "callback" }); }
                 observer?.unobserve(entry.target);
             }
         }, { root: root.value.closest('.fourth-wall-conversation') });

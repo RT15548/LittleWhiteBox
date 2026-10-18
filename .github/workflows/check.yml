@@ -1,0 +1,51 @@
+name: Plugin acceptance
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  references:
+    runs-on: ubuntu-latest
+    outputs:
+      hosts: ${{ steps.references.outputs.hosts }}
+      repository: ${{ steps.references.outputs.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: references
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const config = JSON.parse(fs.readFileSync("scripts/host/official.json"));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `repository=${config.repository}\nhosts=${JSON.stringify(Object.entries(config.verificationVersions).map(([version, commit]) => ({version, commit})))}\n`);
+          '
+  check:
+    needs: references
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.references.outputs.hosts) }}
+    name: Official host ${{ matrix.host.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.references.outputs.repository }}
+          ref: ${{ matrix.host.commit }}
+          path: host
+      - uses: actions/checkout@v4
+        with:
+          path: host/public/scripts/extensions/third-party/LittleWhiteBox
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: host/public/scripts/extensions/third-party/LittleWhiteBox/package-lock.json
+      - run: npm ci
+        working-directory: host/public/scripts/extensions/third-party/LittleWhiteBox
+      # Do not build first: doing so would hide stale committed artifacts.
+      - run: npm run check
+        working-directory: host/public/scripts/extensions/third-party/LittleWhiteBox

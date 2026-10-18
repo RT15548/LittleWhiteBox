@@ -22,6 +22,7 @@ import {
 } from "../../../shared/host-llm/chat-completions/client.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { runWithAbortDeadline } from '../../../shared/common/abort-utils.js';
+import { tryParseJson } from '../../../shared/common/json-candidate.js';
 
 const PROVIDER_MAP = {
     openai: "openai",
@@ -222,7 +223,11 @@ async function callHostSummaryGeneration(promptData, llmApi = {}, genParams = {}
                         streamError = new Error(message);
                         return;
                     }
-                } catch {}
+                } catch (caughtError) {
+                    if (!(caughtError instanceof SyntaxError)) {
+                        console.warn({ source: import.meta.url, operation: 'callHostSummaryGeneration' }, caughtError);
+                    }
+                }
             }
             if (streamError) return;
             const chunk = getStreamingReply(event, state, {
@@ -362,10 +367,11 @@ export function parseSummaryJson(raw) {
         .replace(/\s*```$/i, "")
         .trim();
 
-    try {
-        const parsed = JSON.parse(cleaned);
+    const candidate = tryParseJson(cleaned);
+    if (candidate.ok) {
+        const parsed = candidate.value;
         return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-    } catch { }
+    }
 
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
@@ -374,7 +380,7 @@ export function parseSummaryJson(raw) {
         try {
             const parsed = JSON.parse(jsonStr);
             return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-        } catch { }
+        } catch { return null; }
     }
 
     return null;

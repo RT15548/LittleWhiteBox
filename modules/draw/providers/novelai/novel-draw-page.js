@@ -3,6 +3,8 @@ import { normalizeMediaUrl } from '../../shared/media-url.js';
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
 import { NOVEL_API_DEFAULTS, NOVEL_API_FIELDS, normalizeNovelApiConfig } from './novel-api-config.js';
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
+import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -632,7 +634,7 @@ function loadCharGroupCollapsed() {
 }
 
 function saveCharGroupCollapsed() {
-    try { localStorage.setItem(GROUP_COLLAPSE_KEY, JSON.stringify(charGroupCollapsed)); } catch { /* 隐私模式等 */ }
+    try { localStorage.setItem(GROUP_COLLAPSE_KEY, JSON.stringify(charGroupCollapsed)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveCharGroupCollapsed" }, caughtError); }
 }
 
 function collapseKey(groupId) { return groupId || '__ungrouped__'; }
@@ -1032,7 +1034,7 @@ function libraryFingerprint(library = getPersistedLibrary()) {
         try {
             const result = CL.normalizeCharacterLibrary(source);
             normalized = { characters: result.characters, groups: result.groups };
-        } catch { /* 规范化失败时退回原始内容 */ }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "libraryFingerprint" }, caughtError); }
     }
     return canonicalStringify(normalized);
 }
@@ -1240,7 +1242,7 @@ function startDrag(event, kind, id) {
         : [id];
     dragState = { kind, ids, pointerId: event.pointerId, target: null, moved: false, startY: event.clientY };
     event.preventDefault();
-    try { event.target.setPointerCapture?.(event.pointerId); } catch { /* 指针已失效时忽略，仍可用文档级监听完成拖拽 */ }
+    try { event.target.setPointerCapture?.(event.pointerId); } catch (caughtError) { console.debug({ source: import.meta.url, operation: "startDrag" }, caughtError); }
     document.body.classList.add('char-dragging');
     ids.forEach((dragId) => {
         const selector = kind === 'char' ? `.char-card[data-id="${CSS.escape(dragId)}"]` : `.char-group[data-group-id="${CSS.escape(dragId)}"]`;
@@ -1870,7 +1872,7 @@ function renderLocalDanbooruResults(query, results, charId) {
         item.addEventListener('click', () => {
             const tagName = item.dataset.tag;
             let appearanceTags = [];
-            try { appearanceTags = JSON.parse(item.dataset.tags); } catch {}
+            try { appearanceTags = JSON.parse(item.dataset.tags); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "renderLocalDanbooruResults" }, caughtError); }
 
             const char = state.characterTags.find(c => c.id === charId);
             if (!char) return;
@@ -2172,7 +2174,7 @@ function pruneGalleryObjectUrls() {
     (modalData.images || []).forEach(add);
     for (const [key, url] of Array.from(previewObjectUrls)) {
         if (keep.has(key)) continue;
-        try { URL.revokeObjectURL(url); } catch { /* 已失效 */ }
+        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "pruneGalleryObjectUrls" }, caughtError); }
         previewObjectUrls.delete(key);
     }
 }
@@ -2270,7 +2272,7 @@ function refreshSlotBadges(charName, slotId) {
 
 function disconnectGallerySentinel(charName) {
     const held = gallerySentinelObservers.get(charName);
-    if (held) { try { held.observer.disconnect(); } catch { /* 已断开 */ } }
+    if (held) { try { held.observer.disconnect(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "disconnectGallerySentinel" }, caughtError); } }
     gallerySentinelObservers.delete(charName);
 }
 
@@ -3451,7 +3453,7 @@ window.addEventListener('message', event => {
 
 window.addEventListener('beforeunload', () => {
     for (const url of previewObjectUrls.values()) {
-        try { URL.revokeObjectURL(url); } catch {}
+        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "module" }, caughtError); }
     }
     previewObjectUrls.clear();
 });
@@ -3724,7 +3726,7 @@ function initializePage() {
     
     $('nd_char_export').addEventListener('click', () => openCharacterExportChooser());
 
-    $('nd_char_import').addEventListener('change', async (event) => {
+    $('nd_char_import').addEventListener('change', observeAsyncCallback(async (event) => {
         const input = event.target;
         const file = input.files?.[0];
         try {
@@ -3732,7 +3734,7 @@ function initializePage() {
         } finally {
             input.value = ''; // 清空以便重复选择同一个文件
         }
-    });
+    }, { source: import.meta.url, operation: "callback" }));
 
     $('nd_llm_request_refresh').addEventListener('click', () => {
         postToParent({ type: 'GET_LAST_LLM_REQUEST' });
@@ -3938,7 +3940,7 @@ function initializePage() {
         URL.revokeObjectURL(a.href);
     });
 
-    $('nd_prompt_preset_import').addEventListener('change', async (e) => {
+    $('nd_prompt_preset_import').addEventListener('change', observeAsyncCallback(async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
         try {
@@ -3954,7 +3956,7 @@ function initializePage() {
             alert('导入失败: ' + err.message);
         }
         e.target.value = '';
-    });
+    }, { source: import.meta.url, operation: "callback" }));
 
     $('nd_prompt_chain_details').addEventListener('toggle', (event) => {
         if (event.currentTarget.open) requestPromptChainPreview();
@@ -3981,10 +3983,10 @@ function initializePage() {
     dropzone.addEventListener('drop', (e) => {
         e.preventDefault();
         dropzone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleWorldbookFiles(e.dataTransfer.files);
+        if (e.dataTransfer.files.length) observeBackgroundTask(handleWorldbookFiles(e.dataTransfer.files), { source: import.meta.url, operation: "callback" });
     });
     fileInput.addEventListener('change', () => {
-        if (fileInput.files.length) handleWorldbookFiles(fileInput.files);
+        if (fileInput.files.length) observeBackgroundTask(handleWorldbookFiles(fileInput.files), { source: import.meta.url, operation: "callback" });
         fileInput.value = '';
     });
 
@@ -4002,7 +4004,7 @@ function initializePage() {
     // 通知父窗口准备就绪
     // ═══════════════════════════════════════════════════════════════════════
     // 角色库模块先于 FRAME_READY 加载：INIT_DATA 只会在 FRAME_READY 之后到达，渲染时 CL 一定可用。
-    Promise.all([
+    observeBackgroundTask(Promise.all([
         Promise.all([import('../../shared/character-library.js'), import('../../shared/character-group-presets.js')])
             .then(([library, presets]) => { CL = library; GPM = presets; })
             .catch((error) => { console.error('[ND-UI] 角色库模块加载失败，分组功能不可用:', error); }),
@@ -4018,7 +4020,7 @@ function initializePage() {
         import('../../shared/api-presets-ui.js')
             .then((module) => { AP_UI = module; renderApiPresetBar(); })
             .catch((error) => { console.error('[ND-UI] API 预设模块加载失败，API 配置预设不可用:', error); }),
-    ]).finally(() => postToParent({ type: 'FRAME_READY' }));
+    ]).finally(() => postToParent({ type: 'FRAME_READY' })), { source: import.meta.url, operation: "initializePage" });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializePage, { once: true });
 else initializePage();

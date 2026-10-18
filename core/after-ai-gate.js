@@ -1,5 +1,7 @@
 import { getContext } from "../../../../extensions.js";
 import { xbLog } from "./debug-core.js";
+import { observeAsyncCallback } from '../shared/common/async-errors.js';
+
 
 const MODULE_ID = "afterAiGate";
 const READY_TIMEOUT_MS = 2000;
@@ -227,7 +229,7 @@ function scheduleCheck(reason = "manual") {
         return;
     }
     checkQueued = true;
-    queueMicrotask(async () => {
+    queueMicrotask(observeAsyncCallback(async () => {
         checkQueued = false;
         try {
             await evaluateActiveTicket(reason);
@@ -235,7 +237,7 @@ function scheduleCheck(reason = "manual") {
             xbLog.warn(MODULE_ID, "evaluate ticket failed", error?.message || String(error));
             ensurePoll();
         }
-    });
+    }, { source: import.meta.url, operation: "callback" }));
 }
 
 export function initAfterAiGate() {

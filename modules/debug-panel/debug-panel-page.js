@@ -4,7 +4,7 @@ const PARENT_ORIGIN = (() => {
       try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
     })();
     const post = (payload) => {
-      try { parent.postMessage({ source: 'LittleWhiteBox-DebugFrame', ...payload }, PARENT_ORIGIN); } catch {}
+      try { parent.postMessage({ source: 'LittleWhiteBox-DebugFrame', ...payload }, PARENT_ORIGIN); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "post" }, caughtError); }
     };
 
     // ═══════════════════════════════════════════════════════════════════════

@@ -94,7 +94,7 @@ export function createLearningSeenUnits(storage: () => Pick<Storage, 'getItem' |
         has: (id: string) => session.has(id) || stored().includes(id),
         mark(id: string) {
             session.add(id);
-            try { storage()?.setItem(key, JSON.stringify([...new Set([...stored(), id])].slice(-50))); } catch { /* session only */ }
+            try { storage()?.setItem(key, JSON.stringify([...new Set([...stored(), id])].slice(-50))); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "mark" }, caughtError); }
         },
     };
 }

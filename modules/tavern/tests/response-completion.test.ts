@@ -21,19 +21,22 @@ for (const ending of ['length', undefined]) {
             const content = '# 会话记忆\n\n门边放着一把银钥匙。';
             const argumentsText = JSON.stringify({ filePath: 'memory/state.md', content });
             const requests: Array<{ messages: Array<Record<string, unknown>> }> = [];
-            const server = createServer(async (request, response) => {
-                const chunks: Buffer[] = [];
-                for await (const chunk of request) { chunks.push(Buffer.from(chunk)); }
-                requests.push(JSON.parse(Buffer.concat(chunks).toString()));
-                const delta = requests.length === 1
-                    ? { role: 'assistant', content: '记下线索。', tool_calls: [{ index: 0, id: 'write-key', type: 'function',
-                        function: { name: 'Write', arguments: complete ? argumentsText : argumentsText.slice(0, -2) } }] }
-                    : { role: 'assistant', content: '线索已记下。' };
-                const reason = requests.length === 1 ? ending : 'stop';
-                const events = [{ choices: [{ index: 0, delta }] },
-                    ...(reason ? [{ choices: [{ index: 0, delta: {}, finish_reason: reason }] }] : [])];
-                response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-                response.end(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''));
+            const server = createServer((request, response) => {
+                async function respond() {
+                    const chunks: Buffer[] = [];
+                    for await (const chunk of request) { chunks.push(Buffer.from(chunk)); }
+                    requests.push(JSON.parse(Buffer.concat(chunks).toString()));
+                    const delta = requests.length === 1
+                        ? { role: 'assistant', content: '记下线索。', tool_calls: [{ index: 0, id: 'write-key', type: 'function',
+                            function: { name: 'Write', arguments: complete ? argumentsText : argumentsText.slice(0, -2) } }] }
+                        : { role: 'assistant', content: '线索已记下。' };
+                    const reason = requests.length === 1 ? ending : 'stop';
+                    const events = [{ choices: [{ index: 0, delta }] },
+                        ...(reason ? [{ choices: [{ index: 0, delta: {}, finish_reason: reason }] }] : [])];
+                    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+                    response.end(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''));
+                }
+                respond().catch(error => { response.destroy(error); });
             });
             await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
             t.after(() => new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }));

@@ -47,7 +47,7 @@ function safeRateHeaders(headers) {
         for (const [key, value] of headers.entries()) {
             if (/^(?:x-)?ratelimit|^x-ratelimit|^retry-after$/i.test(key)) out[key.toLowerCase()] = value;
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "safeRateHeaders" }, caughtError); }
     return out;
 }
 
@@ -55,7 +55,7 @@ function notifyTransport(args, value) {
     if (typeof args?.onTransport !== 'function') return;
     try {
         args.onTransport(value);
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notifyTransport" }, caughtError); }
 }
 
 async function callOpenAiCompatible(apiConfig, messages, args) {
@@ -101,7 +101,7 @@ async function callOpenAiCompatible(apiConfig, messages, args) {
     if (typeof args?.onResponse === 'function') {
         try {
             args.onResponse(data);
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callOpenAiCompatible" }, caughtError); }
     }
     return String(extractOpenAiText(data) || '').trim();
 }
@@ -166,7 +166,7 @@ async function callAnthropic(apiConfig, messages, args) {
     const payload = await response.json();
     notifyTransport(args, { ...baseTransport, usage: payload?.usage || null });
     if (typeof args?.onResponse === 'function') {
-        try { args.onResponse(payload); } catch {}
+        try { args.onResponse(payload); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callAnthropic" }, caughtError); }
     }
     return String(extractAnthropicText(payload) || '').trim();
 }
@@ -240,7 +240,7 @@ async function callGoogle(apiConfig, messages, args) {
         usage: response?.usageMetadata || null,
     });
     if (typeof args?.onResponse === 'function') {
-        try { args.onResponse(response); } catch {}
+        try { args.onResponse(response); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callGoogle" }, caughtError); }
     }
     return extractGoogleText(response);
 }

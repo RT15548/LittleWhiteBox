@@ -5,6 +5,8 @@ import { extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
 import { createVariablesPanelRuntime } from "./variables-panel-runtime.js";
+import { observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 const CONFIG = {
   extensionName: "variables-panel",
@@ -330,7 +332,7 @@ class VariablesPanel {
         const keep=this.saveAllExpandedStates();
         this.variableSnapshot=cur; this.loadVariables(); this.restoreAllExpandedStates(keep); this.expandChangedKeys(changed);
       }
-    }catch{}
+    }catch (caughtError){ console.warn({ source: import.meta.url, operation: "checkChanges" }, caughtError); }
   }
 
   loadVariables(){
@@ -424,7 +426,7 @@ class VariablesPanel {
         if(level>0) toastr.info('全局变量宏暂不支持子路径，已复制顶级变量');
       }
     }else cmd=formatted;
-    (async()=> (await this.writeClipboard(cmd)) ? toastr.success(`已复制: ${cmd}`) : toastr.error('复制失败'))();
+    observeBackgroundTask((async()=> (await this.writeClipboard(cmd)) ? toastr.success(`已复制: ${cmd}`) : toastr.error('复制失败'))(), { source: import.meta.url, operation: "handleCopy" });
   }
 
   editAction(item,action,type,path){

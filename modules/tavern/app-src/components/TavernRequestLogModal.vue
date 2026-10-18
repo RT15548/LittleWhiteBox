@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { buildRequestLogPreview, type RequestLogPreviewField, type RequestLogSnapshotMeta } from '../utils/request-log-preview';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 interface RequestSnapshotLike {
     requestKind?: string;
@@ -165,16 +167,16 @@ function moveSearch(direction: 'prev' | 'next') {
 }
 
 watch(searchText, () => {
-    void refreshSearch();
+    observeBackgroundTask(refreshSearch(), { source: import.meta.url, operation: "callback" });
 });
 
 watch([displayMode, () => props.tab, activeRawJson], () => {
     expandedJsonFields.value = new Set();
-    void refreshSearch();
+    observeBackgroundTask(refreshSearch(), { source: import.meta.url, operation: "callback" });
 });
 
 watch(expandedJsonFields, () => {
-    void refreshSearch();
+    observeBackgroundTask(refreshSearch(), { source: import.meta.url, operation: "callback" });
 });
 
 onBeforeUnmount(() => clearSearchMarks());

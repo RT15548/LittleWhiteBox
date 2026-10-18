@@ -22,6 +22,8 @@ import {
     setGroupState,
     setGroupStates,
 } from './character-group-presets.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 export const BADGE_MATCHED = '当前命中';
 export const BADGE_APPLIED = '最近应用';
@@ -153,7 +155,7 @@ export function createGroupPresetPanel(options = {}) {
     function notify(message, level = 'info') {
         try {
             toast?.(message, level);
-        } catch { /* 提示失败不影响操作 */ }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notify" }, caughtError); }
     }
 
     // ── 重渲染时保留输入与焦点 ──
@@ -184,7 +186,7 @@ export function createGroupPresetPanel(options = {}) {
                     const end = String(node.value ?? '').length;
                     node.setSelectionRange(end, end);
                 }
-            } catch { /* 焦点恢复失败不影响使用 */ }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "restoreFocus" }, caughtError); }
             return;
         }
     }
@@ -314,7 +316,7 @@ export function createGroupPresetPanel(options = {}) {
                 const custom = onCapture();
                 const states = custom?.groupStates ?? custom;
                 if (states && typeof states === 'object') return states;
-            } catch { /* 回退到从库里取 */ }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "captureStates" }, caughtError); }
         }
         return captureGroupStatesFromLibrary(library).groupStates;
     }
@@ -438,7 +440,7 @@ export function createGroupPresetPanel(options = {}) {
             case 'save-open': openSaveForm(); break;
             case 'save-cancel': closeSaveForm(); break;
             case 'save-confirm': confirmSave(); break;
-            case 'apply': applyPreset(presetId); break;
+            case 'apply': observeBackgroundTask(applyPreset(presetId), { source: "modules/draw/shared/character-group-presets-ui.js", operation: "onClick" }); break;
             case 'toggle':
                 errors.clear();
                 if (expanded.has(presetId)) expanded.delete(presetId);
@@ -641,7 +643,7 @@ export function createGroupPresetPanel(options = {}) {
                 });
                 if (row.state === value) {
                     input.setAttribute('checked', '');
-                    try { input.checked = true; } catch { /* 属性已设置 */ }
+                    try { input.checked = true; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "buildGroupSection" }, caughtError); }
                 }
                 group.appendChild(create(document, 'label', {
                     className: 'lwb-gp-seg',

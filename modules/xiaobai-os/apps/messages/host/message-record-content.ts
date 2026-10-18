@@ -28,7 +28,7 @@ function renderBubble(node: Element, doc: Document): HTMLElement {
             image.alt = outgoing ? '发送的图片' : '收到的图片';
             image.loading = 'lazy';
             content.prepend(image);
-        } catch { /* Edited or untrusted paths remain readable text, never remote media. */ }
+        } catch (caughtError) { console.debug({ source: import.meta.url, operation: "renderBubble" }, caughtError); }
     }
     bubble.append(content);
     return bubble;

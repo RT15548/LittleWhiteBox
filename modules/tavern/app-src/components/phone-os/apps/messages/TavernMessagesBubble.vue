@@ -14,6 +14,8 @@ import type {
     TavernMessageImageState,
     TavernMessageVoiceState,
 } from '../../../../features/phone-os/apps/messages/tavern-message-media';
+import { observeBackgroundTask } from '../../../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{
     message: TavernCommunicationMessageRecord;
@@ -129,13 +131,13 @@ watch(imageExpanded, async (expanded) => {
 });
 
 onMounted(() => {
-    void startImageObservation();
+    observeBackgroundTask(startImageObservation(), { source: import.meta.url, operation: "callback" });
 });
 
 onActivated(() => {
     if (!wasDeactivated) {return;}
     wasDeactivated = false;
-    void startImageObservation();
+    observeBackgroundTask(startImageObservation(), { source: import.meta.url, operation: "callback" });
 });
 
 onDeactivated(() => {

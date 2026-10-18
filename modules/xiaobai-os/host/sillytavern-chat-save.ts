@@ -67,6 +67,6 @@ export function saveSillyTavernChat(guard: () => boolean, signal?: AbortSignal):
         }
     };
     const result = queue.then(run, run);
-    queue = result.catch(() => undefined);
+    queue = result.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "saveSillyTavernChat" }, caughtError); });
     return result;
 }

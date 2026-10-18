@@ -9,6 +9,8 @@ import { createMovingSound } from './sound.js';
 import { CHAPTER_LEVELS } from './levels.js';
 import { createMovingScene, type MovingScene } from './scene/runtime.js';
 import ItemIcon from './ItemIcon.vue';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ active: MovingRun; board: MovingState; disabled: boolean; award: number;
     challenge: ReturnType<typeof challengeProgress>; soundEnabled: boolean; setSoundEnabled: (enabled: boolean) => Promise<boolean> }>();
@@ -106,7 +108,7 @@ async function quiet() {
 function showItems() { visibleItems.value = scene?.visibleItems() ?? []; modal.value = 'items'; }
 onMounted(() => { mounted = true; mountScene(); });
 onActivated(() => { isActive = true; scene?.active(true); });
-onDeactivated(() => { isActive = false; soundStarting = null; modal.value = null; scene?.active(false); void quiet(); });
+onDeactivated(() => { isActive = false; soundStarting = null; modal.value = null; scene?.active(false); observeBackgroundTask(quiet(), { source: import.meta.url, operation: "callback" }); });
 onBeforeUnmount(() => { generation++; mounted = false; scene?.dispose(); animation(false); void sound.dispose().catch(cause => console.error(c.soundFailed, cause)); });
 </script>
 <template>

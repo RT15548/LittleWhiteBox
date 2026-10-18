@@ -157,8 +157,8 @@ function request(endpoint, options = {}) {
                 let json = null;
                 try {
                     json = JSON.parse(text);
-                } catch {
-                    // Startup and authentication failures may return HTML or an empty body.
+                } catch (caughtError) {
+                    console.warn({ source: __filename, operation: "req" }, caughtError);
                 }
                 settle(resolve, { status: res.statusCode || 0, headers: res.headers, json, text });
             });
@@ -267,8 +267,8 @@ async function waitForServer(endpoint, authorization, child, output, getSpawnErr
                 headers: authorization ? { Authorization: authorization } : {},
             });
             if (response.status === 200) return;
-        } catch {
-            // The listening socket is not ready yet.
+        } catch (caughtError) {
+            console.warn({ source: __filename, operation: "waitForServer" }, caughtError);
         }
         await new Promise(resolve => setTimeout(resolve, 250));
     }
@@ -515,7 +515,10 @@ async function cleanupResources() {
 
 for (const [signal, exitCode] of [['SIGINT', 130], ['SIGTERM', 143]]) {
     process.once(signal, () => {
-        void cleanupResources().finally(() => process.exit(exitCode));
+        cleanupResources().then(
+            () => process.exit(exitCode),
+            error => { console.error(error); process.exit(1); },
+        );
     });
 }
 

@@ -33,7 +33,7 @@ function safeRateHeaders(headers) {
         for (const [key, value] of headers.entries()) {
             if (/^(?:x-)?ratelimit|^x-ratelimit|^retry-after$/i.test(key)) out[key.toLowerCase()] = value;
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "safeRateHeaders" }, caughtError); }
     return out;
 }
 
@@ -79,7 +79,7 @@ export function summarizeExternalRequest(input, init = {}) {
     let body = null;
     try {
         body = bodyText ? JSON.parse(bodyText) : null;
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "summarizeExternalRequest" }, caughtError); }
     let endpoint = 'other';
     if (/\/embeddings(?:\?|$)/i.test(url)) endpoint = 'embedding';
     if (/\/rerank(?:\?|$)/i.test(url)) endpoint = 'rerank';
@@ -313,7 +313,7 @@ export async function withExternalCallTrace(operation, { cassette = null } = {})
                             row.responseHash = capturedRow?.responseHash || sha256(JSON.stringify(payload));
                         }
                     })
-                    .catch(() => {}));
+                    .catch((caughtError) => { console.warn({ source: import.meta.url, operation: "tracedFetch" }, caughtError); }));
             }
             return response;
         } catch (error) {

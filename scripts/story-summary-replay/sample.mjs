@@ -1,3 +1,4 @@
+import { tryParseJson } from '../../shared/common/json-candidate.js';
 // Preserve native message identity, floor numbering, whitespace and host flags.
 // Foreign role/content exports are adapted once at this import boundary.
 function normalizeMessage(raw, index, names) {
@@ -12,7 +13,8 @@ function normalizeMessage(raw, index, names) {
 }
 
 function parsePayload(raw) {
-    try { return JSON.parse(raw); } catch { /* Native JSONL export. */ }
+    const candidate = tryParseJson(raw);
+    if (candidate.ok) return candidate.value;
     const records = String(raw).split(/\r?\n/).flatMap((line, index) => {
         if (!line.trim()) return [];
         try { return [JSON.parse(line)]; } catch (error) {

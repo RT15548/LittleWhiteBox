@@ -1,9 +1,10 @@
-// @ts-nocheck
 import { oai_settings, chat_completion_sources, getChatCompletionModel, promptManager, openai_setting_names, openai_settings } from "../../../../openai.js";
 import { ChatCompletionService } from "../../../../custom-request.js";
 import { eventSource, event_types } from "../../../../../script.js";
 import { getContext } from "../../../../st-context.js";
 import { xbLog } from "../core/debug-core.js";
+import { observeAsyncCallback } from '../shared/common/async-errors.js';
+
 
 const SOURCE_TAG = 'xiaobaix-host';
 
@@ -51,7 +52,7 @@ class CallGenerateService {
     sendError(sourceWindow, requestId, streamingEnabled, err, fallbackCode = 'API_ERROR', details = null, targetOrigin = null) {
         const e = this.normalizeError(err, fallbackCode, details);
         const type = streamingEnabled ? 'generateStreamError' : 'generateError';
-        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch { }
+        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "sendError" }, caughtError); }
     }
 
     /**
@@ -260,7 +261,7 @@ class CallGenerateService {
     postToTarget(target, type, body, targetOrigin = null) {
         try {
             target?.postMessage({ source: SOURCE_TAG, type, ...body }, resolveTargetOrigin(targetOrigin));
-        } catch (e) { }
+        } catch (e) { console.warn({ source: import.meta.url, operation: "postToTarget" }, e); }
     }
 
     // ===== ST Prompt 干跑捕获与组件切换 =====
@@ -352,7 +353,9 @@ class CallGenerateService {
                     const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
                     const mapSnap = new Map((this._lastToggleSnapshot || snapshot).map(s => [s.identifier, s.enabled]));
                     order.forEach(e => { if (mapSnap.has(e.identifier)) e.enabled = mapSnap.get(e.identifier); });
-                } catch { }
+                } catch (error) {
+                    console.warn({ source: import.meta.url, operation: '_withPromptToggle' }, error);
+                }
                 this._toggleBusy = false;
                 this._lastToggleSnapshot = null;
             }
@@ -416,7 +419,7 @@ class CallGenerateService {
         } finally {
             for (const key of Object.keys(oai_settings)) {
                 if (!Object.prototype.hasOwnProperty.call(snapshot, key)) {
-                    try { delete oai_settings[key]; } catch { }
+                    try { delete oai_settings[key]; } catch (error) { console.warn({ source: import.meta.url, operation: '_withTemporaryPreset' }, error); }
                 }
             }
             Object.assign(oai_settings, snapshot);
@@ -503,7 +506,7 @@ class CallGenerateService {
             try {
                 const nameCache = this._getNameCache();
                 if (nameCache.has(nm)) return nameCache.get(nm);
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_resolveNameToIdentifier" }, caughtError); }
 
             // 2) 扫描 PromptManager 的订单（显示用）
             try {
@@ -521,7 +524,7 @@ class CallGenerateService {
                         }
                     }
                 }
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_resolveNameToIdentifier" }, caughtError); }
 
             // 3) 扫描 Prompt 集合（运行期合并后的集合）
             try {
@@ -538,7 +541,7 @@ class CallGenerateService {
                         }
                     }
                 }
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_resolveNameToIdentifier" }, caughtError); }
 
             // 4) 失败时尝试 sanitize 名称与 identifier 的弱匹配
             if (matches.size === 0) {
@@ -555,12 +558,12 @@ class CallGenerateService {
                             }
                         }
                     }
-                } catch { }
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_resolveNameToIdentifier" }, caughtError); }
             }
 
             if (matches.size === 1) {
                 const id = Array.from(matches)[0];
-                try { this._getNameCache().set(nm, id); } catch { }
+                try { this._getNameCache().set(nm, id); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_resolveNameToIdentifier" }, caughtError); }
                 return id;
             }
             if (matches.size > 1) {
@@ -823,9 +826,9 @@ class CallGenerateService {
                     const capture = await this._captureWithEnabledSet(new Set([key]), '', false);
                     const normSet = new Set(capture.map(x => `[${x.role}] ${this._normStrip(x.content)}`));
                     footprint.set(key, normSet);
-                    try { fpCache.set(key, normSet); } catch { }
+                    try { fpCache.set(key, normSet); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_annotateIdentifiersIfMissing" }, caughtError); }
                 }
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_annotateIdentifiersIfMissing" }, caughtError); }
         }
         for (const m of arr) {
             if (m?.identifier) continue;
@@ -1055,7 +1058,7 @@ class CallGenerateService {
             try {
                 const re = new RegExp(regex);
                 out = out.filter(m => re.test(String(m.content)));
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_applyContentFilter" }, caughtError); }
         }
         if (fromUserNames && fromUserNames.length) {
             // 仅当 messages 中附带 name 时生效；否则忽略
@@ -1284,7 +1287,7 @@ class CallGenerateService {
                             const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
                             allow = new Set(order.map(e => e.identifier));
                         }
-                    } catch { }
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeCore" }, caughtError); }
                     enabledIds = Array.from(allow);
                     const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
                     captured = await this._withPromptEnabledSet(allow, run);
@@ -1298,7 +1301,7 @@ class CallGenerateService {
                             const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
                             allow = new Set(order.filter(e => !!e?.enabled).map(e => e.identifier));
                         }
-                    } catch { }
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeCore" }, caughtError); }
                     enabledIds = Array.from(allow);
                     const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
                     captured = await this._withPromptEnabledSet(allow, run);
@@ -1340,7 +1343,7 @@ class CallGenerateService {
                             if (p?.identifier) idToName.set(p.identifier, p.name || p.label || p.title || '');
                         }
                     }
-                } catch { }
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeCore" }, caughtError); }
                 const messages = working.map(m => {
                     const id = m.identifier || undefined;
                     const componentName = id ? (idToName.get(id) || undefined) : undefined;
@@ -1433,7 +1436,7 @@ class CallGenerateService {
                     overrides: listLevelOverrides || null,
                 };
                 this.postToTarget(sourceWindow, 'blueprint', bp, targetOrigin);
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_exportDebugData" }, caughtError); }
         }
     }
 
@@ -1451,10 +1454,10 @@ class CallGenerateService {
                     const userInputLen = String(options?.userInput || '').length;
                     xbLog.info('callGenerateBridge', `generateRequest id=${requestId} stream=${!!streamingEnabled} comps=${compsCount} userInputLen=${userInputLen}`);
                 }
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleGenerateRequest" }, caughtError); }
             return await this.handleRequestInternal(options, requestId, sourceWindow, targetOrigin);
         } catch (err) {
-            try { xbLog.error('callGenerateBridge', `generateRequest failed id=${requestId}`, err); } catch { }
+            try { xbLog.error('callGenerateBridge', `generateRequest failed id=${requestId}`, err); } catch (error) { console.warn({ source: import.meta.url, operation: 'handleGenerateRequest' }, error); }
             this.sendError(sourceWindow, requestId, streamingEnabled, err, 'BAD_REQUEST', null, targetOrigin);
             return null;
         }
@@ -1463,12 +1466,12 @@ class CallGenerateService {
     /** 取消会话 */
     cancel(sessionId) {
         const s = this.sessions.get(this.normalizeSessionId(sessionId));
-        try { s?.abortController?.abort(); } catch { }
+        try { s?.abortController?.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cancel" }, caughtError); }
     }
 
     /** 清理所有会话 */
     cleanup() {
-        this.sessions.forEach(s => { try { s.abortController?.abort(); } catch { } });
+        this.sessions.forEach(s => { try { s.abortController?.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); } });
         this.sessions.clear();
     }
 }
@@ -1486,8 +1489,8 @@ let __xb_generate_listener = null;
 export function initCallGenerateHostBridge() {
     if (typeof window === 'undefined') return;
     if (__xb_generate_listener_attached) return;
-    try { xbLog.info('callGenerateBridge', 'initCallGenerateHostBridge'); } catch { }
-    __xb_generate_listener = async function (event) {
+    try { xbLog.info('callGenerateBridge', 'initCallGenerateHostBridge'); } catch (error) { console.warn({ source: import.meta.url, operation: 'initCallGenerateHostBridge' }, error); }
+    __xb_generate_listener = observeAsyncCallback(async function (event) {
         try {
             const data = event && event.data || {};
             if (!data) return;
@@ -1528,42 +1531,42 @@ export function initCallGenerateHostBridge() {
                 return;
             }
         } catch (e) {
-            try { xbLog.error('callGenerateBridge', 'listener error', e); } catch { }
+            try { xbLog.error('callGenerateBridge', 'listener error', e); } catch (error) { console.warn({ source: import.meta.url, operation: 'initCallGenerateHostBridge' }, error); }
         }
-    };
+    }, { source: import.meta.url, operation: "__xb_generate_listener" });
     // eslint-disable-next-line no-restricted-syntax -- bridge listener; origin can be null for sandboxed iframes.
-    try { window.addEventListener('message', __xb_generate_listener); } catch (e) { }
+    try { window.addEventListener('message', __xb_generate_listener); } catch (error) { console.warn({ source: import.meta.url, operation: 'initCallGenerateHostBridge' }, error); }
     __xb_generate_listener_attached = true;
 }
 
 export function cleanupCallGenerateHostBridge() {
     if (typeof window === 'undefined') return;
     if (!__xb_generate_listener_attached) return;
-    try { xbLog.info('callGenerateBridge', 'cleanupCallGenerateHostBridge'); } catch { }
-    try { window.removeEventListener('message', __xb_generate_listener); } catch (e) { }
+    try { xbLog.info('callGenerateBridge', 'cleanupCallGenerateHostBridge'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanupCallGenerateHostBridge' }, error); }
+    try { window.removeEventListener('message', __xb_generate_listener); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanupCallGenerateHostBridge' }, error); }
     __xb_generate_listener_attached = false;
     __xb_generate_listener = null;
-    try { callGenerateService.cleanup(); } catch (e) { }
+    try { callGenerateService.cleanup(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupCallGenerateHostBridge" }, e); }
 }
 
 if (typeof window !== 'undefined') {
     Object.assign(window, { xiaobaixCallGenerateService: callGenerateService, initCallGenerateHostBridge, cleanupCallGenerateHostBridge });
-    try { initCallGenerateHostBridge(); } catch (e) { }
+    try { initCallGenerateHostBridge(); } catch (e) { console.warn({ source: import.meta.url, operation: "module" }, e); }
     try {
         window.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initCallGenerateHostBridge(); else cleanupCallGenerateHostBridge();
-            } catch (_) { }
+            } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); }
         });
         document.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initCallGenerateHostBridge(); else cleanupCallGenerateHostBridge();
-            } catch (_) { }
+            } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); }
         });
-        window.addEventListener('beforeunload', () => { try { cleanupCallGenerateHostBridge(); } catch (_) { } });
-    } catch (_) { }
+        window.addEventListener('beforeunload', () => { try { cleanupCallGenerateHostBridge(); } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); } });
+    } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); }
 
     // ===== 全局 API 暴露：与 iframe 调用方式完全一致 =====
     // 创建命名空间

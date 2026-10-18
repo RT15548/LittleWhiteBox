@@ -60,8 +60,8 @@ export function createSessionLeaseRegistry(options = {}) {
             if (!result.released) return;
             try {
                 onExpire?.(result);
-            } catch {
-                // Expiration must still release ownership if diagnostics fail.
+            } catch (caughtError) {
+                console.warn({ source: import.meta.url, operation: "timer" }, caughtError);
             }
         }, Math.max(0, expiresAt - now()));
 

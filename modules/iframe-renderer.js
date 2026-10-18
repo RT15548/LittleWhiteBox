@@ -7,6 +7,8 @@ import { executeSlashCommand } from "../core/slash-command.js";
 import { default_user_avatar, default_avatar } from "../../../../../script.js";
 import { getIframeBaseScript, getWrapperScript } from "../core/wrapper-inline.js";
 import { postToIframe, getIframeTargetOrigin, getTrustedOrigin } from "../core/iframe-messaging.js";
+import { observeBackgroundTask } from '../shared/common/async-errors.js';
+
 const MODULE_ID = 'iframeRenderer';
 const events = createModuleEvents(MODULE_ID);
 
@@ -102,26 +104,26 @@ function setIframeBlobHTML(iframe, fullHTML, codeHash) {
     iframe.src = url;
     blobUrls.set(iframe, url);
     hashToBlobUrl.set(codeHash, url);
-    try { hashToBlobBytes.set(codeHash, blob.size || 0); } catch {}
+    try { hashToBlobBytes.set(codeHash, blob.size || 0); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setIframeBlobHTML" }, caughtError); }
     blobLRU.push(codeHash);
     while (blobLRU.length > BLOB_CACHE_LIMIT) {
         const old = blobLRU.shift();
         const u = hashToBlobUrl.get(old);
         hashToBlobUrl.delete(old);
         hashToBlobBytes.delete(old);
-        try { URL.revokeObjectURL(u); } catch (e) {}
+        try { URL.revokeObjectURL(u); } catch (e) { console.warn({ source: import.meta.url, operation: "setIframeBlobHTML" }, e); }
     }
 }
 
 function releaseIframeBlob(iframe) {
     try {
         blobUrls.delete(iframe);
-    } catch (e) {}
+    } catch (e) { console.warn({ source: import.meta.url, operation: "releaseIframeBlob" }, e); }
 }
 
 export function clearBlobCaches() {
-    try { xbLog.info(MODULE_ID, '清空 Blob 缓存'); } catch {}
-    hashToBlobUrl.forEach(u => { try { URL.revokeObjectURL(u); } catch {} });
+    try { xbLog.info(MODULE_ID, '清空 Blob 缓存'); } catch (error) { console.warn({ source: import.meta.url, operation: 'clearBlobCaches' }, error); }
+    hashToBlobUrl.forEach(u => { try { URL.revokeObjectURL(u); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearBlobCaches" }, caughtError); } });
     hashToBlobUrl.clear();
     hashToBlobBytes.clear();
     blobLRU.length = 0;
@@ -168,7 +170,7 @@ async function fetchExternalHtml(url, signal) {
     try {
         const r = await fetch(url, { mode: 'cors', signal });
         if (r.ok) return await r.text();
-    } catch (_) {}
+    } catch (_) { console.warn({ source: import.meta.url, operation: "fetchExternalHtml" }, _); }
     return null;
 }
 
@@ -193,7 +195,7 @@ async function loadExternalUrl(iframe, url, settings, { signal, scheduleTimeout 
                 try {
                     const targetOrigin = getIframeTargetOrigin(iframe);
                     postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
-                } catch (e) {}
+                } catch (e) { console.warn({ source: import.meta.url, operation: "loadExternalUrl" }, e); }
             }, 100);
         } else {
             iframe.removeAttribute('srcdoc');
@@ -404,10 +406,10 @@ export function mountLeasedIframeRuntime({ source, signal }) {
         winMap.set(mappedWindow, mappedRecord);
 
         if (externalUrl) {
-            void loadExternalUrl(iframe, externalUrl, settings, {
+            observeBackgroundTask(loadExternalUrl(iframe, externalUrl, settings, {
                 signal: controller.signal,
                 scheduleTimeout,
-            });
+            }), { source: import.meta.url, operation: "mountLeasedIframeRuntime" });
         } else {
             let renderedHtml = html;
             if (settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
@@ -420,7 +422,7 @@ export function mountLeasedIframeRuntime({ source, signal }) {
                 try {
                     const targetOrigin = getIframeTargetOrigin(iframe);
                     postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "mountLeasedIframeRuntime" }, caughtError); }
             }, 0);
         }
 
@@ -456,7 +458,7 @@ function registerIframeMapping(iframe, wrapper) {
                 winMap.set(iframe.contentWindow, { iframe, wrapper });
                 return true;
             }
-        } catch (e) {}
+        } catch (e) { console.warn({ source: import.meta.url, operation: "tryMap" }, e); }
         return false;
     };
     if (tryMap()) return;
@@ -606,7 +608,7 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
         
         const wrapper = getOrCreateWrapper(preElement);
         wrapper.querySelectorAll('.xiaobaix-iframe').forEach(old => {
-            try { old.src = 'about:blank'; } catch (e) {}
+            try { old.src = 'about:blank'; } catch (e) { console.warn({ source: import.meta.url, operation: "renderHtmlInIframe" }, e); }
             releaseIframeBlob(old);
             old.remove();
         });
@@ -617,7 +619,7 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
         registerIframeMapping(iframe, wrapper);
 
         if (externalUrl) {
-            loadExternalUrl(iframe, externalUrl, settings);
+            observeBackgroundTask(loadExternalUrl(iframe, externalUrl, settings), { source: import.meta.url, operation: "renderHtmlInIframe" });
         } else {
             if (settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
                 try {
@@ -632,7 +634,7 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
             try {
                 const targetOrigin = getIframeTargetOrigin(iframe);
                 postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
-            } catch (e) {}
+            } catch (e) { console.warn({ source: import.meta.url, operation: "renderHtmlInIframe" }, e); }
         }
 
         preElement.dataset.xbFinal = 'true';
@@ -689,14 +691,14 @@ export function processExistingMessages() {
     const settings = getSettings();
     if (!settings.enabled) return;
     document.querySelectorAll('.mes_text').forEach(el => processCodeBlocks(el, true));
-    try { shrinkRenderedWindowFull(); } catch (e) {}
+    try { shrinkRenderedWindowFull(); } catch (e) { console.warn({ source: import.meta.url, operation: "processExistingMessages" }, e); }
 }
 
 export function processMessageById(messageId, forceFinal = true) {
     const messageElement = document.querySelector(`div.mes[mesid="${messageId}"] .mes_text`);
     if (!messageElement) return;
     processCodeBlocks(messageElement, forceFinal);
-    try { shrinkRenderedWindowForLastMessage(); } catch (e) {}
+    try { shrinkRenderedWindowForLastMessage(); } catch (e) { console.warn({ source: import.meta.url, operation: "processMessageById" }, e); }
 }
 
 export function invalidateMessage(messageId) {
@@ -704,7 +706,7 @@ export function invalidateMessage(messageId) {
     if (!el) return;
     el.querySelectorAll('.xiaobaix-iframe-wrapper').forEach(w => {
         w.querySelectorAll('.xiaobaix-iframe').forEach(ifr => {
-            try { ifr.src = 'about:blank'; } catch (e) {}
+            try { ifr.src = 'about:blank'; } catch (e) { console.warn({ source: import.meta.url, operation: "invalidateMessage" }, e); }
             releaseIframeBlob(ifr);
         });
         w.remove();
@@ -723,7 +725,7 @@ export function invalidateMessage(messageId) {
 export function invalidateAll() {
     document.querySelectorAll('.xiaobaix-iframe-wrapper').forEach(w => {
         w.querySelectorAll('.xiaobaix-iframe').forEach(ifr => {
-            try { ifr.src = 'about:blank'; } catch (e) {}
+            try { ifr.src = 'about:blank'; } catch (e) { console.warn({ source: import.meta.url, operation: "invalidateAll" }, e); }
             releaseIframeBlob(ifr);
         });
         w.remove();
@@ -767,7 +769,7 @@ function shrinkRenderedWindowForLastMessage() {
         if (!mesText) continue;
         mesText.querySelectorAll('.xiaobaix-iframe-wrapper').forEach(w => {
             w.querySelectorAll('.xiaobaix-iframe').forEach(ifr => {
-                try { ifr.src = 'about:blank'; } catch (e) {}
+                try { ifr.src = 'about:blank'; } catch (e) { console.warn({ source: import.meta.url, operation: "shrinkRenderedWindowForLastMessage" }, e); }
                 releaseIframeBlob(ifr);
             });
             w.remove();
@@ -808,7 +810,7 @@ function shrinkRenderedWindowFull() {
         if (!mesText) continue;
         mesText.querySelectorAll('.xiaobaix-iframe-wrapper').forEach(w => {
             w.querySelectorAll('.xiaobaix-iframe').forEach(ifr => {
-                try { ifr.src = 'about:blank'; } catch (e) {}
+                try { ifr.src = 'about:blank'; } catch (e) { console.warn({ source: import.meta.url, operation: "shrinkRenderedWindowFull" }, e); }
                 releaseIframeBlob(ifr);
             });
             w.remove();
@@ -829,7 +831,7 @@ export function initRenderer() {
     const settings = getSettings();
     if (!settings.enabled) return;
     
-    try { xbLog.info(MODULE_ID, 'initRenderer'); } catch {}
+    try { xbLog.info(MODULE_ID, 'initRenderer'); } catch (error) { console.warn({ source: import.meta.url, operation: 'initRenderer' }, error); }
     
     if (settings.renderEnabled !== false) {
         ensureHideCodeStyle(true);
@@ -926,7 +928,7 @@ export function initRenderer() {
 }
 
 export function cleanupRenderer() {
-    try { xbLog.info(MODULE_ID, 'cleanupRenderer'); } catch {}
+    try { xbLog.info(MODULE_ID, 'cleanupRenderer'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanupRenderer' }, error); }
     events.cleanup();
     if (messageListenerBound) {
         window.removeEventListener('message', handleIframeMessage);

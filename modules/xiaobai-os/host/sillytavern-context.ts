@@ -148,6 +148,7 @@ export function createSillyTavernSettingsAdapter(): XiaobaiOsSettingsAdapter {
             return settingsRoot[EXT_ID];
         },
         saveSettings() {
+            // Readback failure cannot undo a completed host write. Keep the native save boundary.
             return saveSettingsNow();
         },
     };

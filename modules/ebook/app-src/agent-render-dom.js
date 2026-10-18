@@ -2,8 +2,7 @@
 // statuses are separate units so tool progress cannot replace text being read.
 function buildElement(container, html) {
     const template = container.ownerDocument.createElement('template');
-    // Dynamic values are escaped by the ebook renderer.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Dynamic values are escaped by the ebook renderer.
     template.innerHTML = html.trim();
     return template.content.firstElementChild;
 }

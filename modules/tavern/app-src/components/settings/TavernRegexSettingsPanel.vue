@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue';
 import { useTavernSettingsContext } from '../tavern-app-context';
 import { useTavernMediaQuery } from '../useTavernMediaQuery';
 import TavernSaveStatusIconButton from './TavernSaveStatusIconButton.vue';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const settings = useTavernSettingsContext();
 const {
@@ -51,20 +53,20 @@ const shouldMountRegexEditor = computed(() => (
 ));
 
 function openRegexEditor(row: RegexRow) {
-    void selectRegexScript(row).then((selected) => {
+    observeBackgroundTask(selectRegexScript(row).then((selected) => {
         if (selected) {
             mobileRegexEditorOpen.value = true;
         }
-    });
+    }), { source: import.meta.url, operation: "openRegexEditor" });
 }
 
 function createMobileRegexScript(group: RegexCreateGroup) {
-    void createRegexScript(group).then((created) => {
+    observeBackgroundTask(createRegexScript(group).then((created) => {
         if (created) {
             regexCreateMenuOpen.value = false;
             mobileRegexEditorOpen.value = true;
         }
-    });
+    }), { source: import.meta.url, operation: "createMobileRegexScript" });
 }
 
 function closeRegexEditor() {

@@ -53,7 +53,7 @@ export function redrawImageCard(provider, container) {
         // 否则点击单张的入口会再弹一次同样的错误。
         return floor.operation.then(
             () => (floor.claims.has(slotId) ? undefined : redrawImageCard(provider, container)),
-            () => undefined,
+            (caughtError) => { console.warn({ source: import.meta.url, operation: "redrawImageCard" }, caughtError); },
         );
     }
     if (getSlotActivity(slotId)) {

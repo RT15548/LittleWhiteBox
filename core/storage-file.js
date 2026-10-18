@@ -4,6 +4,8 @@
 
 import { runWithAbortDeadline, throwIfSignalAborted } from '../shared/common/abort-utils.js';
 import { STORAGE_COPY } from './storage-copy.js';
+import { observeBackgroundTask } from '../shared/common/async-errors.js';
+
 
 const toBase64 = (text) => btoa(unescape(encodeURIComponent(text)));
 const STORAGE_UPLOAD_TIMEOUT_MS = 5000;
@@ -105,7 +107,7 @@ export class StorageFile {
             this._loading = loading;
             loading.finally(() => {
                 if (this._loading === loading) this._loading = null;
-            }).catch(() => {});
+            }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "_loadInternal" }, caughtError); });
         }
 
         return await this._loading;
@@ -226,7 +228,7 @@ export class StorageFile {
      */
     _enqueueWrite(operation) {
         const result = this._writeQueue.then(operation, operation);
-        this._writeQueue = result.catch(() => {});
+        this._writeQueue = result.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "_enqueueWrite" }, caughtError); });
         return result;
     }
 
@@ -282,7 +284,7 @@ export class StorageFile {
         const delay = Math.min(30000, 2000 * (2 ** Math.max(0, this._retryCount - 1)));
         this._retryTimer = setTimeout(() => {
             this._retryTimer = null;
-            this.saveNow({ silent: true });
+            observeBackgroundTask(this.saveNow({ silent: true }), { source: import.meta.url, operation: "callback" });
         }, delay);
     }
 

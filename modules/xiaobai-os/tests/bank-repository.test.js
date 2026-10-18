@@ -103,8 +103,8 @@ test('confirmed deposit and fund maturities notify once without opening the OS o
     const notices = [];
     const runtime = createBankMaturityRuntime({ store: h.store, notify: notice => notices.push(notice) });
     t.after(() => runtime.stopBackground());
-    runtime.startBackground();
-    runtime.startBackground();
+    await runtime.startBackground();
+    await runtime.startBackground();
     await h.bank.openDeposit(command(h.bank.readCurrent(), 'notice-deposit', {
         productId: 'short-term', amount: 100,
     }));
@@ -152,14 +152,14 @@ test('loading or restarting with existing maturities stays silent, but subsequen
     const notices = [];
     const runtime = createBankMaturityRuntime({ store, notify: notice => notices.push(notice) });
     t.after(() => runtime.stopBackground());
-    runtime.startBackground();
+    await runtime.startBackground();
     await store.read();
     assert.equal(notices.length, 0);
-    runtime.stopBackground();
+    await runtime.stopBackground();
     await h.addAssistant(10);
     await store.read();
     assert.equal(notices.length, 0);
-    runtime.startBackground();
+    await runtime.startBackground();
     await store.read();
     assert.equal(notices.length, 0);
     await h.bank.openDeposit(command(h.bank.readCurrent(), 'new-deposit', {
@@ -179,7 +179,7 @@ test('failed or uncertain maturity saves stay silent until confirmed recovery', 
             const notices = [];
             const runtime = createBankMaturityRuntime({ store: h.store, notify: notice => notices.push(notice) });
             t.after(() => runtime.stopBackground());
-            runtime.startBackground();
+            await runtime.startBackground();
             await h.bank.openDeposit(command(h.bank.readCurrent(), 'recover-maturity', {
                 productId: 'short-term', amount: 100,
             }));
@@ -210,7 +210,7 @@ test('a failed maturity notification neither interrupts other notices nor change
         throw new Error('toast unavailable');
     } });
     t.after(() => runtime.stopBackground());
-    runtime.startBackground();
+    await runtime.startBackground();
     for (const actionId of ['first-notice', 'second-notice']) {
         await h.bank.openDeposit(command(h.bank.readCurrent(), actionId, {
             productId: 'short-term', amount: 100,

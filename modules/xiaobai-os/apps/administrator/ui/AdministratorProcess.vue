@@ -4,6 +4,8 @@ import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { AdministratorLive, AdministratorProcessRound, AdministratorRow } from '../domain/types.js';
 import MessageMarkdown from '../../../shell/app-src/components/MessageMarkdown.vue';
 import { ADMINISTRATOR_COPY as C, administratorError } from './copy.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 const props = defineProps<{ row: AdministratorRow; live: AdministratorLive | null; unsaved: AdministratorProcessRound[] | null; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string }>();
 const opened = ref(false), retained = shallowRef<AdministratorProcessRound[]>([]), loading = ref(false), error = ref('');
 const rounds = computed(() => props.live?.process ?? retained.value);
@@ -27,7 +29,7 @@ async function refresh() {
 // Only a run boundary changes the user's expansion choice, never a tool/text/revision update.
 watch([() => props.chatIdentity, () => props.row.id, () => props.row.revision, () => !!props.live, () => props.unsaved, opened], (next, previous) => {
     if (next[0] !== previous[0] || next[1] !== previous[1] || next[3] !== previous[3]) { opened.value = false; }
-    void refresh();
+    observeBackgroundTask(refresh(), { source: import.meta.url, operation: "callback" });
 }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
 </script>

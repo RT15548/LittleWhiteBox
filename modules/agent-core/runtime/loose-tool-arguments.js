@@ -255,15 +255,7 @@ function parseKnownLooseArgumentsObject(source = '', toolName = '') {
     return null;
 }
 
-export function parseLooseArgumentsObject(text = '', toolName = '') {
-    const source = String(text || '').trim();
-    if (!source) return null;
-    try {
-        const parsed = JSON.parse(source);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-    } catch {
-        // Fall through to key-based recovery.
-    }
+function parseLooseArgumentsFallback(source, toolName) {
     // Guessing generic keys can mistake nested text for fields and discard the real payload.
     if (!Object.hasOwn(LOOSE_ARGUMENT_KEYS_BY_TOOL, toolName)) return null;
     const knownParsed = parseKnownLooseArgumentsObject(source, toolName);
@@ -276,6 +268,18 @@ export function parseLooseArgumentsObject(text = '', toolName = '') {
         args[key] = parseLoosePrimitive(value);
     });
     return Object.keys(args).length ? args : null;
+}
+
+export function parseLooseArgumentsObject(text = '', toolName = '') {
+    const source = String(text || '').trim();
+    if (!source) return null;
+    try {
+        const parsed = JSON.parse(source);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+        return parseLooseArgumentsFallback(source, toolName);
+    }
+    return parseLooseArgumentsFallback(source, toolName);
 }
 
 export function repairLooseToolArguments(text = '', toolName = '') {

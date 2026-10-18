@@ -14,6 +14,8 @@ import type { TaskGenerationRequests } from '../generation/request.js';
 import { createTaskGenerationRuntime } from '../generation/runtime.js';
 import type { TasksPresentation, TasksSettings } from '../types.js';
 import { presentTaskDetail, presentTaskHistory, presentTasksState } from './presentation.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -110,7 +112,7 @@ export function createTaskControllerRuntime({
     isMainGenerationActive,
     subscribeGeneration,
     subscribeData,
-    schedule = task => { globalThis.setTimeout(() => { void task(); }, 0); },
+    schedule = task => { globalThis.setTimeout(() => { observeBackgroundTask(task(), { source: import.meta.url, operation: "callback" }); }, 0); },
     report = error => console.error('[LittleWhiteBox] Tasks controller failed', error),
 }: TaskControllerRuntimeDependencies): XiaobaiOsAppRuntime & {
     activate: NonNullable<XiaobaiOsAppRuntime['activate']>;

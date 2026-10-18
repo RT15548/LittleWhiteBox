@@ -31,6 +31,8 @@ import TavernTaskOfferDetailView from './TavernTaskOfferDetailView.vue';
 import TavernTaskPublishView from './TavernTaskPublishView.vue';
 import TavernTaskPublishedView from './TavernTaskPublishedView.vue';
 import TavernTaskDetailView from './TavernTaskDetailView.vue';
+import { observeBackgroundTask } from '../../../../../../../shared/common/async-errors.js';
+
 
 type TaskDialogState =
     | { kind: 'accept'; listing: TavernTaskListing }
@@ -164,7 +166,7 @@ async function recruit(task: TavernTaskVersionRecord) {
 }
 
 watch(taskId, (id) => {
-    void phone.tasks.loadTaskDetail(id);
+    observeBackgroundTask(phone.tasks.loadTaskDetail(id), { source: import.meta.url, operation: "callback" });
 }, { immediate: true });
 
 watch(dialog, (current) => {

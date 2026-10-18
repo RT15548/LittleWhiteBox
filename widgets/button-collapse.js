@@ -58,8 +58,7 @@ const createCollapseButton = (dirRight) => {
   injectStyles();
   const btn = document.createElement('div');
   btn.className = 'mes_btn xiaobaix-collapse-btn';
-  // Template-only UI markup.
-  // eslint-disable-next-line no-unsanitized/property
+  // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
   btn.innerHTML = `
     <div class="xiaobaix-xstack"><span>X</span><span>X</span><span>X</span><span>X</span></div>
     <div class="xiaobaix-sub-container${dirRight ? ' dir-right' : ''}"></div>
@@ -197,7 +196,7 @@ const initButtonCollapse = () => {
   hookMutations();
   processExistingVisible();
   if (window && window['registerModuleCleanup']) {
-    try { window['registerModuleCleanup']('buttonCollapse', cleanup); } catch {}
+    try { window['registerModuleCleanup']('buttonCollapse', cleanup); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initButtonCollapse" }, caughtError); }
   }
 };
 

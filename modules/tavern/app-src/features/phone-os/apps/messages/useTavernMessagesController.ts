@@ -46,6 +46,8 @@ import {
     type TavernMessageImageState,
     type TavernMessageVoiceState,
 } from './tavern-message-media';
+import { observeBackgroundTask } from '../../../../../../../shared/common/async-errors.js';
+
 
 export interface TavernPhoneControllerOptions {
     selectedSessionId: Ref<string>;
@@ -187,13 +189,13 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         const delay = Math.max(0, nextExpiration - Date.now() + 50);
         interruptedRecoveryTimer = setTimeout(() => {
             interruptedRecoveryTimer = null;
-            void (async () => {
+            observeBackgroundTask((async () => {
                 if (sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
                 await recoverInterruptedReplyRequests(sessionId);
                 if (sessionId === String(options.selectedSessionId.value || '').trim()) {
                     await refreshPhone();
                 }
-            })();
+            })(), { source: import.meta.url, operation: "callback" });
         }, delay);
     }
 
@@ -372,7 +374,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
                     sessionId: userMessage!.sessionId,
                     threadId: userMessage!.threadId,
                     replyRequestId,
-                }).catch((): void => {});
+                }).catch((caughtError): void => { console.warn({ source: import.meta.url, operation: "runReplyRequest" }, caughtError); });
             }, 20_000);
             await refreshPhone();
             const result = await runTavernOnce({
@@ -640,11 +642,11 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         imageStates.value = {};
         voiceStates.value = {};
         const sessionId = String(value || '').trim();
-        void (async () => {
+        observeBackgroundTask((async () => {
             if (sessionId) {await recoverInterruptedReplyRequests(sessionId);}
             if (requestSequence !== sessionChangeSequence || sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
             await refreshPhone();
-        })();
+        })(), { source: import.meta.url, operation: "callback" });
     }, { immediate: true });
 
     watch(() => JSON.stringify({
@@ -653,7 +655,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         userName: options.effectiveContext.value.user?.name || '',
         files: options.memoryFiles.value.map((file) => [file.path, file.status]),
     }), () => {
-        if (options.selectedSessionId.value) {void refreshPhone();}
+        if (options.selectedSessionId.value) {observeBackgroundTask(refreshPhone(), { source: import.meta.url, operation: "callback" });}
     });
 
     onScopeDispose(() => {

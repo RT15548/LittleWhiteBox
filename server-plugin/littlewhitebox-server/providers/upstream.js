@@ -48,7 +48,7 @@ async function readResponseBuffer(response, maxBytes = MAX_RESPONSE_BYTES) {
             if (done) break;
             total += value.byteLength;
             if (total > maxBytes) {
-                await reader.cancel().catch(() => {});
+                await reader.cancel().catch((caughtError) => { console.debug({ source: __filename, operation: "readResponseBuffer" }, caughtError); });
                 throw new Error(`Upstream response exceeds the ${maxBytes} byte limit`);
             }
             chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));

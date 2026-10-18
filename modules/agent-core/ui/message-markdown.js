@@ -321,8 +321,8 @@ function getStMessageSanitizer() {
             ? readSanitizerFrom(globalThis.parent.DOMPurify)
             : null;
         if (parentSanitizer) return parentSanitizer;
-    } catch {
-        // Cross-origin parent access can throw; fall back below.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "getStMessageSanitizer" }, caughtError);
     }
 
     return readSanitizerFrom(globalThis.DOMPurify);
@@ -341,8 +341,8 @@ function sanitizeMarkdownHtml(html = '') {
     if (sanitizer) {
         try {
             return decodeStyleTags(String(sanitizer.sanitize(raw, config) || ''));
-        } catch {
-            // Fall through to the local test fallback.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "sanitizeMarkdownHtml" }, caughtError);
         }
     }
     return decodeStyleTags(sanitizeMarkdownHtmlFallback(raw));
@@ -369,8 +369,8 @@ export function renderMarkdownToHtml(text, options = {}) {
         }
         const html = injectHtmlBoundaryPlaceholders(markdownConverter.makeHtml(markdownText));
         return injectHtmlBlockPlaceholders(sanitizeMarkdownHtml(html));
-    } catch {
-        // Fall through to escaped plain text below.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "renderMarkdownToHtml" }, caughtError);
     }
 
     return injectHtmlBlockPlaceholders(escapeHtml(markdownText).replace(/\n/g, '<br>'));
@@ -415,8 +415,8 @@ export async function copyText(text = '', ownerDocument = null) {
                 textarea.remove();
             }
         }
-    } catch {
-        // Fall through to the async clipboard path.
+    } catch (caughtError) {
+        console.debug({ source: import.meta.url, operation: "copyText" }, caughtError);
     }
 
     try {
@@ -424,8 +424,8 @@ export async function copyText(text = '', ownerDocument = null) {
             await win.navigator.clipboard.writeText(normalized);
             return true;
         }
-    } catch {
-        // Fall through to false.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "copyText" }, caughtError);
     }
     return false;
 }
@@ -578,7 +578,6 @@ function buildHtmlPreview(doc, code = '') {
     iframe.title = 'HTML 渲染预览';
     // Scripts can run inside the preview iframe, but the sandbox still keeps it isolated
     // from the host because we do not grant same-origin, forms, popups, or top navigation.
-    // eslint-disable-next-line no-unsanitized/property
     iframe.srcdoc = String(code || '');
     return iframe;
 }
@@ -699,8 +698,7 @@ export function buildMarkdownFragment(text, options = {}) {
     }
 
     const template = doc.createElement('template');
-    // `html` is sanitized by renderMarkdownToHtml() above before being inserted.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- `html` is sanitized by renderMarkdownToHtml() above before being inserted.
     template.innerHTML = html;
     const fragment = template.content.cloneNode(true);
     enhanceMarkdownContent(fragment, options);

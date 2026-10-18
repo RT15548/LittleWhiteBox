@@ -13,6 +13,9 @@ import { xbLog, CacheRegistry } from "../core/debug-core.js";
 import { getTrustedOrigin } from "../core/iframe-messaging.js";
 import { replaceXbGetVarInString, replaceXbGetVarYamlInString } from "./variables/var-commands.js";
 import { throwIfSignalAborted } from '../shared/common/abort-utils.js';
+import { observeBackgroundTask } from '../shared/common/async-errors.js';
+import { tryParseJson } from '../shared/common/json-candidate.js';
+
 
 const EVT_DONE = 'xiaobaix_streaming_completed';
 
@@ -44,9 +47,9 @@ class StreamingGeneration {
 
     init() {
         if (this.isInitialized) return;
-        try { localStorage.removeItem('xbgen:lastToggleSnap'); } catch {}
+        try { localStorage.removeItem('xbgen:lastToggleSnap'); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); }
         this.registerCommands();
-        try { xbLog.info('streamingGeneration', 'init'); } catch {}
+        try { xbLog.info('streamingGeneration', 'init'); } catch (error) { console.warn({ source: import.meta.url, operation: 'init' }, error); }
         this.isInitialized = true;
     }
 
@@ -81,7 +84,7 @@ class StreamingGeneration {
         const keepCount = Math.max(10, this.MAX_SESSIONS - 10);
         const sorted = [...this.sessions.entries()].sort((a, b) => a[1].updatedAt - b[1].updatedAt);
         sorted.slice(0, Math.max(0, sorted.length - keepCount)).forEach(([sid, s]) => {
-            try { s.abortController?.abort(); } catch {}
+            try { s.abortController?.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_cleanupOldestSessions" }, caughtError); }
             this.sessions.delete(sid);
         });
     }
@@ -113,10 +116,10 @@ class StreamingGeneration {
                     try { frames[i].postMessage(msg, targetOrigin); } catch { fail++; }
                 }
                 if (fail) {
-                    try { xbLog.warn('streamingGeneration', `postToFrames fail=${fail} total=${frames.length} type=${name}`); } catch {}
+                    try { xbLog.warn('streamingGeneration', `postToFrames fail=${fail} total=${frames.length} type=${name}`); } catch (error) { console.warn({ source: import.meta.url, operation: 'postToFrames' }, error); }
                 }
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "postToFrames" }, caughtError); }
     }
 
     resolveCurrentApiAndModel(apiOptions = {}) {
@@ -163,7 +166,7 @@ class StreamingGeneration {
             
             if (!source) {
                 console.error('[xbgen:callAPI] 不支持的 api:', opts.api);
-                try { xbLog.error('streamingGeneration', `unsupported api: ${opts.api}`, null); } catch {}
+                try { xbLog.error('streamingGeneration', `unsupported api: ${opts.api}`, null); } catch (error) { console.warn({ source: import.meta.url, operation: 'callAPI' }, error); }
             }
             if (!source) throw new Error(`不支持的 api: ${opts.api}`);
             
@@ -171,7 +174,7 @@ class StreamingGeneration {
             const msgCount = Array.isArray(messages) ? messages.length : null;
             
             if (!model) {
-                try { xbLog.error('streamingGeneration', 'missing model', null); } catch {}
+                try { xbLog.error('streamingGeneration', 'missing model', null); } catch (error) { console.warn({ source: import.meta.url, operation: 'callAPI' }, error); }
             }
             if (!model) throw new Error('未检测到当前模型，请在聊天面板选择模型或在插件设置中为分析显式指定模型。');
             
@@ -179,7 +182,7 @@ class StreamingGeneration {
                 if (xbLog.isEnabled?.()) {
                     xbLog.info('streamingGeneration', `callAPI stream=${!!stream} api=${String(opts.api || '')} model=${model} messages=${msgCount ?? '-'}`);
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callAPI" }, caughtError); }
             
             const num = (v) => {
                 const n = Number(v);
@@ -286,8 +289,7 @@ class StreamingGeneration {
                     const safeApiUrl = String(cmdApiUrl || reverseProxy || oai_settings?.custom_url || '').trim();
                     const status = this._extractHttpStatus(err);
                     const isRateLimit = status === 429;
-                    try {
-                        xbLog.error('streamingGeneration', 'sendRequest failed', {
+                    try { xbLog.error('streamingGeneration', 'sendRequest failed', {
                             message: err?.message || String(err),
                             name: err?.name,
                             status,
@@ -297,8 +299,7 @@ class StreamingGeneration {
                             model,
                             msgCount,
                             apiurl: safeApiUrl,
-                        });
-                    } catch {}
+                        }); } catch (error) { console.warn({ source: import.meta.url, operation: 'callAPI' }, error); }
                     console.error('[xbgen:callAPI] sendRequest failed:', err);
                     if (status) {
                         console.error(`[xbgen:callAPI] HTTP status=${status} stream=${!!streamMode} api=${String(opts.api || '')} model=${model}`);
@@ -373,7 +374,7 @@ class StreamingGeneration {
                         console.error('[xbgen:stream] err.name:', err?.name);
                         console.error('[xbgen:stream] err.message:', err?.message);
                         if (err?.name === 'AbortError') return;
-                        try { xbLog.error('streamingGeneration', 'Stream error', err); } catch {}
+                        try { xbLog.error('streamingGeneration', 'Stream error', err); } catch (error) { console.warn({ source: import.meta.url, operation: 'callAPI' }, error); }
                         throw err;
                     }
                 })();
@@ -413,7 +414,7 @@ class StreamingGeneration {
         const shouldAdoptMutations = this._needsPromptPostProcess(chatArray);
         try {
             await eventSource?.emit?.(event_types.CHAT_COMPLETION_PROMPT_READY, { chat: snapshot, dryRun: false });
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_emitPromptReady" }, caughtError); }
         return shouldAdoptMutations && Array.isArray(snapshot) ? snapshot : chatArray;
     }
 
@@ -435,10 +436,10 @@ class StreamingGeneration {
     _cloneChat(chatArray) {
         try {
             if (typeof structuredClone === 'function') return structuredClone(chatArray);
-        } catch {}
+        } catch (caughtError) { console.debug({ source: import.meta.url, operation: "_cloneChat" }, caughtError); }
         try {
             return JSON.parse(JSON.stringify(chatArray));
-        } catch {}
+        } catch (caughtError) { console.debug({ source: import.meta.url, operation: "_cloneChat" }, caughtError); }
         try {
             return Array.isArray(chatArray)
                 ? chatArray.map(m => (m && typeof m === 'object' ? { ...m } : m))
@@ -454,7 +455,7 @@ class StreamingGeneration {
         session.abortController = abortController;
 
         try {
-            try { xbLog.info('streamingGeneration', `processGeneration start sid=${session.id} stream=${!!stream} promptLen=${String(prompt || '').length}`); } catch {}
+            try { xbLog.info('streamingGeneration', `processGeneration start sid=${session.id} stream=${!!stream} promptLen=${String(prompt || '').length}`); } catch (error) { console.warn({ source: import.meta.url, operation: 'processGeneration' }, error); }
             this.isStreaming = true;
             this.activeCount++;
             session.isStreaming = true;
@@ -476,15 +477,15 @@ class StreamingGeneration {
             }
 
             const payload = { finalText: session.text, originalPrompt: prompt, sessionId: session.id };
-            try { eventSource?.emit?.(EVT_DONE, payload); } catch { }
+            try { observeBackgroundTask(eventSource?.emit?.(EVT_DONE, payload), { source: import.meta.url, operation: 'processGeneration' }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "processGeneration" }, caughtError); }
             this.postToFrames(EVT_DONE, payload);
-            try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, getTrustedOrigin()); } catch { }
+            try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, getTrustedOrigin()); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "processGeneration" }, caughtError); }
 
-            try { xbLog.info('streamingGeneration', `processGeneration done sid=${session.id} outLen=${String(session.text || '').length}`); } catch {}
+            try { xbLog.info('streamingGeneration', `processGeneration done sid=${session.id} outLen=${String(session.text || '').length}`); } catch (error) { console.warn({ source: import.meta.url, operation: 'processGeneration' }, error); }
             return String(session.text || '');
         } catch (err) {
             if (err?.name === 'AbortError') {
-                try { xbLog.warn('streamingGeneration', `processGeneration aborted sid=${session.id}`); } catch {}
+                try { xbLog.warn('streamingGeneration', `processGeneration aborted sid=${session.id}`); } catch (error) { console.warn({ source: import.meta.url, operation: 'processGeneration' }, error); }
                 return String(session.text || '');
             }
 
@@ -498,7 +499,7 @@ class StreamingGeneration {
 
             console.error('[StreamingGeneration] Generation error:', err);
             console.error('[StreamingGeneration] error.error =', err?.error);
-            try { xbLog.error('streamingGeneration', `processGeneration error sid=${session.id}`, err); } catch {}
+            try { xbLog.error('streamingGeneration', `processGeneration error sid=${session.id}`, err); } catch (error) { console.warn({ source: import.meta.url, operation: 'processGeneration' }, error); }
 
             let errorMessage = '生成失败';
 
@@ -543,7 +544,7 @@ class StreamingGeneration {
             session.isStreaming = false;
             this.activeCount = Math.max(0, this.activeCount - 1);
             this.isStreaming = this.activeCount > 0;
-            try { session.abortController = null; } catch { }
+            try { session.abortController = null; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "processGeneration" }, caughtError); }
         }
     }
 
@@ -555,8 +556,9 @@ class StreamingGeneration {
         const input = String(param || '').trim();
         if (!input) return [];
 
+        const candidate = tryParseJson(input);
         try {
-            const parsed = JSON.parse(input);
+            const parsed = candidate.ok ? candidate.value : null;
             if (Array.isArray(parsed)) {
                 const normRole = (r) => {
                     const x = String(r || '').trim().toLowerCase();
@@ -573,8 +575,8 @@ class StreamingGeneration {
                     return result;
                 }
             }
-        } catch {
-
+        } catch (error) {
+            console.warn({ source: import.meta.url, operation: '_parseCompositeParam' }, error);
         }
 
         const parts = [];
@@ -738,7 +740,7 @@ class StreamingGeneration {
                     const uid = it?.uid || it?.id || it?.entry?.uid || it?.entry?.id;
                     if (uid) activatedUids.add(uid);
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "wiListener" }, caughtError); }
         };
         eventSource.on(event_types.WORLD_INFO_ACTIVATED, wiListener);
         try {
@@ -768,7 +770,7 @@ class StreamingGeneration {
                 const text = pieces.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
                 if (text) return text;
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_captureWorldInfoText" }, caughtError); }
         let src = [];
         const cd = capturedData;
         if (Array.isArray(cd)) {
@@ -897,7 +899,7 @@ class StreamingGeneration {
         try {
             out = replaceXbGetVarInString(out);
             out = replaceXbGetVarYamlInString(out);
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "expandInline" }, caughtError); }
         const snap = this._getLastMessagesSnapshot();
         const lastDict = {
             '{{lastmessage}}': snap.lastMessage,
@@ -946,9 +948,8 @@ class StreamingGeneration {
                     try {
                         const cmd = getCmdForRoot(root);
                         const result = await window.STscript(cmd);
-                        let parsed = result;
-                        try { parsed = JSON.parse(result); } catch {}
-                        cache.set(root, parsed);
+                        const candidate = tryParseJson(result);
+                        cache.set(root, candidate.ok ? candidate.value : result);
                     } catch {
                         cache.set(root, '');
                     }
@@ -972,7 +973,7 @@ class StreamingGeneration {
               return txt;
           };
           out = await expandVarMacros(out);
-        try { out = substituteParams(out); } catch {}
+        try { out = substituteParams(out); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "expandInline" }, caughtError); }
         return out;
     }
 
@@ -1021,7 +1022,7 @@ class StreamingGeneration {
                     parsedStop = Array.isArray(j) ? j : (typeof j === 'string' ? [j] : undefined);
                 }
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
         const nonstream = String(args?.nonstream || '').toLowerCase() === 'true';
         const task = completion => {
             // Streaming commands return before completion. Observe/report their
@@ -1140,7 +1141,7 @@ class StreamingGeneration {
                     if (typeof prompt === 'string') prompt = prompt.replace(wiRegex, wiTrim);
                 }
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
         const addonSetStr = String(args?.addon || '').trim();
         const shouldUsePM = addonSetStr.length > 0;
         if (!shouldUsePM) {
@@ -1149,15 +1150,15 @@ class StreamingGeneration {
                 .concat(prompt && prompt.trim().length ? [{ role, content: prompt.trim() }] : [])
                 .concat(bottomMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length));
             
-            try { if (lock) deactivateSendButtons(); } catch {}
+            try { if (lock) deactivateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
             try {
                 const preparedMessages = await this._emitPromptReady(messages);
                 throwIfSignalAborted(signal);
                 const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
                 return task(this.processGeneration(common, prompt || '', sessionId, !nonstream)
-                    .finally(() => { try { if (lock) activateSendButtons(); } catch {} }));
+                    .finally(() => { try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); } }));
             } catch (error) {
-                try { if (lock) activateSendButtons(); } catch {}
+                try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
                 throw error;
             }
         }
@@ -1180,7 +1181,7 @@ class StreamingGeneration {
                         chatBackup = chat.slice();
                         chat.length = 0;
                         chat.push({ name: name1 || 'User', is_user: true, is_system: false, mes: '[hist]', send_date: new Date().toISOString() });
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "buildAddonFinalMessages" }, caughtError); }
                 }
                 try {
                     await context.generate('normal', {
@@ -1252,7 +1253,7 @@ class StreamingGeneration {
             return finalMessages;
         };
         return task((async () => {
-            try { if (lock) deactivateSendButtons(); } catch {}
+            try { if (lock) deactivateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
             try {
                 const finalMessages = await buildAddonFinalMessages();
                 throwIfSignalAborted(signal);
@@ -1261,7 +1262,7 @@ class StreamingGeneration {
                 const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
                 return await this.processGeneration(common, prompt || '', sessionId, !nonstream);
             } finally {
-                try { if (lock) activateSendButtons(); } catch {}
+                try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
             }
         })());
     }
@@ -1368,7 +1369,7 @@ class StreamingGeneration {
             return dataWithOptions;
         };
         if (nonstream) {
-            try { if (lock) deactivateSendButtons(); } catch {}
+            try { if (lock) deactivateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "xbgenCommand" }, caughtError); }
             try {
                 const dataWithOptions = await buildGenDataWithOptions();
                 const chatMsgs = Array.isArray(dataWithOptions?.prompt) ? dataWithOptions.prompt
@@ -1380,12 +1381,12 @@ class StreamingGeneration {
                 const finalText = await this.processGeneration(preparedData, prompt, sessionId, false);
                 return String(finalText ?? '');
             } finally {
-                try { if (lock) activateSendButtons(); } catch {}
+                try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "xbgenCommand" }, caughtError); }
             }
         }
-        (async () => {
+        observeBackgroundTask((async () => {
             try {
-                try { if (lock) deactivateSendButtons(); } catch {}
+                try { if (lock) deactivateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "xbgenCommand" }, caughtError); }
                 const dataWithOptions = await buildGenDataWithOptions();
                 const chatMsgs = Array.isArray(dataWithOptions?.prompt) ? dataWithOptions.prompt
                     : (Array.isArray(dataWithOptions?.messages) ? dataWithOptions.messages : []);
@@ -1394,12 +1395,12 @@ class StreamingGeneration {
                     ? { ...dataWithOptions, prompt: preparedChatMsgs }
                     : { ...dataWithOptions, messages: preparedChatMsgs };
                 const finalText = await this.processGeneration(preparedData, prompt, sessionId, true);
-                try { if (args && args._scope) args._scope.pipe = String(finalText ?? ''); } catch {}
-            } catch {}
+                try { if (args && args._scope) args._scope.pipe = String(finalText ?? ''); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "xbgenCommand" }, caughtError); }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "xbgenCommand" }, caughtError); }
             finally {
-                try { if (lock) activateSendButtons(); } catch {}
+                try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "xbgenCommand" }, caughtError); }
             }
-        })();
+        })(), { source: import.meta.url, operation: "xbgenCommand" });
         return String(sessionId);
     }
 
@@ -1509,7 +1510,7 @@ CacheRegistry.register('streamingGeneration', {
         }
     },
     clear: () => {
-        try { streamingGeneration.cleanup(); } catch {}
+        try { streamingGeneration.cleanup(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
     },
     getDetail: () => {
         try {
@@ -1530,7 +1531,7 @@ CacheRegistry.register('streamingGeneration', {
 export function initStreamingGeneration() {
     const w = window;
     if ((w)?.isXiaobaixEnabled === false) return;
-    try { xbLog.info('streamingGeneration', 'initStreamingGeneration'); } catch {}
+    try { xbLog.info('streamingGeneration', 'initStreamingGeneration'); } catch (error) { console.warn({ source: import.meta.url, operation: 'initStreamingGeneration' }, error); }
     streamingGeneration.init();
     (w)?.registerModuleCleanup?.('streamingGeneration', () => streamingGeneration.cleanup());
 }

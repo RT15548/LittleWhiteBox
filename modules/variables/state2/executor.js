@@ -280,7 +280,7 @@ function writeStateErrorsToLocalVar(lines) {
             ? lines.map(s => `- ${String(s)}`).join('\n')
             : '';
         setLocalVariable(ERR_VAR_NAME, text);
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "writeStateErrorsToLocalVar" }, caughtError); }
 }
 
 function getLwbExtMeta() {
@@ -421,7 +421,7 @@ export function clearStateAppliedFor(floor) {
     try {
         delete getAppliedMap()[floor];
         getContext()?.saveMetadataDebounced?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearStateAppliedFor" }, caughtError); }
 }
 
 export function clearStateAppliedFrom(floorInclusive) {
@@ -431,7 +431,7 @@ export function clearStateAppliedFrom(floorInclusive) {
             if (Number(k) >= floorInclusive) delete map[k];
         }
         getContext()?.saveMetadataDebounced?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearStateAppliedFrom" }, caughtError); }
 }
 
 function isIndexDeleteOp(opItem) {
@@ -510,7 +510,7 @@ export function applyStateForMessage(messageId, messageContent) {
             const log = ext[LOG_KEY];
             if (log?.floors) delete log.floors[String(messageId)];
             getContext()?.saveMetadataDebounced?.();
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyStateForMessage" }, caughtError); }
         return { atoms: [], errors: [], skipped: false };
     }
 
@@ -759,8 +759,8 @@ export async function restoreStateV2ToFloor(targetFloor) {
                         delVar(path);
                         break;
                 }
-            } catch {
-                // ignore replay errors
+            } catch (caughtError) {
+                console.warn({ source: import.meta.url, operation: "restoreStateV2ToFloor" }, caughtError);
             }
         }
     }
@@ -820,7 +820,7 @@ export async function trimStateV2FromFloor(fromFloor) {
     // 3) Applied signatures（floor>=start 都要重新算）
     try {
         clearStateAppliedFrom(start);
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "trimStateV2FromFloor" }, caughtError); }
 
     ctx?.saveMetadataDebounced?.();
     return { ok: true };

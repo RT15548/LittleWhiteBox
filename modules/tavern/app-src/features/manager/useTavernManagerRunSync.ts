@@ -16,6 +16,8 @@ import {
     type TavernManagerProgressProjection,
     type TavernManagerRunVersion,
 } from './manager-run-sync';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 interface DexieLiveQuerySubscription {
     unsubscribe(): void;
@@ -386,7 +388,7 @@ export function useTavernManagerRunSync(options: TavernManagerRunSyncOptions) {
 
     function handleVisibilityFallback(): void {
         if (document.visibilityState === 'hidden') {return;}
-        void reconcileHistory();
+        observeBackgroundTask(reconcileHistory(), { source: import.meta.url, operation: "handleVisibilityFallback" });
     }
 
     watch(options.selectedSessionId, startSubscription, { immediate: true });

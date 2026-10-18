@@ -74,6 +74,8 @@ import {
     syncTauriTavernMessageDecorators,
     isTauriTavernControlLocked,
 } from "./integrations/tauritavern/index.js";
+import { observeAsyncCallback, observeBackgroundTask } from './shared/common/async-errors.js';
+
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -220,14 +222,14 @@ function migrateDrawProviderSettings(targetSettings) {
 async function cleanupDrawProvider(provider = settings.drawProvider) {
     clearSharedImageRequestsRuntime();
     // 分组预设的聊天监听是三个画图 provider 共享的，只在这里统一停；切换 provider 时 init 会重新启动。
-    try { stopGroupPresetWatcher(); } catch (e) { }
+    try { stopGroupPresetWatcher(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
     const normalized = normalizeDrawProvider(provider);
     if (normalized === 'novelai') {
-        try { await cleanupNovelDraw(); } catch (e) { }
+        try { await cleanupNovelDraw(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
     } else if (normalized === 'sdwebui') {
-        try { await cleanupSdDraw(); } catch (e) { }
+        try { await cleanupSdDraw(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
     } else if (normalized === 'comfyui') {
-        try { await cleanupComfyDraw(); } catch (e) { }
+        try { await cleanupComfyDraw(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
     }
 }
 
@@ -253,7 +255,7 @@ async function initActiveDrawProvider() {
 function notifyTavernDrawStatusChanged() {
     try {
         window.xiaobaixTavern?.refreshDrawStatus?.();
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notifyTavernDrawStatusChanged" }, caughtError); }
 }
 
 function installDrawFacade() {
@@ -287,7 +289,7 @@ function installDrawFacade() {
 
     function cloneDrawGenerationValue(value) {
         if (typeof structuredClone === 'function') {
-            try { return structuredClone(value); } catch { }
+            try { return structuredClone(value); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cloneDrawGenerationValue" }, caughtError); }
         }
         return JSON.parse(JSON.stringify(value));
     }
@@ -467,7 +469,7 @@ function installDrawFacade() {
             return generateImagesFromText(input || {});
         },
     };
-    void clearExpiredGeneratedImageCacheRuntime();
+    observeBackgroundTask(clearExpiredGeneratedImageCacheRuntime(), { source: import.meta.url, operation: "installDrawFacade" });
 }
 
 if (migrateDrawProviderSettings(settings)) {
@@ -557,25 +559,25 @@ async function initDrawFeatures() {
 function removeSkeletonStyles() {
     try {
         document.querySelectorAll('.xiaobaix-skel').forEach(el => {
-            try { el.remove(); } catch (e) { }
+            try { el.remove(); } catch (e) { console.warn({ source: import.meta.url, operation: "removeSkeletonStyles" }, e); }
         });
         document.getElementById('xiaobaix-skeleton-style')?.remove();
-    } catch (e) { }
+    } catch (e) { console.warn({ source: import.meta.url, operation: "removeSkeletonStyles" }, e); }
 }
 
 function cleanupAllResources() {
     try {
         EventCenter.cleanupAll();
-    } catch (e) { }
-    try { window.xbDebugPanelClose?.(); } catch (e) { }
+    } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupAllResources" }, e); }
+    try { window.xbDebugPanelClose?.(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupAllResources" }, e); }
     moduleCleanupFunctions.forEach((cleanupFn) => {
         try {
             cleanupFn();
-        } catch (e) { }
+        } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupAllResources" }, e); }
     });
     moduleCleanupFunctions.clear();
     if (!CHAT_SURFACE_MANAGED) {
-        try { cleanupRenderer(); } catch (e) { }
+        try { cleanupRenderer(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupAllResources" }, e); }
     }
     document.querySelectorAll('.memory-button').forEach(btn => btn.remove());
     removeOwnedHistoryButtons();
@@ -664,11 +666,11 @@ async function toggleAllFeatures(enabled) {
     if (enabled) {
         await xiaobaiOsSettingsReady;
         toggleSettingsControls(true);
-        try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) { }
+        try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         saveSettingsDebounced();
         if (!CHAT_SURFACE_MANAGED) initRenderer();
-        try { initVarCommands(); } catch (e) { }
-        try { initVareventEditor(); } catch (e) { }
+        try { initVarCommands(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { initVareventEditor(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         if (extension_settings[EXT_ID].tasks?.enabled) {
             await initTasks();
         }
@@ -681,13 +683,13 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
             { condition: true, init: initEbook },
-            { condition: true, init: () => { void initTavernSafely(); } },
+            { condition: true, init: initTavernSafely },
             { condition: true, init: initStreamingGeneration },
             { condition: !CHAT_SURFACE_MANAGED, init: initButtonCollapse }
         ];
-        moduleInits.forEach(({ condition, init }) => {
-            if (condition) init();
-        });
+        for (const { condition, init } of moduleInits) {
+            if (condition) { observeBackgroundTask(init(), { source: import.meta.url, operation: init.name }); }
+        }
         await initDrawFeatures();
         await initEnabledXiaobaiOs();
         if (extension_settings[EXT_ID].preview?.enabled || extension_settings[EXT_ID].recorded?.enabled) {
@@ -709,27 +711,27 @@ async function toggleAllFeatures(enabled) {
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: true } }));
         $(document).trigger('xiaobaix:enabled:toggle', [true]);
     } else {
-        try { window.XB_captureAndStoreStates && window.XB_captureAndStoreStates(); } catch (e) { }
+        try { window.XB_captureAndStoreStates && window.XB_captureAndStoreStates(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         cleanupXiaobaiOs();
         cleanupChatMessageImages();
         cleanupAllResources();
-        if (window.messagePreviewCleanup) try { window.messagePreviewCleanup(); } catch (e) { }
-        if (window.buttonCollapseCleanup) try { window.buttonCollapseCleanup(); } catch (e) { }
-        try { cleanupVariablesPanel(); } catch (e) { }
-        try { cleanupVariablesCore(); } catch (e) { }
-        try { cleanupVarCommands(); } catch (e) { }
-        try { cleanupVareventEditor(); } catch (e) { }
+        if (window.messagePreviewCleanup) try { window.messagePreviewCleanup(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        if (window.buttonCollapseCleanup) try { window.buttonCollapseCleanup(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupVariablesPanel(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupVariablesCore(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupVarCommands(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupVareventEditor(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         drawProviderTransitionGeneration++;
         await cleanupDrawProvider(settings.drawProvider);
-        try { cleanupTts(); } catch (e) { }
-        try { cleanupEnaPlanner(); } catch (e) { }
-        try { cleanupAssistant(); } catch (e) { }
-        try { cleanupEbook(); } catch (e) { }
+        try { cleanupTts(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupEnaPlanner(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupAssistant(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { cleanupEbook(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         await cleanupTavernSafely();
-        try { clearBlobCaches(); } catch (e) { }
+        try { clearBlobCaches(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         toggleSettingsControls(false);
-        try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById(HOST_BRIDGES.worldbook.id)?.remove(); } catch (e) { }
-        try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById(HOST_BRIDGES.callGenerate.id)?.remove(); } catch (e) { }
+        try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById(HOST_BRIDGES.worldbook.id)?.remove(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById(HOST_BRIDGES.callGenerate.id)?.remove(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         if (extension_settings[EXT_ID].storySummary?.enabled) {
             $(document).trigger(STORY_SUMMARY_TOGGLE_EVENT, [false]);
         }
@@ -758,7 +760,7 @@ async function setupSettings() {
 
         setupDebugButtonInSettings();
 
-        $("#xiaobaix_enabled").prop("checked", settings.enabled).on("change", async function () {
+        $("#xiaobaix_enabled").prop("checked", settings.enabled).on("change", observeAsyncCallback(async function () {
             const wasEnabled = settings.enabled;
             settings.enabled = $(this).prop("checked");
             isXiaobaixEnabled = settings.enabled;
@@ -767,11 +769,11 @@ async function setupSettings() {
             if (settings.enabled !== wasEnabled) {
                 await toggleAllFeatures(settings.enabled);
             }
-        });
+        }, { source: import.meta.url, operation: "callback" }));
 
         if (!settings.enabled) toggleSettingsControls(false);
 
-        $("#xiaobaix_os_enabled").prop("checked", settings.xiaobaiOs?.enabled === true).on("change", async function () {
+        $("#xiaobaix_os_enabled").prop("checked", settings.xiaobaiOs?.enabled === true).on("change", observeAsyncCallback(async function () {
             if (!isXiaobaixEnabled) return;
             const enabled = $(this).prop('checked') === true;
             const previous = settings.xiaobaiOs?.enabled === true;
@@ -801,7 +803,7 @@ async function setupSettings() {
                 this.disabled = !isXiaobaixEnabled;
                 syncFeatureActionButtons();
             }
-        });
+        }, { source: import.meta.url, operation: "callback" }));
 
         const moduleConfigs = [
             { id: 'xiaobaix_recorded_enabled', key: 'recorded' },
@@ -818,15 +820,15 @@ async function setupSettings() {
         ];
 
         moduleConfigs.forEach(({ id, key, init, cleanup }) => {
-            $(`#${id}`).prop("checked", settings[key]?.enabled || false).on("change", async function () {
+            $(`#${id}`).prop("checked", settings[key]?.enabled || false).on("change", observeAsyncCallback(async function () {
                 if (!isXiaobaixEnabled) return;
                 if (isTauriTavernControlLocked(id)) return;
                 const enabled = $(this).prop('checked');
                 if (!enabled && key === 'tts') {
-                    try { cleanupTts(); } catch (e) { }
+                    try { cleanupTts(); } catch (e) { console.warn({ source: import.meta.url, operation: "setupSettings" }, e); }
                 }
                 if (!enabled && key === 'enaPlanner') {
-                    try { cleanupEnaPlanner(); } catch (e) { }
+                    try { cleanupEnaPlanner(); } catch (e) { console.warn({ source: import.meta.url, operation: "setupSettings" }, e); }
                 }
                 settings[key] = extension_settings[EXT_ID][key] || {};
                 settings[key].enabled = enabled;
@@ -848,7 +850,7 @@ async function setupSettings() {
                 syncFeatureActionButtons();
                 if (key === 'tts') syncTauriTavernEnabledState();
                 else syncTauriTavernMessageDecorators();
-            });
+            }, { source: import.meta.url, operation: "callback" }));
         });
 
         $('#xiaobaix_xposition_btn').on('click', () => {
@@ -857,7 +859,7 @@ async function setupSettings() {
 
         $("#xiaobaix_draw_provider")
             .val(normalizeDrawProvider(settings.drawProvider))
-            .on("change", async function () {
+            .on("change", observeAsyncCallback(async function () {
                 if (!isXiaobaixEnabled) return;
                 const prev = normalizeDrawProvider(settings.drawProvider);
                 const next = normalizeDrawProvider(String($(this).val() || 'disabled'));
@@ -876,10 +878,10 @@ async function setupSettings() {
                 } finally {
                     notifyTavernDrawStatusChanged();
                 }
-                try { refreshChatMessageImages(); } catch { }
+                try { refreshChatMessageImages(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setupSettings" }, caughtError); }
                 syncFeatureActionButtons();
                 syncTauriTavernEnabledState();
-            });
+            }, { source: import.meta.url, operation: "callback" }));
         syncFeatureActionButtons();
 
         // variables mode selector
@@ -895,11 +897,11 @@ async function setupSettings() {
             if (!isXiaobaixEnabled) return;
             const provider = normalizeDrawProvider(settings.drawProvider);
             if (provider === 'novelai' && window.xiaobaixNovelDraw?.openSettings) {
-                window.xiaobaixNovelDraw.openSettings();
+                observeBackgroundTask(window.xiaobaixNovelDraw.openSettings(), { source: import.meta.url, operation: "callback" });
             } else if (provider === 'sdwebui' && window.xiaobaixSdDraw?.openSettings) {
-                window.xiaobaixSdDraw.openSettings();
+                observeBackgroundTask(window.xiaobaixSdDraw.openSettings(), { source: import.meta.url, operation: "callback" });
             } else if (provider === 'comfyui' && window.xiaobaixComfyDraw?.openSettings) {
-                window.xiaobaixComfyDraw.openSettings();
+                observeBackgroundTask(window.xiaobaixComfyDraw.openSettings(), { source: import.meta.url, operation: "callback" });
             } else if (provider === 'disabled') {
                 toastr.warning('请先选择画图后端');
             } else {
@@ -925,7 +927,7 @@ async function setupSettings() {
             }
         });
 
-        $("#xiaobaix_assistant_open_settings").on("click", async function () {
+        $("#xiaobaix_assistant_open_settings").on("click", observeAsyncCallback(async function () {
             if (!isXiaobaixEnabled) return;
             if (!window.xiaobaixAssistant?.open) {
                 await initAssistant();
@@ -935,9 +937,9 @@ async function setupSettings() {
             } else {
                 toastr.warning('小白助手初始化失败');
             }
-        });
+        }, { source: import.meta.url, operation: "callback" }));
 
-        $("#xiaobaix_ebook_open_settings").on("click", async function () {
+        $("#xiaobaix_ebook_open_settings").on("click", observeAsyncCallback(async function () {
             if (!isXiaobaixEnabled) return;
             if (!window.xiaobaixEbook?.open) {
                 await initEbook();
@@ -947,20 +949,20 @@ async function setupSettings() {
             } else {
                 toastr.warning('电纸书初始化失败');
             }
-        });
+        }, { source: import.meta.url, operation: "callback" }));
 
-        $("#xiaobaix_tavern_open_settings").on("click", async function () {
+        $("#xiaobaix_tavern_open_settings").on("click", observeAsyncCallback(async function () {
             if (!isXiaobaixEnabled) return;
             await openTavernSafely();
-        });
+        }, { source: import.meta.url, operation: "callback" }));
 
-        $("#xiaobaix_use_blob").prop("checked", !!settings.useBlob).on("change", async function () {
+        $("#xiaobaix_use_blob").prop("checked", !!settings.useBlob).on("change", function () {
             if (!isXiaobaixEnabled) return;
             settings.useBlob = $(this).prop("checked");
             saveSettingsDebounced();
         });
 
-        $("#xiaobaix_render_enabled").prop("checked", settings.renderEnabled !== false).on("change", async function () {
+        $("#xiaobaix_render_enabled").prop("checked", settings.renderEnabled !== false).on("change", function () {
             if (!isXiaobaixEnabled) return;
             const wasEnabled = settings.renderEnabled !== false;
             settings.renderEnabled = $(this).prop("checked");
@@ -975,7 +977,7 @@ async function setupSettings() {
             }
             try {
                 window.xiaobaixTavern?.refreshRenderSettings?.();
-            } catch (e) {}
+            } catch (e) { console.warn({ source: import.meta.url, operation: "setupSettings" }, e); }
         });
 
         const normalizeMaxRendered = (raw) => {
@@ -994,10 +996,10 @@ async function setupSettings() {
                 settings.maxRenderedMessages = v;
                 saveSettingsDebounced();
                 if (CHAT_SURFACE_MANAGED) syncTauriTavernEnabledState();
-                else { try { shrinkRenderedWindowFull(); } catch (e) { } }
+                else { try { shrinkRenderedWindowFull(); } catch (e) { console.warn({ source: import.meta.url, operation: "setupSettings" }, e); } }
             });
 
-        $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', async function (e) {
+        $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', observeAsyncCallback(async function (e) {
             e.preventDefault();
             e.stopPropagation();
             const MAP = {
@@ -1021,7 +1023,7 @@ async function setupSettings() {
                 const el = document.getElementById(id);
                 if (el) {
                     el.checked = !!val;
-                    try { $(el).trigger('change'); } catch { }
+                    try { $(el).trigger('change'); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setChecked" }, caughtError); }
                 }
             }
             ON.forEach(k => setChecked(MAP[k], true));
@@ -1051,10 +1053,10 @@ async function setupSettings() {
             settings.wrapperIframe = true;
             settings.audio ||= {};
             settings.audio.enabled = true;
-            try { saveSettingsDebounced(); } catch (e) { }
-        });
+            try { saveSettingsDebounced(); } catch (e) { console.warn({ source: import.meta.url, operation: "setupSettings" }, e); }
+        }, { source: import.meta.url, operation: "callback" }));
         lockTauriTavernChatSurfaceSettings();
-    } catch (err) { }
+    } catch (err) { console.warn({ source: import.meta.url, operation: "setupSettings" }, err); }
 }
 
 function setupDebugButtonInSettings() {
@@ -1080,15 +1082,15 @@ function setupDebugButtonInSettings() {
             try {
                 const mod = await import('./modules/debug-panel/debug-panel.js');
                 if (mod?.toggleDebugPanel) await mod.toggleDebugPanel();
-            } catch (e) { }
+            } catch (e) { console.warn({ source: import.meta.url, operation: "onActivate" }, e); }
         };
-        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onActivate(); });
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); observeBackgroundTask(onActivate(), { source: import.meta.url, operation: "callback" }); });
         btn.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivate(); }
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); observeBackgroundTask(onActivate(), { source: import.meta.url, operation: "callback" }); }
         });
 
         actionGroup.appendChild(btn);
-    } catch (e) { }
+    } catch (e) { console.warn({ source: import.meta.url, operation: "setupDebugButtonInSettings" }, e); }
 }
 
 function setupMenuTabs() {
@@ -1113,7 +1115,7 @@ if (!CHAT_SURFACE_MANAGED) {
 }
 window.registerModuleCleanup = registerModuleCleanup;
 
-jQuery(async () => {
+jQuery(observeAsyncCallback(async () => {
     try {
         cleanupDeprecatedData();
         await xiaobaiOsSettingsReady;
@@ -1136,7 +1138,7 @@ jQuery(async () => {
         initPluginUpdate();
         setupMenuTabs();
 
-        try { initControlAudio(); } catch (e) { }
+        try { initControlAudio(); } catch (e) { console.warn({ source: import.meta.url, operation: "module" }, e); }
 
         if (isXiaobaixEnabled && !CHAT_SURFACE_MANAGED) {
             initRenderer();
@@ -1155,8 +1157,8 @@ jQuery(async () => {
         } catch (error) { reportBuildFailure(error); }
 
         if (isXiaobaixEnabled) {
-            try { initVarCommands(); } catch (e) { }
-            try { initVareventEditor(); } catch (e) { }
+            try { initVarCommands(); } catch (e) { console.warn({ source: import.meta.url, operation: "module" }, e); }
+            try { initVareventEditor(); } catch (e) { console.warn({ source: import.meta.url, operation: "module" }, e); }
 
             if (settings.tasks?.enabled) {
                 try { await initTasks(); } catch (e) { console.error('[Tasks] Init failed:', e); }
@@ -1170,11 +1172,13 @@ jQuery(async () => {
                 { condition: settings.tts?.enabled, init: initTts },
                 { condition: settings.enaPlanner?.enabled, init: initEnaPlanner },
                 { condition: true, init: initEbook },
-                { condition: true, init: () => { void initTavernSafely(); } },
+                { condition: true, init: initTavernSafely },
                 { condition: true, init: initStreamingGeneration },
                 { condition: !CHAT_SURFACE_MANAGED, init: initButtonCollapse }
             ];
-            moduleInits.forEach(({ condition, init }) => { if (condition) init(); });
+            for (const { condition, init } of moduleInits) {
+                if (condition) { observeBackgroundTask(init(), { source: import.meta.url, operation: init.name }); }
+            }
             await initDrawFeatures();
             await initEnabledXiaobaiOs();
 
@@ -1199,6 +1203,6 @@ jQuery(async () => {
     } catch (err) {
         console.error('[LittleWhiteBox] 初始化失败:', err);
     }
-});
+}, { source: import.meta.url, operation: "callback" }));
 
 export { executeSlashCommand };

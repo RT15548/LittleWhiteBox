@@ -913,6 +913,30 @@ test('retained compiler failures redact the image provider credentials still own
     assert.doesNotMatch(JSON.stringify(failed), /image-secret|pa%24%24word|pa\$\$word/);
 });
 
+// Contract: credential discovery must not log raw URL inputs, including malformed ones (credential disclosure).
+test('credential collection never logs raw invalid URLs or optional empty endpoint values', async (t) => {
+    const logs = [];
+    t.mock.method(console, 'warn', (...args) => { logs.push(args); });
+    t.mock.method(console, 'error', (...args) => { logs.push(args); });
+    const sentinel = 'test-url-credential';
+    for (const [index, baseUrl] of ['', `://user:${sentinel}@host?token=${sentinel}`, `https://user:%ZZ${sentinel}@host`].entries()) {
+        const { manager } = createManager({ runtime: createRuntime({
+            compileDrawRunImages() { throw new Error('compiler failed'); },
+        }) });
+        t.after(() => manager.close());
+        const runId = `run-url-redaction-${index}`;
+        const envelope = createEnvelope(runId);
+        envelope.agent.providerConfig.baseUrl = baseUrl;
+        manager.create('alice', envelope, {});
+        const failed = await waitFor(() => {
+            const run = manager.get('alice', runId);
+            return run?.state === 'failed' ? run : null;
+        });
+        assert.equal(JSON.stringify({ failed, logs }).includes(sentinel), false);
+    }
+    assert.equal(logs.length, 0);
+});
+
 test('hosted Agent proxy passwords remain available only for the request-scoped Planner', async (t) => {
     const envelope = createEnvelope('run-test-005');
     envelope.agent.channel = 'sillytavern-openai-compatible';

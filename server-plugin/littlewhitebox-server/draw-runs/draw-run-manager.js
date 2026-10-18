@@ -40,8 +40,9 @@ function collectSecrets(value, output = new Set()) {
         addSecret(secret);
         try {
             addSecret(decodeURIComponent(secret));
-        } catch {
-            // Keep the original URL-encoded credential when it is not valid percent encoding.
+        } catch (caughtError) {
+            // Malformed percent encoding is opaque credential text; the original is retained.
+            if (!(caughtError instanceof URIError)) throw caughtError;
         }
     };
     if (!value || typeof value !== 'object') return output;
@@ -60,8 +61,10 @@ function collectSecrets(value, output = new Set()) {
                 url.searchParams.forEach((entry, name) => {
                     if (/key|token|password|secret|auth/i.test(name)) addSecret(entry);
                 });
-            } catch {
-                // Non-URL host strings remain valid provider input and contain no extractable credentials.
+            } catch (caughtError) {
+                // Empty/default and non-URL host values have no URL components to collect.
+                // ERR_INVALID_URL carries the raw input and must never be logged here.
+                if (caughtError.code !== 'ERR_INVALID_URL') throw caughtError;
             }
         }
         if (child && typeof child === 'object') collectSecrets(child, output);
@@ -373,13 +376,13 @@ class DrawRunManager {
             if (!run) continue;
             this.activePlanners += 1;
             this.activeOwners.set(run.owner, (this.activeOwners.get(run.owner) || 0) + 1);
-            void this.#execute(run).finally(() => {
+            this.#execute(run).finally(() => {
                 this.activePlanners = Math.max(0, this.activePlanners - 1);
                 const ownerActive = Math.max(0, (this.activeOwners.get(run.owner) || 1) - 1);
                 if (ownerActive) this.activeOwners.set(run.owner, ownerActive);
                 else this.activeOwners.delete(run.owner);
                 queueMicrotask(() => this.#pump());
-            });
+            }).catch(error => console.error('[LittleWhiteBox] draw run failed', error));
         }
     }
 

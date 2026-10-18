@@ -17,7 +17,7 @@ export function createVariablesPanelRuntime({ createPanel, disposePanel }) {
         } catch (error) {
             if (lifecycle === initLifecycle && instance === nextInstance) {
                 instance = null;
-                try { disposePanel(nextInstance); } catch {}
+                try { disposePanel(nextInstance); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); }
             }
             throw error;
         } finally {

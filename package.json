@@ -4,7 +4,7 @@
     "type": "module",
     "scripts": {
         "build": "npm run lint && node scripts/build.mjs",
-        "check": "npm run lint && node scripts/build.mjs --check && npm test && node scripts/check-runtime.mjs",
+        "check": "node scripts/check.mjs",
         "test": "node scripts/test.mjs",
         "replay": "node scripts/story-summary-replay-runner.mjs",
         "replay:bootstrap": "node scripts/story-summary-replay-runner.mjs bootstrap",
@@ -24,6 +24,7 @@
         "optimize:island:characters": "node scripts/optimize-island-characters.mjs"
     },
     "devDependencies": {
+        "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",
         "@msgpack/msgpack": "^3.1.3",
         "@types/three": "0.180.0",
         "@typescript-eslint/eslint-plugin": "^8.62.0",

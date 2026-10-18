@@ -17,8 +17,8 @@ export function hasNovelV5FinalImageCapability(status) {
 async function rejectBackendResult(response, message, code) {
     try {
         await response?.body?.cancel?.();
-    } catch {
-        // 结果已经判定不可使用；取消失败不能覆盖真正的契约错误。
+    } catch (caughtError) {
+        console.debug({ source: import.meta.url, operation: "rejectBackendResult" }, caughtError);
     }
     const error = new ImageBackendJobsError(message, { code });
     error.discardBackendResult = true;

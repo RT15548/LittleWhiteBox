@@ -108,7 +108,7 @@ export function createWorldController({ world, settings, maintenance, getChatIde
                         const before = settings.read()!.apps.world[key];
                         if (key === 'subscribed' && payload.enabled && !before) {
                             let ready = false;
-                            try { ready = await checkAgent(); } catch { /* Report only application-owned text. */ }
+                            try { ready = await checkAgent(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleMessage" }, caughtError); }
                             if (!ready) { throw new Error('请先在 API 应用中配置可用的模型。'); }
                         }
                         if (!guard()) { throw new Error('页面已切换，本次操作已停止。'); }

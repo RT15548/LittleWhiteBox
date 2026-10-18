@@ -204,7 +204,7 @@ export async function adoptExistingJobFromDrawRun({
     if (record.state !== PendingJobState.ADOPTING) return { status: 'active', record, owned: false };
     if (!acquired.owned) return { status: 'wait', reason: 'lease_active', record, owned: false };
 
-    const releaseOwned = async () => journal.release(record.jobId, record.leaseId).catch(() => {});
+    const releaseOwned = async () => journal.release(record.jobId, record.leaseId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "releaseOwned" }, caughtError); });
     try {
         const guard = () => journal.fence(record.jobId, record.leaseId);
         if (record.adoptionPhase === PendingJobAdoptionPhase.READY) {

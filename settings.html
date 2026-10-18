@@ -566,7 +566,7 @@
       const KEY = 'xiaobaix_x_btn_position';
       const LABEL = { 'edit-right': 'X按钮:左', 'name-left': 'X按钮:右' };
       const readLS = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
-      const writeLS = (v) => { try { localStorage.setItem(KEY, v); } catch { } };
+      const writeLS = (v) => { try { localStorage.setItem(KEY, v); } catch (caughtError) { console.warn('[LittleWhiteBox settings.html]', caughtError); } };
       let cur = window?.extension_settings?.LittleWhiteBox?.xBtnPosition || readLS() || 'name-left';
       const write = (v) => {
         cur = v;
@@ -575,7 +575,7 @@
           const box = (es.LittleWhiteBox ||= {});
           box.xBtnPosition = v;
           window.saveSettingsDebounced?.();
-        } catch { }
+        } catch (caughtError) { console.warn('[LittleWhiteBox settings.html]', caughtError); }
         writeLS(v);
       };
       const applyLabelTo = (el) => {
@@ -590,7 +590,7 @@
           const el = document.getElementById('xiaobaix_xposition_btn');
           if (el) { applyLabelTo(el); obs.disconnect(); }
         });
-        try { mo.observe(document.body, { childList: true, subtree: true }); } catch { }
+        try { mo.observe(document.body, { childList: true, subtree: true }); } catch (caughtError) { console.warn('[LittleWhiteBox settings.html]', caughtError); }
       }
       const onClick = (ev) => {
         const el = ev.target?.closest?.('#xiaobaix_xposition_btn');
@@ -633,44 +633,44 @@
 	    function setModuleEnabled(key, enabled) {
 	      const id = KEY_TO_CHECKBOX[key], el = id ? $id(id) : null;
 	      if (key === 'xiaobaiOs') {
-	        if (el) { el.checked = !!enabled; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { } }
+	        if (el) { el.checked = !!enabled; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } }
 	        return;
 	      }
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};
 	        extension_settings[EXT_ID][key].enabled = !!enabled;
-      } catch (e) { }
-      if (el) { el.checked = !!enabled; try { triggerChange(el); } catch (e) { } }
+      } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
+      if (el) { el.checked = !!enabled; try { triggerChange(el); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } }
     }
     function captureStates() {
       const out = { modules: {}, drawProvider: 'disabled', useBlob: false, renderEnabled: true };
-      try { MODULE_KEYS.forEach(k => { out.modules[k] = !!(extension_settings[EXT_ID][k] && extension_settings[EXT_ID][k].enabled); }); } catch (e) { }
-      try { out.drawProvider = normalizeDrawProvider(extension_settings[EXT_ID].drawProvider); } catch (e) { }
-      try { out.useBlob = !!extension_settings[EXT_ID].useBlob; } catch (e) { }
-      try { out.renderEnabled = extension_settings[EXT_ID].renderEnabled !== false; } catch (e) { }
+      try { MODULE_KEYS.forEach(k => { out.modules[k] = !!(extension_settings[EXT_ID][k] && extension_settings[EXT_ID][k].enabled); }); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
+      try { out.drawProvider = normalizeDrawProvider(extension_settings[EXT_ID].drawProvider); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
+      try { out.useBlob = !!extension_settings[EXT_ID].useBlob; } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
+      try { out.renderEnabled = extension_settings[EXT_ID].renderEnabled !== false; } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
       return out;
     }
     function applyStates(st) {
       if (!st) return;
-      try { MODULE_KEYS.forEach(k => { if (Object.hasOwn(st.modules || {}, k)) setModuleEnabled(k, !!st.modules[k]); }); } catch (e) { }
+      try { MODULE_KEYS.forEach(k => { if (Object.hasOwn(st.modules || {}, k)) setModuleEnabled(k, !!st.modules[k]); }); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
       try {
         const nextProvider = st.drawProvider === undefined
           ? normalizeDrawProvider(extension_settings[EXT_ID].drawProvider)
           : normalizeDrawProvider(st.drawProvider);
         const el = $id('xiaobaix_draw_provider');
-        if (el) { el.value = nextProvider; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { } }
+        if (el) { el.value = nextProvider; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } }
         else { extension_settings[EXT_ID].drawProvider = nextProvider; }
-      } catch (e) { }
+      } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
       try {
         extension_settings[EXT_ID].useBlob = !!st.useBlob;
-        const el = $id('xiaobaix_use_blob'); if (el) { el.checked = !!st.useBlob; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { } }
-      } catch (e) { }
-      try { extension_settings[EXT_ID].wrapperIframe = true; } catch (e) { }
+        const el = $id('xiaobaix_use_blob'); if (el) { el.checked = !!st.useBlob; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } }
+      } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
+      try { extension_settings[EXT_ID].wrapperIframe = true; } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
       try {
         extension_settings[EXT_ID].renderEnabled = st.renderEnabled !== false;
-        const el = $id('xiaobaix_render_enabled'); if (el) { el.checked = st.renderEnabled !== false; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { } }
-      } catch (e) { }
-      try { if (window.saveSettingsDebounced) window.saveSettingsDebounced(); } catch (e) { }
+        const el = $id('xiaobaix_render_enabled'); if (el) { el.checked = st.renderEnabled !== false; if (window.isXiaobaixEnabled) try { triggerChange(el); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } }
+      } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
+      try { if (window.saveSettingsDebounced) window.saveSettingsDebounced(); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); }
     }
     function initTaskTabs() {
       const tabs = Array.from(document.querySelectorAll('.task-tab'));
@@ -695,8 +695,8 @@
         showPanel(initial.dataset.target);
       }
     }
-    window.XB_captureAndStoreStates = function () { try { extension_settings[EXT_ID].prevModuleStatesV2 = captureStates(); if (window.saveSettingsDebounced) window.saveSettingsDebounced(); } catch (e) { } };
-    window.XB_applyPrevStates = function () { try { const st = extension_settings[EXT_ID].prevModuleStatesV2; if (st) applyStates(st); } catch (e) { } };
+    window.XB_captureAndStoreStates = function () { try { extension_settings[EXT_ID].prevModuleStatesV2 = captureStates(); if (window.saveSettingsDebounced) window.saveSettingsDebounced(); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } };
+    window.XB_applyPrevStates = function () { try { const st = extension_settings[EXT_ID].prevModuleStatesV2; if (st) applyStates(st); } catch (e) { console.warn('[LittleWhiteBox settings.html]', e); } };
     onReady(() => {
       setupXBtnPositionButton();
       initTaskTabs();

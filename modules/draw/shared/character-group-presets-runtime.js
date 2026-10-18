@@ -9,6 +9,8 @@ import {
     loadSharedDrawSettings,
     updateSharedDrawSettingsPersistent,
 } from './draw-settings.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const MODULE_ID = 'drawGroupPresets';
 
@@ -59,7 +61,7 @@ export function listCharactersFromContext(ctx) {
 function defaultToast(message) {
     try {
         globalThis.toastr?.info?.(message);
-    } catch { /* 提示失败不影响应用 */ }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "defaultToast" }, caughtError); }
 }
 
 function describe(plan, extra = {}) {
@@ -108,7 +110,7 @@ export function createGroupPresetRuntime(deps = {}) {
 
     function enqueue(task) {
         const run = queue.then(task, task);
-        queue = run.catch(() => {});
+        queue = run.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "enqueue" }, caughtError); });
         return run;
     }
 
@@ -252,7 +254,7 @@ export function createGroupPresetRuntime(deps = {}) {
         const generation = ++watcherGeneration;
         events = createEvents(moduleId);
         const handler = () => {
-            enqueue(async () => {
+            observeBackgroundTask(enqueue(async () => {
                 if (generation !== watcherGeneration || !events) return { status: 'stopped' };
                 try {
                     return await runApply({ force: false, presetId: '' });
@@ -263,7 +265,7 @@ export function createGroupPresetRuntime(deps = {}) {
                     // 没命中 / 已应用过时不会有 applied 事件：单独通知面板刷新“当前聊天”相关显示。
                     if (generation === watcherGeneration && events) emitContextChanged();
                 }
-            });
+            }), { source: "modules/draw/shared/character-group-presets-runtime.js", operation: "handler" });
         };
         events.on(eventTypes.CHAT_CHANGED, handler);
         if (eventTypes.GROUP_UPDATED) events.on(eventTypes.GROUP_UPDATED, handler);

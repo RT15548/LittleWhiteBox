@@ -55,6 +55,8 @@ import {
 } from '../shared/workspace-protocol.js';
 import { createPlanLedger } from '../../agent-core/plan-ledger.js';
 import { plansTable as assistantPlansTable } from './state/session-db.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
@@ -396,7 +398,7 @@ function setWorkspacePanelMode(mode = 'workspace', options = {}) {
         ensureSkillSelection();
     }
     if (options.persist !== false) {
-        void persistWorkspaceUiState();
+        observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "setWorkspacePanelMode" });
     }
     if (options.render !== false) {
         renderWorkspaceOnly();
@@ -420,7 +422,7 @@ function selectSkillFile(targetPath = '', options = {}) {
     state.selectedTreePath = '';
     state.mobileWorkspacePane = 'viewer';
     if (options.persist !== false) {
-        void persistWorkspaceUiState();
+        observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "selectSkillFile" });
     }
     return true;
 }
@@ -437,7 +439,7 @@ function updateSkillFileContent(targetPath, content) {
         };
     });
     if (changed) {
-        void persistWorkspaceUiState();
+        observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "updateSkillFileContent" });
     }
     return changed;
 }
@@ -455,7 +457,7 @@ function restoreSkillFile(targetPath = '') {
         };
     });
     if (changed) {
-        void persistWorkspaceUiState();
+        observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "restoreSkillFile" });
         renderWorkspaceOnly();
     }
     return changed;
@@ -609,13 +611,13 @@ function renderWorkspacePanel(container, options = {}) {
             onSearchChange: (value) => {
                 state.fileSearchQuery = String(value || '');
                 ensureSkillSelection();
-                void persistWorkspaceUiState();
+                observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "onSearchChange" });
                 renderWorkspaceOnly();
             },
             onToggleModifiedOnly: (value) => {
                 state.showModifiedOnly = !!value;
                 ensureSkillSelection();
-                void persistWorkspaceUiState();
+                observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "onToggleModifiedOnly" });
                 renderWorkspaceOnly();
             },
             onToggleNode: (nodeKey) => {
@@ -623,7 +625,7 @@ function renderWorkspacePanel(container, options = {}) {
                 if (next.has(nodeKey)) next.delete(nodeKey);
                 else next.add(nodeKey);
                 state.skillTreeExpandedKeys = Array.from(next);
-                void persistWorkspaceUiState();
+                observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "onToggleNode" });
                 renderWorkspaceOnly();
             },
             onSelectFile: (targetPath) => {
@@ -633,7 +635,7 @@ function renderWorkspacePanel(container, options = {}) {
             onSelectNode: () => {},
             onSetViewerMode: (mode) => {
                 state.viewerMode = mode;
-                void persistWorkspaceUiState();
+                observeBackgroundTask(persistWorkspaceUiState(), { source: import.meta.url, operation: "onSetViewerMode" });
                 renderWorkspaceOnly();
             },
             onShowTree: () => {
@@ -647,7 +649,7 @@ function renderWorkspacePanel(container, options = {}) {
             },
             onUpdateFileContent: (targetPath, content) => updateSkillFileContent(targetPath, content),
             onSaveFile: (targetPath) => {
-                void saveSkillFile(targetPath);
+                observeBackgroundTask(saveSkillFile(targetPath), { source: import.meta.url, operation: "onSaveFile" });
             },
             canSaveFile: (file) => isTrackedFileModified(file),
             showDownloadButton: true,
@@ -1539,7 +1541,7 @@ function render() {
             toggleWorkspacePanel();
         },
         onClearLocalSources: () => {
-            clearLocalSources();
+            observeBackgroundTask(clearLocalSources(), { source: import.meta.url, operation: "onClearLocalSources" });
         },
     });
     syncAgentSettingsPanelFeedback(root, {
@@ -1683,7 +1685,7 @@ function bindEvents(root) {
     });
 
     root.querySelector('#xb-assistant-mobile-close')?.addEventListener('click', () => {
-        void closeAssistantAfterWorkspaceFlush();
+        observeBackgroundTask(closeAssistantAfterWorkspaceFlush(), { source: import.meta.url, operation: "callback" });
     });
 
     root.querySelector('#xb-assistant-open-workspace')?.addEventListener('click', () => {
@@ -2045,15 +2047,14 @@ function bindEvents(root) {
     resizeComposer();
 }
 
-// Guarded by origin/source checks below.
-// eslint-disable-next-line no-restricted-syntax
+// eslint-disable-next-line no-restricted-syntax -- Guarded by origin/source checks below.
 window.addEventListener('message', (event) => {
     if (event.origin !== window.location.origin || event.source !== parent) {
         return;
     }
     const data = event.data || {};
     if (data.type === 'xb-assistant:prepare-close') {
-        void closeAssistantAfterWorkspaceFlush();
+        observeBackgroundTask(closeAssistantAfterWorkspaceFlush(), { source: import.meta.url, operation: "callback" });
         return;
     }
     if (data.type === 'xb-assistant:config') {
@@ -2155,7 +2156,7 @@ window.addEventListener('message', (event) => {
                 kernelVersion: String(data.payload?.kernelVersion || getWorkspaceRuntimeMeta().kernelVersion || WORKSPACE_KERNEL_VERSION),
             },
         };
-        void applyExternalLocalSources(data.payload?.localSources || []);
+        observeBackgroundTask(applyExternalLocalSources(data.payload?.localSources || []), { source: import.meta.url, operation: "callback" });
         return;
     }
 

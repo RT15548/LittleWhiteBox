@@ -6,6 +6,8 @@ import FourthWallContent from './FourthWallContent.js';
 import { parseFourthWallContent } from './message-content.js';
 import type { FourthWallGenerationState, FourthWallHistoryPage, FourthWallTaskPhase } from '../types.js';
 import { HISTORY_WINDOW_LIMIT } from '../domain/context-policy.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{
     page: FourthWallHistoryPage;
@@ -132,7 +134,7 @@ function setDraft(index: number, content: string) {
 watch(() => props.page, next => {
     pageSequence++;
     loading.value = false;
-    void install(next, next.sessionId !== page.value.sessionId || followLatest.value);
+    observeBackgroundTask(install(next, next.sessionId !== page.value.sessionId || followLatest.value), { source: import.meta.url, operation: "callback" });
 }, { immediate: true });
 watch(() => props.sessionId, () => { editing.value = null; followLatest.value = true; });
 watch(() => [props.generation.text, props.generation.thinking, props.generation.status], async () => {

@@ -13,6 +13,8 @@ import ShopProductDetail from './ShopProductDetail.vue';
 import ShopIcon from './ShopIcon.vue';
 import { shopPurchaseReason } from './shop-display.js';
 import './shop.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 interface PendingAction {
     mode: 'purchase' | 'use' | 'deactivate';
@@ -44,7 +46,7 @@ let unsubscribe = () => {};
 let requestGeneration = 0;
 useAppBack(() => {
     if (pending.value) { closeAction(); return true; }
-    if (selectedItemId.value) { void closeDetail(); return true; }
+    if (selectedItemId.value) { observeBackgroundTask(closeDetail(), { source: import.meta.url, operation: "callback" }); return true; }
     if (page.value !== 'shelf') { navigate('shelf'); return true; }
     return false;
 });

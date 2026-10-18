@@ -56,6 +56,8 @@ import {
     TAVERN_PET_REBUFF_FACE,
     type TavernPetUtterancePresentation,
 } from './tavern-pet-presentation';
+import { observeBackgroundTask } from '../../../../../../../shared/common/async-errors.js';
+
 
 type TavernPetModelRunner = (options: TavernRunOnceOptions) => Promise<TavernRunOnceResult>;
 type TavernPetMutationKind = Exclude<TavernPetInteractionId, 'chat'>
@@ -469,7 +471,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
             } else {
                 armMurmur('');
             }
-            void refreshWalletAfterCommit(sessionId);
+            observeBackgroundTask(refreshWalletAfterCommit(sessionId), { source: import.meta.url, operation: "runMutation" });
             return owns() ? result : null;
         } catch (error) {
             if (owns()) {await recoverMutationError(error, owns);}
@@ -906,11 +908,11 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
     function schedulePendingEvolution(): void {
         if (disposed || pendingScheduleQueued) {return;}
         pendingScheduleQueued = true;
-        void Promise.resolve().then(async () => {
+        observeBackgroundTask(Promise.resolve().then(async () => {
             pendingScheduleQueued = false;
             if (disposed) {return;}
             await processPendingEvolution();
-        });
+        }), { source: import.meta.url, operation: "schedulePendingEvolution" });
     }
 
     async function refreshAfterPetDomainChange(
@@ -945,7 +947,7 @@ export function useTavernPetController(options: TavernPetControllerOptions) {
 
     watch(options.selectedSessionId, () => {
         resetState();
-        if (currentSessionId()) {void preparePet();}
+        if (currentSessionId()) {observeBackgroundTask(preparePet(), { source: import.meta.url, operation: "callback" });}
     }, { immediate: true });
     watch([
         () => view.value.pendingEvolution,

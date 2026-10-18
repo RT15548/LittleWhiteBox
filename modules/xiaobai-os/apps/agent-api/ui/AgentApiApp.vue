@@ -7,6 +7,8 @@ import '../../../../agent-core/ui/settings-surface.css';
 import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { AgentApiClientState, AgentApiConnectionResult } from '../types.js';
 import './agent-api.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type UnknownRecord = Record<string, unknown>;
 type SaveRequest = { payload?: UnknownRecord };
@@ -120,8 +122,7 @@ const panel = createAgentSettingsPanel({
 function renderPanel(): void {
     const root = panelRoot.value;
     if (!root || !panelState.config) {return;}
-    // This markup is produced by the first-party Agent Core form renderer.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- This markup is produced by the first-party Agent Core form renderer.
     root.innerHTML = buildAgentSettingsPanelMarkup({
         configSave: panelState.configSave,
         inlineToastText: panelState.inlineToastText,
@@ -142,7 +143,7 @@ function applyClientState(next: AgentApiClientState): void {
         panelState.configDirty = false;
         panelState.configFormSyncPending = true;
     }
-    void nextTick(renderPanel);
+    observeBackgroundTask(nextTick(renderPanel), { source: import.meta.url, operation: "applyClientState" });
 }
 
 async function testConnection(): Promise<void> {

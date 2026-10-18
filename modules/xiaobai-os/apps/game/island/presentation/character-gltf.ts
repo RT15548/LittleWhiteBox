@@ -37,7 +37,7 @@ export async function loadCharacterGltf(url: string, signal: AbortSignal) {
         const tracked = promise.then(value => { collect(value); return value; });
         pending.push(tracked);
         // Some parser branches reject before their siblings have been awaited.
-        void tracked.catch(() => {});
+        void tracked.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "track" }, caughtError); });
         return tracked;
     }
     async function settle() {

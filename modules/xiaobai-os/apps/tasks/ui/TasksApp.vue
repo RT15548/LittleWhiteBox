@@ -24,6 +24,8 @@ import TaskRecruitment from './TaskRecruitment.vue';
 import TaskConfirmDialog from './TaskConfirmDialog.vue';
 import { taskLanes, taskMoney } from './task-display.js';
 import './tasks.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type MainPage = 'board' | 'active' | 'published' | 'history';
 type TasksPage = MainPage | 'settings' | 'publish' | 'detail' | 'listing' | 'recruit';
@@ -54,7 +56,7 @@ function fallbackState(): TasksPresentation {
     };
 }
 
-function initialState(value: unknown): TasksPresentation {
+function createInitialState(value: unknown): TasksPresentation {
     return value && typeof value === 'object'
         ? structuredClone(toRaw(value as TasksPresentation))
         : fallbackState();
@@ -68,7 +70,7 @@ function resultBody(response: unknown): unknown {
     return isRecord(response) ? response.result : null;
 }
 
-const state = ref(initialState(props.initialState));
+const state = ref(createInitialState(props.initialState));
 const page = ref<TasksPage>('board');
 const parents: Partial<Record<TasksPage, TasksPage>> = {};
 const detail = ref<TaskDetailPresentation | null>(null);
@@ -142,7 +144,7 @@ function applyState(next: TasksPresentation): void {
             : [...next.active, ...next.recruiting, ...next.history.items]
                 .find(task => task.taskId === displayedTask.taskId);
         if (latest && latest.eventId !== displayedTask.eventId) {
-            void openDetail(latest.taskId, true, selectedDetailScopeId.value);
+            observeBackgroundTask(openDetail(latest.taskId, true, selectedDetailScopeId.value), { source: import.meta.url, operation: "applyState" });
         }
     }
 }
@@ -387,7 +389,7 @@ function go(next: TasksPage, restore = false): void {
     };
     detailRequest += 1;
     page.value = next;
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         if (!mounted || page.value !== next) {return;}
         const position = restore ? pagePositions[next] : undefined;
         content.value?.scrollTo(0, position?.scrollTop ?? 0);
@@ -396,7 +398,7 @@ function go(next: TasksPage, restore = false): void {
                 .find(button => button.dataset.navigationId === position.focusKey)
             : undefined;
         (trigger ?? content.value)?.focus({ preventScroll: true });
-    });
+    }), { source: import.meta.url, operation: "go" });
 }
 
 const back = useAppBack(() => {
@@ -414,7 +416,7 @@ function openPublished(commission: OwnedCommission): void {
     if (task.status === 'recruiting' && scopeId === state.value.currentScopeId) {
         selectedTaskId.value = task.taskId;
         go('recruit');
-    } else {void openDetail(task.taskId, false, scopeId);}
+    } else {observeBackgroundTask(openDetail(task.taskId, false, scopeId), { source: import.meta.url, operation: "openPublished" });}
 }
 
 function showPublishedHistory(): void {
@@ -437,9 +439,9 @@ function askAssign(task: TaskRecord, candidateId: string): void {
 function confirmAction(): void {
     const action = confirmation.value;
     if (!action) {return;}
-    if (action.kind === 'publish') {void confirmPublish();}
-    else if (action.kind === 'cancel') {void cancelTask(action.task);}
-    else {void assignTask(action.task, action.candidateId);}
+    if (action.kind === 'publish') {observeBackgroundTask(confirmPublish(), { source: import.meta.url, operation: "confirmAction" });}
+    else if (action.kind === 'cancel') {observeBackgroundTask(cancelTask(action.task), { source: import.meta.url, operation: "confirmAction" });}
+    else {observeBackgroundTask(assignTask(action.task, action.candidateId), { source: import.meta.url, operation: "confirmAction" });}
 }
 
 

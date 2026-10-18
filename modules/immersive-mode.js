@@ -1001,7 +1001,7 @@ function updateSwipesCounter($targetMes) {
                 $swipesCounter.html(`${currentSwipeIndex + 1}&ZeroWidthSpace;/&ZeroWidthSpace;${message.swipes.length}`);
                 return;
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) { console.warn({ source: import.meta.url, operation: "updateSwipesCounter" }, e); }
     }
     $swipesCounter.html('1&ZeroWidthSpace;/&ZeroWidthSpace;1');
 }

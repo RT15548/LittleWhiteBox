@@ -1,4 +1,5 @@
 import { normalizeWebSettings } from '../agent-core/web/settings.js';
+import { tryParseJson } from '../../shared/common/json-candidate.js';
 import { getRequestHeaders } from "../../../../../../script.js";
 import * as scriptModule from "../../../../../../script.js";
 import { getContext } from "../../../../../extensions.js";
@@ -68,6 +69,10 @@ import {
     buildWorkspaceOpMeta,
     isWorkspaceMutationTool,
 } from "./shared/workspace-protocol.js";
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+
+const handleIframeMessageEvent = observeAsyncCallback(handleIframeMessage, { source: import.meta.url, operation: "handleIframeMessage" });
+
 
 const MODULE_ID = 'assistant';
 const OVERLAY_ID = 'xiaobaix-assistant-overlay';
@@ -296,8 +301,8 @@ async function buildAssistantRuntimePayload(signal) {
 
     try {
         await ensureUserFile(getAssistantSettings().workspaceFileName || DEFAULT_WORKSPACE_FILE, DEFAULT_WORKLOG_CONTENT, { signal });
-    } catch {
-        // Ignore auto-create failures so the assistant can still start.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "buildAssistantRuntimePayload" }, caughtError);
     }
 
     const skillsRuntime = await readSkillsRuntimeData({ signal });
@@ -817,10 +822,8 @@ function buildSkillFileContent({
 function parseSkillFrontmatterListValue(rawValue = '') {
     const value = String(rawValue ?? '').trim();
     if (!value) return '';
-    try {
-        const parsed = JSON.parse(value);
-        if (typeof parsed === 'string') return parsed;
-    } catch {}
+    const candidate = tryParseJson(value);
+    if (candidate.ok && typeof candidate.value === 'string') return candidate.value;
     return value.replace(/^"([\s\S]*)"$/, '$1').replace(/^'([\s\S]*)'$/, '$1');
 }
 
@@ -2845,8 +2848,8 @@ async function readSkillsRuntimeData(options = {}) {
                 memorySection: 'skills',
                 noteKind: '',
             });
-        } catch {
-            // Ignore individual skill file failures so the rest of the panel can still load.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "readSkillsRuntimeData" }, caughtError);
         }
     }
 
@@ -2873,8 +2876,8 @@ async function readSkillsRuntimeData(options = {}) {
                 memorySection: 'notes',
                 noteKind: 'identity',
             });
-        } catch {
-            // Ignore note loading failures so the rest of the panel can still load.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "readSkillsRuntimeData" }, caughtError);
         }
     }
 
@@ -2901,8 +2904,8 @@ async function readSkillsRuntimeData(options = {}) {
                 memorySection: 'notes',
                 noteKind: 'worklog',
             });
-        } catch {
-            // Ignore note loading failures so the rest of the panel can still load.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "readSkillsRuntimeData" }, caughtError);
         }
     }
 
@@ -3270,9 +3273,8 @@ function openAssistant() {
     if (!getAssistantHostWindow().open()) return;
     settingsLoaded = false;
 
-    // Guarded inside handleIframeMessage via isTrustedIframeEvent.
-    // eslint-disable-next-line no-restricted-syntax
-    window.addEventListener('message', handleIframeMessage);
+    // eslint-disable-next-line no-restricted-syntax -- Guarded inside handleIframeMessage via isTrustedIframeEvent.
+    window.addEventListener('message', handleIframeMessageEvent);
 }
 
 async function pushAssistantConfigToIframe(options = {}) {
@@ -3342,7 +3344,7 @@ function openAssistantSettings() {
 }
 
 function closeAssistant() {
-    window.removeEventListener('message', handleIframeMessage);
+    window.removeEventListener('message', handleIframeMessageEvent);
     getAssistantHostWindow().close();
     getLocalSourcesToolRuntime().clearLocalSources();
     assistantFrameReady = false;
@@ -3548,8 +3550,8 @@ async function handleIframeMessage(event) {
 export async function initAssistant() {
     try {
         await loadAssistantSettings();
-    } catch {
-        // Opening the settings surface will retry the shared read.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "initAssistant" }, caughtError);
     }
     document.addEventListener('xb-assistant:editor-context', handleAssistantEditorContextEvent);
     window.xiaobaixAssistant = {
@@ -3559,7 +3561,7 @@ export async function initAssistant() {
         getSettings: () => ({ ...getAssistantSettings() }),
         refreshConfig: () => {
             settingsLoaded = false;
-            void pushAssistantConfigToIframe({ force: true });
+            observeBackgroundTask(pushAssistantConfigToIframe({ force: true }), { source: import.meta.url, operation: "refreshConfig" });
         },
         setEditorContext: (payload) => setAssistantEditorContext(payload),
         clearEditorContext: () => clearAssistantEditorContext(),

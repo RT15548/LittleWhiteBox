@@ -26,6 +26,8 @@ import {
     findTextToolStart,
     scanTextToolBlocks,
 } from './text-tool-protocol.js';
+const ERROR_SOURCE = "modules/agent-core/adapters/openai-compatible.js";
+
 
 function parseArgumentsForTaggedReplay(text) {
     try {
@@ -978,8 +980,8 @@ async function readSseEventsFromResponse(response, onEvent) {
     } catch (error) {
         try {
             await reader.cancel();
-        } catch {
-            // A failed stream can also reject cancellation; preserve the original failure.
+        } catch (caughtError) {
+            console.debug({ source: ERROR_SOURCE, operation: "readSseEventsFromResponse" }, caughtError);
         }
         throw error;
     } finally {
@@ -996,8 +998,10 @@ function describeOpenAICompatibleHttpError(rawText, status) {
             if (typeof message === 'string' && message.trim()) {
                 return message.trim();
             }
-        } catch {
-            // Keep the provider response below when it is not valid JSON.
+        } catch (caughtError) {
+            if (!(caughtError instanceof SyntaxError)) {
+                console.warn({ source: ERROR_SOURCE, operation: "describeOpenAICompatibleHttpError" }, caughtError);
+            }
         }
     }
     return source || `OpenAI 兼容流式请求失败（HTTP ${status}）`;

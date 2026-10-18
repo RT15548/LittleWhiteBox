@@ -46,7 +46,7 @@ export async function waitForMemoryCommit(signal) {
     const recovery = uncertain?.status === 'unconfirmed' ? uncertain.reconfirm?.() : null;
     // The caller may cancel its wait while the bounded, read-only confirmation
     // finishes. Observe the result below without leaving an unhandled rejection.
-    recovery?.catch(() => {});
+    recovery?.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "waitForMemoryCommit" }, caughtError); });
     let pending;
     while ((pending = getPendingMemoryCommit(owner))) {
         throwIfSignalAborted(signal);

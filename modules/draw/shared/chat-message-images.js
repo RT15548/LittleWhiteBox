@@ -9,6 +9,8 @@ import { DRAW_SLOT_COPY } from './image-record.js';
 import { subscribeChatImagePlacement } from './chat-image-placement.js';
 import { withDrawActionFeedback } from './draw-action-feedback.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const events = createModuleEvents('chatMessageImages');
 const leases = new Map();
@@ -42,8 +44,7 @@ function requestRefresh(message) {
 
 function createPendingCard(document, options) {
     const template = document.createElement('template');
-    // Only Draw's escaped, locally generated markup is parsed.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Only Draw's escaped, locally generated markup is parsed.
     template.innerHTML = buildPendingImageHtml(options);
     return template.content.firstElementChild;
 }
@@ -223,7 +224,7 @@ export function initChatMessageImages() {
     });
     events.on(event_types.MESSAGE_SWIPED, () => session.targetChanged());
     events.on(event_types.MORE_MESSAGES_LOADED, () => drawMessageViewport.refresh());
-    void loadChat();
+    observeBackgroundTask(loadChat(), { source: "modules/draw/shared/chat-message-images.js", operation: "initChatMessageImages" });
     return true;
 }
 

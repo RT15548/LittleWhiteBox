@@ -5,6 +5,8 @@ import {
     type ScenePlacement,
 } from '../../../../draw/shared/scene-placement.js';
 import type { TavernMessageContentUpdateResult, TavernMessageRecord } from '../../../shared/session-db';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type TavernToastTone = 'info' | 'warning' | 'danger';
 type TavernDrawJobStatus = 'queued' | 'running' | 'awaiting-placement' | 'success' | 'failed' | 'cancelled';
@@ -351,7 +353,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
             const result = await options.requestHost('xb-tavern:draw-status', {});
             applyTavernDrawStatus(result);
             if (tavernDrawCapsuleVisible.value) {
-                void refreshTavernDrawQuickSettings();
+                observeBackgroundTask(refreshTavernDrawQuickSettings(), { source: import.meta.url, operation: "refreshTavernDrawStatus" });
             }
         } catch {
             applyTavernDrawStatus({ provider: 'disabled', enabled: false, ready: false });
@@ -493,7 +495,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
     async function openTavernDrawSettings(): Promise<void> {
         try {
             await options.requestHost('xb-tavern:draw-open-settings', {});
-            void refreshTavernDrawStatus();
+            observeBackgroundTask(refreshTavernDrawStatus(), { source: import.meta.url, operation: "openTavernDrawSettings" });
         } catch (error) {
             options.showToast(`打开画图设置失败：${options.describeError(error)}`, { tone: 'warning', durationMs: 4200 });
         }
@@ -519,7 +521,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
                 statusKind: 'error',
                 progressText: '已取消插入图片',
             }, 1800);
-            void processNextDrawJob();
+            observeBackgroundTask(processNextDrawJob(), { source: import.meta.url, operation: "cancelJob" });
             return;
         }
         job.controller?.abort();
@@ -586,7 +588,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
         };
         drawQueue.value = [...drawQueue.value.filter((item) => item !== key), key];
         updateQueuedDrawJobStatuses();
-        void processNextDrawJob();
+        observeBackgroundTask(processNextDrawJob(), { source: import.meta.url, operation: "enqueueDrawMessageJob" });
     }
 
     async function processNextDrawJob(): Promise<void> {
@@ -610,7 +612,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
             progressText: '图片已生成，等待确认插入位置',
             controller: undefined,
         });
-        void processNextDrawJob();
+        observeBackgroundTask(processNextDrawJob(), { source: import.meta.url, operation: "awaitPlacementFallback" });
         const accepted = await options.confirmPlacementFallback();
         const latest = drawJobs.value[jobKey];
         if (!latest || latest.status !== 'awaiting-placement' || latest.requestId !== requestId) {return null;}
@@ -835,7 +837,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
                         : DRAW_COMPLETION_NOTICE_TEXT,
             }, allFailed ? 4200 : 2600);
             options.flashMessageAction(updated || latestMessage!, 'draw', !allFailed && !!updated);
-            void options.nextTick(options.enhanceChatMarkdown);
+            observeBackgroundTask(options.nextTick(options.enhanceChatMarkdown), { source: import.meta.url, operation: "runDrawJob" });
         } catch (error) {
             const current = await options.getTavernMessage(job.sessionId, job.order).catch((): null => null);
             const text = options.describeError(error);
@@ -861,7 +863,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
             if (current?.controller === controller) {
                 setDrawJob(jobKey, { controller: undefined });
             }
-            void processNextDrawJob();
+            observeBackgroundTask(processNextDrawJob(), { source: import.meta.url, operation: "runDrawJob" });
         }
     }
 
@@ -882,7 +884,7 @@ export function useTavernDrawController(options: TavernDrawControllerOptions): T
         if (data.type === 'xb-tavern:draw-status-changed') {
             applyTavernDrawStatus(data.payload as Record<string, unknown> || {});
             if (tavernDrawCapsuleVisible.value) {
-                void refreshTavernDrawQuickSettings();
+                observeBackgroundTask(refreshTavernDrawQuickSettings(), { source: import.meta.url, operation: "handleHostMessage" });
             }
             return true;
         }

@@ -3,8 +3,12 @@ import path from 'node:path';
 import { parse } from 'acorn';
 import { root, entries, pages } from './browser-entries.mjs';
 import { parseHTML } from 'linkedom';
+import { official, referenceFor } from '../host/official.mjs';
+import { createHostInterface } from '../host/interface.mjs';
 
-export function validateBuild(directory) {
+export function validateBuild(directory, hostReference) {
+    const references = hostReference ? [hostReference] : Object.keys(official.verificationVersions).map(referenceFor);
+    const hosts = references.map(reference => createHostInterface(reference));
     const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
     for (const id of Object.keys(entries)) if (!manifest.entries[id]) throw new Error(`Missing entry: ${id}`);
     const audit = JSON.parse(fs.readFileSync(path.join(root, 'output/browser-build-audit.json'), 'utf8'));
@@ -28,6 +32,11 @@ export function validateBuild(directory) {
         if (!reference || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(reference) || reference.includes('${')) return;
         const clean = decodeURIComponent(reference.split(/[?#]/)[0]);
         const target = clean.startsWith('/') ? path.resolve(root, '../../../../..', 'public', clean.slice(1)) : path.resolve(path.dirname(from), clean);
+        if (target !== root && !target.startsWith(root + path.sep)) {
+            const hostPath = path.relative(path.resolve(root, '../../../../..'), target).split(path.sep).join('/');
+            if (hosts.some(host => !host.hasFile(hostPath))) throw new Error(`${path.relative(root, from)}: missing official host resource ${reference}`);
+            return hostPath;
+        }
         const relative = path.relative(path.join(root, 'dist'), target);
         const actual = !relative.startsWith('..') && !path.isAbsolute(relative) ? path.join(directory, relative) : target;
         if (!fs.existsSync(actual)) throw new Error(`${path.relative(root, from)}: missing resource ${reference}`);
@@ -40,7 +49,8 @@ export function validateBuild(directory) {
             const value = node.type === 'ImportExpression' ? node.source?.value : /^(ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration)$/.test(node.type) ? node.source?.value : null;
             if (typeof value === 'string') {
                 if (!/^(?:\.|\/|[a-z][a-z\d+.-]*:)/i.test(value)) throw new Error(`${from}: bare import ${value}`);
-                checkReference(from, value);
+                const hostFile = checkReference(from, value);
+                if (hostFile && node.type === 'ImportDeclaration') for (const host of hosts) host.assertImports(hostFile, node.specifiers);
             }
             if (node.type === 'NewExpression' && node.callee?.name === 'URL' && node.arguments[1]?.type === 'MemberExpression' && node.arguments[1].object?.type === 'MetaProperty') checkReference(from, node.arguments[0]?.value);
             for (const child of Object.values(node)) if (Array.isArray(child)) child.forEach(visit); else if (child && typeof child === 'object') visit(child);

@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax */
 /**
  * ============================================================================
  * Story Outline 模块 - 小白板
@@ -40,6 +39,8 @@ import {
 } from "./story-outline-prompt.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 import { getDefaultApiPrefix, getModelListCandidateUrls, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
+import { observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 const events = createModuleEvents('storyOutline');
 const IFRAME_PATH = `${extensionFolderPath}/modules/story-outline/story-outline.html`;
@@ -365,8 +366,8 @@ function createStreamingWaiter(sessionId, timeoutMs = 180000) {
     const cleanup = () => {
         if (done) return;
         done = true;
-        try { if (timer) clearTimeout(timer); } catch { }
-        try { eventSource.removeListener?.(STREAM_DONE_EVT, handler); } catch { }
+        try { if (timer) clearTimeout(timer); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
+        try { eventSource.removeListener?.(STREAM_DONE_EVT, handler); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
     };
 
     const promise = new Promise((resolve, reject) => {
@@ -442,7 +443,7 @@ async function callLLM(promptOrMsgs, useRaw = false) {
                     console.log('raw', raw);
                     console.log('normalized.length', text.length);
                     console.groupEnd();
-                } catch { }
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callLLM" }, caughtError); }
             }
             return text;
         }
@@ -499,7 +500,7 @@ async function callLLMJson({ messages, useRaw = true, isArray = false, validate 
                 console.log('result.head', s.slice(0, 500));
                 console.log('result.tail', s.slice(Math.max(0, s.length - 500)));
                 console.groupEnd();
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callLLMJson" }, caughtError); }
         }
         const parsed = extractJson(result, isArray);
         if (isDebug()) {
@@ -508,10 +509,10 @@ async function callLLMJson({ messages, useRaw = true, isArray = false, validate 
                 console.log('parsed', parsed);
                 console.log('validate', !!(parsed && validate?.(parsed)));
                 console.groupEnd();
-            } catch { }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callLLMJson" }, caughtError); }
         }
         if (parsed && validate(parsed)) return parsed;
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callLLMJson" }, caughtError); }
     return null;
 }
 
@@ -697,7 +698,7 @@ function setupSTEvents() {
     };
     eventSource.on(st_event_types.OAI_PRESET_CHANGED_AFTER, onChanged);
     eventSource.on(st_event_types.OAI_PRESET_EXPORT_READY, onExport);
-    presetCleanup = () => { try { eventSource.removeListener(st_event_types.OAI_PRESET_CHANGED_AFTER, onChanged); } catch { } try { eventSource.removeListener(st_event_types.OAI_PRESET_EXPORT_READY, onExport); } catch { } };
+    presetCleanup = () => { try { eventSource.removeListener(st_event_types.OAI_PRESET_CHANGED_AFTER, onChanged); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setupSTEvents" }, caughtError); } try { eventSource.removeListener(st_event_types.OAI_PRESET_EXPORT_READY, onExport); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setupSTEvents" }, caughtError); } };
 }
 
 const injectOutline = () => updatePromptContent();
@@ -800,7 +801,7 @@ function tickSimCountdown(store) {
     saveMetadataDebounced?.();
     sendSimStateOnly();
     if (prev > 0 && next <= 0) {
-        try { processCommands?.('/echo 该进行世界推演啦！'); } catch { }
+        try { observeBackgroundTask(processCommands?.('/echo 该进行世界推演啦！'), { source: "modules/story-outline/story-outline.js", operation: "tickSimCountdown" }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "tickSimCountdown" }, caughtError); }
     }
 }
 
@@ -836,7 +837,7 @@ async function handleFetchModels({ apiUrl, apiKey }) {
         let models = [];
         if (!apiUrl) {
             for (const ep of ['/api/backends/chat-completions/models', '/api/openai/models']) {
-                try { const r = await fetch(ep, { headers: { 'Content-Type': 'application/json' } }); if (r.ok) { const j = await r.json(); models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string'); if (models.length) break; } } catch { }
+                try { const r = await fetch(ep, { headers: { 'Content-Type': 'application/json' } }); if (r.ok) { const j = await r.json(); models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string'); if (models.length) break; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFetchModels" }, caughtError); }
             }
             if (!models.length) throw new Error('无法从酒馆获取模型列表');
         } else {
@@ -864,7 +865,7 @@ async function handleFetchModels({ apiUrl, apiKey }) {
 
 async function handleTestConn({ apiUrl, apiKey, model }) {
     try {
-        if (!apiUrl) { for (const ep of ['/api/backends/chat-completions/status', '/api/openai/models', '/api/backends/chat-completions/models']) { try { if ((await fetch(ep, { headers: { 'Content-Type': 'application/json' } })).ok) { postFrame({ type: "TEST_CONN_RESULT", success: true, message: `连接成功${model ? ` (模型: ${model})` : ''}` }); return; } } catch { } } throw new Error('无法连接到酒馆API'); }
+        if (!apiUrl) { for (const ep of ['/api/backends/chat-completions/status', '/api/openai/models', '/api/backends/chat-completions/models']) { try { if ((await fetch(ep, { headers: { 'Content-Type': 'application/json' } })).ok) { postFrame({ type: "TEST_CONN_RESULT", success: true, message: `连接成功${model ? ` (模型: ${model})` : ''}` }); return; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleTestConn" }, caughtError); } } throw new Error('无法连接到酒馆API'); }
         const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
         let connected = false;
         for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
@@ -1237,18 +1238,18 @@ function handleSaveSettings(d) {
     }
     injectOutline();
     try {
-        StoryOutlineStorage?.set?.('settings', {
+        observeBackgroundTask(StoryOutlineStorage?.set?.('settings', {
             globalSettings: getGlobalSettings(),
             commSettings: getCommSettings(),
-        });
-    } catch { }
+        }), { source: "modules/story-outline/story-outline.js", operation: "handleSaveSettings" });
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleSaveSettings" }, caughtError); }
 }
 
 async function handleSavePrompts(d) {
     // Back-compat: full payload (old iframe)
     if (d?.promptConfig) {
         const payload = setPromptConfig?.(d.promptConfig, false) || d.promptConfig;
-        try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
+        try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleSavePrompts" }, caughtError); }
         postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
         return;
     }
@@ -1258,7 +1259,7 @@ async function handleSavePrompts(d) {
     if (!key) return;
 
     let current = null;
-    try { current = await StoryOutlineStorage?.get?.('promptConfig', null); } catch { }
+    try { current = await StoryOutlineStorage?.get?.('promptConfig', null); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleSavePrompts" }, caughtError); }
     const next = (current && typeof current === 'object') ? {
         jsonTemplates: { ...(current.jsonTemplates || {}) },
         promptSources: { ...(current.promptSources || {}) },
@@ -1276,7 +1277,7 @@ async function handleSavePrompts(d) {
     }
 
     const payload = setPromptConfig?.(next, false) || next;
-    try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
+    try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleSavePrompts" }, caughtError); }
     postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
 }
 
@@ -1358,7 +1359,7 @@ function setupDrag(el, { onStart, onMove, onEnd, shouldHandle }) {
     let state = null;
     el.addEventListener('pointerdown', e => { if (shouldHandle && !shouldHandle()) return; e.preventDefault(); e.stopPropagation(); state = onStart(e); state.pointerId = e.pointerId; el.setPointerCapture(e.pointerId); });
     el.addEventListener('pointermove', e => state && onMove(e, state));
-    const end = () => { if (!state) return; onEnd?.(state); try { el.releasePointerCapture(state.pointerId); } catch { } state = null; };
+    const end = () => { if (!state) return; onEnd?.(state); try { el.releasePointerCapture(state.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "end" }, caughtError); } state = null; };
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => el.addEventListener(ev, end));
 }
 
@@ -1394,8 +1395,7 @@ function createOverlay() {
         onEnd: () => { setPtr(''); saveCurrentOutlineOverlayLayout(); }
     });
 
-    // Guarded by isTrustedMessage (origin + source).
-    // eslint-disable-next-line no-restricted-syntax
+    // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedMessage (origin + source).
     window.addEventListener("message", handleMsg);
 }
 
@@ -1538,7 +1538,7 @@ async function initPromptConfigFromServer() {
         if (!cfg) return;
         setPromptConfig?.(cfg, false);
         postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initPromptConfigFromServer" }, caughtError); }
 }
 
 async function initSettingsFromServer() {
@@ -1547,7 +1547,7 @@ async function initSettingsFromServer() {
         if (!s || typeof s !== 'object') return;
         if (s.globalSettings) saveGlobalSettings(s.globalSettings);
         if (s.commSettings) saveCommSettings(s.commSettings);
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initSettingsFromServer" }, caughtError); }
 }
 
 function configureStoryOutlineRuntime({ ownsMessageButtons = true } = {}) {
@@ -1556,8 +1556,8 @@ function configureStoryOutlineRuntime({ ownsMessageButtons = true } = {}) {
 
 jQuery(() => {
     if (!getSettings().storyOutline?.enabled) return;
-    initSettingsFromServer();
-    initPromptConfigFromServer();
+    observeBackgroundTask(initSettingsFromServer(), { source: "modules/story-outline/story-outline.js", operation: "callback" });
+    observeBackgroundTask(initPromptConfigFromServer(), { source: "modules/story-outline/story-outline.js", operation: "callback" });
     registerEvents();
     setTimeout(injectOutline, 200);
     window.registerModuleCleanup?.('storyOutline', cleanup);

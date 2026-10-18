@@ -14,6 +14,8 @@ import { generateConversation, type ConversationOptions, type ConversationPhase 
 import { createMemoryJobs, type MemoryJobState } from './narrative/memory-jobs.js';
 import { memoryBoundary, sameMemory } from './narrative/history.js';
 import { expeditionFailure, type ExpeditionFailure } from './failure.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface ExpeditionView {
     data: ExpeditionData & ReturnType<typeof expeditionProgress>; balance: number; ready: boolean; pending: boolean; writeState: XiaobaiOsFileState;
@@ -188,7 +190,7 @@ export function createExpeditionService(store: PartitionStore<ExpeditionData>, f
             const session = await dependencies.agent.openSession(await dependencies.agent.loadConfig());
             if (!guard() || store.peekCurrent()?.value?.active?.id !== campaign.id) { fault('stale'); }
             if (!String(session.providerConfig.model ?? '').trim()) { fault('agent_not_configured'); }
-            memories.clearFailure(person); void memories.start(session, campaign, person);
+            memories.clearFailure(person); observeBackgroundTask(memories.start(session, campaign, person), { source: import.meta.url, operation: "retryMemory" });
             return view();
         },
         async rebuild(actionId: string, guard: () => boolean) {

@@ -257,7 +257,7 @@ Map/Tasks 是否向主 RP 投影当前状态，由各 APP 自己的 prompt runti
 
 ## 11. 数据、迁移与删除
 
-OS 扩展设置当前包含总开关、Fourth Wall 设置与`map.autoMaintenance`、`tasks.autoMaintenance`，不包含 Map/Tasks enabled 或 Agent 凭据。它是普通 SillyTavern 用户偏好：内存修改后调用宿主`saveSettingsDebounced()`，不做额外`/api/settings/get`读回确认，也不建立 OS 根 settings schema。`prepare()`只把入口数据投影成当前形状并保留现有`enabled`和有效 APP 偏好；Fourth Wall、Map、Tasks 各自补默认值，旧根版本标记和旧 Map/Tasks `enabled`不再写回。未来增加 APP 设置时由该 APP 的 normalizer 负责，不能提升整个 OS 版本或让无关 APP 阻断总开关。
+OS 扩展设置是普通 SillyTavern 用户偏好，不包含 Agent 凭据。宿主适配层仅调用官方 `saveSettings()`，不做额外 `/api/settings/get` 读回确认，不修改宿主，也不自行拼装并覆盖整份酒馆设置。原生保存调用正常返回不等于取得持久化成功回执；只有适配器明确报告失败时，仓库才恢复先前的内存偏好并向上报错，不能据此宣称服务端写入一定没有发生。`prepare()`只把入口数据投影成当前形状并保留现有`enabled`和有效 APP 偏好；各 APP 自行补默认值。未来增加 APP 设置时由该 APP 的 normalizer 负责，不能提升整个 OS 版本或让无关 APP 阻断总开关。
 
 移除这套能力时：
 

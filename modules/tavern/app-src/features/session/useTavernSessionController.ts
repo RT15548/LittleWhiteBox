@@ -10,6 +10,8 @@ import {
     type TavernMessageRecord,
     type TavernSessionRecord,
 } from '../../../shared/session-db';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface TavernSessionState {
     chatMessages: ComputedRef<TavernMessageRecord[]>;
@@ -371,7 +373,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         await loadSelectedSessionMessageWindow();
         await options.hydrateSessionWorkspace(state.selectedSessionId.value);
         if (state.selectedSessionId.value) {
-            void options.syncSessionCharacterContextSafely({ sessionId: state.selectedSessionId.value });
+            observeBackgroundTask(options.syncSessionCharacterContextSafely({ sessionId: state.selectedSessionId.value }), { source: import.meta.url, operation: "refreshSessions" });
         }
     }
 
@@ -387,7 +389,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         await persistSelectedSessionId(id);
         await loadSelectedSessionMessageWindow({ reset: true, sessionId: id });
         await options.hydrateSessionWorkspace(id);
-        void options.syncSessionCharacterContextSafely({ sessionId: id, force: true });
+        observeBackgroundTask(options.syncSessionCharacterContextSafely({ sessionId: id, force: true }), { source: import.meta.url, operation: "selectSession" });
         options.activeView.value = 'chat';
         options.chatFocus.value = 'chat';
         options.placeChatAtBottomForNewContext();
@@ -454,7 +456,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             return;
         }
         if (state.selectedSessionId.value) {
-            void loadSelectedSessionMessageWindow();
+            observeBackgroundTask(loadSelectedSessionMessageWindow(), { source: import.meta.url, operation: "handleChatMessageWindowStateChanged" });
         }
     }
 

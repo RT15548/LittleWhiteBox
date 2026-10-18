@@ -172,6 +172,11 @@ import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
+import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
+const handleDelegatedClickEvent = observeAsyncCallback(handleDelegatedClick, { source: import.meta.url, operation: "handleDelegatedClick" });
+const handleFrameMessageEvent = observeAsyncCallback(handleFrameMessage, { source: import.meta.url, operation: "handleFrameMessage" });
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1022,7 +1027,7 @@ async function persistSettingsNow(s, okText = '已保存', { notify = true, sile
 function persistSettings(s, okText = '已保存', options = {}) {
     const update = () => persistSettingsNow(s, okText, options);
     const result = settingsUpdateQueue.then(update, update);
-    settingsUpdateQueue = result.catch(() => {});
+    settingsUpdateQueue = result.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "persistSettings" }, caughtError); });
     return result;
 }
 
@@ -1066,7 +1071,7 @@ async function runSettingsPersistentUpdate(mutator, okText, options) {
 function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
     const update = () => runSettingsPersistentUpdate(mutator, okText, options);
     const result = settingsUpdateQueue.then(update, update);
-    settingsUpdateQueue = result.catch(() => {});
+    settingsUpdateQueue = result.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "updateSettingsPersistent" }, caughtError); });
     return result;
 }
 
@@ -1098,7 +1103,7 @@ function updateApiSettingsPersistent({ config, presetState, syncApiPreset = fals
         }
     };
     const result = settingsUpdateQueue.then(update, update);
-    settingsUpdateQueue = result.catch(() => {});
+    settingsUpdateQueue = result.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "updateApiSettingsPersistent" }, caughtError); });
     return result;
 }
 
@@ -1187,10 +1192,10 @@ async function notifySettingsUpdated() {
         refreshPresetSelect?.();
         updateAllSizeSelects?.();
         updateAutoModeUI?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notifySettingsUpdated" }, caughtError); }
 
     if (overlayCreated && frameReady) {
-        try { await sendInitData(); } catch {}
+        try { await sendInitData(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notifySettingsUpdated" }, caughtError); }
     }
 }
 
@@ -1219,7 +1224,7 @@ async function loadMessagePackDecoderForResponse(response, controller) {
     try {
         return await loadMessagePackDecoder();
     } catch (error) {
-        await response.body?.cancel?.().catch(() => {});
+        await response.body?.cancel?.().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "loadMessagePackDecoderForResponse" }, caughtError); });
         controller.abort();
         throw error;
     }
@@ -1423,7 +1428,7 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
         // Compatibility with the upstream-released v1.0.1 server plugin.
         // Remove this fallback when that public backend API is retired.
         if (res.status === 404) {
-            await res.body?.cancel?.().catch(() => {});
+            await res.body?.cancel?.().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "generateViaBackend" }, caughtError); });
             res = await request(NAI_BACKEND_GENERATE);
         }
     } catch (e) {
@@ -1537,7 +1542,7 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
             // V5 never falls back to the test-line v1.1 protocol. Legacy models retain
             // the released v1.0.1 connection probe until that backend API is retired.
             if (!probe.multipart && res.status === 404) {
-                await res.body?.cancel?.().catch(() => {});
+                await res.body?.cancel?.().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "testApiConnection" }, caughtError); });
                 res = await request(NAI_BACKEND_TEST);
             }
             if (res.status === 404) throw new NovelDrawError(`后端端点不存在。${SERVER_PLUGIN_COPY.install}`, ErrorType.NETWORK);
@@ -1564,7 +1569,7 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
         });
         if (res.status === 401) throw new NovelDrawError('API Key 无效', ErrorType.AUTH);
         if (res.status === 400 || res.status === 402 || res.ok) {
-            await res.body?.cancel?.().catch(() => {});
+            await res.body?.cancel?.().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "testApiConnection" }, caughtError); });
             return { success: true };
         }
         throw new NovelDrawError(`返回: ${res.status}`, ErrorType.NETWORK);
@@ -1995,8 +2000,7 @@ function setImageState(container, state) {
     if (dropdown) {
         const saveItem = dropdown.querySelector('[data-action="save-image"]');
         if (state === ImageState.PREVIEW && !saveItem) {
-            // Static draw-owned markup, without user input.
-            // eslint-disable-next-line no-unsanitized/method
+            // eslint-disable-next-line no-unsanitized/method -- Static draw-owned markup, without user input.
             dropdown.insertAdjacentHTML('afterbegin', IMAGE_SAVE_BUTTON_HTML);
         } else if (state !== ImageState.PREVIEW && saveItem) {
             saveItem.remove();
@@ -2004,8 +2008,7 @@ function setImageState(container, state) {
     }
 
     container.querySelector('.xb-nd-indicator')?.remove();
-    // Static draw-owned markup, without user input.
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- Static draw-owned markup, without user input.
     if (state === ImageState.SAVING) container.insertAdjacentHTML('afterbegin', IMAGE_SAVING_INDICATOR_HTML);
     else if (state === ImageState.REFRESHING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>');
 }
@@ -2048,14 +2051,14 @@ async function navigateToImage(container, targetIndex) {
 
     setImageState(container, targetPreview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
     updateNavControls(container, targetIndex, historyCount);
-    void warmSlotPreviewNeighbors(slotId, targetIndex).catch(() => {});
+    void warmSlotPreviewNeighbors(slotId, targetIndex).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "navigateToImage" }, caughtError); });
     await setSlotSelection(slotId, targetPreview.imgId);
     if (targetPreview.savedUrl) {
         const messageId = parseInt(container.dataset.mesid);
-        void syncNovelDrawSavedFromPreview(messageId, targetPreview, { slotId }).catch(() => {});
+        void syncNovelDrawSavedFromPreview(messageId, targetPreview, { slotId }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "navigateToImage" }, caughtError); });
     } else {
         const messageId = parseInt(container.dataset.mesid);
-        void clearNovelDrawSavedEntry(messageId, slotId).catch(() => {});
+        void clearNovelDrawSavedEntry(messageId, slotId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "navigateToImage" }, caughtError); });
     }
 
     imgEl.classList.remove(`sliding-${direction}`);
@@ -2126,8 +2129,8 @@ function handleTouchEnd(e) {
     const historyCount = parseInt(container.dataset.historyCount) || 1;
     const isSwipe = Math.abs(dx) > 50 || (Math.abs(dx) > 30 && dt < 300);
     if (isSwipe) {
-        if (dx < 0 && currentIndex < historyCount - 1) navigateToImage(container, currentIndex + 1);
-        else if (dx > 0 && currentIndex > 0) navigateToImage(container, currentIndex - 1);
+        if (dx < 0 && currentIndex < historyCount - 1) observeBackgroundTask(navigateToImage(container, currentIndex + 1), { source: import.meta.url, operation: "handleTouchEnd" });
+        else if (dx > 0 && currentIndex > 0) observeBackgroundTask(navigateToImage(container, currentIndex - 1), { source: import.meta.url, operation: "handleTouchEnd" });
     }
     touchState = null;
 }
@@ -2178,13 +2181,13 @@ async function handleDelegatedClick(e) {
             break;
         case 'edit-tags':
             container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-            toggleEditPanel(container, true);
+            observeBackgroundTask(toggleEditPanel(container, true), { source: import.meta.url, operation: 'handleDelegatedClick' });
             break;
         case 'save-tags':
             await saveEditedTags(container);
             break;
         case 'cancel-edit':
-            toggleEditPanel(container, false);
+            observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'handleDelegatedClick' });
             break;
         case 'retry-image':
             await retryFailedImage(container);
@@ -2224,7 +2227,7 @@ function setupEventDelegation() {
     if (window._xbNovelEventsBound) return;
     window._xbNovelEventsBound = true;
 
-    document.addEventListener('click', handleDelegatedClick, { capture: true });
+    document.addEventListener('click', handleDelegatedClickEvent, { capture: true });
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchmove', handleTouchMove, { passive: false });
     document.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -2247,9 +2250,9 @@ async function handleImageClick(container) {
                 cont.dataset.historyCount = String(historyCount);
             }
             if (selected?.savedUrl) {
-                void syncNovelDrawSavedFromPreview(msgId, selected, { slotId: sid }).catch(() => {});
+                void syncNovelDrawSavedFromPreview(msgId, selected, { slotId: sid }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onUse" }, caughtError); });
             } else {
-                void clearNovelDrawSavedEntry(msgId, sid).catch(() => {});
+                void clearNovelDrawSavedEntry(msgId, sid).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onUse" }, caughtError); });
             }
         },
         onSave: (imgId, url) => {
@@ -2279,7 +2282,7 @@ async function handleImageClick(container) {
                 cont.dataset.historyCount = String(remainingPreviews.length);
                 updateNavControls(cont, 0, remainingPreviews.length);
             }
-            void syncNovelDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch(() => {});
+            void syncNovelDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onDelete" }, caughtError); });
         },
         onBecameEmpty: (sid, msgId, lastImageInfo) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
@@ -2292,10 +2295,9 @@ async function handleImageClick(container) {
                 errorType: '图片已删除',
                 errorMessage: '点击重试可重新生成'
             });
-            // Template-only UI markup built locally.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
             cont.outerHTML = failedHtml;
-            void clearNovelDrawSavedEntry(msgId, sid).catch(() => {});
+            void clearNovelDrawSavedEntry(msgId, sid).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onBecameEmpty" }, caughtError); });
         },
     });
 }
@@ -2348,8 +2350,7 @@ async function toggleEditPanel(container, show) {
             });
         }
 
-        // Escaped data used in template.
-        // eslint-disable-next-line no-unsanitized/property
+        // eslint-disable-next-line no-unsanitized/property -- Escaped data used in template.
         scrollWrap.innerHTML = html;
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
@@ -2383,7 +2384,7 @@ async function saveEditedTags(container) {
             return { positive: joinTags(preset?.positivePrefix, tags),
                 negativePrompt: record?.negativePrompt ?? preset?.negativePrefix ?? '' };
         });
-        toggleEditPanel(container, false);
+        observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
         showToast(DRAW_SLOT_COPY.tagSaved);
         return true;
     } catch (error) {
@@ -2464,8 +2465,7 @@ async function deleteCurrentImage(container) {
                 errorType: '图片已删除',
                 errorMessage: '点击重试可重新生成'
             });
-            // Template-only UI markup built locally.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
             container.outerHTML = failedHtml;
             showToast('图片已删除，占位符已保留');
         }
@@ -2585,7 +2585,7 @@ async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
             const merged = mergeAutoLearnOps(characterLibraryFromSettings(draft), learnResult.ops, mergeOptions);
             if (merged.changed) draft.characterTags = merged.characters;
         }, msg);
-        if (ok && overlayCreated && frameReady) sendInitData();
+        if (ok && overlayCreated && frameReady) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'maybeAutoLearnFromTasks' });
     } catch (e) {
         console.warn('[NovelDraw] 自动学习角色失败:', e);
     }
@@ -3083,9 +3083,8 @@ function createOverlay() {
     overlay.appendChild(frameWrap);
     document.body.appendChild(overlay);
     syncOverlayFrameLayout();
-    // Guarded by isTrustedMessage (origin + source).
-    // eslint-disable-next-line no-restricted-syntax
-    window.addEventListener('message', handleFrameMessage);
+    // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedMessage (origin + source).
+    window.addEventListener('message', handleFrameMessageEvent);
     subscribeGroupPresetRefresh();
 }
 
@@ -3097,7 +3096,7 @@ function showOverlay() {
         syncOverlayHeight();
     }
     console.log('[NovelDraw] showOverlay: frameReady=%s', frameReady);
-    if (frameReady) sendInitData();
+    if (frameReady) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: "showOverlay" });
 }
 
 function hideOverlay() {
@@ -3114,7 +3113,7 @@ function hideOverlay() {
         overlayResizeHandler = null;
     }
 
-    window.removeEventListener('message', handleFrameMessage);
+    window.removeEventListener('message', handleFrameMessageEvent);
     unsubscribeGroupPresetRefresh();
 }
 
@@ -3218,13 +3217,13 @@ let groupPresetUnsubscribers = [];
 function subscribeGroupPresetRefresh() {
     unsubscribeGroupPresetRefresh();
     groupPresetUnsubscribers = [
-        onGroupPresetApplied(() => { if (frameReady) void sendInitData(); }),
+        onGroupPresetApplied(() => { if (frameReady) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: "callback" }); }),
         onGroupPresetContextChanged(() => postGroupPresetContext()),
     ];
 }
 
 function unsubscribeGroupPresetRefresh() {
-    groupPresetUnsubscribers.splice(0).forEach((off) => { try { off(); } catch { /* 取消订阅失败可忽略 */ } });
+    groupPresetUnsubscribers.splice(0).forEach((off) => { try { off(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "unsubscribeGroupPresetRefresh" }, caughtError); } });
 }
 
 function describeGroupPresetApply(result) {
@@ -3262,7 +3261,7 @@ async function handleFrameMessage(event) {
     switch (data.type) {
         case 'FRAME_READY':
             frameReady = true;
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             ensureAgentSettingsSurface();
             // 若本地 Danbooru DB 已启用，预加载（失败只警告，不修改用户设置）
             if (getSharedDrawSettings().danbooruLocalDB) {
@@ -3281,7 +3280,7 @@ async function handleFrameMessage(event) {
             await updateSettingsPersistent((settings) => {
                 settings.mode = data.mode || settings.mode;
             }, '已保存');
-            import('./floating-panel.js').then(m => m.updateAutoModeUI?.());
+            observeBackgroundTask(import('./floating-panel.js').then(m => m.updateAutoModeUI?.()), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
         }
 
@@ -3295,7 +3294,7 @@ async function handleFrameMessage(event) {
                 try {
                     const fp = await import('./floating-panel.js');
                     fp.updateButtonVisibility?.(s.showFloorButton !== false, s.showFloatingButton === true);
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
                 if (s.showFloorButton !== false && typeof ensureNovelDrawPanelRef === 'function') {
                     const context = getContext();
                     const chat = context.chat || [];
@@ -3306,7 +3305,7 @@ async function handleFrameMessage(event) {
                         ensureNovelDrawPanelRef?.(messageEl, messageId);
                     });
                 }
-                sendInitData();
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             }
             break;
         }
@@ -3372,7 +3371,7 @@ async function handleFrameMessage(event) {
                 settings.cacheDays = nextDays;
             }, '已保存', { notify: false, silent: false });
             postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'gallery');
-            if (ok) sendInitData();
+            if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3410,11 +3409,11 @@ async function handleFrameMessage(event) {
                 }
             }, '已保存', { target: 'params' });
             if (ok) {
-                sendInitData();
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
             }
             break;
         }
@@ -3430,11 +3429,11 @@ async function handleFrameMessage(event) {
                 settings.selectedParamsPresetId = id;
             }, '已创建', { target: 'params' });
             if (ok) {
-                sendInitData();
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
             }
             break;
         }
@@ -3451,11 +3450,11 @@ async function handleFrameMessage(event) {
                 settings.selectedParamsPresetId = settings.paramsPresets[0]?.id || null;
             }, '已删除', { target: 'params' });
             if (ok) {
-                sendInitData();
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
             }
             break;
         }
@@ -3464,7 +3463,7 @@ async function handleFrameMessage(event) {
         // 新增：云端预设
         // ═══════════════════════════════════════════════════════════════
         case 'OPEN_CLOUD_PRESETS': {
-            openCloudPresetsModal(async (presetData) => {
+            observeBackgroundTask(openCloudPresetsModal(async (presetData) => {
                 const { preset: newPreset, warnings: importWarnings } = parsePresetData(presetData, generateSlotId);
                 const ok = await updateSettingsPersistent((settings) => {
                     settings.paramsPresets.push(newPreset);
@@ -3472,10 +3471,10 @@ async function handleFrameMessage(event) {
                 }, `已导入: ${newPreset.name}`, { target: 'params' });
                 if (ok) {
                     await notifySettingsUpdated();
-                    sendInitData();
+                    observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                     if (importWarnings.length) showToast(importWarnings.join('；'), 'info', 5000);
                 }
-            });
+            }), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
         case 'EXPORT_CURRENT_PRESET': {
@@ -3512,7 +3511,7 @@ async function handleFrameMessage(event) {
                     'prompt-preset',
                 );
                 if (!selected) {
-                    sendInitData();
+                    observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                 }
             }
             break;
@@ -3541,7 +3540,7 @@ async function handleFrameMessage(event) {
                 ok && sourceFound ? '已创建' : ok ? '源提示词预设已不存在' : '保存失败',
                 'prompt-preset',
             );
-            if (ok && sourceFound) sendInitData();
+            if (ok && sourceFound) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3564,7 +3563,7 @@ async function handleFrameMessage(event) {
                 });
                 settings.selectedPromptPresetId = id;
             }, '已导入为新预设', { target: 'prompt-preset' });
-            if (ok) sendInitData();
+            if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3592,7 +3591,7 @@ async function handleFrameMessage(event) {
             } else {
                 postStatus('success', '已删除', 'prompt-preset');
             }
-            if (ok) sendInitData();
+            if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3612,7 +3611,7 @@ async function handleFrameMessage(event) {
                     ok && presetFound ? '已重命名' : ok ? '目标提示词预设已不存在' : '保存失败',
                     'prompt-preset',
                 );
-                sendInitData();
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             }
             break;
         }
@@ -3641,7 +3640,7 @@ async function handleFrameMessage(event) {
                     statusTarget,
                 );
             }
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3658,7 +3657,7 @@ async function handleFrameMessage(event) {
                 }
             }, '世界书配置已保存', { notify: false });
             postStatus(ok ? 'success' : 'error', ok ? '世界书配置已保存' : '世界书配置保存失败', 'worldbook');
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3730,7 +3729,7 @@ async function handleFrameMessage(event) {
                     ? data.autoLearnMode : 'new_only';
                 if (typeof data.autoLearnGroupId === 'string') settings.autoLearnGroupId = data.autoLearnGroupId;
             }, nextAutoLearnCharacters ? '自动学习已开启' : '自动学习已关闭');
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3760,7 +3759,7 @@ async function handleFrameMessage(event) {
                     settings.danbooruLocalDB = false;
                 }, 'Danbooru 本地库已关闭');
             }
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3798,7 +3797,7 @@ async function handleFrameMessage(event) {
                     const cfg = JSON.parse(raw);
                     summaryRules = cfg?.textFilterRules || cfg?.vector?.textFilterRules || [];
                 }
-            } catch { /* ignore */ }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
             postToIframe(iframe, {
                 type: 'SYNC_SUMMARY_FILTER_RESULT',
                 rules: Array.isArray(summaryRules) ? summaryRules : [],
@@ -3808,14 +3807,14 @@ async function handleFrameMessage(event) {
 
         case 'CLEAR_EXPIRED_CACHE': {
             const n = await clearExpiredCache(getSharedDrawSettings().cacheDays);
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             postStatus('success', `已清理/瘦身 ${n} 条`, 'gallery');
             break;
         }
 
         case 'CLEAR_ALL_CACHE':
             await clearAllCache();
-            sendInitData();
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             postStatus('success', '已清空', 'gallery');
             break;
 
@@ -3846,12 +3845,12 @@ async function handleFrameMessage(event) {
         }
 
         case 'REFRESH_CACHE_STATS':
-            void sendCacheData();
+            observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
             break;
 
         case 'USE_GALLERY_IMAGE':
             // 这里没有任何设置变化，只回一个状态提示；不需要整页刷新。
-            void sendCacheData();
+            observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
             postStatus('success', '已选择', 'gallery');
             break;
 
@@ -3872,7 +3871,7 @@ async function handleFrameMessage(event) {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
                 }
-                void sendCacheData();
+                observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
                 showToast(`已保存: ${url}`, 'success', 5000);
             } catch (e) {
                 console.error('[NovelDraw] 保存失败:', e);
@@ -3917,7 +3916,7 @@ async function handleFrameMessage(event) {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-NovelDraw');
                 }
-                void sendCacheData();
+                observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
                 showToast('已删除');
             } catch (e) {
                 console.error('[NovelDraw] 删除失败:', e);
@@ -4019,7 +4018,7 @@ export async function initNovelDraw() {
     }
     const [floatingPanel] = await Promise.all([
         import('./floating-panel.js'),
-        openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch(() => {}),
+        openDB().then(() => clearExpiredCache(sharedDrawSettings.cacheDays)).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "initNovelDraw" }, caughtError); }),
     ]);
     if (initGeneration !== moduleLifecycleGeneration || window?.isXiaobaixEnabled === false) return false;
 
@@ -4183,13 +4182,13 @@ export async function cleanupNovelDraw() {
     frameReady = false;
 
     backendJobMonitors.deactivate();
-    abortGeneration(null, { reason: 'teardown' });
+    observeBackgroundTask(abortGeneration(null, { reason: 'teardown' }), { source: import.meta.url, operation: 'cleanupNovelDraw' });
     clearFloorImageJobs(generationJobs);
     novelImageRequestQueue.clear();
 
-    window.removeEventListener('message', handleFrameMessage);
+    window.removeEventListener('message', handleFrameMessageEvent);
     // 移除事件委托监听器（防止累积泄漏）
-    document.removeEventListener('click', handleDelegatedClick, { capture: true });
+    document.removeEventListener('click', handleDelegatedClickEvent, { capture: true });
     document.removeEventListener('touchstart', handleTouchStart, { passive: true });
     document.removeEventListener('touchmove', handleTouchMove, { passive: false });
     document.removeEventListener('touchend', handleTouchEnd, { passive: true });
@@ -4207,7 +4206,7 @@ export async function cleanupNovelDraw() {
     try {
         const { destroyFloatingPanel } = await import('./floating-panel.js');
         if (cleanupGeneration === moduleLifecycleGeneration) destroyFloatingPanel();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupNovelDraw" }, caughtError); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

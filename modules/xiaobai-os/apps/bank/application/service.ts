@@ -163,7 +163,7 @@ export function createBankService(
     let unsettled: { count: number; abandoned: boolean } | null = null;
     const serialize = <T>(work: () => Promise<T>): Promise<T> => {
         const pending = queue.then(work, work);
-        queue = pending.catch(() => undefined);
+        queue = pending.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "serialize" }, caughtError); });
         return pending;
     };
 

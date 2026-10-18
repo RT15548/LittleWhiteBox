@@ -7,6 +7,7 @@ import { getContext } from "../../../../../extensions.js";
 import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import jsYaml from "../../libs/js-yaml.mjs";
+import { tryParseJson } from '../../shared/common/json-candidate.js';
 import {
     lwbSplitPathWithBrackets,
     lwbSplitPathAndValue,
@@ -36,12 +37,14 @@ export function parseValueForSet(value) {
         const t = String(value ?? '').trim();
 
         if (t.startsWith('{') || t.startsWith('[')) {
-            try { return JSON.parse(t); } catch {}
+            const candidate = tryParseJson(t);
+            if (candidate.ok) return candidate.value;
         }
 
         const looksLikeJson = (t[0] === '{' || t[0] === '[') && /[:\],}]/.test(t);
         if (looksLikeJson && !t.includes('"') && t.includes("'")) {
-            try { return JSON.parse(t.replace(/'/g, '"')); } catch {}
+            const candidate = tryParseJson(t.replace(/'/g, '"'));
+            if (candidate.ok) return candidate.value;
         }
 
         if (t === 'true' || t === 'false' || t === 'null') {
@@ -317,7 +320,7 @@ export function replaceXbGetVarInChat(chat) {
             result = hasYaml ? replaceXbGetVarYamlInString(result) : result;
             result = hasYamlIdx ? replaceXbGetVarYamlIdxInString(result) : result;
             msg[key] = result;
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "replaceXbGetVarInChat" }, caughtError); }
     }
 }
 
@@ -342,7 +345,7 @@ export function applyXbGetVarForMessage(messageId, writeback = true) {
         if (writeback && out !== old) {
             msg[key] = out;
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyXbGetVarForMessage" }, caughtError); }
 }
 
 export function parseDirectivesTokenList(tokens) {
@@ -582,7 +585,7 @@ export function lwbAssignVarPath(path, value) {
                         globalThis.LWB_Guard.save?.();
                     }
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbAssignVarPath" }, caughtError); }
         }
 
         const absPath = normalizePath(path);
@@ -595,7 +598,7 @@ export function lwbAssignVarPath(path, value) {
                 guardOk = !!g?.allow;
                 if ('value' in g) guardVal = g.value;
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbAssignVarPath" }, caughtError); }
 
         if (!guardOk) return '';
 
@@ -673,7 +676,7 @@ export function lwbDeleteVarPath(path) {
                     const g = globalThis.LWB_Guard.validate('delNode', absPath);
                     if (!g?.allow) return '';
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbDeleteVarPath" }, caughtError); }
 
             setLocalVariable(rootName, '');
             return '';
@@ -697,7 +700,7 @@ export function lwbDeleteVarPath(path) {
                 const g = globalThis.LWB_Guard.validate('delNode', absPath);
                 if (!g?.allow) return '';
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbDeleteVarPath" }, caughtError); }
 
         const lastKey = subSegs[subSegs.length - 1];
         if (Array.isArray(cur)) {
@@ -710,7 +713,7 @@ export function lwbDeleteVarPath(path) {
                 }
             }
         } else {
-            try { delete cur[lastKey]; } catch {}
+            try { delete cur[lastKey]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbDeleteVarPath" }, caughtError); }
         }
 
         setLocalVariable(rootName, safeJSONStringify(obj));
@@ -742,7 +745,7 @@ export function lwbPushVarPath(path, value) {
                     const g = globalThis.LWB_Guard.validate('push', absPath, vParsed);
                     if (!g?.allow) return '';
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbPushVarPath" }, caughtError); }
 
             const rootRaw = getLocalVariable(rootName);
             let arr;
@@ -775,7 +778,7 @@ export function lwbPushVarPath(path, value) {
                 const g = globalThis.LWB_Guard.validate('push', absPath, vParsed);
                 if (!g?.allow) return '';
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbPushVarPath" }, caughtError); }
 
         arr.push(vParsed);
         parent[lastKey] = arr;
@@ -829,7 +832,7 @@ export function lwbRemoveArrayItemByValue(path, valuesToRemove) {
                     const g = globalThis.LWB_Guard.validate('delNode', absIndexPath);
                     if (!g?.allow) continue;
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lwbRemoveArrayItemByValue" }, caughtError); }
 
             if (idx >= 0 && idx < cur.length) {
                 cur.splice(idx, 1);
@@ -879,7 +882,7 @@ function registerXbGetVarSlashCommand() {
                 }
             },
         }));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerXbGetVarSlashCommand" }, caughtError); }
 }
 
 function registerXbSetVarSlashCommand() {
@@ -1015,7 +1018,7 @@ function registerXbSetVarSlashCommand() {
                                 toSet = safeJSONStringify(expanded) || rest;
                             }
                         }
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callback" }, caughtError); }
 
                     lwbAssignVarPath(realPath, toSet);
                     return '';
@@ -1024,7 +1027,7 @@ function registerXbSetVarSlashCommand() {
                 }
             },
         }));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerXbSetVarSlashCommand" }, caughtError); }
 }
 
 function registerXbAddVarSlashCommand() {
@@ -1087,7 +1090,7 @@ function registerXbAddVarSlashCommand() {
                 }
             },
         }));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerXbAddVarSlashCommand" }, caughtError); }
 }
 
 function registerXbDelVarSlashCommand() {
@@ -1126,7 +1129,7 @@ function registerXbDelVarSlashCommand() {
                 }
             },
         }));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerXbDelVarSlashCommand" }, caughtError); }
 }
 
 function registerXbPushVarSlashCommand() {
@@ -1187,7 +1190,7 @@ function registerXbPushVarSlashCommand() {
                 }
             },
         }));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerXbPushVarSlashCommand" }, caughtError); }
 }
 
 function onMessageRendered(data) {
@@ -1201,7 +1204,7 @@ function onMessageRendered(data) {
         if (typeof id === 'number') {
             applyXbGetVarForMessage(id, true);
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onMessageRendered" }, caughtError); }
 }
 
 export function initVarCommands() {

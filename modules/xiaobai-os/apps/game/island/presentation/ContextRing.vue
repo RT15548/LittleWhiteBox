@@ -4,6 +4,8 @@ import type { createIslandClient } from '../client.js';
 import type { GmContextUsage } from '../agent/runner.js';
 import { COPY as c } from '../copy.js';
 import { useAppBack } from '../../../../shell/app-src/navigation/app-navigation.js';
+import { observeBackgroundTask } from '../../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ client: ReturnType<typeof createIslandClient>; sequence: number | undefined }>();
 const usage = ref<GmContextUsage | null>(null), failure = ref(''), open = ref(false), measuring = ref(true);
@@ -26,7 +28,7 @@ function escape(event: KeyboardEvent) { if (open.value) { event.stopPropagation(
 useAppBack(() => { open.value = false; return true; }, () => open.value);
 // New talk changes what the next reply reads; measuring waits for the exchange to settle.
 watch(() => props.sequence, () => schedule(1500));
-watch(open, value => { if (value) { void measure(); } });
+watch(open, value => { if (value) { observeBackgroundTask(measure(), { source: import.meta.url, operation: "callback" }); } });
 // Mount + initial activation coalesce into one measurement. Later activations refresh even if no one spoke.
 onMounted(() => schedule());
 onActivated(() => { active = true; schedule(); });

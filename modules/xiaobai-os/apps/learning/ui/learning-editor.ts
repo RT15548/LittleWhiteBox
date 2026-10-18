@@ -1,4 +1,6 @@
 import { nextTick, type ObjectDirective } from 'vue';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface LearningEditorDraft {
     cursor?: { start: number; end: number; direction: 'forward' | 'backward' | 'none'; top: number; left: number };
@@ -17,11 +19,11 @@ export const rememberLearningEditor: ObjectDirective<HTMLTextAreaElement, Learni
         };
         listeners.set(element, remember);
         for (const event of events) { element.addEventListener(event, remember, { passive: true }); }
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             if (!element.isConnected || !saved) { return; }
             element.setSelectionRange(saved.start, saved.end, saved.direction);
             element.scrollTop = saved.top; element.scrollLeft = saved.left;
-        });
+        }), { source: import.meta.url, operation: "mounted" });
     },
     beforeUnmount(element) {
         const remember = listeners.get(element);

@@ -11,6 +11,8 @@ import DeliveryStatus from './DeliveryStatus.vue';
 import MessageContextButton from './MessageContextButton.vue';
 import type { MessageDraft } from './draft.js';
 import { conversationCopy as copy } from './conversation-copy.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 const draft = defineModel<MessageDraft>('draft', { required: true });
 const props = defineProps<{ contextState: MessagesClientState; contact: ContactView; page: ThreadPage; bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; disabled: boolean; sendDisabled: boolean; busy: MessagesClientState['busy']; outgoing: PendingOutgoingMessage | null; sendFailure: MessageSendFailure | null; sendError: MessageSendFailure | null; working: boolean; pendingSave: boolean; retryDisabled: boolean; loading: boolean; loadMore: () => Promise<void>; media: MessagesClientState['media']; waitingFor: string }>();
 defineEmits<{ back: []; details: []; send: [payload: OutgoingMessage]; retry: [id: string]; discard: [id: string]; deleteMessage: [messageId: string]; regenerate: [messageId: string]; latest: [] }>();
@@ -57,7 +59,7 @@ async function more() {
     try {await props.loadMore(); await nextTick();}
     finally {older = false; scroll();}
 }
-defineExpose({ sent() {bottom = true; void stick();} });
+defineExpose({ sent() {bottom = true; observeBackgroundTask(stick(), { source: import.meta.url, operation: "sent" });} });
 </script>
 <template>
     <section class="messages-conversation">

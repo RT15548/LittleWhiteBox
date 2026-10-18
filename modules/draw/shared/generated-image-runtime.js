@@ -159,7 +159,7 @@ async function writeCache(descriptor, base64) {
                 timestamp: Date.now(),
             });
         });
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "writeCache" }, caughtError); }
 }
 
 function notifyEntry(entry, status, ahead, delay) {
@@ -310,5 +310,5 @@ export async function clearExpiredGeneratedImageCache() {
             };
             request.onerror = () => reject(request.error);
         });
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearExpiredGeneratedImageCache" }, caughtError); }
 }

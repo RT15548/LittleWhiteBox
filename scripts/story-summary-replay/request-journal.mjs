@@ -259,7 +259,7 @@ export async function openRequestJournal({ directory, binding, maxRequests, resu
                 sequence++;
                 previousHash = checksum;
             });
-            writeTail = operation.catch(() => {});
+            writeTail = operation.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "append" }, caughtError); });
             return operation;
         };
         if (!resume) await append({ type: 'header', version: 1, binding, maxRequests });

@@ -18,6 +18,8 @@ import {
 import { createMaintenanceOutcome, type MaintenanceRunOutcome } from './outcome.js';
 import type { MaintenanceMode, MaintenanceParticipant, MaintenanceRegistry } from './registry.js';
 import { ALWAYS_READY_WRITE_GATE, type MaintenanceRootWriteGate } from './root-write-gate.js';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 type MaintenanceState = 'idle' | 'running' | 'error';
 
@@ -114,7 +116,7 @@ export function createMaintenanceRunner({
     let unsubscribeMessageSent: (() => void) | null = null;
 
     const report = (error: unknown): void => {
-        try {onError(error);} catch { /* Reporting cannot own queue progress. */ }
+        try {onError(error);} catch (caughtError) { console.warn({ source: import.meta.url, operation: "report" }, caughtError); }
     };
     const token = (tokens: Record<string, number>, id: string): number => tokens[id] || 0;
     const sourceIsCurrent = (job: MaintenanceQueuedJob): boolean => {
@@ -242,7 +244,7 @@ export function createMaintenanceRunner({
     function scheduleDrain(): void {
         if (scheduled || processing) {return;}
         scheduled = true;
-        schedule(() => {void drain();});
+        schedule(() => {observeBackgroundTask(drain(), { source: import.meta.url, operation: "callback" });});
     }
 
     function enqueue(job: MaintenanceQueuedJob): void {

@@ -14,8 +14,7 @@ const messages = [{ role: 'user', content: 'ping' }];
 
 const browserBuild = await build({ entryPoints: ['modules/agent-core/provider-config.js'],
     bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent' });
-// Trusted first-party module compiled in memory to exercise the browser SDK exports.
-// eslint-disable-next-line no-unsanitized/method
+// eslint-disable-next-line no-unsanitized/method -- Trusted first-party module compiled in memory to exercise the browser SDK exports.
 const browserCore = await import(`data:text/javascript;base64,${Buffer.from(browserBuild.outputFiles[0].text).toString('base64')}`);
 
 // Exact SSE shapes are external provider protocols, not snapshots of implementation.
@@ -52,7 +51,7 @@ function wireResponse(provider, tool, streaming) {
 
 async function mockProvider(t, provider, { streaming = false, status = 200, requireModelListBearer = false } = {}) {
     const requests = [];
-    const server = createServer(async (request, response) => {
+    const server = createServer((request, response) => { const respond = async () => {
         let raw = '';
         for await (const chunk of request) raw += chunk;
         requests.push({ url: request.url, headers: request.headers, body: raw ? JSON.parse(raw) : null });
@@ -67,7 +66,7 @@ async function mockProvider(t, provider, { streaming = false, status = 200, requ
             response.writeHead(200, { 'Content-Type': streaming ? 'text/event-stream' : 'application/json' });
             response.end(wireResponse(provider, requests.length === 1, streaming));
         }
-    });
+    }; respond().catch(error => response.destroy(error)); });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
     return { baseUrl: `http://127.0.0.1:${server.address().port}`, requests };

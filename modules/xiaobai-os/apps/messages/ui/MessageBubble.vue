@@ -45,7 +45,7 @@ const unsubscribe = props.bridge.subscribe(event => {
     else if (payload.status === 'playing') {voiceState.value = '';}
     if (payload.messageId === props.message.id && payload.status === 'error') {error.value = '播放失败，点击可以重试。';}
 });
-onUnmounted(() => {alive = false; unsubscribe(); if (voiceActive.value) {void request('messages/voice/stop').catch(() => {});}});
+onUnmounted(() => {alive = false; unsubscribe(); if (voiceActive.value) {void request('messages/voice/stop').catch((caughtError) => { console.debug({ source: import.meta.url, operation: "module" }, caughtError); });}});
 </script>
 <template>
     <article class="messages-bubble-row" :class="{ outgoing: message.sender === 'user', 'actions-selected': selected }" :data-message-id="message.id" tabindex="0" aria-label="消息操作" @click="select" @focus="emit('select', message.id)">

@@ -8,6 +8,8 @@ import { RULES } from './content.js';
 import { identifier, integer, member, object, parseOperation, text } from './validation.js';
 import { fail, savesUncertain } from './fault.js';
 import { parsePlayerIdentity } from './identity.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const PULSE_MILLISECONDS = 200;
 const CHECKPOINT_MILLISECONDS = 5000;
@@ -91,7 +93,7 @@ export function withIslandRuntime(primary: XiaobaiOsAppRuntime, service: IslandS
         const now = Date.now(), elapsed = now - lastPulse; lastPulse = now;
         if (!live || !current() || !idle()) { return; }
         if (service.tick(elapsed)) { publish(); planWhenDue(now); }
-        if (now - lastCheckpoint >= CHECKPOINT_MILLISECONDS) { void checkpoint(); }
+        if (now - lastCheckpoint >= CHECKPOINT_MILLISECONDS) { observeBackgroundTask(checkpoint(), { source: import.meta.url, operation: "pulse" }); }
     }
     function startTimer() { if (!timer) { lastPulse = lastCheckpoint = Date.now(); timer = setInterval(pulse, PULSE_MILLISECONDS); } }
     function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
@@ -132,7 +134,7 @@ export function withIslandRuntime(primary: XiaobaiOsAppRuntime, service: IslandS
                 case 'game/island/live': {
                     const next = p.active === true;
                     if (next && !live) { lastPulse = Date.now(); }
-                    if (!next && live) { service.steer(null); void checkpoint(); }
+                    if (!next && live) { service.steer(null); observeBackgroundTask(checkpoint(), { source: import.meta.url, operation: "handleMessage" }); }
                     live = next; return {};
                 }
                 case 'game/island/act': {

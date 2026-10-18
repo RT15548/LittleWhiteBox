@@ -16,6 +16,8 @@ import AdministratorDetails from './AdministratorDetails.vue';
 import { shouldSendOnEnter } from '../../../shell/app-src/input/composer-keyboard.js';
 import { useAdministratorWindow } from './conversation-window.js';
 import './administrator.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<XiaobaiOsAppProps>();
 const state = shallowRef(structuredClone(toRaw(props.initialState as AdministratorState)));
@@ -61,7 +63,7 @@ function finishOperation(requestId: number) {
     // Acceptance already removed sentInput. Only idle, settled rejections return it to the draft.
     if (!state.value.unsaved && !state.value.live) { restoreInput(); }
 }
-function jumpLatest() { resetLatest(); void nextTick(() => list.value?.focus({ preventScroll: true })); }
+function jumpLatest() { resetLatest(); observeBackgroundTask(nextTick(() => list.value?.focus({ preventScroll: true })), { source: import.meta.url, operation: "jumpLatest" }); }
 async function send() {
     if (disabled.value || !draft.value.trim() && !image.value) { return; }
     const input = { id: createAdministratorId(), revision: 0, text: draft.value, image: image.value && toRaw(image.value) };
@@ -108,7 +110,7 @@ async function chooseImage(event: Event) {
 function keydown(event: KeyboardEvent) {
     if (!shouldSendOnEnter(event, composing.value)) { return; }
     event.preventDefault();
-    if (!busy.value) { void send(); }
+    if (!busy.value) { observeBackgroundTask(send(), { source: import.meta.url, operation: "keydown" }); }
 }
 watch([draft, image], () => {
     if (tokenTimer) { clearTimeout(tokenTimer); }

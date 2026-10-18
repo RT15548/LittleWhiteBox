@@ -150,8 +150,8 @@ export async function emitScenePromptReady(runtime, promptSnapshot = []) {
                 dryRun: false,
             });
         }
-    } catch {
-        // Prompt preview compatibility must never block the actual request.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "emitScenePromptReady" }, caughtError);
     }
 }
 

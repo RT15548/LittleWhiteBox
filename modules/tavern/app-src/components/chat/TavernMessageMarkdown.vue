@@ -2,6 +2,8 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTavernChatContext } from '../tavern-app-context';
 import { patchTavernMarkdownRoot } from './patch-markdown-root';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{
     html?: string;
@@ -35,7 +37,7 @@ function renderMarkdown() {
         renderedSignature = props.signature;
         renderedPhase = props.phase;
     }
-    void nextTick(enhanceRenderedMarkdown);
+    observeBackgroundTask(nextTick(enhanceRenderedMarkdown), { source: import.meta.url, operation: "renderMarkdown" });
 }
 
 onMounted(renderMarkdown);

@@ -14,6 +14,8 @@ import type {
 import type { XiaobaiOsHostFrameMessage } from '../../../host/frame-bridge.js';
 import type { ShopClientState } from '../types.js';
 import { presentShopState } from './presentation.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -128,7 +130,7 @@ export function createShopController({
             }
         };
         if (execution) {execution.setTimeout(prepare, 0);}
-        else {globalThis.setTimeout(() => {void prepare();}, 0);}
+        else {globalThis.setTimeout(() => {observeBackgroundTask(prepare(), { source: import.meta.url, operation: "callback" });}, 0);}
     }
 
     function activate(context: XiaobaiOsAppActivationContext): ShopClientState {

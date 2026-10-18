@@ -2,6 +2,8 @@ import { computed, nextTick, reactive, watch, type Ref } from 'vue';
 import type { ConversationTurn } from '../campaign/types.js';
 import type { Participant } from '../content/participants.js';
 import { CONVERSATION_WINDOW, conversationRange, type ConversationSelection } from '../../../../shell/conversation-window.js';
+import { observeBackgroundTask } from '../../../../../../shared/common/async-errors.js';
+
 
 const { recent: RECENT_MESSAGES, maximum: BROWSE_MESSAGES } = CONVERSATION_WINDOW;
 interface Reading { range: ConversationSelection | null; top: number; latest: boolean }
@@ -64,7 +66,7 @@ export function useDialogueWindow(options: {
         const version = ++revision, recipient = person.value;
         const focused = transcript.value?.contains(document.activeElement) ? document.activeElement : null;
         shifting = false; freshReply.value = null; reading.delete(recipient);
-        void nextTick(() => { if (revision === version && person.value === recipient) { scrollToReply(); restoreFocus(focused); } });
+        observeBackgroundTask(nextTick(() => { if (revision === version && person.value === recipient) { scrollToReply(); restoreFocus(focused); } }), { source: import.meta.url, operation: "resetLatest" });
     }
     function rememberReading() {
         const log = transcript.value;

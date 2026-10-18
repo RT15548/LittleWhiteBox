@@ -37,6 +37,8 @@ import {
     OP_MAP,
     TOP_OP_RE,
 } from "./varevent-editor.js";
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 /* ============ Module Constants ============= */
 
@@ -122,14 +124,14 @@ CacheRegistry.register(MODULE_ID, {
     clear: () => {
         try {
             const meta = getContext()?.chatMetadata || {};
-            try { delete meta[LWB_PLOT_APPLIED_KEY]; } catch {}
-            try { delete meta[LWB_SNAP_KEY]; } catch {}
-            try { delete meta[LWB_V1_OWNED_ROOTS_KEY]; } catch {}
-            try { delete meta[LWB_V1_OWNED_ROOTS_MIGRATED_KEY]; } catch {}
-        } catch {}
-        try { guardianState.regexCache = {}; } catch {}
-        try { pendingSwipeApply?.clear?.(); } catch {}
-        try { suppressUpdatedOnce?.clear?.(); } catch {}
+            try { delete meta[LWB_PLOT_APPLIED_KEY]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+            try { delete meta[LWB_SNAP_KEY]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+            try { delete meta[LWB_V1_OWNED_ROOTS_KEY]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+            try { delete meta[LWB_V1_OWNED_ROOTS_MIGRATED_KEY]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+        try { guardianState.regexCache = {}; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+        try { pendingSwipeApply?.clear?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+        try { suppressUpdatedOnce?.clear?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
     },
     getDetail: () => {
         try {
@@ -898,7 +900,7 @@ function rulesLoadFromMeta() {
                     const flg = node.constraints.regex.flags || '';
                     try {
                         guardianState.regexCache[p] = new RegExp(src, flg);
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "rulesLoadFromMeta" }, caughtError); }
                 }
             }
         } else {
@@ -915,7 +917,7 @@ function rulesSaveToMeta() {
         meta[LWB_RULES_KEY] = deepClone(guardianState.table || {});
         guardianState.lastMetaSyncAt = Date.now();
         getContext()?.saveMetadataDebounced?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "rulesSaveToMeta" }, caughtError); }
 }
 
 export function guardBypass(on) {
@@ -1030,7 +1032,7 @@ function checkStringWithConstraints(v, node) {
             try {
                 re = new RegExp(c.regex.source, c.regex.flags || '');
                 guardianState.regexCache[normalizePath(node.__path || '')] = re;
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "checkStringWithConstraints" }, caughtError); }
         }
         if (re && !re.test(s)) return { ok: false };
     }
@@ -1258,7 +1260,7 @@ export function applyRuleDelta(path, delta) {
             if (guardianState?.regexCache) {
                 delete guardianState.regexCache[p];
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyRuleDelta" }, caughtError); }
     }
 
     const hasOther = !!(delta && (
@@ -1286,7 +1288,7 @@ export function applyRuleDelta(path, delta) {
                 };
                 try {
                     guardianState.regexCache[p] = new RegExp(c.regex.source, c.regex.flags || '');
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyRuleDelta" }, caughtError); }
             }
             if (delta.constraints.step != null) {
                 c.step = Math.max(0, Math.abs(Number(delta.constraints.step)));
@@ -1460,7 +1462,7 @@ function installVariableApiPatch() {
                 }
             };
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "installVariableApiPatch" }, caughtError); }
 }
 
 /**
@@ -1479,7 +1481,7 @@ function uninstallVariableApiPatch() {
         if (guardianState.origVarApi.del) api.del = guardianState.origVarApi.del;
 
         guardianState.origVarApi = null;
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "uninstallVariableApiPatch" }, caughtError); }
 }
 
 /* ============ Snapshots / Rollback ============= */
@@ -1585,7 +1587,7 @@ function collectV1RootsFromChat() {
                 }
             }
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "collectV1RootsFromChat" }, caughtError); }
     return roots;
 }
 
@@ -1620,8 +1622,8 @@ function setVarDict(dict, scopedRoots = null) {
         if (roots) {
             for (const k of roots) {
                 if (!Object.prototype.hasOwnProperty.call(next, k)) {
-                    try { setLocalVariable(k, ''); } catch {}
-                    try { delete current[k]; } catch {}
+                    try { setLocalVariable(k, ''); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); }
+                    try { delete current[k]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); }
                     continue;
                 }
 
@@ -1630,7 +1632,7 @@ function setVarDict(dict, scopedRoots = null) {
                 if (v && typeof v === 'object') {
                     try { toStore = JSON.stringify(v); } catch { toStore = ''; }
                 }
-                try { setLocalVariable(k, toStore); } catch {}
+                try { setLocalVariable(k, toStore); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); }
                 current[k] = deepClone(v);
             }
 
@@ -1642,8 +1644,8 @@ function setVarDict(dict, scopedRoots = null) {
         // remove missing variables
         for (const k of Object.keys(current)) {
             if (!(k in next)) {
-                try { setLocalVariable(k, ''); } catch {}
-                try { delete current[k]; } catch {}
+                try { setLocalVariable(k, ''); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); }
+                try { delete current[k]; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); }
             }
         }
 
@@ -1654,12 +1656,12 @@ function setVarDict(dict, scopedRoots = null) {
             if (v && typeof v === 'object') {
                 try { toStore = JSON.stringify(v); } catch { toStore = ''; }
             }
-            try { setLocalVariable(k, toStore); } catch {}
+            try { setLocalVariable(k, toStore); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); }
         }
 
         meta.variables = deepClone(next);
         getContext()?.saveMetadataDebounced?.();
-    } catch {} finally {
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setVarDict" }, caughtError); } finally {
         guardBypass(false);
     }
 }
@@ -1702,10 +1704,10 @@ function applyRulesSnapshot(tableLike, scopedRoots = null) {
             if (c && c.source) {
                 try {
                     guardianState.regexCache[p] = new RegExp(c.source, c.flags || '');
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyRulesSnapshot" }, caughtError); }
             }
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyRulesSnapshot" }, caughtError); }
 
     rulesSaveToMeta();
 }
@@ -1765,7 +1767,7 @@ function snapshotCurrentLastFloor() {
         const rules = cloneRulesTableForSnapshot();
         const roots = getEffectiveV1OwnedRoots();
         setSnapshot(lastId, { vars: dict, rules, roots: [...roots] });
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "snapshotCurrentLastFloor" }, caughtError); }
 }
 
 function snapshotPreviousFloor() {
@@ -1779,7 +1781,7 @@ function snapshotForMessageId(currentId) {
         const rules = cloneRulesTableForSnapshot();
         const roots = getEffectiveV1OwnedRoots();
         setSnapshot(currentId, { vars: dict, rules, roots: [...roots] });
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "snapshotForMessageId" }, caughtError); }
 }
 
 function rollbackToPreviousOf(messageId) {
@@ -1865,7 +1867,7 @@ async function rebuildVariablesFromScratch() {
         for (let i = 0; i < chat.length; i++) {
             await applyVariablesForMessage(i);
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "rebuildVariablesFromScratch" }, caughtError); }
 }
 
 /* ============ Apply Variables To Message ============= */
@@ -2053,7 +2055,7 @@ async function applyVariablesForMessage(messageId) {
             } catch (e) {
                 parseErrors++;
                 if (debugOn) {
-                    try { xbLog.error(MODULE_ID, `plot-log 解析失败：楼层${messageId} 块${idx + 1} 预览=${preview(b)}`, e); } catch {}
+                    try { xbLog.error(MODULE_ID, `plot-log 解析失败：楼层${messageId} 块${idx + 1} 预览=${preview(b)}`, e); } catch (error) { console.warn({ source: import.meta.url, operation: 'applyVariablesForMessage' }, error); }
                 }
                 return;
             }
@@ -2081,12 +2083,10 @@ async function applyVariablesForMessage(messageId) {
 
         if (ops.length === 0 && delVarNames.size === 0) {
             if (debugOn) {
-                try {
-                    xbLog.warn(
+                try { xbLog.warn(
                         MODULE_ID,
                         `plot-log 未产生可执行指令：楼层${messageId} 块数=${blocks.length} 解析条目=${parsedPartsTotal} 解析失败=${parseErrors} 预览=${preview(blocks[0])}`
-                    );
-                } catch {}
+                    ); } catch (error) { console.warn({ source: import.meta.url, operation: 'applyVariablesForMessage' }, error); }
             }
             setAppliedSignature(messageId, curSig);
             return;
@@ -2131,7 +2131,7 @@ async function applyVariablesForMessage(messageId) {
                         if (delta) {
                             applyRuleDelta(normalizePath(path), delta);
                         }
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
                 }
                 rulesSaveToMeta();
                 continue;
@@ -2337,7 +2337,7 @@ async function applyVariablesForMessage(messageId) {
                                 const { parent, lastKey } = ensureDeepContainer(obj, segs);
                                 curr = parent?.[lastKey];
                             }
-                        } catch {}
+                        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
 
                         const baseNum = Number(curr);
                         const targetNum = Number(res.value);
@@ -2364,7 +2364,7 @@ async function applyVariablesForMessage(messageId) {
                         MODULE_ID,
                         `plot-log 指令执行后无变化：楼层${messageId} 指令数${ops.length}${denied} 示例=${preview(JSON.stringify(guardDeniedSamples))}`
                     );
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
             }
             setAppliedSignature(messageId, curSig);
             return;
@@ -2379,14 +2379,14 @@ async function applyVariablesForMessage(messageId) {
                 } else {
                     setLocalVariable(name, safeJSONStringify(rec.next ?? {}));
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
         }
 
         // delete variables
         if (delVarNames.size > 0) {
             try {
                 for (const v of delVarNames) {
-                    try { setLocalVariable(v, ''); } catch {}
+                    try { setLocalVariable(v, ''); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
                 }
                 const meta = ctx?.chatMetadata;
                 if (meta?.variables) {
@@ -2394,11 +2394,11 @@ async function applyVariablesForMessage(messageId) {
                     ctx?.saveMetadataDebounced?.();
                     ctx?.saveSettingsDebounced?.();
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
         }
 
         setAppliedSignature(messageId, curSig);
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyVariablesForMessage" }, caughtError); }
 }
 
 /* ============ Event Handling ============= */
@@ -2424,8 +2424,8 @@ function getMsgIdStrict(payload) {
 
 function queuePostReceiveApply(messageId, options = {}) {
     const shouldSnapshot = options?.snapshot === true;
-    postReceiveApplyQueue = postReceiveApplyQueue
-        .catch(() => {})
+    const task = postReceiveApplyQueue
+        .catch(error => console.warn({ source: import.meta.url, operation: 'queuePostReceiveApply' }, error))
         .then(async () => {
             await applyVarsForMessage(messageId);
             applyXbGetVarForMessage(messageId, true);
@@ -2433,8 +2433,8 @@ function queuePostReceiveApply(messageId, options = {}) {
             if (shouldSnapshot && getVariablesMode() !== '2.0') {
                 snapshotForMessageId(messageId);
             }
-        })
-        .catch(() => {});
+        });
+    postReceiveApplyQueue = task.catch(error => console.warn('[LittleWhiteBox] variable update failed', error));
     return postReceiveApplyQueue;
 }
 
@@ -2467,7 +2467,7 @@ function registerVariablesAfterAiGate() {
         if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
         const message = getContext()?.chat?.[messageId];
         if (!message || message.is_user) return;
-        void queuePostReceiveApply(messageId, { snapshot: true });
+        observeBackgroundTask(queuePostReceiveApply(messageId, { snapshot: true }), { source: import.meta.url, operation: "callback" });
     });
 }
 
@@ -2487,14 +2487,14 @@ function bindEvents() {
                 await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // message received
     events?.on(event_types.MESSAGE_RECEIVED, (data) => {
         try {
             notifyVariablesAfterAi(data, 'message_received');
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // user message rendered
@@ -2506,20 +2506,20 @@ function bindEvents() {
                 applyXbGetVarForMessage(id, true);
                 if (getVariablesMode() !== '2.0') snapshotForMessageId(id);
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // character message rendered
     events?.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
         try {
             notifyVariablesAfterAi(data, 'character_message_rendered');
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     events?.on(event_types.GENERATION_ENDED, (data) => {
         try {
             notifyVariablesAfterAi(data, 'generation_ended');
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // message updated
@@ -2534,7 +2534,7 @@ function bindEvents() {
                 await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // message edited
@@ -2548,7 +2548,7 @@ function bindEvents() {
             // Roll back first so re-apply uses the edited message
             await rollbackToPreviousOfAsync(id);
 
-            setTimeout(async () => {
+            setTimeout(observeAsyncCallback(async () => {
                 await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
 
@@ -2556,7 +2556,7 @@ function bindEvents() {
                     const ctx = getContext();
                     const msg = ctx?.chat?.[id];
                     if (msg) updateMessageBlock(id, msg, { rerenderMessage: true });
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
 
                 try {
                     const ctx = getContext();
@@ -2566,11 +2566,11 @@ function bindEvents() {
                         suppressUpdatedOnce.add(id);
                         await es.emit(et.MESSAGE_UPDATED, id);
                     }
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
 
                 await executeQueuedVareventJsAfterTurn();
-            }, 10);
-        } catch {}
+            }, { source: import.meta.url, operation: "callback" }), 10);
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // message swiped
@@ -2585,14 +2585,14 @@ function bindEvents() {
             // Roll back first so swipe applies cleanly
             await rollbackToPreviousOfAsync(id);
 
-            const tId = setTimeout(async () => {
+            const tId = setTimeout(observeAsyncCallback(async () => {
                 pendingSwipeApply.delete(id);
                 await applyVarsForMessage(id);
                 await executeQueuedVareventJsAfterTurn();
-            }, 10);
+            }, { source: import.meta.url, operation: "callback" }), 10);
 
             pendingSwipeApply.set(id, tId);
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // message deleted
@@ -2618,7 +2618,7 @@ function bindEvents() {
                 clearSnapshotsFrom(id);
                 clearAppliedFrom(id);
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // note
@@ -2636,7 +2636,7 @@ function bindEvents() {
                     pendingSwipeApply.delete(lastSwipedId);
                 }
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
     // chat changed
@@ -2653,9 +2653,9 @@ function bindEvents() {
                 try {
                     const mod = await import('./state2/index.js');
                     mod.clearStateAppliedFrom(0);
-                } catch {}
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 }
 
@@ -2665,7 +2665,7 @@ function bindEvents() {
  * init module
  */
 export function initVariablesCore() {
-    try { xbLog.info('variablesCore', '变量系统启动'); } catch {}
+    try { xbLog.info('variablesCore', '变量系统启动'); } catch (error) { console.warn({ source: import.meta.url, operation: 'initVariablesCore' }, error); }
     if (initialized) return;
     initialized = true;
     registerVariablesAfterAiGate();
@@ -2725,7 +2725,7 @@ export function initVariablesCore() {
  * cleanup module
  */
 export function cleanupVariablesCore() {
-    try { xbLog.info('variablesCore', '变量系统清理'); } catch {}
+    try { xbLog.info('variablesCore', '变量系统清理'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanupVariablesCore' }, error); }
     if (!initialized) return;
 
     // cleanup events

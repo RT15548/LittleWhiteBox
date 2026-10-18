@@ -41,6 +41,7 @@ import { createLearningApprovals } from '../application/approval.js';
 import { createLearningDelegatedWork } from './delegated-work.js';
 import { shareLearningCourse } from '../application/course-sharing.js';
 
+
 export function createLearningRuntime(deps: {
     repository: LearningRepository; store: PartitionStore<LearningStoredCompanions>; files: XiaobaiOsFileControls;
     workbenchStore: PartitionStore<LearningStoredWorkbench>; workbenchFiles: XiaobaiOsFileControls;
@@ -306,7 +307,8 @@ export function createLearningRuntime(deps: {
         sourceChoice = article ? { reason: 'unavailable', source: article.source,
             input: { message: article.message, replaceCurrent: article.replaceCurrent }, unitId: profileNow()?.unit?.id ?? null } : null;
         preparation = { phase: article ? 'article' : 'notes', running: true, message: '', ...(article ? { source: article.source } : {}) };
-        void deps.execution.run(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- The execution scope owns and reports this background task's rejection.
+        deps.execution.run(async () => {
             try {
                 const result = await teaching.run({ action: { kind: 'prepare', unit: 'reading-writing',
                     replaceCurrent: article?.replaceCurrent ?? false, ...(article ? { source: article.source } : {}) },
@@ -579,7 +581,8 @@ export function createLearningRuntime(deps: {
         message = ''; remark = null;
         // Stop first so hearing facts cannot race a teacher snapshot or a submitted answer.
         speech.stop();
-        void deps.execution.run(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- The execution scope owns and reports this background task's rejection.
+        deps.execution.run(async () => {
             const cleanup = ['delete-note', 'delete-item', 'delete-attempt', 'abandon', 'delete-language', 'clear'].includes(name);
             const pendingBefore = repository.pendingCommitId();
             let before = repository.snapshot().document;
@@ -631,7 +634,8 @@ export function createLearningRuntime(deps: {
         const owned = epoch;
         lane.job = token; lane.kind = name; lane.progress = '';
         const guard = () => active() && epoch === owned && lane.job === token;
-        void deps.execution.run(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises -- The execution scope owns and reports this background task's rejection.
+        deps.execution.run(async () => {
             try {
                 const answerBasis = original?.answerBasis ?? { document: repository.snapshot().document ?? null, submittedAt: new Date().toISOString() };
                 const exerciseId = input.exerciseId === undefined ? undefined : learningText(input.exerciseId, 'exerciseId', 128);
@@ -729,7 +733,8 @@ export function createLearningRuntime(deps: {
                 const selected = parseLearningLanguageTag(input.language, 'language');
                 if (selected !== language) {
                     cancel(); teaching.reset(); companion.reset(); language = selected; recordId = ''; offset = 0; message = '';
-                    void deps.execution.run(async () => {
+                    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- The execution scope owns and reports this background task's rejection.
+                    deps.execution.run(async () => {
                         try { await teaching.hydrate(); await companion.hydrate(); }
                         catch { message = conversationCopy.historyLoadFailed; }
                         publish();

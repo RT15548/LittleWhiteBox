@@ -6,6 +6,8 @@ import { RULES } from '../content.js';
 import type { ExpeditionClient } from '../client.js';
 import type { InputFrame, InputSpan } from '../types.js';
 import { peopleNeedTick } from '../world/people.js';
+import { observeBackgroundTask } from '../../../../../../shared/common/async-errors.js';
+
 
 /** Local prediction owns only unconfirmed input. The host replays it, never accepts client positions. */
 export function createCampaignPlayback(client: ExpeditionClient) {
@@ -37,7 +39,7 @@ export function createCampaignPlayback(client: ExpeditionClient) {
         if (c.phase === 'exploration' && !frame.move && !peopleNeedTick(c)) { return; }
         tickCampaign(c, frame); appendInput(tape, frame); ticks++; dirty.value = true;
         triggerRef(current);
-        if (ticks >= RULES.checkpointTicks || !['exploration', 'battle'].includes(c.phase)) { void flush(); }
+        if (ticks >= RULES.checkpointTicks || !['exploration', 'battle'].includes(c.phase)) { observeBackgroundTask(flush(), { source: import.meta.url, operation: "input" }); }
     }
     return { current, dirty, input, flush, sync,
         async recover() { if (!await client.recover()) { return false; } sync(); return flush(); },

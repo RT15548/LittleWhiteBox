@@ -103,8 +103,8 @@ export function createChatUi(deps) {
             } finally {
                 textarea.remove();
             }
-        } catch {
-            // Fall through to the async clipboard path.
+        } catch (caughtError) {
+            console.debug({ source: import.meta.url, operation: "copyText" }, caughtError);
         }
 
         try {
@@ -112,8 +112,8 @@ export function createChatUi(deps) {
                 await navigator.clipboard.writeText(normalized);
                 return true;
             }
-        } catch {
-            // Fall through to false.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "copyText" }, caughtError);
         }
         return false;
     }

@@ -29,6 +29,8 @@ import { bodyReadings } from './presentation/body-readings.js';
 import IslandEntry from './presentation/IslandEntry.vue';
 import IslandEnding from './presentation/IslandEnding.vue';
 import './presentation/island.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; generationActive: boolean }>();
 const client = createIslandClient(props.bridge, props.chatIdentity), { view, busy, blocked } = client;
@@ -76,7 +78,7 @@ useAppLayer(endingRoot, () => { if (restart.value) { restart.value = false; } el
 const active = ref(true), hidden = ref(document.hidden), covered = computed(() => !entered.value || !!panel.value || restart.value || failedScene.value || !sceneReady.value);
 const running = computed(() => active.value && view.value?.phase === 'living' && !covered.value && !hidden.value);
 const visibility = () => { hidden.value = document.hidden; };
-watch(running, value => { void client.live(value); }, { immediate: true, flush: 'sync' });
+watch(running, value => { observeBackgroundTask(client.live(value), { source: import.meta.url, operation: "callback" }); }, { immediate: true, flush: 'sync' });
 onActivated(() => { visibility(); active.value = true; });
 onDeactivated(() => { active.value = false; });
 onMounted(() => {
@@ -88,7 +90,7 @@ onMounted(() => {
         cramped.value = width < 600 && height < 520;
     });
     resize.observe(root.value!);
-    void client.read();
+    observeBackgroundTask(client.read(), { source: import.meta.url, operation: "callback" });
 });
 onBeforeUnmount(() => { active.value = false; document.removeEventListener('visibilitychange', visibility); resize?.disconnect(); client.dispose(); });
 async function begin(identity: PlayerIdentity) {
@@ -103,7 +105,7 @@ function leavePanel(operation: Operation) {
 }
 function closeConversation() {
     chatOpen.value = false;
-    void nextTick(() => { if (entered.value && !panel.value) { root.value?.querySelector<HTMLElement>('.island-field')?.focus({ preventScroll: true }); } });
+    observeBackgroundTask(nextTick(() => { if (entered.value && !panel.value) { root.value?.querySelector<HTMLElement>('.island-field')?.focus({ preventScroll: true }); } }), { source: import.meta.url, operation: "closeConversation" });
 }
 // On a narrow window, return the full map and its controls when an action starts there.
 function actionAccepted(operation: Operation) { leavePanel(operation); if (fullConversation.value && startsActivity(operation)) { closeConversation(); } }
@@ -112,7 +114,7 @@ function work(task: WorkTask) { return act({ kind: 'work', task }); }
 function move(point: Point) {
     if (activity.value && activity.value.kind !== 'travel') { return; }
     const operation: Operation = dragTarget.value ? { kind: 'drag', subject: dragTarget.value, route: [point] } : { kind: 'travel', route: [point] };
-    dragTarget.value = null; void act(operation);
+    dragTarget.value = null; observeBackgroundTask(act(operation), { source: import.meta.url, operation: "move" });
 }
 function chooseBodyDestination(subject: NpcId) { panel.value = null; dragTarget.value = subject; closeConversation(); }
 watch(panel, value => {
@@ -125,8 +127,8 @@ function selectResource(id: string) { selectedResource.value = id; gatherCount.v
 function useResource() {
     if (!resource.value) { return; }
     if (!inReach(resource.value.position)) { move(resource.value.position); return; }
-    if (resource.value.kind === 'seep') { void work({ kind: 'fill', source: resource.value.id, container: chosenContainer.value, millilitres: amount.value }); }
-    else { void work({ kind: 'gather', source: resource.value.id, units: gatherCount.value }); }
+    if (resource.value.kind === 'seep') { observeBackgroundTask(work({ kind: 'fill', source: resource.value.id, container: chosenContainer.value, millilitres: amount.value }), { source: import.meta.url, operation: "useResource" }); }
+    else { observeBackgroundTask(work({ kind: 'gather', source: resource.value.id, units: gatherCount.value }), { source: import.meta.url, operation: "useResource" }); }
 }
 </script>
 

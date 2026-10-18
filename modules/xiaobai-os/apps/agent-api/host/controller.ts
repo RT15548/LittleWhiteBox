@@ -3,6 +3,8 @@ import type { XiaobaiOsExecutionScope } from '../../../kernel/execution-scope.js
 import type { XiaobaiOsHostFrameMessage } from '../../../host/frame-bridge.js';
 import type { XiaobaiOsAppActivationContext, XiaobaiOsAppRuntime } from '../../../types.js';
 import type { AgentApiClientState } from '../types.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -62,7 +64,7 @@ export function createAgentApiController(
             if (isCurrent(current)) {current.post('agent-api/state', { state });}
         };
         if (execution) { execution.setTimeout(load, 0); }
-        else { globalThis.setTimeout(() => { void load(); }, 0); }
+        else { globalThis.setTimeout(() => { observeBackgroundTask(load(), { source: import.meta.url, operation: "callback" }); }, 0); }
     }
 
     function beginNetworkOperation(): AbortController {

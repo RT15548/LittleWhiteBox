@@ -1606,7 +1606,7 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
             selectedSessionId,
         });
     } catch (error) {
-        await cleanupTempRestoreArchive(tempCharacterKey, mapper.sessionIds.values()).catch((_error: unknown): void => undefined);
+        await cleanupTempRestoreArchive(tempCharacterKey, mapper.sessionIds.values()).catch((_error: unknown): void => { console.warn({ source: import.meta.url, operation: "restoreTavernCharacterArchiveFromRecords" }, _error); });
         throw error;
     }
 

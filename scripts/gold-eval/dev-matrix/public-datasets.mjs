@@ -72,7 +72,7 @@ async function downloadFile(url, filePath) {
         if (stat.isFile() && stat.size > 0) {
             return { path: filePath, bytes: stat.size, sha256: await sha256File(filePath), reused: true };
         }
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "downloadFile" }, caughtError); }
     const response = await openDownload(url);
     const temp = `${filePath}.${process.pid}.download`;
     await fsp.mkdir(path.dirname(filePath), { recursive: true });

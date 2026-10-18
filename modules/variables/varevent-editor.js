@@ -7,6 +7,8 @@ import { getContext } from "../../../../../extensions.js";
 import { getLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { replaceXbGetVarInString, replaceXbGetVarYamlInString, replaceXbGetVarYamlIdxInString } from "./var-commands.js";
+import { observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 const MODULE_ID = 'vareventEditor';
 const LWB_EXT_ID = 'LittleWhiteBox';
@@ -54,7 +56,7 @@ function readCharExtBumpAliases() {
         const bump = char?.data?.extensions?.[LWB_EXT_ID]?.variablesCore?.bumpAliases;
         if (bump && typeof bump === 'object') return bump;
         const legacy = char?.extensions?.[LWB_EXT_ID]?.variablesCore?.bumpAliases;
-        if (legacy && typeof legacy === 'object') { writeCharExtBumpAliases(legacy); return legacy; }
+        if (legacy && typeof legacy === 'object') { observeBackgroundTask(writeCharExtBumpAliases(legacy), { source: import.meta.url, operation: "readCharExtBumpAliases" }); return legacy; }
         return {};
     } catch { return {}; }
 }
@@ -84,7 +86,7 @@ async function writeCharExtBumpAliases(newStore) {
             ns.variablesCore.bumpAliases = structuredClone(newStore || {});
         }
         typeof ctx?.saveCharacter === 'function' ? await ctx.saveCharacter() : ctx?.saveCharacterDebounced?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "writeCharExtBumpAliases" }, caughtError); }
 }
 
 export function getBumpAliasStore() { return readCharExtBumpAliases(); }
@@ -99,7 +101,7 @@ function matchAlias(varOrKey, rhs) {
         for (const [k, v] of Object.entries(scope)) {
             if (k.startsWith('/') && k.lastIndexOf('/') > 0) {
                 const last = k.lastIndexOf('/');
-                try { if (new RegExp(k.slice(1, last), k.slice(last + 1)).test(rhs)) return Number(v); } catch {}
+                try { if (new RegExp(k.slice(1, last), k.slice(last + 1)).test(rhs)) return Number(v); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "matchAlias" }, caughtError); }
             } else if (rhs === k) return Number(v);
         }
     }
@@ -166,8 +168,7 @@ export function parseVareventEvents(innerText) {
 
 export function evaluateCondition(expr) {
     const isNumericLike = (v) => v != null && /^-?\d+(?:\.\d+)?$/.test(String(v).trim());
-    // Used by eval() expression; keep in scope.
-    // eslint-disable-next-line no-unused-vars
+    // eslint-disable-next-line no-unused-vars -- Used by eval() expression; keep in scope.
     function VAR(path) {
         try {
             const p = String(path ?? '').replace(/\[(\d+)\]/g, '.$1'), seg = p.split('.').map(s => s.trim()).filter(Boolean);
@@ -178,11 +179,9 @@ export function evaluateCondition(expr) {
             return cur == null ? '' : typeof cur === 'object' ? JSON.stringify(cur) : String(cur);
         } catch { return undefined; }
     }
-    // Used by eval() expression; keep in scope.
-    // eslint-disable-next-line no-unused-vars
+    // eslint-disable-next-line no-unused-vars -- Used by eval() expression; keep in scope.
     const VAL = (t) => String(t ?? '');
-    // Used by eval() expression; keep in scope.
-    // eslint-disable-next-line no-unused-vars
+    // eslint-disable-next-line no-unused-vars -- Used by eval() expression; keep in scope.
     function REL(a, op, b) {
         if (isNumericLike(a) && isNumericLike(b)) { const A = Number(String(a).trim()), B = Number(String(b).trim()); if (op === '>') return A > B; if (op === '>=') return A >= B; if (op === '<') return A < B; if (op === '<=') return A <= B; }
         else { const A = String(a), B = String(b); if (op === '>') return A > B; if (op === '>=') return A >= B; if (op === '<') return A < B; if (op === '<=') return A <= B; }
@@ -224,7 +223,7 @@ async function buildVareventReplacement(innerText, dryRun, executeJs = false) {
         }
         if (!chosen) return '';
         let out = chosen.display ? String(chosen.display).replace(/^\n+/, '').replace(/\n+$/, '') : '';
-        if (!dryRun && executeJs && chosen.js && String(chosen.js).trim()) { try { await runJS(chosen.js); } catch {} }
+        if (!dryRun && executeJs && chosen.js && String(chosen.js).trim()) { try { await runJS(chosen.js); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "buildVareventReplacement" }, caughtError); } }
         return out;
     } catch { return ''; }
 }
@@ -236,7 +235,7 @@ export async function replaceVareventInString(text, dryRun = false, executeJs = 
 }
 
 export function enqueuePendingVareventBlock(innerText, sourceInfo) {
-    try { const ctx = getContext(), meta = ctx?.chatMetadata || {}, list = (meta.LWB_PENDING_VAREVENT_BLOCKS ||= []); list.push({ inner: String(innerText || ''), source: sourceInfo || 'unknown', turn: (ctx?.chat?.length ?? 0), ts: Date.now() }); ctx?.saveMetadataDebounced?.(); } catch {}
+    try { const ctx = getContext(), meta = ctx?.chatMetadata || {}, list = (meta.LWB_PENDING_VAREVENT_BLOCKS ||= []); list.push({ inner: String(innerText || ''), source: sourceInfo || 'unknown', turn: (ctx?.chat?.length ?? 0), ts: Date.now() }); ctx?.saveMetadataDebounced?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "enqueuePendingVareventBlock" }, caughtError); }
 }
 
 export function drainPendingVareventBlocks() {
@@ -250,8 +249,8 @@ export async function executeQueuedVareventJsAfterTurn() {
             const evts = parseVareventEvents(item.inner); if (!evts.length) continue;
             let chosen = null;
             for (let j = evts.length - 1; j >= 0; j--) { const ev = evts[j], condStr = String(ev.condition ?? '').trim(); if (!(condStr ? evaluateCondition(condStr) : true)) continue; if (!(ev.js && String(ev.js).trim())) continue; chosen = ev; break; }
-            if (chosen) { try { await runJS(String(chosen.js ?? '').trim()); } catch {} }
-        } catch {}
+            if (chosen) { try { await runJS(String(chosen.js ?? '').trim()); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeQueuedVareventJsAfterTurn" }, caughtError); } }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeQueuedVareventJsAfterTurn" }, caughtError); }
     }
 }
 
@@ -268,7 +267,7 @@ async function runImmediateVarEvents() {
                 for (const ev of evts) { if (!(String(ev.condition ?? '').trim() ? evaluateCondition(String(ev.condition ?? '').trim()) : true)) continue; if (String(ev.display ?? '').trim()) await runST(`/sys "${String(ev.display ?? '').trim().replace(/"/g, '\\"')}"`); if (String(ev.js ?? '').trim()) await runJS(String(ev.js ?? '').trim()); }
             }
         }
-    } catch {} finally { setTimeout(() => { _scanRunning = false; }, 0); }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "runImmediateVarEvents" }, caughtError); } finally { setTimeout(() => { _scanRunning = false; }, 0); }
 }
 const runImmediateVarEventsDebounced = debounce(runImmediateVarEvents, 30);
 
@@ -350,7 +349,7 @@ function installWIHiddenTagStripper() {
                                 }
                             }
                         }
-                      } catch {}
+                      } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lateChatReplacementHandler" }, caughtError); }
           };
           try {
               if (eventSource && typeof eventSource.makeLast === 'function') {
@@ -386,7 +385,7 @@ function installWIHiddenTagStripper() {
                         data.prompt = replaceXbGetVarYamlIdxInString(data.prompt);
                     }
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
         });
     }
     if (evtTypes?.GENERATION_ENDED) {
@@ -402,7 +401,7 @@ function installWIHiddenTagStripper() {
 
                     drainPendingVareventBlocks();
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
         });
     }    
     if (evtTypes?.CHAT_CHANGED) {
@@ -411,14 +410,14 @@ function installWIHiddenTagStripper() {
                 getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false);
                 drainPendingVareventBlocks();
                 runImmediateVarEventsDebounced();
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
         });
     }
     if (evtTypes?.APP_READY) {
         events?.on(evtTypes.APP_READY, () => {
             try {
                 runImmediateVarEventsDebounced();
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
         });
     }
 }
@@ -434,13 +433,12 @@ function injectEditorStyles() {
 
 const U = {
     qa: (root, sel) => Array.from((root || document).querySelectorAll(sel)),
-    // Template-only UI markup.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
     el: (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; },
     setActive(listLike, idx) { (Array.isArray(listLike) ? listLike : U.qa(document, listLike)).forEach((el, i) => el.classList.toggle('active', i === idx)); },
     toast: { ok: (m) => window?.toastr?.success?.(m), warn: (m) => window?.toastr?.warning?.(m), err: (m) => window?.toastr?.error?.(m) },
     drag(modal, overlay, header) {
-        try { modal.style.position = 'absolute'; modal.style.left = '50%'; modal.style.top = '50%'; modal.style.transform = 'translate(-50%,-50%)'; } catch {}
+        try { modal.style.position = 'absolute'; modal.style.left = '50%'; modal.style.top = '50%'; modal.style.transform = 'translate(-50%,-50%)'; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "drag" }, caughtError); }
         let dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
         const onDown = (e) => { if (!(e instanceof PointerEvent) || e.button !== 0) return; dragging = true; const r = modal.getBoundingClientRect(), ro = overlay.getBoundingClientRect(); modal.style.left = (r.left - ro.left) + 'px'; modal.style.top = (r.top - ro.top) + 'px'; modal.style.transform = ''; sx = e.clientX; sy = e.clientY; sl = parseFloat(modal.style.left) || 0; st = parseFloat(modal.style.top) || 0; window.addEventListener('pointermove', onMove, { passive: true }); window.addEventListener('pointerup', onUp, { once: true }); e.preventDefault(); };
         const onMove = (e) => { if (!dragging) return; let nl = sl + e.clientX - sx, nt = st + e.clientY - sy; const maxL = (overlay.clientWidth || overlay.getBoundingClientRect().width) - modal.offsetWidth, maxT = (overlay.clientHeight || overlay.getBoundingClientRect().height) - modal.offsetHeight; modal.style.left = Math.max(0, Math.min(maxL, nl)) + 'px'; modal.style.top = Math.max(0, Math.min(maxT, nt)) + 'px'; };
@@ -497,7 +495,7 @@ const UI = {
     makeConditionGroup() {
         const g = U.el('div', 'lwb-ve-condgroup', `<div class="lwb-ve-group-title"><select class="lwb-ve-input lwb-ve-mini lwb-ve-group-lop" style="display:none;"><option value="&&">和</option><option value="||">或</option></select><span class="lwb-ve-group-name">小组</span><span style="flex:1 1 auto;"></span><button type="button" class="lwb-ve-btn ghost lwb-ve-del-group">删除小组</button></div><div class="lwb-ve-conds"></div><button type="button" class="lwb-ve-btn lwb-ve-add-cond"><i class="fa-solid fa-plus"></i>添加条件</button>`);
         const conds = g.querySelector('.lwb-ve-conds');
-        g.querySelector('.lwb-ve-add-cond')?.addEventListener('click', () => { try { UI.addConditionRow(conds, {}); } catch {} });
+        g.querySelector('.lwb-ve-add-cond')?.addEventListener('click', () => { try { UI.addConditionRow(conds, {}); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "makeConditionGroup" }, caughtError); } });
         g.querySelector('.lwb-ve-del-group')?.addEventListener('click', () => g.remove());
         return g;
     },
@@ -525,7 +523,6 @@ const UI = {
         try {
             const groupWrap = block.querySelector('.lwb-ve-condgroups'); if (!groupWrap) return;
             // Template-only UI markup.
-            // eslint-disable-next-line no-unsanitized/property
             groupWrap.innerHTML = '';
             const top = P.splitTopWithOps(condStr);
             top.forEach((seg, idxSeg) => {
@@ -535,7 +532,7 @@ const UI = {
                 const rows = P.splitTopWithOps(P.stripOuter(text)); let first = true; const cw = g.querySelector('.lwb-ve-conds');
                 rows.forEach(r => { const comp = P.parseComp(r.expr); if (!comp) return; UI.addConditionRow(cw, { lop: first ? null : (r.op || '&&'), lhs: comp.lhs, op: comp.op, rhsIsVar: comp.rhsIsVar, rhs: comp.rhs }); first = false; });
             });
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseConditionIntoUI" }, caughtError); }
     },
     createEventBlock(index) {
         const block = U.el('div', 'lwb-ve-event', UI.getEventBlockHTML(index));
@@ -603,7 +600,7 @@ export function openVarEditor(entryEl, uid) {
     const wi = document.getElementById('WorldInfo'), wiIcon = document.getElementById('WIDrawerIcon');
     const wasPinned = !!wi?.classList.contains('pinnedOpen'); let tempPinned = false;
     if (wi && !wasPinned) { wi.classList.add('pinnedOpen'); tempPinned = true; } if (wiIcon && !wiIcon.classList.contains('drawerPinnedOpen')) wiIcon.classList.add('drawerPinnedOpen');
-    const closeEditor = () => { try { const pinChecked = !!document.getElementById('WI_panel_pin')?.checked; if (tempPinned && !pinChecked) { wi?.classList.remove('pinnedOpen'); wiIcon?.classList.remove('drawerPinnedOpen'); } } catch {} overlay.remove(); };
+    const closeEditor = () => { try { const pinChecked = !!document.getElementById('WI_panel_pin')?.checked; if (tempPinned && !pinChecked) { wi?.classList.remove('pinnedOpen'); wiIcon?.classList.remove('drawerPinnedOpen'); } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "closeEditor" }, caughtError); } overlay.remove(); };
     btnCancel.addEventListener('click', closeEditor); header.querySelector('.lwb-ve-close')?.addEventListener('click', closeEditor);
     const TAG_RE = { varevent: /<varevent>([\s\S]*?)<\/varevent>/gi }, originalText = String(textarea.value || ''), vareventBlocks = [];
     TAG_RE.varevent.lastIndex = 0; let mm; while ((mm = TAG_RE.varevent.exec(originalText)) !== null) vareventBlocks.push({ inner: mm[1] ?? '' });
@@ -617,10 +614,9 @@ export function openVarEditor(entryEl, uid) {
         let eventsWrap = page.querySelector(':scope > div'); if (!eventsWrap) { eventsWrap = U.el('div'); page.appendChild(eventsWrap); }
         const init = () => {
             // Template-only UI markup.
-            // eslint-disable-next-line no-unsanitized/property
             eventsWrap.innerHTML = '';
             if (!evts.length) eventsWrap.appendChild(UI.createEventBlock(1));
-            else evts.forEach((_ev, i) => { const block = UI.createEventBlock(i + 1); try { const condStr = String(_ev.condition || '').trim(); if (condStr) UI.parseConditionIntoUI(block, condStr); const disp = String(_ev.display || ''), dispEl = block.querySelector('.lwb-ve-display'); if (dispEl) dispEl.value = disp.replace(/^\r?\n/, '').replace(/\r?\n$/, ''); const js = String(_ev.js || ''), jsEl = block.querySelector('.lwb-ve-js'); if (jsEl) jsEl.value = js; } catch {} eventsWrap.appendChild(block); });
+            else evts.forEach((_ev, i) => { const block = UI.createEventBlock(i + 1); try { const condStr = String(_ev.condition || '').trim(); if (condStr) UI.parseConditionIntoUI(block, condStr); const disp = String(_ev.display || ''), dispEl = block.querySelector('.lwb-ve-display'); if (dispEl) dispEl.value = disp.replace(/^\r?\n/, '').replace(/\r?\n$/, ''); const js = String(_ev.js || ''), jsEl = block.querySelector('.lwb-ve-js'); if (jsEl) jsEl.value = js; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); } eventsWrap.appendChild(block); });
             UI.refreshEventIndices(eventsWrap); eventsWrap.addEventListener('lwb-refresh-idx', () => UI.refreshEventIndices(eventsWrap));
         };
         if (!pageInitialized.has(pageIdx)) { init(); pageInitialized.add(pageIdx); } else if (!eventsWrap.querySelector('.lwb-ve-event')) init();
@@ -639,7 +635,7 @@ export function openVarEditor(entryEl, uid) {
         let acc = '', pos = 0; const minLen = Math.min(originals.length, builtBlocks.length);
         for (let i = 0; i < originals.length; i++) { const { start, end } = originals[i]; acc += oldVal.slice(pos, start); if (i < minLen) acc += builtBlocks[i]; pos = end; } acc += oldVal.slice(pos);
         if (builtBlocks.length > originals.length) { const extras = builtBlocks.slice(originals.length).join('\n\n'); acc = acc.replace(/\s*$/, ''); if (acc && !/(?:\r?\n){2}$/.test(acc)) acc += (/\r?\n$/.test(acc) ? '' : '\n') + '\n'; acc += extras; }
-        acc = acc.replace(/(?:\r?\n){3,}/g, '\n\n'); textarea.value = acc; try { window?.jQuery?.(textarea)?.trigger?.('input'); } catch {}
+        acc = acc.replace(/(?:\r?\n){3,}/g, '\n\n'); textarea.value = acc; try { window?.jQuery?.(textarea)?.trigger?.('input'); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openVarEditor" }, caughtError); }
         U.toast.ok('已更新条件规则到该世界书条目'); closeEditor();
     });
     document.body.appendChild(overlay);
@@ -663,18 +659,15 @@ export function openActionBuilder(block) {
         const row = U.el('div', 'lwb-ve-row');
         row.style.alignItems = 'flex-start';
         // Template-only UI markup.
-        // eslint-disable-next-line no-unsanitized/property
         row.innerHTML = `<select class="lwb-ve-input lwb-ve-mini lwb-act-type"></select><div class="lwb-ve-fields" style="flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:6px;"></div><button type="button" class="lwb-ve-btn ghost lwb-ve-del">??</button>`;
         const typeSel = row.querySelector('.lwb-act-type');
         const fields = row.querySelector('.lwb-ve-fields');
         row.querySelector('.lwb-ve-del').addEventListener('click', () => row.remove());
-        // Template-only UI markup.
-        // eslint-disable-next-line no-unsanitized/property
+        // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
         typeSel.innerHTML = TYPES.map(a => `<option value="${a.value}">${a.label}</option>`).join('');
         const renderFields = () => {
             const def = TYPES.find(a => a.value === typeSel.value);
-            // Template-only UI markup.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
             fields.innerHTML = def ? def.template : '';
         };
         typeSel.addEventListener('change', renderFields);
@@ -696,7 +689,7 @@ export function openBumpAliasBuilder(block) {
     const addRow = (scope = '', phrase = '', val = '1') => { const row = U.el('div', 'lwb-ve-row', `<input class="lwb-ve-input" placeholder="变量名(可空=全局)" value="${scope}"/><input class="lwb-ve-input" placeholder="短语 或 /regex(例：/她(很)?开心/i)" value="${phrase}"/><input class="lwb-ve-input" placeholder="数值(整数，可负)" value="${val}"/><button type="button" class="lwb-ve-btn ghost lwb-ve-del">删除</button>`); row.querySelector('.lwb-ve-del').addEventListener('click', () => row.remove()); list.appendChild(row); };
     addBtn.addEventListener('click', () => addRow());
     try { const store = getBumpAliasStore() || {}; const addFromBucket = (scope, bucket) => { let n = 0; for (const [phrase, val] of Object.entries(bucket || {})) { addRow(scope, phrase, String(val)); n++; } return n; }; let prefilled = 0; if (store._global) prefilled += addFromBucket('', store._global); for (const [scope, bucket] of Object.entries(store || {})) if (scope !== '_global') prefilled += addFromBucket(scope, bucket); if (prefilled === 0) addRow(); } catch { addRow(); }
-    ui.btnOk.addEventListener('click', async () => { try { const rows = U.qa(list, '.lwb-ve-row'), items = rows.map(r => { const ins = U.qa(r, '.lwb-ve-input').map(i => i.value); return { scope: (ins[0] || '').trim(), phrase: (ins[1] || '').trim(), val: Number(ins[2] || 0) }; }).filter(x => x.phrase), next = {}; for (const it of items) { const bucket = it.scope ? (next[it.scope] ||= {}) : (next._global ||= {}); bucket[it.phrase] = Number.isFinite(it.val) ? it.val : 0; } await setBumpAliasStore(next); U.toast.ok('Bump 映射已保存到角色卡'); ui.wrap.remove(); } catch {} });
+    ui.btnOk.addEventListener('click', async () => { try { const rows = U.qa(list, '.lwb-ve-row'), items = rows.map(r => { const ins = U.qa(r, '.lwb-ve-input').map(i => i.value); return { scope: (ins[0] || '').trim(), phrase: (ins[1] || '').trim(), val: Number(ins[2] || 0) }; }).filter(x => x.phrase), next = {}; for (const it of items) { const bucket = it.scope ? (next[it.scope] ||= {}) : (next._global ||= {}); bucket[it.phrase] = Number.isFinite(it.val) ? it.val : 0; } await setBumpAliasStore(next); U.toast.ok('Bump 映射已保存到角色卡'); ui.wrap.remove(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openBumpAliasBuilder" }, caughtError); } });
 }
 
 function tryInjectButtons(root) {
@@ -710,10 +703,10 @@ function tryInjectButtons(root) {
 }
 
 function observeWIEntriesForEditorButton() {
-    try { LWBVE.obs?.disconnect(); LWBVE.obs = null; } catch {}
+    try { LWBVE.obs?.disconnect(); LWBVE.obs = null; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "observeWIEntriesForEditorButton" }, caughtError); }
     const root = document.getElementById('WorldInfo') || document.body;
     const cb = (() => { let t = null; return () => { clearTimeout(t); t = setTimeout(() => tryInjectButtons(root), 100); }; })();
-    const obs = new MutationObserver(() => cb()); try { obs.observe(root, { childList: true, subtree: true }); } catch {} LWBVE.obs = obs;
+    const obs = new MutationObserver(() => cb()); try { obs.observe(root, { childList: true, subtree: true }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "observeWIEntriesForEditorButton" }, caughtError); } LWBVE.obs = obs;
 }
 
 export function initVareventEditor() {
@@ -734,9 +727,9 @@ export function cleanupVareventEditor() {
     U.qa(document, '.lwb-ve-overlay').forEach(el => el.remove());
     U.qa(document, '.lwb-var-editor-button').forEach(el => el.remove());
     document.getElementById(EDITOR_STYLES_ID)?.remove();
-    try { getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false); } catch {}
-    try { const { eventSource } = getContext() || {}; const orig = eventSource && origEmitMap.get(eventSource); if (orig) { eventSource.emit = orig; origEmitMap.delete(eventSource); } } catch {}
-    try { LWBVE.obs?.disconnect(); LWBVE.obs = null; } catch {}
+    try { getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupVareventEditor" }, caughtError); }
+    try { const { eventSource } = getContext() || {}; const orig = eventSource && origEmitMap.get(eventSource); if (orig) { eventSource.emit = orig; origEmitMap.delete(eventSource); } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupVareventEditor" }, caughtError); }
+    try { LWBVE.obs?.disconnect(); LWBVE.obs = null; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupVareventEditor" }, caughtError); }
     if (typeof window !== 'undefined') LWBVE.installed = false;
     initialized = false;
 }

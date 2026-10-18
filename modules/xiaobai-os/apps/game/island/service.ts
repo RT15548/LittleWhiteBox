@@ -75,7 +75,7 @@ export function createIslandService(store: PartitionStore<IslandData>, files: Xi
     async function save(write: () => Promise<void>) {
         while (saving) {
             try { await saving; }
-            catch { /* The previous caller owns this failure; waiting only establishes ordering. */ }
+            catch (caughtError) { console.debug({ source: import.meta.url, operation: "save" }, caughtError); }
         }
         const pending = write(); saving = pending;
         try { await pending; }

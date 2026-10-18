@@ -211,6 +211,10 @@ import { trackVectorActivity } from './vector/runtime/vector-activity.js';
 import { checkVectorCacheConsistency, recordVectorCacheDiagnostic } from './vector/storage/package/service.js';
 import { createMessageSourceTracker } from './data/message-sources.js';
 import { retainSourceChange, synchronizeSourceCaches } from './data/source-sync.js';
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+
+const handleFrameMessageEvent = observeAsyncCallback(handleFrameMessage, { source: import.meta.url, operation: "handleFrameMessage" });
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -241,7 +245,7 @@ const memoryMaintenance = createMemoryMaintenanceHost({
         postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(getSummaryStore()) });
     },
     changed: () => {
-        void sendMemoryMaintenanceResults();
+        observeBackgroundTask(sendMemoryMaintenanceResults(), { source: import.meta.url, operation: "changed" });
     },
 });
 
@@ -341,7 +345,7 @@ export async function setStorySummaryEnabledForCurrentChat(enabled) {
 
     try {
         notifyStorySummaryChatState();
-        if (!nextEnabled) clearHideState({ persist: false });
+        if (!nextEnabled) observeBackgroundTask(clearHideState({ persist: false }), { source: import.meta.url, operation: 'setStorySummaryEnabledForCurrentChat' });
         await saveChatSummaryState(context);
 
         if (getContext()?.chatId === targetChatId && events) {
@@ -808,7 +812,7 @@ function flushPendingFrameMessages() {
     if (!iframe?.contentWindow) return;
     pendingFrameMessages.forEach((p) => postToIframe(iframe, p, "LittleWhiteBox"));
     pendingFrameMessages = [];
-    sendAnchorStatsToFrame();
+    observeBackgroundTask(sendAnchorStatsToFrame(), { source: import.meta.url, operation: "flushPendingFrameMessages" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2213,7 +2217,7 @@ function createOverlay() {
             $overlay[0].style.setProperty(property, value, 'important');
         }
     });
-    window.addEventListener(MESSAGE_EVENT, handleFrameMessage);
+    window.addEventListener(MESSAGE_EVENT, handleFrameMessageEvent);
 }
 
 function showOverlay() {
@@ -2229,7 +2233,7 @@ function hideOverlay() {
     overlayCreated = false;
     frameReady = false;
     pendingFrameMessages = [];
-    window.removeEventListener(MESSAGE_EVENT, handleFrameMessage);
+    window.removeEventListener(MESSAGE_EVENT, handleFrameMessageEvent);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2853,14 +2857,14 @@ function openPanelForMessage(mesId) {
     const store = getPublishedSummaryStore();
     const totalFloors = chat.length;
 
-    sendFrameBaseData(store, totalFloors);
+    observeBackgroundTask(sendFrameBaseData(store, totalFloors), { source: import.meta.url, operation: "openPanelForMessage" });
     sendFrameFullData(store, totalFloors);
     notifySummaryState();
     notifyStorySummaryChatState();
     postToFrame(lastSummaryStatus);
 
     sendVectorConfigToFrame();
-    sendVectorStatsToFrame();
+    observeBackgroundTask(sendVectorStatsToFrame(), { source: import.meta.url, operation: "openPanelForMessage" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2946,7 +2950,7 @@ function scheduleAutoSummary(reason, delayMs = AUTO_SUMMARY_DELAY_MS) {
             scheduleAutoSummary(reason, quietWait);
             return;
         }
-        maybeAutoRunSummary(reason);
+        observeBackgroundTask(maybeAutoRunSummary(reason), { source: import.meta.url, operation: "callback" });
     }, delayMs);
     autoSummaryTimers.set(reason, timer);
 }
@@ -3159,10 +3163,10 @@ async function handleFrameMessage(event) {
             flushPendingFrameMessages();
             notifySummaryState();
             postToFrame(lastSummaryStatus);
-            sendSavedConfigToFrame();
+            observeBackgroundTask(sendSavedConfigToFrame(), { source: import.meta.url, operation: 'handleFrameMessage' });
             sendVectorConfigToFrame();
-            sendVectorStatsToFrame();
-            sendAnchorStatsToFrame();
+            observeBackgroundTask(sendVectorStatsToFrame(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            observeBackgroundTask(sendAnchorStatsToFrame(), { source: import.meta.url, operation: 'handleFrameMessage' });
             notifyStorySummaryChatState();
             break;
         }
@@ -3216,7 +3220,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "FETCH_SUMMARY_MODELS":
-            (async () => {
+            observeBackgroundTask((async () => {
                 try {
                     const models = await fetchSummaryModelsForUi(data);
                     postToFrame({
@@ -3231,11 +3235,11 @@ async function handleFrameMessage(event) {
                         message: String(e?.message || e || "拉取模型失败"),
                     });
                 }
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "VECTOR_TEST_ONLINE":
-            handleTestOnlineService(data.config, data.target || "embedding");
+            observeBackgroundTask(handleTestOnlineService(data.config, data.target || "embedding"), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case 'VECTOR_CANCEL_TEST':
@@ -3260,7 +3264,7 @@ async function handleFrameMessage(event) {
             }
             maybePreloadTokenizer();
             refreshEntityLexiconAndWarmup();
-            handleGenerateVectors(data.type === 'VECTOR_REPAIR' ? 'repair' : 'rebuild');
+            observeBackgroundTask(handleGenerateVectors(data.type === 'VECTOR_REPAIR' ? 'repair' : 'rebuild'), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
 
@@ -3286,7 +3290,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "REQUEST_ANCHOR_STATS":
-            sendAnchorStatsToFrame();
+            observeBackgroundTask(sendAnchorStatsToFrame(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "REQUEST_RECALL_LOG":
@@ -3294,7 +3298,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "VECTOR_EXPORT":
-            (async () => {
+            observeBackgroundTask((async () => {
                 try {
                     const result = await exportVectors((status) => {
                         postToFrame({ type: "VECTOR_IO_STATUS", status });
@@ -3311,11 +3315,11 @@ async function handleFrameMessage(event) {
                 } catch (e) {
                     postToFrame({ type: "VECTOR_EXPORT_RESULT", success: false, error: e.message });
                 }
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "SUMMARY_COPY":
-            (async () => {
+            observeBackgroundTask((async () => {
                 try {
                     const store = getSummaryStore();
                     const payload = buildSummaryExportPackage(store);
@@ -3329,7 +3333,7 @@ async function handleFrameMessage(event) {
                 } catch (e) {
                     postToFrame({ type: "SUMMARY_COPY_RESULT", success: false, error: e.message });
                 }
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "SUMMARY_IMPORT_TEXT":
@@ -3337,7 +3341,7 @@ async function handleFrameMessage(event) {
                 postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "请等待当前总结/向量任务结束" });
                 break;
             }
-            (async () => {
+            observeBackgroundTask((async () => {
                 try {
                     const targetChatId = getContext()?.chatId || '';
                     const result = await runVectorWriteTask(
@@ -3367,12 +3371,12 @@ async function handleFrameMessage(event) {
                     postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: memorySaveError(e) });
                     notifyStorySummaryChatState();
                 }
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "VECTOR_IMPORT_PICK":
             // 在 parent 创建 file picker，避免 iframe 传大文件
-            (async () => {
+            observeBackgroundTask((async () => {
                 const input = document.createElement("input");
                 input.type = "file";
                 input.accept = ".zip";
@@ -3424,10 +3428,10 @@ async function handleFrameMessage(event) {
                 };
 
                 input.click();
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         case "VECTOR_BACKUP_SERVER":
-            (async () => {
+            observeBackgroundTask((async () => {
                 try {
                     const result = await backupToServer((status) => {
                         postToFrame({ type: "VECTOR_IO_STATUS", status });
@@ -3443,11 +3447,11 @@ async function handleFrameMessage(event) {
                 } catch (e) {
                     postToFrame({ type: "VECTOR_BACKUP_RESULT", success: false, error: e.message });
                 }
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "VECTOR_RESTORE_SERVER":
-            (async () => {
+            observeBackgroundTask((async () => {
                 try {
                     const targetChatId = getContext()?.chatId || '';
                     const result = await runVectorWriteTask(
@@ -3485,7 +3489,7 @@ async function handleFrameMessage(event) {
                 } catch (e) {
                     postToFrame({ type: "VECTOR_RESTORE_RESULT", success: false, error: e.message });
                 }
-            })();
+            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "VECTOR_LIST_BACKUPS":
@@ -3493,7 +3497,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "REQUEST_VECTOR_STATS":
-            sendVectorStatsToFrame();
+            observeBackgroundTask(sendVectorStatsToFrame(), { source: import.meta.url, operation: 'handleFrameMessage' });
             maybePreloadTokenizer();
             break;
 
@@ -3746,7 +3750,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "REQUEST_PANEL_CONFIG":
-            sendSavedConfigToFrame();
+            observeBackgroundTask(sendSavedConfigToFrame(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
     }
 }
@@ -3885,8 +3889,8 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
         await sendFrameBaseData(store, newLength);
         sendFrameFullData(store, newLength);
 
-        sendAnchorStatsToFrame();
-        sendVectorStatsToFrame();
+        observeBackgroundTask(sendAnchorStatsToFrame(), { source: import.meta.url, operation: 'handleChatChanged:anchorStats' });
+        observeBackgroundTask(sendVectorStatsToFrame(), { source: import.meta.url, operation: 'handleChatChanged:vectorStats' });
     }
 
     // 实体词典注入 + 索引预热
@@ -3899,9 +3903,9 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
     scheduleLexicalWarmup(CHAT_CHANGE_LEXICAL_WARMUP_MS);
 
     // Automatic initialization uses the same saved-config/runtime/probe path as testing.
-    void embeddingConnection.warmup({
+    observeBackgroundTask(embeddingConnection.warmup({
         isCurrent: () => !!events && !isChatStale(scheduledChatId) && isStorySummaryEnabledForCurrentChat(),
-    });
+    }), { source: import.meta.url, operation: "handleChatChanged" });
     logRecallRuntimeCheckpoint("chatChanged:after-warm-request", `chat=${activeChatId || "-"}`);
 
     scheduleVectorIntegrityCheck();
@@ -4612,7 +4616,7 @@ async function registerEvents() {
             pendingFrameMessages = [];
             lastRecallLogText = "";
             invalidateLexicalIndex();
-            clearRecallRuntime().catch(() => {});
+            clearRecallRuntime().catch((caughtError) => { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); });
         },
     });
 
@@ -4772,7 +4776,7 @@ async function handleChatDeleted(chatId) {
         await deleteServerBackup(filename, null);
         xbLog.info(MODULE_ID, `聊天删除，已清理服务器备份: ${filename}`);
     } catch (_) {
-        // 文件不存在或宿主不支持删除，静默处理
+        console.warn({ source: import.meta.url, operation: "handleChatDeleted" }, _);
     }
 }
 
@@ -4973,7 +4977,7 @@ function showBackupManagerModal() {
 // Toggle 监听
 // ═══════════════════════════════════════════════════════════════════════════
 
-$(document).on(STORY_SUMMARY_TOGGLE_EVENT, async (_e, enabled) => {
+$(document).on(STORY_SUMMARY_TOGGLE_EVENT, observeAsyncCallback(async (_e, enabled) => {
     if (enabled) {
         try {
             await registerEvents();
@@ -4987,7 +4991,7 @@ $(document).on(STORY_SUMMARY_TOGGLE_EVENT, async (_e, enabled) => {
         await unregisterEvents();
     }
     notifyStorySummaryChatState();
-});
+}, { source: import.meta.url, operation: "callback" }));
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 初始化

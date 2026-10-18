@@ -1,4 +1,3 @@
-// @ts-nocheck
 
 import { eventSource, event_types } from "../../../../../script.js";
 import { getContext } from "../../../../st-context.js";
@@ -21,6 +20,8 @@ import {
     onWorldInfoChange,
 } from "../../../../world-info.js";
 import { getCharaFilename, findChar } from "../../../../utils.js";
+import { observeAsyncCallback } from '../shared/common/async-errors.js';
+
 
 const SOURCE_TAG = "xiaobaix-host";
 const resolveTargetOrigin = (origin) => {
@@ -40,7 +41,11 @@ function parseStringArray(input) {
             const arr = JSON.parse(str);
             return Array.isArray(arr) ? arr.map(x => String(x).trim()).filter(Boolean) : [];
         }
-    } catch {}
+    } catch (caughtError) {
+        if (!(caughtError instanceof SyntaxError)) {
+            console.warn({ source: import.meta.url, operation: 'parseStringArray' }, caughtError);
+        }
+    }
     return str.split(',').map(x => x.trim()).filter(Boolean);
 }
 
@@ -96,16 +101,16 @@ class WorldbookBridgeService {
     }
 
     sendResult(target, requestId, result, targetOrigin = null) {
-        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookResult', id: requestId, result }, resolveTargetOrigin(targetOrigin)); } catch {}
+        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookResult', id: requestId, result }, resolveTargetOrigin(targetOrigin)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "sendResult" }, caughtError); }
     }
 
     sendError(target, requestId, err, fallbackCode = 'API_ERROR', details = null, targetOrigin = null) {
         const e = this.normalizeError(err, fallbackCode, details);
-        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookError', id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch {}
+        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookError', id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "sendError" }, caughtError); }
     }
 
     postEvent(event, payload) {
-        try { window?.postMessage({ source: SOURCE_TAG, type: 'worldbookEvent', event, payload }, resolveTargetOrigin()); } catch {}
+        try { window?.postMessage({ source: SOURCE_TAG, type: 'worldbookEvent', event, payload }, resolveTargetOrigin()); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "postEvent" }, caughtError); }
     }
 
     async ensureWorldExists(name, autoCreate) {
@@ -197,7 +202,7 @@ class WorldbookBridgeService {
         }
 
         let FuseRef = null;
-        try { FuseRef = window?.Fuse || Fuse; } catch {}
+        try { FuseRef = window?.Fuse || Fuse; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "findEntry" }, caughtError); }
         if (FuseRef) {
             const fuse = new FuseRef(entries, { keys: [{ name: field, weight: 1 }], includeScore: true, threshold: 0.3 });
             const results = fuse.search(needle);
@@ -809,9 +814,9 @@ class WorldbookBridgeService {
 
     detachEventsForwarding() {
         if (!this._forwardEvents) return;
-        try { eventSource.removeListener(event_types.WORLDINFO_UPDATED, this._onWIUpdated); } catch {}
-        try { eventSource.removeListener(event_types.WORLDINFO_SETTINGS_UPDATED, this._onWISettings); } catch {}
-        try { eventSource.removeListener(event_types.WORLD_INFO_ACTIVATED, this._onWIActivated); } catch {}
+        try { eventSource.removeListener(event_types.WORLDINFO_UPDATED, this._onWIUpdated); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "detachEventsForwarding" }, caughtError); }
+        try { eventSource.removeListener(event_types.WORLDINFO_SETTINGS_UPDATED, this._onWISettings); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "detachEventsForwarding" }, caughtError); }
+        try { eventSource.removeListener(event_types.WORLD_INFO_ACTIVATED, this._onWIActivated); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "detachEventsForwarding" }, caughtError); }
         this._forwardEvents = false;
     }
 
@@ -820,7 +825,7 @@ class WorldbookBridgeService {
         if (allowedOrigins) this.setAllowedOrigins(allowedOrigins);
         
         const self = this;
-        this._listener = async function (event) {
+        this._listener = observeAsyncCallback(async function (event) {
             try {
                 // Security check: validate origin
                 if (!self.isOriginAllowed(event.origin)) {
@@ -838,25 +843,25 @@ class WorldbookBridgeService {
                         if (xbLog.isEnabled?.()) {
                             xbLog.info('worldbookBridge', `worldbookRequest id=${id} action=${String(action || '')}`);
                         }
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); }
                     const result = await self.handleRequest(action, params);
                     self.sendResult(event.source || window, id, result, event.origin);
                 } catch (err) {
-                    try { xbLog.error('worldbookBridge', `worldbookRequest failed id=${id} action=${String(action || '')}`, err); } catch {}
+                    try { xbLog.error('worldbookBridge', `worldbookRequest failed id=${id} action=${String(action || '')}`, err); } catch (error) { console.warn({ source: import.meta.url, operation: 'init' }, error); }
                     self.sendError(event.source || window, id, err, 'API_ERROR', null, event.origin);
                 }
-            } catch {}
-        };
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); }
+        }, { source: import.meta.url, operation: "this._listener" });
         // eslint-disable-next-line no-restricted-syntax -- validated by isOriginAllowed before handling.
-        try { window.addEventListener('message', this._listener); } catch {}
+        try { window.addEventListener('message', this._listener); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); }
         this._attached = true;
         if (forwardEvents) this.attachEventsForwarding();
     }
 
     cleanup() {
         if (!this._attached) return;
-        try { xbLog.info('worldbookBridge', 'cleanup'); } catch {}
-        try { window.removeEventListener('message', this._listener); } catch {}
+        try { xbLog.info('worldbookBridge', 'cleanup'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanup' }, error); }
+        try { window.removeEventListener('message', this._listener); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
         this._attached = false;
         this._listener = null;
         this.detachEventsForwarding();
@@ -866,13 +871,13 @@ class WorldbookBridgeService {
 const worldbookBridge = new WorldbookBridgeService();
 
 export function initWorldbookHostBridge(options) {
-    try { xbLog.info('worldbookBridge', 'initWorldbookHostBridge'); } catch {}
-    try { worldbookBridge.init(options || {}); } catch {}
+    try { xbLog.info('worldbookBridge', 'initWorldbookHostBridge'); } catch (error) { console.warn({ source: import.meta.url, operation: 'initWorldbookHostBridge' }, error); }
+    try { worldbookBridge.init(options || {}); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initWorldbookHostBridge" }, caughtError); }
 }
 
 export function cleanupWorldbookHostBridge() {
-    try { xbLog.info('worldbookBridge', 'cleanupWorldbookHostBridge'); } catch {}
-    try { worldbookBridge.cleanup(); } catch {}
+    try { xbLog.info('worldbookBridge', 'cleanupWorldbookHostBridge'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanupWorldbookHostBridge' }, error); }
+    try { worldbookBridge.cleanup(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupWorldbookHostBridge" }, caughtError); }
 }
 
 if (typeof window !== 'undefined') {
@@ -882,22 +887,22 @@ if (typeof window !== 'undefined') {
         cleanupWorldbookHostBridge,
         setWorldbookBridgeOrigins: (origins) => worldbookBridge.setAllowedOrigins(origins)
     });
-    try { initWorldbookHostBridge({ forwardEvents: true }); } catch {}
+    try { initWorldbookHostBridge({ forwardEvents: true }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "module" }, caughtError); }
     try {
         window.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initWorldbookHostBridge({ forwardEvents: true }); else cleanupWorldbookHostBridge();
-            } catch (_) {}
+            } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); }
         });
         document.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initWorldbookHostBridge({ forwardEvents: true }); else cleanupWorldbookHostBridge();
-            } catch (_) {}
+            } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); }
         });
-        window.addEventListener('beforeunload', () => { try { cleanupWorldbookHostBridge(); } catch (_) {} });
-    } catch (_) {}
+        window.addEventListener('beforeunload', () => { try { cleanupWorldbookHostBridge(); } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); } });
+    } catch (_) { console.warn({ source: import.meta.url, operation: "module" }, _); }
 }
 
 

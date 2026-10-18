@@ -1,3 +1,4 @@
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import type { XiaobaiOsSettingsRepository } from '../../host/settings-repository.js';
 import type { MainGenerationRuntime } from '../../host/main-generation-runtime.js';
 import type { XiaobaiOsChatIdentity } from '../../types.js';
@@ -100,8 +101,8 @@ export function createProductionTasksModule(dependencies: ProductionTasksModuleD
                     initializeCurrent();
                     return runtime.activate?.(context);
                 },
-                startBackground() {void runtime.startBackground?.(); initializeCurrent();},
-                handleChatChanged() {void runtime.handleChatChanged?.(); initializeCurrent();},
+                startBackground() {observeBackgroundTask(runtime.startBackground?.(), { source: import.meta.url, operation: 'startBackground' }); initializeCurrent();},
+                handleChatChanged() {observeBackgroundTask(runtime.handleChatChanged?.(), { source: import.meta.url, operation: 'handleChatChanged' }); initializeCurrent();},
             };
         },
     });

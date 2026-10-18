@@ -9,6 +9,8 @@ import type { PlayerOperation } from './intent-work.js';
 import type { ExperienceView } from './cooperation.js';
 import { errorText } from './copy.js';
 import { savesUncertain } from './fault.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export const startsActivity = (operation: Operation) => ['travel', 'drag', 'rest', 'take', 'work', 'construct', 'accept_care', 'strike', 'guard'].includes(operation.kind);
 const needsResponse = (operation: Operation) => ['say', 'declare', 'offer', 'accept', 'decline_offer', 'offer_care', 'decline_care', 'offer_contact', 'accept_contact', 'decline_contact', 'strike', 'guard'].includes(operation.kind);
@@ -130,7 +132,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
     }
     function steer(x: number, y: number) {
         steerWanted = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }; steerInput++;
-        void pumpSteering();
+        observeBackgroundTask(pumpSteering(), { source: import.meta.url, operation: "steer" });
     }
     return { view, busy, error, blocked, uncertain, failedRequest, gmFailure,
         // UI-only dismissal: keep the host fault/automatic-retry hold and all save-recovery state intact.
@@ -152,12 +154,12 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
             catch (cause) { error.value = errorText(cause); }
         },
         async act(operation: Operation) {
-            return !blocked.value && request('act', { operation }, () => { if (needsResponse(operation)) { void respond(); } });
+            return !blocked.value && request('act', { operation }, () => { if (needsResponse(operation)) { observeBackgroundTask(respond(), { source: import.meta.url, operation: "callback" }); } });
         },
         async speak(text: string, accepted: () => void) {
             if (blocked.value) { return false; }
             const id = createStorageId(); pendingInput = { id, accepted };
-            if (!await request('act', { actionId: id, operation: { kind: 'say', text } }, () => { void respond(); })) {
+            if (!await request('act', { actionId: id, operation: { kind: 'say', text } }, () => { observeBackgroundTask(respond(), { source: import.meta.url, operation: "callback" }); })) {
                 if (!uncertain.value) { pendingInput = null; }
                 return false;
             }
@@ -176,7 +178,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
             if (blocked.value || intent?.result.kind !== 'action') { return null; }
             const operation = intent.result.operation;
             pendingInput = { id: intent.id, accepted };
-            if (!await request('accept-intent', { actionId: intent.id, revision: intent.generation }, () => { if (needsResponse(operation)) { void respond(); } })) {
+            if (!await request('accept-intent', { actionId: intent.id, revision: intent.generation }, () => { if (needsResponse(operation)) { observeBackgroundTask(respond(), { source: import.meta.url, operation: "callback" }); } })) {
                 if (!uncertain.value) { pendingInput = null; }
                 return null;
             }

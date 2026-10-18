@@ -274,8 +274,8 @@ export function createSillyTavernFileStorage(
                 throw new Error('Sidecar write outcome is unknown');
             }
             return { status: 'confirmed' };
-        } catch {
-            // A network result is unknown once fetch has started. Confirm by a separate no-store read.
+        } catch (caughtError) {
+            console.debug({ source: import.meta.url, operation: "replace" }, caughtError);
         } finally {
             timed.cleanup();
         }

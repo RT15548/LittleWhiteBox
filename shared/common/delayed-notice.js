@@ -4,9 +4,7 @@ export function scheduleDelayedNotice(notify, delayMs = 3000, onError = () => {}
     const reportError = error => {
         try {
             onError(error);
-        } catch {
-            // A status notification must never affect the task it describes.
-        }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "reportError" }, caughtError); }
     };
     let timerId = setTimeout(() => {
         timerId = null;

@@ -286,7 +286,7 @@ class AsyncImageJobManager {
                 continue;
             }
             this.activeItems++;
-            void this.#runItem(scheduler, job, item);
+            this.#runItem(scheduler, job, item).catch(error => console.error('[LittleWhiteBox] image job failed', error));
             return;
         }
 

@@ -6,6 +6,8 @@ import type {
     TavernAssistantToolTurnUnit,
 } from '../../features/assistant-chat/assistant-chat-projection';
 import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{
     item: TavernAssistantToolTurnUnit;
@@ -53,7 +55,7 @@ watch(
     [() => props.item.key, () => props.open],
     ([, open]) => {
         releaseDetail();
-        if (open) {void requestDetail();}
+        if (open) {observeBackgroundTask(requestDetail(), { source: "modules/tavern/app-src/components/chat/TavernAssistantToolRun.vue", operation: "callback" });}
     },
     { immediate: true },
 );

@@ -16,7 +16,7 @@ export function createWorkerRpc(worker, options = {}) {
     worker.onmessage = (event) => {
         const data = event.data || {};
         if (data.type === "__log") {
-            try { onLog?.(data.payload || {}); } catch {}
+            try { onLog?.(data.payload || {}); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "createWorkerRpc" }, caughtError); }
             return;
         }
         if (!data.id || !pending.has(data.id)) return;

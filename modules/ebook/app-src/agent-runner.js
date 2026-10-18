@@ -916,7 +916,7 @@ export function createEbookAgentRunner(deps = {}) {
             state.activeController = null;
             state.toolTrace = [];
             state.liveToolTurn = null;
-            await refreshBooksAndFiles().catch(() => {});
+            await refreshBooksAndFiles().catch((caughtError) => { console.warn({ source: import.meta.url, operation: "runAgent" }, caughtError); });
             render();
         }
     }

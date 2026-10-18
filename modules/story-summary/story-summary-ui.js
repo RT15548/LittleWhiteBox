@@ -115,7 +115,7 @@ const UNANNOTATED_LABEL = '未标注';
         if (!el) return;
         const range = document.createRange();
         range.selectNodeContents(el);
-        // eslint-disable-next-line no-unsanitized/method
+        // eslint-disable-next-line no-unsanitized/method -- Callers supply this UI's templates and escape interpolated data with h().
         const fragment = range.createContextualFragment(String(html ?? ''));
         el.replaceChildren(fragment);
     };
@@ -616,7 +616,7 @@ const UNANNOTATED_LABEL = '未标注';
                 if (p.vector) config.vector = normalizeVectorConfigUI(p.vector);
                 normalizeTriggerConfig();
             }
-        } catch { }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "loadConfig" }, caughtError); }
     }
 
     function applyConfig(cfg) {

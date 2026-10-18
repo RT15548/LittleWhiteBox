@@ -15,6 +15,8 @@ import { createMessageId } from '../application/identity.js';
 import { messageSyncCopy } from '../sync-copy.js';
 import { MESSAGES_LAYOUT_COPY as layoutCopy } from './layout-copy.js';
 import './messages.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<XiaobaiOsAppProps>();
 const state = ref(props.initialState as MessagesClientState);
@@ -88,12 +90,12 @@ function apply(next: MessagesClientState) {
     for (const id of drafts.keys()) {if (!next.contacts.some(person => person.id === id)) {drafts.delete(id);}}
     if (submitted.value && !next.contacts.some(contact => contact.id === submitted.value?.contactId)) {submitted.value = null; sendError.value = null;}
     if (selected.value && !next.contacts.some(contact => contact.id === selected.value)) {back();}
-    else if (selected.value && changed) {void readThread();}
+    else if (selected.value && changed) {observeBackgroundTask(readThread(), { source: import.meta.url, operation: "apply" });}
 }
 const unsubscribe = props.bridge.subscribe(event => {if (event.type === 'messages/state') {apply((event.payload as { state: MessagesClientState }).state);}});
 function select(id: string) {
     if (id === selected.value) { return; }
-    selected.value = id; latestRequested = false; error.value = ''; page.value = emptyPage(id); void readThread();
+    selected.value = id; latestRequested = false; error.value = ''; page.value = emptyPage(id); observeBackgroundTask(readThread(), { source: import.meta.url, operation: "select" });
 }
 function back() {selected.value = ''; latestRequested = false; threadRequest++; threadError.value = ''; page.value = emptyPage();}
 useAppBack(() => { back(); return true; }, () => !!selected.value);
@@ -108,9 +110,9 @@ function send(payload: OutgoingMessage) {
     submitted.value = input; sendError.value = null;
     drafts.delete(input.contactId);
     // Keep history marked as history until the latest page has actually arrived.
-    void readThread(false, true);
+    observeBackgroundTask(readThread(false, true), { source: import.meta.url, operation: "send" });
     conversation.value?.sent();
-    void deliver(input.contactId, input.messageId, input);
+    observeBackgroundTask(deliver(input.contactId, input.messageId, input), { source: import.meta.url, operation: "send" });
 }
 async function deliver(contactId: string, messageId: string, input?: PendingOutgoingMessage) {
     if (working.value) {return;}
@@ -134,18 +136,18 @@ async function deliver(contactId: string, messageId: string, input?: PendingOutg
 }
 function retry(messageId: string) {
     const input = outgoing.value?.messageId === messageId ? outgoing.value : undefined;
-    void deliver(selected.value, messageId, input);
+    observeBackgroundTask(deliver(selected.value, messageId, input), { source: import.meta.url, operation: "retry" });
 }
 function discard(messageId: string) {
-    void run(async () => {
+    observeBackgroundTask(run(async () => {
         apply(await request('messages/discard-send', { messageId }));
         if (submitted.value?.messageId === messageId) {submitted.value = null;}
         sendError.value = null;
         await readThread();
-    });
+    }), { source: import.meta.url, operation: "discard" });
 }
-function operation(type: string) {void run(async () => apply(await request(type)));}
-function saveSettings(settings: Settings) {void run(async () => {apply(await request('messages/settings', { settings })); close();});}
+function operation(type: string) {observeBackgroundTask(run(async () => apply(await request(type))), { source: import.meta.url, operation: "operation" });}
+function saveSettings(settings: Settings) {observeBackgroundTask(run(async () => {apply(await request('messages/settings', { settings })); close();}), { source: import.meta.url, operation: "saveSettings" });}
 function sync() {
     if (syncing.value) {return;}
     syncing.value = true; error.value = '';
@@ -169,12 +171,12 @@ function dismissSyncNotice() {
         .finally(() => {dismissing.value = false;});
 }
 function open(next: typeof mode.value) {
-    if (dialogOpen.value) {void nextTick(() => dialogClose.value?.focus());}
+    if (dialogOpen.value) {observeBackgroundTask(nextTick(() => dialogClose.value?.focus()), { source: import.meta.url, operation: "open" });}
     dialogGeneration++;
     mode.value = next; error.value = ''; name.value = ''; note.value = contact.value?.note ?? ''; personSearch.value = '';
     contactAction.value = createMessageId(); dialogOpen.value = true;
     operationRevision.value = state.value.revision;
-    if (next === 'add') {void refreshPeople();}
+    if (next === 'add') {observeBackgroundTask(refreshPeople(), { source: import.meta.url, operation: "open" });}
 }
 async function refreshPeople() {
     const action = contactAction.value;
@@ -197,33 +199,33 @@ function backDialog() {
 }
 function add(personName = name.value) {
     if (!personName.trim() || disabled.value || peopleStatus.value === 'loading') {return;}
-    void run(async () => {
+    observeBackgroundTask(run(async () => {
         const result = await request<{ contactId: string; state: MessagesClientState }>('messages/contact/add', { actionId: contactAction.value, name: personName.trim(), note: note.value.trim() });
         apply(result.state); close(); select(result.contactId);
-    });
+    }), { source: import.meta.url, operation: "add" });
 }
-function saveNote() {void run(async () => {apply(await request('messages/contact/note', { contactId: selected.value, note: note.value })); close();});}
-function remove() {void run(async () => {apply(await request('messages/contact/delete', { contactId: selected.value, revision: operationRevision.value })); close(); back();});}
+function saveNote() {observeBackgroundTask(run(async () => {apply(await request('messages/contact/note', { contactId: selected.value, note: note.value })); close();}), { source: import.meta.url, operation: "saveNote" });}
+function remove() {observeBackgroundTask(run(async () => {apply(await request('messages/contact/delete', { contactId: selected.value, revision: operationRevision.value })); close(); back();}), { source: import.meta.url, operation: "remove" });}
 function confirmMessageDelete(messageId: string) {messageToDelete.value = messageId; open('delete-message'); operationRevision.value = page.value.revision;}
 function removeMessage() {
     const contactId = selected.value; const messageId = messageToDelete.value;
-    void run(async () => {
+    observeBackgroundTask(run(async () => {
         apply(await request('messages/message/delete', { contactId, messageId, revision: operationRevision.value }));
         await readThread();
         close();
-    });
+    }), { source: import.meta.url, operation: "removeMessage" });
 }
 function regenerate(messageId: string) {
     const target = { contactId: selected.value, messageId, revision: page.value.revision };
-    void run(async () => {apply(await request('messages/regenerate', target));});
+    observeBackgroundTask(run(async () => {apply(await request('messages/regenerate', target));}), { source: import.meta.url, operation: "regenerate" });
 }
-function recover() {void run(async () => {apply(await request('messages/recover')); close();});}
+function recover() {observeBackgroundTask(run(async () => {apply(await request('messages/recover')); close();}), { source: import.meta.url, operation: "recover" });}
 function adoptServer() {
-    void run(async () => {
+    observeBackgroundTask(run(async () => {
         apply(await request('messages/adopt-server-state'));
         if (state.value.fileState === 'ready' && !state.value.pendingSave) {submitted.value = null; sendError.value = null; close();}
         else {error.value = '暂时无法加载已保存版本，请检查网络后重试。当前记录未改。';}
-    });
+    }), { source: import.meta.url, operation: "adoptServer" });
 }
 onUnmounted(() => {alive = false; threadRequest++; unsubscribe();});
 </script>

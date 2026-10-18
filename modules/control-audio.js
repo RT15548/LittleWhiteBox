@@ -22,7 +22,7 @@ const AudioHost = (() => {
         if (!inst.audio) {
             inst.audio = new Audio();
             inst.audio.preload = "auto";
-            try { inst.audio.crossOrigin = "anonymous"; } catch { }
+            try { inst.audio.crossOrigin = "anonymous"; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getOrCreate" }, caughtError); }
         }
         return inst.audio;
     }
@@ -42,7 +42,7 @@ const AudioHost = (() => {
         let v = Number(volume10);
         if (!Number.isFinite(v)) v = 5;
         v = Math.max(1, Math.min(10, v));
-        try { a.volume = v / 10; } catch { }
+        try { a.volume = v / 10; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "playUrl" }, caughtError); }
 
         const inst = instances[area];
         if (inst.currentUrl && u === inst.currentUrl) {
@@ -56,7 +56,7 @@ const AudioHost = (() => {
             try { await a.play(); }
             catch (e) { throw new Error("播放失败"); }
         } else {
-            try { a.currentTime = 0; await a.play(); } catch { }
+            try { a.currentTime = 0; await a.play(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "playUrl" }, caughtError); }
         }
         return `播放: ${u}`;
     }
@@ -67,7 +67,7 @@ const AudioHost = (() => {
     function stop(area = 'primary') {
         const inst = instances[area];
         if (inst?.audio) {
-            try { inst.audio.pause(); } catch { }
+            try { inst.audio.pause(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "stop" }, caughtError); }
         }
         return "已停止";
     }
@@ -84,8 +84,8 @@ const AudioHost = (() => {
         for (const key of /** @type {('primary'|'secondary')[]} */(['primary','secondary'])) {
             const inst = instances[key];
             if (inst.audio) {
-                try { inst.audio.pause(); } catch { }
-                try { inst.audio.removeAttribute('src'); inst.audio.load(); } catch { }
+                try { inst.audio.pause(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "reset" }, caughtError); }
+                try { inst.audio.removeAttribute('src'); inst.audio.load(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "reset" }, caughtError); }
             }
             inst.currentUrl = "";
         }
@@ -95,7 +95,7 @@ const AudioHost = (() => {
         for (const key of /** @type {('primary'|'secondary')[]} */(['primary','secondary'])) {
             const inst = instances[key];
             if (inst?.audio) {
-                try { inst.audio.pause(); } catch { }
+                try { inst.audio.pause(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "stopAll" }, caughtError); }
             }
         }
         return "已全部停止";
@@ -108,8 +108,8 @@ const AudioHost = (() => {
     function clear(area = 'primary') {
         const inst = instances[area];
         if (inst?.audio) {
-            try { inst.audio.pause(); } catch { }
-            try { inst.audio.removeAttribute('src'); inst.audio.load(); } catch { }
+            try { inst.audio.pause(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+            try { inst.audio.removeAttribute('src'); inst.audio.load(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
         }
         inst.currentUrl = "";
         return "已清除";
@@ -187,7 +187,7 @@ function registerSlash() {
         });
         SlashCommandParser.addCommandObject(registeredCommand);
         if (event_types?.CHAT_CHANGED) {
-            chatChangedHandler = () => { try { AudioHost.reset(); } catch { } };
+            chatChangedHandler = () => { try { AudioHost.reset(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerSlash" }, caughtError); } };
             eventSource.on(event_types.CHAT_CHANGED, chatChangedHandler);
         }
         isRegistered = true;
@@ -200,13 +200,13 @@ function unregisterSlash() {
     if (!isRegistered) return;
     try {
         if (chatChangedHandler && event_types?.CHAT_CHANGED) {
-            try { eventSource.removeListener(event_types.CHAT_CHANGED, chatChangedHandler); } catch { }
+            try { eventSource.removeListener(event_types.CHAT_CHANGED, chatChangedHandler); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "unregisterSlash" }, caughtError); }
         }
         chatChangedHandler = null;
         try {
             const map = SlashCommandParser.commands || {};
             Object.keys(map).forEach((k) => { if (map[k] === registeredCommand) delete map[k]; });
-        } catch { }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "unregisterSlash" }, caughtError); }
     } finally {
         registeredCommand = null;
         isRegistered = false;
@@ -228,16 +228,16 @@ export function initControlAudio() {
                     try {
                         const enabled = !!(e && e.detail && e.detail.enabled);
                         if (!enabled) {
-                            try { AudioHost.reset(); } catch { }
+                            try { AudioHost.reset(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initControlAudio" }, caughtError); }
                             unregisterSlash();
                         } else {
                             enableFeature();
                         }
-                    } catch { }
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initControlAudio" }, caughtError); }
                 };
                 document.addEventListener('xiaobaixEnabledChanged', globalStateChangedHandler);
             }
-        } catch { }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initControlAudio" }, caughtError); }
     } catch (e) {
         console.error("[LittleWhiteBox][audio] 初始化失败", e);
     }

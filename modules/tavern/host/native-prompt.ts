@@ -763,7 +763,7 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
 
 function runNativePromptExclusive<T>(task: () => Promise<T>): Promise<T> {
     const run = nativePromptQueue.then(task, task);
-    nativePromptQueue = run.catch((): void => undefined);
+    nativePromptQueue = run.catch((caughtError): void => { console.warn({ source: import.meta.url, operation: "runNativePromptExclusive" }, caughtError); });
     return run;
 }
 

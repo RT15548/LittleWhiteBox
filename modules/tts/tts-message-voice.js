@@ -48,8 +48,7 @@ export function enhanceMessageVoiceTextNodes(root, enabled = true) {
             if (enhanced === marker) continue;
             replacement.append(documentTarget.createTextNode(current.slice(cursor, candidate.index)));
             const template = documentTarget.createElement('template');
-            // Only fixed markup generated from this exact voice marker is parsed as HTML.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- Only fixed markup generated from this exact voice marker is parsed as HTML.
             template.innerHTML = enhanced;
             replacement.append(template.content.cloneNode(true));
             cursor = candidate.index + marker.length;

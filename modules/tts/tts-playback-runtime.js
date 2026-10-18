@@ -92,7 +92,7 @@ export function playTransientVoice(text, emotion, callbacks) {
 export function stopTransientVoice() {
     const notify = currentNotify;
     if (currentAbort) {
-        try { currentAbort.abort(); } catch { }
+        try { currentAbort.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "stopTransientVoice" }, caughtError); }
     }
 
     cleanupPlaybackResources();
@@ -109,7 +109,7 @@ function cleanupPlaybackResources() {
         currentAudio.onloadedmetadata = null;
         currentAudio.onended = null;
         currentAudio.onerror = null;
-        try { currentAudio.pause(); } catch { }
+        try { currentAudio.pause(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupPlaybackResources" }, caughtError); }
         currentAudio = null;
     }
 

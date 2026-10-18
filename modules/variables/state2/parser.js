@@ -492,7 +492,7 @@ export function parseInlineValue(raw) {
         try {
             const arr = JSON.parse(t.slice(1));
             if (Array.isArray(arr)) return { op: 'push', value: arr };
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseInlineValue" }, caughtError); }
         return { op: 'set', value: t, warning: '+[] 解析失败' };
     }
 
@@ -500,7 +500,7 @@ export function parseInlineValue(raw) {
         try {
             const obj = JSON.parse(t.slice(1));
             if (obj && typeof obj === 'object' && !Array.isArray(obj)) return { op: 'push', value: obj };
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseInlineValue" }, caughtError); }
         return { op: 'set', value: t, warning: '+{} 解析失败' };
     }
 
@@ -513,7 +513,7 @@ export function parseInlineValue(raw) {
         try {
             const arr = JSON.parse(t.slice(1));
             if (Array.isArray(arr)) return { op: 'pop', value: arr };
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseInlineValue" }, caughtError); }
         return { op: 'set', value: t, warning: '-[] 解析失败' };
     }
 
@@ -521,7 +521,7 @@ export function parseInlineValue(raw) {
         try {
             const obj = JSON.parse(t.slice(1));
             if (obj && typeof obj === 'object' && !Array.isArray(obj)) return { op: 'pop', value: obj };
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseInlineValue" }, caughtError); }
         return { op: 'set', value: t, warning: '-{} 解析失败' };
     }
 

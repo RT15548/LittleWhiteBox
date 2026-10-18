@@ -7,6 +7,8 @@ import {
     expandMessageWindow,
     resetMessageWindow,
 } from '../../agent-core/ui/message-windowing.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const messageActionFeedbackTimers = new Map();
 
@@ -24,8 +26,8 @@ function isEbookMobile() {
         const mobileTypes = ['mobile', 'tablet'];
         const platformType = globalThis.Bowser?.parse?.(globalThis.navigator?.userAgent || '')?.platform?.type;
         if (mobileTypes.includes(platformType)) return true;
-    } catch {
-        // Fall back to media queries.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "isEbookMobile" }, caughtError);
     }
     try {
         return !!(
@@ -191,8 +193,8 @@ function clearDelegatedRootBindings(root) {
     if (!existing) return;
     try {
         existing.abortController?.abort?.();
-    } catch {
-        // Older WebViews may not fully support AbortController-backed listeners.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "clearDelegatedRootBindings" }, caughtError);
     }
     root.removeEventListener?.('toggle', existing.handleToggle, true);
     root.removeEventListener?.('click', existing.handleClick);
@@ -224,8 +226,8 @@ async function copyText(text = '') {
             await navigator.clipboard.writeText(normalized);
             return true;
         }
-    } catch {
-        // Fall through to the legacy copy path.
+    } catch (caughtError) {
+        console.debug({ source: import.meta.url, operation: "copyText" }, caughtError);
     }
     try {
         const textarea = document.createElement('textarea');
@@ -416,8 +418,8 @@ export function bindEbookEvents(options = {}) {
             state.colorTheme = state.colorTheme === 'light' ? 'dark' : 'light';
             try {
                 globalThis.localStorage?.setItem(EBOOK_THEME_STORAGE_KEY, state.colorTheme);
-            } catch {
-                // Theme choice is purely cosmetic; ignore storage failures.
+            } catch (caughtError) {
+                console.warn({ source: import.meta.url, operation: "bindEbookEvents" }, caughtError);
             }
             applyColorTheme(root, state);
             render();
@@ -645,7 +647,7 @@ export function bindEbookEvents(options = {}) {
         const messageAction = findClosest(event.target, '[data-message-action][data-message-index]');
         if (messageAction) {
             event.preventDefault?.();
-            void handleMessageActionClick(messageAction);
+            observeBackgroundTask(handleMessageActionClick(messageAction), { source: import.meta.url, operation: "handleDelegatedClick" });
             return;
         }
         const chapterSortToggle = findClosest(event.target, '[data-chapter-sort-toggle]');

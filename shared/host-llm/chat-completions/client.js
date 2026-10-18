@@ -39,7 +39,7 @@ async function buildHeaders(provider = requestHeadersProvider) {
     if (typeof provider !== 'function') {
         throw new Error('宿主请求头未注册，无法调用酒馆后端。');
     }
-    const providedHeaders = await Promise.resolve(provider() || {});
+    const providedHeaders = await provider();
     return {
         'Content-Type': 'application/json',
         ...providedHeaders,

@@ -6,6 +6,8 @@ import { RULES } from '../content.js';
 import { COPY as c } from '../copy.js';
 import { actionPreview } from './action-preview.js';
 import IslandIcon from './IslandIcon.vue';
+import { observeBackgroundTask } from '../../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ client: ReturnType<typeof createIslandClient>; disabled: boolean }>();
 const emit = defineEmits<{ accepted: [operation: Operation]; submitted: [] }>();
@@ -26,7 +28,7 @@ function sizeInput() {
     el.style.height = '42px'; el.style.height = `${Math.min(112, el.scrollHeight)}px`;
 }
 watch(draft, async () => { await nextTick(); sizeInput(); });
-onActivated(() => { void nextTick(sizeInput); });
+onActivated(() => { observeBackgroundTask(nextTick(sizeInput), { source: import.meta.url, operation: "callback" }); });
 onMounted(() => {
     sizeInput();
     inputResize = new ResizeObserver(([entry]) => {

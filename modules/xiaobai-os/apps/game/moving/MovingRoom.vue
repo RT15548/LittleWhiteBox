@@ -10,6 +10,8 @@ import { createMovingClient } from './client.js';
 import MovingBoard from './MovingBoard.vue';
 import ItemIcon from './ItemIcon.vue';
 import './moving.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; generationActive: boolean }>();
 const client = createMovingClient(props.bridge, props.chatIdentity);
@@ -47,7 +49,7 @@ async function next() {
     else { challenge(); }
 }
 onMounted(async () => { await client.read(); if (active.value) { page.value = 'board'; } mounted = true; });
-onActivated(() => { if (mounted) { void client.read(); } });
+onActivated(() => { if (mounted) { observeBackgroundTask(client.read(), { source: import.meta.url, operation: "callback" }); } });
 onBeforeUnmount(client.dispose);
 </script>
 <template>

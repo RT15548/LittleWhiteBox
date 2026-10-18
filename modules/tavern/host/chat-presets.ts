@@ -1,6 +1,7 @@
 import { saveSettingsDebounced } from '../../../../../../../script.js';
 import { getPresetManager } from '../../../../../../preset-manager.js';
 import { promptManager } from '../../../../../../openai.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 
 type XbTavernRole = 'system' | 'user' | 'assistant' | 'tool';
 type TavernChatPromptPlacement =
@@ -364,7 +365,7 @@ async function savePromptManagerPreset(bundle: TavernChatPromptPresetBundle): Pr
         Object.assign(promptManager.serviceSettings, pickPromptManagerRuntimeFields(patch));
     }
     setPromptManagerSelectedPresetName(name);
-    promptManager?.saveServiceSettings?.();
+    observeBackgroundTask(promptManager?.saveServiceSettings?.(), { source: import.meta.url, operation: 'savePromptManagerPreset' });
     promptManager?.render?.(false);
 }
 
@@ -386,7 +387,7 @@ function applyPromptManagerPromptFieldsFromPreset(name = ''): boolean {
         Object.assign(promptManager.serviceSettings, promptFields);
     }
     setPromptManagerSelectedPresetName(presetName);
-    promptManager?.saveServiceSettings?.();
+    observeBackgroundTask(promptManager?.saveServiceSettings?.(), { source: import.meta.url, operation: 'applyPromptManagerPromptFieldsFromPreset' });
     promptManager?.render?.(false);
     return true;
 }

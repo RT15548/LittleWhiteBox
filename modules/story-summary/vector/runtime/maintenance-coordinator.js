@@ -197,8 +197,8 @@ function enqueueVectorWrite({ chatId = '', kind = 'vector-write', scope, operati
             }
         });
 
-        if (generation) generationTail = run.catch(() => {});
-        else writeTail = run.catch(() => {});
+        if (generation) generationTail = run.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "enqueue" }, caughtError); });
+        else writeTail = run.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "enqueue" }, caughtError); });
         return run;
     };
     const run = ready ? Promise.resolve(ready).then(enqueue) : Promise.resolve(enqueue());

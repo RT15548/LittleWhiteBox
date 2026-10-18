@@ -148,7 +148,7 @@ export function createCapabilityRegistry(
                 for (const registration of [...order].reverse()) {
                     const instance = instances.get(registration.token.id);
                     if (instance !== undefined) {
-                        try { await registration.dispose?.(instance); } catch { /* best-effort rollback */ }
+                        try { await registration.dispose?.(instance); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "install" }, caughtError); }
                     }
                 }
                 instances.clear();

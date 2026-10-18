@@ -49,6 +49,10 @@ import {
 import { postToIframe, isTrustedIframeEvent } from "../../core/iframe-messaging.js";
 import { createConfigSaveQueue } from "./config-save-queue.js";
 import { createTtsDirectiveRegex } from './tts-message-markup.js';
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+
+const handleIframeMessageEvent = observeAsyncCallback(handleIframeMessage, { source: import.meta.url, operation: "handleIframeMessage" });
+
 
 // ============ 常量 ============
 
@@ -404,6 +408,10 @@ async function tryLoadLocalCache(params) {
     }
 }
 
+function reportCacheWriteFailure(error) {
+    console.warn({ source: import.meta.url, operation: 'storeLocalCache' }, error);
+}
+
 async function storeLocalCache(key, blob, meta) {
     if (!config.volc.localCacheEnabled) return;
     try {
@@ -412,7 +420,7 @@ async function storeLocalCache(key, blob, meta) {
             maxEntries: config.volc.cacheMaxEntries,
             maxBytes: config.volc.cacheMaxMB * 1024 * 1024,
         });
-    } catch {}
+    } catch (error) { reportCacheWriteFailure(error); }
 }
 
 // ============ 消息状态管理 ============
@@ -586,7 +594,7 @@ async function speakSingleFreeSegment(messageId, segment, segmentIndex, batchId)
             textLength: segment.text.length,
             speaker: voiceKey,
             resourceId: 'free',
-        }).catch(() => {});
+        }).catch(reportCacheWriteFailure);
 
         state.status = 'queued';
         updateTtsPanel(messageId, state);
@@ -859,8 +867,7 @@ function enhanceTtsDirectives(container) {
             replacement.append(documentTarget.createTextNode(current.slice(cursor, candidate.index)));
             const template = documentTarget.createElement('template');
             const params = candidate[1] || '';
-            // Only fixed markup generated from this exact TTS directive is parsed as HTML.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- Only fixed markup generated from this exact TTS directive is parsed as HTML.
             template.innerHTML = buildTtsTagHtml(parseDirectiveParams(params), params);
             replacement.append(template.content.cloneNode(true));
             cursor = candidate.index + candidate[0].length;
@@ -1004,7 +1011,7 @@ function onCharacterMessageRendered(data) {
         if (!Number.isFinite(messageId)) return;
         if (!prepareCharacterMessageUi(messageId)) return;
         notifyTtsAfterAi(data, 'character_message_rendered');
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onCharacterMessageRendered" }, caughtError); }
 }
 
 function onChatChanged() {
@@ -1183,13 +1190,12 @@ function openSettings() {
         }
     };
     
-    // Guarded by isTrustedIframeEvent (origin + source).
-    // eslint-disable-next-line no-restricted-syntax
-    window.addEventListener('message', handleIframeMessage);
+    // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedIframeEvent (origin + source).
+    window.addEventListener('message', handleIframeMessageEvent);
 }
 
 function closeSettings() {
-    window.removeEventListener('message', handleIframeMessage);
+    window.removeEventListener('message', handleIframeMessageEvent);
     const overlayEl = document.getElementById(OVERLAY_ID);
     if (overlayEl) {
         overlayEl._cleanup?.();
@@ -1386,7 +1392,7 @@ export async function initTts() {
             if (message) enhanceTtsMessageContent(message);
         }
         if (!config?.autoSpeak) return;
-        void speakMessage(messageId, { mode: 'auto' });
+        observeBackgroundTask(speakMessage(messageId, { mode: 'auto' }), { source: import.meta.url, operation: "callback" });
     });
 
     setPanelConfigHandlers({
@@ -1645,7 +1651,7 @@ async function synthesizeFreeBlob(text, voiceKey, emotion, signal, speed) {
     const blob = new Blob([bytes], { type: 'audio/mpeg' });
 
     const cacheKey = buildCacheKey(cacheParams);
-    storeLocalCache(cacheKey, blob, { text: text.slice(0, 200), textLength: text.length, speaker: voiceKey, resourceId: 'free' }).catch(() => {});
+    storeLocalCache(cacheKey, blob, { text: text.slice(0, 200), textLength: text.length, speaker: voiceKey, resourceId: 'free' }).catch(reportCacheWriteFailure);
 
     return blob;
 }
@@ -1686,7 +1692,7 @@ async function synthesizeAuthBlob(text, resolved, emotion, signal, explicitResou
     signal?.throwIfAborted();
 
     const cacheKey = buildCacheKey(params);
-    storeLocalCache(cacheKey, result.audioBlob, { text: text.slice(0, 200), textLength: text.length, speaker: resolved.value, resourceId, usage: result.usage || null }).catch(() => {});
+    storeLocalCache(cacheKey, result.audioBlob, { text: text.slice(0, 200), textLength: text.length, speaker: resolved.value, resourceId, usage: result.usage || null }).catch(reportCacheWriteFailure);
 
     return result.audioBlob;
 }

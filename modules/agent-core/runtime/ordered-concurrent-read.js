@@ -1,4 +1,3 @@
-/* eslint jsdoc/no-undefined-types: ["error", { "definedTypes": ["AsyncGenerator"] }] */
 const READ_CONCURRENCY = 3;
 
 /**

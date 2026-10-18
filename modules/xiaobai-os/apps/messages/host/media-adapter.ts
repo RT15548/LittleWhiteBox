@@ -20,8 +20,8 @@ export function createMessagesMedia(getFacades: () => MessagesMediaFacades = () 
     let voiceToken = 0;
     function capabilities() {
         let image = false; let voice = false;
-        try {const draw = getFacades().xiaobaixDraw?.getStatus(); image = draw?.enabled === true && draw.ready === true;} catch { /* Optional media must not take down the APP. */ }
-        try {voice = getFacades().xiaobaixTts?.isEnabled() === true;} catch { /* The transcript remains available. */ }
+        try {const draw = getFacades().xiaobaixDraw?.getStatus(); image = draw?.enabled === true && draw.ready === true;} catch (caughtError) { console.debug({ source: import.meta.url, operation: "capabilities" }, caughtError); }
+        try {voice = getFacades().xiaobaixTts?.isEnabled() === true;} catch (caughtError) { console.debug({ source: import.meta.url, operation: "capabilities" }, caughtError); }
         return { image, voice };
     }
     function imageData(value: unknown): string | null {

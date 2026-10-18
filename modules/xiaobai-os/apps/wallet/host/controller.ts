@@ -15,6 +15,8 @@ import type {
     WalletTransactionPageView,
     WalletTransactionView,
 } from '../types.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 type UnknownRecord = Record<string, unknown>;
 const WALLET_PAGE_SIZE = 18;
@@ -164,7 +166,7 @@ export function createWalletController({
             }
         };
         if (execution) { execution.setTimeout(prepare, 0); }
-        else { globalThis.setTimeout(() => { void prepare(); }, 0); }
+        else { globalThis.setTimeout(() => { observeBackgroundTask(prepare(), { source: import.meta.url, operation: "callback" }); }, 0); }
     }
 
     function activate(context: XiaobaiOsAppActivationContext): WalletClientState {

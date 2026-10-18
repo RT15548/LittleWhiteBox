@@ -40,7 +40,7 @@ async function main() {
 
     const requests = [];
     let requestError = null;
-    const server = http.createServer(async (request, response) => {
+    const server = http.createServer((request, response) => { const respond = async () => {
         try {
             requests.push({
                 method: request.method,
@@ -73,7 +73,7 @@ async function main() {
             requestError = error;
             response.writeHead(500).end();
         }
-    });
+    }; respond().catch(error => response.destroy(error)); });
     const tempDirectory = await mkdtemp(path.join(tmpdir(), 'lwb-agent-core-node18-'));
     try {
         await listen(server);

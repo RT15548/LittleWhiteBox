@@ -6,6 +6,8 @@ import LearningIcon from './LearningIcon.vue';
 import LearningSettingsCard from './LearningSettingsCard.vue';
 import { LEARNING_FLOW_COPY as copy, LEARNING_DIALOGUE_COPY as dialogueCopy } from './learning-copy.js';
 import { useLearningUiSession } from './learning-session.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 defineProps<{ state: LearningClientState; disabled: boolean }>();
 const emit = defineEmits<{ action: [name: string, input: Record<string, unknown>] }>();
 const session = useLearningUiSession().setup;
@@ -15,7 +17,7 @@ const name = toRef(session, 'name');
 const note = toRef(session, 'note');
 const languages = [['en', '英语', 'Aa'], ['ja', '日语', 'あ'], ['ko', '韩语', '한'], ['fr', '法语', 'Ç'], ['de', '德语', 'ß'], ['es', '西班牙语', 'Ñ'], ['zh-CN', '中文', '文']];
 async function go(value: number) { step.value = value; await nextTick(); heading.value?.focus(); }
-useAppBack(() => { if (!step.value) { return false; } void go(step.value - 1); return true; });
+useAppBack(() => { if (!step.value) { return false; } observeBackgroundTask(go(step.value - 1), { source: import.meta.url, operation: "callback" }); return true; });
 </script>
 
 <template>

@@ -1,0 +1,8 @@
+{
+    "repository": "SillyTavern/SillyTavern",
+    "indexVersion": "1.18.0",
+    "verificationVersions": {
+        "1.14.0": "9c9be90821ffd6132b40b5f04982522a61d7ad30",
+        "1.18.0": "51ad27fb86d39a3daca3adaa970375c9670c12df"
+    }
+}

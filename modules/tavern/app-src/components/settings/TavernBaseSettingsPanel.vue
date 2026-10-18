@@ -5,6 +5,8 @@ import {
     type TavernChatFontSize,
 } from '../../../shared/settings';
 import { useTavernSettingsContext, type TavernUserOption } from '../tavern-app-context';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const settings = useTavernSettingsContext();
 const {
@@ -33,7 +35,7 @@ function userCardInitial(user: TavernUserOption) {
 function handleUserSelect(value: string) {
     const nextUserId = String(value || '').trim();
     if (!nextUserId || nextUserId === selectedUserId.value) {return;}
-    void switchTavernUser(nextUserId);
+    observeBackgroundTask(switchTavernUser(nextUserId), { source: import.meta.url, operation: "handleUserSelect" });
 }
 
 function handleHiddenOutsideInput(value: string) {

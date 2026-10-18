@@ -131,8 +131,7 @@ export function createFrameBridge() {
             return;
         }
         listening = true;
-        // The host origin, parent window and protocol source are checked above.
-        // eslint-disable-next-line no-restricted-syntax
+        // eslint-disable-next-line no-restricted-syntax -- The host origin, parent window and protocol source are checked above.
         window.addEventListener('message', handleMessage);
         // The host resets its channel on iframe load. Post readiness after the
         // document loads so that reset precedes delivery of this queued message.

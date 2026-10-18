@@ -180,7 +180,7 @@ export function createCharacterLibraryUi(options = {}) {
     }
 
     function saveCollapsed() {
-        try { storage()?.setItem(GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(state.collapsed)); } catch { /* 隐私模式等 */ }
+        try { storage()?.setItem(GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(state.collapsed)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveCollapsed" }, caughtError); }
     }
 
     // ── 草稿读取 ─────────────────────────────────────────
@@ -836,7 +836,7 @@ export function createCharacterLibraryUi(options = {}) {
             startY: event.clientY,
         };
         event.preventDefault?.();
-        try { event.target.setPointerCapture?.(event.pointerId); } catch { /* 指针已失效时忽略，仍可用文档级监听完成拖拽 */ }
+        try { event.target.setPointerCapture?.(event.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startDrag" }, caughtError); }
         document.body.classList.add('lwb-cl-is-dragging');
         for (const dragId of ids) {
             const node = kind === 'char'

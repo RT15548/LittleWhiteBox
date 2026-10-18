@@ -970,7 +970,7 @@ function getFloatingPosition() {
     try {
         const raw = localStorage.getItem(FLOAT_POS_KEY);
         if (raw) return JSON.parse(raw);
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getFloatingPosition" }, caughtError); }
     return { left: window.innerWidth - 110, top: window.innerHeight - 80 };
 }
 
@@ -982,7 +982,7 @@ function saveFloatingPosition() {
             left: Math.round(r.left),
             top: Math.round(r.top)
         }));
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveFloatingPosition" }, caughtError); }
 }
 
 function applyFloatingPosition() {
@@ -1007,7 +1007,7 @@ function onFloatingPointerDown(e) {
         originalTarget: e.target
     };
 
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onFloatingPointerDown" }, caughtError); }
     e.preventDefault();
 }
 
@@ -1036,7 +1036,7 @@ function onFloatingPointerUp(e) {
 
     const { moved, originalTarget } = floatingDragState;
 
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onFloatingPointerUp" }, caughtError); }
     floatingDragState = null;
 
     if (moved) {

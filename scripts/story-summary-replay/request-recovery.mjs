@@ -89,7 +89,7 @@ export function createRequestRecovery(policy, {
             const remainingDelayMs = Math.max(0, delayMs - elapsedSinceReceipt);
             cooldowns.set(url.origin, Math.max(cooldowns.get(url.origin) || 0, clock() + remainingDelayMs));
             onRetry({ host: url.host, status: response?.status || 'network', attempt: state.attempts, delayMs });
-            await response?.body?.cancel().catch(() => {});
+            await response?.body?.cancel().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "createRequestRecovery" }, caughtError); });
         }
         throw stopped('retry-exhausted');
     };

@@ -34,7 +34,6 @@ export function buildCharacterExportFileName({ scope = 'all', groupName = '' } =
     if (scope === 'all') return 'character-tags.json';
     if (scope === 'selection') return 'character-tags-selection.json';
     const safe = Array.from(String(groupName ?? '')
-        // eslint-disable-next-line no-control-regex
         .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '')
         .trim())
         .slice(0, EXPORT_NAME_MAX_CHARS)
@@ -383,7 +382,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         state.closed = true;
         document.removeEventListener('keydown', onKeydown, true);
         overlay.parentNode?.removeChild(overlay);
-        try { previousFocus?.focus?.(); } catch { /* 原焦点元素已不在文档中时忽略 */ }
+        try { previousFocus?.focus?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "close" }, caughtError); }
         onClose?.();
     }
 
@@ -415,7 +414,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     document.body.appendChild(overlay);
     document.addEventListener('keydown', onKeydown, true);
     refresh();
-    try { radios.auto.focus(); } catch { /* 不可聚焦环境（如无头 DOM）忽略 */ }
+    try { radios.auto.focus(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openCharacterImportDialog" }, caughtError); }
 
     return {
         element: overlay,
@@ -620,7 +619,7 @@ export function openCharacterExportDialog({ document, library, selectedIds, onCo
         state.closed = true;
         document.removeEventListener('keydown', onKeydown, true);
         overlay.parentNode?.removeChild(overlay);
-        try { previousFocus?.focus?.(); } catch { /* 原焦点元素已不在文档中时忽略 */ }
+        try { previousFocus?.focus?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "close" }, caughtError); }
         onClose?.();
     }
 
@@ -645,7 +644,7 @@ export function openCharacterExportDialog({ document, library, selectedIds, onCo
     document.body.appendChild(overlay);
     document.addEventListener('keydown', onKeydown, true);
     refresh();
-    try { (radios[state.mode] || cancelBtn).focus(); } catch { /* 不可聚焦环境（如无头 DOM）忽略 */ }
+    try { (radios[state.mode] || cancelBtn).focus(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openCharacterExportDialog" }, caughtError); }
 
     return {
         element: overlay,

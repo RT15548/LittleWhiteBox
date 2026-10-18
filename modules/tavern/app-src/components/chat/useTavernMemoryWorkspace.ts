@@ -6,6 +6,8 @@ import {
     type TavernMemoryFileRecord,
     type TavernMemoryIndexFileEntry,
 } from '../../../shared/session-db';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface TavernMemoryWorkspaceOptions {
     memoryEditorBaseContent: Ref<string>;
@@ -114,10 +116,10 @@ export function useTavernMemoryWorkspace(options: TavernMemoryWorkspaceOptions) 
     function enterMemoryEditMode() {
         if (!options.memoryEditorDocumentAvailable.value || options.memoryEditorReadOnly.value) {return;}
         options.memoryEditorMode.value = 'edit';
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             const textarea = document.querySelector<HTMLTextAreaElement>('[data-memory-editor-textarea="true"]');
             textarea?.focus();
-        });
+        }), { source: import.meta.url, operation: "enterMemoryEditMode" });
     }
 
     function previewMemoryDraft() {

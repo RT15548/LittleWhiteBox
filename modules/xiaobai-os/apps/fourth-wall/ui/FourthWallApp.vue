@@ -17,6 +17,8 @@ import type {
     FourthWallGlobalSettings,
 } from '../types.js';
 import './fourth-wall.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const PERSISTENT_REQUEST_TIMEOUT_MS = 35_000;
 
@@ -142,14 +144,14 @@ function handleComposerKeydown(event: KeyboardEvent): void {
     }
     event.preventDefault();
     if (!isGenerating.value) {
-        void send();
+        observeBackgroundTask(send(), { source: import.meta.url, operation: "handleComposerKeydown" });
     }
 }
 
 function confirmDelete(index: number): void {
     const hint = index < activeSession.value.archivedCount ? '这条消息已记入皮下记忆；删除消息不会让对方忘记，需要遗忘的内容请到皮下记忆中删除。\n' : '';
     if (window.confirm(`${hint}确定删除这条消息吗？`)) {
-        void requestState('fourth-wall/delete-message', { ...binding(), revision: state.value.history.revision, messageIndex: index });
+        observeBackgroundTask(requestState('fourth-wall/delete-message', { ...binding(), revision: state.value.history.revision, messageIndex: index }), { source: import.meta.url, operation: "confirmDelete" });
     }
 }
 
@@ -198,11 +200,11 @@ async function saveMemory(content: string): Promise<void> {
 }
 
 function updateChat(patch: FourthWallChatState['settings']): void {
-    void requestState('fourth-wall/update-chat-settings', { ...binding(), patch });
+    observeBackgroundTask(requestState('fourth-wall/update-chat-settings', { ...binding(), patch }), { source: import.meta.url, operation: "updateChat" });
 }
 
 function updateGlobal(patch: Partial<FourthWallGlobalSettings>): void {
-    void requestState('fourth-wall/update-global-settings', { ...binding(), patch });
+    observeBackgroundTask(requestState('fourth-wall/update-global-settings', { ...binding(), patch }), { source: import.meta.url, operation: "updateGlobal" });
 }
 
 onMounted(() => {

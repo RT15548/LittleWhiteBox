@@ -10,6 +10,8 @@ import { executePreparedSlots } from './prepared-slot-executor.js';
 import { setSlotActivity, clearSlotActivity } from './slot-activity.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
 import { commitChatImagePlacement, restoreChatImagePlacements } from './chat-image-placement.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const providers = new Map();
 
@@ -32,7 +34,7 @@ export function prepareNativeChatImages(provider, input) {
     const completed = Promise.resolve().then(() => generatePreparedChatImages(provider, {
         ...input, nativeMessage: true, onPrepared: ready,
     }));
-    completed.catch(failed);
+    observeBackgroundTask(completed.catch(failed), { source: import.meta.url, operation: "prepareNativeChatImages" });
     return { prepared, completed };
 }
 

@@ -9,6 +9,8 @@ import { gameEntry, type GameEntryId } from './room-catalog.js';
 import GameLobby from './GameLobby.vue';
 import GameRecords from './GameRecords.vue';
 import './game.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<XiaobaiOsAppProps>();
 const client = createGameClient(props.bridge, props.initialState as GameClientState);
@@ -65,9 +67,9 @@ watch([page, selected, () => Boolean(state.value.activeGame), () => Boolean(sett
     if (previous[0] === 'lobby') {
         lobbyScroll = scroll.value?.scrollTop || 0;
     }
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         scroll.value?.scrollTo({ top: page.value === 'lobby' ? lobbyScroll : 0 });
-    });
+    }), { source: import.meta.url, operation: "callback" });
 });
 watch(selected, loadRoom, { immediate: true });
 watch(settlement, (value) => {
@@ -81,10 +83,10 @@ watch(
         lobbyScroll = 0;
         selected.value = state.value.activeGame?.kind || null;
         page.value = selected.value ? 'room' : 'lobby';
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             lobbyScroll = 0;
             scroll.value?.scrollTo({ top: 0 });
-        });
+        }), { source: import.meta.url, operation: "callback" });
     },
 );
 function open(kind: GameEntryId): void {

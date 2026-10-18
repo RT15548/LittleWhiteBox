@@ -15,6 +15,8 @@ import { useLearningUiSession } from './learning-session.js';
 import { rememberLearningEditor as vRememberEditor } from './learning-editor.js';
 import { LEARNING_CONVERSATION_COPY as conversationCopy } from '../application/conversation-copy.js';
 import { learningReplyNote } from '../application/reply-note.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{ target: LearningActor; state: LearningClientState; disabled: boolean; pending: boolean }>();
 const dialogue = computed(() => props.target === 'workbench' ? props.state.workbenchConversation : props.state.conversation);
@@ -54,7 +56,7 @@ function resizeComposer() {
     if (!input?.clientWidth) { return; }
     input.style.height = 'auto';
     input.style.height = `${input.scrollHeight}px`;
-    void follow();
+    observeBackgroundTask(follow(), { source: import.meta.url, operation: "resizeComposer" });
 }
 watch(message, resizeComposer, { flush: 'post' });
 watch(composer, input => {
@@ -70,7 +72,7 @@ watch(composer, input => {
     });
     resizeObserver.observe(input.parentElement!);
 }, { flush: 'post' });
-onMounted(() => { if (scroller.value) { scroller.value.scrollTop = session.scroll; } void follow(); });
+onMounted(() => { if (scroller.value) { scroller.value.scrollTop = session.scroll; } observeBackgroundTask(follow(), { source: import.meta.url, operation: "callback" }); });
 onBeforeUnmount(() => { if (scroller.value) { session.scroll = scroller.value.scrollTop; } resizeObserver?.disconnect(); cancelAnimationFrame(resizeFrame); });
 function send() {
     if (props.disabled || !message.value.trim()) { return; }

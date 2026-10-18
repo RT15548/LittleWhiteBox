@@ -150,8 +150,8 @@ function emitDelegateProgress(parentRun = {}, event = {}) {
     if (typeof parentRun.onDelegateProgress !== 'function') return;
     try {
         parentRun.onDelegateProgress(event);
-    } catch {
-        // Progress is UI-only; never let it affect delegate execution.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "emitDelegateProgress" }, caughtError);
     }
 }
 

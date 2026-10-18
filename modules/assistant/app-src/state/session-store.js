@@ -164,7 +164,7 @@ export function createSessionStore(deps) {
     function persistSession() {
         const snapshot = buildSnapshot();
         writeQueue = writeQueue
-            .catch(() => {})
+            .catch((caughtError) => { console.warn({ source: import.meta.url, operation: "persistSession" }, caughtError); })
             .then(async () => {
                 try {
                     await saveSnapshot(snapshot);
@@ -182,7 +182,7 @@ export function createSessionStore(deps) {
 
     function clearSession() {
         writeQueue = writeQueue
-            .catch(() => {})
+            .catch((caughtError) => { console.warn({ source: import.meta.url, operation: "clearSession" }, caughtError); })
             .then(async () => {
                 try {
                     const previousSessionId = await resolveCurrentSessionId();

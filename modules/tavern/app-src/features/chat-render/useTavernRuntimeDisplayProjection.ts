@@ -1,6 +1,8 @@
 import { ref, type Ref } from 'vue';
 import type { TavernApplyRegexItem } from '../../../shared/regex';
 import type { TavernActionCheckRuntimeEvent } from '../../../shared/runtime-events';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface TavernRuntimeDisplayRegexRequest {
     key: string;
@@ -135,7 +137,7 @@ export function useTavernRuntimeDisplayProjection(options: TavernRuntimeDisplayP
         const request = pending.latest;
         pending.timer = null;
         pending.inFlight = true;
-        void options.resolveText(request)
+        observeBackgroundTask(options.resolveText(request)
             .catch((error) => {
                 options.onError?.(error);
                 return request.text;
@@ -154,7 +156,7 @@ export function useTavernRuntimeDisplayProjection(options: TavernRuntimeDisplayP
                     return;
                 }
                 pendingSlots.delete(slot);
-            });
+            }), { source: import.meta.url, operation: "runSlot" });
     }
 
     function scheduleSlot(slot: string, request: TavernRuntimeDisplayRegexRequest) {

@@ -16,7 +16,7 @@ export function createLocalSourcesToolRuntime(deps) {
 
     function enqueueStateWrite(task) {
         const queued = stateWriteQueue.then(task, task);
-        stateWriteQueue = queued.then(() => undefined, () => undefined);
+        stateWriteQueue = queued.then(() => undefined, (caughtError) => { console.warn({ source: import.meta.url, operation: "enqueueStateWrite" }, caughtError); });
         return queued;
     }
 

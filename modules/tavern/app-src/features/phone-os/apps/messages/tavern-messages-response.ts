@@ -53,8 +53,8 @@ export function extractBalancedJsonObjects(value: unknown): Record<string, unkno
                 objects.push(parsed as Record<string, unknown>);
                 start = end;
             }
-        } catch {
-            // Continue scanning for the next complete object.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "extractBalancedJsonObjects" }, caughtError);
         }
     }
     return objects;

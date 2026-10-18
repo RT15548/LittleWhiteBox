@@ -136,8 +136,8 @@ export function createAssistantHostWindow(options) {
             if (mobileTypes.includes(platformType)) {
                 return true;
             }
-        } catch {
-            // Fall back to pointer/screen heuristics below.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "isAssistantMobileDevice" }, caughtError);
         }
         return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
     }

@@ -41,7 +41,7 @@ function parseKeys(rawKey) {
             .split(/[,;|\n]+/)
             .map(k => k.trim())
             .filter(k => k.length > 0);
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseKeys" }, caughtError); }
     return [];
 }
 

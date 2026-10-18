@@ -95,7 +95,7 @@ function createWriteQueue() {
     let tail: Promise<unknown> = Promise.resolve();
     return <T>(task: () => Promise<T> | T): Promise<T> => {
         const result = tail.then(task);
-        tail = result.catch(() => {});
+        tail = result.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "createWriteQueue" }, caughtError); });
         return result;
     };
 }
@@ -103,8 +103,9 @@ function createWriteQueue() {
 /**
  * Creates the sole repository for persistent Xiaobai OS extension settings.
  * Settings are ordinary SillyTavern preferences. A mutation is installed
- * temporarily while the host persists it; subscribers are notified only after
- * persistence succeeds, and a reported save failure restores the old value.
+ * temporarily while the host saves it; subscribers are notified when the native
+ * save call resolves, and a reported rejection restores the old value. The
+ * official host does not provide a durable-write receipt through this API.
  */
 export function createSettingsRepository(adapter: XiaobaiOsSettingsAdapter): XiaobaiOsSettingsRepository {
     if (typeof adapter?.getExtensionSettings !== 'function' || typeof adapter?.saveSettings !== 'function') {

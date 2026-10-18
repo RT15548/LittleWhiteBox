@@ -1,3 +1,5 @@
+
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
 export interface TavernDrawMarkdownImageEnhancerOptions {
     alertDialog: (options: { title?: string; message?: string; confirmText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<void>;
     confirmDialog: (options: { title?: string; message?: string; confirmText?: string; cancelText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<boolean>;
@@ -131,7 +133,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                 return;
             }
             if (action === 'save-tags') {
-                void (async () => {
+                observeBackgroundTask((async () => {
                     const sceneInput = editPanel.querySelector<HTMLTextAreaElement>('textarea[data-type="scene"]');
                     const tags = String(sceneInput?.value || '').trim();
                     if (!tags) {
@@ -165,7 +167,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                         await refreshTavernImageFigure(figure, slotId, editResponse);
                     };
                     void runSave().catch(() => setTavernImageBusy(figure, false));
-                })();
+                })(), { source: import.meta.url, operation: "callback" });
             }
         });
 
@@ -342,7 +344,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
             render();
         });
         useButton.addEventListener('click', () => {
-            void selectTavernImageVersion(slotId, currentIndex, figure).then(closeTavernImageGallery);
+            observeBackgroundTask(selectTavernImageVersion(slotId, currentIndex, figure).then(closeTavernImageGallery), { source: import.meta.url, operation: "callback" });
         });
         saveButton.addEventListener('click', () => {
             const current = previews[currentIndex] || previews[0];
@@ -358,7 +360,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                 .catch(() => { saveButton.disabled = false; });
         });
         deleteButton.addEventListener('click', () => {
-            void (async () => {
+            observeBackgroundTask((async () => {
                 if (!await options.confirmDialog({
                     title: '删除图片',
                     message: '确定删除这张图片吗？',
@@ -368,7 +370,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                 const current = previews[currentIndex] || previews[0];
                 const imgId = String(current?.imgId || '').trim();
                 if (!imgId) {return;}
-                void options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId, imgId } })
+                await options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId, imgId } })
                     .then((deleteResponse) => refreshTavernImageFigure(figure as HTMLElement, slotId, deleteResponse))
                     .then(() => {
                         previews.splice(currentIndex, 1);
@@ -383,9 +385,9 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                             }
                         });
                         closeTavernImageGallery();
-                        void openTavernImageGallery(slotId, figure);
+                        return openTavernImageGallery(slotId, figure);
                     });
-            })();
+            })(), { source: import.meta.url, operation: 'deleteImage' });
         });
         render();
     }
@@ -501,7 +503,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
         image.alt = result.tags ? `配图：${String(result.tags)}` : '配图';
         image.loading = 'lazy';
         image.addEventListener('click', () => {
-            void openTavernImageGallery(slotId, figure);
+            observeBackgroundTask(openTavernImageGallery(slotId, figure), { source: import.meta.url, operation: "callback" });
         });
         wrap.append(image);
 
@@ -591,17 +593,17 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
             event.preventDefault();
             event.stopPropagation();
             if (currentIndex < historyCount - 1) {
-                void selectIndex(currentIndex + 1);
+                observeBackgroundTask(selectIndex(currentIndex + 1), { source: import.meta.url, operation: "callback" });
             }
         });
         newerButton.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
             if (currentIndex > 0) {
-                void selectIndex(currentIndex - 1);
+                observeBackgroundTask(selectIndex(currentIndex - 1), { source: import.meta.url, operation: "callback" });
                 return;
             }
-            void refreshImage();
+            observeBackgroundTask(refreshImage(), { source: import.meta.url, operation: "callback" });
         });
         trigger.addEventListener('click', (event) => {
             event.preventDefault();
@@ -627,11 +629,11 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                     })
                     .catch(() => setTavernImageBusy(figure, false));
             } else if (action === 'refresh-image') {
-                void refreshImage();
+                observeBackgroundTask(refreshImage(), { source: import.meta.url, operation: "callback" });
             } else if (action === 'edit-tags') {
                 openEditor();
             } else if (action === 'delete-image') {
-                void (async () => {
+                observeBackgroundTask((async () => {
                     if (!await options.confirmDialog({
                         title: '删除图片',
                         message: '确定删除这张图片吗？',
@@ -642,7 +644,7 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
                     void options.requestHost('xb-tavern:draw-image-delete', { payload: { slotId } })
                         .then((response) => refreshTavernImageFigure(figure, slotId, response))
                         .catch(() => setTavernImageBusy(figure, false));
-                })();
+                })(), { source: import.meta.url, operation: "callback" });
             }
         });
     }

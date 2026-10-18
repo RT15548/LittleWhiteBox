@@ -88,7 +88,7 @@ function closeServer(server) {
 async function createProbeServer(t, service, options = {}) {
     const observed = [];
     const replayStatuses = [];
-    const handler = async (request, response) => {
+    const handler = (request, response) => { const respond = async () => {
         request.resume();
         await new Promise(resolve => request.once('end', resolve));
         if (request.method !== 'POST' || request.url !== LOOPBACK_VERIFY_REQUEST_PATH) {
@@ -125,7 +125,7 @@ async function createProbeServer(t, service, options = {}) {
             replayStatuses.push(service.verify(request).statusCode);
         }
         sendJson(response, result.statusCode, result.body);
-    };
+    }; respond().catch(error => response.destroy(error)); };
     const server = options.encrypted
         ? https.createServer({ cert: TEST_CERT, key: TEST_KEY }, handler)
         : http.createServer(handler);

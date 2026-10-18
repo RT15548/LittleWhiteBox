@@ -164,8 +164,7 @@ export function useTavernHostBridge(options: TavernHostBridgeOptions = {}) {
     function mount() {
         if (mounted) {return;}
         mounted = true;
-        // onHostMessage validates origin and message source before accepting payloads.
-        // eslint-disable-next-line no-restricted-syntax
+        // eslint-disable-next-line no-restricted-syntax -- onHostMessage validates origin and message source before accepting payloads.
         window.addEventListener('message', onHostMessage);
     }
 

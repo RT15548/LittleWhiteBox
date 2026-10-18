@@ -31,8 +31,7 @@ const bundle = await build({
         builder.onLoad({ filter: /.*/, namespace: 'host' }, ({ path }) => ({ contents: stubs[path] }));
     } }],
 });
-// Only the locally built test module is evaluated, never external input.
-// eslint-disable-next-line no-unsanitized/method
+// eslint-disable-next-line no-unsanitized/method -- Only the locally built test module is evaluated, never external input.
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text
     + '\n//# sourceURL=draw-run-recovery-test.mjs').toString('base64')}`);
 

@@ -5,6 +5,8 @@ import { orderApps } from '../../app-order.js';
 import { useDesktopDrag } from './use-desktop-drag.js';
 import { MASCOT_MARK_URL } from '../../../brand/mascot/assets.js';
 import '../styles/desktop-order.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<{
     apps: readonly XiaobaiOsAppDefinition[];
@@ -24,7 +26,7 @@ let failedOrder: string[] | null = null;
 const visibleApps = computed(() => editing.value ? orderApps(props.apps, draft.value) : props.apps);
 
 function focusApp(id: string): void {
-    void nextTick(() => root.value?.querySelector<HTMLElement>(`[data-app-id="${id}"]`)?.focus({ preventScroll: true }));
+    observeBackgroundTask(nextTick(() => root.value?.querySelector<HTMLElement>(`[data-app-id="${id}"]`)?.focus({ preventScroll: true })), { source: import.meta.url, operation: "focusApp" });
 }
 
 function edit(id: string): void {
@@ -65,7 +67,7 @@ const { floating, pointerDown, cancel } = useDesktopDrag({
     move,
     finish(cancelled) {
         if (cancelled) { draft.value = beforeDrag; }
-        else if (draft.value.some((id, index) => id !== beforeDrag[index])) { void save([...draft.value]); }
+        else if (draft.value.some((id, index) => id !== beforeDrag[index])) { observeBackgroundTask(save([...draft.value]), { source: import.meta.url, operation: "finish" }); }
         focusApp(selected.value);
     },
 });
@@ -117,7 +119,7 @@ function keydown(event: KeyboardEvent): void {
     move(id, target);
     selected.value = id;
     focusApp(id);
-    void save([...draft.value]);
+    observeBackgroundTask(save([...draft.value]), { source: import.meta.url, operation: "keydown" });
 }
 
 function keyup(event: KeyboardEvent): void {

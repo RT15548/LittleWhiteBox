@@ -30,6 +30,8 @@ import { buildWorkspacePreconditions, workspaceMutationScopes, WORKSPACE_CONFLIC
 import { WORKSPACE_COPY } from './workspace-copy.js';
 import { TOOL_NAMES } from '../tooling.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+
 
 const LOCAL_SOURCE_PREFIX = 'local/';
 const IMPORT_PROGRESS_INTERVAL_MS = 220;
@@ -1049,7 +1051,7 @@ export function createLocalSourcesManager(deps) {
         if (!match && !previous) return false;
         const nextContent = String(content ?? '');
         if (nextContent === (previous?.content ?? match?.file.content)) {
-            if (options.flush) void flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.WRITE, args: { path: targetPath } });
+            if (options.flush) observeBackgroundTask(flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.WRITE, args: { path: targetPath } }), { source: import.meta.url, operation: "updateLocalFileContent" });
             return true;
         }
         const entry = pendingEditorWrites.get(targetPath) || {
@@ -1067,10 +1069,10 @@ export function createLocalSourcesManager(deps) {
         if (entry.status !== 'conflict' && entry.status !== 'error') {
             entry.timer = window.setTimeout(() => {
                 entry.timer = 0;
-                void sendEditorWrite(targetPath);
+                observeBackgroundTask(sendEditorWrite(targetPath), { source: import.meta.url, operation: "callback" });
             }, 16);
         }
-        if (options.flush) void flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.WRITE, args: { path: targetPath } });
+        if (options.flush) observeBackgroundTask(flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.WRITE, args: { path: targetPath } }), { source: import.meta.url, operation: "updateLocalFileContent" });
         if (options.render) render?.();
         return true;
     }
@@ -1256,7 +1258,7 @@ export function createLocalSourcesManager(deps) {
 
     function closeWorkspace() {
         if (!state.isWorkspaceOpen) return;
-        void flushPendingWorkspaceChanges();
+        observeBackgroundTask(flushPendingWorkspaceChanges(), { source: import.meta.url, operation: "closeWorkspace" });
         state.isWorkspaceOpen = false;
         onWorkspaceClosed?.();
         persistWorkspaceUiStateImmediately();
@@ -1402,7 +1404,7 @@ export function createLocalSourcesManager(deps) {
             selectedMatch: renderedSelectedMatch,
             editorDraft: selectedDraft,
             savedFileExists: !!findLocalFileByPath(state.localSources, state.selectedFilePath),
-            onResolveConflict: action => { void resolveEditorConflict(state.selectedFilePath, action); },
+            onResolveConflict: action => { observeBackgroundTask(resolveEditorConflict(state.selectedFilePath, action), { source: import.meta.url, operation: "onResolveConflict" }); },
             workspaceState: {
                 selectedSourceId: 'all',
                 selectedFilePath: state.selectedFilePath,
@@ -1421,7 +1423,7 @@ export function createLocalSourcesManager(deps) {
                 downloadAllLocalSources();
             },
             onClearAll: () => {
-                void clearLocalSources();
+                observeBackgroundTask(clearLocalSources(), { source: import.meta.url, operation: "onClearAll" });
             },
             onCloseWorkspace: () => {
                 closeWorkspace();
@@ -1456,22 +1458,22 @@ export function createLocalSourcesManager(deps) {
                 downloadLocalFile(targetPath);
             },
             onRestoreFile: (targetPath) => {
-                void restoreLocalFile(targetPath);
+                observeBackgroundTask(restoreLocalFile(targetPath), { source: import.meta.url, operation: "onRestoreFile" });
             },
             onUpdateFileContent: (targetPath, content, nextOptions = {}) => {
                 return updateLocalFileContent(targetPath, content, nextOptions);
             },
             onCreateFile: (targetPath) => {
-                void createLocalFileAt(targetPath);
+                observeBackgroundTask(createLocalFileAt(targetPath), { source: import.meta.url, operation: "onCreateFile" });
             },
             onCreateDirectory: (targetPath) => {
-                void createLocalDirectoryAt(targetPath);
+                observeBackgroundTask(createLocalDirectoryAt(targetPath), { source: import.meta.url, operation: "onCreateDirectory" });
             },
             onRenamePath: (targetPath) => {
-                void renameLocalPath(targetPath);
+                observeBackgroundTask(renameLocalPath(targetPath), { source: import.meta.url, operation: "onRenamePath" });
             },
             onDeletePath: (targetPath) => {
-                void deleteLocalPath(targetPath);
+                observeBackgroundTask(deleteLocalPath(targetPath), { source: import.meta.url, operation: "onDeletePath" });
             },
         });
     }

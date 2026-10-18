@@ -33,7 +33,7 @@ export function saveRulesToMeta() {
         const meta = getContext()?.chatMetadata || {};
         meta[LWB_RULES_V2_KEY] = getRulesSnapshot();
         getContext()?.saveMetadataDebounced?.();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveRulesToMeta" }, caughtError); }
 }
 
 export function clearRule(path) {

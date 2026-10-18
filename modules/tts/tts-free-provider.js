@@ -1,5 +1,7 @@
 import { synthesizeFreeV1, FREE_VOICES, FREE_DEFAULT_VOICE } from './tts-api.js';
 import { normalizeEmotion, splitTtsSegmentsForFree } from './tts-text.js';
+import { observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [500, 1000, 2000];
@@ -191,7 +193,7 @@ class SegmentQueueManager {
         
         try {
             this.abortController.abort();
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "destroy" }, caughtError); }
         
         for (const seg of this.segments) {
             if (seg.retryTimer) {
@@ -307,7 +309,7 @@ export async function speakMessageFree(options) {
                     queueManager.setReady(index, cacheHit.entry.blob, segment.text);
                     return;
                 }
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "fetchSegment" }, caughtError); }
         }
         
         try {
@@ -334,7 +336,7 @@ export async function speakMessageFree(options) {
                     textLength: segment.text.length,
                     speaker: voiceKey,
                     resourceId: 'free',
-                }).catch(() => {});
+                }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "fetchSegment" }, caughtError); });
             }
             
             queueManager.setReady(index, audioBlob, segment.text);
@@ -348,7 +350,7 @@ export async function speakMessageFree(options) {
     };
     
     queueManager.onRetryNeeded = (index, retryCount) => {
-        fetchSegment(index);
+        observeBackgroundTask(fetchSegment(index), { source: import.meta.url, operation: "callback" });
     };
     
     queueManager.onSegmentReady = (index, seg) => {
@@ -381,7 +383,7 @@ export async function speakMessageFree(options) {
     };
     
     for (let i = 0; i < splitSegments.length; i++) {
-        fetchSegment(i);
+        observeBackgroundTask(fetchSegment(i), { source: import.meta.url, operation: "speakMessageFree" });
     }
     
     return { success: true };

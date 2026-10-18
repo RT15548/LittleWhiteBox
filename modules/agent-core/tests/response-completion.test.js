@@ -70,14 +70,14 @@ function fixture(provider, ending) {
 
 async function localProvider(t, wire, streaming) {
     let requests = 0;
-    const server = createServer(async (request, response) => {
+    const server = createServer((request, response) => { const respond = async () => {
         for await (const chunk of request) { void chunk; }
         requests++;
         response.writeHead(200, { 'Content-Type': streaming ? 'text/event-stream' : 'application/json' });
         response.end(streaming ? wire.events.map((event, sequence_number) =>
             `${event.type ? `event: ${event.type}\n` : ''}data: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join('')
             : JSON.stringify(wire.json));
-    });
+    }; respond().catch(error => response.destroy(error)); });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
     return { baseUrl: `http://127.0.0.1:${server.address().port}`, requests: () => requests };

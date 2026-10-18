@@ -66,23 +66,28 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
                 }
             }).catch(error => {
                 invalidateSidecar();
-                onError(error);
+                reportError(error);
             }).finally(() => {
                 refreshPromise = null;
-                if (active && refreshRequested) { void refresh(); }
+                if (active && refreshRequested) { refresh().catch(reportError); }
             });
         }
         return refreshPromise;
     }
 
-    const handleRefresh: EventListener = () => { invalidateSidecar(); void refresh(); };
+    function reportError(error: unknown): void {
+        try { onError(error); }
+        catch (reportingError) { console.error('[LittleWhiteBox] 小白 OS 聊天生命周期错误处理失败', { error, reportingError }); }
+    }
+
+    const handleRefresh: EventListener = () => { invalidateSidecar(); refresh().catch(reportError); };
     const handleChatDeleted: EventListener = (chatId) => {
-        void manager.handleChatDeleted(String(chatId || '')).catch(onError);
+        manager.handleChatDeleted(String(chatId || '')).catch(reportError);
     };
     const handleCharacterRenamed: EventListener = (oldOwnerLocator, newOwnerLocator) => {
-        void manager.handleCharacterRenamed(String(oldOwnerLocator || ''), String(newOwnerLocator || ''))
+        manager.handleCharacterRenamed(String(oldOwnerLocator || ''), String(newOwnerLocator || ''))
             .then(() => { invalidateSidecar(); return refresh(); })
-            .catch(onError);
+            .catch(reportError);
     };
 
     function start(): void {
@@ -94,7 +99,7 @@ export function createChatBindingLifecycle(options: ChatBindingLifecycleOptions)
         events.on(eventNames.chatDeleted, handleChatDeleted);
         events.on(eventNames.groupChatDeleted, handleChatDeleted);
         events.on(eventNames.characterRenamed, handleCharacterRenamed);
-        void refresh();
+        refresh().catch(reportError);
     }
 
     async function stop(): Promise<void> {

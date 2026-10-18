@@ -1,3 +1,5 @@
+
+const ERROR_SOURCE = "modules/draw/providers/novelai/novel-v5-stream.js";
 const DEFAULT_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const DEFAULT_MAX_ERROR_BYTES = 1024 * 1024;
@@ -55,7 +57,7 @@ export async function readNovelV5ErrorText(response, maxBytes = DEFAULT_MAX_ERRO
     const limit = Number.isSafeInteger(maxBytes) && maxBytes > 0 ? maxBytes : DEFAULT_MAX_ERROR_BYTES;
     const declared = Number(response?.headers?.get?.('content-length'));
     if (Number.isSafeInteger(declared) && declared > limit) {
-        await response?.body?.cancel?.().catch(() => {});
+        await response?.body?.cancel?.().catch((caughtError) => { console.debug({ source: ERROR_SOURCE, operation: "readNovelV5ErrorText" }, caughtError); });
         return `HTTP ${Number(response?.status) || 0}（错误响应超过 ${limit} 字节）`;
     }
     if (!response?.body?.getReader) {
@@ -77,7 +79,7 @@ export async function readNovelV5ErrorText(response, maxBytes = DEFAULT_MAX_ERRO
                 if (remaining > 0) chunks.push(bytes.slice(0, remaining));
                 total = limit;
                 truncated = true;
-                await reader.cancel().catch(() => {});
+                await reader.cancel().catch((caughtError) => { console.debug({ source: ERROR_SOURCE, operation: "readNovelV5ErrorText" }, caughtError); });
                 break;
             }
             chunks.push(bytes);
@@ -106,7 +108,7 @@ export async function readNovelV5FinalImage(response, {
     if (!response?.body?.getReader) throw new NovelV5StreamError('NovelAI V5 响应没有可读取的数据流');
     const reader = response.body.getReader();
     const abortReader = () => {
-        void reader.cancel(createAbortError()).catch(() => {});
+        void reader.cancel(createAbortError()).catch((caughtError) => { console.debug({ source: ERROR_SOURCE, operation: "abortReader" }, caughtError); });
     };
     signal?.addEventListener('abort', abortReader, { once: true });
     const header = new Uint8Array(4);
@@ -179,7 +181,7 @@ export async function readNovelV5FinalImage(response, {
                 if (!bytes?.length || !isPng(bytes)) {
                     throw new NovelV5StreamError('NovelAI V5 final 事件没有有效的 PNG 图片');
                 }
-                await reader.cancel().catch(() => {});
+                await reader.cancel().catch((caughtError) => { console.debug({ source: ERROR_SOURCE, operation: "readNovelV5FinalImage" }, caughtError); });
                 return bytes;
             }
         }

@@ -184,19 +184,26 @@ export function createXiaobaiOsLifecycle({
         return true;
     }
 
-    function track(operation: void | Promise<void>): Promise<void> {
-        const promise = Promise.resolve(operation).catch(onError);
-        pendingOperations.add(promise);
-        void promise.finally(() => pendingOperations.delete(promise));
-        return promise;
+    function reportError(error: unknown): void {
+        try {
+            onError(error);
+        } catch (reportingError) {
+            console.error('[LittleWhiteBox] 小白 OS 生命周期错误处理失败', { error, reportingError });
+        }
     }
 
-    function invoke(operation: () => void | Promise<void>): Promise<void> {
+    function track(operation: void | Promise<void>): void {
+        const promise = Promise.resolve(operation).finally(() => {
+            pendingOperations.delete(promise);
+        }).catch(reportError);
+        pendingOperations.add(promise);
+    }
+
+    function invoke(operation: () => void | Promise<void>): void {
         try {
-            return track(operation());
+            track(operation());
         } catch (error) {
-            onError(error);
-            return Promise.resolve();
+            reportError(error);
         }
     }
 
@@ -228,7 +235,7 @@ export function createXiaobaiOsLifecycle({
             try {
                 await appRuntime.cancelForeground?.(reason);
             } catch (error) {
-                onError(error);
+                reportError(error);
             }
             return;
         }
@@ -237,7 +244,7 @@ export function createXiaobaiOsLifecycle({
         try {
             await appRuntime.deactivate?.(appId, reason);
         } catch (error) {
-            onError(error);
+            reportError(error);
         }
     }
 
@@ -249,7 +256,7 @@ export function createXiaobaiOsLifecycle({
             (activeApp && !availableIds.has(activeApp.appId))
             || (pendingApp && !availableIds.has(pendingApp.appId))
         ) {
-            void invoke(() => deactivateActiveApp('app-disabled'));
+            invoke(() => deactivateActiveApp('app-disabled'));
         }
         if (bridge?.isReady()) {
             bridge.post('os/apps-changed', { apps: appDescriptorsWithStatus() });
@@ -258,7 +265,7 @@ export function createXiaobaiOsLifecycle({
 
     function handleAppStatusChanged(appId: string, status: AppStatus): void {
         if (status.state === 'failed' && activeApp?.appId === appId) {
-            void invoke(() => deactivateActiveApp('app-failed'));
+            invoke(() => deactivateActiveApp('app-failed'));
         }
         if (bridge?.isReady()) { bridge.post('os/app-state', { appId, status }); }
     }
@@ -282,9 +289,9 @@ export function createXiaobaiOsLifecycle({
         overlay = null;
         iframe = null;
         if (reason === 'closed' || reason === 'frame-close') { launcher?.focus({ preventScroll: true }); }
-        await Promise.allSettled([
+        await Promise.all([
             deactivation,
-            Promise.resolve().then(() => appRuntime.handleWindowClosed?.(reason)),
+            Promise.resolve().then(() => appRuntime.handleWindowClosed?.(reason)).catch(reportError),
         ]);
     }
 
@@ -343,7 +350,7 @@ export function createXiaobaiOsLifecycle({
             if (openGeneration === generation && frameBridge === bridge) {
                 frameBridge.post('os/error', { message: error instanceof Error ? error.message : String(error) });
             }
-            onError(error);
+            reportError(error);
         }
     }
 
@@ -371,7 +378,7 @@ export function createXiaobaiOsLifecycle({
                 frameBridge.post('os/app-order-result', {
                     ok: false, error: 'app_order_save_failed', message: '顺序未能保存，请重试。',
                 }, requestId);
-                onError(error);
+                reportError(error);
             }
             return;
         }
@@ -398,7 +405,7 @@ export function createXiaobaiOsLifecycle({
                 && message.appId === current.appId
                 && message.activationToken === current.activationToken
             ) {
-                onError(Object.assign(new Error(`APP ${current.appId} UI failed`), {
+                reportError(Object.assign(new Error(`APP ${current.appId} UI failed`), {
                     appId: current.appId,
                     phase: isRecord(payload) ? payload.phase : 'ui-render',
                 }));
@@ -475,7 +482,7 @@ export function createXiaobaiOsLifecycle({
                         frameBridge === bridge &&
                         appActivationGeneration === activationGeneration + 1
                     ) {
-                        void invoke(() => appRuntime.cancelForeground?.('activation-cancelled'));
+                        invoke(() => appRuntime.cancelForeground?.('activation-cancelled'));
                     }
                     frameBridge.post(
                         'app/activation-result',
@@ -498,7 +505,7 @@ export function createXiaobaiOsLifecycle({
                     || frameBridge !== bridge
                     || !isLocallyCurrent(candidate);
                 const requiresAppRetry = getAppStatuses()[appId]?.state === 'failed';
-                if (!cancelled) { onError(error); }
+                if (!cancelled) { reportError(error); }
                 frameBridge.post(
                     'app/activation-result',
                     {
@@ -548,7 +555,7 @@ export function createXiaobaiOsLifecycle({
                 }
             }
         } catch (error) {
-            onError(error);
+            reportError(error);
             if (requestId && openGeneration === generation && frameBridge === bridge) {
                 frameBridge.post(
                     `${messageAppId}/result`,
@@ -602,7 +609,7 @@ export function createXiaobaiOsLifecycle({
         overlay.setAttribute('aria-label', launcher?.getAttribute('aria-label') ?? '');
         overlay.addEventListener('cancel', event => {
             event.preventDefault();
-            void invoke(() => closeWindow());
+            invoke(() => closeWindow());
         });
         iframe = documentTarget.createElement('iframe');
         iframe.id = IFRAME_ID;
@@ -622,14 +629,14 @@ export function createXiaobaiOsLifecycle({
         windowOpenPromise = Promise.resolve().then(async () => {
             await appRuntime.handleWindowOpened?.();
         });
-        void track(windowOpenPromise);
+        track(windowOpenPromise);
         startThemeObserver();
         return true;
     }
 
     function handleChatChanged(): void {
         shortcuts?.hide(false);
-        void invoke(async () => {
+        invoke(async () => {
             await appRuntime.cancelAll?.('chat-changed');
             await closeWindow('chat-changed');
             await appRuntime.handleChatChanged?.();
@@ -640,7 +647,7 @@ export function createXiaobaiOsLifecycle({
         if (event.persisted) {
             return;
         }
-        void cleanup();
+        cleanup().catch(reportError);
     }
 
     function init(): boolean {
@@ -674,7 +681,7 @@ export function createXiaobaiOsLifecycle({
         unsubscribeAppStatusChanged = subscribeAppStatusChanged(handleAppStatusChanged);
         unsubscribeAppOrderChanged = subscribeAppOrderChanged(handleAppOrderChanged);
         windowTarget.addEventListener('pagehide', handlePageHide);
-        void invoke(() => appRuntime.startBackground?.());
+        invoke(() => appRuntime.startBackground?.());
         initialized = true;
         return true;
     }
@@ -703,7 +710,7 @@ export function createXiaobaiOsLifecycle({
         launcher = null;
         documentTarget.getElementById(STYLE_ID)?.remove();
         initialized = false;
-        await Promise.allSettled([cancellation, closing, stopping, ...pendingOperations]);
+        await Promise.all([cancellation, closing, stopping, ...pendingOperations].map(operation => operation.catch(reportError)));
     }
 
     return Object.freeze({

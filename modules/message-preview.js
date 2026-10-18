@@ -2,6 +2,8 @@ import { extension_settings, getContext } from "../../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types } from "../../../../../script.js";
 import { EXT_ID } from "../core/constants.js";
 import { createMessageButtonOwnership } from "../core/message-button-ownership.js";
+import { observeAsyncCallback, observeBackgroundTask } from '../shared/common/async-errors.js';
+
 
 const C = { MAX_HISTORY: 10, CHECK: 200, DEBOUNCE: 300, CLEAN: 300000, TARGET: "/api/backends/chat-completions/generate", TIMEOUT: 30, ASSOC_DELAY: 1000, REQ_WINDOW: 30000 };
 const S = { active: false, isPreview: false, isLong: false, isHistoryUiBound: false, previewData: null, previewIds: new Set(), interceptedIds: [], history: [], listeners: [], resolve: null, reject: null, sendBtnWasDisabled: false, longPressTimer: null, longPressDelay: 1000, chatLenBefore: 0, restoreLong: null, cleanTimer: null, previewAbort: null, tailAPI: null, genEndedOff: null, cleanupFallback: null, pendingPurge: false };
@@ -25,7 +27,7 @@ const geEnabled = () => { try { return ("isXiaobaixEnabled" in window) ? !!windo
 const debounce = (fn, w) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), w); }; };
 const safeJson = (t) => { try { return JSON.parse(t); } catch { return null; } };
 
-const readText = async (b) => { try { if (!b) return ""; if (typeof b === "string") return b; if (b instanceof Blob) return await b.text(); if (b instanceof URLSearchParams) return b.toString(); if (typeof b === "object" && typeof b.text === "function") return await b.text(); } catch { } return ""; };
+const readText = async (b) => { try { if (!b) return ""; if (typeof b === "string") return b; if (b instanceof Blob) return await b.text(); if (b instanceof URLSearchParams) return b.toString(); if (typeof b === "object" && typeof b.text === "function") return await b.text(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "readText" }, caughtError); } return ""; };
 
 function isSafeBody(body) { if (!body) return true; return (typeof body === "string" || body instanceof Blob || body instanceof URLSearchParams || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || (typeof FormData !== "undefined" && body instanceof FormData)); }
 
@@ -139,18 +141,15 @@ function createMovableModal(title, content) {
   modal.className = 'mp-modal';
   const header = document.createElement('div');
   header.className = 'mp-header';
-  // Template-only UI markup (title is escaped by caller).
-  // eslint-disable-next-line no-unsanitized/property
+  // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup (title is escaped by caller).
   header.innerHTML = `<span>${title}</span><span class="mp-close">✕</span>`;
   const body = document.createElement('div');
   body.className = 'mp-body';
-  // Content is already escaped before building the preview.
-  // eslint-disable-next-line no-unsanitized/property
+  // eslint-disable-next-line no-unsanitized/property -- Content is already escaped before building the preview.
   body.innerHTML = content;
   const footer = document.createElement('div');
   footer.className = 'mp-footer';
   // Template-only UI markup.
-  // eslint-disable-next-line no-unsanitized/property
   footer.innerHTML = `
     <div class="mp-tabs">
       <button class="mp-btn mp-tab-btn active" data-view="beautified" id="mp-view-beautified">美化</button>
@@ -314,7 +313,7 @@ const rawMessages = (d) => {
   try {
     if (Array.isArray(d?.requestData?.messages)) return cloneJson(d.requestData.messages);
     if (Array.isArray(d?.messages)) return cloneJson(d.messages);
-  } catch { }
+  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "rawMessages" }, caughtError); }
   return [];
 };
 const displayContent = (content) => {
@@ -698,7 +697,7 @@ async function recordReal(input, options) {
     const data = safeJson(body) || {}, ctx = getContext();
     pushHistory({ url, method: options?.method || (input instanceof Request ? input.method : "POST"), requestData: data, messages: data.messages || [], model: data.model || "Unknown", timestamp: now(), messageId: ctx.chat?.length || 0, characterName: ctx.characters?.[ctx.characterId]?.name || "Unknown", userInput: extractUser(data.messages || []), isRealRequest: true });
     setTimeout(() => { if (S.history[0] && !S.history[0].associatedMessageId) S.history[0].associatedMessageId = ctx.chat?.length || 0; }, C.ASSOC_DELAY);
-  } catch { }
+  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "recordReal" }, caughtError); }
 }
 
 const findRec = (id) => {
@@ -731,7 +730,7 @@ async function purgePreviewArtifacts() {
     $('#chat .mes').last().addClass('last_mes');
 
     // 4. Save chat and emit MESSAGE_DELETED event (critical for other plugins)
-    ctx.saveChat?.();
+    observeBackgroundTask(ctx.saveChat?.(), { source: import.meta.url, operation: 'purgePreviewArtifacts' });
     await eventSource.emit(event_types.MESSAGE_DELETED, start);
   } catch (e) {
     console.error('[message-preview] purgePreviewArtifacts error', e);
@@ -748,15 +747,15 @@ function oneShotOnLast(ev, handler) {
   if (typeof eventSource.makeLast === "function") {
     eventSource.makeLast(ev, wrapped);
     off = () => {
-      try { eventSource.removeListener?.(ev, wrapped); } catch { }
-      try { eventSource.off?.(ev, wrapped); } catch { }
+      try { eventSource.removeListener?.(ev, wrapped); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "oneShotOnLast" }, caughtError); }
+      try { eventSource.off?.(ev, wrapped); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "oneShotOnLast" }, caughtError); }
     };
   } else if (S.tailAPI?.onLast) {
     const disposer = S.tailAPI.onLast(ev, wrapped);
-    off = () => { try { disposer?.(); } catch { } };
+    off = () => { try { disposer?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "oneShotOnLast" }, caughtError); } };
   } else {
     eventSource.on(ev, wrapped);
-    off = () => { try { eventSource.removeListener?.(ev, wrapped); } catch { } };
+    off = () => { try { eventSource.removeListener?.(ev, wrapped); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "oneShotOnLast" }, caughtError); } };
   }
   return off;
 }
@@ -764,17 +763,17 @@ function oneShotOnLast(ev, handler) {
 function installEventSourceTail(es) {
   if (!es || es.__lw_tailInstalled) return es?.__lw_tailAPI || null;
   const SYM = { MW_STACK: Symbol.for("lwbox.es.emitMiddlewareStack"), BASE: Symbol.for("lwbox.es.emitBase"), ORIG_DESC: Symbol.for("lwbox.es.emit.origDesc"), COMPOSED: Symbol.for("lwbox.es.emit.composed"), ID: Symbol.for("lwbox.middleware.identity") };
-  const getFnFromDesc = (d) => { try { if (typeof d?.value === "function") return d.value; if (typeof d?.get === "function") { const v = d.get.call(es); if (typeof v === "function") return v; } } catch { } return es.emit?.bind?.(es) || es.emit; };
+  const getFnFromDesc = (d) => { try { if (typeof d?.value === "function") return d.value; if (typeof d?.get === "function") { const v = d.get.call(es); if (typeof v === "function") return v; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getFnFromDesc" }, caughtError); } return es.emit?.bind?.(es) || es.emit; };
   const compose = (base, stack) => stack.reduce((acc, mw) => mw(acc), base);
   const tails = new Map();
   const addTail = (ev, fn) => { if (typeof fn !== "function") return () => { }; const arr = tails.get(ev) || []; arr.push(fn); tails.set(ev, arr); return () => { const a = tails.get(ev); if (!a) return; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); }; };
-  const runTails = (ev, args) => { const arr = tails.get(ev); if (!arr?.length) return; for (const h of arr.slice()) { try { h(...args); } catch (e) { } } };
+  const runTails = (ev, args) => { const arr = tails.get(ev); if (!arr?.length) return; for (const h of arr.slice()) { try { h(...args); } catch (e) { console.warn({ source: import.meta.url, operation: "runTails" }, e); } } };
   const makeTailMw = () => { const mw = (next) => function patchedEmit(ev, ...args) { let r; try { r = next.call(this, ev, ...args); } catch (e) { queueMicrotask(() => runTails(ev, args)); throw e; } if (r && typeof r.then === "function") r.finally(() => runTails(ev, args)); else queueMicrotask(() => runTails(ev, args)); return r; }; Object.defineProperty(mw, SYM.ID, { value: true }); return Object.freeze(mw); };
-  const ensureAccessor = () => { try { const d = Object.getOwnPropertyDescriptor(es, "emit"); if (!es[SYM.ORIG_DESC]) es[SYM.ORIG_DESC] = d || null; es[SYM.BASE] ||= getFnFromDesc(d); Object.defineProperty(es, "emit", { configurable: true, enumerable: d?.enumerable ?? true, get() { return reapply(); }, set(v) { if (typeof v === "function") { es[SYM.BASE] = v; queueMicrotask(reapply); } } }); } catch { } };
+  const ensureAccessor = () => { try { const d = Object.getOwnPropertyDescriptor(es, "emit"); if (!es[SYM.ORIG_DESC]) es[SYM.ORIG_DESC] = d || null; es[SYM.BASE] ||= getFnFromDesc(d); Object.defineProperty(es, "emit", { configurable: true, enumerable: d?.enumerable ?? true, get() { return reapply(); }, set(v) { if (typeof v === "function") { es[SYM.BASE] = v; queueMicrotask(reapply); } } }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "ensureAccessor" }, caughtError); } };
   const reapply = () => { try { const base = es[SYM.BASE] || getFnFromDesc(Object.getOwnPropertyDescriptor(es, "emit")) || es.emit.bind(es); const stack = es[SYM.MW_STACK] || (es[SYM.MW_STACK] = []); let idx = stack.findIndex((m) => m && m[SYM.ID]); if (idx === -1) { stack.push(makeTailMw()); idx = stack.length - 1; } if (idx !== stack.length - 1) { const mw = stack[idx]; stack.splice(idx, 1); stack.push(mw); } const composed = compose(base, stack) || base; if (!es[SYM.COMPOSED] || es[SYM.COMPOSED]._base !== base || es[SYM.COMPOSED]._stack !== stack) { composed._base = base; composed._stack = stack; es[SYM.COMPOSED] = composed; } return es[SYM.COMPOSED]; } catch { return es.emit; } };
   ensureAccessor();
   queueMicrotask(reapply);
-  const api = { onLast: (e, h) => addTail(e, h), removeLast: (e, h) => { const a = tails.get(e); if (!a) return; const i = a.indexOf(h); if (i >= 0) a.splice(i, 1); }, uninstall() { try { const s = es[SYM.MW_STACK]; const i = Array.isArray(s) ? s.findIndex((m) => m && m[SYM.ID]) : -1; if (i >= 0) s.splice(i, 1); const orig = es[SYM.ORIG_DESC]; if (orig) { try { Object.defineProperty(es, "emit", orig); } catch { Object.defineProperty(es, "emit", { configurable: true, enumerable: true, writable: true, value: es[SYM.BASE] || es.emit }); } } else { Object.defineProperty(es, "emit", { configurable: true, enumerable: true, writable: true, value: es[SYM.BASE] || es.emit }); } } catch { } delete es.__lw_tailInstalled; delete es.__lw_tailAPI; tails.clear(); } };
+  const api = { onLast: (e, h) => addTail(e, h), removeLast: (e, h) => { const a = tails.get(e); if (!a) return; const i = a.indexOf(h); if (i >= 0) a.splice(i, 1); }, uninstall() { try { const s = es[SYM.MW_STACK]; const i = Array.isArray(s) ? s.findIndex((m) => m && m[SYM.ID]) : -1; if (i >= 0) s.splice(i, 1); const orig = es[SYM.ORIG_DESC]; if (orig) { try { Object.defineProperty(es, "emit", orig); } catch { Object.defineProperty(es, "emit", { configurable: true, enumerable: true, writable: true, value: es[SYM.BASE] || es.emit }); } } else { Object.defineProperty(es, "emit", { configurable: true, enumerable: true, writable: true, value: es[SYM.BASE] || es.emit }); } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "uninstall" }, caughtError); } delete es.__lw_tailInstalled; delete es.__lw_tailAPI; tails.clear(); } };
   Object.defineProperty(es, "__lw_tailInstalled", { value: true });
   Object.defineProperty(es, "__lw_tailAPI", { value: api });
   return api;
@@ -786,10 +785,10 @@ const BASE_KEY = Symbol.for("lwbox.fetchBase");
 const ORIG_KEY = Symbol.for("lwbox.fetch.origDesc");
 const CMP_KEY = Symbol.for("lwbox.fetch.composed");
 const ID = Symbol.for("lwbox.middleware.identity");
-const getFetchFromDesc = (d) => { try { if (typeof d?.value === "function") return d.value; if (typeof d?.get === "function") { const v = d.get.call(window); if (typeof v === "function") return v; } } catch { } return globalThis.fetch; };
+const getFetchFromDesc = (d) => { try { if (typeof d?.value === "function") return d.value; if (typeof d?.get === "function") { const v = d.get.call(window); if (typeof v === "function") return v; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getFetchFromDesc" }, caughtError); } return globalThis.fetch; };
 const compose = (base, stack) => stack.reduce((acc, mw) => mw(acc), base);
 const withTimeout = (p, ms = 200) => { try { return Promise.race([p, new Promise((r) => setTimeout(r, ms))]); } catch { return p; } };
-const ensureAccessor = () => { try { const d = Object.getOwnPropertyDescriptor(window, "fetch"); if (!window[ORIG_KEY]) window[ORIG_KEY] = d || null; window[BASE_KEY] ||= getFetchFromDesc(d); Object.defineProperty(window, "fetch", { configurable: true, enumerable: d?.enumerable ?? true, get() { return reapply(); }, set(v) { if (typeof v === "function") { window[BASE_KEY] = v; queueMicrotask(reapply); } } }); } catch { } };
+const ensureAccessor = () => { try { const d = Object.getOwnPropertyDescriptor(window, "fetch"); if (!window[ORIG_KEY]) window[ORIG_KEY] = d || null; window[BASE_KEY] ||= getFetchFromDesc(d); Object.defineProperty(window, "fetch", { configurable: true, enumerable: d?.enumerable ?? true, get() { return reapply(); }, set(v) { if (typeof v === "function") { window[BASE_KEY] = v; queueMicrotask(reapply); } } }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "ensureAccessor" }, caughtError); } };
 const reapply = () => { try { const base = window[BASE_KEY] || getFetchFromDesc(Object.getOwnPropertyDescriptor(window, "fetch")); const stack = window[MW_KEY] || (window[MW_KEY] = []); let idx = stack.findIndex((m) => m && m[ID]); if (idx === -1) { stack.push(makeMw()); idx = stack.length - 1; } if (idx !== window[MW_KEY].length - 1) { const mw = window[MW_KEY][idx]; window[MW_KEY].splice(idx, 1); window[MW_KEY].push(mw); } const composed = compose(base, stack) || base; if (!window[CMP_KEY] || window[CMP_KEY]._base !== base || window[CMP_KEY]._stack !== stack) { composed._base = base; composed._stack = stack; window[CMP_KEY] = composed; } return window[CMP_KEY]; } catch { return globalThis.fetch; } };
 function makeMw() {
   const mw = (next) => async function f(input, options = {}) {
@@ -798,9 +797,9 @@ function makeMw() {
         if (S.isPreview || S.isLong) {
           const url = input instanceof Request ? input.url : input;
           return interceptPreview(url, options).catch(() => new Response(JSON.stringify({ error: { message: "拦截失败，请手动中止消息生成。" } }), { status: 200, headers: { "Content-Type": "application/json" } }));
-        } else { try { await withTimeout(recordReal(input, options)); } catch { } }
+        } else { try { await withTimeout(recordReal(input, options)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "f" }, caughtError); } }
       }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "f" }, caughtError); }
     return Reflect.apply(next, this, arguments);
   };
   Object.defineProperty(mw, ID, { value: true, enumerable: false });
@@ -825,7 +824,7 @@ function installFetch() {
     window.addEventListener("pageshow", reapply, { passive: true });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reapply(); }, { passive: true });
     window.addEventListener("focus", reapply, { passive: true });
-  } catch { }
+  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "installFetch" }, caughtError); }
 }
 function uninstallFetch() {
   if (!__installed) return;
@@ -845,7 +844,7 @@ function uninstallFetch() {
     } else {
       reapply();
     }
-  } catch { }
+  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "uninstallFetch" }, caughtError); }
   __installed = false;
 }
 const setupFetch = () => { if (!S.active) { installFetch(); S.active = true; } };
@@ -864,11 +863,11 @@ async function interceptPreview(url, options) {
     if (chat.length > 0 && chat[chat.length - 1]?.is_user === true) start = chat.length - 1;
     S.chatLenBefore = start;
     S.pendingPurge = true;
-    oneShotOnLast(event_types.GENERATION_ENDED, () => setTimeout(() => purgePreviewArtifacts(), 0));
+    oneShotOnLast(event_types.GENERATION_ENDED, () => setTimeout(observeAsyncCallback(() => purgePreviewArtifacts(), { source: import.meta.url, operation: "callback" }), 0));
   }
 
   S.previewData = { url, method: options?.method || "POST", requestData: data, messages: data?.messages || [], model: data?.model || "Unknown", timestamp: now(), userInput, isPreview: true };
-  if (S.isLong) { setTimeout(() => { displayPreview(S.previewData); }, 100); } else if (S.resolve) { S.resolve({ success: true, data: S.previewData }); S.resolve = S.reject = null; }
+  if (S.isLong) { setTimeout(() => { observeBackgroundTask(displayPreview(S.previewData), { source: import.meta.url, operation: "callback" }); }, 100); } else if (S.resolve) { S.resolve({ success: true, data: S.previewData }); S.resolve = S.reject = null; }
   const payload = S.isLong ? { choices: [{ message: { content: "【小白X】已拦截消息" }, finish_reason: "stop" }], intercepted: true } : { choices: [{ message: { content: "" }, finish_reason: "stop" }] };
   return new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } });
 }
@@ -880,7 +879,7 @@ const addHistoryButtonsDebounced = debounce(() => {
   $("#chat .mes").each(function () {
     const id = parseInt($(this).attr("mesid")), isUser = $(this).attr("is_user") === "true";
     if (id <= 0 || isUser) return;
-    const btn = $(`<div class="mes_btn mes_history_preview" title="查看历史API请求"><i class="fa-regular fa-note-sticky"></i></div>`).on("click", (e) => { e.preventDefault(); e.stopPropagation(); showHistoryPreview(id); });
+    const btn = $(`<div class="mes_btn mes_history_preview" title="查看历史API请求"><i class="fa-regular fa-note-sticky"></i></div>`).on("click", (e) => { e.preventDefault(); e.stopPropagation(); observeBackgroundTask(showHistoryPreview(id), { source: import.meta.url, operation: "callback" }); });
     if (window.registerButtonToSubContainer && window.registerButtonToSubContainer(id, btn[0])) return;
     $(this).find(".flex-container.flex1.alignitemscenter").append(btn);
   });
@@ -900,7 +899,7 @@ function mountHistoryButton(message, messageId) {
   button.addEventListener('click', event => {
     event.preventDefault();
     event.stopPropagation();
-    showHistoryPreview(messageId);
+    observeBackgroundTask(showHistoryPreview(messageId), { source: import.meta.url, operation: "callback" });
   });
 
   if (!window.registerButtonToSubContainer?.(messageId, button)) {
@@ -932,17 +931,17 @@ async function showPreview() {
     S.pendingPurge = true;
 
     const endHandler = () => {
-      try { if (S.genEndedOff) { S.genEndedOff(); S.genEndedOff = null; } } catch { }
+      try { if (S.genEndedOff) { S.genEndedOff(); S.genEndedOff = null; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "endHandler" }, caughtError); }
       if (S.pendingPurge) {
-        setTimeout(() => purgePreviewArtifacts(), 0);
+        setTimeout(observeAsyncCallback(() => purgePreviewArtifacts(), { source: import.meta.url, operation: "callback" }), 0);
       }
     };
 
     S.genEndedOff = oneShotOnLast(event_types.GENERATION_ENDED, endHandler);
     clearTimeout(S.cleanupFallback);
     S.cleanupFallback = setTimeout(() => {
-      try { if (S.genEndedOff) { S.genEndedOff(); S.genEndedOff = null; } } catch { }
-      purgePreviewArtifacts();
+      try { if (S.genEndedOff) { S.genEndedOff(); S.genEndedOff = null; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "showPreview" }, caughtError); }
+      observeBackgroundTask(purgePreviewArtifacts(), { source: import.meta.url, operation: "callback" });
     }, 1500);
 
     toast = toastr.info(`正在拦截请求...（${set.preview.timeoutSeconds}秒超时）`, "消息拦截", { timeOut: 0, tapToDismiss: false });
@@ -956,7 +955,7 @@ async function showPreview() {
   } catch (e) {
     if (toast) toastr.clear(toast); toastr.error(`拦截异常: ${e.message}`, "", { timeOut: 5000 });
   } finally {
-    try { S.previewAbort?.abort("拦截结束"); } catch { } S.previewAbort = null;
+    try { S.previewAbort?.abort("拦截结束"); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "showPreview" }, caughtError); } S.previewAbort = null;
     if (S.resolve) S.resolve({ success: false, error: "拦截已取消" }); S.resolve = S.reject = null;
     clearTimeout(S.cleanupFallback); S.cleanupFallback = null;
     S.isPreview = false; S.previewData = null;
@@ -985,7 +984,7 @@ const cleanupMemory = () => {
 function onLast(ev, handler) {
   if (typeof eventSource.makeLast === "function") { eventSource.makeLast(ev, handler); S.listeners.push({ e: ev, h: handler, off: () => { } }); return; }
   if (S.tailAPI?.onLast) { const off = S.tailAPI.onLast(ev, handler); S.listeners.push({ e: ev, h: handler, off }); return; }
-  const tail = (...args) => queueMicrotask(() => { try { handler(...args); } catch { } });
+  const tail = (...args) => queueMicrotask(() => { try { handler(...args); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "tail" }, caughtError); } });
   eventSource.on(ev, tail);
   S.listeners.push({ e: ev, h: tail, off: () => eventSource.removeListener?.(ev, tail) });
 }
@@ -1007,14 +1006,14 @@ const addEvents = () => {
         timestamp: now(), messageId: ctx.chat?.length || 0, characterName: ctx.characters?.[ctx.characterId]?.name || "Unknown",
         userInput: extractUser(payload?.messages || []), isRealRequest: true, source: "settings_ready",
       });
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "late" }, caughtError); }
     queueMicrotask(() => updateFetchState());
   };
   if (typeof eventSource.makeLast === "function") { eventSource.makeLast(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off: () => { } }); }
   else if (S.tailAPI?.onLast) { const off = S.tailAPI.onLast(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off }); }
-  else { ON(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off: () => OFF(event_types.CHAT_COMPLETION_SETTINGS_READY, late) }); queueMicrotask(() => { try { OFF(event_types.CHAT_COMPLETION_SETTINGS_READY, late); } catch { } try { ON(event_types.CHAT_COMPLETION_SETTINGS_READY, late); } catch { } }); }
+  else { ON(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off: () => OFF(event_types.CHAT_COMPLETION_SETTINGS_READY, late) }); queueMicrotask(() => { try { OFF(event_types.CHAT_COMPLETION_SETTINGS_READY, late); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "addEvents" }, caughtError); } try { ON(event_types.CHAT_COMPLETION_SETTINGS_READY, late); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "addEvents" }, caughtError); } }); }
 };
-const removeEvents = () => { S.listeners.forEach(({ e, h, off }) => { if (typeof off === "function") { try { off(); } catch { } } else { try { OFF(e, h); } catch { } } }); S.listeners = []; };
+const removeEvents = () => { S.listeners.forEach(({ e, h, off }) => { if (typeof off === "function") { try { off(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeEvents" }, caughtError); } } else { try { OFF(e, h); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeEvents" }, caughtError); } } }); S.listeners = []; };
 
 const toggleLong = () => {
   S.isLong = !S.isLong;
@@ -1032,7 +1031,7 @@ const bindBtn = () => {
   const $b = $q("#message_preview_btn");
   $b.on("mousedown touchstart", () => { S.longPressTimer = setTimeout(() => toggleLong(), S.longPressDelay); });
   $b.on("mouseup touchend mouseleave", () => { if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; } });
-  $b.on("click", () => { if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; return; } if (!S.isLong) showPreview(); });
+  $b.on("click", () => { if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; return; } if (!S.isLong) observeBackgroundTask(showPreview(), { source: import.meta.url, operation: "callback" }); });
 };
 
 const waitIntercept = () => new Promise((resolve, reject) => {
@@ -1047,8 +1046,8 @@ function cleanup() {
   Object.assign(S, { resolve: null, reject: null, isPreview: false, isLong: false, interceptedIds: [], chatLenBefore: 0, sendBtnWasDisabled: false, pendingPurge: false });
   if (S.cleanTimer) { clearInterval(S.cleanTimer); S.cleanTimer = null; }
   if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; }
-  if (S.restoreLong) { try { S.restoreLong(); } catch { } S.restoreLong = null; }
-  if (S.genEndedOff) { try { S.genEndedOff(); } catch { } S.genEndedOff = null; }
+  if (S.restoreLong) { try { S.restoreLong(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); } S.restoreLong = null; }
+  if (S.genEndedOff) { try { S.genEndedOff(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); } S.genEndedOff = null; }
   if (S.cleanupFallback) { clearTimeout(S.cleanupFallback); S.cleanupFallback = null; }
 }
 

@@ -27,9 +27,9 @@ export function getIframeBaseScript() {
               if((st.minHeight||'').indexOf('vh')>-1)st.minHeight='0';
               if((st.maxHeight||'').indexOf('vh')>-1)st.maxHeight='none';
             }
-          }catch(e){}
+          }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
         }
-      }catch(e){}
+      }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
     });
   })();
 
@@ -45,7 +45,7 @@ export function getIframeBaseScript() {
             if(minTop>r.top)minTop=r.top;
             if(maxBottom<r.bottom)maxBottom=r.bottom;
           }
-        }catch(e){}
+        }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
       };
       addRect(target);
       var children=target.children||[];
@@ -56,7 +56,7 @@ export function getIframeBaseScript() {
           var s=window.getComputedStyle(child);
           if(s.display==='none'||s.visibility==='hidden')continue;
           if(!child.offsetParent&&s.position!=='fixed')continue;
-        }catch(e){}
+        }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
         addRect(child);
       }
       return maxBottom>0?Math.ceil(maxBottom-Math.min(minTop,0)):(target.scrollHeight||0);
@@ -66,7 +66,7 @@ export function getIframeBaseScript() {
   }
 
   var parentOrigin;try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
-  function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){}}
+  function post(m){try{parent.postMessage(m,parentOrigin)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }}
   var rafPending=false,lastH=0,HYSTERESIS=2;
 
   function send(force){
@@ -82,19 +82,19 @@ export function getIframeBaseScript() {
     });
   }
 
-  try{send(true)}catch(e){}
+  try{send(true)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
   document.addEventListener('DOMContentLoaded',function(){send(true)},{once:true});
   window.addEventListener('load',function(){send(true)},{once:true});
 
   try{
     if(document.fonts){
-      document.fonts.ready.then(function(){send(true)}).catch(function(){});
+      document.fonts.ready.then(function(){send(true)}).catch(function(error){console.warn('[LittleWhiteBox core/wrapper-inline.js]',error);});
       if(document.fonts.addEventListener){
         document.fonts.addEventListener('loadingdone',function(){send(true)});
         document.fonts.addEventListener('loadingerror',function(){send(true)});
       }
     }
-  }catch(e){}
+  }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
 
   ['transitionend','animationend'].forEach(function(evt){
     document.addEventListener(evt,function(){send(false)},{passive:true,capture:true});
@@ -109,7 +109,7 @@ export function getIframeBaseScript() {
       var rootMO=document.body||document.documentElement;
       new MutationObserver(function(){send(false)})
         .observe(rootMO,{childList:true,subtree:true,attributes:true,characterData:true});
-    }catch(e){}
+    }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
     window.addEventListener('resize',function(){send(false)},{passive:true});
   }
 
@@ -130,21 +130,21 @@ export function getIframeBaseScript() {
           var d=e&&e.data||{};
           if(d.source!=='xiaobaix-host')return;
           if((d.type==='commandResult'||d.type==='commandError')&&d.id===id){
-            try{window.removeEventListener('message',onMessage)}catch(e){}
+            try{window.removeEventListener('message',onMessage)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
             if(d.type==='commandResult')resolve(d.result);
             else reject(new Error(d.error||'error'));
           }
         }
-        try{window.addEventListener('message',onMessage)}catch(e){}
+        try{window.addEventListener('message',onMessage)}catch(e){ console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
         post({type:'runCommand',id:id,command:command});
         setTimeout(function(){
-          try{window.removeEventListener('message',onMessage)}catch(e){}
+          try{window.removeEventListener('message',onMessage)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
           reject(new Error('Command timeout'));
         },180000);
       }catch(e){reject(e)}
     });
   };
-  try{if(typeof window['stscript']!=='function')window['stscript']=window.STscript}catch(e){}
+  try{if(typeof window['stscript']!=='function')window['stscript']=window.STscript}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
 })();`;
 }
 
@@ -185,30 +185,30 @@ export function getWrapperScript() {
     return new Promise(function(resolve,reject){
       try{
         var parentOrigin;try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
-        function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){}}
+        function post(m){try{parent.postMessage(m,parentOrigin)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }}
         if(!options||typeof options!=='object'){reject(new Error('Invalid options'));return}
         var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
         function onMessage(e){
           if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
           var d=e&&e.data||{};
           if(d.source!=='xiaobaix-host'||d.id!==id)return;
-          if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch(_){}}
-          else if(d.type==='generateStreamChunk'&&options.streaming&&options.streaming.onChunk){try{options.streaming.onChunk(d.chunk,d.accumulated)}catch(_){}}
-          else if(d.type==='generateStreamComplete'){try{window.removeEventListener('message',onMessage)}catch(_){}resolve(d.result)}
-          else if(d.type==='generateStreamError'){try{window.removeEventListener('message',onMessage)}catch(_){}reject(new Error(d.error||'Stream failed'))}
-          else if(d.type==='generateResult'){try{window.removeEventListener('message',onMessage)}catch(_){}resolve(d.result)}
-          else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch(_){}reject(new Error(d.error||'Generation failed'))}
+          if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
+          else if(d.type==='generateStreamChunk'&&options.streaming&&options.streaming.onChunk){try{options.streaming.onChunk(d.chunk,d.accumulated)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
+          else if(d.type==='generateStreamComplete'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }resolve(d.result)}
+          else if(d.type==='generateStreamError'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }reject(new Error(d.error||'Stream failed'))}
+          else if(d.type==='generateResult'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }resolve(d.result)}
+          else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }reject(new Error(d.error||'Generation failed'))}
         }
-        try{window.addEventListener('message',onMessage)}catch(_){}
+        try{window.addEventListener('message',onMessage)}catch(e){ console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
         var sanitized=sanitizeOptions(options);
         post({type:'generateRequest',id:id,options:sanitized});
-        setTimeout(function(){try{window.removeEventListener('message',onMessage)}catch(e){};reject(new Error('Generation timeout'))},300000);
+        setTimeout(function(){try{window.removeEventListener('message',onMessage)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); };reject(new Error('Generation timeout'))},300000);
       }catch(e){reject(e)}
     });
   }
-  try{window.CallGenerate=CallGenerateImpl}catch(e){}
-  try{window.callGenerate=CallGenerateImpl}catch(e){}
-  try{window.__xb_callGenerate_loaded=true}catch(e){}
+  try{window.CallGenerate=CallGenerateImpl}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
+  try{window.callGenerate=CallGenerateImpl}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
+  try{window.__xb_callGenerate_loaded=true}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
 })();
 
 (function(){
@@ -224,16 +224,16 @@ export function getWrapperScript() {
         style.textContent=css;
         document.head.appendChild(style);
       }
-    }catch(_){}
+    }catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
   }
   var parentOrigin;try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
-  function requestAvatars(){try{parent.postMessage({type:'getAvatars'},parentOrigin)}catch(_){}}
+  function requestAvatars(){try{parent.postMessage({type:'getAvatars'},parentOrigin)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
   function onMessage(e){
     if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
     var d=e&&e.data||{};
     if(d&&d.source==='xiaobaix-host'&&d.type==='avatars'){
       applyAvatarCss(d.urls);
-      try{window.removeEventListener('message',onMessage)}catch(_){}
+      try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
     }
   }
   try{
@@ -241,7 +241,7 @@ export function getWrapperScript() {
     if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',requestAvatars,{once:true});}
     else{requestAvatars();}
     window.addEventListener('load',requestAvatars,{once:true});
-  }catch(_){}
+  }catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
 })();`;
 }
 
@@ -264,8 +264,8 @@ export function getTemplateExtrasScript() {
             el.style.display='';
           });
         });
-      }catch(e){}
-      try{window.dispatchEvent(new Event('contentUpdated'))}catch(e){}
+      }catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
+      try{window.dispatchEvent(new Event('contentUpdated'))}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
     };
   }
 })();
@@ -280,13 +280,13 @@ export function getTemplateExtrasScript() {
     var d=e.data;if(!d||typeof d!=='object')return;
     if((d.type==='runCommand'||d.type==='generateRequest')&&d.id){
       relayMap.set(d.id,e.source);
-      try{parent.postMessage(d,parentOrigin)}catch(_){}
+      try{parent.postMessage(d,parentOrigin)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
       return;
     }
     if(d.type==='getAvatars'){
       var k='_av_'+Date.now()+'_'+Math.random().toString(36).slice(2);
       relayMap.set(k,e.source);
-      try{parent.postMessage(d,parentOrigin)}catch(_){}
+      try{parent.postMessage(d,parentOrigin)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
       return;
     }
   });
@@ -296,7 +296,7 @@ export function getTemplateExtrasScript() {
     var d=e.data;if(!d||d.source!=='xiaobaix-host')return;
     if(d.id&&relayMap.has(d.id)){
       var child=relayMap.get(d.id);
-      try{child.postMessage(d,'*')}catch(_){}
+      try{child.postMessage(d,'*')}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
       var t=d.type;
       if(t==='commandResult'||t==='commandError'||t==='generateResult'||t==='generateError'||t==='generateStreamComplete'||t==='generateStreamError'){
         relayMap.delete(d.id);
@@ -305,7 +305,7 @@ export function getTemplateExtrasScript() {
     }
     if(d.type==='avatars'){
       relayMap.forEach(function(src,key){
-        if(key.indexOf('_av_')===0){try{src.postMessage(d,'*')}catch(_){}relayMap.delete(key);}
+        if(key.indexOf('_av_')===0){try{src.postMessage(d,'*')}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }relayMap.delete(key);}
       });
     }
   });
@@ -325,7 +325,7 @@ export function getTemplateExtrasScript() {
   function buildInjection(){
     var code='('+function(){
       var po;try{po=new URL(document.referrer).origin}catch(_){po='*'}
-      function post(m){try{parent.postMessage(m,po)}catch(_){}}
+      function post(m){try{parent.postMessage(m,po)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
       window.STscript=window.stscript=function(cmd){
         return new Promise(function(resolve,reject){
           if(!cmd){reject(new Error('empty'));return}
@@ -376,8 +376,8 @@ export function getTemplateExtrasScript() {
 
     return (async function(){
       var html=null;
-      try{var r=await fetch(url);if(r.ok)html=await r.text()}catch(_){}
-      if(!html){try{var r2=await fetch('/cors/'+url);if(r2.ok)html=await r2.text()}catch(_){}}
+      try{var r=await fetch(url);if(r.ok)html=await r.text()}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }
+      if(!html){try{var r2=await fetch('/cors/'+url);if(r2.ok)html=await r2.text()}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
       if(!html){
         if(isBlockedExternalPageUrl(url))throw new Error('blocked url scheme');
         mount.innerHTML='<iframe src="'+String(url).replace(/"/g,'&quot;')+'" style="'+style+'"><\\/iframe>';

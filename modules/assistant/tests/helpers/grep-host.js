@@ -9,6 +9,8 @@ const hostPath = fileURLToPath(new URL('../../assistant.js', import.meta.url));
 const realImports = new Set([
     '../../core/constants.js', './shared/lookup-scope.js', './shared/local-workspace-kernel.js',
     '../agent-core/runtime/ordered-concurrent-read.js', './shared/workspace-protocol.js', './shared/read-window.js',
+    '../../shared/common/async-errors.js',
+    '../../shared/common/json-candidate.js',
 ]);
 
 // Execute the real private host function, replacing only unrelated SillyTavern

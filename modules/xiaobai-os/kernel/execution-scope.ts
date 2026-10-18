@@ -35,22 +35,37 @@ export class XiaobaiOsExecutionScope {
     get signal(): AbortSignal { return this.#controller.signal; }
     get disposed(): boolean { return this.#disposed; }
 
+    #reportFailure(error: unknown): void {
+        console.error('[LittleWhiteBox] 小白 OS 后台任务失败', error);
+        try {
+            this.#failureSink(error);
+        } catch (reportingError) {
+            console.error('[LittleWhiteBox] 小白 OS 后台错误处理失败', { error, reportingError });
+        }
+    }
+
     run<T>(task: (signal: AbortSignal) => Promise<T> | T): Promise<T> {
-        if (this.#disposed) { return Promise.reject(new Error('execution_scope_disposed')); }
+        if (this.#disposed) {
+            const rejected = Promise.reject<T>(new Error('execution_scope_disposed'));
+            rejected.catch(error => console.error('[LittleWhiteBox] 小白 OS 已释放的执行器收到任务', error));
+            return rejected;
+        }
         const promise = Promise.resolve().then(() => task(this.signal));
         this.#tasks.add(promise);
-        void promise.catch((error) => {
-            if (!this.signal.aborted) { this.#failureSink(error); }
-        }).finally(() => {
-            this.#tasks.delete(promise);
-        });
+        promise.then(
+            () => { this.#tasks.delete(promise); },
+            error => {
+                this.#tasks.delete(promise);
+                if (!this.signal.aborted) { this.#reportFailure(error); }
+            },
+        );
         return promise;
     }
 
     addCleanup(cleanup: () => void | Promise<void>): () => void {
         if (typeof cleanup !== 'function') { throw new TypeError('cleanup must be a function'); }
         if (this.#disposed) {
-            void Promise.resolve().then(cleanup).catch(this.#failureSink);
+            Promise.resolve().then(cleanup).catch(error => this.#reportFailure(error));
             return () => undefined;
         }
         this.#cleanups.add(cleanup);
@@ -65,6 +80,7 @@ export class XiaobaiOsExecutionScope {
     ): () => void {
         if (this.#disposed) { throw new Error('execution_scope_disposed'); }
         const wrapped: EventListener = event => {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises -- run observes rejection and reports it to this scope's failure owner.
             void this.run(() => typeof listener === 'function'
                 ? listener(event)
                 : listener.handleEvent(event));
@@ -80,6 +96,7 @@ export class XiaobaiOsExecutionScope {
         if (typeof task !== 'function') { throw new TypeError('timeout task must be a function'); }
         const timer = globalThis.setTimeout(() => {
             this.#cleanups.delete(cleanup);
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises -- run observes rejection and reports it to this scope's failure owner.
             void this.run(() => task());
         }, delay);
         const cleanup = () => globalThis.clearTimeout(timer);
@@ -97,7 +114,7 @@ export class XiaobaiOsExecutionScope {
         const errors = results
             .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
             .map(result => result.reason as unknown);
-        errors.forEach(this.#failureSink);
+        errors.forEach(error => this.#reportFailure(error));
         await Promise.allSettled([...this.#tasks]);
     }
 }

@@ -184,7 +184,11 @@ export async function runLearningProviderLoop(options: {
                     const entry: AgentMessage = { role: 'tool', toolCallId: call.id, toolName: call.name, content: '', streaming: true };
                     state.messages.push(entry); stream.scheduleStreamRender();
                     let args: unknown = null;
-                    try { args = JSON.parse(call.arguments); } catch { /* The owning tool records an invalid proposal. */ }
+                    try { args = JSON.parse(call.arguments); } catch (caughtError) {
+                        if (!(caughtError instanceof SyntaxError)) {
+                            console.warn({ source: import.meta.url, operation: 'runLearningProviderLoop' }, caughtError);
+                        }
+                    }
                     let value: unknown;
                     try { value = tools.has(call.name) ? await options.executeTool(call.name, args)
                         : { ok: false, message: 'Choose a tool from the supplied definitions.', tools: [...tools] }; }

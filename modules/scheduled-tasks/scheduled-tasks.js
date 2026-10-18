@@ -18,6 +18,8 @@ import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { TasksStorage } from "../../core/server-storage.js";
 import { initPresetTaskEvents } from './preset-task-events.js';
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量和默认值
@@ -110,7 +112,7 @@ const logExecutionLockSkip = (location, context = {}) => {
     });
     const detail = { location, ...context, activeExecutions };
     console.warn('[循环任务] 触发因执行锁被跳过', detail);
-    try { xbLog.warn('scheduledTasks', { event: 'execution_lock_skip', ...detail }); } catch {}
+    try { xbLog.warn('scheduledTasks', { event: 'execution_lock_skip', ...detail }); } catch (error) { console.warn({ source: import.meta.url, operation: 'log' }, error); }
 };
 
 const normalizeTiming = (t) => (String(t || '').toLowerCase() === 'initialization' ? 'character_init' : t);
@@ -179,7 +181,7 @@ function getSettings() {
 function hydrateProcessedSetFromSettings() {
     try {
         state.processedMessagesSet = new Set(getSettings().processedMessages || []);
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "hydrateProcessedSetFromSettings" }, caughtError); }
 }
 
 function scheduleCleanup() {
@@ -247,7 +249,7 @@ async function saveCharacterTasks(tasks) {
         if (!characters[this_chid].data.extensions) characters[this_chid].data.extensions = {};
         if (!characters[this_chid].data.extensions[TASKS_MODULE_NAME]) characters[this_chid].data.extensions[TASKS_MODULE_NAME] = { tasks: [] };
         characters[this_chid].data.extensions[TASKS_MODULE_NAME].tasks = tasks;
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveCharacterTasks" }, caughtError); }
     const settings = getSettings();
     const avatar = characters[this_chid].avatar;
     if (avatar && !settings.character_allowed_tasks?.includes(avatar)) {
@@ -270,7 +272,7 @@ const PresetTasksStore = (() => {
     const deepClone = (value) => {
         if (value === undefined) return undefined;
         if (typeof structuredClone === 'function') {
-            try { return structuredClone(value); } catch {}
+            try { return structuredClone(value); } catch (caughtError) { console.debug({ source: import.meta.url, operation: "deepClone" }, caughtError); }
         }
         try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
     };
@@ -286,7 +288,7 @@ const PresetTasksStore = (() => {
             if (typeof manager.getCompletionPresetByName === 'function') {
                 source = manager.getCompletionPresetByName(name) || null;
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getPresetSnapshot" }, caughtError); }
         if (!source) {
             try { source = manager.getPresetSettings?.(name) || null; } catch { source = null; }
         }
@@ -463,17 +465,17 @@ function cleanupTaskRunOwner(taskKey, entry) {
     for (const callbackId of Array.from(entry.callbackIds || [])) {
         const callbackEntry = state.dynamicCallbacks.get(callbackId);
         if (callbackEntry?.owner === entry) {
-            try { callbackEntry.abortController?.abort?.(); } catch {}
+            try { callbackEntry.abortController?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
             state.dynamicCallbacks.delete(callbackId);
         }
         entry.callbackIds.delete(callbackId);
     }
 
-    try { entry.abort?.abort?.(); } catch {}
-    try { entry.timers?.forEach?.((id) => clearTimeout(id)); } catch {}
-    try { entry.intervals?.forEach?.((id) => clearInterval(id)); } catch {}
+    try { entry.abort?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
+    try { entry.timers?.forEach?.((id) => clearTimeout(id)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
+    try { entry.intervals?.forEach?.((id) => clearInterval(id)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
     for (const listener of Array.from(entry.listeners || [])) {
-        try { listener.target?.removeEventListener?.(listener.type, listener.wrapped, listener.capture); } catch {}
+        try { listener.target?.removeEventListener?.(listener.type, listener.wrapped, listener.capture); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
         entry.listeners.delete(listener);
     }
     entry.timers?.clear?.();
@@ -492,7 +494,7 @@ function releaseTaskRunOwnerIfIdle(entry) {
 function removeFloorCallback(owner, callbackId) {
     const callbackEntry = state.dynamicCallbacks.get(callbackId);
     if (callbackEntry?.owner === owner) {
-        try { callbackEntry.abortController?.abort?.(); } catch {}
+        try { callbackEntry.abortController?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeFloorCallback" }, caughtError); }
         state.dynamicCallbacks.delete(callbackId);
     }
     owner?.callbackIds?.delete?.(callbackId);
@@ -518,7 +520,7 @@ function resetTaskRun(taskName) {
     const callbackPrefix = __taskDynamicCallbackPrefix(taskKey);
     for (const [id, entry] of state.dynamicCallbacks.entries()) {
         if (!id.startsWith(callbackPrefix)) continue;
-        try { entry?.abortController?.abort?.(); } catch {}
+        try { entry?.abortController?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "resetTaskRun" }, caughtError); }
         state.dynamicCallbacks.delete(id);
         clearedCallbacks++;
     }
@@ -532,7 +534,7 @@ function resetAllTaskRuns() {
     for (const entry of Array.from(__taskRunMap.values())) abortTaskRunEntry(entry);
 
     for (const [id, entry] of state.dynamicCallbacks.entries()) {
-        try { entry?.abortController?.abort?.(); } catch {}
+        try { entry?.abortController?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "resetAllTaskRuns" }, caughtError); }
         state.dynamicCallbacks.delete(id);
     }
 
@@ -569,7 +571,7 @@ CacheRegistry.register('scheduledTasks', {
                 addStr(entry?.options?.timing);
                 addStr(entry?.options?.floorType);
                 addStr(entry?.options?.interval);
-                try { addStr(entry?.callback?.toString?.()); } catch {}
+                try { addStr(entry?.callback?.toString?.()); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getBytes" }, caughtError); }
             });
             addMap(__taskRunMap, (entry) => {
                 addStr(entry?.signature);
@@ -592,8 +594,8 @@ CacheRegistry.register('scheduledTasks', {
             const s = getSettings();
             if (s?.processedMessages) s.processedMessages = [];
             saveSettingsDebounced();
-        } catch {}
-        try { resetAllTaskRuns(); } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
+        try { resetAllTaskRuns(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clear" }, caughtError); }
     },
     getDetail: () => {
         try {
@@ -613,7 +615,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
     const existing = __taskRunMap.get(taskName);
     if (existing) {
         abortTaskRunEntry(existing);
-        try { await Promise.resolve(existing.completion).catch(() => {}); } catch {}
+        try { await Promise.resolve(existing.completion).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
     }
 
     const abort = new AbortController();
@@ -663,7 +665,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
 
     const removeOwnedListener = (listener) => {
         if (!listener || !listeners.delete(listener)) return false;
-        try { listener.target?.removeEventListener?.(listener.type, listener.wrapped, listener.capture); } catch {}
+        try { listener.target?.removeEventListener?.(listener.type, listener.wrapped, listener.capture); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeOwnedListener" }, caughtError); }
         releaseTaskRunOwnerIfIdle(entry);
         return true;
     };
@@ -700,7 +702,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
                 return;
             }
         }
-        try { target?.removeEventListener?.(type, handler, capture); } catch {}
+        try { target?.removeEventListener?.(type, handler, capture); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeListener" }, caughtError); }
     };
     const setTimeoutSafe = (fn, t, ...a) => {
         if (entry.cleaned) return null;
@@ -747,7 +749,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
             entry.bodySettled = true;
             if (succeeded) releaseTaskRunOwnerIfIdle(entry);
             else cleanupTaskRunOwner(taskName, entry);
-            try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch {}
+            try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
         }
         return jsRunnerResult;
     })();
@@ -781,7 +783,7 @@ async function processTaskCommands(commands, taskName) {
             try { result = await executeTaskJS(jsCode, taskName || 'AnonymousTask'); }
             catch (error) {
                 console.error(`[任务JS执行错误] ${error.message}`);
-                try { xbLog.error('scheduledTasks', `taskjs error task=${String(taskName || 'AnonymousTask')}`, error); } catch {}
+                try { xbLog.error('scheduledTasks', `taskjs error task=${String(taskName || 'AnonymousTask')}`, error); } catch (error) { console.warn({ source: import.meta.url, operation: 'processTaskCommands' }, error); }
             }
         }
         lastIndex = match.index + match[0].length;
@@ -825,23 +827,23 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         taskName: String(taskName || 'AnonymousTask'),
         stableKey,
         codeSig,
-        log: (msg, extra) => { try { xbLog.info('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }); } catch {} },
-        warn: (msg, extra) => { try { xbLog.warn('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }); } catch {} },
-        error: (msg, err, extra) => { try { xbLog.error('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }, err || null); } catch {} }
+        log: (msg, extra) => { try { xbLog.info('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }); } catch (error) { console.warn({ source: import.meta.url, operation: 'executeTaskJS' }, error); } },
+        warn: (msg, extra) => { try { xbLog.warn('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }); } catch (error) { console.warn({ source: import.meta.url, operation: 'executeTaskJS' }, error); } },
+        error: (msg, err, extra) => { try { xbLog.error('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }, err || null); } catch (error) { console.warn({ source: import.meta.url, operation: 'executeTaskJS' }, error); } }
     };
 
     const old = __taskRunMap.get(stableKey);
     if (old) {
         abortTaskRunEntry(old);
         if (!isLightTask) {
-            try { await Promise.resolve(old.completion).catch(() => {}); } catch {}
+            try { await Promise.resolve(old.completion).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "executeTaskJS" }, caughtError); }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeTaskJS" }, caughtError); }
         }
     }
 
     const callbackPrefix = `${stableKey}_fl_`;
     for (const [id, entry] of state.dynamicCallbacks.entries()) {
         if (id.startsWith(callbackPrefix)) {
-            try { entry?.abortController?.abort(); } catch {}
+            try { entry?.abortController?.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeTaskJS" }, caughtError); }
             state.dynamicCallbacks.delete(id);
         }
     }
@@ -866,11 +868,11 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             owner.callbackIds.add(callbackId);
             try {
                 abortSignal.addEventListener('abort', () => {
-                    try { entryAbort.abort(); } catch {}
+                    try { entryAbort.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "addFloorListener" }, caughtError); }
                     state.dynamicCallbacks.delete(callbackId);
                     owner.callbackIds.delete(callbackId);
                 }, { once: true });
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "addFloorListener" }, caughtError); }
             state.dynamicCallbacks.set(callbackId, {
                 callback,
                 options: {
@@ -1119,10 +1121,10 @@ async function onChatChanged(chatId) {
         state.processedMessagesSet.clear();
         const settings = getSettings();
         settings.processedMessages = [];
-        checkEmbeddedTasks();
+        observeBackgroundTask(checkEmbeddedTasks(), { source: import.meta.url, operation: "callback" });
         refreshUI();
-        checkAndExecuteTasks('chat_changed', false, false);
-        requestAnimationFrame(() => requestAnimationFrame(() => { try { updateTaskBar(); } catch {} }));
+        observeBackgroundTask(checkAndExecuteTasks('chat_changed', false, false), { source: import.meta.url, operation: "callback" });
+        requestAnimationFrame(() => requestAnimationFrame(() => { try { updateTaskBar(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onChatChanged" }, caughtError); } }));
     });
 
     setTimeout(() => { state.chatJustChanged = state.isNewChat = false; }, 2000);
@@ -1471,7 +1473,7 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
     editorTemplate.find('.task_floor_type_edit').on('change', updateControlStates);
     updateControlStates();
 
-    callGenericPopup(editorTemplate, POPUP_TYPE.CONFIRM, '', { okButton: '保存' }).then(async (result) => {
+    observeBackgroundTask(callGenericPopup(editorTemplate, POPUP_TYPE.CONFIRM, '', { okButton: '保存' }).then(async (result) => {
         if (result) {
             const desiredName = String(editorTemplate.find('.task_name_edit').val() || '').trim();
             const existingNames = new Set(allTasks().map(t => (t?.name || '').trim().toLowerCase()));
@@ -1503,7 +1505,7 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
             const targetScope = String(editorTemplate.find('.task_type_edit').val() || initialScope);
             await saveTaskFromEditor(newTask, targetScope);
         }
-    });
+    }), { source: import.meta.url, operation: "showTaskEditor" });
 }
 
 function resetTaskEditorState() {
@@ -1562,7 +1564,7 @@ async function saveTaskFromEditor(task, scope) {
 async function editTask(index, scope) {
     const list = getTaskListByScope(scope);
     const task = list[index];
-    if (task) showTaskEditor(task, true, scope);
+    if (task) observeBackgroundTask(showTaskEditor(task, true, scope), { source: import.meta.url, operation: 'editTask' });
 }
 
 async function deleteTask(index, scope) {
@@ -1683,7 +1685,10 @@ async function showCloudTasksModal() {
     const contentEl = modalTemplate.find('.cloud-tasks-content');
     const errorEl = modalTemplate.find('.cloud-tasks-error');
 
-    callGenericPopup(modalTemplate, POPUP_TYPE.TEXT, '', { okButton: '关闭' });
+    // The popup promise settles when the user closes it, not when it becomes visible.
+    observeBackgroundTask(callGenericPopup(modalTemplate, POPUP_TYPE.TEXT, '', { okButton: '关闭' }), {
+        source: import.meta.url, operation: 'showCloudTasksModal',
+    });
 
     try {
         const cloudTasks = await fetchCloudTasks();
@@ -1717,7 +1722,7 @@ function createCloudTaskItem(taskInfo) {
     const item = $('#cloud_task_item_template').children().first().clone();
     item.find('.cloud-task-name').text(taskInfo.name || '未命名任务');
     item.find('.cloud-task-intro').text(taskInfo.简介 || taskInfo.intro || '无简介');
-    item.find('.cloud-task-download').on('click', async function () {
+    item.find('.cloud-task-download').on('click', observeAsyncCallback(async function () {
         $(this).prop('disabled', true).find('i').removeClass('fa-download').addClass('fa-spinner fa-spin');
         try {
             await downloadAndImportCloudTask(taskInfo.url, taskInfo.type);
@@ -1732,7 +1737,7 @@ function createCloudTaskItem(taskInfo) {
             $(this).find('i').removeClass('fa-spinner fa-spin').addClass('fa-download');
             $(this).prop('disabled', false);
         }
-    });
+    }, { source: import.meta.url, operation: "callback" }));
     return item;
 }
 
@@ -1915,9 +1920,9 @@ function cleanup() {
     try {
         document.querySelectorAll('.xiaobaix-task-button').forEach(button => button.remove());
         if (cache.ownsBar) cache.bar?.remove();
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
 
-    try { state.qrObserver?.disconnect(); } catch {}
+    try { state.qrObserver?.disconnect(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
     state.qrObserver = null;
     cache.bar = null;
     cache.btns = null;
@@ -2051,7 +2056,7 @@ function cleanup() {
         get preset() { return getPresetTasks(); },
     };
 
-    try { if (window.top && window.top !== window) window.top.XBTasks = window.XBTasks; } catch {}
+    try { if (window.top && window.top !== window) window.top.XBTasks = window.XBTasks; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "module" }, caughtError); }
     window.__XB_TASKS_FACADE__ = true;
 })();
 
@@ -2274,18 +2279,18 @@ async function initTasks() {
         const enabled = $(e.target).prop('checked');
         getSettings().enabled = enabled;
         saveSettingsDebounced();
-        try { createTaskBar(); } catch {}
+        try { createTaskBar(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "initTasks" }, caughtError); }
     });
 
-    $('#add_global_task').off('.xbTasks').on('click.xbTasks', () => showTaskEditor(null, false, 'global'));
-    $('#add_character_task').off('.xbTasks').on('click.xbTasks', () => showTaskEditor(null, false, 'character'));
-    $('#add_preset_task').off('.xbTasks').on('click.xbTasks', () => showTaskEditor(null, false, 'preset'));
+    $('#add_global_task').off('.xbTasks').on('click.xbTasks', observeAsyncCallback(() => showTaskEditor(null, false, 'global'), { source: import.meta.url, operation: "callback" }));
+    $('#add_character_task').off('.xbTasks').on('click.xbTasks', observeAsyncCallback(() => showTaskEditor(null, false, 'character'), { source: import.meta.url, operation: "callback" }));
+    $('#add_preset_task').off('.xbTasks').on('click.xbTasks', observeAsyncCallback(() => showTaskEditor(null, false, 'preset'), { source: import.meta.url, operation: "callback" }));
     $('#toggle_task_bar').off('.xbTasks').on('click.xbTasks', toggleTaskBarVisibility);
     $('#import_global_tasks').off('.xbTasks').on('click.xbTasks', () => $('#import_tasks_file').trigger('click'));
-    $('#cloud_tasks_button').off('.xbTasks').on('click.xbTasks', () => showCloudTasksModal());
+    $('#cloud_tasks_button').off('.xbTasks').on('click.xbTasks', observeAsyncCallback(() => showCloudTasksModal(), { source: import.meta.url, operation: "callback" }));
     $('#import_tasks_file').off('.xbTasks').on('change.xbTasks', function (e) {
         const file = e.target.files[0];
-        if (file) { importGlobalTasks(file); $(this).val(''); }
+        if (file) { observeBackgroundTask(importGlobalTasks(file), { source: import.meta.url, operation: "callback" }); $(this).val(''); }
     });
 
     $('#global_tasks_list').off('.xbTasks')
@@ -2308,23 +2313,23 @@ async function initTasks() {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getSettings().globalTasks;
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) editTask(idx, 'global');
+            if (idx !== -1) observeBackgroundTask(editTask(idx, 'global'), { source: import.meta.url, operation: "callback" });
         })
         .on('click.xbTasks', '.export_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getSettings().globalTasks;
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) exportSingleTask(idx, 'global');
+            if (idx !== -1) observeBackgroundTask(exportSingleTask(idx, 'global'), { source: import.meta.url, operation: "callback" });
         })
         .on('click.xbTasks', '.delete_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getSettings().globalTasks;
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) deleteTask(idx, 'global');
+            if (idx !== -1) observeBackgroundTask(deleteTask(idx, 'global'), { source: import.meta.url, operation: "callback" });
         });
 
     $('#character_tasks_list').off('.xbTasks')
-        .on('input.xbTasks', '.disable_task', async function () {
+        .on('input.xbTasks', '.disable_task', observeAsyncCallback(async function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getCharacterTasks();
             const idx = list.findIndex(t => t?.id === id);
@@ -2338,28 +2343,28 @@ async function initTasks() {
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
-        })
+        }, { source: import.meta.url, operation: "callback" }))
         .on('click.xbTasks', '.edit_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getCharacterTasks();
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) editTask(idx, 'character');
+            if (idx !== -1) observeBackgroundTask(editTask(idx, 'character'), { source: import.meta.url, operation: "callback" });
         })
         .on('click.xbTasks', '.export_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getCharacterTasks();
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) exportSingleTask(idx, 'character');
+            if (idx !== -1) observeBackgroundTask(exportSingleTask(idx, 'character'), { source: import.meta.url, operation: "callback" });
         })
         .on('click.xbTasks', '.delete_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getCharacterTasks();
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) deleteTask(idx, 'character');
+            if (idx !== -1) observeBackgroundTask(deleteTask(idx, 'character'), { source: import.meta.url, operation: "callback" });
         });
 
     $('#preset_tasks_list').off('.xbTasks')
-        .on('input.xbTasks', '.disable_task', async function () {
+        .on('input.xbTasks', '.disable_task', observeAsyncCallback(async function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getPresetTasks();
             const idx = list.findIndex(t => t?.id === id);
@@ -2373,24 +2378,24 @@ async function initTasks() {
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
-        })
+        }, { source: import.meta.url, operation: "callback" }))
         .on('click.xbTasks', '.edit_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getPresetTasks();
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) editTask(idx, 'preset');
+            if (idx !== -1) observeBackgroundTask(editTask(idx, 'preset'), { source: import.meta.url, operation: "callback" });
         })
         .on('click.xbTasks', '.export_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getPresetTasks();
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) exportSingleTask(idx, 'preset');
+            if (idx !== -1) observeBackgroundTask(exportSingleTask(idx, 'preset'), { source: import.meta.url, operation: "callback" });
         })
         .on('click.xbTasks', '.delete_task', function () {
             const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getPresetTasks();
             const idx = list.findIndex(t => t?.id === id);
-            if (idx !== -1) deleteTask(idx, 'preset');
+            if (idx !== -1) observeBackgroundTask(deleteTask(idx, 'preset'), { source: import.meta.url, operation: "callback" });
         });
 
     $('#scheduled_tasks_enabled').prop('checked', getSettings().enabled);
@@ -2412,14 +2417,14 @@ async function initTasks() {
     registerSlashCommands();
     const embeddedTasksTimer = setTimeout(() => {
         state.initTimers.delete(embeddedTasksTimer);
-        if (window.__XB_TASKS_INITIALIZED__) checkEmbeddedTasks();
+        if (window.__XB_TASKS_INITIALIZED__) observeBackgroundTask(checkEmbeddedTasks(), { source: import.meta.url, operation: "callback" });
     }, 1000);
     state.initTimers.add(embeddedTasksTimer);
 
     const pluginInitTimer = setTimeout(() => {
         state.initTimers.delete(pluginInitTimer);
         if (!window.__XB_TASKS_INITIALIZED__) return;
-        try { checkAndExecuteTasks('plugin_initialized', false, false); } catch (e) { console.debug(e); }
+        try { observeBackgroundTask(checkAndExecuteTasks('plugin_initialized', false, false), { source: import.meta.url, operation: "callback" }); } catch (e) { console.debug(e); }
     }, 0);
     state.initTimers.add(pluginInitTimer);
 }

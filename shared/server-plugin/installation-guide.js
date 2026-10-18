@@ -29,8 +29,7 @@ function bindServerPluginGuide(root, prefix) {
 }
 
 export function mountServerPluginGuide(container, prefix) {
-    // Markup and prefixes are owned by the settings UI, never supplied by user input.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Markup and prefixes are owned by the settings UI, never supplied by user input.
     container.innerHTML = buildServerPluginGuideMarkup(prefix);
     bindServerPluginGuide(container, prefix);
 }

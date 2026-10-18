@@ -40,8 +40,7 @@ export async function fixture(sources, options = {}) {
  const result=await build({stdin:{contents:[
  'draw-common.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js','confirmable-chat-save.js'
  ].map(f=>'export * from "./'+f+'";').join('\n'),resolveDir:fileURLToPath(new URL('../../', import.meta.url))},bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'host-boundary',setup(b){b.onResolve({filter:/\.js$/},({path:p})=>{const name=p.split('/').at(-1);return Object.hasOwn(stubs,name)?{path:name,namespace:'host'}:null});b.onLoad({filter:/.*/,namespace:'host'},({path:p})=>({contents:stubs[p]}));}}]});
- // Only locally bundled source and fixed test stubs enter this module.
- // eslint-disable-next-line no-unsanitized/method
+ // eslint-disable-next-line no-unsanitized/method -- Only locally bundled source and fixed test stubs enter this module.
  const api=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text+'\n//# sourceURL=draw-journey-review-'+randomUUID()+'.mjs').toString('base64'));
  api.registerPreparedImageProvider('review-provider', input=>api.submitPreparedChatImages({...input,metadata:input.tasks.map(t=>({tags:t.scene,positive:t.scene})),backend:false,run:async handlers=>{for(let index=0;index<input.tasks.length;index++){if(await handlers.onItemStarting({index})===false)continue;counters.requests.push({messageId:input.messageId,tags:input.tasks[index].scene});if(options.holdRequest)await new Promise(resolve=>{releaseRequest=resolve});await handlers.onItemReady({index,base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN3sAAAAASUVORK5CYII='});}}}));
  const body=id=>document.querySelector('.mes[mesid="'+id+'"] .mes_text');

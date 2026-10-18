@@ -13,6 +13,8 @@ export async function loadWorkspaceHostTools() {
         './shared/local-workspace-kernel.js', '../agent-core/tools/apply-patch.js',
         '../agent-core/tools/apply-patch-execution.js', './shared/workspace-protocol.js',
         './shared/read-window.js', './shared/lookup-scope.js',
+        '../../shared/common/async-errors.js',
+        '../../shared/common/json-candidate.js',
     ]);
     const imports = new Map(parse(code, { ecmaVersion: 'latest', sourceType: 'module' }).body
         .filter(node => node.type === 'ImportDeclaration').map(node => [node.source.value, node.specifiers]));

@@ -6,8 +6,7 @@ const projections = new WeakMap();
 
 function parseCard(document, html) {
     const template = document.createElement('template');
-    // Only locally generated Draw card markup, never narrative/model HTML.
-    // eslint-disable-next-line no-unsanitized/property
+    // eslint-disable-next-line no-unsanitized/property -- Only locally generated Draw card markup, never narrative/model HTML.
     template.innerHTML = html;
     // Template contents belong to an inert document. Decode requires an image
     // owned by the active document, even while it remains offscreen.

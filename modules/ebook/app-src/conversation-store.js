@@ -125,7 +125,7 @@ export function createEbookConversationStore(options = {}) {
     function persistConversation(bookId = state.book?.id) {
         const snapshot = buildSnapshot(bookId);
         writeQueue = writeQueue
-            .catch(() => {})
+            .catch((caughtError) => { console.warn({ source: import.meta.url, operation: "persistConversation" }, caughtError); })
             .then(async () => {
                 try {
                     await saveSnapshot(snapshot);

@@ -1,5 +1,7 @@
 import { inject, nextTick, watch, type InjectionKey, type Ref, type ShallowRef } from 'vue';
 import type { createBackStack } from './back-stack.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export interface AppLayer {
     element: HTMLElement;
@@ -42,7 +44,7 @@ function restoreFocus(navigation: AppNavigation | null, origin: Element | null =
     const root = navigation?.root.value;
     // A synchronous Back-registration cleanup can run before Vue queues the
     // page update. Let that update enqueue before waiting for its DOM flush.
-    queueMicrotask(() => { void nextTick(() => {
+    queueMicrotask(() => { observeBackgroundTask(nextTick(() => {
         if (root && (!root.isConnected || navigation?.root.value !== root)) { return; }
         const current = document.activeElement;
         // An APP, a newly opened layer, or the user may already have chosen a
@@ -55,7 +57,7 @@ function restoreFocus(navigation: AppNavigation | null, origin: Element | null =
         }
         if (layer) { focusLayer(layer); }
         else { root?.focus({ preventScroll: true }); }
-    }); });
+    }), { source: import.meta.url, operation: "callback" }); });
 }
 
 export function useAppBack(handler: () => boolean, enabled: () => boolean = () => true): () => boolean {

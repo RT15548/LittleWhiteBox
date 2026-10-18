@@ -8,6 +8,8 @@
 // 订阅 onGroupPresetContextChanged 让“当前聊天命中…”随聊天切换刷新。
 
 import { createGroupPresetPanel } from './character-group-presets-ui.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 function groupIdsOf(groups) {
     return (Array.isArray(groups) ? groups : []).map(group => group?.id).filter(Boolean);
@@ -37,7 +39,7 @@ export function bindGroupPresetPanel(options = {}) {
     let saveChain = Promise.resolve();
 
     const notify = (message, level = 'info') => {
-        try { toast?.(message, level); } catch { /* 提示失败不影响功能 */ }
+        try { toast?.(message, level); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notify" }, caughtError); }
     };
     const readPresets = () => {
         if (optimistic) return optimistic;
@@ -49,7 +51,7 @@ export function bindGroupPresetPanel(options = {}) {
     function warnUnsavedGroups(reason) {
         if (!['create', 'overwrite-states', 'group-state'].includes(reason)) return;
         let draftIds = [];
-        try { draftIds = groupIdsOf(getLibrary?.()?.groups); } catch { /* 读取失败时不提示 */ }
+        try { draftIds = groupIdsOf(getLibrary?.()?.groups); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "warnUnsavedGroups" }, caughtError); }
         const saved = new Set(groupIdsOf(settings.get()?.characterGroups));
         if (draftIds.some(id => !saved.has(id))) {
             notify('有尚未保存的新分组：它的开关不会进入预设，请先点“保存角色”，再回来覆盖或编辑预设', 'warning');
@@ -80,7 +82,7 @@ export function bindGroupPresetPanel(options = {}) {
     function handlePresetsChange(next, meta = {}) {
         optimistic = next;
         warnUnsavedGroups(meta.reason);
-        void queueSave(next);
+        observeBackgroundTask(queueSave(next), { source: "modules/draw/shared/character-group-presets-draft-binding.js", operation: "handlePresetsChange" });
     }
 
     async function handleApply(presetId) {
@@ -135,7 +137,7 @@ export function bindGroupPresetPanel(options = {}) {
         destroy() {
             if (destroyed) return;
             destroyed = true;
-            unsubscribers.splice(0).forEach((off) => { try { off?.(); } catch { /* 取消订阅失败可忽略 */ } });
+            unsubscribers.splice(0).forEach((off) => { try { off?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "destroy" }, caughtError); } });
             panel?.destroy();
             panel = null;
         },

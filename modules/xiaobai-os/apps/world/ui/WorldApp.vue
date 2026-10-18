@@ -8,6 +8,8 @@ import NewsArticle from './NewsArticle.vue';
 import WorldOpening from './WorldOpening.vue';
 import { useWorldState } from './use-world-state.js';
 import './world.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<XiaobaiOsAppProps>();
 const { state, pending, writable, refreshing, notice, error, request } = useWorldState(props);
@@ -62,7 +64,7 @@ function leaveMenu(event: FocusEvent) {
 }
 useAppBack(() => {
     if (menu.value?.open) { closeMenu(); return true; }
-    if (reading.value) { void back(); return true; }
+    if (reading.value) { observeBackgroundTask(back(), { source: import.meta.url, operation: "callback" }); return true; }
     return false;
 });
 </script>

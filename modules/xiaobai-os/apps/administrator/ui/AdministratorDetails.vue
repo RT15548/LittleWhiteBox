@@ -5,6 +5,8 @@ import type { AdministratorOperation } from '../domain/types.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 import { ADMINISTRATOR_COPY as C, administratorError } from './copy.js';
 import { useAppLayer } from '../../../shell/app-src/navigation/app-navigation.js';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 const props = defineProps<{ bridge: XiaobaiOsAppProps['bridge']; chatIdentity: string; turnId: string }>();
 const emit = defineEmits<{ close: [] }>();
 const items = ref<AdministratorOperation[]>([]), offset = ref(0), total = ref(0), error = ref(''), loading = ref(false);
@@ -13,7 +15,7 @@ const reference = ref('');
 const layer = ref<HTMLElement | null>(null);
 const modal = ref(true);
 let layoutObserver: ResizeObserver | undefined;
-function focusLayer() { void nextTick(() => layer.value?.focus({ preventScroll: true })); }
+function focusLayer() { observeBackgroundTask(nextTick(() => layer.value?.focus({ preventScroll: true })), { source: import.meta.url, operation: "focusLayer" }); }
 function back() { if (evidence.value) { evidence.value = null; focusLayer(); } else { emit('close'); } }
 useAppLayer(layer, back, () => modal.value);
 async function page(start: number) {
@@ -39,7 +41,7 @@ onMounted(() => {
     layoutObserver = new ResizeObserver(syncLayout);
     layoutObserver.observe(root);
     focusLayer();
-    void page(0);
+    observeBackgroundTask(page(0), { source: import.meta.url, operation: "callback" });
 });
 onBeforeUnmount(() => layoutObserver?.disconnect());
 </script>

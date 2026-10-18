@@ -359,7 +359,7 @@ test('swallowed product failure retains failed-scope counts and safe cause at sc
     }, () => withPreparedRequestScope('after-ai:58', async () => {
         const result = await withExternalCallTrace(async () => {
             await fetch(...args('saved'));
-            try { await fetch(...args('failed')); } catch { /* product records floor failure */ }
+            try { await fetch(...args('failed')); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "result" }, caughtError); }
         });
         return { externalCalls: result.calls, externalRequests: result.requestCount, transportTrace: result.trace };
     })), error => {

@@ -58,8 +58,7 @@ export function replaceSceneSlotElements(root, replacements, { shouldReplaceExis
         if (existing && !shouldReplaceExisting(existing)) continue;
 
         const template = document.createElement('template');
-        // Only Draw's locally generated card markup is parsed; narrative text stays in text nodes.
-        // eslint-disable-next-line no-unsanitized/property
+        // eslint-disable-next-line no-unsanitized/property -- Only Draw's locally generated card markup is parsed; narrative text stays in text nodes.
         template.innerHTML = String(item.html).trim();
         const element = template.content.firstElementChild;
         if (!element) continue;

@@ -25,6 +25,8 @@ import { learningContextNeedsConfirmation, provideLearningUiSession } from './le
 import { LEARNING_PANE_MIN_WIDTH, LEARNING_PANE_TRANSITION_MS } from './layout.js';
 import { useLearningCompanion } from './use-learning-companion.js';
 import './learning.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 const props = defineProps<XiaobaiOsAppProps>();
 const copy = {
@@ -102,7 +104,7 @@ watch([workVisible, chatVisible, reducedMotion], async ([work, chat, reduced], _
 }, { immediate: true });
 function rememberWorkScroll() {
     if (workVisible.value && scroller.value && !assistantOpen.value) { scrolls[page.value] = scroller.value.scrollTop; }
-    void rememberStudy();
+    observeBackgroundTask(rememberStudy(), { source: import.meta.url, operation: "rememberWorkScroll" });
 }
 async function rememberStudy(event?: Event) {
     const target = event?.target instanceof Element ? event.target : null;
@@ -122,7 +124,7 @@ async function rememberStudy(event?: Event) {
         uiSession.chat.study = { unitId: current.dataset.learningUnitId, exerciseId: current.dataset.exerciseId };
     }
 }
-watch([scroller, page, workVisible], () => { void rememberStudy(); }, { flush: 'post' });
+watch([scroller, page, workVisible], () => { observeBackgroundTask(rememberStudy(), { source: import.meta.url, operation: "callback" }); }, { flush: 'post' });
 const turnCount = computed(() => {
     const { turns, removedTurns } = state.value.conversation;
     let index = turns.length - 1;
@@ -192,7 +194,7 @@ for (const actor of ['conversation', 'workbenchConversation'] as const) { watch(
     return target ? `${state.value[actor].turns.length + state.value[actor].removedTurns}:${target.unitId}:${target.kind}:${target.id}` : '';
 }, key => {
     const target = state.value[actor].turns.at(-1)?.presentation;
-    if (key && target) { void present(target, true); }
+    if (key && target) { observeBackgroundTask(present(target, true), { source: import.meta.url, operation: "callback" }); }
 }); }
 // A reading-writing piece the companion points at while the learner is elsewhere only lights a dot on the way back.
 const workUnread = ref(false);
@@ -220,7 +222,7 @@ async function present(target: LearningPresentation, automatic = false) {
     if (!automatic) { await showWork(); }
     else if (!workVisible.value) { workUnread.value = true; }
 }
-function closeActivity() { activity.value = null; void request('stop'); }
+function closeActivity() { activity.value = null; observeBackgroundTask(request('stop'), { source: import.meta.url, operation: "closeActivity" }); }
 async function openAssistant(exerciseId?: string, unitId?: string) {
     if (activity.value) { closeActivity(); }
     if (!assistantOpen.value) { rememberWorkScroll(); }
@@ -262,7 +264,7 @@ async function go(next: Page, returning = false) {
         if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     }
 }
-function openProfile() { uiSession.setup.step = 0; void go('profile'); }
+function openProfile() { uiSession.setup.step = 0; observeBackgroundTask(go('profile'), { source: import.meta.url, operation: "openProfile" }); }
 // A reset may finish through receipt recovery. Navigate only after the confirmed state is usable.
 watch([state, pending], ([next, sending]) => {
     if (!restarting.value || sending || next.busy || next.storage !== 'ready') { return; }
@@ -273,7 +275,7 @@ watch([state, pending], ([next, sending]) => {
     uiSession.setup.step = next.teacher ? 2 : 0;
     trail.length = 0;
     scrolls.profile = 0;
-    void go('profile', true);
+    observeBackgroundTask(go('profile', true), { source: import.meta.url, operation: "callback" });
 });
 watch([() => state.value.chatIdentity, () => state.value.language], () => { restarting.value = false; });
 async function openReview() {
@@ -302,7 +304,7 @@ watch(() => uiSession.settings.submitted, (next, previous) => {
     if (!next && previous && !uiSession.settings.open && page.value === 'profile' && uiSession.setup.step === 2
         && state.value.storage === 'ready' && !state.value.busy && state.value.profile
         && Object.entries(previous.value).every(([key, value]) => state.value.profile!.settings[key as keyof typeof previous.value] === value)) {
-        void go('home');
+        observeBackgroundTask(go('home'), { source: import.meta.url, operation: "callback" });
     }
 });
 watch(() => state.value.busy, busy => {
@@ -313,10 +315,10 @@ watch(() => state.value.busy, busy => {
 });
 const back = useAppBack(() => {
     if (menu.value?.open) { menu.value.open = false; return true; }
-    if (assistantOpen.value && workVisible.value) { void closeAssistant(); return true; }
-    if (!wide.value && view.value === 'chat') { showWork(); return true; }
+    if (assistantOpen.value && workVisible.value) { observeBackgroundTask(closeAssistant(), { source: import.meta.url, operation: "callback" }); return true; }
+    if (!wide.value && view.value === 'chat') { observeBackgroundTask(showWork(), { source: import.meta.url, operation: "callback" }); return true; }
     if (page.value === 'home' || !trail.length && page.value === 'profile' && !state.value.teacher) { return false; }
-    void go(trail.pop() ?? 'home', true); return true;
+    observeBackgroundTask(go(trail.pop() ?? 'home', true), { source: import.meta.url, operation: "callback" }); return true;
 });
 function askConfirm(action: string, input: Record<string, unknown>, text: string) {
     confirm.value = { action, input, text };

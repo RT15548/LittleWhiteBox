@@ -33,6 +33,10 @@ import {
 import { getStorySummaryForEna } from '../story-summary/story-summary.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
 import jsyaml from '../../libs/js-yaml.mjs';
+import { observeAsyncCallback } from '../../shared/common/async-errors.js';
+
+const handleIframeMessageEvent = observeAsyncCallback(handleIframeMessage, { source: import.meta.url, operation: "handleIframeMessage" });
+
 
 const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
@@ -290,7 +294,7 @@ function persistLogsMaybe() {
     const s = ensureSettings();
     if (!s.logsPersist) return;
     state.logs = state.logs.slice(0, s.logsMax);
-    EnaPlannerStorage.set('logs', structuredClone(state.logs)).catch(() => {});
+    EnaPlannerStorage.set('logs', structuredClone(state.logs)).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "persistLogsMaybe" }, caughtError); });
 }
 
 function loadPersistedLogsMaybe() {
@@ -399,7 +403,7 @@ function getCurrentCharSafe() {
         if (window.this_chid != null && window.characters) {
             return window.characters[window.this_chid] ?? null;
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCurrentCharSafe" }, caughtError); }
     return null;
 }
 
@@ -566,7 +570,7 @@ async function getCharacterWorldbooks() {
                     if (w && !worldNames.includes(w)) worldNames.push(w);
                 }
             }
-        } catch { }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCharacterWorldbooks" }, caughtError); }
 
         // ST context may expose chat-linked worldbooks via world_names
         try {
@@ -575,7 +579,7 @@ async function getCharacterWorldbooks() {
                     if (w && !worldNames.includes(w)) worldNames.push(w);
                 }
             }
-        } catch { }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCharacterWorldbooks" }, caughtError); }
     }
 
     // Fallback: try ST's selected character world info
@@ -584,7 +588,7 @@ async function getCharacterWorldbooks() {
         if (typeof sw === 'string' && sw && !worldNames.includes(sw)) {
             worldNames.push(sw);
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCharacterWorldbooks" }, caughtError); }
 
     // Fallback: try reading from chat metadata
     try {
@@ -593,7 +597,7 @@ async function getCharacterWorldbooks() {
             const w = chat[0].extra.world;
             if (!worldNames.includes(w)) worldNames.push(w);
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getCharacterWorldbooks" }, caughtError); }
 
     console.log('[EnaPlanner] Character worldbook names found:', worldNames);
     return worldNames.filter(Boolean);
@@ -607,14 +611,14 @@ async function getGlobalWorldbooks() {
         if (ctx?.world_info?.globalSelect) {
             return Array.isArray(ctx.world_info.globalSelect) ? ctx.world_info.globalSelect : [];
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getGlobalWorldbooks" }, caughtError); }
 
     // Fallback: try window.selected_world_info
     try {
         if (window.selected_world_info && Array.isArray(window.selected_world_info)) {
             return window.selected_world_info;
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getGlobalWorldbooks" }, caughtError); }
 
     return [];
 }
@@ -804,17 +808,17 @@ function getChatVariables() {
   try {
     const ctx = getContextSafe();
     if (ctx?.chatMetadata?.variables) vars = { ...ctx.chatMetadata.variables };
-  } catch {}
+  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getChatVariables" }, caughtError); }
   if (!Object.keys(vars).length) {
     try {
       if (window.chat_metadata?.variables) vars = { ...window.chat_metadata.variables };
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getChatVariables" }, caughtError); }
   }
   if (!Object.keys(vars).length) {
     try {
       const ctx = getContextSafe();
       if (ctx?.chat_metadata?.variables) vars = { ...ctx.chat_metadata.variables };
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getChatVariables" }, caughtError); }
   }
 
   // 2) Always merge message-level variables (some presets store vars here instead of chat-level)
@@ -840,7 +844,7 @@ function getChatVariables() {
         }
       }
     }
-  } catch {}
+  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getChatVariables" }, caughtError); }
 
   return vars;
 }
@@ -962,13 +966,13 @@ function getLatestMessageVarTable() {
         if (window.Mvu?.getMvuData) {
             return window.Mvu.getMvuData({ type: 'message', message_id: 'latest' });
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getLatestMessageVarTable" }, caughtError); }
     try {
         const getVars = window.TavernHelper?.getVariables || window.Mvu?.getMvuData;
         if (typeof getVars === 'function') {
             return getVars({ type: 'message', message_id: 'latest' });
         }
-    } catch { }
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getLatestMessageVarTable" }, caughtError); }
     return {};
 }
 
@@ -1362,9 +1366,8 @@ function openSettings() {
     document.body.appendChild(overlay);
 
     if (!iframeMessageBound) {
-        // Guarded by isTrustedIframeEvent (origin + source).
-        // eslint-disable-next-line no-restricted-syntax
-        window.addEventListener('message', handleIframeMessage);
+        // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedIframeEvent (origin + source).
+        window.addEventListener('message', handleIframeMessageEvent);
         iframeMessageBound = true;
     }
 }
@@ -1552,7 +1555,7 @@ export function cleanupEnaPlanner() {
     runtimeEvents = null;
     closeSettings();
     if (iframeMessageBound) {
-        window.removeEventListener('message', handleIframeMessage);
+        window.removeEventListener('message', handleIframeMessageEvent);
         iframeMessageBound = false;
     }
     delete window.xiaobaixEnaPlanner;

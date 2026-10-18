@@ -23,6 +23,8 @@ import MemoryAlbum from './MemoryAlbum.vue';
 import PartIcon from './PartIcon.vue';
 import HousePortrait from './HousePortrait.vue';
 import './building.css';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 const props = defineProps<{ bridge: XiaobaiOsFrameBridge; chatIdentity: string; generationActive: boolean }>();
 const journal = createRecoveryJournal({ getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value), removeItem: key => localStorage.removeItem(key) });
 const client = createBuildingClient(props.bridge, props.chatIdentity, journal);
@@ -76,7 +78,7 @@ useAppBack(() => {
 function updateScene() { scene?.set({ project: project.value, enabled: enabled.value, floor: floor.value }); }
 function mountScene() {
     scene?.dispose(); scene = null; graphicsError.value = false; animation.value = false;
-    try { scene = createBuildingScene(canvas.value!, value => { targets.value = value; }, value => { animation.value = value; }, () => { graphicsError.value = true; void pauseSound(); }, cue, value => { moment.value = value; }); updateScene(); }
+    try { scene = createBuildingScene(canvas.value!, value => { targets.value = value; }, value => { animation.value = value; }, () => { graphicsError.value = true; observeBackgroundTask(pauseSound(), { source: import.meta.url, operation: "callback" }); }, cue, value => { moment.value = value; }); updateScene(); }
     catch { graphicsError.value = true; }
 }
 function cue(event: SceneCue) { if (view.value?.soundEnabled && enabled.value && !document.hidden) { sound.play(event); } }
@@ -89,7 +91,7 @@ async function toggleSound() {
 }
 async function act(command: Command) {
     const destination = command.type === 'remember' ? homeWish.value?.part : null;
-    void unlockSound(); localError.value = '';
+    observeBackgroundTask(unlockSound(), { source: import.meta.url, operation: "act" }); localError.value = '';
     if (await client.act(command)) {
         target.value = null;
         if (command.type === 'start') { archived.value = null; page.value = 'house'; delivered.value = false; kind.value = 'room'; editing.value = false; floor.value = 0; }
@@ -106,11 +108,11 @@ function selectCell(cell: CellTarget) {
     else if (playing.value && kind.value && brief.value && project.value) {
         const part = { kind: kind.value, x: cell.x, y: cell.y, z: cell.z }, issue = projectPlacementIssue(project.value, [...project.value.rooms, part]);
         if (issue) { localError.value = ISSUES[issue]; return; }
-        void act({ type: 'put', part });
+        observeBackgroundTask(act({ type: 'put', part }), { source: import.meta.url, operation: "selectCell" });
     }
 }
 function remodel() { editing.value = true; floor.value = 0; celebrated.value = null; }
-function remember() { if (!disabled.value && homeWish.value?.part) { void act({ type: 'remember', memory: homeWish.value.id }); } }
+function remember() { if (!disabled.value && homeWish.value?.part) { observeBackgroundTask(act({ type: 'remember', memory: homeWish.value.id }), { source: import.meta.url, operation: "remember" }); } }
 function selectKind(next: RoomChoice) { kind.value = next; target.value = null; localError.value = ''; }
 async function undo() { if (!disabled.value && await client.undo()) { target.value = null; } }
 function finish() {
@@ -124,7 +126,7 @@ function openHomes() {
 function openDesk() { page.value = 'desk'; archived.value = null; target.value = null; editing.value = false; celebrated.value = null; delivered.value = false; }
 function resume() { page.value = 'house'; delivered.value = false; floor.value = 0; }
 function refit() {
-    if (!disabled.value && existing.value && refitChoice.value && !refitChoice.value.issue) { void act({ type: 'refit', x: existing.value.x, y: existing.value.y, z: existing.value.z, kind: refitChoice.value.kind }); }
+    if (!disabled.value && existing.value && refitChoice.value && !refitChoice.value.issue) { observeBackgroundTask(act({ type: 'refit', x: existing.value.x, y: existing.value.y, z: existing.value.z, kind: refitChoice.value.kind }), { source: import.meta.url, operation: "refit" }); }
 }
 async function confirm() {
     const choice = modal.value; modal.value = null;
@@ -140,7 +142,7 @@ async function exportImage() {
     try { const blob = await scene.snapshot(), url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = c.exportName(project.value.tier); link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
     catch { localError.value = c.exportError; }
 }
-function visibility() { if (document.hidden) { void pauseSound(); } }
+function visibility() { if (document.hidden) { observeBackgroundTask(pauseSound(), { source: import.meta.url, operation: "visibility" }); } }
 function zoom(delta: number) { scene?.zoom(delta); }
 function resetView() { scene?.reset(); }
 async function focusResident() { if (moment.value) { floor.value = moment.value.space.part.y; await nextTick(); } scene?.focus(); }
@@ -148,16 +150,16 @@ async function visit(part: Part) {
     const space = inspection.value?.spaces.find(s => partKey(s.part) === partKey(part));
     if (!space || space.issue) { return; }
     invitation.value = c.invited(space.activity); floor.value = part.y;
-    void unlockSound(); await nextTick(); scene?.visit(part); target.value = null;
+    observeBackgroundTask(unlockSound(), { source: import.meta.url, operation: "visit" }); await nextTick(); scene?.visit(part); target.value = null;
 }
 watch([project, enabled, floor], updateScene);
 watch(() => project.value?.id, () => { editing.value = false; delivered.value = false; celebrated.value = null; floor.value = project.value?.state === 'building' ? 0 : null; invitation.value = ''; target.value = null; });
 watch(() => view.value?.active?.state, (state, before) => { if (state === 'living' && before === 'building') { delivered.value = true; floor.value = null; target.value = null; } });
 watch(moment, () => { if (moment.value?.phase === 'using') { invitation.value = ''; } });
-watch(enabled, value => { if (!value) { void pauseSound(); } });
+watch(enabled, value => { if (!value) { observeBackgroundTask(pauseSound(), { source: import.meta.url, operation: "callback" }); } });
 onMounted(async () => { mountScene(); document.addEventListener('visibilitychange', visibility); await client.read(); if (view.value?.active?.state === 'building') { page.value = 'house'; } mounted = true; });
-onActivated(() => { activated.value = true; scene?.resume(); if (mounted) { void client.read(); } });
-onDeactivated(() => { activated.value = false; scene?.suspend(); void pauseSound(); });
+onActivated(() => { activated.value = true; scene?.resume(); if (mounted) { observeBackgroundTask(client.read(), { source: import.meta.url, operation: "callback" }); } });
+onDeactivated(() => { activated.value = false; scene?.suspend(); observeBackgroundTask(pauseSound(), { source: import.meta.url, operation: "callback" }); });
 onBeforeUnmount(() => { client.dispose(); scene?.dispose(); document.removeEventListener('visibilitychange', visibility); void sound.dispose().catch(error => console.error(c.audioDispose, error)); });
 async function reload() { await nextTick(); mountScene(); }
 </script>

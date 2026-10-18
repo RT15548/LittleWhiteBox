@@ -1,7 +1,31 @@
 const HTML_SANITIZERS = { escape: { methods: ['Sanitizer.unwrapSafeHTML', 'unwrapSafeHTML', 'DOMPurify.sanitize'] } };
+const fs = require('node:fs');
+const path = require('node:path');
+const { collectSourceFiles } = require('./scripts/workspace-files.mjs');
+// A derived, process-local file list keeps vendored/generated JS out of the typed program.
+// Compiler policy still comes exclusively from the root tsconfig.
+fs.mkdirSync(path.join(__dirname, 'output'), { recursive: true });
+const lintProjectDirectory = fs.mkdtempSync(path.join(__dirname, 'output/eslint-project-'));
+const lintProject = path.join(lintProjectDirectory, 'tsconfig.json');
+fs.writeFileSync(lintProject, JSON.stringify({
+    extends: path.join(__dirname, 'tsconfig.json'),
+    files: collectSourceFiles(__dirname, new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.vue'])),
+    include: [],
+    exclude: [],
+}));
+process.once('exit', () => fs.rmSync(lintProjectDirectory, { recursive: true, force: true }));
+const promiseRules = {
+    '@typescript-eslint/no-floating-promises': ['error', {
+        ignoreVoid: false,
+        // node:test owns registered test failures. This is not an exemption for arbitrary test files.
+        allowForKnownSafeCalls: [{ from: 'package', package: 'node:test', name: ['test', 'it', 'describe', 'suite'] }],
+    }],
+    '@typescript-eslint/no-misused-promises': 'error',
+};
 
 module.exports = {
     root: true,
+    reportUnusedDisableDirectives: true,
     extends: [
         'eslint:recommended',
         'plugin:jsdoc/recommended',
@@ -12,6 +36,7 @@ module.exports = {
         'no-unsanitized',
         '@typescript-eslint',
         'vue',
+        '@eslint-community/eslint-comments',
     ],
     env: {
         browser: true,
@@ -32,6 +57,10 @@ module.exports = {
         sourceType: 'module',
     },
     rules: {
+        '@eslint-community/eslint-comments/require-description': ['error', { ignore: ['eslint-env', 'global', 'globals', 'exported'] }],
+        '@eslint-community/eslint-comments/no-unlimited-disable': 'error',
+        '@eslint-community/eslint-comments/no-use': ['error', { allow: ['eslint-disable-next-line', 'eslint-disable-line', 'eslint-env', 'global', 'globals', 'exported'] }],
+        '@typescript-eslint/ban-ts-comment': ['error', { 'ts-ignore': true, 'ts-nocheck': true, 'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10 }],
         'no-eval': 'warn',
         'no-implied-eval': 'warn',
         'no-new-func': 'warn',
@@ -51,11 +80,15 @@ module.exports = {
                 selector: 'CallExpression[callee.property.name="addEventListener"][arguments.0.value="message"]',
                 message: 'All message listeners must validate origin/source (use isTrustedMessage).',
             },
+            {
+                selector: 'CatchClause[body.body.length=0], CallExpression[callee.property.name="catch"] > :matches(ArrowFunctionExpression, FunctionExpression)[body.type="BlockStatement"][body.body.length=0]',
+                message: 'Handle or report the error; an empty handler or a comment does not observe a failure.',
+            },
         ],
         'no-undef': 'error',
         'no-unused-vars': ['warn', { args: 'none' }],
         'eqeqeq': 'off',
-        'no-empty': ['error', { allowEmptyCatch: true }],
+        'no-empty': 'error',
         'no-inner-declarations': 'off',
         'no-constant-condition': ['error', { checkLoops: false }],
         'no-useless-catch': 'off',
@@ -67,9 +100,19 @@ module.exports = {
         'jsdoc/require-param-description': 'off',
         'jsdoc/require-returns-description': 'off',
         'jsdoc/check-types': 'off',
+        'jsdoc/no-undefined-types': ['warn', { definedTypes: ['AsyncGenerator'] }],
         'jsdoc/tag-lines': 'off',
     },
     overrides: [
+        {
+            files: ['**/*.{js,mjs,cjs}'],
+            parser: '@typescript-eslint/parser',
+        },
+        {
+            // Frozen native VM fixtures retain upstream directives until these host versions retire.
+            files: ['modules/xiaobai-os/tests/fixtures/sillytavern-1.14-prompt-functions.js', 'modules/xiaobai-os/tests/fixtures/sillytavern-1.18-prompt-functions.js'],
+            rules: { '@eslint-community/eslint-comments/no-use': 'off' },
+        },
         {
             files: ['**/*.html'],
             plugins: ['html'],
@@ -114,7 +157,6 @@ module.exports = {
             parserOptions: {
                 ecmaVersion: 'latest',
                 sourceType: 'module',
-                project: false,
             },
             rules: {
                 'curly': ['error', 'all'],
@@ -138,7 +180,6 @@ module.exports = {
                 parser: '@typescript-eslint/parser',
                 ecmaVersion: 'latest',
                 sourceType: 'module',
-                extraFileExtensions: ['.vue'],
             },
             extends: [
                 'plugin:vue/recommended',
@@ -166,6 +207,15 @@ module.exports = {
             rules: {
                 'no-restricted-imports': ['error', { patterns: ['**/xiaobai-os/**'] }],
             },
+        },
+        {
+            files: ['**/*.{js,mjs,cjs,ts,mts,cts,vue}'],
+            parserOptions: {
+                project: lintProject,
+                tsconfigRootDir: __dirname,
+                extraFileExtensions: ['.vue'],
+            },
+            rules: promiseRules,
         },
         {
             files: ['modules/xiaobai-os/**/*.{ts,vue}'],

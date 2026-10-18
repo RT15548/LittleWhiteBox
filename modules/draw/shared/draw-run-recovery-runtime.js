@@ -312,7 +312,7 @@ async function finalizeAdoptingRecord({
         }
         return { status: DrawRunAdoptionRecoveryStatus.COMPLETED };
     } catch (error) {
-        await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch(() => {});
+        await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "finalizeAdoptingRecord" }, caughtError); });
         throw error;
     }
 }
@@ -411,7 +411,7 @@ async function recoverAdoptingRecord({
             onAdoptionReady,
         });
     } catch (error) {
-        await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch(() => {});
+        await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "recoverAdoptingRecord" }, caughtError); });
         throw error;
     }
 }
@@ -435,7 +435,7 @@ async function abandonPendingAdoption({ ctx, markerEntry, record, farewell = nul
         await forgetPendingImageJob(owned.jobId, owned.leaseId);
         return { status: DrawRunAdoptionRecoveryStatus.COMPLETED, reason: 'abandoned' };
     } catch (error) {
-        await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch(() => {});
+        await releasePendingImageJobLease(owned.jobId, owned.leaseId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "abandonPendingAdoption" }, caughtError); });
         throw error;
     }
 }

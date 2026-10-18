@@ -165,9 +165,13 @@ export function createAppModuleRegistry(
                 cleanups.push(Promise.resolve().then(() => app.module.dispose?.(runtime)));
             }
             if (execution) { cleanups.push(execution.dispose(reason)); }
-            return (await Promise.allSettled(cleanups))
+            const errors = (await Promise.allSettled(cleanups))
                 .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
                 .map(result => result.reason as unknown);
+            for (const error of errors) {
+                console.error('[LittleWhiteBox] 小白 OS APP 资源释放失败', { appId: app.module.descriptor.id, reason }, error);
+            }
+            return errors;
         });
         app.releaseQueue = release;
         return release;
@@ -197,7 +201,9 @@ export function createAppModuleRegistry(
                 if (app.generation !== generation || app.execution !== execution) { return; }
                 backgroundFailure = error;
                 publish(appId, { state: 'failed', failure: appFailure('background', error) });
-                void releaseApp(app, 'app-background-failed');
+                releaseApp(app, 'app-background-failed').catch(releaseError => {
+                    console.error('[LittleWhiteBox] 小白 OS APP 释放队列失败', { appId }, releaseError);
+                });
             });
             app.execution = execution;
             if (app.module.partition) {
@@ -255,7 +261,7 @@ export function createAppModuleRegistry(
         const app = apps.get(appId);
         if (!app) { return Promise.reject(new Error(`unknown app module: ${appId}`)); }
         const result = app.installQueue.then(() => installOne(appId), () => installOne(appId));
-        app.installQueue = result.catch(() => undefined);
+        app.installQueue = result.catch((caughtError) => { console.debug({ source: import.meta.url, operation: "enqueueInstall" }, caughtError); });
         return result;
     }
 

@@ -1,8 +1,8 @@
 import { eventSource, event_types } from "../../../../../script.js";
+import { observeBackgroundTask } from '../shared/common/async-errors.js';
 
 const registry = new Map();
 const customEvents = new Map();
-const handlerWrapperMap = new WeakMap();
 
 export const EventCenter = {
     _debugEnabled: false,
@@ -74,7 +74,7 @@ export const EventCenter = {
             if (this._eventHistory.length > this._maxHistory) {
                 this._eventHistory.splice(0, this._eventHistory.length - this._maxHistory);
             }
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "_pushHistory" }, caughtError); }
     },
 
     on(moduleId, eventType, handler) {
@@ -89,7 +89,6 @@ export const EventCenter = {
             }
             return handler.apply(this, args);
         };
-        handlerWrapperMap.set(handler, wrappedHandler);
         try {
             eventSource.on(eventType, wrappedHandler);
             registry.get(moduleId).push({ eventType, handler, wrappedHandler });
@@ -112,18 +111,16 @@ export const EventCenter = {
             const entry = listeners[idx];
             eventSource.removeListener(eventType, entry.wrappedHandler);
             listeners.splice(idx, 1);
-            handlerWrapperMap.delete(handler);
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "off" }, caughtError); }
     },
 
     cleanup(moduleId) {
         const listeners = registry.get(moduleId);
         if (!listeners) return;
-        listeners.forEach(({ eventType, handler, wrappedHandler }) => {
+        listeners.forEach(({ eventType, wrappedHandler }) => {
             try {
                 eventSource.removeListener(eventType, wrappedHandler);
-                handlerWrapperMap.delete(handler);
-            } catch {}
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
         });
         registry.delete(moduleId);
     },
@@ -173,10 +170,10 @@ export const EventCenter = {
         this._pushHistory("CUSTOM", eventName, null, data);
         const handlers = customEvents.get(eventName);
         if (!handlers) return;
-        handlers.forEach(({ handler }) => {
+        handlers.forEach(({ moduleId, handler }) => {
             try {
-                handler(data);
-            } catch {}
+                observeBackgroundTask(handler(data), { source: import.meta.url, operation: 'emit', moduleId, eventName });
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "emit" }, caughtError); }
         });
     },
 

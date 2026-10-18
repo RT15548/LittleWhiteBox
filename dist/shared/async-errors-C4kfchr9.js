@@ -1,0 +1,1 @@
+function c(e,r){Promise.resolve(e).catch(o=>console.error("[LittleWhiteBox]",r,o))}function n(e,r){return function(...o){try{c(e.apply(this,o),r)}catch(t){console.error("[LittleWhiteBox]",r,t)}}}export{c as n,n as t};

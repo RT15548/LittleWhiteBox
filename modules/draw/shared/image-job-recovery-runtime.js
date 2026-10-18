@@ -48,6 +48,8 @@ import {
     persistedImageJobDeliveryChangesMatch,
     requireImageJobDeliveryTarget,
 } from './image-job-delivery-target.js';
+import { observeAsyncCallback, observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 const RETRY_DELAY_MS = 15_000;
 const backendClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
@@ -405,7 +407,7 @@ function scheduleRecovery(delay = 0) {
     recoveryTimer = setTimeout(() => {
         recoveryTimer = null;
         recoveryTimerAt = 0;
-        void reconcilePendingImageJobs();
+        observeBackgroundTask(reconcilePendingImageJobs(), { source: import.meta.url, operation: "callback" });
     }, Math.max(0, runAt - Date.now()));
 }
 
@@ -513,6 +515,8 @@ async function runRecoveryPass() {
     }
 }
 
+const reconcilePendingImageJobsEvent = observeAsyncCallback(reconcilePendingImageJobs, { source: import.meta.url, operation: "reconcilePendingImageJobs" });
+
 export async function reconcilePendingImageJobs() {
     if (!runtimeEvents) return;
     if (recoveryRunning) {
@@ -559,7 +563,7 @@ export function startImageJobRecovery({
     drawRunActivityDispose = subscribeDrawRunActivity((detail) => {
         if (detail?.wakeRecovery === true) scheduleRecovery();
     });
-    window.addEventListener('online', reconcilePendingImageJobs);
+    window.addEventListener('online', reconcilePendingImageJobsEvent);
     document.addEventListener('visibilitychange', handleRecoveryVisibilityChange);
     scheduleRecovery();
 }
@@ -571,7 +575,7 @@ export function stopImageJobRecovery() {
     drawRunActivityDispose?.();
     drawRunActivityDispose = null;
     clearRecoveryTimer();
-    window.removeEventListener('online', reconcilePendingImageJobs);
+    window.removeEventListener('online', reconcilePendingImageJobsEvent);
     document.removeEventListener('visibilitychange', handleRecoveryVisibilityChange);
     // The active attachment is intentionally not aborted: this signal means extension teardown,
     // not user cancellation. It may finish persistence, or the page can die and its lease will expire.

@@ -71,7 +71,7 @@ export function describeApi(api = {}) {
     let endpointHost = '';
     try {
         endpointHost = new URL(String(api.url || '')).host;
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "describeApi" }, caughtError); }
     return {
         provider: String(api.provider || ''),
         endpointHost,

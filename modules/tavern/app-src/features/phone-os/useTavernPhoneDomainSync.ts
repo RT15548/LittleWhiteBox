@@ -22,6 +22,8 @@ import {
     TAVERN_PET_COMPANION_ID,
     type TavernPetActionRecord,
 } from '../../../shared/pet/pet-types';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 interface TavernPhoneDomainSyncOptions {
     selectedSessionId: Ref<string>;
@@ -270,7 +272,7 @@ function createRefreshScheduler(
         requested = true;
         if (running) {return;}
         running = true;
-        void (async () => {
+        observeBackgroundTask((async () => {
             try {
                 while (requested) {
                     requested = false;
@@ -283,7 +285,7 @@ function createRefreshScheduler(
             } finally {
                 running = false;
             }
-        })();
+        })(), { source: import.meta.url, operation: "callback" });
     };
 }
 
@@ -301,7 +303,7 @@ function createBankRefreshScheduler(
         change.settledPositionIds.forEach((positionId) => pendingPositionIds.add(positionId));
         if (running) {return;}
         running = true;
-        void (async () => {
+        observeBackgroundTask((async () => {
             try {
                 while (pendingSessionId) {
                     const next: TavernBankDomainChange = {
@@ -319,7 +321,7 @@ function createBankRefreshScheduler(
             } finally {
                 running = false;
             }
-        })();
+        })(), { source: import.meta.url, operation: "callback" });
     };
 }
 
@@ -334,7 +336,7 @@ function createPetRefreshScheduler(
         requested = true;
         if (running) {return;}
         running = true;
-        void (async () => {
+        observeBackgroundTask((async () => {
             try {
                 while (requested) {
                     requested = false;
@@ -351,7 +353,7 @@ function createPetRefreshScheduler(
             } finally {
                 running = false;
             }
-        })();
+        })(), { source: import.meta.url, operation: "callback" });
     };
 }
 

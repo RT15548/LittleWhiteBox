@@ -71,8 +71,7 @@ const bundle = await build({
         },
     }],
 });
-// 只执行本测试现场构建的本地模块，没有外部输入。
-// eslint-disable-next-line no-unsanitized/method
+// eslint-disable-next-line no-unsanitized/method -- 只执行本测试现场构建的本地模块，没有外部输入。
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text + '\n//# sourceURL=draw-recovery-test.mjs').toString('base64')}`);
 
 for (const backendState of ['cancelled', 'missing']) for (const preserveSlotsOnCancel of [true, false]) test(`replayed cancellation settles pending cards and preserves newer rerolls (${backendState}, preserve=${preserveSlotsOnCancel})`, async t => {

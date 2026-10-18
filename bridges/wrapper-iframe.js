@@ -31,40 +31,40 @@
     function CallGenerateImpl(options){
       return new Promise(function(resolve,reject){
         try{
-          function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){}}
+          function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "post" }, e); }}
           if(!options||typeof options!=='object'){reject(new Error('Invalid options'));return}
           var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
           function onMessage(e){
             if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
             var d=e&&e.data||{};
             if(d.source!=='xiaobaix-host'||d.id!==id)return;
-            if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch(_){}} 
-            else if(d.type==='generateStreamChunk'&&options.streaming&&options.streaming.onChunk){try{options.streaming.onChunk(d.chunk,d.accumulated)}catch(_){}} 
-            else if(d.type==='generateStreamComplete'){try{window.removeEventListener('message',onMessage)}catch(_){}
+            if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }}
+            else if(d.type==='generateStreamChunk'&&options.streaming&&options.streaming.onChunk){try{options.streaming.onChunk(d.chunk,d.accumulated)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }}
+            else if(d.type==='generateStreamComplete'){try{window.removeEventListener('message',onMessage)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }
               resolve(d.result)}
-            else if(d.type==='generateStreamError'){try{window.removeEventListener('message',onMessage)}catch(_){}
+            else if(d.type==='generateStreamError'){try{window.removeEventListener('message',onMessage)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }
               reject(new Error(d.error||'Stream failed'))}
-            else if(d.type==='generateResult'){try{window.removeEventListener('message',onMessage)}catch(_){}
+            else if(d.type==='generateResult'){try{window.removeEventListener('message',onMessage)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }
               resolve(d.result)}
-            else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch(_){}
+            else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }
               reject(new Error(d.error||'Generation failed'))}
           }
           // eslint-disable-next-line no-restricted-syntax -- origin checked via parentOrigin.
-          try{window.addEventListener('message',onMessage)}catch(_){}
+          try{window.addEventListener('message',onMessage)}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "CallGenerateImpl" }, e); }
           var sanitized=sanitizeOptions(options);
           post({type:'generateRequest',id:id,options:sanitized});
           setTimeout(function(){
-            try{window.removeEventListener('message',onMessage)}catch(e){}
+            try{window.removeEventListener('message',onMessage)}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "CallGenerateImpl" }, e); }
             reject(new Error('Generation timeout'));
           },300000);
         }catch(e){reject(e)}
       })
     }
-    try{window.CallGenerate=CallGenerateImpl}catch(e){}
-    try{window.callGenerate=CallGenerateImpl}catch(e){}
-    try{window.__xb_callGenerate_loaded=true}catch(e){}
+    try{window.CallGenerate=CallGenerateImpl}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "defineCallGenerate" }, e); }
+    try{window.callGenerate=CallGenerateImpl}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "defineCallGenerate" }, e); }
+    try{window.__xb_callGenerate_loaded=true}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "defineCallGenerate" }, e); }
   }
-  try{defineCallGenerate()}catch(e){}
+  try{defineCallGenerate()}catch(e){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "module" }, e); }
 })();
 
 (function(){
@@ -90,17 +90,17 @@
         style.textContent=css;
         document.head.appendChild(style);
       }
-    }catch(_){}
+    }catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "applyAvatarCss" }, _); }
   }
   function requestAvatars(){
-    try{parent.postMessage({type:'getAvatars'},parentOrigin)}catch(_){}
+    try{parent.postMessage({type:'getAvatars'},parentOrigin)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "requestAvatars" }, _); }
   }
   function onMessage(e){
     if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
     const d=e&&e.data||{};
     if(d&&d.source==='xiaobaix-host'&&d.type==='avatars'){
       applyAvatarCss(d.urls);
-      try{window.removeEventListener('message',onMessage)}catch(_){}
+      try{window.removeEventListener('message',onMessage)}catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "onMessage" }, _); }
     }
   }
   try{
@@ -112,5 +112,5 @@
       requestAvatars();
     }
     window.addEventListener('load',requestAvatars,{once:true});
-  }catch(_){}
+  }catch(_){ console.warn({ source: "bridges/wrapper-iframe.js", operation: "module" }, _); }
 })();

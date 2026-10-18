@@ -35,7 +35,9 @@ export async function initXiaobaiOs(): Promise<boolean> {
                 }
                 return initialized;
             } catch (error) {
-                await candidate.cleanup().catch(() => undefined);
+                await candidate.cleanup().catch(cleanupError => {
+                    console.error('[LittleWhiteBox] 小白 OS 启动失败后的资源释放失败', cleanupError);
+                });
                 if (runtime === candidate) {
                     runtime = null;
                 }
@@ -54,7 +56,9 @@ export function prepareXiaobaiOsSettings() {
     return settingsRepository.prepare().then((current) => {
         try {
             globalThis.localStorage?.removeItem('LittleWhiteBox:fourthWallFloatBtnPos');
-        } catch {}
+        } catch (error) {
+            console.warn('[LittleWhiteBox] 小白 OS 旧悬浮按钮位置清理失败', error);
+        }
         return current;
     });
 }

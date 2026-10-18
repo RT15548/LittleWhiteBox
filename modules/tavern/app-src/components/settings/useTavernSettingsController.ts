@@ -42,6 +42,8 @@ import type {
     TavernWorldbookPreviewRow,
 } from '../tavern-app-context';
 import { useTavernSaveFeedback } from './useTavernSaveFeedback';
+import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+
 
 export type TavernSettingsWorkspaceKey = 'characters' | 'api' | 'chatPreset' | 'worldbooks' | 'regex' | 'assistantPreset' | 'base';
 
@@ -1151,7 +1153,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
                 ? selectedWorldbookName.value
                 : fallbackName;
             worldbookStatus.value = '';
-            void loadSelectedWorldbookPreview(selectedWorldbookName.value);
+            observeBackgroundTask(loadSelectedWorldbookPreview(selectedWorldbookName.value), { source: import.meta.url, operation: "syncWorldbooksFromHost" });
         } catch (error) {
             if (requestSerial !== worldbookSyncRequestSerial) {return;}
             worldbookStatus.value = error instanceof Error ? error.message : String(error || '读取失败');
@@ -1201,7 +1203,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             globalWorldbookSelected.value = payload.selected;
             globalWorldbookStatus.value = '';
             refreshCurrentHostContext();
-            void syncWorldbooksFromHost({ keepSelection: true });
+            observeBackgroundTask(syncWorldbooksFromHost({ keepSelection: true }), { source: import.meta.url, operation: "saveGlobalWorldbooksToHost" });
         } catch (error) {
             if (requestSerial !== globalWorldbookRequestSerial) {return;}
             if (globalWorldbookSavingRequestSerial === requestSerial) {
@@ -1209,7 +1211,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
                 globalWorldbookSaving.value = false;
             }
             globalWorldbookStatus.value = error instanceof Error ? error.message : String(error || '保存失败');
-            void syncGlobalWorldbooksFromHost();
+            observeBackgroundTask(syncGlobalWorldbooksFromHost(), { source: import.meta.url, operation: "saveGlobalWorldbooksToHost" });
         }
     }
     function toggleGlobalWorldbook(name: string, selected: boolean) {
@@ -1221,7 +1223,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         } else {
             current.delete(targetName);
         }
-        void saveGlobalWorldbooksToHost([...current]);
+        observeBackgroundTask(saveGlobalWorldbooksToHost([...current]), { source: import.meta.url, operation: "toggleGlobalWorldbook" });
     }
     async function loadSelectedWorldbookPreview(
         name = selectedWorldbookName.value,
@@ -1259,7 +1261,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     function showMoreWorldbookPreviewEntries() {
         if (!selectedWorldbookName.value) {return;}
         worldbookPreviewVisibleLimit.value += WORLDBOOK_PREVIEW_BATCH_SIZE;
-        void loadSelectedWorldbookPreview(selectedWorldbookName.value);
+        observeBackgroundTask(loadSelectedWorldbookPreview(selectedWorldbookName.value), { source: import.meta.url, operation: "showMoreWorldbookPreviewEntries" });
     }
     async function startWorldbookEntryEdit(entry: TavernWorldbookPreviewEntryRow) {
         const targetName = String(selectedWorldbookName.value || '').trim();
@@ -1341,7 +1343,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             patchWorldbookPreviewEntryFromDraft(savedDraft);
             worldbookEntryStatus.value = '';
             completeWorldbookEntrySaveFeedback({ ok: true });
-            void loadSelectedWorldbookPreview(targetName, { preserveExistingOnError: true });
+            observeBackgroundTask(loadSelectedWorldbookPreview(targetName, { preserveExistingOnError: true }), { source: import.meta.url, operation: "saveWorldbookEntryDraft" });
             refreshCurrentHostContext();
         } catch (error) {
             if (requestSerial !== worldbookEntrySaveRequestSerial) {return;}
@@ -1578,7 +1580,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             ...displaySettings.value,
             ...patch,
         }) as TavernDisplaySettings;
-        void saveDisplaySettingsToHost(next);
+        observeBackgroundTask(saveDisplaySettingsToHost(next), { source: import.meta.url, operation: "updateDisplaySettingsPatch" });
     }
     function stepHiddenOutsideCount(direction: -1 | 1) {
         const current = Number(displaySettings.value.hiddenOutsideCount) || 5;
@@ -1976,11 +1978,11 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
                 apiConfigSave.value = { status: 'idle', requestId: '', error: '' };
                 apiSettingsPanelState.configSave = apiConfigSave.value;
                 apiConfigStatus.value = '';
-                void nextTick(renderApiSettingsPanel);
+                observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "callback" });
             }, 1800);
-            void nextTick(renderApiSettingsPanel);
+            observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "callback" });
         }, API_CONFIG_SAVE_TIMEOUT_MS);
-        void nextTick(renderApiSettingsPanel);
+        observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "beginApiConfigSave" });
     }
     function completeApiConfigSave(requestId = '', result: { ok?: boolean; error?: string } = {}) {
         if (requestId && apiConfigSave.value.requestId && requestId !== apiConfigSave.value.requestId) {return;}
@@ -2005,9 +2007,9 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             apiConfigSave.value = { status: 'idle', requestId: '', error: '' };
             apiSettingsPanelState.configSave = apiConfigSave.value;
             apiConfigStatus.value = '';
-            void nextTick(renderApiSettingsPanel);
+            observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "callback" });
         }, 1800);
-        void nextTick(renderApiSettingsPanel);
+        observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "completeApiConfigSave" });
     }
     function handleApiConfigSave(payload: { requestId?: string; payload?: Record<string, unknown> }) {
         const requestId = String(payload.requestId || `save-config-${Date.now()}`);
@@ -2033,8 +2035,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             });
         }
         apiSettingsPanelState.configSave = apiConfigSave.value;
-        // The settings panel markup is generated by our first-party shared config renderer.
-        // eslint-disable-next-line no-unsanitized/property
+        // eslint-disable-next-line no-unsanitized/property -- The settings panel markup is generated by our first-party shared config renderer.
         root.innerHTML = buildAgentSettingsPanelMarkup({
             configSave: apiConfigSave.value,
             runtimeText: apiRuntimeLine.value,
@@ -2168,13 +2169,13 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         () => apiSettingsRootRef.value,
     ], ([workspace, view, nativeCharacterId], [previousWorkspace, previousView, previousNativeCharacterId]) => {
         if (apiSettingsRootRef.value) {
-            void nextTick(renderApiSettingsPanel);
+            observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "callback" });
         }
         const regexWorkspaceActive = view === 'settings' && workspace === 'regex';
         const enteredRegexWorkspace = regexWorkspaceActive && (previousView !== view || previousWorkspace !== workspace);
         const regexCharacterChanged = regexWorkspaceActive && nativeCharacterId !== previousNativeCharacterId;
         if (regexWorkspaceActive && (enteredRegexWorkspace || regexCharacterChanged || !regexGroups.value.length)) {
-            void refreshRegexFromHost();
+            observeBackgroundTask(refreshRegexFromHost(), { source: import.meta.url, operation: "callback" });
         }
     });
     watch([options.activeView, options.activeSettingsWorkspace], ([view, workspace], [previousView, previousWorkspace]) => {
@@ -2183,36 +2184,36 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             && workspace === 'chatPreset'
             && (previousView !== view || previousWorkspace !== workspace)
         ) {
-            void syncChatPresetFromHost();
+            observeBackgroundTask(syncChatPresetFromHost(), { source: import.meta.url, operation: "callback" });
         }
         if (
             view === 'settings'
             && workspace === 'worldbooks'
             && (previousView !== view || previousWorkspace !== workspace)
         ) {
-            void syncWorldbooksFromHost({ keepSelection: true });
-            void syncGlobalWorldbooksFromHost();
+            observeBackgroundTask(syncWorldbooksFromHost({ keepSelection: true }), { source: import.meta.url, operation: "callback" });
+            observeBackgroundTask(syncGlobalWorldbooksFromHost(), { source: import.meta.url, operation: "callback" });
         }
         if (
             view === 'settings'
             && workspace === 'assistantPreset'
             && (previousView !== view || previousWorkspace !== workspace)
         ) {
-            void refreshPresets();
+            observeBackgroundTask(refreshPresets(), { source: import.meta.url, operation: "callback" });
         }
         if (
             view === 'settings'
             && workspace === 'base'
             && (previousView !== view || previousWorkspace !== workspace)
         ) {
-            void loadTavernUsers();
+            observeBackgroundTask(loadTavernUsers(), { source: import.meta.url, operation: "callback" });
         }
     });
     watch(selectedWorldbookName, (name) => {
         if (options.activeSettingsWorkspace.value !== 'worldbooks') {return;}
         cancelWorldbookEntryEdit();
         worldbookPreviewVisibleLimit.value = WORLDBOOK_PREVIEW_BATCH_SIZE;
-        void loadSelectedWorldbookPreview(name);
+        observeBackgroundTask(loadSelectedWorldbookPreview(name), { source: import.meta.url, operation: "callback" });
     });
 
     const settingsContext = {

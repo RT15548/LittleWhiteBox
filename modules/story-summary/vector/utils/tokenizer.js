@@ -13,6 +13,7 @@
 // - WASM 未就绪时 → 实体保护 + 标点分割（不用 bigram）
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import { extensionFolderPath } from '../../../../core/constants.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { BASE_STOP_WORDS } from './stopwords-base.js';
@@ -330,7 +331,7 @@ function tokenizeLatin(text) {
  */
 export async function preload() {
     // TinySegmenter 独立于结巴状态（内部有防重入）
-    loadTinySegmenter();
+    observeBackgroundTask(loadTinySegmenter(), { source: import.meta.url, operation: 'preload' });
 
     // 已就绪
     if (wasmState === WasmState.READY) return true;
@@ -350,7 +351,7 @@ export async function preload() {
             // ★ 使用绝对路径（开头加 /）
             const wasmPath = `/${extensionFolderPath}/libs/jieba-wasm/jieba_rs_wasm_bg.wasm`;
 
-            // eslint-disable-next-line no-unsanitized/method
+            // eslint-disable-next-line no-unsanitized/method -- Imports the bundled Jieba module from this installed extension's directory.
             jiebaModule = await import(
                 `/${extensionFolderPath}/libs/jieba-wasm/jieba_rs_wasm.js`
             );
@@ -395,7 +396,7 @@ async function loadTinySegmenter() {
     if (tinySegmenter) return;
 
     try {
-        // eslint-disable-next-line no-unsanitized/method
+        // eslint-disable-next-line no-unsanitized/method -- Imports the bundled TinySegmenter module from this installed extension's directory.
         const mod = await import(
             `/${extensionFolderPath}/libs/tiny-segmenter.js`
         );

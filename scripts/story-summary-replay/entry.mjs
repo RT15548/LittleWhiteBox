@@ -1,4 +1,5 @@
 
+import { tryParseJson } from '../../shared/common/json-candidate.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -203,15 +204,9 @@ function createStreamingGenerationShim(summaryApiConfig) {
         const end = output.lastIndexOf('}');
         let fullJson = false;
         let boundedJson = false;
-        try {
-            JSON.parse(output);
-            fullJson = true;
-        } catch {}
+        fullJson = tryParseJson(output).ok;
         if (start >= 0 && end > start) {
-            try {
-                JSON.parse(output.slice(start, end + 1));
-                boundedJson = true;
-            } catch {}
+            boundedJson = tryParseJson(output.slice(start, end + 1)).ok;
         }
         return {
             ...responseMeta,
@@ -2213,7 +2208,7 @@ export async function runStorySummaryReplay({ rootDir, config, configPath }) {
         try {
             const baselineRaw = await fs.readFile(baselinePath, 'utf8');
             baselineReport = JSON.parse(baselineRaw);
-        } catch {}
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "runStorySummaryReplay" }, caughtError); }
     }
     report.baselineComparison = buildBaselineComparison(report, baselineReport);
 

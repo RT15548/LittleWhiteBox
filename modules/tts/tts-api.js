@@ -158,7 +158,7 @@ export async function synthesizeV3(params, authHeaders = {}) {
                 audioChunks.push(bytes);
             }
             if (json.code === 20000000 && json.usage) usage = json.usage;
-        } catch {}
+        } catch (caughtError) { console.debug({ source: import.meta.url, operation: "readLine" }, caughtError); }
     };
     try {
         while (true) {
@@ -174,7 +174,7 @@ export async function synthesizeV3(params, authHeaders = {}) {
         params.signal?.throwIfAborted();
         readLine(buffer + decoder.decode());
     } finally {
-        await reader.cancel().catch(() => {});
+        await reader.cancel().catch((caughtError) => { console.debug({ source: import.meta.url, operation: "synthesizeV3" }, caughtError); });
         reader.releaseLock();
     }
 
@@ -302,7 +302,7 @@ export async function synthesizeV3Stream(params, authHeaders = {}, options = {})
                 if (json.code === 20000000 && json.usage) {
                     usage = json.usage;
                 }
-            } catch {}
+            } catch (caughtError) { console.debug({ source: import.meta.url, operation: "synthesizeV3Stream" }, caughtError); }
         }
     }
 

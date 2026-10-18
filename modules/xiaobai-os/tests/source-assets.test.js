@@ -8,8 +8,7 @@ import { build } from 'vite';
 import { createSourceAssetPlugin } from '../../../scripts/vite-source-assets.mjs';
 
 function loadEntry(directory, version = '') {
-    // Only imports this test's locally built fixture, never user-supplied code.
-    // eslint-disable-next-line no-unsanitized/method
+    // eslint-disable-next-line no-unsanitized/method -- Only imports this test's locally built fixture, never user-supplied code.
     return import(`${pathToFileURL(path.join(directory, 'entry.mjs')).href}?build=${version}`);
 }
 

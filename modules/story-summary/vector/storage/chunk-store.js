@@ -244,7 +244,7 @@ export async function getChunkVectorDescriptors(chatId) {
         try {
             assertFiniteVector(bufferToFloat32(record.vector), 'stored chunk vector', record.dims);
             valid = true;
-        } catch { /* 无效向量与缺失向量一样，需要补齐。 */ }
+        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getChunkVectorDescriptors" }, caughtError); }
         descriptors.push({ chunkId: record.chunkId, fingerprint: record.fingerprint, valid });
     });
     return descriptors;

@@ -1,4 +1,5 @@
 import { DOMPurify } from '../../../../../../lib.js';
+import { tryParseJson } from '../../shared/common/json-candidate.js';
 const D = { stage: 0, deviationScore: 0, simulationTarget: 5, meta: { truth: null, onion_layers: null, timeline: null, user_guide: null }, world: {}, maps: { outdoor: { nodes: [] }, indoor: null }, sceneSetup: null, contacts: { strangers: [], contacts: [{ name: "{{characterName}}", avatar: "", color: "#555", location: "在线", info: "", online: true, worldbookUid: "__CHARACTER_CARD__", messages: [], summarizedCount: 0 }] } };
 let charSmsHistory = { messages: [], summarizedCount: 0, summaries: {} };
 const $ = (t) => document.getElementById(t), $$ = (t) => document.querySelectorAll(t), isMob = () => innerWidth <= 550, escHtml = (t) => t.replace(/[&<>"']/g, ((t2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[t2])), h = (t) => escHtml(String(t ?? "")), stripXml = (t) => t ? t.replace(/<(\w+)[^>]*>[\s\S]*?<\/\1>/g, "").replace(/<[^>]+\/?>/g, "").trim() : "", parseLinks = (t) => h(t).replace(/\*\*([^*]+)\*\*/g, '<span class="loc-lk" data-loc="$1">$1</span>'), PARENT_ORIGIN = (() => {
@@ -286,17 +287,13 @@ const reqSet = () => post("GET_SETTINGS"), renderDataList = () => {
 }, parseJsonLoose = (t) => {
   const e = String(t ?? "").trim();
   if (!e) throw new Error("空内容");
-  try {
-    return JSON.parse(e);
-  } catch {
-  }
+  const candidate = tryParseJson(e);
+  if (candidate.ok) return candidate.value;
   const s = e.match(/```[^\n]*\n([\s\S]*?)\n```/);
   if (s?.[1]) {
     const t2 = s[1].trim();
-    try {
-      return JSON.parse(t2);
-    } catch {
-    }
+    const candidate = tryParseJson(t2);
+    if (candidate.ok) return candidate.value;
   }
   const o = (t2, s2) => {
     const o2 = e.indexOf(t2), a2 = e.lastIndexOf(s2);

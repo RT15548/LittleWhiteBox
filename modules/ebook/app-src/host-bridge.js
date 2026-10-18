@@ -123,8 +123,7 @@ export function createEbookHostBridge(options = {}) {
             }
         };
 
-        // The host origin/source are checked before handling messages.
-        // eslint-disable-next-line no-restricted-syntax
+        // eslint-disable-next-line no-restricted-syntax -- The host origin/source are checked before handling messages.
         window.addEventListener('message', handleMessage);
         stopListening = () => {
             window.removeEventListener('message', handleMessage);

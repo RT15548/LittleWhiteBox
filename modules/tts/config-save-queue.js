@@ -74,7 +74,7 @@ export function createConfigSaveQueue({
         };
 
         const pending = queue.then(operation, operation);
-        queue = pending.then(() => {}, () => {});
+        queue = pending.then(() => {}, (caughtError) => { console.warn({ source: import.meta.url, operation: "save" }, caughtError); });
         return await pending;
     }
 
@@ -82,7 +82,7 @@ export function createConfigSaveQueue({
         let previous;
         do {
             previous = queue;
-            await previous.catch(() => {});
+            await previous.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "whenIdle" }, caughtError); });
         } while (previous !== queue);
     }
 

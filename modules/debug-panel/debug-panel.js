@@ -4,6 +4,10 @@
 
 import { extensionFolderPath } from "../../core/constants.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
+import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
+
+const closeDebugPanelEvent = observeAsyncCallback(closeDebugPanel, { source: import.meta.url, operation: "closeDebugPanel" });
+
 
 const STORAGE_EXPANDED_KEY = "xiaobaix_debug_panel_pos_v2";
 const STORAGE_MINI_KEY = "xiaobaix_debug_panel_minipos_v2";
@@ -62,7 +66,7 @@ function readJSON(key) {
 }
 
 function writeJSON(key, data) {
-    try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+    try { localStorage.setItem(key, JSON.stringify(data)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "writeJSON" }, caughtError); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -142,7 +146,7 @@ function startLongTaskObserver() {
                                 source = attr.containerName;
                             }
                         }
-                    } catch {}
+                    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startLongTaskObserver" }, caughtError); }
                     longTaskLog.push({ 
                         duration: Math.round(entry.duration), 
                         timestamp: Date.now(),
@@ -153,12 +157,12 @@ function startLongTaskObserver() {
             }
         });
         longTaskObserver.observe({ entryTypes: ['longtask'] });
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startLongTaskObserver" }, caughtError); }
 }
 
 function stopLongTaskObserver() {
     if (longTaskObserver) {
-        try { longTaskObserver.disconnect(); } catch {}
+        try { longTaskObserver.disconnect(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "stopLongTaskObserver" }, caughtError); }
         longTaskObserver = null;
     }
 }
@@ -456,7 +460,7 @@ async function getDebugSnapshot() {
 }
 
 function postToFrame(msg) {
-    try { postToIframe(iframeEl, { ...msg }, "LittleWhiteBox-DebugHost"); } catch {}
+    try { postToIframe(iframeEl, { ...msg }, "LittleWhiteBox-DebugHost"); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "postToFrame" }, caughtError); }
 }
 
 async function sendSnapshotToFrame() {
@@ -489,15 +493,15 @@ async function handleAction(action) {
 function bindMessageListener() {
     if (messageListenerBound) return;
     messageListenerBound = true;
-    // eslint-disable-next-line no-restricted-syntax
-    window.addEventListener("message", async (e) => {
+    // eslint-disable-next-line no-restricted-syntax -- isTrustedMessage below validates both origin and the owning iframe.
+    window.addEventListener("message", observeAsyncCallback(async (e) => {
         // Guarded by isTrustedMessage (origin + source).
         if (!isTrustedMessage(e, iframeEl, "LittleWhiteBox-DebugFrame")) return;
         const msg = e?.data;
         if (msg.type === "FRAME_READY") { frameReady = true; await sendSnapshotToFrame(); }
         else if (msg.type === "XB_DEBUG_ACTION") await handleAction(msg);
-        else if (msg.type === "CLOSE_PANEL") closeDebugPanel();
-    });
+        else if (msg.type === "CLOSE_PANEL") observeBackgroundTask(closeDebugPanel(), { source: import.meta.url, operation: 'bindMessageListener' });
+    }, { source: import.meta.url, operation: "callback" }));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -515,7 +519,6 @@ function updateMiniBadge(logs) {
     if (newMax > lastLogId && !isExpanded) {
         miniBtnEl.classList.remove("flash");
         // Force reflow to restart animation.
-        // eslint-disable-next-line no-unused-expressions
         miniBtnEl.offsetWidth;
         miniBtnEl.classList.add("flash");
     }
@@ -539,7 +542,7 @@ function onMiniDown(e) {
         startTop: miniBtnEl.getBoundingClientRect().top,
         pointerId: e.pointerId, moved: false
     };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onMiniDown" }, caughtError); }
     e.preventDefault();
 }
 
@@ -556,7 +559,7 @@ function onMiniMove(e) {
 function onMiniUp(e) {
     if (!dragState || dragState.pointerId !== e.pointerId) return;
     const wasMoved = dragState.moved;
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onMiniUp" }, caughtError); }
     dragState = null;
     saveMiniPos();
     if (!wasMoved) expandPanel();
@@ -576,7 +579,7 @@ function onTitleDown(e) {
         startTop: panelEl.getBoundingClientRect().top,
         pointerId: e.pointerId
     };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onTitleDown" }, caughtError); }
     e.preventDefault();
 }
 
@@ -591,7 +594,7 @@ function onTitleMove(e) {
 
 function onTitleUp(e) {
     if (!dragState || isMobile() || dragState.pointerId !== e.pointerId) return;
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onTitleUp" }, caughtError); }
     dragState = null;
     saveExpandedPos();
 }
@@ -602,10 +605,10 @@ function onTitleUp(e) {
 
 function startPoll() {
     stopPoll();
-    pollTimer = setInterval(async () => {
+    pollTimer = setInterval(observeAsyncCallback(async () => {
         if (!isOpen) return;
-        try { await sendSnapshotToFrame(); } catch {}
-    }, 1500);
+        try { await sendSnapshotToFrame(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startPoll" }, caughtError); }
+    }, { source: import.meta.url, operation: "callback" }), 1500);
 }
 
 function stopPoll() {
@@ -665,7 +668,7 @@ function createPanel() {
     titlebar.addEventListener("pointerup", onTitleUp, { passive: false });
     titlebar.addEventListener("pointercancel", onTitleUp, { passive: false });
     panelEl.querySelector("#xbdbg-min")?.addEventListener("click", collapsePanel);
-    panelEl.querySelector("#xbdbg-close")?.addEventListener("click", closeDebugPanel);
+    panelEl.querySelector("#xbdbg-close")?.addEventListener("click", closeDebugPanelEvent);
     if (!isMobile()) {
         panelEl.addEventListener("mouseup", saveExpandedPos);
         panelEl.addEventListener("mouseleave", saveExpandedPos);
@@ -715,7 +718,7 @@ async function openDebugPanel() {
     startPoll();
     updateSettingsLight();
     if (!resizeHandler) { resizeHandler = onResize; window.addEventListener("resize", resizeHandler); }
-    try { window.registerModuleCleanup?.("debugPanel", closeDebugPanel); } catch {}
+    try { window.registerModuleCleanup?.("debugPanel", closeDebugPanel); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openDebugPanel" }, caughtError); }
 }
 
 async function closeDebugPanel() {
@@ -730,7 +733,7 @@ async function closeDebugPanel() {
         const { disableDebugMode, disablePersistentDebugLogging } = await import("../../core/debug-core.js");
         disableDebugMode();
         disablePersistentDebugLogging({ clear: true });
-    } catch {}
+    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "closeDebugPanel" }, caughtError); }
     removePanel();
     removeMiniButton();
     updateSettingsLight();

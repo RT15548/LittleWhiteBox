@@ -197,6 +197,8 @@ import {
     type TavernShellContext,
     type TavernWorkspaceContext,
 } from './components/tavern-app-context';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+
 
 interface TavernDiagnostics {
     ok?: boolean;
@@ -399,8 +401,8 @@ function readInitialTavernThemeDark(): boolean {
         const value = globalThis.localStorage?.getItem(TAVERN_THEME_STORAGE_KEY);
         if (value === 'dark') {return true;}
         if (value === 'light') {return false;}
-    } catch {
-        // Use the light default below when storage is unavailable.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "readInitialTavernThemeDark" }, caughtError);
     }
     return false;
 }
@@ -543,13 +545,13 @@ function restoreTavernDialogReturnFocus() {
     const target = tavernDialogReturnFocus;
     tavernDialogReturnFocus = null;
     if (!target?.isConnected) {return;}
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         try {
             target.focus({ preventScroll: true });
         } catch {
             target.focus();
         }
-    });
+    }), { source: import.meta.url, operation: "restoreTavernDialogReturnFocus" });
 }
 
 function focusTavernDialogElement(element: HTMLElement | null | undefined) {
@@ -588,7 +590,7 @@ function openTavernDialog(
             ...normalizeTavernDialogOptions(options, kind),
             resolve,
         };
-        void nextTick(focusInitialTavernDialogControl);
+        observeBackgroundTask(nextTick(focusInitialTavernDialogControl), { source: import.meta.url, operation: "callback" });
     });
 }
 
@@ -634,12 +636,12 @@ function canCloseTavernDialogFromBackdrop(dialog: TavernDialogState | null) {
 
 function pulseTavernDialogAttention() {
     tavernDialogAttention.value = false;
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         tavernDialogAttention.value = true;
         window.setTimeout(() => {
             tavernDialogAttention.value = false;
         }, 260);
-    });
+    }), { source: import.meta.url, operation: "pulseTavernDialogAttention" });
 }
 
 function handleTavernDialogBackdropClick() {
@@ -1472,7 +1474,7 @@ watch([activeView, activeSettingsWorkspace], ([view, workspace], [previousView, 
         && (previousView !== view || previousWorkspace !== workspace)
     ) {
         pendingCharacterError.value = '';
-        void refreshCharacterList();
+        observeBackgroundTask(refreshCharacterList(), { source: import.meta.url, operation: "callback" });
     }
 });
 
@@ -1493,11 +1495,11 @@ watch(memoryFileSearchText, () => {
 });
 
 watch(() => selectedCharacterSessions.value.map((session) => session.id).join('|'), () => {
-    void refreshSessionLatestMessageOrdersForSessions(selectedCharacterSessions.value);
+    observeBackgroundTask(refreshSessionLatestMessageOrdersForSessions(selectedCharacterSessions.value), { source: import.meta.url, operation: "callback" });
 }, { immediate: true });
 
 watch(() => currentChatCharacterSessions.value.map((session) => session.id).join('|'), () => {
-    void refreshSessionLatestMessageOrdersForSessions(currentChatCharacterSessions.value);
+    observeBackgroundTask(refreshSessionLatestMessageOrdersForSessions(currentChatCharacterSessions.value), { source: import.meta.url, operation: "callback" });
 }, { immediate: true });
 
 function describeError(error: unknown) {
@@ -1570,10 +1572,10 @@ function rememberDisplayRegexText(key: string, text: string) {
     }
     displayRegexCache.value = next;
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             enhanceChatMarkdown();
             updateChatScrollButtons();
-        });
+        }), { source: import.meta.url, operation: "rememberDisplayRegexText" });
     }
 }
 
@@ -1806,7 +1808,7 @@ function displayMessageRenderProjection(message: TavernMessageRecord): DisplayRe
     if (cached !== undefined) {
         return toDisplayRegexProjection(cached, request);
     }
-    void resolveDisplayRegexText(request);
+    observeBackgroundTask(resolveDisplayRegexText(request), { source: import.meta.url, operation: "displayMessageRenderProjection" });
     return source.fallback;
 }
 
@@ -1847,7 +1849,7 @@ function displayMessageThoughtBlocks(message: TavernMessageRecord): Array<{ labe
         if (cached !== undefined) {
             return { ...thought, text: cached };
         }
-        void resolveDisplayRegexText(request);
+        observeBackgroundTask(resolveDisplayRegexText(request), { source: import.meta.url, operation: "callback" });
         return thought;
     }).filter((thought) => String(thought.text || '').trim());
 }
@@ -2142,8 +2144,8 @@ function refreshAssistantChatContextMeter(options: { immediate?: boolean } = {})
                 || !Number.isFinite(tokens)
             ) {return;}
             assistantChatBudgetTokens.value = tokens;
-        } catch {
-            // A stale local estimate leaves the meter neutral.
+        } catch (caughtError) {
+            console.warn({ source: import.meta.url, operation: "resolve" }, caughtError);
         } finally {
             if (requestSerial === assistantChatContextRefreshSerial && assistantChatContextAbortController === controller) {
                 assistantChatContextAbortController = null;
@@ -2152,12 +2154,12 @@ function refreshAssistantChatContextMeter(options: { immediate?: boolean } = {})
         }
     };
     if (options.immediate) {
-        void resolve();
+        observeBackgroundTask(resolve(), { source: import.meta.url, operation: "refreshAssistantChatContextMeter" });
         return;
     }
     assistantChatContextRefreshTimer = window.setTimeout(() => {
         assistantChatContextRefreshTimer = null;
-        void resolve();
+        observeBackgroundTask(resolve(), { source: import.meta.url, operation: "callback" });
     }, 220);
 }
 
@@ -2305,7 +2307,7 @@ function applyHostPayload(payload: Record<string, unknown>) {
         htmlRenderEnabled.value = payload.htmlRenderEnabled !== false;
     }
     if ('extensionBasePath' in payload) {
-        void materialSymbolFont.load(payload.extensionBasePath);
+        observeBackgroundTask(materialSymbolFont.load(payload.extensionBasePath), { source: import.meta.url, operation: "applyHostPayload" });
     }
     applyHostChatPreset(payload);
     availableCharacters.value = payload.availableCharacters as TavernCharacterOption[] || availableCharacters.value;
@@ -2314,13 +2316,13 @@ function applyHostPayload(payload: Record<string, unknown>) {
         pendingCharacterError.value = error instanceof Error ? error.message : String(error || 'create_session_failed');
         clearPendingCharacterSession();
     });
-    void nextTick(renderApiSettingsPanel);
+    observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "applyHostPayload" });
 }
 
 function startPostReadyStartupTasksAfterInitialConfig() {
     if (!initialConfigApplied || postReadyStartupStarted) {return;}
     postReadyStartupStarted = true;
-    void runPostReadyStartupTasks();
+    observeBackgroundTask(runPostReadyStartupTasks(), { source: import.meta.url, operation: "startPostReadyStartupTasksAfterInitialConfig" });
 }
 
 function applyCharacterListPayload(payload: Record<string, unknown>) {
@@ -3333,7 +3335,7 @@ async function revealOlderManagerMessages() {
             managerChatHasMore.value = page.hasMore;
             managerChatHasNewer.value = managerChatHasNewer.value || trimmed;
         });
-        void nextTick(() => updateManagerScrollButtons());
+        observeBackgroundTask(nextTick(() => updateManagerScrollButtons()), { source: import.meta.url, operation: "revealOlderManagerMessages" });
     } finally {
         assistantChatOlderLoading = false;
     }
@@ -3343,7 +3345,7 @@ async function revealNewerManagerMessages() {
     const sessionId = String(selectedSessionId.value || '').trim();
     if (!sessionId || !managerChatHasNewer.value || assistantChatOlderLoading) {return;}
     await refreshAssistantChat(sessionId);
-    void nextTick(() => scrollManagerToBottom());
+    observeBackgroundTask(nextTick(() => scrollManagerToBottom()), { source: import.meta.url, operation: "revealNewerManagerMessages" });
 }
 
 async function resetChatMessageWindowForUserTurn(options: { rerollLatestAssistant?: boolean } = {}) {
@@ -3881,16 +3883,16 @@ async function copyTextWithFallback(text = '') {
         } finally {
             textarea.remove();
         }
-    } catch {
-        // Fall through to the async clipboard path.
+    } catch (caughtError) {
+        console.debug({ source: import.meta.url, operation: "copyTextWithFallback" }, caughtError);
     }
     try {
         if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(normalized);
             return true;
         }
-    } catch {
-        // Fall through to false.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "copyTextWithFallback" }, caughtError);
     }
     return false;
 }
@@ -3921,13 +3923,13 @@ function startEditManagerMessage(message: TavernAssistantChatMessageUnit) {
     editingMessageKey.value = '';
     editingManagerMessageKey.value = managerMessageKey(message);
     editingMessageDraft.value = message.content || '';
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         const textarea = managerScrollRef.value?.querySelector<HTMLTextAreaElement>(`[data-manager-message-editor="${managerMessageKey(message)}"]`);
         if (!textarea) {return;}
         autoSizeTextarea(textarea);
         textarea.focus();
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    });
+    }), { source: import.meta.url, operation: "startEditManagerMessage" });
 }
 
 function cancelEditMessage() {
@@ -3937,10 +3939,10 @@ function cancelEditMessage() {
         editingMessageKey.value = '';
     }
     editingMessageDraft.value = '';
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         enhanceChatMarkdown();
         enhanceManagerMarkdown();
-    });
+    }), { source: import.meta.url, operation: "cancelEditMessage" });
 }
 
 function autoSizeTextarea(
@@ -3967,7 +3969,7 @@ function handleManagerEditKeydown(event: KeyboardEvent, message: TavernAssistant
     }
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
-        void saveEditManagerMessage(message);
+        observeBackgroundTask(saveEditManagerMessage(message), { source: import.meta.url, operation: "handleManagerEditKeydown" });
     }
 }
 
@@ -4286,7 +4288,7 @@ function handleComposeKeydown(event: KeyboardEvent) {
     const shouldSend = event.ctrlKey || event.metaKey || window.innerWidth >= 760;
     if (!shouldSend) {return;}
     event.preventDefault();
-    void runOnce();
+    observeBackgroundTask(runOnce(), { source: import.meta.url, operation: "handleComposeKeydown" });
 }
 
 function handleManagerComposeKeydown(event: KeyboardEvent) {
@@ -4295,7 +4297,7 @@ function handleManagerComposeKeydown(event: KeyboardEvent) {
     const shouldSend = event.ctrlKey || event.metaKey || window.innerWidth >= 760;
     if (!shouldSend) {return;}
     event.preventDefault();
-    void handleManagerSubmit();
+    observeBackgroundTask(handleManagerSubmit(), { source: import.meta.url, operation: "handleManagerComposeKeydown" });
 }
 
 function clearManagerCompactionOverlayHideTimer() {
@@ -4440,7 +4442,7 @@ async function resolveSlashCommandMessageText(messageText: string, options: { re
     const pipe = normalizeSlashPipeForMessage(result.pipe);
     if (!pipe) {
         currentUserMessage.value = '';
-        void nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value));
+        observeBackgroundTask(nextTick(() => resetTextareaHeight(chatComposeTextareaRef.value)), { source: import.meta.url, operation: "resolveSlashCommandMessageText" });
         showTavernToast('命令已执行，没有输出。', { tone: 'info', durationMs: 2200 });
         return '';
     }
@@ -4764,7 +4766,7 @@ async function runManagerQuestion(
         }
         if (!userMessageAppended && !options.replaceOrders?.length && selectedSessionId.value === managerSessionId && !managerInputDraft.value.trim()) {
             managerInputDraft.value = question;
-            void nextTick(() => resizeManagerComposeTextarea());
+            observeBackgroundTask(nextTick(() => resizeManagerComposeTextarea()), { source: import.meta.url, operation: "runManagerQuestion" });
         }
         if (!userMessageAppended) {
             if (ownsManagerUi()) {managerInputStatus.value = controller.signal.aborted ? '' : '失败';}
@@ -4838,7 +4840,7 @@ async function sendManagerQuestion(
         && !managerInputDraft.value.trim()
     ) {
         managerInputDraft.value = question;
-        void nextTick(() => resizeManagerComposeTextarea());
+        observeBackgroundTask(nextTick(() => resizeManagerComposeTextarea()), { source: import.meta.url, operation: "sendManagerQuestion" });
     }
     managerInputStatus.value = '助手正在处理上一条消息';
     showTavernToast('这个会话的助手正在运行，请等它完成后再发送。', { tone: 'info', durationMs: 3500 });
@@ -4873,7 +4875,7 @@ async function handleManagerSubmit() {
     if (!text || !selectedSessionId.value) {return;}
     const managerSessionId = selectedSessionId.value;
     managerInputDraft.value = '';
-    void nextTick(() => resizeManagerComposeTextarea());
+    observeBackgroundTask(nextTick(() => resizeManagerComposeTextarea()), { source: import.meta.url, operation: "handleManagerSubmit" });
     setManagerPendingUserMessage(managerSessionId, text);
     managerInputStatus.value = '准备中';
     await sendManagerQuestion(managerSessionId, text);
@@ -4907,7 +4909,7 @@ async function clearAssistantChatHistory() {
     }
     clearManagerMessageFeedback(sessionId);
     showTavernToast('助手对话已清空');
-    void nextTick(() => scrollManagerToBottom(true));
+    observeBackgroundTask(nextTick(() => scrollManagerToBottom(true)), { source: import.meta.url, operation: "clearAssistantChatHistory" });
 }
 
 watch([
@@ -4934,10 +4936,10 @@ watch([
     () => chatFocus.value,
 ], () => {
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             enhanceChatMarkdown();
             updateChatScrollButtons();
-        });
+        }), { source: import.meta.url, operation: "callback" });
     }
 });
 
@@ -4961,9 +4963,9 @@ watch([
     runtimeDisplayThoughtBlocks,
 ], () => {
     if (activeView.value !== 'chat' || chatFocus.value !== 'chat') {return;}
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         updateChatScrollButtons();
-    });
+    }), { source: import.meta.url, operation: "callback" });
 });
 
 watch([
@@ -4978,17 +4980,17 @@ watch([
 ], () => {
     if (activeView.value === 'chat' && chatFocus.value === 'manager') {
         scrollManagerToBottom();
-        void nextTick(() => {
+        observeBackgroundTask(nextTick(() => {
             enhanceManagerMarkdown();
             updateManagerScrollButtons();
-        });
+        }), { source: import.meta.url, operation: "callback" });
     }
 });
 
 watch(() => liveManagerMarkdownSignature.value, () => {
     if (activeView.value !== 'chat' || chatFocus.value !== 'manager') {return;}
     scrollManagerToBottom();
-    void nextTick(() => updateManagerScrollButtons());
+    observeBackgroundTask(nextTick(() => updateManagerScrollButtons()), { source: import.meta.url, operation: "callback" });
 });
 
 watch([
@@ -5025,10 +5027,10 @@ watch(() => selectedSessionId.value, (nextSessionId, previousSessionId) => {
     managerAutoScroll.value = true;
     memoryFileSearchText.value = '';
     memoryFileGroupVisibleLimits.value = {};
-    void nextTick(() => {
+    observeBackgroundTask(nextTick(() => {
         placeChatAtBottomForNewContext();
         scrollManagerToBottom(true);
-    });
+    }), { source: import.meta.url, operation: "callback" });
 });
 
 watch([
@@ -5064,8 +5066,8 @@ watch([
 watch(homeThemeDark, (isDark) => {
     try {
         globalThis.localStorage?.setItem(TAVERN_THEME_STORAGE_KEY, isDark ? 'dark' : 'light');
-    } catch {
-        // Theme persistence is best-effort only.
+    } catch (caughtError) {
+        console.warn({ source: import.meta.url, operation: "module" }, caughtError);
     }
 });
 
@@ -5375,22 +5377,22 @@ async function runPostReadyStartupTasks() {
         await nextTick(renderApiSettingsPanel);
     }
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'chatPreset') {
-        void syncChatPresetFromHost();
+        observeBackgroundTask(syncChatPresetFromHost(), { source: import.meta.url, operation: "runPostReadyStartupTasks" });
     }
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'worldbooks') {
-        void syncWorldbooksFromHost();
+        observeBackgroundTask(syncWorldbooksFromHost(), { source: import.meta.url, operation: "runPostReadyStartupTasks" });
     }
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'regex') {
-        void refreshRegexFromHost();
+        observeBackgroundTask(refreshRegexFromHost(), { source: import.meta.url, operation: "runPostReadyStartupTasks" });
     }
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'base') {
-        void loadTavernUsers();
+        observeBackgroundTask(loadTavernUsers(), { source: import.meta.url, operation: "runPostReadyStartupTasks" });
     }
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'characters') {
-        void refreshCharacterList();
+        observeBackgroundTask(refreshCharacterList(), { source: import.meta.url, operation: "runPostReadyStartupTasks" });
     }
     if (selectedSessionId.value) {
-        void syncSessionCharacterContextSafely({ sessionId: selectedSessionId.value, force: true });
+        observeBackgroundTask(syncSessionCharacterContextSafely({ sessionId: selectedSessionId.value, force: true }), { source: import.meta.url, operation: "runPostReadyStartupTasks" });
     }
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
         placeChatAtBottomForNewContext();
@@ -5403,12 +5405,12 @@ onMounted(async () => {
     document.addEventListener('focusin', handleKeyboardViewportFocus, true);
     document.addEventListener('focusout', handleKeyboardViewportFocus, true);
     if (activeView.value === 'settings' && activeSettingsWorkspace.value === 'api') {
-        void nextTick(renderApiSettingsPanel);
+        observeBackgroundTask(nextTick(renderApiSettingsPanel), { source: import.meta.url, operation: "callback" });
     }
     syncApiSettingsConfigFromAgentConfig();
     await nextTick();
     hostBridge.postToHost('xb-tavern:frame-ready');
-    void drawContext.refreshTavernDrawStatus();
+    observeBackgroundTask(drawContext.refreshTavernDrawStatus(), { source: import.meta.url, operation: "callback" });
 });
 
 onUnmounted(() => {

@@ -21,7 +21,10 @@ const compiled = await build({
             export const getContext = () => host.context;
             export const extension_settings = {};
             export const saveSettingsDebounced = () => {};
-            export const saveSettings = async () => true;
+            export const saveSettings = async () => {};
+            export const getRequestHeaders = () => ({});
+            export const eventSource = {};
+            export const event_types = {};
             export function selectAvatar(value) { user_avatar = value; }
         ` }));
     } }],

@@ -14,6 +14,8 @@ import {
     sleepWithAbort,
 } from './planner-retry.js';
 import { logScenePlannerDiagnostic } from './scene-planner-debug.js';
+const ERROR_SOURCE = "modules/draw/shared/scene-planner-executor.js";
+
 
 // 最终失败时告诉用户“已经自动重试过几次”：消息末尾追加一句，details.retryCount 供程序读取。
 // 只在确实重试过（N>0）时才加；不改错误码，也不影响是否重试的判定（判定发生在这之前）。
@@ -26,8 +28,8 @@ function annotateRetryCount(error, retryCount) {
         if (details == null || (typeof details === 'object' && !Array.isArray(details))) {
             error.details = { ...(details || {}), retryCount };
         }
-    } catch {
-        // 冻结的错误对象不允许改写：保持原样，诊断里仍有 retryCount。
+    } catch (caughtError) {
+        console.warn({ source: ERROR_SOURCE, operation: "annotateRetryCount" }, caughtError);
     }
     return error;
 }
