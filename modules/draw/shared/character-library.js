@@ -653,6 +653,7 @@ export function placeCharactersAfterGroupMembers(rest, placements) {
  *   'new-group'      新建 options.newGroupName 并导入。
  * options.sameIdPolicy（仅非 auto 模式）：'replace'（默认，替换并移入目标分组）| 'keep-both'（副本使用新 id）| 'skip'。
  * options.importNewAsDisabled：新增角色一律以停用状态导入（已有角色的替换不受影响）。
+ * options.overwriteSameName：遇到同名角色时直接覆盖（保留本地 id）。
  */
 export function planCharacterImport(library, parsed, options = {}, { makeId } = {}) {
     const mode = options.mode ?? 'auto';
@@ -665,6 +666,11 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
     const usedCharacterIds = new Set(characters.map(character => character.id));
     const usedGroupIds = new Set(groups.map(group => group.id));
     const byId = new Map(characters.map(character => [character.id, character]));
+    const byName = new Map();
+    for (const character of characters) {
+        const key = String(character.name || '').trim();
+        if (key && !byName.has(key)) byName.set(key, character);
+    }
     const warnings = [...parsed.warnings];
     const summary = { added: 0, replaced: 0, skipped: parsed.skipped, keptBoth: 0, groupsCreated: 0 };
     const details = [];
@@ -716,15 +722,24 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
     const addedNames = [];
     for (const entry of parsed.entries) {
         const { character, fields, duplicate } = entry;
-        const existing = character.id && !duplicate ? byId.get(character.id) : undefined;
+        const matchedById = Boolean(character.id && !duplicate && byId.has(character.id));
+        let existing = matchedById ? byId.get(character.id) : undefined;
+        let matchedByName = false;
+        if (!existing && options.overwriteSameName) {
+            const targetName = String(character.name || '').trim();
+            if (targetName && byName.has(targetName)) {
+                existing = byName.get(targetName);
+                matchedByName = true;
+            }
+        }
         const record = (action, id) => details.push({ name: character.name, id, action });
 
-        if (existing && policy === 'skip') {
+        if (existing && !matchedByName && policy === 'skip') {
             summary.skipped += 1;
             record('skipped', existing.id);
             continue;
         }
-        if (existing && policy === 'replace') {
+        if (existing && (matchedByName || policy === 'replace')) {
             for (const field of fields) existing[field] = cloneJson(character[field]);
             summary.replaced += 1;
             record('replaced', existing.id);
@@ -752,6 +767,10 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             summary.added += 1;
         }
         addedNames.push(added);
+        if (options.overwriteSameName) {
+            const key = String(added.name || '').trim();
+            if (key && !byName.has(key)) byName.set(key, added);
+        }
         if (takenNameKeys) {
             for (const key of [added.name, ...(added.aliases || [])].map(lowerKey)) {
                 if (key) takenNameKeys.add(key);
