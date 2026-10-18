@@ -1,5 +1,6 @@
 import { getRequestHeaders } from '../../../../../../script.js';
 import { extensionFolderPath } from '../../core/constants.js';
+import { readBuildManifest } from '../../core/build-assets.js';
 import { isTrustedMessage, postToIframe } from '../../core/iframe-messaging.js';
 import { buildEbookFrameConfig, saveEbookAgentConfig } from './host/assistant-config.js';
 import { buildImportMaterial } from './host/import-materials.js';
@@ -14,32 +15,12 @@ const SOURCE_APP = 'xb-ebook-app';
 const OVERLAY_ID = 'xiaobaix-ebook-overlay';
 const IFRAME_ID = 'xiaobaix-ebook-iframe';
 const HTML_PATH = `${extensionFolderPath}/modules/ebook/ebook.html`;
-const BUILD_INFO_PATH = `${extensionFolderPath}/modules/ebook/dist/ebook-build.json`;
 
 let ebookCacheKey = '';
 let initialConfigPromise = null;
 
 async function loadEbookCacheKey() {
-    if (ebookCacheKey) return ebookCacheKey;
-    let manifestVersion = '';
-    let buildHash = '';
-    try {
-        const response = await fetch(`${extensionFolderPath}/manifest.json`, { cache: 'no-store' });
-        const manifest = await response.json();
-        manifestVersion = manifest.version || '';
-    } catch {
-        // Version is only used for cache busting; ignore load failures.
-    }
-    try {
-        const response = await fetch(BUILD_INFO_PATH, { cache: 'no-store' });
-        if (response.ok) {
-            const buildInfo = await response.json();
-            buildHash = buildInfo.hash || buildInfo.build || '';
-        }
-    } catch {
-        // Older installs may not have a build info file yet.
-    }
-    ebookCacheKey = [manifestVersion, buildHash].filter(Boolean).join('-');
+    ebookCacheKey ||= (await readBuildManifest()).buildId;
     return ebookCacheKey;
 }
 

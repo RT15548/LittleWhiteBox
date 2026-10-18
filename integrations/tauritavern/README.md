@@ -70,10 +70,8 @@ the integration owns no persistent data. Do not leave old-path re-export shims.
 
 ```sh
 npm test
-npm run lint:imports
-npm run test:story-summary:runtime
-npm run test:story-summary:bundle
-npm run build:assistant:manifest
+npm run check
+npm run build
 ```
 
 Moving files requires rebuilding the assistant file manifest. The TT portable

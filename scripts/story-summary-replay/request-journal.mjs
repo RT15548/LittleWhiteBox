@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // Prepared-run receipts, not a cross-run cache. A request intent reserves budget
 // before dispatch; its complete response is fsynced before the caller receives it.
 // Missing receipts have unknown billing outcomes and NEVER permit automatic resend.

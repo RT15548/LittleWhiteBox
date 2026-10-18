@@ -65,6 +65,9 @@
             <div class="xb-frame-boot-text">正在加载</div>
         </div>
     </div>
-    <script type="module" src="./dist/assistant-app.js" onerror="document.querySelector('#xb-frame-boot .xb-frame-boot-text').textContent = '加载失败，请刷新重试';"></script>
+    <script type="module">
+import { loadBuildEntry, reportBuildFailure } from '../../core/build-assets.js';
+loadBuildEntry('apps/assistant').catch(reportBuildFailure);
+</script>
 </body>
 </html>

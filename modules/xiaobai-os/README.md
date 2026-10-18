@@ -42,9 +42,8 @@ APP 的 Host、分区或 UI 故障保留桌面入口，进入该 APP 错误页�
 ## 检查
 
 ```sh
-npm run test:xiaobai-os
-npm run lint:xiaobai-os
-npm run build:xiaobai-os
+npm run build
+npm run check
 ```
 
 构建包含类型检查；自动检查不代替真实宿主、模型或实体 WebView 验证。

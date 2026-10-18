@@ -374,7 +374,7 @@ export interface TavernShellContext {
     confirmTavernDialog: TavernCommand<[options: TavernDialogOptions | string], Promise<boolean>>;
     homeThemeDark: Ref<boolean>;
     openPromptInspector: TavernCommand<[tab?: 'history' | 'simulate']>;
-    postToHost: TavernCommand<[type: string, payload?: object]>;
+    postToHost: TavernCommand<[type: string, payload?: Record<string, unknown>]>;
     promptTavernDialog: TavernCommand<[options: TavernDialogOptions | string], Promise<string | null>>;
     rememberBrokenAvatar: TavernCommand<[url?: string]>;
     shortText: TavernCommand<[value?: string, limit?: number], string>;
@@ -441,8 +441,8 @@ export interface TavernChatContext {
     showChatScrollBottom: Ref<boolean>;
     showChatScrollTop: Ref<boolean>;
     startEditMessage: TavernCommand<[message: TavernMessageRecord]>;
-    thoughtBlocks: TavernCommand<[messageOrThoughts: unknown], Array<{ label?: string; text?: string }>>;
-    thoughtSummaryLabel: TavernCommand<[messageOrThoughts: unknown, streaming?: boolean], string>;
+    thoughtBlocks: TavernCommand<[messageOrThoughts: TavernMessageRecord | TavernMessageRecord['thoughts'] | null], Array<{ label?: string; text?: string }>>;
+    thoughtSummaryLabel: TavernCommand<[messageOrThoughts: TavernMessageRecord | TavernMessageRecord['thoughts'] | null, streaming?: boolean], string>;
     updateChatScrollButtons: TavernCommand;
     visibleCharacterAvatar: TavernReadable<string>;
     visibleUserAvatar: TavernReadable<string>;
@@ -808,7 +808,7 @@ export interface TavernSettingsContext {
     linesFromList: TavernCommand<[value: unknown], string>;
     listFromLines: TavernCommand<[value?: string], string[]>;
     movePromptRow: TavernCommand<[identifier: string, direction: -1 | 1]>;
-    postToHost: TavernCommand<[type: string, payload?: object]>;
+    postToHost: TavernCommand<[type: string, payload?: Record<string, unknown>]>;
     preset: Ref<TavernChatPromptPresetBundle>;
     presetDirty: TavernReadable<boolean>;
     presetRows: TavernReadable<Array<{ previewId: string; previewLabel: string; previewPlacement: string; sectionIndex: number; chars: number }>>;
@@ -871,7 +871,7 @@ export interface TavernSettingsContext {
     toggleRegexPlacement: TavernCommand<[value: number, checked: boolean]>;
     updateAssistantPresetPatch: TavernCommand<[patch: Partial<TavernAssistantPreset>]>;
     updateDisplaySettingsPatch: TavernCommand<[patch: Partial<TavernDisplaySettings>]>;
-    updatePromptByIdentifier: TavernCommand<[identifier: string, patch: object]>;
+    updatePromptByIdentifier: TavernCommand<[identifier: string, patch: Record<string, unknown>]>;
     updateRegexPatch: TavernCommand<[patch: Partial<TavernRegexScriptDraft>]>;
     updateSelectedAssistantPresetItem: TavernCommand<[value?: string]>;
     updateWorldbookEntryDraftPatch: TavernCommand<[patch: Partial<TavernWorldbookEntryDraft>]>;

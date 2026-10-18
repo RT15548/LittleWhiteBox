@@ -1,0 +1,1 @@
+var r="LittleWhiteBox",e=(()=>{try{const t=new URL(import.meta.url).pathname.match(/\/scripts\/extensions\/third-party\/([^/]+)\//);return t?.[1]?decodeURIComponent(t[1]):r}catch{return r}})(),a=`scripts/extensions/third-party/${e}`;export{r as n,a as r,e as t};

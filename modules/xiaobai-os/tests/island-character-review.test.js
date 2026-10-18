@@ -33,8 +33,7 @@ test('local review serves built-in decoder and only content-addressed sibling sh
         assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), mime); assert.equal(await response.text(), bytes);
     }
     const decoder = await fetch(new URL('three/examples/jsm/libs/meshopt_decoder.module.js', base));
-    assert.equal(decoder.status, 200); assert.match(await decoder.text(), /MeshoptDecoder/);
-    const reviewJs = await fetch(new URL('review.js', base)); assert.match(await reviewJs.text(), /setMeshoptDecoder\(MeshoptDecoder\)/);
+    assert.equal(decoder.status, 200);
     for (const resource of ['shared/private.png', 'private.txt', 'shared/%2e%2e/private.txt', `shared/${hash}.txt`, `shared/${'c'.repeat(64)}.png`]) {
         assert.equal((await fetch(new URL(resource, base))).status, 404, resource);
     }

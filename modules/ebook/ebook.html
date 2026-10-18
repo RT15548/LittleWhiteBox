@@ -65,18 +65,9 @@
             <div class="xb-frame-boot-text">正在加载</div>
         </div>
     </div>
-    <script>
-    (function() {
-        var v = new URLSearchParams(location.search).get('v') || '';
-        var s = document.createElement('script');
-        s.type = 'module';
-        s.src = './dist/ebook-app.js' + (v ? '?v=' + encodeURIComponent(v) : '');
-        s.onerror = function() {
-            var text = document.querySelector('#xb-frame-boot .xb-frame-boot-text');
-            if (text) text.textContent = '加载失败，请刷新重试';
-        };
-        document.head.appendChild(s);
-    })();
+    <script type="module">
+import { loadBuildEntry, reportBuildFailure } from '../../core/build-assets.js';
+loadBuildEntry('apps/ebook').catch(reportBuildFailure);
 </script>
 </body>
 </html>

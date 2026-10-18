@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-/** Conservative GLB 2 repacking; Node built-ins only, no codec or channel removal.
+/**
+ * Conservative GLB 2 repacking; Node built-ins only, no codec or channel removal.
  * optimizeGlb(bytes, { deduplicateAccessors = true, sharedImageHashes = new Set(),
  *   outputGlbPath, sharedDir }) is pure: { glb, json, sharedImages, stats }.
  * processGlbFile(inputPath, outputPath, options) writes exact shared image bytes,
@@ -251,7 +252,9 @@ function deduplicateAccessors(json, bin) {
     old.forEach((accessor, index) => {
         const view = json.bufferViews[accessor.bufferView];
         const layout = accessorLayout(accessor, view, index);
-        const { bufferView, byteOffset, ...metadata } = accessor;
+        const metadata = { ...accessor };
+        delete metadata.bufferView;
+        delete metadata.byteOffset;
         // All metadata must match; matrix column padding is compared conservatively.
         const elements = Buffer.alloc(layout.count * layout.elementBytes);
         for (let n = 0; n < layout.count; n++) {
@@ -318,7 +321,8 @@ export function optimizeGlb(input, options = {}) {
             existing = { bytes, offset: align4(length) }; length = existing.offset + bytes.length;
             candidates.push(existing); buckets.set(key, candidates); segments.push(existing);
         } else reusedViewBytes += bytes.length;
-        const { byteOffset, ...metadata } = view;
+        const metadata = { ...view };
+        delete metadata.byteOffset;
         const definitionKey = `${stable(metadata)}:${key}`;
         const matchingDefinitions = definitions.get(definitionKey) ?? [];
         const definition = matchingDefinitions.find(candidate => candidate.bytes.equals(bytes));

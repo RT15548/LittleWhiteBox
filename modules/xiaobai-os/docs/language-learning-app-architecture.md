@@ -193,7 +193,7 @@ payPending 统一消费当前语言全部已确认、未领取的完成记录，
 | 教材适配、批改准确、范文等级、角色自然和泄题 | 授权真实模型样本及独立语义评审 |
 | 联网服务实际可达、TTS 音质与设备播放 | 对应真实服务/设备验证，不能由本地模拟背书 |
 
-常规检查：npm run test:xiaobai-os、npm run lint:xiaobai-os、变更 JS 的 ESLint、npm run lint:imports、npm run build:xiaobai-os、git diff --check。仅改变 TTS/Core 时补其对应检查，不越界重构。
+常规检查：npm run build、npm run check、git diff --check。总检查覆盖各模块，不再单独维护 APP 的 lint、构建与测试命令。
 
 隔离预览使用实际 Learning 组件、runtime 和内存仓库，Provider 仅给固定响应。它证明交互、状态和失败处理，不证明模型教学质量或真实新闻可获取。浏览器截图及临时探针放 output/playwright，不作为长期设计或验收日志提交。
 

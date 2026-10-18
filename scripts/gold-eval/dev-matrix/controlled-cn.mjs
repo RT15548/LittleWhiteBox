@@ -1,4 +1,3 @@
-/* global process, Buffer */
 // Controlled Chinese memory matrix: define truth first, then render chat + cases.
 
 import fs from 'node:fs/promises';

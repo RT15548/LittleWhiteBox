@@ -1,4 +1,3 @@
-/* global process */
 // Mechanical evidence preparation and publication of explicit semantic decisions.
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';

@@ -5,10 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <title>小白 OS</title>
-    <link rel="stylesheet" href="../dist/xiaobai-os-app.css">
+
 </head>
 <body>
     <div id="app"></div>
-    <script type="module" src="../dist/xiaobai-os-app.js"></script>
+    <script type="module">
+import { loadBuildEntry, reportBuildFailure } from '../../../core/build-assets.js';
+loadBuildEntry('apps/xiaobai-os').catch(reportBuildFailure);
+</script>
 </body>
 </html>

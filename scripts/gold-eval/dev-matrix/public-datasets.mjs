@@ -1,4 +1,3 @@
-/* global process, Buffer */
 // Download and adapt official LongMemEval / LoCoMo data without model calls.
 
 import fs from 'node:fs';

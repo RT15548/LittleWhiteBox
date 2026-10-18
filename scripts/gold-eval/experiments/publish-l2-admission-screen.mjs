@@ -1,4 +1,3 @@
-/* global process */
 // Publication derives only verified, byte-identical existing semantic judgments.
 // Changed prompts remain unreviewed; this does not infer quality from rankings.
 import fs from 'node:fs/promises';

@@ -273,7 +273,7 @@ export interface TavernStructuredStatePatchDisplay {
     docType: TavernStructuredStateDocType;
     docId: string;
     revision: number;
-    summary: string;
+    summary: TavernStructuredStatePatchRecord['summary'];
     createdAt: number;
     changedIds: string[];
     removedElements: unknown[];
@@ -2438,7 +2438,7 @@ function buildDerivedLabelElement(
     }, labelId, { allowReservedId: true });
 }
 
-function buildDerivedLabelModifySet(existing: TavernMapElement, text: string, at?: [number, number]): Partial<TavernMapElement> {
+function buildDerivedLabelModifySet(existing: TavernMapElement, text: TavernMapElement['text'], at?: [number, number]): Partial<TavernMapElement> {
     return {
         cat: 'label',
         text,
@@ -3072,12 +3072,12 @@ export async function executeTavernStateTool(
                 const nextRevision = currentRevision + 1;
                 const atlasCurrentRevision = Number(atlasRecord?.revision) || 0;
                 const atlasNextRevision = atlasCurrentRevision + 1;
-                let saved: TavernStructuredStateDocumentRecord | null = null;
                 let nextDocument = compiled.document;
                 let effectiveOps = [...compiled.effectiveOps];
                 let removedElements = [...compiled.removedElements];
                 let changedIds = [...compiled.changedIds];
-                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernManagerRunsTable, tavernManagerStateSnapshotsTable, tavernSessionsTable, async () => {
+                const saved = await db.transaction<TavernStructuredStateDocumentRecord | null>('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernManagerRunsTable, tavernManagerStateSnapshotsTable, tavernSessionsTable, async () => {
+                    let written: TavernStructuredStateDocumentRecord | null = null;
                     await options.beforeWriteGuard?.();
                     const liveExisting = await getTavernStructuredStateDocument(id, MAP_DOC_TYPE, target.docId);
                     const liveAtlasRecord = await getTavernStructuredStateDocument(id, ATLAS_DOC_TYPE, DEFAULT_ATLAS_DOC_ID);
@@ -3115,7 +3115,7 @@ export async function executeTavernStateTool(
                             ...actorDedupe.removedElements.map((element) => element.id),
                         ])];
                         const digest = createMapDigest(nextDocument, nextRevision);
-                        saved = await putTavernStructuredStateDocument({
+                        written = await putTavernStructuredStateDocument({
                             sessionId: id,
                             docType: MAP_DOC_TYPE,
                             docId: target.docId,
@@ -3199,6 +3199,7 @@ export async function executeTavernStateTool(
                         }
                     }
                     await options.afterWriteObserver?.();
+                    return written;
                 });
                 mapResult = {
                     ok: true,

@@ -177,7 +177,7 @@ declare module '*.js' {
         overlayCss?: string;
         iframeCss?: string;
     }): Promise<HTMLElement>;
-    export function loadFirstPartyIframeCacheKey(path: string): Promise<string>;
+    export function loadFirstPartyIframeCacheKey(): Promise<string>;
     export function isTrustedMessage(event: MessageEvent, iframe: HTMLIFrameElement | null, source: string): boolean;
     export function postToIframe(iframe: HTMLIFrameElement, message: unknown, source: string): boolean;
     export function createLightBrakeController(options?: {

@@ -1,8 +1,8 @@
+import { pluginAsset } from '../../../../../core/build-assets.js';
 let loading: Promise<FontFace> | undefined;
 export async function loadMapSymbols(): Promise<void> {
     if (!loading) {
-        const relativePath = ['..', '..', '..', 'libs', 'material-symbols', 'material-symbols-rounded.woff2'].join('/');
-        const url = new URL(relativePath, import.meta.url);
+        const url = new URL(pluginAsset('libs/material-symbols/material-symbols-rounded.woff2'));
         loading = new FontFace('Xiaobai Map Symbols', `url("${url.href}")`, { display: 'block', weight: '400' }).load();
         loading.catch(() => {loading = undefined;});
     }

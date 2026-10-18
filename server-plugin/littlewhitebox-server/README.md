@@ -41,7 +41,7 @@ Scene Planner 支持免密反代，Agent API Key 可以留空；图片生成供�
 
 联网接口受酒馆登录与 CSRF 保护，仅能调用固定 Exa 官方地址的两个操作，不接收任意目标地址、方法或转发头，不跟随重定向。请求体上限 32 KiB，供应商响应上限 2 MiB，上游请求限时 30 秒。每次请求独立，不新增数据库、缓存或恢复记录。
 
-联网协议与 HTTP 处理的源码在 `modules/agent-core/web/`，本包 `web/web-runtime.cjs` 由同一源码生成。开发时运行 `npm run build:server-plugin`；`npm run check:server-plugin` 检查产物和插件元数据是否同步。删除联网功能时删除 `web/`、入口注册、对应前端路由与生成任务即可，不影响绘图任务。
+联网协议与 HTTP 处理的源码在 `modules/agent-core/web/`，本包 `web/web-runtime.cjs` 由同一源码生成，随插件统一构建与验收，见[构建规则](../../docs/plugin-build.md)。删除联网功能时删除 `web/`、入口注册、对应前端路由与生成任务即可，不影响绘图任务。
 
 ## Provider 边界
 
@@ -106,11 +106,11 @@ Scene Planner 后台运行接口位于 `/v1/draw-runs`，包含创建、当前�
 仓库开发者在 Agent Core 或相关 SDK 升级后运行：
 
 ```sh
-npm run build:agent-core:node
+npm run build
 ```
 
-`npm run check:agent-core:node` 会先核对实际入包依赖与 `package-lock.json` 的锁定版本，再在不改文件的情况下重建并比对两个已提交产物，用于阻止源码、依赖锁文件与 bundle/许可证清单脱节。若依赖未附带 LICENSE/NOTICE/COPYING 文件，构建会提取 README 的 License 段；两处都没有许可证正文时直接失败。正式构建在同目录完成 staging，并以整个 `vendor` 目录为发布单元切换；失败时恢复上一份完整产物。
+总构建核对实际入包依赖与 `package-lock.json` 的锁定版本；总验收重建并比对已提交产物，阻止源码、依赖锁文件与 bundle/许可证清单脱节。若依赖未附带 LICENSE/NOTICE/COPYING 文件，构建会提取 README 的 License 段；两处都没有许可证正文时直接失败。暂存、发布与失败恢复统一遵循[构建规则](../../docs/plugin-build.md)，本目标不独立发布。
 
-`npm run check:agent-core:node18` 使用固定 Node.js 18.20.8 隔离加载两个 bundle，创建七类 Adapter、调用一次 Draw Run compiler，并让打包后的 Google SDK 向本机模拟端点发出一次真实 `generateContent` 请求。当前 `@google/genai` 虽声明 Node.js 20，但本插件锁定并打包的调用路径支持 Node.js 18；升级 SDK 后必须通过此检查。
+总验收使用固定 Node.js 18.20.8 隔离加载两个 bundle，创建七类 Adapter、调用一次 Draw Run compiler，并让打包后的 Google SDK 向本机模拟端点发出一次真实 `generateContent` 请求。当前 `@google/genai` 虽声明 Node.js 20，但本插件锁定并打包的调用路径支持 Node.js 18；升级 SDK 后必须通过此检查。
 
-NovelAI V5 流解析使用已提交的 `providers/novelai/vendor/novel-v5-parser.cjs`，它将浏览器直连所用的同一帧解析器与 MessagePack decoder 打包给 Node；对应许可证位于同目录的 `THIRD_PARTY_LICENSES.txt`。仓库开发者升级解析器或 `@msgpack/msgpack` 后运行 `npm run build:novelai:vendor`；插件运行环境不需要安装依赖。
+NovelAI V5 流解析使用已提交的 `providers/novelai/vendor/novel-v5-parser.cjs`，它将浏览器直连所用的同一帧解析器与 MessagePack decoder 打包给 Node；对应许可证位于同目录的 `THIRD_PARTY_LICENSES.txt`。仓库开发者升级解析器或 `@msgpack/msgpack` 后运行 `npm run build`；插件运行环境不需要安装依赖。

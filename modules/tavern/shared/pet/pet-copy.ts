@@ -301,7 +301,8 @@ export function renderTavernPetEventCopy(input: TavernPetEventCopyInput): Tavern
         face: input.face,
         motion: copy.motion,
     };
-    const detail = isTavernPetInterferenceEventId(input.eventId)
+    const isInterference = (value: TavernPetEventCopyInput): value is TavernPetEventCopyInputBase & { eventId: TavernPetInterferenceEventId; injectedText: string } => isTavernPetInterferenceEventId(value.eventId);
+    const detail = isInterference(input)
         ? {
             ...detailBase,
             eventId: input.eventId,

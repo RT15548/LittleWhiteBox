@@ -1,4 +1,3 @@
-/* global process */
 // Test-process preload ONLY. No passthrough fetch and no real credentials.
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';

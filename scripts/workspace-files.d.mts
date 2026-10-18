@@ -3,3 +3,5 @@ export function collectWorkspaceFiles(
     extensions: ReadonlySet<string>,
     ignoredDirectories?: ReadonlySet<string>,
 ): string[];
+
+export function collectSourceFiles(root: string, extensions: ReadonlySet<string>): string[];

@@ -1,4 +1,3 @@
-/* global process */
 // CLI: compare valid natural baseline/candidate runs by conversation.
 
 import fs from 'node:fs/promises';

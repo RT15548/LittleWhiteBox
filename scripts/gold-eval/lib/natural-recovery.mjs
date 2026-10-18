@@ -1,4 +1,3 @@
-/* global process */
 // Gold Eval - two-generation operational recovery points for long natural runs.
 
 import fs from 'node:fs/promises';

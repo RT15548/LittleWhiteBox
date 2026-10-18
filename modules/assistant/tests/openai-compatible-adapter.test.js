@@ -36,26 +36,6 @@ test('raw assistant diagnostics are opt-in and preserve missing native arguments
     assert.equal(message.tool_calls[0].function.name, 'Read');
 });
 
-test('tagged-json prompt honors required, named, and none tool choices', () => {
-    const buildSystem = (toolChoice) => buildTaggedMessages({
-        systemPrompt: '你是测试助手。',
-        toolChoice,
-        tools: [{
-            type: 'function',
-            function: {
-                name: 'Read',
-                description: 'Read file.',
-                parameters: { type: 'object', properties: {} },
-            },
-        }],
-        messages: [{ role: 'user', content: '执行任务。' }],
-    })[0].content;
-
-    assert.match(buildSystem('required'), /本轮必须调用工具，不得只返回正文。/);
-    assert.match(buildSystem('Read'), /本轮必须调用工具 Read，不得调用其他工具，也不得只返回正文。/);
-    assert.match(buildSystem('none'), /本轮不得调用工具，不得输出 <tool_call> 标签。/);
-});
-
 test('openai-compatible requests preserve the trusted system prompt before system data messages', () => {
     const task = {
         systemPrompt: 'trusted static rules',

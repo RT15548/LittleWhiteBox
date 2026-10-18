@@ -219,6 +219,11 @@ export class StorageFile {
         }
     }
 
+    /**
+     * @template T
+     * @param {() => T | Promise<T>} operation
+     * @returns {Promise<T>}
+     */
     _enqueueWrite(operation) {
         const result = this._writeQueue.then(operation, operation);
         this._writeQueue = result.catch(() => {});

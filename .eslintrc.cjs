@@ -1,3 +1,5 @@
+const HTML_SANITIZERS = { escape: { methods: ['Sanitizer.unwrapSafeHTML', 'unwrapSafeHTML', 'DOMPurify.sanitize'] } };
+
 module.exports = {
     root: true,
     extends: [
@@ -34,8 +36,8 @@ module.exports = {
         'no-implied-eval': 'warn',
         'no-new-func': 'warn',
         'no-script-url': 'warn',
-        'no-unsanitized/method': 'warn',
-        'no-unsanitized/property': 'warn',
+        'no-unsanitized/method': ['warn', HTML_SANITIZERS],
+        'no-unsanitized/property': ['warn', HTML_SANITIZERS],
         'security/detect-object-injection': 'off',
         'security/detect-non-literal-regexp': 'off',
         'security/detect-unsafe-regex': 'off',
@@ -69,6 +71,18 @@ module.exports = {
     },
     overrides: [
         {
+            files: ['**/*.html'],
+            plugins: ['html'],
+        },
+        {
+            files: ['scripts/**/*.{js,mjs}', '*.config.mjs', '**/build.mjs', '**/export-embrace.mjs', '**/*.cjs'],
+            env: { node: true, browser: false },
+        },
+        {
+            files: ['**/*.cjs'],
+            parserOptions: { sourceType: 'script' },
+        },
+        {
             files: ['modules/xiaobai-os/**/*.{js,ts,vue}'],
             rules: {
                 'no-restricted-properties': ['error', {
@@ -95,7 +109,7 @@ module.exports = {
             },
         },
         {
-            files: ['modules/tavern/**/*.ts'],
+            files: ['**/*.{ts,mts,cts}'],
             parser: '@typescript-eslint/parser',
             parserOptions: {
                 ecmaVersion: 'latest',
@@ -112,14 +126,13 @@ module.exports = {
                 'no-unreachable': 'error',
                 'no-unsafe-optional-chaining': 'error',
                 'no-unused-vars': 'off',
-                'no-restricted-imports': ['error', { patterns: ['**/xiaobai-os/**'] }],
                 '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
                 '@typescript-eslint/no-explicit-any': 'warn',
                 '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
             },
         },
         {
-            files: ['modules/tavern/**/*.vue'],
+            files: ['**/*.vue'],
             parser: 'vue-eslint-parser',
             parserOptions: {
                 parser: '@typescript-eslint/parser',
@@ -140,7 +153,6 @@ module.exports = {
                 'no-unreachable': 'error',
                 'no-unsafe-optional-chaining': 'error',
                 'no-unused-vars': 'off',
-                'no-restricted-imports': ['error', { patterns: ['**/xiaobai-os/**'] }],
                 '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
                 '@typescript-eslint/no-explicit-any': 'warn',
                 '@typescript-eslint/no-unused-vars': 'off',
@@ -150,60 +162,22 @@ module.exports = {
             },
         },
         {
-            files: ['modules/xiaobai-os/**/*.ts'],
-            parser: '@typescript-eslint/parser',
-            parserOptions: {
-                ecmaVersion: 'latest',
-                sourceType: 'module',
-                project: false,
-            },
+            files: ['modules/tavern/**/*.{ts,vue}'],
             rules: {
-                'curly': ['error', 'all'],
-                'default-case-last': 'error',
-                'eqeqeq': ['error', 'always'],
-                'no-duplicate-imports': 'error',
-                'no-fallthrough': 'error',
-                'no-undef': 'off',
-                'no-unreachable': 'error',
-                'no-unsafe-optional-chaining': 'error',
-                'no-unused-vars': 'off',
+                'no-restricted-imports': ['error', { patterns: ['**/xiaobai-os/**'] }],
+            },
+        },
+        {
+            files: ['modules/xiaobai-os/**/*.{ts,vue}'],
+            rules: {
                 'no-restricted-imports': ['error', { patterns: ['**/tavern/**'] }],
-                '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
-                '@typescript-eslint/no-explicit-any': 'warn',
-                '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
             },
         },
         {
             files: ['modules/xiaobai-os/**/*.vue'],
-            parser: 'vue-eslint-parser',
-            parserOptions: {
-                parser: '@typescript-eslint/parser',
-                ecmaVersion: 'latest',
-                sourceType: 'module',
-                extraFileExtensions: ['.vue'],
-            },
-            extends: [
-                'plugin:vue/recommended',
-            ],
             rules: {
-                'curly': ['error', 'all'],
-                'default-case-last': 'error',
-                'eqeqeq': ['error', 'always'],
-                'no-duplicate-imports': 'error',
-                'no-fallthrough': 'error',
-                'no-undef': 'off',
-                'no-unreachable': 'error',
-                'no-unsafe-optional-chaining': 'error',
-                'no-unused-vars': 'off',
-                'no-restricted-imports': ['error', { patterns: ['**/tavern/**'] }],
-                '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
-                '@typescript-eslint/no-explicit-any': 'warn',
-                '@typescript-eslint/no-unused-vars': 'off',
-                'vue/comment-directive': 'off',
                 'vue/html-indent': ['error', 4],
                 'vue/max-attributes-per-line': 'off',
-                'vue/multi-word-component-names': 'off',
-                'vue/no-v-html': 'off',
                 'vue/singleline-html-element-content-newline': 'off',
             },
         },

@@ -18,6 +18,8 @@ async function fixture(t) {
     t.after(() => rm(root, { recursive: true, force: true }));
     const media = path.join(root, 'feature', 'assets');
     await mkdir(media, { recursive: true });
+    await mkdir(path.join(root, 'core'));
+    await writeFile(path.join(root, 'core/build-assets.js'), `export const pluginAsset = value => new URL(value, ${JSON.stringify(pathToFileURL(root + path.sep).href)}).href;`);
     const image = path.join(media, '肖像 1.png'), model = path.join(media, 'person.glb');
     await writeFile(image, 'image bytes');
     await writeFile(model, 'model bytes');
@@ -25,7 +27,7 @@ async function fixture(t) {
     await writeFile(path.join(root, 'scene.js'), `export const models = import.meta.glob('./feature/assets/*.glb', { eager: true, import: 'default', query: '?url&no-inline' });`);
     async function compile(outputDirectory) {
         return build({ configFile: false, root, logLevel: 'silent',
-            plugins: [createSourceAssetPlugin({ root, outputDirectory })],
+            plugins: [createSourceAssetPlugin({ root })],
             build: { outDir: outputDirectory, minify: false,
                 lib: { entry: path.join(root, 'entry.js'), formats: ['es'], fileName: () => 'entry.mjs' },
                 rollupOptions: { output: { chunkFileNames: '[name]-[hash].mjs' } } } });

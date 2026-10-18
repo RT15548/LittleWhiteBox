@@ -1300,10 +1300,10 @@ function normalizeNativeWorldInfoTimedState(value: unknown): XbTavernNativeWorld
     };
 }
 
-export function normalizeTavernSessionState(value: unknown): TavernSessionState {
+export function normalizeTavernSessionState(value: unknown) {
     const source = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
     const activeMapDocId = normalizeStructuredStateDocId(source.activeMapDocId || TAVERN_MAP_DOC_ID);
-    const state: TavernSessionState = {
+    const state = {
         ...source,
         turn: Math.max(0, Number(source.turn) || 0),
         contextWindowStartOrder: Math.max(0, Math.floor(Number(source.contextWindowStartOrder) || 0)),
@@ -1311,7 +1311,7 @@ export function normalizeTavernSessionState(value: unknown): TavernSessionState 
         contract: normalizeTavernSessionContract(source.contract),
         worldEntryStates: normalizeWorldEntryStates(source.worldEntryStates),
         nativeWorldInfoTimedState: normalizeNativeWorldInfoTimedState(source.nativeWorldInfoTimedState),
-    };
+    } satisfies TavernSessionState;
     return state;
 }
 
@@ -1365,7 +1365,7 @@ export async function createTavernSession(input: Partial<TavernSessionRecord> = 
         storyTimelineRevision: Math.max(1, Math.floor(Number(input.storyTimelineRevision) || 1)),
         taskBoardEpoch: Math.max(1, Math.floor(Number(input.taskBoardEpoch) || 1)),
         transcriptLineCount: normalizedTavernTranscriptLineCount(input.transcriptLineCount),
-        state: cloneSerializable(normalizeTavernSessionState(input.state || {}), {}),
+        state: cloneSerializable<TavernSessionState>(normalizeTavernSessionState(input.state || {}), {}),
     };
     await db.transaction('rw', tavernSessionsTable, tavernMetaTable, tavernStateDocumentsTable, async () => {
         await tavernSessionsTable.put(session);
@@ -1515,7 +1515,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 transcriptLineCount: normalizedTavernTranscriptLineCount(sourceSession.transcriptLineCount),
                 contextSnapshot: cloneSerializable(sourceSession.contextSnapshot, undefined),
                 buildSnapshot: cloneSerializable(sourceSession.buildSnapshot, undefined),
-                state: cloneSerializable(normalizeTavernSessionState(sourceSession.state || {}), {}),
+                state: cloneSerializable<TavernSessionState>(normalizeTavernSessionState(sourceSession.state || {}), {}),
             };
             managerRuns.forEach((run) => {
                 managerRunIdMap.set(run.id, createId('manager-run'));

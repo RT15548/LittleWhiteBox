@@ -79,6 +79,6 @@ silent、unavailable、failed 分开：前两者不伪造联系人回复气泡�
 
 系统关闭时不挂载完整 App DOM；App 舞台按当前定义按需挂载。viewport、resize 和滚动监听随释放清理；列表不得在每次渲染无界扫描全部线程。领域不依赖 UI，平台不直接读写各 App 表。
 
-运行 `npm run test:tavern`、`npm run lint:tavern`和 `npm run build:tavern`。稳定契约重点为导航/焦点、软键盘、同会话重开、切会话隔离、重复发送、失败重试、未读、多形态、回滚与恢复、停用及 reduced motion。
+运行 `npm run build` 和 `npm run check`。稳定契约重点为导航/焦点、软键盘、同会话重开、切会话隔离、重复发送、失败重试、未读、多形态、回滚与恢复、停用及 reduced motion。
 
 浏览器、实体 WebView、模型回复和媒体供应商各自需要相应证据；自动测试与构建通过不证明这些环境的体验或质量。

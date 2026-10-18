@@ -59,7 +59,7 @@
 从仓库根运行：
 
 ```powershell
-npm run test:island-assets
+npm run check
 npm run optimize:island:characters -- --source output/island-characters/original-exports --output output/island-characters/new-runtime-assets
 ```
 
@@ -72,7 +72,7 @@ npm run optimize:island:characters -- --source output/island-characters/original
 - accessor / bufferView 只有完整语义元数据及有效数据相同时才合并。人物节点、骨名、蒙皮、顶点色、独立衣物标签、材质 extras、十个命名动作和全部轨道均保留；GLB JSON 整理不涉及模型提示词或人物设定。
 - [GLB 加载](../../presentation/character-gltf.ts)使用 three 内置 MeshoptDecoder；图片 URI 以 GLB 所在目录解析，缺图/解码失败明确报错。取消及失败释放临时资源，不以无贴图人物或占位模型掩盖失败。
 - 静态检查和体积变小不能替代验收：同镜头看脸、身体、发型与衣物；真实运行链检查男女步行/停步、穿脱/掉落/拾取、干湿、四种双人接触和卸载重入。字节压缩不代表三角形、显存或帧率改善。
-- 验收后复制运行资产，并执行 `npm run build:xiaobai-os` 更新构建中的源 GLB 内容哈希引用。只更新二进制而不重建入口，可能继续命中旧 URL。
+- 验收后复制运行资产，并执行 `npm run build` 更新构建中的源 GLB 内容哈希引用。只更新二进制而不重建入口，可能继续命中旧 URL。
 - 正式构建必须保留配置中的 `minify: 'esbuild'`，不能用临时关闭压缩的产物替代。Windows 上若 Node 24 的 esbuild 大输入转换报临时文件删除失败，可使用 Node 22.22.0 LTS 执行同一构建命令；仅恢复配置不会重新压缩已经生成的文件，必须重新构建。
 
 ## 输入与许可

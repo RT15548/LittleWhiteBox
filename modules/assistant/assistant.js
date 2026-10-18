@@ -431,7 +431,7 @@ async function loadJsApiManifest(signal) {
 
 async function loadJsApiRuntimeModule() {
     if (!jsApiRuntimeModulePromise) {
-        jsApiRuntimeModulePromise = import('./dist/jsapi-runtime.js');
+        jsApiRuntimeModulePromise = import('./runtime-src/jsapi-runtime.js');
     }
     return jsApiRuntimeModulePromise;
 }

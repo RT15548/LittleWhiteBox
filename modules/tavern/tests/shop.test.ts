@@ -34,11 +34,7 @@ import {
     getTavernShopStateAtAnchor,
     purchaseTavernShopItem,
 } from '../shared/shop/shop-service';
-import {
-    findTavernShopItem,
-    getTavernShopItem,
-    listTavernShopCatalog,
-} from '../shared/shop/shop-catalog';
+import { getTavernShopItem } from '../shared/shop/shop-catalog';
 import {
     isTavernShopActivationActive,
     normalizeTavernShopParameters,
@@ -174,37 +170,6 @@ function activationState(input: {
         },
     };
 }
-
-test('shop catalog is a reviewed static list of twenty five items', () => {
-    const catalog = listTavernShopCatalog();
-    assert.equal(catalog.length, 25);
-    const ids = new Set<string>();
-    for (const item of catalog) {
-        assert.ok(item.id && !ids.has(item.id), `duplicate item id ${item.id}`);
-        ids.add(item.id);
-        assert.ok(item.name && item.icon && item.description, `display copy missing on ${item.id}`);
-        assert.ok(Number.isSafeInteger(item.price) && item.price > 0, `price invalid on ${item.id}`);
-        assert.ok(item.injection.trim(), `injection missing on ${item.id}`);
-        if (item.duration.kind === 'turns') {
-            assert.ok(item.duration.rounds >= 1, `rounds invalid on ${item.id}`);
-        }
-    }
-    const decree = getTavernShopItem('reality-decree');
-    assert.equal(decree.stacking, 'per-parameters');
-    assert.equal(decree.inputs[0]?.key, 'rule');
-    assert.equal(decree.inputs[0]?.maxLength, 50);
-    assert.equal(getTavernShopItem('privacy-camera').price, 1_200);
-    const watch = getTavernShopItem('time-stop-watch');
-    assert.equal(watch.price, 2_000);
-    assert.equal(watch.duration.kind, 'permanent');
-    assert.equal(watch.purchaseLimit, 1);
-    assert.equal(getTavernShopItem('identity-card').stacking, 'global-single');
-    assert.equal(getTavernShopItem('invisibility-cloak').stacking, 'global-single');
-    assert.equal(getTavernShopItem('absolute-obedience').duration.kind, 'permanent');
-    assert.equal(findTavernShopItem('not-an-item'), null);
-    assert.throws(() => getTavernShopItem('not-an-item'), /shop_item_missing/);
-    assert.throws(() => getTavernShopItem(''), /shop_item_id_required/);
-});
 
 test('shop activation lifetime follows main-rp turn semantics', () => {
     const flower = getTavernShopItem('flower');

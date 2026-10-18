@@ -1,6 +1,6 @@
-/* global process */
 
 import fs from 'node:fs';
+import { outputRoot } from './build/output-root.mjs';
 import path from 'node:path';
 import ignore from 'ignore';
 
@@ -8,7 +8,7 @@ const pluginRoot = process.cwd();
 const stRoot = path.resolve(pluginRoot, '../../../../..');
 const publicRoot = path.join(stRoot, 'public');
 const MANIFEST_RELATIVE_PATH = 'modules/assistant/assistant-file-manifest.json';
-const outputPath = path.join(pluginRoot, MANIFEST_RELATIVE_PATH);
+const outputPath = path.join(outputRoot, MANIFEST_RELATIVE_PATH);
 
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue', '.html', '.css', '.json', '.md', '.txt']);
 const INCLUDED_BINARY_TEXT_RESOURCES = new Set([
@@ -85,7 +85,9 @@ function getIgnoredFiles(ignoreRoot, fullPaths) {
 }
 
 function buildPluginEntries() {
-    const candidates = walkDirectory(pluginRoot)
+    const stagedFiles = outputRoot === pluginRoot ? [] : walkDirectory(outputRoot)
+        .map(fullPath => path.join(pluginRoot, path.relative(outputRoot, fullPath)));
+    const candidates = [...new Set([...walkDirectory(pluginRoot), ...stagedFiles])].sort()
         .filter((fullPath) => {
             const relativePath = toPosix(path.relative(pluginRoot, fullPath));
             // The manifest cannot describe itself: recording its own sizeBytes changes
@@ -93,14 +95,15 @@ function buildPluginEntries() {
             if (relativePath === MANIFEST_RELATIVE_PATH) return false;
             // Local previews and verification output are not plugin source.
             if (relativePath.startsWith('output/')) return false;
-            return !relativePath.startsWith('modules/assistant/dist/');
+            return true;
         });
     const ignoredFiles = getIgnoredFiles(pluginRoot, candidates);
     return candidates
         .filter(fullPath => !ignoredFiles.has(fullPath))
         .map((fullPath) => {
             const relativePath = toPosix(path.relative(pluginRoot, fullPath));
-            const stat = fs.statSync(fullPath);
+            const stagedPath = path.join(outputRoot, relativePath);
+            const stat = fs.statSync(fs.existsSync(stagedPath) ? stagedPath : fullPath);
             return {
                 source: 'littlewhitebox',
                 publicPath: `scripts/extensions/third-party/LittleWhiteBox/${relativePath}`,

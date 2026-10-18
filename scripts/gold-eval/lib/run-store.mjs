@@ -1,4 +1,3 @@
-/* global process */
 // Gold Eval - versioned private run storage and lifecycle.
 
 import path from 'node:path';

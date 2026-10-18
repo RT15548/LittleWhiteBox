@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // H-PROMPT Stage 3 decision from fixed reader + structured semantic adjudication.
 
 import fs from 'node:fs/promises';

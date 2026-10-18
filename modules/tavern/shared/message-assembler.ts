@@ -136,7 +136,7 @@ function normalizeAuthorNoteRole(value: unknown): XBTavernPromptRole {
     return XBTavernPromptRole.SYSTEM;
 }
 
-export function normalizeXbTavernAuthorNote(value: unknown = {}): XbTavernAuthorNote {
+export function normalizeXbTavernAuthorNote(value: unknown = {}): Required<XbTavernAuthorNote> {
     const source = normalizedRecord(value);
     return {
         prompt: normalizeText(source.prompt),

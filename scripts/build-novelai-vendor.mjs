@@ -1,21 +1,20 @@
 import { build } from 'esbuild';
+import { outputRoot } from './build/output-root.mjs';
 import { Buffer } from 'node:buffer';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageDirectory = resolve(projectRoot, 'node_modules/@msgpack/msgpack');
-const browserOutput = resolve(projectRoot, 'libs/msgpack.mjs');
-const browserLicenseOutput = resolve(projectRoot, 'libs/msgpack.LICENSE.txt');
+const browserOutput = resolve(outputRoot, 'libs/msgpack.mjs');
+const browserLicenseOutput = resolve(outputRoot, 'libs/msgpack.LICENSE.txt');
 const serverVendorDirectory = resolve(
-    projectRoot,
+    outputRoot,
     'server-plugin/littlewhitebox-server/providers/novelai/vendor',
 );
 const serverOutput = resolve(serverVendorDirectory, 'novel-v5-parser.cjs');
 const licensesOutput = resolve(serverVendorDirectory, 'THIRD_PARTY_LICENSES.txt');
-const checkOnly = process.argv.includes('--check');
 
 const packageMetadata = JSON.parse(await readFile(resolve(packageDirectory, 'package.json'), 'utf8'));
 const licenseText = await readFile(resolve(packageDirectory, 'LICENSE'), 'utf8');
@@ -86,17 +85,8 @@ const outputs = [
     [licensesOutput, Buffer.from(licensesDocument)],
 ];
 
-if (checkOnly) {
-    for (const [path, expected] of outputs) {
-        const actual = await readFile(path).catch(() => null);
-        if (!actual?.equals(expected)) {
-            throw new Error(`${path} is stale; run npm run build:novelai:vendor`);
-        }
-    }
-} else {
-    await Promise.all([
-        mkdir(dirname(browserOutput), { recursive: true }),
-        mkdir(serverVendorDirectory, { recursive: true }),
-    ]);
-    await Promise.all(outputs.map(([path, contents]) => writeFile(path, contents)));
-}
+await Promise.all([
+    mkdir(dirname(browserOutput), { recursive: true }),
+    mkdir(serverVendorDirectory, { recursive: true }),
+]);
+await Promise.all(outputs.map(([path, contents]) => writeFile(path, contents)));

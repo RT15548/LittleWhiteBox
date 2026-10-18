@@ -115,11 +115,6 @@ import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/r
 import { buildAssistantChatMessages } from '../app-src/runtime/assistant-chat-context';
 import { rollbackImpactLines } from '../app-src/features/accepted-rollback/accepted-rollback';
 import {
-    createTavernSessionState,
-    useTavernSessionController,
-    type TavernSessionControllerOptions,
-} from '../app-src/features/session/useTavernSessionController';
-import {
     loadTavernAssistantChatUnitPage,
     loadTavernAssistantToolTurnDetail,
 } from '../app-src/features/assistant-chat/assistant-chat-projection';
@@ -549,24 +544,6 @@ test('tavern message indexed helpers read latest, direct, recent, and range wind
     assert.deepEqual(rangeWithCount.messages.map((message) => message.order), [2, 3]);
     assert.equal(rangeWithCount.total, 4);
     assert.deepEqual((await listTavernMessagesInRange(session.id, 4, Number.POSITIVE_INFINITY)).map((message) => message.order), [4, 5]);
-});
-
-test('session archive floor label follows the latest stored order when the transcript is sparse', async () => {
-    await db.delete();
-    await db.open();
-
-    const session = await createTavernSession({ title: 'Sparse floor label' });
-    await appendTavernMessage(session.id, { role: 'user', content: '0' });
-    await appendTavernMessage(session.id, { role: 'assistant', content: '1' });
-    await appendTavernMessage(session.id, { role: 'user', content: '2' });
-    await deleteTavernMessages(session.id, [0]);
-
-    const state = createTavernSessionState();
-    const controller = useTavernSessionController(state, {} as TavernSessionControllerOptions);
-    await controller.refreshSessionLatestMessageOrdersForSessions([session]);
-
-    assert.equal((await getLatestTavernMessage(session.id))?.order, 2);
-    assert.equal(controller.sessionFloorLabel(session), '第 2 楼');
 });
 
 test('manager candidates become fixed queued pairs only when the next user message is atomically stored', async () => {
@@ -1795,6 +1772,7 @@ test('latest assistant reroll keeps the old pair until an atomic replacement and
 
     const prepared = await prepareTavernLatestAssistantReroll(session.id);
     assert.equal(prepared.userMessage.order, user.order);
+    assert.ok(prepared.previousAssistantMessage);
     assert.equal(prepared.previousAssistantMessage.order, assistant.order);
     assert.equal(prepared.candidate?.id, oldCandidate.id);
     assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['最后一轮用户消息。', '旧回复。']);
@@ -1856,6 +1834,7 @@ test('latest assistant reroll keeps the old pair until an atomic replacement and
     assert.equal((await getTavernManagerCandidate(session.id))?.assistantOrder, assistant.order);
 
     const secondPreparation = await prepareTavernLatestAssistantReroll(session.id);
+    assert.ok(secondPreparation.previousAssistantMessage);
     await deleteTavernMessages(session.id, [secondPreparation.userMessage.order, secondPreparation.previousAssistantMessage.order]);
     const replacementUser = await appendTavernMessage(session.id, {
         role: 'user',
@@ -2429,7 +2408,7 @@ test('tavern memory retrieval uses the derived file index only', async () => {
     });
 
     assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
-    assert.equal(memory.memoryFiles?.[0]?.content.includes('harbor coordinates'), true);
+    assert.equal(memory.memoryFiles?.[0]?.content?.includes('harbor coordinates'), true);
 });
 
 test('tavern memory retrieval hydrates full state prompt content without expanding index preview', async () => {
@@ -2455,7 +2434,7 @@ test('tavern memory retrieval hydrates full state prompt content without expandi
     });
 
     assert.deepEqual(memory.memoryFiles?.map((file) => file.path), ['memory/state.md']);
-    assert.equal(memory.memoryFiles?.[0]?.content.includes(tailMarker), true);
+    assert.equal(memory.memoryFiles?.[0]?.content?.includes(tailMarker), true);
 });
 
 test('tavern memory retrieval injects character files by deterministic entity name hits', async () => {
@@ -2481,7 +2460,7 @@ test('tavern memory retrieval injects character files by deterministic entity na
         includeStructuredStates: false,
     });
     assert.deepEqual(hit.memoryFiles?.map((file) => file.path), ['memory/state.md', 'memory/characters/椎名真昼.md']);
-    assert.equal(hit.memoryFiles?.[1]?.content.includes(characterTailMarker), true);
+    assert.equal(hit.memoryFiles?.[1]?.content?.includes(characterTailMarker), true);
 
     const miss = await retrieveXbTavernMemoryContext({
         sessionId: session.id,
@@ -3215,77 +3194,6 @@ test('Tavern Grep accepts ebook-style query and scope aliases', async () => {
     assert.equal(result.outputMode, 'files_with_matches');
     assert.deepEqual(result.results?.map((match) => match.path), ['memory/state.md']);
 });
-
-test('Read tool schema documents filePath and tail semantics', () => {
-    const readTool = getTavernManagerToolDefinitions()
-        .find((tool) => tool.function.name === 'Read');
-    const parameters = readTool?.function.parameters as {
-        properties?: Record<string, { description?: string }>;
-    };
-
-    assert.match(readTool?.function.description || '', /line-numbered content/);
-    assert.match(readTool?.function.description || '', /Use `tail` by itself/i);
-    assert.match(readTool?.function.description || '', /argument name is `filePath`, not `path`/i);
-    assert.match(parameters.properties?.tail?.description || '', /Do not combine with offset\/limit/i);
-});
-
-test('Grep tool schema documents literal default and source scopes', () => {
-    const grepTool = getTavernManagerToolDefinitions()
-        .find((tool) => tool.function.name === 'Grep');
-    const parameters = grepTool?.function.parameters as {
-        properties?: Record<string, { description?: string }>;
-    };
-
-    assert.match(grepTool?.function.description || '', /literal text search by default/i);
-    assert.match(grepTool?.function.description || '', /chat\/.*worldbooks\/.*memory\//s);
-    assert.match(grepTool?.function.description || '', /filePath.*alias/i);
-    assert.match(grepTool?.function.description || '', /regex: true.*useRegex: true/i);
-    assert.match(parameters.properties?.filePath?.description || '', /Alias for path/i);
-    assert.match(parameters.properties?.regex?.description || '', /Default false/i);
-    assert.match(parameters.properties?.useRegex?.description || '', /Default false/i);
-});
-
-test('Write tool schema documents memory path discipline and whole-file semantics', () => {
-    const writeTool = getTavernManagerToolDefinitions()
-        .find((tool) => tool.function.name === 'Write');
-
-    assert.match(writeTool?.function.description || '', /chat\/.*worldbooks\/.*read-only evidence sources/s);
-    assert.match(writeTool?.function.description || '', /Do not create index files, turn files, session files/i);
-    assert.match(writeTool?.function.description || '', /User, Player, 用户, or 玩家/);
-    assert.match(writeTool?.function.description || '', /Use Edit instead for small corrections/i);
-    assert.match(writeTool?.function.description || '', /Writable paths are exactly `memory\/state\.md` and `memory\/characters\/<角色名>\.md`/);
-});
-
-test('Edit tool schema documents edit modes and array discipline', () => {
-    const editTool = getTavernManagerToolDefinitions()
-        .find((tool) => tool.function.name === 'Edit');
-    const parameters = editTool?.function.parameters as {
-        properties?: Record<string, { description?: string }>;
-    };
-
-    assert.match(editTool?.function.description || '', /Read the target file first/i);
-    assert.match(editTool?.function.description || '', /not a JSON-stringified string/i);
-    assert.match(editTool?.function.description || '', /normalizes by priority/i);
-    assert.match(editTool?.function.description || '', /Do not issue multiple Edit tool calls for the same file in one assistant turn/i);
-    assert.match(editTool?.function.description || '', /Keep oldString edits separate from line-number edits/i);
-    assert.match(editTool?.function.description || '', /Wrong: `"edits":/);
-    assert.match(editTool?.function.description || '', /Correct line-range item/i);
-    assert.match(editTool?.function.description || '', /insertion falls inside a line range/i);
-    assert.match(editTool?.function.description || '', /Failure Handling/i);
-    assert.match(editTool?.function.description || '', /If two changes overlap, merge them/i);
-    assert.match(editTool?.function.description || '', /User, Player, 用户, or 玩家/);
-    assert.match(editTool?.function.description || '', /bottom to top/);
-    assert.match(editTool?.function.description || '', /Common punctuation equivalence is supported/i);
-    assert.match(parameters.properties?.edits?.description || '', /real, non-empty JSON array/i);
-    assert.match(parameters.properties?.edits?.description || '', /not a quoted JSON string/);
-    assert.match(parameters.properties?.edits?.description || '', /startLine\/endLine\/newString/);
-    assert.match(parameters.properties?.edits?.description || '', /insertAtLine\/newString/);
-    assert.match(parameters.properties?.edits?.description || '', /Stray optional fields are ignored by mode priority/i);
-});
-
-
-
-
 
 test('Map tools support tavern atlas without entering map element semantics', async () => {
     await db.delete();

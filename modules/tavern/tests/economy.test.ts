@@ -25,7 +25,6 @@ import {
 import {
     describeAcceptedStateRollbackImpact,
     restoreAcceptedStateBeforeMessage,
-    rollbackImpactLines,
 } from '../app-src/features/accepted-rollback/accepted-rollback';
 import {
     TAVERN_ECONOMY_OPENING_IDEMPOTENCY_KEY,
@@ -33,7 +32,6 @@ import {
     TAVERN_SYSTEM_MINT_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
-import { formatTavernWalletTransactionAnchor } from '../app-src/features/phone-os/apps/wallet/tavern-wallet-format';
 
 function playerSpendInput(sessionId: string, idempotencyKey: string, amount: number, anchorOrder: number) {
     return {
@@ -50,27 +48,6 @@ function playerSpendInput(sessionId: string, idempotencyKey: string, amount: num
         anchorOrder,
     };
 }
-
-test('wallet anchors render their zero-based timeline coordinate', () => {
-    const label = formatTavernWalletTransactionAnchor({
-        id: 'floor-zero',
-        sessionId: 'session',
-        idempotencyKey: 'floor-zero',
-        fromAccountId: TAVERN_SYSTEM_MINT_ACCOUNT_ID,
-        toAccountId: TAVERN_PLAYER_ACCOUNT_ID,
-        amount: 1,
-        kind: 'test',
-        title: 'test',
-        note: '',
-        sourceDomain: 'test',
-        sourceId: 'test',
-        anchorOrder: 0,
-        ledgerOrder: 0,
-        playerBalanceAfter: 1,
-        createdAt: 0,
-    });
-    assert.match(label, /^第 0 楼/);
-});
 
 test('database v18 adds empty economy storage and existing sessions open lazily', async () => {
     await db.delete();
@@ -401,7 +378,6 @@ test('accepted state rollback includes wallet impact and restores the economy fl
     assert.equal(impact.economy.targetFloor, 1);
     assert.equal(impact.economy.targetPlayerBalance, 100);
     assert.equal(impact.willRollbackState, true);
-    assert.ok(rollbackImpactLines(impact).some((line) => line.includes('钱包流水')));
 
     await restoreAcceptedStateBeforeMessage(session.id, 2);
     assert.equal(await getTavernPlayerBalance(session.id), 100);

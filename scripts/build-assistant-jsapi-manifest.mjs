@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import { outputRoot } from './build/output-root.mjs';
 import path from 'node:path';
 
 const pluginRoot = process.cwd();
 const inputPath = path.join(pluginRoot, 'modules/assistant/references/sillytavern-javascript-api-reference.md');
-const outputPath = path.join(pluginRoot, 'modules/assistant/st-jsapi-manifest.json');
+const outputPath = path.join(outputRoot, 'modules/assistant/st-jsapi-manifest.json');
 
 function uniqueSorted(items) {
     return Array.from(new Set(Array.from(items || []).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'en'));
@@ -172,10 +173,6 @@ function normalizeSourcePath(raw) {
 
 function normalizeTypeText(raw) {
     return String(raw || '').trim().toLowerCase();
-}
-
-function stripCallSignature(raw) {
-    return String(raw || '').trim().replace(/\([^)]*\)$/g, '');
 }
 
 function extractInlineBacktickValue(line) {

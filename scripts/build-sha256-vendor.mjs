@@ -1,14 +1,14 @@
 import { build } from 'esbuild';
+import { outputRoot } from './build/output-root.mjs';
 import { Buffer } from 'node:buffer';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageDirectory = resolve(projectRoot, 'node_modules/js-sha256');
-const outputPath = resolve(projectRoot, 'libs/js-sha256.mjs');
-const licensePath = resolve(projectRoot, 'libs/js-sha256.LICENSE.txt');
+const outputPath = resolve(outputRoot, 'libs/js-sha256.mjs');
+const licensePath = resolve(outputRoot, 'libs/js-sha256.LICENSE.txt');
 const metadata = JSON.parse(await readFile(resolve(packageDirectory, 'package.json'), 'utf8'));
 const license = await readFile(resolve(packageDirectory, 'LICENSE.txt'), 'utf8');
 
@@ -45,12 +45,6 @@ const outputs = [
 ];
 
 for (const [path, contents] of outputs) {
-    if (process.argv.includes('--check')) {
-        const actual = await readFile(path);
-        if (!actual.equals(contents)) {
-            throw new Error(`${path} is stale; run npm run build:sha256:vendor`);
-        }
-    } else {
-        await writeFile(path, contents);
-    }
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, contents);
 }

@@ -13,7 +13,7 @@ export async function createSharedMemoryAgent() {
     const settings = await loadSharedAgentSettings();
     const config = resolveActiveProviderConfig(settings);
     requireMemory(config.model?.trim() && (isSillyTavernProvider(config.provider) || config.baseUrl?.trim()), 'not_configured');
-    const core = await import('../../agent-core/dist/agent-core-browser.js');
+    const core = await import('../../agent-core/browser-entry.js');
     const { getRequestHeaders } = await import('../../../../../../../script.js');
     core.setHostChatCompletionsRequestHeadersProvider(() => getRequestHeaders());
     return { adapter: core.createAgentAdapter(config), createSummaryAdapter: () => core.createAgentAdapter(config), config };

@@ -1,4 +1,3 @@
-/* global process */
 // Gold Eval study control plane - durable state, evidence audit and status view.
 
 import fs from 'node:fs/promises';

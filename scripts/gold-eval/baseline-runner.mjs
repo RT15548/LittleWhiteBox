@@ -1,4 +1,3 @@
-/* global process */
 // Baseline campaign preparation/audit. No command in this file calls a model API.
 
 import fs from 'node:fs/promises';

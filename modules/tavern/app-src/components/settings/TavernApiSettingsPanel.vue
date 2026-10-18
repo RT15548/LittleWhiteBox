@@ -7,7 +7,7 @@ const {
     apiSettingsRootRef,
 } = settings;
 
-function setApiSettingsRootRef(element: Element | null) {
+function setApiSettingsRootRef(element: unknown) {
     apiSettingsRootRef.value = element instanceof HTMLElement ? element : null;
 }
 </script>

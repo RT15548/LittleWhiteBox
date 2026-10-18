@@ -3,7 +3,7 @@
     "loading_order": 10,
     "requires": [],
     "optional": [],
-    "js": "index.js",
+    "js": "dist/host/plugin.js",
     "css": "style.css",
     "author": "biex",
     "version": "3.1.8",

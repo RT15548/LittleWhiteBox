@@ -1,3 +1,4 @@
+import { pluginAsset } from '../../../core/build-assets.js';
 import { analyzeJavaScriptApiRequest } from '../runtime-src/jsapi-runtime.js';
 import { createDelegateRunner } from '../../agent-core/runtime/delegate-runner.js';
 import { runWebSearchTool } from '../../agent-core/web/tools.js';
@@ -13,7 +14,7 @@ import { createHostToolRequestController } from './runtime/host-tool-requests.js
 import { createHistoryCompactionController, splitMessagesIntoTurns } from './runtime/history-compaction.js';
 import { createStreamingMessageController } from './runtime/streaming-messages.js';
 
-const JSAPI_MANIFEST_URL = new URL('../st-jsapi-manifest.json', import.meta.url);
+const JSAPI_MANIFEST_URL = pluginAsset('modules/assistant/st-jsapi-manifest.json');
 let jsApiManifestPromise = null;
 
 function normalizeJsApiRequestKind(value) {

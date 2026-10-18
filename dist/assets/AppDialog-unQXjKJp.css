@@ -1,0 +1,1 @@
+.os-app-dialog-shade{z-index:100;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);background:#0c111b66;justify-content:center;align-items:center;padding:12px;display:flex;position:absolute;inset:0}.os-app-dialog-shade>[role=dialog]{box-sizing:border-box;max-width:100%;max-height:100%;margin:auto;display:block;position:relative;inset:auto;overflow:auto}

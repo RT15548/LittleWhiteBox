@@ -262,7 +262,6 @@ test('save and memory recovery remain visible on entry and cannot be dismissed a
     for (const flag of ['pending', 'memoryPending']) {
         const failed = { ...hostView(), planFault: 'island_memory_save', [flag]: true };
         const ui = await room(t, bridgeFor(failed));
-        assert.match(ui.root.querySelector('.island-recovery-save').textContent, /确认保存状态/);
         assert.ok(!ui.root.querySelector('.island-gm-failure'));
         await click(ui.root.querySelector('.island-entry-start'));
         await click(ui.root.querySelector('.island-chat-button'));

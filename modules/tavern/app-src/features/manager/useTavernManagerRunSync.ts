@@ -168,7 +168,7 @@ export function useTavernManagerRunSync(options: TavernManagerRunSyncOptions) {
         if (!id) {return;}
         terminalRefreshDone.delete(id);
         const pending = terminalRefreshPending.get(id);
-        if (pending?.timer !== null) {window.clearTimeout(pending.timer);}
+        if (pending && pending.timer !== null) {window.clearTimeout(pending.timer);}
         terminalRefreshPending.delete(id);
     }
 
@@ -226,7 +226,7 @@ export function useTavernManagerRunSync(options: TavernManagerRunSyncOptions) {
             existing.run = run;
             return;
         }
-        if (existing?.timer !== null) {window.clearTimeout(existing.timer);}
+        if (existing && existing.timer !== null) {window.clearTimeout(existing.timer);}
         const pending: TerminalRefreshPending = {
             run,
             version,

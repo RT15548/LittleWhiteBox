@@ -97,15 +97,15 @@ const {
     drawMessageTitle,
     isDrawingMessage,
 } = draw;
-function setChatScrollRef(element: Element | null) {
+function setChatScrollRef(element: unknown) {
     chatScrollRef.value = element instanceof HTMLElement ? element : null;
 }
 
-function setChatScrollContentRef(element: Element | null) {
+function setChatScrollContentRef(element: unknown) {
     chatScrollContentRef.value = element instanceof HTMLElement ? element : null;
 }
 
-function setChatComposeTextareaRef(element: Element | null) {
+function setChatComposeTextareaRef(element: unknown) {
     chatComposeTextareaRef.value = element instanceof HTMLTextAreaElement ? element : null;
 }
 

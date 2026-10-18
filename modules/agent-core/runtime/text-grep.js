@@ -75,6 +75,7 @@ export async function grepTextSources(options = {}) {
     const abortMessage = String(options.abortMessage || 'grep_aborted');
     const timeSliceMs = Math.max(1, Number(options.timeSliceMs) || 8);
     const sources = options.sources || [];
+    /** @type {Array<{path: string, lineNumber?: number, line?: string, context?: string, count?: number}>} */
     const results = [];
     let count = 0;
     let searchedFileCount = 0;

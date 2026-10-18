@@ -102,15 +102,15 @@ const {
     visibleManagerChatItems,
 } = manager;
 
-function setManagerScrollRef(element: Element | null) {
+function setManagerScrollRef(element: unknown) {
     managerScrollRef.value = element instanceof HTMLElement ? element : null;
 }
 
-function setManagerWorkRef(element: Element | null) {
+function setManagerWorkRef(element: unknown) {
     managerWorkRef.value = element instanceof HTMLElement ? element : null;
 }
 
-function setManagerComposeTextareaRef(element: Element | null) {
+function setManagerComposeTextareaRef(element: unknown) {
     managerComposeTextareaRef.value = element instanceof HTMLTextAreaElement ? element : null;
 }
 

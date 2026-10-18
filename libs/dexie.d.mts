@@ -20,7 +20,7 @@ export interface DexieTable<T = Record<string, unknown>> {
 
 export default class Dexie {
     constructor(name: string);
-    version(version: number): { stores(schema: Record<string, string>): void };
+    version(version: number): { stores(schema: Record<string, string | null>): void };
     transaction<T>(mode: string, ...args: unknown[]): Promise<T>;
     delete(): Promise<void>;
     open(): Promise<Dexie>;

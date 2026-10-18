@@ -2,9 +2,7 @@
 
 `agent-core` 是小白 X 各 Agent App 共用的业务无关能力层；共享配置表单原语可以在这里，具体 App 的界面与宿主装配不属于这里。
 
-浏览器原生 ESM 消费者不得直接加载带 SDK 裸包 import 的 `provider-config.js`。纯配置解析从
-`provider-resolution.js` 导入；真正需要发起模型请求时，懒加载构建产物
-`dist/agent-core-browser.js`。浏览器入口只导出通用配置、Adapter factory、请求脱敏和
+浏览器消费者由插件统一构建，纯配置解析从 `provider-resolution.js` 导入；真正需要发起模型请求时，懒加载源码 `browser-entry.js`，由统一依赖图提取 SDK。原生动态入口通过构建清单的 `runtime/agent-core` 装载，不直接请求带裸包 import 的源码。浏览器入口只导出通用配置、Adapter factory、请求脱敏和
 SillyTavern 请求头注入，不得反向依赖任何具体功能模块。
 
 可以放这里：

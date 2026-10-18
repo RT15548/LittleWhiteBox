@@ -1,0 +1,1 @@
+var e={scope:"全局账本",pageInactive:"钱包页面已关闭，请重新打开。",unavailable:"钱包数据暂时无法读取，请稍后重试。",blockedTitle:"暂时无法操作",operationExpired:"原操作的条件已失效，未重新提交。可使用已保存账本后重新操作。",checkSave:"检查保存",checking:"正在检查…",adopt:"使用已保存账本",adoptQuestion:"使用服务器上已保存的全局账本？",adoptNotice:"将放弃本次未确认的本地修改。余额和关联业务记录一起使用服务器版本。",confirm:"确认使用",cancel:"取消"};export{e as t};

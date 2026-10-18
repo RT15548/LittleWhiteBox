@@ -1,4 +1,4 @@
-import { renderMarkdownToHtml } from '../../agent-core/ui/dist/message-markdown.js';
+import { renderMarkdownToHtml } from '../../agent-core/ui/message-markdown.js';
 
 const REPORT_TAGS = new Set([
     'p', 'br', 'em', 'i', 'strong', 'b', 'del', 's', 'u', 'code', 'pre', 'blockquote',

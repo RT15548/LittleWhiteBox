@@ -1,4 +1,3 @@
-/* global process */
 // Durable per-cluster campaign executor. Valid attempts are immutable; status is derived from receipts.
 
 import fs from 'node:fs/promises';

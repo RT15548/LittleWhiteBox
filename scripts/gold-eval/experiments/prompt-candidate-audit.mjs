@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // H-PROMPT Stage 2 audit: pair source captures with isolated prompt-only candidates.
 
 import fs from 'node:fs/promises';

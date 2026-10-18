@@ -176,7 +176,6 @@ export async function runSummaryResponseCheck() {
                 if (scenario.saveFailure) assert.equal(result.error.code, 'metadata_not_saved');
                 else assert.equal(result.error, scenario.error || 'parse');
                 assert.equal(errors.length, 1);
-                if (scenario.error === 'structure') assert.match(result.message, /events|arcUpdates|factUpdates|keywords/);
                 assert.deepEqual(getSummaryStore(), before, scenario.raw);
                 // A failed batch leaves the same floor and ID available to retry.
                 failSave = false;

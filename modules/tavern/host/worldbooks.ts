@@ -7,13 +7,13 @@ import {
     select_selected_character,
     setCharacterId,
     setCharacterName,
-    extension_prompts,
     setExtensionPrompt,
     extension_prompt_types,
     this_chid,
     unshallowCharacter,
 } from '../../../../../../../script.js';
 import * as stScript from '../../../../../../../script.js';
+import { extensionPrompts as extension_prompts } from './host-state.js';
 import { NOTE_MODULE_NAME } from '../../../../../../authors-note.js';
 import { getContext } from '../../../../../../extensions.js';
 import { power_user } from '../../../../../../power-user.js';
@@ -768,7 +768,7 @@ function buildExplicitScanLines(scanText = ''): string[] {
         .reverse();
 }
 
-function buildGlobalScanData(input: TavernWorldbookRuntimeInput = {}): Record<string, unknown> {
+function buildGlobalScanData(input: TavernWorldbookRuntimeInput = {}) {
     const context = input.context || {};
     const character = context.character || {};
     const characterRecord = asRecord(character);
@@ -814,7 +814,7 @@ function buildActivatedPromptEntries(
     return entries.map((entry, index) => {
         const sourceWorldBook = normalizeText(entry.world || entry.sourceWorldBook);
         const source = sourceByName.get(sourceWorldBook);
-        const uid = entry.uid ?? entry.id ?? index;
+        const uid = (entry.uid ?? entry.id ?? index) as string | number;
         return {
             uid,
             id: uid,
@@ -998,7 +998,7 @@ async function prepareCharacterEditorForWorldbookBinding(nativeCharacterId: stri
     if (!Number.isInteger(numericId) || numericId < 0 || !Object.keys(getCharacterRecordById(normalizedId)).length) {
         throw new Error('当前角色未找到，无法绑定世界书。');
     }
-    select_selected_character(numericId, { switchMenu: false });
+    select_selected_character(String(numericId), { switchMenu: false });
     await Promise.resolve();
 }
 

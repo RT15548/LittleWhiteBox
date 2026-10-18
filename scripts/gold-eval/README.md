@@ -23,8 +23,7 @@
 ## 自检
 
 ```powershell
-npm run test:gold-eval
-npm run test:story-summary:alignment
+npm run check
 ```
 
 自检包含评分纯函数与 run/cassette 生命周期契约；只使用临时目录和本地 stub fetch，不调用 API，
@@ -260,7 +259,7 @@ manifest 记录 provider、无查询参数的 endpoint base、model 和环境变
 然后使用正式 snapshot 运行：
 
 ```powershell
-npm run test:story-summary:recall
+npm run replay:recall
 ```
 
 也可以完全不改本地配置，用命令行覆盖私有路径：

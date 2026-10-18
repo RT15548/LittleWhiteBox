@@ -273,10 +273,7 @@ L0/L1 范围清理使用现有楼层索引，不物化无关历史记录。L1 �
 
 ```sh
 node --test modules/story-summary/tests/*.test.js
-npm run test:story-summary:runtime
-npm run test:story-summary:alignment
-npm run test:story-summary:cancel
-npm run test:story-summary:bundle
+npm run check
 ```
 
 [模型检查脚本](../tests/maintenance-model-check.mjs)默认只预检。真实调用需明确授权并保留原始收据，不重买已成功或计费未知的请求；预检通过不能当作质量结论。

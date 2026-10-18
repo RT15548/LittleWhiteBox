@@ -1,4 +1,3 @@
-/* global process */
 // Experiment-owned bounded transport and frozen-input assembly. No scoring here.
 import fs from 'node:fs/promises';
 import path from 'node:path';

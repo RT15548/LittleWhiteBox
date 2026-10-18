@@ -31,22 +31,26 @@ const {
     saveScriptsByType,
     SCRIPT_TYPES,
     substitute_find_regex,
-} = nativeRegexEngine;
+} = nativeRegexEngine as Omit<typeof nativeRegexEngine, 'saveScriptsByType' | 'runRegexScript'> & {
+    // Native regex depth bounds accept null as unbounded, despite host JSDoc's number type.
+    saveScriptsByType(scripts: TavernRegexScript[], scriptType: number): Promise<void>;
+    runRegexScript(script: TavernRegexScript, text: string, options?: Record<string, unknown>): string;
+};
 
 interface TavernRegexScript {
-    id?: string;
-    scriptName?: string;
-    findRegex?: string;
-    replaceString?: string;
-    trimStrings?: string[];
-    placement?: number[];
-    disabled?: boolean;
-    markdownOnly?: boolean;
-    promptOnly?: boolean;
-    runOnEdit?: boolean;
-    substituteRegex?: number;
-    minDepth?: number | null;
-    maxDepth?: number | null;
+    id: string;
+    scriptName: string;
+    findRegex: string;
+    replaceString: string;
+    trimStrings: string[];
+    placement: number[];
+    disabled: boolean;
+    markdownOnly: boolean;
+    promptOnly: boolean;
+    runOnEdit: boolean;
+    substituteRegex: number;
+    minDepth: number | null;
+    maxDepth: number | null;
     [key: string]: unknown;
 }
 
@@ -249,7 +253,7 @@ function buildGroup(scriptType: number, key: string, label: string, nativeCharac
         allowed: scriptType === SCRIPT_TYPES.SCOPED
             ? !!normalizedNativeCharacterId(nativeCharacterId) && isScopedScriptsAllowed(nativeCharacter)
             : scriptType === SCRIPT_TYPES.PRESET
-                ? isPresetScriptsAllowed(presetApi, presetName)
+                ? isPresetScriptsAllowed(presetApi ?? '', presetName ?? '')
                 : true,
     };
 }
@@ -318,7 +322,7 @@ export async function saveTavernRegexScript(input: unknown): Promise<Record<stri
     if (scriptType === SCRIPT_TYPES.SCOPED) {
         allowScopedScripts(nativeCharacter);
     } else if (scriptType === SCRIPT_TYPES.PRESET) {
-        allowPresetScripts(getCurrentPresetAPI(), getCurrentPresetName());
+        allowPresetScripts(getCurrentPresetAPI() ?? '', getCurrentPresetName() ?? '');
     }
     await syncNativeRegexUiAfterWrite();
     return {

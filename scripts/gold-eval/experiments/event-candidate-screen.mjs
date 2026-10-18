@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // H-EVENT zero-API screen: apply the existing MMR cap only after all event sources merge.
 
 import fs from 'node:fs/promises';

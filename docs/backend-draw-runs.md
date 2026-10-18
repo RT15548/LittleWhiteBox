@@ -226,10 +226,10 @@ Host Client 边界：
 Node 发布边界：
 
 - `modules/agent-core/node-entry.js` 是后端唯一入口；酒馆三渠道在入口层强制要求实例 Host Client，不导出浏览器全局 setter。
-- `npm run build:agent-core:node` 用 esbuild 生成 `server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs`，把 Agent Core、三个 SDK 及其实际依赖打成 CommonJS 单文件；产物只允许引用 Node 内置模块。
+- `npm run build` 中的 Node 目标用 esbuild 生成 `server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs`，把 Agent Core、三个 SDK 及其实际依赖打成 CommonJS 单文件；产物只允许引用 Node 内置模块。
 - 同一构建根据 esbuild metafile 生成 `draw-runs/vendor/THIRD_PARTY_LICENSES.txt`，逐项记录实际入包依赖的精确版本、许可证声明及上游随包附带的 LICENSE/NOTICE/COPYING 正文；未附带这些文件时回退提取 README 的 License 段，仍无正文则构建失败。
-- `npm run check:agent-core:node` 先核对实际入包依赖与 `package-lock.json` 的锁定版本，再无写入重建并逐字节比对 bundle 与许可证清单，防止提交陈旧产物；正式构建在同目录 staging，并以整个 `vendor` 目录为发布单元切换，失败时恢复上一份完整产物。
-- 运行时不安装 npm 依赖；bundle 编译目标与 server plugin 最低版本均为 Node.js 18。`npm run check:agent-core:node18` 固定在 Node.js 18.20.8 隔离加载 bundle、创建七类 Adapter，并通过本机模拟端点验证 Google SDK 的实际 `generateContent` 请求路径；虽然当前 `@google/genai` 声明 Node.js 20，锁定并打包的现用路径已验证支持 Node.js 18，后续 SDK 升级由该检查拦截。
+- 构建与验收统一遵循[插件构建规则](plugin-build.md)，本功能不保留独立流水线。依赖锁定、产物与许可证一致性、暂存发布和失败恢复都由总流程负责。
+- 运行时不安装 npm 依赖；bundle 编译目标与 server plugin 最低版本均为 Node.js 18。总验收中的 Node 18 兼容检查及其覆盖范围见[服务端说明](../server-plugin/littlewhitebox-server/README.md)。
 
 不能改写：Tool 格式、Reasoning 处理、Claude/Google 原生回放结构、tagged JSON 兼容、Scene Planner 纠错循环、模型家族判断。
 

@@ -1,4 +1,3 @@
-/* global process */
 // Zero-network mechanism screen. Frozen upstream, current lexical index and packing.
 import fs from 'node:fs/promises';
 import path from 'node:path';

@@ -1,4 +1,3 @@
-/* global process */
 // Fresh control packing for an expanded, frozen-input sample. No semantic labels.
 import fs from 'node:fs/promises';
 import path from 'node:path';

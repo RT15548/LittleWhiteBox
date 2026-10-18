@@ -1,11 +1,12 @@
 import fs from 'node:fs';
+import { outputRoot } from './build/output-root.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.resolve(scriptDir, '..');
 const codepointsPath = path.join(pluginRoot, 'libs/material-symbols/codepoints');
-const outputPath = path.join(pluginRoot, 'modules/tavern/shared/material-symbols-names.ts');
+const outputPath = path.join(outputRoot, 'modules/tavern/shared/material-symbols-names.ts');
 
 function parseCodepoints(source) {
     return [...new Set(source
@@ -27,5 +28,6 @@ const body = [
     '',
 ].join('\n');
 
+fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, body, 'utf8');
 console.log(`Material Symbols names written to ${path.relative(pluginRoot, outputPath)} (${names.length} names)`);

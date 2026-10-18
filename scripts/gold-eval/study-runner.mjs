@@ -1,4 +1,3 @@
-/* global process */
 // Gold Eval study control plane CLI.
 
 import path from 'node:path';

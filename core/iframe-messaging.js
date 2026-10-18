@@ -6,6 +6,12 @@ export function getIframeTargetOrigin() {
     return getTrustedOrigin();
 }
 
+/**
+ * @param {HTMLIFrameElement} iframe
+ * @param {object} payload
+ * @param {string} [source]
+ * @param {string | null} [targetOrigin]
+ */
 export function postToIframe(iframe, payload, source, targetOrigin = null) {
     if (!iframe?.contentWindow) return false;
     const message = source ? { source, ...payload } : payload;

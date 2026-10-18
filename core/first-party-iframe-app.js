@@ -1,27 +1,7 @@
-import { extensionFolderPath } from './constants.js';
+import { readBuildManifest } from './build-assets.js';
 
-export async function loadFirstPartyIframeCacheKey(buildInfoPath = '') {
-    let manifestVersion = '';
-    let buildHash = '';
-    try {
-        const response = await fetch(`${extensionFolderPath}/manifest.json`, { cache: 'no-store' });
-        const manifest = await response.json();
-        manifestVersion = manifest.version || '';
-    } catch {
-        // Cache busting is best effort.
-    }
-    try {
-        const response = await fetch(buildInfoPath, { cache: 'no-store' });
-        if (response.ok) {
-            const buildInfo = await response.json();
-            buildHash = [buildInfo.uiVersion || buildInfo.version || '', buildInfo.hash || buildInfo.build || '']
-                .filter(Boolean)
-                .join('-');
-        }
-    } catch {
-        // Older installs may not have a build info file yet.
-    }
-    return [manifestVersion, buildHash].filter(Boolean).join('-');
+export async function loadFirstPartyIframeCacheKey() {
+    return (await readBuildManifest()).buildId;
 }
 
 export async function createFirstPartyIframeOverlay(options = {}) {

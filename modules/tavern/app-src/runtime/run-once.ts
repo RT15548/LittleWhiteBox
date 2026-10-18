@@ -218,7 +218,7 @@ function buildRuntimeProtocolMessages(
     ];
 }
 
-function buildChanceEncounterDepthEntries(event: TavernChanceEncounterRuntimeEvent | null | undefined): XbTavernRuntimeState['runtimeDepthEntries'] {
+function buildChanceEncounterDepthEntries(event: TavernChanceEncounterRuntimeEvent | null | undefined): NonNullable<XbTavernRuntimeState['runtimeDepthEntries']> {
     if (!event) {return [];}
     return [{
         content: buildChanceEncounterPromptMessage().content,
@@ -831,7 +831,7 @@ function resolveSessionContract(state?: TavernSessionState | null): TavernSessio
 function normalizeRuntimeSessionStateWithContract(
     state: Partial<TavernSessionState> | null | undefined,
     existingContract: Partial<TavernSessionContract> | null | undefined,
-): TavernSessionState {
+): ReturnType<typeof normalizeTavernSessionState> {
     const source = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
     return normalizeTavernSessionState({
         ...source,

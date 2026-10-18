@@ -559,7 +559,8 @@
 <script>
   !function () {
     'use strict';
-    const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s), $id = id => document.getElementById(id);
+    const { extensionSettings: extension_settings } = SillyTavern.getContext();
+    const $id = id => document.getElementById(id);
     const onReady = fn => { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true }); else fn(); };
     function setupXBtnPositionButton() {
       const KEY = 'xiaobaix_x_btn_position';

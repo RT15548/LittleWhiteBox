@@ -1,4 +1,3 @@
-/* global Buffer */
 // Strict offline replay for captured Embedding/Rerank transport responses.
 
 import { createHash } from 'node:crypto';

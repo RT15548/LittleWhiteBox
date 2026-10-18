@@ -4,15 +4,15 @@ import {
     depth_prompt_role_default,
     extension_prompt_roles,
     extension_prompt_types,
-    extension_prompts,
     name2,
     parseMesExamples,
     setExtensionPrompt,
 } from '../../../../../../../script.js';
 import { NOTE_MODULE_NAME } from '../../../../../../authors-note.js';
 import { inject_ids } from '../../../../../../constants.js';
-import { parseExampleIntoIndividual, prepareOpenAIMessages, promptManager } from '../../../../../../openai.js';
+import { parseExampleIntoIndividual, prepareOpenAIMessages as hostPrepareOpenAIMessages, promptManager } from '../../../../../../openai.js';
 import { persona_description_positions, power_user } from '../../../../../../power-user.js';
+import { extensionPrompts as extension_prompts } from './host-state.js';
 import {
     resolveXbTavernAuthorNoteState,
     type TavernChatPromptPresetBundle,
@@ -46,9 +46,19 @@ export interface TavernNativePromptResult {
 
 type ExtensionPromptSnapshot = Record<string, Record<string, unknown>>;
 
+// Host JSDoc calls examples string[] and quietImage string; the runtime consumes
+// parsed example dialogues and explicitly permits an absent image.
+const prepareOpenAIMessages = hostPrepareOpenAIMessages as unknown as (
+    input: Omit<Parameters<typeof hostPrepareOpenAIMessages>[0], 'messageExamples' | 'quietImage'> & {
+        messageExamples: ReturnType<typeof buildMessageExamples>;
+        quietImage: string | null;
+    },
+    dryRun?: boolean,
+) => ReturnType<typeof hostPrepareOpenAIMessages>;
+
 interface PersonaPromptSnapshot {
-    description: unknown;
-    position: unknown;
+    description: typeof power_user.persona_description;
+    position: typeof power_user.persona_description_position;
 }
 
 interface PromptManagerSnapshot {
@@ -380,12 +390,12 @@ function countMatchedMessages(sourceMessages: XbTavernMessage[] = [], targetMess
     return { count, chars };
 }
 
-function buildMessageExamples(context: XbTavernContext = {}): unknown[] {
+function buildMessageExamples(context: XbTavernContext = {}) {
     const character = context.character || {};
     const data = asRecord(character.data);
     const runtime = context.nativeWorldInfo || {};
     const examples = parseMesExamples(
-        baseChatReplace(character.mesExample || character.mes_example || data.mes_example || ''),
+        baseChatReplace(character.mesExample || character.mes_example || (data.mes_example as string) || ''),
         false,
     );
     const worldExamples = Array.isArray(runtime.worldInfoExamples) ? runtime.worldInfoExamples : [];
@@ -613,10 +623,10 @@ function toXbMessage(message: unknown): XbTavernMessage | null {
     };
 }
 
-function getCharacterField(context: XbTavernContext = {}, key: string, camelKey: keyof NonNullable<XbTavernContext['character']>): string {
+function getCharacterField(context: XbTavernContext = {}, key: string, camelKey: 'description' | 'personality' | 'scenario'): string {
     const character = context.character || {};
     const data = asRecord(character.data);
-    return baseChatReplace((character[camelKey] as unknown) || data[key] || '');
+    return baseChatReplace(character[camelKey] || (data[key] as string) || '');
 }
 
 async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedAt = nowMs(), signal?: AbortSignal): Promise<TavernNativePromptResult> {
@@ -677,8 +687,8 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
             quietPrompt: '',
             quietImage: null,
             cyclePrompt: '',
-            systemPromptOverride: baseChatReplace(data.system_prompt || ''),
-            jailbreakPromptOverride: baseChatReplace(data.post_history_instructions || ''),
+            systemPromptOverride: baseChatReplace((data.system_prompt as string) || ''),
+            jailbreakPromptOverride: baseChatReplace((data.post_history_instructions as string) || ''),
             messages,
             messageExamples,
         }, true));

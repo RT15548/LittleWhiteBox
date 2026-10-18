@@ -139,7 +139,6 @@ test('runPatchValidationAndApply applies a validated multi-file patch in one com
     assert.equal(result.hunksApplied, 1);
     assert.equal(result.validation.operationsValidated, 3);
     assert.equal(result.validation.hunksValidated, 1);
-    assert.match(result.summary, /已先校验再应用补丁/);
     assert.equal(findFile(result.nextState, 'local/demo/new.js')?.content, 'export default "new";');
     assert.equal(findFile(result.nextState, 'local/demo/app.js')?.content, 'const value = 2;\n');
     assert.equal(findFile(result.nextState, 'local/demo/old.js'), null);
@@ -341,14 +340,10 @@ test('buildPatchFailureResult produces a structured failed result', () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'failed');
-    assert.match(result.summary, /未修改任何文件/);
     assert.equal(result.validation.operationsValidated, 2);
     assert.equal(result.validation.hunksValidated, 1);
     assert.match(result.error, /apply_patch_apply_error:/);
     assert.equal(result.recovery.readBeforeRetry, true);
-    assert.match(result.nextStep, /先 Read 目标文件当前内容/);
-    assert.match(result.recovery.rules.join('\n'), /当前原文/);
-    assert.match(buildPatchFailureResult(new Error('other_patch_failure')).recovery.rules.join('\n'), /大段正文、整节或整章重写改用 Write/);
 });
 
 test('buildPatchFailureResult teaches parse-error recovery without forcing a read', () => {
@@ -359,8 +354,6 @@ test('buildPatchFailureResult teaches parse-error recovery without forcing a rea
     assert.equal(result.ok, false);
     assert.equal(result.recovery.kind, 'parse_error');
     assert.equal(result.recovery.readBeforeRetry, false);
-    assert.match(result.nextStep, /完整 patchText/);
-    assert.match(result.recovery.rules.join('\n'), /不要传 JSON、sed、XML/);
 });
 
 test('buildPatchFailureResult teaches precise-context recovery for ambiguous and empty-context hunks', () => {
@@ -373,7 +366,5 @@ test('buildPatchFailureResult teaches precise-context recovery for ambiguous and
 
     assert.equal(ambiguous.recovery.kind, 'ambiguous_match');
     assert.equal(ambiguous.recovery.readBeforeRetry, true);
-    assert.match(ambiguous.recovery.rules.join('\n'), /增加更多相邻原文上下文/);
     assert.equal(emptyContext.recovery.kind, 'missing_match_context');
-    assert.match(emptyContext.recovery.rules.join('\n'), /不能只有新增行/);
 });

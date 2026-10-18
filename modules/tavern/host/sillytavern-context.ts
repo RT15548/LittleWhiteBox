@@ -1,4 +1,5 @@
-import { extension_settings, getContext } from '../../../../../../extensions.js';
+import { getContext } from '../../../../../../extensions.js';
+import { extensionSettings as extension_settings } from './host-state.js';
 import { power_user } from '../../../../../../power-user.js';
 import { user_avatar } from '../../../../../../personas.js';
 import { getTagKeyForEntity, tag_map } from '../../../../../../tags.js';
@@ -388,7 +389,7 @@ function normalizeCharacter(ctx: Record<string, unknown> = getContext?.() || {},
         data.name,
         ctx.name2,
     ].map((value) => normalizeText(value)).find((value) => value && !isSystemCharacterName(value)) || '';
-    const tagKey = getTagKeyForEntity?.(nativeCharacterId as string | number | null);
+    const tagKey = getTagKeyForEntity?.(nativeCharacterId as string | number);
     const tags = tagKey && Array.isArray(tag_map?.[tagKey])
         ? tag_map[tagKey].map((item) => normalizeText(item)).filter(Boolean)
         : [];

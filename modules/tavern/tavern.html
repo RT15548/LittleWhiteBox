@@ -153,8 +153,9 @@
             }
             if (payload.action) console.debug('[小白酒馆] startup', `${percent}%`, payload.action);
         };
+        // eslint-disable-next-line no-restricted-syntax -- Startup progress is accepted only from the same-origin parent.
         window.addEventListener('message', (event) => {
-            if (event.origin !== window.location.origin) return;
+            if (event.origin !== window.location.origin || event.source !== window.parent) return;
             const data = event.data || {};
             if (data.source !== SOURCE_HOST || data.type !== 'xb-tavern:startup-progress') return;
             applyStartupProgress(data.payload || {});
@@ -164,26 +165,15 @@
             type: 'xb-tavern:boot-ready',
             payload: {},
         }, window.location.origin);
-        const version = new URLSearchParams(location.search).get('v') || '';
-        const suffix = version ? `?v=${encodeURIComponent(version)}` : '';
-        const stylesheet = document.createElement('link');
-        stylesheet.rel = 'stylesheet';
-        stylesheet.href = `./dist/tavern-app.css${suffix}`;
-        stylesheet.addEventListener('load', () => {
+        import('../../core/build-assets.js').then(async ({ loadBuildStyles, loadBuildEntry }) => {
+            await loadBuildStyles('apps/tavern');
             stylesheetReady = true;
             revealTavernWhenReady();
-        }, { once: true });
-        stylesheet.addEventListener('error', () => {
-            showStartupFailure('界面样式加载失败，请刷新重试');
-        }, { once: true });
-        document.head.appendChild(stylesheet);
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = `./dist/tavern-app.js${suffix}`;
-        script.onerror = () => {
-            showStartupFailure('界面程序加载失败，请刷新重试');
-        };
-        document.body.appendChild(script);
+            await loadBuildEntry('apps/tavern');
+        }).catch(error => {
+            showStartupFailure('界面加载失败，请刷新重试');
+            console.error(error);
+        });
     </script>
 </body>
 </html>

@@ -85,7 +85,7 @@ export interface TavernChatRunControllerOptions {
     resolveSlashCommandMessageText: (messageText: string, options?: { rerollLatestAssistant?: boolean }) => Promise<string>;
     setSelectedSessionId: (sessionId: string) => void;
     showToast: (message: string, options?: { tone?: 'info' | 'warning' | 'danger'; durationMs?: number }) => void;
-    thoughtBlocks: (messageOrThoughts: unknown) => Array<{ label?: string; text?: string }>;
+    thoughtBlocks: (messageOrThoughts: TavernMessageRecord | TavernMessageRecord['thoughts'] | null) => Array<{ label?: string; text?: string }>;
     touchSessionLocally: (sessionId: string, updatedAt?: number) => void;
     updateChatScrollButtons: () => void;
     upsertLoadedSessionMessage: (message: TavernMessageRecord) => void;

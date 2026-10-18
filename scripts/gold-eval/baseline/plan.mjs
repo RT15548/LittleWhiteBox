@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // Materialize the frozen dev matrix into one replay job per independent chat.
 
 import fs from 'node:fs/promises';

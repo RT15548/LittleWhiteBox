@@ -1,3 +1,4 @@
+import { buildEntryUrl, reportBuildFailure } from "./core/build-assets.js";
 import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
 import { EXT_ID, extensionFolderPath } from "./core/constants.js";
@@ -22,7 +23,7 @@ import {
     isDiceContinuationPending,
     prepareXiaobaiOsSettings,
     setXiaobaiOsEnabled,
-} from "./modules/xiaobai-os/dist/xiaobai-os-host.js";
+} from "./modules/xiaobai-os/index.js";
 import { initButtonCollapse } from "./widgets/button-collapse.js";
 import { initVariablesPanel, cleanupVariablesPanel } from "./modules/variables/variables-panel.js";
 import { initStreamingGeneration } from "./modules/streaming-generation.js";
@@ -504,6 +505,24 @@ function cleanupDeprecatedData() {
 let isXiaobaixEnabled = settings.enabled;
 let drawProviderTransitionGeneration = 0;
 let moduleCleanupFunctions = new Map();
+const HOST_BRIDGES = {
+    callGenerate: { id: 'xb-callgen', entry: 'runtime/call-generate' },
+    worldbook: { id: 'xb-worldbook', entry: 'runtime/worldbook' },
+    context: { id: 'xb-contextbridge', entry: 'runtime/context' },
+};
+
+async function ensureHostBridge({ id, entry }) {
+    if (!isXiaobaixEnabled || document.getElementById(id)) return;
+    const src = await buildEntryUrl(entry);
+    // Manifest loading yields; recheck toggles and concurrent startup before attaching.
+    if (!isXiaobaixEnabled || document.getElementById(id)) return;
+    const script = Object.assign(document.createElement('script'), { id, type: 'module', src });
+    script.addEventListener('error', () => {
+        script.remove();
+        reportBuildFailure(new Error(`Bridge script: ${entry}`));
+    }, { once: true });
+    document.head.appendChild(script);
+}
 
 window.isXiaobaixEnabled = isXiaobaixEnabled;
 setupDrawGenerateInterceptor({ shouldStrip: () => isXiaobaixEnabled });
@@ -679,13 +698,11 @@ async function toggleAllFeatures(enabled) {
         if (extension_settings[EXT_ID].recorded?.enabled)
             setTimeout(() => addHistoryButtonsDebounced(), 600);
         try {
-            if (isXiaobaixEnabled && !document.getElementById('xb-callgen'))
-                document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-callgen', type: 'module', src: `${extensionFolderPath}/bridges/call-generate-service.js` }));
-        } catch (e) { }
+            await ensureHostBridge(HOST_BRIDGES.callGenerate);
+        } catch (error) { reportBuildFailure(error); }
         try {
-            if (isXiaobaixEnabled && !document.getElementById('xb-worldbook'))
-                document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-worldbook', type: 'module', src: `${extensionFolderPath}/bridges/worldbook-bridge.js` }));
-        } catch (e) { }
+            await ensureHostBridge(HOST_BRIDGES.worldbook);
+        } catch (error) { reportBuildFailure(error); }
         if (extension_settings[EXT_ID].storySummary?.enabled) {
             $(document).trigger(STORY_SUMMARY_TOGGLE_EVENT, [true]);
         }
@@ -711,8 +728,8 @@ async function toggleAllFeatures(enabled) {
         await cleanupTavernSafely();
         try { clearBlobCaches(); } catch (e) { }
         toggleSettingsControls(false);
-        try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) { }
-        try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById('xb-callgen')?.remove(); } catch (e) { }
+        try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById(HOST_BRIDGES.worldbook.id)?.remove(); } catch (e) { }
+        try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById(HOST_BRIDGES.callGenerate.id)?.remove(); } catch (e) { }
         if (extension_settings[EXT_ID].storySummary?.enabled) {
             $(document).trigger(STORY_SUMMARY_TOGGLE_EVENT, [false]);
         }
@@ -1126,19 +1143,16 @@ jQuery(async () => {
         }
 
         try {
-            if (isXiaobaixEnabled && !document.getElementById('xb-callgen'))
-                document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-callgen', type: 'module', src: `${extensionFolderPath}/bridges/call-generate-service.js` }));
-        } catch (e) { }
+            await ensureHostBridge(HOST_BRIDGES.callGenerate);
+        } catch (error) { reportBuildFailure(error); }
 
         try {
-            if (isXiaobaixEnabled && !document.getElementById('xb-worldbook'))
-                document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-worldbook', type: 'module', src: `${extensionFolderPath}/bridges/worldbook-bridge.js` }));
-        } catch (e) { }
+            await ensureHostBridge(HOST_BRIDGES.worldbook);
+        } catch (error) { reportBuildFailure(error); }
 
         try {
-            if (isXiaobaixEnabled && !document.getElementById('xb-contextbridge'))
-                document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-contextbridge', type: 'module', src: `${extensionFolderPath}/bridges/context-bridge.js` }));
-        } catch (e) { }
+            await ensureHostBridge(HOST_BRIDGES.context);
+        } catch (error) { reportBuildFailure(error); }
 
         if (isXiaobaixEnabled) {
             try { initVarCommands(); } catch (e) { }

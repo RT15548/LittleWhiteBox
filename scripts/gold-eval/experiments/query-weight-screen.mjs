@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // H-Q-DENSE frozen-vector screen. Uses only already-captured embedding responses.
 
 import fs from 'node:fs/promises';

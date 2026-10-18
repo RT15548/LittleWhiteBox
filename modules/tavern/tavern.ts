@@ -1,5 +1,5 @@
 import { getRequestHeaders } from '../../../../../../script.js';
-import { extension_settings } from '../../../../../extensions.js';
+import { extensionSettings as extension_settings } from './host/host-state.js';
 import { extensionFolderPath } from '../../core/constants.js';
 import { createFirstPartyIframeOverlay, loadFirstPartyIframeCacheKey } from '../../core/first-party-iframe-app.js';
 import { isTrustedMessage, postToIframe } from '../../core/iframe-messaging.js';
@@ -98,7 +98,6 @@ const LITTLE_WHITE_BOX_EXT_ID = 'LittleWhiteBox';
 const OVERLAY_ID = 'xiaobaix-tavern-overlay';
 const IFRAME_ID = 'xiaobaix-tavern-iframe';
 const HTML_PATH = `${extensionFolderPath}/modules/tavern/tavern.html`;
-const BUILD_INFO_PATH = `${extensionFolderPath}/modules/tavern/dist/tavern-build.json`;
 const TAVERN_DRAW_DELETED_ERROR_TYPE = 'deleted';
 const TAVERN_DRAW_DELETED_ERROR_MESSAGE = '图片已删除，点击重试可重新生成';
 
@@ -193,7 +192,7 @@ function cloneFramePayload<T>(value: T): T {
 
 async function loadTavernCacheKey(): Promise<string> {
     if (tavernCacheKey) {return tavernCacheKey;}
-    tavernCacheKey = await loadFirstPartyIframeCacheKey(BUILD_INFO_PATH);
+    tavernCacheKey = await loadFirstPartyIframeCacheKey();
     return tavernCacheKey;
 }
 
@@ -209,7 +208,7 @@ function isTavernMobileDevice(): boolean {
             Bowser?: { parse?: (userAgent: string) => { platform?: { type?: string } } };
         };
         const platformType = bowser.Bowser?.parse?.(navigator.userAgent)?.platform?.type;
-        if (mobileTypes.includes(platformType)) {
+        if (platformType !== undefined && mobileTypes.includes(platformType)) {
             return true;
         }
     } catch {

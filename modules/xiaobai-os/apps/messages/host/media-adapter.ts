@@ -11,7 +11,9 @@ interface TtsFacade {
     playTransient(text: string, emotion: string, options: { requestId: string; onState: (state: string) => void }): { stop?: () => void };
 }
 
-export function createMessagesMedia(getFacades = () => window as Window & { xiaobaixDraw?: DrawFacade; xiaobaixTts?: TtsFacade }) {
+interface MessagesMediaFacades { xiaobaixDraw?: DrawFacade; xiaobaixTts?: TtsFacade }
+
+export function createMessagesMedia(getFacades: () => MessagesMediaFacades = () => window as MessagesMediaFacades) {
     const images = new Map<string, AbortController>();
     let voice: { stop?: () => void } | null = null;
     let voiceState: ((state: string) => void) | null = null;

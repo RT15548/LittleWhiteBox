@@ -23,3 +23,12 @@ export function collectWorkspaceFiles(root, extensions, ignoredDirectories = new
     walk(root);
     return files;
 }
+
+// ESLint owns the distinction between authored source and generated/vendor files.
+// Tests, type checking and page discovery reuse it instead of listing modules.
+export function collectSourceFiles(root, extensions) {
+    const matcher = ignore().add(fs.readFileSync(path.join(root, '.eslintignore'), 'utf8'));
+    return collectWorkspaceFiles(root, extensions)
+        .filter(file => !matcher.ignores(path.relative(root, file).split(path.sep).join('/')))
+        .sort();
+}

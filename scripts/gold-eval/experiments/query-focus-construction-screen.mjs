@@ -1,4 +1,3 @@
-/* global Buffer, process */
 // H-Q-FOCUS zero-API construction contract. It audits a replay-only observer;
 // it never selects the candidate arm or evaluates retrieval quality.
 

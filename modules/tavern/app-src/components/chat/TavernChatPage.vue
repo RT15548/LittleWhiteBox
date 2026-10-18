@@ -277,7 +277,7 @@ async function saveAuthorNoteDraft() {
     }
 }
 
-function setChatApiSettingsRootRef(element: Element | null) {
+function setChatApiSettingsRootRef(element: unknown) {
     apiSettingsRootRef.value = element instanceof HTMLElement ? element : null;
 }
 
