@@ -1398,15 +1398,15 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
     assert.deepEqual(disk(), next); // Stopping summary does not cancel the separate edit's save.
 });
 
-test('in-flight saves publish no draft receipt and reject another writer without overwriting it', async () => {
+test('in-flight saves publish no draft receipt and queue another writer without overwriting it', async () => {
     await importFixture(); await seedAnchors();
     const before = mod.readPublishedSummaryMemory();
-    let finish;
-    host.afterSave = () => new Promise(resolve => { finish = resolve; });
+    const releases = [];
+    host.afterSave = () => new Promise(resolve => releases.push(resolve));
     const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'pending';
     next.stateAtoms = [];
     const saving = mod.commitSummaryMemory(host.context.chatId, next);
-    while (!finish) await Promise.resolve();
+    while (!releases.length) await Promise.resolve();
     let resumed = false;
     const waiting = mod.waitForMemoryCommit().then(() => { resumed = true; });
     const controller = new AbortController();
@@ -1420,12 +1420,50 @@ test('in-flight saves publish no draft receipt and reject another writer without
     assert.deepEqual(mod.getPublishedSummaryStore(), before.storySummary);
     assert.deepEqual(mod.getPublishedStateAtoms(), before.stateAtoms);
     assert.deepEqual(mod.getFacts(), before.storySummary.json.facts.filter(fact => !fact.retracted));
-    await assert.rejects(mod.commitSummaryMemory(host.context.chatId, mod.readSummaryMemory()), { code: 'metadata_saving' });
-    finish(); await saving;
+    // Busy is not an error: the second writer queues behind the in-flight save.
+    // Fold the outcome into a value so the pre-fix code fails with a telling
+    // message instead of an unhandled rejection.
+    const queued = mod.commitSummaryMemory(host.context.chatId, mod.readSummaryMemory())
+        .then(() => 'settled', error => `rejected:${error.code}`);
+    releases.forEach(resolve => resolve());
+    await saving;
     await waiting;
+    for (let i = 0; i < 100 && releases.length < 2; i++) await Promise.resolve();
+    assert.equal(releases.length, 2, 'the queued writer must reach its own host save');
+    releases.forEach(resolve => resolve());
+    assert.equal(await queued, 'settled');
     assert.equal(resumed, true);
     assert.equal(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o, 'pending');
     assert.deepEqual(mod.getPublishedStateAtoms(), []);
+});
+
+test('a writer arriving during an in-flight save queues behind it instead of being rejected as busy', async () => {
+    await importFixture(); await seedAnchors();
+    const chatId = host.context.chatId;
+    // The host save is slow (TT queues saveMetadata behind full chat saves), so the
+    // first writer holds the transaction across many event-loop turns.
+    const releases = [];
+    host.afterSave = () => new Promise(resolve => releases.push(resolve));
+    const first = mod.readSummaryMemory();
+    first.storySummary.json.facts[0].o = 'first-writer';
+    const saving = mod.commitSummaryMemory(chatId, first);
+    while (!releases.length) await Promise.resolve(); // installed; host save in flight
+    // The second writer drafts from the installed state: its payload is valid and
+    // it only lost the race for the transaction, not the data.
+    const second = mod.readSummaryMemory();
+    second.storySummary.json.facts[0].o = 'second-writer';
+    const queued = mod.commitSummaryMemory(chatId, second)
+        .then(() => 'settled', error => `rejected:${error.code}`);
+    releases.forEach(resolve => resolve());
+    await saving;
+    // Pre-fix the entry rejected the writer at this point; post-fix it is still queued.
+    const early = await Promise.race([queued, Promise.resolve('still-queued')]);
+    assert.equal(early, 'still-queued', 'busy is not an error: the writer must queue behind the in-flight save');
+    for (let i = 0; i < 100 && releases.length < 2; i++) await Promise.resolve();
+    assert.equal(releases.length, 2, 'the queued writer must reach its own host save');
+    releases.forEach(resolve => resolve());
+    assert.equal(await queued, 'settled');
+    assert.equal(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o, 'second-writer');
 });
 
 for (const mode of ['save', 'old']) test(`recall started before a ${mode} commit never follows its unpublished draft`, async () => {

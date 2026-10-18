@@ -25,7 +25,7 @@ import { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { maintenanceImpact, sameMemory, restoreMaintenance } from '../maintenance/domain.js';
 import { deleteStateVectorsByIds, deleteStateVectorsFromFloor, deleteStateVectorsAtFloors } from '../vector/storage/state-store.js';
 import { readSummaryMemory, getPublishedSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
-    getRuntimeInvalidSourceFloor, noteInvalidMemorySource } from './memory-commit.js';
+    getRuntimeInvalidSourceFloor, noteInvalidMemorySource, waitForMemoryCommit } from './memory-commit.js';
 import { invalidateMemoryAnchors, invalidateMemoryAnchorsAtFloors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
 const MODULE_ID = 'summaryStore';
@@ -585,6 +585,9 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
     const store = getSummaryStore();
     if (store?.sourceInvalidFromFloor != null) validPrefixLength = Math.min(validPrefixLength, store.sourceInvalidFromFloor);
     if (getRuntimeInvalidSourceFloor() != null) validPrefixLength = Math.min(validPrefixLength, getRuntimeInvalidSourceFloor());
+    // Busy is not an error: wait out the in-flight save. The loop re-arms if another
+    // writer takes the transaction first, and commitSummaryMemory re-waits anyway.
+    while (getMemoryCommitState() === 'saving') await waitForMemoryCommit();
     assertMemoryWritable(chatId);
     const previous = readSummaryMemory();
     // Retire before undo, including operations whose anchors were already deleted by the Agent.
