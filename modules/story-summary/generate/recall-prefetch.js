@@ -1,5 +1,6 @@
 import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import { createRecallDiagnostics } from '../recall-diagnostics.js';
+import { reportRecallPreparation } from './recall-progress.js';
 import { RECALL_TIMEOUT_MS, RECALL_TIMEOUT_REASONS } from './recall-failure.js';
 import { usesStoryRecall } from './recall-policy.js';
 
@@ -113,6 +114,7 @@ export function createRecallPrefetchCoordinator(options) {
         }
         slot.cancelReason = reason;
         slot.phase = 'cancelled';
+        reportRecallPreparation('cancelled', slot);
         slot.diagnostics.finishedAt ??= now();
         clearTimers(slot);
         clearQueryNotice(slot);
@@ -149,6 +151,7 @@ export function createRecallPrefetchCoordinator(options) {
         }
         slot.diagnostics.startedAt = now();
         slot.diagnostics.stage = 'prepare';
+        reportRecallPreparation('start', slot);
         scheduleExpiry(slot);
         slot.outcome = settle(Promise.resolve().then(async () => {
             throwIfSignalAborted(slot.controller.signal);
@@ -162,6 +165,7 @@ export function createRecallPrefetchCoordinator(options) {
                     expireSlot(slot);
                 } else {
                     slot.phase = 'ready';
+                    reportRecallPreparation('settled', slot);
                     slot.diagnostics.finishedAt ??= now();
                     clearTimers(slot);
                 }
@@ -198,19 +202,19 @@ export function createRecallPrefetchCoordinator(options) {
 
     function createSlot({ chatId, type, initialLength, phase }) {
         const timeoutMs = resolveMaxAgeMs();
+        const diagnostics = createRecallDiagnostics(chatId, type);
+        diagnostics.startedAt = now();
+        diagnostics.stage = phase === 'watching' ? 'waiting-for-user' : 'prepare';
         return {
             phase,
+            chat: getContext()?.chat,
             chatId,
             type,
             initialLength,
             messageIndex: null,
             capturedRef: null,
             controller: new AbortController(),
-            diagnostics: {
-                ...createRecallDiagnostics(chatId, type),
-                startedAt: now(),
-                stage: phase === 'watching' ? 'waiting-for-user' : 'prepare',
-            },
+            diagnostics,
             outcome: null,
             pollTimer: null,
             expiryTimer: null,

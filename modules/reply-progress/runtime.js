@@ -1,6 +1,7 @@
 import { observeGenerateInterceptors } from '../../shared/common/generate-interceptor.js';
 import { createPlaceholderPresenter } from './placeholder.js';
 import { REPLY_PROGRESS_ERRORS } from './copy.js';
+import { recallProgressStage } from '../story-summary/recall-diagnostics.js';
 
 const VISIBLE_TYPES = new Set(['normal', 'regenerate', 'swipe', 'continue']);
 // A display lease, NOT a request timeout. ST has no request identity on ENDED
@@ -20,6 +21,7 @@ export function createReplyProgressRuntime({
     events, eventTypes, getTextarea, getChat, getStream, isSendPressed, observeRequest,
     getGroupId = () => null,
     observeActions = () => () => {},
+    observeRecall = () => () => {},
     isConnected = () => true,
     now = () => performance.now(),
     schedule = (fn, ms) => setInterval(fn, ms),
@@ -35,6 +37,7 @@ export function createReplyProgressRuntime({
     const listeners = [];
     let unobserveInterceptors = null;
     let unobserveActions = null;
+    let unobserveRecall = null;
 
     function cleanup(action) {
         try { action?.(); }
@@ -101,14 +104,19 @@ export function createReplyProgressRuntime({
             complete(run.chat[stream.messageId]);
             return;
         }
-        if (run.recall) {
-            setStage('recall', run.recall.stage);
+        // Preserve the host phase underneath parallel preparation, so its end
+        // reveals message handling again instead of leaving a stale recall label.
+        const recall = run.recall || (!run.dispatch && !run.stream ? run.preparation?.detail : null);
+        const detail = recall ? recallProgressStage(recall) : run.detail;
+        if (recall && run.lastRecallStage !== detail) {
+            run.lastRecallStage = detail;
+            run.evidenceAt = now();
         }
-        if (!stream && !run.handler && now() - run.evidenceAt >= UNCONFIRMED_HINT_MS) {
+        if (!stream && !run.handler && !run.preparation && now() - run.evidenceAt >= UNCONFIRMED_HINT_MS) {
             stop();
             return;
         }
-        run.presenter.show({ phase: run.phase, detail: run.detail, elapsedMs: now() - run.startedAt });
+        run.presenter.show({ phase: recall ? 'recall' : run.phase, detail, elapsedMs: now() - run.startedAt });
     }
 
     function onHostEnded() {
@@ -152,11 +160,29 @@ export function createReplyProgressRuntime({
             previousStream: getStream(), stream: null, replyIndex: null,
             startedAt, evidenceAt: startedAt, phase: 'context', detail: null,
             afterCommands: false, dispatch: null,
-            handler: null, recall: null, unobserveRequest: null,
+            handler: null, recall: null, preparation: null, recallTrace: null, lastRecallStage: null, unobserveRequest: null,
             presenter: createPresenter(textarea),
         };
         paint();
         if (run) timer = schedule(observe(paint), 200);
+    }
+
+    function onPreparation(event) {
+        if (!run || run.chat !== getChat() || event.chat !== run.chat
+            || generationType(event.type) !== run.type || !run.afterCommands) return;
+        if (event.phase === 'start') {
+            // Speculative work is pinned to the new USER object, never a quiet
+            // task, a previous reply, or another dispatch on the same chat.
+            if (run.dispatch || run.stream || event.signal.aborted || !event.source?.is_user
+                || event.source === run.previousMessage || event.source !== run.chat.at(-1)) return;
+            run.preparation = event;
+            run.recallTrace = event;
+            event.recordHost('prefetch-observed');
+        } else if (run.preparation?.run === event.run) {
+            run.preparation = null;
+            run.evidenceAt = now();
+        } else return;
+        paint();
     }
 
     function onInterceptor({ phase, id, type, run: dispatch, detail }) {
@@ -164,6 +190,9 @@ export function createReplyProgressRuntime({
         if (phase === 'dispatch-start') {
             if (run.dispatch) return;
             run.dispatch = dispatch;
+            run.evidenceAt = now();
+            run.recallTrace?.recordHost('interceptor-start');
+            run.preparation = null;
             setStage('context');
         } else if (run.dispatch !== dispatch) return;
         else if (dispatch.signal.aborted) {
@@ -222,12 +251,14 @@ export function createReplyProgressRuntime({
         });
         on('MESSAGE_SENT', index => {
             if (run?.type === 'normal' && !run.dispatch && run.chat === getChat() && run.chat[index]?.is_user) {
+                run.recallTrace?.recordHost('message-sent');
                 setStage('message');
                 paint();
             }
         });
         on('USER_MESSAGE_RENDERED', index => {
             if (run?.phase === 'message' && run.chat === getChat() && run.chat[index]?.is_user) {
+                run.recallTrace?.recordHost('user-rendered');
                 setStage('context');
                 paint();
             }
@@ -259,6 +290,7 @@ export function createReplyProgressRuntime({
         });
         on('CHAT_CHANGED', () => { stop(); group = null; completedReply = null; });
         unobserveInterceptors = observeGenerateInterceptors(observe(onInterceptor));
+        unobserveRecall = observeRecall(observe(onPreparation));
         unobserveActions = observeActions({ onStop: observe(stop), onReply: () => { completedReply = null; } });
     }
 
@@ -272,7 +304,8 @@ export function createReplyProgressRuntime({
         listeners.length = 0;
         cleanup(unobserveInterceptors);
         cleanup(unobserveActions);
-        unobserveInterceptors = unobserveActions = null;
+        cleanup(unobserveRecall);
+        unobserveInterceptors = unobserveActions = unobserveRecall = null;
     }
 
     return { setEnabled: value => value ? enable() : disable(), destroy: disable };

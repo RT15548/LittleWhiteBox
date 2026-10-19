@@ -268,22 +268,64 @@ export function getLexicalIdfAccessor() {
     };
 }
 
-export async function getLexicalIndex() {
+function emitIndexProgress(onProgress, event) {
+    if (typeof onProgress !== 'function') return;
+    try {
+        onProgress(event);
+    } catch {
+        // Observation must never change index publication, results or failures.
+        return;
+    }
+}
+
+/**
+ * Observe only this caller's acquisition: hit, or build/update/wait followed by
+ * ready/failed. Wait includes the shared writer's fixed build/update mode.
+ * A null result after waiting emits failed without an error; thrown failures
+ * keep their original error. No chat means no work and no events.
+ * Callbacks run synchronously, are isolated, and are never retained by a writer.
+ *
+ * @param {object} [options]
+ * @param {function({phase: 'hit'|'build'|'update'|'wait'|'ready'|'failed', mode?: 'build'|'update', documentCount?: number, error?: Error}): void} [options.onProgress]
+ * @returns {Promise<LexicalCorpus|null>}
+ */
+export async function getLexicalIndex(options = {}) {
     const { chatId } = getContext();
     if (!chatId) return null;
-    synchronizeVocabulary();
-    while (getContext().chatId === chatId) {
-        if (!activeBuild && cachedIndex && cachedChatId === chatId && cachedIndex.tokenizer === getTokenizerSnapshot()) return cachedIndex;
-        const pending = activeBuild?.chatId === chatId ? activeBuild.promise : startIndexSync(chatId);
-        if (!await pending) return null;
-        // Another committed update may have arrived while the promise settled.
-        // Join it before handing a partially updated corpus to a reader.
+    const { onProgress } = options;
+    let mode;
+    try {
+        synchronizeVocabulary();
+        while (getContext().chatId === chatId) {
+            if (!activeBuild && cachedIndex && cachedChatId === chatId && cachedIndex.tokenizer === getTokenizerSnapshot()) {
+                emitIndexProgress(onProgress, mode
+                    ? { phase: 'ready', mode, documentCount: cachedIndex.documentCount }
+                    : { phase: 'hit', documentCount: cachedIndex.documentCount });
+                return cachedIndex;
+            }
+            const joining = activeBuild?.chatId === chatId;
+            const pending = joining ? activeBuild.promise : startIndexSync(chatId);
+            mode = activeBuild.mode;
+            emitIndexProgress(onProgress, { phase: joining ? 'wait' : mode, mode });
+            if (!await pending) {
+                emitIndexProgress(onProgress, { phase: 'failed', mode });
+                return null;
+            }
+            // Another committed update may have arrived while the promise settled.
+            // Join it before handing a partially updated corpus to a reader.
+        }
+        if (mode) emitIndexProgress(onProgress, { phase: 'failed', mode });
+        return null;
+    } catch (error) {
+        emitIndexProgress(onProgress, { phase: 'failed', mode, error });
+        throw error;
     }
-    return null;
 }
 
 function startIndexSync(chatId, updates = []) {
-    const build = { chatId, updates, promise: null };
+    // Fixed observational metadata, even after the writer takes the cached corpus.
+    const mode = cachedIndex && cachedChatId === chatId ? 'update' : 'build';
+    const build = { chatId, updates, mode, promise: null };
     const isCurrent = () => activeBuild === build && getContext().chatId === chatId;
     activeBuild = build;
     build.promise = Promise.resolve().then(() => trackVectorActivity({ chatId, phase: 'lexical-index', unit: 'batches' }, async activity => {

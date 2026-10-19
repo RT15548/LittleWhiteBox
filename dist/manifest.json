@@ -1,5 +1,5 @@
 {
-  "buildId": "151ec1476357ef9a8200",
+  "buildId": "75d658d010970f60f1b1",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-93w9A_W0.js",
@@ -26,7 +26,7 @@
       "css": []
     },
     "apps/story-summary": {
-      "file": "apps/story-summary-BlgUI3aU.js",
+      "file": "apps/story-summary-BRhUDuQn.js",
       "css": []
     },
     "apps/tavern": {
@@ -161,9 +161,9 @@
       "dynamicImports": [],
       "css": []
     },
-    "apps/story-summary-BlgUI3aU.js": {
+    "apps/story-summary-BRhUDuQn.js": {
       "imports": [
-        "shared/presentation-Cc49fegQ.js",
+        "shared/presentation-BoT7I--D.js",
         "shared/message-markdown-DCm4ilJ0.js"
       ],
       "dynamicImports": [],
@@ -242,7 +242,7 @@
         "shared/var-commands-B9LTHRJS.js",
         "shared/dexie-CLpqrnFC.js",
         "shared/workspace-repository-CA1FdKY6.js",
-        "shared/presentation-Cc49fegQ.js",
+        "shared/presentation-BoT7I--D.js",
         "shared/client-DxBm_3Yj.js",
         "shared/plan-ledger-Bv2jVEq6.js",
         "shared/reasoning-capabilities-uLAQtI7I.js",
@@ -1223,7 +1223,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/presentation-Cc49fegQ.js": {
+    "shared/presentation-BoT7I--D.js": {
       "imports": [
         "shared/chunk-b3L32Ng1.js"
       ],

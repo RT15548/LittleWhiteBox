@@ -3079,14 +3079,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/reply-progress/copy.js",
       "relativePath": "modules/reply-progress/copy.js",
       "extension": ".js",
-      "sizeBytes": 2430
+      "sizeBytes": 2779
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/reply-progress/host.js",
       "relativePath": "modules/reply-progress/host.js",
       "extension": ".js",
-      "sizeBytes": 2205
+      "sizeBytes": 2343
     },
     {
       "source": "littlewhitebox",
@@ -3114,7 +3114,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/reply-progress/runtime.js",
       "relativePath": "modules/reply-progress/runtime.js",
       "extension": ".js",
-      "sizeBytes": 12337
+      "sizeBytes": 14225
     },
     {
       "source": "littlewhitebox",
@@ -3499,7 +3499,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/recall-prefetch.js",
       "relativePath": "modules/story-summary/generate/recall-prefetch.js",
       "extension": ".js",
-      "sizeBytes": 15752
+      "sizeBytes": 16018
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/recall-progress.js",
+      "relativePath": "modules/story-summary/generate/recall-progress.js",
+      "extension": ".js",
+      "sizeBytes": 940
     },
     {
       "source": "littlewhitebox",
@@ -3779,7 +3786,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/recall-diagnostics.js",
       "relativePath": "modules/story-summary/recall-diagnostics.js",
       "extension": ".js",
-      "sizeBytes": 2210
+      "sizeBytes": 5397
     },
     {
       "source": "littlewhitebox",
@@ -3979,6 +3986,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/lexical-index-progress.test.js",
+      "relativePath": "modules/story-summary/tests/lexical-index-progress.test.js",
+      "extension": ".js",
+      "sizeBytes": 12878
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/maintenance-context.test.js",
       "relativePath": "modules/story-summary/tests/maintenance-context.test.js",
       "extension": ".js",
@@ -4056,6 +4070,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/recall-diagnostics.test.js",
+      "relativePath": "modules/story-summary/tests/recall-diagnostics.test.js",
+      "extension": ".js",
+      "sizeBytes": 4625
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/recall-progress.test.js",
+      "relativePath": "modules/story-summary/tests/recall-progress.test.js",
+      "extension": ".js",
+      "sizeBytes": 20529
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/recall-query-bounds.test.js",
       "relativePath": "modules/story-summary/tests/recall-query-bounds.test.js",
       "extension": ".js",
@@ -4074,6 +4102,13 @@
       "relativePath": "modules/story-summary/tests/recall-timeout.test.js",
       "extension": ".js",
       "sizeBytes": 2926
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/runtime-progress.test.js",
+      "relativePath": "modules/story-summary/tests/runtime-progress.test.js",
+      "extension": ".js",
+      "sizeBytes": 14863
     },
     {
       "source": "littlewhitebox",
@@ -4444,7 +4479,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/lexical-index.js",
       "relativePath": "modules/story-summary/vector/retrieval/lexical-index.js",
       "extension": ".js",
-      "sizeBytes": 15776
+      "sizeBytes": 17660
     },
     {
       "source": "littlewhitebox",
@@ -4486,7 +4521,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/recall.js",
       "relativePath": "modules/story-summary/vector/retrieval/recall.js",
       "extension": ".js",
-      "sizeBytes": 83409
+      "sizeBytes": 84055
     },
     {
       "source": "littlewhitebox",
@@ -4535,7 +4570,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/runtime/runtime.js",
       "relativePath": "modules/story-summary/vector/runtime/runtime.js",
       "extension": ".js",
-      "sizeBytes": 42851
+      "sizeBytes": 44633
     },
     {
       "source": "littlewhitebox",

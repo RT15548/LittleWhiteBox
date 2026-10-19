@@ -1,12 +1,72 @@
 import { formatErrorDetails } from '../../core/error-details.js';
 import { formatMetricsLog } from './vector/retrieval/metrics.js';
 
+const MAX_OBSERVATIONS = 256;
+const isReleaseReceipt = event => event.phase === 'release-start' || event.phase === 'release-end';
+
 // Owned by one recall run, never stored in chat metadata or configuration.
 export function createRecallDiagnostics(chatId = '', type = 'normal') {
-    return {
+    let stage = 'prepare';
+    const diagnostics = {
         chatId, type, startedAt: performance.now(), finishedAt: null,
-        stage: 'prepare', reason: '', metrics: null, fallbacks: [],
+        reason: '', metrics: null, fallbacks: [], observations: [],
+        backend: null, index: null,
+        get stage() { return stage; },
+        set stage(value) {
+            if (stage === value || diagnostics.finishedAt !== null) return;
+            stage = value;
+            recordRecallObservation(diagnostics, 'recall', { phase: value });
+        },
     };
+    return diagnostics;
+}
+
+// A small per-run timeline: no message text, vectors, or configuration snapshots.
+// Parallel index preparation records its own events without replacing the foreground stage.
+export function recordRecallObservation(diagnostics, channel, event) {
+    if (!diagnostics?.observations || (diagnostics.finishedAt !== null
+        && !['host', 'preparation'].includes(channel) && !(channel === 'runtime' && isReleaseReceipt(event)))) return;
+    const entry = { at: Math.max(0, Math.round(performance.now() - diagnostics.startedAt)), channel, phase: event.phase };
+    for (const key of ['backend', 'reused', 'mode', 'documentCount']) {
+        if (event[key] !== undefined) entry[key] = event[key];
+    }
+    if (event.error) entry.error = formatErrorDetails(event.error, { includeStack: false });
+    diagnostics.observations.push(entry);
+    if (diagnostics.observations.length > MAX_OBSERVATIONS) diagnostics.observations.shift();
+}
+
+export function recordRecallRuntimeProgress(diagnostics, event) {
+    if (!diagnostics || (diagnostics.finishedAt !== null && !isReleaseReceipt(event))) return;
+    recordRecallObservation(diagnostics, 'runtime', event);
+    if (event.phase === 'backend-ready') {
+        diagnostics.backend = event.backend;
+        if (event.backend === 'main-fallback' && !diagnostics.fallbacks.some(item => item.stage === 'runtime-backend')) {
+            recordRecallFallback(diagnostics, 'runtime-backend', event.error);
+        }
+    } else if (event.phase === 'worker-start') {
+        diagnostics.stage = 'worker-start';
+    } else if (event.phase === 'load-start') {
+        diagnostics.stage = event.backend === 'main-fallback' ? 'main-load' : 'worker-load';
+    }
+}
+
+export function recordRecallIndexProgress(diagnostics, event) {
+    if (!diagnostics || diagnostics.finishedAt !== null) return;
+    recordRecallObservation(diagnostics, 'index', event);
+    diagnostics.index = { phase: event.phase, mode: event.mode };
+}
+
+export function recallProgressStage(diagnostics) {
+    const { stage, backend, index } = diagnostics;
+    if (stage === 'round1-retrieval' || stage === 'round2-retrieval') {
+        if (backend === 'worker') return 'worker-retrieval';
+        if (backend === 'main-fallback') return 'main-retrieval';
+    }
+    if (stage === 'index-wait') {
+        if (index?.phase === 'build') return 'index-build';
+        if (index?.phase === 'update') return 'index-update';
+    }
+    return stage;
 }
 
 export function recordRecallFallback(diagnostics, stage, error) {
@@ -24,9 +84,13 @@ export function formatRecallDiagnostics(diagnostics, { status, reason = '', erro
         `stage: ${d.stage}`,
         `elapsed: ${Math.max(0, Math.round((d.finishedAt ?? performance.now()) - d.startedAt))}ms`,
     ];
+    if (d.backend) lines.push(`backend: ${d.backend}`);
     if (reason || d.reason) lines.push(`reason: ${reason || d.reason}`);
     if (error) lines.push(`error: ${formatErrorDetails(error)}`);
     for (const fallback of d.fallbacks) lines.push(`fallback [${fallback.stage}]: ${fallback.detail}`);
+    for (const { at, channel, phase, ...detail } of d.observations || []) {
+        lines.push(`+${at}ms [${channel}] ${phase}${Object.keys(detail).length ? ` ${JSON.stringify(detail)}` : ''}`);
+    }
     if (d.metrics) lines.push(formatMetricsLog(d.metrics, { complete: status === 'success' }));
     return lines.join('\n');
 }

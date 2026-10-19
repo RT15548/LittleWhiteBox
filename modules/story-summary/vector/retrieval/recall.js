@@ -1,4 +1,4 @@
-﻿// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
 // Story Summary - Recall Engine
 //
 // 命名规范：
@@ -36,7 +36,7 @@ import { getLexicalIndex, searchLexicalIndex } from './lexical-index.js';
 import { getRerankBatchDiagnostics, rerankChunks } from '../llm/reranker.js';
 import { selectContextualRerankChunks } from './rerank-context-chunks.js';
 import { createMetrics, calcSimilarityStats, finalizeMetricsTiming } from './metrics.js';
-import { recordRecallFallback } from '../../recall-diagnostics.js';
+import { recordRecallFallback, recordRecallIndexProgress, recordRecallRuntimeProgress } from '../../recall-diagnostics.js';
 import { formatErrorDetails } from '../../../../core/error-details.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
 import { rerankRecalledEvents } from './event-rerank.js';
@@ -1142,7 +1142,9 @@ export async function hydrateDirectEvidence(context, metrics, options = {}) {
 export async function releaseDirectEvidenceContext(context, metrics) {
     const startedAt = performance.now();
     try {
-        return await releaseDirectEvidenceRuntimeLease(context, endRecallRuntimeSession);
+        return await releaseDirectEvidenceRuntimeLease(context, lease => endRecallRuntimeSession(lease, {
+            onProgress: event => recordRecallRuntimeProgress(context?.diagnostics, event),
+        }));
     } catch (error) {
         xbLog.warn(MODULE_ID, 'Deferred DIRECT evidence runtime session release failed', error);
         recordRecallFallback(context?.diagnostics, 'runtime-release', error);
@@ -1200,7 +1202,8 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     // Non-blocking preload: keep recall latency stable.
     // If not ready yet, query-builder will gracefully fall back to TF terms.
-    const lexicalPreload = getLexicalIndex().then(() => null, error => {
+    const observeIndex = event => recordRecallIndexProgress(diagnostics, event);
+    const lexicalPreload = getLexicalIndex({ onProgress: observeIndex }).then(() => null, error => {
         xbLog.warn(MODULE_ID, 'Preload lexical index failed; continue with TF fallback', error);
         return error;
     });
@@ -1304,7 +1307,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         throwIfSignalAborted(signal);
         // Session acquisition must finish so its lease can always be released;
         // cancellation is checked immediately after ownership is established.
-        runtimeLease = await beginRecallRuntimeSession(chatId, { reason: 'recallMemory' });
+        runtimeLease = await beginRecallRuntimeSession(chatId, {
+            reason: 'recallMemory',
+            onProgress: event => recordRecallRuntimeProgress(diagnostics, event),
+        });
         throwIfSignalAborted(signal);
         snapshot.meta = await getRecallRuntimeMeta(chatId, { signal });
         metrics.timing.runtimeLoadFromDB = runtimeLease?.stats?.timings?.loadFromDBMs ?? 0;
@@ -1476,16 +1482,18 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     try {
         // Consume the speculative attempt inside this run, so a late failure
         // cannot append diagnostics after an empty/cancelled run has finished.
+        if (diagnostics) diagnostics.stage = 'index-wait';
         const preloadError = await lexicalPreload;
         throwIfSignalAborted(signal);
         if (preloadError) recordRecallFallback(diagnostics, 'lexical-preload', preloadError);
         let index;
         try {
-            index = await getLexicalIndex();
+            index = await getLexicalIndex({ onProgress: observeIndex });
         } finally {
             indexReadyTime = Math.round(performance.now() - T_Index_Ready);
         }
         throwIfSignalAborted(signal);
+        if (diagnostics) diagnostics.stage = 'lexical-search';
         if (index) {
             lexicalResult = await searchLexicalIndex(index, bundle.lexicalTerms);
             for (const failure of lexicalResult.failures) {
@@ -1821,7 +1829,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (runtimeLease) {
             const T_Runtime_End_Start = performance.now();
             try {
-                await endRecallRuntimeSession(runtimeLease);
+                await endRecallRuntimeSession(runtimeLease, {
+                    onProgress: event => recordRecallRuntimeProgress(diagnostics, event),
+                });
             } catch (error) {
                 xbLog.warn(MODULE_ID, 'Recall runtime session release failed', error);
                 recordRecallFallback(diagnostics, 'runtime-release', error);

@@ -3,6 +3,7 @@ import { eventSource, event_types } from '../../../../../events.js';
 import { is_send_press, online_status, streamingProcessor } from '../../../../../../script.js';
 import { observeHostRequest } from './request-observer.js';
 import { createReplyProgressRuntime } from './runtime.js';
+import { observeRecallPreparation } from '../story-summary/generate/recall-progress.js';
 
 export function createReplyProgressHostRuntime() {
     return createReplyProgressRuntime({
@@ -13,6 +14,7 @@ export function createReplyProgressHostRuntime() {
         getGroupId: () => getContext().groupId,
         getStream: () => streamingProcessor,
         isSendPressed: () => is_send_press,
+        observeRecall: observeRecallPreparation,
         observeActions: ({ onStop, onReply }) => {
             const clicked = event => {
                 if (event.target.closest?.('#mes_stop')) onStop();

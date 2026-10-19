@@ -718,9 +718,34 @@ function createMainBackend() {
     };
 }
 
-async function getBackend() {
-    if (backend) return backend;
-    if (backendInitPromise) return await backendInitPromise;
+// Per-call observation only: callbacks cannot choose a backend or own resources.
+function reportRuntimeProgress(onProgress, event) {
+    if (typeof onProgress !== 'function') return;
+    try {
+        const result = onProgress(Object.freeze(event));
+        if (result && typeof result.then === 'function') {
+            Promise.resolve(result).catch(() => null);
+        }
+    } catch {
+        // Observers have no authority over runtime results or cleanup.
+        return;
+    }
+}
+
+function reportBackendReady(current, reused, onProgress) {
+    const progress = { backend: current.kind, reused };
+    const error = current.kind === 'main-fallback' ? lastError : null;
+    if (!reused && error) {
+        reportRuntimeProgress(onProgress, { phase: 'worker-failed', backend: 'worker', reused, error });
+    }
+    reportRuntimeProgress(onProgress, { phase: 'backend-ready', ...progress, ...(error ? { error } : {}) });
+    return { current, progress };
+}
+
+async function getBackend(onProgress) {
+    if (backend) return reportBackendReady(backend, true, onProgress);
+    reportRuntimeProgress(onProgress, { phase: 'worker-start', backend: 'worker', reused: false });
+    if (backendInitPromise) return reportBackendReady(await backendInitPromise, false, onProgress);
 
     backendInitPromise = (async () => {
         if (backend) return backend;
@@ -749,7 +774,7 @@ async function getBackend() {
     })();
 
     try {
-        return await backendInitPromise;
+        return reportBackendReady(await backendInitPromise, false, onProgress);
     } finally {
         backendInitPromise = null;
     }
@@ -780,14 +805,20 @@ function retainOnlyLastStats(chatId = null) {
 }
 
 async function callRuntime(type, payload = {}, options = {}) {
-    const current = await getBackend();
+    const { current, progress } = await getBackend(options.onProgress);
     throwIfSignalAborted(options.signal, `RecallRuntime request aborted: ${type}`);
+    const phase = type === 'beginSession' ? 'load' : (type === 'endSession' ? 'release' : null);
+    if (phase) reportRuntimeProgress(options.onProgress, { phase: `${phase}-start`, ...progress });
     try {
         const result = await current.call(type, payload, options);
         throwIfSignalAborted(options.signal, `RecallRuntime request aborted: ${type}`);
         rememberStats(result);
+        if (phase) reportRuntimeProgress(options.onProgress, { phase: `${phase}-end`, ...progress });
         return result;
     } catch (error) {
+        if (phase) reportRuntimeProgress(options.onProgress, {
+            phase: `${phase}-end`, ...progress, error: error?.message || String(error),
+        });
         if (error?.name === 'AbortError') throw error;
         lastError = error?.message || String(error);
         rememberStats(createEmptyStats({
@@ -859,6 +890,7 @@ export async function beginRecallRuntimeSession(chatId, options = {}) {
     logRuntimeInfo('begin session request', `chat=${key} reason=${reason}`);
     const result = await callRuntime('beginSession', { chatId: key, reason }, {
         timeoutMs: options.timeoutMs || SESSION_TIMEOUT_MS,
+        onProgress: options.onProgress,
     });
     if (result?.leaseId) {
         rememberLocalSession(result);
@@ -877,7 +909,10 @@ export async function endRecallRuntimeSession(lease, options = {}) {
     }
     logRuntimeInfo('end session request', `chat=${lease.chatId} lease=${lease.leaseId}`);
     try {
-        const result = await callRuntime('endSession', { lease }, { timeoutMs: options.timeoutMs || SHORT_TIMEOUT_MS });
+        const result = await callRuntime('endSession', { lease }, {
+            timeoutMs: options.timeoutMs || SHORT_TIMEOUT_MS,
+            onProgress: options.onProgress,
+        });
         const dirty = dirtyChats.get(String(lease.chatId));
         if (dirty) {
             const merged = {
