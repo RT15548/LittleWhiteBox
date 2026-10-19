@@ -38,6 +38,8 @@ import { WEB_PROVIDERS, normalizeWebSettings } from '../web/settings.js';
 import { bindWebSettingsGuide, readWebSettingsForm, syncWebSettingsForm } from './web-settings.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { MODEL_LIST_AUTH_OPTIONS, normalizeModelListAuth, supportsModelListAuth } from '../model-list-auth.js';
+import { normalizeSampling } from '../sampling.js';
+import { readSamplingForm, syncSamplingForm, bindSamplingSettings, validateSamplingForm } from './sampling-settings.js';
 
 const MODEL_FILTERS = {
     chat: {
@@ -465,7 +467,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || 'native',
-            delegateCustomParameters: String(delegateProviderConfig.customParameters || ''),
+            delegateSampling: normalizeSampling(delegateProviderConfig.sampling),
         };
     }
 
@@ -483,7 +485,7 @@ export function createAgentSettingsPanel(deps = {}) {
             sendTemperature: shouldSendTemperature(providerConfig),
             ...reasoningFields,
             toolMode: providerConfig.toolMode || 'native',
-            customParameters: String(providerConfig.customParameters || ''),
+            sampling: normalizeSampling(providerConfig.sampling),
         };
     }
 
@@ -503,7 +505,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: reasoningFields.reasoningEffort,
             delegateReasoningBudgetTokens: reasoningFields.reasoningBudgetTokens,
             delegateToolMode: providerConfig.toolMode || 'native',
-            delegateCustomParameters: String(providerConfig.customParameters || ''),
+            delegateSampling: normalizeSampling(providerConfig.sampling),
         };
     }
 
@@ -585,7 +587,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(provider)
                 ? (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native')
                 : undefined,
-            customParameters: root.querySelector('#xb-assistant-custom-params')?.value ?? draft.customParameters ?? '',
+            sampling: readSamplingForm(root, provider, draft.sampling),
         };
         const delegateProviderConfig = {
             baseUrl: delegateBaseUrl,
@@ -601,7 +603,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(delegateProvider)
                 ? (root.querySelector('#xb-assistant-delegate-tool-mode')?.value || draft.delegateToolMode || 'native')
                 : undefined,
-            customParameters: root.querySelector('#xb-assistant-delegate-custom-params')?.value ?? draft.delegateCustomParameters ?? '',
+            sampling: readSamplingForm(root, delegateProvider, draft.delegateSampling, 'delegate'),
         };
         const modelConfigs = {
             ...normalizeModelConfigs(draft.modelConfigs || {}),
@@ -634,7 +636,7 @@ export function createAgentSettingsPanel(deps = {}) {
             reasoningEffort: providerConfig.reasoning.effort || '',
             reasoningBudgetTokens: providerConfig.reasoning.budgetTokens,
             toolMode: providerConfig.toolMode || draft.toolMode || 'native',
-            customParameters: providerConfig.customParameters,
+            sampling: providerConfig.sampling,
             ...readWebSettingsForm(root, draft),
             permissionMode: normalizePermissionMode(root.querySelector('#xb-assistant-permission-mode')?.value || draft.permissionMode),
             jsApiPermission: normalizeJsApiPermission(root.querySelector('#xb-assistant-jsapi-permission')?.value || draft.jsApiPermission),
@@ -652,7 +654,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateReasoningEffort: delegateProviderConfig.reasoning.effort || '',
             delegateReasoningBudgetTokens: delegateProviderConfig.reasoning.budgetTokens,
             delegateToolMode: delegateProviderConfig.toolMode || draft.delegateToolMode || 'native',
-            delegateCustomParameters: delegateProviderConfig.customParameters,
+            delegateSampling: delegateProviderConfig.sampling,
         };
     }
 
@@ -679,7 +681,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(draft.provider)
                 ? (draft.toolMode || 'native')
                 : undefined,
-            customParameters: String(draft.customParameters || ''),
+            sampling: normalizeSampling(draft.sampling),
         };
     }
 
@@ -700,7 +702,7 @@ export function createAgentSettingsPanel(deps = {}) {
             toolMode: isToolModeProvider(draft.delegateProvider)
                 ? (draft.delegateToolMode || 'native')
                 : undefined,
-            customParameters: String(draft.delegateCustomParameters || ''),
+            sampling: normalizeSampling(draft.delegateSampling),
         };
     }
 
@@ -732,7 +734,7 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.toolMode || 'native',
-            customParameters: draft.customParameters || '',
+            sampling: normalizeSampling(draft.sampling),
             reasoning: resolveRuntimeReasoning({
                 provider: draft.provider,
                 baseUrl: draft.baseUrl,
@@ -759,7 +761,7 @@ export function createAgentSettingsPanel(deps = {}) {
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             timeoutMs: AGENT_REQUEST_TIMEOUT_MS,
             toolMode: draft.delegateToolMode || 'native',
-            customParameters: draft.delegateCustomParameters || '',
+            sampling: normalizeSampling(draft.delegateSampling),
             reasoning: resolveRuntimeReasoning({
                 provider: draft.delegateProvider,
                 baseUrl: draft.delegateBaseUrl,
@@ -960,8 +962,6 @@ export function createAgentSettingsPanel(deps = {}) {
         const baseUrlInput = root.querySelector('#xb-assistant-base-url');
         const modelInput = root.querySelector('#xb-assistant-model');
         const apiKeyInput = root.querySelector('#xb-assistant-api-key');
-        const temperatureInput = root.querySelector('#xb-assistant-temperature');
-        const sendTemperatureInput = root.querySelector('#xb-assistant-send-temperature');
         const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
         const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
         const permissionModeSelect = root.querySelector('#xb-assistant-permission-mode');
@@ -998,8 +998,6 @@ export function createAgentSettingsPanel(deps = {}) {
         if (apiKeyInput) apiKeyInput.value = draft.apiKey || '';
         syncModelListAuthControls(root, provider, draft.modelListAuth);
         if (maxTokensInput) maxTokensInput.value = String(normalizeMaxTokens(draft.maxTokens));
-        if (temperatureInput) temperatureInput.value = String(normalizeTemperature(draft.temperature, 1));
-        if (sendTemperatureInput) sendTemperatureInput.checked = Boolean(draft.sendTemperature ?? true);
         syncWebSettingsForm(root, draft);
         if (toolModeWrap) toolModeWrap.style.display = isToolModeProvider(provider) ? '' : 'none';
         if (toolModeSelect) {
@@ -1024,11 +1022,7 @@ export function createAgentSettingsPanel(deps = {}) {
         if (delegateModelInput) delegateModelInput.value = draft.delegateModel || '';
         if (delegateApiKeyInput) delegateApiKeyInput.value = draft.delegateApiKey || '';
         syncModelListAuthControls(root, delegateProvider, draft.delegateModelListAuth, 'delegate');
-        const delegateTemperatureInput = root.querySelector('#xb-assistant-delegate-temperature');
-        const delegateSendTemperatureInput = root.querySelector('#xb-assistant-delegate-send-temperature');
         if (delegateMaxTokensInput) delegateMaxTokensInput.value = String(normalizeMaxTokens(draft.delegateMaxTokens));
-        if (delegateTemperatureInput) delegateTemperatureInput.value = String(normalizeTemperature(draft.delegateTemperature, 1));
-        if (delegateSendTemperatureInput) delegateSendTemperatureInput.checked = Boolean(draft.delegateSendTemperature ?? true);
         if (delegateToolModeWrap) {
             delegateToolModeWrap.style.display = isToolModeProvider(delegateProvider) ? '' : 'none';
         }
@@ -1044,14 +1038,11 @@ export function createAgentSettingsPanel(deps = {}) {
         syncInlinePullStatus(root, '#xb-assistant-model-pull-status', getPullState(provider));
         syncInlinePullStatus(root, '#xb-assistant-delegate-model-pull-status', getPullState(delegateProvider, 'delegate'));
 
-        const customParamsInput = root.querySelector('#xb-assistant-custom-params');
-        if (customParamsInput && customParamsInput.value !== (draft.customParameters || '')) {
-            customParamsInput.value = draft.customParameters || '';
-        }
-        const delegateCustomParamsInput = root.querySelector('#xb-assistant-delegate-custom-params');
-        if (delegateCustomParamsInput && delegateCustomParamsInput.value !== (draft.delegateCustomParameters || '')) {
-            delegateCustomParamsInput.value = draft.delegateCustomParameters || '';
-        }
+        syncSamplingForm(root, draft);
+        syncSamplingForm(root, {
+            provider: draft.delegateProvider, temperature: draft.delegateTemperature,
+            sendTemperature: draft.delegateSendTemperature, sampling: draft.delegateSampling,
+        }, 'delegate');
 
         syncRuntimeText(root);
     }
@@ -1111,6 +1102,7 @@ export function createAgentSettingsPanel(deps = {}) {
     }
 
     function saveConfigFromForm(root, options = {}) {
+        if (!validateSamplingForm(root)) return;
         const draft = syncConfigDraft(root);
         const nextPresetName = normalizePresetName(options.presetName || draft.presetDraftName);
         const currentPresetName = normalizePresetName(draft.currentPresetName || state.config?.currentPresetName || DEFAULT_PRESET_NAME);
@@ -1159,6 +1151,7 @@ export function createAgentSettingsPanel(deps = {}) {
     }
 
     function createPresetFromForm(root) {
+        if (!validateSamplingForm(root)) return;
         const draft = syncConfigDraft(root);
         const nextPresetName = promptForPresetName('输入新预设名称：', `${draft.currentPresetName || DEFAULT_PRESET_NAME} 副本`);
         if (!nextPresetName) {
@@ -1285,14 +1278,6 @@ export function createAgentSettingsPanel(deps = {}) {
             syncConfigDraft(root);
         });
 
-        root.querySelector('#xb-assistant-temperature')?.addEventListener('input', () => {
-            syncConfigDraft(root);
-        });
-
-        root.querySelector('#xb-assistant-send-temperature')?.addEventListener('change', () => {
-            syncConfigDraft(root);
-        });
-
         bindWebSettingsGuide(root);
         root.querySelector('#xb-assistant-web-provider')?.addEventListener('change', () => {
             const draft = syncConfigDraft(root);
@@ -1345,14 +1330,6 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         root.querySelector('#xb-assistant-delegate-max-tokens')?.addEventListener('input', () => {
-            syncConfigDraft(root);
-        });
-
-        root.querySelector('#xb-assistant-delegate-temperature')?.addEventListener('input', () => {
-            syncConfigDraft(root);
-        });
-
-        root.querySelector('#xb-assistant-delegate-send-temperature')?.addEventListener('change', () => {
             syncConfigDraft(root);
         });
 
@@ -1503,13 +1480,7 @@ export function createAgentSettingsPanel(deps = {}) {
             });
         });
 
-        root.querySelector('#xb-assistant-custom-params')?.addEventListener('input', () => {
-            syncConfigDraft(root);
-        });
-
-        root.querySelector('#xb-assistant-delegate-custom-params')?.addEventListener('input', () => {
-            syncConfigDraft(root);
-        });
+        bindSamplingSettings(root, () => syncConfigDraft(root));
 
         root.querySelector('#xb-assistant-delete-preset')?.addEventListener('click', () => {
             deleteCurrentPreset(root);

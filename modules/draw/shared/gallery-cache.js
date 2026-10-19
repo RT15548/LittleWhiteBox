@@ -1344,14 +1344,14 @@ function ensureGalleryStyles() {
 #nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
 .nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
-.nd-gallery-main{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:75%;flex:1;min-height:0}
+.nd-gallery-main{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:75%;flex:1;min-height:0;overflow:hidden}
 .nd-gallery-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:none;background:rgba(0,0,0,0.35);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:24px;cursor:pointer}
 #nd-gallery-prev{left:16px}
 #nd-gallery-next{right:16px}
 .nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}
 .nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}
 /* 图片与角标共享居中的图片网格区域，不以撑满高度的外壳作为角标边界。 */
-.nd-gallery-img-wrap{position:relative;width:100%;height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,max-content);align-content:center;justify-content:center;touch-action:none}
+.nd-gallery-img-wrap{position:relative;max-width:90%;height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,max-content);align-content:center;justify-content:center;touch-action:none}
 .nd-gallery-img,.nd-gallery-saved-badge{grid-area:1/1}
 .nd-gallery-img{min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);user-select:none;-webkit-user-drag:none;will-change:transform}
 .nd-gallery-saved-badge{position:absolute;top:min(12px,10%);left:min(12px,10%);z-index:10;background:rgba(62,207,142,0.9);padding:min(4px,5%) min(10px,5%);white-space:nowrap;border-radius:6px;font-size:11px;color:#fff;font-weight:600}
@@ -1376,8 +1376,7 @@ let galleryZoomScale = 1;
 let galleryZoomX = 0;
 let galleryZoomY = 0;
 let galleryPanning = false;
-let pinchStartDist = 0;
-let pinchStartScale = 1;
+const galleryPointers = new Map();
 
 function applyGalleryZoom(smooth = false) {
     const img = document.getElementById('nd-gallery-img');
@@ -1393,7 +1392,7 @@ function resetGalleryZoom(smooth = false) {
     galleryZoomX = 0;
     galleryZoomY = 0;
     galleryPanning = false;
-    pinchStartDist = 0;
+    galleryPointers.clear();
     applyGalleryZoom(smooth);
 }
 
@@ -1440,67 +1439,48 @@ function createGalleryOverlay() {
         applyGalleryZoom(false);
     }, { passive: false });
 
-    img.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 2) {
-            galleryPanning = false;
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            pinchStartDist = Math.hypot(dx, dy);
-            pinchStartScale = galleryZoomScale;
-            if (e.cancelable) e.preventDefault();
-        }
-    }, { passive: false });
-
-    img.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 2 && pinchStartDist > 0) {
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            const dist = Math.hypot(dx, dy);
-            const newScale = Math.max(1, Math.min(6, pinchStartScale * (dist / pinchStartDist)));
-            if (newScale <= 1.01) {
-                galleryZoomScale = 1;
-                galleryZoomX = 0;
-                galleryZoomY = 0;
-            } else {
-                galleryZoomScale = newScale;
-            }
-            applyGalleryZoom(false);
-            if (e.cancelable) e.preventDefault();
-        }
-    }, { passive: false });
-
-    img.addEventListener('touchend', (e) => {
-        if (e.touches.length < 2) pinchStartDist = 0;
-    });
-
-    let panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0, isPointerDown = false;
     img.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0 || !img.src || galleryZoomScale <= 1) return;
-        isPointerDown = true;
-        galleryPanning = true;
-        panStartX = e.clientX;
-        panStartY = e.clientY;
-        panOrigX = galleryZoomX;
-        panOrigY = galleryZoomY;
+        if (e.button !== 0 || !img.src) return;
+        galleryPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        galleryPanning = galleryZoomScale > 1;
         applyGalleryZoom(false);
-        try { img.setPointerCapture(e.pointerId); } catch (_) {}
+        img.setPointerCapture(e.pointerId);
     });
 
     img.addEventListener('pointermove', (e) => {
-        if (!isPointerDown || !galleryPanning || galleryZoomScale <= 1) return;
-        galleryZoomX = panOrigX + (e.clientX - panStartX);
-        galleryZoomY = panOrigY + (e.clientY - panStartY);
+        const previous = galleryPointers.get(e.pointerId);
+        if (!previous) return;
+        const next = { x: e.clientX, y: e.clientY };
+        const other = [...galleryPointers.entries()].find(([id]) => id !== e.pointerId)?.[1];
+        if (other) {
+            const oldDistance = Math.hypot(previous.x - other.x, previous.y - other.y);
+            const distance = Math.hypot(next.x - other.x, next.y - other.y);
+            const scale = Math.max(1, Math.min(6, galleryZoomScale * (oldDistance ? distance / oldDistance : 1)));
+            const rect = img.getBoundingClientRect();
+            const cx = (previous.x + other.x) / 2 - (rect.left + rect.width / 2);
+            const cy = (previous.y + other.y) / 2 - (rect.top + rect.height / 2);
+            const ratio = scale / galleryZoomScale;
+            galleryZoomX += cx * (1 - ratio) + (next.x - previous.x) / 2;
+            galleryZoomY += cy * (1 - ratio) + (next.y - previous.y) / 2;
+            galleryZoomScale = scale;
+        } else if (galleryZoomScale > 1) {
+            galleryZoomX += next.x - previous.x;
+            galleryZoomY += next.y - previous.y;
+        }
+        galleryPointers.set(e.pointerId, next);
+        if (galleryZoomScale === 1) { galleryZoomX = 0; galleryZoomY = 0; }
+        galleryPanning = galleryZoomScale > 1;
         applyGalleryZoom(false);
     });
 
-    const endPan = () => {
-        if (!isPointerDown) return;
-        isPointerDown = false;
-        galleryPanning = false;
+    const endPan = (e) => {
+        galleryPointers.delete(e.pointerId);
+        galleryPanning = galleryPointers.size > 0 && galleryZoomScale > 1;
         applyGalleryZoom(false);
     };
     img.addEventListener('pointerup', endPan);
     img.addEventListener('pointercancel', endPan);
+    img.addEventListener('lostpointercapture', endPan);
 }
 
 export async function openGallery(slotId, messageId, callbacks = {}) {
@@ -1604,13 +1584,15 @@ function updateGalleryThumbState() {
 
 function renderGallery() {
     if (!currentGalleryData) return;
-    resetGalleryZoom(false);
 
     const { previews, currentIndex } = currentGalleryData;
     const current = previews[currentIndex];
     if (!current) return;
 
-    document.getElementById('nd-gallery-img').src = getPreviewDisplayUrl(current);
+    const image = document.getElementById('nd-gallery-img');
+    if (image.dataset.imgId !== current.imgId) resetGalleryZoom(false);
+    image.dataset.imgId = current.imgId;
+    image.src = getPreviewDisplayUrl(current);
     document.getElementById('nd-gallery-saved-badge').style.display = current.savedUrl ? 'block' : 'none';
     updateGalleryThumbState();
 

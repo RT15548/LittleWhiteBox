@@ -1,5 +1,6 @@
 import { normalizeWebApiKey, normalizeWebBaseUrl, normalizeWebSettings } from './web/settings.js';
 import { normalizeReasoningConfig } from './reasoning-config.js';
+import { normalizeSampling } from './sampling.js';
 import { normalizeAgentApiKey } from './provider-auth.js';
 import { DEFAULT_MODEL_LIST_AUTH, normalizeModelListAuth, supportsModelListAuth } from './model-list-auth.js';
 
@@ -26,7 +27,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
-        customParameters: '',
+        sampling: {},
     },
     'openai-compatible': {
         baseUrl: 'https://api.openai.com/v1',
@@ -36,7 +37,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
         toolMode: 'tagged-json',
-        customParameters: '',
+        sampling: {},
     },
     'sillytavern-openai-compatible': {
         baseUrl: '',
@@ -46,7 +47,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
         toolMode: 'tagged-json',
-        customParameters: '',
+        sampling: {},
     },
     'sillytavern-claude': {
         baseUrl: '',
@@ -56,7 +57,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
-        customParameters: '',
+        sampling: {},
     },
     'sillytavern-google': {
         baseUrl: '',
@@ -65,7 +66,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
-        customParameters: '',
+        sampling: {},
     },
     anthropic: {
         baseUrl: 'https://api.anthropic.com',
@@ -75,7 +76,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
-        customParameters: '',
+        sampling: {},
     },
     google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -84,7 +85,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 1,
         maxTokens: DEFAULT_MAX_TOKENS,
         sendTemperature: true,
-        customParameters: '',
+        sampling: {},
     },
 };
 
@@ -153,28 +154,10 @@ export function normalizeModelConfigs(modelConfigs = {}) {
                 ? { toolMode: String(source.toolMode || defaults.toolMode || 'native') }
                 : {}),
             reasoning: normalizeReasoningConfig(source.reasoning),
-            customParameters: typeof source.customParameters === 'string'
-                ? source.customParameters
-                : (source.customParameters && typeof source.customParameters === 'object'
-                    ? JSON.stringify(source.customParameters, null, 2)
-                    : (defaults.customParameters || '')),
+            sampling: normalizeSampling(source.sampling),
         };
     });
     return next;
-}
-
-export function parseCustomParameters(value) {
-    if (!value) return {};
-    if (typeof value === 'object' && !Array.isArray(value)) return value;
-    if (typeof value !== 'string') return {};
-    const trimmed = value.trim();
-    if (!trimmed) return {};
-    try {
-        const parsed = JSON.parse(trimmed);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-        return {};
-    }
 }
 
 function normalizeProvider(provider) {

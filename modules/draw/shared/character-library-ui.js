@@ -104,6 +104,7 @@ function stripGroupId(character) {
  * @param {Document} options.document 宿主页面（设置 iframe）的 document
  * @param {Element} options.listElement 角色列表容器；本模块在其中渲染分组与卡片
  * @param {Element} options.toolbarElement 工具栏容器；本模块在其中渲染“新建分组 / 多选”和批量栏
+ * @param {HTMLInputElement} [options.searchInput] 仅筛选当前草稿，不重建卡片
  * @param {function} options.readCharacters ({ keepEmpty }) => 从表单读出的角色数组。每个角色必须带 id（卡片的 dataset.characterId）；
  *        keepEmpty 为 true 时不丢弃全空的新卡片（库操作期间要保留它们，只有保存时才丢弃）
  * @param {function} options.renderCard ({ character, ordinal }) => 卡片元素。根节点 class 含 sd-char-card、dataset.characterId 为角色 id；
@@ -125,6 +126,7 @@ export function createCharacterLibraryUi(options = {}) {
         document,
         listElement: list,
         toolbarElement: toolbar,
+        searchInput,
         readCharacters,
         renderCard,
         renderEmpty,
@@ -186,6 +188,26 @@ export function createCharacterLibraryUi(options = {}) {
     // ── 草稿读取 ─────────────────────────────────────────
     function cardsIn(root = list) {
         return Array.from(root.querySelectorAll(`.${CARD_CLASS}`));
+    }
+
+    function visibleCardsIn(root = list) {
+        return cardsIn(root).filter(card => !card.classList.contains('filtered-hidden'));
+    }
+
+    function filterCards() {
+        const query = String(searchInput?.value || '').trim().toLowerCase();
+        const matches = new Set(readCharacters({ keepEmpty: true }).filter(character => !query
+            || [character.name, ...(character.aliases || []), character.appearance, character.danbooruTag]
+                .filter(Boolean).join(' ').toLowerCase().includes(query)).map(character => character.id));
+        for (const card of cardsIn()) {
+            const hidden = !matches.has(cardId(card));
+            card.classList.toggle('filtered-hidden', hidden);
+            if (hidden) state.selected.delete(cardId(card));
+        }
+        for (const section of list.querySelectorAll('.lwb-cl-group')) {
+            section.classList.toggle('filtered-empty', Boolean(query) && !visibleCardsIn(section).length);
+        }
+        syncSelectionControls();
     }
 
     function cardId(card) {
@@ -277,7 +299,7 @@ export function createCharacterLibraryUi(options = {}) {
         }
         restoreGroupScroll(groupScroll);
         renderToolbar();
-        syncSelectionControls();
+        filterCards();
         emitChange();
     }
 
@@ -551,7 +573,7 @@ export function createCharacterLibraryUi(options = {}) {
         });
         list.querySelectorAll('.lwb-cl-group-select').forEach((box) => {
             const section = box.closest('.lwb-cl-group');
-            const ids = cardsIn(section).map(cardId);
+            const ids = visibleCardsIn(section).map(cardId);
             const picked = ids.filter(id => state.selected.has(id)).length;
             box.checked = ids.length > 0 && picked === ids.length;
             box.indeterminate = picked > 0 && picked < ids.length;
@@ -607,6 +629,7 @@ export function createCharacterLibraryUi(options = {}) {
 
     function addCharacter({ groupId = UNGROUPED_ID } = {}) {
         return run(() => {
+            if (searchInput) searchInput.value = '';
             const { library, id } = addLibraryCharacter(getLibrary(), { name: '' }, { groupId, makeId });
             if (groupId) {
                 state.collapsed[collapseKeyOf(groupId)] = false;
@@ -698,7 +721,7 @@ export function createCharacterLibraryUi(options = {}) {
     function runBatchAction(action) {
         if (action === 'exit') { setSelectMode(false); return; }
         if (action === 'select-all') {
-            cardsIn().forEach(card => state.selected.add(cardId(card)));
+            visibleCardsIn().forEach(card => state.selected.add(cardId(card)));
             syncSelectionControls();
             return;
         }
@@ -988,7 +1011,7 @@ export function createCharacterLibraryUi(options = {}) {
             syncSelectionControls();
         } else if (box.classList?.contains('lwb-cl-group-select')) {
             const section = box.closest('.lwb-cl-group');
-            cardsIn(section).forEach((card) => {
+            visibleCardsIn(section).forEach((card) => {
                 if (box.checked) state.selected.add(cardId(card)); else state.selected.delete(cardId(card));
             });
             syncSelectionControls();
@@ -1012,6 +1035,7 @@ export function createCharacterLibraryUi(options = {}) {
     listen(document, 'pointercancel', event => endDrag(event, true));
 
     buildToolbar();
+    if (searchInput) listen(searchInput, 'input', () => { filterCards(); emitChange(); });
     listen(toolbar, 'click', (event) => {
         const button = event.target.closest?.('button');
         if (!button) return;
@@ -1051,6 +1075,7 @@ export function createCharacterLibraryUi(options = {}) {
         getCharacters: ({ keepEmpty = false } = {}) => getLibrary({ keepEmpty }).characters,
         getGroups: () => state.groups.map(group => ({ ...group })),
         getCardCount: () => cardsIn().length,
+        getVisibleCardCount: () => visibleCardsIn().length,
         isRendered: () => state.rendered,
         getSelectedIds: () => [...state.selected],
         isSelectMode: () => state.selectMode,

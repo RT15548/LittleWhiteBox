@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { parseCustomParameters } from '../config.js';
+import { buildSamplingParameters } from '../sampling.js';
 import { resolveModelFamily } from '../../../shared/host-llm/model-family.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { readResponseCompletion } from '../runtime/response-completion.js';
@@ -326,8 +326,8 @@ export class AnthropicAdapter {
                 display: isReasoningOutputVisible(reasoning) ? 'summarized' : 'omitted',
             };
         }
-        const customParams = parseCustomParameters(this.config.customParameters);
-        Object.assign(body, customParams);
+        const samplingParams = buildSamplingParameters('anthropic', this.config.sampling);
+        Object.assign(body, samplingParams);
         return body;
     }
 

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { parseCustomParameters } from '../config.js';
+import { buildSamplingParameters } from '../sampling.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
@@ -1034,7 +1034,7 @@ export class OpenAICompatibleAdapter {
         const deepSeekThinkingWithTools = shouldPreserveHistoricalReasoning(
             { ...this.config, provider: 'openai-compatible' }, nativeTools, reasoning,
         );
-        const customParams = parseCustomParameters(this.config.customParameters);
+        const samplingParams = buildSamplingParameters('openai-compatible', this.config.sampling);
         const body = {
             model: this.config.model,
             messages: isTaggedMode ? buildTaggedMessages(task, this.config.model) : buildNativeMessages(task, this.config.model, {
@@ -1046,7 +1046,7 @@ export class OpenAICompatibleAdapter {
                     ? { max_completion_tokens: task.maxTokens }
                     : { max_tokens: task.maxTokens })
                 : {}),
-            ...customParams,
+            ...samplingParams,
         };
         // Inherit can enable thinking too. Only an explicit off permits forced tools;
         // the separate SillyTavern adapter cannot guarantee delivery of that control.
@@ -1056,7 +1056,7 @@ export class OpenAICompatibleAdapter {
         if (!shouldOmitTemperatureForReasoning(
             { ...this.config, provider: 'openai-compatible' },
             reasoning,
-        ) && typeof task.temperature === 'number' && !('temperature' in customParams)) {
+        ) && typeof task.temperature === 'number') {
             body.temperature = task.temperature;
         }
         return applyOpenAICompatibleReasoningControls(body, reasoning);

@@ -1596,6 +1596,36 @@ test('L0 results remain draft-only, merge with newer summary, but cannot overwri
     assert.equal(ext().l0Index.byFloor[3], undefined);
 });
 
+// Acceptance: waiting writers must not overwrite restored data or another chat (cost: data loss).
+for (const mode of ['old', 'switch']) test(`queued writer after ${mode} save preserves the settled chat`, async () => {
+    await importFixture();
+    const chatId = host.context.chatId;
+    const baseline = mod.readSummaryMemory();
+    let release;
+    if (mode === 'old') host.mode = 'old';
+    host.afterSave = () => new Promise(resolve => { release = resolve; });
+    const first = structuredClone(baseline); first.storySummary.json.facts[0].o = 'first';
+    const saving = mod.commitSummaryMemory(chatId, first).then(() => null, error => error);
+    while (!release) await nextTurn();
+    const second = mod.readSummaryMemory(); second.storySummary.json.facts[0].o = 'second';
+    const queued = mod.commitSummaryMemory(chatId, second).then(() => null, error => error);
+    if (mode === 'switch') {
+        host.metadata = { extensions: { LittleWhiteBox: { storySummary: { json: { facts: ['other chat'] } } } } };
+        host.context = { ...host.context, chatId: 'other' }; mod.reload();
+    }
+    release();
+    await saving;
+    const error = await queued;
+    assert.equal(error.code, mode === 'old' ? 'metadata_draft_conflict' : 'summary_chat_changed_before_save');
+    if (mode === 'switch') assert.deepEqual(ext().storySummary.json.facts, ['other chat']);
+    else {
+        assert.deepEqual(mod.readSummaryMemory(), baseline);
+        host.mode = 'save'; host.afterSave = null;
+        await mod.commitSummaryMemory(chatId, first);
+        assert.equal(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o, 'first');
+    }
+});
+
 test('a chat switch during confirmation never restores or installs into the newly opened chat', async () => {
     await importFixture();
     const old = host.metadata;

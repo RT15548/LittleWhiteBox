@@ -1,4 +1,5 @@
 import { buildWebSettingsMarkup } from './web-settings.js';
+import { buildSamplingSettingsMarkup } from './sampling-settings.js';
 function escapeHtml(text = '') {
     return String(text || '')
         .replace(/&/g, '&amp;')
@@ -192,18 +193,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <span>最大输出 Token</span>
                     <input id="xb-assistant-delegate-max-tokens" type="number" min="1" step="1" inputmode="numeric" />
                 </label>
-                <div class="xb-assistant-temperature-row">
-                    <label>
-                        <span>温度</span>
-                        <input id="xb-assistant-delegate-temperature" type="number" min="0" max="2" step="0.05" />
-                    </label>
-                    <label class="xb-assistant-checkbox-row">
-                        <span>允许传参</span>
-                        <span class="xb-assistant-checkbox-control">
-                            <input id="xb-assistant-delegate-send-temperature" type="checkbox" />
-                        </span>
-                    </label>
-                </div>
+                ${buildSamplingSettingsMarkup('delegate')}
                 <label id="xb-assistant-delegate-tool-mode-wrap">
                     <span>Tool 调用格式</span>
                     <select id="xb-assistant-delegate-tool-mode"></select>
@@ -221,11 +211,6 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <span>思考 Token 预算</span>
                     <input id="xb-assistant-delegate-reasoning-budget" type="number" step="1" inputmode="numeric" />
                     <small>支持 -1 时表示由模型自动决定</small>
-                </label>
-                <label>
-                    <span>自定义发送参数 (JSON)</span>
-                    <textarea id="xb-assistant-delegate-custom-params" rows="3" spellcheck="false" placeholder="例如: { &quot;top_p&quot;: 0.8, &quot;frequency_penalty&quot;: 0.3 }"></textarea>
-                    <small>请求时将作为 JSON 顶层字段合并至 Request Body</small>
                 </label>
             </div>` : '';
 
@@ -286,18 +271,7 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <span>最大输出 Token</span>
                 <input id="xb-assistant-max-tokens" type="number" min="1" step="1" inputmode="numeric" />
             </label>
-            <div class="xb-assistant-temperature-row">
-                <label>
-                    <span>温度</span>
-                    <input id="xb-assistant-temperature" type="number" min="0" max="2" step="0.05" />
-                </label>
-                <label class="xb-assistant-checkbox-row">
-                    <span>允许传参</span>
-                    <span class="xb-assistant-checkbox-control">
-                        <input id="xb-assistant-send-temperature" type="checkbox" />
-                    </span>
-                </label>
-            </div>
+            ${buildSamplingSettingsMarkup('main')}
             ${showWebSettings ? buildWebSettingsMarkup() : ''}
             <label id="xb-assistant-tool-mode-wrap">
                 <span>Tool 调用格式</span>
@@ -317,11 +291,6 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 <span>思考 Token 预算</span>
                 <input id="xb-assistant-reasoning-budget" type="number" step="1" inputmode="numeric" />
                 <small>支持 -1 时表示由模型自动决定</small>
-            </label>
-            <label>
-                <span>自定义发送参数 (JSON)</span>
-                <textarea id="xb-assistant-custom-params" rows="3" spellcheck="false" placeholder="例如: { &quot;top_p&quot;: 0.8, &quot;frequency_penalty&quot;: 0.3 }"></textarea>
-                <small>请求时将作为 JSON 顶层字段合并至 Request Body</small>
             </label>
             </div>
             ${delegatePageMarkup}

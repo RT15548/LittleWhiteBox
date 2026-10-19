@@ -1,5 +1,5 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { parseCustomParameters } from '../config.js';
+import { buildSamplingParameters } from '../sampling.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { readResponseCompletion } from '../runtime/response-completion.js';
 import {
@@ -612,8 +612,8 @@ export class GoogleAdapter {
             };
         }
 
-        const customParams = parseCustomParameters(this.config.customParameters);
-        Object.assign(config, customParams);
+        const samplingParams = buildSamplingParameters('google', this.config.sampling);
+        Object.assign(config, samplingParams);
 
         const createPayload = {
             model: this.config.model,

@@ -1,5 +1,5 @@
 import { readResponseCompletion } from '../runtime/response-completion.js';
-import { parseCustomParameters } from '../config.js';
+import { buildSamplingParameters } from '../sampling.js';
 import {
     assertHostChatCompletionsClient,
     browserHostChatCompletionsClient,
@@ -410,8 +410,8 @@ export class SillyTavernClaudeAdapter {
             payload.reasoning_effort = 'auto';
             payload.include_reasoning = isReasoningOutputVisible(effectiveReasoning);
         }
-        const customParams = parseCustomParameters(this.config.customParameters);
-        Object.assign(payload, customParams);
+        const samplingParams = buildSamplingParameters('sillytavern-claude', this.config.sampling);
+        Object.assign(payload, samplingParams);
         return payload;
     }
 

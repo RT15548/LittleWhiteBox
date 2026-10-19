@@ -740,7 +740,17 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             continue;
         }
         if (existing && (matchedByName || policy === 'replace')) {
+            const oldName = String(existing.name || '').trim();
             for (const field of fields) existing[field] = cloneJson(character[field]);
+            const newName = String(existing.name || '').trim();
+            if (oldName !== newName) {
+                if (byName.get(oldName) === existing) {
+                    byName.delete(oldName);
+                    const remaining = characters.find(item => String(item.name || '').trim() === oldName);
+                    if (remaining) byName.set(oldName, remaining);
+                }
+                if (newName && !byName.has(newName)) byName.set(newName, existing);
+            }
             summary.replaced += 1;
             record('replaced', existing.id);
             if (mode !== 'auto' && !movedIds.has(existing.id)) {
