@@ -20,8 +20,7 @@
         "gold:screen-event": "node scripts/gold-eval/experiments/event-candidate-screen.mjs",
         "gold:screen-query-focus": "node scripts/gold-eval/experiments/query-focus-construction-screen.mjs",
         "lint": "node scripts/check-project.mjs && node scripts/check-garbled.js && node scripts/check-relative-imports.mjs && eslint . --ext .js,.mjs,.cjs,.ts,.mts,.cts,.vue,.html --max-warnings 0",
-        "lint:fix": "npm run lint -- --fix",
-        "optimize:island:characters": "node scripts/optimize-island-characters.mjs"
+        "lint:fix": "npm run lint -- --fix"
     },
     "devDependencies": {
         "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",
@@ -39,7 +38,6 @@
         "eslint-plugin-security": "^1.7.1",
         "eslint-plugin-vue": "^10.9.1",
         "fake-indexeddb": "^6.2.4",
-        "gltf-validator": "2.0.0-dev.3.10",
         "https-proxy-agent": "^7.0.6",
         "ignore": "^7.0.6",
         "linkedom": "^0.18.13",

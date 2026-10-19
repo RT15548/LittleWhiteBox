@@ -27,7 +27,6 @@ export const entries = {
 // These are design/asset-authoring pages, not plugin pages. They still receive lint.
 const developmentPages = new Set([
     'modules/xiaobai-os/docs/prototypes/xiaobai-space-2d.html',
-    'modules/xiaobai-os/apps/game/island/production/characters/review.html',
 ]);
 export function discoverPages(directory) {
     return collectSourceFiles(directory, new Set(['.html']))
