@@ -620,7 +620,7 @@ function createMaxImagesRow() {
 }
 
 function bindMaxImagesInputEvents(inputEl) {
-    bindMaxImagesInput(inputEl, {
+    return bindMaxImagesInput(inputEl, {
         getOverride: () => getSettings().overrideMaxImages,
         save: setQuickMaxImages,
         refresh: fillMaxImagesInput,
@@ -1081,7 +1081,7 @@ function bindFloorPanelEvents(panelData) {
         await setQuickSize(e.target.value);
     });
 
-    bindMaxImagesInputEvents(panelData.$cache.maxImagesInput);
+    const maxImagesBinding = bindMaxImagesInputEvents(panelData.$cache.maxImagesInput);
 
     panelData.$cache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
@@ -1101,6 +1101,7 @@ function bindFloorPanelEvents(panelData) {
     document.addEventListener('click', closeMenu, { passive: true });
 
     panelData._cleanup = () => {
+        maxImagesBinding.destroy();
         document.removeEventListener('click', closeMenu);
         if (panelData.autoResetTimer) clearTimeout(panelData.autoResetTimer);
         panelData.autoResetTimer = null;
@@ -1780,7 +1781,7 @@ function createFloatingButton() {
         await setQuickSize(e.target.value);
     });
 
-    bindMaxImagesInputEvents($floatingCache.maxImagesInput);
+    $floatingCache.maxImagesBinding = bindMaxImagesInputEvents($floatingCache.maxImagesInput);
 
     $floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
@@ -1798,6 +1799,7 @@ function createFloatingButton() {
 }
 
 function destroyFloatingButton() {
+    $floatingCache.maxImagesBinding?.destroy();
     clearFloatingCooldownTimer();
 
     if (floatingAutoResetTimer) {

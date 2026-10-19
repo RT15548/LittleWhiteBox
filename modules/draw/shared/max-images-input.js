@@ -3,6 +3,7 @@
 // 空值 = 跟随预设；0 = 覆盖为“不指定”；1-20 的整数 = 覆盖（settings.overrideMaxImages）。0 是合法覆盖，不能当作“空”。
 
 import {
+    MAX_IMAGES_INPUT_COPY,
     MAX_IMAGES_INVALID_INPUT_MESSAGE,
     MAX_IMAGES_OVERRIDE_MAX,
     MAX_IMAGES_OVERRIDE_MIN,
@@ -16,6 +17,9 @@ export const MAX_IMAGES_INPUT_DEBOUNCE_MS = 350;
 
 export const MAX_IMAGES_INPUT_CLASS = 'nd-max-images-input';
 export const MAX_IMAGES_RESET_CLASS = 'nd-max-images-reset';
+
+// 未提交的输入属于这个控件，其他菜单的保存回执不能把它覆盖掉。
+const editedInputs = new WeakSet();
 
 /** 外观与同菜单里“尺寸”下拉（.nd-select）一致；三个 Provider 的样式表各自拼入这一段。 */
 export const MAX_IMAGES_INPUT_CSS = `
@@ -72,7 +76,7 @@ export function createMaxImagesInputRow(doc = document) {
 
     const label = doc.createElement('span');
     label.className = 'nd-label';
-    label.textContent = '数目';
+    label.textContent = MAX_IMAGES_INPUT_COPY.label;
 
     const field = doc.createElement('div');
     field.className = 'nd-max-images-field';
@@ -84,15 +88,15 @@ export function createMaxImagesInputRow(doc = document) {
     input.setAttribute('max', String(MAX_IMAGES_OVERRIDE_MAX));
     input.setAttribute('step', '1');
     input.setAttribute('inputmode', 'numeric');
-    input.setAttribute('aria-label', '出图数目');
-    input.setAttribute('placeholder', '跟随预设');
+    input.setAttribute('aria-label', MAX_IMAGES_INPUT_COPY.accessibleLabel);
+    input.setAttribute('placeholder', MAX_IMAGES_INPUT_COPY.followPreset);
     input.setAttribute('title', buildMaxImagesInputTitle(0));
 
     const reset = doc.createElement('button');
     reset.className = MAX_IMAGES_RESET_CLASS;
     reset.setAttribute('type', 'button');
-    reset.setAttribute('title', '跟随预设');
-    reset.setAttribute('aria-label', '跟随预设');
+    reset.setAttribute('title', MAX_IMAGES_INPUT_COPY.followPreset);
+    reset.setAttribute('aria-label', MAX_IMAGES_INPUT_COPY.followPreset);
     reset.setAttribute('hidden', '');
     reset.textContent = '↺';
 
@@ -106,17 +110,16 @@ function findResetButton(input) {
 }
 
 /**
- * 把输入框同步到当前设置。输入框正处于聚焦编辑状态时不覆盖用户正在输入的内容（force 除外：
- * 提交、恢复、重置时需要把输入框落回真实值）。
+ * 把输入框同步到当前设置。只保护真实的未提交编辑，而不是仅仅有焦点的控件；
+ * 否则其他菜单保存后，未编辑的旧值会在这个控件失焦时被重新提交。
  */
 export function syncMaxImagesInput(input, { override, presetMaxImages, force = false } = {}) {
     if (!input) return;
     const current = normalizeMaxImagesOverride(override);
-    input.setAttribute('placeholder', '跟随预设');
+    input.setAttribute('placeholder', MAX_IMAGES_INPUT_COPY.followPreset);
     input.setAttribute('title', buildMaxImagesInputTitle(presetMaxImages));
 
-    const editing = input.ownerDocument?.activeElement === input;
-    if (force || !editing) {
+    if (force || !editedInputs.has(input)) {
         const text = current == null ? '' : String(current);
         if (input.value !== text) input.value = text;
     }
@@ -138,70 +141,102 @@ export function syncMaxImagesInput(input, { override, presetMaxImages, force = f
  * refresh(input, force) 把单个输入框落回真实值；notify(message) 提示。
  */
 export function bindMaxImagesInput(input, { getOverride, save, refresh, notify, delayMs = MAX_IMAGES_INPUT_DEBOUNCE_MS } = {}) {
-    if (!input) return { flush() {}, cancel() {} };
+    if (!input) return { flush() {}, cancel() {}, destroy() {} };
     const reset = findResetButton(input);
     let timer = null;
     let queue = Promise.resolve();
+    let revision = 0;
+    let active = true;
 
     const cancel = () => {
         if (timer != null) globalThis.clearTimeout(timer);
         timer = null;
     };
+    const markEdited = () => {
+        revision += 1;
+        editedInputs.add(input);
+    };
+    const reportFailure = (error) => {
+        console.warn('[DrawMaxImages] Save failed:', error);
+        if (active) notify?.(MAX_IMAGES_INPUT_COPY.saveFailed);
+    };
+    const settle = (savedRevision) => {
+        if (!active || savedRevision !== revision) return;
+        editedInputs.delete(input);
+        refresh?.(input, true);
+    };
 
-    // 保存串行执行，并和执行时的最新覆盖值比较，所以 change + blur 重复触发不会重复保存。
-    const enqueueSave = (next, { settle }) => {
+    // 保存按提交顺序执行；回执只结算它自己的输入版本，不能覆盖较新的编辑。
+    const enqueueSave = (next) => {
+        const savedRevision = revision;
         queue = queue.then(async () => {
-            if (normalizeMaxImagesOverride(getOverride?.()) === next) {
-                if (settle) refresh?.(input, true);
-                return;
-            }
-            const ok = await save?.(next);
-            if (settle || !ok) refresh?.(input, true);
-        }).catch(() => {});
+            if (!active) return;
+            if (normalizeMaxImagesOverride(getOverride?.()) !== next) await save(next);
+            settle(savedRevision);
+        }).catch((error) => {
+            reportFailure(error);
+            settle(savedRevision);
+        });
         return queue;
     };
 
     const commit = ({ final }) => {
         cancel();
+        if (!active) return queue;
         const parsed = parseMaxImagesInput(input.value, { badInput: input.validity?.badInput === true });
         if (parsed.status === 'invalid') {
             if (!final) return queue;
-            refresh?.(input, true);
+            settle(revision);
             notify?.(MAX_IMAGES_INVALID_INPUT_MESSAGE);
             return queue;
         }
         if (parsed.status === 'empty' && !final) return queue;
-        return enqueueSave(parsed.status === 'empty' ? null : parsed.value, { settle: final });
+        return enqueueSave(parsed.status === 'empty' ? null : parsed.value);
     };
 
     const schedule = ({ final }) => {
+        markEdited();
         cancel();
         timer = globalThis.setTimeout(() => {
             timer = null;
-            void commit({ final });
+            commit({ final }).catch(reportFailure);
         }, delayMs);
     };
-
-    input.addEventListener('input', () => schedule({ final: false }));
-    input.addEventListener('change', () => schedule({ final: true }));
-    input.addEventListener('blur', () => { void commit({ final: true }); });
-    input.addEventListener('keydown', (event) => {
-        // 菜单里的按键不要冒泡成酒馆的全局快捷键。
+    const onInput = () => schedule({ final: false });
+    const onChange = () => schedule({ final: true });
+    const onBlur = () => { commit({ final: true }).catch(reportFailure); };
+    const onKeyDown = (event) => {
         event.stopPropagation?.();
         if (event.key === 'Enter') {
             event.preventDefault?.();
-            void commit({ final: true });
+            commit({ final: true }).catch(reportFailure);
         }
-    });
-
-    reset?.addEventListener('click', (event) => {
+    };
+    const onReset = (event) => {
         event.stopPropagation?.();
         cancel();
-        void enqueueSave(null, { settle: true });
-    });
+        markEdited();
+        input.value = '';
+        enqueueSave(null).catch(reportFailure);
+    };
+    input.addEventListener('input', onInput);
+    input.addEventListener('change', onChange);
+    input.addEventListener('blur', onBlur);
+    input.addEventListener('keydown', onKeyDown);
+    reset?.addEventListener('click', onReset);
 
     return {
         flush: () => commit({ final: true }),
         cancel,
+        destroy() {
+            active = false;
+            cancel();
+            editedInputs.delete(input);
+            input.removeEventListener('input', onInput);
+            input.removeEventListener('change', onChange);
+            input.removeEventListener('blur', onBlur);
+            input.removeEventListener('keydown', onKeyDown);
+            reset?.removeEventListener('click', onReset);
+        },
     };
 }

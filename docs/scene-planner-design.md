@@ -10,6 +10,12 @@ Scene Planner 将正文、角色和用户选择编译为图片计划。Agent Cor
 
 只注册 `submit_scene_plan`，toolChoice 为 required，运输复用共享原生或 Tagged JSON。一次响应必须且只能提交一个完整计划；不另写供应商适配或根据一次错误猜“不支持工具”。
 
+## 快捷数量与角色导入保护
+
+各绘图 Provider 的楼层菜单与全局菜单共用一个 `overrideMaxImages` 设置。空值跟随参数预设，零表示不指定数量，合法正整数覆盖本次规划的数量要求；输入范围与归一规则以 [max-images-override.js](../modules/draw/shared/max-images-override.js) 为准。覆盖持续生效直到清空或重置，不改写参数预设。输入草稿、防抖和保存队列仅存在于当前菜单生命周期；旧保存回执不得覆盖后续编辑，菜单销毁后不提交尚未发出的输入。
+
+角色与分组的 `locked` 归共享角色库所有，只保护导入替换，不禁止用户主动编辑、删除、启停或移动。角色自身锁与所属分组锁任一生效即受保护，按 ID 或开启同名覆盖后的替换共用同一检查；只有明确选择替换已锁定角色才允许绕过。导入预览与最终确认都使用当前角色库重新规划。解锁移除自身锁标记，删除实体同时删除其锁；角色复制、角色库导出不携带自身锁，导入不接受文件中的锁标记。组锁是组的事实，不展开为成员上的额外状态。
+
 ## 计划与纠错
 
 当前字段、参数归一和校验唯一见 [scene-plan-contract.js](../modules/draw/shared/scene-plan-contract.js)及本次 Tool Schema，不复制完整 JSON schema。

@@ -6,6 +6,13 @@
 export const MAX_IMAGES_OVERRIDE_MIN = 0;
 export const MAX_IMAGES_OVERRIDE_MAX = 20;
 
+export const MAX_IMAGES_INPUT_COPY = Object.freeze({
+    label: '数目',
+    accessibleLabel: '出图数目',
+    followPreset: '跟随预设',
+    saveFailed: '出图数目保存失败，请重试',
+});
+
 /** 0-20 的整数原样保留（0 = 不指定）；非法值（非整数、越界、空串、布尔等）一律视为“跟随预设”(null)。 */
 export function normalizeMaxImagesOverride(value) {
     let number = value;
