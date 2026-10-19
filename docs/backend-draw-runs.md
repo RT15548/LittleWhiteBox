@@ -190,7 +190,7 @@ req.socket.encrypted        // 决定 http/https
 req.socket.server.address() // 唯一可信的监听地址与端口
 ```
 
-监听地址为 `0.0.0.0` / `::` 时分别收窄到 `127.0.0.1` / `::1`；明确绑定地址必须原样使用。禁止仅按地址族强制改写为回环地址，否则同端口的其他本机进程可能收到 Cookie、CSRF 与 Basic Auth。监听地址不可用时在组装或发送凭证前失败。
+监听地址为 `0.0.0.0` / `::` 时分别收窄到 `127.0.0.1` / `::1`；明确绑定地址必须原样使用。禁止仅按地址族强制改写为回环地址，否则同端口的其他本机进程可能收到 Cookie、CSRF 与 Basic Auth。监听地址不可用时在组装或发送凭证前失败。Host Client 与探针都显式直连该监听 socket，不继承 Node 全局 agent 的环境代理；开发者无需为回环测试修改 `NO_PROXY`。
 
 事实边界：
 
@@ -206,7 +206,7 @@ req.socket.server.address() // 唯一可信的监听地址与端口
 - HTTP / 原生 HTTPS（含自签）。
 - 多用户并发不串身份。
 
-诊断端点为 `POST /api/plugins/littlewhitebox-server/v1/draw-runs/probe`。它只返回回环协议、地址族与各凭证是否通过验证，不回显 Cookie、CSRF token 或 Basic Auth 内容。内层校验路由要求当前进程生成的一次性 challenge，不能作为公开身份查询接口使用。
+诊断端点为 `POST /api/plugins/littlewhitebox-server/v1/draw-runs/probe`。它只返回回环协议、地址族与各凭证是否通过验证，不回显 Cookie、CSRF token 或 Basic Auth 内容。传输失败保留安全格式的底层错误码 `details.transportCode`，不回传可能含凭证的原始错误消息。内层校验路由要求当前进程生成的一次性 challenge，不能作为公开身份查询接口使用。
 
 探针不调用 LLM、不产生费用；设置页的“后台 Agent 连接测试”复用同一诊断端点。
 

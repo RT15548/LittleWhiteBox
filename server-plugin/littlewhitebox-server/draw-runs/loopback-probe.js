@@ -117,6 +117,8 @@ function requestLoopbackJson(target, req, challenge, timeoutMs) {
     const requestModule = target.protocol === 'https:' ? https : http;
     const requestOptions = {
         protocol: target.protocol,
+        // A one-request agent does not inherit the global agent's environment proxy.
+        agent: false,
         hostname: target.hostname,
         port: target.port,
         path: LOOPBACK_VERIFY_REQUEST_PATH,
@@ -185,15 +187,19 @@ function describeCredential(expectedFingerprint) {
 function normalizeTransportError(error) {
     if (error instanceof LoopbackProbeError) return error;
     const code = String(error?.code || '');
+    // Native messages can include header values. Expose only the diagnostic code.
+    const details = /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? { transportCode: code } : undefined;
     if (['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH'].includes(code)) {
         return new LoopbackProbeError(
             'loopback_unreachable',
             'The SillyTavern process could not reach its local listening socket.',
+            details,
         );
     }
     return new LoopbackProbeError(
         'loopback_transport_failed',
         'The SillyTavern loopback request failed.',
+        details,
     );
 }
 

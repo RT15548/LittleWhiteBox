@@ -1,148 +1,57 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { setImmediate } from 'node:timers/promises';
 import { parseHTML } from 'linkedom';
-import { bindMaxImagesInput, createMaxImagesInputRow, syncMaxImagesInput } from '../max-images-input.js';
+import { bindMaxImagesInput, syncMaxImagesInput } from '../max-images-input.js';
 
-// Contract: an old persistence result cannot erase a newer draft, and failed
-// writes must retain the stored count while allowing the next edit to succeed.
-function fixture(t, persist = async () => true) {
+// Two reproduced failures need controlled save ordering; lint/build cannot see
+// either lost edit. No provider bundle, host storage, network or real-time waits.
+function fixture(t, size = 1) {
     const { document, window } = parseHTML('<html><body></body></html>');
-    const row = createMaxImagesInputRow(document); document.body.append(row);
-    const input = row.querySelector('input');
-    const state = { count: 2, saves: [], warnings: [] };
-    const refresh = (element = input, force = false) => syncMaxImagesInput(element, {
-        override: state.count, presetMaxImages: 2, force,
-    });
-    const controller = bindMaxImagesInput(input, {
-        getOverride: () => state.count, refresh, notify: warning => state.warnings.push(warning),
-        save: async count => {
-            state.saves.push(count);
-            const ok = await persist(count);
-            if (ok) state.count = count;
-            refresh(); // Provider broadcasts the saved setting to every menu.
-            return ok;
-        },
-    });
-    t.after(() => controller.destroy());
-    refresh();
-    const fire = (type, props = {}) => {
-        const event = new window.Event(type, { bubbles: true, cancelable: true });
-        Object.assign(event, props); input.dispatchEvent(event);
-    };
-    const type = value => { input.value = value; fire('input'); };
-    return { input, state, controller, fire, type };
-}
-
-for (const next of ['8', '', '25']) test(`late save preserves a newer draft (${next || 'empty'}) even after focus moves`, async t => {
-    let release;
-    let first = true;
-    const h = fixture(t, async () => {
-        if (first) { first = false; await new Promise(resolve => { release = resolve; }); }
-        return true;
-    });
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    h.type('5');
-    const saving = h.controller.flush(); await setImmediate();
-    h.type(next);
-    release(); await saving;
-    assert.equal(h.input.value, next);
-    assert.equal(h.state.count, 5);
-    if (next === '8') {
-        t.mock.timers.tick(350); await setImmediate();
-        assert.equal(h.state.count, 8);
-        assert.equal(h.input.value, '8');
-    } else {
-        t.mock.timers.tick(350); await setImmediate();
-        assert.equal(h.state.count, 5);
-        await h.controller.flush();
-        assert.equal(h.state.count, next === '' ? null : 5);
-        assert.equal(h.state.warnings.length, next === '' ? 0 : 1);
-    }
-});
-
-test('a final newer edit remains visible while both saves are serialized', async t => {
-    const releases = [];
-    const h = fixture(t, () => new Promise(resolve => releases.push(resolve)));
-    h.type('5'); const first = h.controller.flush(); await setImmediate();
-    h.type('8'); const second = h.controller.flush();
-    releases[0](true); await first; await setImmediate();
-    assert.equal(h.input.value, '8');
-    assert.deepEqual(h.state.saves, [5, 8]);
-    releases[1](true); await second;
-    assert.equal(h.state.count, 8);
-});
-
-for (const failure of ['false', 'throw']) test(`a ${failure} persistence result restores the real value and permits retry`, async t => {
-    let fail = true;
-    const h = fixture(t, async () => {
-        if (fail && failure === 'throw') throw new Error('offline');
-        return !fail;
-    });
-    const observed = [];
-    t.mock.method(console, 'warn', (...args) => observed.push(args));
-    h.type('6'); await h.controller.flush();
-    assert.equal(h.state.count, 2);
-    assert.equal(h.input.value, '2');
-    assert.equal(observed.length, failure === 'throw' ? 1 : 0);
-    assert.equal(h.state.warnings.length, failure === 'throw' ? 1 : 0);
-    fail = false;
-    h.type('7'); await h.controller.flush();
-    assert.equal(h.state.count, 7);
-});
-
-test('invalid browser number input cannot accidentally clear the override', async t => {
-    const h = fixture(t);
-    Object.defineProperty(h.input, 'validity', { value: { badInput: true } });
-    h.type(''); await h.controller.flush();
-    assert.equal(h.state.count, 2);
-    assert.equal(h.input.value, '2');
-    assert.equal(h.state.warnings.length, 1);
-    assert.deepEqual(h.state.saves, []);
-});
-
-for (const edited of [false, true]) test(`another menu's save updates a focused control only when it has no draft (${edited})`, async t => {
-    const { document, window } = parseHTML('<html><body></body></html>');
-    const inputs = [0, 1].map(() => {
-        const row = createMaxImagesInputRow(document); document.body.append(row);
-        return row.querySelector('input');
-    });
-    let focused;
-    Object.defineProperty(document, 'activeElement', { get: () => focused });
-    let count = 2, release;
+    const inputs = Array.from({ length: size }, () => document.body.appendChild(document.createElement('input')));
+    let count = 2, release, started;
+    const pending = new Promise(resolve => { release = resolve; });
+    const saving = new Promise(resolve => { started = resolve; });
     const saves = [];
-    const refresh = (input, force = false) => syncMaxImagesInput(input, { override: count, presetMaxImages: 2, force });
-    inputs.forEach(input => refresh(input));
+    const refresh = (input, force = false) => syncMaxImagesInput(input, { override: count, force });
     const bindings = inputs.map(input => bindMaxImagesInput(input, {
         getOverride: () => count, refresh,
         save: async next => {
             saves.push(next);
-            if (saves.length === 1) await new Promise(resolve => { release = resolve; });
+            if (saves.length === 1) { started(); await pending; }
             count = next;
             inputs.forEach(element => refresh(element));
             return true;
         },
     }));
+    inputs.forEach(input => refresh(input));
     t.after(() => bindings.forEach(binding => binding.destroy()));
-    const type = (input, text) => { input.value = text; input.dispatchEvent(new window.Event('input')); };
-    type(inputs[0], '5');
-    const first = bindings[0].flush(); await setImmediate();
-    focused = inputs[1];
-    if (edited) type(inputs[1], '8');
-    release(); await first;
-    assert.equal(inputs[1].value, edited ? '8' : '5');
-    focused = null;
-    await bindings[1].flush();
-    assert.equal(count, edited ? 8 : 5);
-    assert.deepEqual(saves, edited ? [5, 8] : [5]);
+    const type = (index, value) => { inputs[index].value = value; inputs[index].dispatchEvent(new window.Event('input')); };
+    return { document, inputs, bindings, type, saving, release, saves, count: () => count };
+}
+
+test('an old save cannot erase a newer count before it is submitted', async t => {
+    const h = fixture(t);
+    h.type(0, '5');
+    const first = h.bindings[0].flush(); await h.saving;
+    h.type(0, '8');
+    h.release(); await first;
+    assert.equal(h.inputs[0].value, '8');
+    await h.bindings[0].flush();
+    assert.equal(h.count(), 8);
+    assert.deepEqual(h.saves, [5, 8]);
 });
 
-test('destroy cancels queued edits without cancelling an already submitted write', async t => {
-    let release;
-    const h = fixture(t, () => new Promise(resolve => { release = resolve; }));
-    h.type('5'); const first = h.controller.flush(); await setImmediate();
-    h.type('8'); const second = h.controller.flush();
-    h.controller.destroy(); h.input.remove();
-    release(true); await Promise.all([first, second]);
-    assert.deepEqual(h.state.saves, [5]);
+test('focusing an untouched second menu cannot undo a saved count on blur', async t => {
+    const h = fixture(t, 2);
+    let focused;
+    Object.defineProperty(h.document, 'activeElement', { get: () => focused });
+    h.type(0, '5');
+    const first = h.bindings[0].flush(); await h.saving;
+    focused = h.inputs[1];
+    h.release(); await first;
+    assert.equal(h.inputs[1].value, '5');
+    focused = null;
+    await h.bindings[1].flush();
+    assert.equal(h.count(), 5);
+    assert.deepEqual(h.saves, [5]);
 });

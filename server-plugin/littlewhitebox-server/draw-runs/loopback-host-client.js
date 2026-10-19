@@ -96,6 +96,8 @@ function createLoopbackFetch(context) {
             const requestModule = target.protocol === 'https:' ? https : http;
             const request = requestModule.request({
                 protocol: target.protocol,
+                // A one-request agent does not inherit the global agent's environment proxy.
+                agent: false,
                 hostname: target.hostname,
                 port: target.port,
                 path,

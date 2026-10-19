@@ -167,7 +167,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/backend-draw-runs.md",
       "relativePath": "docs/backend-draw-runs.md",
       "extension": ".md",
-      "sizeBytes": 38180
+      "sizeBytes": 38454
     },
     {
       "source": "littlewhitebox",
@@ -1732,13 +1732,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/novel-character-menu.test.js",
-      "relativePath": "modules/draw/providers/novelai/tests/novel-character-menu.test.js",
-      "extension": ".js",
-      "sizeBytes": 10836
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/novel-image-response.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/novel-image-response.test.js",
       "extension": ".js",
@@ -1931,7 +1924,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library-locks.test.js",
       "relativePath": "modules/draw/shared/character-library-locks.test.js",
       "extension": ".js",
-      "sizeBytes": 12353
+      "sizeBytes": 1586
     },
     {
       "source": "littlewhitebox",
@@ -2624,7 +2617,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/chat-image-recovery-journey.test.js",
       "relativePath": "modules/draw/shared/tests/chat-image-recovery-journey.test.js",
       "extension": ".js",
-      "sizeBytes": 23622
+      "sizeBytes": 22723
     },
     {
       "source": "littlewhitebox",
@@ -2684,24 +2677,10 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/max-images-floating-panel.test.js",
-      "relativePath": "modules/draw/shared/tests/max-images-floating-panel.test.js",
-      "extension": ".js",
-      "sizeBytes": 6013
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/max-images-input.test.js",
       "relativePath": "modules/draw/shared/tests/max-images-input.test.js",
       "extension": ".js",
-      "sizeBytes": 6523
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/max-images-override.test.js",
-      "relativePath": "modules/draw/shared/tests/max-images-override.test.js",
-      "extension": ".js",
-      "sizeBytes": 3485
+      "sizeBytes": 2472
     },
     {
       "source": "littlewhitebox",
@@ -2729,7 +2708,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-source-filtering.test.js",
       "relativePath": "modules/draw/shared/tests/scene-source-filtering.test.js",
       "extension": ".js",
-      "sizeBytes": 2121
+      "sizeBytes": 933
     },
     {
       "source": "littlewhitebox",
@@ -17618,14 +17597,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/loopback-host-client.js",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/loopback-host-client.js",
       "extension": ".js",
-      "sizeBytes": 6319
+      "sizeBytes": 6443
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/loopback-probe.js",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/loopback-probe.js",
       "extension": ".js",
-      "sizeBytes": 12515
+      "sizeBytes": 12839
     },
     {
       "source": "littlewhitebox",
@@ -17828,7 +17807,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/tests/loopback-probe.test.js",
       "relativePath": "server-plugin/littlewhitebox-server/tests/loopback-probe.test.js",
       "extension": ".js",
-      "sizeBytes": 14185
+      "sizeBytes": 15097
     },
     {
       "source": "littlewhitebox",

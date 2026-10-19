@@ -391,4 +391,22 @@ test('probe routes expose only authenticated outer diagnostics and challenged ve
     const unchallenged = await invoke(LOOPBACK_VERIFY_PATH, { profile: { handle: 'alice' } });
     assert.equal(unchallenged.statusCode, 404);
     assert.equal(unchallenged.headers['cache-control'], 'no-store');
+
+    const privateMessage = `Cookie: session=alice-secret; Authorization: ${basicAuthorization('alice')}`;
+    for (const [transportCode, code] of [
+        ['ERR_INVALID_ARG_VALUE', 'loopback_transport_failed'],
+        ['ECONNREFUSED', 'loopback_unreachable'],
+    ]) {
+        service.probe = () => {
+            throw Object.assign(new Error(privateMessage), { code: transportCode });
+        };
+        const failure = await invoke(LOOPBACK_PROBE_PATH, { profile: { handle: 'alice' } });
+        assert.equal(failure.statusCode, 503);
+        assert.equal(failure.body.code, code);
+        assert.deepEqual(failure.body.details, { transportCode });
+        assert.equal(failure.headers['cache-control'], 'no-store');
+        const diagnostic = JSON.stringify(failure.body);
+        assert.ok(!diagnostic.includes('alice-secret'));
+        assert.ok(!diagnostic.includes(basicAuthorization('alice')));
+    }
 });

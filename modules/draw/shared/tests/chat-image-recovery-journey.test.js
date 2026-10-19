@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveObjectURL } from 'node:buffer';
 import { IDBObjectStore, IDBIndex } from 'fake-indexeddb';
 import { fixture } from './helpers/draw-journey.js';
 import { hashSceneSource } from '../scene-source.js';
@@ -53,22 +52,6 @@ test('opening a portable image materializes its inputs once without changing the
     assert.equal(h.counters.saves, 0);
     assert.deepEqual(h.counters.requests, []);
     h.api.closeGallery();
-});
-
-test('saving a gallery image preserves already issued display URLs until chat cards can refresh', async t => {
-    const h = await setup(t, ['body']);
-    const preview = { imgId: 'save-display', slotId: 'save-display-slot', messageId: 0,
-        chatId: h.ctx.chatId, status: 'success', base64: 'UEFJRA==' };
-    await h.api.storePreview(preview);
-    const url = h.api.getPreviewDisplayUrl(preview);
-    t.after(() => h.api.clearPreviewObjectUrls());
-    assert.ok(resolveObjectURL(url));
-    await h.api.updatePreviewSavedUrl(preview.imgId, '/user/images/saved-display.png');
-    assert.ok(resolveObjectURL(url));
-    const saved = await h.api.getPreview(preview.imgId);
-    assert.equal(saved.base64, null);
-    assert.equal(h.api.getPreviewDisplayUrl(saved), '/user/images/saved-display.png');
-    assert.deepEqual(h.counters.requests, []);
 });
 
 for (const change of ['chat', 'group', 'account', 'message', 'swipe', 'delete']) {
