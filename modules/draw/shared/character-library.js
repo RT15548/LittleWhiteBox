@@ -1,10 +1,14 @@
 // 角色标签库：分组、排序、批量操作与导入导出的纯函数。
-// 不得 import 任何模块：NovelAI 面板在 iframe 里用动态 import 引入本文件，依赖酒馆内部模块会把整个酒馆脚本拖进来。
+// 只依赖同目录纯模块；NovelAI iframe 会动态 import 本文件，不能依赖酒馆宿主模块。
 // 库对象为 { characters: [], groups: [] }；所有函数返回新对象，不修改入参。
 // 启用采用嵌套模型：分组有自己的开关（groups[].enabled，缺省=开，只在关闭时才写 enabled:false），角色有自己的 enabled；
 // 角色实际是否参与出图（“有效启用”）= 所在分组是开的 且 角色自己 enabled !== false。未分组没有开关，始终视为开。
 // 分组开关与角色自己的状态互不改写：关掉分组再打开，组内每个角色保持关闭前的样子。
+// 上锁（locked）是本机状态：角色与分组都可以上锁，导入按 id 或名字命中替换时默认保护上锁角色；
+// 键只在为 true 时才写，不进入导出文件，也不读取导入文件。角色“有效上锁”= 自己上锁 或 所在分组上锁。
 // 排序的唯一事实来源是 characters 数组顺序；groupId 缺省（空）表示“未分组”。
+
+import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
 
 export const UNGROUPED_ID = '';
 export const UNGROUPED_NAME = '未分组';
@@ -88,7 +92,13 @@ function withGroupId(character, groupId) {
     return groupId ? { ...stripGroupId(character), groupId } : stripGroupId(character);
 }
 
-/** 白名单规范化单个角色；groupId 为空时省略该键，保证没用分组的旧数据字节级不变。 */
+function stripLocked(item) {
+    const rest = { ...item };
+    delete rest.locked;
+    return rest;
+}
+
+/** 白名单规范化单个角色；groupId、locked 缺省时不保存该键。 */
 export function normalizeCharacter(raw, { id } = {}) {
     const char = isPlainObject(raw) ? raw : {};
     const groupId = String(char.groupId || '').trim();
@@ -106,6 +116,7 @@ export function normalizeCharacter(raw, { id } = {}) {
         outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
         ...(groupId ? { groupId } : {}),
+        ...(char.locked === true ? { locked: true } : {}),
     };
 }
 
@@ -124,7 +135,13 @@ export function normalizeCharacterGroups(raw, { makeId } = {}) {
             ? (usedIds.add(givenId), givenId)
             : takeUniqueId('grp', usedIds, makeId);
         // enabled 只接受布尔值且只在为 false 时保留该键：没用到分组开关的旧数据保持字节级不变。
-        groups.push(item.enabled === false ? { id, name, enabled: false } : { id, name });
+        // locked 同理：只接受布尔 true 并只在为 true 时保留该键。
+        groups.push({
+            id,
+            name,
+            ...(item.enabled === false ? { enabled: false } : {}),
+            ...(item.locked === true ? { locked: true } : {}),
+        });
     }
     return groups;
 }
@@ -185,6 +202,18 @@ export function isGroupEnabled(library, groupId = UNGROUPED_ID) {
     return !(library?.groups || []).some(group => group.id === id && group.enabled === false);
 }
 
+/** 分组是否上锁；未分组（空 id）和不存在的分组一律视为未上锁。 */
+export function isGroupLocked(library, groupId = UNGROUPED_ID) {
+    const id = String(groupId || '');
+    if (!id) return false;
+    return (library?.groups || []).some(group => group.id === id && group.locked === true);
+}
+
+/** 角色是否受保护 = 自己上锁 或 所在分组上锁。 */
+export function isCharacterLocked(library, character) {
+    return Boolean(character) && (character.locked === true || isGroupLocked(library, ownGroupId(character)));
+}
+
 /** 有效启用 = 所在分组是开的 且 角色自己 enabled !== false。 */
 export function isCharacterEffectivelyEnabled(library, character) {
     return Boolean(character) && character.enabled !== false && isGroupEnabled(library, ownGroupId(character));
@@ -216,33 +245,34 @@ export function getGroupedView(library, { visibleIds } = {}) {
         const key = buckets.has(ownGroupId(character)) ? ownGroupId(character) : UNGROUPED_ID;
         buckets.get(key).push(character);
     }
-    // own：组内自己开着的角色数（不看分组开关）；enabled：分组开关（未分组恒为 true）。
-    const describe = (id, name, virtual, enabled) => {
+    // own：组内自己开着的角色数（不看分组开关）；enabled：分组开关（未分组恒为 true）；locked：分组是否上锁（未分组恒为 false）。
+    const describe = (id, name, virtual, enabled, locked) => {
         const members = buckets.get(id);
         return {
             id,
             name,
             virtual,
             enabled,
+            locked,
             total: members.length,
             own: members.filter(character => character.enabled !== false).length,
             characters: visible ? members.filter(character => visible.has(character.id)) : members,
         };
     };
     return [
-        describe(UNGROUPED_ID, UNGROUPED_NAME, true, true),
-        ...library.groups.map(group => describe(group.id, group.name, false, group.enabled !== false)),
+        describe(UNGROUPED_ID, UNGROUPED_NAME, true, true, false),
+        ...library.groups.map(group => describe(group.id, group.name, false, group.enabled !== false, group.locked === true)),
     ];
 }
 
 /**
- * 分组头信息 { own, total, enabled }：own=组内自己开着的角色数，total=成员总数，enabled=分组开关。
+ * 分组头信息 { own, total, enabled, locked }：own=组内自己开着的角色数，total=成员总数，enabled=分组开关，locked=分组是否上锁。
  * 未分组（空 id）恒为开；groupId 指向不存在的分组时按未分组处理，与 getGroupedView 一致。
  */
 export function getGroupSummary(library, groupId = UNGROUPED_ID) {
     const view = getGroupedView(library);
     const group = view.find(item => item.id === groupId) ?? view[0];
-    return { own: group.own, total: group.total, enabled: group.enabled };
+    return { own: group.own, total: group.total, enabled: group.enabled, locked: group.locked };
 }
 
 function validateGroupName(groups, name, exceptId = '') {
@@ -298,6 +328,25 @@ export function setGroupEnabled(library, groupId, enabled) {
             const rest = { ...group };
             delete rest.enabled;
             return enabled ? rest : { ...rest, enabled: false };
+        }),
+    };
+}
+
+/**
+ * 设置分组上锁。只改 groups[].locked，不碰任何角色；上锁时写 locked:true，解锁时删除该键。
+ * 未分组（空 id）没有锁、分组不存在、取值不是布尔都抛 TypeError；已是目标值时返回原库。
+ */
+export function setGroupLocked(library, groupId, locked) {
+    if (!groupId) throw new TypeError(LOCK_COPY.ungroupedHasNoLock);
+    requireGroup(library, groupId);
+    if (typeof locked !== 'boolean') throw new TypeError(LOCK_COPY.groupLockMustBeBoolean);
+    if (isGroupLocked(library, groupId) === locked) return library;
+    return {
+        characters: library.characters,
+        groups: library.groups.map((group) => {
+            if (group.id !== groupId) return group;
+            const rest = stripLocked(group);
+            return locked ? { ...rest, locked: true } : rest;
         }),
     };
 }
@@ -360,6 +409,20 @@ export function setCharactersEnabled(library, ids, enabled) {
         characters: library.characters.map(character => (
             idSet.has(character.id) && (character.enabled !== false) !== Boolean(enabled)
                 ? { ...character, enabled: Boolean(enabled) }
+                : character
+        )),
+    };
+}
+
+/** 批量设置角色自己的锁（不看分组锁）；上锁写 locked:true，解锁删除该键；已是目标值的角色保持原对象。 */
+export function setCharactersLocked(library, ids, locked) {
+    const idSet = new Set(ids);
+    const target = Boolean(locked);
+    return {
+        groups: library.groups,
+        characters: library.characters.map(character => (
+            idSet.has(character.id) && (character.locked === true) !== target
+                ? (target ? { ...character, locked: true } : stripLocked(character))
                 : character
         )),
     };
@@ -432,7 +495,7 @@ function makeCopyName(name, takenKeys) {
 }
 
 /**
- * 复制人设：深拷贝、新 id、名字加“副本”、别名清空（避免与原角色重名或别名冲突）、一律默认启用（enabled: true，即使原件是停用的）。
+ * 复制人设：深拷贝、新 id、名字加“副本”、别名清空（避免与原角色重名或别名冲突）、一律默认启用（enabled: true，即使原件是停用的）、不继承上锁。
  * 默认放在原件之后同组；给出 toGroupId（含空串=未分组）时放到该组末尾。
  */
 export function duplicateCharacters(library, ids, { toGroupId, makeId } = {}) {
@@ -455,6 +518,8 @@ export function duplicateCharacters(library, ids, { toGroupId, makeId } = {}) {
             aliases: [],
             enabled: true,
         };
+        // 副本不继承上锁：用户复制出来通常就是要改。
+        delete copy.locked;
         newIds.push(id);
         if (hasTarget) copies.push(withGroupId(copy, String(toGroupId || '')));
         else characters.push(copy);
@@ -496,7 +561,8 @@ export function exportCharacters(library, { scope = 'all', groupId, ids } = {}, 
         scope,
         // 分组开关属于本机的使用状态，不进入导出文件：只带 id 与名称。
         groups: groups.map(group => ({ id: group.id, name: group.name })),
-        characters: cloneJson(characters),
+        // 上锁同样属于本机状态，不进入导出文件。
+        characters: characters.map(character => cloneJson(stripLocked(character))),
     };
 }
 
@@ -587,7 +653,8 @@ export function parseCharacterImport(payload, { makeId } = {}) {
             .filter(key => Object.hasOwn(IMPORT_FIELD_MAP, key))
             .map(key => IMPORT_FIELD_MAP[key]))];
         entries.push({
-            character: stripGroupId(normalizeCharacter(raw, { id: fileId })),
+            // 上锁是本机状态：文件里的 locked 一律忽略。
+            character: stripLocked(stripGroupId(normalizeCharacter(raw, { id: fileId }))),
             fields,
             groupName: groupNameById.get(String(raw.groupId || '').trim()) || '',
             duplicate,
@@ -653,7 +720,10 @@ export function placeCharactersAfterGroupMembers(rest, placements) {
  *   'new-group'      新建 options.newGroupName 并导入。
  * options.sameIdPolicy（仅非 auto 模式）：'replace'（默认，替换并移入目标分组）| 'keep-both'（副本使用新 id）| 'skip'。
  * options.importNewAsDisabled：新增角色一律以停用状态导入（已有角色的替换不受影响）。
- * options.overwriteSameName：遇到同名角色时直接覆盖（保留本地 id）。
+ * options.overwriteSameName：未命中 id 时按名字覆盖，保留本地 id；sameIdPolicy 只影响同 id 命中。
+ * options.replaceLocked：仅显式 true 允许替换上锁角色。按 id 或名字命中替换时，默认检查角色自身及导入前分组的锁，
+ *   受保护角色不覆盖字段、不移组，计入 summary.lockedSkipped；允许替换也保留其本地锁。
+ *   同 id 的“跳过 / 保留两者”不受锁影响；新角色导入上锁分组不受限制。
  */
 export function planCharacterImport(library, parsed, options = {}, { makeId } = {}) {
     const mode = options.mode ?? 'auto';
@@ -672,7 +742,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
         if (key && !byName.has(key)) byName.set(key, character);
     }
     const warnings = [...parsed.warnings];
-    const summary = { added: 0, replaced: 0, skipped: parsed.skipped, keptBoth: 0, groupsCreated: 0 };
+    const summary = { added: 0, replaced: 0, skipped: parsed.skipped, keptBoth: 0, groupsCreated: 0, lockedSkipped: 0 };
     const details = [];
 
     let fixedGroupId = null;
@@ -720,6 +790,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
     const toPlace = [];
     const movedIds = new Set();
     const addedNames = [];
+    const lockedSkippedNames = [];
     for (const entry of parsed.entries) {
         const { character, fields, duplicate } = entry;
         const matchedById = Boolean(character.id && !duplicate && byId.has(character.id));
@@ -739,7 +810,14 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             record('skipped', existing.id);
             continue;
         }
-        if (existing && (matchedByName || policy === 'replace')) {
+        const replacing = Boolean(existing && (matchedByName || policy === 'replace'));
+        if (replacing && options.replaceLocked !== true && isCharacterLocked(library, existing)) {
+            summary.lockedSkipped += 1;
+            lockedSkippedNames.push(existing.name);
+            record('locked', existing.id);
+            continue;
+        }
+        if (replacing) {
             const oldName = String(existing.name || '').trim();
             for (const field of fields) existing[field] = cloneJson(character[field]);
             const newName = String(existing.name || '').trim();
@@ -788,6 +866,15 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
         }
         record(keepBoth ? 'kept-both' : 'added', id);
         toPlace.push({ character: added, groupId: resolveTargetGroup(entry.groupName) });
+    }
+
+    if (lockedSkippedNames.length) {
+        warnings.push({
+            code: 'locked-skipped',
+            count: lockedSkippedNames.length,
+            names: lockedSkippedNames.slice(0, 5),
+            message: LOCK_COPY.lockedSkipped(lockedSkippedNames.length),
+        });
     }
 
     const result = placeCharactersAfterGroupMembers(

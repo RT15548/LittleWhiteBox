@@ -10,6 +10,7 @@ import {
     UNGROUPED_NAME,
     planCharacterImport,
 } from './character-library.js';
+import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
 
 const SAME_ID_POLICIES = Object.freeze([
     { value: 'replace', label: '用最新文件替换（并移入目标分组）', hint: '文件里的内容覆盖本地同 id 角色，并移入目标分组。' },
@@ -102,6 +103,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         policy: 'replace',
         importNewAsDisabled: false,
         overwriteSameName: false,
+        replaceLocked: false,
         plan: null,
         error: '',
         closed: false,
@@ -206,7 +208,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     disabledField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: '已有角色的替换不受影响。' }));
     body.appendChild(disabledField);
 
-    // 同名覆盖
+    // 同名覆盖与锁保护是独立选项；同名覆盖不能隐式解除锁保护。
     const overwriteSameNameField = create(document, 'div', { className: 'lwb-cid-field' });
     const overwriteSameNameBox = create(document, 'input', { attrs: { type: 'checkbox', 'data-role': 'overwrite-same-name' } });
     overwriteSameNameBox.checked = state.overwriteSameName;
@@ -216,6 +218,16 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     ]));
     overwriteSameNameField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: '遇到同名角色时直接覆盖（保留本地 ID），不追加为重复角色。' }));
     body.appendChild(overwriteSameNameField);
+
+    const lockedField = create(document, 'div', { className: 'lwb-cid-field' });
+    const lockedBox = create(document, 'input', { attrs: { type: 'checkbox', 'data-role': 'replace-locked' } });
+    lockedBox.checked = state.replaceLocked;
+    lockedField.appendChild(create(document, 'label', { className: 'lwb-cid-choice' }, [
+        lockedBox,
+        create(document, 'span', { text: LOCK_COPY.replaceLockedLabel }),
+    ]));
+    lockedField.appendChild(create(document, 'p', { className: 'lwb-cid-hint', text: LOCK_COPY.replaceLockedHint }));
+    body.appendChild(lockedField);
 
     // 预览
     const preview = create(document, 'div', { className: 'lwb-cid-preview', attrs: { 'data-role': 'preview', 'aria-live': 'polite' } });
@@ -245,6 +257,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         sameIdPolicy: state.policy,
         importNewAsDisabled: state.importNewAsDisabled,
         overwriteSameName: state.overwriteSameName,
+        replaceLocked: state.replaceLocked,
     });
 
     const computePlan = () => {
@@ -306,6 +319,7 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         addChip('added', `新增 ${summary.added}`);
         addChip('replaced', `替换 ${summary.replaced}`);
         addChip('skipped', `跳过 ${summary.skipped}`);
+        if (summary.lockedSkipped) addChip('lockedSkipped', LOCK_COPY.lockedSkippedSummary(summary.lockedSkipped));
         if (summary.keptBoth) addChip('keptBoth', `保留两者 ${summary.keptBoth}`);
         if (summary.groupsCreated) addChip('groupsCreated', `新建分组 ${summary.groupsCreated}`);
         setShown(chips, true);
@@ -329,7 +343,9 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
         // 没有任何会写入的内容时不允许点“导入”
         const changes = summary.added + summary.replaced + summary.keptBoth;
         if (changes === 0) {
-            errorBox.textContent = '没有可导入的角色（全部被跳过或文件为空）';
+            errorBox.textContent = summary.lockedSkipped
+                ? LOCK_COPY.nothingImportableLocked
+                : '没有可导入的角色（全部被跳过或文件为空）';
             setShown(errorBox, true);
         }
         confirmBtn.disabled = changes === 0;
@@ -363,6 +379,11 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     });
     overwriteSameNameBox.addEventListener('change', () => {
         state.overwriteSameName = Boolean(overwriteSameNameBox.checked);
+        refresh();
+    });
+
+    lockedBox.addEventListener('change', () => {
+        state.replaceLocked = Boolean(lockedBox.checked);
         refresh();
     });
 
@@ -406,17 +427,11 @@ export function openCharacterImportDialog({ document, library, parsed, fileName 
     cancelBtn.addEventListener('click', close);
     confirmBtn.addEventListener('click', () => {
         if (confirmBtn.disabled) return;
-        // 以点击瞬间的库重算一次，保证采用的结果与最新本地数据一致
-        const result = computePlan();
-        if (!result.plan) {
-            state.error = result.error;
-            errorBox.textContent = result.error;
-            setShown(errorBox, true);
-            confirmBtn.disabled = true;
-            return;
-        }
+        // 点击时重算并同步预览；若角色刚被上锁而不再有可写入项，不能以旧预览提交。
+        refresh();
+        if (confirmBtn.disabled) return;
         try {
-            onConfirm?.({ plan: result.plan, options: result.options });
+            onConfirm?.({ plan: state.plan, options: buildOptions() });
         } catch (error) {
             errorBox.textContent = String(error?.message || '导入失败');
             setShown(errorBox, true);

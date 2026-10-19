@@ -86,6 +86,66 @@
     font-weight: 400;
     white-space: nowrap;
 }
+/* 上锁：按钮上锁时用强调色（角色卡与分组头一致）；提示与“分组已关闭”同款小标签。只影响导入替换，不改变其它交互。 */
+.lwb-cl-card-lock.active { color: var(--accent, #d4a574); }
+/* 角色卡“…”菜单：position: fixed 浮层（位置由 character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
+.lwb-cl-lock-note.lwb-cl-lock-note-own { color: var(--text-primary, #e6edf3); font-weight: 600; }
+.lwb-cl-menu-wrap { display: inline-flex; flex-shrink: 0; }
+.lwb-cl-menu-button[aria-expanded="true"] { color: var(--text-primary, #e6edf3); border-color: var(--border-focus, rgba(212, 165, 116, 0.5)); }
+.lwb-cl-icon-btn.lwb-cl-menu-button[aria-expanded="true"] { background: rgba(255, 255, 255, 0.06); }
+.lwb-cl-menu {
+    position: fixed;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 132px;
+    max-width: calc(100vw - 16px);
+    padding: 4px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.lwb-cl-menu[hidden] { display: none; }
+.lwb-cl-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    box-sizing: border-box;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-secondary, #8b949e);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.lwb-cl-menu-item i { width: 14px; text-align: center; flex-shrink: 0; }
+.lwb-cl-menu-item:hover, .lwb-cl-menu-item:focus-visible { background: rgba(255, 255, 255, 0.08); color: var(--text-primary, #e6edf3); outline: none; }
+.lwb-cl-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus, rgba(212, 165, 116, 0.5)); }
+.lwb-cl-menu-item.active { color: var(--accent, #d4a574); }
+.lwb-cl-menu-item.lwb-cl-menu-danger { color: var(--danger, #f85149); }
+.lwb-cl-menu-item.lwb-cl-menu-danger:hover, .lwb-cl-menu-item.lwb-cl-menu-danger:focus-visible { background: rgba(248, 81, 73, 0.12); color: var(--danger, #f85149); }
+@media (hover: none) and (pointer: coarse) {
+    .lwb-cl-menu-item { min-height: 44px; font-size: 13px; }
+}
+.lwb-cl-lock-note {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary, #8b949e);
+    font-size: 11px;
+    font-weight: 400;
+    white-space: nowrap;
+}
 /* 每个展开的分组在自己的区域内滚动，分组头留在滚动区外始终可见；角色少时没有滚动条，也不留空白。
    不设 overscroll-behavior: contain —— 滚到头时滚轮 / 触摸要能继续带动整页。 */
 .lwb-cl-group-body {

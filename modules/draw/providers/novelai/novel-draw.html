@@ -288,6 +288,8 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
 }
 .char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
+.char-lock-label { color: var(--text-primary); font-weight: 600; }
 .char-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
 .char-action-button {
     display: inline-flex; align-items: center; justify-content: center;
@@ -301,6 +303,27 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
 }
 .char-action-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+/* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
+.char-menu-wrap { display: inline-flex; flex-shrink: 0; }
+.char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }
+.char-menu {
+    position: fixed; z-index: 200; display: flex; flex-direction: column; gap: 2px;
+    min-width: 132px; max-width: calc(100vw - 16px); padding: 4px; overflow-y: auto; box-sizing: border-box;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.char-menu[hidden] { display: none; }
+.char-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; box-sizing: border-box;
+    background: none; border: none; border-radius: 6px; color: var(--text-secondary);
+    font: inherit; font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.char-menu-item i { width: 14px; text-align: center; flex-shrink: 0; }
+.char-menu-item:hover, .char-menu-item:focus-visible { background: rgba(255,255,255,.08); color: var(--text-primary); outline: none; }
+.char-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus); }
+.char-menu-item.active { color: var(--accent); }
+.char-menu-item.danger { color: var(--danger); }
+.char-menu-item.danger:hover, .char-menu-item.danger:focus-visible { background: rgba(248,81,73,.12); color: var(--danger); }
 .char-card.disabled .char-identity,
 .char-card.disabled .char-status { opacity: .45; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
@@ -541,6 +564,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     .nav-item { min-height: 44px; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
     .char-action-button { width: 44px; height: 44px; }
+    .char-menu-item { min-height: 44px; font-size: 13px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 ::-webkit-scrollbar { width: 6px; height: 6px; }

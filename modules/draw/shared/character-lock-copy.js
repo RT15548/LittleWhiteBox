@@ -1,0 +1,20 @@
+// 角色库锁定文案：共享角色库界面、NovelAI 页面与导入对话框共同使用。
+export const CHARACTER_LOCK_COPY = Object.freeze({
+    characterLockedTitle: '已上锁：导入时不会被替换（点击解锁）',
+    characterUnlockedTitle: '上锁：导入时不会被替换',
+    characterInheritedTitle: '上锁：导入时不会被替换（所在分组已上锁，当前已受保护）',
+    groupLockedTitle: '已上锁分组：组内角色导入时不会被替换（点击解锁）',
+    groupUnlockedTitle: '上锁分组：组内角色导入时不会被替换',
+    lockAction: '上锁',
+    unlockAction: '解锁',
+    ownLabel: '已上锁',
+    groupLabel: '分组已上锁',
+    groupInheritedTitle: '所在分组已上锁，导入时本角色不会被替换；角色自己的锁保持不变',
+    replaceLockedLabel: '同时替换已上锁的角色',
+    replaceLockedHint: '默认不替换上锁的角色（含上锁分组里的角色），按名字覆盖时也遵守此保护。',
+    lockedSkipped: count => `${count} 个已上锁的角色未被替换`,
+    lockedSkippedSummary: count => `已上锁未替换 ${count}`,
+    nothingImportableLocked: '没有可导入的角色（全部被跳过或已上锁；可勾选“同时替换已上锁的角色”）',
+    ungroupedHasNoLock: '未分组没有锁',
+    groupLockMustBeBoolean: '分组锁必须是布尔值',
+});

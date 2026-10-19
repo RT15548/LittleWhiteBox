@@ -39,6 +39,7 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'autoLearnMode',
     'autoLearnGroupId',
     'overrideSize',
+    'overrideMaxImages',
     'showFloorButton',
     'showFloatingButton',
     'advancedMode',
