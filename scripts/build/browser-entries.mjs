@@ -3,7 +3,7 @@ import { collectSourceFiles } from '../workspace-files.mjs';
 
 export const root = path.resolve(import.meta.dirname, '../..');
 export const entries = {
-    'host/plugin': 'index.js',
+    'host/plugin': 'plugin-entry.js',
     'apps/novel-draw': 'modules/draw/providers/novelai/novel-draw-page.js',
     'apps/tts-settings': 'modules/tts/tts-settings-page.js',
     'apps/debug-panel': 'modules/debug-panel/debug-panel-page.js',

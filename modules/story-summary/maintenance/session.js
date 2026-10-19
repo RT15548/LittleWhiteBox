@@ -1,5 +1,5 @@
 import { editMemoryBatch, memoryRecords, memoryItems, memoryKey, replaceMemoryRecords, sameMemory } from './domain.js';
-import { createEvidenceReader, SOURCE_PAGE_CHARS } from './evidence.js';
+import { createEvidenceReader } from './evidence.js';
 import { MemoryMaintenanceError, requireMemory, memoryUpdated } from './errors.js';
 import { projectMemoryRecord, memoryPolicy, recordHandle } from './records.js';
 import { maintenanceTask, memoryOwnership, selectMemoryRanges, subtractRanges } from './ranges.js';
@@ -16,7 +16,7 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
     filterRules = [], openingTokens = OPENING_TOKENS }) {
     const baseline = structuredClone({ json: json || {}, atoms: atoms.filter(atom => atom.floor <= cutoff) });
     let memory = structuredClone(baseline), history = structuredClone(store?.summaryHistory || []);
-    const policy = memoryPolicy(filterRules), evidence = createEvidenceReader(chat, cutoff, filterRules);
+    const policy = memoryPolicy(filterRules), evidence = createEvidenceReader(() => chat, cutoff, filterRules);
     const generations = entries => entries.map(({ maintenance: _receipts, ...batch }) => batch);
     const originalBatches = structuredClone(generations(history));
     const allOperations = [];
@@ -60,9 +60,8 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
         return current.cutoff >= cutoff && (originalBatches.length
             ? sameMemory(originalBatches, batches.slice(0, originalBatches.length)) : current.cutoff === cutoff);
     }
-    function assertBoundary(current, allSource = false) {
+    function assertBoundary(current) {
         requireMemory(current.chatId === chatId && ownsHistory(current), 'conflict');
-        evidence.assertCurrent(current.chat, allSource);
     }
 
     const find = (value, { collection, key }) => memoryItems(value, collection).find(item => memoryKey(collection, item) === key) ?? null;
@@ -87,7 +86,6 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
             requireMemory(range.from <= cutoff + 1, 'source_boundary', '', `ranges[${index}].from`);
             requireMemory(range.to <= cutoff + 1, 'source_boundary', '', `ranges[${index}].to`);
         });
-        if (current) assertBoundary(current);
         const value = current ? { json: current.json || {}, atoms: current.atoms.filter(atom => atom.floor <= cutoff) } : memory;
         const batches = current?.store?.summaryHistory || history;
         const items = records(value, batches);
@@ -176,24 +174,17 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
         const tool = MEMORY_TOOLS.find(item => item.function.name === name);
         if (!tool) throw new MemoryMaintenanceError('unknown_tool', name, 'name');
         requireMemory(opening && !pending, 'pending_edit');
+        if (current) {
+            assertBoundary(current);
+            chat = current.chat;
+        }
         args = normalizeToolArguments(args, tool.function.parameters);
         if (name === 'EditMemory') return submit(args);
         validateToolArguments(args, tool.function.parameters);
         if (name === 'CompleteMaintenance') return complete(args);
         if (name === 'ReadMemory') return readMemory(args, current);
         if (name === 'SearchSource') return evidence.search(args);
-        if (name === 'ReadSource') {
-            const { floor, to = floor, offset = 0, view = 'story' } = args;
-            requireMemory(to >= floor && to <= cutoff + 1, 'source_boundary', '', 'to');
-            const items = [];
-            let budget = SOURCE_PAGE_CHARS;
-            for (let current = floor; current <= to; current++) {
-                const item = evidence.read({ floor: current, offset: current === floor ? offset : 0, view, limit: budget });
-                items.push(item); budget -= item.text.length;
-                if (!item.complete || budget <= 0) return { items, next: item.next && item.next.floor <= to ? { ...item.next, to } : null };
-            }
-            return { items, next: null };
-        }
+        if (name === 'ReadSource') return evidence.read(args);
     }
 
     return { chatId, get cutoff() { return cutoff; }, get start() { return start; },
@@ -221,10 +212,12 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
             pending = { operations: [], note: outcome.summary || '', outcome: { status: outcome.status, ...(outcome.code ? { code: outcome.code } : {}) } };
         },
         assertCurrent(current) {
-            assertBoundary(current, !!pending?.completion);
+            assertBoundary(current);
             const currentMemory = { json: current.json || {}, atoms: current.atoms };
             if (pending?.completion) {
-                assertKnown(currentMemory, selectMemoryRanges(records(currentMemory, current.store.summaryHistory), [pending.completion]));
+                assertKnown(currentMemory, selectMemoryRanges([
+                    ...records(baseline), ...records(currentMemory, current.store.summaryHistory),
+                ], [pending.completion]));
             } else if (pending?.commands) {
                 const targets = editTargets(pending.commands);
                 assertRunOwnership(currentMemory, targets, current.store?.summaryHistory || history);

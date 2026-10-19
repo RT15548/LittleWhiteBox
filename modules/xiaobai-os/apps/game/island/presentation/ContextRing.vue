@@ -35,7 +35,7 @@ onActivated(() => { active = true; schedule(); });
 onDeactivated(suspend);
 onBeforeUnmount(suspend);
 const fill = computed(() => usage.value ? Math.min(1, usage.value.used / usage.value.limit) * 360 : 0);
-const trimmed = computed(() => !!usage.value && usage.value.used >= usage.value.trim);
+const refreshing = computed(() => !!usage.value && usage.value.used >= usage.value.refresh);
 const parts = computed(() => usage.value ? (['system', 'rules', 'story'] as const).map(key => ({ key, tokens: usage.value![key] })) : []);
 const format = (value: number) => `${(value / 1000).toFixed(1)}k`;
 </script>
@@ -43,14 +43,15 @@ const format = (value: number) => `${(value / 1000).toFixed(1)}k`;
 <template>
     <div class="island-context" @keydown.esc="escape">
         <button type="button" class="island-context-button" :aria-label="c.contextUsage" :aria-expanded="open" @click="open = !open">
-            <span class="island-context-ring" :class="{ 'island-context-warn': trimmed, 'island-context-unknown': !usage }" :style="{ '--context-fill': `${fill}deg` }"><span /></span>
+            <span class="island-context-ring" :class="{ 'island-context-warn': refreshing, 'island-context-unknown': !usage }" :style="{ '--context-fill': `${fill}deg` }"><span /></span>
         </button>
         <section v-if="open" class="island-context-popover" :aria-label="c.contextUsage">
             <header><strong>{{ c.context }}</strong><button type="button" :aria-label="c.close" @click="open = false">×</button></header>
             <template v-if="usage">
                 <p class="island-context-total">{{ c.contextTotal(usage.used, usage.limit) }}</p>
                 <dl><template v-for="part in parts" :key="part.key"><dt>{{ c.contextParts[part.key] }}</dt><dd>{{ format(part.tokens) }}</dd></template></dl>
-                <small>{{ trimmed ? c.contextTrimmed : c.contextNote }}</small>
+                <small>{{ c.contextNote(usage.refresh) }}</small>
+                <small v-if="refreshing">{{ c.contextRefreshing }}</small>
             </template>
             <small v-else-if="measuring">{{ c.contextMeasuring }}</small>
             <small v-else>{{ failure || c.contextUnavailable }}</small>

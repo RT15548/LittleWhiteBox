@@ -1,5 +1,5 @@
 {
-  "buildId": "549b12c56a9200e160a2",
+  "buildId": "aa9fba8c5a2ec2a8c3d2",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-2TbAp483.js",
@@ -26,7 +26,7 @@
       "css": []
     },
     "apps/story-summary": {
-      "file": "apps/story-summary-CRO1kfRp.js",
+      "file": "apps/story-summary-BlgUI3aU.js",
       "css": []
     },
     "apps/tavern": {
@@ -40,7 +40,7 @@
       "css": []
     },
     "apps/xiaobai-os": {
-      "file": "apps/xiaobai-os-BihPGl_G.js",
+      "file": "apps/xiaobai-os-BS6MaTxz.js",
       "css": [
         "assets/xiaobai-os-D4R4PS39.css"
       ]
@@ -161,9 +161,9 @@
       "dynamicImports": [],
       "css": []
     },
-    "apps/story-summary-CRO1kfRp.js": {
+    "apps/story-summary-BlgUI3aU.js": {
       "imports": [
-        "shared/presentation-DL4zD_ui.js",
+        "shared/presentation-Cc49fegQ.js",
         "shared/message-markdown-DCm4ilJ0.js"
       ],
       "dynamicImports": [],
@@ -200,7 +200,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "apps/xiaobai-os-BihPGl_G.js": {
+    "apps/xiaobai-os-BS6MaTxz.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/app-launchers-DXg_WLbq.js",
@@ -217,7 +217,7 @@
         "shared/WalletApp-UQew00hY.js",
         "shared/ShopApp-D_e4YaAN.js",
         "shared/BankApp-D296Xl5T.js",
-        "shared/GameApp-BhOkiHdw.js",
+        "shared/GameApp-BFonZ3Au.js",
         "shared/MapApp-C36nBOTA.js",
         "shared/MessagesApp-DsAfYG4V.js",
         "shared/TasksApp-DvR1ivpD.js",
@@ -242,7 +242,7 @@
         "shared/var-commands-B9LTHRJS.js",
         "shared/dexie-CwQq-7qj.js",
         "shared/workspace-repository-D7C5kjzK.js",
-        "shared/presentation-DL4zD_ui.js",
+        "shared/presentation-Cc49fegQ.js",
         "shared/client-C1VTMZO5.js",
         "shared/plan-ledger-Bv2jVEq6.js",
         "shared/reasoning-capabilities-uLAQtI7I.js",
@@ -257,18 +257,18 @@
         "shared/gallery-cache-4qbn31wp.js",
         "shared/chat-message-image-markup-Cqn-Ihag.js",
         "shared/scene-placement-BVMp_X_o.js",
-        "shared/config-DCtFc-ZX.js",
-        "shared/siliconflow-C4OEAjD4.js",
+        "shared/config-Czo5YP4C.js",
+        "shared/siliconflow-ByI9HyCD.js",
         "shared/tts-voices-CikwJyZf.js",
         "shared/copy-DOomsWux.js",
         "shared/app-launchers-DXg_WLbq.js",
         "shared/sheet-copy-Cg4mGTK5.js",
         "shared/context-policy-B1icddP0.js",
-        "shared/characters-f6fqkxm1.js",
-        "shared/partition-BtVhg9Oi.js",
-        "shared/memory-C_fL0QE2.js",
-        "shared/crafting-Dm4wfu4Y.js",
-        "shared/identity-n5vSHQq-.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/partition-DWlXyFed.js",
+        "shared/memory-BowEN_6R.js",
+        "shared/crafting-DANYdAFu.js",
+        "shared/identity-CmuRZR9O.js",
         "shared/action-availability-DDXw9QQc.js",
         "shared/map-copy-C0kZzAs_.js",
         "shared/identity-DNYTl8Vz.js",
@@ -283,8 +283,8 @@
       ],
       "dynamicImports": [
         "shared/gateway-dm1D5ncs.js",
-        "shared/config-DCtFc-ZX.js",
-        "shared/siliconflow-C4OEAjD4.js",
+        "shared/config-Czo5YP4C.js",
+        "shared/siliconflow-ByI9HyCD.js",
         "shared/openai-url-utils-BUSgP8gt.js",
         "runtime/agent-core-CLciIuDn.js",
         "host/plugin.js",
@@ -428,10 +428,10 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/BuildingRoom-CJTiyTZO.js": {
+    "shared/BuildingRoom-CfWa_1sa.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js",
-        "shared/partition-BtVhg9Oi.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/partition-DWlXyFed.js",
         "shared/outfit-BSJMzei2.js",
         "shared/design-DuYp-ugH.js",
         "shared/performance-D1kjfxGA.js",
@@ -461,23 +461,23 @@
         "assets/DiceApp-CxNq8fuN.css"
       ]
     },
-    "shared/DiceRoom-B3Ag9tTb.js": {
+    "shared/DiceRoom-DbDHkbrj.js": {
       "imports": [
-        "shared/room-catalog-BvT42fmQ.js",
-        "shared/characters-f6fqkxm1.js",
-        "shared/GameResult-CO2IwgoU.js",
+        "shared/room-catalog-GVBbXKbY.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/GameResult-CdFuOd5A.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js"
       ],
       "dynamicImports": [],
       "css": []
     },
-    "shared/ExpeditionRoom-C5pCzTxM.js": {
+    "shared/ExpeditionRoom-DvKtxxOM.js": {
       "imports": [
         "shared/_plugin-vue_export-helper-K9rsuiWd.js",
         "shared/build-assets-CzCSC94G.js",
         "shared/context-tokens-DqS6K7Y8.js",
-        "shared/characters-f6fqkxm1.js",
-        "shared/memory-C_fL0QE2.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/memory-BowEN_6R.js",
         "shared/meshopt_decoder.module-hGZahy9_.js",
         "shared/composer-keyboard-DYyVh-ZR.js",
         "shared/app-navigation-pr0NYJ3Z.js",
@@ -517,9 +517,9 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/GameApp-BhOkiHdw.js": {
+    "shared/GameApp-BFonZ3Au.js": {
       "imports": [
-        "shared/room-catalog-BvT42fmQ.js",
+        "shared/room-catalog-GVBbXKbY.js",
         "shared/identity-DoMvVzR2.js",
         "shared/app-navigation-pr0NYJ3Z.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js",
@@ -530,21 +530,21 @@
         "assets/GameApp-BtASskNl.css"
       ]
     },
-    "shared/GameResult-CO2IwgoU.js": {
+    "shared/GameResult-CdFuOd5A.js": {
       "imports": [
-        "shared/room-catalog-BvT42fmQ.js",
+        "shared/room-catalog-GVBbXKbY.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js"
       ],
       "dynamicImports": [],
       "css": []
     },
-    "shared/IslandRoom-Dv_BKwLr.js": {
+    "shared/IslandRoom-DgSavPjJ.js": {
       "imports": [
         "shared/_plugin-vue_export-helper-K9rsuiWd.js",
         "shared/build-assets-CzCSC94G.js",
-        "shared/characters-f6fqkxm1.js",
-        "shared/crafting-Dm4wfu4Y.js",
-        "shared/copy-C2Zlq69H.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/crafting-DANYdAFu.js",
+        "shared/copy-tYSlY7Df.js",
         "shared/meshopt_decoder.module-hGZahy9_.js",
         "shared/identity-DoMvVzR2.js",
         "shared/app-navigation-pr0NYJ3Z.js",
@@ -556,13 +556,13 @@
       ],
       "dynamicImports": [],
       "css": [
-        "assets/IslandRoom-Co8-Zb-3.css"
+        "assets/IslandRoom-BfUQC8-C.css"
       ]
     },
-    "shared/LadderRoom-BT7xkk4k.js": {
+    "shared/LadderRoom-CL7nfme1.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js",
-        "shared/GameResult-CO2IwgoU.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/GameResult-CdFuOd5A.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js"
       ],
       "dynamicImports": [],
@@ -640,11 +640,11 @@
         "assets/MessagesApp-BLlzEt_R.css"
       ]
     },
-    "shared/MovingRoom-CvdSP4iS.js": {
+    "shared/MovingRoom-BCcT8h8F.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js",
-        "shared/outfit-CQaVp9HN.js",
-        "shared/identity-n5vSHQq-.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/outfit-Uc4aEaxx.js",
+        "shared/identity-CmuRZR9O.js",
         "shared/performance-D1kjfxGA.js",
         "shared/app-navigation-pr0NYJ3Z.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js",
@@ -657,10 +657,10 @@
         "assets/MovingRoom-Dsob9eJJ.css"
       ]
     },
-    "shared/PushRoom-qg4wNaX1.js": {
+    "shared/PushRoom-Bj3HFVgO.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js",
-        "shared/GameResult-CO2IwgoU.js",
+        "shared/characters-J5GJ6Rr8.js",
+        "shared/GameResult-CdFuOd5A.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js"
       ],
       "dynamicImports": [],
@@ -823,7 +823,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/characters-f6fqkxm1.js": {
+    "shared/characters-J5GJ6Rr8.js": {
       "imports": [],
       "dynamicImports": [],
       "css": []
@@ -872,13 +872,13 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/config-DCtFc-ZX.js": {
+    "shared/config-Czo5YP4C.js": {
       "imports": [
         "shared/chunk-b3L32Ng1.js",
         "shared/constants-RJ4jNr01.js",
         "shared/debug-core-DvjGDnbn.js",
         "shared/server-storage-C-UJREqT.js",
-        "shared/presentation-DL4zD_ui.js"
+        "shared/presentation-Cc49fegQ.js"
       ],
       "dynamicImports": [],
       "css": []
@@ -906,13 +906,6 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/copy-C2Zlq69H.js": {
-      "imports": [
-        "shared/characters-f6fqkxm1.js"
-      ],
-      "dynamicImports": [],
-      "css": []
-    },
     "shared/copy-DLRJE4J2.js": {
       "imports": [],
       "dynamicImports": [],
@@ -925,9 +918,16 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/crafting-Dm4wfu4Y.js": {
+    "shared/copy-tYSlY7Df.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js"
+        "shared/characters-J5GJ6Rr8.js"
+      ],
+      "dynamicImports": [],
+      "css": []
+    },
+    "shared/crafting-DANYdAFu.js": {
+      "imports": [
+        "shared/characters-J5GJ6Rr8.js"
       ],
       "dynamicImports": [],
       "css": []
@@ -1086,6 +1086,13 @@
       "dynamicImports": [],
       "css": []
     },
+    "shared/identity-CmuRZR9O.js": {
+      "imports": [
+        "shared/characters-J5GJ6Rr8.js"
+      ],
+      "dynamicImports": [],
+      "css": []
+    },
     "shared/identity-DNYTl8Vz.js": {
       "imports": [],
       "dynamicImports": [],
@@ -1093,13 +1100,6 @@
     },
     "shared/identity-DoMvVzR2.js": {
       "imports": [],
-      "dynamicImports": [],
-      "css": []
-    },
-    "shared/identity-n5vSHQq-.js": {
-      "imports": [
-        "shared/characters-f6fqkxm1.js"
-      ],
       "dynamicImports": [],
       "css": []
     },
@@ -1144,11 +1144,11 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/memory-C_fL0QE2.js": {
+    "shared/memory-BowEN_6R.js": {
       "imports": [
         "shared/constants-RJ4jNr01.js",
         "shared/context-tokens-DqS6K7Y8.js",
-        "shared/characters-f6fqkxm1.js"
+        "shared/characters-J5GJ6Rr8.js"
       ],
       "dynamicImports": [],
       "css": []
@@ -1256,16 +1256,16 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/outfit-CQaVp9HN.js": {
+    "shared/outfit-Uc4aEaxx.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js"
+        "shared/characters-J5GJ6Rr8.js"
       ],
       "dynamicImports": [],
       "css": []
     },
-    "shared/partition-BtVhg9Oi.js": {
+    "shared/partition-DWlXyFed.js": {
       "imports": [
-        "shared/characters-f6fqkxm1.js"
+        "shared/characters-J5GJ6Rr8.js"
       ],
       "dynamicImports": [],
       "css": []
@@ -1289,7 +1289,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/presentation-DL4zD_ui.js": {
+    "shared/presentation-Cc49fegQ.js": {
       "imports": [
         "shared/chunk-b3L32Ng1.js"
       ],
@@ -1324,25 +1324,25 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/room-catalog-BvT42fmQ.js": {
+    "shared/room-catalog-GVBbXKbY.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/build-assets-CzCSC94G.js",
-        "shared/characters-f6fqkxm1.js",
+        "shared/characters-J5GJ6Rr8.js",
         "shared/outfit-BSJMzei2.js",
-        "shared/copy-C2Zlq69H.js",
-        "shared/outfit-CQaVp9HN.js",
+        "shared/copy-tYSlY7Df.js",
+        "shared/outfit-Uc4aEaxx.js",
         "shared/design-DuYp-ugH.js",
         "shared/runtime-dom.esm-bundler-BinULp0I.js"
       ],
       "dynamicImports": [
-        "shared/DiceRoom-B3Ag9tTb.js",
-        "shared/PushRoom-qg4wNaX1.js",
-        "shared/LadderRoom-BT7xkk4k.js",
-        "shared/IslandRoom-Dv_BKwLr.js",
-        "shared/ExpeditionRoom-C5pCzTxM.js",
-        "shared/BuildingRoom-CJTiyTZO.js",
-        "shared/MovingRoom-CvdSP4iS.js"
+        "shared/DiceRoom-DbDHkbrj.js",
+        "shared/PushRoom-Bj3HFVgO.js",
+        "shared/LadderRoom-CL7nfme1.js",
+        "shared/IslandRoom-DgSavPjJ.js",
+        "shared/ExpeditionRoom-DvKtxxOM.js",
+        "shared/BuildingRoom-CfWa_1sa.js",
+        "shared/MovingRoom-BCcT8h8F.js"
       ],
       "css": []
     },
@@ -1430,12 +1430,12 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/siliconflow-C4OEAjD4.js": {
+    "shared/siliconflow-ByI9HyCD.js": {
       "imports": [
         "shared/chunk-b3L32Ng1.js",
         "shared/debug-core-DvjGDnbn.js",
         "shared/server-storage-C-UJREqT.js",
-        "shared/config-DCtFc-ZX.js",
+        "shared/config-Czo5YP4C.js",
         "shared/openai-url-utils-BUSgP8gt.js"
       ],
       "dynamicImports": [],

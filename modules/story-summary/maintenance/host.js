@@ -18,8 +18,9 @@ import { presentMaintenanceReceipt } from './presentation.js';
 import { readMaintenanceSource } from './source-view.js';
 import { maintenanceRanges } from './ranges.js';
 
-export function createMemoryMaintenanceHost({ canRun, invalidateRecall, refreshSummary, changed }) {
+export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed }) {
     let unregister = null;
+    const enabled = () => isEnabled() && getSummaryPanelConfig().memoryMaintenanceEnabled;
     const read = () => {
         const context = getContext();
         const store = getSummaryStore();
@@ -27,21 +28,34 @@ export function createMemoryMaintenanceHost({ canRun, invalidateRecall, refreshS
             cutoff: store?.lastSummarizedMesId, atoms: getStateAtoms(), l0Index: getL0Index() };
     };
     const scheduler = createMemoryScheduler({
-        enabled: () => canRun() && getSummaryPanelConfig().memoryMaintenanceEnabled,
+        enabled,
         changed,
         async run(task, signal, phase) {
-            requireMemory(canRun(), 'no_boundary');
-            const current = read();
-            requireMemory(current.chatId === task.chatId && current.cutoff === task.cutoff && current.cutoff >= 0, 'conflict');
-            const batch = current.store.summaryHistory.find(entry => entry.endMesId === task.cutoff);
-            const filterRules = batch?.policy ? batch.policy.filterRules : getSummaryPanelConfig().textFilterRules;
-            const session = createMemorySession({ ...current, ...task, filterRules });
-            const readCurrent = async () => {
-                await waitForMemoryCommit(signal);
-                assertMemoryWritable(task.chatId);
-                requireMemory(canRun(), 'no_boundary');
-                return read();
+            let owner = null;
+            const readTask = () => {
+                requireMemory(enabled(), 'no_boundary');
+                const current = read();
+                requireMemory(current.chatId === task.chatId && (!owner || current.store === owner), 'conflict');
+                requireMemory(!current.store?.summaryInvalid, 'invalid_history');
+                requireMemory(Number.isInteger(current.cutoff) && current.cutoff >= 0, 'no_boundary');
+                requireMemory(current.cutoff >= task.cutoff, 'conflict');
+                const history = current.store.summaryHistory;
+                requireMemory(Array.isArray(history) && history.some(entry => entry.endMesId === task.cutoff)
+                    && history.at(-1)?.endMesId === current.cutoff, 'invalid_history');
+                return current;
             };
+            const readCurrent = async () => {
+                // Another writer may acquire metadata before this await resumes.
+                do { await waitForMemoryCommit(signal); } while (getMemoryCommitState() === 'saving');
+                assertMemoryWritable(task.chatId);
+                return readTask();
+            };
+            const current = await readCurrent();
+            requireMemory(current.cutoff === task.cutoff, 'conflict');
+            owner = current.store;
+            const batch = current.store.summaryHistory.find(entry => entry.endMesId === task.cutoff);
+            const filterRules = batch.policy ? batch.policy.filterRules : getSummaryPanelConfig().textFilterRules;
+            const session = createMemorySession({ ...current, ...task, filterRules });
             const agent = await createSharedMemoryAgent();
             let index = { status: 'ready' };
             let latest = null;
@@ -52,7 +66,7 @@ export function createMemoryMaintenanceHost({ canRun, invalidateRecall, refreshS
                     if (final && signal.aborted && getMemoryCommitState() === 'saving') return null;
                     if (!signal.aborted) await readCurrent();
                     return commitMemorySession(session, edit, {
-                        read,
+                        read: readTask,
                         async commit(next, previous, impact, validate) {
                             phase('saving');
                             return commitSummaryMemory(task.chatId, next, { previous, validate, maintenanceWrite: true, invalidate: async () => {
@@ -110,7 +124,6 @@ export function createMemoryMaintenanceHost({ canRun, invalidateRecall, refreshS
             }
             if (getMemoryCommitState() === 'unconfirmed') state.status = 'unconfirmed';
             else if (store.summaryInvalid) state.status = 'history_invalid';
-            else if (store.sourceInvalidFromFloor != null || getMemoryCommitState() === 'source_invalid') state.status = 'source_invalid';
             if (state.status === 'unconfirmed') page.items = page.items.filter(receipt => !receipt.receiptIds.includes(state.receiptId));
             const impact = maintenanceHistoryImpact(store);
             let index;
@@ -127,7 +140,7 @@ export function createMemoryMaintenanceHost({ canRun, invalidateRecall, refreshS
         },
         async repairIndexes() {
             assertMemoryWritable();
-            requireMemory(canRun(), 'no_boundary');
+            requireMemory(isEnabled(), 'no_boundary');
             const current = read();
             const impact = maintenanceHistoryImpact(current.store);
             return repairMaintenanceIndexes(current.chatId, impact);

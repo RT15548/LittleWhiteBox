@@ -63,14 +63,17 @@ export async function waitForMemoryCommit(signal) {
 }
 
 export function getRuntimeInvalidSourceFloor() { return transactions.get(chat_metadata.extensions?.[EXT_ID])?.sourceInvalidFloor; }
+export function getRuntimeSourceRollbackFloor() { return transactions.get(chat_metadata.extensions?.[EXT_ID])?.sourceRollbackFloor; }
 
-// The source has already changed in the host. Preserve this runtime block even if saving
-// its durable marker fails; a later successful rollback/import/clear explicitly resolves it.
-export function noteInvalidMemorySource(fromFloor) {
+// Failed cache retirement and an actual pending L2 undo are independent facts.
+// Keep unsaved boundaries on this metadata owner until persisted or resolved.
+export function noteInvalidMemorySource(fromFloor, rollbackFromFloor = null) {
     const owner = extension();
     const current = transactions.get(owner);
     const sourceInvalidFloor = Math.min(current?.sourceInvalidFloor ?? fromFloor, fromFloor);
-    transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor });
+    const sourceRollbackFloor = rollbackFromFloor == null ? current?.sourceRollbackFloor
+        : Math.min(current?.sourceRollbackFloor ?? rollbackFromFloor, rollbackFromFloor);
+    transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor, sourceRollbackFloor });
 }
 
 // Borrowed read view: a pending save owns its draft, readers keep the complete
@@ -129,17 +132,22 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
     };
     assertBaseline();
     const sourceInvalidFloor = transactions.get(owner)?.sourceInvalidFloor;
+    const sourceRollbackFloor = transactions.get(owner)?.sourceRollbackFloor;
     let settle;
     const settled = new Promise(resolve => { settle = resolve; });
-    const transaction = { status: 'saving', previous: structuredClone(previous), sourceInvalidFloor, settled };
+    const transaction = { status: 'saving', previous: structuredClone(previous), sourceInvalidFloor, sourceRollbackFloor, settled };
     const release = resolved => {
-        if (sourceInvalidFloor != null && !resolved) transactions.set(owner, { status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor });
+        if ((sourceInvalidFloor != null || sourceRollbackFloor != null) && !resolved) transactions.set(owner, {
+            status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor, sourceRollbackFloor,
+        });
         else transactions.delete(owner);
     };
     const confirmAndPublish = async () => {
         await confirm(expected, rawPrevious, confirmedSnapshots.get(owner));
         if (!sameMemory(project(owner), expected)) throw new MetadataConfirmationError('metadata_save_conflict', true);
-        release(resolvesSourceInvalidity || expected.storySummary.sourceInvalidFromFloor != null);
+        const sourceBoundariesPersisted = (sourceInvalidFloor == null || (expected.storySummary.sourceInvalidFromFloor ?? Infinity) <= sourceInvalidFloor)
+            && (sourceRollbackFloor == null || (expected.storySummary.sourceRollbackFromFloor ?? Infinity) <= sourceRollbackFloor);
+        release(resolvesSourceInvalidity || sourceBoundariesPersisted);
         confirmedSnapshots.set(owner, expected);
         return expected;
     };

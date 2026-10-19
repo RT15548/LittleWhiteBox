@@ -51,7 +51,7 @@ export const MEMORY_COPY = Object.freeze({
         agent_auth: '共享 Agent API 的凭据不可用，请在 Agent API 设置中更新。',
         agent_balance: '共享 Agent API 余额不足。', agent_rate: '共享 Agent API 暂时限流。',
         agent_model: '共享 Agent API 当前不提供所选模型。',
-        conflict: '原文或记忆发生了变化，维护已停止；此前保存的部分保留。',
+        conflict: '聊天已切换，或总结已被替换、回退；维护已停止，此前保存的部分保留。',
         compaction_failed: '工作上下文整理失败，已完成的范围和修改保留。',
         agent_failed: '服务暂时不可用，已保存的修改保留。', empty_response: '模型没有返回内容，已保存的修改保留。',
         metadata_not_saved: '服务器未保存修改，已恢复修改前的记忆。', metadata_save_conflict: '服务器内容已变化，保存结果需核对。',

@@ -13,13 +13,15 @@ async function loadAsset(id: string, url: string, height: number, gender: Player
 }
 
 // One scene owns six NPC assets plus the selected player, never all player variants.
-export async function loadCharacters(identity: PlayerIdentity, signal: AbortSignal) {
+export async function loadCharacters(identity: PlayerIdentity, signal: AbortSignal, onProgress: (completed: number, total: number) => void = () => {}) {
     signal.throwIfAborted();
     const controller = new AbortController(), assets = new Map<PersonId, CharacterAsset>();
     const queue: { id: PersonId; url: string }[] = [
         ...Object.keys(CAST).map(id => ({ id: id as NpcId, url: characterModel(id as NpcId) })),
         { id: 'player', url: characterModel(playerCharacterKey(identity)) },
     ];
+    const total = queue.length; let completed = 0;
+    onProgress(completed, total);
     const abort = () => controller.abort(); signal.addEventListener('abort', abort, { once: true });
     async function worker() {
         while (queue.length) {
@@ -27,6 +29,7 @@ export async function loadCharacters(identity: PlayerIdentity, signal: AbortSign
             const height = entry.id === 'player' ? PLAYER_BODIES[identity.gender].heightMetres : CAST[entry.id].heightMetres;
             const gender = entry.id === 'player' ? identity.gender : CAST[entry.id].gender;
             assets.set(entry.id, await loadAsset(entry.id, entry.url, height, gender, controller.signal));
+            completed++; onProgress(completed, total);
         }
     }
     const pending = [worker(), worker()];

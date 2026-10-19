@@ -43,7 +43,7 @@ export async function measureGmContext(work: ReturnType<typeof createSceneWork>,
     const used = estimateConversationTokens({ messages: [{ role: 'system', content: prompt }, { role: 'user', content: gmSceneMessage(initial) }],
         tools: TOOLS, providerConfig: session.providerConfig });
     const system = estimateTokenCount(prompt), story = estimateTokenCount(JSON.stringify(initial));
-    // Above `trim` the oldest recent entries are left out of the request; above `limit` the request cannot be made.
-    return { used, limit: P.inputTokens, trim: P.inputTokens - P.outputTokens, system, story, rules: Math.max(0, used - system - story) };
+    // Reaching `refresh` asks the loop to compact completed tool exchanges before its next model turn.
+    return { used, limit: P.inputTokens, refresh: P.contextRefreshTokens, system, story, rules: Math.max(0, used - system - story) };
 }
 export type GmContextUsage = Awaited<ReturnType<typeof measureGmContext>>;

@@ -107,12 +107,12 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
                 onProgress({ runId, action: writes ? 'editing' : 'reading', calls: calls.length, saved: session.operations.length });
                 try {
                     if (toolCall.name === 'CompleteMaintenance' && editFailed) throw new MemoryMaintenanceError('edit_failed', '', 'from');
-                    const current = toolCall.name === 'ReadMemory' ? await readCurrent?.() : undefined;
+                    const current = ['ReadMemory', 'ReadSource', 'SearchSource'].includes(toolCall.name) ? await readCurrent?.() : undefined;
                     requireMemory(!signal?.aborted, 'cancelled');
                     response = session.runTool(toolCall.name, JSON.parse(toolCall.arguments), current);
                 } catch (error) {
                     if (!(error instanceof MemoryMaintenanceError) && !(error instanceof SyntaxError)) throw error;
-                    if (['conflict', 'cancelled'].includes(error.code)) throw error;
+                    if (['conflict', 'cancelled', 'invalid_history', 'no_boundary'].includes(error.code)) throw error;
                     response = { status: 'error', code: error.code || 'invalid_json', field: error.field || 'arguments', message: error.message,
                         ...(error.rejected ? { rejected: error.rejected, unchecked: error.unchecked } : {}),
                         ...(error.records ? { records: error.records } : {}),
@@ -131,7 +131,7 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
                             ...(toolCall.name === 'CompleteMaintenance' ? { task: session.task() } : {}) };
                     } catch (error) {
                         if (error.uncertain || !(error instanceof MemoryMaintenanceError)
-                            || ['conflict', 'cancelled', 'pending_edit', 'save_unavailable', 'no_boundary'].includes(error.code)) throw error;
+                            || ['conflict', 'cancelled', 'invalid_history', 'pending_edit', 'save_unavailable', 'no_boundary'].includes(error.code)) throw error;
                         session.discard();
                         if (toolCall.name === 'EditMemory') editFailed = true;
                         response = { status: 'error', code: error.code, message: error.message,

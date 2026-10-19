@@ -233,7 +233,7 @@ const serviceTests = createServiceTests({
     onStatus: (target, state) => postToFrame({ type: 'VECTOR_ONLINE_STATUS', target, ...state }),
 });
 const memoryMaintenance = createMemoryMaintenanceHost({
-    canRun: () => isStorySummaryConsumableForCurrentChat() && !messageSources.inspect(getContext()),
+    isEnabled: () => isStorySummaryEnabledForCurrentChat(),
     invalidateRecall: () => {
         recallReuse.invalidate();
     },
@@ -4477,7 +4477,8 @@ function runContentChangeSync(handler, ...args) {
     // A save-without-edit does not schedule maintenance. A real local edit
     // invalidates future reuse, not this generation's already running recall.
     if (!change) return undefined;
-    memoryMaintenance.cancel();
+    // Source changes retire caches, not the Agent reviewing the saved L2.
+    // Its live source reads and record-level writes retain their own boundaries.
     if (handler === handleMessageUpdated) {
         recallReuse.invalidate();
     } else {

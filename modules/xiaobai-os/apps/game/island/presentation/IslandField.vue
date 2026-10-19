@@ -10,12 +10,12 @@ import { createJoystick } from '../../joystick.js';
 import { screenToWorld } from './camera.js';
 const props = defineProps<{ observation: NonNullable<IslandView['player']>; identity: PlayerIdentity; disabled: boolean; paused?: boolean }>();
 const emit = defineEmits<{ move: [point: Point]; steer: [x: number, y: number]; person: [person: NpcId]; ready: [value: boolean]; error: [] }>();
-const root = ref<HTMLElement | null>(null), loading = ref(true), controller = new AbortController();
+const root = ref<HTMLElement | null>(null), loading = ref(true), loadingProgress = ref({ completed: 0, total: 0 }), controller = new AbortController();
 let scene: ReturnType<typeof createIslandScene> | null = null, characters: CharacterRoster | null = null, active = true;
 onMounted(async () => {
     emit('ready', false);
     try {
-        const loaded = await loadCharacters(props.identity, controller.signal);
+        const loaded = await loadCharacters(props.identity, controller.signal, (completed, total) => { loadingProgress.value = { completed, total }; });
         if (controller.signal.aborted) { loaded.dispose(); return; }
         characters = loaded;
         scene = createIslandScene(root.value!, point => { if (canMove()) { emit('move', point); } }, person => emit('person', person), () => emit('error'), characters);
@@ -59,10 +59,11 @@ watch(() => props.disabled, disabled => { if (disabled) { stop(); } }, { flush: 
 onMounted(() => { window.addEventListener('blur', stop); document.addEventListener('visibilitychange', visibility); });
 onBeforeUnmount(() => { active = false; stop(); window.removeEventListener('blur', stop); document.removeEventListener('visibilitychange', visibility); });
 </script>
-<template><div ref="root" class="island-field" tabindex="0" :aria-label="COPY.mapLabel" @keydown.self="keydown" @keyup.self="keyup" @blur="stop"><p v-if="loading" class="island-field-loading" role="status">{{ COPY.loadingScene }}</p><template v-else><div class="island-camera"><button :aria-label="COPY.zoomIn" @click="changeZoom(-2)">＋</button><button :aria-label="COPY.zoomOut" @click="changeZoom(2)">−</button></div><div class="island-stick" role="group" :aria-label="COPY.move" @pointerdown.prevent="pointerdown" @pointermove.prevent="joystick.move" @pointerup="joystick.release" @pointercancel="joystick.release" @lostpointercapture="joystick.release" @contextmenu.prevent><span :style="{ transform: `translate(${knob.x}px, ${knob.y}px)` }" /></div></template></div></template>
+<template><div ref="root" class="island-field" tabindex="0" :aria-label="COPY.mapLabel" @keydown.self="keydown" @keyup.self="keyup" @blur="stop"><p v-if="loading" class="island-field-loading" role="status">{{ COPY.loadingScene(loadingProgress.completed, loadingProgress.total) }}<progress v-if="loadingProgress.total" :value="loadingProgress.completed" :max="loadingProgress.total" :aria-label="COPY.loadingScene(loadingProgress.completed, loadingProgress.total)" /></p><template v-else><div class="island-camera"><button :aria-label="COPY.zoomIn" @click="changeZoom(-2)">＋</button><button :aria-label="COPY.zoomOut" @click="changeZoom(2)">−</button></div><div class="island-stick" role="group" :aria-label="COPY.move" @pointerdown.prevent="pointerdown" @pointermove.prevent="joystick.move" @pointerup="joystick.release" @pointercancel="joystick.release" @lostpointercapture="joystick.release" @contextmenu.prevent><span :style="{ transform: `translate(${knob.x}px, ${knob.y}px)` }" /></div></template></div></template>
 <style scoped>
 .island-field{position:absolute;inset:0;outline:none;touch-action:manipulation}.island-field:focus-visible{outline:3px solid #3b817f;outline-offset:-3px}.island-field :deep(canvas){position:absolute;inset:0;width:100%;height:100%;display:block}
 .island-field-loading{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:6px;background:#fffdf9ed;color:var(--island-ink);z-index:2;white-space:nowrap;font-size:13px}
+.island-field-loading progress{display:block;width:100%;height:6px;margin-top:8px;accent-color:var(--island-accent)}
 .island-camera{position:absolute;z-index:2;left:14px;top:190px;display:flex;flex-direction:column;gap:5px}.island-camera button{width:36px;min-height:36px;padding:0;background:#fffdf9e8;font-size:20px}
 /* Bottom-left, above the action bar, so a thumb on the stick never covers the map centre. */
 .island-stick{position:absolute;z-index:2;left:max(18px,env(safe-area-inset-left));bottom:calc(max(18px,env(safe-area-inset-bottom)) + 96px);width:104px;height:104px;border-radius:50%;background:#f5fcfb66;border:1px solid #fffb;box-shadow:inset 0 0 0 14px #8cb4bd1f,0 3px 14px #254b6518;display:grid;place-items:center;touch-action:none}

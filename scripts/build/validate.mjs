@@ -71,6 +71,9 @@ export function validateBuild(directory, hostReference) {
     }
     const outputs = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(item => item.isDirectory() ? outputs(path.join(dir, item.name)) : [path.join(dir, item.name)]);
     for (const file of outputs(directory)) if (/\.(?:js|css)$/.test(file)) inspect(path.join(root, 'dist', path.relative(directory, file)), file);
+    // Every file the host may request as the plugin entry must be loadable as served, not only buildable.
+    const rootManifest = path.join(root, 'manifest.json');
+    for (const file of new Set([JSON.parse(fs.readFileSync(rootManifest, 'utf8')).js, 'index.js'])) checkReference(rootManifest, file);
     for (const page of pages) {
         inspect(path.join(root, page));
         const source = fs.readFileSync(path.join(root, page), 'utf8');

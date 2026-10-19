@@ -71,6 +71,7 @@ export function prepareImportedSummary(previous, json, boundary) {
     store.json.facts = assignImportedFactIds(store.json.facts);
     delete store.summaryInvalid;
     delete store.sourceInvalidFromFloor;
+    delete store.sourceRollbackFromFloor;
     if (boundary >= 0) applyImportedSummaryBoundary(store, boundary);
     else {
         store.lastSummarizedMesId = -1;

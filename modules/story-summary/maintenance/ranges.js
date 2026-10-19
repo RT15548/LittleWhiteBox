@@ -91,13 +91,16 @@ export function invalidateCompletionRanges(history, ranges) {
 
 /** Called only on the unified draft, before persistence. Agent writes retain their own completion. */
 export function invalidateChangedMaintenance(previous, next, { maintenanceWrite = false } = {}) {
+    if (maintenanceWrite) return;
     const history = next.storySummary.summaryHistory || [], oldHistory = previous.storySummary.summaryHistory || [];
     const oldEnd = previous.storySummary.lastSummarizedMesId ?? -1, end = next.storySummary.lastSummarizedMesId ?? -1;
     if (!history.some(batch => batch.maintenance?.some(receipt => receipt.completion))) return;
-    if (next.storySummary.sourceInvalidFromFloor != null) invalidateCompletionRanges(history, [
-        { from: next.storySummary.sourceInvalidFromFloor + 1, to: end + 1 },
+    // A retained recall warning is not a new source change on every later save.
+    const invalidFrom = next.storySummary.sourceInvalidFromFloor;
+    if (invalidFrom != null && invalidFrom < (previous.storySummary.sourceInvalidFromFloor ?? Infinity)) invalidateCompletionRanges(history, [
+        { from: invalidFrom + 1, to: end + 1 },
     ]);
-    if (maintenanceWrite || end < oldEnd) return;
+    if (end < oldEnd) return;
     const before = memoryRecords({ json: previous.storySummary.json || {}, atoms: previous.stateAtoms });
     const after = memoryRecords({ json: next.storySummary.json || {}, atoms: next.stateAtoms });
     const old = new Map(before.map(record => [`${record.collection}:${record.key}`, record]));

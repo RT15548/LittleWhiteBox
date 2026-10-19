@@ -45,6 +45,7 @@ export const ERRORS = {
     agent_limit: '模型本次处理达到上限，尚未提交现场。',
     agent_refused: '模型未能继续本次现场，已保留玩家操作。',
     context_full: '本次现场上下文达到上限，尚未提交。',
+    context_refresh_failed: '本次现场的上下文整理未完成，尚未提交。',
     embedding_config: '请先配置故事总结中的 Embedding 连接；荒岛只使用这项连接。',
     embedding_failed: '荒岛记忆向量请求失败，本次未自动重试。',
     memory_save: '荒岛记忆索引保存未确认，请先恢复保存。',

@@ -649,7 +649,8 @@ for (const kind of ['edit', 'swipe']) test(`queued ${kind} survives leaving and 
     } else {
         // Historical swipe crossed the imported baseline: preserve, but block L2.
         assert.equal(result.status, 'failed');
-        assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+        assert.equal(ext().storySummary.sourceRollbackFromFloor, 1);
+        assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
         assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), false);
     }
     assert.deepEqual(disk(), ext());
@@ -675,7 +676,7 @@ for (const order of ['event-first', 'background-first']) for (const sameText of 
     assert.equal(first.status, 'failed');
     assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), false);
     assert.equal((await mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 1 })).status, 'failed');
-    assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, 1);
     assert.deepEqual(disk(), ext());
 });
 
@@ -766,6 +767,7 @@ for (const kind of ['swipe', 'delete']) for (const stage of ['queued', 'failed']
     assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([context.chatId, 1]).count(), 0);
     assert.ok(ext().stateAtoms.every(atom => atom.floor !== 1));
     assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, undefined);
     if (action === 'import') {
         assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), true);
         assert.deepEqual(ext().storySummary.json, imported);
@@ -951,6 +953,74 @@ async function saveMaintenanceSession(session) {
     });
 }
 
+for (const change of ['append', 'edit']) test(`content-sync entry keeps maintenance alive while retiring ${change} caches`, async () => {
+    await importFixture(); await seedAnchors();
+    const original = structuredClone(ext().storySummary.json);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    const session = mod.createMemorySession(readMaintenanceState()); session.initial();
+    session.runTool('ReadSource', { floor: 2 }, readMaintenanceState());
+    let syncing;
+    const sync = () => { syncing = mod.synchronizeSourceCaches(tracker, host.context); return syncing; };
+    const gate = entry(['runContentChangeSync'], {
+        getContext: () => host.context, isStorySummaryEnabledForCurrentChat: () => true,
+        messageSources: tracker, memoryMaintenance: { cancel: () => assert.fail('source-only change cancelled maintenance') },
+        handleMessageUpdated: sync, recallReuse: { invalidate() {}, historyChanged() {} },
+        cancelPendingHide() {}, cancelEmbeddingWriteTasks: vectorWrites.cancelEmbeddingWriteTasks,
+        isChatStale: () => false, clearHideState: async () => {}, reportMemorySaveFailure: assert.fail,
+        xbLog: { error: assert.fail },
+    });
+    if (change === 'append') host.context.chat.push({ mes: '新的尾楼', is_user: false });
+    else host.context.chat[1].mes = '修改后的真实原因，原先只是传闻。';
+    gate.runContentChangeSync(sync);
+    assert.equal((await syncing).status, 'synced');
+    assert.deepEqual(ext().storySummary.json, original);
+    assert.equal(ext().storySummary.lastSummarizedMesId, 23);
+    assert.equal(session.runTool('ReadSource', { floor: 2 }, readMaintenanceState()).items[0].text, host.context.chat[1].mes);
+    session.runTool('EditMemory', { edits: [fixFact] });
+    const saved = await saveMaintenanceSession(session);
+    assert.equal(saved.receipt.operations.length, 1);
+    assert.equal(disk().storySummary.json.facts[0].o, fixFact.patch.o);
+});
+
+test('source edits after reading do not reject confirmed maintenance completion', async () => {
+    await importFixture();
+    const session = mod.createMemorySession(readMaintenanceState()); session.initial();
+    session.runTool('ReadSource', { floor: 2 }, readMaintenanceState());
+    host.context.chat = structuredClone(host.context.chat);
+    host.context.chat[1].mes += ' 原文修订';
+    host.context.chat[20].mes += ' 未读原文修订';
+    host.context.chat.push({ mes: '边界以后的新楼', is_user: false });
+    session.runTool('ReadSource', { floor: 2 }, readMaintenanceState());
+    session.runTool('CompleteMaintenance', { from: 1, to: 24 });
+    const saved = await saveMaintenanceSession(session);
+    assert.deepEqual(saved.ranges.completed, [{ from: 1, to: 24 }]);
+    assert.deepEqual(saved.ranges, progress());
+    assert.deepEqual(disk(), ext());
+});
+
+test('an existing source warning does not erase newly confirmed maintenance on later saves', async () => {
+    await importFixture(); await completeRange();
+    mod.noteInvalidMemorySource(5);
+    const marked = mod.readSummaryMemory(); marked.storySummary.sourceInvalidFromFloor = 5;
+    await mod.commitSummaryMemory(host.context.chatId, marked);
+    assert.deepEqual(progress().pending, [{ from: 6, to: 24 }]);
+    const session = mod.createMemorySession(readMaintenanceState()); session.initial();
+    session.runTool('CompleteMaintenance', { from: 6, to: 24 });
+    const saved = await saveMaintenanceSession(session);
+    assert.deepEqual(saved.ranges, progress());
+    assert.deepEqual(progress().pending, []);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, 5);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), false);
+    const unrelated = mod.readSummaryMemory(); unrelated.storySummary.updatedAt = Date.now();
+    await mod.commitSummaryMemory(host.context.chatId, unrelated);
+    assert.deepEqual(progress().pending, []);
+    assert.deepEqual(disk(), ext());
+    const expanded = mod.readSummaryMemory(); expanded.storySummary.sourceInvalidFromFloor = 2;
+    await mod.commitSummaryMemory(host.context.chatId, expanded);
+    assert.deepEqual(progress().pending, [{ from: 3, to: 24 }]);
+    assert.deepEqual(disk(), ext());
+});
+
 for (const action of ['completion', 'outcome', 'anchor', 'summary']) {
     test(`pending generation survives ${action} maintenance unless its summary input changed`, async () => {
         await importFixture(); await seedAnchors();
@@ -1083,7 +1153,7 @@ test('index status and repair include earlier runs regardless of results paginat
     });
     await mod.commitSummaryMemory(host.context.chatId, next, { maintenanceWrite: true });
     host.vectorConfig.enabled = true;
-    const maintenance = mod.createMemoryMaintenanceHost({ canRun: () => true, changed() {} });
+    const maintenance = mod.createMemoryMaintenanceHost({ isEnabled: () => true, changed() {} });
     const first = await maintenance.results(), older = await maintenance.results(10);
     assert.equal(first.items.length, 10); assert.equal(older.items.length, 1);
     assert.deepEqual(first.index, { status: 'pending', count: 2 });
@@ -1265,7 +1335,7 @@ test('source replacement across baseline preserves imported content and persists
     const result = await mod.rollbackSummaryIfNeeded({ changedFromFloor: 20 });
     assert.equal(result.reason, 'source_boundary_invalid');
     assert.deepEqual(ext().storySummary.json, original);
-    assert.equal(ext().storySummary.sourceInvalidFromFloor, 20);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, 20);
     assert.equal(ext().storySummary.summaryInvalid, undefined);
     assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
     assert.deepEqual(disk(), ext());
@@ -1276,7 +1346,7 @@ test('undoing baseline maintenance cannot clear an unresolved source boundary', 
     await mod.rollbackSummaryIfNeeded({ changedFromFloor: 20 });
     assert.equal((await mod.rollbackSummaryOnce(host.context.chatId)).success, true);
     assert.deepEqual(ext().storySummary.json, original);
-    assert.equal(ext().storySummary.sourceInvalidFromFloor, 20);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, 20);
     assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
 });
 
@@ -1338,6 +1408,139 @@ test('a local L1 cleanup failure preserves memory and blocks the old source thro
     assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
     assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
     assert.deepEqual(disk(), ext());
+    mod.chunkVectorsTable.hook('deleting').unsubscribe(fail);
+    await mod.clearSummaryData(chatId);
+    assert.deepEqual((await mod.chunksTable.where('chatId').equals(chatId).toArray()).map(row => row.floor), [0]);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, undefined);
+    assert.deepEqual(disk(), ext());
+});
+
+async function generatedSourceRecoveryFixture() {
+    const baseline = await importFixture(); await seedAnchors();
+    host.context.chat.push({ mes: '次日', is_user: true }, { mes: '共同出发', is_user: false });
+    host.generate = async () => JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '共同出发', isState: false }] });
+    await mod.runSummaryGeneration(25, { trigger: { delayFloors: 0 } });
+    return baseline;
+}
+
+function reloadSourceRecovery() {
+    host.metadata = structuredClone(host.files.get(host.context.chatId));
+    host.context.chat = structuredClone(host.context.chat);
+    mod.reload(); mod.getSummaryStore();
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    assert.equal(tracker.inspect(host.context), null); // No old page-local observation survives.
+}
+
+for (const recovery of ['same-page', 'reload', 'runtime-only']) test(`ordinary edit cleanup failure retries without L2 undo: ${recovery}`, async t => {
+    await generatedSourceRecoveryFixture();
+    const before = structuredClone(ext().storySummary);
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3, 25]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    host.context.chat[1].mes += ' ordinary correction';
+    const fail = () => { throw new Error('L1 storage unavailable'); };
+    mod.chunkVectorsTable.hook('deleting', fail);
+    t.after(() => mod.chunkVectorsTable.hook('deleting').unsubscribe(fail));
+    if (recovery === 'runtime-only') host.mode = 'old';
+    await assert.rejects(mod.synchronizeSourceCaches(tracker, host.context));
+    assert.deepEqual(ext().storySummary.json, before.json);
+    mod.chunkVectorsTable.hook('deleting').unsubscribe(fail);
+    host.mode = 'save';
+    if (recovery === 'reload') {
+        reloadSourceRecovery();
+        assert.equal((await mod.rollbackSummaryIfNeeded()).status, 'not_needed');
+    } else {
+        assert.equal((await mod.synchronizeSourceCaches(tracker, host.context)).status, 'synced');
+        assert.equal(tracker.inspect(host.context), null);
+    }
+    assert.deepEqual(ext().storySummary.json, before.json);
+    assert.deepEqual(ext().storySummary.summaryHistory, before.summaryHistory);
+    assert.equal(ext().storySummary.lastSummarizedMesId, before.lastSummarizedMesId);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, undefined);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), true);
+    assert.deepEqual((await mod.chunksTable.where('chatId').equals(chatId).toArray()).map(row => row.floor), [0]);
+    assert.equal((await mod.getAllStateVectors(chatId)).some(vector => vector.floor === 1), false);
+    assert.deepEqual(disk(), ext());
+});
+
+for (const mixed of [false, true]) test(`failed real swipe remains recoverable after reload without over-rolling L2 (earlier cache failure: ${mixed})`, async t => {
+    const baseline = await generatedSourceRecoveryFixture();
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3, 25]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    const failure = t.mock.method(mod.stateVectorsTable, 'where', () => { throw new Error('state cache offline'); });
+    if (mixed) {
+        host.context.chat[1].mes += ' earlier ordinary edit';
+        await assert.rejects(mod.synchronizeSourceCaches(tracker, host.context));
+    }
+    host.context.chat[25].swipe_id = 1;
+    assert.equal((await mod.synchronizeSourceCaches(tracker, host.context)).status, 'failed');
+    assert.equal(ext().storySummary.lastSummarizedMesId, 25);
+    assert.equal(disk().storySummary.sourceRollbackFromFloor, 25);
+    failure.mock.restore();
+    reloadSourceRecovery();
+    assert.equal((await mod.rollbackSummaryIfNeeded()).status, 'rolled_back');
+    assert.equal(ext().storySummary.lastSummarizedMesId, 23);
+    assert.deepEqual(ext().storySummary.json, baseline);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, undefined);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), true);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([chatId, mixed ? 1 : 25]).count(), 0);
+    assert.deepEqual(disk(), ext());
+});
+
+test('an imported baseline retains the actual swipe boundary after reload without re-clearing healthy caches', async () => {
+    const original = await importFixture();
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3, 23]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    host.context.chat[1].swipe_id = 1;
+    assert.equal((await mod.synchronizeSourceCaches(tracker, host.context)).status, 'failed');
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([chatId, 3]).count(), 1);
+    const cacheBefore = await Promise.all(mod.db.tables.map(table => table.toArray()));
+    reloadSourceRecovery();
+    const result = await mod.rollbackSummaryIfNeeded();
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, 'source_boundary_invalid');
+    assert.equal(ext().storySummary.sourceRollbackFromFloor, 1);
+    assert.deepEqual(ext().storySummary.json, original);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), false);
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), cacheBefore);
+    assert.deepEqual(disk(), ext());
+});
+
+test('manual L2 undo does not claim pending raw-source caches were cleaned', async () => {
+    const baseline = await generatedSourceRecoveryFixture();
+    const chatId = host.context.chatId;
+    await seedCacheRange(chatId, [0, 1, 3]);
+    const next = mod.readSummaryMemory(); next.storySummary.sourceInvalidFromFloor = 1;
+    await mod.commitSummaryMemory(chatId, next);
+    assert.equal((await mod.rollbackSummaryOnce(chatId)).success, true);
+    assert.deepEqual(ext().storySummary.json, baseline);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([chatId, 1]).count(), 1);
+    assert.equal((await mod.rollbackSummaryIfNeeded()).status, 'not_needed');
+    assert.deepEqual(ext().storySummary.json, baseline);
+    assert.equal(ext().storySummary.lastSummarizedMesId, 23);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([chatId, 1]).count(), 0);
+    assert.deepEqual(disk(), ext());
+});
+
+test('saving a cache marker cannot discard an unpersisted runtime rollback boundary', async () => {
+    await generatedSourceRecoveryFixture();
+    host.mode = 'old';
+    await assert.rejects(mod.rollbackSummaryIfNeeded({ changedFromFloor: 25 }), { code: 'metadata_not_saved' });
+    host.mode = 'save';
+    const cacheOnly = mod.readSummaryMemory(); cacheOnly.storySummary.sourceInvalidFromFloor = 1;
+    await mod.commitSummaryMemory(host.context.chatId, cacheOnly);
+    assert.equal(mod.getRuntimeSourceRollbackFloor(), 25);
+    assert.equal((await mod.rollbackSummaryIfNeeded()).status, 'rolled_back');
+    assert.equal(ext().storySummary.lastSummarizedMesId, 23);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
 });
 
 for (const cancel of [false, true]) test(`manual summary owns cancellation while an earlier edit is saving (cancel: ${cancel})`, async () => {

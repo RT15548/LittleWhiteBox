@@ -12,7 +12,7 @@ import { parseHTML } from 'linkedom';
 const presentation = new URL('../apps/game/island/presentation/', import.meta.url);
 const substitutes = new Map([
     [new URL('scene.js', presentation).href, 'export const createIslandScene = () => ({ update() {}, setActive() {}, changeZoom() {}, dispose() {} });'],
-    [new URL('character-loader.js', presentation).href, 'export const loadCharacters = async () => ({ dispose() {} });'],
+    [new URL('character-loader.js', presentation).href, 'export const loadCharacters = (...args) => globalThis.__islandCharacterLoader(...args);'],
     [new URL('character-media.js', presentation).href, 'export const playerCharacterKey = identity => `player-${identity.gender}-${identity.appearanceAge}`; export const characterPortrait = key => `/${key}.png`;'],
 ]);
 const loader = registerHooks({
@@ -39,6 +39,9 @@ const loader = registerHooks({
     },
 });
 const dom = parseHTML('<html><body></body></html>');
+const characterLoader = { current: async (_identity, _signal, report) => { report?.(7, 7); return { dispose() {} }; } };
+const characterLoaderDescriptor = Object.getOwnPropertyDescriptor(globalThis, '__islandCharacterLoader');
+Object.defineProperty(globalThis, '__islandCharacterLoader', { configurable: true, writable: true, value: (...args) => characterLoader.current(...args) });
 // Browser elements are not plain objects; Vue must not proxy the simulated DOM's internal node links.
 Object.defineProperty(dom.window.HTMLElement.prototype, Symbol.toStringTag, { configurable: true, value: 'HTMLElement' });
 const globals = new Map();
@@ -63,6 +66,8 @@ const { observe, openScene } = await import('../apps/game/island/scene.ts');
 const { screenToWorld } = await import('../apps/game/island/presentation/camera.ts');
 after(() => {
     loader.deregister();
+    if (characterLoaderDescriptor) { Object.defineProperty(globalThis, '__islandCharacterLoader', characterLoaderDescriptor); }
+    else { delete globalThis.__islandCharacterLoader; }
     for (const [key, descriptor] of globals) {
         if (descriptor) { Object.defineProperty(globalThis, key, descriptor); }
         else { delete globalThis[key]; }
@@ -89,7 +94,7 @@ function bridgeFor(initial = hostView()) {
         async request(type, payload) {
             calls.push({ type, payload });
             if (type === 'game/island/start') { return bridge.start(payload); }
-            if (type === 'game/island/context') { return { result: { usage: { used: 0, limit: 100, trim: 80, system: 0, rules: 0, story: 0 } } }; }
+            if (type === 'game/island/context') { return { result: { usage: { used: 0, limit: 158000, refresh: 128000, system: 0, rules: 0, story: 0 } } }; }
             return { result: state };
         },
     };
@@ -135,6 +140,30 @@ function scrollMetrics(log) {
         row.getBoundingClientRect = () => ({ top: index * 80 - position, bottom: (index + 1) * 80 - position });
     }
 }
+
+test('scene loading shows completed character resources before controls become available', async t => {
+    let report, complete;
+    characterLoader.current = async (_identity, _signal, next) => {
+        report = next; report(0, 7);
+        return await new Promise(resolve => { complete = () => resolve({ dispose() {} }); });
+    };
+    t.after(() => { characterLoader.current = async (_identity, _signal, next) => { next?.(7, 7); return { dispose() {} }; }; });
+    const readiness = [], directions = [];
+    const ui = mount(t, () => h(IslandField, { observation: hostView().player, identity, disabled: false,
+        onReady: value => readiness.push(value), onSteer: (x, y) => directions.push({ x, y }) }));
+    await flush();
+    const progress = () => ui.root.querySelector('progress');
+    assert.equal(progress().getAttribute('value'), '0');
+    assert.equal(progress().getAttribute('max'), '7');
+    assert.deepEqual(readiness, [false]);
+    report(3, 7); await flush();
+    assert.equal(progress().getAttribute('value'), '3');
+    event(ui.root.querySelector('.island-field'), 'keydown', { key: 'w' });
+    assert.equal(directions.length, 0);
+    report(7, 7); complete(); await flush();
+    assert.equal(progress(), null);
+    assert.deepEqual(readiness, [false, true]);
+});
 
 test('a late new-journey acknowledgement cannot resume a deactivated room', async t => {
     const connection = bridgeFor();

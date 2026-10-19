@@ -5,7 +5,7 @@ import { getContext } from "../../../../../../extensions.js";
 import { chat_metadata } from "../../../../../../../script.js";
 import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
-import { clearEventVectors, deleteEventVectorsByIds } from "../vector/storage/chunk-store.js";
+import { clearEventVectors, deleteEventVectorsByIds, deleteChunksFromFloor } from "../vector/storage/chunk-store.js";
 import {
     applyCharacterAliasUpdates,
     canonicalizeIncrementalSummaryData,
@@ -25,7 +25,7 @@ import { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { maintenanceImpact, sameMemory, restoreMaintenance } from '../maintenance/domain.js';
 import { deleteStateVectorsByIds, deleteStateVectorsFromFloor, deleteStateVectorsAtFloors } from '../vector/storage/state-store.js';
 import { readSummaryMemory, getPublishedSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
-    getRuntimeInvalidSourceFloor, noteInvalidMemorySource, waitForMemoryCommit } from './memory-commit.js';
+    getRuntimeInvalidSourceFloor, getRuntimeSourceRollbackFloor, noteInvalidMemorySource, waitForMemoryCommit } from './memory-commit.js';
 import { invalidateMemoryAnchors, invalidateMemoryAnchorsAtFloors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
 const MODULE_ID = 'summaryStore';
@@ -311,8 +311,8 @@ export function isSummaryRollbackRequired(store, currentLength) {
 }
 
 export function isSummarySourceValid(store, currentLength) {
-    return getRuntimeInvalidSourceFloor() == null && store?.summaryInvalid !== true
-        && store?.sourceInvalidFromFloor == null
+    return getRuntimeInvalidSourceFloor() == null && getRuntimeSourceRollbackFloor() == null && store?.summaryInvalid !== true
+        && store?.sourceInvalidFromFloor == null && store?.sourceRollbackFromFloor == null
         && !isSummaryRollbackRequired(store, currentLength);
 }
 
@@ -580,34 +580,40 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
 export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalidateFromFloor = null, invalidateFloors = null, invalidateSourceCache = null } = {}) {
     const { chat, chatId } = getContext();
     const currentLength = Array.isArray(chat) ? chat.length : 0;
-    let validPrefixLength = Number.isInteger(changedFromFloor) && changedFromFloor >= 0
-        ? Math.min(currentLength, changedFromFloor) : currentLength;
-    const store = getSummaryStore();
-    if (store?.sourceInvalidFromFloor != null) validPrefixLength = Math.min(validPrefixLength, store.sourceInvalidFromFloor);
-    if (getRuntimeInvalidSourceFloor() != null) validPrefixLength = Math.min(validPrefixLength, getRuntimeInvalidSourceFloor());
     // Busy is not an error: wait out the in-flight save. The loop re-arms if another
     // writer takes the transaction first, and commitSummaryMemory re-waits anyway.
     while (getMemoryCommitState() === 'saving') await waitForMemoryCommit();
     assertMemoryWritable(chatId);
+    const store = getSummaryStore();
     const previous = readSummaryMemory();
+    // Cache cleanup failures never imply an L2 undo. Only observed deletion/swipe
+    // or an explicitly retained rollback boundary can shorten valid L2 source.
+    const validPrefixLength = Math.min(currentLength, changedFromFloor ?? Infinity,
+        store?.sourceRollbackFromFloor ?? Infinity, getRuntimeSourceRollbackFloor() ?? Infinity);
+    const pendingCacheFloor = Math.min(store?.sourceInvalidFromFloor ?? Infinity, getRuntimeInvalidSourceFloor() ?? Infinity);
     // Retire before undo, including operations whose anchors were already deleted by the Agent.
     const rollbackRequired = store && isSummaryRollbackRequired(store, validPrefixLength);
-    const localEdit = invalidateFloors !== null && validPrefixLength === currentLength && changedFromFloor === null && !rollbackRequired;
-    const invalidFrom = Math.min(validPrefixLength, invalidateFromFloor ?? changedFromFloor ?? currentLength, ...(invalidateFloors || []));
+    const localEdit = invalidateFloors !== null && pendingCacheFloor === Infinity
+        && validPrefixLength === currentLength && changedFromFloor === null && !rollbackRequired;
+    const invalidFrom = Math.min(currentLength, pendingCacheFloor, invalidateFromFloor ?? changedFromFloor ?? currentLength, ...(invalidateFloors || []));
     let { next } = localEdit ? invalidateMemoryAnchorsAtFloors(previous, invalidateFloors) : invalidateMemoryAnchors(previous, invalidFrom);
     const invalidate = async () => {
         if (localEdit) await deleteStateVectorsAtFloors(chatId, invalidateFloors);
         else await deleteStateVectorsFromFloor(chatId, invalidFrom);
-        await invalidateSourceCache?.();
+        // A reloaded page has no tracker callback. A retained cache boundary may
+        // also predate this page's narrower observation; retire that whole suffix.
+        if (Number.isFinite(pendingCacheFloor) || (!localEdit && !invalidateSourceCache)) await deleteChunksFromFloor(chatId, invalidFrom);
+        else await invalidateSourceCache?.();
     };
     if (!rollbackRequired) {
-        if (Object.hasOwn(next.storySummary, 'sourceInvalidFromFloor')) {
+        if (Object.hasOwn(next.storySummary, 'sourceInvalidFromFloor') || Object.hasOwn(next.storySummary, 'sourceRollbackFromFloor')) {
             const storySummary = { ...next.storySummary };
             delete storySummary.sourceInvalidFromFloor;
+            delete storySummary.sourceRollbackFromFloor;
             next = { ...next, storySummary };
         }
         try {
-            if (next !== previous || getRuntimeInvalidSourceFloor() != null) {
+            if (next !== previous || getRuntimeInvalidSourceFloor() != null || getRuntimeSourceRollbackFloor() != null) {
                 await commitSummaryMemory(chatId, next, { previous, invalidate, resolvesSourceInvalidity: true });
             }
             else await invalidate();
@@ -626,22 +632,24 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
         // checked by its own consumers, not by the raw-source maintenance gate.
         return { status: 'not_needed' };
     }
-    noteInvalidMemorySource(validPrefixLength);
+    noteInvalidMemorySource(invalidFrom, validPrefixLength);
     // Real L2 undo mutates its draft; never let it change the detached baseline.
     next = structuredClone(next);
     const history = next.storySummary.summaryHistory || [];
     const target = [...history].reverse().find(entry => entry.endMesId < validPrefixLength)?.endMesId ?? -1;
     const baseline = history.find(entry => entry.kind === 'baseline');
     if (baseline && target < baseline.endMesId) {
-        next.storySummary.sourceInvalidFromFloor = validPrefixLength;
-        await commitSummaryMemory(chatId, next, { previous, invalidate });
+        delete next.storySummary.sourceInvalidFromFloor;
+        next.storySummary.sourceRollbackFromFloor = validPrefixLength;
+        await commitSummaryMemory(chatId, next, { previous, invalidate, resolvesSourceInvalidity: true });
         return { status: 'failed', reason: 'source_boundary_invalid', targetEndMesId: target };
     }
-    const rollback = await executeRollback(chatId, store, target, { previous, next, invalidate });
+    const rollback = await executeRollback(chatId, store, target, { previous, next, invalidate, resolvesSourceInvalidity: true });
     if (rollback.status === 'failed' && getMemoryCommitState() !== 'unconfirmed') {
         const blocked = structuredClone(previous);
         if (rollback.reason === 'history_discontinuous') blocked.storySummary.summaryInvalid = true;
-        else blocked.storySummary.sourceInvalidFromFloor = validPrefixLength;
+        blocked.storySummary.sourceInvalidFromFloor = invalidFrom;
+        blocked.storySummary.sourceRollbackFromFloor = validPrefixLength;
         // Cache cleanup failed or undo conflicted: preserve memory, persist only the source/integrity block.
         await commitSummaryMemory(chatId, blocked, { previous });
     }
@@ -707,9 +715,12 @@ export async function executeRollback(chatId, store, targetEndMesId, options = {
     if (maintenanceOnly) draft.summaryHistory.find(entry => entry.endMesId === targetEndMesId).maintenance = [];
     delete draft.summaryInvalid;
     const invalidSourceFloor = Math.min(draft.sourceInvalidFromFloor ?? Infinity, getRuntimeInvalidSourceFloor() ?? Infinity);
-    const sourceResolved = targetEndMesId < invalidSourceFloor;
-    if (sourceResolved) delete draft.sourceInvalidFromFloor;
+    const rollbackSourceFloor = Math.min(draft.sourceRollbackFromFloor ?? Infinity, getRuntimeSourceRollbackFloor() ?? Infinity);
+    // Undoing L2 alone does not prove that stale raw-source caches were retired.
+    if (options.resolvesSourceInvalidity || !Number.isFinite(invalidSourceFloor)) delete draft.sourceInvalidFromFloor;
     else draft.sourceInvalidFromFloor = invalidSourceFloor;
+    if (targetEndMesId < rollbackSourceFloor) delete draft.sourceRollbackFromFloor;
+    else draft.sourceRollbackFromFloor = rollbackSourceFloor;
     if (targetEndMesId < 0) {
         draft.hideSummarizedHistory = false;
         if (draft.json) draft.pendingImportBoundary = true;
@@ -717,7 +728,8 @@ export async function executeRollback(chatId, store, targetEndMesId, options = {
     } else delete draft.pendingImportBoundary;
     draft.updatedAt = Date.now();
     try {
-        await commitSummaryMemory(chatId, next, { previous, resolvesSourceInvalidity: sourceResolved, invalidate: async () => {
+        // Both runtime boundaries are now either resolved or represented in draft.
+        await commitSummaryMemory(chatId, next, { previous, resolvesSourceInvalidity: true, invalidate: async () => {
             await options.invalidate?.();
             if (targetEndMesId < 0 && !draft.json) await clearEventVectors(chatId);
             else if (deletedEventIds.length) await deleteEventVectorsByIds(chatId, deletedEventIds);
@@ -772,10 +784,14 @@ export async function clearSummaryData(chatId) {
     delete store.pendingImportBoundary;
     delete store.summaryInvalid;
     delete store.sourceInvalidFromFloor;
+    delete store.sourceRollbackFromFloor;
     store.hideSummarizedHistory = false;
     store.updatedAt = Date.now();
     await commitSummaryMemory(chatId, next, { previous, resolvesSourceInvalidity: true, invalidate: async () => {
-        if (Number.isFinite(invalidSourceFloor)) await deleteStateVectorsFromFloor(chatId, invalidSourceFloor);
+        if (Number.isFinite(invalidSourceFloor)) {
+            await deleteStateVectorsFromFloor(chatId, invalidSourceFloor);
+            await deleteChunksFromFloor(chatId, invalidSourceFloor);
+        }
         await clearEventVectors(chatId);
     } });
 }

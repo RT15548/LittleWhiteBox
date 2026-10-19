@@ -24,7 +24,7 @@ callsRemaining counts the model requests left in this run.
 In long runs, earlier turns are replaced by workingNotes holding your findings and open questions, and the next message contains task, workingNotes and callsRemaining. Requests that write workingNotes also count against callsRemaining. task still shows which ranges are complete; reread record values you need.`,
 
     `## Access
-Read: ReadMemory reads current memories; SearchSource and ReadSource read dialogue through task.cutoff. The story view removes configured start…end blocks; raw also contains those removed blocks, which are not story evidence. Role describes the message; text establishes who spoke or acted.
+Read: ReadMemory reads current memories; SearchSource and ReadSource read the current dialogue through task.cutoff, including edits made after summary generation or earlier reads. Correct stale memories against that dialogue; changed text does not end the run. The story view removes configured start…end blocks; raw also contains those removed blocks, which are not story evidence. Role describes the message; text establishes who spoke or acted.
 Write: EditMemory edits or deletes existing records and merges events. CompleteMaintenance records a finished floor range.
 No access: dialogue is read-only, dialogue beyond task.cutoff is out of reach, and new records come only from summary generation. Mention a missing record in your reply when it needs generation.`,
 

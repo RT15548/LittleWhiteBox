@@ -13,6 +13,7 @@ export function createMemoryScheduler({ enabled, run, changed = () => {} }) {
         while (pending) {
             const task = pending;
             pending = null;
+            if (!enabled()) { notify(); continue; }
             const controller = new AbortController();
             active = { ...task, controller, phase: 'running' };
             notify();
