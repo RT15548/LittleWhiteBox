@@ -9,6 +9,7 @@ import { measureGmContext, runIslandGm } from '../apps/game/island/agent/runner.
 import { interpretPlayerIntent } from '../apps/game/island/agent/intent-runner.ts';
 import { runIslandToolLoop } from '../apps/game/island/agent/tool-loop.ts';
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
+import { createAgentAdapter } from '../../agent-core/provider-config.js';
 
 const initial = { request: { goal: 'collect-water', pending: ['boil-water'] }, recent: { entries: [{ source: 42 }], earlier: true } };
 const largeKnowledge = marker => ({ marker, text: 'evidence '.repeat(27_000) });
@@ -69,7 +70,12 @@ test('a fresh six-NPC scene reaches the model and completes with ample budget', 
 for (const native of [false, true]) {
     test(`${native ? 'native' : 'replayed'} compression retains original intent, old knowledge/actions and newest complete batch`, async () => {
         const executed = [], firstBatch = { toolCalls: [call('read', 'ReadKnowledge'), call('act', 'Act')] };
-        const lastBatch = { toolCalls: [call('observe', 'Observe'), call('tail', 'Observe')] };
+        const googleContent = { role: 'model', parts: [
+            { text: 'native reasoning', thought: true, thoughtSignature: 'google-signature' },
+            { functionCall: { id: 'observe', name: 'Observe', args: {} } },
+            { functionCall: { id: 'tail', name: 'Observe', args: {} } },
+        ] };
+        const lastBatch = { toolCalls: [call('observe', 'Observe'), call('tail', 'Observe')], providerPayload: { googleContent } };
         const h = loopGateway([firstBatch, lastBatch, request => {
             assert.deepEqual(executed, ['ReadKnowledge', 'Act', 'Observe', 'Observe']);
             const source = JSON.parse(request.messages[0].content);
@@ -85,6 +91,7 @@ for (const native of [false, true]) {
             assert.ok(request.messages.some(m => String(m.content).includes(JSON.stringify(summary))));
             assert.deepEqual(request.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id), ['observe', 'tail']);
             assert.deepEqual(request.messages.find(m => m.role === 'assistant').tool_calls.map(c => c.id), ['observe', 'tail']);
+            assert.deepEqual(request.messages.find(m => m.role === 'assistant').providerPayload, { googleContent });
             assert.equal(request.toolResponses, undefined);
             assert.ok(count(request) < P.contextRefreshTokens);
             return { text: 'done' };
@@ -106,6 +113,77 @@ for (const native of [false, true]) {
         } else {
             assert.equal(h.requests.at(-1).session, h.requests[0].session);
         }
+    });
+}
+
+for (const provider of ['anthropic', 'sillytavern-claude']) {
+    test(`${provider} wire requests clear only pre-compaction thinking and preserve tool pairs`, async t => {
+        t.mock.method(console, 'info', () => {});
+        const signedContent = ids => [
+            { type: 'thinking', thinking: '', signature: `signature-${ids[0]}` },
+            { type: 'redacted_thinking', data: `redacted-${ids[0]}` },
+            { type: 'text', text: `batch-${ids[0]}` },
+            ...ids.map(id => ({ type: 'tool_use', id, name: 'Observe', input: { id } })),
+        ];
+        const older = signedContent(['older']), retained = signedContent(['retained', 'tail']), fresh = signedContent(['fresh']);
+        const originals = structuredClone([older, retained, fresh]);
+        const responses = [older, retained, [{ type: 'text', text: summary }], fresh, [{ type: 'text', text: 'done' }]];
+        const bodies = [];
+        const config = { provider, model: 'claude-fable-5-1', apiKey: 'offline-fixture', baseUrl: 'https://fixture.invalid' };
+        const receive = body => {
+            bodies.push(structuredClone(body));
+            const content = responses.shift();
+            assert.ok(content, 'No additional model request is authorized');
+            return { id: `message-${bodies.length}`, type: 'message', role: 'assistant', model: config.model, content,
+                stop_reason: content.some(block => block.type === 'tool_use') ? 'tool_use' : 'end_turn',
+                usage: { input_tokens: 1, output_tokens: 1 } };
+        };
+        const hostClient = {
+            buildHostChatCompletionGenerateRequest: async payload => ({ body: payload }),
+            createHostChatCompletion: async payload => receive(payload),
+            streamHostChatCompletion: async (payload, accept) => {
+                const response = receive(payload);
+                accept({ type: 'message_start', message: { ...response, content: [] } });
+                response.content.forEach((content_block, index) => accept({ type: 'content_block_start', index, content_block }));
+                accept({ type: 'message_delta', delta: { stop_reason: response.stop_reason } });
+            },
+        };
+        const gateway = {
+            async loadConfig() { return config; },
+            async openSession() {
+                const adapter = createAgentAdapter(config, { hostClient });
+                if (provider === 'anthropic') adapter.client = adapter.client.withOptions({ fetch: async (_url, init) =>
+                    Response.json(receive(JSON.parse(init.body))) });
+                return { providerConfig: config, supportsSessionToolLoop: false,
+                    run: request => adapter.chat({ ...request, reasoning: { mode: 'on' } }) };
+            },
+        };
+        await runIslandToolLoop(loopOptions(gateway, { async execute(_name, { id }) {
+            return ['older', 'retained'].includes(id) ? largeKnowledge(id) : { id };
+        } }));
+        assert.equal(bodies.length, 5);
+        const assistants = body => body.messages.filter(message => message.role === 'assistant');
+        const thinking = body => assistants(body).flatMap(message => message.content)
+            .filter(block => ['thinking', 'redacted_thinking'].includes(block.type));
+        // Normal tool continuation preserves even empty-display signed thinking.
+        assert.deepEqual(thinking(bodies[1]), older.slice(0, 2));
+        assert.deepEqual(assistants(bodies[2]), []); // Separate summary request.
+        assert.deepEqual(thinking(bodies[3]), []);
+        assert.deepEqual(assistants(bodies[3])[0].content, retained.slice(2));
+        // Fresh reasoning after the prefix rewrite is kept on later continuation.
+        assert.deepEqual(thinking(bodies[4]), fresh.slice(0, 2));
+        for (const index of [3, 4]) {
+            const expectedIds = index === 3 ? ['retained', 'tail'] : ['retained', 'tail', 'fresh'];
+            const uses = assistants(bodies[index]).flatMap(message => message.content).filter(block => block.type === 'tool_use');
+            const results = provider === 'anthropic'
+                ? bodies[index].messages.flatMap(message => message.content).filter(block => block.type === 'tool_result')
+                : bodies[index].messages.filter(message => message.role === 'tool');
+            assert.deepEqual(uses.map(block => block.id), expectedIds);
+            assert.deepEqual(results.map(block => block.tool_use_id || block.tool_call_id), expectedIds);
+            assert.deepEqual(uses.map(block => block.input), expectedIds.map(id => ({ id })));
+            assert.deepEqual(results.map(block => JSON.parse(block.content).ok), expectedIds.map(() => true));
+        }
+        assert.deepEqual([older, retained, fresh], originals);
     });
 }
 

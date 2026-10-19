@@ -1,6 +1,6 @@
 import { DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { isPendingJobLeaseLost } from './recoverable-image-jobs.js';
-import { subscribeDrawRunActivity } from './draw-run-activity.js';
+import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 
 export class FloorImageBusyError extends Error {
     constructor() { super(DRAW_SLOT_COPY.floorBusy); }
@@ -134,6 +134,14 @@ export function failFloorImageJob(job, error) {
     else if (job.controller.signal.aborted) job.aborted = true;
     else { job.state = 'error'; job.data = { error: job.classifyError?.(error) }; }
     publish(job);
+    if (job.runId && error.code === 'DRAW_RUN_CANCELLED' && !error.uncertain) {
+        // The submission boundary confirmed that no POST was sent and no marker
+        // remains. Let cancellation bookkeeping consume that fact even if its ACK
+        // arrived before the asynchronous marker save/cleanup finished.
+        publishDrawRunActivity({ phase: 'reconciled', runId: job.runId, chatId: job.chatId,
+            messageId: job.context?.()?.chat?.indexOf(job.message) ?? job.messageId,
+            swipeIndex: job.swipeIndex, wakeRecovery: true });
+    }
 }
 
 export function getFloorImagePhase(job) {

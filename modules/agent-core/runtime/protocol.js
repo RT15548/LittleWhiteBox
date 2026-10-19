@@ -141,6 +141,21 @@ export function buildProviderAssistantToolCallMessage(result = {}, toolCalls = [
     };
 }
 
+// A client-written summary changes the prefix bound into Anthropic signatures.
+// Apply only to turns carried across that edit; new and unedited turns keep all
+// thinking. Keep text/tool_use and other providers' native payloads untouched.
+// https://platform.claude.com/docs/en/build-with-claude/preserved-thinking#custom-compaction-on-the-client
+export function dropInvalidatedThinkingFromMessage(message) {
+    const content = message?.providerPayload?.anthropicContent;
+    if (!Array.isArray(content)) return message;
+    return {
+        ...message,
+        providerPayload: { ...message.providerPayload,
+            anthropicContent: content.filter(block => !['thinking', 'redacted_thinking'].includes(block?.type)),
+        },
+    };
+}
+
 export function buildProviderToolResultMessage(message = {}) {
     const toolName = String(message.toolName || message.tool_name || '').trim();
     return {

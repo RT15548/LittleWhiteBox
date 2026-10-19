@@ -16,7 +16,10 @@ export function imageHttpFailure(error, status) {
 export function createImageRequestAttempt() {
     let submitted = false;
     return {
-        submit() { submitted = true; },
+        submit(signal) {
+            signal?.throwIfAborted();
+            submitted = true;
+        },
         failure(error) {
             return withImageRequestOutcome(error, error.imageRequestOutcome
                 ?? (submitted ? ImageRequestOutcome.UNKNOWN : ImageRequestOutcome.NOT_SUBMITTED));

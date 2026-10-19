@@ -15,6 +15,7 @@ export const DrawRunRecoveryAction = Object.freeze({
     REQUEST_CANCEL: 'request_cancel',
     CLEAR_MISSING_MARKER: 'clear_missing_marker',
     SETTLE_TERMINAL: 'settle_terminal',
+    SETTLE_CANCELLATION: 'settle_cancellation',
 });
 
 export const DrawRunAdoptionRecoveryStatus = Object.freeze({
@@ -74,6 +75,7 @@ export function planDrawRunRecovery({
     records = [],
     farewells = [],
     currentChatId = '',
+    acknowledgedRunIds = new Set(),
     now = Date.now(),
 } = {}) {
     const activeChatId = String(currentChatId || '');
@@ -142,6 +144,16 @@ export function planDrawRunRecovery({
                 ? planPendingAdoption({ markerEntry, run, record, runFarewell, now })
                 : { action: DrawRunRecoveryAction.RECOVER_ADOPTION };
             plan.push({ ...decision, markerEntry, run, record, runFarewell, jobFarewell });
+            continue;
+        }
+        // The atomic cancellation ACK fences late POSTs and future child creation.
+        // An undispatched run need not finish unwinding its Planner to release UI.
+        // Existing adoption/delivery records above still own every possible image.
+        if ((acknowledgedRunIds.has(runId) || cancellationReachedBackend)
+            && !run?.childJobId && !run?.handoffManifest
+            && !TERMINAL_STATES.has(run?.state) && !HANDOFF_STATES.has(run?.state)) {
+            plan.push({ action: DrawRunRecoveryAction.SETTLE_CANCELLATION,
+                markerEntry, run, record, runFarewell, jobFarewell });
             continue;
         }
         if (!run) {

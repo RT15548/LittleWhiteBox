@@ -1,6 +1,6 @@
 import type { XiaobaiOsAgentGateway } from '../../../../capabilities/agent/gateway.js';
 import { parseToolArguments, ToolArgumentsError } from '../../../../capabilities/agent/tool-arguments.js';
-import { buildProviderAssistantToolCallMessage, resolveResultToolCalls } from '../../../../../agent-core/runtime/protocol.js';
+import { buildProviderAssistantToolCallMessage, dropInvalidatedThinkingFromMessage, resolveResultToolCalls } from '../../../../../agent-core/runtime/protocol.js';
 import { estimateConversationTokens } from '../../../../../agent-core/runtime/context-tokens.js';
 import { fail, isActionFault } from '../fault.js';
 import { AGENT_POLICY as P } from './policy.js';
@@ -72,11 +72,12 @@ export async function runIslandToolLoop(options: IslandAgentOptions & {
         const text = typeof result.text === 'string' ? result.text.trim() : '';
         if (result.refused || !text || result.completion === 'incomplete' || result.truncated === true
             || resolveResultToolCalls(result, summarizer.providerConfig).length) { fail('context_refresh_failed'); }
-        const retained = groups.slice(-1), after = inputTokens(messages(text, retained));
+        const retained = groups.slice(-1).map(group => group.map(dropInvalidatedThinkingFromMessage));
+        const after = inputTokens(messages(text, retained));
         if (after >= before) { fail('context_refresh_failed'); }
         if (after > P.inputTokens - P.outputTokens) { fail('context_full'); }
         summary = text;
-        groups.splice(0, groups.length - 1);
+        groups.splice(0, groups.length, ...retained);
         // Native providers retain their protocol stream: explicit replacement messages must
         // start a fresh session, without the old session's pending toolResponses.
         if (session.supportsSessionToolLoop) { session = await agent.openSession(config); assertCurrent(); }

@@ -1419,7 +1419,7 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
         const request = endpoint => {
             const body = JSON.stringify({ url: endpoint === NAI_BACKEND_GENERATE ? legacyBaseUrl : url,
                 key: apiKey, insecure: !!insecure, payload, timeout });
-            attempt.submit();
+            attempt.submit(signal);
             return fetch(endpoint, {
                 method: 'POST',
                 headers: getRequestHeaders(),
@@ -1465,7 +1465,7 @@ async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, ti
     let response;
     try {
         const body = JSON.stringify({ url, key: apiKey, insecure: !!insecure, payload, timeout });
-        attempt.submit();
+        attempt.submit(signal);
         response = await fetch(NAI_BACKEND_GENERATE_STREAM, {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -1700,7 +1700,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
         if (prepared.isV5) {
             body.append('request', new Blob([JSON.stringify(prepared.payload)], { type: 'application/json' }), 'blob');
         }
-        attempt.submit();
+        attempt.submit(controller.signal);
         const response = await fetch(prepared.apiUrl, {
             method: 'POST',
             headers: {

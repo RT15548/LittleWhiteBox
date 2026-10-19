@@ -5,12 +5,12 @@ import { COPY as c } from '../copy.js';
 
 const props = defineProps<{ client: ReturnType<typeof createIslandClient> }>();
 const view = computed(() => props.client.view.value);
-const pending = computed(() => !!view.value?.pending || !!view.value?.memoryPending);
+const pending = computed(() => props.client.saveNeedsRecovery.value && (!!view.value?.pending || !!view.value?.memoryPending));
 const error = computed(() => props.client.error.value);
 </script>
 
 <template>
-    <div v-if="error || pending || client.uncertain.value" class="island-recovery">
+    <div v-if="error || client.saveNeedsRecovery.value || client.uncertain.value" class="island-recovery">
         <div class="island-recovery-save" role="alert">
             <span>{{ error || c.recover }}</span>
             <button :disabled="client.busy.value" @click="pending ? client.recover() : client.read()">{{ pending || client.uncertain.value ? c.recover : c.retry }}</button>

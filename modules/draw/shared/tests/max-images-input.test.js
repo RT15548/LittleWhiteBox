@@ -9,18 +9,23 @@ function fixture(t, size = 1) {
     const { document, window } = parseHTML('<html><body></body></html>');
     const inputs = Array.from({ length: size }, () => document.body.appendChild(document.createElement('input')));
     let count = 2, release, started;
+    let providerQueue = Promise.resolve();
     const pending = new Promise(resolve => { release = resolve; });
     const saving = new Promise(resolve => { started = resolve; });
     const saves = [];
     const refresh = (input, force = false) => syncMaxImagesInput(input, { override: count, force });
     const bindings = inputs.map(input => bindMaxImagesInput(input, {
         getOverride: () => count, refresh,
-        save: async next => {
-            saves.push(next);
-            if (saves.length === 1) { started(); await pending; }
-            count = next;
-            inputs.forEach(element => refresh(element));
-            return true;
+        save: next => {
+            const result = providerQueue.then(async () => {
+                saves.push(next);
+                if (saves.length === 1) { started(); await pending; }
+                count = next;
+                inputs.forEach(element => refresh(element));
+                return true;
+            });
+            providerQueue = result;
+            return result;
         },
     }));
     inputs.forEach(input => refresh(input));
@@ -54,4 +59,22 @@ test('focusing an untouched second menu cannot undo a saved count on blur', asyn
     await h.bindings[1].flush();
     assert.equal(h.count(), 5);
     assert.deepEqual(h.saves, [5]);
+});
+
+for (const latest of ['10', '2']) test(`submissions across menus keep their order, including returning to ${latest}`, async t => {
+    const h = fixture(t, 2);
+    h.type(0, '5');
+    const first = h.bindings[0].flush(); await h.saving;
+    h.type(0, '8');
+    const second = h.bindings[0].flush();
+    h.type(1, latest);
+    const third = h.bindings[1].flush();
+    // Enter followed by blur is not another edit; it must not enqueue stale 8
+    // after the second menu's later submission while saves are still pending.
+    const blur = h.bindings[0].flush();
+    h.release();
+    await Promise.all([first, second, third, blur]);
+    assert.deepEqual(h.saves, [5, 8, Number(latest)]);
+    assert.equal(h.count(), Number(latest));
+    assert.deepEqual(h.inputs.map(input => input.value), [latest, latest]);
 });

@@ -49,6 +49,25 @@ function record(runId = 'run-test-301', overrides = {}) {
     return result;
 }
 
+test('a cancellation ACK releases only an undispatched run, never its existing child delivery', () => {
+    const runId = 'acknowledged-run';
+    const options = { markers: [marker(runId, NOW)], now: NOW, acknowledgedRunIds: new Set([runId]) };
+    for (const state of ['missing', 'queued', 'planning', 'cancelling']) {
+        const result = planDrawRunRecovery({ ...options,
+            runs: state === 'missing' ? [] : [{ id: runId, state }] });
+        assert.equal(result.plan[0].action, DrawRunRecoveryAction.SETTLE_CANCELLATION);
+    }
+    const dispatched = run(runId);
+    assert.equal(planDrawRunRecovery({ ...options, runs: [dispatched] }).plan[0].action, DrawRunRecoveryAction.ADOPT);
+    assert.equal(planDrawRunRecovery({ ...options, runs: [dispatched], records: [record(runId)] }).plan[0].action,
+        DrawRunRecoveryAction.DROP_STALE_LOCAL_MARKER);
+    const pending = record(runId, { state: PendingJobState.ADOPTING, originRunAckReady: false });
+    assert.equal(planDrawRunRecovery({ ...options, runs: [dispatched], records: [pending] }).plan[0].action,
+        DrawRunRecoveryAction.ADOPT);
+    const unknown = planDrawRunRecovery({ ...options, acknowledgedRunIds: new Set(), runs: [] });
+    assert.equal(unknown.plan[0].action, DrawRunRecoveryAction.WAIT);
+});
+
 test('a dispatched Draw Run is adopted until its journal is finalized', () => {
     const withoutJournal = planDrawRunRecovery({
         markers: [marker()],

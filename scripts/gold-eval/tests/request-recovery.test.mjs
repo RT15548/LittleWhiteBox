@@ -64,6 +64,9 @@ test('permanent errors and cancellation do not repeatedly dispatch requests', as
     const controller = new AbortController();
     globalThis.fetch = async () => { dispatched++; return new Response('', { status: 429 }); };
     globalThis.fetch.recoverTransientRequest = createRequestRecovery(policy, {
+        // Cancellation happens inside the retry wait. Wall-clock scheduling must
+        // not consume its 1ms window before this fixture can issue the abort.
+        clock: () => 0,
         wait: async (_, signal) => { controller.abort(); signal.throwIfAborted(); },
     });
     await assert.rejects(() => withExternalCallTrace(() => fetch(endpoint, { ...request('abort'), signal: controller.signal })),

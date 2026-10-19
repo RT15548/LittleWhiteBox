@@ -89,8 +89,14 @@ export function getPublishedSummaryMemory() {
 
 export function readPublishedSummaryMemory() { return structuredClone(getPublishedSummaryMemory()); }
 
+function assertMemoryOwner(chatId, owner) {
+    if (!chatId || getContext()?.chatId !== chatId || owner && chat_metadata.extensions?.[EXT_ID] !== owner) {
+        throw new MetadataConfirmationError('summary_chat_changed_before_save');
+    }
+}
+
 export function assertMemoryWritable(chatId = getContext()?.chatId) {
-    if (!chatId || getContext()?.chatId !== chatId) throw new MetadataConfirmationError('summary_chat_changed_before_save');
+    assertMemoryOwner(chatId);
     const status = getMemoryCommitState();
     if (['saving', 'unconfirmed'].includes(status)) throw new MetadataConfirmationError(`metadata_${status}`, status === 'unconfirmed');
 }
@@ -112,6 +118,9 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
     // introduced in that stretch (prep is sync by design; validate callbacks are sync).
     const owner = extension();
     for (;;) {
+        // A waiter still belongs to the metadata object it queued against. Check
+        // that identity before waiting or reconfirming, including after each await.
+        assertMemoryOwner(chatId, owner);
         const existing = transactions.get(owner);
         if (existing?.status === 'saving' || existing?.reconfirm) { await waitForMemoryCommit(); continue; }
         assertMemoryWritable(chatId);

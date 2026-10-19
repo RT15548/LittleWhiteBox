@@ -895,7 +895,7 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs, gener
     const proxySignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
     try {
         const payload = JSON.stringify({ url: settings.host, ...body });
-        attempt?.submit();
+        attempt?.submit(proxySignal.signal);
         const response = await fetch(`/api/sd/comfy/${path}`, {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -927,7 +927,7 @@ async function fetchComfyDirectJson(path, { signal, timeoutMs, method = 'GET', b
     const directSignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
     try {
         const url = createComfyUrl(path, {}, settings);
-        attempt?.submit();
+        attempt?.submit(directSignal.signal);
         const response = await fetch(url, {
             method,
             headers: {

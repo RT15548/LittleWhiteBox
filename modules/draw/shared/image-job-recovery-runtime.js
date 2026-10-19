@@ -9,7 +9,7 @@ import {
     reportImageBackendJobState,
 } from './backend-image-jobs.js';
 import { createDrawRunClient } from './draw-run-client.js';
-import { resumeDrawCancellations } from './draw-work-cancellation.js';
+import { resumeDrawCancellations, settleDrawRunCancellations } from './draw-work-cancellation.js';
 import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 import { runDrawRunRecoveryPass } from './draw-run-recovery-runtime.js';
 import {
@@ -413,8 +413,9 @@ function scheduleRecovery(delay = 0) {
 
 async function runRecoveryPass() {
     let cancellation;
+    const cancellationOwner = getCurrentUserHandle();
     try {
-        cancellation = await resumeDrawCancellations(runtimeClient, getCurrentUserHandle());
+        cancellation = await resumeDrawCancellations(runtimeClient, cancellationOwner);
     } catch (error) {
         // Without the journal we cannot identify the protected set. Individual
         // transport failures below must not stop unrelated result delivery.
@@ -444,6 +445,9 @@ async function runRecoveryPass() {
             ctx,
             records: allRecords.filter(record => !isBlocked(record)),
             excludedRunIds: blockedRunIds,
+            acknowledgedRunIds: cancellation.acknowledgedRunIds,
+            acknowledgedEntries: cancellation.acknowledgedEntries,
+            onCancellationSettled: runId => settleDrawRunCancellations(cancellationOwner, [runId]),
             farewells: readPageFarewells(),
             client: runtimeDrawRunClient,
             scheduleRecovery,

@@ -1,3 +1,5 @@
+import { resolveModelFamily } from '../../shared/host-llm/model-family.js';
+
 // Extra sampling settings belong to each provider configuration, alongside temperature.
 export const SAMPLING_PARAMETERS = Object.freeze([
     { key: 'topP', label: 'Top P', value: 1, min: 0, max: 1, step: 0.05 },
@@ -40,9 +42,27 @@ export function normalizeSampling(sampling = {}) {
     return result;
 }
 
-export function buildSamplingParameters(provider, sampling) {
+// Claude's sampling restrictions belong to the request, never to the saved preset.
+// https://platform.claude.com/docs/en/build-with-claude/thinking#feature-compatibility
+const CLAUDE_FIXED_SAMPLING_MODELS = new Set([
+    'claude-opus-4-7', 'claude-opus-4-8', 'claude-opus-5', 'claude-opus-5-5',
+    'claude-sonnet-5', 'claude-sonnet-5-5', 'claude-haiku-5-5',
+    'claude-fable-5', 'claude-fable-5-1', 'claude-mythos-5', 'claude-mythos-5-1', 'claude-mythos-preview',
+]);
+
+export function buildSamplingParameters(provider, sampling, context = {}) {
     const normalized = normalizeSampling(sampling);
-    return Object.fromEntries(samplingParametersFor(provider)
+    const parameters = Object.fromEntries(samplingParametersFor(provider)
         .filter(parameter => normalized[parameter.key]?.enabled)
         .map(parameter => [PROVIDER_FIELDS[provider][parameter.key], normalized[parameter.key].value]));
+    if ((provider !== 'anthropic' && provider !== 'sillytavern-claude')
+        || resolveModelFamily(context.model) !== 'claude') return parameters;
+    const model = String(context.model || '').toLowerCase().replaceAll('.', '-')
+        .match(/\bclaude-(?:opus|sonnet|haiku|fable|mythos)-(?:preview|\d+(?:-\d{1,2})?)(?=$|[-:/@])/)?.[0];
+    if (CLAUDE_FIXED_SAMPLING_MODELS.has(model)) return {};
+    if (context.reasoning?.mode === 'on') {
+        delete parameters.top_k;
+        if (parameters.top_p < 0.95 || parameters.top_p > 1) delete parameters.top_p;
+    }
+    return parameters;
 }

@@ -26,6 +26,58 @@ const expected = {
     'sillytavern-claude': { top_p: 0.83, top_k: 37 },
     'sillytavern-google': { top_p: 0.83, top_k: 37 },
 };
+const claudeCases = [
+    ...[0, 0.9, 0.9499, 1.01].map(topP => ({ model: 'claude-opus-4-6', mode: 'on', topP, fields: {} })),
+    { model: 'claude-opus-4-6', mode: 'on', topP: 0.95, fields: { top_p: 0.95 } },
+    { model: 'claude-sonnet-4-6', mode: 'on', topP: 1, fields: { top_p: 1 } },
+    ...['off', 'inherit'].map(mode => ({ model: 'claude-opus-4-6', mode, topP: 0.9, fields: { top_p: 0.9, top_k: 40 } })),
+    { model: 'claude-3-5-sonnet-20241022', mode: 'inherit', topP: 0.9, fields: { top_p: 0.9, top_k: 40 } },
+    ...['on', 'off', 'inherit'].map(mode => ({ model: 'claude-opus-4-7', mode, topP: 1, fields: {} })),
+    // Documented fixed-sampling models, including default-thinking requests.
+    ...['claude-opus-4-8', 'claude-opus-5', 'claude-opus-5-5', 'claude-sonnet-5', 'claude-sonnet-5-5',
+        'claude-haiku-5-5', 'claude-fable-5', 'claude-fable-5-1', 'claude-mythos-5', 'claude-mythos-5-1',
+        'claude-mythos-preview', 'anthropic/claude-opus-4.8', 'claude-opus-4-7-20260416']
+        .map(model => ({ model, mode: 'inherit', topP: 0.9, fields: {} })),
+    // No speculative fixed-sampling rules for unknown models or versions.
+    ...['fixture', 'claude-opus-4-70', 'claude-opus-5-6', 'claude-opus-6']
+        .map(model => ({ model, mode: 'inherit', topP: 0.9, fields: { top_p: 0.9, top_k: 40 } })),
+    ...['deepseek-chat', 'kimi-k3', 'custom-alias']
+        .map(model => ({ model, mode: 'on', topP: 0.9, fields: { top_p: 0.9, top_k: 40 } })),
+];
+
+// Real outgoing SDK / host payloads, not just the sampling helper: effective
+// thinking controls the wire projection but never edits the saved preferences.
+for (const provider of ['anthropic', 'sillytavern-claude']) {
+    test(`${provider} applies model/thinking sampling restrictions without changing presets`, async t => {
+        t.mock.method(console, 'info', () => {});
+        for (const { model, mode, topP, fields } of claudeCases) await t.test(`${model}/${mode}/${topP}`, async () => {
+            let body;
+            const config = { provider, model, baseUrl: 'https://fixture.invalid', apiKey: 'offline-fixture',
+                sampling: { topP: { enabled: true, value: topP }, topK: { enabled: true, value: 40 } } };
+            const original = structuredClone(config);
+            const hostClient = {
+                buildHostChatCompletionGenerateRequest: async payload => ({ body: payload }),
+                createHostChatCompletion: async payload => { body = payload; return response; },
+                streamHostChatCompletion: async (payload, accept) => {
+                    body = payload;
+                    accept({ type: 'message_start', message: response });
+                },
+            };
+            const adapter = createAgentAdapter(config, { hostClient });
+            if (provider === 'anthropic') adapter.client = adapter.client.withOptions({ fetch: async (_url, init) => {
+                body = JSON.parse(init.body);
+                return Response.json(response);
+            } });
+            await adapter.chat({ messages, reasoning: { mode }, maxTokens: 1024, temperature: 0.2 });
+            assert.equal(body.temperature, undefined);
+            assert.equal(body.top_p, fields.top_p);
+            assert.equal(body.top_k, fields.top_k);
+            if (provider === 'anthropic' && mode === 'on') assert.equal(body.thinking.type, 'adaptive');
+            assert.deepEqual(config, original);
+        });
+    });
+}
+
 const messages = [{ role: 'user', content: 'offline fixture' }];
 const response = { id: 'fixture', object: 'response', status: 'completed', output: [],
     choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
@@ -33,6 +85,14 @@ const response = { id: 'fixture', object: 'response', status: 'completed', outpu
     usage: { input_tokens: 1, output_tokens: 1 },
     candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
 };
+
+test('Claude model restrictions do not change other provider protocols', () => {
+    for (const provider of Object.keys(expected).filter(value => !['anthropic', 'sillytavern-claude'].includes(value))) {
+        assert.deepEqual(buildSamplingParameters(provider, sampling, {
+            model: 'claude-opus-4-7', reasoning: { mode: 'on' },
+        }), expected[provider]);
+    }
+});
 
 test('disabled values survive normalization and all routes omit them', () => {
     const disabled = Object.fromEntries(Object.entries(sampling).map(([key, entry]) => [key, { ...entry, enabled: false }]));

@@ -447,6 +447,9 @@ function scheduleAdoptionOutcome(outcome, scheduleRecovery) {
 
 export async function runDrawRunRecoveryPass({
     excludedRunIds = new Set(),
+    acknowledgedRunIds = new Set(),
+    acknowledgedEntries = [],
+    onCancellationSettled,
     ctx,
     records = [],
     farewells = [],
@@ -464,7 +467,20 @@ export async function runDrawRunRecoveryPass({
     }
     const markers = collectCurrentDrawRunMarkers(ctx).filter(entry => !excludedRunIds.has(entry.runId));
     const originRecords = records.filter(record => record.originRunId && !excludedRunIds.has(record.originRunId));
-    if (markers.length === 0 && originRecords.length === 0) return;
+    const settleCancellation = async runId => {
+        if (acknowledgedRunIds.has(runId)) await onCancellationSettled?.(runId);
+    };
+    // An activated child journal already proves its parent's marker was saved away.
+    for (const record of originRecords) {
+        if (record.state !== PendingJobState.ADOPTING && record.originRunAckReady) {
+            await settleCancellation(record.originRunId);
+        }
+    }
+    const trackedRunIds = new Set([...markers.map(entry => entry.runId), ...originRecords.map(record => record.originRunId)]);
+    const untrackedCancellations = acknowledgedEntries.map(entry => ({ ...entry,
+        runIds: entry.runIds.filter(id => acknowledgedRunIds.has(id) && !excludedRunIds.has(id) && !trackedRunIds.has(id)),
+    })).filter(entry => entry.runIds.length);
+    if (markers.length === 0 && originRecords.length === 0 && untrackedCancellations.length === 0) return;
     let runs;
     try {
         runs = await client.listRuns();
@@ -474,10 +490,32 @@ export async function runDrawRunRecoveryPass({
         return;
     }
 
+    // Marker removal and IndexedDB retirement cannot be one transaction. After
+    // a failed retirement or reload, the original chat is the completion proof;
+    // absence from this tab alone says nothing about another chat's marker.
+    const runsById = new Map(runs.map(run => [run.id, run]));
+    for (const entry of untrackedCancellations) {
+        const runIds = entry.runIds.filter(id => {
+            const run = runsById.get(id);
+            return !run?.childJobId && !run?.handoffManifest;
+        });
+        if (!runIds.length) continue;
+        try {
+            const { persistedChat } = await readChatAndConfirm({ ctx, target: entry.chatTarget ?? null, verify: () => true });
+            for (const runId of runIds) {
+                if (!persistedChatHasDrawRunMarker(persistedChat, runId)) await settleCancellation(runId);
+            }
+        } catch (error) {
+            console.warn('[Draw Run] 取消日志收尾未完成，保留原聊天目标稍后重试:', error);
+            scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
+        }
+    }
+
     const { plan } = planDrawRunRecovery({
         markers,
         runs,
         records: originRecords,
+        acknowledgedRunIds,
         farewells,
         currentChatId: String(ctx?.chatId || ''),
     });
@@ -522,6 +560,19 @@ export async function runDrawRunRecoveryPass({
                 scheduleRecovery(100);
                 continue;
             }
+            if (entry.action === DrawRunRecoveryAction.SETTLE_CANCELLATION) {
+                const cleared = await clearRecoveredDrawRunMarker({ ctx, markerEntry: entry.markerEntry });
+                if (!cleared) {
+                    scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
+                    continue;
+                }
+                if (entry.runFarewell) consumePageFarewell(entry.runFarewell);
+                publishDrawRunActivity({ ...markerActivityTarget(entry.markerEntry), phase: 'reconciled' });
+                await settleCancellation(entry.markerEntry.runId);
+                // The backend may still be unwinding an aborted Planner. Its run
+                // ACK endpoint rejects nonterminal runs; local UI does not wait for it.
+                continue;
+            }
             if (entry.action === DrawRunRecoveryAction.CLEAR_MISSING_MARKER) {
                 const cleared = await clearRecoveredDrawRunMarker({ ctx, markerEntry: entry.markerEntry });
                 if (cleared) {
@@ -531,6 +582,7 @@ export async function runDrawRunRecoveryPass({
                         ...markerActivityTarget(entry.markerEntry),
                         phase: 'reconciled',
                     });
+                    await settleCancellation(entry.markerEntry.runId);
                 } else {
                     scheduleRecovery(DRAW_RUN_BLOCKED_RETRY_MS);
                 }
@@ -544,6 +596,7 @@ export async function runDrawRunRecoveryPass({
                         ...markerActivityTarget(entry.markerEntry),
                         phase: 'reconciled',
                     });
+                    await settleCancellation(entry.markerEntry.runId);
                 }
                 continue;
             }
@@ -557,6 +610,9 @@ export async function runDrawRunRecoveryPass({
                     onAdoptionReady,
                 });
                 scheduleAdoptionOutcome(outcome, scheduleRecovery);
+                if (outcome.status === DrawRunAdoptionRecoveryStatus.COMPLETED) {
+                    await settleCancellation(entry.record.originRunId);
+                }
                 continue;
             }
             if (entry.action === DrawRunRecoveryAction.ABANDON_ADOPTION) {
@@ -577,6 +633,7 @@ export async function runDrawRunRecoveryPass({
                         : recordActivityTarget(entry.record)),
                     phase: 'reconciled',
                 });
+                await settleCancellation(entry.markerEntry?.runId || entry.record?.originRunId);
                 if (entry.run) await client.acknowledgeRun(entry.run.id);
                 continue;
             }
@@ -591,6 +648,7 @@ export async function runDrawRunRecoveryPass({
                     ...markerActivityTarget(entry.markerEntry),
                     phase: 'reconciled',
                 });
+                await settleCancellation(entry.markerEntry?.runId || entry.record?.originRunId);
                 await client.acknowledgeRun(entry.run.id);
                 continue;
             }
@@ -618,6 +676,7 @@ export async function runDrawRunRecoveryPass({
             }));
             if (result.status === 'active') {
                 dropLocalDrawRunMarker(entry.markerEntry);
+                await settleCancellation(entry.markerEntry.runId);
                 continue;
             }
             if (result.status !== 'ready' || !result.owned) {
@@ -645,6 +704,9 @@ export async function runDrawRunRecoveryPass({
                 onAdoptionReady,
             });
             scheduleAdoptionOutcome(outcome, scheduleRecovery);
+            if (outcome.status === DrawRunAdoptionRecoveryStatus.COMPLETED) {
+                await settleCancellation(entry.markerEntry.runId);
+            }
         } catch (error) {
             if (error?.code === 'PENDING_JOB_LEASE_LOST') continue;
             console.warn(`[Draw Run] 后台规划任务 ${entry.markerEntry?.runId || ''} 接回未完成，稍后重试:`, error);

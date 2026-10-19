@@ -33,10 +33,28 @@ async function transaction(mode, work) {
 export const drawCancellationJournal = Object.freeze({
     async record(targets) {
         if (typeof targets.owner !== 'string' || !targets.owner) throw new TypeError('CANCELLATION_OWNER_REQUIRED');
-        const entry = { owner: targets.owner, jobIds: [...new Set(targets.jobIds)], runIds: [...new Set(targets.runIds)] };
+        const entry = { owner: targets.owner, jobIds: [...new Set(targets.jobIds)], runIds: [...new Set(targets.runIds)],
+            ...(targets.runIds.length ? { chatTarget: structuredClone(targets.chatTarget) } : {}) };
         const id = await transaction('readwrite', store => store.add(entry));
         return { ...entry, id };
     },
     list: () => transaction('readonly', store => store.getAll()),
     forget: id => transaction('readwrite', store => store.delete(id)),
+    // Retire only reconciled runs from an acknowledged group. Other chats keep
+    // their intent until their marker or child delivery has been recovered.
+    forgetRuns: (owner, runIds, entryIds) => transaction('readwrite', store => {
+        const settled = new Set(runIds);
+        const acknowledged = new Set(entryIds);
+        const request = store.getAll();
+        request.onsuccess = () => {
+            for (const entry of request.result) {
+                if (entry.owner !== owner || !acknowledged.has(entry.id)
+                    || !entry.runIds.some(id => settled.has(id))) continue;
+                const remaining = entry.runIds.filter(id => !settled.has(id));
+                if (remaining.length) store.put({ ...entry, runIds: remaining });
+                else store.delete(entry.id);
+            }
+        };
+        return request;
+    }),
 });

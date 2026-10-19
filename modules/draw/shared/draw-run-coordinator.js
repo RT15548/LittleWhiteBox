@@ -70,6 +70,9 @@ function sanitizePreparedAgent(agent) {
         throw new TypeError('Scene Planner 缺少可提交的 Agent Provider 配置');
     }
     removeWebSettings(snapshot.providerConfig);
+    // Draw Run keeps the existing server contract; other Agent callers retain these settings.
+    delete snapshot.providerConfig.sampling;
+    delete snapshot.providerConfig.modelListAuth;
     return snapshot;
 }
 
@@ -273,12 +276,14 @@ async function requestWithTimeout(fetchImpl, url, options, signal, timeoutMs) {
     }
 }
 
-async function querySubmittedRun({ fetchImpl, headers, runId, signal, timeoutMs }) {
+async function querySubmittedRun({ fetchImpl, headers, runId, timeoutMs }) {
+    // Confirming an in-flight POST is read-only recovery, not more generation.
+    // A user's cancellation must not also abort the request that finds its outcome.
     return requestWithTimeout(fetchImpl, `${DRAW_RUNS_ENDPOINT}/${encodeURIComponent(runId)}`, {
         method: 'GET',
         headers,
         cache: 'no-store',
-    }, signal, timeoutMs);
+    }, undefined, timeoutMs);
 }
 
 function isExplicitDrawRunRejection(response, body) {
@@ -453,6 +458,9 @@ export async function submitDrawRun({
 
     let headers;
     try {
+        // Saving the marker is asynchronous; cancellation may have arrived while
+        // it was being confirmed. No generation request has been sent yet.
+        throwIfSubmissionAborted(signal);
         if (typeof ctx.getRequestHeaders !== 'function') {
             throw new TypeError('当前酒馆上下文无法提供请求头');
         }
@@ -469,8 +477,8 @@ export async function submitDrawRun({
             saveAndConfirm,
             fetchImpl,
             onStateChange,
-            code: 'DRAW_RUN_SUBMISSION_FAILED',
-            errorMessage: '后台画图请求未能发出，请重试。',
+            code: headerError?.code === 'DRAW_RUN_CANCELLED' ? headerError.code : 'DRAW_RUN_SUBMISSION_FAILED',
+            errorMessage: headerError?.code === 'DRAW_RUN_CANCELLED' ? headerError.message : '后台画图请求未能发出，请重试。',
             cause: headerError,
         });
     }
@@ -493,7 +501,6 @@ export async function submitDrawRun({
                 fetchImpl,
                 headers,
                 runId,
-                signal,
                 timeoutMs: requestTimeoutMs,
             });
             confirmationStatus = queried.response.status;

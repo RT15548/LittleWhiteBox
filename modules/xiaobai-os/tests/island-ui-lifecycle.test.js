@@ -287,9 +287,34 @@ test('the response failure close button remains usable while model actions are d
     assert.equal(ui.root.querySelectorAll('button[disabled]').length, 2);
 });
 
+for (const flag of ['pending', 'memoryPending']) test(`healthy background ${flag} saves neither show recovery nor interrupt held movement`, async t => {
+    const ui = await room(t);
+    await click(ui.root.querySelector('.island-entry-start'));
+    const field = ui.root.querySelector('.island-field');
+    event(field, 'keydown', { key: 'w' }); await flush();
+    const steering = () => ui.calls.filter(call => call.type === 'game/island/steer');
+    const before = steering().length;
+    assert.ok(before > 0);
+    const held = steering().at(-1).payload;
+    assert.notDeepEqual({ x: held.x, y: held.y }, { x: 0, y: 0 });
+    for (const writeState of ['loading', 'saving', 'ready']) {
+        ui.publish({ ...hostView(), writeState, busy: writeState !== 'ready', [flag]: writeState === 'saving' });
+        await flush();
+        assert.equal(ui.root.querySelector('.island-recovery-save'), null);
+        assert.equal(steering().length, before, 'background persistence must not release held movement');
+    }
+    assert.equal(ui.calls.some(call => call.type === 'game/island/confirm'), false);
+    ui.publish({ ...hostView(), writeState: 'unconfirmed', [flag]: true }); await flush();
+    assert.ok(ui.root.querySelector('.island-recovery-save'));
+    const stopped = steering().at(-1).payload;
+    assert.deepEqual({ x: stopped.x, y: stopped.y }, { x: 0, y: 0 });
+    await click(ui.root.querySelector('.island-recovery-save button'));
+    assert.ok(ui.calls.some(call => call.type === 'game/island/confirm'));
+});
+
 test('save and memory recovery remain visible on entry and cannot be dismissed as a character failure', async t => {
     for (const flag of ['pending', 'memoryPending']) {
-        const failed = { ...hostView(), planFault: 'island_memory_save', [flag]: true };
+        const failed = { ...hostView(), planFault: 'island_memory_save', writeState: 'unconfirmed', [flag]: true };
         const ui = await room(t, bridgeFor(failed));
         assert.ok(!ui.root.querySelector('.island-gm-failure'));
         await click(ui.root.querySelector('.island-entry-start'));

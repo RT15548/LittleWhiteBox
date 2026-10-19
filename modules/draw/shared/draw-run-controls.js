@@ -1,11 +1,14 @@
 import { getContext } from '../../../../../../extensions.js';
 import { getCurrentUserHandle } from '../../../../../../user.js';
 import { getRequestHeaders } from '../../../../../../../script.js';
-import { publishDrawRunActivity } from './draw-run-activity.js';
+import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 import { createImageBackendJobsClient } from './backend-image-jobs.js';
-import { cancelDrawWork, captureDrawCancellationJobs, holdDrawCancellation } from './draw-work-cancellation.js';
+import { cancelDrawWork, captureDrawCancellationJobs, holdDrawCancellation, settleDrawRunCancellations } from './draw-work-cancellation.js';
+import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+import { createConfirmableChatTarget } from './confirmable-chat-save.js';
 import {
     listActiveSwipeDrawRunMarkers,
+    listDrawRunMarkers,
 } from './draw-run-markers.js';
 import {
     listPendingImageJobs,
@@ -126,8 +129,29 @@ export function cancelFloorDrawWork(messageId, {
     cancellationJournal,
 } = {}) {
     const capturedJobs = [...jobs];
+    const reconciledRunIds = new Set();
+    let acknowledged = false;
+    let pendingRunIds = null;
+    const settleReconciled = async () => {
+        if (!acknowledged) return;
+        const settled = [...reconciledRunIds].filter(id => pendingRunIds.has(id));
+        await settleDrawRunCancellations(target.owner, settled, cancellationJournal);
+        for (const id of settled) pendingRunIds.delete(id);
+        if (!pendingRunIds.size) unsubscribe();
+    };
+    // A definitely unsubmitted job can finish before or after the cancellation
+    // ACK. Observe its existing completion fact before aborting either signal.
+    const unsubscribe = subscribeDrawRunActivity(detail => {
+        if (!['reconciled', 'completed'].includes(detail.phase) || String(detail.chatId) !== target.chatId
+            || !(pendingRunIds?.has(detail.runId) || target.entries.some(entry => entry.runId === detail.runId)
+                || capturedJobs.some(job => job.runId === detail.runId))) return;
+        reconciledRunIds.add(detail.runId);
+        if (acknowledged) observeBackgroundTask(settleReconciled(), {
+            source: import.meta.url, operation: 'settleDrawRunCancellation',
+        });
+    });
     const liveJobIds = captureDrawCancellationJobs(capturedJobs.map(job => job.backendCancel.signal));
-    const recordsPromise = recordsLoader();
+    const recordsPromise = Promise.resolve().then(recordsLoader);
     const operation = holdDrawCancellation(capturedJobs.map(job => job.backendCancel.signal), async () => {
         const records = await recordsPromise;
         const children = findPendingChildDrawRuns(target.messageId, records, { chatId: target.chatId,
@@ -139,18 +163,30 @@ export function cancelFloorDrawWork(messageId, {
                 ...capturedJobs.map(job => job.runId).filter(Boolean),
                 ...children.map(record => record.originRunId).filter(Boolean)])],
         };
+        if (targets.runIds.length) targets.chatTarget = createConfirmableChatTarget({ ...target.ctx, getRequestHeaders });
+        pendingRunIds = new Set(targets.runIds);
         const activity = { chatId: target.chatId, messageId: target.messageId, swipeIndex: target.swipeIndex,
             provider: children[0]?.provider || target.entries[0]?.marker?.provider || '',
             runId: targets.runIds[0] || '' };
         publishDrawRunActivity({ ...activity, phase: 'cancelling' });
         try {
             const cancelled = await cancelDrawWork(targets, imageJobClient, cancellationJournal);
-            publishDrawRunActivity({ ...activity, phase: 'cancelling', wakeRecovery: true });
+            acknowledged = true;
+            const markers = new Set(listDrawRunMarkers(target.message).map(entry => entry.runId));
+            for (const job of capturedJobs) {
+                if (job.runId && (job.settled || job.released) && !markers.has(job.runId)) reconciledRunIds.add(job.runId);
+            }
+            await settleReconciled();
+            publishDrawRunActivity({ ...activity,
+                phase: reconciledRunIds.has(activity.runId) ? 'reconciled' : 'cancelling', wakeRecovery: true });
             return cancelled || capturedJobs.length > 0;
         } catch (error) {
             publishDrawRunActivity({ ...activity, phase: 'cancel_failed', error, wakeRecovery: true });
             throw error;
         }
+    }).catch(error => {
+        unsubscribe();
+        throw error;
     });
     for (const job of capturedJobs) {
         job.abortReason ||= 'user';

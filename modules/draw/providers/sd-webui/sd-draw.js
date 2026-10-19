@@ -655,7 +655,7 @@ function buildSdProxyBody(extra = {}, generationConfig = getSettings()) {
 
 async function fetchSdProxy(path, body = {}, { signal, generationConfig, attempt } = {}) {
     const payload = JSON.stringify(buildSdProxyBody(body, generationConfig));
-    attempt?.submit();
+    attempt?.submit(signal);
     const response = await fetch(`/api/sd/${path}`, {
         method: 'POST',
         headers: getRequestHeaders(),

@@ -326,7 +326,9 @@ export class AnthropicAdapter {
                 display: isReasoningOutputVisible(reasoning) ? 'summarized' : 'omitted',
             };
         }
-        const samplingParams = buildSamplingParameters('anthropic', this.config.sampling);
+        const samplingParams = buildSamplingParameters('anthropic', this.config.sampling, {
+            model: this.config.model, reasoning,
+        });
         Object.assign(body, samplingParams);
         return body;
     }

@@ -144,7 +144,8 @@ export function bindMaxImagesInput(input, { getOverride, save, refresh, notify, 
     if (!input) return { flush() {}, cancel() {}, destroy() {} };
     const reset = findResetButton(input);
     let timer = null;
-    let queue = Promise.resolve();
+    let pendingSave = Promise.resolve();
+    let submittedRevision = -1;
     let revision = 0;
     let active = true;
 
@@ -166,32 +167,37 @@ export function bindMaxImagesInput(input, { getOverride, save, refresh, notify, 
         refresh?.(input, true);
     };
 
-    // 保存按提交顺序执行；回执只结算它自己的输入版本，不能覆盖较新的编辑。
-    const enqueueSave = (next) => {
+    // Provider 的设置队列是唯一排序者：提交时立即入队，不等待本控件上一次保存。
+    // 同一编辑版本的 Enter / blur 只提交一次；回执仍只结算自己的输入版本。
+    const submitSave = (next) => {
+        if (submittedRevision === revision) return pendingSave;
         const savedRevision = revision;
-        queue = queue.then(async () => {
-            if (!active) return;
-            if (normalizeMaxImagesOverride(getOverride?.()) !== next) await save(next);
-            settle(savedRevision);
-        }).catch((error) => {
-            reportFailure(error);
-            settle(savedRevision);
-        });
-        return queue;
+        submittedRevision = savedRevision;
+        pendingSave = (async () => {
+            try {
+                // 编辑值即使等于当前设置也必须提交：Provider 队列里可能还有更早的改动。
+                if (editedInputs.has(input) || normalizeMaxImagesOverride(getOverride?.()) !== next) await save(next);
+                settle(savedRevision);
+            } catch (error) {
+                reportFailure(error);
+                settle(savedRevision);
+            }
+        })();
+        return pendingSave;
     };
 
     const commit = ({ final }) => {
         cancel();
-        if (!active) return queue;
+        if (!active) return pendingSave;
         const parsed = parseMaxImagesInput(input.value, { badInput: input.validity?.badInput === true });
         if (parsed.status === 'invalid') {
-            if (!final) return queue;
+            if (!final) return pendingSave;
             settle(revision);
             notify?.(MAX_IMAGES_INVALID_INPUT_MESSAGE);
-            return queue;
+            return pendingSave;
         }
-        if (parsed.status === 'empty' && !final) return queue;
-        return enqueueSave(parsed.status === 'empty' ? null : parsed.value);
+        if (parsed.status === 'empty' && !final) return pendingSave;
+        return submitSave(parsed.status === 'empty' ? null : parsed.value);
     };
 
     const schedule = ({ final }) => {
@@ -217,7 +223,7 @@ export function bindMaxImagesInput(input, { getOverride, save, refresh, notify, 
         cancel();
         markEdited();
         input.value = '';
-        enqueueSave(null).catch(reportFailure);
+        submitSave(null).catch(reportFailure);
     };
     input.addEventListener('input', onInput);
     input.addEventListener('change', onChange);

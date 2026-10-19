@@ -410,7 +410,9 @@ export class SillyTavernClaudeAdapter {
             payload.reasoning_effort = 'auto';
             payload.include_reasoning = isReasoningOutputVisible(effectiveReasoning);
         }
-        const samplingParams = buildSamplingParameters('sillytavern-claude', this.config.sampling);
+        const samplingParams = buildSamplingParameters('sillytavern-claude', this.config.sampling, {
+            model: this.config.model, reasoning: effectiveReasoning,
+        });
         Object.assign(payload, samplingParams);
         return payload;
     }

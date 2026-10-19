@@ -787,8 +787,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
     // “保留两者”的副本名要避开库里与本次已新增的所有名称 / 别名；增量维护，避免每条都重扫整个库。
     const takenNameKeys = policy === 'keep-both' ? collectNameKeys(characters) : null;
 
-    const toPlace = [];
-    const movedIds = new Set();
+    const toPlace = new Map();
     const addedNames = [];
     const lockedSkippedNames = [];
     for (const entry of parsed.entries) {
@@ -831,9 +830,8 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             }
             summary.replaced += 1;
             record('replaced', existing.id);
-            if (mode !== 'auto' && !movedIds.has(existing.id)) {
-                movedIds.add(existing.id);
-                toPlace.push({ character: existing, groupId: resolveTargetGroup(entry.groupName) });
+            if (mode !== 'auto') {
+                toPlace.set(existing.id, { character: existing, groupId: resolveTargetGroup(entry.groupName) });
             }
             continue;
         }
@@ -865,7 +863,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             }
         }
         record(keepBoth ? 'kept-both' : 'added', id);
-        toPlace.push({ character: added, groupId: resolveTargetGroup(entry.groupName) });
+        toPlace.set(id, { character: added, groupId: resolveTargetGroup(entry.groupName) });
     }
 
     if (lockedSkippedNames.length) {
@@ -878,8 +876,8 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
     }
 
     const result = placeCharactersAfterGroupMembers(
-        characters.filter(character => !movedIds.has(character.id)),
-        toPlace,
+        characters.filter(character => !toPlace.has(character.id)),
+        toPlace.values(),
     );
 
     const normalized = normalizeCharacterLibrary({ characters: result, groups });

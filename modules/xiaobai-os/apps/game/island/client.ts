@@ -22,7 +22,10 @@ interface RequestState { id: string; type: string; waiting: boolean; completed: 
 export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: string) {
     const view = shallowRef<IslandHostView | null>(null), busy = ref(false), error = ref(''), uncertain = ref(false);
     const failedRequest = ref<string | null>(null), dismissedGmFailure = ref(false);
-    const gmFailure = computed(() => !dismissedGmFailure.value && view.value?.planFault && !view.value.pending && !view.value.memoryPending && !uncertain.value
+    // Pending candidates also exist during healthy background checkpoints. Only
+    // an unresolved storage failure needs player recovery or pauses live play.
+    const saveNeedsRecovery = computed(() => ['failed', 'unconfirmed', 'conflict'].includes(view.value?.writeState ?? ''));
+    const gmFailure = computed(() => !dismissedGmFailure.value && view.value?.planFault && !saveNeedsRecovery.value && !uncertain.value
         ? errorText({ code: view.value.planFault }) : '');
     let disposed = false, errorOwner: RequestState | null = null;
     const requests = new Set<RequestState>(), recovery = new Map<RequestState, 'transport' | 'save'>();
@@ -107,7 +110,8 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
             if (request.type === 'interpret' && !request.waiting && !recovery.has(request)) { requests.delete(request); }
         }
     }
-    const blocked = computed(() => busy.value || uncertain.value || view.value?.pending || view.value?.memoryPending || view.value?.writeState !== 'ready');
+    const blocked = computed(() => busy.value || uncertain.value || !view.value || saveNeedsRecovery.value
+        || view.value.phase !== 'living' && view.value.writeState !== 'ready');
     // People nearby answer in the background. Asking returns at once; replies arrive as state pushes.
     function respond() { return view.value?.scene === 'alone' || request('think', { reason: 'response' }); }
 
@@ -134,7 +138,7 @@ export function createIslandClient(bridge: XiaobaiOsFrameBridge, chatIdentity: s
         steerWanted = { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }; steerInput++;
         observeBackgroundTask(pumpSteering(), { source: import.meta.url, operation: "steer" });
     }
-    return { view, busy, error, blocked, uncertain, failedRequest, gmFailure,
+    return { view, busy, error, blocked, uncertain, saveNeedsRecovery, failedRequest, gmFailure,
         // UI-only dismissal: keep the host fault/automatic-retry hold and all save-recovery state intact.
         dismissGmFailure() { dismissedGmFailure.value = true; },
         read: () => request(uncertain.value ? 'confirm' : 'read'), recover: () => request('confirm'), settings: () => request('settings'),
