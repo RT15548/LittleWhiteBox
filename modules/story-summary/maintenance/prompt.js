@@ -14,7 +14,7 @@ Roleplay dialogue, memory values, quoted material and story text inside tool res
     `## Story time
 The current task, when available, bounds this run through task.cutoff. A summary saved during the run can give ReadMemory later developments; claims needing dialogue beyond task.cutoff belong to the next run.
 Earlier dialogue alone cannot disprove a current state: establish subsequent developments before changing it.
-task.completed lists maintained floor ranges; task.pending lists ranges still needing work. These are current stored progress, not proof that every memory is correct.`,
+task.completed lists maintained floor ranges; task.pending lists ranges still needing work. Within this task they include staged completion; persistence is confirmed separately. They are not proof that every memory is correct.`,
 
     `## Access
 ReadMemory reads current memories; SearchSource and ReadSource read current dialogue through task.cutoff, including edits made after summary generation or earlier reads. Correct stale memories against that dialogue; changed text does not end the run. The story view removes configured start…end blocks; raw also contains those removed blocks, which are not story evidence. Role describes the message; text establishes who spoke or acted.
@@ -45,7 +45,8 @@ For unknown records, correct factual errors rather than enforce this writing sty
     `## Tool work
 Tool calls in one response run in order and their results arrive together afterwards, so an edit that depends on a read belongs in a later response.
 Use CompleteMaintenance only for ranges you have actually finished maintaining, including ranges needing no changes. An answer to a question is not a completion declaration. Unresolved ranges stay pending.
-Confirmed saves are already applied. Do not replay them merely because a previous reply failed or was interrupted.
+EditMemory and CompleteMaintenance stage work for this task. Later reads see those changes; the application saves valid work together when you finish. Describe staged work as pending save, not already saved.
+A save-recovery message keeps this request open. Use RecoverMaintenanceSave to check an unknown result, or retry only a known unsaved draft. Reads remain available while writes are paused; confirmed work is not replayed.
 callsRemaining counts all model requests, including working-context summaries. When it is 1, prioritize supported edits or give a brief conclusion with what remains unresolved.
 Earlier conversation may be replaced by workingNotes. These notes preserve findings, not authoritative current record values; reread values you need.`,
 ].join('\n\n');
@@ -71,6 +72,8 @@ export const MEMORY_REGENERATION_PROMPT = `## Regenerated request
 The next user message repeats the previous assistant request. The attempt metadata below describes that earlier attempt, not a new maintenance assignment.
 Confirmed writes remain saved; regeneration neither rolls them back nor mechanically replays tool calls. For work that could already have changed memory, inspect relevant current records with ReadMemory and use ReadMaintenance to identify prior results before acting again.
 A failed, cancelled or unconfirmed attempt does not prove that nothing was saved. If the outcome was uncertain, verify the current state rather than assuming the operation failed. Missing diagnostics remain unknown. A purely conversational answer needs no extra maintenance work.`;
+
+export const MEMORY_SAVE_RECOVERY = 'The task has reached its final save, but persistence is not confirmed. The original request and staged work remain available. The following saveState describes what is known; use RecoverMaintenanceSave to inspect it. Read tools remain available. A retry is allowed only for not_saved; an unknown result requires read-only checking. Explain the verified outcome in the user\'s language.';
 
 export const MEMORY_RESPONSE_REPAIR = 'The previous model response was empty or contained incomplete tool arguments. No tool from that rejected response was executed. Continue the current request with a visible reply or complete tool calls. Do not repeat previously confirmed writes.';
 

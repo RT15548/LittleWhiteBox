@@ -2,9 +2,9 @@ import { getContext } from '../../../../../../extensions.js';
 import { chat_metadata, getRequestHeaders } from '../../../../../../../script.js';
 import { EXT_ID } from '../../../core/constants.js';
 import { sameMemory } from '../maintenance/domain.js';
-import { createMetadataConfirmation, MetadataConfirmationError } from './metadata-confirmation.js';
+import { createMetadataConfirmation, MetadataConfirmationError, METADATA_CONFIRMATION_TIMEOUT_MS } from './metadata-confirmation.js';
 import { invalidateChangedMaintenance } from '../maintenance/ranges.js';
-import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
+import { createAbortError, throwIfSignalAborted, runWithAbortDeadline } from '../../../shared/common/abort-utils.js';
 
 const FIELDS = ['storySummary', 'stateAtoms', 'l0Index'];
 // Scoped to the loaded metadata object. Recovery only rereads; it never replays a save.
@@ -128,13 +128,15 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
     }
     const context = getContext();
     const rawPrevious = structuredClone(Object.fromEntries(FIELDS.map(key => [key, owner[key]])));
+    const baseline = project(rawPrevious);
+    if (!sameMemory(baseline, previous)) throw new MetadataConfirmationError('metadata_draft_conflict');
     if (typeof context.saveMetadata !== 'function') throw new MetadataConfirmationError('summary_metadata_save_unavailable');
     const confirm = createMetadataConfirmation(context, getRequestHeaders);
     const expected = structuredClone(next);
     if (!FIELDS.every(key => Object.hasOwn(expected, key))) throw new MetadataConfirmationError('metadata_incomplete_draft');
     invalidateChangedMaintenance(previous, expected, { maintenanceWrite });
     const assertBaseline = () => {
-        if (getContext()?.chatId !== chatId || extension() !== owner || !sameMemory(project(owner), previous)) {
+        if (getContext()?.chatId !== chatId || extension() !== owner || !sameMemory(project(owner), baseline)) {
             throw new MetadataConfirmationError('metadata_draft_conflict');
         }
         validate?.();
@@ -144,18 +146,23 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
     const sourceRollbackFloor = transactions.get(owner)?.sourceRollbackFloor;
     let settle;
     const settled = new Promise(resolve => { settle = resolve; });
-    const transaction = { status: 'saving', previous: structuredClone(previous), sourceInvalidFloor, sourceRollbackFloor, settled };
+    const transaction = { status: 'saving', previous: baseline, sourceInvalidFloor, sourceRollbackFloor, settled };
+    // The failed caller retains this tiny proof token even after another reader
+    // resolves and releases the owner transaction. It never retains a second draft.
+    const confirmation = { state: 'unknown' };
     const release = resolved => {
         if ((sourceInvalidFloor != null || sourceRollbackFloor != null) && !resolved) transactions.set(owner, {
             status: 'source_invalid', previous: structuredClone(project(owner)), sourceInvalidFloor, sourceRollbackFloor,
         });
         else transactions.delete(owner);
     };
-    const confirmAndPublish = async () => {
-        await confirm(expected, rawPrevious, confirmedSnapshots.get(owner));
+    let saveSettled = false;
+    const confirmAndPublish = async (timeoutMs = METADATA_CONFIRMATION_TIMEOUT_MS) => {
+        await confirm(expected, rawPrevious, confirmedSnapshots.get(owner), { timeoutMs, savePending: () => !saveSettled });
         if (!sameMemory(project(owner), expected)) throw new MetadataConfirmationError('metadata_save_conflict', true);
         const sourceBoundariesPersisted = (sourceInvalidFloor == null || (expected.storySummary.sourceInvalidFromFloor ?? Infinity) <= sourceInvalidFloor)
             && (sourceRollbackFloor == null || (expected.storySummary.sourceRollbackFromFloor ?? Infinity) <= sourceRollbackFloor);
+        confirmation.state = 'confirmed';
         release(resolvesSourceInvalidity || sourceBoundariesPersisted);
         confirmedSnapshots.set(owner, expected);
         return expected;
@@ -169,17 +176,30 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
         install(owner, expected);
         staged = true;
         let saveError;
-        try { await context.saveMetadata(); }
-        catch (error) { saveError = error; }
-        // Even a thrown host save can already have reached disk. Only readback decides.
-        try { return await confirmAndPublish(); }
+        // The host owns this save; timing out our wait cannot cancel or replay it.
+        const deadline = Date.now() + METADATA_CONFIRMATION_TIMEOUT_MS;
+        // Invoke before yielding: SillyTavern's method reads the active chat, not
+        // the context object it was obtained from.
+        const saving = (async () => {
+            try { await context.saveMetadata(); }
+            catch (error) { saveError = error; }
+            finally { saveSettled = true; }
+        })();
+        try {
+            await runWithAbortDeadline(() => saving, { timeoutMs: Math.max(1, deadline - Date.now()) });
+        } catch (error) {
+            throw new MetadataConfirmationError('metadata_save_unconfirmed', true,
+                Object.assign(new Error('metadata_save_timeout'), { code: 'metadata_save_timeout', cause: saveError || error }));
+        }
+        try { return await confirmAndPublish(Math.max(1, deadline - Date.now())); }
         catch (error) { if (saveError) error.cause ||= saveError; throw error; }
     } catch (error) {
         if (staged && (error.uncertain || !sameMemory(project(owner), expected))) {
             transaction.status = 'unconfirmed';
+            error.confirmation = confirmation;
             // A transport failure is not evidence of a conflicting write. The
             // next write preparation may confirm the same save without reload.
-            if (error.code === 'metadata_save_unconfirmed') {
+            if (error.code === 'metadata_save_unconfirmed' || error.code === 'metadata_save_conflict') {
                 transaction.reconfirm = async () => {
                     transaction.status = 'saving';
                     let finish;
@@ -187,20 +207,20 @@ export async function commitSummaryMemory(chatId, next, { previous = readSummary
                     try {
                         await confirmAndPublish();
                     } catch (confirmationError) {
+                        confirmationError.confirmation = confirmation;
                         transaction.status = 'unconfirmed';
                         if (confirmationError.code === 'metadata_not_saved' && sameMemory(project(owner), expected)) {
-                            install(owner, previous);
+                            install(owner, baseline);
+                            confirmation.state = 'not_saved';
                             release(false);
-                        } else if (confirmationError.code !== 'metadata_save_unconfirmed') {
-                            delete transaction.reconfirm;
-                        }
+                        } else confirmationError.uncertain = true;
                         throw confirmationError;
                     } finally { finish(); }
                 };
             }
             error.uncertain = true;
         } else {
-            if (staged) install(owner, previous);
+            if (staged) install(owner, baseline);
             release(false);
         }
         throw error;

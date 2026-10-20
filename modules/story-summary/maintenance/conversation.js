@@ -13,18 +13,21 @@ export function memoryRegenerationNote({ runId, receipts = [], saved = 0, status
         content: `${MEMORY_REGENERATION_PROMPT}\n${JSON.stringify({ previousAttempt: { runId, receipts, saved, status } })}` };
 }
 
+function memoryChatHistory(history) {
+    return history.filter((message, index) => !message.memoryResponseRepair
+        && (!message.memoryRegeneration || index === history.length - 1)).map(dropInvalidatedThinkingFromMessage);
+}
+
 export function buildMemoryChatMessages(question, history = []) {
     // The fresh task in the system prefix invalidates signatures from old turns.
     // Repair instructions last only for their turn. A regeneration instruction
     // is current only when the controller has just appended it before a question.
-    const previous = structuredClone(history).filter((message, index) => !message.memoryResponseRepair
-        && (!message.memoryRegeneration || index === history.length - 1));
-    return [...previous.map(dropInvalidatedThinkingFromMessage), { role: 'user', content: question }];
+    return [...structuredClone(memoryChatHistory(history)), { role: 'user', content: question }];
 }
 
 /** Local preview only. Send-time measurement remains the execution authority. */
 export function estimateMemoryChatContext({ question = '', history = [], task = null, config = {} } = {}) {
-    const messages = buildMemoryChatMessages(question, history);
+    const messages = [...memoryChatHistory(history), { role: 'user', content: question }];
     const tools = [...(task ? MEMORY_TOOLS : []), READ_MAINTENANCE_TOOL];
     const material = memoryChatMaterial(task, REVIEW_LIMITS.turns);
     const count = (items, definitions = []) => estimateConversationTokens({ messages: items, tools: definitions, providerConfig: config });
@@ -33,6 +36,26 @@ export function estimateMemoryChatContext({ question = '', history = [], task = 
     const used = count([{ role: 'system', content: `${MEMORY_CHAT_PROMPT}\n\n${material}` }, ...messages], tools);
     return { used, limit: REVIEW_LIMITS.inputTokens, trigger: REVIEW_LIMITS.compactTokens, source: 'estimated',
         sections: { rules, history: past, material: Math.max(0, used - rules - past) } };
+}
+
+/**
+ * One conversation owns this ephemeral cache; typing recounts only the question.
+ * Preview framing can differ by a few estimated tokens; execution still measures
+ * the complete provider request before sending it. No history payload is retained.
+ */
+export function createMemoryChatContextEstimator() {
+    let previousHistory, previousTask, previousConfig, base;
+    return ({ question = '', history = [], task = null, config = {} } = {}) => {
+        const taskKey = JSON.stringify(task), configKey = JSON.stringify(config);
+        if (!base || previousHistory !== history || previousTask !== taskKey || previousConfig !== configKey) {
+            base = estimateMemoryChatContext({ history, task, config });
+            previousHistory = history; previousTask = taskKey; previousConfig = configKey;
+        }
+        const questionTokens = question ? Math.max(0, estimateConversationTokens({ messages: [{ role: 'user', content: question }] })
+            - estimateConversationTokens()) : 0;
+        return { ...base, used: base.used + questionTokens,
+            sections: { ...base.sections, material: base.sections.material + questionTokens } };
+    };
 }
 
 /** Complete protocol groups after cancellation/failure without executing their remaining calls. */

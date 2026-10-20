@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
+import { setImmediate } from 'node:timers';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build } from 'esbuild';
@@ -13,6 +14,8 @@ import { createMemoryScheduler } from '../maintenance/scheduler.js';
 import { maintenanceRanges } from '../maintenance/ranges.js';
 import { readMaintenanceDiagnostics } from '../maintenance/diagnostics.js';
 import { getChatIdentity } from '../data/chat-identity.js';
+import { entry } from './helpers/story-summary-entry.js';
+import { hostSaveEntry } from './helpers/host-save-entry.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__maintenanceSchedulerTest = {};
@@ -36,6 +39,8 @@ const bundled = await build({
         "export * from './modules/story-summary/data/memory-commit.js';",
         "export * from './modules/story-summary/data/summary-history.js';",
         "export * from './modules/story-summary/data/summary-undo.js';",
+        "export * from './modules/story-summary/data/summary-import.js';",
+        "export * from './modules/story-summary/vector/runtime/maintenance-coordinator.js';",
         "export {reload} from 'script.js';",
     ].join('\n') },
     bundle: true, write: false, format: 'esm', platform: 'node',
@@ -691,9 +696,9 @@ for (const kind of ['chat', 'character', 'reload']) {
         assert.equal(host.writes, 0);
     });
 
-    test(`switching ${kind} during save confirmation keeps the old save and stops later tools`, options, async t => {
-        // The old save is allowed to finish, but cannot append a final receipt to
-        // a different loaded metadata owner after the lifecycle reset.
+    test(`switching ${kind} during the final save keeps the complete old transaction without further work`, options, async t => {
+        // The one submitted transaction belongs to its original metadata owner,
+        // including all staged edits and its outcome receipt.
         t.mock.method(console, 'warn', () => {});
         const confirming = deferred(), release = deferred();
         t.after(() => release.resolve());
@@ -706,12 +711,12 @@ for (const kind of ['chat', 'character', 'reload']) {
             confirming.resolve();
             await release.promise;
         };
-        host.respond = async () => ({ text: '', toolCalls: [
+        host.respond = async () => host.requests.length > 1 ? { text: '两项修改已暂存。' } : ({ text: '', toolCalls: [
             { id: 'saved-edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
                 { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '切换前已保存的修改' } },
             ] }) },
-            { id: 'skipped-edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
-                { kind: 'edit', collection: 'facts', key: 'f-2', patch: { o: '不得执行的后续修改' } },
+            { id: 'second-edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+                { kind: 'edit', collection: 'facts', key: 'f-2', patch: { o: '同轮的第二项修改' } },
             ] }) },
         ] });
         const oldRun = host.maintenance.chat.send(chatRequest('修正两项记忆'));
@@ -728,14 +733,14 @@ for (const kind of ['chat', 'character', 'reload']) {
         assert.equal(host.requests[0].signal.aborted, true);
         release.resolve();
         await oldRun;
-        assert.equal(host.requests.length, 1);
+        assert.equal(host.requests.length, 2);
         assert.equal(host.writes, 1);
         assert.equal(host.confirmations.length, 1);
-        assert.equal(finished.saved, 1);
+        assert.equal(finished.saved, 2);
         assert.equal(finished.receipts.length, 1);
         assert.deepEqual(previousFile.disk, savedDisk);
         assert.equal(previousMetadata.extensions.LittleWhiteBox.storySummary.json.facts[0].o, '切换前已保存的修改');
-        assert.deepEqual(previousMetadata.extensions.LittleWhiteBox.storySummary.json.facts[1], untouchedFact);
+        assert.deepEqual(previousMetadata.extensions.LittleWhiteBox.storySummary.json.facts[1], { ...untouchedFact, o: '同轮的第二项修改' });
         assert.deepEqual(host.metadata, nextMemory);
         assert.deepEqual(host.currentFile.disk, nextDisk);
         assert.equal(mod.getMemoryCommitState(), 'ready');
@@ -753,6 +758,308 @@ test('a late committed-summary notification cannot be reassigned to a same-named
     await nextTurn();
     assert.equal(host.requests.length, 0);
     assert.equal((await host.maintenance.results()).state.status, 'idle');
+});
+
+for (const mode of ['auto', 'chat']) test(`${mode} task recovers its timed-out final save in place without another write`, options, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    const confirming = deferred(), release = deferred(), finished = deferred();
+    t.after(() => release.resolve());
+    host.onRunFinished = finished.resolve;
+    host.beforeReadback = async () => { confirming.resolve(); await release.promise; };
+    host.respond = async () => {
+        const turn = host.requests.length;
+        if (turn === 1) return { toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+            { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '等待核对的修改' } },
+        ] }) }] };
+        if (turn === 2) return { text: '本轮修改已暂存。' };
+        if (turn === 3) {
+            assert.equal(host.writes, 1);
+            assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
+            host.beforeReadback = null;
+            return { toolCalls: [{ id: 'check', name: 'RecoverMaintenanceSave', arguments: '{"action":"check"}' }] };
+        }
+        return { text: '保存已核对。' };
+    };
+    const manual = mode === 'chat' ? host.maintenance.chat.send(chatRequest('修正记忆')) : null;
+    if (mode === 'auto') submitted();
+    await confirming.promise;
+    t.mock.timers.tick(6000);
+    await nextTurn();
+    assert.equal(host.requests.length, 2);
+    assert.equal(mod.getMemoryCommitState(), 'saving');
+    t.mock.timers.tick(54_000);
+    const result = await finished.promise;
+    await manual;
+    assert.equal(result.status, mode === 'auto' ? 'partial' : 'completed');
+    assert.equal(result.saved, 1);
+    assert.equal(host.writes, 1);
+    assert.equal(host.requests.length, 4);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(store().json.facts[0].o, '等待核对的修改');
+    assert.equal(store().summaryHistory[0].maintenance.length, 1);
+    assert.equal(JSON.parse(result.messages.find(message => message.tool_call_id === 'check').content).state, 'confirmed');
+});
+
+test('a later diagnostic question can confirm an earlier pending save without creating a new task draft', options, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    const confirming = deferred(), release = deferred();
+    t.after(() => release.resolve());
+    host.beforeReadback = async () => { confirming.resolve(); await release.promise; };
+    const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = '上一轮的修改';
+    const saving = mod.commitSummaryMemory(host.context.chatId, next).catch(error => error);
+    await confirming.promise;
+    t.mock.timers.tick(60_000);
+    assert.equal((await saving).code, 'metadata_save_unconfirmed');
+    assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
+    host.beforeReadback = null;
+    host.respond = async () => host.requests.length === 1
+        ? { toolCalls: [{ id: 'inspect', name: 'ReadMaintenance', arguments: '{}' }] }
+        : { text: '上一轮保存已核对。' };
+    await host.maintenance.chat.send(chatRequest('检查上一轮有没有保存'));
+    const state = host.maintenance.chat.snapshot();
+    assert.equal(state.turns[0].status, 'completed');
+    assert.equal(host.writes, 1);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    const result = host.requests[1].messages.find(message => message.tool_call_id === 'inspect');
+    assert.equal(JSON.parse(result.content).saveState.state, 'confirmed');
+});
+
+for (const alreadySettled of [false, true]) test(`task can retry a known-unsaved result confirmed by another reader (${alreadySettled ? 'settled' : 'concurrent'})`, options, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    const confirming = deferred(), release = deferred();
+    t.after(() => release.resolve());
+    const saveMetadata = host.context.saveMetadata;
+    host.context.saveMetadata = async () => { host.writes++; };
+    host.beforeReadback = async () => { confirming.resolve(); await release.promise; };
+    let externalCheck;
+    host.respond = async () => {
+        const turn = host.requests.length;
+        if (turn === 1) return { toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+            { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '安全重试的修改' } },
+        ] }) }] };
+        if (turn === 2) return { text: '本轮修改已暂存。' };
+        if (turn === 3) {
+            host.beforeReadback = () => { setImmediate(() => t.mock.timers.tick(10_000)); };
+            externalCheck = mod.waitForMemoryCommit().catch(error => error);
+            if (alreadySettled) await externalCheck;
+            return { toolCalls: [{ id: 'check', name: 'RecoverMaintenanceSave', arguments: '{"action":"check"}' }] };
+        }
+        if (turn === 4) {
+            const checked = host.requests.at(-1).messages.find(message => message.tool_call_id === 'check');
+            assert.equal(JSON.parse(checked.content).state, 'not_saved');
+            host.beforeReadback = null;
+            host.context.saveMetadata = saveMetadata;
+            return { toolCalls: [{ id: 'retry', name: 'RecoverMaintenanceSave', arguments: '{"action":"retry"}' }] };
+        }
+        return { text: '修改已重新保存。' };
+    };
+    const running = host.maintenance.chat.send(chatRequest('修正记忆'));
+    await confirming.promise;
+    t.mock.timers.tick(60_000);
+    await running;
+    assert.equal((await externalCheck).code, 'metadata_not_saved');
+    const state = host.maintenance.chat.snapshot();
+    assert.equal(state.turns[0].status, 'completed');
+    assert.equal(state.turns[0].saved, 1);
+    assert.equal(host.writes, 2);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(store().summaryHistory[0].maintenance.length, 1);
+});
+
+test('a post-commit phase callback failure retains confirmed saves and never opens retry recovery', options, async () => {
+    const finished = deferred();
+    host.onRunFinished = finished.resolve;
+    const failPhase = () => {
+        if (host.maintenance.chat.snapshot().automatic.status === 'indexing') throw new Error('fixture phase listener failure');
+    };
+    host.listeners.add(failPhase);
+    host.respond = async () => host.requests.length === 1
+        ? { toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+            { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '确认后的修改' } },
+        ] }) }] } : { text: '本轮处理结果。' };
+    submitted();
+    const result = await finished.promise;
+    host.listeners.delete(failPhase);
+    assert.equal(result.saved, 1);
+    assert.equal(result.staged, 0);
+    assert.equal(result.error.code, 'memory_refresh_failed');
+    assert.equal(host.writes, 1);
+    assert.equal(host.requests.length, 2);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(store().json.facts[0].o, '确认后的修改');
+});
+
+// Acceptance: replacement before submission cancels staged coverage, including
+// when import wins the write queue after model completion. Cost: silent lost work.
+for (const queued of [false, true]) test(`import cancels completion without reporting success (${queued ? 'queued save' : 'model waiting'})`, options, async t => {
+    store().summaryHistory = [mod.createSummaryBatch(-1, 23, { version: 1 })];
+    const modelWaiting = deferred(), reply = deferred(), releaseQueue = deferred(), queueHeld = deferred(), finished = deferred();
+    t.after(() => { reply.resolve(); releaseQueue.resolve(); });
+    host.onRunFinished = finished.resolve;
+    host.respond = async () => {
+        if (host.requests.length === 1) return { toolCalls: [{ id: 'done', name: 'CompleteMaintenance', arguments: '{"from":1,"to":24}' }] };
+        modelWaiting.resolve();
+        await reply.promise;
+        return { text: 'Review finished.' };
+    };
+    const api = entry(['changeRecallData', 'importSummaryMemoryPackage'], {
+        getContext: () => host.context, memoryMaintenance: host.maintenance,
+        cancelEmbeddingWriteTasks: mod.cancelEmbeddingWriteTasks, cancelRecallAndClearPrompt() {},
+        extractSummaryImportJson: () => structuredClone(host.fixture.json), getSummaryStore: store,
+        readSummaryMemory: mod.readSummaryMemory, prepareImportedSummary: mod.prepareImportedSummary,
+        commitSummaryMemory: mod.commitSummaryMemory,
+        messageSources: { capture() { return {}; }, resolveRollback() {} },
+        updateMeta: async () => {}, clearAllChunks: async () => {}, clearEventVectors: async () => {},
+        clearStateVectors: async () => {}, invalidateLexicalIndex() {}, refreshEntityLexiconAndWarmup() {},
+        scheduleLexicalWarmup() {}, clearHideState: async () => {}, sendFrameBaseData: async () => {},
+        sendFrameFullData() {}, sendAnchorStatsToFrame: async () => {}, sendVectorStatsToFrame: async () => {},
+    });
+    const running = host.maintenance.chat.send(chatRequest('Review memory'));
+    await modelWaiting.promise;
+    const descriptor = { chatId: host.context.chatId, scope: mod.VECTOR_WRITE_SCOPES.IO };
+    const held = queued ? mod.runVectorWriteTask({ ...descriptor, kind: 'fixture-hold' }, async () => {
+        queueHeld.resolve(); await releaseQueue.promise;
+    }) : null;
+    if (queued) await queueHeld.promise;
+    const imported = mod.runVectorWriteTask({ ...descriptor, kind: 'summary-import' }, () =>
+        api.changeRecallData(host.context.chatId, () => api.importSummaryMemoryPackage('{}', host.context.chatId)));
+    if (queued) {
+        const enqueued = deferred();
+        const unsubscribe = mod.observeVectorWrites(() => {
+            if (mod.getVectorWriteState().pendingWrites === 2) enqueued.resolve();
+        });
+        t.after(unsubscribe);
+        reply.resolve();
+        await enqueued.promise;
+        releaseQueue.resolve();
+    } else {
+        await imported;
+        reply.resolve();
+    }
+    await Promise.all([held, imported, running]);
+    const result = await finished.promise;
+    assert.equal(result.status, 'cancelled');
+    assert.equal(result.saved, 0);
+    assert.equal(result.staged, 0);
+    assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'cancelled');
+    assert.equal(host.writes, 1);
+    assert.equal(store().summaryHistory.flatMap(batch => batch.maintenance || []).length, 0);
+});
+
+// Acceptance: switching cancels unsaved work, never mixes chats or buys another
+// model call; a submitted/unknown save keeps its true status. Same-chat appends
+// still save normally. Cost: lost work, false success, duplicate paid requests.
+for (const version of ['1.14.0', '1.18.0']) for (const mode of ['auto', 'chat']) for (const scenario of [
+    { name: 'chat switch before first poll', kind: 'chat' },
+    { name: 'character switch behind save lock', kind: 'character', locked: true },
+    { name: 'chat switch after submission', kind: 'chat', submitted: true },
+    { name: 'same-chat append behind save lock', locked: true },
+    { name: 'chat switch with unavailable readback', kind: 'chat', unknown: true },
+]) test(`official ${version} ${mode}: ${scenario.name}`, options, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+    const entering = deferred(), written = deferred(), release = deferred(), readback = deferred(), finished = deferred();
+    t.after(() => release.resolve());
+    const oldFile = host.currentFile, oldDisk = structuredClone(oldFile.disk), writes = [];
+    host.onRunFinished = finished.resolve;
+    const { context: tavern, errors } = hostSaveEntry(version, {
+        read: () => host.context, metadata: () => host.metadata,
+        fetch: async (url, request) => {
+            assert.equal(url, '/api/chats/save');
+            const payload = JSON.parse(request.body);
+            const file = host.files.find(item => item.chatId === payload.file_name && item.avatar === payload.avatar_url);
+            assert.ok(file);
+            writes.push(payload); host.writes++;
+            file.disk = structuredClone(payload.chat[0].chat_metadata);
+            written.resolve();
+            if (scenario.submitted) await release.promise;
+            return { ok: true };
+        },
+    });
+    tavern.isChatSaving = Boolean(scenario.locked);
+    host.context.saveMetadata = () => {
+        const saving = tavern.saveMetadata();
+        entering.resolve();
+        return saving;
+    };
+    host.beforeReadback = async file => {
+        assert.equal(file, oldFile);
+        readback.resolve();
+        if (scenario.unknown) throw new Error('fixture readback unavailable');
+    };
+    host.respond = async () => host.requests.length === 1 ? { toolCalls: [{ id: 'edit-before-switch', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+        { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: 'original-chat-only' } },
+    ] }) }] } : { text: 'Review finished.' };
+    const manual = mode === 'chat' ? host.maintenance.chat.send(chatRequest('Original question')) : null;
+    if (mode === 'auto') submitted();
+    await entering.promise;
+    assert.equal(host.requests.length, 2);
+    assert.equal(writes.length, 0);
+    if (scenario.submitted) {
+        t.mock.timers.tick(100);
+        await written.promise;
+    }
+    let replacement;
+    if (scenario.kind) {
+        switchLoadedChat(scenario.kind);
+        replacement = structuredClone(host.metadata);
+        assert.equal(host.requests[0].signal.aborted, true);
+        assert.deepEqual(host.maintenance.chat.snapshot().turns, []);
+    } else host.context.chat.push({ role: 'user', mes: 'new floor while save is queued', is_user: true });
+    if (scenario.locked) {
+        t.mock.timers.tick(100);
+        await nextTurn();
+        assert.equal(writes.length, 0);
+        tavern.isChatSaving = false;
+    }
+    if (scenario.submitted) release.resolve();
+    else t.mock.timers.tick(100);
+    await readback.promise;
+    await nextTurn();
+    if (scenario.kind && !scenario.submitted) t.mock.timers.tick(60_000);
+    const result = await finished.promise;
+    await manual;
+    assert.deepEqual(errors, []);
+    assert.equal(writes.length, 1);
+    assert.equal(host.requests.length, 2);
+    if (scenario.kind && !scenario.submitted) {
+        assert.equal(result.error.code, scenario.unknown ? 'metadata_save_unconfirmed' : 'metadata_not_saved');
+        assert.equal(result.status, scenario.unknown ? 'unconfirmed' : 'cancelled');
+        assert.equal(result.saved, 0);
+        assert.deepEqual(result.receipts, []);
+        assert.deepEqual(oldFile.disk, oldDisk);
+        assert.deepEqual(writes[0].chat[0].chat_metadata, replacement);
+        if (!scenario.unknown) assert.equal(result.staged, 0);
+    } else {
+        assert.equal(result.saved, 1);
+        assert.equal(result.staged, 0);
+        assert.equal(oldFile.disk.extensions.LittleWhiteBox.storySummary.json.facts[0].o, 'original-chat-only');
+        assert.equal(writes[0].file_name, oldFile.chatId);
+        assert.equal(writes[0].avatar_url, oldFile.avatar);
+        if (!scenario.kind) {
+            assert.equal(result.status, mode === 'auto' ? 'partial' : 'completed');
+            assert.deepEqual(writes[0].chat.slice(1), host.context.chat);
+        }
+    }
+    if (scenario.kind) {
+        assert.deepEqual(host.metadata, replacement);
+        assert.deepEqual(host.currentFile.disk, replacement);
+        assert.equal(mod.getMemoryCommitState(), 'ready');
+        assert.deepEqual(host.maintenance.chat.snapshot().turns, []);
+        assert.equal(host.maintenance.chat.snapshot().error, '');
+        host.beforeReadback = null;
+        host.respond = async request => {
+            assert.equal(request.messages.some(message => message.tool_call_id === 'edit-before-switch'), false);
+            assert.equal(request.tools.some(tool => tool.function.name === 'RecoverMaintenanceSave'), false);
+            return { text: 'New chat answer.' };
+        };
+        await host.maintenance.chat.send(chatRequest('New question'));
+        assert.equal(host.requests.length, 3);
+        assert.equal(host.writes, 1);
+        assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'completed');
+    }
 });
 
 test('saved failure diagnostics report the real provider error and do not invent missing source coverage', options, async () => {

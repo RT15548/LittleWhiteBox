@@ -7,7 +7,12 @@ export function memoryRunError(error, config = {}) {
     message = message.replace(/(Bearer\s+)[^\s"']+/giu, '$1[redacted]')
         .replace(/((?:api[_-]?key|access_token|authorization)["']?\s*[:=]\s*["']?)[^\s"'&,}]+/giu, '$1[redacted]');
     return { code: error?.name === 'AbortError' ? 'cancelled' : String(memoryFailureCode(error)), message: message.slice(0, 2000),
-        ...(Number.isFinite(error?.status) ? { status: error.status } : {}) };
+        ...(Number.isFinite(error?.status) ? { status: error.status } : {}),
+        ...(error?.cause && error.cause !== error ? { cause: describeCause(error.cause, config) } : {}) };
+}
+
+function describeCause(cause, config) {
+    return memoryRunError({ message: cause?.message || String(cause), code: cause?.code || cause?.name || 'save_diagnostic', status: cause?.status }, config);
 }
 
 export function recordMemoryResponse(call, result) {

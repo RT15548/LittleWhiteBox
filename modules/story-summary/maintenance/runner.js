@@ -1,8 +1,8 @@
 import { loadSharedAgentSettings } from '../../agent-core/settings-repository.js';
 import { resolveActiveProviderConfig, isSillyTavernProvider } from '../../agent-core/provider-resolution.js';
 import { buildProviderAssistantToolCallMessage, buildProviderToolResultMessage, resolveResultToolCalls, dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
-import { MEMORY_MAINTENANCE_PROMPT, MEMORY_CHAT_PROMPT, MEMORY_RESPONSE_REPAIR } from './prompt.js';
-import { MEMORY_TOOLS, READ_MAINTENANCE_TOOL } from './tools.js';
+import { MEMORY_MAINTENANCE_PROMPT, MEMORY_CHAT_PROMPT, MEMORY_RESPONSE_REPAIR, MEMORY_SAVE_RECOVERY } from './prompt.js';
+import { MEMORY_TOOLS, READ_MAINTENANCE_TOOL, RECOVER_MAINTENANCE_SAVE_TOOL } from './tools.js';
 import { normalizeToolArguments, validateToolArguments } from './arguments.js';
 import { MemoryMaintenanceError, requireMemory } from './errors.js';
 import { REVIEW_LIMITS, OPENING_TOKENS } from './limits.js';
@@ -27,17 +27,70 @@ export const memoryRunId = () => Array.from(crypto.getRandomValues(new Uint8Arra
 /** A turn owns its provider session and write baseline; chat history is only material. */
 export async function runMemoryAgent(session, { adapter, config, signal, onCall = () => {}, onProgress = () => {},
     onStream = () => {}, onContext = () => {}, mode = 'auto', question = '', history = [], readMaintenance,
-    onSave, onFinish, readCurrent, limits: requestedLimits = REVIEW_LIMITS, runId = memoryRunId(), createSummaryAdapter, countTokens } = {}) {
+    onFinish, onRecover, readCurrent, limits: requestedLimits = REVIEW_LIMITS, runId = memoryRunId(), createSummaryAdapter, countTokens } = {}) {
     const limits = { ...REVIEW_LIMITS, ...requestedLimits };
     const calls = [], receipts = [];
     const tools = [...(session ? MEMORY_TOOLS : []), ...(mode === 'chat' || readMaintenance ? [READ_MAINTENANCE_TOOL] : [])];
     const basePrompt = mode === 'chat' ? MEMORY_CHAT_PROMPT : MEMORY_MAINTENANCE_PROMPT;
-    let systemPrompt = basePrompt;
+    let systemPrompt = basePrompt, lastRequestPrompt;
     let messages = [], responses = null, outcome = { status: 'turn_limit', summary: '' }, failure = null;
     let finalRanges, summaryAdapter, rulesMeasurement;
-    let correctionUsed = false;
-    const savedCount = () => session?.operations.length || 0;
-    const progress = action => onProgress({ runId, action, calls: calls.length, saved: savedCount() });
+    let correctionUsed = false, finalized = false, saveAttempted = false, recovery = null;
+    const taskForModel = () => session?.task({ includeStaged: true }) || null;
+    // Recovery belongs to this execution, not reusable or summarized conversation history.
+    const requestPrompt = () => recovery
+        ? `${systemPrompt}\n\n${MEMORY_SAVE_RECOVERY}\n${JSON.stringify({ saveState: recovery })}` : systemPrompt;
+    const savedCount = () => session?.savedCount || 0;
+    const stagedCount = () => session?.stagedCount || 0;
+    const progress = action => onProgress({ runId, action, calls: calls.length, saved: savedCount(), staged: stagedCount() });
+    const finishPayload = () => ({ session, calls, runId, mode });
+    const recoveryState = error => ({ state: error.uncertain ? 'unknown' : 'not_saved', error: memoryRunError(error, config),
+        saved: savedCount(), staged: stagedCount(), receiptIds: error.receiptIds || (error.receiptId ? [error.receiptId] : []),
+        ...(error.records ? { records: error.records } : {}) });
+    function acceptSave(saved) {
+        requireMemory(saved?.current && saved.receipt, 'save_unavailable');
+        session.acknowledge(saved);
+        receipts.push(...(saved.receipts || [saved.receipt]).map(receipt => receipt.id));
+        if (saved.receipt.outcome) outcome = { ...outcome, ...saved.receipt.outcome };
+        finalRanges = saved.ranges;
+        finalized = true;
+        recovery = null;
+        failure = null;
+    }
+    async function finish() {
+        if (finalized || !session || !(mode === 'auto' || session.hasPending)) return true;
+        if (!onFinish && !session.hasPending) return true;
+        requireMemory(typeof onFinish === 'function', 'save_unavailable');
+        session.conclude(outcome);
+        saveAttempted = true;
+        progress('saving');
+        try {
+            const saved = await onFinish(finishPayload());
+            acceptSave(saved);
+            return true;
+        } catch (error) {
+            if (error.confirmed && error.commitResult) {
+                acceptSave(error.commitResult);
+                failure = error;
+                outcome = { ...outcome, status: 'failed', code: error.code, error: memoryRunError(error, config) };
+                return true;
+            }
+            failure = error;
+            if (!error.uncertain && (['conflict', 'cancelled'].includes(error.code)
+                || signal?.aborted && error.code === 'metadata_not_saved')) {
+                session.discard();
+                finalized = true;
+                recovery = null;
+                outcome = { status: signal?.aborted || error.code === 'cancelled' ? 'cancelled' : 'failed',
+                    code: error.code, error: memoryRunError(error, config), summary: '' };
+                return true;
+            }
+            recovery = recoveryState(error);
+            if (!tools.includes(RECOVER_MAINTENANCE_SAVE_TOOL)) tools.push(RECOVER_MAINTENANCE_SAVE_TOOL);
+            rulesMeasurement = null;
+            return false;
+        }
+    }
 
     async function requestModel(target, request, measured, kind) {
         requireMemory(!signal?.aborted, 'cancelled');
@@ -59,7 +112,7 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
             throw error;
         } finally { call.durationMs = Date.now() - call.startedAt; }
     }
-    const context = createMemoryContext({ config, signal, limits, countTokens, systemPrompt: () => systemPrompt, tools,
+    const context = createMemoryContext({ config, signal, limits, countTokens, systemPrompt: requestPrompt, tools,
         async summarize(request, measured) {
             requireMemory(typeof createSummaryAdapter === 'function', 'compaction_failed');
             summaryAdapter ||= createSummaryAdapter();
@@ -86,38 +139,54 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
         onContext({ used: measured.tokens, limit: limits.inputTokens, trigger: limits.compactTokens, source: measured.source,
             sections: { rules, history: historyTokens, material: materialTokens } });
     }
-    async function executeTool(toolCall, call, editFailed) {
+    async function executeTool(toolCall, editFailed) {
         if (toolCall.name === 'CompleteMaintenance' && editFailed) throw new MemoryMaintenanceError('edit_failed', '', 'from');
         const definition = tools.find(tool => tool.function.name === toolCall.name);
         requireMemory(definition, 'unknown_tool', toolCall.name, 'name');
         const args = JSON.parse(toolCall.arguments);
-        if (toolCall.name === 'ReadMaintenance') {
+        if (['ReadMaintenance', 'RecoverMaintenanceSave'].includes(toolCall.name)) {
             const normalized = normalizeToolArguments(args, definition.function.parameters);
             validateToolArguments(normalized, definition.function.parameters);
-            requireMemory(typeof readMaintenance === 'function', 'diagnostics_unavailable');
-            return await readMaintenance(normalized);
+            if (toolCall.name === 'ReadMaintenance') {
+                requireMemory(typeof readMaintenance === 'function', 'diagnostics_unavailable');
+                return await readMaintenance(normalized);
+            }
+            if (!recovery) return { state: finalized ? 'confirmed' : 'not_needed', saved: savedCount(), staged: stagedCount(), receiptIds: receipts };
+            requireMemory(typeof onRecover === 'function', 'save_unavailable');
+            if (normalized.action === 'retry') requireMemory(recovery.state === 'not_saved', 'save_retry_unconfirmed');
+            progress('checking_save');
+            try {
+                const result = await onRecover({ ...finishPayload(), ...normalized });
+                if (result.state === 'confirmed') {
+                    acceptSave(result);
+                    return { state: 'confirmed', saved: savedCount(), staged: stagedCount(), receiptIds: receipts };
+                }
+                recovery = { ...recovery, ...result, saved: savedCount(), staged: stagedCount() };
+                return recovery;
+            } catch (error) {
+                if (error.confirmed && error.commitResult) {
+                    acceptSave(error.commitResult);
+                    failure = error;
+                    return { state: 'confirmed', saved: savedCount(), staged: stagedCount(), receiptIds: receipts, error: memoryRunError(error, config) };
+                }
+                if (recovery.state === 'unknown' && error.code !== 'metadata_not_saved') error.uncertain = true;
+                failure = error;
+                recovery = recoveryState(error);
+                return recovery;
+            }
         }
         requireMemory(session, 'no_boundary');
-        const current = ['ReadMemory', 'ReadSource', 'SearchSource'].includes(toolCall.name) ? await readCurrent?.() : undefined;
+        const repairingConflict = recovery?.state === 'not_saved' && recovery.error?.code === 'memory_updated';
+        if ((recovery && !repairingConflict) || finalized) requireMemory(!['EditMemory', 'CompleteMaintenance'].includes(toolCall.name), 'save_recovery_required');
+        const current = await readCurrent?.();
         requireMemory(!signal?.aborted, 'cancelled');
-        const response = session.runTool(toolCall.name, args, current);
-        if (response.status !== 'staged') return response;
-        requireMemory(typeof onSave === 'function', 'save_unavailable');
-        call.stage = 'saving';
-        try {
-            const saved = await onSave({ session, calls: [call], runId, mode });
-            requireMemory(saved?.current && saved.receipt, 'save_unavailable');
-            session.acknowledge(saved.current);
-            receipts.push(saved.receipt.id);
-            return { status: 'saved', changed: response.changed, receiptId: saved.receipt.id,
-                ...(toolCall.name === 'CompleteMaintenance' ? { task: session.task() } : {}) };
-        } catch (error) {
-            if (error.uncertain || !(error instanceof MemoryMaintenanceError)
-                || ['conflict', 'cancelled', 'invalid_history', 'pending_edit', 'save_unavailable', 'no_boundary'].includes(error.code)) throw error;
-            session.discard();
-            // Only a known domain conflict is repairable; transport/persistence failures escape.
-            return toolError(error);
+        const result = session.runTool(toolCall.name, args, current);
+        if (repairingConflict && ['EditMemory', 'CompleteMaintenance'].includes(toolCall.name) && ['staged', 'unchanged'].includes(result.status)) {
+            recovery = null;
+            failure = null;
+            saveAttempted = false;
         }
+        return result;
     }
     function toolError(error) {
         return { status: 'error', ...memoryRunError(error, config),
@@ -131,7 +200,7 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
         if (mode === 'chat') {
             requireMemory(typeof question === 'string' && question.trim(), 'invalid_arguments', '', 'question');
             messages = buildMemoryChatMessages(question, history);
-            systemPrompt = `${basePrompt}\n\n${memoryChatMaterial(session?.task() || null, limits.turns)}`;
+            systemPrompt = `${basePrompt}\n\n${memoryChatMaterial(taskForModel(), limits.turns)}`;
         } else {
             requireMemory(session, 'no_boundary');
             let initialBudget = OPENING_TOKENS;
@@ -147,24 +216,29 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
         }
         while (calls.length < limits.turns) {
             requireMemory(!signal?.aborted, 'cancelled');
+            if (lastRequestPrompt !== undefined && lastRequestPrompt !== requestPrompt()) {
+                messages = messages.map(dropInvalidatedThinkingFromMessage);
+                responses = null;
+            }
             let measured = await context.count(messages);
             if (measured.tokens >= Math.min(limits.compactTokens, limits.inputTokens)) {
                 progress('compacting');
                 const compacted = mode === 'chat' ? await context.compactChat(messages)
-                    : await context.compact(messages, session.task(), limits.turns - calls.length);
+                    : await context.compact(messages, taskForModel(), limits.turns - calls.length);
                 messages = compacted.messages;
                 if (mode === 'auto') {
                     const first = JSON.parse(messages[0].content);
                     first.callsRemaining = limits.turns - calls.length;
                     messages[0].content = JSON.stringify(first);
-                } else systemPrompt = `${basePrompt}\n\n${memoryChatMaterial(session?.task() || null, limits.turns - calls.length)}`;
+                } else systemPrompt = `${basePrompt}\n\n${memoryChatMaterial(taskForModel(), limits.turns - calls.length)}`;
                 measured = await context.count(messages);
                 responses = null;
             }
             requireMemory(measured.tokens <= limits.inputTokens, 'input_limit');
             await reportContext(measured);
-            onProgress({ runId, action: 'thinking', calls: calls.length + 1, saved: savedCount() });
-            const request = { systemPrompt, tools, toolChoice: 'auto', messages };
+            onProgress({ runId, action: recovery ? 'checking_save' : 'thinking', calls: calls.length + 1, saved: savedCount(), staged: stagedCount() });
+            const request = { systemPrompt: requestPrompt(), tools, toolChoice: 'auto', messages };
+            lastRequestPrompt = request.systemPrompt;
             if (adapter.supportsSessionToolLoop && responses) request.toolResponses = responses;
             const { result, call } = await requestModel(adapter, request, measured, 'maintenance');
             let toolCalls;
@@ -193,7 +267,12 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
             if (!toolCalls.length) {
                 call.stage = 'finished';
                 onCall({ call, result, tools: [] });
-                outcome = { status: mode === 'auto' && session.task().pending.length ? 'partial' : 'completed', summary: result.text };
+                if (recovery) { outcome.summary = result.text; break; }
+                outcome = { status: mode === 'auto' && session.task({ includeStaged: true }).pending.length ? 'partial' : 'completed', summary: result.text };
+                if (!await finish() && !signal?.aborted && calls.length < limits.turns) {
+                    responses = null;
+                    continue;
+                }
                 await reportContext(await context.count(messages));
                 break;
             }
@@ -207,7 +286,7 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
                     progress(['EditMemory', 'CompleteMaintenance'].includes(toolCall.name) ? 'editing' : 'reading');
                     requireMemory(!signal?.aborted, 'cancelled');
                     let response;
-                    try { response = await executeTool(toolCall, call, editFailed); }
+                    try { response = await executeTool(toolCall, editFailed); }
                     catch (error) {
                         if (error.uncertain || (!(error instanceof MemoryMaintenanceError) && !(error instanceof SyntaxError))
                             || ['conflict', 'cancelled', 'invalid_history', 'no_boundary', 'save_unavailable', 'pending_edit'].includes(error.code)) throw error;
@@ -237,23 +316,17 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
         outcome = { status: error.uncertain ? 'unconfirmed' : signal?.aborted ? 'cancelled'
             : ['turn_limit', 'input_limit'].includes(error.code) ? error.code : 'failed', code: detail.code, error: detail, summary: '' };
     }
-    // Read-only chat answers are not maintenance runs. Completion receipts count
-    // as actual saved work even though they contain no record-edit operations.
-    if (session && onFinish && !failure?.uncertain && (mode === 'auto' || receipts.length)) {
-        session.conclude(outcome);
-        try {
-            const saved = await onFinish({ session, calls, runId, mode });
-            if (saved?.receipt) receipts.push(saved.receipt.id);
-            if (saved?.receipt?.outcome) outcome = { ...outcome, ...saved.receipt.outcome };
-            finalRanges = saved?.ranges;
-        } catch (error) {
-            failure = error;
-            const detail = memoryRunError(error, config);
-            outcome = { status: error.uncertain ? 'unconfirmed' : 'failed', code: detail.code, error: detail, summary: outcome.summary };
-        }
+    // Cancellation/model failure still submits completed valid work once. A save
+    // already attempted is resolved only through the explicit recovery path.
+    if (!saveAttempted && !finalized && session && (mode === 'auto' || session.hasPending)) {
+        try { await finish(); }
+        catch (error) { failure = error; recovery = recoveryState(error); }
     }
+    if (failure?.confirmed) outcome = { ...outcome, status: 'failed', code: failure.code, error: memoryRunError(failure, config) };
+    if (recovery) outcome = { ...outcome, status: recovery.state === 'unknown' ? 'unconfirmed' : 'failed',
+        code: recovery.error?.code, error: recovery.error };
     const questionIndex = messages.findLastIndex(message => message.role === 'user');
-    return { ...outcome, mode, calls, runId, receipts, saved: savedCount(), ranges: finalRanges || session?.task() || null,
+    return { ...outcome, mode, calls, runId, receipts, saved: savedCount(), staged: stagedCount(), ranges: finalRanges || session?.task() || null,
         messages, replayBeforeTurn: mode === 'chat' ? messages.slice(0, Math.max(0, questionIndex)) : [],
         ...(failure ? { error: { ...memoryRunError(failure, config), ...(failure.uncertain ? { uncertain: true } : {}),
             ...(failure.receiptId ? { receiptId: failure.receiptId } : {}) } } : {}) };

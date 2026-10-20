@@ -45,6 +45,11 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     const contextTotal = element('p', 'memory-chat-context-total');
     const contextRows = element('dl');
     const contextHint = element('small');
+    const contextValues = new Map(Object.entries(copy.contextSections).map(([key, label]) => {
+        const value = element('dd');
+        contextRows.append(element('dt', '', label), value);
+        return [key, value];
+    }));
     context.append(element('strong', '', copy.context), contextTotal, contextRows, contextHint);
     const boundary = element('div', 'memory-chat-boundary');
     const boundaryTitle = element('span');
@@ -66,10 +71,18 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     viewport.tabIndex = 0;
     const empty = element('div', 'memory-chat-empty');
     empty.append(element('strong', '', copy.empty), element('p', '', copy.emptyHint), element('small', '', copy.lifetime));
-    viewport.append(empty);
+    const pages = element('nav', 'memory-chat-pages');
+    const older = button(copy.older, () => requestPage(state?.page?.older), 'memory-chat-text-button');
+    const newer = button(copy.newer, () => requestPage(state?.page?.newer), 'memory-chat-text-button');
+    older.dataset.action = 'older'; newer.dataset.action = 'newer';
+    const pageLabel = element('small');
+    pages.append(older, pageLabel, newer);
+    pages.hidden = true;
+    viewport.append(pages, empty);
     const latest = button(copy.latest, () => {
         followLatest = true;
-        viewport.scrollTop = viewport.scrollHeight;
+        if (state?.page?.offset > 0) requestPage(0);
+        else viewport.scrollTop = viewport.scrollHeight;
         latest.hidden = true;
     }, 'memory-chat-latest');
     latest.hidden = true;
@@ -131,8 +144,15 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         svg.append(path);
         return svg;
     }
-    function manualBusy() { return !!state?.turns?.some(turn => ['queued', 'running'].includes(turn.status)); }
+    function manualBusy() { return !!state?.busy || !!state?.turns?.some(turn => ['queued', 'running'].includes(turn.status)); }
+    const totalTurns = () => state?.page?.total ?? state?.turns?.length ?? 0;
+    const queued = () => state?.activeStatus === 'queued' || state?.turns?.some(turn => turn.status === 'queued');
     function act(action, payload = {}) { if (identity) send(messages[action], { identity, ...payload }); }
+    function requestPage(offset) {
+        if (!identity || offset == null) return;
+        older.disabled = newer.disabled = true;
+        act('query', { offset });
+    }
     function cancelDraftTimer() { clearTimeout(draftTimer); draftTimer = null; }
     function flushDraft() {
         cancelDraftTimer();
@@ -147,7 +167,7 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         if (!identity || manualBusy() || !input.value.trim() || pendingSend) return;
         const text = input.value.trim();
         cancelDraftTimer();
-        pendingSend = { text, count: state?.turns?.length || 0 };
+        pendingSend = { text, count: totalTurns() };
         ownsDraft = true;
         input.value = '';
         fitInput();
@@ -223,30 +243,40 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         submit.dataset.action = busy ? 'stop' : 'send';
         submit.classList.toggle('is-stop', busy);
         submit.disabled = !identity || (!busy && (!input.value.trim() || !!pendingSend));
-        regenerate.disabled = !identity || busy || !!pendingSend || !state?.turns?.length;
-        clear.disabled = !identity || (!state?.turns?.length && !input.value);
+        regenerate.disabled = !identity || busy || !!pendingSend || !totalTurns();
+        clear.disabled = !identity || (!totalTurns() && !input.value);
         input.disabled = !identity;
-        takeover.hidden = !automaticRunning() || !state?.turns?.some(turn => turn.status === 'queued');
+        takeover.hidden = !automaticRunning() || !queued();
     }
     function render(next) {
         if (disposed || !next || (chatId != null && next.chatId !== chatId)) return;
         if (identity != null && next.identity !== identity) reset(next.chatId);
         chatId = next.chatId;
         identity = next.identity;
-        state = next;
-        subtitle.textContent = next.chatId || copy.currentChat;
-        const anchor = captureAnchor();
-        if (!ownsDraft) input.value = next.draft || '';
+        const oldOffset = state?.page?.offset;
+        if (next.delta) {
+            const known = new Map((state?.turns || []).map(turn => [turn.id, turn]));
+            for (const turn of next.turns) known.set(turn.id, turn);
+            state = { ...next, turns: next.turnIds.map(id => known.get(id)).filter(Boolean) };
+        } else state = next;
+        if (!ownsDraft) input.value = state.draft || '';
         if (pendingSend) {
-            if (next.turns.length > pendingSend.count) pendingSend = null;
-            else if (next.error) {
+            if (totalTurns() > pendingSend.count) pendingSend = null;
+            else if (state.error) {
                 if (!input.value) input.value = pendingSend.text;
                 pendingSend = null;
             }
         }
-        const keep = new Set(next.turns.map(turn => turn.id));
+        updateControls();
+        // Closed dialogs keep only the bounded latest state, not a hidden render loop.
+        if (!dialog.open) return;
+        const pageChanged = oldOffset !== state.page?.offset;
+        const anchor = pageChanged ? null : captureAnchor();
+        if (pageChanged) { followLatest = !state.page?.offset; viewport.scrollTop = 0; }
+        subtitle.textContent = state.chatId || copy.currentChat;
+        const keep = new Set(state.turns.map(turn => turn.id));
         for (const [id, view] of turns) if (!keep.has(id)) { view.element.remove(); turns.delete(id); }
-        for (const turn of next.turns) {
+        for (const turn of state.turns) {
             const existing = turns.get(turn.id);
             if (existing) existing.update(turn);
             else {
@@ -255,36 +285,48 @@ export function createMemoryChatDialog({ send, root = document.body }) {
                 viewport.append(view.element);
             }
         }
-        empty.hidden = next.turns.length > 0;
-        error.textContent = memoryChatErrorText(next.error);
+        const page = state.page;
+        pages.hidden = !page || page.total <= page.limit;
+        older.disabled = page?.older == null;
+        newer.disabled = page?.newer == null;
+        pageLabel.textContent = page?.total ? copy.historyPage(Math.max(1, page.total - page.offset - state.turns.length + 1), page.total - page.offset, page.total) : '';
+        empty.hidden = totalTurns() > 0;
+        error.textContent = memoryChatErrorText(state.error);
         error.hidden = !error.textContent;
-        const ranges = next.ranges;
+        const ranges = state.ranges;
         boundaryTitle.textContent = ranges?.cutoff > 0 ? copy.summaryBoundary(ranges.cutoff) : copy.noBoundary;
         rangeDetails.hidden = !(ranges?.cutoff > 0);
         rangeSummary.textContent = copy.maintained(formatRanges(ranges?.completed || []));
         rangeText.textContent = copy.pending(formatRanges(ranges?.pending || []));
-        const auto = next.automatic;
+        const auto = state.automatic;
         const autoRunning = automaticRunning();
-        automatic.textContent = next.turns.some(turn => turn.status === 'queued') ? autoRunning ? copy.queue : copy.waiting
+        automatic.textContent = queued() ? autoRunning ? copy.queue : copy.waiting
             : autoRunning ? [copy.automatic, copy.phases[auto.progress?.action]].filter(Boolean).join(' · ')
                 : auto?.status === 'queued' ? copy.automaticQueued : '';
         notice.hidden = !automatic.textContent;
-        renderContext(next.context);
+        renderContext(state.context);
         fitInput();
-        updateControls();
         restoreScroll(anchor);
     }
     function renderContext(usage) {
-        const used = usage?.used || 0, limit = usage?.limit || 0;
-        const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
+        const ready = Number.isFinite(usage?.used) && Number.isFinite(usage?.limit) && usage.limit > 0
+            && !['loading', 'unavailable'].includes(usage?.status);
+        const used = ready ? usage.used : 0, limit = ready ? usage.limit : 0;
+        const ratio = ready ? Math.min(1, used / limit) : 0;
+        const pending = usage?.status === 'unavailable' ? copy.contextUnavailable : copy.contextLoading;
+        context.dataset.state = ready ? 'ready' : usage?.status || 'loading';
         contextButton.style.setProperty('--memory-chat-context-fill', `${ratio * 360}deg`);
-        contextButton.classList.toggle('is-warning', usage?.trigger > 0 && used >= usage.trigger);
-        contextButton.setAttribute('aria-label', limit ? `${copy.context}：${copy.contextTotal(formatTokens(used), formatTokens(limit), usage.source !== 'tokenizer')}` : copy.context);
-        contextTotal.textContent = limit ? copy.contextTotal(formatTokens(used), formatTokens(limit), usage.source !== 'tokenizer') : copy.contextEmpty;
-        contextRows.replaceChildren();
-        for (const [key, label] of Object.entries(copy.contextSections)) contextRows.append(element('dt', '', label), element('dd', '', formatTokens(usage?.sections?.[key] || 0)));
-        contextRows.hidden = !limit;
-        contextHint.textContent = usage?.trigger ? copy.contextTrigger(formatTokens(usage.trigger)) : '';
+        contextButton.classList.toggle('is-warning', ready && usage.trigger > 0 && used >= usage.trigger);
+        contextButton.setAttribute('aria-busy', String(!ready && usage?.status !== 'unavailable'));
+        const total = ready ? copy.contextTotal(formatTokens(used), formatTokens(limit), usage.source !== 'tokenizer') : pending;
+        contextButton.setAttribute('aria-label', `${copy.context}：${total}`);
+        contextTotal.textContent = total;
+        for (const [key, value] of contextValues) {
+            const text = ready && Number.isFinite(usage.sections?.[key]) ? formatTokens(usage.sections[key]) : '—';
+            if (value.textContent !== text) value.textContent = text;
+        }
+        contextRows.hidden = !ready;
+        contextHint.textContent = ready && usage.trigger ? copy.contextTrigger(formatTokens(usage.trigger)) : '';
     }
     function reset(nextChatId) {
         cancelDraftTimer();
@@ -296,6 +338,8 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         chatId = nextChatId;
         for (const view of turns.values()) view.element.remove();
         turns.clear();
+        pages.hidden = true;
+        renderContext({ status: 'loading' });
         empty.hidden = false;
         followLatest = true;
         readingAnchor = null;
@@ -310,6 +354,7 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         if (dialog.open) dialog.close();
     }
     updateControls();
+    renderContext({ status: 'loading' });
     notice.hidden = error.hidden = true;
     boundaryTitle.textContent = copy.loading;
     rangeDetails.hidden = true;
@@ -318,9 +363,11 @@ export function createMemoryChatDialog({ send, root = document.body }) {
             if (disposed) return;
             updateViewport();
             if (!dialog.open) dialog.showModal();
+            if (state) render(state);
             fitInput();
             restoreScroll(readingAnchor);
-            send(messages.query);
+            if (identity && state?.page?.offset) act('query', { offset: state.page.offset });
+            else send(messages.query);
             if (identity && !window.matchMedia?.('(pointer: coarse)').matches) input.focus();
         },
         close, render,

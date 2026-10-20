@@ -13,7 +13,7 @@ export function createEvidenceReader(readChat, cutoff, filterRules = []) {
     const prepared = [];
     let supplied = 0;
     return {
-        cutoff, get source() { return readChat().slice(0, cutoff + 1).map(sourceRecord); },
+        cutoff,
         inputProvided() { supplied = prepared.length; },
         ranges: () => structuredClone(prepared.slice(0, supplied)),
         read({ floor, to = floor, offset = 0, view = 'story', limit = SOURCE_PAGE_CHARS } = {}) {

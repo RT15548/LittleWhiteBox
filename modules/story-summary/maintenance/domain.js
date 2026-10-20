@@ -39,8 +39,7 @@ export function memoryItems(memory, collection) {
 function setItems(memory, collection, items) {
     if (collection === 'anchors') memory.atoms = items;
     else if (collection === 'characters') {
-        memory.json.characters ||= {};
-        memory.json.characters.main = items;
+        memory.json.characters = { ...memory.json.characters, main: items };
     } else memory.json[collection] = items;
 }
 
@@ -54,10 +53,15 @@ export function memoryKey(collection, item) {
 
 // The maintenance working set. Like every other store reader (data/store.js
 // getFacts, mergeFacts), maintenance treats a retracted fact as absent.
+export function* iterateMemoryRecords(memory, collections = MEMORY_COLLECTIONS) {
+    for (const collection of collections) for (const value of memoryItems(memory, collection)) {
+        if (collection === 'facts' && value?.retracted === true) continue;
+        yield { collection, key: memoryKey(collection, value), value };
+    }
+}
+
 export function memoryRecords(memory) {
-    return MEMORY_COLLECTIONS.flatMap(collection => memoryItems(memory, collection)
-        .filter(item => !(collection === 'facts' && item?.retracted === true))
-        .map(item => ({ collection, key: memoryKey(collection, item), value: structuredClone(item) })));
+    return Array.from(iterateMemoryRecords(memory), record => ({ ...record, value: structuredClone(record.value) }));
 }
 
 /** Update only observed or confirmed records; unrelated baselines stay untouched. */
@@ -107,63 +111,66 @@ export function validateRecord(collection, value, cutoff) {
 }
 
 function collectReferenceErrors(events) {
-    const errors = [];
-    const byId = new Map(events.map(event => [event.id, event]));
-    const reject = (event, expected) => {
-        const error = new MemoryMaintenanceError('invalid_reference', '', `events[${events.indexOf(event)}].causedBy`);
-        error.expected = { key: event.id, ...expected };
-        errors.push(error);
+    const errors = [], byId = new Map(events.map((event, index) => [event.id, { event, index }]));
+    const reject = (id, expected) => {
+        const { event, index } = byId.get(id);
+        const error = new MemoryMaintenanceError('invalid_reference', '', `events[${index}].causedBy`);
+        error.expected = { key: event.id, ...expected }; errors.push(error);
     };
-    const visiting = new Set();
-    const done = new Set();
-    function visit(id) {
-        if (done.has(id)) return;
-        visiting.add(id);
-        const event = byId.get(id);
-        const causes = event.causedBy || [];
-        if (new Set(causes).size !== causes.length) reject(event, { uniqueItems: true });
-        for (const cause of causes) {
-            if (!byId.has(cause)) reject(event, { missing: cause, values: [...byId.keys()] });
-            else if (visiting.has(cause)) reject(event, { cycle: [...visiting].slice([...visiting].indexOf(cause)).concat(cause) });
-            else visit(cause);
+    const visiting = new Set(), done = new Set();
+    for (const start of byId.keys()) {
+        if (done.has(start)) continue;
+        const stack = [{ id: start, next: 0, entered: false }];
+        while (stack.length) {
+            const frame = stack.at(-1), causes = byId.get(frame.id).event.causedBy || [];
+            if (!frame.entered) {
+                frame.entered = true; visiting.add(frame.id);
+                if (new Set(causes).size !== causes.length) reject(frame.id, { uniqueItems: true });
+            }
+            if (frame.next >= causes.length) {
+                visiting.delete(frame.id); done.add(frame.id); stack.pop(); continue;
+            }
+            const cause = causes[frame.next++];
+            if (!byId.has(cause)) reject(frame.id, { missing: cause, values: [...byId.keys()] });
+            else if (visiting.has(cause)) {
+                const path = [...visiting];
+                reject(frame.id, { cycle: path.slice(path.indexOf(cause)).concat(cause) });
+            } else if (!done.has(cause)) stack.push({ id: cause, next: 0, entered: false });
         }
-        visiting.delete(id);
-        done.add(id);
     }
-    for (const id of byId.keys()) visit(id);
     return errors;
 }
 
-function changesBetween(before, after) {
-    return MEMORY_COLLECTIONS.flatMap(collection => {
-        const previous = memoryItems(before, collection);
-        const next = memoryItems(after, collection);
-        const keys = new Set([...previous, ...next].map(item => memoryKey(collection, item)));
-        return [...keys].flatMap(key => {
-            const index = previous.findIndex(item => memoryKey(collection, item) === key);
-            const a = previous[index] ?? null;
-            const b = next.find(item => memoryKey(collection, item) === key) ?? null;
-            return sameMemory(a, b) ? [] : [{ collection, key, index, before: structuredClone(a), after: structuredClone(b) }];
-        });
-    });
+function changesBetween(before, after, collection) {
+    const previous = new Map(memoryItems(before, collection).map((value, index) => [memoryKey(collection, value), { value, index }]));
+    const next = new Map(memoryItems(after, collection).map(value => [memoryKey(collection, value), value]));
+    const changes = [];
+    for (const key of new Set([...previous.keys(), ...next.keys()])) {
+        const old = previous.get(key), a = old?.value ?? null, b = next.get(key) ?? null;
+        if (!sameMemory(a, b)) changes.push({ collection, key, index: old?.index ?? -1,
+            before: structuredClone(a), after: structuredClone(b) });
+    }
+    return changes;
 }
 
 /** A command is atomic in memory; receipts own the exact reversible changes. */
 function applyMemoryEdit(memory, command, cutoff) {
-    const draft = structuredClone(memory);
+    const draft = { json: { ...memory.json }, atoms: memory.atoms };
     const { kind, collection, patch } = command;
     let { key, removeIds = [] } = command;
     let completedMarker = null;
-    const items = memoryItems(draft, collection);
+    const items = memoryItems(draft, collection).slice();
     if (kind === 'merge') {
         requireMemory(collection === 'events' && Array.isArray(removeIds) && removeIds.length > 0
             && !removeIds.includes(key) && new Set(removeIds).size === removeIds.length, 'invalid_operation');
         const joined = [key, ...removeIds];
-        requireMemory(joined.every(id => items.some(item => item.id === id)), 'record_missing');
-        joined.sort((a, b) => (items.find(item => item.id === a)._addedAt ?? 0)
-            - (items.find(item => item.id === b)._addedAt ?? 0) || items.findIndex(item => item.id === a) - items.findIndex(item => item.id === b));
+        const indexed = new Map(items.map((item, index) => [item.id, { item, index }]));
+        requireMemory(joined.every(id => indexed.has(id)), 'record_missing');
+        joined.sort((a, b) => (indexed.get(a).item._addedAt ?? 0) - (indexed.get(b).item._addedAt ?? 0)
+            || indexed.get(a).index - indexed.get(b).index);
         [key, ...removeIds] = joined;
     }
+    const removedKeys = new Set(kind === 'merge' ? removeIds : []);
     const index = items.findIndex(item => memoryKey(collection, item) === key);
     requireMemory(index >= 0 && !(collection === 'facts' && items[index].retracted), 'record_missing');
     requireMemory(['edit', 'delete', 'merge'].includes(kind), 'invalid_operation');
@@ -194,24 +201,20 @@ function applyMemoryEdit(memory, command, cutoff) {
             requireMemory(text(patch.summary), 'invalid_record');
             requireMemory(collection === 'events' && removeIds.length > 0 && !removeIds.includes(key)
                 && new Set(removeIds).size === removeIds.length, 'invalid_operation');
-            for (const id of removeIds) {
-                const removed = items.find(item => item.id === id);
-                requireMemory(removed, 'record_missing');
-            }
             // Without a causal correction preserve every external cause. An
             // explicit complete list lets the same atomic merge resolve a wrong
             // or excessive union, rather than requiring a separate paid review.
             const causes = Object.hasOwn(patch, 'causedBy') ? value.causedBy
-                : [...(value.causedBy || []), ...items.filter(item => removeIds.includes(item.id)).flatMap(item => item.causedBy || [])];
+                : [...(value.causedBy || []), ...items.filter(item => removedKeys.has(item.id)).flatMap(item => item.causedBy || [])];
             requireMemory(texts(causes), 'invalid_record');
             value.causedBy = [...new Set(causes)]
-                .filter(id => id !== key && !removeIds.includes(id));
-            if (!Object.hasOwn(patch, 'participants')) value.participants = [...new Set(items.filter(item => item.id === key || removeIds.includes(item.id)).flatMap(item => item.participants))];
+                .filter(id => id !== key && !removedKeys.has(id));
+            if (!Object.hasOwn(patch, 'participants')) value.participants = [...new Set(items.filter(item => item.id === key || removedKeys.has(item.id)).flatMap(item => item.participants))];
         }
         // A rewritten summary without a source marker keeps the source span of
         // the event(s) it replaces; the marker is bookkeeping, not judgment.
         if (collection === 'events' && text(value.summary) && !eventSourceRange(value)) {
-            const ranges = items.filter(item => item.id === key || (kind === 'merge' && removeIds.includes(item.id)))
+            const ranges = items.filter(item => item.id === key || (kind === 'merge' && removedKeys.has(item.id)))
                 .map(eventSourceRange).filter(Boolean);
             if (ranges.length) {
                 const from = Math.min(...ranges.map(range => range.from)), to = Math.max(...ranges.map(range => range.to));
@@ -223,19 +226,17 @@ function applyMemoryEdit(memory, command, cutoff) {
         items[index] = value;
         setItems(draft, collection, items);
         if (kind === 'merge') {
-            draft.json.events = items.filter(item => !removeIds.includes(item.id)).map(event => ({
-                ...event,
-                causedBy: [...new Set((event.causedBy || []).map(id => removeIds.includes(id) ? key : id))].filter(id => id !== event.id),
-            }));
+            draft.json.events = items.filter(item => !removedKeys.has(item.id)).map(event => {
+                const causedBy = [...new Set((event.causedBy || []).map(id => removedKeys.has(id) ? key : id))].filter(id => id !== event.id);
+                return sameMemory(causedBy, event.causedBy || []) ? event : { ...event, causedBy };
+            });
         }
     }
     // Name-based keys address later operations. Keeping them unambiguous is necessary
     // even inside a batch; cross-record links are checked only after the whole list.
-    for (const name of MEMORY_COLLECTIONS) {
-        const keys = memoryItems(draft, name).map(item => memoryKey(name, item));
-        requireMemory(keys.every(text) && new Set(keys).size === keys.length, 'invalid_record', '', 'key');
-    }
-    return { memory: draft, key, changes: changesBetween(memory, draft), completedMarker };
+    const keys = memoryItems(draft, collection).map(item => memoryKey(collection, item));
+    requireMemory(keys.every(text) && new Set(keys).size === keys.length, 'invalid_record', '', 'key');
+    return { memory: draft, key, changes: changesBetween(memory, draft, collection), completedMarker };
 }
 
 // Facts have a persistent ID for undo, and a business key used by generation.

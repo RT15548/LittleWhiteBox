@@ -47,31 +47,53 @@ export function maintenanceHistoryImpact(store) {
     return maintenanceImpact((store?.summaryHistory || []).flatMap(batch => batch.maintenance || []).flatMap(receipt => receipt.operations));
 }
 
-export function projectMaintenanceReceipts(store, offset = 0, limit = 10) {
-    const all = (store?.summaryHistory || []).flatMap(batch => batch.maintenance || []).reverse();
+function groupMaintenanceReceipts(store) {
     const groups = new Map();
-    for (const receipt of all) {
-        const group = groups.get(receipt.runId) || [];
-        group.push(receipt); groups.set(receipt.runId, group);
+    const history = store?.summaryHistory || [];
+    // Group borrowed receipt references only. Unrequested runs never project their
+    // calls, operations, coverage or before/after record payloads.
+    for (let batch = history.length - 1; batch >= 0; batch--) {
+        const receipts = history[batch].maintenance || [];
+        for (let index = receipts.length - 1; index >= 0; index--) {
+            const receipt = receipts[index];
+            const group = groups.get(receipt.runId) || [];
+            group.push(receipt); groups.set(receipt.runId, group);
+        }
     }
-    const runs = [...groups].map(([runId, receipts]) => {
-        const latest = receipts[0], operations = [...receipts].reverse().flatMap(receipt => receipt.operations);
-        return { ...latest, id: runId, receiptId: latest.id, receiptIds: receipts.map(receipt => receipt.id),
-            // A run's report is its concluding reply, never the notes attached to edits.
-            operations, summary: receipts.find(receipt => receipt.outcome)?.summary || '',
-            calls: [...new Map([...receipts].reverse().flatMap(receipt => receipt.calls || [])
-                .map(call => [call.turn, call])).values()].sort((a, b) => a.turn - b.turn),
-            completed: unionRanges(receipts.flatMap(receipt => receipt.completion ? subtractRanges([receipt.completion], receipt.invalidated || []) : [])),
-            outcome: latest.outcome || { status: 'interrupted' },
-            coverage: {
-                supplied: [...new Map(receipts.flatMap(receipt => receipt.coverage.supplied).map(item => [JSON.stringify(item), item])).values()],
-                missingAnchors: [...new Map(receipts.flatMap(receipt => receipt.coverage.missingAnchors).map(item => [item.floor, item])).values()] },
-            counts: {
-                summary: operations.filter(operation => operation.kind !== 'merge' && maintenanceImpact([operation]).summary).length,
-                anchors: operations.filter(operation => operation.changes.some(change => change.collection === 'anchors')).length,
-                merges: operations.filter(operation => operation.kind === 'merge').length,
-            } };
-    });
-    return { total: runs.length, runIds: runs.map(run => run.id),
-        next: offset + limit < runs.length ? offset + limit : null, items: runs.slice(offset, offset + limit) };
+    return groups;
+}
+
+function projectRun(runId, receipts) {
+    const latest = receipts[0], operations = [...receipts].reverse().flatMap(receipt => receipt.operations);
+    return { ...latest, id: runId, receiptId: latest.id, receiptIds: receipts.map(receipt => receipt.id),
+        // A run's report is its concluding reply, never the notes attached to edits.
+        operations, summary: receipts.find(receipt => receipt.outcome)?.summary || '',
+        calls: [...new Map([...receipts].reverse().flatMap(receipt => receipt.calls || [])
+            .map(call => [call.turn, call])).values()].sort((a, b) => a.turn - b.turn),
+        completed: unionRanges(receipts.flatMap(receipt => receipt.completion ? subtractRanges([receipt.completion], receipt.invalidated || []) : [])),
+        outcome: latest.outcome || { status: 'interrupted' },
+        coverage: {
+            supplied: [...new Map(receipts.flatMap(receipt => receipt.coverage.supplied).map(item => [JSON.stringify(item), item])).values()],
+            missingAnchors: [...new Map(receipts.flatMap(receipt => receipt.coverage.missingAnchors).map(item => [item.floor, item])).values()] },
+        counts: {
+            summary: operations.filter(operation => operation.kind !== 'merge' && maintenanceImpact([operation]).summary).length,
+            anchors: operations.filter(operation => operation.changes.some(change => change.collection === 'anchors')).length,
+            merges: operations.filter(operation => operation.kind === 'merge').length,
+        } };
+}
+
+const entireRun = run => run;
+
+/** Select runs before projecting; detach only the requested output, never the store. */
+export function projectMaintenanceReceipts(store, offset = 0, limit = 10, project = entireRun) {
+    const groups = groupMaintenanceReceipts(store), runIds = [...groups.keys()];
+    return { total: runIds.length, runIds,
+        next: offset + limit < runIds.length ? offset + limit : null,
+        items: runIds.slice(offset, offset + limit).map(id => structuredClone(project(projectRun(id, groups.get(id))))) };
+}
+
+/** A diagnostic lookup does not expand every other run to find its identifier. */
+export function projectMaintenanceRun(store, runId, project = entireRun) {
+    const receipts = groupMaintenanceReceipts(store).get(runId);
+    return receipts ? structuredClone(project(projectRun(runId, receipts))) : null;
 }

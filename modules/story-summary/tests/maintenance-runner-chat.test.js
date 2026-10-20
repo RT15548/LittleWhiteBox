@@ -18,15 +18,15 @@ const edit = (id = 'write', key = 'f-1') => call(id, 'EditMemory', { edits: [
 function harness() {
     const current = maintenanceFixture();
     current.store = { json: current.json, lastSummarizedMesId: current.cutoff, summaryHistory: [createSummaryBaseline(current.cutoff)] };
+    const commits = [], finishes = [];
     const ports = { read: () => current, commit: async next => {
+        commits.push(next);
         current.store = next.storySummary; current.json = next.storySummary.json;
         current.atoms = next.stateAtoms; current.l0Index = next.l0Index;
     } };
-    const commits = [], finishes = [];
-    const save = async payload => { commits.push(payload); return commitMemorySession(payload.session, payload, ports); };
     const finish = async payload => { finishes.push(payload); return commitMemorySession(payload.session, payload, ports); };
     return { current, session: createMemorySession(current), commits, finishes,
-        options: { config, countTokens, readCurrent: async () => current, onSave: save, onFinish: finish } };
+        options: { config, countTokens, readCurrent: async () => current, onFinish: finish } };
 }
 function assertPaired(messages) {
     for (let i = 0; i < messages.length; i++) {
@@ -94,7 +94,8 @@ for (const tool of [edit(), call('done', 'CompleteMaintenance', { from: 1, to: 2
         assert.equal(result.ranges.pending.length > 0, true);
         assert.equal(h.finishes.length, 1);
         assert.equal(h.finishes[0].mode, 'chat');
-        assert.equal(result.receipts.length, 2);
+        assert.equal(result.receipts.length, tool.name === 'CompleteMaintenance' ? 2 : 1);
+        assert.equal(h.commits.length, 1);
         assert.equal(h.current.store.summaryHistory[0].maintenance.at(-1).outcome.status, 'completed');
         assertPaired(result.messages);
     });
@@ -191,27 +192,32 @@ test('unknown API failure is observed once, never retried, and saved diagnostics
     assert.equal(JSON.stringify(result.error).includes('another-secret'), false);
 });
 
-for (const uncertain of [false, true]) test(`real ${uncertain ? 'unconfirmed' : 'failed'} save stops without replay and pairs all skipped tools`, async () => {
-    const h = harness(), observed = []; let attempts = 0;
+for (const uncertain of [false, true]) test(`final ${uncertain ? 'unknown' : 'not saved'} result stays in this turn without replaying edits`, async () => {
+    const h = harness(), requests = []; let saves = 0;
     const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '修改',
-        onSave: async () => { throw Object.assign(new Error('storage disconnected'), { code: 'store_failure', uncertain }); },
-        onCall: event => observed.push(event), adapter: { chat: async () => { attempts++; return { toolCalls: [edit(), call('later', 'ReadMemory', {})] }; } },
+        onFinish: async () => { saves++; throw Object.assign(new Error('storage disconnected'), { code: 'store_failure', uncertain }); },
+        adapter: { chat: async request => {
+            requests.push({ messages: structuredClone(request.messages), systemPrompt: request.systemPrompt });
+            if (requests.length === 1) return { toolCalls: [edit(), call('later', 'ReadMemory', {})] };
+            return { text: requests.length === 2 ? '修改已暂存。' : '保存还需要核对。' };
+        } },
     });
-    assert.equal(attempts, 1);
+    assert.equal(requests.length, 3);
+    assert.equal(saves, 1);
     assert.equal(result.status, uncertain ? 'unconfirmed' : 'failed');
     assert.equal(result.saved, 0);
-    assert.equal(h.finishes.length, 0);
-    assert.equal(result.calls[0].stage, 'saving');
-    assert.equal(observed[0].tools[0].response.status, uncertain ? 'unconfirmed' : 'error');
-    assert.equal(observed[0].tools[1].response.status, 'not_executed');
+    assert.equal(h.session.stagedCount, 1);
+    const staged = JSON.parse(result.messages.find(message => message.tool_call_id === 'write').content);
+    assert.equal(staged.status, 'staged');
+    assert.equal(JSON.parse(requests[2].systemPrompt.split('\n').at(-1)).saveState.state, uncertain ? 'unknown' : 'not_saved');
     assertPaired(result.messages);
 });
 
-test('cancel after a confirmed write preserves that receipt, concludes it, and does not execute the remaining tools', async () => {
+test('stop after staging saves valid work once and does not execute remaining tools', async () => {
     const h = harness(), abort = new AbortController();
     const result = await runMemoryAgent(h.session, { ...h.options, signal: abort.signal, mode: 'chat', question: '处理这些',
-        onSave: async payload => { const saved = await h.options.onSave(payload); abort.abort(); return saved; },
-        adapter: { chat: async () => ({ toolCalls: [edit(), edit('second', 'f-2'), call('done', 'CompleteMaintenance', { from: 1, to: 24 })] }) },
+        onProgress: value => { if (value.action === 'reading' && h.session.stagedCount) abort.abort(); },
+        adapter: { chat: async () => ({ toolCalls: [edit(), call('read', 'ReadMemory', {}), edit('second', 'f-2')] }) },
     });
     assert.equal(result.status, 'cancelled');
     assert.equal(result.saved, 1);
@@ -290,6 +296,139 @@ test('cancellation after a received response still reports the model call withou
     assertPaired(result.messages);
 });
 
+test('multiple write tools and completion share one final transaction in both entry modes', async () => {
+    for (const mode of ['auto', 'chat']) {
+        const h = harness(); let turn = 0;
+        const result = await runMemoryAgent(h.session, { ...h.options, mode, question: '维护这些记忆',
+            adapter: { chat: async () => {
+                turn++;
+                if (turn === 1) return { toolCalls: [edit()] };
+                if (turn === 2) {
+                    assert.equal(h.commits.length, 0);
+                    assert.notEqual(h.current.json.facts[0].o, '尚未查证');
+                    return { toolCalls: [edit('second', 'f-2'), call('done', 'CompleteMaintenance', { from: 1, to: 24 })] };
+                }
+                assert.equal(h.commits.length, 0);
+                return { text: '本轮处理完成。' };
+            } },
+        });
+        assert.equal(result.status, 'completed');
+        assert.equal(result.saved, 2);
+        assert.equal(h.commits.length, 1);
+        assert.equal(result.ranges.pending.length, 0);
+        assertPaired(result.messages);
+    }
+});
+
+test('same-turn read-only confirmation accepts the original receipt without a duplicate save', async () => {
+    const h = harness(); let attempt = 0, prepared, recoveries = 0;
+    const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '修改',
+        onFinish: async payload => {
+            prepared = await h.options.onFinish(payload);
+            throw Object.assign(new Error('readback offline'), { code: 'metadata_save_unconfirmed', uncertain: true, receiptId: prepared.receipt.id });
+        },
+        onRecover: async ({ action }) => { assert.equal(action, 'check'); recoveries++; return { ...prepared, state: 'confirmed' }; },
+        adapter: { chat: async () => {
+            attempt++;
+            if (attempt === 1) return { toolCalls: [edit()] };
+            if (attempt === 3) return { toolCalls: [call('check', 'RecoverMaintenanceSave', { action: 'check' })] };
+            return { text: attempt === 2 ? '修改已暂存。' : '已核对保存。' };
+        } },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(result.saved, 1);
+    assert.equal(h.commits.length, 1);
+    assert.equal(recoveries, 1);
+    assert.deepEqual(result.receipts, [prepared.receipt.id]);
+    assert.equal(JSON.parse(result.messages.find(message => message.tool_call_id === 'check').content).state, 'confirmed');
+    assertPaired(result.messages);
+});
+
+test('unknown persistence rejects a retry but retains read-only recovery in the same task', async () => {
+    const h = harness(); let attempt = 0, recoveryCalls = 0, writes = 0;
+    const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '修改',
+        onFinish: async () => { writes++; throw Object.assign(new Error('read timeout'), { code: 'metadata_save_unconfirmed', uncertain: true }); },
+        onRecover: async ({ action }) => { assert.equal(action, 'check'); recoveryCalls++; return { state: 'unknown' }; },
+        adapter: { chat: async () => {
+            attempt++;
+            if (attempt === 1) return { toolCalls: [edit()] };
+            if (attempt === 3) return { toolCalls: [call('retry', 'RecoverMaintenanceSave', { action: 'retry' }), call('check', 'RecoverMaintenanceSave', { action: 'check' })] };
+            return { text: '保存尚待核对。' };
+        } },
+    });
+    assert.equal(result.status, 'unconfirmed');
+    assert.equal(writes, 1);
+    assert.equal(recoveryCalls, 1);
+    assert.equal(h.session.stagedCount, 1);
+    assert.equal(JSON.parse(result.messages.find(message => message.tool_call_id === 'retry').content).code, 'save_retry_unconfirmed');
+    assertPaired(result.messages);
+});
+
+test('known unsaved draft can be retried without replaying its edit tools', async () => {
+    const h = harness(); let attempt = 0, submissions = 0;
+    const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '修改',
+        onFinish: async () => { submissions++; throw Object.assign(new Error('not saved'), { code: 'metadata_not_saved', uncertain: false }); },
+        onRecover: async payload => { assert.equal(payload.action, 'retry'); submissions++; return { ...await h.options.onFinish(payload), state: 'confirmed' }; },
+        adapter: { chat: async () => {
+            attempt++;
+            if (attempt === 1) return { toolCalls: [edit()] };
+            if (attempt === 3) return { toolCalls: [call('retry', 'RecoverMaintenanceSave', { action: 'retry' })] };
+            return { text: '本轮处理结果。' };
+        } },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(submissions, 2);
+    assert.equal(h.commits.length, 1);
+    assert.equal(result.saved, 1);
+    assertPaired(result.messages);
+});
+
+test('cancelling a recovery wait never turns an unknown save into an unsaved draft', async () => {
+    const h = harness(), controller = new AbortController(); let attempt = 0, submissions = 0;
+    const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '修改', signal: controller.signal,
+        onFinish: async () => { submissions++; throw Object.assign(new Error('read timeout'), { code: 'metadata_save_unconfirmed', uncertain: true }); },
+        onRecover: async () => { controller.abort(); throw new DOMException('Stopped waiting', 'AbortError'); },
+        adapter: { chat: async () => {
+            attempt++;
+            if (attempt === 1) return { toolCalls: [edit()] };
+            if (attempt === 3) return { toolCalls: [call('check', 'RecoverMaintenanceSave', { action: 'check' })] };
+            return { text: '本轮修改已暂存。' };
+        } },
+    });
+    assert.equal(result.status, 'unconfirmed');
+    assert.equal(submissions, 1);
+    assert.equal(JSON.parse(result.messages.find(message => message.tool_call_id === 'check').content).state, 'unknown');
+    assertPaired(result.messages);
+});
+
+for (const recovering of [false, true]) test(`notification failure after ${recovering ? 'recovered' : 'normal'} confirmation keeps saved work and never retries it`, async () => {
+    const h = harness(); let attempt = 0, prepared;
+    const confirmedError = () => Object.assign(new Error('fixture notification failure'), {
+        code: 'memory_refresh_failed', confirmed: true, commitResult: prepared,
+    });
+    const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '修改',
+        onFinish: async payload => {
+            prepared = await h.options.onFinish(payload);
+            if (recovering) throw Object.assign(new Error('read timeout'), { code: 'metadata_save_unconfirmed', uncertain: true });
+            throw confirmedError();
+        },
+        onRecover: async () => { throw confirmedError(); },
+        adapter: { chat: async () => {
+            attempt++;
+            if (attempt === 1) return { toolCalls: [edit()] };
+            if (attempt === 3 && recovering) return { toolCalls: [call('check', 'RecoverMaintenanceSave', { action: 'check' })] };
+            return { text: '本轮处理结果。' };
+        } },
+    });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.error.code, 'memory_refresh_failed');
+    assert.equal(result.saved, 1);
+    assert.equal(result.staged, 0);
+    assert.equal(h.commits.length, 1);
+    assert.equal(h.session.hasPending, false);
+    assertPaired(result.messages);
+});
+
 test('local context preview is bounded by configured maintenance limits and needs no provider', () => {
     const preview = estimateMemoryChatContext({ question: '查进度', task: null });
     assert.equal(preview.source, 'estimated');
@@ -298,4 +437,96 @@ test('local context preview is bounded by configured maintenance limits and need
     assert.equal(preview.trigger, 178000);
     assert.equal(preview.sections.history, 0);
     assert.equal(Object.values(preview.sections).reduce((sum, n) => sum + n, 0), preview.used);
+});
+
+// Acceptance: transient recovery stays in this execution, even across compaction;
+// archived calls/results remain paired (cost: stale instructions / protocol errors).
+for (const mode of ['auto', 'chat']) test(`save recovery expires after confirmation and cannot enter the next request (${mode})`, async () => {
+    const h = harness(), requests = [], countedPrompts = [], summaries = [];
+    let prepared, recovering = false;
+    const result = await runMemoryAgent(h.session, { ...h.options, mode, question: '修正记忆',
+        limits: { compactTokens: 200, inputTokens: 1000, summaryTokens: 500 },
+        countTokens: async input => {
+            countedPrompts.push(input.messages[0].content);
+            return { tokens: mode === 'auto' && recovering && input.tools.length
+                && input.messages.filter(message => message.role === 'assistant').length > 2 ? 200 : 100, source: 'test' };
+        },
+        createSummaryAdapter: () => ({ chat: async request => {
+            const fragment = JSON.parse(request.messages[0].content).workFragment;
+            summaries.push(JSON.parse(fragment.text));
+            return { text: '已检查记忆，修改仍需核对保存。' };
+        } }),
+        onFinish: async payload => {
+            prepared = await h.options.onFinish(payload); recovering = true;
+            throw Object.assign(new Error('offline readback'), { code: 'metadata_save_unconfirmed', uncertain: true });
+        },
+        onRecover: async () => { recovering = false; return { ...prepared, state: 'confirmed' }; },
+        adapter: { supportsSessionToolLoop: true, chat: async request => {
+            requests.push({ ...request, messages: structuredClone(request.messages), tools: [...request.tools] });
+            assert.ok(countedPrompts.includes(request.systemPrompt));
+            const attempt = requests.length;
+            if (attempt === 1) return { toolCalls: [edit()] };
+            if (attempt === 2 || attempt === 3) return { toolCalls: [call(`read-${attempt}`, 'ReadMemory', { collection: 'facts', key: 'f-1' })] };
+            if (attempt === 5) {
+                assert.equal(JSON.parse(request.systemPrompt.split('\n').at(-1)).saveState.state, 'unknown');
+                assert.ok(request.tools.some(tool => tool.function.name === 'RecoverMaintenanceSave'));
+                return { toolCalls: [call('check', 'RecoverMaintenanceSave', { action: 'check' })], providerPayload: { anthropicContent: [
+                    { type: 'thinking', thinking: 'recovery', signature: 'recovery-signature' },
+                    { type: 'tool_use', id: 'check', name: 'RecoverMaintenanceSave', input: { action: 'check' } },
+                ] } };
+            }
+            return { text: '本轮结果。' };
+        } },
+    });
+    assert.equal(result.saved, 1);
+    assert.equal(h.commits.length, 1);
+    assert.equal(requests.length, 6);
+    assert.equal(requests[5].systemPrompt, requests[0].systemPrompt);
+    assert.equal(requests[5].toolResponses, undefined);
+    assert.equal(requests[5].messages.some(message => message.providerPayload?.anthropicContent?.some(block => block.type === 'thinking')), false);
+    assert.equal(summaries.length, mode === 'auto' ? 1 : 0);
+    assert.equal(summaries.flat(2).some(message => message.role === 'system'), false);
+    assert.equal(result.messages.some(message => message.role === 'system'), false);
+    assertPaired(result.messages);
+    const next = await runMemoryAgent(createMemorySession(h.current), { ...h.options, mode: 'chat', question: '继续解释', history: result.messages,
+        adapter: { chat: async request => {
+            assert.equal(request.messages.some(message => message.role === 'system'), false);
+            assert.equal(request.tools.some(tool => tool.function.name === 'RecoverMaintenanceSave'), false);
+            assertPaired(request.messages);
+            return { text: '解释。' };
+        } },
+    });
+    assert.equal(next.status, 'completed');
+    assert.equal(h.commits.length, 1);
+});
+
+// Acceptance: compressed model input retains staged completion, not just published
+// progress (cost: duplicate paid maintenance); compaction itself cannot save it.
+for (const mode of ['auto', 'chat']) test(`compaction keeps staged completion in the actual model input (${mode})`, async () => {
+    const h = harness(); let attempts = 0, compacted = false, trigger = false;
+    const result = await runMemoryAgent(h.session, { ...h.options, mode, question: '完成维护',
+        limits: { compactTokens: 200, inputTokens: 1000, summaryTokens: 500 },
+        countTokens: async () => {
+            const force = trigger && !compacted;
+            if (force) compacted = true;
+            return { tokens: force ? 200 : 100, source: 'test' };
+        },
+        createSummaryAdapter: () => ({ chat: async () => ({ text: '已维护。' }) }),
+        adapter: { chat: async request => {
+            if (++attempts === 1) return { toolCalls: [call('done', 'CompleteMaintenance', { from: 1, to: 24 })] };
+            if (attempts === 2) { trigger = true; return { toolCalls: [call('read', 'ReadMemory', { collection: 'facts', key: 'f-1' })] }; }
+            const material = mode === 'auto' ? JSON.parse(request.messages[0].content)
+                : JSON.parse(request.systemPrompt.split('\n').at(-1));
+            assert.deepEqual(material.task.completed, [{ from: 1, to: 24 }]);
+            assert.deepEqual(material.task.pending, []);
+            assert.deepEqual(material.task.stagedCompletions, [{ from: 1, to: 24 }]);
+            assert.equal(h.commits.length, 0);
+            assert.deepEqual(h.session.task().completed, []);
+            return { text: '完成。' };
+        } },
+    });
+    assert.equal(compacted, true);
+    assert.equal(result.status, 'completed');
+    assert.equal(h.commits.length, 1);
+    assertPaired(result.messages);
 });

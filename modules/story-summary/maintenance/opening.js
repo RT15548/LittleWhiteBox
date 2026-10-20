@@ -1,34 +1,37 @@
 import { MEMORY_COLLECTIONS } from './domain.js';
 import { estimateConversationTokens, estimateTokenCount } from '../../agent-core/runtime/context-tokens.js';
-import { selectMemoryRanges, unionRanges } from './ranges.js';
+import { unionRanges } from './ranges.js';
 import { recordHandle } from './records.js';
+import { MEMORY_PAGE_SIZE } from './limits.js';
 
-/** Reading cursors, not work packages. The full request is counted before delivery. */
-export function buildMemoryOpening({ task, records, maxTokens }) {
+/** The directory is lightweight; only budget-sized pages are projected into the opening. */
+export function buildMemoryOpening({ task, read, maxTokens }) {
     const ranges = unionRanges([...task.pending, ...task.contextRanges]);
-    records = selectMemoryRanges(records, ranges);
-    const opening = { task, memory: [], memoryDirectory: MEMORY_COLLECTIONS.map(collection => ({
-        collection, total: records.filter(record => record.collection === collection).length,
-        next: records.some(record => record.collection === collection) ? { collection, ranges } : null,
-    })) };
+    const opening = { task, memory: [], memoryDirectory: MEMORY_COLLECTIONS.map(collection => {
+        const total = read({ collection, ranges, limit: 0 }).total;
+        return { collection, total, next: total ? { collection, ranges } : null };
+    }) };
     const estimate = () => estimateConversationTokens({ messages: [{ role: 'user', content: JSON.stringify(opening) }] });
     let tokens = estimate();
     for (const collection of ['facts', 'events', 'anchors', 'characters', 'arcs', 'keywords', 'characterAliases']) {
         const directory = opening.memoryDirectory.find(item => item.collection === collection);
-        const items = records.filter(item => item.collection === collection);
         let cursor;
-        for (const record of items) {
-            const size = estimateTokenCount(JSON.stringify(JSON.stringify(record)));
-            if (tokens + size + 100 > maxTokens) {
-                directory.next = { collection, ranges, ...(cursor ? { cursor } : {}) };
-                break;
+        while (directory.next && tokens + 100 < maxTokens) {
+            const page = read({ collection, ranges, limit: MEMORY_PAGE_SIZE, ...(cursor ? { cursor } : {}) });
+            let supplied = 0;
+            for (const record of page.items) {
+                if (Object.hasOwn(record, 'excerpt')) break;
+                const size = estimateTokenCount(JSON.stringify(JSON.stringify(record)));
+                if (tokens + size + 100 > maxTokens) break;
+                opening.memory.push(record); tokens += size; supplied++;
+                cursor = recordHandle(record);
+                directory.next = { collection, ranges, cursor };
             }
-            opening.memory.push(record); tokens += size;
-            cursor = recordHandle(record);
-            directory.next = record === items.at(-1) ? null : { collection, ranges, cursor };
+            if (supplied < page.items.length) break;
+            directory.next = page.next ? { collection, ranges, cursor } : null;
+            if (!page.items.length) break;
         }
     }
-    // Include the actual cursors and serialized message envelope, not just record text.
     while (opening.memory.length && estimate() > maxTokens) {
         const removed = opening.memory.pop();
         const directory = opening.memoryDirectory.find(item => item.collection === removed.collection);

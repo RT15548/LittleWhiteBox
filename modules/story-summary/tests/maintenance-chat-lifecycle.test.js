@@ -59,7 +59,7 @@ const deferred = () => {
 function harness(t) {
     const fixture = maintenanceFixture();
     Object.assign(host, { config: { memoryMaintenanceEnabled: false, textFilterRules: [] }, requests: [], writes: 0,
-        afterSave: null, respond: async () => ({ text: 'fixture-answer' }),
+        afterSave: null, notifications: [], respond: async () => ({ text: 'fixture-answer' }),
         metadata: { extensions: { LittleWhiteBox: {
             storySummary: { json: fixture.json, lastSummarizedMesId: fixture.cutoff,
                 summaryHistory: [mod.createSummaryBaseline(fixture.cutoff)] },
@@ -85,7 +85,7 @@ function harness(t) {
     const mounted = [], pending = [];
     let current = null, bridge;
     const maintenance = mod.createMemoryMaintenanceHost({
-        isEnabled: () => true, invalidateRecall() {}, refreshSummary() {}, changed() {},
+        isEnabled: () => true, invalidateRecall() {}, refreshSummary() {}, changed: payload => host.notifications.push(payload),
         chatChanged: payload => bridge?.postToFrame({ type: routes.state, payload }),
     });
     bridge = entry(['handleFrameMessage', 'hideOverlay', 'postToFrame'], {
@@ -156,6 +156,33 @@ function harness(t) {
         memory: () => host.metadata.extensions.LittleWhiteBox };
 }
 
+test('tool progress sends status only and requests a full receipt refresh once after task settlement', async t => {
+    const h = harness(t);
+    const identity = h.maintenance.chat.identity;
+    host.notifications.length = 0;
+    host.respond = async () => {
+        if (host.requests.length === 1) {
+            const row = { id: 'fixture-large-receipt', runId: 'fixture-past-run', version: 2 };
+            for (const key of ['operations', 'calls', 'coverage']) Object.defineProperty(row, key, {
+                get() { throw new Error(`progress inspected a receipt ${key} payload`); },
+            });
+            h.memory().storySummary.summaryHistory[0].maintenance = [row];
+        }
+        assert.equal(host.notifications.some(payload => !payload?.stateOnly), false);
+        return host.requests.length < 4 ? { toolCalls: [{ id: `read-${host.requests.length}`, name: 'ReadSource', arguments: '{"floor":2}' }] }
+            : { text: 'fixture-final-answer' };
+    };
+    await h.maintenance.chat.send({ identity, text: 'fixture-read-only-question' });
+    const progress = host.notifications.filter(payload => payload?.stateOnly);
+    assert.ok(progress.length > 5);
+    assert.equal(host.notifications.filter(payload => !payload?.stateOnly).length, 1);
+    for (const payload of progress) {
+        assert.deepEqual(Object.keys(payload).sort(), ['chatId', 'ranges', 'state', 'stateOnly']);
+        assert.equal(payload.chatId, host.context.chatId);
+    }
+    assert.equal(h.maintenance.chat.snapshot().turns[0].status, 'completed');
+});
+
 for (const closeDuring of ['model request', 'metadata save']) {
     test(`closing the entire frame during ${closeDuring} keeps one host task and restores its saved result on remount`, { timeout: 5000 }, async t => {
         const started = deferred(), release = deferred();
@@ -210,11 +237,12 @@ for (const closeDuring of ['model request', 'metadata save']) {
         assert.equal(restored.dataset.status, 'completed');
         assert.equal(restored.querySelector('.memory-chat-question p').textContent, 'fixture-background-question');
         assert.equal(restored.querySelector('.memory-chat-reply > .memory-chat-answer').textContent, 'fixture-saved-answer');
-        assert.equal(restored.querySelectorAll('.memory-chat-tools li[data-status="saved"]').length, 1);
+        assert.equal(restored.querySelectorAll('.memory-chat-tools li[data-status="staged"]').length, 1);
+        assert.equal(restored.querySelector('.memory-chat-saved').dataset.saved, '1');
         assert.equal(host.requests.length, 2);
         assert.equal(host.requests.length, requests);
         assert.equal(host.writes, writes);
-        assert.equal(h.memory().storySummary.summaryHistory[0].maintenance.length, 2);
+        assert.equal(h.memory().storySummary.summaryHistory[0].maintenance.length, 1);
     });
 }
 

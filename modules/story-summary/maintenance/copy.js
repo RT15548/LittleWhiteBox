@@ -1,5 +1,15 @@
 import { MEMORY_DATA_COPY } from '../data/memory-copy.js';
 
+export const MEMORY_SAVE_ERRORS = Object.freeze({
+    memory_refresh_failed: '修改已保存，界面未能及时更新。',
+    metadata_save_unconfirmed: '保存结果尚未确认，可以让助手继续核对。',
+    metadata_unconfirmed: '有一笔修改等待核对，暂不继续写入。',
+    metadata_not_saved: '本次修改尚未保存，助手可以继续检查原因。',
+    metadata_save_conflict: '保存时发现其他修改，需要先核对当前内容。',
+    metadata_saving: '正在保存，请稍候。',
+    metadata_target_unavailable: '当前聊天文件尚未就绪，暂时无法保存。',
+});
+
 export const MEMORY_COPY = Object.freeze({
     tab: 'Agent', toggle: '允许 Agent 维护记忆', scope: '所有聊天',
     behavior: '保存后，从下一次总结开始自动检查与修正记忆。',
@@ -14,8 +24,10 @@ export const MEMORY_COPY = Object.freeze({
     retired: { source_changed: '原文后来有过修改，这条锚点的维护结果已不再使用。',
         anchors_cleared: '锚点后来已被清空，这条记录仅供回看。' },
     summary: '大总结', anchors: '锚点', merges: '事件合并', missing: '锚点未就绪', noChanges: '本次没有修改', coverage: '审阅范围', related: '相关记忆',
-    progress: ({ action, saved }) => [MEMORY_COPY.actions[action], saved ? `已保存 ${saved} 项修改` : ''].filter(Boolean).join(' · '),
-    actions: { thinking: '正在梳理记忆', reading: '正在查阅', editing: '正在保存成果', compacting: '整理工作上下文' },
+    saved: count => `已保存 ${count} 项修改`, staged: count => `本轮已整理 ${count} 项修改，等待保存`,
+    progress: ({ action, saved, staged }) => [MEMORY_COPY.actions[action], saved ? MEMORY_COPY.saved(saved) : '',
+        staged ? MEMORY_COPY.staged(staged) : ''].filter(Boolean).join(' · '),
+    actions: { thinking: '正在梳理记忆', reading: '正在查阅', editing: '正在整理修改', saving: '正在保存', checking_save: '正在核对保存结果', compacting: '正在整理上下文' },
     completedRanges: '已完成', pendingRanges: '待维护', noRanges: '无',
     ranges: ranges => ranges.map(range => MEMORY_COPY.sourceRange(range.from, range.to)).join('、') || MEMORY_COPY.noRanges,
     boundary: floor => `截至第 ${floor} 楼`, floor: floor => `第 ${floor} 楼`,
@@ -44,7 +56,7 @@ export const MEMORY_COPY = Object.freeze({
     states: { idle: '', queued: '等待前一轮结束', running: '正在检查记忆…', saving: '正在保存修改…', indexing: '修改已保存，正在更新记忆检索…',
         completed: '维护已结束', partial: '部分完成，剩余范围将在下次总结后继续。', interrupted: '本次维护未收尾，已保存的修改保留。',
         turn_limit: '本次维护已达到调用上限，已保存的修改保留。', input_limit: '本次维护已达到上下文上限，已保存的修改保留。',
-        cancelled: '维护已停止，已保存的修改保留。', failed: '本次维护未完成，已保存的修改保留。', unconfirmed: MEMORY_DATA_COPY.unconfirmed,
+        cancelled: '维护已停止，已保存的修改保留。', failed: '本次维护未完成，已保存的修改保留。', unconfirmed: MEMORY_SAVE_ERRORS.metadata_save_unconfirmed,
         source_invalid: MEMORY_DATA_COPY.sourceInvalid, history_invalid: MEMORY_DATA_COPY.historyInvalid },
     indexPending: '修改已保存，部分内容还不能用于记忆检索。重试只更新检索，不会重新维护。',
     errors: { not_configured: '请先在 Agent API 中设置模型和服务地址。', no_boundary: '当前聊天还没有可维护的总结。',
@@ -54,7 +66,6 @@ export const MEMORY_COPY = Object.freeze({
         conflict: '聊天已切换，或总结已被替换、回退；维护已停止，此前保存的部分保留。',
         compaction_failed: '工作上下文整理失败，已完成的范围和修改保留。',
         agent_failed: '服务暂时不可用，已保存的修改保留。', empty_response: '模型没有返回内容，已保存的修改保留。',
-        metadata_not_saved: '服务器未保存修改，已恢复修改前的记忆。', metadata_save_conflict: '服务器内容已变化，保存结果需核对。',
-        metadata_save_unconfirmed: '暂时无法确认修改是否保存，请重新加载当前聊天后核对。', metadata_target_unavailable: '找不到当前聊天文件。',
+        ...MEMORY_SAVE_ERRORS,
         index_failed: '记忆检索未能更新。', index_read_failed: '暂时无法检查记忆检索是否可用。', load_failed: '维护记录暂时无法读取。' },
 });

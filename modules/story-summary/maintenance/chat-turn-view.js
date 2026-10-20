@@ -2,9 +2,7 @@ import { element, disclosure } from './ui-elements.js';
 import { reportMarkdown } from './report-markdown.js';
 import { MEMORY_CHAT_COPY as copy, memoryChatErrorText } from './chat-copy.js';
 
-const detailText = value => typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value, null, 2);
-
-/** Keep disclosure nodes mounted while streamed text and tool results change. */
+/** Only the changed turn is updated; streamed text is not reparsed as markdown. */
 export function createMemoryChatTurn(turn) {
     const root = element('article', 'memory-chat-turn');
     root.dataset.turnId = turn.id;
@@ -25,11 +23,20 @@ export function createMemoryChatTurn(turn) {
     error.setAttribute('role', 'alert');
     const process = disclosure('', 'memory-chat-process');
     const toolList = element('ol', 'memory-chat-tools');
-    process.append(toolList);
+    const toolHint = element('small', 'memory-chat-tools-hint');
+    process.append(toolList, toolHint);
     reply.append(replyLabel, previous, progress, process, answer, saved, error);
     root.append(question, reply);
     const toolNodes = [];
-    let previousAnswer, previousVersion;
+    let previousAnswer, previousVersion, previousText = '', streaming = false, revision;
+
+    function showPrevious() {
+        if (previous.open && previousText !== previousVersion) {
+            previousVersion = previousText;
+            previousContent.replaceChildren(reportMarkdown(previousText));
+        }
+    }
+    previous.addEventListener('toggle', showPrevious);
 
     function toolNode() {
         const node = element('li');
@@ -37,16 +44,13 @@ export function createMemoryChatTurn(turn) {
         const name = element('span');
         const state = element('small');
         heading.append(name, state);
-        const failure = element('p', 'memory-chat-tool-error');
-        const details = disclosure(copy.toolDetails, 'memory-chat-tool-details');
-        const request = element('pre');
-        const response = element('pre');
-        details.append(element('h5', '', copy.toolArguments), request, element('h5', '', copy.toolResponse), response);
-        node.append(heading, failure, details);
-        return { node, name, state, failure, request, response };
+        node.append(heading);
+        return { node, name, state };
     }
 
     function update(next) {
+        if (next.revision !== undefined && next.revision === revision) return;
+        revision = next.revision;
         root.dataset.status = next.status;
         questionText.textContent = next.question || '';
         const busy = ['running', 'queued'].includes(next.status);
@@ -54,24 +58,31 @@ export function createMemoryChatTurn(turn) {
         progress.hidden = next.status === 'completed';
         reply.setAttribute('aria-busy', String(busy));
         const text = next.answer || '';
-        if (text !== previousAnswer) {
+        if (text !== previousAnswer || streaming !== busy) {
+            if (busy) {
+                if (!streaming || !answer.firstChild) answer.replaceChildren(document.createTextNode(text));
+                else if (text.startsWith(previousAnswer)) answer.firstChild.appendData(text.slice(previousAnswer.length));
+                else answer.firstChild.data = text;
+            } else answer.replaceChildren(reportMarkdown(text));
             previousAnswer = text;
-            answer.replaceChildren(reportMarkdown(text));
+            streaming = busy;
+            answer.classList.toggle('is-streaming', busy);
         }
         answer.hidden = !text;
-        const oldText = next.previousAnswer || '';
-        if (oldText !== previousVersion) {
-            previousVersion = oldText;
-            previousContent.replaceChildren(reportMarkdown(oldText));
-        }
-        previous.hidden = !oldText;
-        saved.textContent = next.saved > 0 ? copy.saved(next.saved) : '';
-        saved.hidden = !(next.saved > 0);
+        previousText = next.previousAnswer || '';
+        previous.hidden = !previousText;
+        showPrevious();
+        saved.dataset.saved = String(next.saved || 0);
+        saved.dataset.staged = String(next.staged || 0);
+        saved.textContent = [next.saved > 0 ? copy.saved(next.saved) : '', next.staged > 0 ? copy.staged(next.staged) : ''].filter(Boolean).join(' · ');
+        saved.hidden = !saved.textContent;
         error.textContent = memoryChatErrorText(next.error);
         error.hidden = !error.textContent;
-        const tools = next.tools || [];
-        process.hidden = !tools.length;
-        process.firstElementChild.textContent = copy.tools(tools.length);
+        const tools = next.tools || [], count = next.toolCount ?? tools.length;
+        process.hidden = !count;
+        process.firstElementChild.textContent = copy.tools(count);
+        toolHint.textContent = count > tools.length ? copy.toolsShown(tools.length) : '';
+        toolHint.hidden = count <= tools.length;
         for (let index = 0; index < tools.length; index++) {
             const tool = tools[index];
             if (!toolNodes[index]) {
@@ -82,12 +93,6 @@ export function createMemoryChatTurn(turn) {
             item.node.dataset.status = tool.status || '';
             item.name.textContent = copy.toolNames[tool.name] || tool.name;
             item.state.textContent = copy.toolStatuses[tool.status] || tool.status || '';
-            item.request.textContent = detailText(tool.arguments);
-            item.response.textContent = detailText(tool.response);
-            const failures = tool.response?.rejected || (tool.response?.error ? [tool.response.error]
-                : ['error', 'needs_fix', 'unconfirmed', 'not_executed'].includes(tool.status) ? [tool.response] : []);
-            item.failure.textContent = failures.map(memoryChatErrorText).filter(Boolean).join('\n');
-            item.failure.hidden = !item.failure.textContent;
         }
         while (toolNodes.length > tools.length) toolNodes.pop().node.remove();
     }

@@ -298,15 +298,17 @@ export function createMemoryMaintenancePage(root, send) {
             state.textContent = blocked ? copy.states[data.state.status]
                 : code ? copy.errors[code] || copy.errors.agent_failed : copy.states[data.state?.status] || '';
             if (running && data.state?.progress) {
-                const progress = copy.progress({ ...data.state.progress, ...(data.state.status === 'running' ? {} : { action: null }) });
-                state.textContent = data.state.status === 'running' ? progress : [state.textContent, progress].filter(Boolean).join(' · ');
+                const ownsAction = data.state.status === 'running' || data.state.status === 'saving' && copy.actions[data.state.progress.action];
+                const progress = copy.progress({ ...data.state.progress, ...(ownsAction ? {} : { action: null }) });
+                state.textContent = ownsAction ? progress : [state.textContent, progress].filter(Boolean).join(' · ');
             }
             state.dataset.status = data.state?.status || 'idle';
             updateEmpty();
             cancel.hidden = !running;
             cancel.disabled = data.state?.status === 'saving';
-            index.hidden = blocked || data.index?.status !== 'pending';
             repair.disabled = running || blocked;
+            if (data.stateOnly) return;
+            index.hidden = blocked || data.index?.status !== 'pending';
             if (data.total != null) {
                 runIds = data.runIds;
                 clearReceipts(new Set(runIds));

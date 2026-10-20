@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { setImmediate as nextTurn } from 'node:timers/promises';
+import { setImmediate } from 'node:timers';
 import path from 'node:path';
 import { build } from 'esbuild';
 import 'fake-indexeddb/auto';
@@ -77,10 +78,16 @@ after(() => { mod.db.close(); globalThis.fetch = originalFetch; delete globalThi
 const ext = () => host.metadata.extensions.LittleWhiteBox;
 const disk = () => host.files.get(host.context.chatId).extensions.LittleWhiteBox;
 
-beforeEach(async () => {
+beforeEach(async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const expireReadback = () => {
+        // Transport-failure integration cases advance the real transaction's
+        // deadline; retry timing itself is covered by metadata-confirmation tests.
+        setImmediate(() => t.mock.timers.tick(10_000));
+    };
     for (const table of mod.db.tables) await table.clear();
     const fixture = maintenanceFixture();
-    Object.assign(host, { fixture, mode: 'save', reads: 0, writes: 0, mutations: [], afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
+    Object.assign(host, { fixture, mode: 'save', expireReadback: false, reads: 0, writes: 0, mutations: [], afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
     host.vectorConfig = { enabled: false, embeddingApi: {} };
     host.generate = () => assert.fail('unexpected summary request');
     host.embed = () => assert.fail('unexpected embedding request');
@@ -96,7 +103,8 @@ beforeEach(async () => {
     host.files.set(fixture.chatId, structuredClone(host.metadata));
     globalThis.fetch = async (url, request) => {
         host.reads++;
-        if (host.mode === 'read_fail') throw new Error('read offline');
+        if (host.mode === 'read_fail') { expireReadback(); throw new Error('read offline'); }
+        if (['old', 'different'].includes(host.mode) || host.expireReadback) expireReadback();
         const key = JSON.parse(request.body).file_name;
         return new Response(JSON.stringify([{ chat_metadata: host.files.get(key) }]));
     };
@@ -330,9 +338,36 @@ test('an uncertain save can be confirmed on the next operation without replaying
     mod.assertMemoryWritable();
 });
 
+test('a stalled host save releases the task after sixty seconds and can be confirmed without replay', async t => {
+    await importFixture();
+    let release, entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    host.afterSave = () => { entered(); return new Promise(resolve => { release = resolve; }); };
+    t.after(() => release?.());
+    const writes = host.writes;
+    const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'host save still pending';
+    const saving = mod.commitSummaryMemory(host.context.chatId, next).catch(error => error);
+    await started;
+    t.mock.timers.tick(6000); await nextTurn();
+    assert.equal(mod.getMemoryCommitState(), 'saving');
+    t.mock.timers.tick(54_000);
+    const error = await saving;
+    assert.equal(error.code, 'metadata_save_unconfirmed');
+    assert.equal(error.cause.code, 'metadata_save_timeout');
+    assert.equal(mod.getMemoryCommitState(), 'unconfirmed');
+    assert.equal(host.writes, writes + 1);
+    // The server already has the exact candidate, even though the host promise
+    // has not settled. Read-only recovery may confirm it without another write.
+    await mod.waitForMemoryCommit();
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(mod.getPublishedSummaryStore().json.facts[0].o, 'host save still pending');
+    assert.equal(host.writes, writes + 1);
+    release(); await nextTurn();
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+});
+
 test('stalled readback releases the writer within its deadline, including a noncooperative transport', async t => {
     await importFixture();
-    t.mock.timers.enable({ apis: ['setTimeout'] });
     let entered, signal, otherWrite = false;
     const reading = new Promise(resolve => { entered = resolve; });
     globalThis.fetch = (_url, options) => {
@@ -1229,6 +1264,7 @@ for (const scenario of ['completion', 'outcome', 'anchor', 'summary', 'source-ed
         const saveStarted = new Promise(resolve => { saveEntered = resolve; });
         host.afterSave = () => { saveEntered(); return new Promise(resolve => { finishSave = resolve; }); };
         if (scenario === 'save-rejected') {
+            host.expireReadback = true;
             host.mode = 'old';
             const saveMetadata = host.context.saveMetadata;
             host.context.saveMetadata = async () => {
@@ -1261,7 +1297,7 @@ for (const scenario of ['completion', 'outcome', 'anchor', 'summary', 'source-ed
             host.afterSave = null;
             finishSave?.();
             try { maintenance = await saved; }
-            finally { host.mode = 'save'; result = await generating; }
+            finally { host.mode = 'save'; host.expireReadback = false; result = await generating; }
         }
         const commits = ['completion', 'outcome', 'anchor', 'save-rejected', 'save-unconfirmed'].includes(scenario);
         assert.equal(result.success, commits, JSON.stringify(result));
@@ -1896,11 +1932,11 @@ for (const mode of ['read_fail', 'different']) {
         assert.deepEqual(mod.getPublishedStateAtoms(), before.stateAtoms);
         assert.deepEqual(mod.getFacts(), before.storySummary.json.facts.filter(fact => !fact.retracted));
         if (mode === 'read_fail') await assert.rejects(mod.waitForMemoryCommit(), { code: 'metadata_save_unconfirmed' });
-        else await mod.waitForMemoryCommit();
+        else await assert.rejects(mod.waitForMemoryCommit(), { code: 'metadata_save_conflict' });
         assert.throws(() => mod.assertMemoryWritable(), { uncertain: true });
         assert.equal(ext().storySummary.summaryInvalid, undefined);
         assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
-        assert.equal(host.reads - reads, mode === 'read_fail' ? 6 : 1);
+        assert.ok(host.reads > reads);
         const writes = host.writes;
         await assert.rejects(mod.clearSummaryData(host.context.chatId), { uncertain: true });
         await assert.rejects(mod.invalidateSummaryAnchors(host.context.chatId), { uncertain: true });

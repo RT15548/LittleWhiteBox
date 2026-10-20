@@ -248,8 +248,9 @@ const memoryMaintenance = createMemoryMaintenanceHost({
         postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(getSummaryStore()) });
     },
     chatChanged: payload => postToFrame({ type: MEMORY_CHAT_MESSAGES.state, payload }),
-    changed: () => {
-        observeBackgroundTask(sendMemoryMaintenanceResults(), { source: import.meta.url, operation: "changed" });
+    changed: payload => {
+        if (payload?.stateOnly) postToFrame({ type: 'MEMORY_MAINTENANCE_RESULTS', payload });
+        else observeBackgroundTask(sendMemoryMaintenanceResults(), { source: import.meta.url, operation: 'changed' });
     },
 });
 
@@ -3146,7 +3147,7 @@ async function handleFrameMessage(event) {
     if (chatAction) {
         const requestIdentity = chatAction === 'query' ? memoryMaintenance.chat.identity : data.identity;
         try {
-            if (chatAction === 'query') postToFrame({ type: MEMORY_CHAT_MESSAGES.state, payload: memoryMaintenance.chat.snapshot() });
+            if (chatAction === 'query') postToFrame({ type: MEMORY_CHAT_MESSAGES.state, payload: memoryMaintenance.chat.query(data) });
             else await memoryMaintenance.chat[chatAction](data);
         } catch (error) {
             memoryMaintenance.chat.report(error, requestIdentity);

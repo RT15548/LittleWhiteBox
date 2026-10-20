@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
+import { setImmediate } from 'node:timers';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -29,6 +30,7 @@ const moduleUrl = 'data:text/javascript;base64,' + Buffer.from(bundle.outputFile
 
 async function scenario() {
     const { parentPort, workerData } = await import('node:worker_threads');
+    const { setImmediate } = await import('node:timers');
     let releaseSave, announceSave, writes = 0;
     const started = new Promise(resolve => { announceSave = resolve; });
     const metadata = { extensions: { LittleWhiteBox: { storySummary: { json: workerData.summary } } } };
@@ -36,7 +38,12 @@ async function scenario() {
         writes++; announceSave(); await new Promise(resolve => { releaseSave = resolve; });
     } };
     const host = globalThis.__commitHost = { metadata, context };
-    globalThis.fetch = async () => { throw new Error('offline confirmation fixture'); };
+    const { mock } = await import('node:test');
+    mock.timers.enable({ apis: ['setTimeout'] });
+    globalThis.fetch = async () => {
+        setImmediate(() => mock.timers.tick(60_000));
+        throw new Error('offline confirmation fixture');
+    };
     // eslint-disable-next-line no-unsanitized/method -- Only the locally built transaction module is executed.
     const api = await import(workerData.moduleUrl);
     const next = api.readSummaryMemory();
@@ -71,4 +78,47 @@ for (const switchChat of [true, false]) test(`queued writes stop when ${switchCh
     });
     assert.deepEqual(result, { firstCode: 'metadata_save_unconfirmed', queuedCode: 'summary_chat_changed_before_save',
         timerRan: true, writes: 1, newOwnerReady: true, newOwnerUnchanged: true, oldOwnerState: 'unconfirmed' });
+});
+
+for (const switchChat of [true, false]) test(`a synchronously submitted save stays with its owner across a queued ${switchChat ? 'chat switch' : 'metadata reload'}`, async t => {
+    const originalFetch = globalThis.fetch, originalHost = globalThis.__commitHost;
+    t.after(() => { globalThis.fetch = originalFetch; globalThis.__commitHost = originalHost; });
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const metadata = { extensions: { LittleWhiteBox: { storySummary: { json: maintenanceFixture().json } } } };
+    const replacement = { extensions: { LittleWhiteBox: { storySummary: { json: { facts: ['untouched'] } } } } };
+    const disk = new Map([['chat-A', structuredClone(metadata)]]), writes = [], reads = [];
+    const host = globalThis.__commitHost = { metadata, context: { chatId: 'chat-A', groupId: 'fixture', async saveMetadata() {
+        // This boundary has already submitted its request. The official host's
+        // pre-submission wait is exercised separately in maintenance-scheduler.
+        writes.push({ chatId: host.context.chatId, owner: host.metadata });
+        disk.set(host.context.chatId, structuredClone(host.metadata));
+    } } };
+    const originalContext = host.context;
+    globalThis.fetch = async (_url, options) => {
+        const target = JSON.parse(options.body).id; reads.push(target);
+        // A wrong-target regression still settles promptly instead of waiting a real minute.
+        if (writes[0]?.owner !== metadata) setImmediate(() => t.mock.timers.tick(60_000));
+        return { ok: true, json: async () => [{ chat_metadata: disk.get(target) }] };
+    };
+    // eslint-disable-next-line no-unsanitized/method -- Only the locally built transaction module is executed.
+    const api = await import(`${moduleUrl}#microtask-owner-${switchChat}`);
+    const next = api.readSummaryMemory(); next.storySummary.json.facts[0].o = 'owned write';
+    const untouched = structuredClone(replacement);
+    const result = await api.commitSummaryMemory('chat-A', next, { invalidate() {
+        queueMicrotask(() => queueMicrotask(() => {
+            host.metadata = replacement;
+            host.context = { ...originalContext, chatId: switchChat ? 'chat-B' : 'chat-A' };
+            api.reload();
+        }));
+    } }).then(() => null, error => error.code);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].owner, metadata);
+    assert.equal(writes[0].chatId, 'chat-A');
+    assert.deepEqual(reads, ['chat-A']);
+    assert.equal(result, null);
+    assert.deepEqual(host.metadata, untouched);
+    assert.equal(api.getMemoryCommitState(), 'ready');
+    host.metadata = metadata; host.context = originalContext; api.reload();
+    assert.equal(api.getMemoryCommitState(), 'ready');
+    assert.equal(api.getPublishedSummaryMemory().storySummary.json.facts[0].o, 'owned write');
 });
