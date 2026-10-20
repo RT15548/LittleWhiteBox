@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
+<link rel="stylesheet" href="../../shared/prompt-layout-editor.css">
 <script type="module" src="../../shared/draw-usage.js"></script>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
@@ -1359,6 +1360,11 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                     <div id="nd_prompt_preset_status" class="status-text inline-status"></div>
                 </div>
 
+                <div class="card prompt-layout-card" id="nd_prompt_layout_card">
+                    <div id="nd_prompt_layout"></div>
+                    <p class="form-hint" id="nd_prompt_layout_note">消息布局随提示词预设一起保存（点上方“保存”或下方“保存到当前预设”）。下方“请求结构”预览目前仍按默认结构显示，还不反映这里的调整。</p>
+                </div>
+
                 <div class="card">
                     <div class="prompt-card-header">
                         <div class="card-title">开场与视角</div>
@@ -1650,6 +1656,8 @@ const draftCharacters = new Map();
 const saveBtnStates = new WeakMap();
 const promptTextDraftsByPreset = new Map();
 const modelGuideDraftsByPreset = new Map();
+// 消息布局的未保存草稿：presetId -> 布局。与上面两个不同，草稿与已保存版本一致时会被丢弃（见 pruneLayoutDrafts）。
+const layoutDraftsByPreset = new Map();
 let promptChainRequestId = 0;
 let charFilters = { query: '', type: 'all', status: 'all' };
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
@@ -4445,6 +4453,7 @@ function renderWorldbookEntriesLocal(book) {
 let PO = null; // preset-order.js（预设排序的纯函数），与角色库模块一同动态引入
 let SL = null; // sortable-list.js（列表拖拽 / 键盘排序控制器），与角色库模块一同动态引入
 let PLV = null; // preset-list-view.js（预设列表的行标记与点击委托，参数 / 提示词预设共用），与角色库模块一同动态引入
+let PLE = null; // prompt-layout-editor.js（消息布局编辑器，另外转出布局契约的纯函数），与角色库模块一同动态引入
 
 function applyStateToUI() {
     console.log('[ND-UI] applyStateToUI: autoLearn=%s, advMode=%s, presets=%d',
@@ -4471,6 +4480,7 @@ function applyStateToUI() {
         renderParamsPresetList();
         applyParamsPreset();
 
+        pruneLayoutDrafts();
         renderPromptPresetList();
         applyPromptPreset();
 
@@ -4631,10 +4641,11 @@ function applyParamsPreset() {
     $('nd_decrisper').checked = pm.decrisper ?? dp.decrisper;
     
     updateModelOptions();
+    refreshLayoutSummaries(); // “数量约束”块的摘要读的是当前参数预设
 }
 
-/** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset） */
-function applyPromptPreset() {
+/** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset）；collapseLayout=切换预设时收起布局里展开的消息块 */
+function applyPromptPreset({ collapseLayout = false } = {}) {
     const active = getActivePromptPresetForForm() || {};
     const drafts = active.id ? promptTextDraftsByPreset.get(active.id) : null;
     $('nd_prompt_system').value = drafts?.has('topSystem')
@@ -4644,6 +4655,7 @@ function applyPromptPreset() {
         ? drafts.get('sceneRules')
         : active.sceneRules ?? '';
     applyModelGuideForCurrentModel();
+    renderLayoutEditor({ collapse: collapseLayout });
 }
 
 // ── 提示词预设列表 ───────────────────────────────────────────
@@ -4679,7 +4691,7 @@ function renderPromptPresetList() {
 function selectPromptPreset(id) {
     if (!id || id === currentPromptPresetId()) return; // 再点已选中的一行什么也不做
     state.selectedPromptPresetId = id;
-    applyPromptPreset();
+    applyPromptPreset({ collapseLayout: true });
     getPromptListView()?.syncSelection();
     requestPromptChainPreview();
     postToParent({ type: 'SELECT_PROMPT_PRESET', id });
@@ -4713,14 +4725,18 @@ function handlePromptPresetAction(action, id, preset) {
 function exportPromptPreset(preset) {
     const isActive = preset.id === getActivePromptPresetForForm()?.id;
     const drafts = promptTextDraftsByPreset.get(preset.id);
+    // 默认布局仍导出 V3（旧版本能导入）；带自定义布局导出 V4，旧版本会明确拒绝而不是悄悄丢掉布局。
+    // 版本规则与 novel-prompt-import.js 的 promptTemplateExportVersion 一致（panel 测试会对账）。
+    const layout = promptLayoutForExport(preset);
     const data = {
         _type: 'novel-draw-prompt-template',
-        _version: 3,
+        _version: layout ? 4 : 3,
         name: preset.name || '',
         topSystem: isActive ? $('nd_prompt_system').value : (drafts?.has('topSystem') ? drafts.get('topSystem') : preset.topSystem ?? ''),
         sceneRules: isActive ? $('nd_prompt_format').value : (drafts?.has('sceneRules') ? drafts.get('sceneRules') : preset.sceneRules ?? ''),
         modelGuideOverrides: collectModelGuideOverrides(preset, { fromForm: isActive }),
     };
+    if (layout) data.layout = layout;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -4738,6 +4754,159 @@ function getActivePromptPresetForForm() {
         state.selectedPromptPresetId = active.id;
     }
     return active;
+}
+
+// ── 消息布局（共享编辑器 shared/prompt-layout-editor.js）─────────────────────────
+// 布局跟着提示词预设走：已保存的在 preset.layout（缺省 = 默认布局），未保存的修改放在 layoutDraftsByPreset。
+// 生效布局 = 草稿 ?? 已保存 ?? 默认。编辑器只改草稿；保存按钮把生效布局随 promptDraft.layout 交给宿主。
+// 页面是普通脚本，布局契约的纯函数（指纹 / 默认判断 / 规范化）经 PLE 转出。
+
+const LAYOUT_UNSUPPORTED_REASON = '当前酒馆端的 LittleWhiteBox 版本还不支持消息布局，请刷新酒馆页面后再试。';
+const LAYOUT_TEXT_TARGETS = { opening: 'nd_prompt_system', guide: 'nd_prompt_guide', rules: 'nd_prompt_format' };
+
+/** 宿主认识 layout 字段、且编辑器模块已加载：此时才允许读写 / 保存布局。 */
+function layoutSupported() {
+    return Boolean(PLE) && state.promptLayoutSupported === true;
+}
+
+function getSavedPromptLayout(preset) {
+    return PLE.normalizeLayout(preset?.layout).layout; // 没有 layout 字段 = 默认布局
+}
+
+function getEffectivePromptLayout(preset) {
+    if (!PLE) return null;
+    const draft = preset?.id ? layoutDraftsByPreset.get(preset.id) : null;
+    return draft || getSavedPromptLayout(preset);
+}
+
+/** 记下编辑器给出的新布局；与已保存的一致就直接丢草稿，这样“未保存”徽标与保存后的清理都不用特殊处理。 */
+function setPromptLayoutDraft(preset, layout) {
+    if (!PLE || !preset?.id) return;
+    if (PLE.layoutFingerprint(layout) === PLE.layoutFingerprint(getSavedPromptLayout(preset))) layoutDraftsByPreset.delete(preset.id);
+    else layoutDraftsByPreset.set(preset.id, layout);
+}
+
+/** 宿主推来新数据后：草稿与已保存一致（保存成功）或预设已不存在的草稿丢弃，其余保留（保存失败 / 还在编辑）。 */
+function pruneLayoutDrafts() {
+    if (!PLE) return;
+    for (const [presetId, draft] of Array.from(layoutDraftsByPreset)) {
+        const preset = (state.promptPresets || []).find(item => item.id === presetId);
+        if (!preset || PLE.layoutFingerprint(draft) === PLE.layoutFingerprint(getSavedPromptLayout(preset))) {
+            layoutDraftsByPreset.delete(presetId);
+        }
+    }
+}
+
+/**
+ * 保存时附带的 layout 字段：生效布局是默认 -> null（宿主删掉已存的 layout），否则是规范化后的对象。
+ * 编辑器不可用时一个字段都不带——宿主把“键缺席”当作不动，避免旧宿主 / 加载失败时误删已存布局。
+ */
+function layoutFieldForSave() {
+    if (!layoutSupported()) return {};
+    const layout = getEffectivePromptLayout(getActivePromptPresetForForm());
+    return { layout: PLE.isDefaultLayout(layout) ? null : PLE.normalizeLayout(layout).layout };
+}
+
+/** 导出用的布局：默认 / 没有 -> null（导出 V3，旧版本照常能导入）；否则规范化后的对象（导出 V4）。 */
+function promptLayoutForExport(preset) {
+    // 编辑器没加载时拿不到草稿，但已保存的布局不能在导出里悄悄丢掉。
+    if (!PLE) return preset.layout && typeof preset.layout === 'object' ? preset.layout : null;
+    const layout = getEffectivePromptLayout(preset);
+    return PLE.isDefaultLayout(layout) ? null : PLE.normalizeLayout(layout).layout;
+}
+
+function summarizeLayoutText(value, emptyText) {
+    const text = String(value ?? '');
+    if (!text.trim()) return emptyText;
+    const flat = text.replace(/\s+/g, ' ').trim();
+    const chars = Array.from(flat);
+    const head = chars.length > 60 ? `${chars.slice(0, 60).join('')}…` : flat;
+    return `${head}（共 ${text.length} 字）`;
+}
+
+function describeBuiltinBlock(id) {
+    switch (id) {
+        case 'opening':
+            return { summary: summarizeLayoutText($('nd_prompt_system')?.value, '（当前为空，不注入）'), action: 'edit' };
+        case 'guide':
+            return { label: '模型TAG指南', summary: summarizeLayoutText($('nd_prompt_guide')?.value, '（当前为空，不注入）'), action: 'edit' };
+        case 'rules':
+            return { summary: summarizeLayoutText($('nd_prompt_format')?.value, '（当前为空，不注入）'), action: 'edit' };
+        case 'frame':
+            return { summary: '固定文本：说明下面提供了哪些材料，以及结果要通过工具交回（程序生成，不可编辑）', action: 'view' };
+        case 'tools':
+            return { summary: '固定工具：submit_scene_plan 及各字段说明（程序生成，不可编辑）', action: 'view' };
+        case 'worldInfo':
+            return { summary: state.useWorldInfo === true ? '世界书注入已开启：命中的条目放在这里' : '世界书注入未开启（在世界书页面开启）', action: 'edit' };
+        case 'content': {
+            const chars = Array.isArray(state.characterTags) ? state.characterTags : [];
+            const enabled = chars.filter(char => char.enabled !== false).length;
+            return { summary: `最近的聊天正文与角色标签（共 ${chars.length} 个角色，启用 ${enabled} 个）`, action: 'edit' };
+        }
+        case 'limits': {
+            const presets = state.paramsPresets || [];
+            const params = presets.find(item => item.id === state.selectedParamsPresetId) || presets[0] || {};
+            const images = Number(params.maxImages) || 0;
+            const perImage = Number(params.maxCharactersPerImage) || 0;
+            return { summary: `每次最多 ${images || '不限'} 张图，每张图最多 ${perImage || '不限'} 个角色`, action: 'edit' };
+        }
+        default:
+            return { summary: '', action: null };
+    }
+}
+
+/** 内置块的“去编辑 / 查看”：文本类跳到对应文本框，其余切到数据所在的页面。 */
+function editBuiltinBlock(id) {
+    const textTarget = LAYOUT_TEXT_TARGETS[id] && $(LAYOUT_TEXT_TARGETS[id]);
+    if (textTarget) {
+        textTarget.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        textTarget.focus?.();
+    } else if (id === 'worldInfo') {
+        switchView('worldbook');
+    } else if (id === 'content') {
+        switchView('characters');
+    } else if (id === 'limits') {
+        switchView('params');
+        const input = $('nd_max_images');
+        input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        input?.focus?.();
+    } else if (id === 'frame' || id === 'tools') {
+        const details = $('nd_prompt_chain_details');
+        if (details) {
+            details.open = true;
+            details.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        }
+    }
+}
+
+let layoutEditor = null;
+function getLayoutEditor() {
+    if (!layoutEditor && PLE) {
+        const container = $('nd_prompt_layout');
+        if (!container) return null;
+        layoutEditor = PLE.createPromptLayoutEditor({
+            document,
+            container,
+            getLayout: () => getEffectivePromptLayout(getActivePromptPresetForForm()),
+            getSavedLayout: () => getSavedPromptLayout(getActivePromptPresetForForm()),
+            onChange: layout => setPromptLayoutDraft(getActivePromptPresetForForm(), layout),
+            describeBuiltin: describeBuiltinBlock,
+            onEditBuiltin: editBuiltinBlock,
+            confirm: message => confirm(message),
+            autoScroll: autoScrollPresetList,
+            getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
+        });
+    }
+    return layoutEditor;
+}
+
+function renderLayoutEditor(options) {
+    getLayoutEditor()?.render(options);
+}
+
+/** 文本框 / 参数预设变化后刷新内置块摘要：原地改字，不重绘列表。 */
+function refreshLayoutSummaries() {
+    layoutEditor?.refreshSummaries();
 }
 
 function setCurrentPromptTextDraft(key, content) {
@@ -4824,6 +4993,7 @@ function applyModelGuideForCurrentModel() {
             : defaultContent;
 
     $('nd_prompt_guide').value = content;
+    refreshLayoutSummaries();
 }
 
 function setSelectOrCustom(kind, value) {
@@ -5480,6 +5650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            ...layoutFieldForSave(),
         }, statusTarget: 'prompt-preset' });
     });
 
@@ -5496,6 +5667,7 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            ...layoutFieldForSave(),
         }, statusTarget: 'prompts' });
     });
 
@@ -5507,22 +5679,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
         $('nd_prompt_system').value = defaultTopSystem;
         setCurrentPromptTextDraft('topSystem', defaultTopSystem);
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
         const defaultSceneRules = state._defaultPrompts?.sceneRules || '';
         $('nd_prompt_format').value = defaultSceneRules;
         setCurrentPromptTextDraft('sceneRules', defaultSceneRules);
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
         const defaultContent = state.modelGuideDefaults?.[getCurrentModelGuideId()] ?? '';
         $('nd_prompt_guide').value = defaultContent;
         setCurrentModelGuideDraft(defaultContent);
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
     $('nd_prompts_reset_all').addEventListener('click', () => {
-        if (!confirm('确认将当前预设的全部提示词恢复为默认值？（需点击保存才会生效）')) return;
+        if (!confirm('确认将当前预设的全部提示词（含消息布局结构）恢复为默认值？（需点击保存才会生效）')) return;
         const defaults = state._defaultPrompts || {};
         const activePreset = getActivePromptPresetForForm();
         if (!activePreset) {
@@ -5543,6 +5718,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 .filter(([, content]) => typeof content === 'string'),
         ));
         applyModelGuideForCurrentModel();
+        // 布局草稿一并回到默认（与已保存的默认布局一致时 setPromptLayoutDraft 会直接丢草稿）。
+        if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
+        renderLayoutEditor({ collapse: true });
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
 
@@ -5571,11 +5750,13 @@ document.addEventListener('DOMContentLoaded', () => {
     ['nd_prompt_system', 'nd_prompt_format'].forEach((id) => {
         $(id).addEventListener('input', () => {
             setCurrentPromptTextDraft(id === 'nd_prompt_system' ? 'topSystem' : 'sceneRules', $(id).value);
+            refreshLayoutSummaries();
             if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         });
     });
     $('nd_prompt_guide').addEventListener('input', () => {
         setCurrentModelGuideDraft($('nd_prompt_guide').value);
+        refreshLayoutSummaries();
         if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         else promptChainRequestId += 1;
     });
@@ -5636,6 +5817,9 @@ document.addEventListener('DOMContentLoaded', () => {
         import('../../shared/preset-list-view.js')
             .then((module) => { PLV = module; })
             .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，参数 / 提示词预设列表无法显示:', error); }),
+        import('../../shared/prompt-layout-editor.js')
+            .then((module) => { PLE = module; })
+            .catch((error) => { console.error('[ND-UI] 消息布局编辑器加载失败，消息布局不可用:', error); }),
     ]).finally(() => postToParent({ type: 'FRAME_READY' }));
 });
 </script>

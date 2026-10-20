@@ -40,27 +40,46 @@ export function buildScenePlannerFrameText(profile) {
 The app uses each image's scene and character fields, together with the character library and the user's generation settings, to build a request for ${imageModelName}. Field meanings and model-specific controls are described in submit_scene_plan.`;
 }
 
+// 指南 / 规则单独成段：布局组装需要把它们当作独立的块（空文本 = 整块省略）。
+export function buildScenePlannerGuideSection(guide = '', profile) {
+    const { imageModelName } = normalizeScenePlannerProfile(profile);
+    const guideText = String(guide || '').trim();
+    return guideText ? `## ${imageModelName} Tag 指南\n\n${guideText}` : '';
+}
+
+export function buildScenePlannerRulesSection(rules = '') {
+    const rulesText = String(rules || '').trim();
+    return rulesText ? `## 场景规则\n\n${rulesText}` : '';
+}
+
 export function buildScenePlannerSystemPrompt({ opening = '', guide = '', sceneRules = '', profile } = {}) {
     const effective = normalizeScenePlannerProfile(profile);
-    const guideText = String(guide || '').trim();
-    const rulesText = String(sceneRules || '').trim();
     return joinBlocks([
         opening,
         buildScenePlannerFrameText(effective),
-        guideText ? `## ${effective.imageModelName} Tag 指南\n\n${guideText}` : '',
-        rulesText ? `## 场景规则\n\n${rulesText}` : '',
+        buildScenePlannerGuideSection(guide, effective),
+        buildScenePlannerRulesSection(sceneRules),
     ]);
+}
+
+// 世界书 / 正文两个内置块的未展开模板（槽位哨兵已拼入）；布局组装与默认用户任务共用，保证两条路径同源。
+export function buildScenePlannerWorldInfoBlock(worldInfoSlot) {
+    return spliceLiteral(WORLD_INFO_TEMPLATE, '{$worldInfo}', worldInfoSlot);
+}
+
+export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot) {
+    return spliceLiteral(
+        spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', characterInfoSlot),
+        '{{lastMessage}}',
+        lastMessageSlot,
+    );
 }
 
 /** Slots are opaque tokens; the caller resolves them after macro expansion. */
 export function buildScenePlannerUserTask({ worldInfoSlot, characterInfoSlot, lastMessageSlot, limitsLine = '' } = {}) {
     return joinBlocks([
-        spliceLiteral(WORLD_INFO_TEMPLATE, '{$worldInfo}', worldInfoSlot),
-        spliceLiteral(
-            spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', characterInfoSlot),
-            '{{lastMessage}}',
-            lastMessageSlot,
-        ),
+        buildScenePlannerWorldInfoBlock(worldInfoSlot),
+        buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot),
         limitsLine,
     ]);
 }
