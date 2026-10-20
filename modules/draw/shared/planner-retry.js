@@ -130,6 +130,18 @@ export async function retryOnSceneSourceChange(run, {
     }
 }
 
+/**
+ * 三个 Provider 页面共用的调用入口：次数取场景 Agent 的重试设置，重试前通过 onStateChange 通知界面。
+ * run 的约定同 retryOnSceneSourceChange。
+ */
+export function retryScenePlanning(run, { maxRetries, signal, onStateChange } = {}) {
+    return retryOnSceneSourceChange(run, {
+        ...normalizePlannerRetry({ maxRetries }),
+        signal,
+        onRetry: ({ retry, maxRetries: total }) => onStateChange?.('llm', { phase: 'retry', retry: { current: retry, total } }),
+    });
+}
+
 function createAbortError() {
     const error = new Error('已取消');
     error.name = 'AbortError';

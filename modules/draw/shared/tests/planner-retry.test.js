@@ -11,6 +11,7 @@ import {
     isSceneSourceChangedError,
     normalizePlannerRetry,
     retryOnSceneSourceChange,
+    retryScenePlanning,
     sleepWithAbort,
 } from '../planner-retry.js';
 import { ScenePlacementError, assertSceneSourceUnchanged } from '../scene-placement.js';
@@ -646,6 +647,31 @@ test('a changed source is re-planned with exponential backoff until it holds sti
     assert.deepEqual(runs, [0, 1, 2]);
     assert.deepEqual(delays, [1000, 2000]);
     assert.deepEqual(retries, [[1, 3, 1000], [2, 3, 2000]]);
+});
+
+test('retryScenePlanning follows the Agent retry setting and reports each retry through onStateChange', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const states = [];
+    let runs = 0;
+    const pending = retryScenePlanning(async () => {
+        runs += 1;
+        if (runs === 1) throw sourceChangedError();
+        return 'planned';
+    }, { maxRetries: 2, onStateChange: (...args) => states.push(args) });
+    await new Promise(resolve => globalThis.setImmediate(resolve));
+    t.mock.timers.tick(PLANNER_RETRY_MAX_DELAY_MS);
+    assert.equal(await pending, 'planned');
+    assert.equal(runs, 2);
+    assert.deepEqual(states, [['llm', { phase: 'retry', retry: { current: 1, total: 2 } }]]);
+});
+
+test('retryScenePlanning with maxRetries 0 surfaces the first source change without waiting', async () => {
+    let runs = 0;
+    await assert.rejects(() => retryScenePlanning(async () => {
+        runs += 1;
+        throw sourceChangedError();
+    }, { maxRetries: 0, onStateChange: () => assert.fail('no retry state expected') }), error => isSceneSourceChangedError(error));
+    assert.equal(runs, 1);
 });
 
 test('the source-changed retry gives up after maxRetries and surfaces the original error', async () => {

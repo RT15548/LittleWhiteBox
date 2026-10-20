@@ -161,7 +161,7 @@ import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { createDrawImageSlotRegex, stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import { ScenePlacementError, assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
-import { normalizePlannerRetry, retryOnSceneSourceChange } from "../../shared/planner-retry.js";
+import { retryScenePlanning } from "../../shared/planner-retry.js";
 import { pickNeighborAfterRemoval, reorderPresetsByIds } from "../../shared/preset-order.js";
 import { submitPreparedChatImages, registerPreparedImageProvider } from "../../shared/prepared-chat-images.js";
 import { prepareImageInput } from '../../shared/prepared-image-input.js';
@@ -2963,7 +2963,7 @@ async function generateAndInsertImages({
         let tasks = [];
         try {
             // 规划期间正文若被改动，按最新正文重新规划（指数退避，次数同 Agent 重试设置）。
-            tasks = await retryOnSceneSourceChange(async (retryNumber) => {
+            tasks = await retryScenePlanning(async (retryNumber) => {
                 let source = { sceneSource, presentCharacters };
                 if (retryNumber) {
                     // 换了楼层/分支就不再重试：这里会抛出原有的“原文或分支已变化”。
@@ -2987,11 +2987,7 @@ async function generateAndInsertImages({
                 await maybeAutoLearnFromTasks(planned, settings);
                 assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), source.sceneSource.sourceHash);
                 return planned;
-            }, {
-                ...normalizePlannerRetry({ maxRetries: settings.plannerMaxRetries }),
-                signal,
-                onRetry: ({ retry, maxRetries }) => onStateChange?.('llm', { phase: 'retry', retry: { current: retry, total: maxRetries } }),
-            });
+            }, { maxRetries: settings.plannerMaxRetries, signal, onStateChange });
         } catch (e) {
             console.error('[NovelDraw] 场景分析原始错误:', e);
             console.error('[NovelDraw] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
