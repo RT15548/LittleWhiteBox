@@ -26,6 +26,7 @@ import { createMessageButtonOwnership } from "../../core/message-button-ownershi
 import { STORY_SUMMARY_TOGGLE_EVENT } from './runtime-events.js';
 import { initChatDeletionLifecycle } from './chat-deletion-lifecycle.js';
 import { createMemoryMaintenanceHost } from './maintenance/host.js';
+import { MEMORY_CHAT_MESSAGES } from './maintenance/chat-contract.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
 import {
     clearEmbeddingFailureNotice,
@@ -246,6 +247,7 @@ const memoryMaintenance = createMemoryMaintenanceHost({
         refreshEntityLexiconAndWarmup();
         postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(getSummaryStore()) });
     },
+    chatChanged: payload => postToFrame({ type: MEMORY_CHAT_MESSAGES.state, payload }),
     changed: () => {
         observeBackgroundTask(sendMemoryMaintenanceResults(), { source: import.meta.url, operation: "changed" });
     },
@@ -253,12 +255,13 @@ const memoryMaintenance = createMemoryMaintenanceHost({
 
 async function sendMemoryMaintenanceResults(offset = 0) {
     const chatId = getContext()?.chatId;
+    const identity = memoryMaintenance.chat.identity;
     try {
         const payload = await memoryMaintenance.results(offset);
-        if (getContext()?.chatId === chatId) postToFrame({ type: 'MEMORY_MAINTENANCE_RESULTS', payload: { ...payload, offset } });
+        if (memoryMaintenance.chat.identity === identity) postToFrame({ type: 'MEMORY_MAINTENANCE_RESULTS', payload: { ...payload, offset } });
     } catch (error) {
         xbLog.error(MODULE_ID, 'memory_maintenance_results_failed', error);
-        if (getContext()?.chatId === chatId) postToFrame({ type: 'MEMORY_MAINTENANCE_RESULTS', payload: {
+        if (memoryMaintenance.chat.identity === identity) postToFrame({ type: 'MEMORY_MAINTENANCE_RESULTS', payload: {
             chatId, items: [], next: null, state: { status: 'failed', code: 'load_failed' },
         } });
     }
@@ -3139,6 +3142,18 @@ async function handleFrameMessage(event) {
     if (!isTrustedMessage(event, iframe, "LittleWhiteBox-StoryFrame")) return;
 
     const data = event.data;
+    const chatAction = Object.keys(MEMORY_CHAT_MESSAGES).find(action => action !== 'state' && MEMORY_CHAT_MESSAGES[action] === data.type);
+    if (chatAction) {
+        const requestIdentity = chatAction === 'query' ? memoryMaintenance.chat.identity : data.identity;
+        try {
+            if (chatAction === 'query') postToFrame({ type: MEMORY_CHAT_MESSAGES.state, payload: memoryMaintenance.chat.snapshot() });
+            else await memoryMaintenance.chat[chatAction](data);
+        } catch (error) {
+            memoryMaintenance.chat.report(error, requestIdentity);
+            xbLog.error(MODULE_ID, 'memory_chat_failed', error);
+        }
+        return;
+    }
 
     switch (data.type) {
         case 'DISMISS_SUMMARY_STATUS':
@@ -3153,7 +3168,7 @@ async function handleFrameMessage(event) {
             await sendMemoryMaintenanceResults(data.offset);
             break;
         case 'MEMORY_MAINTENANCE_CANCEL':
-            memoryMaintenance.cancel();
+            memoryMaintenance.cancelAutomatic();
             break;
         case 'MEMORY_MAINTENANCE_REPAIR':
             try { await memoryMaintenance.repairIndexes(); }
@@ -3730,7 +3745,7 @@ async function handleFrameMessage(event) {
                     );
                     const previousVectorConfig = transition.previousVectorConfig;
                     const savedConfig = transition.result;
-                    if (!savedConfig.memoryMaintenanceEnabled) memoryMaintenance.cancel();
+                    if (!savedConfig.memoryMaintenanceEnabled) memoryMaintenance.cancelAutomatic();
                     const nextVectorConfig = savedConfig?.vector || {};
                     const vectorEnabledChanged = !!previousVectorConfig?.enabled !== !!nextVectorConfig?.enabled;
                     const vectorFingerprintChanged = !!previousVectorConfig?.enabled
@@ -4575,7 +4590,7 @@ function handleChatChange() {
     const reloaded = messageSources.switchChat(getContext());
     embeddingConnection.cancel();
     serviceTests.cancel();
-    memoryMaintenance.cancel();
+    memoryMaintenance.reset();
     if (!reloaded) cancelRecallAndClearPrompt('chat-changed');
     cancelActiveSummaryExecution();
     activeSummaryExecution = null;

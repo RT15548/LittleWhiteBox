@@ -1,4 +1,4 @@
-﻿// story-summary-ui.js
+// story-summary-ui.js
 // iframe 内 UI 逻辑
 
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
@@ -7,6 +7,7 @@ import { DEFAULT_RECALL_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTime
 import { RELATION_TRENDS } from './data/fact-predicates.js';
 import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
+import { MEMORY_CHAT_MESSAGES } from './maintenance/chat-contract.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from './maintenance/settings.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
 import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY, writeSummaryConfigLocalCache } from './data/config-local-cache.js';
@@ -2644,6 +2645,9 @@ const UNANNOTATED_LABEL = '未标注';
                 renderSummaryStatus(d);
                 break;
 
+            case MEMORY_CHAT_MESSAGES.state:
+                memoryMaintenancePage.renderChat(d.payload);
+                break;
             case 'MEMORY_MAINTENANCE_RESULTS':
                 memoryMaintenancePage.render(d.payload);
                 break;

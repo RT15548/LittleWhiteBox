@@ -9,7 +9,8 @@ import { inputDigest } from '../vector/utils/vector-input-digest.js';
 import { buildEventVectorText } from '../vector/pipeline/event-vector-input.js';
 import { buildRAggregateText } from '../vector/pipeline/state-vector-input.js';
 import { embed } from '../vector/llm/siliconflow.js';
-import { runVectorGenerationTask } from '../vector/runtime/maintenance-coordinator.js';
+import { runVectorGenerationTask, cancelVectorWriteOperation } from '../vector/runtime/maintenance-coordinator.js';
+import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import { requireMemory } from './errors.js';
 
 export async function inspectMaintenanceIndexes(chatId, impact) {
@@ -29,11 +30,14 @@ export async function inspectMaintenanceIndexes(chatId, impact) {
 }
 
 /** Only derived data. Retrying here cannot issue another semantic maintenance request. */
-export async function repairMaintenanceIndexes(chatId, impact) {
-    return runVectorGenerationTask({ chatId, kind: 'memory-maintenance-index' }, async ({ signal, commit }) => {
+export async function repairMaintenanceIndexes(chatId, impact, { signal: ownerSignal, operationId } = {}) {
+    throwIfSignalAborted(ownerSignal);
+    requireMemory(!ownerSignal || typeof operationId === 'string' && operationId.length > 0, 'invalid_arguments', '', 'operationId');
+    const start = () => runVectorGenerationTask({ chatId, kind: 'memory-maintenance-index', operationId }, async ({ signal, commit }) => {
         await waitForMemoryCommit(signal);
         assertMemoryWritable(chatId);
         const missing = await inspectMaintenanceIndexes(chatId, impact);
+        throwIfSignalAborted(signal);
         if (missing.status !== 'pending') return { status: missing.status };
         const config = getVectorConfig();
         const jobs = [
@@ -43,8 +47,10 @@ export async function repairMaintenanceIndexes(chatId, impact) {
         ];
         const vectors = [];
         for (let offset = 0; offset < jobs.length; offset += 20) {
+            throwIfSignalAborted(signal);
             const batch = jobs.slice(offset, offset + 20);
             const result = await embed(batch.map(job => job.text), { apiConfig: config.embeddingApi, signal });
+            throwIfSignalAborted(signal);
             requireMemory(result?.length === batch.length, 'index_response_invalid');
             vectors.push(...result);
         }
@@ -69,8 +75,27 @@ export async function repairMaintenanceIndexes(chatId, impact) {
                 }
             }
             if (eventItems.length) await saveEventVectors(chatId, eventItems, missing.fingerprint);
+            throwIfSignalAborted(signal);
             if (atomItems.size) await saveStateVectors(chatId, [...atomItems.values()], missing.fingerprint);
             return { status: 'ready' };
         });
     });
+    if (!ownerSignal) return start();
+
+    // The coordinator retains cancelled queue entries until preceding work settles.
+    // Race only the caller's wait; the observed task still owns its cancellation
+    // signal and cannot commit later, even if an embedding provider ignores abort.
+    let abort;
+    const cancelled = new Promise((_, reject) => {
+        abort = () => {
+            const error = createAbortError();
+            cancelVectorWriteOperation(operationId, error);
+            reject(error);
+        };
+        ownerSignal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+        const running = Promise.resolve().then(() => { throwIfSignalAborted(ownerSignal); return start(); });
+        return await Promise.race([running, cancelled]);
+    } finally { ownerSignal.removeEventListener('abort', abort); }
 }

@@ -1,14 +1,9 @@
 import { getContext } from '../../../../../../extensions.js';
 import { getSummaryStore } from '../data/store.js';
-import { commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, readPublishedSummaryMemory, waitForMemoryCommit } from '../data/memory-commit.js';
+import { getMemoryCommitState, assertMemoryWritable, readPublishedSummaryMemory } from '../data/memory-commit.js';
 import { getSummaryPanelConfig } from '../data/config.js';
-import { getStateAtoms, getL0Index, deleteStateVectorsByIds } from '../vector/storage/state-store.js';
-import { deleteEventVectorsByIds } from '../vector/storage/chunk-store.js';
-import { clearRecallRuntime } from '../vector/runtime/runtime.js';
-import { runVectorWriteTask, VECTOR_WRITE_SCOPES, cancelEmbeddingWriteTasks } from '../vector/runtime/maintenance-coordinator.js';
-import { createMemorySession } from './session.js';
-import { commitMemorySession } from './commit.js';
-import { createSharedMemoryAgent, runMemoryAgent } from './runner.js';
+import { getStateAtoms, getL0Index } from '../vector/storage/state-store.js';
+import { getChatIdentity } from '../data/chat-identity.js';
 import { createMemoryScheduler } from './scheduler.js';
 import { projectMaintenanceReceipts, maintenanceHistoryImpact } from './history.js';
 import { registerMemoryMaintenance } from './notification.js';
@@ -16,101 +11,56 @@ import { inspectMaintenanceIndexes, repairMaintenanceIndexes } from './indexes.j
 import { requireMemory } from './errors.js';
 import { presentMaintenanceReceipt } from './presentation.js';
 import { readMaintenanceSource } from './source-view.js';
-import { maintenanceRanges } from './ranges.js';
+import { maintenanceRanges, maintenanceTask } from './ranges.js';
+import { executeMemoryTask, hasMaintenanceBoundary } from './execution.js';
+import { readMaintenanceDiagnostics } from './diagnostics.js';
+import { createMemoryChatController } from './chat-controller.js';
 
-export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed }) {
-    let unregister = null;
+export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed, chatChanged = () => {} }) {
+    let unregister = null, chat = null;
     const enabled = () => isEnabled() && getSummaryPanelConfig().memoryMaintenanceEnabled;
     const read = () => {
         const context = getContext();
         const store = getSummaryStore();
-        return { chatId: context.chatId, chat: context.chat, store, json: store?.json,
+        return { identity: getChatIdentity(context), chatId: context.chatId, chat: context.chat, store, json: store?.json,
             cutoff: store?.lastSummarizedMesId, atoms: getStateAtoms(), l0Index: getL0Index() };
     };
-    const scheduler = createMemoryScheduler({
-        enabled,
-        changed,
-        async run(task, signal, phase) {
-            let owner = null;
-            const readTask = () => {
-                requireMemory(enabled(), 'no_boundary');
-                const current = read();
-                requireMemory(current.chatId === task.chatId && (!owner || current.store === owner), 'conflict');
-                requireMemory(!current.store?.summaryInvalid, 'invalid_history');
-                requireMemory(Number.isInteger(current.cutoff) && current.cutoff >= 0, 'no_boundary');
-                requireMemory(current.cutoff >= task.cutoff, 'conflict');
-                const history = current.store.summaryHistory;
-                requireMemory(Array.isArray(history) && history.some(entry => entry.endMesId === task.cutoff)
-                    && history.at(-1)?.endMesId === current.cutoff, 'invalid_history');
-                return current;
-            };
-            const readCurrent = async () => {
-                // Another writer may acquire metadata before this await resumes.
-                do { await waitForMemoryCommit(signal); } while (getMemoryCommitState() === 'saving');
-                assertMemoryWritable(task.chatId);
-                return readTask();
-            };
-            const current = await readCurrent();
-            requireMemory(current.cutoff === task.cutoff, 'conflict');
-            owner = current.store;
-            const batch = current.store.summaryHistory.find(entry => entry.endMesId === task.cutoff);
-            const filterRules = batch.policy ? batch.policy.filterRules : getSummaryPanelConfig().textFilterRules;
-            const session = createMemorySession({ ...current, ...task, filterRules });
-            const agent = await createSharedMemoryAgent();
-            let index = { status: 'ready' };
-            let latest = null;
-            const save = async (edit, final = false) => {
-                // Cancellation must not wait for, or compete with, another owner's save.
-                if (final && signal.aborted && getMemoryCommitState() === 'saving') return null;
-                const committed = await runVectorWriteTask({ chatId: task.chatId, kind: 'memory-maintenance-commit', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, async () => {
-                    if (final && signal.aborted && getMemoryCommitState() === 'saving') return null;
-                    if (!signal.aborted) await readCurrent();
-                    return commitMemorySession(session, edit, {
-                        read: readTask,
-                        async commit(next, previous, impact, validate) {
-                            phase('saving');
-                            return commitSummaryMemory(task.chatId, next, { previous, validate, maintenanceWrite: true, invalidate: async () => {
-                                if (!impact.summary && !impact.atomIds.length) return;
-                                if (impact.eventIds.length || impact.atomIds.length) cancelEmbeddingWriteTasks('Memory records edited');
-                                invalidateRecall();
-                                if (impact.eventIds.length) await deleteEventVectorsByIds(task.chatId, impact.eventIds);
-                                if (impact.atomIds.length) await deleteStateVectorsByIds(task.chatId, impact.atomIds);
-                                await clearRecallRuntime(task.chatId);
-                            } });
-                        },
-                    }, final ? undefined : signal);
-                });
-                if (!committed && final) return null;
-                requireMemory(committed, 'cancelled');
-                latest = committed;
-                const savedCurrent = structuredClone(committed.current);
-                if (getContext().chatId === task.chatId) {
-                    invalidateRecall();
-                    refreshSummary(committed.impact);
-                }
-                if (final) return { ...committed, current: savedCurrent };
-                phase('indexing', { runId: edit.runId, saved: session.operations.length + committed.receipt.operations.length });
-                try {
-                    const repaired = await repairMaintenanceIndexes(task.chatId, committed.impact);
-                    if (index.status !== 'pending') index = repaired;
-                } catch (error) { index = { status: 'pending', code: error.code || 'index_failed' }; }
-                return { ...committed, current: savedCurrent };
-            };
-            const result = await runMemoryAgent(session, { ...agent, signal,
-                readCurrent,
-                onProgress: progress => phase('running', progress),
-                onSave: edit => save(edit),
-                onFinish: edit => save(edit, true),
-            });
-            return { ...latest, ...result, index };
+    const execute = (task, options) => executeMemoryTask(task, {
+        read, enabled: isEnabled, automaticEnabled: enabled,
+        filterRules: () => getSummaryPanelConfig().textFilterRules,
+        invalidateRecall, refreshSummary, readMaintenance: diagnostics, ...options,
+    });
+    const scheduler = createMemoryScheduler({ enabled,
+        changed: () => { changed(); if (chat) chatChanged(chat.snapshot()); },
+        run: (task, signal, phase) => execute(task, { signal, phase }),
+    });
+    function diagnostics(args) {
+        getSummaryStore();
+        const published = readPublishedSummaryMemory();
+        return readMaintenanceDiagnostics({ store: published.storySummary,
+            state: scheduler.snapshot(getContext().chatId, getChatIdentity(getContext())), commitState: getMemoryCommitState(), enabled: enabled() }, args);
+    }
+    chat = createMemoryChatController({
+        identity: () => getChatIdentity(getContext()), chatId: () => getContext().chatId,
+        scheduler, execute, diagnostics,
+        previewTask: () => {
+            const current = read();
+            return isEnabled() && hasMaintenanceBoundary(current) && getMemoryCommitState() !== 'unconfirmed'
+                ? maintenanceTask(current.store.summaryHistory, current.cutoff) : null;
         },
+        changed: () => { if (chat) chatChanged(chat.snapshot()); },
     });
     return {
+        chat,
         start() {
-            if (!unregister) unregister = registerMemoryMaintenance(batch => scheduler.submitted(batch));
+            if (!unregister) unregister = registerMemoryMaintenance(batch => {
+                if (batch.identity === getChatIdentity(getContext())) scheduler.submitted(batch);
+            });
         },
-        stop() { scheduler.cancel(); unregister?.(); unregister = null; },
+        stop() { scheduler.cancel(); chat.reset(); unregister?.(); unregister = null; },
+        reset() { scheduler.cancel(); chat.reset(); },
         cancel: () => scheduler.cancel(),
+        cancelAutomatic: () => scheduler.cancelAutomatic(),
         async results(offset = 0) {
             const chatId = getContext().chatId;
             getSummaryStore();
@@ -118,7 +68,7 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
             const store = published.storySummary;
             const page = projectMaintenanceReceipts(store, Math.max(0, Number(offset) || 0));
             page.items = page.items.map(receipt => presentMaintenanceReceipt(receipt, { json: store.json || {}, atoms: published.stateAtoms }));
-            const state = scheduler.snapshot(chatId);
+            const state = scheduler.snapshot(chatId, getChatIdentity(getContext()));
             if (['running', 'saving', 'indexing'].includes(state.status)) {
                 for (const receipt of page.items) if (receipt.runId === state.progress?.runId) receipt.outcome = { status: state.status };
             }

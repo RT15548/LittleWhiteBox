@@ -26,7 +26,7 @@ export async function commitMemorySession(session, result, ports, signal) {
         start: session.start + 1, cutoff: session.cutoff + 1,
         operations, coverage: session.coverage(), summary: edit.note, calls: result.calls,
         ...(edit.outcome ? { outcome: { ...edit.outcome,
-            ...(edit.outcome.status === 'completed' && maintenanceRanges(current.store.summaryHistory, session.cutoff).pending.length
+            ...(result.mode !== 'chat' && edit.outcome.status === 'completed' && maintenanceRanges(current.store.summaryHistory, session.cutoff).pending.length
                 ? { status: 'partial' } : {}) } } : {}),
         ...(edit.completion ? { completion: edit.completion } : {}),
     };

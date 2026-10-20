@@ -27,6 +27,7 @@ import { normalizeSummaryDelayFloors } from '../data/summary-delay.js';
 import { prepareSummaryResult } from './summary-result.js';
 import { formatModelArcProgress } from './arc-progress.js';
 import { notifySummaryCommitted } from '../maintenance/notification.js';
+import { getChatIdentity } from '../data/chat-identity.js';
 
 const MODULE_ID = 'summaryGenerator';
 const SUMMARY_SESSION_ID = 'xb9';
@@ -112,6 +113,7 @@ function staleSourceResult(onStatus) {
 export async function runSummaryGeneration(mesId, config, callbacks = {}, runtime = {}) {
     const { onStatus, onError, onComplete } = callbacks;
     const { signal = null, targetChatId = getContext()?.chatId || null } = runtime;
+    const targetIdentity = getChatIdentity(getContext());
 
     if (isSummaryRunInactive(signal, targetChatId)) {
         return cancelledResult(onStatus);
@@ -247,7 +249,9 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
 
     xbLog.info(MODULE_ID, `总结完成，已更新至 ${slice.endMesId + 1} 楼`);
-    notifySummaryCommitted({ chatId: targetChatId, start: lastSummarized + 1, cutoff: slice.endMesId });
+    if (!signal?.aborted && getChatIdentity(getContext()) === targetIdentity) {
+        notifySummaryCommitted({ chatId: targetChatId, identity: targetIdentity, start: lastSummarized + 1, cutoff: slice.endMesId });
+    }
 
     if (parsed.factUpdates?.length) {
         xbLog.info(MODULE_ID, `Facts 更新: ${parsed.factUpdates.length} 条`);

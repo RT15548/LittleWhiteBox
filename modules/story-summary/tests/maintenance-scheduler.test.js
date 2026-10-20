@@ -11,6 +11,8 @@ import { build } from 'esbuild';
 import { maintenanceFixture } from './fixtures/memory-maintenance.js';
 import { createMemoryScheduler } from '../maintenance/scheduler.js';
 import { maintenanceRanges } from '../maintenance/ranges.js';
+import { readMaintenanceDiagnostics } from '../maintenance/diagnostics.js';
+import { getChatIdentity } from '../data/chat-identity.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__maintenanceSchedulerTest = {};
@@ -23,7 +25,7 @@ const shims = {
     'modules/story-summary/vector/storage/chunk-store.js': 'export const deleteEventVectorsByIds=async()=>{};',
     'modules/story-summary/vector/runtime/runtime.js': 'export const clearRecallRuntime=async()=>{};',
     'modules/story-summary/maintenance/indexes.js': 'export const inspectMaintenanceIndexes=async()=>({status:"ready",events:[],atoms:[]}); export const repairMaintenanceIndexes=async()=>({status:"ready"});',
-    'modules/story-summary/maintenance/runner.js': 'import {runMemoryAgent as run} from "actual-maintenance-runner"; export const createSharedMemoryAgent=()=>globalThis.__maintenanceSchedulerTest.agent(); export const runMemoryAgent=async(...args)=>{const result=await run(...args); globalThis.__maintenanceSchedulerTest.onRunFinished?.(result); return result;};',
+    'modules/story-summary/maintenance/runner.js': 'export {memoryRunId,estimateMemoryChatContext} from "actual-maintenance-runner"; import {runMemoryAgent as run} from "actual-maintenance-runner"; export const createSharedMemoryAgent=()=>globalThis.__maintenanceSchedulerTest.agent(); export const runMemoryAgent=async(...args)=>{const result=await run(...args); globalThis.__maintenanceSchedulerTest.onRunFinished?.(result); return result;};',
     'modules/agent-core/settings-repository.js': 'export const loadSharedAgentSettings=async()=>({});',
     'modules/agent-core/browser-entry.js': 'export const setHostChatCompletionsRequestHeadersProvider=()=>{}; export const createAgentAdapter=()=>{};',
 };
@@ -62,7 +64,7 @@ const deferred = () => {
 beforeEach(() => {
     const fixture = maintenanceFixture();
     Object.assign(host, { fixture, enabled: true, config: { memoryMaintenanceEnabled: true, textFilterRules: [] },
-        requests: [], writes: 0, listeners: new Set(), afterSave: null, onRunFinished: null,
+        requests: [], writes: 0, files: [], confirmations: [], listeners: new Set(), afterSave: null, beforeReadback: null, onRunFinished: null,
         respond: async () => ({ text: 'Review finished.' }),
         metadata: { extensions: { LittleWhiteBox: {
             storySummary: { json: fixture.json, lastSummarizedMesId: fixture.cutoff,
@@ -70,21 +72,21 @@ beforeEach(() => {
             stateAtoms: fixture.atoms, l0Index: fixture.l0Index,
         } } },
     });
-    host.context = { ...fixture, characterId: 0, characters: [{ name: '角色', chat: fixture.chatId, avatar: 'fixture.png' }],
-        saveMetadata: async () => {
-            host.writes++;
-            host.disk = structuredClone(host.metadata);
-            await host.afterSave?.();
-        },
+    host.initialMetadata = structuredClone(host.metadata);
+    loadChatFile(createChatFile({ metadata: host.metadata }));
+    globalThis.fetch = async (_url, request) => {
+        const target = JSON.parse(request.body);
+        const file = host.files.find(item => item.chatId === target.file_name && item.avatar === target.avatar_url);
+        assert.ok(file);
+        host.confirmations.push(target);
+        await host.beforeReadback?.(file);
+        return new Response(JSON.stringify([{ chat_metadata: file.disk }]));
     };
-    host.disk = structuredClone(host.metadata);
-    globalThis.fetch = async () => new Response(JSON.stringify([{ chat_metadata: host.disk }]));
     host.agent = () => ({
         adapter: { chat: async request => { host.requests.push(request); return host.respond(request); } },
         config: { provider: 'openai', model: 'fixture', maxTokens: 1000 },
         countTokens: async () => ({ tokens: 100, source: 'test' }),
     });
-    mod.reload();
     host.maintenance = mod.createMemoryMaintenanceHost({
         isEnabled: () => host.enabled,
         invalidateRecall() {}, refreshSummary() {},
@@ -94,8 +96,38 @@ beforeEach(() => {
 });
 afterEach(() => { host.maintenance.stop(); });
 
+// Each host file owns its metadata and disk even after another chat is loaded.
+// Readback resolves the captured host request target, not the current chat.
+function createChatFile({ chatId = host.fixture.chatId, avatar = 'fixture.png', metadata = structuredClone(host.initialMetadata) } = {}) {
+    const file = { chatId, avatar, metadata, disk: structuredClone(metadata) };
+    host.files.push(file);
+    return file;
+}
+function loadChatFile(file, reload = false) {
+    if (reload) file.metadata = structuredClone(file.disk);
+    const metadata = file.metadata;
+    host.currentFile = file;
+    host.metadata = metadata;
+    host.context = { ...host.fixture, chatId: file.chatId, characterId: 0,
+        characters: [{ name: '角色', chat: file.chatId, avatar: file.avatar }],
+        saveMetadata: async () => {
+            host.writes++;
+            file.disk = structuredClone(metadata);
+            await host.afterSave?.();
+        },
+    };
+    mod.reload();
+}
+function switchLoadedChat(kind) {
+    const previous = host.currentFile;
+    if (kind === 'reload') loadChatFile(previous, true);
+    else loadChatFile(createChatFile({ chatId: kind === 'chat' ? 'another-chat' : previous.chatId,
+        avatar: kind === 'character' ? 'another-character.png' : previous.avatar }));
+    host.maintenance.reset();
+}
+
 function submitted(start = 0) {
-    mod.notifySummaryCommitted({ chatId: host.context.chatId, start, cutoff: store().lastSummarizedMesId });
+    mod.notifySummaryCommitted({ chatId: host.context.chatId, identity: getChatIdentity(host.context), start, cutoff: store().lastSummarizedMesId });
 }
 function waitForStatus(status) {
     return new Promise((resolve, reject) => {
@@ -354,3 +386,384 @@ for (const invalid of ['changed chat', 'damaged history', 'deleted memory', 'rep
         assert.notEqual(store().json?.facts?.[0]?.o, '不得保存的改动');
     });
 }
+
+function chatRequest(text) {
+    return { identity: host.maintenance.chat.snapshot().identity, ...(text === undefined ? {} : { text }) };
+}
+
+test('opening and drafting do not call the model; manual Q&A works with automatic maintenance disabled', options, async () => {
+    host.config.memoryMaintenanceEnabled = false;
+    const initial = host.maintenance.chat.snapshot();
+    host.maintenance.chat.draft(chatRequest('检查上次维护'));
+    assert.equal(host.maintenance.chat.snapshot().draft, '检查上次维护');
+    assert.equal(host.requests.length, 0);
+    assert.ok(initial.context.limit > initial.context.trigger);
+    host.respond = async () => ({ text: '这次只回答问题。' });
+    await host.maintenance.chat.send(chatRequest('检查上次维护'));
+    const first = host.maintenance.chat.snapshot();
+    assert.equal(first.turns[0].status, 'completed');
+    assert.equal(host.writes, 0);
+    await host.maintenance.chat.send(chatRequest('再解释一下'));
+    assert.equal(host.requests.length, 2);
+    assert.ok(host.requests[1].messages.some(message => message.content === '这次只回答问题。'));
+    assert.equal(host.maintenance.chat.snapshot().turns.length, 2);
+    assert.equal(host.writes, 0);
+});
+
+test('a manual diagnostic question can inspect missing summary history without trying to write', options, async () => {
+    store().lastSummarizedMesId = -1;
+    store().summaryHistory = [];
+    host.respond = async () => host.requests.length === 1
+        ? { text: '', toolCalls: [{ id: 'inspect', name: 'ReadMaintenance', arguments: '{}' }] }
+        : { text: '还没有可维护的总结。' };
+    await host.maintenance.chat.send(chatRequest('为什么没有维护？'));
+    assert.equal(host.requests.length, 2);
+    assert.deepEqual(host.requests[0].tools.map(tool => tool.function.name), ['ReadMaintenance']);
+    const response = JSON.parse(host.requests[1].messages.find(message => message.role === 'tool').content);
+    assert.equal(response.total, 0);
+    assert.equal(host.writes, 0);
+    assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'completed');
+});
+
+test('manual edits keep the normal receipts and pending ranges; clearing chat does not undo memory', options, async () => {
+    host.respond = async () => host.requests.length === 1
+        ? { text: '', toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+            { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '人工指示修正' } },
+        ] }) }] }
+        : { text: '已修正指定记忆。' };
+    await host.maintenance.chat.send(chatRequest('修改这一条记忆'));
+    assert.equal(store().json.facts[0].o, '人工指示修正');
+    const snapshot = host.maintenance.chat.snapshot();
+    assert.equal(snapshot.turns[0].status, 'completed');
+    assert.equal(snapshot.turns[0].saved, 1);
+    assert.deepEqual(snapshot.ranges.pending, [{ from: 1, to: 24 }]);
+    const saved = structuredClone(store());
+    const writes = host.writes;
+    await host.maintenance.chat.clear(chatRequest());
+    assert.equal(host.maintenance.chat.snapshot().turns.length, 0);
+    assert.deepEqual(store(), saved);
+    assert.equal(host.writes, writes);
+});
+
+test('stopping a manual save wait cancels only that request, not the owning save', options, async t => {
+    const saving = await holdSave(t);
+    const run = host.maintenance.chat.send(chatRequest('检查维护状态'));
+    await nextTurn();
+    assert.equal(host.requests.length, 0);
+    assert.equal(host.maintenance.chat.snapshot().busy, true);
+    host.maintenance.chat.stop(chatRequest());
+    await run;
+    const stopped = host.maintenance.chat.snapshot();
+    assert.equal(stopped.turns[0].status, 'cancelled');
+    assert.equal(stopped.busy, false);
+    assert.equal(mod.getMemoryCommitState(), 'saving');
+    assert.equal(host.requests.length, 0);
+    saving.release();
+    await saving.saved;
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(host.writes, 1);
+    assert.equal(store().updatedAt, 1);
+    assert.deepEqual(host.currentFile.disk, host.metadata);
+});
+
+test('stopping during setup does not relabel an unconfirmed result as cancelled', options, async () => {
+    const started = deferred(), release = deferred();
+    host.agent = async () => {
+        started.resolve();
+        await release.promise;
+        throw Object.assign(new Error('fixture persistence uncertainty'), { code: 'metadata_save_unconfirmed', uncertain: true });
+    };
+    const run = host.maintenance.chat.send(chatRequest('检查维护状态'));
+    await started.promise;
+    host.maintenance.chat.stop(chatRequest());
+    release.resolve();
+    await run;
+    const result = host.maintenance.chat.snapshot();
+    assert.equal(result.turns[0].status, 'unconfirmed');
+    assert.equal(result.turns[0].error.code, 'metadata_save_unconfirmed');
+    assert.equal(result.busy, false);
+    assert.equal(host.requests.length, 0);
+    assert.equal(host.writes, 0);
+});
+
+test('a queued question can cancel only itself while automatic work continues', options, async t => {
+    const started = deferred(), release = deferred();
+    t.after(() => release.resolve());
+    host.respond = async () => { started.resolve(); await release.promise; return { text: '自动完成。' }; };
+    submitted();
+    await started.promise;
+    const manual = host.maintenance.chat.send(chatRequest('稍后处理这条'));
+    assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'queued');
+    host.maintenance.chat.stop(chatRequest());
+    await manual;
+    assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'cancelled');
+    assert.equal((await host.maintenance.results()).state.status, 'running');
+    const finished = waitForStatus('partial');
+    release.resolve();
+    await finished;
+    assert.equal(host.requests.length, 1);
+});
+
+test('takeover waits for automatic cancellation before starting the queued question', options, async () => {
+    const started = deferred();
+    let inFlight = 0, peak = 0;
+    host.respond = async request => {
+        inFlight++; peak = Math.max(peak, inFlight);
+        try {
+            if (host.requests.length === 1) {
+                started.resolve();
+                await new Promise((resolve, reject) => request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true }));
+            }
+            return { text: '收到人工问题。' };
+        } finally { inFlight--; }
+    };
+    submitted();
+    await started.promise;
+    const manual = host.maintenance.chat.send(chatRequest('现在回答'));
+    host.maintenance.chat.takeover(chatRequest());
+    await manual;
+    assert.equal(peak, 1);
+    assert.equal(host.requests.length, 2);
+    assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'completed');
+});
+
+test('regeneration uses a fresh memory session and never replays previous saved tool calls', options, async () => {
+    host.respond = async () => {
+        if (host.requests.length === 1) return { text: '', toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+            { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '已经保存的成果' } },
+        ] }) }] };
+        return { text: '已完成。' };
+    };
+    await host.maintenance.chat.send(chatRequest('修正指定内容'));
+    const writes = host.writes;
+    await host.maintenance.chat.regenerate(chatRequest());
+    assert.equal(host.maintenance.chat.snapshot().turns.length, 1);
+    assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'completed');
+    assert.equal(store().json.facts[0].o, '已经保存的成果');
+    assert.equal(host.writes, writes);
+    assert.equal(host.requests.length, 3);
+});
+
+test('switching chat identity drops history and rejects stale commands even when filenames match', options, async () => {
+    host.respond = async () => ({ text: '旧聊天回复' });
+    const request = chatRequest('旧聊天问题');
+    await host.maintenance.chat.send(request);
+    host.context.characterId = 9;
+    host.maintenance.reset();
+    const next = host.maintenance.chat.snapshot();
+    assert.notEqual(next.identity, request.identity);
+    assert.deepEqual(next.turns, []);
+    await assert.rejects(host.maintenance.chat.send(request), error => error.code === 'conflict');
+    assert.equal(host.requests.length, 1);
+});
+
+test('reloading the same chat invalidates stale draft commands without calling the model', () => {
+    const original = chatRequest('旧输入');
+    host.maintenance.chat.draft(original);
+    host.maintenance.reset();
+    const next = host.maintenance.chat.snapshot();
+    assert.notEqual(next.identity, original.identity);
+    assert.equal(next.draft, '');
+    assert.throws(() => host.maintenance.chat.draft(original), error => error.code === 'conflict');
+    assert.equal(host.requests.length, 0);
+});
+
+test('automatic outcomes are isolated by character identity even when chat filenames match', options, async () => {
+    const completed = waitForStatus('partial');
+    submitted();
+    await completed;
+    host.context.characterId = 18;
+    host.maintenance.reset();
+    assert.equal((await host.maintenance.results()).state.status, 'idle');
+    assert.equal(host.maintenance.chat.snapshot().automatic.status, 'idle');
+});
+
+for (const history of [{ corrupt: true }, [{ endMesId: 23, maintenance: [{ runId: 'broken', operations: [] }] }]]) {
+    test('damaged history remains diagnosable without reading or writing untrusted progress', options, async () => {
+        store().summaryInvalid = true;
+        store().summaryHistory = structuredClone(history);
+        const before = structuredClone(store());
+        const initial = host.maintenance.chat.snapshot();
+        assert.equal(initial.ranges, null);
+        host.respond = async () => host.requests.length === 1
+            ? { text: '', toolCalls: [{ id: 'diagnose', name: 'ReadMaintenance', arguments: '{}' }] }
+            : { text: '历史结构损坏，不能确认维护进度。' };
+        await host.maintenance.chat.send(chatRequest('检查维护状态'));
+        const reply = JSON.parse(host.requests[1].messages.find(message => message.role === 'tool').content);
+        assert.equal(reply.historyValid, false);
+        assert.equal(reply.code, 'invalid_history');
+        assert.equal(reply.total, null);
+        assert.equal(host.writes, 0);
+        assert.deepEqual(store(), before);
+    });
+}
+
+test('retrying a setup failure keeps earlier successful conversation', options, async () => {
+    host.respond = async () => ({ text: 'A-answer' });
+    await host.maintenance.chat.send(chatRequest('A-question'));
+    const createAgent = host.agent;
+    host.agent = () => { throw Object.assign(new Error('configuration unavailable'), { code: 'not_configured' }); };
+    await host.maintenance.chat.send(chatRequest('B-question'));
+    assert.equal(host.maintenance.chat.snapshot().turns.at(-1).status, 'failed');
+    host.agent = createAgent;
+    await host.maintenance.chat.regenerate(chatRequest());
+    assert.ok(host.requests.at(-1).messages.some(message => message.role === 'user' && message.content === 'A-question'));
+    assert.ok(host.requests.at(-1).messages.some(message => message.role === 'assistant' && message.content === 'A-answer'));
+});
+
+test('clearing during failed setup finishes the clear and preserves newly typed input', options, async () => {
+    const setup = deferred(), started = deferred();
+    host.agent = async () => { started.resolve(); await setup.promise; throw Object.assign(new Error('configuration unavailable'), { code: 'not_configured' }); };
+    const run = host.maintenance.chat.send(chatRequest('检查状态'));
+    await started.promise;
+    const clearing = host.maintenance.chat.clear(chatRequest());
+    host.maintenance.chat.draft(chatRequest('下一条请求'));
+    setup.resolve();
+    await Promise.all([run, clearing]);
+    const state = host.maintenance.chat.snapshot();
+    assert.equal(state.turns.length, 0);
+    assert.equal(state.busy, false);
+    assert.equal(state.draft, '下一条请求');
+    assert.equal(host.requests.length, 0);
+});
+
+test('disabling automatic work after a save records cancellation without losing the confirmed edit', options, async () => {
+    const waiting = deferred();
+    host.respond = async request => {
+        if (host.requests.length === 1) return { text: '', toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+            { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '保留已确认的修改' } },
+        ] }) }] };
+        waiting.resolve();
+        return new Promise((resolve, reject) => request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true }));
+    };
+    submitted();
+    await waiting.promise;
+    const finished = waitForStatus('cancelled');
+    host.config.memoryMaintenanceEnabled = false;
+    host.maintenance.cancelAutomatic();
+    await finished;
+    assert.equal(store().json.facts[0].o, '保留已确认的修改');
+    assert.equal(store().summaryHistory[0].maintenance.at(-1).outcome.status, 'cancelled');
+    assert.equal(host.requests.length, 2);
+});
+
+for (const kind of ['chat', 'character', 'reload']) {
+    test(`switching ${kind} ignores the old provider's late write tools and queues the new question`, options, async t => {
+        const started = deferred(), release = deferred();
+        t.after(() => release.resolve());
+        const previousMetadata = host.metadata, previousFile = host.currentFile;
+        const previousMemory = structuredClone(previousMetadata), previousDisk = structuredClone(previousFile.disk);
+        host.respond = async () => {
+            if (host.requests.length === 1) {
+                started.resolve();
+                await release.promise; // This provider deliberately ignores the abort signal.
+                return { text: '', toolCalls: [{ id: 'late-edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+                    { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '不得执行的旧指令' } },
+                ] }) }] };
+            }
+            return { text: '新聊天回复' };
+        };
+        const oldRequest = chatRequest('旧聊天问题');
+        const oldRun = host.maintenance.chat.send(oldRequest);
+        await started.promise;
+        switchLoadedChat(kind);
+        const newMemory = structuredClone(host.metadata), newDisk = structuredClone(host.currentFile.disk);
+        const next = host.maintenance.chat.snapshot();
+        assert.notEqual(next.identity, oldRequest.identity);
+        assert.deepEqual(next.turns, []);
+        assert.equal(host.requests[0].signal.aborted, true);
+        const newRun = host.maintenance.chat.send(chatRequest('新聊天问题'));
+        await nextTurn();
+        assert.equal(host.requests.length, 1);
+        assert.equal(host.maintenance.chat.snapshot().turns[0].status, 'queued');
+        release.resolve();
+        await Promise.all([oldRun, newRun]);
+        const state = host.maintenance.chat.snapshot();
+        assert.equal(host.requests.length, 2);
+        assert.equal(state.turns.length, 1);
+        assert.equal(state.turns[0].question, '新聊天问题');
+        assert.equal(state.turns[0].answer, '新聊天回复');
+        assert.equal(state.turns[0].status, 'completed');
+        assert.deepEqual(previousMetadata, previousMemory);
+        assert.deepEqual(previousFile.disk, previousDisk);
+        assert.deepEqual(host.metadata, newMemory);
+        assert.deepEqual(host.currentFile.disk, newDisk);
+        assert.equal(host.writes, 0);
+    });
+
+    test(`switching ${kind} during save confirmation keeps the old save and stops later tools`, options, async t => {
+        // The old save is allowed to finish, but cannot append a final receipt to
+        // a different loaded metadata owner after the lifecycle reset.
+        t.mock.method(console, 'warn', () => {});
+        const confirming = deferred(), release = deferred();
+        t.after(() => release.resolve());
+        const previousMetadata = host.metadata, previousFile = host.currentFile;
+        const untouchedFact = structuredClone(store().json.facts[1]);
+        let finished;
+        host.onRunFinished = result => { finished = result; };
+        host.beforeReadback = async file => {
+            assert.equal(file, previousFile);
+            confirming.resolve();
+            await release.promise;
+        };
+        host.respond = async () => ({ text: '', toolCalls: [
+            { id: 'saved-edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+                { kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '切换前已保存的修改' } },
+            ] }) },
+            { id: 'skipped-edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+                { kind: 'edit', collection: 'facts', key: 'f-2', patch: { o: '不得执行的后续修改' } },
+            ] }) },
+        ] });
+        const oldRun = host.maintenance.chat.send(chatRequest('修正两项记忆'));
+        await confirming.promise;
+        assert.equal(mod.getMemoryCommitState(), 'saving');
+        assert.equal(host.writes, 1);
+        const savedDisk = structuredClone(previousFile.disk);
+        assert.equal(savedDisk.extensions.LittleWhiteBox.storySummary.json.facts[0].o, '切换前已保存的修改');
+        assert.deepEqual(host.confirmations, [{ ch_name: '角色', file_name: previousFile.chatId, avatar_url: previousFile.avatar }]);
+        host.beforeReadback = null;
+        switchLoadedChat(kind);
+        const nextMemory = structuredClone(host.metadata), nextDisk = structuredClone(host.currentFile.disk);
+        assert.notEqual(host.metadata, previousMetadata);
+        assert.equal(host.requests[0].signal.aborted, true);
+        release.resolve();
+        await oldRun;
+        assert.equal(host.requests.length, 1);
+        assert.equal(host.writes, 1);
+        assert.equal(host.confirmations.length, 1);
+        assert.equal(finished.saved, 1);
+        assert.equal(finished.receipts.length, 1);
+        assert.deepEqual(previousFile.disk, savedDisk);
+        assert.equal(previousMetadata.extensions.LittleWhiteBox.storySummary.json.facts[0].o, '切换前已保存的修改');
+        assert.deepEqual(previousMetadata.extensions.LittleWhiteBox.storySummary.json.facts[1], untouchedFact);
+        assert.deepEqual(host.metadata, nextMemory);
+        assert.deepEqual(host.currentFile.disk, nextDisk);
+        assert.equal(mod.getMemoryCommitState(), 'ready');
+        assert.deepEqual(host.maintenance.chat.snapshot().turns, []);
+        assert.equal(host.maintenance.chat.snapshot().error, '');
+        assert.equal(host.maintenance.chat.snapshot().busy, false);
+    });
+}
+
+test('a late committed-summary notification cannot be reassigned to a same-named new chat', options, async () => {
+    const batch = { chatId: host.context.chatId, identity: getChatIdentity(host.context), start: 0, cutoff: store().lastSummarizedMesId };
+    host.context.characterId = 21;
+    host.maintenance.reset();
+    mod.notifySummaryCommitted(batch);
+    await nextTurn();
+    assert.equal(host.requests.length, 0);
+    assert.equal((await host.maintenance.results()).state.status, 'idle');
+});
+
+test('saved failure diagnostics report the real provider error and do not invent missing source coverage', options, async () => {
+    host.respond = async () => { throw Object.assign(new Error('fixture provider refusal'), { status: 401 }); };
+    const failed = waitForStatus('failed');
+    submitted();
+    await failed;
+    const diagnostics = readMaintenanceDiagnostics({ store: store(), state: {}, commitState: 'ready', enabled: true });
+    assert.equal(diagnostics.runs[0].outcome.code, 'agent_auth');
+    const detail = readMaintenanceDiagnostics({ store: store(), state: {}, commitState: 'ready', enabled: true }, { runId: diagnostics.runs[0].id });
+    assert.equal(detail.calls[0].error.status, 401);
+    assert.equal(detail.run.outcome.error.code, 'agent_auth');
+    assert.deepEqual(store().summaryHistory[0].maintenance.at(-1).coverage.supplied, []);
+});

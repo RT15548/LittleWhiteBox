@@ -1,12 +1,23 @@
 import { resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
+import { dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
 import { DEFAULT_MAX_TOKENS } from '../../agent-core/config.js';
 import { MEMORY_COMPACTION_PROMPT, MEMORY_MAINTENANCE_PROMPT } from './prompt.js';
 import { MEMORY_TOOLS } from './tools.js';
 import { requireMemory } from './errors.js';
 
-export function createMemoryContext({ config, signal, limits, countTokens = resolveConversationTokens, summarize }) {
-    const count = (messages, systemPrompt = MEMORY_MAINTENANCE_PROMPT, tools = MEMORY_TOOLS) => countTokens({
-        messages: [{ role: 'system', content: systemPrompt }, ...messages], tools, providerConfig: config, signal,
+function splitAtRole(messages, role) {
+    const groups = [];
+    for (const message of messages) {
+        if (message.role === role || !groups.length) groups.push([]);
+        groups.at(-1).push(message);
+    }
+    return groups;
+}
+
+export function createMemoryContext({ config, signal, limits, countTokens = resolveConversationTokens, summarize,
+    systemPrompt = MEMORY_MAINTENANCE_PROMPT, tools = MEMORY_TOOLS }) {
+    const count = (messages, prompt = typeof systemPrompt === 'function' ? systemPrompt() : systemPrompt, definitions = tools) => countTokens({
+        messages: [{ role: 'system', content: prompt }, ...messages], tools: definitions, providerConfig: config, signal,
     });
     const summaryTokens = Math.min(config.maxTokens || DEFAULT_MAX_TOKENS, limits.summaryTokens);
 
@@ -18,7 +29,6 @@ export function createMemoryContext({ config, signal, limits, countTokens = reso
                 workFragment: { from: offset, to: end, total: text.length, text: text.slice(offset, end) } }) }];
             let low = offset, high = text.length;
             if ((await count(message(high), MEMORY_COMPACTION_PROMPT, [])).tokens <= limits.inputTokens) low = high;
-            // The summary request has its own bounded input, including previous notes.
             while (low < high) {
                 const mid = Math.ceil((low + high) / 2);
                 if ((await count(message(mid), MEMORY_COMPACTION_PROMPT, [])).tokens <= limits.inputTokens) low = mid;
@@ -37,11 +47,8 @@ export function createMemoryContext({ config, signal, limits, countTokens = reso
     }
 
     async function compact(messages, task, callsRemaining) {
-        const cycles = [];
-        for (const message of messages.slice(1)) {
-            if (message.role === 'assistant') cycles.push([]);
-            if (cycles.length) cycles.at(-1).push(message);
-        }
+        const cycles = splitAtRole(messages.slice(1), 'assistant');
+        // Only the automatic entry owns this JSON envelope, never an arbitrary user message.
         const old = JSON.parse(messages[0].content);
         let notes = old.workingNotes || '', archived = 0;
         const opening = () => ({ role: 'user', content: JSON.stringify({ task, workingNotes: notes, callsRemaining }) });
@@ -50,12 +57,43 @@ export function createMemoryContext({ config, signal, limits, countTokens = reso
             const older = cycles.slice(archived, boundary);
             if (older.length) notes = await summarizeText(JSON.stringify(older), notes);
             archived = boundary;
-            // Opening memory remains in storage, not copied into working notes.
-            const candidate = [opening(), ...cycles.slice(boundary).flat()];
+            const candidate = [opening(), ...cycles.slice(boundary).flat().map(dropInvalidatedThinkingFromMessage)];
             const measured = await count(candidate);
             if (measured.tokens < limits.compactTokens && measured.tokens <= limits.inputTokens) return { messages: candidate, measured };
         }
         requireMemory(false, 'input_limit');
     }
-    return { count, compact };
+
+    async function compactChat(messages) {
+        const questionIndex = messages.findLastIndex(message => message.role === 'user');
+        requireMemory(questionIndex >= 0, 'invalid_arguments');
+        const previous = messages.slice(0, questionIndex);
+        let notes = previous.filter(message => message.memoryWorkingNotes === true).map(message => message.content).join('\n');
+        const currentMaterial = previous.filter(message => message.memoryRegeneration === true);
+        const turns = splitAtRole(previous.filter(message => message.memoryWorkingNotes !== true && message.memoryRegeneration !== true), 'user');
+        const question = messages[questionIndex];
+        const cycles = splitAtRole(messages.slice(questionIndex + 1), 'assistant');
+        let oldTurns = 0, oldCycles = 0;
+        // Remove whole previous user turns first. Only then summarize this turn's
+        // completed tool groups, keeping the user's actual request verbatim.
+        const candidates = [...new Set([Math.min(2, turns.length), Math.min(1, turns.length), 0])]
+            .map(keep => ({ turns: keep, cycles: cycles.length }));
+        for (const keep of [2, 1]) {
+            if (keep < cycles.length) candidates.push({ turns: 0, cycles: keep });
+        }
+        for (const keep of candidates) {
+            const turnBoundary = turns.length - keep.turns, cycleBoundary = cycles.length - keep.cycles;
+            const older = [...turns.slice(oldTurns, turnBoundary), ...cycles.slice(oldCycles, cycleBoundary)];
+            if (older.length) notes = await summarizeText(JSON.stringify(older), notes);
+            oldTurns = turnBoundary; oldCycles = cycleBoundary;
+            const candidate = [
+                ...(notes ? [{ role: 'system', content: notes, memoryWorkingNotes: true }] : []),
+                ...turns.slice(turnBoundary).flat(), ...currentMaterial, question, ...cycles.slice(cycleBoundary).flat(),
+            ].map(dropInvalidatedThinkingFromMessage);
+            const measured = await count(candidate);
+            if (measured.tokens < limits.compactTokens && measured.tokens <= limits.inputTokens) return { messages: candidate, measured };
+        }
+        requireMemory(false, 'input_limit');
+    }
+    return { count, compact, compactChat };
 }

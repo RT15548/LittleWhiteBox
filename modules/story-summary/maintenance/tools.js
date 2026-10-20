@@ -53,6 +53,12 @@ const edit = { anyOf: Object.entries(fields).map(([name, patch]) => object({
     patch: { ...object(patch), description: 'Only changed fields; omitted for a deletion. A merge carries the combined summary.' },
 }, ['collection', 'key'])) };
 
+export const READ_MAINTENANCE_TOOL = tool('ReadMaintenance', 'Read the current maintenance state and saved run diagnostics. Without runId, returns current summary/completed/pending ranges and a page of runs, newest first. With runId, returns that run and pages its recorded calls and operations using the same offset/limit; next follows the larger total. The run overview is always included. Records may lack older diagnostic details; do not invent missing history. This tool is read-only and does not start maintenance.', {
+    runId: { ...string, minLength: 1, description: 'Run identifier returned by an earlier ReadMaintenance result; omit to list runs.' },
+    offset: { ...integer, default: 0, description: 'Zero-based run-list offset. Default 0.' },
+    limit: { type: 'integer', minimum: 1, maximum: 20, default: 10, description: 'Run-list page size. Default 10, maximum 20.' },
+});
+
 export const MEMORY_TOOLS = [
     tool('ReadMemory', 'Read current memories. Returns items, total (matching record count) and next (complete arguments for continuation, or null). Items contain collection, key, value, maintenanceRange and generatedBy. One page holds up to '
         + MEMORY_PAGE_SIZE + ' records and ' + MEMORY_PAGE_CHARS + ' characters; a longer item returns a serialized-item excerpt and nextTextOffset. Concatenate excerpts to recover the complete item. If a record changes between excerpts, memory_updated identifies it in records and the incomplete excerpts are not a complete current record.', {

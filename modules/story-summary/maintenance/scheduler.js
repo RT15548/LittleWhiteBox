@@ -1,40 +1,51 @@
-import { memoryFailureCode } from './errors.js';
+import { memoryFailureCode, requireMemory } from './errors.js';
+import { memoryRunError } from './run-feedback.js';
 
-/** In-memory only. A settings page never owns this queue or revives paid work on reload. */
+/** One in-memory execution slot. Automatic triggers coalesce; an explicit question has priority. */
 export function createMemoryScheduler({ enabled, run, changed = () => {} }) {
     let active = null;
     let pending = null;
+    let interaction = null;
     let last = null;
     let drainPromise = null;
     const seen = new WeakSet();
     const notify = () => changed();
+    const cancelled = () => ({ status: 'cancelled', code: 'cancelled' });
+    const owns = (task, chatId, identity) => task?.chatId === chatId && (identity === undefined || task.identity === identity);
 
     async function drain() {
-        while (pending) {
-            const task = pending;
-            pending = null;
-            if (!enabled()) { notify(); continue; }
+        while (interaction || pending) {
+            const manual = interaction;
+            const task = manual ? manual.task : pending;
+            if (manual) interaction = null;
+            else pending = null;
+            if (!manual && !enabled()) { notify(); continue; }
             const controller = new AbortController();
-            active = { ...task, controller, phase: 'running' };
+            active = { ...task, kind: manual ? 'chat' : 'auto', controller, phase: 'running' };
             notify();
             try {
-                const result = await run(task, controller.signal, (phase, progress) => {
-                    if (active) {
-                        active.phase = phase;
-                        if (progress) active.progress = progress;
-                    }
+                const result = await (manual ? manual.execute : run)(task, controller.signal, (phase, progress) => {
+                    active.phase = phase;
+                    if (progress) active.progress = progress;
                     notify();
                 });
-                last = { chatId: task.chatId, status: result.status || 'completed',
-                    code: result.error ? memoryFailureCode(result.error) : result.code,
-                    receiptId: result.error?.receiptId || result.receipt?.id, index: result.index, progress: active.progress };
-                if (last.code === 'conflict') last.scope = task;
+                if (manual) manual.resolve(result);
+                else {
+                    last = { chatId: task.chatId, identity: task.identity, status: result.status || 'completed',
+                        code: result.error ? memoryFailureCode(result.error) : result.code,
+                        receiptId: result.error?.receiptId || result.receipt?.id, index: result.index, progress: active.progress,
+                        ...(result.error ? { error: memoryRunError(result.error) } : {}) };
+                    if (last.code === 'conflict') last.scope = task;
+                }
             } catch (error) {
-                last = { chatId: task.chatId, status: error.uncertain ? 'unconfirmed' : controller.signal.aborted ? 'cancelled' : 'failed',
-                    code: memoryFailureCode(error), receiptId: error.receiptId, progress: active.progress };
-                // A new summary can change memory before its confirmed-save notification arrives.
-                // Keep only the abandoned scope, never the draft or a request to retry the model.
-                if (last.status === 'failed' && last.code === 'conflict') last.scope = task;
+                if (manual && controller.signal.aborted && !error.uncertain) manual.resolve(cancelled());
+                else if (manual) manual.reject(error);
+                else {
+                    last = { chatId: task.chatId, identity: task.identity, status: error.uncertain ? 'unconfirmed' : controller.signal.aborted ? 'cancelled' : 'failed',
+                        code: memoryFailureCode(error), receiptId: error.receiptId, progress: active.progress,
+                        error: memoryRunError(error) };
+                    if (last.status === 'failed' && last.code === 'conflict') last.scope = task;
+                }
             } finally {
                 active = null;
                 notify();
@@ -42,36 +53,49 @@ export function createMemoryScheduler({ enabled, run, changed = () => {} }) {
         }
         drainPromise = null;
     }
-
-    function enqueue(task) {
-        if (!enabled()) return;
-        if (active && active.chatId !== task.chatId) active.controller.abort();
-        const queued = pending?.chatId === task.chatId ? pending : null;
-        const abandoned = last?.chatId === task.chatId && task.cutoff > last.scope?.cutoff ? last.scope : null;
-        pending = { ...task,
-            start: Math.min(task.start, queued?.start ?? task.start, abandoned?.start ?? task.start),
-        };
+    function kick() {
         if (!drainPromise) drainPromise = Promise.resolve().then(drain);
         notify();
     }
-
+    function cancelInteraction() {
+        interaction?.resolve(cancelled());
+        interaction = null;
+        if (active?.kind === 'chat') active.controller.abort();
+    }
+    function cancelAutomatic() {
+        pending = null;
+        if (active?.kind === 'auto') active.controller.abort();
+        if (last?.scope) delete last.scope;
+    }
     return {
         submitted(batch) {
+            const { identity } = batch;
             if (seen.has(batch)) return;
             seen.add(batch);
-            enqueue(batch);
+            if (!enabled()) return;
+            if (active && !owns(active, batch.chatId, identity)) active.controller.abort();
+            const queued = owns(pending, batch.chatId, identity) ? pending : null;
+            const abandoned = owns(last, batch.chatId, identity) && batch.cutoff > last.scope?.cutoff ? last.scope : null;
+            pending = { ...batch, identity, start: Math.min(batch.start, queued?.start ?? batch.start, abandoned?.start ?? batch.start) };
+            kick();
         },
-        cancel() {
-            pending = null;
-            active?.controller.abort();
-            if (last?.scope) delete last.scope;
-            notify();
+        interact(task, execute) {
+            requireMemory(!interaction && (active?.kind !== 'chat' || active.controller.signal.aborted), 'memory_chat_busy');
+            const result = new Promise((resolve, reject) => { interaction = { task, execute, resolve, reject }; });
+            kick();
+            return result;
         },
-        snapshot(chatId) {
+        cancel() { cancelAutomatic(); cancelInteraction(); notify(); },
+        cancelAutomatic() { cancelAutomatic(); notify(); },
+        cancelInteraction() { cancelInteraction(); notify(); },
+        takeover() { if (interaction && active?.kind === 'auto') active.controller.abort(); notify(); },
+        snapshot(chatId, identity) {
             const outcome = { ...last };
             delete outcome.scope;
-            return active?.chatId === chatId ? { status: active.phase, cutoff: active.cutoff + 1, progress: active.progress }
-                : pending?.chatId === chatId ? { status: 'queued' } : last?.chatId === chatId ? outcome : { status: 'idle' };
+            delete outcome.identity;
+            return active?.kind === 'auto' && owns(active, chatId, identity)
+                ? { status: active.phase, cutoff: active.cutoff + 1, progress: active.progress }
+                : owns(pending, chatId, identity) ? { status: 'queued' } : owns(last, chatId, identity) ? outcome : { status: 'idle' };
         },
         settled: () => drainPromise || Promise.resolve(),
     };

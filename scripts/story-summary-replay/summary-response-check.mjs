@@ -6,6 +6,7 @@ import { chat_metadata, __setChatMetadata } from './shims/script.js';
 import { parseSummaryJson } from '../../modules/story-summary/generate/llm.js';
 import { applySummaryUndo } from '../../modules/story-summary/data/summary-undo.js';
 import { registerMemoryMaintenance } from '../../modules/story-summary/maintenance/notification.js';
+import { getChatIdentity } from '../../modules/story-summary/data/chat-identity.js';
 
 // Exercise the commit boundary: JSON errors and malformed event results must
 // not consume source floors, save partial data, or invoke completion callbacks.
@@ -117,10 +118,11 @@ export async function runSummaryResponseCheck() {
                 },
                 getStatus() { return { isStreaming: false, text: responseText }; },
             };
+            const identity = getChatIdentity(getContext());
             const seed = await runSummaryGeneration(0, config);
             assert.equal(seed.success, true);
             assert.equal(saved, 1);
-            assert.deepEqual(commits.splice(0), [{ chatId, start: 0, cutoff: 0 }]);
+            assert.deepEqual(commits.splice(0), [{ chatId, identity, start: 0, cutoff: 0 }]);
             const before = structuredClone(getSummaryStore());
             saved = 0;
             requests = 0;
@@ -146,7 +148,7 @@ export async function runSummaryResponseCheck() {
             assert.equal(requests, 1, 'response handling must not buy another generation');
             assert.equal(completed, scenario.valid, scenario.raw);
             assert.equal(saved, scenario.valid ? 1 : 0, scenario.raw);
-            assert.deepEqual(commits.splice(0), scenario.valid ? [{ chatId, start: 1, cutoff: targetFloor }] : []);
+            assert.deepEqual(commits.splice(0), scenario.valid ? [{ chatId, identity, start: 1, cutoff: targetFloor }] : []);
             if (scenario.valid) {
                 assert.equal(errors.length, scenario.completionFailure ? 1 : 0);
                 assert.equal(getSummaryStore().lastSummarizedMesId, targetFloor);
@@ -185,7 +187,7 @@ export async function runSummaryResponseCheck() {
                 assert.deepEqual(retry.newEventIds, ['evt-2']);
                 assert.equal(getSummaryStore().lastSummarizedMesId, targetFloor);
                 assert.equal(saved, 1);
-                assert.deepEqual(commits.splice(0), [{ chatId, start: 1, cutoff: targetFloor }]);
+                assert.deepEqual(commits.splice(0), [{ chatId, identity, start: 1, cutoff: targetFloor }]);
             }
             // Repeating an already committed boundary neither generates nor schedules work.
             const beforeRequests = requests;

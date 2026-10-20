@@ -20,7 +20,7 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
     const generations = entries => entries.map(({ maintenance: _receipts, ...batch }) => batch);
     const originalBatches = structuredClone(generations(history));
     const allOperations = [];
-    let opening = null, pending = null;
+    let pending = null;
     const records = (value = memory, batches = history) => {
         const owner = memoryOwnership(batches, cutoff);
         return memoryRecords(value).map(record => projectMemoryRecord(record, batches, owner(record)))
@@ -110,8 +110,7 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
     }
 
     function initial(tokenBudget = openingTokens) {
-        opening = buildMemoryOpening({ task: task(), records: records(), maxTokens: Math.min(tokenBudget, openingTokens, OPENING_TOKENS) });
-        return structuredClone(opening);
+        return buildMemoryOpening({ task: task(), records: records(), maxTokens: Math.min(tokenBudget, openingTokens, OPENING_TOKENS) });
     }
 
     function complete({ from, to }) {
@@ -173,7 +172,7 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
     function runTool(name, args = {}, current) {
         const tool = MEMORY_TOOLS.find(item => item.function.name === name);
         if (!tool) throw new MemoryMaintenanceError('unknown_tool', name, 'name');
-        requireMemory(opening && !pending, 'pending_edit');
+        requireMemory(!pending, 'pending_edit');
         if (current) {
             assertBoundary(current);
             chat = current.chat;
@@ -209,7 +208,8 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
         },
         conclude(outcome) {
             memory = structuredClone(baseline); // An unconfirmed draft never enters the final receipt.
-            pending = { operations: [], note: outcome.summary || '', outcome: { status: outcome.status, ...(outcome.code ? { code: outcome.code } : {}) } };
+            pending = { operations: [], note: outcome.summary || '', outcome: { status: outcome.status,
+                ...(outcome.code ? { code: outcome.code } : {}), ...(outcome.error ? { error: structuredClone(outcome.error) } : {}) } };
         },
         assertCurrent(current) {
             assertBoundary(current);

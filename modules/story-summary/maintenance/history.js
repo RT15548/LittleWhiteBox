@@ -59,6 +59,8 @@ export function projectMaintenanceReceipts(store, offset = 0, limit = 10) {
         return { ...latest, id: runId, receiptId: latest.id, receiptIds: receipts.map(receipt => receipt.id),
             // A run's report is its concluding reply, never the notes attached to edits.
             operations, summary: receipts.find(receipt => receipt.outcome)?.summary || '',
+            calls: [...new Map([...receipts].reverse().flatMap(receipt => receipt.calls || [])
+                .map(call => [call.turn, call])).values()].sort((a, b) => a.turn - b.turn),
             completed: unionRanges(receipts.flatMap(receipt => receipt.completion ? subtractRanges([receipt.completion], receipt.invalidated || []) : [])),
             outcome: latest.outcome || { status: 'interrupted' },
             coverage: {

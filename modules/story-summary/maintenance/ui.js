@@ -3,6 +3,8 @@ import { comparisonRows, memoryLabel, operationTitle } from './presentation.js';
 import { element, button, disclosure } from './ui-elements.js';
 import { createOperationList } from './operation-list.js';
 import { reportMarkdown } from './report-markdown.js';
+import { createMemoryChatDialog } from './chat-ui.js';
+import { MEMORY_CHAT_COPY as chatCopy, memoryChatErrorText } from './chat-copy.js';
 
 export function createMemoryMaintenancePage(root, send) {
     let chatId = null;
@@ -10,6 +12,7 @@ export function createMemoryMaintenancePage(root, send) {
     let runIds = [];
     let requestSequence = 0;
     let sourceRequest = null;
+    const chat = createMemoryChatDialog({ send });
     const authorization = element('section', 'memory-settings');
     const label = element('label', 'memory-authorization');
     const toggle = element('input');
@@ -26,7 +29,7 @@ export function createMemoryMaintenancePage(root, send) {
     const heading = element('div', 'memory-heading');
     heading.append(element('h3', '', copy.heading), element('span', '', copy.currentChat));
     const cancel = button(copy.cancel, () => send('MEMORY_MAINTENANCE_CANCEL'));
-    toolbar.append(heading, cancel);
+    toolbar.append(heading, button(chatCopy.entry, () => chat.open()), cancel);
     const state = element('p', 'memory-state');
     state.setAttribute('role', 'status');
     state.setAttribute('aria-live', 'polite');
@@ -72,6 +75,7 @@ export function createMemoryMaintenancePage(root, send) {
     function setChat(nextChatId) {
         if (nextChatId === chatId) return;
         chatId = nextChatId;
+        chat.setChat(nextChatId);
         clearReceipts();
         next = null;
         runIds = [];
@@ -187,7 +191,9 @@ export function createMemoryMaintenancePage(root, send) {
         details.addEventListener('toggle', measureReport);
         const operations = createOperationList(renderOperation);
         const coverageDetails = disclosure(copy.coverage, 'memory-coverage');
-        content.append(completed, report, operations.element, coverageDetails);
+        const failure = element('p', 'memory-maintenance-failure');
+        failure.setAttribute('role', 'status');
+        content.append(completed, failure, report, operations.element, coverageDetails);
         details.append(summary, content);
         let previousReport;
         let previousCoverage;
@@ -207,6 +213,10 @@ export function createMemoryMaintenancePage(root, send) {
             const coverage = receipt.coverage;
             if (coverage.missingAnchors.length) summary.append(element('span', 'memory-outstanding', copy.count(copy.missing, coverage.missingAnchors.length)));
             if (receipt.outcome) summary.append(element('span', 'memory-hint', copy.states[receipt.outcome.status]));
+            const failureCode = receipt.outcome?.code || receipt.outcome?.error?.code;
+            failure.textContent = memoryChatErrorText({ ...receipt.outcome?.error, code: failureCode,
+                message: receipt.outcome?.error?.message || copy.errors[failureCode], stage: receipt.outcome?.stage || receipt.outcome?.error?.stage });
+            failure.hidden = !failure.textContent;
             completed.hidden = !receipt.completed?.length;
             completed.textContent = receipt.completed?.length ? `${copy.completedRanges}：${copy.ranges(receipt.completed)}` : '';
             report.hidden = !receipt.summary;
@@ -254,7 +264,9 @@ export function createMemoryMaintenancePage(root, send) {
         getEnabled: () => toggle.checked,
         settingsSaved(success) { settingsState.textContent = success ? copy.settingsSaved : copy.settingsFailed; },
         open() { state.textContent = copy.loading; send('MEMORY_MAINTENANCE_QUERY'); },
-        close() { if (reader.open) reader.close(); },
+        close() { if (reader.open) reader.close(); chat.close(); },
+        renderChat(data) { chat.render(data); },
+        dispose() { clearReceipts(); chat.dispose(); reader.remove(); },
         renderSource(data) {
             if (!sourceRequest || data.requestId !== sourceRequest.requestId) return;
             if (data.chatId !== chatId) { reader.close(); return; }

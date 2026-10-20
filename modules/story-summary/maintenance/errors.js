@@ -16,6 +16,7 @@ const explanations = {
     cancelled: 'The uncommitted review was cancelled.',
     not_configured: 'The shared Agent main preset needs a model and a provider endpoint.',
     no_boundary: 'There is no valid summary boundary to review.',
+    diagnostics_unavailable: 'Maintenance diagnostics are unavailable in this run.',
     empty_response: 'The model returned neither a tool request nor a visible reply.',
     pending_edit: 'The previous edit needs confirmed persistence before another tool can run.',
     save_unavailable: 'Confirmed memory persistence is unavailable.',
