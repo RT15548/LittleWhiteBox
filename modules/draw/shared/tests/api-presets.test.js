@@ -20,6 +20,7 @@ import {
     syncActiveApiPreset,
 } from '../api-presets.js';
 import { createApiPresetBar } from '../api-presets-ui.js';
+import { createApiPresetPage } from '../api-preset-page.js';
 
 const FIELDS = ['host', 'auth', 'timeout', 'delay'];
 const OPTIONS = { fields: FIELDS };
@@ -331,4 +332,113 @@ test('deselecting keeps the current config; a failed commit is reported and the 
     await failing.settle();
     assert.match(failing.$('.status-text').textContent, /保存失败/);
     assert.equal(failing.$('select').value, 'p1');
+});
+
+// ───────────── 页面接线（SD WebUI / ComfyUI 共用）─────────────
+
+function mountPage({ presets = [], activeApiPresetId = null, persistResult = true } = {}) {
+    const { document, window } = parseHTML('<!doctype html><html><body><div id="panel"><div id="bar" class="preset-bar"></div><input id="host"></div></body></html>');
+    const live = { settings: { apiPresets: presets, activeApiPresetId, ...CONFIG }, filled: [], persists: 0 };
+    const normalizeConfig = (raw = {}) => ({
+        host: String(raw.host || ''), auth: String(raw.auth || ''), timeout: Number(raw.timeout) || 1000, delay: raw.delay || { min: 1, max: 2 },
+    });
+    const page = createApiPresetPage({
+        fields: FIELDS,
+        normalizeConfig,
+        getSettings: () => live.settings,
+        getSettingsDocument: () => document,
+        querySettings: selector => document.querySelector(selector),
+        containerSelector: '#bar',
+        panelSelector: '#panel',
+        readConfig: () => normalizeConfig({ ...live.settings, host: document.getElementById('host').value || live.settings.host }),
+        fillConfig: config => live.filled.push(config),
+        persist: async (mutator) => {
+            live.persists += 1;
+            if (!persistResult) return false;
+            const draft = structuredClone(live.settings);
+            mutator(draft);
+            live.settings = draft;
+            return true;
+        },
+        confirm: () => true,
+        prompt: () => null,
+    });
+    const choose = (id) => {
+        const select = document.querySelector('select');
+        for (const option of select.children) option.removeAttribute('selected');
+        Array.from(select.children).find(option => option.getAttribute('value') === id).setAttribute('selected', '');
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    };
+    const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+    return { page, live, document, window, choose, settle };
+}
+
+test('the page controller mounts one bar per document and removes it on destroy', () => {
+    const view = mountPage({ presets: TWO });
+    const bar = view.page.ensureBar();
+    assert.ok(bar);
+    assert.equal(view.page.ensureBar(), bar, '同一个 document 复用同一个预设栏');
+    assert.equal(view.document.querySelectorAll('option').length, 3);
+    view.page.destroy();
+    assert.equal(view.document.getElementById('bar').children.length, 0);
+    assert.equal(view.page.render(), undefined, '销毁后 render / refresh 不报错');
+});
+
+test('selecting a preset persists the list and the applied API fields, then fills the form with the effective config', async () => {
+    const view = mountPage({ presets: TWO, activeApiPresetId: 'p1' });
+    view.page.ensureBar();
+    view.choose('p2');
+    await view.settle();
+    assert.equal(view.live.settings.activeApiPresetId, 'p2');
+    assert.equal(view.live.settings.host, 'http://other', '选中的预设配置成为生效配置');
+    assert.deepEqual(view.live.filled.map(config => config.host), ['http://other']);
+});
+
+test('non-select changes persist the list without touching the effective config or the form', async () => {
+    const view = mountPage({ presets: TWO, activeApiPresetId: 'p1' });
+    view.page.ensureBar();
+    view.document.querySelector('[data-action="delete"]').dispatchEvent(new view.window.Event('click', { bubbles: true }));
+    await view.settle();
+    assert.deepEqual(view.live.settings.apiPresets.map(preset => preset.id), ['p2']);
+    assert.equal(view.live.settings.activeApiPresetId, null);
+    assert.equal(view.live.settings.host, CONFIG.host);
+    assert.deepEqual(view.live.filled, []);
+});
+
+test('a failed persist does not fill the form', async () => {
+    const view = mountPage({ presets: TWO, activeApiPresetId: 'p1', persistResult: false });
+    view.page.ensureBar();
+    view.choose('p2');
+    await view.settle();
+    assert.deepEqual(view.live.filled, []);
+    assert.equal(view.live.settings.activeApiPresetId, 'p1');
+});
+
+test('the Save helpers name the synced preset and write the form config back into it', () => {
+    const view = mountPage({ presets: TWO, activeApiPresetId: 'p1' });
+    assert.equal(view.page.activeName(), '一号');
+    assert.equal(view.page.savedText(true, '默认提示'), '已保存，并同步到 API 预设「一号」');
+    assert.equal(view.page.savedText(false, '默认提示'), '默认提示', '没要求同步时用默认提示');
+    const synced = view.page.withSynced({ ...view.live.settings, host: 'http://edited' });
+    assert.equal(synced.apiPresets[0].config.host, 'http://edited');
+    assert.equal(synced.apiPresets[1].config.host, 'http://other', '其它预设不动');
+
+    const none = mountPage({ presets: TWO, activeApiPresetId: null });
+    assert.equal(none.page.activeName(), '');
+    assert.equal(none.page.savedText(true, '默认提示'), '默认提示');
+    const form = { ...none.live.settings };
+    assert.equal(none.page.withSynced(form), form, '没选预设时原样返回');
+});
+
+test('edits inside the API panel refresh the bar status, but the bar own controls do not', () => {
+    const view = mountPage({ presets: TWO, activeApiPresetId: 'p1' });
+    view.page.ensureBar();
+    view.page.bindFormRefresh();
+    const status = () => view.document.querySelector('.status-text').textContent;
+    assert.doesNotMatch(status(), /不一致/);
+    view.live.settings = { ...view.live.settings, host: 'http://drifted' };
+    view.document.querySelector('[data-action="save-as"]').dispatchEvent(new view.window.Event('click', { bubbles: true }));
+    assert.doesNotMatch(status(), /不一致/, '预设栏自己的点击不触发刷新');
+    view.document.getElementById('host').dispatchEvent(new view.window.Event('input', { bubbles: true }));
+    assert.match(status(), /不一致/);
 });
