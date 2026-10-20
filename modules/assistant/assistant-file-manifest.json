@@ -3342,6 +3342,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/section-edits.js",
+      "relativePath": "modules/story-summary/data/section-edits.js",
+      "extension": ".js",
+      "sizeBytes": 2059
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/source-sync.js",
       "relativePath": "modules/story-summary/data/source-sync.js",
       "extension": ".js",
@@ -3821,7 +3828,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary-ui.js",
       "relativePath": "modules/story-summary/story-summary-ui.js",
       "extension": ".js",
-      "sizeBytes": 148756
+      "sizeBytes": 149049
     },
     {
       "source": "littlewhitebox",
@@ -3842,7 +3849,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.js",
       "relativePath": "modules/story-summary/story-summary.js",
       "extension": ".js",
-      "sizeBytes": 222080
+      "sizeBytes": 223397
     },
     {
       "source": "littlewhitebox",
@@ -4038,7 +4045,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/memory-storage.test.js",
       "relativePath": "modules/story-summary/tests/memory-storage.test.js",
       "extension": ".js",
-      "sizeBytes": 111278
+      "sizeBytes": 120696
     },
     {
       "source": "littlewhitebox",
@@ -4109,6 +4116,13 @@
       "relativePath": "modules/story-summary/tests/runtime-progress.test.js",
       "extension": ".js",
       "sizeBytes": 14863
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/section-edits.test.js",
+      "relativePath": "modules/story-summary/tests/section-edits.test.js",
+      "extension": ".js",
+      "sizeBytes": 5435
     },
     {
       "source": "littlewhitebox",
@@ -7146,7 +7160,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/template-editor/template-editor.js",
       "relativePath": "modules/template-editor/template-editor.js",
       "extension": ".js",
-      "sizeBytes": 62520
+      "sizeBytes": 62832
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/template-editor/tests/message-editing.test.js",
+      "relativePath": "modules/template-editor/tests/message-editing.test.js",
+      "extension": ".js",
+      "sizeBytes": 4731
     },
     {
       "source": "littlewhitebox",

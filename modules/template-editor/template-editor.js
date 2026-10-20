@@ -747,6 +747,14 @@ class IframeManager {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class MessageHandler {
+    static render(messageId, msg) {
+        // The host editor lives inside .mes_text. Replacing that element would
+        // discard its draft and make the host save rendered text back into mes.
+        // MESSAGE_UPDATED reapplies the template after save or cancellation.
+        if (document.querySelector(`#chat .mes[mesid="${messageId}"] .edit_textarea`)) return;
+        updateMessageBlock(messageId, msg, { rerenderMessage: true });
+    }
+
     static async process(messageId) {
         if (!TemplateSettings.get().enabled) return;
         const ctx = getContext();
@@ -776,7 +784,7 @@ class MessageHandler {
         if (displayText) {
             msg.extra = msg.extra || {};
             msg.extra.display_text = displayText;
-            updateMessageBlock(messageId, msg, { rerenderMessage: true });
+            this.render(messageId, msg);
         }
         setTimeout(observeAsyncCallback(async () => { await IframeManager.sendUpdate(messageId, effectiveVars); }, { source: import.meta.url, operation: "callback" }), 300);
     }
@@ -794,7 +802,7 @@ class MessageHandler {
             if (iframe) {
                 if (msg.extra?.display_text) {
                     delete msg.extra.display_text;
-                    updateMessageBlock(i, msg, { rerenderMessage: true });
+                    this.render(i, msg);
                 }
                 state.messageVariables.delete(i);
                 state.variableHistory.delete(i);
@@ -806,7 +814,7 @@ class MessageHandler {
     static clearTemplate(messageId, msg) {
         if (msg.extra?.display_text) {
             delete msg.extra.display_text;
-            updateMessageBlock(messageId, msg, { rerenderMessage: true });
+            this.render(messageId, msg);
         }
         state.messageVariables.delete(messageId);
         state.variableHistory.delete(messageId);
@@ -869,7 +877,7 @@ class MessageHandler {
         ctx.chat.forEach((msg, id) => {
             if (msg.extra?.display_text) {
                 delete msg.extra.display_text;
-                state.pendingUpdates.set(id, () => updateMessageBlock(id, msg, { rerenderMessage: true }));
+                state.pendingUpdates.set(id, () => this.render(id, msg));
             }
         });
         if (state.pendingUpdates.size > 0) {

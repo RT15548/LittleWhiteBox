@@ -210,6 +210,8 @@ import { invalidateLexicalIndex, warmupIndex, addEventDocuments, addChunkDocumen
 import { trackVectorActivity } from './vector/runtime/vector-activity.js';
 import { checkVectorCacheConsistency, recordVectorCacheDiagnostic } from './vector/storage/package/service.js';
 import { createMessageSourceTracker } from './data/message-sources.js';
+import { getChatIdentity } from './data/chat-identity.js';
+import { applySummarySectionEdit } from './data/section-edits.js';
 import { retainSourceChange, synchronizeSourceCaches } from './data/source-sync.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
 
@@ -3605,41 +3607,55 @@ async function handleFrameMessage(event) {
 
         case "UPDATE_SECTION": {
             if (!VALID_SECTIONS.includes(data.section)) break;
+            const context = getContext();
+            const { chatId } = context;
+            const chatIdentity = getChatIdentity(context);
             try {
-                const { chatId } = getContext();
-                await waitForMemoryCommit();
-                assertMemoryWritable(chatId);
-                getSummaryStore();
-                const previous = readSummaryMemory();
-                const next = structuredClone(previous);
-                const store = next.storySummary;
                 cancelRecallAndClearPrompt('summary-edited');
-                memoryMaintenance.cancel();
-                store.json ||= {};
-                const oldEvents = data.section === "events" ? previous.storySummary.json?.events || [] : null;
-                if (oldEvents) cancelEmbeddingWriteTasks('Summary events edited');
-                const oldFacts = store.json.facts || [];
-                store.json[data.section] = data.section === "characters"
-                    ? stampEditedCharacters(store.json.characters, data.data, getCurrentFloorHint())
-                    : data.section === "events" ? projectEditedSummaryEvents(data.data) : data.data;
-                if (data.section === "facts") store.json.facts = mergeEditedFactsWithTimestamps(oldFacts, data.data, getCurrentFloorHint());
-                if (data.section === "characters") {
-                    store.json.facts = mergeCharacterRelationshipsIntoFacts(store.json.facts, data?.data?.relationships || [], getCurrentFloorHint());
-                }
-                store.updatedAt = Date.now();
-                const committed = await runVectorWriteTask({ chatId, kind: 'summary-manual-edit', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, () =>
-                    commitSummaryMemory(chatId, next, { previous, invalidate: async () => {
+                if (data.section === "events") cancelEmbeddingWriteTasks('Summary events edited');
+                const committed = await runVectorWriteTask({ chatId, kind: 'summary-manual-edit', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, async () => {
+                    // Prepare against the state preceding writers actually published,
+                    // not a snapshot captured while this edit was still queued.
+                    do { await waitForMemoryCommit(); } while (getMemoryCommitState() === 'saving');
+                    if (getChatIdentity(getContext()) !== chatIdentity) return null;
+                    assertMemoryWritable(chatId);
+                    getSummaryStore();
+                    const previous = readSummaryMemory();
+                    const next = structuredClone(previous);
+                    const store = next.storySummary;
+                    store.json ||= {};
+                    const oldEvents = data.section === "events" ? previous.storySummary.json?.events || [] : null;
+                    const oldFacts = store.json.facts || [];
+                    const edited = applySummarySectionEdit(data.section, data.previous, data.data,
+                        buildFramePayload(previous.storySummary)[data.section]);
+                    store.json[data.section] = data.section === "characters"
+                        ? stampEditedCharacters(store.json.characters, edited, getCurrentFloorHint())
+                        : data.section === "events" ? projectEditedSummaryEvents(edited) : edited;
+                    if (data.section === "facts") store.json.facts = [
+                        ...oldFacts.filter(fact => fact.retracted),
+                        ...mergeEditedFactsWithTimestamps(oldFacts, edited.filter(fact => !fact.retracted), getCurrentFloorHint()),
+                    ];
+                    if (data.section === "characters") {
+                        store.json.facts = mergeCharacterRelationshipsIntoFacts(store.json.facts, edited.relationships, getCurrentFloorHint());
+                    }
+                    store.updatedAt = Date.now();
+                    await commitSummaryMemory(chatId, next, { previous, invalidate: async () => {
                         if (oldEvents) {
                             const nextById = new Map(store.json.events.map(event => [event.id, event]));
                             const ids = oldEvents.filter(event => buildEventVectorText(event) !== buildEventVectorText(nextById.get(event.id))).map(event => event.id);
                             await deleteEventVectorsByIds(chatId, ids);
                             invalidateLexicalIndex();
                         }
-                    } }));
+                    } });
+                    return { oldEvents, events: store.json.events };
+                });
+                if (getChatIdentity(getContext()) !== chatIdentity) break;
                 if (!committed) throw new Error('metadata_commit_cancelled');
-                if (oldEvents && getContext().chatId === chatId) await syncEventVectorsOnEdit(oldEvents, store.json.events);
+                postToFrame({ type: 'SUMMARY_FULL_DATA', payload: buildFramePayload(readPublishedSummaryMemory().storySummary) });
+                if (committed.oldEvents) await syncEventVectorsOnEdit(committed.oldEvents, committed.events);
             } catch (error) {
-                reportMemorySaveFailure(error);
+                if (getChatIdentity(getContext()) === chatIdentity) reportMemorySaveFailure(error);
+                else console.warn({ source: import.meta.url, operation: 'UPDATE_SECTION' }, error);
             }
             break;
         }

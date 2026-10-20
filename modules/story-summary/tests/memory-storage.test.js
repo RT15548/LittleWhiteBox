@@ -18,6 +18,9 @@ import * as vectorWrites from '../vector/runtime/maintenance-coordinator.js';
 import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import { METADATA_CONFIRMATION_TIMEOUT_MS } from '../data/metadata-confirmation.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
+import { getChatIdentity } from '../data/chat-identity.js';
+import { applySummarySectionEdit } from '../data/section-edits.js';
+import { mergeEditedFactsWithTimestamps } from '../data/fact-edits.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__memoryStorageTest = { metadata: {}, context: {} };
@@ -106,6 +109,160 @@ async function importFixture() {
     await mod.commitSummaryMemory(host.context.chatId, next);
     return structuredClone(ext().storySummary.json);
 }
+
+// Acceptance: queued panel edits must preserve preceding source retirement and
+// unrelated panel edits. Cost: silently unsaved changes or resurrected stale anchors.
+function manualPanelEntry(errors) {
+    return entry(['handleFrameMessage', 'buildFramePayload'], {
+        ...mod, structuredClone, document: { getElementById: () => ({}) }, isTrustedMessage: () => true,
+        getContext: () => host.context, getChatIdentity, VALID_SECTIONS: ['keywords', 'arcs', 'facts'],
+        applySummarySectionEdit, mergeEditedFactsWithTimestamps, getCurrentFloorHint: () => host.context.chat.length - 1,
+        cancelRecallAndClearPrompt() {}, memoryMaintenance: { cancel: () => assert.fail('manual edit cancelled maintenance') },
+        runVectorWriteTask: vectorWrites.runVectorWriteTask, VECTOR_WRITE_SCOPES: vectorWrites.VECTOR_WRITE_SCOPES,
+        postToFrame() {}, reportMemorySaveFailure: error => errors.push(error.code),
+    });
+}
+
+function editSection(panel, section, data, previous = structuredClone(ext().storySummary.json[section])) {
+    return panel.handleFrameMessage({ data: { type: 'UPDATE_SECTION', section, previous, data } });
+}
+
+for (const preceding of ['source-sync', 'panel-edit']) {
+    test(`manual summary edit uses the memory published by preceding ${preceding}`, async () => {
+        await importFixture(); await seedAnchors();
+        const errors = [];
+        const panel = manualPanelEntry(errors);
+        const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+        let release;
+        const blocked = new Promise(resolve => { release = resolve; });
+        const blocking = vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.IO }, () => blocked);
+        let first;
+        if (preceding === 'source-sync') {
+            host.context.chat[1].mes += ' edited prose';
+            first = vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.CONSISTENCY },
+                () => mod.synchronizeSourceCaches(tracker, host.context, { kind: 'edit', floor: 1 }));
+        } else {
+            first = editSection(panel, 'arcs', [{ name: '新的故事线', moments: [] }]);
+        }
+        const second = editSection(panel, 'keywords', [{ text: '新的关键词', weight: '一般' }]);
+        try { await nextTurn(); }
+        finally { release(); }
+        await Promise.all([blocking, first, second]);
+        assert.deepEqual(errors, []);
+        assert.deepEqual(disk().storySummary.json.keywords, [{ text: '新的关键词', weight: '一般' }]);
+        if (preceding === 'source-sync') {
+            assert.equal(disk().stateAtoms.some(atom => atom.floor === 1), false);
+            assert.equal(disk().l0Index.byFloor[1], undefined);
+            assert.equal(tracker.inspect(host.context), null);
+        } else assert.deepEqual(disk().storySummary.json.arcs, [{ name: '新的故事线', moments: [] }]);
+        assert.deepEqual(disk(), ext());
+    });
+}
+
+// Acceptance: a queued edit must never be applied to another character's chat,
+// even when filenames match. Cost: cross-chat data corruption.
+test('queued manual summary edit stays with its original character', async () => {
+    await importFixture();
+    const errors = [], panel = manualPanelEntry(errors);
+    const before = structuredClone(ext()), saves = host.writes;
+    let release;
+    const blocked = new Promise(resolve => { release = resolve; });
+    const blocking = vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.IO }, () => blocked);
+    const editing = editSection(panel, 'keywords', [{ text: '旧聊天的修改', weight: '一般' }]);
+    try {
+        await nextTurn();
+        host.context = { ...host.context, characterId: 1,
+            characters: [...host.context.characters, { name: '另一角色', avatar: 'another.png', chat: host.context.chatId }] };
+    } finally { release(); }
+    await Promise.all([blocking, editing]);
+    assert.equal(host.writes, saves);
+    assert.deepEqual(ext(), before);
+    assert.deepEqual(errors, []);
+});
+
+// Acceptance: an editor opened before a rollback must save only the user's
+// changes, never revive untouched withdrawn facts. Cost: corrupt canonical memory.
+for (const timing of ['queued', 'finished']) test(`manual edit preserves source rollback (${timing})`, async () => {
+    await importFixture();
+    const context = host.context;
+    context.chat.push({ mes: '次日', is_user: true }, { mes: '共同出发', is_user: false });
+    host.generate = async () => JSON.stringify({ events: [], factUpdates: [{ s: '旅人', p: '行程', o: '共同出发', isState: false }] });
+    await mod.runSummaryGeneration(25, { trigger: { delayFloors: 0 } });
+    const previous = structuredClone(ext().storySummary.json.facts);
+    const edited = structuredClone(previous);
+    edited.find(fact => fact.p === '物品').o = '代为保管药箱';
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    context.chat[25].mes = '独自留下';
+    const errors = [], panel = manualPanelEntry(errors);
+    let release;
+    const blocking = vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.IO },
+        () => new Promise(resolve => { release = resolve; }));
+    await nextTurn();
+    const rollback = vectorWrites.runVectorWriteTask({ scope: vectorWrites.VECTOR_WRITE_SCOPES.CONSISTENCY },
+        () => mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 25 }));
+    let editing;
+    if (timing === 'queued') editing = editSection(panel, 'facts', edited, previous);
+    release(); await Promise.all([blocking, rollback]);
+    if (timing === 'finished') editing = editSection(panel, 'facts', edited, previous);
+    await editing;
+    assert.deepEqual(errors, []);
+    assert.equal(disk().storySummary.lastSummarizedMesId, 23);
+    assert.equal(disk().storySummary.json.facts.some(fact => fact.p === '行程'), false);
+    assert.equal(disk().storySummary.json.facts.find(fact => fact.p === '物品').o, '代为保管药箱');
+});
+
+// Acceptance: manual edits and independent Agent edits may commit in either
+// order without stopping the run or losing either result. Cost: lost maintenance.
+for (const order of ['agent-first', 'user-first']) test(`manual edit coexists with maintenance (${order})`, async () => {
+    await importFixture();
+    const previous = structuredClone(ext().storySummary.json.facts);
+    const edited = structuredClone(previous);
+    edited.find(fact => fact.p === '物品').o = '代为保管药箱';
+    const session = mod.createMemorySession(readMaintenanceState()); session.initial();
+    session.runTool('EditMemory', { edits: [fixFact] });
+    const errors = [], panel = manualPanelEntry(errors);
+    if (order === 'agent-first') await saveMaintenanceSession(session);
+    await editSection(panel, 'facts', edited, previous);
+    if (order === 'user-first') await saveMaintenanceSession(session);
+    assert.deepEqual(errors, []);
+    assert.equal(disk().storySummary.json.facts[0].o, fixFact.patch.o);
+    assert.equal(disk().storySummary.json.facts.find(fact => fact.p === '物品').o, '代为保管药箱');
+});
+
+// Acceptance: a user-edited target makes only the Agent's stale edit reread;
+// the maintenance session remains usable. Cost: overwriting user edits or wasted runs.
+test('maintenance can reread a manually changed target and continue', async () => {
+    await importFixture();
+    const session = mod.createMemorySession(readMaintenanceState()); session.initial();
+    session.runTool('EditMemory', { edits: [fixFact] });
+    const edited = structuredClone(ext().storySummary.json.facts);
+    edited[0].o = '用户补充的信息';
+    const errors = [];
+    await editSection(manualPanelEntry(errors), 'facts', edited);
+    assert.deepEqual(errors, []);
+    await assert.rejects(saveMaintenanceSession(session), { code: 'memory_updated' });
+    session.discard();
+    const latest = session.runTool('ReadMemory', { collection: 'facts', key: fixFact.key }, readMaintenanceState());
+    assert.equal(latest.items[0].value.o, '用户补充的信息');
+    session.runTool('EditMemory', { edits: [fixFact] });
+    const saved = await saveMaintenanceSession(session);
+    assert.equal(saved.receipt.operations.length, 1);
+    assert.equal(disk().storySummary.json.facts[0].o, fixFact.patch.o);
+});
+
+// Acceptance: editing visible facts cannot reactivate a hidden retracted fact.
+// Cost: withdrawn memory becomes active again without the user's knowledge.
+test('manual facts edit preserves retracted records without reviving them', async () => {
+    await importFixture();
+    const withdrawn = mod.readSummaryMemory(); withdrawn.storySummary.json.facts[0].retracted = true;
+    await mod.commitSummaryMemory(host.context.chatId, withdrawn);
+    const previous = structuredClone(ext().storySummary.json.facts.filter(fact => !fact.retracted));
+    const edited = structuredClone(previous); edited[0].o = '代为保管药箱';
+    const errors = [];
+    await editSection(manualPanelEntry(errors), 'facts', edited, previous);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(disk().storySummary.json.facts[0], withdrawn.storySummary.json.facts[0]);
+});
 
 // Acceptance: opt-in success feedback means both persistence and follow-up
 // work finished. Cost: a hidden failed save or misleading completion signal.

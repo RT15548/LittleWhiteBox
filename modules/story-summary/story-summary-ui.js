@@ -348,6 +348,7 @@ const UNANNOTATED_LABEL = '未标注';
     let relationChart = null;
     let relationChartFullscreen = null;
     let currentEditSection = null;
+    let currentEditBaseline = null;
     let currentCharacterId = null;
     let allNodes = [];
     let allLinks = [];
@@ -2406,6 +2407,8 @@ const UNANNOTATED_LABEL = '未标注';
 
     function openEditor(section) {
         currentEditSection = section;
+        currentEditBaseline = structuredClone(section === 'aliases' ? summaryData.characterAliases : summaryData[section]);
+        if (section === 'facts') currentEditBaseline = currentEditBaseline.filter(fact => !fact.retracted);
         const meta = SECTION_META[section];
         const es = $('editor-struct');
         const ta = $('editor-ta');
@@ -2438,6 +2441,9 @@ const UNANNOTATED_LABEL = '未标注';
             else if (section === 'aliases') renderCharacterAliasesEditor(summaryData.characterAliases || []);
         }
 
+        // Compare the same editable projection at open and save, not hidden
+        // metadata or defaults introduced by the editor's serializer.
+        currentEditBaseline = readEditorData();
         $('editor-modal').classList.add('active');
         postMsg('EDITOR_OPENED');
     }
@@ -2445,106 +2451,114 @@ const UNANNOTATED_LABEL = '未标注';
     function closeEditor() {
         $('editor-modal').classList.remove('active');
         currentEditSection = null;
+        currentEditBaseline = null;
         postMsg('EDITOR_CLOSED');
     }
 
-    function saveEditor() {
+    function readEditorData() {
         const section = currentEditSection;
         const es = $('editor-struct');
         const ta = $('editor-ta');
         let parsed;
 
-        try {
-            if (section === 'keywords') {
-                const oldMap = new Map((summaryData.keywords || []).map(k => [k.text, k]));
-                parsed = ta.value.trim().split('\n').filter(l => l.trim()).map(line => {
-                    const [text, weight] = line.split('|').map(s => s.trim());
-                    return preserveAddedAt({ text: text || '', weight: weight || '一般' }, oldMap.get(text));
-                });
-            } else if (section === 'events') {
-                const oldMap = new Map((summaryData.events || []).map(e => [e.id, e]));
-                parsed = Array.from(es.querySelectorAll('.event-item')).map(it => {
-                    const id = it.dataset.id;
-                    return preserveAddedAt({
-                        id,
-                        title: it.querySelector('.event-title').value.trim(),
-                        timeLabel: it.querySelector('.event-time').value.trim(),
-                        summary: it.querySelector('.event-summary').value.trim(),
-                        participants: it.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean),
-                        memoryRole: it.querySelector('.event-memory-role').value,
-                        causedBy: [...(oldMap.get(id)?.causedBy || [])],
-                    }, oldMap.get(id));
-                }).filter(e => e.title || e.summary);
-                parsed = projectEditedSummaryEvents(parsed);
-            } else if (section === 'characters') {
-                const oldMainMap = new Map((summaryData.characters?.main || []).map(m => [getCharName(m), m]));
-                const mainNames = Array.from(es.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean);
-                const main = mainNames.map(n => preserveAddedAt({ name: n }, oldMainMap.get(n)));
+        if (section === 'keywords') {
+            const oldMap = new Map(currentEditBaseline.map(k => [k.text, k]));
+            parsed = ta.value.trim().split('\n').filter(l => l.trim()).map(line => {
+                const [text, weight] = line.split('|').map(s => s.trim());
+                return preserveAddedAt({ text: text || '', weight: weight || '一般' }, oldMap.get(text));
+            });
+        } else if (section === 'events') {
+            const oldMap = new Map(currentEditBaseline.map(e => [e.id, e]));
+            parsed = Array.from(es.querySelectorAll('.event-item')).map(it => {
+                const id = it.dataset.id;
+                return preserveAddedAt({
+                    id,
+                    title: it.querySelector('.event-title').value.trim(),
+                    timeLabel: it.querySelector('.event-time').value.trim(),
+                    summary: it.querySelector('.event-summary').value.trim(),
+                    participants: it.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean),
+                    memoryRole: it.querySelector('.event-memory-role').value,
+                    causedBy: [...(oldMap.get(id)?.causedBy || [])],
+                }, oldMap.get(id));
+            }).filter(e => e.title || e.summary);
+            parsed = projectEditedSummaryEvents(parsed);
+        } else if (section === 'characters') {
+            const oldMainMap = new Map(currentEditBaseline.main.map(m => [getCharName(m), m]));
+            const mainNames = Array.from(es.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean);
+            const main = mainNames.map(n => preserveAddedAt({ name: n }, oldMainMap.get(n)));
 
-                const oldRelMap = new Map((summaryData.characters?.relationships || []).map(r => [`${r.from}->${r.to}`, r]));
-                const rels = Array.from(es.querySelectorAll('.char-rel-item')).map(it => {
-                    const from = it.querySelector('.char-rel-from').value.trim();
-                    const to = it.querySelector('.char-rel-to').value.trim();
-                    return preserveAddedAt({
-                        from, to,
-                        label: it.querySelector('.char-rel-label').value.trim(),
-                        trend: it.querySelector('.char-rel-trend').value
-                    }, oldRelMap.get(`${from}->${to}`));
-                }).filter(r => r.from && r.to);
+            const oldRelMap = new Map(currentEditBaseline.relationships.map(r => [`${r.from}->${r.to}`, r]));
+            const rels = Array.from(es.querySelectorAll('.char-rel-item')).map(it => {
+                const from = it.querySelector('.char-rel-from').value.trim();
+                const to = it.querySelector('.char-rel-to').value.trim();
+                return preserveAddedAt({
+                    from, to,
+                    label: it.querySelector('.char-rel-label').value.trim(),
+                    trend: it.querySelector('.char-rel-trend').value
+                }, oldRelMap.get(`${from}->${to}`));
+            }).filter(r => r.from && r.to);
 
-                parsed = { main, relationships: rels };
-            } else if (section === 'arcs') {
-                const oldArcMap = new Map((summaryData.arcs || []).map(a => [a.name, a]));
-                parsed = Array.from(es.querySelectorAll('.arc-item')).map(it => {
-                    const name = it.querySelector('.arc-name').value.trim();
-                    const oldArc = oldArcMap.get(name);
-                    const oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m]));
-                    const momentsRaw = it.querySelector('.arc-moments').value.trim();
-                    const moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(t => preserveAddedAt({ text: t }, oldMomentMap.get(t))) : [];
-                    return preserveAddedAt({
-                        name,
-                        trajectory: it.querySelector('.arc-trajectory').value.trim(),
-                        progress: Math.max(0, Math.min(1, (parseFloat(it.querySelector('.arc-progress').value) || 0) / 100)),
-                        moments
-                    }, oldArc);
-                }).filter(a => a.name || a.trajectory || a.moments?.length);
-            } else if (section === 'facts') {
-                const oldMap = new Map((summaryData.facts || []).map(f => [`${f.s}::${f.p}`, f]));
-                parsed = ta.value
-                    .split('\n')
-                    .map(l => l.trim())
-                    .filter(Boolean)
-                    .map(line => {
-                        const parts = line.split('|').map(s => s.trim());
-                        const s = parts[0];
-                        const p = parts[1];
-                        const o = parts[2];
-                        const trend = parts[3];
-                        if (!s || !p) return null;
-                        if (!o) return null;
-                        const key = `${s}::${p}`;
-                        const old = oldMap.get(key);
-                        const fact = {
-                            s, p, o,
-                            since: old?.since ?? 0,
-                            _addedAt: old?._addedAt ?? 0,
-                        };
-                        if (/^对.+的/.test(p) && trend) {
-                            fact.trend = trend;
-                        }
-                        return fact;
-                    })
-                    .filter(Boolean);
-            } else if (section === 'aliases') {
-                parsed = Array.from(es.querySelectorAll('.alias-edit-item')).map(item => ({
-                    from: item.querySelector('.alias-edit-from').value.trim(),
-                    to: item.querySelector('.alias-edit-to').value.trim(),
-                    evidence: item.querySelector('.alias-edit-evidence').value.trim(),
-                })).filter(alias => alias.from || alias.to || alias.evidence);
-                if (parsed.some(alias => !alias.from || !alias.to)) {
-                    throw new Error('每条映射都要填写别名和角色主名');
-                }
+            parsed = { main, relationships: rels };
+        } else if (section === 'arcs') {
+            const oldArcMap = new Map(currentEditBaseline.map(a => [a.name, a]));
+            parsed = Array.from(es.querySelectorAll('.arc-item')).map(it => {
+                const name = it.querySelector('.arc-name').value.trim();
+                const oldArc = oldArcMap.get(name);
+                const oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m]));
+                const momentsRaw = it.querySelector('.arc-moments').value.trim();
+                const moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(t => preserveAddedAt({ text: t }, oldMomentMap.get(t))) : [];
+                return preserveAddedAt({
+                    name,
+                    trajectory: it.querySelector('.arc-trajectory').value.trim(),
+                    progress: Math.max(0, Math.min(1, (parseFloat(it.querySelector('.arc-progress').value) || 0) / 100)),
+                    moments
+                }, oldArc);
+            }).filter(a => a.name || a.trajectory || a.moments?.length);
+        } else if (section === 'facts') {
+            const oldMap = new Map(currentEditBaseline.map(f => [`${f.s}::${f.p}`, f]));
+            parsed = ta.value
+                .split('\n')
+                .map(l => l.trim())
+                .filter(Boolean)
+                .map(line => {
+                    const parts = line.split('|').map(s => s.trim());
+                    const s = parts[0];
+                    const p = parts[1];
+                    const o = parts[2];
+                    const trend = parts[3];
+                    if (!s || !p) return null;
+                    if (!o) return null;
+                    const key = `${s}::${p}`;
+                    const old = oldMap.get(key);
+                    const fact = {
+                        s, p, o,
+                        since: old?.since ?? 0,
+                        _addedAt: old?._addedAt ?? 0,
+                    };
+                    if (/^对.+的/.test(p) && trend) {
+                        fact.trend = trend;
+                    }
+                    return fact;
+                })
+                .filter(Boolean);
+        } else if (section === 'aliases') {
+            parsed = Array.from(es.querySelectorAll('.alias-edit-item')).map(item => ({
+                from: item.querySelector('.alias-edit-from').value.trim(),
+                to: item.querySelector('.alias-edit-to').value.trim(),
+                evidence: item.querySelector('.alias-edit-evidence').value.trim(),
+            })).filter(alias => alias.from || alias.to || alias.evidence);
+            if (parsed.some(alias => !alias.from || !alias.to)) {
+                throw new Error('每条映射都要填写别名和角色主名');
             }
+        }
+        return parsed;
+    }
+
+    function saveEditor() {
+        const section = currentEditSection;
+        let parsed;
+        try {
+            parsed = readEditorData();
         } catch (e) {
             $('editor-err').textContent = `格式错误: ${e.message}`;
             $('editor-err').classList.add('visible');
@@ -2552,7 +2566,7 @@ const UNANNOTATED_LABEL = '未标注';
         }
 
         if (section === 'aliases') postMsg('UPDATE_CHARACTER_ALIASES', { aliases: parsed });
-        else postMsg('UPDATE_SECTION', { section, data: parsed });
+        else postMsg('UPDATE_SECTION', { section, previous: currentEditBaseline, data: parsed });
 
         if (section === 'keywords') renderKeywords(parsed);
         else if (section === 'events') { renderTimeline(parsed, { scrollMode: 'preserve' }); $('stat-events').textContent = parsed.length; }
