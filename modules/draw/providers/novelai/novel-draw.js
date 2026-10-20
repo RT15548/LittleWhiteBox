@@ -161,6 +161,7 @@ import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared
 import { createDrawImageSlotRegex, stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import { ScenePlacementError, assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
 import { normalizePlannerRetry, retryOnSceneSourceChange } from "../../shared/planner-retry.js";
+import { pickNeighborAfterRemoval, reorderPresetsByIds } from "../../shared/preset-order.js";
 import { submitPreparedChatImages, registerPreparedImageProvider } from "../../shared/prepared-chat-images.js";
 import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
@@ -3512,7 +3513,8 @@ async function handleFrameMessage(event) {
 
         case 'ADD_PARAMS_PRESET': {
             const id = generateSlotId();
-            const base = getActiveParamsPreset() || DEFAULT_PARAMS_PRESET;
+            // 以页面当前显示的预设为底；页面只在“保存”时才把选中项告诉宿主，不能只信宿主记的选中项。
+            const base = getSettings().paramsPresets.find(p => p.id === data.baseId) || getActiveParamsPreset() || DEFAULT_PARAMS_PRESET;
             const ok = await updateSettingsPersistent((settings) => {
                 const copy = cloneSettingsObject(base);
                 copy.id = id;
@@ -3531,18 +3533,47 @@ async function handleFrameMessage(event) {
         }
 
         case 'DEL_PARAMS_PRESET': {
-            const s = getSettings();
-            if (s.paramsPresets.length <= 1) {
-                postStatus('error', '至少保留一个预设', 'params');
-                break;
-            }
+            // 删页面里正在看的那个：页面切换下拉框时不会通知宿主，宿主记的选中项可能还是旧的。
+            const presetId = String(data.presetId || getSettings().selectedParamsPresetId || '');
+            let deleteResult = 'missing';
             const ok = await updateSettingsPersistent((settings) => {
-                const idx = settings.paramsPresets.findIndex(p => p.id === settings.selectedParamsPresetId);
-                if (idx >= 0) settings.paramsPresets.splice(idx, 1);
-                settings.selectedParamsPresetId = settings.paramsPresets[0]?.id || null;
-            }, '已删除', { target: 'params' });
+                if (settings.paramsPresets.length <= 1) {
+                    deleteResult = 'last';
+                    return;
+                }
+                const ids = settings.paramsPresets.map(p => p.id);
+                if (!ids.includes(presetId)) return;
+                const neighbor = pickNeighborAfterRemoval(ids, presetId);
+                settings.paramsPresets = settings.paramsPresets.filter(p => p.id !== presetId);
+                settings.selectedParamsPresetId = neighbor;
+                deleteResult = 'deleted';
+            }, '已删除', { target: 'params', notify: false });
+            if (!ok) {
+                postStatus('error', '保存失败', 'params');
+            } else if (deleteResult === 'last') {
+                postStatus('error', '至少保留一个预设', 'params');
+            } else if (deleteResult === 'missing') {
+                postStatus('error', '要删除的预设已不存在', 'params');
+            } else {
+                postStatus('success', '已删除', 'params');
+            }
             if (ok) {
                 sendInitData();
+                try {
+                    const { refreshPresetSelect } = await import('./floating-panel.js');
+                    refreshPresetSelect?.();
+                } catch {}
+            }
+            break;
+        }
+
+        case 'REORDER_PARAMS_PRESETS': {
+            // 只按 id 调整顺序，不碰预设内容；页面已自行更新，不回传 INIT_DATA，避免冲掉表单里未保存的编辑。
+            const order = Array.isArray(data.order) ? data.order.map(String) : [];
+            const ok = await updateSettingsPersistent((settings) => {
+                settings.paramsPresets = reorderPresetsByIds(settings.paramsPresets, order);
+            }, '已调整顺序', { target: 'params' });
+            if (ok) {
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
@@ -3668,10 +3699,15 @@ async function handleFrameMessage(event) {
                     deleteResult = 'last';
                     return;
                 }
-                const idx = settings.promptPresets.findIndex(p => p.id === presetId);
-                if (idx < 0) return;
-                settings.promptPresets.splice(idx, 1);
-                settings.selectedPromptPresetId = settings.promptPresets[0]?.id || null;
+                const ids = settings.promptPresets.map(p => p.id);
+                if (!ids.includes(presetId)) return;
+                const wasSelected = settings.selectedPromptPresetId === presetId;
+                settings.promptPresets = settings.promptPresets.filter(p => p.id !== presetId);
+                // 列表里可以删任意一行：删的不是选中项就保持选中，免得页面正在编辑的预设被换掉；
+                // 删的是选中项（或选中项本就失效）时，让原位置上顶上来的邻居接替，而不是总跳回第一个。
+                if (wasSelected || !settings.promptPresets.some(p => p.id === settings.selectedPromptPresetId)) {
+                    settings.selectedPromptPresetId = pickNeighborAfterRemoval(ids, presetId);
+                }
                 deleteResult = 'deleted';
             }, '已删除', { target: 'prompt-preset', notify: false });
             if (!ok) {
@@ -3684,6 +3720,15 @@ async function handleFrameMessage(event) {
                 postStatus('success', '已删除', 'prompt-preset');
             }
             if (ok) sendInitData();
+            break;
+        }
+
+        case 'REORDER_PROMPT_PRESETS': {
+            // 只按 id 调整顺序，不碰预设内容；页面已自行更新，不回传 INIT_DATA，避免冲掉文本框里未保存的编辑。
+            const order = Array.isArray(data.order) ? data.order.map(String) : [];
+            await updateSettingsPersistent((settings) => {
+                settings.promptPresets = reorderPresetsByIds(settings.promptPresets, order);
+            }, '已调整顺序', { target: 'prompt-preset' });
             break;
         }
 

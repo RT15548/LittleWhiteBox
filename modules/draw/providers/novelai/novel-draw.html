@@ -251,11 +251,26 @@ select.input { cursor: pointer; }
 .char-drag-handle { flex-shrink: 0; width: 18px; text-align: center; color: var(--text-muted); cursor: grab; user-select: none; touch-action: none; letter-spacing: -2px; }
 .char-drag-handle:hover, .char-drag-handle:focus-visible { color: var(--text-primary); }
 .char-select, .char-group-select { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
-body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-select: none; }
+body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-dragging * { cursor: grabbing !important; user-select: none; }
 .char-card.dragging, .char-group.dragging { opacity: .45; }
 .drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
 .drop-after { box-shadow: 0 2px 0 0 var(--accent); }
 .drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
+/* 参数预设列表：每行 = 拖动手柄 + 名称（点选）+ “…”菜单（菜单样式复用 .char-menu*）。列表自己滚动，上下各留 2px 给拖拽落点线。 */
+.preset-list-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+.preset-list-header .card-title { margin-bottom: 0; }
+.preset-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; padding: 2px; }
+.preset-list-card .status-text.inline-status { margin-top: 8px; }
+.preset-row { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 4px 8px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.03); }
+.preset-row:hover { background: rgba(255,255,255,.06); }
+.preset-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.preset-row.dragging { opacity: .45; }
+/* 名称有保底宽度（约 6 个汉字），空间不够时“…”菜单按钮换到下一行，而不是把名称挤没。 */
+.preset-row-name { flex: 1 1 6em; min-width: 6em; padding: 8px 4px; background: none; border: none; border-radius: 6px; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-row-name:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--border-focus); }
+.preset-row.selected .preset-row-name { color: var(--accent); }
+.preset-row .char-menu-wrap { margin-left: auto; }
+.preset-list-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
 .planner-retry-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .planner-retry-row .input { width: 72px; padding: 4px 8px; }
 .auto-learn-group-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
@@ -538,6 +553,9 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     .char-list-card, .char-list-body, .char-grid, .char-group, .char-group-body, .char-card { min-width: 0; max-width: 100%; }
     .char-group-header { min-width: 0; }
     .char-group-actions { flex-wrap: wrap; flex-shrink: 1; max-width: 100%; }
+    /* 参数预设列表窄屏：容器允许收缩，标题与按钮分行，预设行里名称保底宽度、“…”换行，避免页面内横向滚动 */
+    .preset-list-card, .preset-list, .preset-row { min-width: 0; max-width: 100%; }
+    .preset-list-header .btn-group { flex-wrap: wrap; max-width: 100%; }
     .char-card-summary { flex-wrap: wrap; min-width: 0; }
     .char-card-summary::after { content: ''; order: 2; flex: 0 0 100%; height: 0; }
     .char-identity { flex: 1 1 0; min-width: 0; }
@@ -562,6 +580,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     .header-close { width: 44px; height: 44px; min-width: 44px; }
     .char-action-button { width: 44px; height: 44px; }
     .char-menu-item { min-height: 44px; font-size: 13px; }
+    .preset-row-name { min-height: 44px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -889,16 +908,16 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
                     <p class="view-desc">模型与生成参数设置</p>
                 </div>
                 
-                <div class="preset-bar">
-                    <select id="nd_params_preset" class="input"></select>
-                    <div class="btn-group">
-                        <button id="nd_params_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
-                        <button id="nd_params_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                        <button id="nd_params_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
-                        <button id="nd_params_cloud" class="btn btn-icon" title="云端预设" style="color:#d4a574;"><i class="fa-solid fa-cloud-arrow-down"></i></button>
-                        <button id="nd_params_export" class="btn btn-icon" title="导出当前预设"><i class="fa-solid fa-share-from-square"></i></button>
-                        <button id="nd_params_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
+                <div class="card preset-list-card">
+                    <div class="preset-list-header">
+                        <div class="card-title">参数预设</div>
+                        <div class="btn-group">
+                            <button id="nd_params_add" class="btn" title="以当前选中的预设为底新建一个"><i class="fa-solid fa-plus"></i> 新建</button>
+                            <button id="nd_params_cloud" class="btn" title="云端预设" style="color:#d4a574;"><i class="fa-solid fa-cloud-arrow-down"></i> 云端预设</button>
+                            <button id="nd_params_save" class="btn btn-primary" title="保存当前预设"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                        </div>
                     </div>
+                    <div id="nd_params_list" class="preset-list" role="list"></div>
                     <div id="nd_params_status" class="status-text inline-status"></div>
                 </div>
                 
@@ -1330,16 +1349,16 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
                     <p class="view-desc">自定义场景分析的 LLM 提示词模板</p>
                 </div>
 
-                <div class="preset-bar">
-                    <select id="nd_prompt_preset" class="input"></select>
-                    <div class="btn-group">
-                        <button id="nd_prompt_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
-                        <button id="nd_prompt_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                        <button id="nd_prompt_preset_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
-                        <label class="btn btn-icon" title="导入为新预设" style="cursor:pointer;"><i class="fa-solid fa-download"></i><input type="file" id="nd_prompt_preset_import" accept=".json" style="display:none;"></label>
-                        <button id="nd_prompt_preset_export" class="btn btn-icon" title="导出当前预设"><i class="fa-solid fa-upload"></i></button>
-                        <button id="nd_prompt_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
+                <div class="card preset-list-card">
+                    <div class="preset-list-header">
+                        <div class="card-title">提示词预设</div>
+                        <div class="btn-group">
+                            <button id="nd_prompt_add" class="btn" title="以当前选中的预设为底新建一个"><i class="fa-solid fa-plus"></i> 新建</button>
+                            <label class="btn" title="导入为新预设" style="cursor:pointer;"><i class="fa-solid fa-download"></i> 导入<input type="file" id="nd_prompt_preset_import" accept=".json" style="display:none;"></label>
+                            <button id="nd_prompt_preset_save" class="btn btn-primary" title="保存当前预设"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                        </div>
                     </div>
+                    <div id="nd_prompt_list" class="preset-list" role="list"></div>
                     <div id="nd_prompt_preset_status" class="status-text inline-status"></div>
                 </div>
 
@@ -4557,6 +4576,9 @@ function renderWorldbookEntriesLocal(book) {
 // 预设里含 API Key：与 apiKey 同样只存本地，这里不把它写进日志 / 提示。
 
 let AP_UI = null; // api-presets-ui.js（API 配置预设栏组件），与角色库模块一同动态引入
+let PO = null; // preset-order.js（预设排序的纯函数），与角色库模块一同动态引入
+let SL = null; // sortable-list.js（列表拖拽 / 键盘排序控制器），与角色库模块一同动态引入
+let PLV = null; // preset-list-view.js（预设列表的行标记与点击委托，参数 / 提示词预设共用），与角色库模块一同动态引入
 let apiPresetBar = null;
 let apiPresetRequestSeq = 0;
 const apiPresetPending = new Map(); // requestId -> { resolve, timer, change }
@@ -4715,17 +4737,10 @@ function applyStateToUI() {
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
 
-        const pSel = $('nd_params_preset');
-        pSel.innerHTML = (state.paramsPresets || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-        pSel.value = state.selectedParamsPresetId || '';
-
+        renderParamsPresetList();
         applyParamsPreset();
 
-        // 提示词预设下拉框 — 与参数预设完全一致的填充模式
-        const ppSel = $('nd_prompt_preset');
-        const presets = state.promptPresets || [];
-        ppSel.innerHTML = presets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-        ppSel.value = state.selectedPromptPresetId || '';
+        renderPromptPresetList();
         applyPromptPreset();
 
         renderCharList();
@@ -4751,6 +4766,101 @@ function applyStateToUI() {
         applyAdvancedMode();
     } catch (e) {
         console.error('[ND-UI] applyAdvancedMode 失败:', e);
+    }
+}
+
+// ── 参数预设列表 ─────────────────────────────────────────────
+// 每个预设一行：拖动手柄 + 名称（点选）+ “…”菜单。点选只在页面里切换（和保存前的下拉框一样不通知宿主），
+// 新建 / 删除 / 导出等操作都带上被点的那一行的 id，不依赖宿主记的选中项。
+
+// 当前真正显示的预设 id：选中项找不到时 applyParamsPreset 会退回第一个，列表高亮跟它保持一致。
+function currentParamsPresetId() {
+    const presets = state.paramsPresets || [];
+    return (presets.find(p => p.id === state.selectedParamsPresetId) || presets[0])?.id ?? null;
+}
+
+// 行标记、点击委托、拖拽排序挂接都在 shared/preset-list-view.js，参数 / 提示词两个列表各建一份视图，
+// 只有数据来源和动作处理不同。视图在第一次用到时才创建（模块是动态引入的，晚于页面脚本）。
+function autoScrollPresetList(event, list) {
+    // 靠近列表上 / 下缘时先滚列表自己，滚到头再带动外层 / 整页。
+    CS?.autoScrollForPointer({
+        start: document.elementFromPoint(event.clientX, event.clientY) || list,
+        pointerY: event.clientY,
+        getStyle: element => getComputedStyle(element),
+        getRect: element => element.getBoundingClientRect(),
+        viewport: { top: 0, bottom: window.innerHeight },
+        pageScroller: document.scrollingElement || document.documentElement,
+    });
+}
+
+function createPresetListView(options) {
+    return PLV.createPresetListView({
+        document,
+        escapeHtml,
+        closeMenu: closeOptions => cardMenu?.close(closeOptions),
+        toggleMenu: button => getCardMenu()?.toggle(button),
+        createSortable: sortableOptions => (SL ? SL.createSortableList(sortableOptions) : null),
+        moveStep: (ids, id, direction) => (PO ? PO.movePresetId(ids, id, direction) : ids),
+        autoScroll: autoScrollPresetList,
+        ...options,
+    });
+}
+
+let paramsListView = null;
+function getParamsListView() {
+    if (!paramsListView && PLV) {
+        paramsListView = createPresetListView({
+            getList: () => $('nd_params_list'),
+            getPresets: () => state.paramsPresets || [],
+            getCurrentId: currentParamsPresetId,
+            noun: '参数预设',
+            onSelect: id => selectParamsPreset(id),
+            onAction: handleParamsPresetAction,
+            onReorder: reorderParamsPresets,
+        });
+    }
+    return paramsListView;
+}
+
+function renderParamsPresetList() {
+    getParamsListView()?.render();
+}
+
+// 只改高亮，不重绘：被点的按钮留在原处，键盘焦点不丢。
+function syncParamsPresetSelection() {
+    getParamsListView()?.syncSelection();
+}
+
+function selectParamsPreset(id) {
+    if (!id || id === state.selectedParamsPresetId) return; // 再点已选中的一行不重填表单，免得冲掉未保存的编辑
+    state.selectedParamsPresetId = id;
+    applyParamsPreset();
+    syncParamsPresetSelection();
+}
+
+// 排序：本地先重排并重绘列表（不重填表单，未保存的编辑保留），宿主只收到新的 id 顺序。
+function reorderParamsPresets(orderedIds) {
+    if (!PO) return;
+    state.paramsPresets = PO.reorderPresetsByIds(state.paramsPresets, orderedIds);
+    renderParamsPresetList();
+    postToParent({ type: 'REORDER_PARAMS_PRESETS', order: orderedIds });
+}
+
+// 菜单项的动作：点选与“…”按钮由视图处理，这里只收 rename / duplicate / export / delete。
+function handleParamsPresetAction(action, id, preset) {
+    if (action === 'rename') {
+        const name = prompt('输入新名称：', preset.name || '');
+        if (name && name.trim()) {
+            preset.name = name.trim();
+            renderParamsPresetList();
+            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+        }
+    } else if (action === 'duplicate') {
+        postToParent({ type: 'ADD_PARAMS_PRESET', baseId: id, name: `${preset.name || preset.id} 副本` });
+    } else if (action === 'export') {
+        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: id });
+    } else if (action === 'delete') {
+        if (confirm(`确定删除参数预设“${preset.name || preset.id}”？`)) postToParent({ type: 'DEL_PARAMS_PRESET', presetId: id });
     }
 }
 
@@ -4805,6 +4915,89 @@ function applyPromptPreset() {
     applyModelGuideForCurrentModel();
 }
 
+// ── 提示词预设列表 ───────────────────────────────────────────
+// 和参数预设列表同一套视图。区别在于：点选立即通知宿主持久化（SELECT_PROMPT_PRESET，沿用旧下拉框的行为），
+// 排序只重绘列表、不重填三个文本框（它们里面可能有未保存的编辑），宿主只收到新的 id 顺序。
+
+// 当前真正显示的预设 id：和 getActivePromptPresetForForm 的回退一致，但不改 state。
+function currentPromptPresetId() {
+    const presets = state.promptPresets || [];
+    return (presets.find(p => p.id === state.selectedPromptPresetId) || presets[0])?.id ?? null;
+}
+
+let promptListView = null;
+function getPromptListView() {
+    if (!promptListView && PLV) {
+        promptListView = createPresetListView({
+            getList: () => $('nd_prompt_list'),
+            getPresets: () => state.promptPresets || [],
+            getCurrentId: currentPromptPresetId,
+            noun: '提示词预设',
+            onSelect: id => selectPromptPreset(id),
+            onAction: handlePromptPresetAction,
+            onReorder: reorderPromptPresets,
+        });
+    }
+    return promptListView;
+}
+
+function renderPromptPresetList() {
+    getPromptListView()?.render();
+}
+
+function selectPromptPreset(id) {
+    if (!id || id === currentPromptPresetId()) return; // 再点已选中的一行什么也不做
+    state.selectedPromptPresetId = id;
+    applyPromptPreset();
+    getPromptListView()?.syncSelection();
+    requestPromptChainPreview();
+    postToParent({ type: 'SELECT_PROMPT_PRESET', id });
+}
+
+function reorderPromptPresets(orderedIds) {
+    if (!PO) return;
+    state.promptPresets = PO.reorderPresetsByIds(state.promptPresets, orderedIds);
+    renderPromptPresetList();
+    postToParent({ type: 'REORDER_PROMPT_PRESETS', order: orderedIds });
+}
+
+function handlePromptPresetAction(action, id, preset) {
+    const label = preset.name || preset.id;
+    if (action === 'rename') {
+        const name = prompt('输入新名称：', preset.name || '');
+        if (name && name.trim()) postToParent({ type: 'RENAME_PROMPT_PRESET', id, name: name.trim() });
+    } else if (action === 'duplicate') {
+        postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
+    } else if (action === 'export') {
+        exportPromptPreset(preset);
+    } else if (action === 'delete') {
+        if (confirm(`确定删除提示词预设“${label}”？`)) postToParent({ type: 'DEL_PROMPT_PRESET', id });
+    }
+}
+
+/**
+ * 导出一个提示词预设为 JSON 文件。正在编辑的那个按文本框里的内容导出（含未保存的编辑）；
+ * 其它预设按已保存内容加上本页对它的未保存草稿导出，不碰当前表单。
+ */
+function exportPromptPreset(preset) {
+    const isActive = preset.id === getActivePromptPresetForForm()?.id;
+    const drafts = promptTextDraftsByPreset.get(preset.id);
+    const data = {
+        _type: 'novel-draw-prompt-template',
+        _version: 3,
+        name: preset.name || '',
+        topSystem: isActive ? $('nd_prompt_system').value : (drafts?.has('topSystem') ? drafts.get('topSystem') : preset.topSystem ?? ''),
+        sceneRules: isActive ? $('nd_prompt_format').value : (drafts?.has('sceneRules') ? drafts.get('sceneRules') : preset.sceneRules ?? ''),
+        modelGuideOverrides: collectModelGuideOverrides(preset, { fromForm: isActive }),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${preset.name || '提示词预设'}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
 function getActivePromptPresetForForm() {
     const presets = state.promptPresets || [];
     const active = presets.find(preset => preset.id === state.selectedPromptPresetId)
@@ -4812,7 +5005,6 @@ function getActivePromptPresetForForm() {
         || null;
     if (active && state.selectedPromptPresetId !== active.id) {
         state.selectedPromptPresetId = active.id;
-        if ($('nd_prompt_preset')) $('nd_prompt_preset').value = active.id;
     }
     return active;
 }
@@ -4830,7 +5022,11 @@ function setCurrentPromptTextDraft(key, content) {
 
 /** 当前指南以用户眼前的 textarea 为准；其他模型草稿沿用本页临时状态。 */
 function collectModelGuideOverridesFromForm() {
-    const active = getActivePromptPresetForForm();
+    return collectModelGuideOverrides(getActivePromptPresetForForm(), { fromForm: true });
+}
+
+/** 某个预设的指南覆盖：已保存的覆盖 + 本页草稿；fromForm 时再叠上当前模型指南文本框（只对正在编辑的预设有意义）。 */
+function collectModelGuideOverrides(active, { fromForm }) {
     const source = active?.modelGuideOverrides && typeof active.modelGuideOverrides === 'object'
         && !Array.isArray(active.modelGuideOverrides)
         ? active.modelGuideOverrides
@@ -4849,10 +5045,12 @@ function collectModelGuideOverridesFromForm() {
     };
     drafts?.forEach((content, guideId) => applyDraft(guideId, content));
 
-    const guideId = getCurrentModelGuideId();
-    const textarea = $('nd_prompt_guide');
-    if (textarea) {
-        applyDraft(guideId, textarea.value);
+    if (fromForm) {
+        const guideId = getCurrentModelGuideId();
+        const textarea = $('nd_prompt_guide');
+        if (textarea) {
+            applyDraft(guideId, textarea.value);
+        }
     }
     return overrides;
 }
@@ -5340,42 +5538,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // ═══════════════════════════════════════════════════════════════════════
     // 参数预设管理
     // ═══════════════════════════════════════════════════════════════════════
-    $('nd_params_preset').addEventListener('change', () => { 
-        state.selectedParamsPresetId = $('nd_params_preset').value; 
-        applyParamsPreset(); 
-    });
-    
+    // 列表里的点击（点选 / “…”菜单）由 preset-list-view.js 在第一次绘制时挂上委托。
     $('nd_params_save').addEventListener('click', () => {
         setSavingState($('nd_params_save'));
         collectParamsPreset();
         postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
     });
     
-    $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET' }));
-    
-    $('nd_params_del').addEventListener('click', () => { 
-        if (confirm('确定删除当前参数预设？')) postToParent({ type: 'DEL_PARAMS_PRESET' }); 
-    });
-    
-    $('nd_params_rename').addEventListener('click', () => {
-        const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
-        if (!p) return;
-        const name = prompt('输入新名称：', p.name || '');
-        if (name && name.trim()) {
-            p.name = name.trim();
-            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
-        }
-    });
+    // 宿主只在“保存”时才知道页面选中了哪个预设，所以新建要带上页面当前显示的那个作为底板。
+    $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET', baseId: state.selectedParamsPresetId }));
     
     // ═══════════════════════════════════════════════════════════════════════
     // 云端预设（新增）
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_params_cloud').addEventListener('click', () => {
         postToParent({ type: 'OPEN_CLOUD_PRESETS' });
-    });
-    
-    $('nd_params_export').addEventListener('click', () => {
-        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: state.selectedParamsPresetId });
     });
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -5588,14 +5765,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // ═══════════════════════════════════════════════════════════════════════
-    // 提示词预设管理 — 切换立即持久化，模板正文仍由保存按钮提交
-    $('nd_prompt_preset').addEventListener('change', () => {
-        state.selectedPromptPresetId = $('nd_prompt_preset').value;
-        applyPromptPreset();
-        requestPromptChainPreview();
-        postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
-    });
-
+    // 提示词预设管理 — 切换立即持久化，模板正文仍由保存按钮提交；
+    // 列表里的点选 / “…”菜单由 preset-list-view.js 在第一次绘制时挂上委托（selectPromptPreset / handlePromptPresetAction）。
     $('nd_prompt_preset_save').addEventListener('click', () => {
         setSavingState($('nd_prompt_preset_save'));
         getActivePromptPresetForForm();
@@ -5610,21 +5781,6 @@ document.addEventListener('DOMContentLoaded', () => {
         type: 'ADD_PROMPT_PRESET',
         sourcePresetId: state.selectedPromptPresetId,
     }));
-
-    $('nd_prompt_del').addEventListener('click', () => {
-        if (confirm('确定删除当前提示词预设？')) {
-            postToParent({ type: 'DEL_PROMPT_PRESET', id: state.selectedPromptPresetId });
-        }
-    });
-
-    $('nd_prompt_rename').addEventListener('click', () => {
-        const p = (state.promptPresets || []).find(x => x.id === state.selectedPromptPresetId);
-        if (!p) return;
-        const name = prompt('输入新名称：', p.name || '');
-        if (name && name.trim()) {
-            postToParent({ type: 'RENAME_PROMPT_PRESET', id: state.selectedPromptPresetId, name: name.trim() });
-        }
-    });
 
     // 提示词模板保存（底部按钮，等同于预设栏保存）
     $('nd_prompts_save').addEventListener('click', () => {
@@ -5684,26 +5840,9 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshChainIfOpen();
     });
 
-    $('nd_prompt_preset_export').addEventListener('click', () => {
-        const activePreset = getActivePromptPresetForForm() || {};
-        const data = {
-            _type: 'novel-draw-prompt-template',
-            _version: 3,
-            name: activePreset.name || '',
-            topSystem: $('nd_prompt_system').value,
-            sceneRules: $('nd_prompt_format').value,
-            modelGuideOverrides: collectModelGuideOverridesFromForm(),
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${activePreset.name || '提示词预设'}.json`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-    });
-
     $('nd_prompt_preset_import').addEventListener('change', async (e) => {
-        const file = e.target.files?.[0];
+        const input = e.target; // await 之后事件对象可能已被重置，先留住输入框
+        const file = input.files?.[0];
         if (!file) return;
         try {
             const text = await file.text();
@@ -5717,7 +5856,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             alert('导入失败: ' + err.message);
         }
-        e.target.value = '';
+        input.value = '';
     });
 
     $('nd_prompt_chain_details').addEventListener('toggle', (event) => {
@@ -5782,6 +5921,15 @@ document.addEventListener('DOMContentLoaded', () => {
         import('../../shared/character-group-presets-ui.js')
             .then((module) => { GP = module; })
             .catch((error) => { console.error('[ND-UI] 分组预设模块加载失败，分组预设不可用:', error); }),
+        import('../../shared/preset-order.js')
+            .then((module) => { PO = module; })
+            .catch((error) => { console.error('[ND-UI] 预设排序模块加载失败，参数预设无法排序:', error); }),
+        import('../../shared/sortable-list.js')
+            .then((module) => { SL = module; paramsListView?.ensureSortable(); promptListView?.ensureSortable(); })
+            .catch((error) => { console.error('[ND-UI] 列表排序模块加载失败，预设列表无法拖拽排序:', error); }),
+        import('../../shared/preset-list-view.js')
+            .then((module) => { PLV = module; })
+            .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，参数 / 提示词预设列表无法显示:', error); }),
         import('../../shared/api-presets-ui.js')
             .then((module) => { AP_UI = module; renderApiPresetBar(); })
             .catch((error) => { console.error('[ND-UI] API 预设模块加载失败，API 配置预设不可用:', error); }),

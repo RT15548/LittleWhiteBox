@@ -14,6 +14,9 @@ import * as GP from '../character-group-presets-ui.js';
 import * as GPM from '../character-group-presets.js';
 import * as APUI from '../api-presets-ui.js';
 import * as CM from '../character-card-menu.js';
+import * as PO from '../preset-order.js';
+import * as SL from '../sortable-list.js';
+import * as PLV from '../preset-list-view.js';
 import { normalizeSharedDrawSettings } from '../draw-settings.js';
 
 // 页面脚本跑在 vm 的另一个 realm 里，数组原型不同：按 JSON 内容比较。
@@ -34,6 +37,9 @@ const HOOK = `
     setGPM: (module) => { GPM = module; },
     setAPUI: (module) => { AP_UI = module; },
     setCM: (module) => { CM = module; },
+    setPO: (module) => { PO = module; },
+    setSL: (module) => { SL = module; },
+    setPLV: (module) => { PLV = module; },
     renderApiPresetBar, readApiConfigFromForm,
     exportCharacterFile, visibleCharacterIds, switchView,
     getEditingCharId: () => editingCharId,
@@ -116,6 +122,9 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     nd.setGPM(GPM);
     nd.setAPUI(APUI);
     nd.setCM(CM);
+    nd.setPO(PO);
+    nd.setSL(SL);
+    nd.setPLV(PLV);
     const state = nd.getState();
     state.characterTags = characters;
     state.characterGroups = groups;
@@ -2538,4 +2547,845 @@ test('choosing lock or delete group from the menu runs the action and closes the
     assert.equal(panel.state().characterGroups.some(group => group.id === 'g2'), false);
     assert.equal(panel.$$('#nd_char_list .char-menu:not([hidden])').length, 0);
     assert.deepEqual(panel.errors, []);
+});
+
+// ── 绘图参数预设：列表（点选 / “…”菜单 / 拖拽与键盘排序） ─────────────
+
+const paramsPreset = (id, name, extra = {}) => ({ id, name, positivePrefix: `pos-${id}`, negativePrefix: '', params: { model: 'nai-diffusion-4-5-full' }, ...extra });
+const threePresets = () => [paramsPreset('p1', '预设一'), paramsPreset('p2', '预设二'), paramsPreset('p3', '预设三')];
+
+// linkedom 的 <select>.value 只读：模型下拉框要先“选中”一项，页面应用预设时才读得到模型名。
+const selectModel = panel => chooseOption(panel.$('#nd_model_sel'), 'nai-diffusion-4-5-full');
+
+function showParamsPresets(panel, { selected = 'p1', presets = threePresets() } = {}) {
+    selectModel(panel);
+    panel.initData({ paramsPresets: presets, selectedParamsPresetId: selected });
+    panel.posted.length = 0;
+}
+
+const paramsRows = panel => panel.$$('#nd_params_list .preset-row');
+const paramsRowIds = panel => paramsRows(panel).map(row => row.dataset.presetId);
+const paramsRow = (panel, id) => panel.$(`#nd_params_list .preset-row[data-preset-id="${id}"]`);
+const paramsRowName = (panel, id) => paramsRow(panel, id).querySelector('.preset-row-name');
+const paramsHandle = (panel, id) => paramsRow(panel, id).querySelector('[data-preset-drag]');
+const paramsMenuButton = (panel, id) => paramsRow(panel, id).querySelector('[data-preset-action="menu"]');
+const paramsMenu = (panel, id) => paramsRow(panel, id).querySelector('[role="menu"]');
+const paramsMenuIsOpen = (panel, id) => !paramsMenu(panel, id).hasAttribute('hidden');
+const paramsMenuItem = (panel, id, action) => paramsMenu(panel, id).querySelector(`[data-preset-action="${action}"]`);
+const openParamsMenu = (panel, id) => { panel.click(paramsMenuButton(panel, id)); return paramsMenu(panel, id); };
+const sentTypes = panel => panel.posted.map(message => message.type);
+const sentBodies = panel => panel.posted.map(({ source, ...body }) => body); // 去掉每条消息都带的 source
+
+// linkedom 没有布局：列表里每行给一个固定 100px 高的矩形（自上而下），并让 elementFromPoint 返回指定节点。
+function layoutParamsRows(panel) {
+    let top = 0;
+    for (const row of paramsRows(panel)) {
+        const rect = { top, bottom: top + 100, height: 100, left: 0, right: 300, width: 300 };
+        row.getBoundingClientRect = () => rect;
+        top += 100;
+    }
+    panel.document.elementFromPoint = () => panel.$('#nd_params_list');
+}
+
+function firePointer(panel, target, type, props) {
+    const event = new panel.document.defaultView.Event(type, { bubbles: true, cancelable: true });
+    Object.assign(event, { button: 0, pointerId: 1, clientX: 20, ...props });
+    target.dispatchEvent(event);
+    return event;
+}
+
+function dragParamsPreset(panel, id, { startY = 10, moveY, endY = moveY }) {
+    layoutParamsRows(panel);
+    firePointer(panel, paramsHandle(panel, id), 'pointerdown', { clientY: startY });
+    firePointer(panel, panel.document, 'pointermove', { clientY: moveY });
+    firePointer(panel, panel.document, 'pointerup', { clientY: endY });
+}
+
+test('the params preset bar is a list: one row per preset in host order, the selected one marked', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p2' });
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+    sameJson(paramsRows(panel).map(row => row.querySelector('.preset-row-name').textContent), ['预设一', '预设二', '预设三']);
+    sameJson(paramsRows(panel).map(row => row.classList.contains('selected')), [false, true, false]);
+    sameJson(paramsRows(panel).map(row => row.querySelector('.preset-row-name').getAttribute('aria-current')), [null, 'true', null]);
+    for (const row of paramsRows(panel)) {
+        const handle = row.querySelector('[data-preset-drag]');
+        assert.equal(handle.classList.contains('char-drag-handle'), true, '复用角色列表的手柄样式');
+        assert.equal(handle.getAttribute('role'), 'button');
+        assert.equal(handle.getAttribute('tabindex'), '0');
+        assert.match(handle.getAttribute('title'), /↑ \/ ↓/);
+        assert.match(handle.getAttribute('aria-label'), /拖动调整参数预设/);
+        assert.equal(row.querySelector('.preset-row-name').tagName, 'BUTTON');
+        assert.equal(row.querySelector('[data-preset-action="menu"]').getAttribute('aria-haspopup'), 'menu');
+    }
+    // 表单填的是选中的那个
+    assert.equal(panel.$('#nd_positive').value, 'pos-p2');
+});
+
+test('the old select and its row of buttons are gone; new / cloud / save stay in the card header with the status line', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    for (const id of ['nd_params_preset', 'nd_params_rename', 'nd_params_export', 'nd_params_del', 'nd_params_up', 'nd_params_down']) {
+        assert.equal(panel.$(`#${id}`), null, id);
+    }
+    const header = panel.$('#view-params .preset-list-header');
+    assert.match(header.querySelector('.card-title').textContent, /参数预设/);
+    sameJson(Array.from(header.querySelectorAll('button')).map(button => button.id), ['nd_params_add', 'nd_params_cloud', 'nd_params_save']);
+    assert.ok(panel.$('#nd_params_list'));
+    assert.ok(panel.$('#nd_params_status'));
+    assert.equal(panel.$$('#view-params select#nd_params_preset').length, 0);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('preset names are escaped in the list, and a missing selection falls back to the first row like the form does', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'gone', presets: [paramsPreset('p1', '<b>粗</b>"引号"'), paramsPreset('p2', '预设二')] });
+    assert.equal(paramsRowName(panel, 'p1').textContent, '<b>粗</b>"引号"');
+    assert.equal(panel.$$('#nd_params_list b').length, 0);
+    assert.equal(paramsRow(panel, 'p1').classList.contains('selected'), true);
+    assert.equal(panel.$('#nd_positive').value, 'pos-p1');
+});
+
+test('clicking a row selects it locally: the form is filled, the highlight moves, and the host is told nothing', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    selectModel(panel);
+    panel.click(paramsRowName(panel, 'p3'));
+    assert.equal(panel.state().selectedParamsPresetId, 'p3');
+    assert.equal(panel.$('#nd_positive').value, 'pos-p3');
+    sameJson(paramsRows(panel).map(row => row.classList.contains('selected')), [false, false, true]);
+    assert.equal(paramsRowName(panel, 'p3').getAttribute('aria-current'), 'true');
+    assert.equal(paramsRowName(panel, 'p1').hasAttribute('aria-current'), false);
+    // 切换会照旧让提示词预览按新模型刷新（GET_PROMPT_CHAIN），但不会保存 / 新建 / 删除 / 排序任何预设
+    assert.deepEqual(sentTypes(panel).filter(type => type !== 'GET_PROMPT_CHAIN'), [], '和旧下拉框一样，切换不持久化');
+});
+
+test('clicking the row that is already selected does not wipe unsaved edits in the form', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    panel.$('#nd_positive').value = 'typed but not saved';
+    panel.click(paramsRowName(panel, 'p1'));
+    assert.equal(panel.$('#nd_positive').value, 'typed but not saved');
+});
+
+test('the more-actions menu of a row offers rename, duplicate, export and a danger-styled delete', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    const menu = paramsMenu(panel, 'p2');
+    assert.equal(menu.hasAttribute('hidden'), true);
+    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    sameJson(items.map(item => item.dataset.presetAction), ['rename', 'duplicate', 'export', 'delete']);
+    sameJson(items.map(item => item.textContent.trim()), ['重命名', '复制', '导出', '删除']);
+    assert.ok(items.every(item => item.tagName === 'BUTTON' && item.classList.contains('char-menu-item') && item.querySelector('i')));
+    assert.equal(items[3].classList.contains('danger'), true);
+
+    openParamsMenu(panel, 'p2');
+    assert.equal(paramsMenuIsOpen(panel, 'p2'), true);
+    assert.equal(paramsMenuButton(panel, 'p2').getAttribute('aria-expanded'), 'true');
+    assert.equal(paramsMenu(panel, 'p2').style.position, 'fixed');
+    openParamsMenu(panel, 'p3'); // 同一时间只开一个
+    assert.equal(paramsMenuIsOpen(panel, 'p2'), false);
+    assert.equal(paramsMenuIsOpen(panel, 'p3'), true);
+    const esc = new panel.document.defaultView.Event('keydown', { bubbles: true, cancelable: true });
+    esc.key = 'Escape';
+    panel.document.dispatchEvent(esc);
+    assert.equal(paramsMenuIsOpen(panel, 'p3'), false, 'Esc 关闭');
+    assert.equal(panel.posted.length, 0, '只开关菜单不发任何消息');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('rename acts on the row whose menu was used and posts the same save message as before', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    panel.answers.prompt.push('  新名字  ');
+    openParamsMenu(panel, 'p2');
+    panel.click(paramsMenuItem(panel, 'p2', 'rename'));
+    const message = panel.posted.find(item => item.type === 'SAVE_PARAMS_PRESET');
+    assert.equal(message.selectedParamsPresetId, 'p1', '选中项不因为给别的行改名而变');
+    sameJson(message.paramsPresets.map(item => [item.id, item.name]), [['p1', '预设一'], ['p2', '新名字'], ['p3', '预设三']]);
+    assert.equal(paramsRowName(panel, 'p2').textContent, '新名字', '列表立刻显示新名字');
+    assert.equal(paramsMenuIsOpen(panel, 'p2'), false);
+
+    panel.posted.length = 0;
+    panel.answers.prompt.push(null); // 取消
+    panel.click(paramsMenuItem(panel, 'p3', 'rename'));
+    panel.answers.prompt.push('   '); // 空白
+    panel.click(paramsMenuItem(panel, 'p3', 'rename'));
+    assert.equal(panel.posted.length, 0);
+    assert.equal(paramsRowName(panel, 'p3').textContent, '预设三');
+});
+
+test('duplicate asks the host for a copy of that row, named "<name> 副本", without changing the selection', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    openParamsMenu(panel, 'p3');
+    panel.click(paramsMenuItem(panel, 'p3', 'duplicate'));
+    sameJson(sentBodies(panel), [{ type: 'ADD_PARAMS_PRESET', baseId: 'p3', name: '预设三 副本' }]);
+    assert.equal(panel.state().selectedParamsPresetId, 'p1');
+    assert.equal(paramsMenuIsOpen(panel, 'p3'), false);
+});
+
+test('export sends the id of the row, not the selected one', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    openParamsMenu(panel, 'p3');
+    panel.click(paramsMenuItem(panel, 'p3', 'export'));
+    sameJson(sentBodies(panel), [{ type: 'EXPORT_CURRENT_PRESET', presetId: 'p3' }]);
+});
+
+test('delete asks for confirmation naming the row and sends the id of the row you clicked, not the selected one', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    openParamsMenu(panel, 'p3');
+    panel.click(paramsMenuItem(panel, 'p3', 'delete'));
+    assert.match(panel.dialogs.confirms.at(-1), /确定删除参数预设“预设三”/);
+    sameJson(sentBodies(panel), [{ type: 'DEL_PARAMS_PRESET', presetId: 'p3' }]);
+});
+
+test('declining the delete confirmation sends nothing and keeps the list', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    panel.answers.confirm.push(false);
+    openParamsMenu(panel, 'p2');
+    panel.click(paramsMenuItem(panel, 'p2', 'delete'));
+    assert.equal(panel.dialogs.confirms.length, 1);
+    assert.equal(panel.posted.length, 0);
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+});
+
+test('a new params preset is based on the row currently selected in the list', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    panel.click(paramsRowName(panel, 'p2'));
+    panel.posted.length = 0;
+    panel.click(panel.$('#nd_params_add'));
+    sameJson(sentBodies(panel), [{ type: 'ADD_PARAMS_PRESET', baseId: 'p2' }]);
+});
+
+test('the cloud button and the save button keep their behaviour', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    panel.click(panel.$('#nd_params_cloud'));
+    assert.deepEqual(sentTypes(panel), ['OPEN_CLOUD_PRESETS']);
+
+    panel.posted.length = 0;
+    panel.click(paramsRowName(panel, 'p2'));
+    panel.$('#nd_positive').value = 'edited then saved';
+    panel.click(panel.$('#nd_params_save'));
+    const save = panel.posted.find(item => item.type === 'SAVE_PARAMS_PRESET');
+    assert.equal(save.selectedParamsPresetId, 'p2', '保存时才把页面的选中项告诉宿主');
+    assert.equal(save.paramsPresets.find(item => item.id === 'p2').positivePrefix, 'edited then saved', '保存收集表单');
+    assert.equal(panel.$('#nd_params_save').classList.contains('saving'), true);
+});
+
+test('dragging a row by its handle reorders list and state at once and sends only the new id order', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    panel.$('#nd_positive').value = 'typed but not saved';
+    dragParamsPreset(panel, 'p1', { moveY: 290 });
+    sameJson(paramsRowIds(panel), ['p2', 'p3', 'p1']);
+    sameJson(panel.state().paramsPresets.map(item => item.id), ['p2', 'p3', 'p1']);
+    assert.equal(panel.state().selectedParamsPresetId, 'p1', '选中项跟着走');
+    assert.equal(paramsRow(panel, 'p1').classList.contains('selected'), true);
+    sameJson(sentBodies(panel), [{ type: 'REORDER_PARAMS_PRESETS', order: ['p2', 'p3', 'p1'] }]);
+    assert.equal(panel.$('#nd_positive').value, 'typed but not saved', '重排不重填表单，未保存的编辑还在');
+    assert.equal(panel.$$('#nd_params_list .dragging, #nd_params_list .drop-before, #nd_params_list .drop-after').length, 0);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('dragging another row than the selected one also leaves the selection and the form alone', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p2' });
+    panel.$('#nd_positive').value = 'typed but not saved';
+    dragParamsPreset(panel, 'p3', { startY: 250, moveY: 10 });
+    sameJson(paramsRowIds(panel), ['p3', 'p1', 'p2']);
+    assert.equal(panel.state().selectedParamsPresetId, 'p2');
+    assert.equal(panel.$('#nd_positive').value, 'typed but not saved');
+    assert.deepEqual(sentTypes(panel), ['REORDER_PARAMS_PRESETS']);
+});
+
+test('while dragging, the row is dimmed and a drop line marks the target; dropping where it started sends nothing', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    layoutParamsRows(panel);
+    firePointer(panel, paramsHandle(panel, 'p1'), 'pointerdown', { clientY: 10 });
+    assert.equal(paramsRow(panel, 'p1').classList.contains('dragging'), true);
+    firePointer(panel, panel.document, 'pointermove', { clientY: 160 });
+    assert.equal(paramsRow(panel, 'p3').classList.contains('drop-before'), true);
+    firePointer(panel, panel.document, 'pointermove', { clientY: 60 });
+    firePointer(panel, panel.document, 'pointerup', { clientY: 60 });
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+    assert.equal(panel.posted.length, 0);
+    assert.equal(panel.$$('#nd_params_list .dragging, #nd_params_list .drop-before, #nd_params_list .drop-after').length, 0);
+});
+
+test('Esc cancels a drag in progress: nothing is sent and the order is unchanged', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    layoutParamsRows(panel);
+    firePointer(panel, paramsHandle(panel, 'p1'), 'pointerdown', { clientY: 10 });
+    firePointer(panel, panel.document, 'pointermove', { clientY: 290 });
+    const esc = new panel.document.defaultView.Event('keydown', { bubbles: true, cancelable: true });
+    esc.key = 'Escape';
+    panel.document.dispatchEvent(esc);
+    firePointer(panel, panel.document, 'pointerup', { clientY: 290 });
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+    assert.equal(panel.posted.length, 0);
+    assert.equal(panel.$$('#nd_params_list .dragging, #nd_params_list .drop-before, #nd_params_list .drop-after').length, 0);
+});
+
+test('keyboard: arrow keys on a handle move the preset one step, keep unsaved edits, and stop at both ends', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    // linkedom 的 focus() 是空操作：记录哪个手柄被聚焦，验证重绘后焦点还给了同一个手柄。
+    const focused = [];
+    const proto = Object.getPrototypeOf(paramsHandle(panel, 'p1'));
+    proto.focus = function focus() { focused.push(this.dataset.presetDrag); };
+    t.after(() => { delete proto.focus; });
+    panel.$('#nd_positive').value = 'typed but not saved';
+
+    const down = pressKey(panel, paramsHandle(panel, 'p1'), 'ArrowDown');
+    assert.equal(down.defaultPrevented, true);
+    sameJson(paramsRowIds(panel), ['p2', 'p1', 'p3']);
+    sameJson(panel.state().paramsPresets.map(item => item.id), ['p2', 'p1', 'p3']);
+    sameJson(sentBodies(panel), [{ type: 'REORDER_PARAMS_PRESETS', order: ['p2', 'p1', 'p3'] }]);
+    sameJson(focused, ['p1']);
+    assert.equal(panel.$('#nd_positive').value, 'typed but not saved');
+    assert.equal(panel.posted.some(item => item.type === 'SAVE_PARAMS_PRESET'), false, '不把整份预设内容送回宿主');
+
+    pressKey(panel, paramsHandle(panel, 'p1'), 'ArrowUp');
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+    panel.posted.length = 0;
+    pressKey(panel, paramsHandle(panel, 'p1'), 'ArrowUp'); // 已在最前
+    pressKey(panel, paramsHandle(panel, 'p3'), 'ArrowDown'); // 已在最后
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+    assert.equal(panel.posted.length, 0, '边界处什么也不发');
+    const other = pressKey(panel, paramsHandle(panel, 'p2'), 'a');
+    assert.equal(other.defaultPrevented, false);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('dragging near the bottom edge of a scrolled list scrolls the list itself', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    layoutParamsRows(panel);
+    const list = panel.$('#nd_params_list');
+    list.testOverflowY = 'auto';
+    Object.assign(list, { scrollHeight: 600, clientHeight: 260, scrollTop: 0 });
+    list.getBoundingClientRect = () => ({ top: 0, bottom: 260, left: 0, right: 300 });
+    panel.document.elementFromPoint = () => paramsRow(panel, 'p2');
+    firePointer(panel, paramsHandle(panel, 'p1'), 'pointerdown', { clientY: 10 });
+    firePointer(panel, panel.document, 'pointermove', { clientY: 250 });
+    assert.equal(list.scrollTop, 14, '指针在列表下缘感应区内：列表自己滚一步');
+    firePointer(panel, panel.document, 'pointercancel', {});
+    sameJson(paramsRowIds(panel), ['p1', 'p2', 'p3']);
+});
+
+test('after a reorder the rows are rebuilt but still draggable and still act on their own ids', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel);
+    dragParamsPreset(panel, 'p1', { moveY: 290 });
+    panel.posted.length = 0;
+    dragParamsPreset(panel, 'p2', { moveY: 290 });
+    sameJson(paramsRowIds(panel), ['p3', 'p1', 'p2']);
+    sameJson(sentBodies(panel), [{ type: 'REORDER_PARAMS_PRESETS', order: ['p3', 'p1', 'p2'] }]);
+    panel.posted.length = 0;
+    openParamsMenu(panel, 'p1');
+    panel.click(paramsMenuItem(panel, 'p1', 'export'));
+    sameJson(sentBodies(panel), [{ type: 'EXPORT_CURRENT_PRESET', presetId: 'p1' }]);
+});
+
+test('an INIT_DATA push redraws the list from the host order', (t) => {
+    const panel = loadPanel(t);
+    showParamsPresets(panel, { selected: 'p1' });
+    panel.initData({ paramsPresets: [paramsPreset('p3', '预设三'), paramsPreset('p1', '预设一')], selectedParamsPresetId: 'p3' });
+    sameJson(paramsRowIds(panel), ['p3', 'p1']);
+    assert.equal(paramsRow(panel, 'p3').classList.contains('selected'), true);
+    assert.equal(panel.$('#nd_positive').value, 'pos-p3');
+});
+
+test('narrow screens: the preset row wraps, the name keeps a minimum width, and the list scrolls inside the card', () => {
+    const rule = selector => pageRule(PAGE_CSS, selector);
+    assert.match(rule('.preset-row'), /display:\s*flex/);
+    assert.match(rule('.preset-row'), /flex-wrap:\s*wrap/);
+    assert.match(rule('.preset-row-name'), /min-width:\s*6em/);
+    assert.match(rule('.preset-row-name'), /text-overflow:\s*ellipsis/);
+    assert.match(rule('.preset-row .char-menu-wrap'), /margin-left:\s*auto/);
+    assert.match(rule('.preset-row.selected'), /var\(--accent\)/);
+    assert.match(rule('.preset-row.dragging'), /opacity/);
+    assert.match(rule('.preset-list'), /max-height:\s*260px/);
+    assert.match(rule('.preset-list'), /overflow-y:\s*auto/);
+    assert.match(rule('.preset-list-header'), /flex-wrap:\s*wrap/);
+
+    const media = PAGE_CSS.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\n\}/);
+    assert.ok(media);
+    const narrow = selector => pageRule(`\n${media[1]}`, selector);
+    assert.match(narrow('.preset-list-card, .preset-list, .preset-row'), /min-width:\s*0/);
+    assert.match(narrow('.preset-list-card, .preset-list, .preset-row'), /max-width:\s*100%/);
+    assert.match(narrow('.preset-list-header .btn-group'), /flex-wrap:\s*wrap/);
+    assert.ok(PAGE_CSS.indexOf('@media (max-width: 768px)') > PAGE_CSS.indexOf('.preset-row {'), '断点规则在基础规则之后');
+    // 拖拽期间的光标 / 禁止选中与角色拖拽共用同一条规则
+    assert.match(PAGE_CSS, /body\.sortable-dragging \*[^{]*\{[^}]*cursor:\s*grabbing/);
+});
+
+test('host source: delete and reorder work from ids the page sends', () => {
+    const source = fs.readFileSync(new URL('../../providers/novelai/novel-draw.js', import.meta.url), 'utf8');
+    const caseBody = (name) => {
+        const start = source.indexOf(`case '${name}'`);
+        assert.ok(start >= 0, name);
+        return source.slice(start, source.indexOf("\n        case '", start + 1));
+    };
+    const del = caseBody('DEL_PARAMS_PRESET');
+    assert.match(del, /data\.presetId/);
+    assert.doesNotMatch(del, /findIndex\(p => p\.id === settings\.selectedParamsPresetId\)/, '不再按宿主记的选中项删除');
+    assert.match(del, /pickNeighborAfterRemoval/);
+    const reorder = caseBody('REORDER_PARAMS_PRESETS');
+    assert.match(reorder, /reorderPresetsByIds/);
+    assert.doesNotMatch(reorder, /sendInitData\(/, '只调顺序，不重发整份 INIT_DATA 冲掉表单');
+    assert.match(caseBody('ADD_PARAMS_PRESET'), /data\.baseId/);
+});
+
+// ── 提示词预设：列表（点选 / “…”菜单 / 拖拽与键盘排序），和参数预设同一套视图 ─────────────
+
+const promptPreset = (id, name, extra = {}) => ({ id, name, topSystem: `sys-${id}`, sceneRules: `rules-${id}`, modelGuideOverrides: {}, ...extra });
+const threePrompts = () => [promptPreset('t1', '模板一'), promptPreset('t2', '模板二'), promptPreset('t3', '模板三')];
+
+function showPromptPresets(panel, { selected = 't1', presets = threePrompts() } = {}) {
+    selectModel(panel);
+    panel.initData({
+        paramsPresets: threePresets(),
+        selectedParamsPresetId: 'p1',
+        promptPresets: presets,
+        selectedPromptPresetId: selected,
+        modelGuideDefaults: { 'v4.5': 'GUIDE-DEFAULT' },
+    });
+    panel.posted.length = 0;
+}
+
+const promptRows = panel => panel.$$('#nd_prompt_list .preset-row');
+const promptRowIds = panel => promptRows(panel).map(row => row.dataset.presetId);
+const promptRow = (panel, id) => panel.$(`#nd_prompt_list .preset-row[data-preset-id="${id}"]`);
+const promptRowName = (panel, id) => promptRow(panel, id).querySelector('.preset-row-name');
+const promptHandle = (panel, id) => promptRow(panel, id).querySelector('[data-preset-drag]');
+const promptMenuButton = (panel, id) => promptRow(panel, id).querySelector('[data-preset-action="menu"]');
+const promptMenu = (panel, id) => promptRow(panel, id).querySelector('[role="menu"]');
+const promptMenuIsOpen = (panel, id) => !promptMenu(panel, id).hasAttribute('hidden');
+const promptMenuItem = (panel, id, action) => promptMenu(panel, id).querySelector(`[data-preset-action="${action}"]`);
+const openPromptMenu = (panel, id) => { panel.click(promptMenuButton(panel, id)); return promptMenu(panel, id); };
+const promptDragMarks = panel => panel.$$('#nd_prompt_list .dragging, #nd_prompt_list .drop-before, #nd_prompt_list .drop-after');
+const lastExport = panel => JSON.parse(panel.blobs.at(-1));
+
+// 在文本框里“打字”：改值并发 input 事件，页面会记下这个预设的未保存草稿。
+function typeInto(panel, selector, value) {
+    const node = panel.$(selector);
+    node.value = value;
+    node.dispatchEvent(new panel.document.defaultView.Event('input', { bubbles: true }));
+}
+
+function layoutPromptRows(panel) {
+    let top = 0;
+    for (const row of promptRows(panel)) {
+        const rect = { top, bottom: top + 100, height: 100, left: 0, right: 300, width: 300 };
+        row.getBoundingClientRect = () => rect;
+        top += 100;
+    }
+    panel.document.elementFromPoint = () => panel.$('#nd_prompt_list');
+}
+
+function dragPromptPreset(panel, id, { startY = 10, moveY, endY = moveY }) {
+    layoutPromptRows(panel);
+    firePointer(panel, promptHandle(panel, id), 'pointerdown', { clientY: startY });
+    firePointer(panel, panel.document, 'pointermove', { clientY: moveY });
+    firePointer(panel, panel.document, 'pointerup', { clientY: endY });
+}
+
+test('the prompt preset bar is a list: one row per preset in host order, the selected one marked and its text in the boxes', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't2' });
+    sameJson(promptRowIds(panel), ['t1', 't2', 't3']);
+    sameJson(promptRows(panel).map(row => row.querySelector('.preset-row-name').textContent), ['模板一', '模板二', '模板三']);
+    sameJson(promptRows(panel).map(row => row.classList.contains('selected')), [false, true, false]);
+    sameJson(promptRows(panel).map(row => row.querySelector('.preset-row-name').getAttribute('aria-current')), [null, 'true', null]);
+    for (const row of promptRows(panel)) {
+        const handle = row.querySelector('[data-preset-drag]');
+        assert.equal(handle.classList.contains('char-drag-handle'), true, '复用角色列表的手柄样式');
+        assert.equal(handle.getAttribute('role'), 'button');
+        assert.equal(handle.getAttribute('tabindex'), '0');
+        assert.match(handle.getAttribute('aria-label'), /拖动调整提示词预设/);
+        assert.equal(row.querySelector('.preset-row-name').tagName, 'BUTTON');
+        assert.equal(row.querySelector('[data-preset-action="menu"]').getAttribute('aria-haspopup'), 'menu');
+    }
+    assert.equal(panel.$('#nd_prompt_system').value, 'sys-t2');
+    assert.equal(panel.$('#nd_prompt_format').value, 'rules-t2');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('the old prompt select and its buttons are gone; new / import / save sit in the card header above the list and status line', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    for (const id of ['nd_prompt_preset', 'nd_prompt_rename', 'nd_prompt_preset_export', 'nd_prompt_del']) {
+        assert.equal(panel.$(`#${id}`), null, id);
+    }
+    assert.equal(panel.$$('#view-prompts select#nd_prompt_preset').length, 0);
+    const card = panel.$('#view-prompts .preset-list-card');
+    assert.ok(card);
+    const header = card.querySelector('.preset-list-header');
+    assert.match(header.querySelector('.card-title').textContent, /提示词预设/);
+    sameJson(Array.from(header.querySelectorAll('button, label, input')).map(node => node.id || node.tagName), ['nd_prompt_add', 'LABEL', 'nd_prompt_preset_import', 'nd_prompt_preset_save']);
+    assert.equal(header.querySelector('#nd_prompt_preset_import').getAttribute('type'), 'file');
+    assert.equal(header.querySelector('label').closest('.btn-group') !== null, true);
+    assert.match(header.querySelector('label').textContent, /导入/);
+    assert.equal(header.querySelector('#nd_prompt_preset_save').classList.contains('btn-primary'), true);
+    // 列表与状态行在同一张卡片里，列表在状态行之前，并且用和参数预设相同的类
+    const list = card.querySelector('#nd_prompt_list');
+    assert.equal(list.classList.contains('preset-list'), true);
+    assert.equal(list.getAttribute('role'), 'list');
+    const status = card.querySelector('#nd_prompt_preset_status');
+    assert.ok(status);
+    assert.equal(Boolean(list.compareDocumentPosition(status) & 4), true, '状态行在列表之后');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('prompt preset names are escaped, and a missing selection falls back to the first row like the form does', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 'gone', presets: [promptPreset('t1', '<b>粗</b>"引号"'), promptPreset('t2', '模板二')] });
+    assert.equal(promptRowName(panel, 't1').textContent, '<b>粗</b>"引号"');
+    assert.equal(panel.$$('#nd_prompt_list b').length, 0);
+    assert.equal(promptRow(panel, 't1').classList.contains('selected'), true);
+    assert.equal(panel.$('#nd_prompt_system').value, 'sys-t1');
+    assert.equal(panel.state().selectedPromptPresetId, 't1');
+});
+
+test('clicking a prompt row selects it: boxes are filled, the highlight moves, and the host is asked to persist the choice', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.click(promptRowName(panel, 't3'));
+    assert.equal(panel.state().selectedPromptPresetId, 't3');
+    assert.equal(panel.$('#nd_prompt_system').value, 'sys-t3');
+    assert.equal(panel.$('#nd_prompt_format').value, 'rules-t3');
+    sameJson(promptRows(panel).map(row => row.classList.contains('selected')), [false, false, true]);
+    assert.equal(promptRowName(panel, 't3').getAttribute('aria-current'), 'true');
+    assert.equal(promptRowName(panel, 't1').hasAttribute('aria-current'), false);
+    sameJson(sentTypes(panel), ['GET_PROMPT_CHAIN', 'SELECT_PROMPT_PRESET']);
+    assert.equal(panel.posted[0].promptDraft.topSystem, 'sys-t3', '提示词预览按新预设的文本刷新');
+    sameJson(sentBodies(panel).at(-1), { type: 'SELECT_PROMPT_PRESET', id: 't3' });
+    assert.deepEqual(panel.errors, []);
+});
+
+test('clicking the row that is already selected does nothing: no message, and unsaved text stays', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.$('#nd_prompt_system').value = 'typed but not saved';
+    panel.click(promptRowName(panel, 't1'));
+    assert.equal(panel.$('#nd_prompt_system').value, 'typed but not saved');
+    assert.equal(panel.posted.length, 0);
+});
+
+test('unsaved text of each prompt preset survives switching rows back and forth', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    typeInto(panel, '#nd_prompt_system', 'draft for t1');
+    panel.click(promptRowName(panel, 't2'));
+    assert.equal(panel.$('#nd_prompt_system').value, 'sys-t2');
+    panel.click(promptRowName(panel, 't1'));
+    assert.equal(panel.$('#nd_prompt_system').value, 'draft for t1');
+});
+
+test('the more-actions menu of a prompt row offers rename, duplicate, export and a danger-styled delete', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    const menu = promptMenu(panel, 't2');
+    assert.equal(menu.hasAttribute('hidden'), true);
+    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    sameJson(items.map(item => item.dataset.presetAction), ['rename', 'duplicate', 'export', 'delete']);
+    sameJson(items.map(item => item.textContent.trim()), ['重命名', '复制', '导出', '删除']);
+    assert.ok(items.every(item => item.tagName === 'BUTTON' && item.classList.contains('char-menu-item') && item.querySelector('i')));
+    assert.equal(items[3].classList.contains('danger'), true);
+
+    openPromptMenu(panel, 't2');
+    assert.equal(promptMenuIsOpen(panel, 't2'), true);
+    assert.equal(promptMenuButton(panel, 't2').getAttribute('aria-expanded'), 'true');
+    openPromptMenu(panel, 't3'); // 同一时间只开一个
+    assert.equal(promptMenuIsOpen(panel, 't2'), false);
+    assert.equal(promptMenuIsOpen(panel, 't3'), true);
+    const esc = new panel.document.defaultView.Event('keydown', { bubbles: true, cancelable: true });
+    esc.key = 'Escape';
+    panel.document.dispatchEvent(esc);
+    assert.equal(promptMenuIsOpen(panel, 't3'), false, 'Esc 关闭');
+    assert.equal(panel.posted.length, 0, '只开关菜单不发任何消息');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('the params list and the prompt list share the one-open-menu rule and do not touch each other', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    openParamsMenu(panel, 'p2');
+    assert.equal(paramsMenuIsOpen(panel, 'p2'), true);
+    openPromptMenu(panel, 't1');
+    assert.equal(paramsMenuIsOpen(panel, 'p2'), false);
+    assert.equal(promptMenuIsOpen(panel, 't1'), true);
+    panel.click(paramsRowName(panel, 'p3'));
+    assert.equal(panel.state().selectedPromptPresetId, 't1');
+    assert.equal(panel.state().selectedParamsPresetId, 'p3');
+    assert.equal(promptMenuIsOpen(panel, 't1'), false, '点别处关闭菜单');
+});
+
+test('prompt rename acts on the row whose menu was used and posts RENAME_PROMPT_PRESET with the trimmed name', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.answers.prompt.push('  新名字  ');
+    openPromptMenu(panel, 't2');
+    panel.click(promptMenuItem(panel, 't2', 'rename'));
+    assert.equal(panel.dialogs.prompts.at(-1), '输入新名称：');
+    sameJson(sentBodies(panel), [{ type: 'RENAME_PROMPT_PRESET', id: 't2', name: '新名字' }]);
+    assert.equal(panel.state().selectedPromptPresetId, 't1', '选中项不因为给别的行改名而变');
+    assert.equal(promptMenuIsOpen(panel, 't2'), false);
+
+    panel.posted.length = 0;
+    panel.answers.prompt.push(null); // 取消
+    panel.click(promptMenuItem(panel, 't3', 'rename'));
+    panel.answers.prompt.push('   '); // 空白
+    panel.click(promptMenuItem(panel, 't3', 'rename'));
+    assert.equal(panel.posted.length, 0);
+
+    // 宿主改名后推来 INIT_DATA，列表随之重绘
+    panel.initData({ promptPresets: [promptPreset('t1', '模板一'), promptPreset('t2', '新名字'), promptPreset('t3', '模板三')], selectedPromptPresetId: 't1' });
+    assert.equal(promptRowName(panel, 't2').textContent, '新名字');
+});
+
+test('prompt duplicate asks the host for a copy of that row, named "<name> 副本"', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    openPromptMenu(panel, 't3');
+    panel.click(promptMenuItem(panel, 't3', 'duplicate'));
+    sameJson(sentBodies(panel), [{ type: 'ADD_PROMPT_PRESET', sourcePresetId: 't3', name: '模板三 副本' }]);
+    assert.equal(promptMenuIsOpen(panel, 't3'), false);
+});
+
+test('the header new button is based on the row currently selected', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.click(promptRowName(panel, 't2'));
+    panel.posted.length = 0;
+    panel.click(panel.$('#nd_prompt_add'));
+    sameJson(sentBodies(panel), [{ type: 'ADD_PROMPT_PRESET', sourcePresetId: 't2' }]);
+});
+
+test('prompt delete asks for confirmation naming the row and sends the id of the row you clicked, not the selected one', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    openPromptMenu(panel, 't3');
+    panel.click(promptMenuItem(panel, 't3', 'delete'));
+    assert.match(panel.dialogs.confirms.at(-1), /确定删除提示词预设“模板三”/);
+    sameJson(sentBodies(panel), [{ type: 'DEL_PROMPT_PRESET', id: 't3' }]);
+});
+
+test('declining the prompt delete confirmation sends nothing and keeps the list', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    panel.answers.confirm.push(false);
+    openPromptMenu(panel, 't2');
+    panel.click(promptMenuItem(panel, 't2', 'delete'));
+    assert.equal(panel.dialogs.confirms.length, 1);
+    assert.equal(panel.posted.length, 0);
+    sameJson(promptRowIds(panel), ['t1', 't2', 't3']);
+});
+
+test('prompt export downloads the row you clicked: the selected one with its unsaved text, another one with its saved text plus its own draft', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, {
+        selected: 't1',
+        presets: [promptPreset('t1', '模板一'), promptPreset('t2', '模板二'), promptPreset('t3', '模板三', { modelGuideOverrides: { v5: 'custom v5' } })],
+    });
+    // t2 留一份未保存草稿，再回到 t1 继续编辑（t1 的编辑不发 input 事件也要被导出，因为它就在表单里）
+    panel.click(promptRowName(panel, 't2'));
+    typeInto(panel, '#nd_prompt_system', 'draft for t2');
+    panel.click(promptRowName(panel, 't1'));
+    panel.$('#nd_prompt_system').value = 'unsaved t1';
+    panel.$('#nd_prompt_guide').value = 'my guide';
+    panel.posted.length = 0;
+
+    openPromptMenu(panel, 't3');
+    panel.click(promptMenuItem(panel, 't3', 'export'));
+    sameJson(lastExport(panel), { _type: 'novel-draw-prompt-template', _version: 3, name: '模板三', topSystem: 'sys-t3', sceneRules: 'rules-t3', modelGuideOverrides: { v5: 'custom v5' } });
+    assert.equal(panel.$('#nd_prompt_system').value, 'unsaved t1', '导出别的行不碰当前表单');
+
+    panel.click(promptMenuItem(panel, 't2', 'export'));
+    sameJson(lastExport(panel), { _type: 'novel-draw-prompt-template', _version: 3, name: '模板二', topSystem: 'draft for t2', sceneRules: 'rules-t2', modelGuideOverrides: {} });
+
+    panel.click(promptMenuItem(panel, 't1', 'export'));
+    sameJson(lastExport(panel), { _type: 'novel-draw-prompt-template', _version: 3, name: '模板一', topSystem: 'unsaved t1', sceneRules: 'rules-t1', modelGuideOverrides: { 'v4.5': 'my guide' } });
+    assert.equal(panel.blobs.length, 3);
+    assert.equal(panel.posted.length, 0, '导出完全在页面里完成，不发消息');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('the header save button keeps its behaviour: saving state, current form text and the prompt-preset status target', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.click(promptRowName(panel, 't2'));
+    panel.posted.length = 0;
+    panel.$('#nd_prompt_system').value = 'edited then saved';
+    panel.click(panel.$('#nd_prompt_preset_save'));
+    const save = panel.posted.find(item => item.type === 'SAVE_PROMPT_PRESET');
+    assert.equal(save.selectedPromptPresetId, 't2');
+    assert.equal(save.promptDraft.topSystem, 'edited then saved');
+    assert.equal(save.promptDraft.sceneRules, 'rules-t2');
+    assert.equal(save.statusTarget, 'prompt-preset');
+    assert.equal(panel.$('#nd_prompt_preset_save').classList.contains('saving'), true);
+});
+
+test('importing a template file still posts IMPORT_PROMPT_PRESET, named after the file for the fallback', async (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    const input = panel.$('#nd_prompt_preset_import');
+    const payload = { _type: 'novel-draw-prompt-template', topSystem: 'imported' };
+    Object.defineProperty(input, 'files', { configurable: true, value: [{ name: '我的模板.json', text: async () => JSON.stringify(payload) }] });
+    input.dispatchEvent(new panel.document.defaultView.Event('change', { bubbles: true }));
+    await tick();
+    // 等待期间 vm 里失败的动态 import 会让页面补发 FRAME_READY，与导入无关
+    sameJson(sentBodies(panel).filter(message => message.type !== 'FRAME_READY'), [{ type: 'IMPORT_PROMPT_PRESET', payload, fallbackName: '我的模板' }]);
+});
+
+test('the prompt status line still receives the host prompt-preset status', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    panel.send('STATUS', { target: 'prompt-preset', state: 'success', text: '已重命名' });
+    assert.equal(panel.$('#nd_prompt_preset_status').textContent, '已重命名');
+    assert.match(panel.$('#nd_prompt_preset_status').className, /success/);
+    assert.equal(panel.$('#nd_params_status').textContent, '', '参数预设的状态行不受影响');
+});
+
+test('dragging a prompt row reorders list and state at once, sends only the new id order, and leaves the boxes alone', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.$('#nd_prompt_system').value = 'typed but not saved'; // 不发 input 事件：若被重填，值会退回 sys-t1
+    panel.$('#nd_prompt_format').value = 'rules typed but not saved';
+    dragPromptPreset(panel, 't1', { moveY: 290 });
+    sameJson(promptRowIds(panel), ['t2', 't3', 't1']);
+    sameJson(panel.state().promptPresets.map(item => item.id), ['t2', 't3', 't1']);
+    assert.equal(panel.state().selectedPromptPresetId, 't1', '选中项跟着走');
+    assert.equal(promptRow(panel, 't1').classList.contains('selected'), true);
+    sameJson(sentBodies(panel), [{ type: 'REORDER_PROMPT_PRESETS', order: ['t2', 't3', 't1'] }]);
+    assert.equal(panel.$('#nd_prompt_system').value, 'typed but not saved', '重排不重填文本框');
+    assert.equal(panel.$('#nd_prompt_format').value, 'rules typed but not saved');
+    assert.equal(promptDragMarks(panel).length, 0);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('dragging another prompt row than the selected one leaves the selection and the boxes alone', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't2' });
+    panel.$('#nd_prompt_system').value = 'typed but not saved';
+    dragPromptPreset(panel, 't3', { startY: 250, moveY: 10 });
+    sameJson(promptRowIds(panel), ['t3', 't1', 't2']);
+    assert.equal(panel.state().selectedPromptPresetId, 't2');
+    assert.equal(panel.$('#nd_prompt_system').value, 'typed but not saved');
+    sameJson(sentTypes(panel), ['REORDER_PROMPT_PRESETS']);
+});
+
+test('dropping a prompt row where it started, or pressing Esc mid-drag, sends nothing and changes nothing', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    layoutPromptRows(panel);
+    firePointer(panel, promptHandle(panel, 't1'), 'pointerdown', { clientY: 10 });
+    assert.equal(promptRow(panel, 't1').classList.contains('dragging'), true);
+    firePointer(panel, panel.document, 'pointermove', { clientY: 160 });
+    assert.equal(promptRow(panel, 't3').classList.contains('drop-before'), true);
+    firePointer(panel, panel.document, 'pointermove', { clientY: 60 });
+    firePointer(panel, panel.document, 'pointerup', { clientY: 60 });
+    sameJson(promptRowIds(panel), ['t1', 't2', 't3']);
+    assert.equal(panel.posted.length, 0);
+
+    firePointer(panel, promptHandle(panel, 't1'), 'pointerdown', { clientY: 10 });
+    firePointer(panel, panel.document, 'pointermove', { clientY: 290 });
+    const esc = new panel.document.defaultView.Event('keydown', { bubbles: true, cancelable: true });
+    esc.key = 'Escape';
+    panel.document.dispatchEvent(esc);
+    firePointer(panel, panel.document, 'pointerup', { clientY: 290 });
+    sameJson(promptRowIds(panel), ['t1', 't2', 't3']);
+    assert.equal(panel.posted.length, 0);
+    assert.equal(promptDragMarks(panel).length, 0);
+});
+
+test('keyboard: arrow keys on a prompt handle move the preset one step, keep the boxes, and stop at both ends', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    const focused = [];
+    const proto = Object.getPrototypeOf(promptHandle(panel, 't1'));
+    proto.focus = function focus() { focused.push(this.dataset.presetDrag); };
+    t.after(() => { delete proto.focus; });
+    panel.$('#nd_prompt_system').value = 'typed but not saved';
+
+    const down = pressKey(panel, promptHandle(panel, 't1'), 'ArrowDown');
+    assert.equal(down.defaultPrevented, true);
+    sameJson(promptRowIds(panel), ['t2', 't1', 't3']);
+    sameJson(panel.state().promptPresets.map(item => item.id), ['t2', 't1', 't3']);
+    sameJson(sentBodies(panel), [{ type: 'REORDER_PROMPT_PRESETS', order: ['t2', 't1', 't3'] }]);
+    sameJson(focused, ['t1']);
+    assert.equal(panel.$('#nd_prompt_system').value, 'typed but not saved');
+    assert.equal(panel.posted.some(item => item.type === 'SAVE_PROMPT_PRESET'), false, '不把整份预设内容送回宿主');
+
+    pressKey(panel, promptHandle(panel, 't1'), 'ArrowUp');
+    sameJson(promptRowIds(panel), ['t1', 't2', 't3']);
+    panel.posted.length = 0;
+    pressKey(panel, promptHandle(panel, 't1'), 'ArrowUp'); // 已在最前
+    pressKey(panel, promptHandle(panel, 't3'), 'ArrowDown'); // 已在最后
+    assert.equal(panel.posted.length, 0, '边界处什么也不发');
+    assert.equal(pressKey(panel, promptHandle(panel, 't2'), 'a').defaultPrevented, false);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('after a prompt reorder the rows are rebuilt but still draggable and still act on their own ids', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    dragPromptPreset(panel, 't1', { moveY: 290 });
+    panel.posted.length = 0;
+    dragPromptPreset(panel, 't2', { moveY: 290 });
+    sameJson(promptRowIds(panel), ['t3', 't1', 't2']);
+    sameJson(sentBodies(panel), [{ type: 'REORDER_PROMPT_PRESETS', order: ['t3', 't1', 't2'] }]);
+    panel.posted.length = 0;
+    openPromptMenu(panel, 't1');
+    panel.click(promptMenuItem(panel, 't1', 'delete'));
+    sameJson(sentBodies(panel), [{ type: 'DEL_PROMPT_PRESET', id: 't1' }]);
+});
+
+test('an INIT_DATA push redraws the prompt list from the host order and selection', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.initData({ promptPresets: [promptPreset('t3', '模板三'), promptPreset('t1', '模板一')], selectedPromptPresetId: 't3' });
+    sameJson(promptRowIds(panel), ['t3', 't1']);
+    assert.equal(promptRow(panel, 't3').classList.contains('selected'), true);
+    assert.equal(panel.$('#nd_prompt_system').value, 'sys-t3');
+});
+
+test('the prompt list reuses the params list classes (scrolling list, wrapping rows, same card)', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel);
+    assert.equal(panel.$('#nd_prompt_list').className, 'preset-list');
+    assert.equal(promptRow(panel, 't1').classList.contains('preset-row'), true);
+    assert.equal(panel.$('#view-prompts .preset-list-card').classList.contains('card'), true);
+    assert.match(pageRule(PAGE_CSS, '.preset-list'), /max-height:\s*260px/);
+});
+
+test('host source: prompt reorder persists ids only, delete picks the neighbour, duplicate takes a name', () => {
+    const source = fs.readFileSync(new URL('../../providers/novelai/novel-draw.js', import.meta.url), 'utf8');
+    const caseBody = (name) => {
+        const start = source.indexOf(`case '${name}'`);
+        assert.ok(start >= 0, name);
+        return source.slice(start, source.indexOf("\n        case '", start + 1));
+    };
+    const reorder = caseBody('REORDER_PROMPT_PRESETS');
+    assert.match(reorder, /reorderPresetsByIds\(settings\.promptPresets/);
+    assert.doesNotMatch(reorder, /sendInitData\(/, '只调顺序，不重发整份 INIT_DATA 冲掉文本框');
+    assert.doesNotMatch(reorder, /selectedPromptPresetId/, '排序不动选中项');
+    const del = caseBody('DEL_PROMPT_PRESET');
+    assert.match(del, /data\.id/);
+    assert.match(del, /pickNeighborAfterRemoval\(ids, presetId\)/);
+    assert.doesNotMatch(del, /promptPresets\[0\]\?\.id/, '不再总是跳回第一个');
+    assert.match(del, /wasSelected/, '删的不是选中项时保持选中');
+    const add = caseBody('ADD_PROMPT_PRESET');
+    assert.match(add, /data\.sourcePresetId/);
+    assert.match(add, /data\.name/);
+    assert.match(caseBody('RENAME_PROMPT_PRESET'), /data\.id/);
 });

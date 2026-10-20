@@ -797,21 +797,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/settings-markup.js",
       "relativePath": "modules/agent-core/ui/settings-markup.js",
       "extension": ".js",
-      "sizeBytes": 17375
+      "sizeBytes": 22536
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/settings-panel.js",
       "relativePath": "modules/agent-core/ui/settings-panel.js",
       "extension": ".js",
-      "sizeBytes": 67479
+      "sizeBytes": 83471
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/settings-surface.css",
       "relativePath": "modules/agent-core/ui/settings-surface.css",
       "extension": ".css",
-      "sizeBytes": 7803
+      "sizeBytes": 14583
     },
     {
       "source": "littlewhitebox",
@@ -1644,14 +1644,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 320235
+      "sizeBytes": 328899
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 200078
+      "sizeBytes": 202999
     },
     {
       "source": "littlewhitebox",
@@ -1938,7 +1938,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/agent-settings-surface.js",
       "relativePath": "modules/draw/shared/agent-settings-surface.js",
       "extension": ".js",
-      "sizeBytes": 11569
+      "sizeBytes": 13687
     },
     {
       "source": "littlewhitebox",
@@ -2474,6 +2474,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/preset-list-view.js",
+      "relativePath": "modules/draw/shared/preset-list-view.js",
+      "extension": ".js",
+      "sizeBytes": 8490
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/preset-order.js",
+      "relativePath": "modules/draw/shared/preset-order.js",
+      "extension": ".js",
+      "sizeBytes": 1816
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prompt-template-migration.js",
       "relativePath": "modules/draw/shared/prompt-template-migration.js",
       "extension": ".js",
@@ -2663,10 +2677,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/sortable-list.js",
+      "relativePath": "modules/draw/shared/sortable-list.js",
+      "extension": ".js",
+      "sizeBytes": 10262
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/agent-settings-surface.test.js",
       "relativePath": "modules/draw/shared/tests/agent-settings-surface.test.js",
       "extension": ".js",
-      "sizeBytes": 27116
+      "sizeBytes": 51647
     },
     {
       "source": "littlewhitebox",
@@ -3037,7 +3058,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/novel-draw-panel.test.js",
       "relativePath": "modules/draw/shared/tests/novel-draw-panel.test.js",
       "extension": ".js",
-      "sizeBytes": 128797
+      "sizeBytes": 195566
     },
     {
       "source": "littlewhitebox",
@@ -3073,6 +3094,20 @@
       "relativePath": "modules/draw/shared/tests/prepared-slot-executor.test.js",
       "extension": ".js",
       "sizeBytes": 14215
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/preset-list-view.test.js",
+      "relativePath": "modules/draw/shared/tests/preset-list-view.test.js",
+      "extension": ".js",
+      "sizeBytes": 9933
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/preset-order.test.js",
+      "relativePath": "modules/draw/shared/tests/preset-order.test.js",
+      "extension": ".js",
+      "sizeBytes": 2143
     },
     {
       "source": "littlewhitebox",
@@ -3164,6 +3199,13 @@
       "relativePath": "modules/draw/shared/tests/scene-slot-dom.test.js",
       "extension": ".js",
       "sizeBytes": 8058
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/sortable-list.test.js",
+      "relativePath": "modules/draw/shared/tests/sortable-list.test.js",
+      "extension": ".js",
+      "sizeBytes": 14029
     },
     {
       "source": "littlewhitebox",

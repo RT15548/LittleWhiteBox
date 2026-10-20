@@ -9,6 +9,9 @@ import {
 import { normalizeAgentConfig } from '../../../agent-core/config.js';
 import { createAgentSettingsPanel } from '../../../agent-core/ui/settings-panel.js';
 import { buildAgentSettingsPanelMarkup } from '../../../agent-core/ui/settings-markup.js';
+import { createCardMenuController } from '../character-card-menu.js';
+import { movePresetId } from '../preset-order.js';
+import { createSortableList } from '../sortable-list.js';
 import {
     loadSharedAgentSettings,
     loadSharedAgentSettingsResult,
@@ -102,9 +105,8 @@ test('draw Agent API surface exposes the shared main-preset controls only', () =
         });
         for (const controlId of [
             'xb-assistant-new-preset',
-            'xb-assistant-rename-preset',
             'xb-assistant-save',
-            'xb-assistant-delete-preset',
+            'xb-assistant-preset-list',
             'xb-assistant-provider',
             'xb-assistant-base-url',
             'xb-assistant-api-key',
@@ -118,6 +120,10 @@ test('draw Agent API surface exposes the shared main-preset controls only', () =
             'xb-assistant-reasoning-budget',
         ]) {
             assert.ok(root.querySelector(`#${controlId}`));
+        }
+        // 绘图页走预设列表布局：不再有下拉框和重命名 / 删除图标按钮（改在每行的“…”菜单里）
+        for (const goneId of ['xb-assistant-preset-select', 'xb-assistant-rename-preset', 'xb-assistant-delete-preset']) {
+            assert.equal(root.querySelector(`#${goneId}`), null);
         }
         assert.equal(root.querySelector('#xb-assistant-config-tab-delegate'), null);
         assert.equal(root.querySelector('#xb-assistant-permission-mode'), null);
@@ -707,6 +713,506 @@ test('draw Agent API load failures are escaped and retryable', () => {
         assert.equal(root.querySelector('.draw-agent-settings-state span').textContent, '<script>bad()</script>');
         assert.ok(root.querySelector('[data-draw-agent-settings-retry]'));
     } finally {
+        dom.restore();
+    }
+});
+
+// ───────────────────────── 预设列表布局 ─────────────────────────
+
+const PRESET_KIT = {
+    createSortableList,
+    createMenuController: createCardMenuController,
+    moveStep: movePresetId,
+};
+
+function threePresets(extra = {}) {
+    const base = buildStoredSettings();
+    return buildStoredSettings({
+        presets: {
+            主配置: base.presets.主配置,
+            分身配置: base.presets.分身配置,
+            第三配置: {
+                provider: 'openai-compatible',
+                modelConfigs: { 'openai-compatible': { model: 'third-model', apiKey: 'third-key' } },
+            },
+            ...extra,
+        },
+    });
+}
+
+function rowNames(root) {
+    return Array.from(root.querySelectorAll('[data-preset-item]')).map(row => row.dataset.presetName);
+}
+
+function fire(dom, node, type, props = {}) {
+    const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+    Object.assign(event, props);
+    node.dispatchEvent(event);
+    return event;
+}
+
+function rowOf(root, name) {
+    return Array.from(root.querySelectorAll('[data-preset-item]')).find(row => row.dataset.presetName === name);
+}
+
+async function mountListSurface(dom, initial, { saveSettings, saveStateResetMs = 5 } = {}) {
+    const root = dom.document.querySelector('#root');
+    const holder = { stored: initial, patches: [] };
+    const toasts = [];
+    const surface = createDrawAgentSettingsSurface({
+        getRoot: () => root,
+        saveStateResetMs,
+        showToast: message => toasts.push(message),
+        loadSettings: async () => holder.stored,
+        saveSettings: saveSettings || (async (patch) => {
+            holder.patches.push(patch);
+            holder.stored = mergeSharedAgentSettings(holder.stored, patch, { now: () => 300 });
+            return { ok: true, config: holder.stored };
+        }),
+    });
+    await surface.refresh();
+    return { root, surface, holder, toasts };
+}
+
+test('list layout markup renders one row per preset in order, marks the selected one and escapes names', () => {
+    const names = ['甲', '<img src=x onerror=alert(1)>', 'a"b\'c&d'];
+    const html = buildAgentSettingsPanelMarkup({
+        presetLayout: 'list',
+        presetNames: names,
+        currentPresetName: names[1],
+    });
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = html;
+        assert.equal(root.querySelector('#xb-assistant-preset-select'), null);
+        assert.equal(root.querySelector('img'), null);
+        assert.deepEqual(rowNames(root), names);
+        const selected = root.querySelectorAll('[data-preset-item].is-selected');
+        assert.equal(selected.length, 1);
+        assert.equal(selected[0].dataset.presetName, names[1]);
+        assert.equal(root.querySelectorAll('[aria-current="true"]').length, 1);
+        assert.equal(rowOf(root, names[1]).querySelector('.xb-assistant-preset-name').getAttribute('aria-current'), 'true');
+        assert.equal(rowOf(root, names[1]).querySelector('.xb-assistant-preset-name').textContent, names[1]);
+        // 头部：新建 + 保存；每行菜单：重命名 / 复制 / 删除（危险样式）
+        assert.ok(root.querySelector('#xb-assistant-new-preset'));
+        assert.ok(root.querySelector('#xb-assistant-save'));
+        const menuActions = Array.from(rowOf(root, names[0]).querySelectorAll('[role="menuitem"]'))
+            .map(item => item.dataset.presetAction);
+        assert.deepEqual(menuActions, ['rename', 'duplicate', 'delete']);
+        assert.ok(rowOf(root, names[0]).querySelector('[data-preset-action="delete"]').classList.contains('is-danger'));
+        assert.equal(rowOf(root, names[0]).querySelector('[role="menu"]').hasAttribute('hidden'), true);
+    } finally {
+        dom.restore();
+    }
+});
+
+test('list layout disables delete when only one preset remains; default layout still renders the select', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup({
+            presetLayout: 'list',
+            presetNames: ['唯一'],
+            currentPresetName: '唯一',
+            canDeletePreset: false,
+        });
+        assert.equal(root.querySelector('[data-preset-action="delete"]').hasAttribute('disabled'), true);
+        assert.equal(root.querySelector('[data-preset-action="rename"]').hasAttribute('disabled'), false);
+
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup();
+        assert.ok(root.querySelector('#xb-assistant-preset-select'));
+        assert.ok(root.querySelector('#xb-assistant-rename-preset'));
+        assert.ok(root.querySelector('#xb-assistant-delete-preset'));
+        assert.equal(root.querySelector('#xb-assistant-preset-list'), null);
+        assert.equal(root.querySelector('[data-preset-item]'), null);
+        // 显式传默认值与不传完全一致
+        assert.equal(buildAgentSettingsPanelMarkup({ presetLayout: 'select' }), buildAgentSettingsPanelMarkup());
+    } finally {
+        dom.restore();
+    }
+});
+
+test('draw surface renders the preset list in config order and clicking a row loads that preset like the old select did', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets());
+        const { root, surface } = mounted;
+        assert.equal(root.querySelector('#xb-assistant-preset-select'), null);
+        assert.deepEqual(rowNames(root), ['主配置', '分身配置', '第三配置']);
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'old-model');
+
+        fire(dom, rowOf(root, '第三配置').querySelector('.xb-assistant-preset-name'), 'click');
+        assert.equal(surface.getState().configDraft.currentPresetName, '第三配置');
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'third-model');
+        assert.equal(rowOf(root, '第三配置').classList.contains('is-selected'), true);
+        assert.equal(rowOf(root, '主配置').classList.contains('is-selected'), false);
+        assert.equal(root.querySelectorAll('[aria-current="true"]').length, 1);
+        // 选中只是本地切换，不落盘
+        assert.equal(mounted.holder.patches.length, 0);
+
+        // 再点已选中的一行不重填表单：未保存的编辑保留
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'typed-but-unsaved';
+        fire(dom, modelInput, 'input');
+        fire(dom, rowOf(root, '第三配置').querySelector('.xb-assistant-preset-name'), 'click');
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'typed-but-unsaved');
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('keyboard reorder persists only the new preset order and leaves the unsaved form draft alone', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets());
+        const { root, surface, holder } = mounted;
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'unsaved-edit';
+        fire(dom, modelInput, 'input');
+        assert.equal(surface.getState().configDirty, true);
+        const draftBefore = surface.getState().configDraft;
+
+        const handle = rowOf(root, '主配置').querySelector('[data-preset-drag]');
+        fire(dom, handle, 'keydown', { key: 'ArrowDown' });
+        // 乐观更新：保存还没返回，列表已是新顺序
+        assert.deepEqual(rowNames(root), ['分身配置', '主配置', '第三配置']);
+        await flushTasks();
+        await flushTasks();
+
+        assert.equal(holder.patches.length, 1);
+        assert.deepEqual(Object.keys(holder.patches[0].presets), ['分身配置', '主配置', '第三配置']);
+        assert.deepEqual(Object.keys(holder.stored.presets), ['分身配置', '主配置', '第三配置']);
+        assert.equal(holder.patches[0].currentPresetName, '主配置');
+        // 落盘的是已保存内容，不是表单草稿
+        assert.equal(holder.stored.presets.主配置.modelConfigs['openai-compatible'].model, 'old-model');
+        assert.equal(holder.stored.delegatePresetName, '分身配置');
+        // 表单与草稿原样保留
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'unsaved-edit');
+        assert.equal(surface.getState().configDraft, draftBefore);
+        assert.equal(surface.getState().configDirty, true);
+        assert.deepEqual(rowNames(root), ['分身配置', '主配置', '第三配置']);
+        assert.deepEqual(surface.getState().config.presetNames, ['分身配置', '主配置', '第三配置']);
+
+        // 边界上再按 ↑ 不动、不保存
+        fire(dom, rowOf(root, '分身配置').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowUp' });
+        await flushTasks();
+        assert.equal(holder.patches.length, 1);
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('a failed reorder save rolls the list back to the saved order', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets(), {
+            saveSettings: async () => ({ ok: false, error: '磁盘写入失败' }),
+            saveStateResetMs: 5000, // 别让状态复位定时器抢在断言前
+        });
+        const { root, surface } = mounted;
+        fire(dom, rowOf(root, '第三配置').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowUp' });
+        assert.deepEqual(rowNames(root), ['主配置', '第三配置', '分身配置']);
+        await flushTasks();
+        await flushTasks();
+        assert.deepEqual(rowNames(root), ['主配置', '分身配置', '第三配置']);
+        assert.deepEqual(surface.getState().config.presetNames, ['主配置', '分身配置', '第三配置']);
+        assert.equal(surface.getState().configSave.status, 'error');
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('reorder never writes global edits that switching rows carried into the in-memory config', () => {
+    const dom = installDom();
+    const root = dom.document.querySelector('#root');
+    const stored = threePresets();
+    const state = {
+        config: normalizeAgentConfig(stored),
+        configDraft: null,
+        configDirty: false,
+        configFormSyncPending: true,
+        configPage: 'main',
+        configSave: { status: 'idle', requestId: '', error: '' },
+        modelOptionsByProvider: {},
+        pullStateByProvider: {},
+    };
+    const saves = [];
+    let panel;
+    try {
+        // First-party markup under test.
+        // eslint-disable-next-line no-unsanitized/property
+        root.innerHTML = buildAgentSettingsPanelMarkup({
+            presetLayout: 'list',
+            presetNames: state.config.presetNames,
+            currentPresetName: state.config.currentPresetName,
+        });
+        panel = createAgentSettingsPanel({
+            state,
+            presetLayout: 'list',
+            presetListKit: PRESET_KIT,
+            render: () => panel.syncConfigToForm(root),
+            saveConfig: (payload) => { saves.push(payload); return { ok: true }; },
+        });
+        panel.syncConfigToForm(root);
+        panel.bindSettingsPanelEvents(root);
+
+        // 未保存地把 JS API 权限改成 deny，再点另一行：state.config 里会掺进 deny
+        const permission = root.querySelector('#xb-assistant-jsapi-permission');
+        permission.value = 'deny';
+        fire(dom, permission, 'change');
+        fire(dom, rowOf(root, '分身配置').querySelector('.xb-assistant-preset-name'), 'click');
+        assert.equal(state.config.jsApiPermission, 'deny');
+
+        fire(dom, rowOf(root, '第三配置').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowUp' });
+        assert.equal(saves.length, 1);
+        assert.equal(saves[0].payload.jsApiPermission, 'allow');
+        assert.equal(saves[0].payload.currentPresetName, '主配置');
+        assert.equal(saves[0].preserveDraft, true);
+        assert.deepEqual(Object.keys(saves[0].payload.presets), ['主配置', '第三配置', '分身配置']);
+        // 草稿里的未保存编辑仍在
+        assert.equal(state.configDraft.jsApiPermission, 'deny');
+        assert.equal(state.configDraft.currentPresetName, '分身配置');
+    } finally {
+        panel?.destroy();
+        dom.restore();
+    }
+});
+
+test('reorder is refused when integer-like preset names would be forced to the front', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        const base = buildStoredSettings();
+        mounted = await mountListSurface(dom, buildStoredSettings({
+            currentPresetName: '2',
+            delegatePresetName: '2',
+            presets: { 2: base.presets.主配置, 乙: base.presets.分身配置, 甲: base.presets.分身配置 },
+        }));
+        const { root, holder, toasts } = mounted;
+        assert.deepEqual(rowNames(root), ['2', '乙', '甲']);
+        // “2” 想被挪到最后：对象键顺序存不住
+        fire(dom, rowOf(root, '2').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowDown' });
+        await flushTasks();
+        assert.equal(holder.patches.length, 0);
+        assert.deepEqual(rowNames(root), ['2', '乙', '甲']);
+        assert.match(toasts.at(-1), /纯数字/);
+        // 非数字名称之间的顺序仍然可以调
+        fire(dom, rowOf(root, '甲').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowUp' });
+        await flushTasks();
+        await flushTasks();
+        assert.equal(holder.patches.length, 1);
+        assert.deepEqual(Object.keys(holder.stored.presets), ['2', '甲', '乙']);
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('duplicate copies the saved content under a unique name right after the row, without touching the draft', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets({
+            '主配置 副本': { provider: 'google', modelConfigs: { google: { model: 'taken' } } },
+        }));
+        const { root, surface, holder } = mounted;
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'unsaved-edit';
+        fire(dom, modelInput, 'input');
+
+        fire(dom, rowOf(root, '主配置').querySelector('[data-preset-action="duplicate"]'), 'click');
+        await flushTasks();
+        await flushTasks();
+
+        assert.equal(holder.patches.length, 1);
+        const names = Object.keys(holder.stored.presets);
+        assert.deepEqual(names, ['主配置', '主配置 副本 2', '分身配置', '第三配置', '主配置 副本']);
+        assert.equal(holder.stored.presets['主配置 副本 2'].modelConfigs['openai-compatible'].model, 'old-model');
+        // 副本是深拷贝
+        assert.notEqual(holder.stored.presets['主配置 副本 2'], holder.stored.presets.主配置);
+        assert.deepEqual(rowNames(root), names);
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'unsaved-edit');
+        assert.equal(surface.getState().configDraft.currentPresetName, '主配置');
+        assert.equal(rowOf(root, '主配置').classList.contains('is-selected'), true);
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('rename keeps the row position, refuses an existing name and keeps the unsaved draft', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets());
+        const { root, surface, holder, toasts } = mounted;
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'unsaved-edit';
+        fire(dom, modelInput, 'input');
+
+        dom.window.prompt = () => '第三配置';
+        fire(dom, rowOf(root, '分身配置').querySelector('[data-preset-action="rename"]'), 'click');
+        await flushTasks();
+        assert.equal(holder.patches.length, 0);
+        assert.match(toasts.at(-1), /已存在同名预设/);
+
+        dom.window.prompt = () => '  改名后  ';
+        fire(dom, rowOf(root, '分身配置').querySelector('[data-preset-action="rename"]'), 'click');
+        await flushTasks();
+        await flushTasks();
+        assert.equal(holder.patches.length, 1);
+        assert.deepEqual(Object.keys(holder.stored.presets), ['主配置', '改名后', '第三配置']);
+        // 分身预设名跟着改，当前预设不变
+        assert.equal(holder.stored.delegatePresetName, '改名后');
+        assert.equal(holder.stored.currentPresetName, '主配置');
+        assert.deepEqual(rowNames(root), ['主配置', '改名后', '第三配置']);
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'unsaved-edit');
+        assert.equal(surface.getState().configDraft.currentPresetName, '主配置');
+
+        // 改名的是选中行：草稿里的名字跟着走，表单内容不动
+        dom.window.prompt = () => '主配置改';
+        fire(dom, rowOf(root, '主配置').querySelector('[data-preset-action="rename"]'), 'click');
+        await flushTasks();
+        await flushTasks();
+        assert.deepEqual(Object.keys(holder.stored.presets), ['主配置改', '改名后', '第三配置']);
+        assert.equal(holder.stored.currentPresetName, '主配置改');
+        assert.equal(surface.getState().configDraft.currentPresetName, '主配置改');
+        assert.equal(rowOf(root, '主配置改').classList.contains('is-selected'), true);
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'unsaved-edit');
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('delete targets the clicked row, asks for confirmation and keeps the selection and draft when another row is removed', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets());
+        const { root, surface, holder } = mounted;
+        const modelInput = root.querySelector('#xb-assistant-model');
+        modelInput.value = 'unsaved-edit';
+        fire(dom, modelInput, 'input');
+
+        dom.window.confirm = () => false;
+        fire(dom, rowOf(root, '第三配置').querySelector('[data-preset-action="delete"]'), 'click');
+        await flushTasks();
+        assert.equal(holder.patches.length, 0);
+        assert.deepEqual(rowNames(root), ['主配置', '分身配置', '第三配置']);
+
+        dom.window.confirm = () => true;
+        fire(dom, rowOf(root, '第三配置').querySelector('[data-preset-action="delete"]'), 'click');
+        await flushTasks();
+        await flushTasks();
+        assert.equal(holder.patches.length, 1);
+        assert.deepEqual(Object.keys(holder.stored.presets), ['主配置', '分身配置']);
+        assert.deepEqual(rowNames(root), ['主配置', '分身配置']);
+        assert.equal(rowOf(root, '主配置').classList.contains('is-selected'), true);
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'unsaved-edit');
+        assert.equal(surface.getState().configDraft.currentPresetName, '主配置');
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('deleting the selected row selects its neighbour; the last remaining preset cannot be deleted', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets());
+        const { root, surface, holder, toasts } = mounted;
+        dom.window.confirm = () => true;
+
+        // 选中中间一行再删它：原位置顶上来的“第三配置”被选中，表单换成它的内容
+        fire(dom, rowOf(root, '分身配置').querySelector('.xb-assistant-preset-name'), 'click');
+        fire(dom, rowOf(root, '分身配置').querySelector('[data-preset-action="delete"]'), 'click');
+        await flushTasks();
+        await flushTasks();
+        assert.deepEqual(Object.keys(holder.stored.presets), ['主配置', '第三配置']);
+        // 选中只是草稿层面的切换：落盘的“当前预设”没被删，保持不变
+        assert.equal(holder.stored.currentPresetName, '主配置');
+        assert.equal(surface.getState().configDraft.currentPresetName, '第三配置');
+        assert.equal(root.querySelector('#xb-assistant-model').value, 'third-model');
+        assert.equal(rowOf(root, '第三配置').classList.contains('is-selected'), true);
+
+        // 再删一个后只剩一套：剩下那行的删除项被禁用
+        fire(dom, rowOf(root, '主配置').querySelector('[data-preset-action="delete"]'), 'click');
+        await flushTasks();
+        await flushTasks();
+        assert.deepEqual(rowNames(root), ['第三配置']);
+        const lastDelete = rowOf(root, '第三配置').querySelector('[data-preset-action="delete"]');
+        assert.equal(lastDelete.hasAttribute('disabled'), true);
+        // 即使被强行点到（去掉 disabled），也拒绝并提示，不保存
+        const patchesBefore = holder.patches.length;
+        lastDelete.removeAttribute('disabled');
+        fire(dom, lastDelete, 'click');
+        await flushTasks();
+        assert.equal(holder.patches.length, patchesBefore);
+        assert.match(toasts.at(-1), /至少要保留一套预设/);
+        assert.deepEqual(rowNames(root), ['第三配置']);
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('the row menu button opens and closes the shared card menu', async () => {
+    const dom = installDom();
+    let mounted;
+    try {
+        mounted = await mountListSurface(dom, threePresets());
+        const { root } = mounted;
+        const row = rowOf(root, '分身配置');
+        const button = row.querySelector('[data-preset-action="menu"]');
+        const menu = row.querySelector('[role="menu"]');
+        assert.equal(menu.hasAttribute('hidden'), true);
+        fire(dom, button, 'click');
+        assert.equal(menu.hasAttribute('hidden'), false);
+        assert.equal(button.getAttribute('aria-expanded'), 'true');
+        assert.equal(menu.style.position, 'fixed');
+        fire(dom, button, 'click');
+        assert.equal(menu.hasAttribute('hidden'), true);
+        assert.equal(button.getAttribute('aria-expanded'), 'false');
+    } finally {
+        mounted?.surface.destroy();
+        dom.restore();
+    }
+});
+
+test('while a save is in flight, row operations are ignored with a hint', async () => {
+    const dom = installDom();
+    let mounted;
+    let release;
+    try {
+        mounted = await mountListSurface(dom, threePresets(), {
+            saveSettings: () => new Promise((resolve) => { release = () => resolve({ ok: true, config: threePresets() }); }),
+        });
+        const { root, toasts } = mounted;
+        fire(dom, rowOf(root, '主配置').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowDown' });
+        assert.deepEqual(rowNames(root), ['分身配置', '主配置', '第三配置']);
+        // 保存未返回时再排一次：被拒绝，列表保持
+        fire(dom, rowOf(root, '第三配置').querySelector('[data-preset-drag]'), 'keydown', { key: 'ArrowUp' });
+        assert.deepEqual(rowNames(root), ['分身配置', '主配置', '第三配置']);
+        assert.match(toasts.at(-1), /正在保存/);
+        release();
+        await flushTasks();
+    } finally {
+        mounted?.surface.destroy();
         dom.restore();
     }
 });
