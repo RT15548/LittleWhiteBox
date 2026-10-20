@@ -18,7 +18,7 @@ import { ScenePlannerError } from '../scene-plan-contract.js';
 import { logDrawRunPlannerDiagnostics, resetDrawRunPlannerFailureLogsForTests } from '../draw-run-debug.js';
 import { createSceneSource } from '../scene-source.js';
 import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
-import { executePreparedScenePlanner } from '../scene-planner-executor.js';
+import { createPreparedScenePlannerTask, executePreparedScenePlanner } from '../scene-planner-executor.js';
 import { prepareScenePlannerInput } from '../scene-planner.js';
 import { getLastDrawAgentDiagnostic, resetDrawAgentRuntimeForTests } from '../draw-agent-runtime.js';
 import { formatPlannerRetryProgress, formatScenePlannerProgress, toScenePlannerProgress } from '../draw-capsule-copy.js';
@@ -702,4 +702,47 @@ test('cancelling while waiting between source-changed retries rejects as an abor
         onRetry: () => queueMicrotask(() => controller.abort()),
     }), error => error.code === 'REQUEST_ABORTED');
     assert.equal(runs, 1);
+});
+
+// ───────────── 请求结构（多消息 / 多角色）校验 ─────────────
+
+test('prepared planner prompt accepts the legacy shape and layout shapes with system/assistant roles', () => {
+    const withMessages = (messages) => {
+        const prepared = buildPrepared();
+        prepared.planner.prompt.messages = messages;
+        return prepared;
+    };
+    const legacy = createPreparedScenePlannerTask(buildPrepared());
+    assert.deepEqual(legacy.messages, [{ role: 'user', content: 'u' }]);
+    const layout = [
+        { role: 'system', content: 'jb' },
+        { role: 'user', content: 'u1' },
+        { role: 'assistant', content: 'ok' },
+        { role: 'user', content: 'u2' },
+    ];
+    assert.deepEqual(createPreparedScenePlannerTask(withMessages(layout)).messages, layout);
+});
+
+test('prepared planner prompt rejects bad roles, missing user, non-string content and non-object entries', () => {
+    for (const messages of [
+        [],
+        [{ role: 'system', content: 's' }],
+        [{ role: 'assistant', content: 'a' }, { role: 'system', content: 's' }],
+        [{ role: 'tool', content: 't' }, { role: 'user', content: 'u' }],
+        [{ role: 'user' }],
+        [{ role: 'user', content: 42 }],
+        [{ role: 'user', content: 'u' }, { role: 'system', content: null }],
+        [{ role: 'user', content: 'u' }, null],
+        [{ role: 'user', content: 'u' }, 'text'],
+        [{ role: 'user', content: 'u' }, [['user', 'x']]],
+        'not-an-array',
+    ]) {
+        const prepared = buildPrepared();
+        prepared.planner.prompt.messages = messages;
+        assert.throws(
+            () => createPreparedScenePlannerTask(prepared),
+            error => error.code === 'PREPARED_INPUT_INVALID',
+            JSON.stringify(messages),
+        );
+    }
 });

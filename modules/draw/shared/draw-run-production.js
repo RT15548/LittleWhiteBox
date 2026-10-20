@@ -2,6 +2,7 @@ import { fetchImageBackendJobsStatus } from './backend-image-jobs.js';
 import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 import { publishDrawRunActivity } from './draw-run-activity.js';
 import {
+    DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
     DRAW_RUN_PLANNER_RETRY_CAPABILITY,
     hasDrawRunsCapability,
     REQUIRED_DRAW_RUN_PLUGIN_VERSION,
@@ -49,6 +50,12 @@ async function runBeforeMarker(task, signal) {
         if (signal?.aborted) throw userAbortError();
         throw error;
     }
+}
+
+// 旧形状 = 恰好一条 user 消息。缺少 prompt 的输入交给后续校验处理，这里不当作新结构。
+function isLegacyPlannerPromptShape(prompt) {
+    if (!prompt || !Array.isArray(prompt.messages)) return true;
+    return prompt.messages.length === 1 && prompt.messages[0]?.role === 'user';
 }
 
 function emit(onStateChange, state, data = {}) {
@@ -159,6 +166,16 @@ export async function submitProviderDrawRun({
         const error = new Error('已取消');
         error.name = 'AbortError';
         throw error;
+    }
+    // 旧插件只接受“单条 user 消息”；自定义块产生的多消息结构发过去只会被服务端以晦涩的校验错误拒绝，
+    // 这里提前给出可操作的提示。默认（旧）形状不受影响，旧插件照常可用。
+    if (!isLegacyPlannerPromptShape(prepared?.planner?.prompt)
+        && !status.capabilities.includes(DRAW_RUN_PLANNER_LAYOUT_CAPABILITY)) {
+        throw new DrawRunProductionError(
+            '当前的请求结构需要更新版本的后台插件才能在后台运行。'
+                + `${SERVER_PLUGIN_COPY.update}也可关闭“后台任务”后使用浏览器流程。`,
+            'DRAW_RUN_BACKEND_OUTDATED',
+        );
     }
     // 旧版后台插件的请求校验不认识 planner.retry；它不会重试，但也不能因此拒绝整个任务。
     if (prepared?.planner && !status.capabilities.includes(DRAW_RUN_PLANNER_RETRY_CAPABILITY)) {

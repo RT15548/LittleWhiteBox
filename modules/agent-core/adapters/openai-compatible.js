@@ -26,6 +26,10 @@ import {
     findTextToolStart,
     scanTextToolBlocks,
 } from './text-tool-protocol.js';
+import {
+    resolveToolProtocolMarker,
+    stripToolProtocolMarker,
+} from './tool-protocol-marker.js';
 
 function parseArgumentsForTaggedReplay(text) {
     try {
@@ -558,7 +562,7 @@ export function mergeReplayMessages(existing = {}, next = {}) {
 export function buildNativeMessages(task, model = '', { preserveReasoningContent = false } = {}) {
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
     const lastUserIndex = getLastUserMessageIndex(sourceMessages);
-    const normalizedMessages = [];
+    const collectedMessages = [];
     let skipCorruptedToolResults = false;
 
     sourceMessages.forEach((message, index) => {
@@ -608,7 +612,7 @@ export function buildNativeMessages(task, model = '', { preserveReasoningContent
         // normally keep only content/tool calls; the direct DeepSeek thinking adapter
         // separately retains reasoning_content below, including text-only replies.
         if (shouldReplayFullNativeMessage(preserved, index, lastUserIndex)) {
-            normalizedMessages.push(ensureReasoningContentForToolCalls({
+            collectedMessages.push(ensureReasoningContentForToolCalls({
                 ...preserved,
                 ...(topLevelToolCalls.length && !hasPreservedSignedToolCalls ? {
                     tool_calls: topLevelToolCalls,
@@ -636,8 +640,11 @@ export function buildNativeMessages(task, model = '', { preserveReasoningContent
             baseMessage.tool_calls = topLevelToolCalls;
         }
 
-        normalizedMessages.push(ensureReasoningContentForToolCalls(baseMessage, model));
+        collectedMessages.push(ensureReasoningContentForToolCalls(baseMessage, model));
     });
+
+    // 原生模式工具走独立 tools 字段，工具说明占位标记不能泄漏给服务端；先剔除再合并 system。
+    const normalizedMessages = stripToolProtocolMarker(collectedMessages);
 
     const systemPrompt = String(task.systemPrompt || '').trim();
     if (systemPrompt) {
@@ -747,6 +754,16 @@ export function buildTaggedMessages(task, model = '') {
             content: message.content,
         });
     });
+
+    // 上游在 system 文本里放了占位标记时，工具说明就地落在标记处，不再追加到 system 末尾。
+    // 此时 systemPrompt 必须置空，避免协议文本里重复带上静态提示词。
+    const markerResolved = resolveToolProtocolMarker(
+        messages,
+        () => buildTaggedProtocolPrompt({ ...task, systemPrompt: '' }),
+    );
+    if (markerResolved.found) {
+        return normalizeFinalClaudeLikeMessageRole(markerResolved.messages, model);
+    }
 
     if (!messages.length || messages[0].role !== 'system') {
         messages.unshift({
