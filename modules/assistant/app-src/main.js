@@ -4,6 +4,7 @@ import {
     formatToolResultDisplay,
 } from './tooling.js';
 import { createAssistantRuntime } from './runtime.js';
+import { settleAssistantRunFailure } from './runtime/run-failure.js';
 import { buildCurrentPlansContextText } from '../../agent-core/current-plans.js';
 import { mergeThoughtBlocks } from '../../agent-core/runtime/protocol.js';
 import { resetMessageWindow } from '../../agent-core/ui/message-windowing.js';
@@ -64,8 +65,6 @@ const REQUEST_TIMEOUT_MS = 180000;
 const MAX_TOOL_ROUNDS = 64;
 const MAX_CONTEXT_TOKENS = 258000;
 const SUMMARY_TRIGGER_TOKENS = 228000;
-const DEFAULT_PRESERVED_TURNS = 2;
-const MIN_PRESERVED_TURNS = 1;
 const MAX_IMAGE_ATTACHMENTS = 3;
 const MAX_IMAGE_FILE_BYTES = 4 * 1024 * 1024;
 const ACCEPTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
@@ -1324,8 +1323,6 @@ const runtime = createAssistantRuntime({
     HISTORY_SUMMARY_PREFIX,
     MAX_CONTEXT_TOKENS,
     SUMMARY_TRIGGER_TOKENS,
-    DEFAULT_PRESERVED_TURNS,
-    MIN_PRESERVED_TURNS,
     MAX_TOOL_ROUNDS,
     REQUEST_TIMEOUT_MS,
     TOOL_DEFINITIONS,
@@ -1403,19 +1400,9 @@ async function executeAssistantRun(run) {
     try {
         await runAssistantLoop(run);
     } catch (error) {
-        if (isAbortError(error)) {
-            if (run.cancelNotice) {
-                pushMessage({
-                    role: 'assistant',
-                    content: run.cancelNotice,
-                });
-            }
-        } else {
-            pushMessage({
-                role: 'assistant',
-                content: describeError(error),
-            });
-        }
+        settleAssistantRunFailure({ messages: state.messages,
+            notice: isAbortError(error) ? run.cancelNotice : describeError(error),
+            pushMessage, persistSession });
     } finally {
         if (state.activeRun?.id === run.id) {
             state.activeRun = null;

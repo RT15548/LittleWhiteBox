@@ -65,6 +65,7 @@ export const MEMORY_COPY = Object.freeze({
         agent_model: '共享 Agent API 当前不提供所选模型。',
         conflict: '聊天已切换，或总结已被替换、回退；维护已停止，此前保存的部分保留。',
         compaction_failed: '工作上下文整理失败，已完成的范围和修改保留。',
+        input_limit: '近期对话和本轮材料超出上下文容量，无法继续压缩。请缩小本轮请求或查阅范围后重试，已保存的修改保留。',
         agent_failed: '服务暂时不可用，已保存的修改保留。', empty_response: '模型没有返回内容，已保存的修改保留。',
         ...MEMORY_SAVE_ERRORS,
         index_failed: '记忆检索未能更新。', index_read_failed: '暂时无法检查记忆检索是否可用。', load_failed: '维护记录暂时无法读取。' },

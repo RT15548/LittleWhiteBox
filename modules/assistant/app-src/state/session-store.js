@@ -25,6 +25,7 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks,
         order,
         role: message.role,
         content: String(message.content || ''),
+        ...(message.error === true ? { error: true } : {}),
         attachments: normalizeAttachments(message.attachments).map((attachment) => ({
             kind: attachment.kind,
             name: attachment.name,
@@ -60,6 +61,7 @@ function normalizeRestoredMessage(message, deps) {
     return {
         role: message.role,
         content: String(message.content || ''),
+        ...(message.error === true ? { error: true } : {}),
         attachments: normalizeAttachments(message.attachments || []),
         toolCallId: message.toolCallId ? String(message.toolCallId) : undefined,
         toolName: message.toolName ? String(message.toolName) : undefined,

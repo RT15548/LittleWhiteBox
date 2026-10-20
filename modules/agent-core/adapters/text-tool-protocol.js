@@ -1,3 +1,5 @@
+import { DEEPSEEK_TOOL_MODE_GUIDANCE, DSML_TOOL_CALL_INVALID } from '../runtime/error-guidance.js';
+
 // Compatibility: DeepSeek V3.2 DSML leaked into assistant text by compatible endpoints.
 // Reference: https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/encoding/encoding_dsv32.py
 // Also accepts the repeated bars / spaces / `calls` spelling in reported relay output.
@@ -27,8 +29,9 @@ function skipWhitespace(text, index) {
 }
 
 function failDsml(index, reason) {
-    const error = new SyntaxError(`DSML 工具调用格式无效：${reason}（位置 ${index}）。本轮工具未执行。`);
-    error.code = 'DSML_TOOL_CALL_INVALID';
+    const cause = new SyntaxError(`DSML 工具调用格式无效：${reason}（位置 ${index}）。本轮工具未执行。`);
+    const error = new SyntaxError(DEEPSEEK_TOOL_MODE_GUIDANCE, { cause });
+    error.code = DSML_TOOL_CALL_INVALID;
     error.offset = index;
     throw error;
 }

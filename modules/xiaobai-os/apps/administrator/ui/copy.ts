@@ -1,4 +1,5 @@
 import { ADMINISTRATOR_APP_DESCRIPTOR } from '../descriptor.js';
+import { agentErrorGuidance } from '../../../../agent-core/runtime/error-guidance.js';
 import { ADMINISTRATOR_POLICY as POLICY } from '../domain/policy.js';
 export const ADMINISTRATOR_COPY = Object.freeze({
     webSearch: '搜索网页', webFetch: '读取网页',
@@ -57,6 +58,8 @@ const ERRORS: Readonly<Record<string, string>> = Object.freeze({
     management_source_changed: '所依据的原文已经改变，需要重新查证。',
 });
 export function administratorError(error: unknown): string {
+    const guidance = agentErrorGuidance(error);
+    if (guidance) { return guidance; }
     const code = error instanceof Error ? error.message : String(error);
     return ERRORS[code] ?? code.slice(0, 700);
 }

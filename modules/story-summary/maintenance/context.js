@@ -1,5 +1,6 @@
 import { resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
+import { recentTurnArchiveCounts, hasChatAnswer } from '../../agent-core/runtime/recent-turns.js';
 import { DEFAULT_MAX_TOKENS } from '../../agent-core/config.js';
 import { MEMORY_COMPACTION_PROMPT, MEMORY_MAINTENANCE_PROMPT } from './prompt.js';
 import { MEMORY_TOOLS } from './tools.js';
@@ -74,13 +75,16 @@ export function createMemoryContext({ config, signal, limits, countTokens = reso
         const question = messages[questionIndex];
         const cycles = splitAtRole(messages.slice(questionIndex + 1), 'assistant');
         let oldTurns = 0, oldCycles = 0;
-        // Remove whole previous user turns first. Only then summarize this turn's
-        // completed tool groups, keeping the user's actual request verbatim.
-        const candidates = [...new Set([Math.min(2, turns.length), Math.min(1, turns.length), 0])]
-            .map(keep => ({ turns: keep, cycles: cycles.length }));
+        // Older exchanges may become notes; recent answers stay verbatim.
+        const boundaries = recentTurnArchiveCounts(turns, hasChatAnswer);
+        const minimum = [...turns.slice(boundaries.at(-1)).flat(), ...currentMaterial, question, ...cycles.slice(-1).flat()]
+            .map(dropInvalidatedThinkingFromMessage);
+        requireMemory((await count(minimum)).tokens <= limits.inputTokens, 'input_limit');
+        const candidates = boundaries.map(boundary => ({ turns: turns.length - boundary, cycles: cycles.length }));
         for (const keep of [2, 1]) {
-            if (keep < cycles.length) candidates.push({ turns: 0, cycles: keep });
+            if (keep < cycles.length) candidates.push({ turns: turns.length - boundaries.at(-1), cycles: keep });
         }
+        let withinLimit;
         for (const keep of candidates) {
             const turnBoundary = turns.length - keep.turns, cycleBoundary = cycles.length - keep.cycles;
             const older = [...turns.slice(oldTurns, turnBoundary), ...cycles.slice(oldCycles, cycleBoundary)];
@@ -92,7 +96,9 @@ export function createMemoryContext({ config, signal, limits, countTokens = reso
             ].map(dropInvalidatedThinkingFromMessage);
             const measured = await count(candidate);
             if (measured.tokens < limits.compactTokens && measured.tokens <= limits.inputTokens) return { messages: candidate, measured };
+            if (measured.tokens <= limits.inputTokens) withinLimit = { messages: candidate, measured };
         }
+        if (withinLimit) return withinLimit;
         requireMemory(false, 'input_limit');
     }
     return { count, compact, compactChat };

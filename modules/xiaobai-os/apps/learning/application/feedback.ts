@@ -1,4 +1,5 @@
 import type { ProviderFailureReason } from '../../../capabilities/agent/provider-failure.js';
+import { agentErrorGuidance } from '../../../../agent-core/runtime/error-guidance.js';
 import { LearningValidationError } from '../../../domains/learning/profile.js';
 
 export const LEARNING_STORAGE_COPY = {
@@ -48,6 +49,8 @@ export function learningProgressMessage(progress: LearningProgress): string {
 }
 
 export function learningTeachingFailure(reason: string, cause?: unknown): string {
+    const guidance = agentErrorGuidance(cause);
+    if (guidance) { return guidance; }
     if (reason === 'learning_file_invalid') { return LEARNING_STORAGE_COPY.invalid; }
     const detail = learningFailureCause(cause);
     const metadata = [detail.httpStatus ? `HTTP ${detail.httpStatus}` : '', detail.errorCode, detail.responseReason].filter(Boolean);
@@ -114,6 +117,7 @@ export function reportLearningFailure(action: string, reason: string, details: L
         action: diagnosticToken(action), reason, stage: details.stage, round: details.round,
         tool: diagnosticToken(details.tool),
         ...learningFailureCause(details.cause),
+        ...(agentErrorGuidance(details.cause) ? { parser: learningFailureCause((details.cause as Error).cause) } : {}),
         locations, issues: issues.slice(0, 16).map(diagnosticIssue),
     });
     return learningTeachingFailure(reason, details.cause);

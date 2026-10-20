@@ -11,6 +11,30 @@ const {
 } = await import('../shared/session-db.js');
 const { createPlanLedger } = await import('../../agent-core/plan-ledger.js');
 const { buildProviderMessagesFromHistory } = await import('../../agent-core/runtime/protocol.js');
+const { recentTurnArchiveCounts, hasChatAnswer } = await import('../../agent-core/runtime/recent-turns.js');
+const { splitMessagesIntoTurns } = await import('../app-src/runtime/history-compaction.js');
+const { settleAssistantRunFailure } = await import('../app-src/runtime/run-failure.js');
+
+// Acceptance: restoring a session preserves failed-answer classification (cost: losing real recent answers at the next compaction).
+test('session reload keeps failure notices and interrupted prose out of answered-turn counts', async () => {
+    await resetDb();
+    const state = createState(), store = createStore(state);
+    await store.restoreSession();
+    state.messages = [{ role: 'user', content: 'question' }, { role: 'assistant', content: 'real answer' }];
+    for (let i = 0; i < 2; i++) {
+        state.messages.push({ role: 'user', content: `retry ${i}` },
+            { role: 'assistant', content: 'partial', streaming: true });
+        settleAssistantRunFailure({ messages: state.messages, notice: 'failure',
+            pushMessage: message => state.messages.push(message), persistSession() {} });
+    }
+    await store.persistSession();
+    const restored = createState();
+    await createStore(restored).restoreSession();
+    const turns = splitMessagesIntoTurns(restored.messages);
+    assert.deepEqual(turns.map(hasChatAnswer), [true, false, false]);
+    assert.deepEqual(recentTurnArchiveCounts(turns, hasChatAnswer), [0]);
+    assert.equal(restored.messages.filter(message => message.error).length, 4);
+});
 
 async function resetDb() {
     await db.delete();

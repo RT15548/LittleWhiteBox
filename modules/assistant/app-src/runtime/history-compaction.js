@@ -1,4 +1,6 @@
 import { resetMessageWindow } from '../../../agent-core/ui/message-windowing.js';
+import { recentTurnArchiveCounts, hasChatAnswer } from '../../../agent-core/runtime/recent-turns.js';
+import { ACTIVITY_COPY } from '../ui/activity-copy.js';
 
 export function splitMessagesIntoTurns(messages = []) {
     const turns = [];
@@ -31,8 +33,6 @@ export function createHistoryCompactionController(deps) {
         buildTextWithAttachmentSummary,
         trimForSummary,
         SUMMARY_SYSTEM_PROMPT,
-        DEFAULT_PRESERVED_TURNS,
-        MIN_PRESERVED_TURNS,
         SUMMARY_TRIGGER_TOKENS,
         buildContextMeterLabel,
         updateContextStats,
@@ -153,7 +153,6 @@ export function createHistoryCompactionController(deps) {
 
     async function ensureContextBudget(adapter, signal, options = {}) {
         signal?.throwIfAborted();
-        const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
         let contextMessages = getActiveContextMessages();
         let providerMessages = toProviderMessages(contextMessages, options);
         updateContextStats(providerMessages);
@@ -162,14 +161,15 @@ export function createHistoryCompactionController(deps) {
             return providerMessages;
         }
 
-        for (const preservedTurns of preservedOptions) {
-            const turns = splitMessagesIntoTurns(state.messages);
-            const desiredArchivedTurnCount = Math.max(
-                state.archivedTurnCount,
-                turns.length - Math.min(preservedTurns, turns.length),
-            );
+        const turns = splitMessagesIntoTurns(contextMessages);
+        // ensureContextBudget runs before each model call, so the final turn is
+        // still in progress, including every tool call/result in that request.
+        const boundaries = recentTurnArchiveCounts(turns.slice(0, -1), hasChatAnswer);
+        let archived = 0;
+        for (const boundary of boundaries) {
+            const desiredArchivedTurnCount = state.archivedTurnCount + boundary - archived;
             if (desiredArchivedTurnCount > state.archivedTurnCount) {
-                const turnsToArchive = turns.slice(state.archivedTurnCount, desiredArchivedTurnCount);
+                const turnsToArchive = turns.slice(archived, boundary);
                 const previousProgressLabel = state.progressLabel;
                 state.progressLabel = '总结中';
                 render();
@@ -183,6 +183,7 @@ export function createHistoryCompactionController(deps) {
                 pruneArchivedTurnsFromState();
                 persistSession();
             }
+            archived = boundary;
 
             contextMessages = getActiveContextMessages();
             providerMessages = toProviderMessages(contextMessages, options);
@@ -195,7 +196,9 @@ export function createHistoryCompactionController(deps) {
             }
         }
 
-        showToast(`最近对话本身已接近上限，当前上下文 ${buildContextMeterLabel()}`);
+        showToast(state.contextStats.usedTokens > state.contextStats.budgetTokens
+            ? ACTIVITY_COPY.contextFull
+            : `最近对话本身已接近上限，当前上下文 ${buildContextMeterLabel()}`);
         render();
         return providerMessages;
     }

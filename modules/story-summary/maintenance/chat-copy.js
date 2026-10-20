@@ -1,4 +1,5 @@
 import { MEMORY_COPY, MEMORY_SAVE_ERRORS } from './copy.js';
+import { agentErrorGuidance } from '../../agent-core/runtime/error-guidance.js';
 
 export const MEMORY_CHAT_COPY = Object.freeze({
     entry: '与助手聊天', title: '总结助手', currentChat: '当前聊天', close: '关闭对话',
@@ -34,6 +35,8 @@ export const MEMORY_CHAT_COPY = Object.freeze({
 
 export function memoryChatErrorText(error) {
     if (!error) return '';
+    const guidance = agentErrorGuidance(error);
+    if (guidance) return guidance;
     if (typeof error === 'string') return MEMORY_SAVE_ERRORS[error] || error;
     if (MEMORY_SAVE_ERRORS[error.code]) return MEMORY_SAVE_ERRORS[error.code];
     const explanation = error.code === 'memory_chat_busy' ? MEMORY_CHAT_COPY.busy

@@ -8,7 +8,8 @@ import { classifyProviderFailure } from '../../../capabilities/agent/provider-fa
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import type { LearningFailureDetails, LearningProgress } from '../application/feedback.js';
 import { isLearningContextOverflow, learningHistoryMessage, learningTurnMessages, type LearningTurn } from './history.js';
-import { LEARNING_PRESERVED_TURNS, LEARNING_SUMMARY_TRIGGER_TOKENS, summariseLearningHistory } from './history-compaction.js';
+import { LEARNING_SUMMARY_TRIGGER_TOKENS, summariseLearningHistory } from './history-compaction.js';
+import { recentTurnArchiveCounts, hasChatAnswer } from '../../../../agent-core/runtime/recent-turns.js';
 
 type RecordValue = Record<string, unknown>;
 const MAX_TOOL_ROUNDS = 48;
@@ -77,8 +78,8 @@ export async function runLearningProviderLoop(options: {
     async function compact(round: number) {
         if (summaryExhausted) { return false; }
         advance({ stage: 'summary', round });
-        // Prefer keeping recent exchanges verbatim, but a short oldest exchange alone may not shrink.
-        for (let count = Math.max(1, history.length - LEARNING_PRESERVED_TURNS); count <= history.length; count++) {
+        for (const count of recentTurnArchiveCounts(history, turn => turn.status === 'finished' && hasChatAnswer(learningTurnMessages(turn)))) {
+            if (!count) { continue; }
             const next = await summariseLearningHistory({ summary, turns: history.slice(0, count),
                 systemPrompt: options.summaryPrompt, openSession: options.reopen!, signal, guard: () => !cancelled() });
             if (cancelled()) { return false; }

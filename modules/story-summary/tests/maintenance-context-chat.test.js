@@ -37,6 +37,7 @@ test('manual compaction summarizes whole prior user turns and preserves the curr
     assert.equal(result.messages.at(-1).role, 'user');
     assert.equal(result.messages.at(-1).content, question);
     assert.equal(result.messages.filter(message => message.content === question).length, 1);
+    assert.deepEqual(result.messages.filter(message => message.role === 'user').map(message => message.content), ['question 4', question]);
     const fragment = JSON.parse(h.summaries[0].messages[0].content).workFragment.text;
     const archived = JSON.parse(fragment);
     assert.equal(archived.every(turn => turn[0].role === 'user' && turn.at(-1).role === 'assistant'), true);
@@ -119,4 +120,37 @@ test('native continuation is rebuilt after chat compaction and receives a comple
     assertPaired(result.messages);
     assert.equal(result.calls.length, summaries.length + requests.length);
     assert.equal(result.replayBeforeTurn.length > 0, true);
+    assert.deepEqual(requests[1].messages.filter(message => message.role === 'user').map(message => message.content), ['question 4', question]);
+});
+
+// Acceptance: old answered turns never reach zero, even when current tool work is large
+// (cost: lost context / broken tool protocol / wasted summary requests).
+test('chat compaction normally retains two answered turns separately from the current request', async () => {
+    const context = createMemoryContext({ config: {}, systemPrompt: '', tools: [],
+        limits: { inputTokens: 10000, compactTokens: 1300, summaryTokens: 500 },
+        countTokens: async ({ messages }) => ({ tokens: messages.length * 100 }), summarize: async () => ({ text: 'memory' }) });
+    const result = await context.compactChat([...previousTurns(), { role: 'user', content: question }]);
+    assert.deepEqual(result.messages.filter(message => message.role === 'user').map(message => message.content), ['question 3', 'question 4', question]);
+    assertPaired(result.messages);
+});
+
+test('chat compaction retains a prior answer while reducing only complete current tool groups', async () => {
+    const h = harness();
+    const result = await h.context.compactChat([...previousTurns(), { role: 'user', content: question },
+        ...Array.from({ length: 6 }, (_, i) => toolGroup(i + 10)).flat()]);
+    assert.deepEqual(result.messages.filter(message => message.role === 'user').map(message => message.content), ['question 4', question]);
+    assertPaired(result.messages);
+    assert.equal(result.messages.at(-1).tool_call_id, 'read-15');
+});
+
+test('oversized last answered turn is not discarded or summarized at API cost', async () => {
+    let bought = 0;
+    const context = createMemoryContext({ config: {}, systemPrompt: '', tools: [],
+        limits: { inputTokens: 100, compactTokens: 90, summaryTokens: 50 },
+        countTokens: async ({ messages }) => ({ tokens: messages.reduce((sum, message) => sum + message.content.length, 0) }),
+        summarize: async () => { bought++; return { text: 'memory' }; } });
+    const source = [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'x'.repeat(200) }, { role: 'user', content: question }];
+    await assert.rejects(context.compactChat(source), { code: 'input_limit' });
+    assert.equal(source[1].content.length, 200);
+    assert.equal(bought, 0);
 });

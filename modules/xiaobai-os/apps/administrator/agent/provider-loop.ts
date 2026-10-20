@@ -1,4 +1,5 @@
 import { resolveResultToolCalls } from '../../../../agent-core/runtime/protocol.js';
+import { recentTurnArchiveCounts } from '../../../../agent-core/runtime/recent-turns.js';
 import type { AgentMessage } from '../../../../agent-core/runtime/conversation.js';
 import type { XiaobaiOsAgentGateway } from '../../../capabilities/agent/gateway.js';
 import { parseToolArguments, ToolArgumentsError } from '../../../capabilities/agent/tool-arguments.js';
@@ -46,17 +47,33 @@ export async function runAdministratorLoop(options: {
     }
     async function compact(): Promise<boolean> {
         const before = usage().used;
-        const retained = retainedAdministratorTurns(state);
-        const last = retained.filter(item => item.turn !== turn || item.toolOffset < turn.toolMessages.length).at(-1);
-        if (!last) { return false; }
-        options.onPhase('summarizing');
-        const text = await summarizeAdministrator({ gateway: options.gateway, config: options.config, signal,
-            summary: state.summary?.text ?? '', messages: retained.flatMap(item => administratorTurnMessages(item.turn, item.toolOffset, item.turn === turn ? options.requestForCounting : undefined)) });
-        signal.throwIfAborted();
-        if (!text) { throw new Error('administrator_summary_failed'); }
-        const previous = state.summary;
-        state.summary = { text, throughId: last.turn.id, throughToolMessage: last.turn === turn ? turn.toolMessages.length : null };
-        if (usage().used >= before) { state.summary = previous; throw new Error('administrator_summary_failed'); }
+        const retained = retainedAdministratorTurns(state).filter(item => item.turn !== turn);
+        const boundaries = recentTurnArchiveCounts(retained, item => item.turn.status === 'finished' && !!item.turn.assistant?.trim());
+        const minimum = administratorContext({ summary: null, turns: [...retained.slice(boundaries.at(-1)).map(item => item.turn), turn] }, options.requestForCounting);
+        if (contextUsage(options.system, options.getTools(), options.prefix, minimum, options.imageCount, agent.providerConfig).used > POLICY.inputBudget) {
+            throw new Error('administrator_context_full');
+        }
+        let text = state.summary?.text ?? '', archived = 0, candidate = null;
+        for (const count of boundaries) {
+            if (!count || count === archived) { continue; }
+            options.onPhase('summarizing');
+            const next = await summarizeAdministrator({ gateway: options.gateway, config: options.config, signal,
+                summary: text, messages: retained.slice(archived, count).flatMap(item => administratorTurnMessages(item.turn, item.toolOffset)) });
+            signal.throwIfAborted();
+            if (!next) { continue; }
+            text = next; archived = count;
+            const summary = { text, throughId: retained[count - 1].turn.id, throughToolMessage: null };
+            const context = administratorContext({ ...state, summary }, options.requestForCounting);
+            const measured = contextUsage(options.system, options.getTools(), options.prefix, context, options.imageCount, agent.providerConfig);
+            if (measured.used >= before) { continue; }
+            candidate = summary;
+            if (measured.used < POLICY.summaryTrigger) { break; }
+        }
+        if (!candidate) {
+            if (boundaries.some(count => count > 0)) { throw new Error('administrator_summary_failed'); }
+            return false;
+        }
+        state.summary = candidate;
         await save();
         return true;
     }

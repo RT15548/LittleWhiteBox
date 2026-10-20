@@ -1,4 +1,5 @@
 import type { XiaobaiOsAgentGateway } from '../../../capabilities/agent/gateway.js';
+import { agentErrorGuidance } from '../../../../agent-core/runtime/error-guidance.js';
 import type { ManagementRegistry } from '../../../capabilities/management/index.js';
 import { safePromptJson } from '../../../capabilities/maintenance/prompt-safety.js';
 import { createAdministratorToolExecutor, type AdministratorToolExecutor, type AdministratorConfirmation } from '../agent/tool-executor.js';
@@ -113,6 +114,7 @@ export function createAdministratorRuntime(deps: {
             active.reader.releaseEvidence();
             if (run === active) { error = ''; }
         } catch (cause) {
+            if (agentErrorGuidance(cause)) { console.error('[LittleWhiteBox][Administrator] Tool protocol rejected', (cause as Error).cause); }
             active.failed = true;
             const reason = active.abort.signal.aborted ? ADMINISTRATOR_COPY.stopped : administratorError(cause);
             if (run === active) { error = reason; }

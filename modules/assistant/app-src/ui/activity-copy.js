@@ -23,6 +23,7 @@ export const ACTIVITY_COPY = {
     contextUsage: label => `约 ${label} tokens`,
     contextPolicy: trigger => `达到 ${trigger}k 时，在下次请求前自动总结。`,
     contextSummarized: '已压缩较早历史',
+    contextFull: '近期对话和本轮材料已超出上下文估算预算，最近问答和工具结果仍然保留。若模型提示超限，请缩小本轮请求或附件后重试。',
     clearConversation: '清空对话',
     conversationCleared: '对话已清空，工作区已保留',
     clearFailed: reason => `对话清空失败：${reason}`,
