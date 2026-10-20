@@ -3826,7 +3826,14 @@ async function handleFrameMessage(event) {
                 const url = await saveBase64AsFile(image.base64, charName, `novel_${data.imgId}`, image.format);
                 preview.savedUrl = url;
                 await updatePreviewSavedUrl(data.imgId, url);
-                if (Number.isFinite(preview.messageId)) await syncNovelDrawSavedFromPreview(preview.messageId, preview, { savedUrl: url });
+                if (Number.isFinite(preview.messageId)) {
+                    await syncNovelDrawSavedFromPreview(preview.messageId, preview, { savedUrl: url });
+                    // The chat card may still show this version's blob URL. Re-read the
+                    // record so the card moves to the saved file; a failed refresh must
+                    // not turn a completed save into an error.
+                    await renderSharedPreviewsForMessage(preview.messageId, { refreshSlotIds: [preview.slotId] })
+                        .catch(e => console.warn('[NovelDraw] 保存后刷新楼层图片失败:', e));
+                }
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');

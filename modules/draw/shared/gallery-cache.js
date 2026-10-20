@@ -884,7 +884,8 @@ export async function updatePreviewSavedUrl(imgId, savedUrl) {
             const tx = database.transaction(DB_STORE, 'readwrite');
             tx.objectStore(DB_STORE).put(preview);
             tx.oncomplete = () => {
-                revokePreviewObjectUrl(imgId);
+                // 不在这里作废 blob URL：聊天里的图片卡（或尚未加载的懒加载图片）可能还在用它，
+                // 提前作废会让它加载失败；闲置的 blob 由 prunePreviewObjectUrls 回收。
                 invalidateCache(preview.slotId);
                 publishCacheChange([preview.slotId]);
                 resolve();
