@@ -67,6 +67,18 @@ function buildInspectionDiagnosticPatch(inspection) {
     return patch;
 }
 
+// The transport error text stays out of the record (it may echo credentials); only the
+// finish reason and the adapter's response summary describe an incomplete reply.
+function describeIncompleteResponse(rawError) {
+    if (rawError?.code !== 'AGENT_RESPONSE_INCOMPLETE' && rawError?.code !== 'AGENT_RESPONSE_TRUNCATED') return {};
+    const partialText = String(rawError.partialResponse?.text || '');
+    return {
+        finishReason: String(rawError.reason || ''),
+        ...(rawError.responseInfo !== undefined ? { responseInfo: redactRequestSecrets(cloneJson(rawError.responseInfo)) } : {}),
+        ...(partialText ? { partialTextLength: partialText.length, partialTextHead: partialText.slice(0, 300) } : {}),
+    };
+}
+
 function resolveValidationToolCalls(result, providerConfig, attempt) {
     if (Array.isArray(result?.toolCalls) && result.toolCalls.length) return result.toolCalls;
     return resolveResultToolCalls(result, providerConfig, {
@@ -461,6 +473,8 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                     errorCode: error.code,
                     // Transport error text may echo credentials; its retained copy is owned by the backend redactor.
                     ...(protocolFailure ? { errorMessage: error.message } : {}),
+                    // A response that ended abnormally: keep what the provider actually said.
+                    ...describeIncompleteResponse(rawError),
                     ...(Number.isInteger(error.details?.offset) ? { errorOffset: error.details.offset } : {}),
                     ...(rawAssistantMessage !== undefined ? { rawAssistantMessage } : {}),
                 };
