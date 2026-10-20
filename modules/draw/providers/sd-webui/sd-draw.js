@@ -26,7 +26,7 @@ import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../share
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import { assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
-import { normalizePlannerRetry, retryOnSceneSourceChange } from "../../shared/planner-retry.js";
+import { retryScenePlanning } from "../../shared/planner-retry.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
@@ -3767,7 +3767,7 @@ export async function generateAndInsertImages({
         job.phase = 'llm';
         onStateChange?.('llm', toScenePlannerProgress());
         // 规划期间正文若被改动，按最新正文重新规划（指数退避，次数同 Agent 重试设置）。
-        const { tasks } = await retryOnSceneSourceChange(async (retryNumber) => {
+        const { tasks } = await retryScenePlanning(async (retryNumber) => {
             // 换了楼层/分支就不再重试：这里会抛出原有的“原文或分支已变化”。
             if (retryNumber) resolveFloorImageJobTarget(job, getContext());
             const built = await buildTasksFromMessage({
@@ -3781,11 +3781,7 @@ export async function generateAndInsertImages({
             if (signal.aborted) throw new Error('已取消');
             if (built.sceneSource) assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), built.sceneSource.sourceHash);
             return built;
-        }, {
-            ...normalizePlannerRetry({ maxRetries: sharedSettingsSnapshot.plannerMaxRetries }),
-            signal,
-            onRetry: ({ retry, maxRetries }) => onStateChange?.('llm', { phase: 'retry', retry: { current: retry, total: maxRetries } }),
-        });
+        }, { maxRetries: sharedSettingsSnapshot.plannerMaxRetries, signal, onStateChange });
         return await runPreparedSdSlots({ ctx, message, messageId: resolvedMessageId,
             sourceText: message.mes, tasks, settings: sdSettings,
             paramsOverride, promptOverride, negativePromptOverride, job, onStateChange });
