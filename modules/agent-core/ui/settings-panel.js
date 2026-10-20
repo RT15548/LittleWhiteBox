@@ -36,6 +36,7 @@ import {
 } from '../reasoning-config.js';
 import { WEB_PROVIDERS, normalizeWebSettings } from '../web/settings.js';
 import { bindWebSettingsGuide, readWebSettingsForm, syncWebSettingsForm } from './web-settings.js';
+import { buildPresetListRowsMarkup, syncPresetListControls } from './settings-markup.js';
 import { resolveAgentAuth } from '../provider-auth.js';
 import { MODEL_LIST_AUTH_OPTIONS, normalizeModelListAuth, supportsModelListAuth } from '../model-list-auth.js';
 
@@ -391,6 +392,57 @@ function defaultDescribeError(error) {
     return error instanceof Error ? error.message : String(error || 'unknown_error');
 }
 
+// 预设表（对象，键 = 预设名）的纯变换：都返回新对象并按给定顺序重建键，
+// 因为落盘后的顺序就是对象的键顺序（normalizeAgentConfig 的 presetNames = Object.keys）。
+function reorderRecord(record, names) {
+    const next = {};
+    names.forEach((name) => {
+        if (Object.hasOwn(record, name)) next[name] = record[name];
+    });
+    Object.keys(record).forEach((name) => {
+        if (!Object.hasOwn(next, name)) next[name] = record[name];
+    });
+    return next;
+}
+
+function renameRecordKey(record, from, to) {
+    const next = {};
+    Object.entries(record).forEach(([key, value]) => {
+        next[key === from ? to : key] = value;
+    });
+    return next;
+}
+
+function omitRecordKey(record, omitted) {
+    const next = {};
+    Object.entries(record).forEach(([key, value]) => {
+        if (key !== omitted) next[key] = value;
+    });
+    return next;
+}
+
+function insertRecordAfter(record, afterKey, key, value) {
+    const next = {};
+    Object.entries(record).forEach(([entryKey, entryValue]) => {
+        next[entryKey] = entryValue;
+        if (entryKey === afterKey) next[key] = value;
+    });
+    return next;
+}
+
+function clonePlain(value) {
+    return value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
+}
+
+function pickCopyName(baseName, takenNames) {
+    const first = `${baseName} 副本`;
+    if (!takenNames.includes(first)) return first;
+    for (let index = 2; ; index += 1) {
+        const candidate = `${first} ${index}`;
+        if (!takenNames.includes(candidate)) return candidate;
+    }
+}
+
 export function createAgentSettingsPanel(deps = {}) {
     const {
         state,
@@ -401,7 +453,13 @@ export function createAgentSettingsPanel(deps = {}) {
         pullModels = pullModelsForProvider,
         describeError = defaultDescribeError,
         getRuntimeSummaryText,
+        // 预设区布局：默认是下拉框 + 图标按钮；'list' 是可排序的预设列表（opt-in，需配套 markup 的 presetLayout: 'list'）。
+        presetLayout = 'select',
+        // 列表布局的交互件（拖拽排序 / 行菜单 / 自动滚动）由宿主注入，agent-core 不依赖具体页面的共享模块：
+        // { createSortableList, createMenuController, moveStep, autoScroll }
+        presetListKit = null,
     } = deps;
+    const isListLayout = presetLayout === 'list';
 
     function requestConfigFormSync() {
         state.configFormSyncPending = true;
@@ -435,8 +493,7 @@ export function createAgentSettingsPanel(deps = {}) {
         return Array.isArray(state.modelOptionsByProvider?.[key]) ? state.modelOptionsByProvider[key] : [];
     }
 
-    function resolveExistingPresetName(presetName, fallbackName) {
-        const presets = state.config?.presets || {};
+    function resolveExistingPresetName(presetName, fallbackName, presets = state.config?.presets || {}) {
         const normalizedName = normalizePresetName(presetName || fallbackName || DEFAULT_PRESET_NAME);
         if (presets[normalizedName]) return normalizedName;
         if (fallbackName && presets[fallbackName]) return fallbackName;
@@ -968,14 +1025,17 @@ export function createAgentSettingsPanel(deps = {}) {
         const delegateMaxTokensInput = root.querySelector('#xb-assistant-delegate-max-tokens');
         const delegateToolModeWrap = root.querySelector('#xb-assistant-delegate-tool-mode-wrap');
         const delegateToolModeSelect = root.querySelector('#xb-assistant-delegate-tool-mode');
-        if (!presetSelect || !presetNameInput) return;
+        if ((!presetSelect && !(isListLayout && root.querySelector('#xb-assistant-preset-list'))) || !presetNameInput) return;
         const presetOptions = (state.config.presetNames || []).map((name) => ({ value: name, label: name }));
 
-        refillSelect(
-            presetSelect,
-            presetOptions,
-        );
-        presetSelect.value = draft.currentPresetName || state.config.currentPresetName || DEFAULT_PRESET_NAME;
+        if (presetSelect) {
+            refillSelect(
+                presetSelect,
+                presetOptions,
+            );
+            presetSelect.value = draft.currentPresetName || state.config.currentPresetName || DEFAULT_PRESET_NAME;
+        }
+        if (isListLayout) syncPresetList(root);
         if (delegatePresetSelect) {
             refillSelect(delegatePresetSelect, presetOptions);
             delegatePresetSelect.value = resolveExistingPresetName(draft.delegatePresetName, draft.currentPresetName);
@@ -1036,6 +1096,294 @@ export function createAgentSettingsPanel(deps = {}) {
         syncRuntimeText(root);
     }
 
+    // ── 预设列表布局（opt-in：presetLayout: 'list'）──────────────────────────
+    // 行级操作（排序 / 重命名 / 复制 / 删除）只改“已保存”的预设表，不把表单草稿写进配置，也不重置表单。
+    // 切换预设时 state.config 会掺进草稿里的全局项（见 buildSelectionConfig），所以另存一份“已保存基线”，
+    // 行操作的落盘内容以基线为准；基线靠引用识别：state.config 被外部（保存 / 刷新）换掉就重新取。
+    let presetBaseline = null;
+    let presetOwned = null;
+    let presetMenu = null;
+    let presetSortable = null;
+    const presetListOffs = [];
+
+    function getSavedConfig() {
+        if (!presetBaseline || state.config !== presetOwned) {
+            presetBaseline = state.config;
+            presetOwned = null;
+        }
+        return presetBaseline;
+    }
+
+    // 面板自己改写 state.config 的唯一入口：先把外部换进来的基线记下，再覆盖。
+    function commitPanelConfig(next, { saved = false } = {}) {
+        if (isListLayout) getSavedConfig();
+        state.config = next;
+        if (!isListLayout) return;
+        presetOwned = next;
+        if (saved) presetBaseline = next;
+    }
+
+    function getPresetNames(config = state.config) {
+        return Array.isArray(config?.presetNames) && config.presetNames.length
+            ? config.presetNames.map(String)
+            : Object.keys(config?.presets || {});
+    }
+
+    function getSelectedPresetName(names) {
+        const candidates = [state.configDraft?.currentPresetName, state.config?.currentPresetName];
+        return candidates.find(name => names.includes(name)) ?? names[0] ?? '';
+    }
+
+    function syncPresetList(root) {
+        const list = root?.querySelector?.('#xb-assistant-preset-list');
+        if (!list || !state.config) return;
+        const names = getPresetNames();
+        const selectedName = getSelectedPresetName(names);
+        const isBusy = state.configSave?.status === 'saving';
+        const canDeletePreset = names.length > 1;
+        const rows = Array.from(list.querySelectorAll('[data-preset-item]'));
+        if (rows.length !== names.length || rows.some((row, index) => row.dataset.presetName !== names[index])) {
+            presetMenu?.close(); // 整体重绘会换掉所有行，已打开的菜单随之失效
+            // First-party markup; preset names are escaped there.
+            // eslint-disable-next-line no-unsanitized/property
+            list.innerHTML = buildPresetListRowsMarkup({ names, selectedName, isBusy, canDeletePreset });
+            return;
+        }
+        // 顺序没变只改高亮，不重绘：被点的按钮留在原处，键盘焦点不丢。
+        rows.forEach((row) => {
+            const selected = row.dataset.presetName === selectedName;
+            row.classList.toggle('is-selected', selected);
+            const nameButton = row.querySelector('.xb-assistant-preset-name');
+            if (selected) nameButton?.setAttribute('aria-current', 'true');
+            else nameButton?.removeAttribute('aria-current');
+        });
+        syncPresetListControls(root, { isBusy, canDeletePreset });
+    }
+
+    function guardPresetBusy() {
+        if (state.configSave?.status !== 'saving') return false;
+        showToast?.('正在保存，请稍后再试');
+        return true;
+    }
+
+    function confirmAction(message) {
+        return typeof window !== 'undefined' && typeof window.confirm === 'function'
+            ? window.confirm(message)
+            : true;
+    }
+
+    /**
+     * 行级操作的统一落盘：transform 变换预设表，remap 修正指向被改名 / 删除预设的名字。
+     * 落盘内容 = 已保存基线 + 变换结果（不含表单草稿）；本地 state.config 同步乐观更新，保存失败则回滚。
+     * selectName：被删的恰是选中行时，顺势切到邻居（沿用切换预设的草稿语义）。
+     */
+    function commitPresetChange(root, { transform, remap = name => name, requestPrefix, selectName = '' }) {
+        const saved = getSavedConfig();
+        const previous = {
+            config: state.config,
+            baseline: presetBaseline,
+            owned: presetOwned,
+            draft: state.configDraft,
+        };
+        const remapNames = (config, presets) => ({
+            ...config,
+            presets,
+            currentPresetName: remap(config.currentPresetName),
+            delegatePresetName: remap(config.delegatePresetName),
+        });
+        const nextSaved = normalizeAgentConfig(remapNames(saved, transform(saved.presets)));
+        let nextLocal = normalizeAgentConfig(remapNames(state.config, transform(state.config.presets)));
+        const draft = state.configDraft;
+        if (selectName) {
+            const synced = syncConfigDraft(root);
+            nextLocal = buildSelectionConfig(synced, selectName, nextLocal);
+            state.configDraft = buildDraftFromPreset(selectName, nextLocal.presets[selectName], nextLocal);
+            requestConfigFormSync();
+        } else if (draft) {
+            const patch = {
+                currentPresetName: remap(draft.currentPresetName),
+                presetDraftName: remap(draft.presetDraftName),
+                delegatePresetName: remap(draft.delegatePresetName),
+            };
+            // 只有名字真的被改了才换草稿对象（排序 / 复制不碰草稿）
+            if (Object.keys(patch).some(key => patch[key] !== draft[key])) {
+                state.configDraft = { ...draft, ...patch };
+                const nameInput = root.querySelector('#xb-assistant-preset-name');
+                if (nameInput && patch.presetDraftName !== draft.presetDraftName) {
+                    nameInput.value = patch.presetDraftName;
+                }
+            }
+        }
+        const nextDraft = state.configDraft;
+        presetBaseline = nextSaved;
+        state.config = nextLocal;
+        presetOwned = nextLocal;
+        syncPresetList(root);
+        if (selectName) render?.();
+
+        const revert = () => {
+            if (state.config !== nextLocal) return; // 期间已被外部刷新换掉，以外部为准
+            state.config = previous.config;
+            presetBaseline = previous.baseline;
+            presetOwned = previous.owned;
+            if (state.configDraft === nextDraft) state.configDraft = previous.draft;
+            if (selectName) requestConfigFormSync();
+            syncPresetList(root);
+            if (selectName) render?.();
+        };
+        if (typeof saveConfig !== 'function') return;
+        let result;
+        try {
+            result = saveConfig({
+                requestId: createRequestId(requestPrefix),
+                config: nextSaved,
+                payload: buildConfigSavePayload(nextSaved),
+                // 宿主保存成功后不要清掉表单草稿：行操作不该顺带丢掉未保存的编辑
+                preserveDraft: true,
+            });
+        } catch (error) {
+            revert();
+            showToast?.(describeError(error));
+            return;
+        }
+        Promise.resolve(result).then((outcome) => {
+            if (outcome && outcome.ok === false) revert();
+        }).catch((error) => {
+            revert();
+            showToast?.(describeError(error));
+        });
+    }
+
+    function reorderPresets(root, orderedNames) {
+        if (guardPresetBusy()) return;
+        const current = getPresetNames();
+        const requested = (Array.isArray(orderedNames) ? orderedNames.map(String) : [])
+            .filter((name, index, all) => current.includes(name) && all.indexOf(name) === index);
+        const next = [...requested, ...current.filter(name => !requested.includes(name))];
+        if (next.every((name, index) => name === current[index])) return;
+        // 纯数字样的键名会被 JS 固定排在对象最前，自定义顺序存不住：直接拒绝，免得界面和落盘不一致。
+        const probe = Object.keys(reorderRecord(state.config.presets, next));
+        if (probe.some((name, index) => name !== next[index])) {
+            showToast?.('名称为纯数字的预设会固定排在最前，无法调整到这个顺序');
+            return;
+        }
+        commitPresetChange(root, {
+            transform: presets => reorderRecord(presets, next),
+            requestPrefix: 'reorder-preset',
+        });
+    }
+
+    function duplicatePresetRow(root, name) {
+        if (guardPresetBusy()) return;
+        if (!getSavedConfig().presets?.[name]) {
+            showToast?.('找不到要复制的预设');
+            return;
+        }
+        const copyName = pickCopyName(name, getPresetNames());
+        commitPresetChange(root, {
+            // 以该行“已保存”的内容为准，插在原行之后
+            transform: presets => insertRecordAfter(presets, name, copyName, clonePlain(presets[name])),
+            requestPrefix: 'duplicate-preset',
+        });
+    }
+
+    function renamePresetRow(root, name) {
+        if (guardPresetBusy()) return;
+        const nextName = promptForPresetName('输入预设名称：', name);
+        if (!nextName) {
+            showToast?.('预设名称不能为空');
+            return;
+        }
+        if (nextName === name) return;
+        if (getPresetNames().includes(nextName)) {
+            showToast?.(`已存在同名预设“${nextName}”`);
+            return;
+        }
+        commitPresetChange(root, {
+            transform: presets => renameRecordKey(presets, name, nextName),
+            remap: current => (current === name ? nextName : current),
+            requestPrefix: 'rename-preset',
+        });
+    }
+
+    function deletePresetRow(root, name) {
+        const names = getPresetNames();
+        if (names.length <= 1) {
+            showToast?.('至少要保留一套预设');
+            return;
+        }
+        if (guardPresetBusy()) return;
+        if (!confirmAction(`确定删除预设“${name}”？`)) return;
+        const rest = names.filter(item => item !== name);
+        const neighbor = rest[Math.min(Math.max(names.indexOf(name), 0), rest.length - 1)];
+        commitPresetChange(root, {
+            transform: presets => omitRecordKey(presets, name),
+            remap: current => (current === name ? neighbor : current),
+            selectName: getSelectedPresetName(names) === name ? neighbor : '',
+            requestPrefix: 'delete-preset',
+        });
+    }
+
+    function getPresetMenu(doc) {
+        presetMenu ||= presetListKit?.createMenuController?.({ document: doc }) || null;
+        return presetMenu;
+    }
+
+    function bindPresetList(root) {
+        const list = root.querySelector('#xb-assistant-preset-list');
+        if (!list) return;
+        presetListOffs.splice(0).forEach(off => off());
+        presetSortable?.destroy?.();
+        presetSortable = null;
+        const doc = root.ownerDocument || globalThis.document;
+        const onClick = (event) => {
+            const trigger = event.target?.closest?.('[data-preset-action]');
+            if (!trigger || !list.contains(trigger) || trigger.hasAttribute('disabled')) return;
+            const name = trigger.closest('[data-preset-item]')?.dataset?.presetName;
+            if (!name) return;
+            const action = trigger.dataset.presetAction;
+            if (action === 'menu') {
+                getPresetMenu(doc)?.toggle(trigger);
+                return;
+            }
+            presetMenu?.close();
+            if (action === 'select') {
+                // 再点已选中的一行不重填表单，免得冲掉未保存的编辑
+                if (name === getSelectedPresetName(getPresetNames())) return;
+                switchPreset(root, name);
+                syncPresetList(root);
+            } else if (action === 'rename') renamePresetRow(root, name);
+            else if (action === 'duplicate') duplicatePresetRow(root, name);
+            else if (action === 'delete') deletePresetRow(root, name);
+        };
+        list.addEventListener('click', onClick);
+        presetListOffs.push(() => list.removeEventListener('click', onClick));
+        if (typeof presetListKit?.createSortableList === 'function') {
+            presetSortable = presetListKit.createSortableList({
+                container: list,
+                rowSelector: '[data-preset-item]',
+                handleSelector: '[data-preset-drag]',
+                getId: row => row.dataset.presetName,
+                onReorder: names => reorderPresets(root, names),
+                moveStep: presetListKit.moveStep,
+                autoScroll: event => presetListKit.autoScroll?.(list, event),
+                draggingClass: 'is-dragging',
+                beforeClass: 'is-drop-before',
+                afterClass: 'is-drop-after',
+                bodyClass: 'xb-preset-sorting',
+                document: doc,
+            });
+        }
+    }
+
+    function destroy() {
+        presetListOffs.splice(0).forEach(off => off());
+        presetSortable?.destroy?.();
+        presetSortable = null;
+        presetMenu?.destroy?.();
+        presetMenu = null;
+    }
+
     function postSaveConfig(payload) {
         if (typeof saveConfig !== 'function') return;
         const result = saveConfig(payload);
@@ -1075,7 +1423,7 @@ export function createAgentSettingsPanel(deps = {}) {
             return false;
         }
 
-        state.config = normalizedConfig;
+        commitPanelConfig(normalizedConfig, { saved: true });
         const presetName = normalizePresetName(
             options.presetName || normalizedConfig.currentPresetName || DEFAULT_PRESET_NAME,
         );
@@ -1202,6 +1550,28 @@ export function createAgentSettingsPanel(deps = {}) {
         }
     }
 
+    // 切换预设时把草稿里的全局项（Web 设置 / JS 权限 / 分身）带进 state.config，预设内容则换成目标预设的已保存内容。
+    function buildSelectionConfig(draft, nextPresetName, baseConfig = state.config) {
+        return normalizeAgentConfig({
+            ...baseConfig,
+            ...normalizeWebSettings(draft),
+            jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
+            currentPresetName: nextPresetName,
+            delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName, baseConfig.presets),
+            delegateConfig: buildDelegateConfigFromDraft(draft),
+        });
+    }
+
+    function switchPreset(root, rawName) {
+        const nextPresetName = normalizePresetName(rawName);
+        const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
+        const draft = syncConfigDraft(root);
+        commitPanelConfig(buildSelectionConfig(draft, nextPresetName));
+        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
+        requestConfigFormSync();
+        render?.();
+    }
+
     function bindSettingsPanelEvents(root) {
         if (!root?.querySelector?.('#xb-assistant-provider')) return;
 
@@ -1219,21 +1589,10 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         root.querySelector('#xb-assistant-preset-select')?.addEventListener('change', (event) => {
-            const nextPresetName = normalizePresetName(event.currentTarget.value);
-            const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
-            const draft = syncConfigDraft(root);
-            state.config = normalizeAgentConfig({
-                ...state.config,
-                ...normalizeWebSettings(draft),
-                jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
-                currentPresetName: nextPresetName,
-                delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName),
-                delegateConfig: buildDelegateConfigFromDraft(draft),
-            });
-            state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
-            requestConfigFormSync();
-            render?.();
+            switchPreset(root, event.currentTarget.value);
         });
+
+        if (isListLayout) bindPresetList(root);
 
         root.querySelector('#xb-assistant-preset-name')?.addEventListener('input', () => {
             syncPresetDraftName(root);
@@ -1495,6 +1854,8 @@ export function createAgentSettingsPanel(deps = {}) {
             return getActiveProviderConfig(options);
         },
         syncConfigToForm,
+        syncPresetList,
         bindSettingsPanelEvents,
+        destroy,
     };
 }
