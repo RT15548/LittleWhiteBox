@@ -9,6 +9,7 @@ import {
 } from '../draw-run-production.js';
 import {
     DRAW_RUNS_CAPABILITY,
+    DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
     DRAW_RUN_PLANNER_RETRY_CAPABILITY,
     DRAW_RUN_RUNTIME_CAPABILITY,
     REQUIRED_DRAW_RUN_PLUGIN_VERSION,
@@ -468,5 +469,59 @@ test('the frozen planner.retry is sent only to a backend that advertises planner
         }));
         assert.equal(Object.hasOwn(submitted.planner, 'retry'), expected);
         if (expected) assert.deepEqual(submitted.planner.retry, retry);
+    }
+});
+
+test('a non-legacy planner request layout needs the layout capability; the legacy shape keeps working on old plugins', async () => {
+    const oldCapabilities = [
+        'image-batch-jobs-v1', DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY,
+        DRAW_WORK_CANCELLATION_CAPABILITY, DRAW_RUN_PLANNER_RETRY_CAPABILITY,
+    ];
+    const newCapabilities = [...oldCapabilities, DRAW_RUN_PLANNER_LAYOUT_CAPABILITY];
+    const legacy = [{ role: 'user', content: 'u' }];
+    const layouts = [
+        [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }],
+        [{ role: 'user', content: 'a' }, { role: 'user', content: 'b' }],
+        [{ role: 'system', content: 's' }],
+    ];
+    const run = async (messages, capabilities) => {
+        const message = { mes: 'hello', extra: {} };
+        let submitted = 0;
+        let created = 0;
+        const options = baseOptions({
+            message,
+            ctx: { chat: [message], getRequestHeaders: () => ({}) },
+            statusLoader: async () => ({ ready: true, version: REQUIRED_DRAW_RUN_PLUGIN_VERSION, capabilities }),
+            preparePlanner: async () => ({ planner: { prompt: { systemPrompt: 's', messages }, validationContext: {} } }),
+            createGenerationRecipe: () => { created += 1; return {}; },
+            submit: async () => {
+                submitted += 1;
+                return { status: 'accepted', runId: 'run-x' };
+            },
+        });
+        try {
+            await submitProviderDrawRun(options);
+            return { error: null, submitted, created };
+        } catch (error) {
+            return { error, submitted, created };
+        }
+    };
+
+    for (const capabilities of [oldCapabilities, newCapabilities]) {
+        const result = await run(legacy, capabilities);
+        assert.equal(result.error, null);
+        assert.equal(result.submitted, 1);
+    }
+    for (const messages of layouts) {
+        assert.equal((await run(messages, newCapabilities)).error, null);
+        const blocked = await run(messages, oldCapabilities);
+        assert.ok(blocked.error instanceof DrawRunProductionError);
+        assert.equal(blocked.error.code, 'DRAW_RUN_BACKEND_OUTDATED');
+        assert.match(blocked.error.message, /请求结构需要更新版本的后台插件/);
+        assert.match(blocked.error.message, /SillyTavern\/plugins\/.*重启酒馆/);
+        assert.match(blocked.error.message, /关闭“后台任务”/);
+        // 被拒绝时不得继续生成配方或提交，避免半途留下任务。
+        assert.equal(blocked.created, 0);
+        assert.equal(blocked.submitted, 0);
     }
 });

@@ -267,6 +267,7 @@ test('bounds upstream V5 error bodies to 1 MiB', async () => {
 
 test('advertises and proxies the V5 MessagePack stream route', async () => {
     const {
+        DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
         DRAW_RUN_PLANNER_RETRY_CAPABILITY,
         DRAW_RUN_RUNTIME_CAPABILITY,
         REQUIRED_DRAW_RUN_PLUGIN_VERSION,
@@ -302,6 +303,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
         'novelai-v5-final-image-v1',
         'draw-runs-v1',
         DRAW_RUN_RUNTIME_CAPABILITY,
+        DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
         DRAW_RUN_PLANNER_RETRY_CAPABILITY,
         'draw-work-cancellation-v1',
     ]) assert.equal(statusResponse.body.capabilities.includes(capability), true);

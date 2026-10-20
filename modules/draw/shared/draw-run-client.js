@@ -7,6 +7,9 @@ export const DRAW_RUNS_CAPABILITY = 'draw-runs-v1';
 export const DRAW_RUN_RUNTIME_CAPABILITY = 'draw-run-runtime-v4';
 // 增量能力：后台规划支持 planner.retry。缺少它的旧插件仍可使用，只是后台规划不重试。
 export const DRAW_RUN_PLANNER_RETRY_CAPABILITY = 'draw-run-planner-retry-v1';
+// 增量能力：后台规划接受“多条消息 / system、assistant 角色”的请求结构。
+// 缺少它的旧插件只认“单条 user 消息”，所以只有默认形状才能发给旧插件。
+export const DRAW_RUN_PLANNER_LAYOUT_CAPABILITY = 'draw-run-planner-layout-v1';
 export const REQUIRED_DRAW_RUN_PLUGIN_VERSION = REQUIRED_IMAGE_JOBS_PLUGIN_VERSION;
 
 export function hasDrawRunsCapability(status) {

@@ -12,6 +12,7 @@ export {
 } from './provider-resolution.js';
 export { createAgentAdapter } from './provider-config.js';
 export { redactRequestSecrets } from './adapters/request-inspection.js';
+export { TOOL_PROTOCOL_MARKER } from './adapters/tool-protocol-marker.js';
 export {
     getReasoningEffortOptions,
     getReasoningModeOptions,

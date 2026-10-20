@@ -32,6 +32,20 @@ function annotateRetryCount(error, retryCount) {
     return error;
 }
 
+const PLANNER_MESSAGE_ROLES = new Set(['system', 'user', 'assistant']);
+
+// 请求可含多条消息与 system/assistant 角色；但没有任何 user 消息时模型拿不到任务正文，直接判无效。
+function isValidPlannerMessages(messages) {
+    if (!Array.isArray(messages)) return false;
+    let hasUser = false;
+    for (const message of messages) {
+        if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
+        if (!PLANNER_MESSAGE_ROLES.has(message.role) || typeof message.content !== 'string') return false;
+        if (message.role === 'user') hasUser = true;
+    }
+    return hasUser;
+}
+
 function assertPreparedScenePlanner(prepared) {
     const prompt = prepared?.planner?.prompt;
     const validationContext = prepared?.planner?.validationContext;
@@ -39,7 +53,7 @@ function assertPreparedScenePlanner(prepared) {
         || prepared.version !== 1
         || !prompt
         || typeof prompt.systemPrompt !== 'string'
-        || !Array.isArray(prompt.messages)
+        || !isValidPlannerMessages(prompt.messages)
         || !validationContext?.sceneSource) {
         throw new ScenePlannerError('Scene Planner 预处理结果无效。', 'PREPARED_INPUT_INVALID');
     }

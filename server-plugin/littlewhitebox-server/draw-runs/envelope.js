@@ -4,6 +4,9 @@ const { MAX_TIMEOUT_MS } = require('../providers/upstream.js');
 
 const MAX_ENVELOPE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ITEMS = 20;
+// 仅防御荒谬输入；真正的体量上限仍是整份请求的 MAX_ENVELOPE_BYTES。
+const MAX_PLANNER_PROMPT_MESSAGES = 1000;
+const PLANNER_MESSAGE_ROLES = new Set(['system', 'user', 'assistant']);
 const MAX_CONFIGURED_CHARACTERS_PER_IMAGE = 999;
 const IMAGE_PROVIDERS = new Set(['novelai', 'sd-webui', 'comfyui']);
 const AGENT_CHANNELS = new Set([
@@ -144,12 +147,22 @@ function validatePlanner(value, runtime) {
     );
     const prompt = assertExactKeys(planner.prompt, ['systemPrompt', 'messages'], 'planner.prompt');
     requireString(prompt.systemPrompt, 'planner.prompt.systemPrompt', { allowEmpty: true });
-    if (!Array.isArray(prompt.messages) || prompt.messages.length !== 1) {
-        throw invalid('planner.prompt.messages must contain exactly one user message');
+    if (!Array.isArray(prompt.messages) || prompt.messages.length < 1 || prompt.messages.length > MAX_PLANNER_PROMPT_MESSAGES) {
+        throw invalid(`planner.prompt.messages must contain 1 to ${MAX_PLANNER_PROMPT_MESSAGES} messages`);
     }
-    const message = assertExactKeys(prompt.messages[0], ['role', 'content'], 'planner.prompt.messages[0]');
-    if (message.role !== 'user') throw invalid('planner.prompt.messages[0].role must be user');
-    requireString(message.content, 'planner.prompt.messages[0].content');
+    // 兼容“单条 user”旧形状，同时允许自定义块带来的多条与 system/assistant 角色；至少要有一条 user 作为任务正文。
+    let hasUserMessage = false;
+    prompt.messages.forEach((item, index) => {
+        const path = `planner.prompt.messages[${index}]`;
+        const message = assertExactKeys(item, ['role', 'content'], path);
+        if (!PLANNER_MESSAGE_ROLES.has(message.role)) {
+            throw invalid(`${path}.role must be system, user or assistant`);
+        }
+        // 内容不得为空：上游模型会拒绝空消息，与旧的单条 user 校验保持一致。
+        requireString(message.content, `${path}.content`);
+        if (message.role === 'user') hasUserMessage = true;
+    });
+    if (!hasUserMessage) throw invalid('planner.prompt.messages must contain at least one user message');
 
     assertSafeJson(planner.tool, 'planner.tool');
     try {
