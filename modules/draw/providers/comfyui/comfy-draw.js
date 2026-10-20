@@ -63,13 +63,8 @@ import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
-import { createApiPresetBar } from "../../shared/api-presets-ui.js";
-import {
-    findApiPreset,
-    normalizeApiPresetState,
-    pickApiConfig,
-    syncActiveApiPreset,
-} from "../../shared/api-presets.js";
+import { createApiPresetPage } from "../../shared/api-preset-page.js";
+import { normalizeApiPresetState } from "../../shared/api-presets.js";
 import {
     applyGroupPresetForCurrentChat,
     getActiveCharacterAvatars,
@@ -201,7 +196,6 @@ let eventsBound = false;
 let agentSettingsSurface = null;
 let characterLibraryUi = null;
 let groupPresetBinding = null;
-let apiPresetBar = null;
 let promptChainPreviewFrame = 0;
 let ensureComfyDrawPanelRef = null;
 let destroyComfyDrawPanelsRef = null;
@@ -396,11 +390,18 @@ function normalizeComfyApiConfig(raw = {}) {
     };
 }
 
-const COMFY_API_PRESET_OPTIONS = Object.freeze({ fields: COMFY_API_PRESET_FIELDS, normalizeConfig: normalizeComfyApiConfig });
-
-function getEffectiveComfyApiConfig(settings = getSettings()) {
-    return pickApiConfig(normalizeComfyApiConfig(settings), COMFY_API_PRESET_FIELDS);
-}
+const apiPresets = createApiPresetPage({
+    fields: COMFY_API_PRESET_FIELDS,
+    normalizeConfig: normalizeComfyApiConfig,
+    getSettings,
+    getSettingsDocument,
+    querySettings,
+    containerSelector: '#comfy-api-presets',
+    panelSelector: '[data-comfy-view-panel="api"]',
+    readConfig: readComfyApiConfigFromForm,
+    fillConfig: fillComfyApiConfigForm,
+    persist: (mutator) => withSaveTimeout(updateSettingsPersistent(mutator, 'API 预设已保存', { notify: false, silent: false })),
+});
 
 function normalizeSettings(raw = {}) {
     const presets = normalizePresets(raw.presets, raw);
@@ -425,7 +426,7 @@ function normalizeSettings(raw = {}) {
         auth: String(raw.auth ?? ''),
         timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
         useImageBackendJobs: raw.useImageBackendJobs === true,
-        ...normalizeApiPresetState(raw, COMFY_API_PRESET_OPTIONS),
+        ...normalizeApiPresetState(raw, apiPresets.options),
         selectedPresetId,
         selectedWorkflowPresetId,
         builtinWorkflowId,
@@ -1499,7 +1500,7 @@ function bindOverlayEvents() {
         } catch {}
     });
     querySettings('#comfy-draw-save')?.addEventListener('click', async (event) => {
-        const syncedPresetName = findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || '';
+        const syncedPresetName = apiPresets.activeName();
         const ok = await saveAllSettings({
             notify: true,
             triggerButton: event.currentTarget,
@@ -1512,13 +1513,7 @@ function bindOverlayEvents() {
             if (syncedPresetName) updateStatusText('comfy-draw-api-status', 'success', `已保存，并同步到 API 预设「${syncedPresetName}」`);
         }
     });
-    // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
-    ['input', 'change', 'click'].forEach((type) => {
-        querySettings('[data-comfy-view-panel="api"]')?.addEventListener(type, (event) => {
-            if (event.target?.closest?.('#comfy-api-presets')) return;
-            apiPresetBar?.refresh();
-        });
-    });
+    apiPresets.bindFormRefresh();
     querySettings('#comfy-connection-mode')?.addEventListener('change', () => {
         updateConnectionModeUI(getValue('comfy-connection-mode'));
     });
@@ -2172,7 +2167,7 @@ function fillForm(settings) {
     updateConnectionModeUI(settings.connectionMode || 'proxy', settings.useImageBackendJobs === true);
     setValue('comfy-draw-host', settings.host);
     setValue('comfy-draw-timeout', settings.timeout);
-    ensureApiPresetBar();
+    apiPresets.ensureBar();
     setValue('comfy-draw-width', preset.width);
     setValue('comfy-draw-height', preset.height);
     updateSizePresetSelection();
@@ -2328,58 +2323,6 @@ function fillComfyApiConfigForm(config) {
     setValue('comfy-draw-timeout', next.timeout);
     setChecked('comfy-use-image-backend-jobs', next.useImageBackendJobs);
     updateConnectionModeUI(next.connectionMode, next.useImageBackendJobs);
-}
-
-async function commitComfyApiPresets(change) {
-    const incoming = normalizeApiPresetState(
-        { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
-        COMFY_API_PRESET_OPTIONS,
-    );
-    const applied = change.config ? normalizeComfyApiConfig(change.config) : null;
-    const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
-        draft.apiPresets = incoming.apiPresets;
-        draft.activeApiPresetId = incoming.activeApiPresetId;
-        if (applied) Object.assign(draft, applied);
-    }, 'API 预设已保存', { notify: false, silent: false }));
-    if (ok && change.reason === 'select') fillComfyApiConfigForm(getEffectiveComfyApiConfig());
-    return ok;
-}
-
-function ensureApiPresetBar() {
-    const doc = getSettingsDocument();
-    const container = querySettings('#comfy-api-presets');
-    if (!doc || !container) return null;
-    if (apiPresetBar?.document === doc) {
-        apiPresetBar.render();
-        return apiPresetBar;
-    }
-    apiPresetBar?.destroy();
-    apiPresetBar = createApiPresetBar({
-        document: doc,
-        container,
-        fields: COMFY_API_PRESET_FIELDS,
-        defaults: normalizeComfyApiConfig({}),
-        getState: () => {
-            const { apiPresets, activeApiPresetId } = getSettings();
-            return { apiPresets, activeApiPresetId };
-        },
-        readConfig: readComfyApiConfigFromForm,
-        getEffectiveConfig: () => getEffectiveComfyApiConfig(),
-        onCommit: commitComfyApiPresets,
-        confirm: message => confirm(message),
-        prompt: (message, fallback) => prompt(message, fallback),
-    });
-    return apiPresetBar;
-}
-
-/** “保存”按钮：选中了 API 预设时，把这次保存的 API 配置同步回该预设。 */
-function withSyncedApiPreset(form) {
-    const active = findApiPreset(form.apiPresets, form.activeApiPresetId);
-    if (!active) return form;
-    return {
-        ...form,
-        apiPresets: syncActiveApiPreset(form.apiPresets, active.id, normalizeComfyApiConfig(form), COMFY_API_PRESET_OPTIONS),
-    };
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -3462,15 +3405,10 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
 }
 
 async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '', syncApiPreset = false } = {}) {
-    const syncedPresetName = syncApiPreset
-        ? findApiPreset(getSettings().apiPresets, getSettings().activeApiPresetId)?.name || ''
-        : '';
-    const savedText = syncedPresetName
-        ? `已保存，并同步到 API 预设「${syncedPresetName}」`
-        : '已保存到小白X服务端配置';
+    const savedText = apiPresets.savedText(syncApiPreset, '已保存到小白X服务端配置');
     const saveTask = async () => {
         const [comfyOk, sharedOk] = await Promise.all([
-            persistSettings(syncApiPreset ? withSyncedApiPreset(readForm()) : readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
+            persistSettings(syncApiPreset ? apiPresets.withSynced(readForm()) : readForm(), 'ComfyUI 设置已保存', { notify: false, silent: false }),
             saveSharedDrawSettings({ notify: false }),
         ]);
         return comfyOk && sharedOk;
@@ -3483,7 +3421,7 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
             fp.updateAutoModeUI?.();
         } catch {}
-        apiPresetBar?.render();
+        apiPresets.render();
     };
 
     if (triggerButton) {
@@ -3644,8 +3582,7 @@ export function hideSettings() {
     promptFieldPresetId = null;
     abortPendingRequest();
     agentSettingsSurface?.destroy();
-    apiPresetBar?.destroy();
-    apiPresetBar = null;
+    apiPresets.destroy();
     destroyCharacterLibraryUi();
     agentSettingsSurface = null;
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);

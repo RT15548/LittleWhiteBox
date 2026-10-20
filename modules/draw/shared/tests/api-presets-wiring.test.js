@@ -35,8 +35,8 @@ test('SD WebUI and ComfyUI whitelist only their own API page fields', () => {
 
 test('each provider normalizes and stores apiPresets / activeApiPresetId with its own whitelist', () => {
     assert.match(NOVEL_JS, /\.\.\.normalizeApiPresetState\(source, NOVEL_API_PRESET_OPTIONS\)/);
-    assert.match(SD_JS, /\.\.\.normalizeApiPresetState\(raw, SD_API_PRESET_OPTIONS\)/);
-    assert.match(COMFY_JS, /\.\.\.normalizeApiPresetState\(raw, COMFY_API_PRESET_OPTIONS\)/);
+    assert.match(SD_JS, /\.\.\.normalizeApiPresetState\(raw, apiPresets\.options\)/);
+    assert.match(COMFY_JS, /\.\.\.normalizeApiPresetState\(raw, apiPresets\.options\)/);
     for (const source of [NOVEL_JS, SD_JS, COMFY_JS]) {
         assert.match(source, /apiPresets: \[\],\s*activeApiPresetId: null,/);
     }
@@ -59,12 +59,15 @@ test('NovelAI Save asks the host to sync the active preset and the host handles 
     assert.match(NOVEL_JS, /apiPresets: settings\.apiPresets \|\| \[\],\s*activeApiPresetId: settings\.activeApiPresetId \|\| null,/);
 });
 
-test('SD WebUI and ComfyUI Save sync the active preset, switching applies only the API fields', () => {
-    for (const [source, fill] of [[SD_JS, 'fillSdApiConfigForm'], [COMFY_JS, 'fillComfyApiConfigForm']]) {
+test('SD WebUI and ComfyUI Save sync the active preset and hand the shared page controller their own form fillers', () => {
+    for (const [source, read, fill] of [
+        [SD_JS, 'readSdApiConfigFromForm', 'fillSdApiConfigForm'],
+        [COMFY_JS, 'readComfyApiConfigFromForm', 'fillComfyApiConfigForm'],
+    ]) {
         assert.match(source, /syncApiPreset: true,/);
-        assert.match(source, /syncApiPreset \? withSyncedApiPreset\(readForm\(\)\) : readForm\(\)/);
-        assert.match(source, new RegExp(`change\\.reason === 'select'\\) ${fill}\\(`));
-        assert.match(source, /Object\.assign\(draft, applied\)/);
+        assert.match(source, /syncApiPreset \? apiPresets\.withSynced\(readForm\(\)\) : readForm\(\)/);
+        assert.match(source, new RegExp(`readConfig: ${read},`));
+        assert.match(source, new RegExp(`fillConfig: ${fill},`));
     }
 });
 
@@ -73,15 +76,15 @@ test('every API config page mounts the shared preset bar at the top of its card'
     assert.match(SD_HTML, /<div class="card">\s*<div id="sd-api-presets" class="preset-bar"><\/div>\s*<div class="form-group">\s*<label class="form-label">SD WebUI 地址/);
     assert.match(COMFY_HTML, /<div class="card">\s*<div id="comfy-api-presets" class="preset-bar"><\/div>\s*<div class="form-group">\s*<label class="form-label">连接方式/);
     assert.match(NOVEL_HTML, /import\('\.\.\/\.\.\/shared\/api-presets-ui\.js'\)/);
-    assert.match(SD_JS, /from "\.\.\/\.\.\/shared\/api-presets-ui\.js"/);
-    assert.match(COMFY_JS, /from "\.\.\/\.\.\/shared\/api-presets-ui\.js"/);
+    assert.match(SD_JS, /from "\.\.\/\.\.\/shared\/api-preset-page\.js"/);
+    assert.match(COMFY_JS, /from "\.\.\/\.\.\/shared\/api-preset-page\.js"/);
 });
 
 test('API presets never reach the character library import / export, logs or toasts', () => {
     for (const file of ['character-library.js', 'character-library-dialog.js', 'character-library-ui.js']) {
         assert.doesNotMatch(read(`../${file}`), /apiPresets|apiKey|activeApiPresetId/, file);
     }
-    for (const file of ['api-presets.js', 'api-presets-ui.js']) {
+    for (const file of ['api-presets.js', 'api-presets-ui.js', 'api-preset-page.js']) {
         const source = read(`../${file}`);
         assert.doesNotMatch(source, /console\.(log|info|debug)\(/, file);
         assert.doesNotMatch(source, /toastr|localStorage|fetch\(/, file);
