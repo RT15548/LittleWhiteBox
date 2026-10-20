@@ -102,6 +102,7 @@ import {
     normalizeNovelPromptGuideOverrides,
 } from "./novel-prompts.js";
 import { parseNovelPromptPresetImport } from "./novel-prompt-import.js";
+import { layoutForStorage } from "../../shared/scene-planner-layout.js";
 import { createScenePlannerDefaultPresets, isPovPromptPreset, SCENE_PLANNER_PRESET_INSTALL_NOTICE } from "../../shared/scene-planner-presets.js";
 import {
     getNovelModelCapability,
@@ -885,7 +886,7 @@ function normalizeSettings(saved = {}) {
     }
     merged.promptPresets = merged.promptPresets.map((preset, index) => {
         const isPov = isPovPromptPreset(preset.name);
-        return {
+        const normalized = {
             id: String(preset.id || `prompt-${Date.now()}-${index}`),
             name: String(preset.name || `提示词预设 ${index + 1}`),
             topSystem: typeof preset.topSystem === 'string'
@@ -896,6 +897,10 @@ function normalizeSettings(saved = {}) {
                 : DEFAULT_PROMPT_CONFIG.sceneRules,
             modelGuideOverrides: normalizeNovelPromptGuideOverrides(preset.modelGuideOverrides),
         };
+        // 消息布局稀疏存储：只有偏离默认才带 layout，旧预设与默认布局的预设保持原样（字段缺席）。
+        const layout = layoutForStorage(preset.layout);
+        if (layout) normalized.layout = layout;
+        return normalized;
     });
     if (!merged.selectedPromptPresetId
         || !merged.promptPresets.some(preset => preset.id === merged.selectedPromptPresetId)) {
@@ -3199,6 +3204,8 @@ async function sendInitData() {
             advancedMode: !!settings.advancedMode,
             promptPresets: settings.promptPresets || [],
             selectedPromptPresetId: settings.selectedPromptPresetId || null,
+            // 宿主认识预设里的 layout 字段：页面据此决定是否启用消息布局编辑器（旧宿主没有这个标记，页面提示刷新）。
+            promptLayoutSupported: true,
             modelGuideDefaults: Object.fromEntries(
                 Object.values(NOVEL_PROMPT_GUIDES)
                     .map(guideId => [guideId, getLoadedTagGuideById(guideId)]),
@@ -3655,6 +3662,9 @@ async function handleFrameMessage(event) {
                     sceneRules: current?.sceneRules ?? DEFAULT_PROMPT_CONFIG.sceneRules,
                     modelGuideOverrides: normalizeNovelPromptGuideOverrides(current?.modelGuideOverrides),
                 };
+                // layoutForStorage 返回规范化后的新副本：副本与源预设互不共享块对象，改一边不会牵动另一边。
+                const layout = layoutForStorage(current?.layout);
+                if (layout) newPreset.layout = layout;
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
             }, '已创建', { target: 'prompt-preset', notify: false });
@@ -3678,14 +3688,19 @@ async function handleFrameMessage(event) {
                 break;
             }
             const id = generateSlotId();
+            // layoutNotes 只是导入时的修复说明，不属于预设数据，不能随展开写进存储。
+            const { layoutNotes = [], ...presetFields } = imported;
+            const importedText = layoutNotes.length
+                ? `已导入为新预设（布局已自动修复：${layoutNotes.join('；')}）`
+                : '已导入为新预设';
             const ok = await updateSettingsPersistent((settings) => {
                 settings.promptPresets.push({
                     id,
-                    ...imported,
-                    modelGuideOverrides: compactPromptGuideOverrides(imported.modelGuideOverrides),
+                    ...presetFields,
+                    modelGuideOverrides: compactPromptGuideOverrides(presetFields.modelGuideOverrides),
                 });
                 settings.selectedPromptPresetId = id;
-            }, '已导入为新预设', { target: 'prompt-preset' });
+            }, importedText, { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
         }
@@ -3768,6 +3783,15 @@ async function handleFrameMessage(event) {
                     if ('sceneRules' in cp) current.sceneRules = cp.sceneRules;
                     if ('modelGuideOverrides' in cp) {
                         current.modelGuideOverrides = compactPromptGuideOverrides(cp.modelGuideOverrides);
+                    }
+                    // layout：null = 恢复默认（删字段）；对象 = 按稀疏规则存储；键缺席 = 不动（旧页面 / 编辑器未加载时不会误删）。
+                    if ('layout' in cp) {
+                        if (cp.layout === null) {
+                            delete current.layout;
+                        } else if (typeof cp.layout === 'object') {
+                            const layout = layoutForStorage(cp.layout);
+                            if (layout) current.layout = layout; else delete current.layout;
+                        }
                     }
                 }, '提示词预设已保存', { target: statusTarget, notify: false });
                 const saved = ok && presetFound;

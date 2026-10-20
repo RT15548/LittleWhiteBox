@@ -17,6 +17,9 @@ import * as CM from '../character-card-menu.js';
 import * as PO from '../preset-order.js';
 import * as SL from '../sortable-list.js';
 import * as PLV from '../preset-list-view.js';
+import * as PLE from '../prompt-layout-editor.js';
+import { addBlock, createCustomBlock, createDefaultLayout, moveBlock } from '../scene-planner-layout.js';
+import { parseNovelPromptPresetImport, promptTemplateExportVersion } from '../../providers/novelai/novel-prompt-import.js';
 import { normalizeSharedDrawSettings } from '../draw-settings.js';
 
 // 页面脚本跑在 vm 的另一个 realm 里，数组原型不同：按 JSON 内容比较。
@@ -40,6 +43,8 @@ const HOOK = `
     setPO: (module) => { PO = module; },
     setSL: (module) => { SL = module; },
     setPLV: (module) => { PLV = module; },
+    setPLE: (module) => { PLE = module; },
+    layoutDraftsByPreset,
     renderApiPresetBar, readApiConfigFromForm,
     exportCharacterFile, visibleCharacterIds, switchView,
     getEditingCharId: () => editingCharId,
@@ -125,6 +130,7 @@ function loadPanel(t, { characters = [], groups = [], intersection = false } = {
     nd.setPO(PO);
     nd.setSL(SL);
     nd.setPLV(PLV);
+    nd.setPLE(PLE);
     const state = nd.getState();
     state.characterTags = characters;
     state.characterGroups = groups;
@@ -3388,4 +3394,467 @@ test('host source: prompt reorder persists ids only, delete picks the neighbour,
     assert.match(add, /data\.sourcePresetId/);
     assert.match(add, /data\.name/);
     assert.match(caseBody('RENAME_PROMPT_PRESET'), /data\.id/);
+});
+
+// ── 提示词预设：消息布局（共享编辑器接进设置页）─────────────────────────────
+// 编辑器本身的行为在 prompt-layout-editor.test.js；这里只验证页面接线：草稿、保存、导出、切换预设、跳转。
+// 没有真浏览器：焦点 / 滚动 / 拖拽几何都是 linkedom 里的手写替身。
+
+const LAYOUT_BLOCK_IDS = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits'];
+
+function showLayout(panel, { supported = true, selected = 't1', presets = threePrompts() } = {}) {
+    selectModel(panel);
+    panel.initData({
+        paramsPresets: threePresets(),
+        selectedParamsPresetId: 'p1',
+        promptPresets: presets,
+        selectedPromptPresetId: selected,
+        modelGuideDefaults: { 'v4.5': 'GUIDE-DEFAULT' },
+        ...(supported ? { promptLayoutSupported: true } : {}),
+    });
+    panel.posted.length = 0;
+}
+
+const layoutRowNodes = panel => panel.$$('#nd_prompt_layout .lwb-ple-row');
+const layoutIds = panel => layoutRowNodes(panel).map(row => row.getAttribute('data-block-id'));
+const layoutRowOf = (panel, id) => layoutRowNodes(panel).find(row => row.getAttribute('data-block-id') === id);
+const layoutFieldOf = (panel, id, field) => Array.from(layoutRowOf(panel, id).querySelectorAll('[data-ple-field]')).find(node => node.getAttribute('data-ple-field') === field);
+const layoutAddMessage = panel => panel.click(panel.$('#nd_prompt_layout [data-ple-add]'));
+const layoutResetButton = panel => panel.$('#nd_prompt_layout [data-ple-reset]');
+const layoutDirtyShown = panel => !panel.$('#nd_prompt_layout [data-ple-dirty]').hasAttribute('hidden');
+const layoutCustomIds = panel => layoutIds(panel).filter(id => !LAYOUT_BLOCK_IDS.includes(id));
+const layoutDrafts = panel => panel.nd.layoutDraftsByPreset;
+const savePayload = (panel, buttonId = 'nd_prompt_preset_save') => {
+    panel.posted.length = 0;
+    panel.click(panel.$(`#${buttonId}`));
+    return panel.posted.find(item => item.type === 'SAVE_PROMPT_PRESET');
+};
+
+// 与编辑器测试同款：一条自定义块 + 把 opening 往后挪一格，保证"偏离默认"。
+function storedLayout() {
+    const block = createCustomBlock({ role: 'system', name: '补充', content: '额外要求' }, [], () => 0.25);
+    return moveBlock(addBlock(createDefaultLayout(), block), 'opening', 1);
+}
+
+// linkedom 的 focus() 是空操作也没有 activeElement：换成"记录并设置 activeElement"。
+function trackFocus(t, panel) {
+    const focused = [];
+    let proto = Object.getPrototypeOf(panel.$('#nd_prompt_layout'));
+    while (proto && !Object.prototype.hasOwnProperty.call(proto, 'focus')) proto = Object.getPrototypeOf(proto);
+    const original = proto.focus;
+    proto.focus = function focus() {
+        focused.push(this.id || this.getAttribute('data-ple-drag') || this.getAttribute('data-ple-field') || this.tagName);
+        Object.defineProperty(panel.document, 'activeElement', { configurable: true, value: this });
+    };
+    t.after(() => { proto.focus = original; });
+    return focused;
+}
+
+function layoutLayoutRows(panel) {
+    let top = 0;
+    for (const row of layoutRowNodes(panel)) {
+        const rect = { top, bottom: top + 100, height: 100, left: 0, right: 300, width: 300 };
+        row.getBoundingClientRect = () => rect;
+        top += 100;
+    }
+    panel.document.elementFromPoint = () => panel.$('#nd_prompt_layout .lwb-ple-list');
+}
+
+test('the layout card sits between the preset list and the text cards, shows eight locked blocks in contract order, and says honestly that the structure preview is still the default one', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    const card = panel.$('#nd_prompt_layout_card');
+    assert.equal(card.classList.contains('card'), true);
+    const listCard = panel.$('#view-prompts .preset-list-card');
+    const firstTextCard = panel.$('#nd_prompt_system').closest('.card');
+    assert.equal(Boolean(listCard.compareDocumentPosition(card) & 4), true, '在提示词预设卡片之后');
+    assert.equal(Boolean(card.compareDocumentPosition(firstTextCard) & 4), true, '在三个文本卡片之前');
+    sameJson(layoutIds(panel), LAYOUT_BLOCK_IDS);
+    assert.equal(layoutRowNodes(panel).every(row => row.getAttribute('data-builtin') === 'true' && row.querySelector('.lwb-ple-lock')), true);
+    assert.equal(layoutRowOf(panel, 'guide').querySelector('.lwb-ple-label').textContent, '模型TAG指南');
+    assert.match(layoutRowOf(panel, 'opening').querySelector('[data-ple-summary]').textContent, /sys-t1/);
+    assert.match(layoutRowOf(panel, 'rules').querySelector('[data-ple-summary]').textContent, /rules-t1/);
+    sameJson(LAYOUT_BLOCK_IDS.map(id => layoutFieldOf(panel, id, 'edit').textContent), ['去编辑', '查看', '去编辑', '去编辑', '查看', '去编辑', '去编辑', '去编辑']);
+    assert.match(card.querySelector('#nd_prompt_layout_note').textContent, /请求结构.*默认结构/);
+    assert.equal(layoutDirtyShown(panel), false);
+    assert.match(fs.readFileSync(PAGE, 'utf8'), /<link rel="stylesheet" href="\.\.\/\.\.\/shared\/prompt-layout-editor\.css">/);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('built-in summaries come from the page state: limits from the current params preset, content from the characters, world info from the switch', (t) => {
+    const panel = loadPanel(t);
+    selectModel(panel);
+    panel.initData({
+        paramsPresets: [paramsPreset('p1', '预设一', { maxImages: 3, maxCharactersPerImage: 0 })],
+        selectedParamsPresetId: 'p1',
+        promptPresets: threePrompts(),
+        selectedPromptPresetId: 't1',
+        promptLayoutSupported: true,
+        useWorldInfo: true,
+        characterTags: [person('c1', '阿璃'), person('c2', '小猫', { enabled: false })],
+    });
+    const summary = id => layoutRowOf(panel, id).querySelector('[data-ple-summary]').textContent;
+    assert.match(summary('limits'), /最多 3 张图.*不限/);
+    assert.match(summary('content'), /共 2 个角色，启用 1 个/);
+    assert.match(summary('worldInfo'), /已开启/);
+    assert.match(summary('tools'), /submit_scene_plan/);
+});
+
+test('without the host flag the editor is disabled with a refresh hint and saves carry no layout key', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel, { supported: false });
+    assert.equal(layoutRowNodes(panel).length, 0);
+    const notice = panel.$('#nd_prompt_layout [data-ple-notice]');
+    assert.equal(notice.hasAttribute('hidden'), false);
+    assert.match(notice.textContent, /刷新/);
+    assert.equal(panel.$('#nd_prompt_layout [data-ple-add]').hasAttribute('disabled'), true);
+    assert.equal('layout' in savePayload(panel).promptDraft, false, '键缺席 = 宿主不动已存的布局');
+    assert.equal('layout' in savePayload(panel, 'nd_prompts_save').promptDraft, false);
+    // 宿主升级后推来带标记的数据，编辑器随之可用
+    panel.initData({ promptLayoutSupported: true });
+    assert.equal(layoutRowNodes(panel).length, 8);
+    assert.equal(panel.$('#nd_prompt_layout [data-ple-notice]').hasAttribute('hidden'), true);
+});
+
+test('if the editor module fails to load nothing breaks: no editor, no layout key on save, and the saved layout still goes into an export', (t) => {
+    const panel = loadPanel(t);
+    panel.nd.setPLE(null);
+    const layout = storedLayout();
+    showLayout(panel, { presets: [promptPreset('t1', '模板一', { layout }), promptPreset('t2', '模板二')] });
+    assert.equal(layoutRowNodes(panel).length, 0);
+    assert.equal('layout' in savePayload(panel).promptDraft, false);
+    openPromptMenu(panel, 't1');
+    panel.click(promptMenuItem(panel, 't1', 'export'));
+    const exported = lastExport(panel);
+    assert.equal(exported._version, 4);
+    sameJson(exported.layout, layout);
+    assert.deepEqual(panel.errors, []);
+});
+
+test('adding a message only changes the local draft: the badge shows 未保存, the saved preset is untouched and the host hears nothing', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    layoutAddMessage(panel);
+    assert.equal(layoutRowNodes(panel).length, 9);
+    assert.equal(layoutCustomIds(panel).length, 1);
+    assert.equal(layoutDirtyShown(panel), true);
+    assert.equal(layoutDrafts(panel).size, 1);
+    assert.equal(panel.state().promptPresets[0].layout, undefined);
+    assert.equal(panel.posted.length, 0);
+    assert.equal(layoutResetButton(panel).hasAttribute('disabled'), false);
+});
+
+test('keyboard and drag reordering both end up in the draft that the next save sends', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    const focused = trackFocus(t, panel);
+    pressKey(panel, layoutFieldOf(panel, 'opening', 'handle'), 'ArrowDown');
+    sameJson(layoutIds(panel).slice(0, 2), ['frame', 'opening']);
+    assert.equal(focused.at(-1), 'opening', '焦点留在被移动那一行的手柄');
+    assert.match(panel.$('#nd_prompt_layout [data-ple-status]').textContent, /已移到第 2 位/);
+    assert.equal(layoutDirtyShown(panel), true);
+
+    layoutLayoutRows(panel);
+    firePointer(panel, layoutFieldOf(panel, 'limits', 'handle'), 'pointerdown', { clientY: 750 });
+    firePointer(panel, panel.document, 'pointermove', { clientY: 10 });
+    firePointer(panel, panel.document, 'pointerup', { clientY: 10 });
+    assert.equal(layoutIds(panel)[0], 'limits');
+
+    const save = savePayload(panel);
+    sameJson(save.promptDraft.layout.blocks.map(block => block.id), ['limits', 'frame', 'opening', 'guide', 'rules', 'tools', 'worldInfo', 'content']);
+    assert.equal(save.promptDraft.layout.version, 1);
+});
+
+test('typing in a custom message never re-renders: same nodes, focus kept, no host traffic, and the text reaches the save payload', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    trackFocus(t, panel);
+    layoutAddMessage(panel);
+    const [id] = layoutCustomIds(panel);
+    const row = layoutRowOf(panel, id);
+    const textarea = layoutFieldOf(panel, id, 'content');
+    const nameInput = layoutFieldOf(panel, id, 'name');
+    Object.defineProperty(panel.document, 'activeElement', { configurable: true, value: textarea });
+    panel.posted.length = 0;
+
+    textarea.value = '请保持画面简洁';
+    textarea.dispatchEvent(new panel.document.defaultView.Event('input', { bubbles: true }));
+    nameInput.value = '风格提示';
+    nameInput.dispatchEvent(new panel.document.defaultView.Event('input', { bubbles: true }));
+    const select = layoutFieldOf(panel, id, 'role');
+    chooseOption(select, 'assistant');
+    select.dispatchEvent(new panel.document.defaultView.Event('change', { bubbles: true }));
+
+    assert.equal(layoutRowOf(panel, id), row);
+    assert.equal(layoutFieldOf(panel, id, 'content'), textarea);
+    assert.equal(panel.document.activeElement, textarea, '焦点还在文本框');
+    assert.equal(textarea.value, '请保持画面简洁');
+    assert.equal(row.querySelector('[data-ple-title]').textContent, '风格提示');
+    assert.equal(panel.posted.length, 0, '输入不触发任何宿主消息');
+    const block = savePayload(panel).promptDraft.layout.blocks.find(item => item.id === id);
+    sameJson(block, { id, role: 'assistant', name: '风格提示', content: '请保持画面简洁', enabled: true });
+});
+
+test('typing in the three prompt boxes refreshes the built-in summaries in place', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    const openingRow = layoutRowOf(panel, 'opening');
+    typeInto(panel, '#nd_prompt_system', '全新的开场白');
+    typeInto(panel, '#nd_prompt_format', '全新的规则');
+    typeInto(panel, '#nd_prompt_guide', '全新的指南');
+    assert.equal(layoutRowOf(panel, 'opening'), openingRow, '没有重建');
+    assert.match(openingRow.querySelector('[data-ple-summary]').textContent, /全新的开场白（共 6 字）/);
+    assert.match(layoutRowOf(panel, 'rules').querySelector('[data-ple-summary]').textContent, /全新的规则/);
+    assert.match(layoutRowOf(panel, 'guide').querySelector('[data-ple-summary]').textContent, /全新的指南/);
+    typeInto(panel, '#nd_prompt_system', '   ');
+    assert.match(openingRow.querySelector('[data-ple-summary]').textContent, /当前为空/);
+});
+
+test('both save buttons send layout: null for a default layout, the object for a changed one, and the saved object when nothing was touched', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    assert.equal(savePayload(panel).promptDraft.layout, null);
+    assert.equal(savePayload(panel, 'nd_prompts_save').promptDraft.layout, null);
+
+    layoutAddMessage(panel);
+    for (const buttonId of ['nd_prompt_preset_save', 'nd_prompts_save']) {
+        const save = savePayload(panel, buttonId);
+        assert.equal(save.promptDraft.layout.blocks.length, 9, buttonId);
+        assert.equal(save.statusTarget, buttonId === 'nd_prompts_save' ? 'prompts' : 'prompt-preset');
+    }
+
+    const saved = storedLayout();
+    const second = loadPanel(t);
+    showLayout(second, { presets: [promptPreset('t1', '模板一', { layout: saved }), promptPreset('t2', '模板二')] });
+    sameJson(savePayload(second).promptDraft.layout, saved);
+    assert.equal(layoutDirtyShown(second), false);
+});
+
+test('after the host pushes the saved layout back, the draft and the badge disappear; a push that still lacks it (failed save) keeps them', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    layoutAddMessage(panel);
+    const sent = savePayload(panel).promptDraft.layout;
+    assert.equal(layoutDrafts(panel).size, 1);
+
+    // 保存失败：宿主回推的仍是旧数据 -> 草稿保留
+    panel.initData({ promptPresets: threePrompts(), selectedPromptPresetId: 't1', promptLayoutSupported: true });
+    assert.equal(layoutDrafts(panel).size, 1);
+    assert.equal(layoutDirtyShown(panel), true);
+    assert.equal(layoutRowNodes(panel).length, 9);
+
+    // 保存成功：回推的预设带着同一份布局 -> 草稿丢弃、徽标消失，列表内容不变
+    panel.initData({ promptPresets: [promptPreset('t1', '模板一', { layout: sent }), promptPreset('t2', '模板二'), promptPreset('t3', '模板三')], selectedPromptPresetId: 't1', promptLayoutSupported: true });
+    assert.equal(layoutDrafts(panel).size, 0);
+    assert.equal(layoutDirtyShown(panel), false);
+    assert.equal(layoutRowNodes(panel).length, 9);
+});
+
+test('an unrelated INIT_DATA push does not rebuild the layout list while the user is typing in a message', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    layoutAddMessage(panel);
+    const [id] = layoutCustomIds(panel);
+    const textarea = layoutFieldOf(panel, id, 'content');
+    textarea.value = 'typing';
+    textarea.dispatchEvent(new panel.document.defaultView.Event('input', { bubbles: true }));
+    panel.initData({ autoLearnCharacters: true });
+    assert.equal(layoutFieldOf(panel, id, 'content'), textarea, '同一个文本框，输入法 / 焦点不受影响');
+    assert.equal(textarea.value, 'typing');
+});
+
+test('drafts of presets that vanished from the host are dropped', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    layoutAddMessage(panel);
+    assert.equal(layoutDrafts(panel).has('t1'), true);
+    panel.initData({ promptPresets: [promptPreset('t2', '模板二'), promptPreset('t3', '模板三')], selectedPromptPresetId: 't2', promptLayoutSupported: true });
+    assert.equal(layoutDrafts(panel).size, 0);
+    assert.equal(layoutRowNodes(panel).length, 8);
+});
+
+test('switching presets swaps the layout shown, keeps each preset draft, and collapses expanded messages', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel, { presets: [promptPreset('t1', '模板一'), promptPreset('t2', '模板二', { layout: storedLayout() }), promptPreset('t3', '模板三')] });
+    layoutAddMessage(panel);
+    assert.equal(layoutRowNodes(panel).length, 9);
+    const [draftId] = layoutCustomIds(panel);
+    assert.ok(layoutFieldOf(panel, draftId, 'content'), '新增的块是展开的');
+
+    panel.click(promptRowName(panel, 't2'));
+    assert.equal(layoutRowNodes(panel).length, 9, 't2 有自己已保存的布局');
+    assert.equal(layoutIds(panel)[0], 'frame', 't2 的布局把 opening 往后挪了');
+    assert.equal(layoutDirtyShown(panel), false);
+    assert.equal(layoutCustomIds(panel).includes(draftId), false);
+
+    panel.click(promptRowName(panel, 't3'));
+    sameJson(layoutIds(panel), LAYOUT_BLOCK_IDS);
+
+    panel.click(promptRowName(panel, 't1'));
+    assert.equal(layoutDirtyShown(panel), true, '回到 t1：草稿还在');
+    assert.deepEqual(layoutCustomIds(panel), [draftId]);
+    assert.equal(layoutFieldOf(panel, draftId, 'content'), undefined, '切换预设后展开项已收起');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('reset structure: asks before dropping custom messages, declining changes nothing, accepting returns to default (draft only)', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    trackFocus(t, panel);
+    layoutAddMessage(panel);
+    layoutAddMessage(panel);
+    panel.answers.confirm.push(false);
+    panel.click(layoutResetButton(panel));
+    assert.match(panel.dialogs.confirms.at(-1), /2 条自定义消息/);
+    assert.equal(layoutCustomIds(panel).length, 2);
+
+    panel.posted.length = 0;
+    panel.click(layoutResetButton(panel)); // 默认应答 = 确认
+    sameJson(layoutIds(panel), LAYOUT_BLOCK_IDS);
+    assert.equal(layoutDrafts(panel).size, 0, '与已保存的默认布局一致，草稿直接丢弃');
+    assert.equal(layoutDirtyShown(panel), false);
+    assert.equal(panel.posted.length, 0, '只改草稿，不发消息');
+});
+
+test('resetting a preset that has a saved custom layout leaves an unsaved default draft, which saves as null', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel, { presets: [promptPreset('t1', '模板一', { layout: storedLayout() })] });
+    assert.equal(layoutRowNodes(panel).length, 9);
+    panel.click(layoutResetButton(panel));
+    sameJson(layoutIds(panel), LAYOUT_BLOCK_IDS);
+    assert.equal(layoutDirtyShown(panel), true, '相对已保存的是改动');
+    assert.equal(savePayload(panel).promptDraft.layout, null);
+});
+
+test('"全部恢复默认" also resets the layout draft and its confirm text mentions the structure', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    panel.state()._defaultPrompts = { topSystem: 'DEFAULT-TOP', sceneRules: 'DEFAULT-RULES' };
+    layoutAddMessage(panel);
+    panel.click(panel.$('#nd_prompts_reset_all'));
+    assert.match(panel.dialogs.confirms.at(-1), /消息布局/);
+    sameJson(layoutIds(panel), LAYOUT_BLOCK_IDS);
+    assert.equal(layoutDrafts(panel).size, 0);
+    assert.equal(panel.$('#nd_prompt_system').value, 'DEFAULT-TOP');
+    assert.equal(savePayload(panel).promptDraft.layout, null);
+
+    // 取消确认：什么都不变
+    layoutAddMessage(panel);
+    panel.answers.confirm.push(false);
+    panel.click(panel.$('#nd_prompts_reset_all'));
+    assert.equal(layoutRowNodes(panel).length, 9);
+});
+
+test('去编辑 / 查看 jump to where each built-in block is edited', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel);
+    const focused = trackFocus(t, panel);
+    const scrolled = [];
+    for (const id of ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format', 'nd_max_images']) {
+        panel.$(`#${id}`).scrollIntoView = () => scrolled.push(id);
+    }
+    const jump = (blockId) => panel.click(layoutFieldOf(panel, blockId, 'edit'));
+
+    jump('opening');
+    jump('guide');
+    jump('rules');
+    sameJson(focused, ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format']);
+    sameJson(scrolled, ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format']);
+
+    jump('worldInfo');
+    assert.equal(panel.$('#view-worldbook').classList.contains('active'), true);
+    jump('content');
+    assert.equal(panel.$('#view-characters').classList.contains('active'), true);
+    focused.length = 0;
+    jump('limits');
+    assert.equal(panel.$('#view-params').classList.contains('active'), true);
+    sameJson(focused, ['nd_max_images']);
+
+    const details = panel.$('#nd_prompt_chain_details');
+    assert.notEqual(details.open, true);
+    jump('frame');
+    assert.equal(details.open, true, '“请求结构”展开');
+    details.open = false;
+    jump('tools');
+    assert.equal(details.open, true);
+    assert.equal(panel.posted.some(item => item.type === 'SAVE_PROMPT_PRESET'), false, '跳转不保存任何东西');
+    assert.deepEqual(panel.errors, []);
+});
+
+test('export: a default layout is a V3 file without layout; a changed layout (draft or saved) is a V4 file with it, and the version matches the shared helper', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel, { presets: [promptPreset('t1', '模板一'), promptPreset('t2', '模板二', { layout: storedLayout() }), promptPreset('t3', '模板三')] });
+    const exportRow = (id) => { openPromptMenu(panel, id); panel.click(promptMenuItem(panel, id, 'export')); return lastExport(panel); };
+
+    const plain = exportRow('t1');
+    assert.equal(plain._version, 3);
+    assert.equal('layout' in plain, false);
+    assert.equal(plain._version, promptTemplateExportVersion(createDefaultLayout()));
+
+    const saved = exportRow('t2');
+    assert.equal(saved._version, 4);
+    sameJson(saved.layout, storedLayout());
+    assert.equal(saved._version, promptTemplateExportVersion(saved.layout));
+
+    layoutAddMessage(panel); // 给当前选中的 t1 加一条草稿
+    const drafted = exportRow('t1');
+    assert.equal(drafted._version, 4);
+    assert.equal(drafted.layout.blocks.length, 9);
+    assert.equal(drafted._version, promptTemplateExportVersion(drafted.layout));
+
+    // 另一个预设的草稿也算：切到 t3 加一条，再回 t1 导出 t3
+    panel.click(promptRowName(panel, 't3'));
+    layoutAddMessage(panel);
+    panel.click(promptRowName(panel, 't1'));
+    assert.equal(exportRow('t3').layout.blocks.length, 9);
+    assert.equal(panel.posted.some(item => item.type === 'SAVE_PROMPT_PRESET'), false);
+});
+
+test('an exported V4 file imports back to the same layout, and the host strips the repair notes from the preset it stores', (t) => {
+    const panel = loadPanel(t);
+    showLayout(panel, { presets: [promptPreset('t1', '模板一', { layout: storedLayout() })] });
+    openPromptMenu(panel, 't1');
+    panel.click(promptMenuItem(panel, 't1', 'export'));
+    const exported = lastExport(panel);
+    const imported = parseNovelPromptPresetImport(exported);
+    sameJson(imported.layout, storedLayout());
+    assert.equal('layoutNotes' in imported, false);
+
+    const source = fs.readFileSync(new URL('../../providers/novelai/novel-draw.js', import.meta.url), 'utf8');
+    const caseBody = (name) => {
+        const start = source.indexOf(`case '${name}'`);
+        assert.ok(start >= 0, name);
+        return source.slice(start, source.indexOf("\n        case '", start + 1));
+    };
+    const importCase = caseBody('IMPORT_PROMPT_PRESET');
+    assert.match(importCase, /const \{ layoutNotes = \[\], \.\.\.presetFields \} = imported/);
+    assert.match(importCase, /\.\.\.presetFields/);
+    assert.doesNotMatch(importCase, /\.\.\.imported/, '修复说明不进存储');
+    assert.match(importCase, /layoutNotes\.join/, '修复说明出现在完成消息里');
+});
+
+test('host source: layout is kept by normalizeSettings, copied by duplicate, saved by SAVE_PROMPT_PRESET, and advertised in INIT_DATA', () => {
+    const source = fs.readFileSync(new URL('../../providers/novelai/novel-draw.js', import.meta.url), 'utf8');
+    const caseBody = (name) => {
+        const start = source.indexOf(`case '${name}'`);
+        assert.ok(start >= 0, name);
+        return source.slice(start, source.indexOf("\n        case '", start + 1));
+    };
+    assert.match(source, /import \{ layoutForStorage \} from "\.\.\/\.\.\/shared\/scene-planner-layout\.js";/);
+    const rebuild = source.slice(source.indexOf('merged.promptPresets = merged.promptPresets.map('), source.indexOf('// ── 消息过滤规则规范化'));
+    assert.match(rebuild, /layoutForStorage\(preset\.layout\)/);
+    assert.match(rebuild, /if \(layout\) normalized\.layout = layout/, '默认 / 缺省布局不写字段');
+
+    const add = caseBody('ADD_PROMPT_PRESET');
+    assert.match(add, /layoutForStorage\(current\?\.layout\)/);
+    assert.match(add, /newPreset\.layout = layout/);
+
+    const save = caseBody('SAVE_PROMPT_PRESET');
+    assert.match(save, /'layout' in cp/);
+    assert.match(save, /cp\.layout === null[\s\S]*delete current\.layout/, 'null = 删除已存布局');
+    assert.match(save, /layoutForStorage\(cp\.layout\)/);
+    assert.match(save, /sendInitData\(\)/, '照旧回推 INIT_DATA');
+
+    assert.match(source, /promptLayoutSupported: true/);
+    assert.doesNotMatch(source, /CONFIG_VERSION\s*=\s*\d+[\s\S]{0,0}layout/, '不动配置版本');
 });
