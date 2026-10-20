@@ -1003,6 +1003,36 @@ function describeOpenAICompatibleHttpError(rawText, status) {
     return source || `OpenAI 兼容流式请求失败（HTTP ${status}）`;
 }
 
+// Raw facts about a completion, kept on a bad-finish error so a relay that answers 200
+// with an odd body (missing finish_reason, empty content, error object) can be diagnosed.
+function describeCompletionResponse(response, choice, message) {
+    return {
+        transport: 'json',
+        id: response?.id ?? null,
+        model: response?.model ?? null,
+        topLevelKeys: Object.keys(response || {}),
+        choiceCount: Array.isArray(response?.choices) ? response.choices.length : 0,
+        choiceKeys: Object.keys(choice || {}),
+        finishReason: choice?.finish_reason ?? null,
+        contentLength: flattenTextContent(message?.content).length,
+        toolCallCount: Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0,
+        refusal: message?.refusal ?? null,
+        usage: response?.usage ?? null,
+        error: response?.error ?? null,
+    };
+}
+
+function describeStreamedResponse(snapshot, finishReason, model) {
+    return {
+        transport: 'stream',
+        model: model ?? null,
+        finishReason: finishReason ?? null,
+        contentLength: getStreamedSnapshotText(snapshot).length,
+        toolCallCount: getStreamedSnapshotToolCalls(snapshot).length,
+        refusal: snapshot?.refusal ?? null,
+    };
+}
+
 export class OpenAICompatibleAdapter {
     constructor(config) {
         this.config = config;
@@ -1147,7 +1177,7 @@ export class OpenAICompatibleAdapter {
             }, effectiveReasoning);
         });
 
-        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, extractThinkTaggedContent(getStreamedSnapshotText(assistantSnapshot)).cleaned);
+        requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, extractThinkTaggedContent(getStreamedSnapshotText(assistantSnapshot)).cleaned, describeStreamedResponse(assistantSnapshot, lastFinishReason, lastModel));
         assertSignedToolCallsIntact(assistantSnapshot);
         const providerPayload = buildProviderPayload(assistantSnapshot);
         const standardToolCalls = getStreamedSnapshotToolCalls(assistantSnapshot);
@@ -1238,7 +1268,7 @@ export class OpenAICompatibleAdapter {
                     ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
                 }, effectiveReasoning);
             }
-            requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, extractThinkTaggedContent(getStreamedSnapshotText(assistantSnapshot)).cleaned);
+            requireResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, extractThinkTaggedContent(getStreamedSnapshotText(assistantSnapshot)).cleaned, describeStreamedResponse(assistantSnapshot, lastFinishReason, lastModel));
             const finalCompletion = typeof stream.finalChatCompletion === 'function'
                 ? await stream.finalChatCompletion()
                 : null;
@@ -1280,7 +1310,7 @@ export class OpenAICompatibleAdapter {
 
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
-        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal, extractThinkTaggedContent(flattenTextContent(message.content)).cleaned);
+        requireResponseCompletion('openai', choice.finish_reason, !!message.refusal, extractThinkTaggedContent(flattenTextContent(message.content)).cleaned, describeCompletionResponse(response, choice, message));
         assertSignedToolCallsIntact(message);
         const thoughts = extractThoughtsFromMessage(message, choice);
         const standardToolCalls = buildToolCallResultsFromOpenAI(message.tool_calls || []);

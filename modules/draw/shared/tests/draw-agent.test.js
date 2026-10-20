@@ -502,6 +502,66 @@ test('scene planner reports DSML protocol failures with the full redacted respon
     assert.doesNotMatch(JSON.stringify({ diagnostic, logs }), /response-secret/);
 });
 
+test('scene planner records what the provider sent when a reply does not finish normally', async () => {
+    resetDrawAgentRuntimeForTests();
+    const settings = buildSettings('relay-model');
+    settings.presets.主预设.modelConfigs['openai-compatible'].toolMode = 'tagged-json';
+    const response = {
+        id: 'relay-1', model: 'relay-model', object: 'chat.completion',
+        choices: [{ index: 0, message: { role: 'assistant', content: '' }, finish_reason: 'content_filter' }],
+        usage: { prompt_tokens: 12, completion_tokens: 0 },
+        api_key: 'response-secret',
+    };
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: 'A book rests on a table.', maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: text => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => settings },
+            loadAgentCore: async () => ({
+                createAgentAdapter: providerConfig => {
+                    const adapter = new OpenAICompatibleAdapter(providerConfig);
+                    adapter.client.chat.completions.create = async () => response;
+                    return adapter;
+                },
+            }),
+        },
+    }), error => error.code === 'PROVIDER_REQUEST_FAILED');
+
+    const [attempt] = getLastDrawAgentDiagnostic().attempts;
+    assert.equal(attempt.finishReason, 'content_filter');
+    assert.equal(attempt.responseInfo.finishReason, 'content_filter');
+    assert.equal(attempt.responseInfo.contentLength, 0);
+    assert.equal(attempt.responseInfo.id, 'relay-1');
+    assert.deepEqual(attempt.responseInfo.usage, { prompt_tokens: 12, completion_tokens: 0 });
+    assert.ok(attempt.responseInfo.topLevelKeys.includes('choices'));
+    assert.doesNotMatch(JSON.stringify(getLastDrawAgentDiagnostic()), /response-secret/);
+});
+
+test('scene planner reports a reply without a finish reason as missing, not as empty text', async () => {
+    resetDrawAgentRuntimeForTests();
+    const settings = buildSettings('relay-model');
+    settings.presets.主预设.modelConfigs['openai-compatible'].toolMode = 'tagged-json';
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: 'A book rests on a table.', maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: text => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => settings },
+            loadAgentCore: async () => ({
+                createAgentAdapter: providerConfig => {
+                    const adapter = new OpenAICompatibleAdapter(providerConfig);
+                    adapter.client.chat.completions.create = async () => ({ error: { message: 'upstream busy' } });
+                    return adapter;
+                },
+            }),
+        },
+    }), error => error.code === 'PROVIDER_REQUEST_FAILED');
+
+    const [attempt] = getLastDrawAgentDiagnostic().attempts;
+    assert.equal(attempt.finishReason, 'missing_completion');
+    assert.equal(attempt.responseInfo.choiceCount, 0);
+    assert.deepEqual(attempt.responseInfo.error, { message: 'upstream busy' });
+});
+
 test('scene planner corrects a missing Tool call without inventing Tool history', async () => {
     resetDrawAgentRuntimeForTests();
     const tasks = [];

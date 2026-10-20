@@ -5,7 +5,7 @@ const COMPLETED_REASONS = {
 };
 
 /** A transport closing or an SDK returning a snapshot does not establish normal completion. */
-export function requireResponseCompletion(protocol, reason, refused = false, text = '') {
+export function requireResponseCompletion(protocol, reason, refused = false, text = '', info = undefined) {
     if (!refused && COMPLETED_REASONS[protocol]?.includes(reason)) return reason;
     const truncated = ['length', 'max_tokens', 'max_output_tokens', 'MAX_TOKENS'].includes(reason);
     const error = new Error(truncated ? 'Model response reached its output limit.' : 'Model response did not complete normally.');
@@ -13,6 +13,8 @@ export function requireResponseCompletion(protocol, reason, refused = false, tex
     error.reason = reason || 'missing_completion';
     // Diagnostic content is not a completed reply and never authorizes tool execution.
     if (text) error.partialResponse = { text, finishReason: reason, truncated };
+    // What the provider actually sent (ids, usage, odd fields), so a bad finish reason can be traced.
+    if (info) error.responseInfo = info;
     throw error;
 }
 

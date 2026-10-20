@@ -8,9 +8,12 @@ import {
     PLANNER_RETRY_MAX_DELAY_MS,
     computePlannerRetryDelay,
     isRetryablePlannerError,
+    isSceneSourceChangedError,
     normalizePlannerRetry,
+    retryOnSceneSourceChange,
     sleepWithAbort,
 } from '../planner-retry.js';
+import { ScenePlacementError, assertSceneSourceUnchanged } from '../scene-placement.js';
 import { ScenePlannerError } from '../scene-plan-contract.js';
 import { logDrawRunPlannerDiagnostics, resetDrawRunPlannerFailureLogsForTests } from '../draw-run-debug.js';
 import { createSceneSource } from '../scene-source.js';
@@ -603,4 +606,100 @@ test('real runtime: feedbackSent of earlier rounds is still true in the diagnost
     assert.equal(waiting.length, 2);
     assert.deepEqual(waiting[1].validationFailures.map(item => [item.attempt, item.feedbackSent]), [[1, true], [3, true]]);
     assert.deepEqual(getLastDrawAgentDiagnostic().validationFailures.map(item => item.feedbackSent), [true, true]);
+});
+
+// ───────────── 正文在规划期间变化 ─────────────
+
+function sourceChangedError() {
+    try {
+        assertSceneSourceUnchanged('new text', 'old-hash');
+    } catch (error) {
+        return error;
+    }
+    throw new Error('assertSceneSourceUnchanged did not throw');
+}
+
+test('the real source check raises the code the retry recognises', () => {
+    const error = sourceChangedError();
+    assert.ok(error instanceof ScenePlacementError);
+    assert.equal(isSceneSourceChangedError(error), true);
+    assert.equal(isSceneSourceChangedError(new ScenePlacementError('x')), false);
+    assert.equal(isSceneSourceChangedError(null), false);
+});
+
+test('a changed source is re-planned with exponential backoff until it holds still', async () => {
+    const delays = [];
+    const retries = [];
+    const runs = [];
+    const result = await retryOnSceneSourceChange(async (retryNumber) => {
+        runs.push(retryNumber);
+        if (retryNumber < 2) throw sourceChangedError();
+        return 'planned';
+    }, {
+        maxRetries: 3,
+        baseDelayMs: 1000,
+        random: () => 0.5,
+        sleep: async (ms) => { delays.push(ms); },
+        onRetry: info => retries.push([info.retry, info.maxRetries, info.delayMs]),
+    });
+    assert.equal(result, 'planned');
+    assert.deepEqual(runs, [0, 1, 2]);
+    assert.deepEqual(delays, [1000, 2000]);
+    assert.deepEqual(retries, [[1, 3, 1000], [2, 3, 2000]]);
+});
+
+test('the source-changed retry gives up after maxRetries and surfaces the original error', async () => {
+    let runs = 0;
+    await assert.rejects(() => retryOnSceneSourceChange(async () => {
+        runs += 1;
+        throw sourceChangedError();
+    }, { maxRetries: 2, sleep: async () => {} }), error => isSceneSourceChangedError(error));
+    assert.equal(runs, 3);
+});
+
+test('a zero retry setting keeps the old behaviour: one attempt, no waiting', async () => {
+    let runs = 0;
+    let slept = false;
+    await assert.rejects(() => retryOnSceneSourceChange(async () => {
+        runs += 1;
+        throw sourceChangedError();
+    }, { maxRetries: 0, sleep: async () => { slept = true; } }), error => isSceneSourceChangedError(error));
+    assert.equal(runs, 1);
+    assert.equal(slept, false);
+});
+
+test('only a changed source is retried here; other failures are thrown untouched', async () => {
+    let runs = 0;
+    const failure = Object.assign(new Error('boom'), { code: 'PROVIDER_REQUEST_FAILED' });
+    await assert.rejects(() => retryOnSceneSourceChange(async () => {
+        runs += 1;
+        throw failure;
+    }, { maxRetries: 3, sleep: async () => {} }), error => error === failure);
+    assert.equal(runs, 1);
+});
+
+test('cancelling stops the source-changed retry without another run', async () => {
+    const controller = new AbortController();
+    let runs = 0;
+    await assert.rejects(() => retryOnSceneSourceChange(async () => {
+        runs += 1;
+        controller.abort();
+        throw sourceChangedError();
+    }, { maxRetries: 3, signal: controller.signal, sleep: async () => {} }), error => isSceneSourceChangedError(error));
+    assert.equal(runs, 1);
+});
+
+test('cancelling while waiting between source-changed retries rejects as an abort', async () => {
+    const controller = new AbortController();
+    let runs = 0;
+    await assert.rejects(() => retryOnSceneSourceChange(async () => {
+        runs += 1;
+        throw sourceChangedError();
+    }, {
+        maxRetries: 3,
+        baseDelayMs: 60_000,
+        signal: controller.signal,
+        onRetry: () => queueMicrotask(() => controller.abort()),
+    }), error => error.code === 'REQUEST_ABORTED');
+    assert.equal(runs, 1);
 });
