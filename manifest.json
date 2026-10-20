@@ -6,7 +6,7 @@
     "js": "dist/host/plugin.js",
     "css": "style.css",
     "author": "biex",
-    "version": "3.1.8",
+    "version": "3.1.9",
     "homePage": "https://github.com/RT15548/LittleWhiteBox",
     "generate_interceptor": "xiaobaixGenerateInterceptor",
     "hooks": {

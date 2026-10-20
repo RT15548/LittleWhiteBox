@@ -25,6 +25,8 @@ const promiseRules = {
 
 module.exports = {
     root: true,
+    ignorePatterns: fs.readFileSync(path.join(__dirname, '.gitignore'), 'utf8')
+        .split(/\r?\n/).filter(line => line.trim() && !line.trimStart().startsWith('#')),
     reportUnusedDisableDirectives: true,
     extends: [
         'eslint:recommended',

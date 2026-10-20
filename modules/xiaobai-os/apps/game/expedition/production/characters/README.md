@@ -12,7 +12,7 @@
 从仓库根目录运行，Blender 是作者侧工具，玩家不需要安装：
 
 ```powershell
-& 'D:/Blender/blender.exe' -b --factory-startup -t 4 --python-exit-code 1 `
+blender -b --factory-startup -t 4 --python-exit-code 1 `
   --python modules/xiaobai-os/apps/game/expedition/production/characters/build.py -- `
   --output output/ember-characters/new-sanniang --render
 ```

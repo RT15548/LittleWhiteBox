@@ -1,6 +1,6 @@
 # Map scene assets
 
-Author: Kenney. Retrieved 2026-09-13. All four packs are CC0 and permit modification and redistribution; attribution is optional. The original license files are preserved beside the models and copied into the production `dist/map-assets/` directory. Only 22 prepared models are shipped, not the full packs.
+Author: Kenney. Retrieved 2026-09-13. All four packs are CC0 and permit modification and redistribution; attribution is optional. The original license files are preserved beside the models. Only 22 prepared models are shipped, not the full packs. Asset distribution follows the [plugin build rules](../../../../../../../../docs/plugin-build.md).
 
 | Pack (version from archive) | Official source | Archive SHA-256 |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ Download the other packs from the official pages above. Extract the four packs i
 node scripts/prepare-map-scene-assets.mjs <working-directory>
 ```
 
-The script bakes node transforms, centers the footprint, grounds the mesh, merges surfaces into semantic material roles, and generates local planar UVs. It removes source palette textures before decoding and classifies their surfaces offline: car body/window/wheel-and-trim; survival main/bands-and-hardware. It emits static GLBs without textures, external URIs, cameras, lights or animations. Runtime materials come from the existing map material tokens; foliage, glass, bedding and lamp shade receive limited role-specific surfaces. The source repository's `apps/map/ui/three/assets/kenney/manifest.json` records original filenames, original/prepared file hashes, bounds, decoded geometry bytes and geometry budgets. Production filenames add Vite content hashes.
+The script bakes node transforms, centers the footprint, grounds the mesh, merges surfaces into semantic material roles, and generates local planar UVs. It removes source palette textures before decoding and classifies their surfaces offline: car body/window/wheel-and-trim; survival main/bands-and-hardware. It emits static GLBs without textures, external URIs, cameras, lights or animations. Runtime materials come from the existing map material tokens; foliage, glass, bedding and lamp shade receive limited role-specific surfaces. The adjacent [manifest.json](./manifest.json) records original filenames, original/prepared file hashes, bounds, decoded geometry bytes and geometry budgets.
 
 | Pack | Original filename | Object token |
 | --- | --- | --- |

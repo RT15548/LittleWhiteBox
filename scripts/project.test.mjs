@@ -32,6 +32,7 @@ test('a new nested module test is automatically run and its failure fails the wh
     const file = 'modules/brand-new/nested/feature.test.ts';
     const testFile = write(file, 'import test from "node:test"; test("new feature", () => {});');
     write('dist/generated.test.js', 'throw new Error();');
+    write('output/private-evaluation/experiment.test.js', 'throw new Error();');
     assert.deepEqual(discoverTests(directory), [testFile]);
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;

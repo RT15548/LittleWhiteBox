@@ -2,7 +2,7 @@
 
 Draw Run 将场景规划、工具纠错与图片请求编译交给后端。现行入口为 `draw-runs-v1`与`draw-run-runtime-v4`，接收前端 Tool Schema，只以 images 作为执行结果；NovelAI V5 子任务归一为最终 PNG。
 
-执行与进程内存边界见 [Image Job](./image-backend-batch-jobs.md)。真实宿主写盘／读回、关闭浏览器接回和三家 Provider 实盘仍需验收，不以自动契约测试代替。
+执行与进程内存边界见 [Image Job](./image-backend-batch-jobs.md)。发布验证须覆盖真实宿主写盘／读回、关闭浏览器接回和三家 Provider 实盘，自动契约测试不覆盖这些外部行为。
 
 ## 0. 目标与产品承诺
 

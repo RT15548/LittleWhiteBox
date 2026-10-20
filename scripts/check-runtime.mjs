@@ -1,11 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { root } from './build/browser-entries.mjs';
 
-// Offline integration fixtures share the replay cache, so run serially after unit tests.
+// Product runtime checks run after unit tests, independently of private evaluation tools.
 for (const args of [
     ['scripts/story-summary-runtime-check.mjs'],
-    ['scripts/story-summary-replay-runner.mjs', '--check-alignment'],
-    ['scripts/story-summary-replay-runner.mjs', '--check-cancel'],
 ]) {
     const result = spawnSync(process.execPath, args, { cwd: root, stdio: 'inherit' });
     if (result.error) throw result.error;

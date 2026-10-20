@@ -2,7 +2,7 @@
 
 ## 0. 文档用途
 
-本文定义 Tasks 的产品、领域、工具、资金与保存契约。底座见 [Kernel](./os-kernel-target-design.md)，资金范围见 [Economy 平台](./economy-platform-target-design.md)；任务模型不再使用旧 metadata 业务根。实现入口由 module、partition 与 Host/Shell catalog 注册，不另保留施工文档。
+本文定义 Tasks 的产品、领域、工具、资金与保存契约。底座见 [Kernel](./os-kernel-target-design.md)，资金范围见 [Economy 平台](./economy-platform-target-design.md)。实现入口由 module、partition 与 Host/Shell catalog 注册。
 
 ## 1. 定位与不可越界项
 
@@ -674,7 +674,7 @@ Provider 原文、错误堆栈、内部 code 和工具 hint 只进日志。原�
 - 创建聊天分支得到新 osId，不复制经济资产或未结任务；共享钱包不另开户，具体范围见 Economy 平台设计；
 - 编辑、删除、换 swipe 不回滚已提交任务，不退托管、不追回报酬；
 - conflict 的「采用服务端数据」属于 Kernel 文件级动作：服务端 Envelope 读取并验证成功后才替换本地候选并恢复 ready；失败继续 conflict；
-- 删除 Tasks 功能时使用当时当前 schema 的一次性退场流程，不在本阶段预埋永久 migration：先在 Tasks module 与 Economy Capability 仍注册时，为所有 active 世界任务写 failed + 原 world counterparty refund；玩家发布的 recruiting 写 cancelled + player refund，active 写 failed + player refund；整批以一次 Scoped transaction 保存成合法的终态 Tasks/Economy 分区，confirmed 前不得进入下一步；
+- 删除 Tasks 功能时按当前 schema 一次性清理：先在 Tasks module 与 Economy Capability 仍注册时，为所有 active 世界任务写 failed + 原 world counterparty refund；玩家发布的 recruiting 写 cancelled + player refund，active 写 failed + player refund；整批以一次 Scoped transaction 保存成合法的终态 Tasks/Economy 分区，confirmed 前不得进入下一步；
 - 随后的移除版本在升级边界删除`tasks`分区和 Tasks 设置，同时停止注册 Tasks/Economy 交叉检查。既有与清理产生的 Tasks Economy 流水按明确产品策略处理；若保留，则继续由 Economy 通用不变量校验，但不再要求一个已删除的 Tasks 分区反向证明；
 - 退场中断时保留完整`tasks`分区并可重试，不能留下仍有余额的`escrow:task:*`。过渡版本完成后删除一次性退场代码，不留下旧类型、旧设置字段或永久兼容读取器。
 

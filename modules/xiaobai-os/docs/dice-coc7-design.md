@@ -118,7 +118,7 @@ NPC 自身不发起检定，其阻力通过用户角色行动或应对的难度�
 
 ### 5.1 读取边界
 
-- 正式线 D20 的 schema 1 由[冻结 V1 读取器](../apps/dice/storage/records-v1.ts)直接读取为当前记录，不经过测试线中间版本；D20 数值、ID 和裁定不变。真实正式线样本见 [a32c28d0 fixture](../tests/fixtures/dice-message-a32c28d0.json)。
+- 正式线 D20 的 schema 1 由[冻结 V1 读取器](../apps/dice/storage/records-v1.ts)直接读取为当前记录，不经过测试线中间版本；D20 数值、ID 和裁定不变。
 - 当前记录按 schema 3 校验；包括 schema 2 在内的其他版本明确拒绝，不猜测或转换旧 CoC 能力。schema 编号是实现细节，不作为兼容承诺。
 - 读取生成新对象，不主动改写消息原文；新检定应用时才随正常宿主保存写入当前格式。
 
@@ -158,4 +158,4 @@ CoC 测试线旧目录与中间 schema 不作为受支持格式。无效面板�
 测试保护状态、数据与事件，不以提示词措辞、函数名或源码关键词作为契约。真实模型的技能选择与叙事表现不能用模拟供应商证明。
 
 
-真实模型的能力选择和叙事表现、实体 WebView 尚未验收。裁定资料参考：[Chaosium The Game System](https://cthulhuwiki.chaosium.com/rules/game-system.html)。通用技能与点数池属于产品改良设计，不冒称原版建卡规则。
+真实模型的能力选择、叙事表现及实体 WebView 交互须独立验证。裁定资料参考：[Chaosium The Game System](https://cthulhuwiki.chaosium.com/rules/game-system.html)。通用技能与点数池属于产品改良设计，不是原版建卡规则。

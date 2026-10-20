@@ -167,7 +167,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/backend-draw-runs.md",
       "relativePath": "docs/backend-draw-runs.md",
       "extension": ".md",
-      "sizeBytes": 38454
+      "sizeBytes": 38478
     },
     {
       "source": "littlewhitebox",
@@ -188,14 +188,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/novelai-v5-product-development.md",
       "relativePath": "docs/novelai-v5-product-development.md",
       "extension": ".md",
-      "sizeBytes": 39294
+      "sizeBytes": 38719
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/plugin-build.md",
       "relativePath": "docs/plugin-build.md",
       "extension": ".md",
-      "sizeBytes": 13010
+      "sizeBytes": 13191
     },
     {
       "source": "littlewhitebox",
@@ -3422,7 +3422,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/docs/memory-maintenance-target-design.md",
       "relativePath": "modules/story-summary/docs/memory-maintenance-target-design.md",
       "extension": ".md",
-      "sizeBytes": 37254
+      "sizeBytes": 37160
     },
     {
       "source": "littlewhitebox",
@@ -8567,7 +8567,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/fourth-wall/README.md",
       "relativePath": "modules/xiaobai-os/apps/fourth-wall/README.md",
       "extension": ".md",
-      "sizeBytes": 1545
+      "sizeBytes": 1523
     },
     {
       "source": "littlewhitebox",
@@ -10380,7 +10380,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/game/expedition/production/characters/README.md",
       "relativePath": "modules/xiaobai-os/apps/game/expedition/production/characters/README.md",
       "extension": ".md",
-      "sizeBytes": 3774
+      "sizeBytes": 3755
     },
     {
       "source": "littlewhitebox",
@@ -12249,7 +12249,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/map/ui/three/assets/kenney/SOURCES.md",
       "relativePath": "modules/xiaobai-os/apps/map/ui/three/assets/kenney/SOURCES.md",
       "extension": ".md",
-      "sizeBytes": 4301
+      "sizeBytes": 4268
     },
     {
       "source": "littlewhitebox",
@@ -14020,7 +14020,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/building-game-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/building-game-target-design.md",
       "extension": ".md",
-      "sizeBytes": 9863
+      "sizeBytes": 9791
     },
     {
       "source": "littlewhitebox",
@@ -14034,21 +14034,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/dice-coc7-design.md",
       "relativePath": "modules/xiaobai-os/docs/dice-coc7-design.md",
       "extension": ".md",
-      "sizeBytes": 14928
+      "sizeBytes": 14842
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/economy-platform-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/economy-platform-target-design.md",
       "extension": ".md",
-      "sizeBytes": 6152
+      "sizeBytes": 6065
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-art-design.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-art-design.md",
       "extension": ".md",
-      "sizeBytes": 7533
+      "sizeBytes": 7308
     },
     {
       "source": "littlewhitebox",
@@ -14216,14 +14216,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-chapter1-combat.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-chapter1-combat.md",
       "extension": ".md",
-      "sizeBytes": 23036
+      "sizeBytes": 22979
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-chapter2-design.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-chapter2-design.md",
       "extension": ".md",
-      "sizeBytes": 12850
+      "sizeBytes": 12793
     },
     {
       "source": "littlewhitebox",
@@ -14237,7 +14237,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/expedition-combat-design.md",
       "relativePath": "modules/xiaobai-os/docs/expedition-combat-design.md",
       "extension": ".md",
-      "sizeBytes": 24945
+      "sizeBytes": 24919
     },
     {
       "source": "littlewhitebox",
@@ -14272,21 +14272,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/information-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/information-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 28977
+      "sizeBytes": 28783
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/language-learning-app-architecture.md",
       "relativePath": "modules/xiaobai-os/docs/language-learning-app-architecture.md",
       "extension": ".md",
-      "sizeBytes": 33400
+      "sizeBytes": 33219
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/language-learning-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/language-learning-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 86234
+      "sizeBytes": 85916
     },
     {
       "source": "littlewhitebox",
@@ -14300,21 +14300,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/map-scene-rendering-design.md",
       "relativePath": "modules/xiaobai-os/docs/map-scene-rendering-design.md",
       "extension": ".md",
-      "sizeBytes": 10808
+      "sizeBytes": 10819
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/moving-game-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/moving-game-target-design.md",
       "extension": ".md",
-      "sizeBytes": 5625
+      "sizeBytes": 5444
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/os-kernel-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/os-kernel-target-design.md",
       "extension": ".md",
-      "sizeBytes": 34585
+      "sizeBytes": 34594
     },
     {
       "source": "littlewhitebox",
@@ -14342,14 +14342,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/tasks-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/tasks-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 55652
+      "sizeBytes": 55518
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/world-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/world-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 17163
+      "sizeBytes": 17150
     },
     {
       "source": "littlewhitebox",
@@ -15826,7 +15826,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/package.json",
       "relativePath": "package.json",
       "extension": ".json",
-      "sizeBytes": 3429
+      "sizeBytes": 2366
     },
     {
       "source": "littlewhitebox",
@@ -15973,7 +15973,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/check-runtime.mjs",
       "relativePath": "scripts/check-runtime.mjs",
       "extension": ".mjs",
-      "sizeBytes": 927
+      "sizeBytes": 791
     },
     {
       "source": "littlewhitebox",
@@ -15981,426 +15981,6 @@
       "relativePath": "scripts/check.mjs",
       "extension": ".mjs",
       "sizeBytes": 1227
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/README.md",
-      "relativePath": "scripts/gold-eval/README.md",
-      "extension": ".md",
-      "sizeBytes": 21986
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/authoring-runner.mjs",
-      "relativePath": "scripts/gold-eval/authoring-runner.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4663
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/authoring/prompts.mjs",
-      "relativePath": "scripts/gold-eval/authoring/prompts.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 9295
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/authoring/schema.mjs",
-      "relativePath": "scripts/gold-eval/authoring/schema.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 10454
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/authoring/session.mjs",
-      "relativePath": "scripts/gold-eval/authoring/session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 29840
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/authoring/source.mjs",
-      "relativePath": "scripts/gold-eval/authoring/source.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4211
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/authoring/storage.mjs",
-      "relativePath": "scripts/gold-eval/authoring/storage.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 1540
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/baseline-runner.mjs",
-      "relativePath": "scripts/gold-eval/baseline-runner.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4665
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/baseline/bootstrap-health.mjs",
-      "relativePath": "scripts/gold-eval/baseline/bootstrap-health.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2595
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/baseline/campaign.mjs",
-      "relativePath": "scripts/gold-eval/baseline/campaign.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 17847
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/baseline/plan.mjs",
-      "relativePath": "scripts/gold-eval/baseline/plan.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 18337
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/campaign-runner.mjs",
-      "relativePath": "scripts/gold-eval/campaign-runner.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2005
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/dev-matrix/controlled-cn.mjs",
-      "relativePath": "scripts/gold-eval/dev-matrix/controlled-cn.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 19373
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/dev-matrix/public-datasets.mjs",
-      "relativePath": "scripts/gold-eval/dev-matrix/public-datasets.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 21382
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/event-rerank-gate.mjs",
-      "relativePath": "scripts/gold-eval/event-rerank-gate.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 11029
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/event-candidate-screen.mjs",
-      "relativePath": "scripts/gold-eval/experiments/event-candidate-screen.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 27058
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/l2-admission-expand.mjs",
-      "relativePath": "scripts/gold-eval/experiments/l2-admission-expand.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 22647
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/l2-admission-fusion.mjs",
-      "relativePath": "scripts/gold-eval/experiments/l2-admission-fusion.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4108
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/l2-admission-live.mjs",
-      "relativePath": "scripts/gold-eval/experiments/l2-admission-live.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 13438
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/l2-admission-report.mjs",
-      "relativePath": "scripts/gold-eval/experiments/l2-admission-report.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 12549
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/l2-admission-screen.mjs",
-      "relativePath": "scripts/gold-eval/experiments/l2-admission-screen.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 13999
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/prompt-candidate-audit.mjs",
-      "relativePath": "scripts/gold-eval/experiments/prompt-candidate-audit.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 17988
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/prompt-reader-decision.mjs",
-      "relativePath": "scripts/gold-eval/experiments/prompt-reader-decision.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 11217
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/publish-l2-admission-screen.mjs",
-      "relativePath": "scripts/gold-eval/experiments/publish-l2-admission-screen.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 12121
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/query-focus-construction-screen.mjs",
-      "relativePath": "scripts/gold-eval/experiments/query-focus-construction-screen.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 17308
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/experiments/query-weight-screen.mjs",
-      "relativePath": "scripts/gold-eval/experiments/query-weight-screen.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 20034
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/adjudication.mjs",
-      "relativePath": "scripts/gold-eval/lib/adjudication.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 10287
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/cases.mjs",
-      "relativePath": "scripts/gold-eval/lib/cases.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8663
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/metrics.mjs",
-      "relativePath": "scripts/gold-eval/lib/metrics.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 15634
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/natural-boundary-execution.mjs",
-      "relativePath": "scripts/gold-eval/lib/natural-boundary-execution.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8018
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/natural-cases.mjs",
-      "relativePath": "scripts/gold-eval/lib/natural-cases.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 9064
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/natural-comparison.mjs",
-      "relativePath": "scripts/gold-eval/lib/natural-comparison.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 7745
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/natural-positions.mjs",
-      "relativePath": "scripts/gold-eval/lib/natural-positions.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 1908
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/natural-preparation.mjs",
-      "relativePath": "scripts/gold-eval/lib/natural-preparation.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2705
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/natural-recovery.mjs",
-      "relativePath": "scripts/gold-eval/lib/natural-recovery.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4956
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/paired-reader.mjs",
-      "relativePath": "scripts/gold-eval/lib/paired-reader.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 1942
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/product-recall-turn.mjs",
-      "relativePath": "scripts/gold-eval/lib/product-recall-turn.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2825
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/replay-adapter.mjs",
-      "relativePath": "scripts/gold-eval/lib/replay-adapter.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8330
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/report.mjs",
-      "relativePath": "scripts/gold-eval/lib/report.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8595
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/run-store.mjs",
-      "relativePath": "scripts/gold-eval/lib/run-store.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 34419
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/score-utils.mjs",
-      "relativePath": "scripts/gold-eval/lib/score-utils.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 5935
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/scorer.mjs",
-      "relativePath": "scripts/gold-eval/lib/scorer.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8357
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/lib/transport-cassette.mjs",
-      "relativePath": "scripts/gold-eval/lib/transport-cassette.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 14991
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/natural-comparison-runner.mjs",
-      "relativePath": "scripts/gold-eval/natural-comparison-runner.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 3765
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/natural-recall-session.mjs",
-      "relativePath": "scripts/gold-eval/natural-recall-session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 16334
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/natural-replay-session.mjs",
-      "relativePath": "scripts/gold-eval/natural-replay-session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 25406
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/natural-resume-session.mjs",
-      "relativePath": "scripts/gold-eval/natural-resume-session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 29728
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/prompt-session.mjs",
-      "relativePath": "scripts/gold-eval/prompt-session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8597
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/reader-session.mjs",
-      "relativePath": "scripts/gold-eval/reader-session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 15944
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/replay-session.mjs",
-      "relativePath": "scripts/gold-eval/replay-session.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 35613
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/rerank-concurrency-probe.mjs",
-      "relativePath": "scripts/gold-eval/rerank-concurrency-probe.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 10735
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/study-runner.mjs",
-      "relativePath": "scripts/gold-eval/study-runner.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2880
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/study/schema.mjs",
-      "relativePath": "scripts/gold-eval/study/schema.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 10180
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/study/store.mjs",
-      "relativePath": "scripts/gold-eval/study/store.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 12425
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/tests/fixtures/offline-provider.mjs",
-      "relativePath": "scripts/gold-eval/tests/fixtures/offline-provider.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4324
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/tests/prepared-lifecycle.test.mjs",
-      "relativePath": "scripts/gold-eval/tests/prepared-lifecycle.test.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 29223
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/tests/request-journal.test.mjs",
-      "relativePath": "scripts/gold-eval/tests/request-journal.test.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 21554
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/tests/request-recovery.test.mjs",
-      "relativePath": "scripts/gold-eval/tests/request-recovery.test.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4833
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/tests/response-archive.test.mjs",
-      "relativePath": "scripts/gold-eval/tests/response-archive.test.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 6329
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/gold-eval/tests/scorer.test.mjs",
-      "relativePath": "scripts/gold-eval/tests/scorer.test.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 30534
     },
     {
       "source": "littlewhitebox",
@@ -16463,224 +16043,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/project.test.mjs",
       "relativePath": "scripts/project.test.mjs",
       "extension": ".mjs",
-      "sizeBytes": 5833
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-runner.mjs",
-      "relativePath": "scripts/story-summary-replay-runner.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 34945
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.config.example.json",
-      "relativePath": "scripts/story-summary-replay.config.example.json",
-      "extension": ".json",
-      "sizeBytes": 1790
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/alignment-check.mjs",
-      "relativePath": "scripts/story-summary-replay/alignment-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 14717
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/api-client.mjs",
-      "relativePath": "scripts/story-summary-replay/api-client.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 10173
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/build-bundle.mjs",
-      "relativePath": "scripts/story-summary-replay/build-bundle.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2322
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/config.mjs",
-      "relativePath": "scripts/story-summary-replay/config.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 3079
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/diagnostics-check.mjs",
-      "relativePath": "scripts/story-summary-replay/diagnostics-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 9527
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/entry.mjs",
-      "relativePath": "scripts/story-summary-replay/entry.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 94577
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/memory-maintenance-storage-check.mjs",
-      "relativePath": "scripts/story-summary-replay/memory-maintenance-storage-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 5758
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/natural-runtime.mjs",
-      "relativePath": "scripts/story-summary-replay/natural-runtime.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8117
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/preflight.mjs",
-      "relativePath": "scripts/story-summary-replay/preflight.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4367
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/prepared-config.mjs",
-      "relativePath": "scripts/story-summary-replay/prepared-config.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 7031
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/prepared-resume.mjs",
-      "relativePath": "scripts/story-summary-replay/prepared-resume.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 7715
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/prompt-packing-check.mjs",
-      "relativePath": "scripts/story-summary-replay/prompt-packing-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 24864
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/recall-execution.mjs",
-      "relativePath": "scripts/story-summary-replay/recall-execution.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 3062
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/request-journal.mjs",
-      "relativePath": "scripts/story-summary-replay/request-journal.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 25885
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/request-recovery.mjs",
-      "relativePath": "scripts/story-summary-replay/request-recovery.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4743
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/response-archive.mjs",
-      "relativePath": "scripts/story-summary-replay/response-archive.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 4754
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/rollback-storage-check.mjs",
-      "relativePath": "scripts/story-summary-replay/rollback-storage-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 7416
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/sample.mjs",
-      "relativePath": "scripts/story-summary-replay/sample.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 2701
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/extensions.js",
-      "relativePath": "scripts/story-summary-replay/shims/extensions.js",
-      "extension": ".js",
-      "sizeBytes": 1469
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/host-chat-completions-client.js",
-      "relativePath": "scripts/story-summary-replay/shims/host-chat-completions-client.js",
-      "extension": ".js",
-      "sizeBytes": 4472
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/metadata-confirmation.js",
-      "relativePath": "scripts/story-summary-replay/shims/metadata-confirmation.js",
-      "extension": ".js",
-      "sizeBytes": 1049
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/openai.js",
-      "relativePath": "scripts/story-summary-replay/shims/openai.js",
-      "extension": ".js",
-      "sizeBytes": 659
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/script.js",
-      "relativePath": "scripts/story-summary-replay/shims/script.js",
-      "extension": ".js",
-      "sizeBytes": 329
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/utils.js",
-      "relativePath": "scripts/story-summary-replay/shims/utils.js",
-      "extension": ".js",
-      "sizeBytes": 180
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/source-lifecycle-check.mjs",
-      "relativePath": "scripts/story-summary-replay/source-lifecycle-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 8323
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/summary-request-check.mjs",
-      "relativePath": "scripts/story-summary-replay/summary-request-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 6165
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/summary-request.mjs",
-      "relativePath": "scripts/story-summary-replay/summary-request.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 986
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/summary-response-check.mjs",
-      "relativePath": "scripts/story-summary-replay/summary-response-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 12710
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/swipe-rollback-check.mjs",
-      "relativePath": "scripts/story-summary-replay/swipe-rollback-check.mjs",
-      "extension": ".mjs",
-      "sizeBytes": 6747
+      "sizeBytes": 5914
     },
     {
       "source": "littlewhitebox",

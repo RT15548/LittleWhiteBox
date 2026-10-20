@@ -46,16 +46,16 @@ NovelAI V5 作为新增能力接入，不替代 V4.5，也不改变现有默认�
 
 
 
-## 4. 已确认的 V5 外部协议
+## 4. V5 外部协议
 
 ### 4.1 模型 ID
 
-| 展示名称 | 模型 ID | 本期范围 |
+| 展示名称 | 模型 ID | 支持范围 |
 | --- | --- | --- |
 | NAI Diffusion V5 Full | `nai-diffusion-5-full` | 支持 |
 | NAI Diffusion V5 Curated | `nai-diffusion-5-curated` | 支持 |
-| V5 Full Inpainting | `nai-diffusion-5-full-inpainting` | 不在本期范围 |
-| V5 Curated Inpainting | `nai-diffusion-5-curated-inpainting` | 不在本期范围 |
+| V5 Full Inpainting | `nai-diffusion-5-full-inpainting` | 不支持 |
+| V5 Curated Inpainting | `nai-diffusion-5-curated-inpainting` | 不支持 |
 
 ### 4.2 请求端点与格式
 
@@ -113,7 +113,7 @@ V5 的 `parameters.stream` 固定为 `msgpack`，`params_version` 固定为 `4`�
 | `straight_alpha` | `true` |
 | `tag_hint_transparent_background` | 参数默认态为 `false`；关闭时出站请求删除该字段 |
 
-`tag_hint_qt` 与 `tag_hint_uc_preset` 不是 V5 请求必填项。官方客户端在它们不是数字时会删除；本期没有对应产品设置，不应虚构或持久化这两个字段。
+`tag_hint_qt` 与 `tag_hint_uc_preset` 不是 V5 请求必填项。官方客户端在它们不是数字时会删除；插件不提供对应设置，也不持久化这两个字段。
 
 除预设可编辑值与 seed 外，V5 `generate` 的出站 payload 还应固定包含下列生产协议字段：
 
@@ -188,7 +188,7 @@ Transparent BG + Quality Standard:
 | 关闭 | 不发送 | `true` | 无 |
 | 开启 | `true` | `true` | `transparent background` |
 
-该能力本期只对两个精确 V5 模型 ID 开放。切换回非 V5 模型时不得发送 `tag_hint_transparent_background`、不得追加透明后缀，也不得改写用户保存的固定正向词；`straight_alpha` 是 V5 固定字段，同样不得进入旧请求。
+该能力只对两个精确 V5 模型 ID 开放。切换回非 V5 模型时不得发送 `tag_hint_transparent_background`、不得追加透明后缀，也不得改写用户保存的固定正向词；`straight_alpha` 是 V5 固定字段，同样不得进入旧请求。
 
 ### 4.6 MessagePack 流
 
@@ -232,7 +232,7 @@ N 字节 MessagePack 对象
 }
 ```
 
-本期只消费 `final` 和 `error`。不展示 intermediate 预览，不为它新增 UI 或持久状态。
+插件只消费 `final` 和 `error`，不展示或保存 intermediate 预览。
 
 ## 5. V5 官方 Quality 与 UC
 
@@ -353,7 +353,7 @@ NovelAI 官方 V5 页面明确标注每个场景最多 22 个角色。
 - 用户限制大于 22 时，V5 实际上限仍为 22。
 - 参数编辑区的角色数输入在 V5 下允许到 22；非 V5 保持现有限制，不用 HTML 中写死的 `max=10` 截断 V5 保存值。
 - 不要求 Scene Planner 为了利用能力而主动增加角色数量。
-- 非 V5 模型保持当前数量行为，本期不顺带修改。
+- 非 V5 模型沿用各自的角色数量规则。
 
 ### 6.4 文字与新标签
 
@@ -493,22 +493,7 @@ V5 模型下，同一区域同时显示三态 Quality 和五态 UC。切换到�
 
 ## 9. 内部数据边界
 
-新增模型能力定义建议位于 NovelAI Provider 内，例如：
-
-```js
-{
-    id: 'nai-diffusion-5-full',
-    family: 'v5',
-    paramsVersion: 4,
-    transport: 'msgpack-stream',
-    tagGuide: 'v5',
-    positioning: 'normalized-coordinate',
-    maxCharacters: 22,
-    transparency: true,
-}
-```
-
-该定义是静态代码，不持久化到用户设置。
+模型能力由 Provider 的 [novel-model-capabilities.js](../modules/draw/providers/novelai/novel-model-capabilities.js) 唯一定义，按精确模型 ID 解析传输、指南、坐标和参数能力；不持久化到用户设置。
 
 `promptPresets[] + selectedPromptPresetId` 是用户提示词配置的唯一持久化事实。现有 `customPrompts` 只是活动预设的重复副本，V5 配置迁移时从 Provider 持久化白名单删除；设置页尚未保存的编辑草稿只活在 iframe 当前运行内，Prompt 预览和实际请求都从选中预设加本次草稿显式构造，不再双写或双读 `customPrompts`。
 
@@ -528,12 +513,7 @@ V5 的最终角色上限先在 Provider 计算：用户值为 `0` 时取 22，�
 
 旧网格转换必须保持现有映射：A-E / 1-5 分别对应 `0.1 / 0.3 / 0.5 / 0.7 / 0.9`。转换完成后，`task.chars[].center` 只有坐标对象这一种内部类型；请求构造层不得同时处理字符串和对象。
 
-这项共享契约变化必须同步更新所有消费者：
-
-- `modules/draw/shared/draw-common.js`：不再对已经规范化的 `center` 调用 `gridToCoord`。
-- `modules/draw/providers/novelai/novel-draw.js`：删除本地重复的 `gridToCoord`，直接透传规范化坐标。
-- SD WebUI 与 ComfyUI 的 `assembleCharacterPrompts` 调用链：确认继续接受坐标对象，且 Prompt 文本行为不变。
-- `scene-plan-contract`、SD、ComfyUI 和 NovelAI 的行为测试：共同锁定旧网格映射与 V5 自由坐标。
+共享绘图和三家 Provider 均消费规范化坐标，不重复执行网格转换。`scene-plan-contract` 与 Provider 行为测试共同覆盖旧网格映射及 V5 自由坐标。
 
 ## 10. 传输层终态
 
@@ -588,7 +568,7 @@ MessagePack 解码使用锁定版本的成熟依赖（`@msgpack/msgpack`），�
 - 流缓存必须有总大小和单帧大小上限。
 - 不完整长度头、不完整帧、非法 MessagePack、未知事件和无 final 结束都必须返回明确错误。
 - 用户取消时立即取消 reader 和上游请求。
-- 本期 `n_samples` 固定为 1；解析器仍按 `samp_ix` 校验，不猜测样本顺序。
+- `n_samples` 固定为 1；解析器按 `samp_ix` 校验，不猜测样本顺序。
 
 
 
