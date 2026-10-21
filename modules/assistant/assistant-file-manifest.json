@@ -3,13 +3,6 @@
   "files": [
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/AGENTS.md",
-      "relativePath": "AGENTS.md",
-      "extension": ".md",
-      "sizeBytes": 1956
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/README.md",
       "relativePath": "README.md",
       "extension": ".md",
@@ -1588,7 +1581,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 216379
+      "sizeBytes": 214019
     },
     {
       "source": "littlewhitebox",
@@ -1609,7 +1602,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
       "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 65022
+      "sizeBytes": 64047
     },
     {
       "source": "littlewhitebox",
@@ -1644,7 +1637,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 74477
+      "sizeBytes": 73467
     },
     {
       "source": "littlewhitebox",
@@ -1798,7 +1791,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/floating-panel.js",
       "relativePath": "modules/draw/providers/sd-webui/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 64981
+      "sizeBytes": 64006
     },
     {
       "source": "littlewhitebox",
@@ -1812,7 +1805,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 176094
+      "sizeBytes": 173782
     },
     {
       "source": "littlewhitebox",
@@ -1834,6 +1827,13 @@
       "relativePath": "modules/draw/shared/agent-settings-surface.js",
       "extension": ".js",
       "sizeBytes": 11655
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/api-preset-page.js",
+      "relativePath": "modules/draw/shared/api-preset-page.js",
+      "extension": ".js",
+      "sizeBytes": 4688
     },
     {
       "source": "littlewhitebox",
@@ -2358,14 +2358,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/max-images-input.js",
       "relativePath": "modules/draw/shared/max-images-input.js",
       "extension": ".js",
-      "sizeBytes": 9627
+      "sizeBytes": 11365
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/max-images-override.js",
       "relativePath": "modules/draw/shared/max-images-override.js",
       "extension": ".js",
-      "sizeBytes": 3598
+      "sizeBytes": 3968
     },
     {
       "source": "littlewhitebox",
@@ -2625,6 +2625,13 @@
       "relativePath": "modules/draw/shared/slot-activity.js",
       "extension": ".js",
       "sizeBytes": 407
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/api-preset-page.test.js",
+      "relativePath": "modules/draw/shared/tests/api-preset-page.test.js",
+      "extension": ".js",
+      "sizeBytes": 4024
     },
     {
       "source": "littlewhitebox",
