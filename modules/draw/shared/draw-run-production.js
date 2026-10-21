@@ -177,6 +177,14 @@ export async function submitProviderDrawRun({
             'DRAW_RUN_BACKEND_OUTDATED',
         );
     }
+    // 自定义工具块要运行用户写的代码，代码只在浏览器沙盒里执行；后台任务不会也不能执行它，
+    // 所以带自定义工具的请求结构不提交后台，给出可操作的提示。
+    if (prepared?.planner?.customTools?.length) {
+        throw new DrawRunProductionError(
+            '请求结构里启用了自定义工具块（会运行你写的代码），代码只能在浏览器里运行。请关闭“后台任务”后使用浏览器流程，或在请求结构里停用工具块。',
+            'DRAW_RUN_CUSTOM_TOOLS_UNSUPPORTED',
+        );
+    }
     // 旧版后台插件的请求校验不认识 planner.retry；它不会重试，但也不能因此拒绝整个任务。
     if (prepared?.planner && !status.capabilities.includes(DRAW_RUN_PLANNER_RETRY_CAPABILITY)) {
         delete prepared.planner.retry;

@@ -3431,7 +3431,7 @@ test('an exported V4 file imports back to the same layout, and the host strips t
         return source.slice(start, source.indexOf("\n        case '", start + 1));
     };
     const importCase = caseBody('IMPORT_PROMPT_PRESET');
-    assert.match(importCase, /const \{ layoutNotes = \[\], \.\.\.presetFields \} = imported/);
+    assert.match(importCase, /const \{ layoutNotes = \[\], disabledToolBlocks = 0, \.\.\.presetFields \} = imported/);
     assert.match(importCase, /\.\.\.presetFields/);
     assert.doesNotMatch(importCase, /\.\.\.imported/, '修复说明不进存储');
     assert.match(importCase, /layoutNotes\.join/, '修复说明出现在完成消息里');
@@ -3444,7 +3444,7 @@ test('host source: layout is kept by normalizeSettings, copied by duplicate, sav
         assert.ok(start >= 0, name);
         return source.slice(start, source.indexOf("\n        case '", start + 1));
     };
-    assert.match(source, /import \{ layoutForStorage \} from "\.\.\/\.\.\/shared\/scene-planner-layout\.js";/);
+    assert.match(source, /import \{ layoutForStorage, normalizeLayout \} from "\.\.\/\.\.\/shared\/scene-planner-layout\.js";/);
     const rebuild = source.slice(source.indexOf('merged.promptPresets = merged.promptPresets.map('), source.indexOf('// ── 消息过滤规则规范化'));
     assert.match(rebuild, /layoutForStorage\(preset\.layout\)/);
     assert.match(rebuild, /if \(layout\) normalized\.layout = layout/, '默认 / 缺省布局不写字段');
@@ -3495,4 +3495,35 @@ test('a collapsed prompt list shows the newly selected preset and keeps its menu
     panel.click(promptMenuButton(panel, 't1'));
     panel.initData({ paramsPresets: threePresets(), selectedParamsPresetId: 'p1', promptPresets: threePrompts(), selectedPromptPresetId: 't3', modelGuideDefaults: { 'v4.5': 'GUIDE-DEFAULT' } });
     sameJson(promptRowIds(panel), ['t3'], '折叠时跟着当前使用的预设走');
+});
+test('importing a template with enabled tool code asks first: confirm keeps it enabled, cancel imports it disabled, no tool code asks nothing', async (t) => {
+    const importFile = async (panel, payload) => {
+        const input = panel.$('#nd_prompt_preset_import');
+        Object.defineProperty(input, 'files', { configurable: true, value: [{ name: '带工具.json', text: async () => JSON.stringify(payload) }] });
+        input.dispatchEvent(new panel.document.defaultView.Event('change', { bubbles: true }));
+        await tick();
+        return sentBodies(panel).filter(message => message.type === 'IMPORT_PROMPT_PRESET');
+    };
+    const tool = { id: 'msg-tool01', role: 'system', name: '防截断2.0', content: 'x', enabled: true, kind: 'tool', code: 'return { name: "game_content", action() {} };' };
+    const payload = { _type: 'novel-draw-prompt-template', _version: 4, topSystem: 's', sceneRules: 'r', layout: { version: 1, blocks: [tool] } };
+
+    const accepted = loadPanel(t);
+    showPromptPresets(accepted);
+    accepted.answers.confirm.push(true);
+    const [acceptedMessage] = await importFile(accepted, payload);
+    assert.equal(accepted.dialogs.confirms.length, 1);
+    assert.match(accepted.dialogs.confirms[0], /这份模板含自定义工具代码：确定=启用，取消=导入但先关闭。只启用你信任的模板。/);
+    assert.equal(acceptedMessage.keepToolBlocks, true);
+
+    const declined = loadPanel(t);
+    showPromptPresets(declined);
+    declined.answers.confirm.push(false);
+    const [declinedMessage] = await importFile(declined, payload);
+    assert.equal(declinedMessage.keepToolBlocks, false);
+
+    const plain = loadPanel(t);
+    showPromptPresets(plain);
+    const [plainMessage] = await importFile(plain, { ...payload, layout: { version: 1, blocks: [{ ...tool, enabled: false }] } });
+    assert.equal(plain.dialogs.confirms.length, 0, '工具块本来就是关着的：没有代码会运行，不用问');
+    assert.equal(Object.hasOwn(plainMessage, 'keepToolBlocks'), false);
 });

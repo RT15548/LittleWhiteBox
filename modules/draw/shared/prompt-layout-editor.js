@@ -12,11 +12,16 @@
 // - 展开（手风琴）：同一时间最多展开一条自定义消息；新添加的消息插在它的下方并成为新的展开项。
 // - 选择（多选）：“多选”按钮或 Ctrl / Shift 点击行头；选中的行拖动时整组一起动，选择条里可批量复制 / 删除 / 启用 / 停用。
 //   复制与删除只针对自定义块，内置块自动跳过。删除和批量复制后出现“撤销”条，还原操作前的整份布局。
+// - 工具块：自定义块的一种（“添加工具”），多一个代码框。编辑器只做文本层面的提示（从代码里读出 name），不执行代码；
+//   “试运行”经 onTestTool 交给宿主在沙盒里跑，结果显示在块里。
 
 import {
     CUSTOM_BLOCK_ROLES,
+    MAX_TOOL_BLOCKS,
+    TOOL_BLOCK_KIND,
     addBlockAfter,
     createCustomBlock,
+    createToolBlock,
     createDefaultLayout,
     describeBlock,
     duplicateBlocks,
@@ -32,6 +37,7 @@ import {
     updateBlock,
 } from './scene-planner-layout.js';
 import { createSortableList, moveIdToIndex } from './sortable-list.js';
+import { DEFAULT_TOOL_CODE, DEFAULT_TOOL_INSTRUCTION, extractToolName } from './custom-tools.js';
 
 // 页面是普通脚本、拿不到 scene-planner-layout.js，经本模块转手（指纹 / 默认判断 / 存储形态都以契约模块为准）。
 export { createDefaultLayout, isDefaultLayout, layoutFingerprint, layoutForStorage, normalizeLayout };
@@ -103,6 +109,7 @@ function blocksOf(layout) {
  * @param {function(string): void} [options.announce] 额外的播报通道（组件自带一条 aria-live 状态行，这里是可选的镜像）
  * @param {function(PointerEvent, Element): void} [options.autoScroll] 拖拽中靠近边缘时滚动（第二个参数是列表容器）
  * @param {function(): string} [options.getDisabledReason] 返回非空字符串 = 编辑器停用并显示这段说明（例如宿主版本太旧）
+ * @param {function(object): Promise<{ok: boolean, message: string}>} [options.onTestTool] 工具块“试运行”：宿主在沙盒里读出这个块的工具定义，返回要显示的结果；不传则不显示按钮
  * @param {function(): number} [options.random] 自定义块 id 的随机源，默认 Math.random
  * @returns {{render: function(object=): void, setLayout: function(object): void, refreshSummaries: function(): void, refreshStatus: function(): void, getLayout: function(): object, destroy: function(): void}}
  */
@@ -118,6 +125,7 @@ export function createPromptLayoutEditor({
     announce = null,
     autoScroll = null,
     getDisabledReason = null,
+    onTestTool = null,
     random = Math.random,
 } = {}) {
     if (!document || !container || typeof onChange !== 'function') throw new TypeError('缺少 document / container / onChange');
@@ -146,6 +154,7 @@ export function createPromptLayoutEditor({
     const titleNode = create(document, 'span', { className: 'lwb-ple-title', text: '请求结构' });
     const dirtyBadge = create(document, 'span', { className: 'lwb-ple-dirty', text: '未保存', attrs: { hidden: true, 'data-ple-dirty': '' } });
     const addButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-primary', text: '添加消息', attrs: { type: 'button', 'data-ple-add': '', title: '在当前展开的消息下方添加一条自定义消息（没有展开项时，加在最近选中的消息下方，再没有就加在末尾）' } });
+    const addToolButton = create(document, 'button', { className: 'lwb-ple-btn', text: '添加工具', attrs: { type: 'button', 'data-ple-add-tool': '', title: `添加一个自定义工具块：写一段 JS 定义工具，模型可以在规划时调用它（最多 ${MAX_TOOL_BLOCKS} 个）。代码在浏览器沙盒里运行` } });
     const selectModeButton = create(document, 'button', { className: 'lwb-ple-btn', text: '多选', attrs: { type: 'button', 'data-ple-select-mode': '', 'aria-pressed': 'false', title: '显示选择框；也可以按住 Ctrl / Shift 点击消息行选择（Shift 选范围）' } });
     const resetButton = create(document, 'button', { className: 'lwb-ple-btn', text: '恢复默认结构', attrs: { type: 'button', 'data-ple-reset': '', title: '恢复内置块的默认顺序并移除自定义消息（只改草稿，保存后才生效）' } });
     const hint = create(document, 'p', {
@@ -170,7 +179,7 @@ export function createPromptLayoutEditor({
     const status = create(document, 'div', { className: 'lwb-ple-status', attrs: { role: 'status', 'aria-live': 'polite', 'data-ple-status': '' } });
     root.appendChild(create(document, 'div', { className: 'lwb-ple-head' }, [
         create(document, 'div', { className: 'lwb-ple-headline' }, [titleIcon, titleNode, dirtyBadge]),
-        create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, selectModeButton, resetButton]),
+        create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, addToolButton, selectModeButton, resetButton]),
     ]));
     root.appendChild(hint);
     root.appendChild(notice);
@@ -206,9 +215,21 @@ export function createPromptLayoutEditor({
         return create(document, 'span', { className: `lwb-ple-role ${role}`, text: role, attrs: { 'data-ple-role': '' } });
     }
 
+    const isTool = block => block?.kind === TOOL_BLOCK_KIND;
+
     function customTitle(block) {
         const name = String(block.name || '').trim();
-        return name || previewText(block.content) || EMPTY_TITLE;
+        if (name) return name;
+        if (isTool(block)) return extractToolName(block.code) || previewText(block.content) || '自定义工具';
+        return previewText(block.content) || EMPTY_TITLE;
+    }
+
+    // 工具块的“读到的工具名”提示：只是文本匹配，不代表代码能跑通。
+    function toolNameText(block) {
+        const found = extractToolName(block.code);
+        return found
+            ? `从代码读到的工具名：${found}（试运行或实际规划时才会真正校验）`
+            : '没有从代码里读到 name，请检查 return 的对象里是否写了 name: "…"';
     }
 
     function buildHandle(block, label) {
@@ -275,21 +296,41 @@ export function createPromptLayoutEditor({
             attrs: { type: 'text', 'data-ple-field': 'name', placeholder: '名称（可选，仅用于区分，会作为消息的 name 发送）', autocomplete: 'off' },
         });
         nameInput.value = block.name || '';
+        const tool = isTool(block);
         const textarea = create(document, 'textarea', {
             className: 'lwb-ple-textarea',
-            attrs: { rows: '6', 'data-ple-field': 'content', placeholder: '消息内容' },
+            attrs: { rows: tool ? '3' : '6', 'data-ple-field': 'content', placeholder: tool ? '说明（随请求发给模型的一条消息，告诉它怎么用这个工具；可留空）' : '消息内容' },
         });
         textarea.value = block.content || '';
-        return create(document, 'div', { className: 'lwb-ple-body' }, [
+        const children = [
             create(document, 'div', { className: 'lwb-ple-fields' }, [
-                create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: '角色' }), roleSelect]),
+                create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: tool ? '说明消息的角色' : '角色' }), roleSelect]),
                 create(document, 'label', { className: 'lwb-ple-field lwb-ple-field-grow' }, [create(document, 'span', { text: '名称' }), nameInput]),
             ]),
-            create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: '内容' }), textarea]),
-            create(document, 'div', { className: 'lwb-ple-body-actions' }, [
-                create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-danger', text: '删除此消息', attrs: { type: 'button', 'data-ple-field': 'delete' } }),
-            ]),
-        ]);
+            create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: tool ? '说明' : '内容' }), textarea]),
+        ];
+        if (tool) {
+            const code = create(document, 'textarea', {
+                className: 'lwb-ple-textarea lwb-ple-code',
+                attrs: { rows: '12', 'data-ple-field': 'code', placeholder: 'return { name, description, parameters, action: async (args) => … };', spellcheck: 'false', autocomplete: 'off' },
+            });
+            code.value = block.code || '';
+            children.push(
+                create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: '工具代码' }), code]),
+                create(document, 'p', { className: 'lwb-ple-tool-name', text: toolNameText(block), attrs: { 'data-ple-tool-name': '' } }),
+                create(document, 'p', { className: 'lwb-ple-tool-warning', text: '代码在浏览器的沙盒里运行，读不到酒馆页面和存储，但仍可联网。只启用你信任的代码；导入带工具代码的模板时会先问你是否启用。' }),
+            );
+            if (onTestTool) {
+                children.push(create(document, 'div', { className: 'lwb-ple-body-actions' }, [
+                    create(document, 'button', { className: 'lwb-ple-btn', text: '试运行（读取工具定义）', attrs: { type: 'button', 'data-ple-field': 'test' } }),
+                    create(document, 'span', { className: 'lwb-ple-tool-result', attrs: { 'data-ple-tool-result': '', role: 'status' } }),
+                ]));
+            }
+        }
+        children.push(create(document, 'div', { className: 'lwb-ple-body-actions' }, [
+            create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-danger', text: tool ? '删除此工具' : '删除此消息', attrs: { type: 'button', 'data-ple-field': 'delete' } }),
+        ]));
+        return create(document, 'div', { className: 'lwb-ple-body' }, children);
     }
 
     function buildCustomRow(block) {
@@ -309,13 +350,14 @@ export function createPromptLayoutEditor({
             attrs: { type: 'button', 'data-ple-field': 'main', 'aria-expanded': open ? 'true' : 'false', title: open ? '收起' : '展开编辑' },
         }, [
             create(document, 'span', { className: `lwb-ple-label${String(block.name || '').trim() ? '' : ' muted'}`, text: title, attrs: { 'data-ple-title': '' } }),
-            create(document, 'span', { className: 'lwb-ple-count', text: `${block.content.length} 字`, attrs: { 'data-ple-count': '' } }),
+            create(document, 'span', { className: 'lwb-ple-count', text: isTool(block) ? `${block.code.length} 字代码` : `${block.content.length} 字`, attrs: { 'data-ple-count': '' } }),
             create(document, 'span', { className: 'lwb-ple-chevron', text: open ? '▾' : '▸', attrs: { 'aria-hidden': 'true' } }),
         ]);
         row.appendChild(create(document, 'div', { className: 'lwb-ple-line' }, [
             buildHandle(block, title),
             buildSelectBox(block, title),
             roleBadge(block.role),
+            ...(isTool(block) ? [create(document, 'span', { className: 'lwb-ple-tool-tag', text: '工具', attrs: { title: '自定义工具块：带一段在沙盒里运行的代码', 'data-ple-tool-tag': '' } })] : []),
             create(document, 'label', { className: 'lwb-ple-toggle' }, [toggle]),
             main,
         ]));
@@ -333,7 +375,9 @@ export function createPromptLayoutEditor({
             titleNode.setAttribute('class', `lwb-ple-label${hasName ? '' : ' muted'}`);
         }
         const count = row.querySelector('[data-ple-count]');
-        if (count) count.textContent = `${block.content.length} 字`;
+        if (count) count.textContent = isTool(block) ? `${block.code.length} 字代码` : `${block.content.length} 字`;
+        const toolName = row.querySelector('[data-ple-tool-name]');
+        if (toolName) toolName.textContent = toolNameText(block);
         const badge = row.querySelector('[data-ple-role]');
         if (badge) {
             badge.setAttribute('class', `lwb-ple-role ${block.role}`);
@@ -407,9 +451,10 @@ export function createPromptLayoutEditor({
         setHidden(notice, !reason);
         setHidden(hint, Boolean(reason));
         addButton.disabled = Boolean(reason);
+        addToolButton.disabled = Boolean(reason);
         selectModeButton.disabled = Boolean(reason);
         resetButton.disabled = Boolean(reason) || isDefaultLayout(layout);
-        for (const button of [addButton, selectModeButton, resetButton]) {
+        for (const button of [addButton, addToolButton, selectModeButton, resetButton]) {
             if (button.disabled) button.setAttribute('disabled', ''); else button.removeAttribute('disabled');
         }
     }
@@ -639,6 +684,41 @@ export function createPromptLayoutEditor({
             : `已在末尾添加一条自定义消息，共 ${total} 项`);
     }
 
+    function handleAddTool() {
+        if (disabledReason()) return;
+        const layout = readLayout();
+        const blocks = blocksOf(layout);
+        if (blocks.filter(isTool).length >= MAX_TOOL_BLOCKS) {
+            say(`工具块最多 ${MAX_TOOL_BLOCKS} 个，请先删除不用的`);
+            return;
+        }
+        const anchorBlock = blocks.find(block => block.id === insertionAnchorId(blocks)) || null;
+        const block = createToolBlock({ content: DEFAULT_TOOL_INSTRUCTION, code: DEFAULT_TOOL_CODE }, blocks.map(item => item.id), random);
+        expandOnly(block.id);
+        pendingFocus = { id: block.id, field: 'code' };
+        commit(addBlockAfter(layout, block, anchorBlock?.id));
+        const row = Array.from(list.querySelectorAll(ROW_SELECTOR)).find(item => item.getAttribute('data-block-id') === block.id);
+        row?.scrollIntoView?.({ block: 'nearest' });
+        say(anchorBlock
+            ? `已在“${labelOf(anchorBlock)}”下方添加一个自定义工具块，先看看代码再启用`
+            : '已在末尾添加一个自定义工具块，先看看代码再启用');
+    }
+
+    async function handleTestTool(id, row) {
+        const block = blocksOf(readLayout()).find(item => item.id === id);
+        const output = row?.querySelector?.('[data-ple-tool-result]');
+        if (!block || !onTestTool || !output) return;
+        output.textContent = '读取中…';
+        try {
+            const outcome = await onTestTool(block);
+            output.textContent = String(outcome?.message || (outcome?.ok ? '可用' : '不可用'));
+            output.setAttribute('data-ok', outcome?.ok ? 'true' : 'false');
+        } catch (error) {
+            output.textContent = String(error?.message || '试运行失败');
+            output.setAttribute('data-ok', 'false');
+        }
+    }
+
     function handleReset() {
         if (disabledReason()) return;
         const layout = readLayout();
@@ -769,12 +849,14 @@ export function createPromptLayoutEditor({
         } else if (hit.field === 'main') toggleExpanded(hit.id);
         else if (hit.field === 'edit') onEditBuiltin?.(hit.id);
         else if (hit.field === 'delete') handleDelete(hit.id);
+        else if (hit.field === 'test') handleTestTool(hit.id, hit.row);
     });
     listen(list, 'input', (event) => {
         const hit = fieldOf(event);
         if (!hit) return;
         if (hit.field === 'name') handlePatch(hit.id, { name: hit.node.value }, hit.row);
         else if (hit.field === 'content') handlePatch(hit.id, { content: hit.node.value }, hit.row);
+        else if (hit.field === 'code') handlePatch(hit.id, { code: hit.node.value }, hit.row);
     });
     listen(list, 'change', (event) => {
         const hit = fieldOf(event);
@@ -783,6 +865,7 @@ export function createPromptLayoutEditor({
         else if (hit.field === 'role') handlePatch(hit.id, { role: hit.node.value }, hit.row);
     });
     listen(addButton, 'click', handleAdd);
+    listen(addToolButton, 'click', handleAddTool);
     listen(resetButton, 'click', handleReset);
     listen(selectModeButton, 'click', toggleSelectMode);
     listen(copyButton, 'click', handleBulkCopy);

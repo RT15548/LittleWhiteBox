@@ -525,3 +525,32 @@ test('a non-legacy planner request layout needs the layout capability; the legac
         assert.equal(blocked.submitted, 0);
     }
 });
+
+test('a request layout with custom tool blocks is never sent to the backend, with an actionable message', async () => {
+    const message = { mes: 'hello', extra: {} };
+    let submitted = 0;
+    let created = 0;
+    const capabilities = [
+        'image-batch-jobs-v1', DRAW_RUNS_CAPABILITY, DRAW_RUN_RUNTIME_CAPABILITY,
+        DRAW_WORK_CANCELLATION_CAPABILITY, DRAW_RUN_PLANNER_RETRY_CAPABILITY, DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
+    ];
+    await assert.rejects(submitProviderDrawRun(baseOptions({
+        message,
+        ctx: { chat: [message], getRequestHeaders: () => ({}) },
+        statusLoader: async () => ({ ready: true, version: REQUIRED_DRAW_RUN_PLUGIN_VERSION, capabilities }),
+        preparePlanner: async () => ({
+            planner: {
+                prompt: { systemPrompt: 's', messages: [{ role: 'user', content: 'u' }] },
+                validationContext: {},
+                customTools: [{ name: 'note', description: '', parameters: { type: 'object', properties: {} }, stealth: false }],
+            },
+        }),
+        createGenerationRecipe: () => { created += 1; return {}; },
+        submit: async () => { submitted += 1; return { status: 'accepted', runId: 'run-x' }; },
+    })), (error) => error instanceof DrawRunProductionError
+        && error.code === 'DRAW_RUN_CUSTOM_TOOLS_UNSUPPORTED'
+        && /代码只能在浏览器里运行/.test(error.message)
+        && /关闭“后台任务”/.test(error.message));
+    assert.equal(created, 0);
+    assert.equal(submitted, 0);
+});

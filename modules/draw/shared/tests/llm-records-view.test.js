@@ -5,6 +5,7 @@ import { parseHTML } from 'linkedom';
 
 import {
     buildReturnAttempts,
+    buildToolCallSections,
     createLlmRecordsView,
     describeRecord,
     filterRecords,
@@ -140,4 +141,24 @@ test('the style is added once and destroy empties the container', () => {
     assert.equal(document.querySelectorAll('#xb-llm-records-style').length, 1);
     view.destroy();
     assert.equal(document.getElementById('box').children.length, 0);
+});
+
+test('custom tool calls get their own section with arguments, result or error', () => {
+    const record = {
+        ...SUCCESS,
+        customToolCalls: [
+            { attempt: 1, name: 'note', arguments: { content: 'x' }, result: '{"ok":true}', durationMs: 12 },
+            { attempt: 2, name: 'boom', arguments: {}, error: '工具炸了', durationMs: 3 },
+        ],
+    };
+    const sections = buildToolCallSections(record);
+    assert.equal(sections.length, 2);
+    assert.match(sections[0].title, /1\. note · 第 1 次请求后 · 12 毫秒/);
+    assert.deepEqual(sections[0].value, { arguments: { content: 'x' }, result: '{"ok":true}' });
+    assert.match(sections[1].title, /出错/);
+    assert.deepEqual(sections[1].value, { arguments: {}, error: '工具炸了' });
+    assert.deepEqual(buildToolCallSections(SUCCESS), []);
+    const { $$ } = mount([record]);
+    assert.deepEqual($$('.lr-sec > summary').map(s => s.textContent), ['模型返回', '自定义工具调用', '请求', '原始 JSON']);
+    assert.ok($$('.lr-pre').some(pre => pre.textContent.includes('工具炸了')));
 });

@@ -14,6 +14,7 @@ import {
     sleepWithAbort,
 } from './planner-retry.js';
 import { logScenePlannerDiagnostic } from './scene-planner-debug.js';
+import { normalizeToolDefinitions, toFunctionTool } from './custom-tools.js';
 
 // 最终失败时告诉用户“已经自动重试过几次”：消息末尾追加一句，details.retryCount 供程序读取。
 // 只在确实重试过（N>0）时才加；不改错误码，也不影响是否重试的判定（判定发生在这之前）。
@@ -58,7 +59,19 @@ function assertPreparedScenePlanner(prepared) {
         throw new ScenePlannerError('Scene Planner 预处理结果无效。', 'PREPARED_INPUT_INVALID');
     }
     assertSubmitScenePlanTool(prepared.planner.tool);
+    readPreparedCustomTools(prepared);
     return prepared;
+}
+
+// 快照里的自定义工具只有定义（名字、说明、参数），没有代码；定义不合格就当快照无效。
+function readPreparedCustomTools(prepared) {
+    const raw = prepared?.planner?.customTools;
+    if (raw === undefined) return [];
+    try {
+        return normalizeToolDefinitions(raw);
+    } catch (error) {
+        throw new ScenePlannerError(`Scene Planner 预处理结果里的自定义工具无效：${error?.message || '未知错误'}`, 'PREPARED_INPUT_INVALID', null, { cause: error });
+    }
 }
 
 /**
@@ -70,7 +83,7 @@ export function createPreparedScenePlannerTask(prepared) {
     return {
         systemPrompt: input.planner.prompt.systemPrompt,
         messages: input.planner.prompt.messages,
-        tools: [input.planner.tool],
+        tools: [input.planner.tool, ...readPreparedCustomTools(input).map(toFunctionTool)],
         toolChoice: 'required',
     };
 }
@@ -147,6 +160,16 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
     const diagnostic = options.diagnostic
         || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
     const task = createPreparedScenePlannerTask(input);
+    const customTools = readPreparedCustomTools(input);
+    // 自定义工具要有能运行它们的宿主（浏览器沙盒）。后台 Draw Run 没有，所以带自定义工具的快照在这里就被拒绝。
+    if (customTools.length && typeof options.customToolHost?.invoke !== 'function') {
+        const error = new ScenePlannerError(
+            '请求结构里启用了自定义工具块，需要在浏览器里运行；后台任务不会执行自定义代码。',
+            'CUSTOM_TOOL_HOST_MISSING',
+        );
+        diagnostic.fail(error, { stage: 'config' });
+        throw error;
+    }
     const validationContext = input.planner.validationContext;
     const preparedProviderConfig = input.agent?.providerConfig || null;
     const logger = options.logger;
@@ -188,6 +211,7 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
                 timeout: options.timeout,
                 signal: options.signal,
                 diagnostic: attemptTracker.diagnostic,
+                ...(customTools.length ? { customTools, customToolHost: options.customToolHost } : {}),
                 ...(options.agentOptions || {}),
                 ...(options.agentCore ? { agentCore: options.agentCore } : {}),
                 ...(Object.hasOwn(options, 'hostClient') ? { hostClient: options.hostClient } : {}),

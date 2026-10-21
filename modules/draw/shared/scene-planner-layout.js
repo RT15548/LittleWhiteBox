@@ -1,6 +1,7 @@
 // 场景规划请求的"块布局"：存储、设置界面、请求组装三方共用的契约（纯函数）。
 // 零依赖：不得 import 任何模块；也不在逻辑里读时间或随机数（id 随机源由调用方注入）。
 // 布局 = 有序块列表：8 个内置块（内容与角色由代码决定，只能移动）+ 任意数量的自定义消息块。
+// 自定义块里有一种“工具块”（kind: 'tool'）：content 是随请求发出的说明消息，code 是用户写的工具代码（只在浏览器沙盒里执行，见 custom-tool-sandbox.js）。
 // 稀疏存储：预设只有在布局偏离默认时才带 layout 字段；内置块只存 {id}，避免内容随版本漂移。
 
 export const SCENE_PLANNER_LAYOUT_VERSION = 1;
@@ -23,6 +24,9 @@ export const BUILTIN_BLOCKS = Object.freeze([
 
 export const BUILTIN_BLOCK_IDS = Object.freeze(BUILTIN_BLOCKS.map(block => block.id));
 export const CUSTOM_BLOCK_ROLES = Object.freeze(['system', 'user', 'assistant']);
+export const TOOL_BLOCK_KIND = 'tool';
+export const MAX_TOOL_BLOCKS = 8;
+export const MAX_TOOL_CODE_CHARS = 20000;
 
 const CUSTOM_LABEL_FALLBACK = '自定义消息';
 const CUSTOM_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -100,6 +104,19 @@ export function createCustomBlock(
     };
 }
 
+/** 工具块：自定义消息块 + 工具代码。说明消息（content）默认用 system 角色。 */
+export function createToolBlock(
+    { role = 'system', name = '', content = '', code = '', enabled = true } = {},
+    existingIds = [],
+    random = Math.random,
+) {
+    return {
+        ...createCustomBlock({ role, name, content, enabled }, existingIds, random),
+        kind: TOOL_BLOCK_KIND,
+        code: coerceText(code).text.slice(0, MAX_TOOL_CODE_CHARS),
+    };
+}
+
 // trimName=false 仅供编辑类纯操作使用：用户边打字边调用时不能把刚输入的空格吃掉。
 // 存储与指纹一律走默认的 trimName=true。
 function normalizeCore(raw, { trimName = true } = {}) {
@@ -138,6 +155,8 @@ function normalizeCore(raw, { trimName = true } = {}) {
     let droppedEntries = 0;
     let duplicateBuiltins = 0;
     let regeneratedIds = 0;
+    let toolBlocks = 0;
+    let droppedTools = 0;
 
     for (const entry of rawBlocks) {
         if (!isRecord(entry)) {
@@ -153,6 +172,13 @@ function normalizeCore(raw, { trimName = true } = {}) {
                 slots.push({ builtin: id });
             }
             continue;
+        }
+        if (entry.kind === TOOL_BLOCK_KIND) {
+            if (toolBlocks >= MAX_TOOL_BLOCKS) {
+                droppedTools += 1;
+                continue;
+            }
+            toolBlocks += 1;
         }
         const idOk = typeof id === 'string' && CUSTOM_ID_PATTERN.test(id) && !used.has(id);
         if (idOk) used.add(id);
@@ -182,17 +208,25 @@ function normalizeCore(raw, { trimName = true } = {}) {
         const nameText = trimName ? nameInfo.text.trim() : nameInfo.text;
         if (nameInfo.coerced || contentInfo.coerced || (trimName && nameText !== nameInfo.text)) coercedFields += 1;
         if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') coercedFields += 1;
-        blocks.push({
+        const custom = {
             id,
             role: roleValid ? entry.role : 'user',
             name: nameText,
             content: contentInfo.text,
             // 角色无效时强制停用：宁可不发，也不悄悄发一条用户没选过角色的消息。
             enabled: roleValid && entry.enabled !== false,
-        });
+        };
+        if (entry.kind === TOOL_BLOCK_KIND) {
+            const codeInfo = coerceText(entry.code);
+            if (codeInfo.coerced) coercedFields += 1;
+            custom.kind = TOOL_BLOCK_KIND;
+            custom.code = codeInfo.text.slice(0, MAX_TOOL_CODE_CHARS);
+        }
+        blocks.push(custom);
     }
 
     if (droppedEntries > 0) notes.push(`丢弃了 ${droppedEntries} 个无效的块条目`);
+    if (droppedTools > 0) notes.push(`工具块最多 ${MAX_TOOL_BLOCKS} 个，多出的 ${droppedTools} 个已丢弃`);
     if (duplicateBuiltins > 0) notes.push(`丢弃了 ${duplicateBuiltins} 个重复的内置块`);
     if (regeneratedIds > 0) notes.push(`为 ${regeneratedIds} 个自定义块重新生成了 id（缺失、非法或重复）`);
     if (invalidRoles > 0) notes.push(`${invalidRoles} 个自定义块的角色无效，已设为 user 并停用`);
@@ -261,7 +295,8 @@ export function describeBlock(block) {
     if (builtin) return { id, builtin: true, role: builtin.role, label: builtin.label };
     const role = isRecord(block) && CUSTOM_BLOCK_ROLES.includes(block.role) ? block.role : 'user';
     const name = isRecord(block) ? coerceText(block.name).text.trim() : '';
-    return { id, builtin: false, role, label: name || CUSTOM_LABEL_FALLBACK };
+    const kind = isRecord(block) && block.kind === TOOL_BLOCK_KIND ? TOOL_BLOCK_KIND : '';
+    return { id, builtin: false, role, label: name || CUSTOM_LABEL_FALLBACK, ...(kind ? { kind } : {}) };
 }
 
 // ---- 纯操作：入参先规范化再改副本，结果再规范化一次，保证出来的永远是合法布局，且不改动入参 ----
@@ -380,6 +415,7 @@ export function updateBlock(layout, id, patch) {
             if (CUSTOM_BLOCK_ROLES.includes(patch.role)) next.role = patch.role;
             if (typeof patch.name === 'string') next.name = patch.name;
             if (typeof patch.content === 'string') next.content = patch.content;
+            if (block.kind === TOOL_BLOCK_KIND && typeof patch.code === 'string') next.code = patch.code.slice(0, MAX_TOOL_CODE_CHARS);
             if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled;
             return next;
         });

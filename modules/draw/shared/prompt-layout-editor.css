@@ -204,3 +204,22 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
     .lwb-ple-select-box { min-width: 44px; min-height: 44px; }
     .lwb-ple-input, .lwb-ple-select { min-height: 44px; }
 }
+
+/* 工具块 */
+.lwb-ple-tool-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    background: #f59e0b22;
+    color: #fbbf24;
+    white-space: nowrap;
+}
+.lwb-ple-textarea.lwb-ple-code { min-height: 200px; white-space: pre; overflow: auto; tab-size: 4; }
+.lwb-ple-tool-name { margin: 0; font-size: 12px; color: var(--text-secondary, #8b949e); overflow-wrap: anywhere; }
+.lwb-ple-tool-warning { margin: 0; font-size: 12px; color: #fbbf24; }
+.lwb-ple-body-actions { align-items: center; gap: 10px; }
+.lwb-ple-tool-result { font-size: 12px; color: var(--text-secondary, #8b949e); overflow-wrap: anywhere; }
+.lwb-ple-tool-result[data-ok="true"] { color: var(--success, #3fb950); }
+.lwb-ple-tool-result[data-ok="false"] { color: var(--danger, #f85149); }

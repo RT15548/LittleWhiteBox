@@ -135,6 +135,26 @@ export function buildReturnAttempts(record) {
     });
 }
 
+/**
+ * 自定义工具调用（请求结构里的工具块）：每次调用一段，标题带工具名、第几次请求和耗时，内容是参数与结果 / 错误。
+ * stealth 的工具在运行时就没有写进记录。
+ */
+export function buildToolCallSections(record) {
+    const calls = Array.isArray(record?.customToolCalls) ? record.customToolCalls : [];
+    return calls.map((call, index) => {
+        const duration = formatDuration(call?.durationMs);
+        const title = [`${index + 1}. ${call?.name || '未命名工具'}`, call?.attempt ? `第 ${call.attempt} 次请求后` : '', duration].filter(Boolean).join(' · ');
+        return {
+            title: call?.error ? `${title} · 出错` : title,
+            kind: 'json',
+            value: {
+                arguments: call?.arguments,
+                ...(call?.error ? { error: call.error } : { result: call?.result }),
+            },
+        };
+    });
+}
+
 // ───────────── 界面 ─────────────
 
 const STYLE_ID = 'xb-llm-records-style';
@@ -298,6 +318,13 @@ export function createLlmRecordsView({ document, container, getRecords }) {
             returns.body.appendChild(box);
         }
         body.appendChild(returns.details);
+
+        const toolSections = buildToolCallSections(record);
+        if (toolSections.length) {
+            const tools = createSection(document, '自定义工具调用');
+            renderBlocks(document, tools.body, toolSections);
+            body.appendChild(tools.details);
+        }
 
         const request = createSection(document, '请求');
         const notices = Array.isArray(record?.notices) ? record.notices.filter(Boolean) : [];
