@@ -21,7 +21,7 @@ function fixture(t, persistResult) {
     };
     open();
     const page = createApiPresetPage({
-        fields: ['host', 'auth'], normalizeConfig,
+        presetOptions: { fields: ['host', 'auth'], normalizeConfig },
         getSettings: () => settings,
         getSettingsDocument: () => document,
         querySettings: selector => document.querySelector(selector),

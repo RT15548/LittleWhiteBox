@@ -266,7 +266,10 @@ function cloneSettingsObject(obj) {
 }
 
 // API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
-const SD_API_PRESET_FIELDS = Object.freeze(Object.keys(normalizeSdApiConfig()));
+const SD_API_PRESET_OPTIONS = Object.freeze({
+    fields: Object.freeze(Object.keys(normalizeSdApiConfig())),
+    normalizeConfig: normalizeSdApiConfig,
+});
 
 function normalizeSdApiConfig(raw = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
@@ -279,8 +282,7 @@ function normalizeSdApiConfig(raw = {}) {
 }
 
 const apiPresets = createApiPresetPage({
-    fields: SD_API_PRESET_FIELDS,
-    normalizeConfig: normalizeSdApiConfig,
+    presetOptions: SD_API_PRESET_OPTIONS,
     getSettings,
     getSettingsDocument,
     querySettings,
@@ -300,7 +302,7 @@ function normalizeSettings(raw = {}) {
     const merged = {
         ...normalizeSdApiConfig(raw),
         transport: 'st-proxy',
-        ...normalizeApiPresetState(raw, apiPresets.options),
+        ...normalizeApiPresetState(raw, SD_API_PRESET_OPTIONS),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
         overrideMaxImages: normalizeMaxImagesOverride(raw.overrideMaxImages),

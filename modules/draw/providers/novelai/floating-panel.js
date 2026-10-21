@@ -602,10 +602,9 @@ const maxImages = createMaxImagesController({
         const settings = getSettings();
         return pickPresetMaxImages(settings.paramsPresets, settings.selectedParamsPresetId);
     },
-    persistOverride: (next, { okText, afterSave }) => persistQuickSetting(
+    persistOverride: (next, { okText }) => updateSettingsPersistent(
         (settings) => { settings.overrideMaxImages = next; },
         okText,
-        afterSave,
     ),
     listInputs: () => [...panelMap.values()].map((data) => data.$cache?.maxImagesInput).concat($floatingCache.maxImagesInput),
     notify: (message) => globalThis.toastr?.warning?.(message),

@@ -11,7 +11,7 @@ import {
 
 /**
  * options:
- *  fields, normalizeConfig            API 配置字段白名单与规范化函数
+ *  presetOptions                     Provider 定义的 API 字段白名单与规范化函数
  *  getSettings()                      当前已保存的设置
  *  getSettingsDocument(), querySettings(selector)   设置页的 document 与查询函数
  *  containerSelector                  预设栏挂载点（改动它自己的控件不触发预设栏刷新）
@@ -21,8 +21,7 @@ import {
  *  confirm / prompt                   可选，缺省用全局同名函数
  */
 export function createApiPresetPage({
-    fields,
-    normalizeConfig,
+    presetOptions,
     getSettings,
     getSettingsDocument,
     querySettings,
@@ -35,7 +34,7 @@ export function createApiPresetPage({
     confirm = message => globalThis.confirm(message),
     prompt = (message, fallback) => globalThis.prompt(message, fallback),
 }) {
-    const options = Object.freeze({ fields, normalizeConfig });
+    const { fields, normalizeConfig } = presetOptions;
     let bar = null;
 
     const getEffectiveConfig = (settings = getSettings()) => pickApiConfig(normalizeConfig(settings), fields);
@@ -44,7 +43,7 @@ export function createApiPresetPage({
         const doc = getSettingsDocument();
         const incoming = normalizeApiPresetState(
             { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
-            options,
+            presetOptions,
         );
         const applied = change.config ? normalizeConfig(change.config) : null;
         const ok = await persist((draft) => {
@@ -90,7 +89,6 @@ export function createApiPresetPage({
     }
 
     return {
-        options,
         ensureBar,
         render: () => bar?.render(),
         runSave,
@@ -102,7 +100,7 @@ export function createApiPresetPage({
                     reason: 'save',
                     activeApiPresetId,
                     config,
-                    apiPresets: syncActiveApiPreset(apiPresets, activeApiPresetId, config, options),
+                    apiPresets: syncActiveApiPreset(apiPresets, activeApiPresetId, config, presetOptions),
                 });
             });
         },

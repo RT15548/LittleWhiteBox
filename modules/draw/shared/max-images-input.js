@@ -252,7 +252,7 @@ export function bindMaxImagesInput(input, { getOverride, save, refresh, notify, 
  * 三个 Provider 的悬浮菜单共用的“数目”控制器：建行、同步、绑定、保存、刷新全部输入框都在这里，
  * Provider 只注入自己的设置读写。
  * - getOverride() 读当前覆盖；getPresetMaxImages() 读当前预设的要求出图数；
- * - persistOverride(next, { okText, afterSave }) 写入 settings.overrideMaxImages 并返回是否成功（成功后调 afterSave）；
+ * - persistOverride(next, { okText }) 只负责持久化并返回是否成功；本控制器统一同步保存后的输入值；
  * - listInputs() 返回所有已创建的“数目”输入框（楼层菜单 + 全局悬浮菜单）；notify(message) 提示。
  */
 export function createMaxImagesController({ getOverride, getPresetMaxImages, persistOverride, listInputs, notify }) {
@@ -265,14 +265,13 @@ export function createMaxImagesController({ getOverride, getPresetMaxImages, per
     // value 已由数字输入框校验：0 = 覆盖为不指定，1-20 的整数 = 覆盖，null = 清除覆盖（跟随预设）。
     const save = async (value) => {
         const next = normalizeMaxImagesOverride(value);
-        const ok = await persistOverride(next, { okText: buildMaxImagesSavedMessage(next), afterSave: updateAll });
-        if (!ok) updateAll();
+        const ok = await persistOverride(next, { okText: buildMaxImagesSavedMessage(next) });
+        updateAll();
         return ok;
     };
     return {
         fill,
         updateAll,
-        save,
         createRow() {
             const row = createMaxImagesInputRow(document);
             fill(row.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`));

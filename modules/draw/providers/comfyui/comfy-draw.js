@@ -388,7 +388,10 @@ function normalizePresets(rawPresets, rawSettings = {}) {
 }
 
 // API 配置预设：只保存“API 配置”页里的字段（含认证信息，仅存本地，与 auth 本身的存储位置相同）。
-const COMFY_API_PRESET_FIELDS = Object.freeze(Object.keys(normalizeComfyApiConfig()));
+const COMFY_API_PRESET_OPTIONS = Object.freeze({
+    fields: Object.freeze(Object.keys(normalizeComfyApiConfig())),
+    normalizeConfig: normalizeComfyApiConfig,
+});
 
 function normalizeComfyApiConfig(raw = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
@@ -402,8 +405,7 @@ function normalizeComfyApiConfig(raw = {}) {
 }
 
 const apiPresets = createApiPresetPage({
-    fields: COMFY_API_PRESET_FIELDS,
-    normalizeConfig: normalizeComfyApiConfig,
+    presetOptions: COMFY_API_PRESET_OPTIONS,
     getSettings,
     getSettingsDocument,
     querySettings,
@@ -435,7 +437,7 @@ function normalizeSettings(raw = {}) {
         overrideMaxImages: normalizeMaxImagesOverride(raw.overrideMaxImages),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
-        ...normalizeApiPresetState(raw, apiPresets.options),
+        ...normalizeApiPresetState(raw, COMFY_API_PRESET_OPTIONS),
         selectedPresetId,
         selectedWorkflowPresetId,
         builtinWorkflowId,

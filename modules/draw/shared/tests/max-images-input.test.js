@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
-import { bindMaxImagesInput, syncMaxImagesInput } from '../max-images-input.js';
+import { createMaxImagesController } from '../max-images-input.js';
 
-// Two reproduced failures need controlled save ordering; lint/build cannot see
-// either lost edit. No provider bundle, host storage, network or real-time waits.
-function fixture(t, size = 1) {
+// Acceptance: late receipts must not erase newer edits; untouched menus must not
+// resubmit stale counts; failed saves restore confirmed values without erasing
+// another menu's draft. Lost edits can silently change paid image request counts.
+function fixture(t, size = 1, { saveSucceeds = true } = {}) {
     const { document, window } = parseHTML('<html><body></body></html>');
     const inputs = Array.from({ length: size }, () => document.body.appendChild(document.createElement('input')));
     let count = 2, release, started;
@@ -13,22 +14,23 @@ function fixture(t, size = 1) {
     const pending = new Promise(resolve => { release = resolve; });
     const saving = new Promise(resolve => { started = resolve; });
     const saves = [];
-    const refresh = (input, force = false) => syncMaxImagesInput(input, { override: count, force });
-    const bindings = inputs.map(input => bindMaxImagesInput(input, {
-        getOverride: () => count, refresh,
-        save: next => {
+    const controller = createMaxImagesController({
+        getOverride: () => count,
+        getPresetMaxImages: () => 0,
+        listInputs: () => inputs,
+        persistOverride: next => {
             const result = providerQueue.then(async () => {
                 saves.push(next);
                 if (saves.length === 1) { started(); await pending; }
-                count = next;
-                inputs.forEach(element => refresh(element));
-                return true;
+                if (saveSucceeds) count = next;
+                return saveSucceeds;
             });
             providerQueue = result;
             return result;
         },
-    }));
-    inputs.forEach(input => refresh(input));
+    });
+    const bindings = inputs.map(input => controller.bind(input));
+    inputs.forEach(input => controller.fill(input));
     t.after(() => bindings.forEach(binding => binding.destroy()));
     const type = (index, value) => { inputs[index].value = value; inputs[index].dispatchEvent(new window.Event('input')); };
     return { document, inputs, bindings, type, saving, release, saves, count: () => count };
@@ -58,6 +60,17 @@ test('focusing an untouched second menu cannot undo a saved count on blur', asyn
     focused = null;
     await h.bindings[1].flush();
     assert.equal(h.count(), 5);
+    assert.deepEqual(h.saves, [5]);
+});
+
+test('a failed count save restores the confirmed value without erasing another menu draft', async t => {
+    const h = fixture(t, 2, { saveSucceeds: false });
+    h.type(0, '5');
+    const saving = h.bindings[0].flush(); await h.saving;
+    h.type(1, '8');
+    h.release(); await saving;
+    assert.equal(h.count(), 2);
+    assert.deepEqual(h.inputs.map(input => input.value), ['2', '8']);
     assert.deepEqual(h.saves, [5]);
 });
 
