@@ -192,6 +192,7 @@ export function createMessageSourceTracker() {
             retain(context);
             const snapshot = capture(context);
             const result = await apply(change);
+            if (result?.status === 'deferred') return { status: 'deferred', change, result };
             if (!result || !['not_needed', 'rolled_back'].includes(result.status)) {
                 return { status: result?.status === 'stale' ? 'stale' : 'failed', change, result };
             }

@@ -8,6 +8,7 @@ import { ARC_PROGRESS_MAX } from '../generate/arc-progress.js';
 import { MEMORY_TOOLS } from './tools.js';
 import { normalizeToolArguments, validateToolArguments } from './arguments.js';
 import { MEMORY_PAGE_CHARS, MEMORY_PAGE_SIZE, OPENING_TOKENS } from './limits.js';
+import { projectMaintenanceResult } from './result.js';
 
 export { projectMemoryRecord } from './records.js';
 export { MEMORY_PAGE_CHARS, MEMORY_PAGE_SIZE, OPENING_TOKENS } from './limits.js';
@@ -364,7 +365,7 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
             const { current, receipt } = saved, id = receipt.id;
             if (acknowledged.has(id)) return;
             if (!pending) return;
-            confirmedOperations.push(...pending.operations);
+            confirmedOperations.push(...projectMaintenanceResult(saved.receipts).operations);
             acknowledged.add(id);
             refresh(current); pending = null; overlay.clear(); conflicts.clear(); observed.clear(); completionBaseline.clear();
         },

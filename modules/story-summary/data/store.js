@@ -25,8 +25,9 @@ import { getRollbackOnceTargetEndMesId } from './summary-history.js';
 import { maintenanceImpact, sameMemory, restoreMaintenance } from '../maintenance/domain.js';
 import { deleteStateVectorsByIds, deleteStateVectorsFromFloor, deleteStateVectorsAtFloors } from '../vector/storage/state-store.js';
 import { readSummaryMemory, getPublishedSummaryMemory, commitSummaryMemory, getMemoryCommitState, assertMemoryWritable, rememberLoadedMemory,
-    getRuntimeInvalidSourceFloor, getRuntimeSourceRollbackFloor, noteInvalidMemorySource, waitForMemoryCommit } from './memory-commit.js';
-import { invalidateMemoryAnchors, invalidateMemoryAnchorsAtFloors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
+    getRuntimeInvalidSourceFloor, getRuntimeSourceRollbackFloor, noteInvalidMemorySource, waitForMemoryCommit,
+    publishSummaryMemory, retireSummaryMemorySources } from './memory-commit.js';
+import { invalidateMemoryAnchors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
@@ -580,12 +581,16 @@ export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
 export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalidateFromFloor = null, invalidateFloors = null, invalidateSourceCache = null } = {}) {
     const { chat, chatId } = getContext();
     const currentLength = Array.isArray(chat) ? chat.length : 0;
-    // Busy is not an error: wait out the in-flight save. The loop re-arms if another
-    // writer takes the transaction first, and commitSummaryMemory re-waits anyway.
-    while (getMemoryCommitState() === 'saving') await waitForMemoryCommit();
+    const ownerStore = getSummaryStore();
+    // Retire synchronously, including the rollback view of an in-flight manual save.
+    retireSummaryMemorySources(chatId, invalidateFloors !== null && changedFromFloor === null
+        ? { floors: invalidateFloors } : { fromFloor: Math.min(currentLength, invalidateFromFloor ?? changedFromFloor ?? currentLength) });
+    const needsUndo = isSummaryRollbackRequired(ownerStore, Math.min(currentLength, changedFromFloor ?? Infinity,
+        ownerStore?.sourceRollbackFromFloor ?? Infinity, getRuntimeSourceRollbackFloor() ?? Infinity));
+    if (!await waitForMemoryCommit(undefined, { recover: needsUndo })) return { status: 'deferred' };
+    if (getContext().chatId !== chatId || getSummaryStore() !== ownerStore) return { status: 'stale' };
     assertMemoryWritable(chatId);
     const store = getSummaryStore();
-    const previous = readSummaryMemory();
     // Cache cleanup failures never imply an L2 undo. Only observed deletion/swipe
     // or an explicitly retained rollback boundary can shorten valid L2 source.
     const validPrefixLength = Math.min(currentLength, changedFromFloor ?? Infinity,
@@ -596,7 +601,10 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
     const localEdit = invalidateFloors !== null && pendingCacheFloor === Infinity
         && validPrefixLength === currentLength && changedFromFloor === null && !rollbackRequired;
     const invalidFrom = Math.min(currentLength, pendingCacheFloor, invalidateFromFloor ?? changedFromFloor ?? currentLength, ...(invalidateFloors || []));
-    let { next } = localEdit ? invalidateMemoryAnchorsAtFloors(previous, invalidateFloors) : invalidateMemoryAnchors(previous, invalidFrom);
+    if (localEdit) retireSummaryMemorySources(chatId, { floors: invalidateFloors });
+    else retireSummaryMemorySources(chatId, { fromFloor: invalidFrom });
+    const previous = readSummaryMemory();
+    let next = previous;
     const invalidate = async () => {
         if (localEdit) await deleteStateVectorsAtFloors(chatId, invalidateFloors);
         else await deleteStateVectorsFromFloor(chatId, invalidFrom);
@@ -606,25 +614,35 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
         else await invalidateSourceCache?.();
     };
     if (!rollbackRequired) {
-        if (Object.hasOwn(next.storySummary, 'sourceInvalidFromFloor') || Object.hasOwn(next.storySummary, 'sourceRollbackFromFloor')) {
-            const storySummary = { ...next.storySummary };
+        try {
+            await invalidate();
+            if (getContext().chatId !== chatId || getSummaryStore() !== ownerStore) return { status: 'stale' };
+            if (ownerStore.sourceInvalidFromFloor == null && ownerStore.sourceRollbackFromFloor == null
+                && getRuntimeInvalidSourceFloor() == null && getRuntimeSourceRollbackFloor() == null) return { status: 'not_needed' };
+            if (!await waitForMemoryCommit(undefined, { recover: false })) return { status: 'deferred' };
+            if (getContext().chatId !== chatId || getSummaryStore() !== ownerStore) return { status: 'stale' };
+            const latest = readSummaryMemory();
+            const remainingCacheFloor = Math.min(latest.storySummary.sourceInvalidFromFloor ?? Infinity, getRuntimeInvalidSourceFloor() ?? Infinity);
+            const remainingRollbackFloor = Math.min(latest.storySummary.sourceRollbackFromFloor ?? Infinity, getRuntimeSourceRollbackFloor() ?? Infinity);
+            // This cleanup cannot release a newer obligation outside the range it handled.
+            if ((localEdit && Number.isFinite(remainingCacheFloor)) || remainingCacheFloor < invalidFrom
+                || remainingRollbackFloor < validPrefixLength) return { status: 'deferred' };
+            const storySummary = { ...latest.storySummary };
             delete storySummary.sourceInvalidFromFloor;
             delete storySummary.sourceRollbackFromFloor;
-            next = { ...next, storySummary };
-        }
-        try {
-            if (next !== previous || getRuntimeInvalidSourceFloor() != null || getRuntimeSourceRollbackFloor() != null) {
-                await commitSummaryMemory(chatId, next, { previous, invalidate, resolvesSourceInvalidity: true });
-            }
-            else await invalidate();
+            publishSummaryMemory(chatId, { ...latest, storySummary }, { previous: latest, resolvesSourceInvalidity: true });
         } catch (error) {
+            error.code ||= 'memory_cache_invalidation_failed';
             // The host has already edited/deleted the source. A failed cleanup must not
             // leave its old anchors consumable, even when no L2 rollback was required.
-            if (getContext().chatId === chatId && getMemoryCommitState() !== 'unconfirmed') {
+            if (getContext().chatId === chatId && getSummaryStore() === ownerStore) {
                 noteInvalidMemorySource(invalidFrom);
-                const blocked = structuredClone(previous);
-                blocked.storySummary.sourceInvalidFromFloor = invalidFrom;
-                await commitSummaryMemory(chatId, blocked, { previous });
+                if (getMemoryCommitState() === 'source_invalid') {
+                    const latest = readSummaryMemory();
+                    const blocked = structuredClone(latest);
+                    blocked.storySummary.sourceInvalidFromFloor = invalidFrom;
+                    publishSummaryMemory(chatId, blocked, { previous: latest });
+                }
             }
             throw error;
         }
@@ -656,8 +674,13 @@ export async function rollbackSummaryIfNeeded({ changedFromFloor = null, invalid
     return rollback;
 }
 
-export async function invalidateSummaryAnchors(chatId, fromFloor = 0, reason = 'source_changed') {
+export async function invalidateSummaryAnchors(chatId, fromFloor = 0, reason = 'source_changed', { persistence = 'confirmed' } = {}) {
     getSummaryStore();
+    if (persistence === 'host') {
+        const { atomIds, retired } = retireSummaryMemorySources(chatId, { fromFloor, reason });
+        await deleteStateVectorsFromFloor(chatId, fromFloor);
+        return { atomIds, retired };
+    }
     const previous = readSummaryMemory();
     const { next, ...impact } = invalidateMemoryAnchors(previous, fromFloor, reason);
     await commitSummaryMemory(chatId, next, { previous,

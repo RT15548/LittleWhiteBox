@@ -17,9 +17,12 @@ import {
 import { L0_FLOOR_MAX_ATTEMPTS, summarizeL0Floors } from './l0-floor-status.js';
 import { trackVectorActivity } from '../runtime/vector-activity.js';
 import { createAnchorExtractionDraft } from '../../data/anchor-extraction.js';
-import { assertMemoryWritable, waitForMemoryCommit } from '../../data/memory-commit.js';
+import { assertMemoryWritable, waitForMemoryCommit, retireSummaryMemorySources } from '../../data/memory-commit.js';
+import { getChatIdentity } from '../../data/chat-identity.js';
+import { runVectorWriteTask, VECTOR_WRITE_SCOPES } from '../runtime/maintenance-coordinator.js';
 import { sameMemory } from '../../maintenance/domain.js';
-import { invalidateSummaryAnchors, getSummaryStore } from '../../data/store.js';
+import { invalidateSummaryAnchors, getSummaryStore, rollbackSummaryIfNeeded } from '../../data/store.js';
+import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import { embed } from '../llm/siliconflow.js';
 import { extractAtomsForRound } from '../llm/atom-extraction.js';
 import { getL0FailureDetails } from '../llm/l0-retry-policy.js';
@@ -31,6 +34,7 @@ import { getVectorConfig } from '../../data/config.js';
 import { getEngineFingerprint } from '../utils/embedder.js';
 import { filterText } from '../utils/text-filter.js';
 import { getMeta } from '../storage/chunk-store.js';
+import { createAbortError } from '../../../../shared/common/abort-utils.js';
 import {
     canRepairStateVectors,
     selectMissingStateVectorAtoms,
@@ -87,13 +91,16 @@ function buildL0InputText(userMessage, aiMessage) {
 
 export async function incrementalExtractAtoms(chatId, chat, onProgress, options = {}) {
     return trackVectorActivity({ chatId, phase: 'l0-extraction', api: getVectorConfig()?.l0Api, unit: 'floors' }, async activity => {
-        await waitForMemoryCommit(options.signal);
+        const wait = async () => {
+            if (!await waitForMemoryCommit(options.signal, { recover: options.persistence !== 'host' })) throw createAbortError();
+        };
+        await wait();
         getSummaryStore();
-        const draft = createAnchorExtractionDraft(chatId, chat || []);
+        const draft = createAnchorExtractionDraft(chatId, chat || [], options);
         const result = await incrementalExtractAtomsInner(chatId, chat, onProgress, options, draft, activity);
         const commit = options.commit || (task => task());
         if (!result.cancelled) await commit(async () => {
-            await waitForMemoryCommit(options.signal);
+            await wait();
             await draft.commit();
         });
         return result;
@@ -391,7 +398,7 @@ export async function vectorizeMissingStateAtoms(chatId, onProgress, options = {
 }
 
 async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, activity) {
-    await waitForMemoryCommit(options.signal);
+    if (!await waitForMemoryCommit(options.signal, { recover: options.persistence !== 'host' })) throw createAbortError();
     assertMemoryWritable(chatId);
     const {
         vectorConfig = getVectorConfig(),
@@ -521,7 +528,7 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
     try {
         if (isCancelled()) return cancelledResult();
         const saved = await commit(async () => {
-            await waitForMemoryCommit(signal);
+            if (!await waitForMemoryCommit(signal, { recover: options.persistence !== 'host' })) throw createAbortError();
             assertMemoryWritable(chatId);
             const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
             if (isCancelled() || atoms.some(atom => !sameMemory(atom, currentAtoms.get(atom.atomId)))) return false;
@@ -562,6 +569,14 @@ export async function clearAllAtomsAndVectors(chatId) {
     xbLog.info(MODULE_ID, '已清空所有记忆锚点');
 }
 
-async function handleStateRollback(floor) {
-    await invalidateSummaryAnchors(getContext().chatId, floor);
+function handleStateRollback(floor) {
+    const context = getContext(), owner = getSummaryStore(), identity = getChatIdentity(context);
+    retireSummaryMemorySources(context.chatId, { fromFloor: floor });
+    // Retire before returning to the host; only cache IO joins the existing writer.
+    observeBackgroundTask(runVectorWriteTask({ chatId: context.chatId, kind: 'variable-source-sync', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, () => {
+        if (getChatIdentity(getContext()) !== identity || getSummaryStore() !== owner) return { status: 'stale' };
+        return rollbackSummaryIfNeeded({ invalidateFromFloor: floor });
+    }), {
+        source: import.meta.url, operation: 'handleStateRollback',
+    });
 }

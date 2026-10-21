@@ -1,9 +1,9 @@
-import { assertMemoryWritable, commitSummaryMemory, readSummaryMemory } from './memory-commit.js';
+import { assertMemoryWritable, commitSummaryMemory, publishSummaryMemory, readSummaryMemory } from './memory-commit.js';
 import { sameMemory } from '../maintenance/domain.js';
 import { getContext } from '../../../../../../extensions.js';
 
 // A short-lived extraction draft. No timers and no partial writes during model requests.
-export function createAnchorExtractionDraft(chatId, chat) {
+export function createAnchorExtractionDraft(chatId, chat, { persistence = 'confirmed' } = {}) {
     assertMemoryWritable(chatId);
     const baseline = readSummaryMemory();
     const source = structuredClone(chat.map(message => ({ mes: message.mes, is_user: message.is_user, name: message.name })));
@@ -36,7 +36,8 @@ export function createAnchorExtractionDraft(chatId, chat) {
                 if (!ids.has(atom.atomId)) { next.stateAtoms.push(atom); ids.add(atom.atomId); }
             }
             for (const [floor, record] of statuses) next.l0Index.byFloor[String(floor)] = record;
-            await commitSummaryMemory(chatId, next, { previous, validate });
+            if (persistence === 'host') publishSummaryMemory(chatId, next, { previous, validate });
+            else await commitSummaryMemory(chatId, next, { previous, validate });
         },
     };
 }

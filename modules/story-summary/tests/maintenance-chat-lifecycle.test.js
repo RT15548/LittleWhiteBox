@@ -33,6 +33,7 @@ const bundled = await build({
     stdin: { resolveDir: root, contents: [
         "export * from './modules/story-summary/maintenance/host.js';",
         "export * from './modules/story-summary/data/summary-history.js';",
+        "export {retireSummaryMemorySources} from './modules/story-summary/data/memory-commit.js';",
         "export {reload} from 'script.js';",
     ].join('\n') },
     bundle: true, write: false, format: 'esm', platform: 'node',
@@ -181,6 +182,39 @@ test('tool progress sends status only and requests a full receipt refresh once a
         assert.equal(payload.chatId, host.context.chatId);
     }
     assert.equal(h.maintenance.chat.snapshot().turns[0].status, 'completed');
+});
+
+// Acceptance: post-save source retirement reaches the actual controller/frame as
+// a result notice, not a save error or a blocked next message. Cost: false success/retry.
+for (const mixed of [false, true]) test(`retired Agent results stay nonblocking in the mounted chat (mixed: ${mixed})`, async t => {
+    const h = harness(t);
+    host.respond = async () => host.requests.length === 1 ? { toolCalls: [{ id: 'edit', name: 'EditMemory', arguments: JSON.stringify({ edits: [
+        { kind: 'edit', collection: 'anchors', key: 'atom-1-0', patch: { semantic: '尚未证实' } },
+        ...(mixed ? [{ kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '尚未证实' } }] : []),
+    ] }) }] } : { text: 'fixture-finished' };
+    host.afterSave = async () => mod.retireSummaryMemorySources(host.context.chatId, { floors: [1] });
+    const frame = h.mount();
+    frame.send('fixture-edit-question');
+    await h.settle();
+    const snapshot = h.maintenance.chat.snapshot();
+    const status = mixed ? 'partially_superseded' : 'superseded';
+    assert.equal(snapshot.turns[0].status, status);
+    assert.equal(snapshot.turns[0].saved, Number(mixed));
+    assert.equal(snapshot.turns[0].staged, 0);
+    assert.equal(snapshot.turns[0].error, undefined);
+    assert.equal(snapshot.busy, false);
+    const row = frame.document.querySelector('[data-turn-id]');
+    assert.equal(row.dataset.status, status);
+    assert.equal(row.querySelector('.memory-chat-turn-status').hidden, false);
+    assert.equal(row.querySelector('.memory-chat-turn-error').hidden, true);
+    assert.equal(row.querySelector('.memory-chat-saved').dataset.saved, String(Number(mixed)));
+    assert.equal(host.writes, 1);
+    assert.equal(host.requests.length, 2);
+    host.afterSave = null;
+    frame.send('fixture-continue-question');
+    await h.settle();
+    assert.equal(h.maintenance.chat.snapshot().turns.at(-1).status, 'completed');
+    assert.equal(host.writes, 1);
 });
 
 for (const closeDuring of ['model request', 'metadata save']) {

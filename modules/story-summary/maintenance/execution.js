@@ -5,7 +5,7 @@ import { deleteEventVectorsByIds } from '../vector/storage/chunk-store.js';
 import { clearRecallRuntime } from '../vector/runtime/runtime.js';
 import { runVectorWriteTask, VECTOR_WRITE_SCOPES, cancelEmbeddingWriteTasks } from '../vector/runtime/maintenance-coordinator.js';
 import { createMemorySession } from './session.js';
-import { commitMemorySession } from './commit.js';
+import { commitMemorySession, publishedMaintenanceCommit } from './commit.js';
 import { createSharedMemoryAgent, runMemoryAgent, memoryRunId } from './runner.js';
 import { repairMaintenanceIndexes } from './indexes.js';
 import { requireMemory } from './errors.js';
@@ -160,6 +160,7 @@ export async function executeMemoryTask(task, {
         const published = getPublishedSummaryMemory();
         const ids = new Set((published.storySummary.summaryHistory || []).flatMap(batch => (batch.maintenance || []).map(receipt => receipt.id)));
         assertConfirmed(prepared && prepared.receipts.every(receipt => ids.has(receipt.id)));
+        prepared = publishedMaintenanceCommit(prepared, published);
         saveError = null;
         return { ...await publishResult(prepared, edit.runId), state: 'confirmed' };
     };

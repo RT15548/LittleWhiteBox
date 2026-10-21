@@ -17,6 +17,7 @@ function fixture() {
         validate(); writes++;
         current.store = next.storySummary; current.json = next.storySummary.json;
         current.atoms = next.stateAtoms; current.l0Index = next.l0Index;
+        return next;
     } };
     return { current, session, ports, get writes() { return writes; } };
 }

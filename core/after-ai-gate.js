@@ -1,6 +1,7 @@
 import { getContext } from "../../../../extensions.js";
 import { xbLog } from "./debug-core.js";
 import { observeAsyncCallback } from '../shared/common/async-errors.js';
+import { waitForAbortableDelay } from '../shared/common/abort-utils.js';
 
 
 const MODULE_ID = "afterAiGate";
@@ -25,14 +26,23 @@ function safeNow() {
     return Date.now();
 }
 
-function nextFrame() {
+function nextFrame(signal) {
     return new Promise((resolve) => {
+        let id;
         const raf = globalThis.requestAnimationFrame;
+        const finish = () => { signal?.removeEventListener('abort', abort); resolve(); };
+        const abort = () => {
+            if (typeof raf === 'function') globalThis.cancelAnimationFrame(id);
+            else clearTimeout(id);
+            finish();
+        };
+        if (signal?.aborted) { resolve(); return; }
+        signal?.addEventListener('abort', abort, { once: true });
         if (typeof raf === "function") {
-            raf(() => resolve());
+            id = raf(finish);
             return;
         }
-        setTimeout(resolve, 16);
+        id = setTimeout(finish, 16);
     });
 }
 
@@ -75,6 +85,29 @@ function isHostReadyForAfterAi(chatId) {
     if (document.body?.dataset?.generating) return false;
     if (!isStopButtonHidden()) return false;
     return true;
+}
+
+async function hasPaintedAfterAi(chatId, isCurrent, signal) {
+    const ready = () => !signal?.aborted && isCurrent() && isHostReadyForAfterAi(chatId);
+    if (!ready()) return false;
+    await nextFrame(signal);
+    if (!ready()) return false;
+    await nextFrame(signal);
+    return ready();
+}
+
+// Readiness has no message-signature deduplication: continuations can reuse a floor.
+export async function waitForAfterAiReady(chatId, signal) {
+    const isCurrent = () => currentChatId() === String(chatId);
+    try {
+        while (!signal?.aborted && isCurrent()) {
+            if (await hasPaintedAfterAi(chatId, isCurrent, signal)) return true;
+            await waitForAbortableDelay(100, signal);
+        }
+    } catch (error) {
+        if (error?.name !== 'AbortError') throw error;
+    }
+    return false;
 }
 
 function disconnectStopObserver() {
@@ -191,16 +224,7 @@ async function evaluateActiveTicket(triggerReason) {
 
     const ready = isHostReadyForAfterAi(ticket.chatId);
     if (ready) {
-        await nextFrame();
-        if (!activeTicket || activeTicket.id !== ticket.id) return;
-        if (!isHostReadyForAfterAi(ticket.chatId)) {
-            ensurePoll();
-            return;
-        }
-
-        await nextFrame();
-        if (!activeTicket || activeTicket.id !== ticket.id) return;
-        if (!isHostReadyForAfterAi(ticket.chatId)) {
+        if (!await hasPaintedAfterAi(ticket.chatId, () => activeTicket?.id === ticket.id)) {
             ensurePoll();
             return;
         }

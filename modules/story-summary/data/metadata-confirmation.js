@@ -25,7 +25,7 @@ export function createMetadataConfirmation(context, headers, fetcher = fetch) {
     if (!context.chatId || (!group && (!body.file_name || !body.avatar_url))) {
         throw new MetadataConfirmationError('metadata_target_unavailable');
     }
-    return async function confirm(expected, previous = null, loadedPrevious = null, { timeoutMs = METADATA_CONFIRMATION_TIMEOUT_MS, savePending = () => false } = {}) {
+    return async function confirm(expected, previous = null, loadedPrevious = null, { timeoutMs = METADATA_CONFIRMATION_TIMEOUT_MS, savePending = () => false, normalize = value => value } = {}) {
         let lastError;
         const readBack = async signal => {
             let delay = READ_RETRY_DELAY_MS;
@@ -40,8 +40,10 @@ export function createMetadataConfirmation(context, headers, fetcher = fetch) {
                     throwIfSignalAborted(signal);
                     if (!Array.isArray(data) || !data[0]?.chat_metadata) throw Object.assign(new Error('metadata_read_invalid'), { code: 'metadata_read_invalid' });
                     const extension = data[0].chat_metadata.extensions?.[EXT_ID] || {};
-                    const matches = projection => projection && Object.entries(projection).every(([key, value]) => sameMemory(extension[key], value));
-                    if (matches(expected)) return;
+                    const persisted = Object.fromEntries(Object.keys(expected).map(key => [key, extension[key]]));
+                    const actual = normalize(persisted);
+                    const matches = projection => projection && Object.entries(normalize(projection)).every(([key, value]) => sameMemory(actual[key], value));
+                    if (matches(expected)) return persisted;
                     if (matches(previous) || matches(loadedPrevious)) {
                         if (!savePending()) throw new MetadataConfirmationError('metadata_not_saved');
                         throw Object.assign(new Error('metadata_save_pending'), { code: 'metadata_save_pending' });

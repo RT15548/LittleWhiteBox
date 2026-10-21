@@ -12,6 +12,7 @@ import 'fake-indexeddb/auto';
 import { maintenanceFixture, joinedEventPatch } from './fixtures/memory-maintenance.js';
 import { memoryPolicy } from '../data/memory-policy.js';
 import { entry } from './helpers/story-summary-entry.js';
+import { hostSaveEntry } from './helpers/host-save-entry.js';
 import { createHideStateController } from '../hide-state.js';
 import { memorySaveError } from '../data/memory-copy.js';
 import { shouldNotifyMemoryFailure } from '../user-feedback.js';
@@ -35,6 +36,8 @@ const shims = {
     'modules/story-summary/maintenance/runner.js': 'export const createSharedMemoryAgent=()=>{throw Error("unexpected Agent request");}; export const runMemoryAgent=createSharedMemoryAgent; export const memoryRunId=()=>crypto.randomUUID();',
     'modules/story-summary/vector/utils/embedder.js': 'export const getEngineFingerprint=()=>"test-engine";',
     'modules/story-summary/vector/llm/siliconflow.js': 'export const embed=(texts)=>globalThis.__memoryStorageTest.embed(texts);',
+    'modules/story-summary/vector/llm/atom-extraction.js': 'export const extractAtomsForRound=()=>{throw Error("unexpected anchor request");};',
+    'shared/common/async-errors.js': 'export const observeBackgroundTask=task=>globalThis.__memoryStorageTest.background.push(Promise.resolve(task).catch(error=>{globalThis.__memoryStorageTest.backgroundErrors.push(error);}));',
     'modules/story-summary/vector/retrieval/recall.js': 'export const recallMemory=(...args)=>globalThis.__memoryStorageTest.recall(...args); export const hydrateDirectEvidence=()=>{throw Error("unexpected hydration");}; export const releaseDirectEvidenceContext=async()=>{};',
 };
 const bundled = await build({
@@ -57,6 +60,7 @@ const bundled = await build({
         "export * from './modules/story-summary/generate/generator.js';",
         "export { buildVectorPromptText } from './modules/story-summary/generate/prompt.js';",
         "export * from './modules/story-summary/vector/storage/state-store.js';",
+        "export { initStateIntegration } from './modules/story-summary/vector/pipeline/state-integration.js';",
         "export { db, stateVectorsTable, chunksTable, chunkVectorsTable, metaTable } from './modules/story-summary/data/db.js';",
         "export { deleteChunksFromFloor, deleteChunksAtFloor, updateMeta, clearAllChunks, clearEventVectors } from './modules/story-summary/vector/storage/chunk-store.js';",
         "export { reload } from 'script.js';",
@@ -74,7 +78,7 @@ const bundled = await build({
 // eslint-disable-next-line no-unsanitized/method -- Generated local test bundle, never external code.
 const mod = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
 const originalFetch = globalThis.fetch;
-after(() => { mod.db.close(); globalThis.fetch = originalFetch; delete globalThis.__memoryStorageTest; });
+after(() => { mod.db.close(); globalThis.fetch = originalFetch; delete globalThis.__memoryStorageTest; delete globalThis.LWB_StateRollbackHook; });
 const ext = () => host.metadata.extensions.LittleWhiteBox;
 const disk = () => host.files.get(host.context.chatId).extensions.LittleWhiteBox;
 
@@ -87,7 +91,7 @@ beforeEach(async t => {
     };
     for (const table of mod.db.tables) await table.clear();
     const fixture = maintenanceFixture();
-    Object.assign(host, { fixture, mode: 'save', expireReadback: false, reads: 0, writes: 0, mutations: [], afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
+    Object.assign(host, { fixture, mode: 'save', expireReadback: false, reads: 0, writes: 0, mutations: [], background: [], backgroundErrors: [], afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
     host.vectorConfig = { enabled: false, embeddingApi: {} };
     host.generate = () => assert.fail('unexpected summary request');
     host.embed = () => assert.fail('unexpected embedding request');
@@ -442,6 +446,7 @@ for (const scenario of [
     await seedCacheRange(chatId, chat.map((_, floor) => floor));
     const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
     scenario.change(chat);
+    const beforeIO = { writes: host.writes, reads: host.reads };
     tracker.observeCompletion(host.context, chat.length - 1);
     assert.ok(tracker.inspect(host.context));
     const result = await mod.synchronizeSourceCaches(tracker, host.context, scenario);
@@ -454,6 +459,8 @@ for (const scenario of [
     assert.equal(await mod.chunkVectorsTable.where('chatId').equals(chatId).count(), chunks.length);
     assert.ok(ext().stateAtoms.every(atom => !removedAnchor(atom.floor)));
     assert.ok((await mod.getAllStateVectors(chatId)).every(row => !removedAnchor(row.floor)));
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, beforeIO);
+    await host.context.saveMetadata(); // The next normal host save carries live retirement.
     assert.deepEqual(disk(), ext());
     const writes = observeCacheWrites(t), saves = host.writes;
     assert.equal((await mod.synchronizeSourceCaches(tracker, host.context, scenario)).status, 'unchanged');
@@ -480,7 +487,7 @@ function memoryVisibility() {
     return { ...ui, errors, rendered, saves, warnings: () => warnings };
 }
 
-for (const uncertain of [false, true]) test(`first swipe during initial visibility waits for its own save (uncertain: ${uncertain})`, async () => {
+for (const unavailable of [false, true]) test(`first swipe during initial visibility needs no plugin save (readback unavailable: ${unavailable})`, async () => {
     await importFixture();
     const context = host.context;
     context.chat.push({ mes: '次日', is_user: true }, { mes: '原回复', is_user: false, swipe_id: 0 });
@@ -492,40 +499,26 @@ for (const uncertain of [false, true]) test(`first swipe during initial visibili
     const initial = context.chat.map(message => message.is_system);
     const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
     const ui = memoryVisibility();
-    let release, entered;
-    const saveStarted = new Promise(resolve => { entered = resolve; });
-    host.afterSave = () => { entered(); return new Promise(resolve => { release = resolve; }); };
-    if (uncertain) host.mode = 'read_fail';
+    const beforeIO = { writes: host.writes, reads: host.reads };
+    if (unavailable) host.mode = 'read_fail';
     context.chat[25].swipe_id = 1;
     const syncing = mod.synchronizeSourceCaches(tracker, context, { kind: 'swipe', floor: 25 });
-    const synced = uncertain ? assert.rejects(syncing, { code: 'metadata_save_unconfirmed' }) : syncing;
-    await saveStarted;
-    const updating = ui.applyHideState();
-    try {
-        assert.equal(mod.getMemoryCommitState(), 'saving');
-        assert.deepEqual(context.chat.map(message => message.is_system), initial);
-        assert.deepEqual(ui.rendered, []);
-        assert.deepEqual(ui.saves, []);
-        assert.deepEqual(ui.errors, []);
-        assert.equal(ui.warnings(), 0);
-    } finally {
-        host.afterSave = null;
-        release();
-        await synced;
-        await updating;
-    }
-    assert.deepEqual(ui.saves, []); // Never write an unconfirmed draft with a visibility save.
+    assert.equal(ext().l0Index.byFloor[25], undefined);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal((await syncing).status, 'synced');
+    await ui.applyHideState();
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, beforeIO);
+    assert.deepEqual(ui.saves, []);
     assert.equal(ui.warnings(), 0);
     assert.deepEqual(ui.errors, []);
-    assert.equal(mod.getMemoryCommitState(), uncertain ? 'unconfirmed' : 'ready');
-    assert.equal(mod.isSummaryConsumable(mod.getSummaryStore(), context.chat.length), !uncertain);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+    assert.equal(mod.isSummaryConsumable(mod.getSummaryStore(), context.chat.length), true);
     // The changed tail is beyond the published summary; uncertainty cannot unhide it.
     assert.deepEqual(context.chat.map(message => message.is_system), initial);
     assert.deepEqual(ui.rendered, []);
-    if (!uncertain) {
-        assert.equal(tracker.inspect(context), null);
-        assert.deepEqual(disk(), ext());
-    }
+    assert.equal(tracker.inspect(context), null);
+    await host.context.saveMetadata();
+    assert.deepEqual(disk(), ext());
 });
 
 // Acceptance: failure of the new range cannot alter the previous 980 floors.
@@ -806,7 +799,30 @@ test('same-chat reload preserves every persisted L0/L1 row and extraction receip
     assert.equal(writes(), 0);
 });
 
-for (const failure of ['cache', 'save']) test(`failed ${failure} never confirms source safety`, async t => {
+// Acceptance: variable-driven edit/swipe/delete hooks retire anchors before returning,
+// never wait for cache IO or save, and retain failed cleanup ranges. Cost: stale memory or blocked chat.
+for (const failure of [false, true]) test(`variable rollback notification is live-only and nonblocking (cache failure: ${failure})`, async t => {
+    await seedAnchors();
+    const io = { writes: host.writes, reads: host.reads };
+    let finish;
+    const cleaning = new Promise((resolve, reject) => { finish = failure ? reject : resolve; });
+    t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () => cleaning }) }));
+    mod.initStateIntegration();
+    assert.equal(globalThis.LWB_StateRollbackHook(1), undefined);
+    assert.equal(ext().stateAtoms.some(atom => atom.floor >= 1), false);
+    assert.equal(ext().l0Index.byFloor[1], undefined);
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
+    await nextTurn();
+    finish(failure ? new Error('cache offline') : 0);
+    await Promise.all(host.background);
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
+    if (failure) {
+        assert.equal(mod.getRuntimeInvalidSourceFloor(), 1);
+        assert.equal(host.backgroundErrors[0].code, 'memory_cache_invalidation_failed');
+    } else assert.deepEqual(host.backgroundErrors, []);
+});
+
+for (const failure of ['cache', 'save']) test(`source safety depends on cache cleanup, not an extra ${failure} save`, async t => {
     await seedAnchors();
     await seedCacheRange(host.context.chatId, [0, 1, 2, 3]);
     const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
@@ -816,9 +832,16 @@ for (const failure of ['cache', 'save']) test(`failed ${failure} never confirms 
         mod.chunkVectorsTable.hook('deleting', fail);
         t.after(() => mod.chunkVectorsTable.hook('deleting').unsubscribe(fail));
     } else host.mode = 'old';
-    await assert.rejects(mod.synchronizeSourceCaches(tracker, host.context));
-    assert.ok(tracker.inspect(host.context));
-    assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), false);
+    const beforeIO = { writes: host.writes, reads: host.reads };
+    if (failure === 'cache') {
+        await assert.rejects(mod.synchronizeSourceCaches(tracker, host.context));
+        assert.ok(tracker.inspect(host.context));
+        assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), false);
+    } else {
+        assert.equal((await mod.synchronizeSourceCaches(tracker, host.context)).status, 'synced');
+        assert.equal(tracker.inspect(host.context), null);
+    }
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, beforeIO);
 });
 
 for (const kind of ['edit', 'swipe']) test(`queued ${kind} survives leaving and returning before the consistency writer runs`, async () => {
@@ -838,6 +861,7 @@ for (const kind of ['edit', 'swipe']) test(`queued ${kind} survives leaving and 
         assert.equal(result.status, 'synced');
         assert.equal(tracker.inspect(context), null);
         assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), true);
+        await context.saveMetadata();
     } else {
         // Historical swipe crossed the imported baseline: preserve, but block L2.
         assert.equal(result.status, 'failed');
@@ -897,6 +921,8 @@ for (const generated of [false, true]) test(`unselected swipe deletion then imme
     assert.deepEqual(ext().storySummary, before);
     assert.equal(mod.isSummaryConsumable(ext().storySummary, context.chat.length), true);
     assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([context.chatId, floor]).count(), 0);
+    assert.equal(host.writes, metadataWrites);
+    await context.saveMetadata();
     assert.deepEqual(disk(), ext());
 });
 
@@ -1043,15 +1069,16 @@ test('ordinary tail edits without affected memory do not add a memory save or re
     assert.deepEqual(host.mutations, []);
 });
 
-test('an extraction status alone still requires a confirmed source invalidation', async () => {
+test('an empty extraction status is retired live and persisted by the next host save', async () => {
     await importFixture();
     const memory = mod.readSummaryMemory();
     memory.l0Index.byFloor[23] = { floor: 23, status: 'empty', atoms: 0 };
     await mod.commitSummaryMemory(host.context.chatId, memory);
     const saves = host.writes;
     await mod.rollbackSummaryIfNeeded({ invalidateFloors: [22, 23] });
-    assert.equal(host.writes, saves + 1);
+    assert.equal(host.writes, saves);
     assert.equal(ext().l0Index.byFloor[23], undefined);
+    await host.context.saveMetadata();
     assert.deepEqual(disk(), ext());
 });
 
@@ -1073,6 +1100,7 @@ test('ordinary edit preserves later memory/vectors and retires only the affected
     }
     assert.equal(await mod.chunkVectorsTable.where('chatId').equals(chatId).count(), 4);
     assert.equal((await mod.metaTable.get(chatId)).lastChunkFloor, 0);
+    await host.context.saveMetadata();
     assert.deepEqual(disk(), ext());
 });
 
@@ -1565,6 +1593,7 @@ test('ordinary source edit with failed vector cleanup blocks old anchors without
     assert.equal(ext().storySummary.summaryInvalid, undefined);
     assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
     assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
+    await host.context.saveMetadata();
     assert.deepEqual(disk(), ext());
     cacheFailure.mock.restore();
     await mod.clearSummaryData(host.context.chatId);
@@ -1572,13 +1601,14 @@ test('ordinary source edit with failed vector cleanup blocks old anchors without
     assert.equal(mod.getMemoryCommitState(), 'ready');
 });
 
-test('ordinary source edit with failed metadata save remains blocked until invalid anchors are cleared', async () => {
+test('ordinary source edit never calls a failing host save', async () => {
     await importFixture(); await seedAnchors(); await maintain([fixAnchor]);
     host.mode = 'old';
+    const beforeIO = { writes: host.writes, reads: host.reads };
     host.context.chat[1].mes = 'edited source';
-    await assert.rejects(mod.rollbackSummaryIfNeeded({ invalidateFromFloor: 1 }), { code: 'metadata_not_saved' });
-    assert.equal(mod.getMemoryCommitState(), 'source_invalid');
-    assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
+    assert.equal((await mod.rollbackSummaryIfNeeded({ invalidateFromFloor: 1 })).status, 'not_needed');
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, beforeIO);
+    assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), true);
     host.mode = 'save';
     await mod.clearSummaryData(host.context.chatId);
     assert.equal(ext().stateAtoms.length, 0);
@@ -1586,7 +1616,7 @@ test('ordinary source edit with failed metadata save remains blocked until inval
     assert.equal(mod.getMemoryCommitState(), 'ready');
 });
 
-test('a local L1 cleanup failure preserves memory and blocks the old source through the confirmed save boundary', async t => {
+test('a local L1 cleanup failure preserves L2 but cannot restore the retired anchor', async t => {
     await importFixture(); await seedAnchors();
     const chatId = host.context.chatId;
     await seedCacheRange(chatId, [0, 1, 3]);
@@ -1596,10 +1626,11 @@ test('a local L1 cleanup failure preserves memory and blocks the old source thro
     t.after(() => mod.chunkVectorsTable.hook('deleting').unsubscribe(fail));
     await assert.rejects(mod.rollbackSummaryIfNeeded({ invalidateFloors: [1],
         invalidateSourceCache: () => mod.deleteChunksAtFloor(chatId, 1) }));
-    assert.deepEqual(ext().stateAtoms, before.stateAtoms);
+    assert.deepEqual(ext().stateAtoms, before.stateAtoms.filter(atom => atom.floor !== 1));
     assert.deepEqual(ext().storySummary.json, before.storySummary.json);
     assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
     assert.equal(mod.isSummaryConsumable(ext().storySummary, 24), false);
+    await host.context.saveMetadata();
     assert.deepEqual(disk(), ext());
     mod.chunkVectorsTable.hook('deleting').unsubscribe(fail);
     await mod.clearSummaryData(chatId);
@@ -1641,6 +1672,7 @@ for (const recovery of ['same-page', 'reload', 'runtime-only']) test(`ordinary e
     mod.chunkVectorsTable.hook('deleting').unsubscribe(fail);
     host.mode = 'save';
     if (recovery === 'reload') {
+        await host.context.saveMetadata(); // The host persists the pending cleanup boundary, not the plugin.
         reloadSourceRecovery();
         assert.equal((await mod.rollbackSummaryIfNeeded()).status, 'not_needed');
     } else {
@@ -1655,6 +1687,7 @@ for (const recovery of ['same-page', 'reload', 'runtime-only']) test(`ordinary e
     assert.equal(mod.isSummaryConsumable(ext().storySummary, host.context.chat.length), true);
     assert.deepEqual((await mod.chunksTable.where('chatId').equals(chatId).toArray()).map(row => row.floor), [0]);
     assert.equal((await mod.getAllStateVectors(chatId)).some(vector => vector.floor === 1), false);
+    await host.context.saveMetadata();
     assert.deepEqual(disk(), ext());
 });
 
@@ -1720,6 +1753,7 @@ test('manual L2 undo does not claim pending raw-source caches were cleaned', asy
     assert.equal(ext().storySummary.lastSummarizedMesId, 23);
     assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
     assert.equal(await mod.chunksTable.where('[chatId+floor]').equals([chatId, 1]).count(), 0);
+    await host.context.saveMetadata();
     assert.deepEqual(disk(), ext());
 });
 
@@ -2034,4 +2068,218 @@ test('a chat switch during confirmation never restores or installs into the newl
     assert.equal(old.extensions.LittleWhiteBox.storySummary.json.facts[0].o, 'first chat');
     assert.deepEqual(ext().storySummary.json.facts, ['other chat']);
     assert.equal(mod.getMemoryCommitState(), 'ready');
+});
+
+// Acceptance: automatic L0 adds no full-chat IO; explicit bulk work survives a slow save.
+// Cost: chat stalls or silently lost manual work.
+for (const persistence of ['host', 'confirmed']) test(`anchor extraction persistence is explicit: ${persistence}`, async t => {
+    await importFixture();
+    const beforeIO = { writes: host.writes, reads: host.reads };
+    const draft = mod.createAnchorExtractionDraft(host.context.chatId, host.context.chat, { persistence });
+    draft.addAtoms(host.fixture.atoms.slice(0, 1));
+    draft.setStatus(1, { status: 'ok', atoms: 1 });
+    let release, finished = false;
+    if (persistence === 'confirmed') host.afterSave = () => new Promise(resolve => { release = resolve; });
+    const writing = draft.commit().then(() => { finished = true; });
+    await nextTurn();
+    if (persistence === 'confirmed') {
+        assert.ok(release);
+        t.mock.timers.tick(30_000); await nextTurn();
+        assert.equal(finished, false);
+        assert.equal(host.reads, beforeIO.reads);
+        release();
+    }
+    await writing;
+    assert.equal(ext().stateAtoms.length, 1);
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, {
+        writes: beforeIO.writes + Number(persistence === 'confirmed'),
+        reads: beforeIO.reads + Number(persistence === 'confirmed'),
+    });
+    host.afterSave = null;
+    if (persistence === 'host') {
+        assert.equal(disk().stateAtoms.length, 0);
+        await host.context.saveMetadata();
+    }
+    assert.deepEqual(disk(), ext());
+});
+
+// Acceptance: source changes win over both outcomes of a submitted manual/Agent save.
+// Cost: old-branch anchors resurrected or unrelated durable edits lost.
+for (const outcome of ['saved-original', 'saved-retired', 'not-saved', 'conflict']) {
+    test(`retirement during a durable save preserves its actual outcome: ${outcome}`, async () => {
+        await importFixture(); await seedAnchors(); await maintain([fixAnchor]);
+        const chatId = host.context.chatId;
+        const previous = mod.readSummaryMemory();
+        const next = structuredClone(previous);
+        next.storySummary.json.facts[0].o = 'durable edit';
+        if (outcome === 'not-saved') host.mode = 'old';
+        let release;
+        host.afterSave = () => new Promise(resolve => { release = resolve; });
+        const writing = mod.commitSummaryMemory(chatId, next).then(() => null, error => error.code);
+        while (!release) await nextTurn();
+        const beforeIO = { writes: host.writes, reads: host.reads };
+        host.context.chat[1].mes += ' replaced source';
+        mod.retireSummaryMemorySources(chatId, { floors: [1] });
+        assert.equal(mod.getPublishedStateAtoms().some(atom => atom.floor === 1), false);
+        assert.equal(ext().l0Index.byFloor[1], undefined);
+        assert.deepEqual({ writes: host.writes, reads: host.reads }, beforeIO);
+        if (outcome === 'saved-retired') host.files.set(chatId, structuredClone(host.metadata));
+        if (outcome === 'conflict') { disk().storySummary.json.facts[1].o = 'unrelated external edit'; host.expireReadback = true; }
+        release();
+        const error = await writing;
+        assert.equal(error, outcome === 'not-saved' ? 'metadata_not_saved' : outcome === 'conflict' ? 'metadata_save_conflict' : null);
+        assert.equal(ext().stateAtoms.some(atom => atom.floor === 1), false);
+        assert.equal(mod.getPublishedStateAtoms().some(atom => atom.floor === 1), false);
+        assert.equal(mod.readPublishedSummaryMemory().storySummary.json.facts[0].o,
+            outcome.startsWith('saved') ? 'durable edit' : previous.storySummary.json.facts[0].o);
+        assert.ok(mod.readPublishedSummaryMemory().storySummary.summaryHistory[0].maintenance[0].operations[0].changes[0].retired);
+    });
+}
+
+test('an entirely superseded manual extraction is not reported as saved', async () => {
+    await importFixture();
+    const draft = mod.createAnchorExtractionDraft(host.context.chatId, host.context.chat, { persistence: 'confirmed' });
+    draft.addAtoms(host.fixture.atoms.slice(0, 1)); draft.setStatus(1, { status: 'ok', atoms: 1 });
+    let release;
+    host.afterSave = () => new Promise(resolve => { release = resolve; });
+    const writing = draft.commit().then(() => null, error => error.code);
+    while (!release) await nextTurn();
+    mod.retireSummaryMemorySources(host.context.chatId, { floors: [1] });
+    release();
+    assert.equal(await writing, 'metadata_source_changed');
+    assert.equal(ext().stateAtoms.length, 0);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+});
+
+for (const mixed of [false, true]) test(`Agent reports the post-swipe receipt, preserving unrelated edits: ${mixed}`, async () => {
+    await importFixture(); await seedAnchors();
+    const session = mod.createMemorySession(readMaintenanceState()); session.initial();
+    session.runTool('EditMemory', { edits: mixed ? [fixAnchor, fixFact] : [fixAnchor] });
+    session.conclude({ status: 'completed' });
+    let release;
+    host.afterSave = () => new Promise(resolve => { release = resolve; });
+    const writing = saveMaintenanceSession(session).then(saved => ({ saved }), error => ({ error: error.code }));
+    while (!release) await nextTurn();
+    mod.retireSummaryMemorySources(host.context.chatId, { floors: [1] });
+    release();
+    const result = await writing;
+    assert.equal(result.error, undefined);
+    session.acknowledge(result.saved);
+    assert.equal(session.savedCount, mixed ? 1 : 0);
+    assert.equal(result.saved.outcome.status, mixed ? 'partially_superseded' : 'superseded');
+    const history = mod.projectMaintenanceRun(ext().storySummary, 'session-test');
+    assert.equal(history.outcome.status, result.saved.outcome.status);
+    assert.equal(history.counts.anchors, 0);
+    if (mixed) {
+        assert.equal(result.error, undefined);
+        assert.equal(result.saved.current.atoms.some(atom => atom.floor === 1), false);
+        assert.deepEqual(result.saved.impact.atomIds, []);
+        assert.equal(result.saved.current.json.facts[0].o, fixFact.patch.o);
+        assert.ok(result.saved.receipt.operations[0].changes[0].retired);
+    } else assert.equal(result.saved.current.atoms.some(atom => atom.floor === 1), false);
+    assert.equal(mod.getMemoryCommitState(), 'ready');
+});
+
+// Acceptance: a later suffix cleanup cannot acknowledge an earlier failed range;
+// variable notifications share the writer and preserve failed work across retries.
+// Cost: stale source chunks become consumable with no pending cleanup marker.
+test('overlapping variable cleanup is serialized, and failed earlier work remains retryable', async t => {
+    await importFixture(); await seedAnchors();
+    await seedCacheRange(host.context.chatId, [1, 3, 20]);
+    const io = { writes: host.writes, reads: host.reads };
+    let release, calls = 0;
+    const cleaning = new Promise(resolve => { release = resolve; });
+    const mock = t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () =>
+        ++calls === 1 ? cleaning : Promise.reject(new Error('cache offline')) }) }));
+    mod.initStateIntegration();
+    globalThis.LWB_StateRollbackHook(20);
+    await nextTurn();
+    globalThis.LWB_StateRollbackHook(1);
+    await nextTurn();
+    assert.equal(calls, 1);
+    assert.equal(ext().stateAtoms.length, 0);
+    release(0);
+    await Promise.all(host.background);
+    assert.equal(calls, 2);
+    assert.equal(mod.getRuntimeInvalidSourceFloor(), 1);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
+    assert.deepEqual((await mod.chunksTable.where('chatId').equals(host.context.chatId).toArray()).map(row => row.floor), [1, 3]);
+    mock.mock.restore();
+    globalThis.LWB_StateRollbackHook(20); // A later request must include the retained earlier gap.
+    await Promise.all(host.background);
+    assert.equal(await mod.chunksTable.where('chatId').equals(host.context.chatId).count(), 0);
+    assert.equal(mod.getRuntimeInvalidSourceFloor(), undefined);
+    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
+});
+
+test('cleanup releases only the source boundary it actually handled', async t => {
+    await importFixture(); await seedAnchors();
+    let release;
+    const cleaning = new Promise(resolve => { release = resolve; });
+    const mock = t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () => cleaning }) }));
+    const cleanup = mod.rollbackSummaryIfNeeded({ invalidateFromFloor: 20 });
+    await nextTurn();
+    mod.noteInvalidMemorySource(1);
+    release(0);
+    assert.equal((await cleanup).status, 'deferred');
+    assert.equal(mod.getRuntimeInvalidSourceFloor(), 1);
+    mock.mock.restore();
+});
+
+test('queued variable cleanup never retires a different loaded chat', async t => {
+    await seedAnchors();
+    let release, calls = 0;
+    const cleaning = new Promise(resolve => { release = resolve; });
+    t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () => { calls++; return cleaning; } }) }));
+    mod.initStateIntegration();
+    globalThis.LWB_StateRollbackHook(20);
+    await nextTurn();
+    globalThis.LWB_StateRollbackHook(1);
+    const other = { storySummary: { lastSummarizedMesId: -1 }, stateAtoms: [{ atomId: 'other', floor: 1 }], l0Index: { version: 1, byFloor: {} } };
+    host.context = { ...host.context, chatId: 'other-chat' };
+    host.metadata = { extensions: { LittleWhiteBox: structuredClone(other) } };
+    mod.reload();
+    release(0); await Promise.all(host.background);
+    assert.equal(calls, 1);
+    assert.deepEqual(ext(), other);
+});
+
+test('automatic preparation waits for an active save but never recovers an uncertain one', async () => {
+    await importFixture();
+    host.mode = 'read_fail';
+    const next = mod.readSummaryMemory(); next.storySummary.json.facts[0].o = 'awaiting confirmation';
+    await assert.rejects(mod.commitSummaryMemory(host.context.chatId, next), { code: 'metadata_save_unconfirmed' });
+    const beforeIO = { writes: host.writes, reads: host.reads };
+    assert.equal(await mod.waitForMemoryCommit(undefined, { recover: false }), false);
+    assert.equal((await mod.rollbackSummaryIfNeeded({ invalidateFloors: [1] })).status, 'deferred');
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, beforeIO);
+});
+
+// Acceptance: pinned native saves carry automatic metadata, without a preceding plugin save.
+// Cost: lost L0 or extra whole-chat traffic on supported hosts.
+for (const version of ['1.14.0', '1.18.0']) test(`official ST ${version} saves live swipe retirement and automatic extraction together`, async () => {
+    await seedAnchors();
+    const { chatId, chat } = host.context;
+    const posted = [];
+    const native = hostSaveEntry(version, { read: () => host.context, metadata: () => host.metadata,
+        fetch: async (url, request) => { posted.push({ url, body: JSON.parse(request.body) }); return { ok: true }; } });
+    host.context.saveMetadata = native.context.saveMetadata;
+    const beforeReads = host.reads;
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    chat[1].swipe_id = 1; chat[1].mes = 'replacement branch';
+    const retiring = mod.synchronizeSourceCaches(tracker, host.context, { kind: 'swipe', floor: 1 });
+    assert.equal(ext().stateAtoms.some(atom => atom.floor === 1), false);
+    assert.equal((await retiring).status, 'synced');
+    const draft = mod.createAnchorExtractionDraft(chatId, chat, { persistence: 'host' });
+    draft.setStatus(1, { status: 'empty', atoms: 0 });
+    await draft.commit();
+    assert.deepEqual(posted, []);
+    assert.equal(host.reads, beforeReads);
+    await native.context.saveChatConditional();
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].url, '/api/chats/save');
+    assert.deepEqual(JSON.parse(JSON.stringify(posted[0].body.chat[0].chat_metadata.extensions.LittleWhiteBox)), ext());
+    assert.equal(host.reads, beforeReads);
+    assert.deepEqual(native.errors, []);
 });

@@ -17,10 +17,15 @@ function functions(source, names) {
 export function hostSaveEntry(version, { read, metadata, fetch }) {
     if (!sources.has(version)) {
         const reference = referenceFor(version);
-        sources.set(version, [
+        const constants = readOfficialFile(reference, 'public/scripts/constants.js');
+        const debounce = parse(constants, { sourceType: 'module', ecmaVersion: 'latest' }).body
+            .map(node => node.declaration || node).find(node => node.type === 'VariableDeclaration'
+                && node.declarations.some(item => item.id.name === 'debounce_timeout'));
+        const timeout = vm.runInNewContext(`${constants.slice(debounce.start, debounce.end)}; debounce_timeout.relaxed`);
+        sources.set(version, { timeout, code: [
             functions(readOfficialFile(reference, 'public/script.js'), ['saveMetadata', 'saveChatConditional', 'saveChat']),
             functions(readOfficialFile(reference, 'public/scripts/utils.js'), ['waitUntilCondition']),
-        ].join('\n'));
+        ].join('\n') });
     }
     const errors = [];
     const context = vm.createContext({
@@ -28,7 +33,7 @@ export function hostSaveEntry(version, { read, metadata, fetch }) {
         get characters() { return read().characters; },
         get this_chid() { return read().characterId; },
         get chat() { return read().chat; },
-        selected_group: null, isChatSaving: false, DEFAULT_SAVE_EDIT_TIMEOUT: 10_000,
+        selected_group: null, isChatSaving: false, DEFAULT_SAVE_EDIT_TIMEOUT: sources.get(version).timeout,
         name1: 'User', name2: 'Character', neutralCharacterName: 'No character', chat_create_date: '',
         Date, setTimeout: (...args) => setTimeout(...args), clearTimeout: id => clearTimeout(id),
         setInterval: (...args) => setInterval(...args), clearInterval: id => clearInterval(id),
@@ -38,6 +43,6 @@ export function hostSaveEntry(version, { read, metadata, fetch }) {
         console: { error: error => errors.push(error), warn: error => errors.push(error), trace: error => errors.push(error) },
         toastr: { error: error => errors.push(error) }, t: parts => parts.join(''),
     });
-    vm.runInContext(sources.get(version), context);
+    vm.runInContext(sources.get(version).code, context);
     return { context, errors };
 }

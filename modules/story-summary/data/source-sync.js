@@ -1,11 +1,17 @@
 import { rollbackSummaryIfNeeded } from './store.js';
+import { retireSummaryMemorySources } from './memory-commit.js';
 import { deleteChunksAtFloor, deleteChunksFromFloor } from '../vector/storage/chunk-store.js';
 
 // Source retirement belongs to the consistency writer, not completion/UI events.
 // Ordinary prose edits keep canonical L2; deletion/swipe retain their undo policy.
 export function retainSourceChange(tracker, context, { kind = 'observed', floor = null } = {}) {
     tracker.retain(context, { kind, floor });
-    return tracker.inspect(context);
+    const change = tracker.inspect(context);
+    if (change) retireSummaryMemorySources(context.chatId, {
+        fromFloor: change.rollbackFromFloor == null ? change.fromFloor : Math.min(change.fromFloor ?? Infinity, change.rollbackFromFloor),
+        floors: change.anchorFloors,
+    });
+    return change;
 }
 
 export function synchronizeSourceCaches(tracker, context, {

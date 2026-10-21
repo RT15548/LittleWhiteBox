@@ -3,7 +3,9 @@ import test from 'node:test';
 import { runMemoryAgent, estimateMemoryChatContext } from '../maintenance/runner.js';
 import { createMemorySession } from '../maintenance/session.js';
 import { buildMemoryChatMessages, memoryRegenerationNote } from '../maintenance/conversation.js';
-import { commitMemorySession } from '../maintenance/commit.js';
+import { commitMemorySession, publishedMaintenanceCommit } from '../maintenance/commit.js';
+import { invalidateMemoryAnchorsAtFloors } from '../data/anchor-invalidation.js';
+import { projectMaintenanceRun } from '../maintenance/history.js';
 import { createSummaryBaseline } from '../data/summary-history.js';
 import { maintenanceFixture } from './fixtures/memory-maintenance.js';
 
@@ -23,6 +25,7 @@ function harness() {
         commits.push(next);
         current.store = next.storySummary; current.json = next.storySummary.json;
         current.atoms = next.stateAtoms; current.l0Index = next.l0Index;
+        return next;
     } };
     const finish = async payload => { finishes.push(payload); return commitMemorySession(payload.session, payload, ports); };
     return { current, session: createMemorySession(current), commits, finishes,
@@ -37,6 +40,44 @@ function assertPaired(messages) {
         assert.deepEqual(new Set(results), new Set(tools.map(tool => tool.id)));
         assert.equal(results.length, tools.length);
     }
+}
+
+// Acceptance: a confirmed save whose source changed reports only remaining results,
+// never retries the old draft or blocks the next turn. Completion-only work is valid.
+// Cost: false saved/completed feedback or duplicate writes after a successful save.
+for (const scenario of ['all', 'mixed', 'completion-retired', 'completion-valid']) {
+    test(`real Agent finalization reports post-save source retirement: ${scenario}`, async () => {
+        const h = harness(); h.session.initial();
+        let requests = 0;
+        const anchor = { kind: 'edit', collection: 'anchors', key: 'atom-1-0', patch: { semantic: '只是推测' } };
+        const tool = scenario.startsWith('completion') ? call('complete', 'CompleteMaintenance', { from: 2, to: 2 })
+            : call('edit', 'EditMemory', { edits: [anchor, ...(scenario === 'mixed' ? [{ kind: 'edit', collection: 'facts', key: 'f-1', patch: { o: '未证实' } }] : [])] });
+        const result = await runMemoryAgent(h.session, { ...h.options, mode: 'chat', question: '处理这部分',
+            adapter: { chat: async () => ++requests === 1 ? { toolCalls: [tool] } : { text: '已处理' } },
+            onFinish: async payload => {
+                const saved = await h.options.onFinish(payload);
+                const snapshot = { storySummary: h.current.store, stateAtoms: h.current.atoms, l0Index: h.current.l0Index };
+                const next = scenario === 'completion-valid' ? snapshot : invalidateMemoryAnchorsAtFloors(snapshot, [1]).next;
+                h.current.store = next.storySummary; h.current.json = next.storySummary.json;
+                h.current.atoms = next.stateAtoms; h.current.l0Index = next.l0Index;
+                return publishedMaintenanceCommit(saved, next);
+            },
+        });
+        const status = scenario === 'completion-valid' ? 'completed' : scenario === 'mixed' ? 'partially_superseded' : 'superseded';
+        assert.equal(result.status, status);
+        assert.equal(result.saved, Number(scenario === 'mixed'));
+        assert.equal(result.staged, 0);
+        assert.equal(result.error, undefined);
+        assert.equal(requests, 2);
+        assert.equal(h.commits.length, 1);
+        const history = projectMaintenanceRun(h.current.store, result.runId);
+        assert.equal(history.outcome.status, status);
+        assert.equal(history.counts.anchors, 0);
+        assert.deepEqual(history.completed, scenario === 'completion-valid' ? [{ from: 2, to: 2 }] : []);
+        const nextRun = await runMemoryAgent(createMemorySession(h.current), { ...h.options,
+            mode: 'chat', question: '继续', adapter: { chat: async () => ({ text: '可以继续' }) } });
+        assert.equal(nextRun.status, 'completed');
+    });
 }
 
 test('chat question remains a user instruction without an initial full-memory read or no-op receipt', async () => {

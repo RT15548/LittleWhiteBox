@@ -51,7 +51,7 @@ export async function runMemoryAgent(session, { adapter, config, signal, onCall 
         requireMemory(saved?.current && saved.receipt, 'save_unavailable');
         session.acknowledge(saved);
         receipts.push(...(saved.receipts || [saved.receipt]).map(receipt => receipt.id));
-        if (saved.receipt.outcome) outcome = { ...outcome, ...saved.receipt.outcome };
+        if (saved.outcome) outcome = { ...outcome, ...saved.outcome };
         finalRanges = saved.ranges;
         finalized = true;
         recovery = null;

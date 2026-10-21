@@ -1,7 +1,7 @@
 import { MEMORY_COLLECTIONS, maintenanceImpact } from './domain.js';
 import { requireMemory } from './errors.js';
 import { isMemoryPolicy } from '../data/memory-policy.js';
-import { subtractRanges, unionRanges } from './ranges.js';
+import { projectMaintenanceResult } from './result.js';
 
 export function validateMaintenanceReceipt(receipt) {
     requireMemory(receipt?.version === 2 && typeof receipt.id === 'string' && typeof receipt.runId === 'string'
@@ -65,20 +65,21 @@ function groupMaintenanceReceipts(store) {
 
 function projectRun(runId, receipts) {
     const latest = receipts[0], operations = [...receipts].reverse().flatMap(receipt => receipt.operations);
+    const result = projectMaintenanceResult(receipts, latest.outcome || { status: 'interrupted' });
     return { ...latest, id: runId, receiptId: latest.id, receiptIds: receipts.map(receipt => receipt.id),
         // A run's report is its concluding reply, never the notes attached to edits.
         operations, summary: receipts.find(receipt => receipt.outcome)?.summary || '',
         calls: [...new Map([...receipts].reverse().flatMap(receipt => receipt.calls || [])
             .map(call => [call.turn, call])).values()].sort((a, b) => a.turn - b.turn),
-        completed: unionRanges(receipts.flatMap(receipt => receipt.completion ? subtractRanges([receipt.completion], receipt.invalidated || []) : [])),
-        outcome: latest.outcome || { status: 'interrupted' },
+        completed: result.completed,
+        outcome: result.outcome,
         coverage: {
             supplied: [...new Map(receipts.flatMap(receipt => receipt.coverage.supplied).map(item => [JSON.stringify(item), item])).values()],
             missingAnchors: [...new Map(receipts.flatMap(receipt => receipt.coverage.missingAnchors).map(item => [item.floor, item])).values()] },
         counts: {
-            summary: operations.filter(operation => operation.kind !== 'merge' && maintenanceImpact([operation]).summary).length,
-            anchors: operations.filter(operation => operation.changes.some(change => change.collection === 'anchors')).length,
-            merges: operations.filter(operation => operation.kind === 'merge').length,
+            summary: result.operations.filter(operation => operation.kind !== 'merge' && maintenanceImpact([operation]).summary).length,
+            anchors: result.operations.filter(operation => operation.changes.some(change => change.collection === 'anchors')).length,
+            merges: result.operations.filter(operation => operation.kind === 'merge').length,
         } };
 }
 

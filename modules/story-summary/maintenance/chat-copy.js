@@ -1,4 +1,4 @@
-import { MEMORY_COPY, MEMORY_SAVE_ERRORS } from './copy.js';
+import { MEMORY_COPY, MEMORY_SAVE_ERRORS, MEMORY_RESULT_COPY } from './copy.js';
 import { agentErrorGuidance } from '../../agent-core/runtime/error-guidance.js';
 
 export const MEMORY_CHAT_COPY = Object.freeze({
@@ -17,7 +17,7 @@ export const MEMORY_CHAT_COPY = Object.freeze({
     queue: '等待当前自动维护结束', waiting: '等待上一轮停止', takeover: '停止自动维护，立即处理此消息',
     automatic: '自动维护正在运行', automaticQueued: '自动维护等待中',
     phases: MEMORY_COPY.actions,
-    statuses: { queued: '等待处理', running: '正在处理', completed: '已回复', failed: '本轮未完成', cancelled: '已停止', unconfirmed: '保存结果尚未确认' },
+    statuses: { queued: '等待处理', running: '正在处理', completed: '已回复', failed: '本轮未完成', cancelled: '已停止', unconfirmed: '保存结果尚未确认', ...MEMORY_RESULT_COPY },
     saved: MEMORY_COPY.saved, staged: MEMORY_COPY.staged,
     tools: count => `工作过程 · ${count} 次工具调用`, toolsShown: count => `显示最近 ${count} 次`,
     toolNames: { ReadMemory: '读取记忆', ReadSource: '读取原文', SearchSource: '搜索原文', EditMemory: '修改记忆', CompleteMaintenance: '记录维护进度', ReadMaintenance: '查询维护记录', RecoverMaintenanceSave: '核对保存' },

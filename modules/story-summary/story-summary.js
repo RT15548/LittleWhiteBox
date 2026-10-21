@@ -37,7 +37,7 @@ import {
     shouldNotifyMemoryFailure,
     runClearWithFeedback,
 } from './user-feedback.js';
-import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler, waitForAfterAiReady } from "../../core/after-ai-gate.js";
 import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 import {
     commitIfSignalActive,
@@ -508,6 +508,7 @@ const vectorMaintenanceScheduler = createVectorMaintenanceScheduler({
     getContext,
     isStale: isChatStale,
     getQuietWaitMs: getBackgroundQuietWaitMs,
+    waitForReady: waitForAfterAiReady,
     run: maybeRunDelayedVectorMaintenance,
 });
 let vectorIntegrityTimer = null;
@@ -903,6 +904,7 @@ async function handleAnchorGenerateNow(targetChatId, writeSession) {
                 commit: writeSession.commit,
                 shouldCancel: isCancelled,
                 retryFailedFloors: true,
+                persistence: 'confirmed',
             },
         );
         if (isCancelled() || result.cancelled) return;
@@ -916,7 +918,7 @@ async function handleAnchorGenerateNow(targetChatId, writeSession) {
         if (error?.name === 'AbortError' || isCancelled()) return;
         xbLog.error(MODULE_ID, '记忆锚点生成失败', error);
         if (!shouldNotifyMemoryFailure(error)) return;
-        await executeSlashCommand('/echo severity=error 记忆锚点生成失败：internal_error');
+        toastr.error(memorySaveError(error, 'anchors'), SUMMARY_FEEDBACK_COPY.title);
     } finally {
         await sendAnchorStatsToFrame();
     }
@@ -1386,7 +1388,7 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
     let stats;
     let l0VectorStatus;
     try {
-        await ensureCurrentSources(null, { requireSummary: false });
+        await ensureCurrentSources(null, { requireSummary: false, recover: false });
         stats = await getAnchorStats();
         l0VectorStatus = await getL0VectorBuildStatus(chatId);
     } catch (e) {
@@ -1487,6 +1489,7 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
                     const preferredFloors = pendingEntry?.floors ? [...pendingEntry.floors] : [];
                     return await incrementalExtractAtoms(chatId, chatSnapshot, null, {
                         maxFloors: 20,
+                        persistence: 'host',
                         preferredFloors,
                         signal: writeSession.signal,
                         commit: writeSession.commit,
@@ -1501,6 +1504,7 @@ async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
                         return { success: true, status: 'up_to_date', vectorized: 0 };
                     }
                     return await vectorizeMissingStateAtoms(chatId, null, {
+                        persistence: 'host',
                         vectorConfig: vectorCfg,
                         signal: writeSession.signal,
                         commit: writeSession.commit,
@@ -2077,7 +2081,8 @@ async function checkVectorIntegrity({ allowEventRepair = true, allowChunkRepair 
         return;
     }
     if (!readOnly) {
-        await ensureCurrentSources(null, { requireSummary: false });
+        if (getMemoryCommitState() === 'unconfirmed') { reschedule(); return; }
+        await ensureCurrentSources(null, { requireSummary: false, recover: false });
         if (getContext()?.chatId !== chatId) return;
     }
     if (readOnly ? pendingVectorMaintenanceByChat.has(chatId) : deferVectorIntegrityUntilMaintenance(chatId)) {
@@ -3021,7 +3026,11 @@ async function maybeAutoRunSummary(reason) {
     const { chatId, chat } = getContext();
     if (!chatId || !Array.isArray(chat)) return;
     if (!isStorySummaryEnabledForCurrentChat()) return;
-    if (getMemoryCommitState() === 'unconfirmed') {
+    if (isSummaryGenerating()) return;
+    const initiallyTriggered = getAutoSummaryPlan(chat, getPublishedSummaryStore()?.lastSummarizedMesId ?? -1,
+        getSummaryPanelConfig().trigger || {}, reason).triggered;
+    if (!initiallyTriggered) return;
+    if (['saving', 'unconfirmed'].includes(getMemoryCommitState())) {
         await waitForMemoryCommit();
         if (isChatStale(chatId)) return;
     }
@@ -3034,7 +3043,7 @@ async function maybeAutoRunSummary(reason) {
 
     const store = getSummaryStore();
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
-    const { target, triggered } = getAutoSummaryPlan(chat, lastSummarized, trig, reason);
+    const { target, triggered } = getAutoSummaryPlan(getContext().chat, lastSummarized, trig, reason);
     if (!triggered) return;
 
     await autoRunSummaryWithRetry(target, { api: cfgAll.api, gen: cfgAll.gen, trigger: trig });
@@ -3885,7 +3894,7 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
             scope: VECTOR_WRITE_SCOPES.CONSISTENCY,
         },
         async () => {
-            await waitForMemoryCommit();
+            if (!await waitForMemoryCommit(undefined, { recover: false })) return { status: 'deferred' };
             if (isChatStale(scheduledChatId)) return { status: 'stale' };
             const result = await rollbackSummaryIfNeeded();
             if (result.status !== 'failed' && !isChatStale(scheduledChatId)) {
@@ -3904,7 +3913,7 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
         return null;
     });
     if (isChatStale(scheduledChatId)) return;
-    if (!rollback) return;
+    if (!rollback || rollback.status === 'deferred') return;
     if (rollback.status === 'failed') {
         notifyStorySummaryChatState();
         reportMemorySaveFailure({ code: rollback.reason, uncertain: getMemoryCommitState() === 'unconfirmed' });
@@ -3951,7 +3960,7 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
 async function truncateVectorDataFromFloor(chatId, newLength) {
     if (!chatId || !(newLength >= 0)) return;
     await syncOnMessageDeleted(chatId, newLength);
-    await invalidateSummaryAnchors(chatId, newLength);
+    await invalidateSummaryAnchors(chatId, newLength, 'source_changed', { persistence: 'host' });
 }
 
 /**
@@ -3989,9 +3998,7 @@ async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null
     const change = retainSourceChange(messageSources, getContext(), { kind, floor });
     if (!change) return { status: 'unchanged' };
     for (const changedFloor of change.anchorFloors) rememberVectorMaintenance(chatId, changedFloor, 'source_changed');
-    // Only the writer waits for another save; current-round recall never does.
-    await waitForMemoryCommit();
-    if (isChatStale(chatId)) return { status: 'stale' };
+    // retainSourceChange already retired live anchors; only background cache work queues.
     // Reply replacement/continuation preserves an adopted round; historical edits do not.
     if (kind === 'edit') recallReuse.invalidate();
     else recallReuse.historyChanged(getContext(), change.historyFromFloor);
@@ -4017,6 +4024,7 @@ async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null
         scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, chatId);
         return outcome || { status: 'stale' };
     }
+    if (outcome.status === 'deferred') return outcome;
     if (outcome.status === 'failed') {
         await clearHideState();
         const error = { code: outcome.result?.reason, uncertain: getMemoryCommitState() === 'unconfirmed' };
@@ -4051,12 +4059,12 @@ async function waitForSummaryPreparation(task, signal) {
     finally { signal.removeEventListener('abort', onAbort); }
 }
 
-async function ensureCurrentSources(signal, { requireSummary = true } = {}) {
+async function ensureCurrentSources(signal, { requireSummary = true, recover = true } = {}) {
     throwIfSignalAborted(signal);
     const chatId = getContext().chatId;
     // Retire older embedding work before the caller registers its new task.
     if (messageSources.inspect(getContext())) cancelEmbeddingWriteTasks('Source synchronization');
-    await waitForMemoryCommit(signal);
+    if (!await waitForMemoryCommit(signal, { recover })) throw createAbortError();
     if (isChatStale(chatId)) throw createAbortError();
     await waitForSummaryPreparation(() => synchronizeCurrentSources(chatId), signal);
     await waitForSummaryPreparation(() => waitForVectorWrites(), signal);
@@ -4554,9 +4562,9 @@ function notifyStorySummaryAfterAi(data, source) {
     }
 
     // A continuation changes the same floor while send_date stays unchanged.
-    // Schedule directly from completion signals, not the after-AI gate's deduped
-    // UI notification. Render-only hints (including virtualized remounts) do not
-    // start maintenance. The timer rechecks the live continuation boundary.
+    // Keep completion deduplication separate from UI hints. The maintenance scheduler
+    // waits for host readiness and two frames before starting its quiet delay.
+    // Render-only hints (including virtualized remounts) do not start maintenance.
     if (source !== 'character_message_rendered' && isStorySummaryEnabledForCurrentChat() && getVectorConfig()?.enabled) {
         rememberVectorMaintenance(chatId, messageId, 'after_ai');
         scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, chatId);
@@ -4588,6 +4596,7 @@ function registerAfterAiGateHandler() {
 let storySummaryTeardown = null;
 
 function handleChatChange() {
+    vectorMaintenanceScheduler.clear();
     const reloaded = messageSources.switchChat(getContext());
     embeddingConnection.cancel();
     serviceTests.cancel();

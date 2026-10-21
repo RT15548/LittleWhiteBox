@@ -1,10 +1,16 @@
 import { MEMORY_DATA_COPY } from '../data/memory-copy.js';
 
+export const MEMORY_RESULT_COPY = Object.freeze({
+    superseded: '本次成果已失效，可按当前内容继续处理。',
+    partially_superseded: '部分成果已失效，其余修改和有效进度保留。',
+});
+
 export const MEMORY_SAVE_ERRORS = Object.freeze({
     memory_refresh_failed: '修改已保存，界面未能及时更新。',
     metadata_save_unconfirmed: '保存结果尚未确认，可以让助手继续核对。',
     metadata_unconfirmed: '有一笔修改等待核对，暂不继续写入。',
     metadata_not_saved: '本次修改尚未保存，助手可以继续检查原因。',
+    metadata_source_changed: MEMORY_DATA_COPY.sourceChanged,
     metadata_save_conflict: '保存时发现其他修改，需要先核对当前内容。',
     metadata_saving: '正在保存，请稍候。',
     metadata_target_unavailable: '当前聊天文件尚未就绪，暂时无法保存。',
@@ -54,6 +60,7 @@ export const MEMORY_COPY = Object.freeze({
     collections: { events: '事件', facts: '持续事实', characters: '人物', arcs: '弧光', keywords: '关键词', characterAliases: '别名', anchors: '逐楼锚点' },
     anchorStates: { missing: '未生成', fail: '提取失败' },
     states: { idle: '', queued: '等待前一轮结束', running: '正在检查记忆…', saving: '正在保存修改…', indexing: '修改已保存，正在更新记忆检索…',
+        ...MEMORY_RESULT_COPY,
         completed: '维护已结束', partial: '部分完成，剩余范围将在下次总结后继续。', interrupted: '本次维护未收尾，已保存的修改保留。',
         turn_limit: '本次维护已达到调用上限，已保存的修改保留。', input_limit: '本次维护已达到上下文上限，已保存的修改保留。',
         cancelled: '维护已停止，已保存的修改保留。', failed: '本次维护未完成，已保存的修改保留。', unconfirmed: MEMORY_SAVE_ERRORS.metadata_save_unconfirmed,

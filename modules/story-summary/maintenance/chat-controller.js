@@ -137,7 +137,7 @@ export function createMemoryChatController({ identity, chatId, scheduler, execut
             pendingRun = scheduler.interact(task, work);
             const result = await pendingRun;
             if (!current()) return;
-            turn.status = ['completed', 'cancelled', 'unconfirmed'].includes(result.status) ? result.status : 'failed';
+            turn.status = ['completed', 'cancelled', 'unconfirmed', 'superseded', 'partially_superseded'].includes(result.status) ? result.status : 'failed';
             receiveAnswer(result.summary);
             turn.saved = result.saved ?? turn.saved;
             turn.staged = result.staged ?? (result.status === 'completed' ? 0 : turn.staged);

@@ -15,19 +15,19 @@ const affectedChange = (change, affects) => change.collection === 'anchors' && !
     && ((change.before && affects(change.before.floor)) || (change.after && affects(change.after.floor)));
 
 /** Pure source retirement. Unchanged branches, including L2 content, are shared read-only. */
-export function invalidateMemoryAnchors(snapshot, fromFloor = 0, reason = 'source_changed') {
+export function invalidateMemoryAnchors(snapshot, fromFloor = 0, reason = 'source_changed', at = Date.now()) {
     const ranges = [
         { from: fromFloor + 1, to: (snapshot.storySummary.lastSummarizedMesId ?? -1) + 1 },
     ];
-    return retireAnchors(snapshot, floor => floor >= fromFloor, ranges, reason);
+    return retireAnchors(snapshot, floor => floor >= fromFloor, ranges, reason, at);
 }
 
-export function invalidateMemoryAnchorsAtFloors(snapshot, floors, reason = 'source_changed') {
+export function invalidateMemoryAnchorsAtFloors(snapshot, floors, reason = 'source_changed', at = Date.now()) {
     const selected = new Set(floors);
-    return retireAnchors(snapshot, floor => selected.has(floor), floors.map(floor => ({ from: floor + 1, to: floor + 1 })), reason);
+    return retireAnchors(snapshot, floor => selected.has(floor), floors.map(floor => ({ from: floor + 1, to: floor + 1 })), reason, at);
 }
 
-function retireAnchors(snapshot, affects, ranges, reason) {
+function retireAnchors(snapshot, affects, ranges, reason, at) {
     const ids = new Set();
     const retained = snapshot.stateAtoms.filter(atom => {
         if (!affects(atom.floor)) return true;
@@ -46,7 +46,7 @@ function retireAnchors(snapshot, affects, ranges, reason) {
                     if (!affectedChange(change, affects)) return change;
                     ids.add(change.key);
                     retired++;
-                    return { ...change, retired: { reason, at: Date.now() } };
+                    return { ...change, retired: { reason, at } };
                 });
                 return changes === operation.changes ? operation : { ...operation, changes };
             });
