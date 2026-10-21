@@ -32,7 +32,7 @@ test('session reload keeps failure notices and interrupted prose out of answered
     await createStore(restored).restoreSession();
     const turns = splitMessagesIntoTurns(restored.messages);
     assert.deepEqual(turns.map(hasChatAnswer), [true, false, false]);
-    assert.deepEqual(recentTurnArchiveCounts(turns, hasChatAnswer), [0]);
+    assert.deepEqual(recentTurnArchiveCounts(turns, hasChatAnswer), [0, 3]);
     assert.equal(restored.messages.filter(message => message.error).length, 4);
 });
 

@@ -1,4 +1,4 @@
-// 工具说明占位标记：上游把它写进 system 文本，由适配器决定替换成协议文本（tagged）或剔除（native）。
+// 工具说明占位标记：只有调用方显式标记的 system 消息才能控制工具说明的位置。
 // U+2063 不可见分隔符不属于空白字符，trim() 之后仍然保留，便于稳定识别。
 // 本文件刻意零依赖，供各适配器与调用方共用。
 export const TOOL_PROTOCOL_MARKER = '⁣XBDRAW_TOOL_PROTOCOL⁣';
@@ -9,8 +9,18 @@ const MERGEABLE_ROLES = new Set(['system', 'user', 'assistant']);
 function hasMarkerText(message) {
     return !!message
         && typeof message === 'object'
+        && message.role === 'system'
+        && message.toolProtocolMarker === true
         && typeof message.content === 'string'
         && message.content.includes(TOOL_PROTOCOL_MARKER);
+}
+
+/** Opt in only at a trusted request-assembly boundary, never on conversation history. */
+export function markToolProtocolMessages(messages) {
+    return messages.map(message => message.role === 'system'
+        && typeof message.content === 'string' && message.content.includes(TOOL_PROTOCOL_MARKER)
+        ? { ...message, toolProtocolMarker: true }
+        : message);
 }
 
 export function hasToolProtocolMarker(messages) {
@@ -83,7 +93,9 @@ export function resolveToolProtocolMarker(messages, replacement = null) {
             droppedSincePush = true;
             return;
         }
-        pushMessage({ ...message, content });
+        const plainMessage = { ...message, content };
+        delete plainMessage.toolProtocolMarker;
+        pushMessage(plainMessage);
     });
 
     function pushMessage(message) {

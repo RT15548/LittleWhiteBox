@@ -22,7 +22,7 @@ function buildTask() {
     return {
         systemPrompt: '',
         messages: [
-            { role: 'system', content: `HEAD\n\n${TOOL_PROTOCOL_MARKER}` },
+            { role: 'system', toolProtocolMarker: true, content: `HEAD\n\n${TOOL_PROTOCOL_MARKER}` },
             { role: 'user', content: 'U' },
         ],
         tools: [TOOL],
@@ -57,6 +57,7 @@ function assertMarkerBehaviour(createAgentAdapter, label) {
 test('the browser dist adapter resolves the tool protocol marker', async () => {
     const manifest = JSON.parse(await readFile(new URL('../../../dist/manifest.json', import.meta.url), 'utf8'));
     const entry = new URL(`../../../dist/${manifest.entries['runtime/agent-core'].file}`, import.meta.url);
+    // eslint-disable-next-line no-unsanitized/method -- Entry comes only from this repository's generated build manifest.
     const { createAgentAdapter } = await import(entry.href);
     assertMarkerBehaviour(createAgentAdapter, 'browser dist');
 });

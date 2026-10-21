@@ -10,7 +10,7 @@ import { settleAssistantRunFailure } from '../app-src/runtime/run-failure.js';
 // - API failures retain the existing local fallback, without another model call.
 // - Cancellation never archives history or adopts a late reply.
 // - Recent answers and the active tool round are retained separately (cost: lost context / broken protocol).
-// - Capacity cannot erase the last answer or buy useless summaries (cost: lost history / money).
+// - Budget pressure may summarize every prior turn, without changing the current request/tool group.
 // - Failed/cancelled prose never occupies an answered-turn slot; confirmed tool groups remain intact (cost: lost context / broken protocol).
 function harness(respond, fitsAt = 5) {
     const state = { messages: [
@@ -64,7 +64,7 @@ test('assistant cancellation preserves the original history and memory', async (
     assert.equal(h.saves(), 0);
 });
 
-test('assistant falls back to one answered turn plus the complete active tool round, never zero', async () => {
+test('assistant prefers one answered turn when it fits beside the complete active tool round', async () => {
     const h = harness(() => ({ text: 'memory' }), 5);
     h.state.messages.push({ role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 'Read', arguments: '{}' }] },
         { role: 'tool', content: 'observed', toolCallId: 'a' });
@@ -77,20 +77,24 @@ test('assistant falls back to one answered turn plus the complete active tool ro
     assert.equal(h.requests.length, 2);
 });
 
-test('assistant warns about estimated capacity without blocking the request, erasing its last answer or retrying summaries', async () => {
-    const h = harness(() => ({ text: 'memory' }), 0);
+test('assistant summarizes its only prior answer while retaining the complete active tool round', async () => {
+    const h = harness(() => ({ text: 'memory' }), 3);
     h.state.messages = h.state.messages.slice(-3);
-    h.state.contextStats.budgetTokens = 150;
-    const original = structuredClone(h.state.messages);
-    assert.deepEqual(await h.run(new AbortController().signal), original);
+    h.state.messages.push({ role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 'Read', arguments: '{}' }] },
+        { role: 'tool', content: 'observed', toolCallId: 'a' });
+    const active = structuredClone(h.state.messages.slice(-3));
+    assert.deepEqual(await h.run(new AbortController().signal), active);
     assert.equal(h.notices.length, 1);
-    assert.deepEqual(h.state.messages, original);
-    assert.equal(h.requests.length, 0);
-    assert.equal(h.saves(), 0);
+    assert.deepEqual(h.state.messages, active);
+    assert.equal(h.state.historySummary, 'memory');
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.saves(), 1);
+    await h.run(new AbortController().signal);
+    assert.equal(h.requests.length, 1);
 });
 
 for (const notice of ['provider failure', 'cancelled', '']) {
-    test(`assistant retains real answers after consecutive failed runs (${notice || 'silent cancellation'})`, async () => {
+    test(`assistant can summarize failed runs together with the last answer (${notice || 'silent cancellation'})`, async () => {
         const h = harness(() => ({ text: 'memory' }), 0);
         h.state.messages.pop();
         for (let i = 0; i < 2; i++) {
@@ -101,17 +105,15 @@ for (const notice of ['provider failure', 'cancelled', '']) {
         }
         h.state.messages.push({ role: 'user', content: 'current request' });
         const messages = await h.run(new AbortController().signal);
-        assert.equal(messages.some(message => message.content === 'Third answer.'), true);
-        assert.equal(messages.filter(message => message.content === 'partial reply')
-            .every(message => message.error === true && message.streaming === false), true);
-        assert.equal(h.requests.length, 2);
+        assert.deepEqual(messages, [{ role: 'user', content: 'current request' }]);
+        assert.equal(h.state.historySummary, 'memory');
+        assert.equal(h.requests.length, 3);
         await h.run(new AbortController().signal);
-        assert.equal(h.requests.length, 2, 'Protected material cannot trigger more summary requests');
+        assert.equal(h.requests.length, 3, 'Already summarized history cannot trigger more requests');
         h.state.messages.push({ role: 'assistant', content: 'next successful answer' },
             { role: 'user', content: 'continue' });
         const next = await h.run(new AbortController().signal);
-        assert.equal(next.some(message => message.content === 'next successful answer'), true);
-        assert.equal(next.some(message => message.content === 'Third answer.'), false);
+        assert.deepEqual(next, [{ role: 'user', content: 'continue' }]);
     });
 }
 

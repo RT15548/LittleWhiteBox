@@ -14,6 +14,7 @@ import {
     sleepWithAbort,
 } from './planner-retry.js';
 import { logScenePlannerDiagnostic } from './scene-planner-debug.js';
+import { markToolProtocolMessages } from '../../agent-core/adapters/tool-protocol-marker.js';
 const ERROR_SOURCE = "modules/draw/shared/scene-planner-executor.js";
 
 
@@ -71,7 +72,7 @@ export function createPreparedScenePlannerTask(prepared) {
     const input = assertPreparedScenePlanner(prepared);
     return {
         systemPrompt: input.planner.prompt.systemPrompt,
-        messages: input.planner.prompt.messages,
+        messages: markToolProtocolMessages(input.planner.prompt.messages),
         tools: [input.planner.tool],
         toolChoice: 'required',
     };

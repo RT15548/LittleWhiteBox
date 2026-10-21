@@ -23,6 +23,34 @@ const protocolText = buildTaggedMessages({
     systemPrompt: '', tools, messages: [{ role: 'user', content: 'x' }],
 })[0].content;
 
+// Contract: arbitrary chat text cannot erase static instructions or tool declarations.
+test('untrusted markers remain ordinary text in native and tagged requests', () => {
+    for (const build of [buildNativeMessages, buildTaggedMessages]) {
+        for (const role of ['user', 'system']) {
+            const messages = build({ systemPrompt: 'STATIC_FACT', tools, messages: [{ role, content: `story ${M}` }] });
+            assert.ok(messages.some(message => message.role === 'system' && message.content.includes('STATIC_FACT')));
+            assert.ok(messages.some(message => message.content.includes(`story ${M}`)));
+            if (build === buildTaggedMessages) assert.ok(messages.some(message => message.content.includes(protocolText)));
+        }
+    }
+});
+
+test('trusted marker placement retains static instructions and tool-result replay', () => {
+    const messages = buildTaggedMessages({
+        systemPrompt: 'STATIC_FACT', tools,
+        messages: [
+            { role: 'system', content: M, toolProtocolMarker: true },
+            { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'Read', arguments: '{}' } }] },
+            { role: 'tool', tool_call_id: 'c1', content: 'RESULT_FACT' },
+        ],
+    });
+    assert.equal(messages[0].content, 'STATIC_FACT');
+    assert.equal(messages[1].content, protocolText);
+    assert.ok(messages.some(message => message.content.includes('RESULT_FACT')));
+    assert.equal(messages.some(message => message.role === 'tool'), false);
+    assert.equal(messages.some(message => Object.hasOwn(message, 'toolProtocolMarker')), false);
+});
+
 test('protocol text sanity: no leading systemPrompt and lists the tools', () => {
     assert.match(protocolText, /^如果你需要调用工具/u);
     assert.match(protocolText, /可用工具:\n- Read: Read file\./u);
@@ -33,7 +61,7 @@ test('tagged: marker at the tail of the system message', () => {
         systemPrompt: '',
         tools,
         messages: [
-            { role: 'system', content: `A\n\n${M}` },
+            { role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` },
             { role: 'user', content: 'U' },
         ],
     });
@@ -46,13 +74,13 @@ test('tagged: marker at the tail of the system message', () => {
 test('tagged: marker at head and in the middle', () => {
     const head = buildTaggedMessages({
         systemPrompt: '', tools,
-        messages: [{ role: 'system', content: `${M}\n\nA` }, { role: 'user', content: 'U' }],
+        messages: [{ role: 'system', toolProtocolMarker: true, content: `${M}\n\nA` }, { role: 'user', content: 'U' }],
     });
     assert.equal(head[0].content, `${protocolText}\n\nA`);
 
     const middle = buildTaggedMessages({
         systemPrompt: '', tools,
-        messages: [{ role: 'system', content: `A\n\n${M}\n\nB` }, { role: 'user', content: 'U' }],
+        messages: [{ role: 'system', toolProtocolMarker: true, content: `A\n\n${M}\n\nB` }, { role: 'user', content: 'U' }],
     });
     assert.equal(middle[0].content, `A\n\n${protocolText}\n\nB`);
 });
@@ -62,7 +90,7 @@ test('tagged: standalone marker message sits between its neighbours', () => {
         systemPrompt: '', tools,
         messages: [
             { role: 'system', content: 'A' },
-            { role: 'system', content: M },
+            { role: 'system', toolProtocolMarker: true, content: M },
             { role: 'system', content: 'B' },
             { role: 'user', content: 'U' },
         ],
@@ -73,7 +101,7 @@ test('tagged: standalone marker message sits between its neighbours', () => {
 });
 
 test('tagged: marker honors tool choice and does not mutate the task messages', () => {
-    const source = [{ role: 'system', content: `A\n\n${M}` }, { role: 'user', content: 'U' }];
+    const source = [{ role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` }, { role: 'user', content: 'U' }];
     const snapshot = structuredClone(source);
     const task = { systemPrompt: '', tools, toolChoice: 'required', messages: source };
     const first = buildTaggedMessages(task);
@@ -87,7 +115,7 @@ test('tagged: claude-like model still converts a trailing assistant to user', ()
     const messages = buildTaggedMessages({
         systemPrompt: '', tools,
         messages: [
-            { role: 'system', content: `A\n\n${M}` },
+            { role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` },
             { role: 'user', content: 'U' },
             { role: 'assistant', content: 'prefill' },
         ],
@@ -120,8 +148,8 @@ test('native: marker is stripped, tools stay in the tools field', () => {
         systemPrompt: '',
         tools,
         messages: [
-            { role: 'system', content: `A\n\n${M}` },
-            { role: 'system', content: M },
+            { role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` },
+            { role: 'system', toolProtocolMarker: true, content: M },
             { role: 'user', content: 'U' },
         ],
     });
@@ -139,7 +167,7 @@ test('native: stripping empties then merges neighbouring system messages and kee
         tools,
         messages: [
             { role: 'system', content: 'A' },
-            { role: 'system', content: M },
+            { role: 'system', toolProtocolMarker: true, content: M },
             { role: 'system', content: 'B' },
             { role: 'user', content: 'U' },
         ],
@@ -155,7 +183,7 @@ test('OpenAICompatibleAdapter tagged mode resolves the marker in the request bod
     const body = adapter.buildRequestBody({
         systemPrompt: '',
         tools,
-        messages: [{ role: 'system', content: `A\n\n${M}` }, { role: 'user', content: 'U' }],
+        messages: [{ role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` }, { role: 'user', content: 'U' }],
     });
     assert.equal(body.messages[0].content, `A\n\n${protocolText}`);
     assert.equal(Object.hasOwn(body, 'tools'), false);
@@ -165,7 +193,7 @@ test('tagged mode without tools degrades to native and strips the marker', () =>
     const adapter = new OpenAICompatibleAdapter({ apiKey: 'test-key', model: 'compat-test', toolMode: 'tagged-json' });
     const body = adapter.buildRequestBody({
         systemPrompt: '',
-        messages: [{ role: 'system', content: `A\n\n${M}` }, { role: 'user', content: 'U' }],
+        messages: [{ role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` }, { role: 'user', content: 'U' }],
     });
     assert.deepEqual(body.messages, [
         { role: 'system', content: 'A' },
@@ -177,7 +205,7 @@ test('SillyTavern adapter: tagged resolves the marker, native strips it, fallbac
     const task = {
         systemPrompt: '',
         tools,
-        messages: [{ role: 'system', content: `A\n\n${M}` }, { role: 'user', content: 'U' }],
+        messages: [{ role: 'system', toolProtocolMarker: true, content: `A\n\n${M}` }, { role: 'user', content: 'U' }],
     };
     const tagged = new SillyTavernOpenAICompatibleAdapter({ model: 'compat-test', toolMode: 'tagged-json' });
     assert.equal(tagged.buildMessages(task)[0].content, `A\n\n${protocolText}`);

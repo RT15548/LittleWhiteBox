@@ -241,7 +241,9 @@ test('prepared snapshot carries the multi-message prompt and the executor task r
     assert.deepEqual(transferred.planner.prompt.messages.map((message) => message.role), ['system', 'user', 'assistant']);
     const task = createPreparedScenePlannerTask(transferred);
     assert.equal(task.systemPrompt, '');
-    assert.deepEqual(task.messages, transferred.planner.prompt.messages);
+    assert.deepEqual(task.messages.map(({ role, content }) => ({ role, content })), transferred.planner.prompt.messages);
+    assert.equal(task.messages[0].toolProtocolMarker, true);
+    assert.equal(transferred.planner.prompt.messages.some(message => Object.hasOwn(message, 'toolProtocolMarker')), false);
     assert.equal(task.toolChoice, 'required');
 });
 

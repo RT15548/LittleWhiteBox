@@ -131,19 +131,16 @@ export function createDrawAgentSettingsSurface(options = {}) {
         presetListKit: PRESET_LIST_KIT,
         saveConfig: async ({ requestId, payload, preserveDraft = false }) => {
             // preserveDraft：预设行操作（排序 / 复制 / 重命名 / 删除）只落盘预设表，不能顺带丢掉表单里未保存的编辑。
-            const wasDirty = state.configDirty;
             beginSave(requestId);
-            state.configDirty = true;
+            if (!preserveDraft) state.configDirty = true;
             let result;
             try {
                 result = await persistSettings(payload);
             } catch (error) {
-                if (preserveDraft) state.configDirty = wasDirty;
                 completeSave(requestId, { ok: false, error: describeError(error) });
                 return { ok: false };
             }
             if (!result?.ok) {
-                if (preserveDraft) state.configDirty = wasDirty;
                 completeSave(requestId, {
                     ok: false,
                     error: String(result?.error || '共享 Agent API 配置保存失败'),
@@ -152,9 +149,7 @@ export function createDrawAgentSettingsSurface(options = {}) {
             }
 
             state.config = normalizeAgentConfig(result.config || payload || {});
-            if (preserveDraft) {
-                state.configDirty = wasDirty;
-            } else {
+            if (!preserveDraft) {
                 state.configDraft = null;
                 state.configDirty = false;
                 state.configFormSyncPending = true;
@@ -182,6 +177,7 @@ export function createDrawAgentSettingsSurface(options = {}) {
     }
 
     function beginSave(requestId) {
+        refreshSequence += 1;
         clearResetTimer();
         state.configSave = { status: 'saving', requestId, error: '' };
         state.inlineToastText = '正在保存共享 API 配置…';
@@ -272,6 +268,7 @@ export function createDrawAgentSettingsSurface(options = {}) {
 
     async function refresh(refreshOptions = {}) {
         if (destroyed) return null;
+        if (state.configSave.status === 'saving') return state.config;
         refreshSequence += 1;
         const sequence = refreshSequence;
         const force = refreshOptions.force === true;

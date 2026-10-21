@@ -220,7 +220,9 @@ export function createSortableList({
         event.preventDefault?.();
         const id = String(getId(row));
         drag = { pointerId: event.pointerId, id, startY: event.clientY, lastY: event.clientY, moved: false, handle, group: groupOf(id) };
-        try { handle.setPointerCapture?.(event.pointerId); } catch { /* 指针已失效时忽略，文档级监听仍能完成拖拽 */ }
+        try { handle.setPointerCapture?.(event.pointerId); } catch (error) {
+            console.warn({ source: import.meta.url, operation: 'setPointerCapture' }, error);
+        }
         document.body?.classList.add(bodyClass);
         for (const item of rowsOf()) {
             if (item === row || drag.group?.includes(String(getId(item)))) item.classList.add(draggingClass);

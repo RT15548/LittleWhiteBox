@@ -49,7 +49,7 @@ export async function runAdministratorLoop(options: {
         const before = usage().used;
         const retained = retainedAdministratorTurns(state).filter(item => item.turn !== turn);
         const boundaries = recentTurnArchiveCounts(retained, item => item.turn.status === 'finished' && !!item.turn.assistant?.trim());
-        const minimum = administratorContext({ summary: null, turns: [...retained.slice(boundaries.at(-1)).map(item => item.turn), turn] }, options.requestForCounting);
+        const minimum = administratorContext({ summary: null, turns: [turn] }, options.requestForCounting);
         if (contextUsage(options.system, options.getTools(), options.prefix, minimum, options.imageCount, agent.providerConfig).used > POLICY.inputBudget) {
             throw new Error('administrator_context_full');
         }

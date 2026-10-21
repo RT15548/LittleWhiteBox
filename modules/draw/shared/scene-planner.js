@@ -23,7 +23,7 @@ import {
 } from './scene-planner-frame.js';
 import { planScenePlannerMessages } from './scene-planner-assembly.js';
 import { normalizeLayout } from './scene-planner-layout.js';
-import { TOOL_PROTOCOL_MARKER, stripToolProtocolMarker } from '../../agent-core/adapters/tool-protocol-marker.js';
+import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker } from '../../agent-core/adapters/tool-protocol-marker.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
 import {
@@ -312,7 +312,7 @@ async function buildScenePlannerRequest(options = {}) {
             // 多消息：system 角色消息留在 messages 里按位置发送，工具说明标记就在持有 tools 块的那条 system 里。
             const messages = rendered.filter((message) => message.content);
             prompt = { systemPrompt: '', messages };
-            readyMessages = stripToolProtocolMarker(messages);
+            readyMessages = stripToolProtocolMarker(markToolProtocolMessages(messages));
         }
         await emitScenePromptReady(runtime, readyMessages);
         return {

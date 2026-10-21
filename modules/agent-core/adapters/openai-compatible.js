@@ -562,7 +562,7 @@ export function mergeReplayMessages(existing = {}, next = {}) {
 }
 
 export function buildNativeMessages(task, model = '', { preserveReasoningContent = false } = {}) {
-    const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
+    const sourceMessages = stripToolProtocolMarker(Array.isArray(task.messages) ? task.messages : []);
     const lastUserIndex = getLastUserMessageIndex(sourceMessages);
     const collectedMessages = [];
     let skipCorruptedToolResults = false;
@@ -646,7 +646,7 @@ export function buildNativeMessages(task, model = '', { preserveReasoningContent
     });
 
     // 原生模式工具走独立 tools 字段，工具说明占位标记不能泄漏给服务端；先剔除再合并 system。
-    const normalizedMessages = stripToolProtocolMarker(collectedMessages);
+    const normalizedMessages = collectedMessages;
 
     const systemPrompt = String(task.systemPrompt || '').trim();
     if (systemPrompt) {
@@ -700,7 +700,11 @@ function buildTaggedProtocolPrompt(task) {
 export function buildTaggedMessages(task, model = '') {
     const toolNameById = new Map();
     const messages = [];
-    const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
+    const markerResolved = resolveToolProtocolMarker(
+        Array.isArray(task.messages) ? task.messages : [],
+        () => buildTaggedProtocolPrompt({ ...task, systemPrompt: '' }),
+    );
+    const sourceMessages = markerResolved.messages;
 
     sourceMessages.forEach((message) => {
         if (message.role === 'assistant') {
@@ -757,14 +761,10 @@ export function buildTaggedMessages(task, model = '') {
         });
     });
 
-    // 上游在 system 文本里放了占位标记时，工具说明就地落在标记处，不再追加到 system 末尾。
-    // 此时 systemPrompt 必须置空，避免协议文本里重复带上静态提示词。
-    const markerResolved = resolveToolProtocolMarker(
-        messages,
-        () => buildTaggedProtocolPrompt({ ...task, systemPrompt: '' }),
-    );
+    // 显式标记仅决定工具说明的位置，不取代调用方的静态 systemPrompt。
     if (markerResolved.found) {
-        return normalizeFinalClaudeLikeMessageRole(markerResolved.messages, model);
+        if (task.systemPrompt) messages.unshift({ role: 'system', content: task.systemPrompt });
+        return normalizeFinalClaudeLikeMessageRole(messages, model);
     }
 
     if (!messages.length || messages[0].role !== 'system') {
@@ -1024,8 +1024,7 @@ function describeOpenAICompatibleHttpError(rawText, status) {
     return source || `OpenAI 兼容流式请求失败（HTTP ${status}）`;
 }
 
-// Raw facts about a completion, kept on a bad-finish error so a relay that answers 200
-// with an odd body (missing finish_reason, empty content, error object) can be diagnosed.
+// Response metadata lets a relay's HTTP 200 with empty choices be diagnosed.
 function describeCompletionResponse(response, choice, message) {
     return {
         transport: 'json',
@@ -1037,9 +1036,10 @@ function describeCompletionResponse(response, choice, message) {
         finishReason: choice?.finish_reason ?? null,
         contentLength: flattenTextContent(message?.content).length,
         toolCallCount: Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0,
-        refusal: message?.refusal ?? null,
+        refused: Boolean(message?.refusal),
         usage: response?.usage ?? null,
-        error: response?.error ?? null,
+        // Provider error messages can echo API keys; retain presence, never the raw object.
+        hasError: response?.error != null,
     };
 }
 
@@ -1050,7 +1050,7 @@ function describeStreamedResponse(snapshot, finishReason, model) {
         finishReason: finishReason ?? null,
         contentLength: getStreamedSnapshotText(snapshot).length,
         toolCallCount: getStreamedSnapshotToolCalls(snapshot).length,
-        refusal: snapshot?.refusal ?? null,
+        refused: Boolean(snapshot?.refusal),
     };
 }
 

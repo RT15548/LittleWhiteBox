@@ -75,14 +75,15 @@ export function createMemoryContext({ config, signal, limits, countTokens = reso
         const question = messages[questionIndex];
         const cycles = splitAtRole(messages.slice(questionIndex + 1), 'assistant');
         let oldTurns = 0, oldCycles = 0;
-        // Older exchanges may become notes; recent answers stay verbatim.
+        // Any prior exchange may become notes; only the current request and
+        // latest tool group are required to continue this execution.
         const boundaries = recentTurnArchiveCounts(turns, hasChatAnswer);
-        const minimum = [...turns.slice(boundaries.at(-1)).flat(), ...currentMaterial, question, ...cycles.slice(-1).flat()]
+        const minimum = [...currentMaterial, question, ...cycles.slice(-1).flat()]
             .map(dropInvalidatedThinkingFromMessage);
         requireMemory((await count(minimum)).tokens <= limits.inputTokens, 'input_limit');
         const candidates = boundaries.map(boundary => ({ turns: turns.length - boundary, cycles: cycles.length }));
         for (const keep of [2, 1]) {
-            if (keep < cycles.length) candidates.push({ turns: turns.length - boundaries.at(-1), cycles: keep });
+            if (keep < cycles.length) candidates.push({ turns: 0, cycles: keep });
         }
         let withinLimit;
         for (const keep of candidates) {

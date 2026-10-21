@@ -145,7 +145,7 @@ Responsibilities:
 
 Important runtime rules:
 
-- 上下文仪表和每轮请求前的压缩判断共用 Agent Core 本地估算器，计入送模消息、工具定义和会回放的 provider payload；不请求宿主 tokenizer。数值是估算，不是供应商实际用量；保留既有压缩阈值与近期轮次保护。
+- 上下文仪表和每轮请求前的压缩判断共用 Agent Core 本地估算器，计入送模消息、工具定义和会回放的 provider payload；不请求宿主 tokenizer。数值是估算，不是供应商实际用量；保留既有压缩阈值，近期原文保留遵循 Agent Core 的偏好顺序，预算不足时全部旧轮可转为摘要，当前请求与工具链独立保留。
 - `Plan*` 只管理状态，不执行实际工作
 - `DelegateRun` 是 runtime 内部能力，不是 host 侧普通工具
 - 子任务默认复用当前模型配置、权限模式和工具能力

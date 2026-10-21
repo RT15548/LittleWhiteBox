@@ -15,7 +15,8 @@ function readCollapsed(document, listId) {
     if (!listId) return false;
     try {
         return document.defaultView?.localStorage?.getItem(COLLAPSE_KEY_PREFIX + listId) === '1';
-    } catch {
+    } catch (error) {
+        console.warn({ source: import.meta.url, operation: 'readCollapsed' }, error);
         return false;
     }
 }
@@ -24,7 +25,9 @@ function writeCollapsed(document, listId, collapsed) {
     if (!listId) return;
     try {
         document.defaultView?.localStorage?.setItem(COLLAPSE_KEY_PREFIX + listId, collapsed ? '1' : '0');
-    } catch { /* 存储不可用：只在本次页面内记住 */ }
+    } catch (error) {
+        console.warn({ source: import.meta.url, operation: 'writeCollapsed' }, error);
+    }
 }
 
 const DEFAULT_MENU_ITEMS = [

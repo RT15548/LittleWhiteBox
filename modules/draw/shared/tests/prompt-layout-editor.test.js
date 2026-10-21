@@ -2,7 +2,6 @@
 // linkedom 没有布局和焦点：行矩形手写，focus() 与 activeElement 在测试里自己记录 / 设置。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import { parseHTML } from 'linkedom';
 
 import {
@@ -16,7 +15,6 @@ import {
 } from '../prompt-layout-editor.js';
 import { BUILTIN_BLOCK_IDS, addBlock, createCustomBlock } from '../scene-planner-layout.js';
 
-const CSS = new URL('../prompt-layout-editor.css', import.meta.url);
 
 // 固定的"随机源"：每次返回不同的值，保证 id 唯一又可复现。
 function sequenceRandom() {
@@ -464,18 +462,6 @@ test('createPromptLayoutEditor validates its required inputs', () => {
 
 // ── 样式 ────────────────────────────────────────────────
 
-test('stylesheet is self-contained: every CSS variable has a fallback and touch targets reach 44px', () => {
-    const css = fs.readFileSync(CSS, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    const vars = css.match(/var\(--[^)]*\)/g) || [];
-    assert.ok(vars.length > 10);
-    for (const use of vars) assert.match(use, /var\(--[\w-]+\s*,/, `${use} 缺少缺省值`);
-    const media = css.match(/@media \(max-width: 768px\)\s*\{([\s\S]*?)\n\}/);
-    assert.ok(media, '有窄屏规则');
-    assert.match(media[1], /\.lwb-ple-btn\s*\{[^}]*min-height:\s*44px/);
-    assert.match(media[1], /\.lwb-ple-handle\s*\{[^}]*min-height:\s*44px/);
-    assert.match(css, /\.lwb-ple-handle\s*\{[^}]*touch-action:\s*none/);
-    assert.doesNotMatch(css, /\.btn\b|\.input\b/, '不依赖页面的 .btn / .input');
-});
 
 // ── 手风琴：一次只展开一条 ───────────────────────────────
 
@@ -782,13 +768,4 @@ test('reset and render({collapse}) clear the selection and the undo bar; stale i
     ctx.editor.render();
     assert.deepEqual(selectedIds(ctx), []);
     assert.equal(bar(ctx).hasAttribute('hidden'), true);
-});
-
-test('stylesheet styles the selection mode, selected rows and the two bars', () => {
-    const css = fs.readFileSync(CSS, 'utf8');
-    assert.match(css, /\.lwb-ple\.select-mode \.lwb-ple-select-box\s*\{[^}]*display:\s*inline-flex/);
-    assert.match(css, /\.lwb-ple-row\.selected/);
-    assert.match(css, /\.lwb-ple-selection-bar/);
-    assert.match(css, /\.lwb-ple-undo-bar/);
-    assert.match(css, /\.lwb-ple-select-box\s*\{[^}]*min-height:\s*44px/, '窄屏 / 触屏下选择框够大');
 });

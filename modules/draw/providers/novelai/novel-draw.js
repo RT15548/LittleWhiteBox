@@ -3477,9 +3477,10 @@ async function handleFrameMessage(event) {
                 }
                 const ids = settings.paramsPresets.map(p => p.id);
                 if (!ids.includes(presetId)) return;
-                const neighbor = pickNeighborAfterRemoval(ids, presetId);
                 settings.paramsPresets = settings.paramsPresets.filter(p => p.id !== presetId);
-                settings.selectedParamsPresetId = neighbor;
+                if (settings.selectedParamsPresetId === presetId) {
+                    settings.selectedParamsPresetId = pickNeighborAfterRemoval(ids, presetId);
+                }
                 deleteResult = 'deleted';
             }, '已删除', { target: 'params', notify: false });
             if (!ok) {
@@ -3511,7 +3512,7 @@ async function handleFrameMessage(event) {
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
-                } catch {}
+                } catch (error) { console.warn({ source: import.meta.url, operation: 'refreshPresetSelect' }, error); }
             }
             break;
         }

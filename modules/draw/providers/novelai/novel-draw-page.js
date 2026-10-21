@@ -3554,6 +3554,7 @@ function getLayoutEditor() {
         layoutEditor = PLE.createPromptLayoutEditor({
             document,
             container,
+            getOwnerKey: currentPromptPresetId,
             getLayout: () => getEffectivePromptLayout(getActivePromptPresetForForm()),
             getSavedLayout: () => getSavedPromptLayout(getActivePromptPresetForForm()),
             onChange: layout => setPromptLayoutDraft(getActivePromptPresetForForm(), layout),

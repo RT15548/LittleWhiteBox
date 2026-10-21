@@ -1155,8 +1155,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const rows = Array.from(list.querySelectorAll('[data-preset-item]'));
         if (rows.length !== names.length || rows.some((row, index) => row.dataset.presetName !== names[index])) {
             presetMenu?.close(); // 整体重绘会换掉所有行，已打开的菜单随之失效
-            // First-party markup; preset names are escaped there.
-            // eslint-disable-next-line no-unsanitized/property
+            // eslint-disable-next-line no-unsanitized/property -- First-party markup escapes preset names before rendering.
             list.innerHTML = buildPresetListRowsMarkup({ names, selectedName, isBusy, canDeletePreset });
             return;
         }
@@ -1205,6 +1204,7 @@ export function createAgentSettingsPanel(deps = {}) {
         const nextSaved = normalizeAgentConfig(remapNames(saved, transform(saved.presets)));
         let nextLocal = normalizeAgentConfig(remapNames(state.config, transform(state.config.presets)));
         const draft = state.configDraft;
+        let changedDraftNames = [];
         if (selectName) {
             const synced = syncConfigDraft(root);
             nextLocal = buildSelectionConfig(synced, selectName, nextLocal);
@@ -1217,7 +1217,8 @@ export function createAgentSettingsPanel(deps = {}) {
                 delegatePresetName: remap(draft.delegatePresetName),
             };
             // 只有名字真的被改了才换草稿对象（排序 / 复制不碰草稿）
-            if (Object.keys(patch).some(key => patch[key] !== draft[key])) {
+            changedDraftNames = Object.keys(patch).filter(key => patch[key] !== draft[key]);
+            if (changedDraftNames.length) {
                 state.configDraft = { ...draft, ...patch };
                 const nameInput = root.querySelector('#xb-assistant-preset-name');
                 if (nameInput && patch.presetDraftName !== draft.presetDraftName) {
@@ -1238,6 +1239,17 @@ export function createAgentSettingsPanel(deps = {}) {
             presetBaseline = previous.baseline;
             presetOwned = previous.owned;
             if (state.configDraft === nextDraft) state.configDraft = previous.draft;
+            else if (state.configDraft && changedDraftNames.length) {
+                // 保存期间仍可编辑参数：只回滚本次改动的名字，不覆盖新草稿。
+                const names = Object.fromEntries(changedDraftNames
+                    .filter(key => state.configDraft[key] === nextDraft[key])
+                    .map(key => [key, previous.draft[key]]));
+                state.configDraft = { ...state.configDraft, ...names };
+            }
+            const nameInput = root.querySelector('#xb-assistant-preset-name');
+            if (changedDraftNames.includes('presetDraftName') && nameInput?.value === nextDraft.presetDraftName) {
+                nameInput.value = previous.draft.presetDraftName;
+            }
             if (selectName) requestConfigFormSync();
             syncPresetList(root);
             if (selectName) render?.();

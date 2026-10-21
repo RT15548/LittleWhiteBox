@@ -1,9 +1,10 @@
-export const RECENT_CHAT_TURNS = Object.freeze({ preferred: 2, minimum: 1 });
+const PREFERRED_RECENT_CHAT_TURNS = 2;
 
 /**
  * Whole-turn archive boundaries, preferred first. Pass only prior turns;
  * the current request and its tool continuation are owned by the caller.
- * Interrupted exchanges do not count as answered turns.
+ * Recent answers are a preference, not a floor: all prior turns may become
+ * summary material, including interrupted exchanges after the latest answer.
  * @template T
  * @param {ReadonlyArray<T>} turns
  * @param {(turn: T) => boolean} isAnswered
@@ -11,11 +12,12 @@ export const RECENT_CHAT_TURNS = Object.freeze({ preferred: 2, minimum: 1 });
  */
 export function recentTurnArchiveCounts(turns, isAnswered) {
     const starts = [];
-    for (let index = turns.length - 1; index >= 0 && starts.length < RECENT_CHAT_TURNS.preferred; index--) {
+    for (let index = turns.length - 1; index >= 0 && starts.length < PREFERRED_RECENT_CHAT_TURNS; index--) {
         if (isAnswered(turns[index])) starts.push(index);
     }
-    return [...new Set([RECENT_CHAT_TURNS.preferred, RECENT_CHAT_TURNS.minimum]
-        .map(keep => starts[keep - 1] ?? 0))];
+    const boundaries = [];
+    for (let keep = PREFERRED_RECENT_CHAT_TURNS; keep > 0; keep--) boundaries.push(starts[keep - 1] ?? 0);
+    return [...new Set([...boundaries, turns.length])];
 }
 
 /** @param {ReadonlyArray<{ role?: string, content?: unknown, error?: boolean, streaming?: boolean, toolCalls?: unknown[], tool_calls?: unknown[] }>} messages */

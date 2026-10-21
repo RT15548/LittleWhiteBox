@@ -94,6 +94,7 @@ function blocksOf(layout) {
  * @param {Document} options.document
  * @param {Element} options.container 编辑器画在这里面（卡片的内容区）；组件只改它的内容
  * @param {function(): object} [options.getLayout] 当前生效的布局（草稿优先）。不传则组件自己持有布局，经 setLayout 设置
+ * @param {function(): string} [options.getOwnerKey] 当前预设的稳定标识；切换时清理撤销、选择和展开状态
  * @param {function(): (object|null)} [options.getSavedLayout] 已保存的布局，用来判断"未保存"徽标；缺省时拿 setLayout 最近一次设置的值比
  * @param {function(object): void} options.onChange 每次用户修改后的新布局（已规范化）。输入框打字也会调，但不会因此重绘
  * @param {function(string): ({summary?: string, label?: string, action?: ('edit'|'view'|null)}|null)} [options.describeBuiltin]
@@ -110,6 +111,7 @@ export function createPromptLayoutEditor({
     document,
     container,
     getLayout = null,
+    getOwnerKey = () => null,
     getSavedLayout = null,
     onChange,
     describeBuiltin = null,
@@ -136,6 +138,7 @@ export function createPromptLayoutEditor({
     let undoState = null; // { layout } 删除 / 批量复制前的整份布局
     let pendingFocus = null; // 重建后要聚焦的 { id, field }
     let lastSignature = null;
+    let renderedOwnerKey = getOwnerKey();
     let sortable = null;
     let mounted = false;
     const listeners = [];
@@ -363,7 +366,7 @@ export function createPromptLayoutEditor({
         if (!node) return;
         node.focus?.();
         if (typeof target.start === 'number' && typeof node.setSelectionRange === 'function') {
-            try { node.setSelectionRange(target.start, target.end ?? target.start); } catch { /* 个别输入类型不支持选区 */ }
+            node.setSelectionRange(target.start, target.end ?? target.start);
         }
     }
 
@@ -458,10 +461,13 @@ export function createPromptLayoutEditor({
             mounted = true;
             ensureSortable();
         }
-        if (collapse) {
+        const ownerKey = getOwnerKey();
+        if (collapse || ownerKey !== renderedOwnerKey) {
             expanded.clear();
             clearSelection({ leaveMode: true });
             clearUndo();
+            lastSignature = null;
+            renderedOwnerKey = ownerKey;
         }
         const layout = readLayout();
         if (!force && !collapse && lastSignature === signatureOf(layout, disabledReason())) {
@@ -599,13 +605,17 @@ export function createPromptLayoutEditor({
     }
 
     function showUndo(text, previousLayout) {
-        undoState = { layout: previousLayout };
+        undoState = { layout: previousLayout, ownerKey: getOwnerKey() };
         undoText.textContent = text;
         setHidden(undoBar, false);
     }
 
     function handleUndo() {
         if (!undoState) return;
+        if (undoState.ownerKey !== getOwnerKey()) {
+            clearUndo();
+            return;
+        }
         const previous = undoState.layout;
         commit(previous);
         say('已撤销，布局恢复到操作之前');
@@ -796,6 +806,7 @@ export function createPromptLayoutEditor({
         render,
         /** 自持模式：设置布局（同时当作"已保存"的基准）并重绘。 */
         setLayout(layout) {
+            clearUndo();
             ownLayout = normalizeLayout(layout).layout;
             ownSaved = ownLayout;
             render({ force: true });
