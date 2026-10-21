@@ -8,6 +8,7 @@ import {
     assertDrawScenePlannerTask,
     beginDrawScenePlannerDiagnostic,
     callDrawScenePlannerAgentRuntime,
+    getDrawAgentDiagnosticHistory,
     getLastDrawAgentDiagnostic,
     normalizeScenePlannerTimeout,
     resetDrawAgentRuntimeForTests as resetPureDrawAgentRuntimeForTests,
@@ -207,6 +208,7 @@ export async function callDrawScenePlannerAgent(options = {}) {
 
 export {
     beginDrawScenePlannerDiagnostic,
+    getDrawAgentDiagnosticHistory,
     getLastDrawAgentDiagnostic,
 };
 
