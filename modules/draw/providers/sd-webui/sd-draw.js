@@ -55,11 +55,10 @@ import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
-import { createApiPresetBar } from "../../shared/api-presets-ui.js";
+import { createApiPresetPage } from "../../shared/api-preset-page.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import {
     normalizeApiPresetState,
-    syncActiveApiPreset,
 } from "../../shared/api-presets.js";
 import {
     applyGroupPresetForCurrentChat,
@@ -189,7 +188,6 @@ let eventsBound = false;
 let agentSettingsSurface = null;
 let characterLibraryUi = null;
 let groupPresetBinding = null;
-let apiPresetBar = null;
 let promptChainPreviewFrame = 0;
 let ensureSdDrawPanelRef = null;
 let destroySdDrawPanelsRef = null;
@@ -280,11 +278,19 @@ function normalizeSdApiConfig(raw = {}) {
     };
 }
 
-const SD_API_PRESET_OPTIONS = Object.freeze({ fields: SD_API_PRESET_FIELDS, normalizeConfig: normalizeSdApiConfig });
-
-function getEffectiveSdApiConfig(settings = getSettings()) {
-    return normalizeSdApiConfig(settings);
-}
+const apiPresets = createApiPresetPage({
+    fields: SD_API_PRESET_FIELDS,
+    normalizeConfig: normalizeSdApiConfig,
+    getSettings,
+    getSettingsDocument,
+    querySettings,
+    containerSelector: '#sd-api-presets',
+    panelSelector: '[data-sd-view-panel="api"]',
+    formSelector: '#sd-api-form',
+    readConfig: readSdApiConfigFromForm,
+    fillConfig: fillSdApiConfigForm,
+    persist: (mutator) => withSaveTimeout(updateSettingsPersistent(mutator, API_PRESET_COPY.saved, { notify: false, silent: false })),
+});
 
 function normalizeSettings(raw = {}) {
     const presets = normalizePresets(raw.presets, raw);
@@ -294,7 +300,7 @@ function normalizeSettings(raw = {}) {
     const merged = {
         ...normalizeSdApiConfig(raw),
         transport: 'st-proxy',
-        ...normalizeApiPresetState(raw, SD_API_PRESET_OPTIONS),
+        ...normalizeApiPresetState(raw, apiPresets.options),
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
         overrideMaxImages: normalizeMaxImagesOverride(raw.overrideMaxImages),
@@ -1046,21 +1052,9 @@ function bindOverlayEvents() {
         } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindOverlayEvents" }, caughtError); }
     });
     querySettings('#sd-draw-save')?.addEventListener('click', async () => {
-        const bar = ensureApiPresetBar();
-        await bar.runSave(() => {
-            const { apiPresets, activeApiPresetId } = getSettings();
-            const config = readSdApiConfigFromForm();
-            return commitSdApiPresets({ reason: 'save', activeApiPresetId, config,
-                apiPresets: syncActiveApiPreset(apiPresets, activeApiPresetId, config, SD_API_PRESET_OPTIONS) });
-        });
+        await apiPresets.save();
     });
-    // API 配置页里任何改动都刷新预设栏的“与预设一致 / 不一致”状态（预设栏自己的操作除外）。
-    ['input', 'change', 'click'].forEach((type) => {
-        querySettings('[data-sd-view-panel="api"]')?.addEventListener(type, (event) => {
-            if (event.target?.closest?.('#sd-api-presets')) return;
-            apiPresetBar?.refresh();
-        });
-    });
+    apiPresets.bindFormRefresh();
     querySettings('#sd-draw-test')?.addEventListener('click', async () => {
         if (!await saveAllSettings({ notify: false })) return;
         await testConnection();
@@ -1413,7 +1407,7 @@ function fillForm(settings) {
     setValue('sd-draw-timeout', settings.timeout);
     setChecked('sd-use-image-backend-jobs', settings.useImageBackendJobs === true);
     getSettingsElement('sd-backend-guide').classList.toggle('hidden', settings.useImageBackendJobs !== true);
-    ensureApiPresetBar();
+    apiPresets.ensureBar();
     setValue('sd-draw-steps', preset.steps ?? '');
     setValue('sd-draw-cfg', preset.cfg_scale ?? '');
     setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) ? preset.seed : -1);
@@ -1569,50 +1563,6 @@ function fillSdApiConfigForm(config) {
     setValue('sd-draw-timeout', next.timeout);
     setChecked('sd-use-image-backend-jobs', next.useImageBackendJobs);
     getSettingsElement('sd-backend-guide')?.classList.toggle('hidden', !next.useImageBackendJobs);
-}
-
-async function commitSdApiPresets(change) {
-    const doc = getSettingsDocument();
-    const incoming = normalizeApiPresetState(
-        { apiPresets: change.apiPresets, activeApiPresetId: change.activeApiPresetId },
-        SD_API_PRESET_OPTIONS,
-    );
-    const applied = change.config ? normalizeSdApiConfig(change.config) : null;
-    const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
-        draft.apiPresets = incoming.apiPresets;
-        draft.activeApiPresetId = incoming.activeApiPresetId;
-        if (applied) Object.assign(draft, applied);
-    }, API_PRESET_COPY.saved, { notify: false, silent: false }));
-    if (ok && applied && getSettingsDocument() === doc) fillSdApiConfigForm(getEffectiveSdApiConfig());
-    return ok;
-}
-
-function ensureApiPresetBar() {
-    const doc = getSettingsDocument();
-    const container = querySettings('#sd-api-presets');
-    if (!doc || !container) return null;
-    if (apiPresetBar?.document === doc) {
-        apiPresetBar.render();
-        return apiPresetBar;
-    }
-    apiPresetBar?.destroy();
-    apiPresetBar = createApiPresetBar({
-        document: doc,
-        container,
-        fields: SD_API_PRESET_FIELDS,
-        form: querySettings('#sd-api-form'),
-        defaults: normalizeSdApiConfig({}),
-        getState: () => {
-            const { apiPresets, activeApiPresetId } = getSettings();
-            return { apiPresets, activeApiPresetId };
-        },
-        readConfig: readSdApiConfigFromForm,
-        getEffectiveConfig: () => getEffectiveSdApiConfig(),
-        onCommit: commitSdApiPresets,
-        confirm: message => confirm(message),
-        prompt: (message, fallback) => prompt(message, fallback),
-    });
-    return apiPresetBar;
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -2534,9 +2484,7 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
 }
 
 async function saveAllSettings(options = {}) {
-    const bar = ensureApiPresetBar();
-    if (!bar) return false;
-    return bar.runSave(() => persistAllSettings(options));
+    return apiPresets.runSave(() => persistAllSettings(options));
 }
 
 async function persistAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
@@ -2556,7 +2504,7 @@ async function persistAllSettings({ notify = false, triggerButton = null, status
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
             fp.updateAutoModeUI?.();
         } catch (caughtError) { console.warn({ source: import.meta.url, operation: "runPostSaveHooks" }, caughtError); }
-        apiPresetBar?.render();
+        apiPresets.render();
     };
 
     if (triggerButton) {
@@ -2772,8 +2720,7 @@ function hideSettings() {
     abortPendingRequest();
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
-    apiPresetBar?.destroy();
-    apiPresetBar = null;
+    apiPresets.destroy();
     destroyCharacterLibraryUi();
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
     promptChainPreviewFrame = 0;
