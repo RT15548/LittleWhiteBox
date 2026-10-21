@@ -35,9 +35,9 @@ const FAILURE = {
 };
 const RUNNING = { id: 4, status: 'running', attempts: [] };
 
-test('filterRecords lists successful and running records by default, failures only when asked', () => {
+test('filterRecords lists every record by default, failures only when asked', () => {
     const all = [RUNNING, SUCCESS, FAILURE];
-    assert.deepEqual(filterRecords(all).map(r => r.id), [4, 3]);
+    assert.deepEqual(filterRecords(all).map(r => r.id), [4, 3, 2]);
     assert.deepEqual(filterRecords(all, { failedOnly: true }).map(r => r.id), [2]);
     assert.deepEqual(filterRecords(null), []);
 });
@@ -90,10 +90,10 @@ function mount(records) {
     return { document, window, view, live, $$ };
 }
 
-test('the view lists successful records first and the checkbox switches to failures only', () => {
+test('the view lists successes and failures, and the checkbox narrows it to failures only', () => {
     const { view, window, $$, document } = mount([RUNNING, SUCCESS, FAILURE]);
-    assert.deepEqual($$('.lr-record').map(r => r.getAttribute('data-status')), ['running', 'success']);
-    assert.match(document.querySelector('.lr-toolbar').textContent, /2 \/ 3 条/);
+    assert.deepEqual($$('.lr-record').map(r => r.getAttribute('data-status')), ['running', 'success', 'error']);
+    assert.match(document.querySelector('.lr-toolbar').textContent, /3 \/ 3 条/);
     const checkbox = document.querySelector('.lr-toolbar input');
     checkbox.checked = true;
     checkbox.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -120,12 +120,17 @@ test('story text is inserted as text, never as HTML', () => {
 test('empty states explain what to do, and re-rendering follows the latest records', () => {
     const { view, live, document } = mount([]);
     assert.match(document.querySelector('.lr-empty').textContent, /暂无请求记录/);
-    live.records = [FAILURE];
-    view.render();
-    assert.match(document.querySelector('.lr-empty').textContent, /勾选“只看失败”/);
     live.records = [SUCCESS];
     view.render();
     assert.equal(document.querySelectorAll('.lr-record').length, 1);
+    const checkbox = document.querySelector('.lr-toolbar input');
+    checkbox.checked = true;
+    view.render();
+    assert.match(document.querySelector('.lr-empty').textContent, /没有失败的记录/);
+});
+
+test('a blocked reply shows the provider block reason instead of the generic error code', () => {
+    assert.deepEqual(describeRecord({ status: 'error', errorCode: 'PROVIDER_REQUEST_FAILED', blockReason: 'PROHIBITED_CONTENT' }).meta, ['PROHIBITED_CONTENT']);
 });
 
 test('the style is added once and destroy empties the container', () => {

@@ -1169,3 +1169,31 @@ test('a stale slower request never overwrites the newest request diagnostic', as
 
     assert.deepEqual(getLastDrawAgentDiagnostic().toolNames, ['fast_tool']);
 });
+
+test('scene planner names the provider block reason when a reply is filtered', async () => {
+    resetDrawAgentRuntimeForTests();
+    const settings = buildSettings('relay-model');
+    settings.presets.主预设.modelConfigs['openai-compatible'].toolMode = 'tagged-json';
+    const response = {
+        id: 'relay-2', model: 'relay-model', object: 'chat.completion',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'blockReason: PROHIBITED_CONTENT\nblockReasonMessage: The prompt could not be submitted.' }, finish_reason: 'content_filter' }],
+    };
+    await assert.rejects(() => generateAndParseScenePlan({
+        messageText: 'A book rests on a table.', maxImages: 1,
+        expansionOptions: { runtime: { substituteParams: text => text } },
+        agentOptions: {
+            dependencies: { getAgentSettings: async () => settings },
+            loadAgentCore: async () => ({
+                createAgentAdapter: providerConfig => {
+                    const adapter = new OpenAICompatibleAdapter(providerConfig);
+                    adapter.client.chat.completions.create = async () => response;
+                    return adapter;
+                },
+            }),
+        },
+    }), error => error.code === 'PROVIDER_REQUEST_FAILED' && /PROHIBITED_CONTENT/.test(error.message) && !/did not complete normally/.test(error.message));
+    const diagnostic = getLastDrawAgentDiagnostic();
+    assert.equal(diagnostic.blockReason, 'PROHIBITED_CONTENT');
+    assert.equal(diagnostic.attempts[0].blockReason, 'PROHIBITED_CONTENT');
+    assert.match(diagnostic.errorMessage, /PROHIBITED_CONTENT/);
+});

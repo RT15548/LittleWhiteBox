@@ -390,7 +390,7 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         const model = String(options.model || '').trim();
         const context = [presetName, provider, model].filter(Boolean).join(' / ');
         throw new ScenePlannerError(
-            `本次响应没有解析到 submit_scene_plan Tool Call${context ? `（${context}）` : ''}。这不代表模型不支持 Tool Calling，请根据最近一次实际请求核对返回协议。`,
+            `本次响应没有解析到 submit_scene_plan Tool Call${context ? `（${context}）` : ''}。这不代表模型不支持 Tool Calling，请根据最近实际请求核对返回协议。`,
             'TOOL_CALL_MISSING',
             {
                 path: 'toolCalls',

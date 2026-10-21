@@ -75,13 +75,25 @@ function buildInspectionDiagnosticPatch(inspection) {
     return patch;
 }
 
+// 网关被内容过滤拦下时，常把 “blockReason: PROHIBITED_CONTENT” 之类写进返回文本；报错要直接说这个，而不是“没有正常结束”。
+const BLOCK_REASON_PATTERN = /blockReason["']?\s*[:=]\s*["']?([A-Za-z][A-Za-z0-9_]*)/;
+
+function findBlockReason(rawError) {
+    if (rawError?.code !== 'AGENT_RESPONSE_INCOMPLETE') return '';
+    const found = BLOCK_REASON_PATTERN.exec(String(rawError.partialResponse?.text || ''))?.[1];
+    if (found) return found;
+    return ['content_filter', 'SAFETY', 'PROHIBITED_CONTENT'].includes(rawError.reason) ? String(rawError.reason) : '';
+}
+
 // The transport error text stays out of the record (it may echo credentials); only the
 // finish reason and the adapter's response summary describe an incomplete reply.
 function describeIncompleteResponse(rawError) {
     if (rawError?.code !== 'AGENT_RESPONSE_INCOMPLETE' && rawError?.code !== 'AGENT_RESPONSE_TRUNCATED') return {};
     const partialText = String(rawError.partialResponse?.text || '');
+    const blockReason = findBlockReason(rawError);
     return {
         finishReason: String(rawError.reason || ''),
+        ...(blockReason ? { blockReason } : {}),
         ...(rawError.responseInfo !== undefined ? { responseInfo: redactRequestSecrets(cloneJson(rawError.responseInfo)) } : {}),
         ...(partialText ? { partialTextLength: partialText.length, partialTextHead: partialText.slice(0, 300) } : {}),
     };
@@ -380,6 +392,11 @@ function mapProviderError(error, abortScope, upstreamSignal) {
     if (error?.code === 'DSML_TOOL_CALL_INVALID' || error?.code === 'TAGGED_TOOL_CALL_INVALID') {
         return new ScenePlannerError(error.message, error.code, { offset: error.offset }, { cause: error });
     }
+    const blockReason = findBlockReason(error);
+    if (blockReason) {
+        const finish = error.reason && error.reason !== blockReason ? `（finish: ${error.reason}）` : '';
+        return new ScenePlannerError(`供应商拦截了内容：${blockReason}${finish}`, 'PROVIDER_REQUEST_FAILED', null, { cause: error });
+    }
     const timeoutText = `${error?.name || ''} ${error?.code || ''} ${error?.message || ''}`;
     if (/(?:time[ -]?out|timedout|etimedout)/i.test(timeoutText)) {
         return new ScenePlannerError('场景规划请求超时。', 'REQUEST_TIMEOUT', null, { cause: error });
@@ -515,6 +532,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 diagnostic.fail(error, {
                     stage: protocolFailure ? 'parse' : 'request',
                     attempts,
+                    ...(failedAttempt.blockReason ? { blockReason: failedAttempt.blockReason } : {}),
                     terminationReason: protocolFailure
                         ? 'tool_protocol_error'
                         : error.code === 'REQUEST_TIMEOUT'
