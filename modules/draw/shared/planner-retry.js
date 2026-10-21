@@ -99,6 +99,49 @@ export function computePlannerRetryDelay(retryNumber, { baseDelayMs = DEFAULT_PL
     return Math.max(0, Math.round(raw * jitter));
 }
 
+/** 规划期间正文被改动（其它插件、用户编辑）：assertSceneSourceUnchanged 抛出的就是这个 code。 */
+export function isSceneSourceChangedError(error) {
+    return error?.code === 'SCENE_SOURCE_CHANGED';
+}
+
+/**
+ * 规划结果落到聊天之前发现正文已变：旧规划的插图点对不上新正文，不能直接写入，只能按最新正文重新规划。
+ * run(retryNumber) 每次都要重新读取正文并完整跑一遍“规划 → 校验”；retryNumber 从 0 起，0 是第一次。
+ * 等待沿用场景 Agent 的指数退避（给改动正文的一方留出收尾时间），次数用同一个重试设置。
+ * 只重试“正文已变”这一种错误；其它错误原样抛出，不重复消耗 Agent 请求。
+ */
+export async function retryOnSceneSourceChange(run, {
+    maxRetries = 0,
+    baseDelayMs = DEFAULT_PLANNER_RETRY_BASE_DELAY_MS,
+    signal,
+    sleep = sleepWithAbort,
+    random = Math.random,
+    onRetry,
+} = {}) {
+    for (let retryNumber = 0; ; retryNumber += 1) {
+        try {
+            return await run(retryNumber);
+        } catch (error) {
+            if (!isSceneSourceChangedError(error) || retryNumber >= maxRetries || signal?.aborted) throw error;
+            const delayMs = computePlannerRetryDelay(retryNumber + 1, { baseDelayMs }, random);
+            onRetry?.({ retry: retryNumber + 1, maxRetries, delayMs, error });
+            await sleep(delayMs, signal);
+        }
+    }
+}
+
+/**
+ * 三个 Provider 页面共用的调用入口：次数取场景 Agent 的重试设置，重试前通过 onStateChange 通知界面。
+ * run 的约定同 retryOnSceneSourceChange。
+ */
+export function retryScenePlanning(run, { maxRetries, signal, onStateChange } = {}) {
+    return retryOnSceneSourceChange(run, {
+        ...normalizePlannerRetry({ maxRetries }),
+        signal,
+        onRetry: ({ retry, maxRetries: total }) => onStateChange?.('llm', { phase: 'retry', retry: { current: retry, total } }),
+    });
+}
+
 function createAbortError() {
     const error = new Error('已取消');
     error.name = 'AbortError';

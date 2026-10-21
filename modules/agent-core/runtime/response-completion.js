@@ -13,16 +13,18 @@ const REFUSAL_REASONS = {
 };
 
 /** Transport completion is metadata, not a verdict on the received content. */
-export function readResponseCompletion(protocol, reason, refused = false) {
+export function readResponseCompletion(protocol, reason, refused = false, responseInfo = undefined) {
     if (refused || REFUSAL_REASONS[protocol]?.includes(reason)) {
         const error = new Error('Model response was refused.');
         error.code = 'AGENT_RESPONSE_REFUSED';
         error.reason = reason;
+        if (responseInfo !== undefined) error.responseInfo = responseInfo;
         throw error;
     }
     return {
         finishReason: reason,
         completion: COMPLETED_REASONS[protocol]?.includes(reason) ? 'complete' : 'incomplete',
         truncated: ['length', 'max_tokens', 'max_output_tokens', 'MAX_TOKENS'].includes(reason),
+        ...(responseInfo !== undefined ? { responseInfo } : {}),
     };
 }

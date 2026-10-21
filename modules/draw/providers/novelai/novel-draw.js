@@ -50,7 +50,7 @@ import {
     updateDrawSettingsRootPersistent,
 } from "../../shared/draw-settings.js";
 import { normalizeMaxImagesOverride, resolveEffectiveMaxImages } from "../../shared/max-images-override.js";
-import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import { getDrawAgentDiagnosticHistory } from "../../shared/draw-agent.js";
 import {
     applyGroupPresetForCurrentChat,
     getActiveCharacterAvatars,
@@ -104,6 +104,7 @@ import {
     normalizeNovelPromptGuideOverrides,
 } from "./novel-prompts.js";
 import { parseNovelPromptPresetImport } from "./novel-prompt-import.js";
+import { layoutForStorage } from "../../shared/scene-planner-layout.js";
 import { createScenePlannerDefaultPresets, isPovPromptPreset, SCENE_PLANNER_PRESET_INSTALL_NOTICE } from "../../shared/scene-planner-presets.js";
 import {
     getNovelModelCapability,
@@ -163,6 +164,8 @@ import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { createDrawImageSlotRegex, stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import { ScenePlacementError, assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
+import { retryScenePlanning } from "../../shared/planner-retry.js";
+import { pickNeighborAfterRemoval, reorderPresetsByIds } from "../../shared/preset-order.js";
 import { submitPreparedChatImages, registerPreparedImageProvider } from "../../shared/prepared-chat-images.js";
 import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
@@ -843,7 +846,7 @@ function normalizeSettings(saved = {}) {
     }
     merged.promptPresets = merged.promptPresets.map((preset, index) => {
         const isPov = isPovPromptPreset(preset.name);
-        return {
+        const normalized = {
             id: String(preset.id || `prompt-${Date.now()}-${index}`),
             name: String(preset.name || `提示词预设 ${index + 1}`),
             topSystem: typeof preset.topSystem === 'string'
@@ -854,6 +857,10 @@ function normalizeSettings(saved = {}) {
                 : DEFAULT_PROMPT_CONFIG.sceneRules,
             modelGuideOverrides: normalizeNovelPromptGuideOverrides(preset.modelGuideOverrides),
         };
+        // 消息布局稀疏存储：只有偏离默认才带 layout，旧预设与默认布局的预设保持原样（字段缺席）。
+        const layout = layoutForStorage(preset.layout);
+        if (layout) normalized.layout = layout;
+        return normalized;
     });
     if (!merged.selectedPromptPresetId
         || !merged.promptPresets.some(preset => preset.id === merged.selectedPromptPresetId)) {
@@ -2945,14 +2952,32 @@ async function generateAndInsertImages({
 
         let tasks = [];
         try {
-            tasks = await generateAndParseScenePlan(await buildNovelScenePlannerOptions({
-                sceneSource,
-                presentCharacters,
-                settings,
-                preset,
-                signal,
-                onStateChange,
-            }));
+            // 规划期间正文若被改动，按最新正文重新规划（指数退避，次数同 Agent 重试设置）。
+            tasks = await retryScenePlanning(async (retryNumber) => {
+                let source = { sceneSource, presentCharacters };
+                if (retryNumber) {
+                    // 换了楼层/分支就不再重试：这里会抛出原有的“原文或分支已变化”。
+                    resolveFloorImageJobTarget(job, getContext());
+                    const refreshed = createSceneSource(normalizeMessageSceneSourceText(message.mes), { filterRules });
+                    if (!refreshed.content) throw new NovelDrawError('消息内容为空（可能被过滤规则清空）', ErrorType.PARSE);
+                    source = {
+                        sceneSource: refreshed,
+                        presentCharacters: detectPresentCharacters(refreshed.content, characterLibraryFromSettings(settings)),
+                    };
+                }
+                job.phase = 'llm';
+                const planned = await generateAndParseScenePlan(await buildNovelScenePlannerOptions({
+                    ...source,
+                    settings,
+                    preset,
+                    signal,
+                    onStateChange,
+                }));
+                if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
+                await maybeAutoLearnFromTasks(planned, settings);
+                assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), source.sceneSource.sourceHash);
+                return planned;
+            }, { maxRetries: settings.plannerMaxRetries, signal, onStateChange });
         } catch (e) {
             console.error('[NovelDraw] 场景分析原始错误:', e);
             console.error('[NovelDraw] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
@@ -2962,10 +2987,6 @@ async function generateAndInsertImages({
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
-        await maybeAutoLearnFromTasks(tasks, settings);
-
-
-        assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), sceneSource.sourceHash);
         return await runPreparedNovelSlots({ ctx, message, messageId, sourceText: message.mes,
             tasks, settings, preset, job, onStateChange });
     } catch (error) {
@@ -3170,6 +3191,8 @@ async function sendInitData() {
             advancedMode: !!settings.advancedMode,
             promptPresets: settings.promptPresets || [],
             selectedPromptPresetId: settings.selectedPromptPresetId || null,
+            // 宿主认识预设里的 layout 字段：页面据此决定是否启用消息布局编辑器（旧宿主没有这个标记，页面提示刷新）。
+            promptLayoutSupported: true,
             modelGuideDefaults: Object.fromEntries(
                 Object.values(NOVEL_PROMPT_GUIDES)
                     .map(guideId => [guideId, getLoadedTagGuideById(guideId)]),
@@ -3424,7 +3447,8 @@ async function handleFrameMessage(event) {
 
         case 'ADD_PARAMS_PRESET': {
             const id = generateSlotId();
-            const base = getActiveParamsPreset() || DEFAULT_PARAMS_PRESET;
+            // 以页面当前显示的预设为底；页面只在“保存”时才把选中项告诉宿主，不能只信宿主记的选中项。
+            const base = getSettings().paramsPresets.find(p => p.id === data.baseId) || getActiveParamsPreset() || DEFAULT_PARAMS_PRESET;
             const ok = await updateSettingsPersistent((settings) => {
                 const copy = cloneSettingsObject(base);
                 copy.id = id;
@@ -3443,22 +3467,51 @@ async function handleFrameMessage(event) {
         }
 
         case 'DEL_PARAMS_PRESET': {
-            const s = getSettings();
-            if (s.paramsPresets.length <= 1) {
-                postStatus('error', '至少保留一个预设', 'params');
-                break;
-            }
+            // 删页面里正在看的那个：页面切换下拉框时不会通知宿主，宿主记的选中项可能还是旧的。
+            const presetId = String(data.presetId || getSettings().selectedParamsPresetId || '');
+            let deleteResult = 'missing';
             const ok = await updateSettingsPersistent((settings) => {
-                const idx = settings.paramsPresets.findIndex(p => p.id === settings.selectedParamsPresetId);
-                if (idx >= 0) settings.paramsPresets.splice(idx, 1);
-                settings.selectedParamsPresetId = settings.paramsPresets[0]?.id || null;
-            }, '已删除', { target: 'params' });
+                if (settings.paramsPresets.length <= 1) {
+                    deleteResult = 'last';
+                    return;
+                }
+                const ids = settings.paramsPresets.map(p => p.id);
+                if (!ids.includes(presetId)) return;
+                const neighbor = pickNeighborAfterRemoval(ids, presetId);
+                settings.paramsPresets = settings.paramsPresets.filter(p => p.id !== presetId);
+                settings.selectedParamsPresetId = neighbor;
+                deleteResult = 'deleted';
+            }, '已删除', { target: 'params', notify: false });
+            if (!ok) {
+                postStatus('error', '保存失败', 'params');
+            } else if (deleteResult === 'last') {
+                postStatus('error', '至少保留一个预设', 'params');
+            } else if (deleteResult === 'missing') {
+                postStatus('error', '要删除的预设已不存在', 'params');
+            } else {
+                postStatus('success', '已删除', 'params');
+            }
             if (ok) {
                 observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
                 } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
+            }
+            break;
+        }
+
+        case 'REORDER_PARAMS_PRESETS': {
+            // 只按 id 调整顺序，不碰预设内容；页面已自行更新，不回传 INIT_DATA，避免冲掉表单里未保存的编辑。
+            const order = Array.isArray(data.order) ? data.order.map(String) : [];
+            const ok = await updateSettingsPersistent((settings) => {
+                settings.paramsPresets = reorderPresetsByIds(settings.paramsPresets, order);
+            }, '已调整顺序', { target: 'params' });
+            if (ok) {
+                try {
+                    const { refreshPresetSelect } = await import('./floating-panel.js');
+                    refreshPresetSelect?.();
+                } catch {}
             }
             break;
         }
@@ -3536,6 +3589,9 @@ async function handleFrameMessage(event) {
                     sceneRules: current?.sceneRules ?? DEFAULT_PROMPT_CONFIG.sceneRules,
                     modelGuideOverrides: normalizeNovelPromptGuideOverrides(current?.modelGuideOverrides),
                 };
+                // layoutForStorage 返回规范化后的新副本：副本与源预设互不共享块对象，改一边不会牵动另一边。
+                const layout = layoutForStorage(current?.layout);
+                if (layout) newPreset.layout = layout;
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
             }, '已创建', { target: 'prompt-preset', notify: false });
@@ -3559,14 +3615,19 @@ async function handleFrameMessage(event) {
                 break;
             }
             const id = generateSlotId();
+            // layoutNotes 只是导入时的修复说明，不属于预设数据，不能随展开写进存储。
+            const { layoutNotes = [], ...presetFields } = imported;
+            const importedText = layoutNotes.length
+                ? `已导入为新预设（布局已自动修复：${layoutNotes.join('；')}）`
+                : '已导入为新预设';
             const ok = await updateSettingsPersistent((settings) => {
                 settings.promptPresets.push({
                     id,
-                    ...imported,
-                    modelGuideOverrides: compactPromptGuideOverrides(imported.modelGuideOverrides),
+                    ...presetFields,
+                    modelGuideOverrides: compactPromptGuideOverrides(presetFields.modelGuideOverrides),
                 });
                 settings.selectedPromptPresetId = id;
-            }, '已导入为新预设', { target: 'prompt-preset' });
+            }, importedText, { target: 'prompt-preset' });
             if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
@@ -3580,10 +3641,15 @@ async function handleFrameMessage(event) {
                     deleteResult = 'last';
                     return;
                 }
-                const idx = settings.promptPresets.findIndex(p => p.id === presetId);
-                if (idx < 0) return;
-                settings.promptPresets.splice(idx, 1);
-                settings.selectedPromptPresetId = settings.promptPresets[0]?.id || null;
+                const ids = settings.promptPresets.map(p => p.id);
+                if (!ids.includes(presetId)) return;
+                const wasSelected = settings.selectedPromptPresetId === presetId;
+                settings.promptPresets = settings.promptPresets.filter(p => p.id !== presetId);
+                // 列表里可以删任意一行：删的不是选中项就保持选中，免得页面正在编辑的预设被换掉；
+                // 删的是选中项（或选中项本就失效）时，让原位置上顶上来的邻居接替，而不是总跳回第一个。
+                if (wasSelected || !settings.promptPresets.some(p => p.id === settings.selectedPromptPresetId)) {
+                    settings.selectedPromptPresetId = pickNeighborAfterRemoval(ids, presetId);
+                }
                 deleteResult = 'deleted';
             }, '已删除', { target: 'prompt-preset', notify: false });
             if (!ok) {
@@ -3596,6 +3662,15 @@ async function handleFrameMessage(event) {
                 postStatus('success', '已删除', 'prompt-preset');
             }
             if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'REORDER_PROMPT_PRESETS': {
+            // 只按 id 调整顺序，不碰预设内容；页面已自行更新，不回传 INIT_DATA，避免冲掉文本框里未保存的编辑。
+            const order = Array.isArray(data.order) ? data.order.map(String) : [];
+            await updateSettingsPersistent((settings) => {
+                settings.promptPresets = reorderPresetsByIds(settings.promptPresets, order);
+            }, '已调整顺序', { target: 'prompt-preset' });
             break;
         }
 
@@ -3635,6 +3710,15 @@ async function handleFrameMessage(event) {
                     if ('sceneRules' in cp) current.sceneRules = cp.sceneRules;
                     if ('modelGuideOverrides' in cp) {
                         current.modelGuideOverrides = compactPromptGuideOverrides(cp.modelGuideOverrides);
+                    }
+                    // layout：null = 恢复默认（删字段）；对象 = 按稀疏规则存储；键缺席 = 不动（旧页面 / 编辑器未加载时不会误删）。
+                    if ('layout' in cp) {
+                        if (cp.layout === null) {
+                            delete current.layout;
+                        } else if (typeof cp.layout === 'object') {
+                            const layout = layoutForStorage(cp.layout);
+                            if (layout) current.layout = layout; else delete current.layout;
+                        }
                     }
                 }, '提示词预设已保存', { target: statusTarget, notify: false });
                 const saved = ok && presetFound;
@@ -3842,7 +3926,7 @@ async function handleFrameMessage(event) {
             if (iframe) {
                 postToIframe(iframe, {
                     type: 'LAST_LLM_REQUEST_DATA',
-                    snapshot: getLastDrawAgentDiagnostic(),
+                    history: getDrawAgentDiagnosticHistory(),
                 }, 'LittleWhiteBox-NovelDraw');
             }
             break;

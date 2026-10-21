@@ -197,12 +197,6 @@ select.input { cursor: pointer; }
     flex: 1 1 220px;
     min-width: 180px;
 }
-.llm-request-preview {
-    margin-top: 10px; padding: 12px; max-height: 360px; overflow: auto;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
-    white-space: pre-wrap; word-break: break-word;
-}
 .sd-advanced-only { display: flex !important; }
 .prompt-textarea {
     width: 100%; min-height: 180px; max-height: 400px;
@@ -817,11 +811,11 @@ select.input { cursor: pointer; }
                         <div class="card-title"><i class="fa-solid fa-code"></i> 最近一次实际请求</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint">查看最近一次场景分析真正发送的请求、Provider 适配结果与诊断信息。</p>
+                    <p class="form-hint">最近几次场景分析的请求与模型返回，默认列出成功的记录；勾选“只看失败”查看失败的。</p>
                     <div class="btn-group" style="margin-top:8px;">
                         <button id="sd-llm-request-refresh" class="btn btn-sm" type="button">刷新最近请求</button>
                     </div>
-                    <pre id="sd-llm-request-preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                    <div id="sd-llm-request-preview"></div>
                 </details>
             </section>
 

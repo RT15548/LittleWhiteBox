@@ -8,6 +8,7 @@ import {
 } from './request-inspection.js';
 import { resolveTaskReasoning } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
+import { stripToolProtocolMarker } from './tool-protocol-marker.js';
 
 function parseArguments(text) {
     try {
@@ -346,7 +347,7 @@ function extractThoughts(response) {
 function resolveSystemInstruction(task) {
     const parts = [
         String(task.systemPrompt || '').trim(),
-        ...((task.messages || [])
+        ...(stripToolProtocolMarker(task.messages || [])
             .filter((message) => message.role === 'system')
             .map((message) => String(message.content || '').trim())),
     ].filter(Boolean);
@@ -417,7 +418,7 @@ function buildConversation(messages) {
     const toolNameById = new Map();
     const providerToolCallIdByInternalId = new Map();
     const contents = [];
-    const filteredMessages = (messages || []).filter((message) => (
+    const filteredMessages = stripToolProtocolMarker(messages || []).filter((message) => (
         message.role === 'user' || message.role === 'assistant' || message.role === 'tool'
     ));
 

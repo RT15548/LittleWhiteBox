@@ -11,6 +11,7 @@ import {
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
+import { stripToolProtocolMarker } from './tool-protocol-marker.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -130,7 +131,7 @@ function extractThoughts(output = []) {
 function resolveInstructions(task) {
     const parts = [
         String(task.systemPrompt || '').trim(),
-        ...((task.messages || [])
+        ...(stripToolProtocolMarker(task.messages || [])
             .filter((message) => message.role === 'system')
             .map((message) => String(message.content || '').trim())),
     ].filter(Boolean);
@@ -193,7 +194,7 @@ function responsesTerminationError(status, reason) {
 function buildInputMessages(task) {
     const input = [];
 
-    for (const message of task.messages || []) {
+    for (const message of stripToolProtocolMarker(task.messages || [])) {
         if (message.role === 'system') {
             continue;
         }
@@ -249,7 +250,7 @@ function buildInputMessages(task) {
 function buildInputMessagesWithSystem(task) {
     const input = [];
 
-    for (const message of task.messages || []) {
+    for (const message of stripToolProtocolMarker(task.messages || [])) {
         if (message.role === 'system') {
             input.push({
                 role: 'system',

@@ -10,6 +10,10 @@ import {
     syncAgentSettingsPanelFeedback,
 } from '../../agent-core/ui/settings-markup.js';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
+import { createCardMenuController } from './character-card-menu.js';
+import { autoScrollForPointer } from './character-list-scroll.js';
+import { movePresetId } from './preset-order.js';
+import { createSortableList } from './sortable-list.js';
 
 const SAVE_STATE_RESET_MS = 1800;
 let hostModulePromise = null;
@@ -38,6 +42,28 @@ function escapeHtml(text = '') {
         .replace(/'/g, '&#39;');
 }
 
+// 预设列表的交互件由本层注入（agent-core 不依赖 draw 的共享模块）：拖拽排序、行菜单、键盘上下移、拖拽时的边缘自动滚动。
+function autoScrollPresetList(list, event) {
+    const doc = list.ownerDocument;
+    const win = doc?.defaultView;
+    if (!doc || !win) return;
+    autoScrollForPointer({
+        start: doc.elementFromPoint?.(event.clientX, event.clientY) || list,
+        pointerY: event.clientY,
+        getStyle: element => win.getComputedStyle(element),
+        getRect: element => element.getBoundingClientRect(),
+        viewport: { top: 0, bottom: win.innerHeight },
+        pageScroller: doc.scrollingElement || doc.documentElement,
+    });
+}
+
+const PRESET_LIST_KIT = Object.freeze({
+    createSortableList,
+    createMenuController: createCardMenuController,
+    moveStep: movePresetId,
+    autoScroll: autoScrollPresetList,
+});
+
 function buildRuntimeSummary({ draft = {}, providerLabel = '' } = {}) {
     const presetName = String(draft.currentPresetName || '默认');
     const model = String(draft.model || '').trim() || '未选择模型';
@@ -61,6 +87,9 @@ export function buildDrawAgentSettingsSurfaceMarkup(state = {}) {
             activePage: 'main',
             isBusy: state.configSave?.status === 'saving',
             canDeletePreset: Object.keys(state.config?.presets || {}).length > 1,
+            presetLayout: 'list',
+            presetNames: state.config?.presetNames || Object.keys(state.config?.presets || {}),
+            currentPresetName: state.configDraft?.currentPresetName || state.config?.currentPresetName || '',
         });
 }
 
@@ -98,17 +127,23 @@ export function createDrawAgentSettingsSurface(options = {}) {
         state,
         render,
         showToast: options.showToast,
-        saveConfig: async ({ requestId, payload }) => {
+        presetLayout: 'list',
+        presetListKit: PRESET_LIST_KIT,
+        saveConfig: async ({ requestId, payload, preserveDraft = false }) => {
+            // preserveDraft：预设行操作（排序 / 复制 / 重命名 / 删除）只落盘预设表，不能顺带丢掉表单里未保存的编辑。
+            const wasDirty = state.configDirty;
             beginSave(requestId);
             state.configDirty = true;
             let result;
             try {
                 result = await persistSettings(payload);
             } catch (error) {
+                if (preserveDraft) state.configDirty = wasDirty;
                 completeSave(requestId, { ok: false, error: describeError(error) });
                 return { ok: false };
             }
             if (!result?.ok) {
+                if (preserveDraft) state.configDirty = wasDirty;
                 completeSave(requestId, {
                     ok: false,
                     error: String(result?.error || '共享 Agent API 配置保存失败'),
@@ -117,9 +152,13 @@ export function createDrawAgentSettingsSurface(options = {}) {
             }
 
             state.config = normalizeAgentConfig(result.config || payload || {});
-            state.configDraft = null;
-            state.configDirty = false;
-            state.configFormSyncPending = true;
+            if (preserveDraft) {
+                state.configDirty = wasDirty;
+            } else {
+                state.configDraft = null;
+                state.configDirty = false;
+                state.configFormSyncPending = true;
+            }
             completeSave(requestId, { ok: true });
             options.onSaved?.(state.config);
             return { ok: true, config: state.config };
@@ -219,6 +258,9 @@ export function createDrawAgentSettingsSurface(options = {}) {
         if (state.configFormSyncPending) {
             settingsPanel.syncConfigToForm(root);
             state.configFormSyncPending = false;
+        } else {
+            // 保存 / 回滚后只需刷新预设列表（表单草稿保持原样）
+            settingsPanel.syncPresetList(root);
         }
         if (boundPanel !== panel) {
             settingsPanel.bindSettingsPanelEvents(root);
@@ -273,6 +315,7 @@ export function createDrawAgentSettingsSurface(options = {}) {
     function destroy() {
         destroyed = true;
         clearResetTimer();
+        settingsPanel.destroy();
         boundRoot?.removeEventListener?.('click', handleRootClick);
         boundRoot?.removeEventListener?.('input', markConfigDirty, true);
         boundRoot?.removeEventListener?.('change', markConfigDirty, true);

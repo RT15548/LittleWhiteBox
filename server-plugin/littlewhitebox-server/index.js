@@ -53,6 +53,7 @@ const PLUGIN_CAPABILITIES = Object.freeze([
     'draw-runs-v1',
     'draw-run-runtime-v4',
     'draw-run-planner-retry-v1',
+    'draw-run-planner-layout-v1',
     CANCELLATION_CAPABILITY,
     EXA_BACKEND_CAPABILITY,
 ]);

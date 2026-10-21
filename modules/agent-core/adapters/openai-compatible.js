@@ -27,8 +27,11 @@ import {
     findTextToolStart,
     scanTextToolBlocks,
 } from './text-tool-protocol.js';
+import {
+    resolveToolProtocolMarker,
+    stripToolProtocolMarker,
+} from './tool-protocol-marker.js';
 const ERROR_SOURCE = "modules/agent-core/adapters/openai-compatible.js";
-
 
 function parseArgumentsForTaggedReplay(text) {
     try {
@@ -561,7 +564,7 @@ export function mergeReplayMessages(existing = {}, next = {}) {
 export function buildNativeMessages(task, model = '', { preserveReasoningContent = false } = {}) {
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
     const lastUserIndex = getLastUserMessageIndex(sourceMessages);
-    const normalizedMessages = [];
+    const collectedMessages = [];
     let skipCorruptedToolResults = false;
 
     sourceMessages.forEach((message, index) => {
@@ -611,7 +614,7 @@ export function buildNativeMessages(task, model = '', { preserveReasoningContent
         // normally keep only content/tool calls; the direct DeepSeek thinking adapter
         // separately retains reasoning_content below, including text-only replies.
         if (shouldReplayFullNativeMessage(preserved, index, lastUserIndex)) {
-            normalizedMessages.push(ensureReasoningContentForToolCalls({
+            collectedMessages.push(ensureReasoningContentForToolCalls({
                 ...preserved,
                 ...(topLevelToolCalls.length && !hasPreservedSignedToolCalls ? {
                     tool_calls: topLevelToolCalls,
@@ -639,8 +642,11 @@ export function buildNativeMessages(task, model = '', { preserveReasoningContent
             baseMessage.tool_calls = topLevelToolCalls;
         }
 
-        normalizedMessages.push(ensureReasoningContentForToolCalls(baseMessage, model));
+        collectedMessages.push(ensureReasoningContentForToolCalls(baseMessage, model));
     });
+
+    // 原生模式工具走独立 tools 字段，工具说明占位标记不能泄漏给服务端；先剔除再合并 system。
+    const normalizedMessages = stripToolProtocolMarker(collectedMessages);
 
     const systemPrompt = String(task.systemPrompt || '').trim();
     if (systemPrompt) {
@@ -750,6 +756,16 @@ export function buildTaggedMessages(task, model = '') {
             content: message.content,
         });
     });
+
+    // 上游在 system 文本里放了占位标记时，工具说明就地落在标记处，不再追加到 system 末尾。
+    // 此时 systemPrompt 必须置空，避免协议文本里重复带上静态提示词。
+    const markerResolved = resolveToolProtocolMarker(
+        messages,
+        () => buildTaggedProtocolPrompt({ ...task, systemPrompt: '' }),
+    );
+    if (markerResolved.found) {
+        return normalizeFinalClaudeLikeMessageRole(markerResolved.messages, model);
+    }
 
     if (!messages.length || messages[0].role !== 'system') {
         messages.unshift({
@@ -1008,6 +1024,36 @@ function describeOpenAICompatibleHttpError(rawText, status) {
     return source || `OpenAI 兼容流式请求失败（HTTP ${status}）`;
 }
 
+// Raw facts about a completion, kept on a bad-finish error so a relay that answers 200
+// with an odd body (missing finish_reason, empty content, error object) can be diagnosed.
+function describeCompletionResponse(response, choice, message) {
+    return {
+        transport: 'json',
+        id: response?.id ?? null,
+        model: response?.model ?? null,
+        topLevelKeys: Object.keys(response || {}),
+        choiceCount: Array.isArray(response?.choices) ? response.choices.length : 0,
+        choiceKeys: Object.keys(choice || {}),
+        finishReason: choice?.finish_reason ?? null,
+        contentLength: flattenTextContent(message?.content).length,
+        toolCallCount: Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0,
+        refusal: message?.refusal ?? null,
+        usage: response?.usage ?? null,
+        error: response?.error ?? null,
+    };
+}
+
+function describeStreamedResponse(snapshot, finishReason, model) {
+    return {
+        transport: 'stream',
+        model: model ?? null,
+        finishReason: finishReason ?? null,
+        contentLength: getStreamedSnapshotText(snapshot).length,
+        toolCallCount: getStreamedSnapshotToolCalls(snapshot).length,
+        refusal: snapshot?.refusal ?? null,
+    };
+}
+
 export class OpenAICompatibleAdapter {
     constructor(config) {
         this.config = config;
@@ -1170,7 +1216,7 @@ export class OpenAICompatibleAdapter {
             text: cleanedText,
             toolCalls,
             thoughts: visibleThoughts(effectiveReasoning, thoughts),
-            ...readResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal),
+            ...readResponseCompletion('openai', lastFinishReason, !!assistantSnapshot.refusal, describeStreamedResponse(assistantSnapshot, lastFinishReason, lastModel)),
             model: lastModel,
             provider: 'openai-compatible',
             providerPayload,
@@ -1270,7 +1316,9 @@ export class OpenAICompatibleAdapter {
                 text: cleanedText,
                 toolCalls,
                 thoughts: visibleThoughts(effectiveReasoning, thoughts),
-                ...readResponseCompletion('openai', lastFinishReason, !!finalMessage.refusal),
+                ...readResponseCompletion('openai', lastFinishReason, !!finalMessage.refusal, finalCompletion
+                    ? describeCompletionResponse(finalCompletion, finalChoice || {}, finalMessage)
+                    : describeStreamedResponse(finalMessage, lastFinishReason, lastModel)),
                 model: lastModel,
                 provider: 'openai-compatible',
                 providerPayload,
@@ -1302,7 +1350,7 @@ export class OpenAICompatibleAdapter {
             text: cleanedText,
             toolCalls,
             thoughts: visibleThoughts(effectiveReasoning, thoughts),
-            ...readResponseCompletion('openai', choice.finish_reason, !!message.refusal),
+            ...readResponseCompletion('openai', choice.finish_reason, !!message.refusal, describeCompletionResponse(response, choice, message)),
             model: response.model || this.config.model,
             provider: 'openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),

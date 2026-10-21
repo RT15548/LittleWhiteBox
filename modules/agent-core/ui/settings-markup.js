@@ -26,8 +26,62 @@ function buildPresetActionIcon(name) {
         success: '<path d="M20 6 9 17l-5-5" />',
         error: '<path d="M18 6 6 18" /><path d="M6 6l12 12" />',
         delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />',
+        // 以下两个只给列表布局的行菜单用
+        more: '<circle cx="5" cy="12" r="1.4" fill="currentColor" /><circle cx="12" cy="12" r="1.4" fill="currentColor" /><circle cx="19" cy="12" r="1.4" fill="currentColor" />',
+        copy: '<rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" />',
     };
     return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ''}</svg>`;
+}
+
+// 预设列表布局（opt-in：presetLayout: 'list'）。每个预设一行 = 拖动手柄 + 名称按钮（点选）+ “…”菜单。
+// 预设本来就以名称为键，所以名称同时用作行 id，一律经 escapeHtml 再进属性 / 文本。
+function buildPresetMenuItem(action, label, icon, { disabled = false, danger = false } = {}) {
+    return `<button type="button" role="menuitem" class="xb-assistant-preset-menu-item${danger ? ' is-danger' : ''}" data-preset-action="${action}" title="${label}"${disabled ? ' disabled' : ''}>${buildPresetActionIcon(icon)}<span>${label}</span></button>`;
+}
+
+export function buildPresetListRowsMarkup({ names = [], selectedName = '', isBusy = false, canDeletePreset = true } = {}) {
+    return names.map((rawName) => {
+        const name = String(rawName);
+        const safe = escapeHtml(name);
+        const selected = name === selectedName;
+        return `
+                <div class="xb-assistant-preset-item${selected ? ' is-selected' : ''}" role="listitem" data-preset-item data-preset-name="${safe}">
+                    <span class="xb-assistant-preset-drag" role="button" tabindex="0" data-preset-drag title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整预设 ${safe} 的顺序">⋮⋮</span>
+                    <button type="button" class="xb-assistant-preset-name" data-preset-action="select" title="${safe}"${selected ? ' aria-current="true"' : ''}>${safe}</button>
+                    <span class="xb-assistant-preset-menu-wrap" data-card-menu>
+                        <button type="button" class="xb-assistant-icon-button xb-assistant-preset-menu-button" data-preset-action="menu" title="更多操作" aria-label="更多操作 ${safe}" aria-haspopup="menu" aria-expanded="false">${buildPresetActionIcon('more')}</button>
+                        <div class="xb-assistant-preset-menu" role="menu" aria-label="更多操作 ${safe}" hidden>
+                            ${buildPresetMenuItem('rename', '重命名', 'rename', { disabled: isBusy })}
+                            ${buildPresetMenuItem('duplicate', '复制', 'copy', { disabled: isBusy })}
+                            ${buildPresetMenuItem('delete', '删除', 'delete', { disabled: isBusy || !canDeletePreset, danger: true })}
+                        </div>
+                    </span>
+                </div>`;
+    }).join('');
+}
+
+/** 只同步列表里菜单项的可用状态（忙碌时不可改；只剩一套时不可删），不重绘行。 */
+export function syncPresetListControls(root, { isBusy = false, canDeletePreset = true } = {}) {
+    ['rename', 'duplicate'].forEach((action) => {
+        root?.querySelectorAll?.(`[data-preset-action="${action}"]`)
+            ?.forEach?.(item => item.toggleAttribute('disabled', isBusy));
+    });
+    root?.querySelectorAll?.('[data-preset-action="delete"]')
+        ?.forEach?.(item => item.toggleAttribute('disabled', isBusy || !canDeletePreset));
+}
+
+function buildPresetListSectionMarkup({ names, selectedName, isBusy, canDeletePreset, saveButton, saveIcon, saveDisabled }) {
+    return `<div class="xb-assistant-preset-row is-list">
+                <div class="xb-assistant-preset-header">
+                    <span class="xb-assistant-preset-title" id="xb-assistant-preset-title">已存预设</span>
+                    <input id="xb-assistant-preset-name" type="hidden" />
+                    <div class="xb-assistant-preset-tools" aria-label="API 预设操作">
+                        <button id="xb-assistant-new-preset" type="button" class="xb-assistant-text-button" title="新增预设" aria-label="新增预设" ${isBusy ? 'disabled' : ''}>${buildPresetActionIcon('add')}<span>新建</span></button>
+                        <button id="xb-assistant-save" type="button" class="xb-assistant-icon-button ${saveButton.className}" title="${saveButton.title}" aria-label="${saveButton.title}" ${saveDisabled}>${buildPresetActionIcon(saveIcon)}</button>
+                    </div>
+                </div>
+                <div id="xb-assistant-preset-list" class="xb-assistant-preset-list" role="list" aria-labelledby="xb-assistant-preset-title">${buildPresetListRowsMarkup({ names, selectedName, isBusy, canDeletePreset })}</div>
+            </div>`;
 }
 
 function getAgentConfigSaveIconName(configSave = {}) {
@@ -99,6 +153,7 @@ export function syncAgentSettingsPanelFeedback(root, options = {}) {
     });
     root.querySelector('#xb-assistant-delete-preset')
         ?.toggleAttribute('disabled', isBusy || !canDeletePreset);
+    syncPresetListControls(root, { isBusy, canDeletePreset });
     const toast = root.querySelector('#xb-assistant-toast');
     if (toast) toast.textContent = normalizedLoadError || String(inlineToastText || '');
     const fields = root.querySelector('[data-xb-agent-config-fields]');
@@ -119,6 +174,9 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
         isBusy = false,
         canDeletePreset = true,
         configLoadError = '',
+        presetLayout = 'select',
+        presetNames = [],
+        currentPresetName = '',
     } = options;
     const normalizedLoadError = String(configLoadError || '').trim();
     const saveButton = getAgentConfigSaveButtonState(configSave);
@@ -214,12 +272,17 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                 </label>
             </div>` : '';
 
-    return `
-        <section class="xb-assistant-config">
-            <fieldset class="xb-assistant-config-fields" data-xb-agent-config-fields ${normalizedLoadError ? 'disabled' : ''}>
-            ${tabsMarkup}
-            <div class="xb-assistant-config-page" data-config-page-panel="main" ${mainActive ? '' : 'hidden'}>
-            <div class="xb-assistant-preset-row">
+    const presetRowMarkup = presetLayout === 'list'
+        ? buildPresetListSectionMarkup({
+            names: presetNames,
+            selectedName: presetNames.includes(currentPresetName) ? currentPresetName : (presetNames[0] ?? ''),
+            isBusy,
+            canDeletePreset,
+            saveButton,
+            saveIcon,
+            saveDisabled,
+        })
+        : `<div class="xb-assistant-preset-row">
                 <select id="xb-assistant-preset-select" class="xb-assistant-preset-field" aria-label="已存预设"></select>
                 <input id="xb-assistant-preset-name" type="hidden" />
                 <div class="xb-assistant-preset-tools" aria-label="API 预设操作">
@@ -228,7 +291,14 @@ export function buildAgentSettingsPanelMarkup(options = {}) {
                     <button id="xb-assistant-save" type="button" class="xb-assistant-icon-button ${saveButton.className}" title="${saveButton.title}" aria-label="${saveButton.title}" ${saveDisabled}>${buildPresetActionIcon(saveIcon)}</button>
                     <button id="xb-assistant-delete-preset" type="button" class="xb-assistant-icon-button" title="删除预设" aria-label="删除预设" ${deleteDisabled}>${buildPresetActionIcon('delete')}</button>
                 </div>
-            </div>
+            </div>`;
+
+    return `
+        <section class="xb-assistant-config">
+            <fieldset class="xb-assistant-config-fields" data-xb-agent-config-fields ${normalizedLoadError ? 'disabled' : ''}>
+            ${tabsMarkup}
+            <div class="xb-assistant-config-page" data-config-page-panel="main" ${mainActive ? '' : 'hidden'}>
+            ${presetRowMarkup}
             <label>
                 <span>Provider</span>
                 <select id="xb-assistant-provider">

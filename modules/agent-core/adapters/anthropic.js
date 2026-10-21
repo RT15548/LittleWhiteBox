@@ -16,6 +16,7 @@ import {
     isReasoningOutputVisible,
     normalizeReasoningConfig,
 } from '../reasoning-config.js';
+import { stripToolProtocolMarker } from './tool-protocol-marker.js';
 
 const PROMPT_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' });
 const CACHEABLE_MESSAGE_BLOCKS = new Set(['text', 'image', 'tool_use', 'tool_result']);
@@ -99,7 +100,7 @@ function buildMessageContent(content) {
 function resolveSystemPrompt(task) {
     const parts = [
         String(task.systemPrompt || '').trim(),
-        ...((task.messages || [])
+        ...(stripToolProtocolMarker(task.messages || [])
             .filter((message) => message.role === 'system')
             .map((message) => String(message.content || '').trim())),
     ].filter(Boolean);
@@ -144,7 +145,8 @@ function buildToolUseBlocksFromToolCalls(toolCalls = []) {
         .filter(Boolean);
 }
 
-export function buildAnthropicMessages(messages) {
+export function buildAnthropicMessages(sourceMessages) {
+    const messages = stripToolProtocolMarker(sourceMessages);
     const filtered = [];
 
     for (let index = 0; index < messages.length; index += 1) {

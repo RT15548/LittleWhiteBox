@@ -14,6 +14,7 @@ import {
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
+import { stripToolProtocolMarker } from './tool-protocol-marker.js';
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -131,7 +132,7 @@ function normalizeAnthropicContent(content = []) {
 }
 
 function buildHostClaudeMessages(task = {}) {
-    const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
+    const sourceMessages = stripToolProtocolMarker(Array.isArray(task.messages) ? task.messages : []);
     const messages = [];
     sourceMessages.forEach((message) => {
         if (!message || typeof message !== 'object') return;

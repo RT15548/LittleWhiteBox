@@ -18,7 +18,15 @@ import {
 const DEFAULT_SCENE_PLANNER_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_SCENE_PLANNER_ATTEMPTS = 3;
 
+// 每次场景规划（含它的重试）一条记录，只放在页面内存里：最近 10 条，较早的失败再多留到共 5 条，
+// 这样成功的记录多了也不会把失败的挤掉。
+export const DIAGNOSTIC_HISTORY_RECENT = 10;
+export const DIAGNOSTIC_HISTORY_FAILURES = 5;
+// 单次模型返回的序列化上限；超出时截断并标记 modelOutputTruncated。
+export const DIAGNOSTIC_MODEL_OUTPUT_MAX_CHARS = 100000;
+
 let lastDrawAgentDiagnostic = null;
+let diagnosticHistory = [];
 let diagnosticSequence = 0;
 let activeDiagnosticId = 0;
 
@@ -65,6 +73,18 @@ function buildInspectionDiagnosticPatch(inspection) {
         patch.toolChoice = String(effectiveConfig.toolChoice || '');
     }
     return patch;
+}
+
+// The transport error text stays out of the record (it may echo credentials); only the
+// finish reason and the adapter's response summary describe an incomplete reply.
+function describeIncompleteResponse(rawError) {
+    if (rawError?.responseInfo === undefined) return {};
+    const partialText = String(rawError.partialResponse?.text || '');
+    return {
+        finishReason: String(rawError.reason || ''),
+        ...(rawError.responseInfo !== undefined ? { responseInfo: redactRequestSecrets(cloneJson(rawError.responseInfo)) } : {}),
+        ...(partialText ? { partialTextLength: partialText.length, partialTextHead: partialText.slice(0, 300) } : {}),
+    };
 }
 
 function resolveValidationToolCalls(result, providerConfig, attempt) {
@@ -122,7 +142,8 @@ function buildCorrectionTurn({ result, providerConfig, error, attempt, sessionLo
     };
 }
 
-function captureDiagnosticModelOutput(result) {
+// limit 只用于要长期留在历史里的成功返回；校验失败那份要完整的 JSON（调试日志会解析它），不截断。
+function captureDiagnosticModelOutput(result, { limit = Infinity } = {}) {
     const toolCalls = (Array.isArray(result?.toolCalls) ? result.toolCalls : []).map((toolCall) => ({
         name: String(toolCall?.name || ''),
         arguments: (() => {
@@ -153,10 +174,32 @@ function captureDiagnosticModelOutput(result) {
             text: String(result?.text || ''),
         });
     }
+    const truncated = serialized.length > limit;
     return {
-        modelOutput: serialized,
-        modelOutputTruncated: false,
+        modelOutput: truncated ? serialized.slice(0, limit) : serialized,
+        modelOutputTruncated: truncated,
     };
+}
+
+/** 历史记录的取舍：最近 recent 条全留，再往前的只补失败记录，直到失败总数达到 failures。records 按新到旧排列。 */
+export function selectDiagnosticHistory(records, { recent = DIAGNOSTIC_HISTORY_RECENT, failures = DIAGNOSTIC_HISTORY_FAILURES } = {}) {
+    const list = Array.isArray(records) ? records : [];
+    const kept = list.slice(0, recent);
+    let failureCount = kept.filter(record => record?.status === 'error').length;
+    for (const record of list.slice(recent)) {
+        if (failureCount >= failures) break;
+        if (record?.status !== 'error') continue;
+        kept.push(record);
+        failureCount += 1;
+    }
+    return kept;
+}
+
+function recordDiagnosticHistory(snapshot) {
+    const index = diagnosticHistory.findIndex(item => item.id === snapshot.id);
+    if (index >= 0) diagnosticHistory[index] = snapshot;
+    else diagnosticHistory.unshift(snapshot);
+    diagnosticHistory = selectDiagnosticHistory(diagnosticHistory);
 }
 
 function buildValidationFailureRecord({ result, error, attempt, startedAt, durationMs, feedbackSent = false }) {
@@ -250,6 +293,7 @@ export function beginDrawScenePlannerDiagnostic(initial = {}, onDiagnosticUpdate
         if (id === activeDiagnosticId) {
             lastDrawAgentDiagnostic = snapshot;
         }
+        recordDiagnosticHistory(snapshot);
         try {
             onDiagnosticUpdate?.(cloneJson(snapshot));
         } catch (error) {
@@ -461,6 +505,8 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                     errorCode: error.code,
                     // Transport error text may echo credentials; its retained copy is owned by the backend redactor.
                     ...(protocolFailure ? { errorMessage: error.message } : {}),
+                    // A response that ended abnormally: keep what the provider actually said.
+                    ...describeIncompleteResponse(rawError),
                     ...(Number.isInteger(error.details?.offset) ? { errorOffset: error.details.offset } : {}),
                     ...(rawAssistantMessage !== undefined ? { rawAssistantMessage } : {}),
                 };
@@ -493,6 +539,11 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 toolCallCount: validationToolCalls.length,
                 toolNames: validationToolCalls.map((toolCall) => String(toolCall?.name || '')).filter(Boolean),
                 finishReason: String(result?.finishReason || ''),
+                completion: result?.completion,
+                truncated: result?.truncated,
+                ...(result?.responseInfo !== undefined ? { responseInfo: redactRequestSecrets(cloneJson(result.responseInfo)) } : {}),
+                // 成功的返回也留下来（界面的“返回”一节要看）；校验失败时同一份会进 validationFailures，那时从这里去掉避免重复。
+                ...captureDiagnosticModelOutput(result, { limit: DIAGNOSTIC_MODEL_OUTPUT_MAX_CHARS }),
             };
             attempts.push(attemptRecord);
             logScenePlannerDiagnostic('请求完成', { ...logContext, ...attemptRecord });
@@ -547,6 +598,8 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                     durationMs: attemptRecord.durationMs,
                 });
                 validationFailures.push(failureRecord);
+                delete attemptRecord.modelOutput;
+                delete attemptRecord.modelOutputTruncated;
                 logScenePlannerValidationFailure(failureRecord, logContext);
                 diagnostic.update({
                     stage: 'correction',
@@ -587,8 +640,14 @@ export function getLastDrawAgentDiagnostic() {
     return cloneJson(lastDrawAgentDiagnostic);
 }
 
+/** 最近的场景规划记录，新到旧；每条是和 getLastDrawAgentDiagnostic 同样结构的诊断快照。 */
+export function getDrawAgentDiagnosticHistory() {
+    return cloneJson(diagnosticHistory) || [];
+}
+
 export function resetDrawAgentRuntimeForTests() {
     lastDrawAgentDiagnostic = null;
+    diagnosticHistory = [];
     diagnosticSequence = 0;
     activeDiagnosticId = 0;
 }

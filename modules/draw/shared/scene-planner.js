@@ -14,7 +14,16 @@ import {
 import { createSceneSource, stripScenePointMarkers } from './scene-source.js';
 import { createSubmitScenePlanTool } from './scene-plan-tool.js';
 import { parseFieldDescriptions } from './scene-plan-descriptions.js';
-import { buildScenePlannerSystemPrompt, buildScenePlannerUserTask } from './scene-planner-frame.js';
+import {
+    buildScenePlannerContentBlock,
+    buildScenePlannerFrameText,
+    buildScenePlannerGuideSection,
+    buildScenePlannerRulesSection,
+    buildScenePlannerWorldInfoBlock,
+} from './scene-planner-frame.js';
+import { planScenePlannerMessages } from './scene-planner-assembly.js';
+import { normalizeLayout } from './scene-planner-layout.js';
+import { TOOL_PROTOCOL_MARKER, stripToolProtocolMarker } from '../../agent-core/adapters/tool-protocol-marker.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
 import {
@@ -246,43 +255,66 @@ async function buildScenePlannerRequest(options = {}) {
             ? modelGuide
             : getEffectiveTagGuide(promptConfig.tagGuideContent);
 
-        const systemTemplate = buildScenePlannerSystemPrompt({
-            opening: promptConfig.topSystem,
-            guide: tagGuide,
-            sceneRules: promptConfig.sceneRules,
-            profile,
-        });
-        const userTaskTemplate = buildScenePlannerUserTask({
-            worldInfoSlot: slots.worldInfo,
-            characterInfoSlot: slots.characterInfo,
-            lastMessageSlot: slots.lastMessage,
-            limitsLine: buildSessionLimitsLine(
-                effectiveMaxImages,
-                effectiveMaxCharactersPerImage,
-                insertPointCount,
-                effectiveMaxPlanImages,
-            ),
+        // 布局来自整份预设（customPrompts.layout）；缺省/默认布局走 legacy，请求与改造前逐字节一致。
+        const { layout } = normalizeLayout(customPrompts?.layout);
+        const plan = planScenePlannerMessages({
+            layout,
+            builtinTexts: {
+                opening: promptConfig.topSystem,
+                frame: buildScenePlannerFrameText(profile),
+                guide: buildScenePlannerGuideSection(tagGuide, profile),
+                rules: buildScenePlannerRulesSection(promptConfig.sceneRules),
+                worldInfo: buildScenePlannerWorldInfoBlock(slots.worldInfo),
+                content: buildScenePlannerContentBlock(slots.characterInfo, slots.lastMessage),
+                limits: buildSessionLimitsLine(
+                    effectiveMaxImages,
+                    effectiveMaxCharactersPerImage,
+                    insertPointCount,
+                    effectiveMaxPlanImages,
+                ),
+            },
         });
 
+        // 槽位值是叙事文本，不能带工具说明标记，否则适配器会把协议文本塞进用户消息。
+        const withoutMarker = (text) => String(text ?? '').split(TOOL_PROTOCOL_MARKER).join('');
         const slotValues = {
-            [slots.worldInfo]: expandedWorldInfo,
-            [slots.characterInfo]: expandedCharacterInfo,
-            [slots.lastMessage]: expandedMessageText,
+            [slots.worldInfo]: withoutMarker(expandedWorldInfo),
+            [slots.characterInfo]: withoutMarker(expandedCharacterInfo),
+            [slots.lastMessage]: withoutMarker(expandedMessageText),
         };
-        const systemPrompt = (await expandScenePromptText(systemTemplate, runtime)).trim();
-        const userTask = applyPromptSlots(
-            await expandScenePromptText(userTaskTemplate, runtime),
-            slotValues,
-        ).trim();
+        // 模板按顺序各展开一次、再替换槽位：自定义块只在模板里，永远用不到动态槽位。
+        // legacy 的两条模板即使展开为空也照常保留，与改造前完全一致；其余布局丢弃展开后为空的消息。
+        const rendered = [];
+        for (const item of plan.templates) {
+            if (!plan.legacy && !item.template) continue;
+            rendered.push({
+                role: item.role,
+                content: applyPromptSlots(
+                    await expandScenePromptText(item.template, runtime),
+                    slotValues,
+                ).trim(),
+            });
+        }
 
-        const prompt = {
-            systemPrompt,
-            messages: [{ role: 'user', content: userTask }],
-        };
-        await emitScenePromptReady(runtime, [
-            ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-            ...prompt.messages,
-        ]);
+        let prompt;
+        let readyMessages;
+        if (plan.legacy) {
+            const [system, user] = rendered;
+            prompt = {
+                systemPrompt: system.content,
+                messages: [{ role: 'user', content: user.content }],
+            };
+            readyMessages = [
+                ...(system.content ? [{ role: 'system', content: system.content }] : []),
+                ...prompt.messages,
+            ];
+        } else {
+            // 多消息：system 角色消息留在 messages 里按位置发送，工具说明标记就在持有 tools 块的那条 system 里。
+            const messages = rendered.filter((message) => message.content);
+            prompt = { systemPrompt: '', messages };
+            readyMessages = stripToolProtocolMarker(messages);
+        }
+        await emitScenePromptReady(runtime, readyMessages);
         return {
             prompt,
             tool: createSubmitScenePlanTool({

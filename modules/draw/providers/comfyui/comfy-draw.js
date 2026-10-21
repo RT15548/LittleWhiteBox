@@ -26,6 +26,7 @@ import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../share
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
 import { assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
+import { retryScenePlanning } from "../../shared/planner-retry.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
@@ -34,7 +35,8 @@ import {
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
 import { normalizeMaxImagesOverride, resolveEffectiveMaxImages } from "../../shared/max-images-override.js";
-import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import { getDrawAgentDiagnosticHistory } from "../../shared/draw-agent.js";
+import { createLlmRecordsView } from "../../shared/llm-records-view.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
@@ -205,6 +207,8 @@ let pendingController = null;
 let resizeHandler = null;
 let eventsBound = false;
 let agentSettingsSurface = null;
+let llmRecordsView = null;
+let llmRecordsViewContainer = null;
 let characterLibraryUi = null;
 let groupPresetBinding = null;
 let promptChainPreviewFrame = 0;
@@ -3600,6 +3604,9 @@ export function hideSettings() {
     apiPresets.destroy();
     destroyCharacterLibraryUi();
     agentSettingsSurface = null;
+    llmRecordsView?.destroy();
+    llmRecordsView = null;
+    llmRecordsViewContainer = null;
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
     promptChainPreviewFrame = 0;
 
@@ -3668,12 +3675,16 @@ function updateComfyOptionStatus(state, text) {
 }
 
 function renderLastLlmRequestPreview() {
-    const preview = getSettingsElement('comfy-llm-request-preview');
-    if (!preview) return;
-    const snapshot = getLastDrawAgentDiagnostic();
-    preview.textContent = snapshot
-        ? JSON.stringify(snapshot, null, 2)
-        : '暂无请求记录，请先触发一次画图分析。';
+    const container = getSettingsElement('comfy-llm-request-preview');
+    const doc = getSettingsDocument();
+    if (!container || !doc) return;
+    if (llmRecordsViewContainer !== container) {
+        llmRecordsView?.destroy();
+        llmRecordsView = createLlmRecordsView({ document: doc, container, getRecords: getDrawAgentDiagnosticHistory });
+        llmRecordsViewContainer = container;
+        return;
+    }
+    llmRecordsView.render(getDrawAgentDiagnosticHistory());
 }
 
 function ensureAgentSettingsSurface() {
@@ -4692,13 +4703,17 @@ export async function generateAndInsertImages({
 
         job.phase = 'llm';
         onStateChange?.('llm', toScenePlannerProgress());
-        const { tasks, sceneSource } = await buildTasksFromMessage({
-            message, messageId: resolvedMessageId, signal, promptOverride, negativePromptOverride, onStateChange,
-        });
-        if (signal.aborted) throw new Error('已取消');
-
-
-        if (sceneSource) assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), sceneSource.sourceHash);
+        // 规划期间正文若被改动，按最新正文重新规划（指数退避，次数同 Agent 重试设置）。
+        const { tasks } = await retryScenePlanning(async (retryNumber) => {
+            // 换了楼层/分支就不再重试：这里会抛出原有的“原文或分支已变化”。
+            if (retryNumber) resolveFloorImageJobTarget(job, getContext());
+            const built = await buildTasksFromMessage({
+                message, messageId: resolvedMessageId, signal, promptOverride, negativePromptOverride, onStateChange,
+            });
+            if (signal.aborted) throw new Error('已取消');
+            if (built.sceneSource) assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), built.sceneSource.sourceHash);
+            return built;
+        }, { maxRetries: sharedSettingsSnapshot.plannerMaxRetries, signal, onStateChange });
         return await runPreparedComfySlots({ ctx, message, messageId: resolvedMessageId,
             sourceText: message.mes, tasks, settings: comfySettings,
             paramsOverride, promptOverride, negativePromptOverride, job, onStateChange });

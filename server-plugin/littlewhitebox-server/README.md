@@ -61,8 +61,11 @@ novelai-v5-final-image-v1
 draw-runs-v1
 draw-run-runtime-v4
 draw-run-planner-retry-v1
+draw-run-planner-layout-v1
 exa-web-v1
 ```
+
+`draw-run-planner-layout-v1` 表示后台规划请求接受多条消息，并允许 `system` / `assistant` 角色（自定义请求块），但至少需要一条 `user` 消息。未更新的旧插件不会声明该能力，仍只接受“单条 user 消息”的默认请求结构，默认设置下照常可用；需要自定义请求结构时，扩展会提示更新插件，或关闭“后台任务”改用浏览器流程。
 
 通用任务接口位于 `/v1/jobs`：
 

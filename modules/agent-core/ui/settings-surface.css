@@ -261,6 +261,257 @@
     display: none;
 }
 
+/* ── 预设列表布局（presetLayout: 'list'，opt-in）：手柄 + 名称（点选）+ “…”菜单 ── */
+.xb-agent-settings-surface .xb-assistant-preset-row.is-list {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+    min-width: 0;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    min-width: 0;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-title {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.xb-agent-settings-surface .xb-assistant-text-button {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+    transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.xb-agent-settings-surface .xb-assistant-text-button svg,
+.xb-agent-settings-surface .xb-assistant-preset-menu-item svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.xb-agent-settings-surface .xb-assistant-text-button:hover:not(:disabled),
+.xb-agent-settings-surface .xb-assistant-text-button:focus-visible {
+    color: var(--accent);
+    border-color: var(--border-focus);
+    background: var(--accent-soft);
+    outline: none;
+}
+
+/* 列表自己滚动；上下各留 2px 给拖拽落点线 */
+.xb-agent-settings-surface .xb-assistant-preset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    gap: 4px 8px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 2px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item:hover {
+    background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item.is-selected {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item.is-dragging {
+    opacity: .45;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item.is-drop-before {
+    box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item.is-drop-after {
+    box-shadow: 0 2px 0 0 var(--accent);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-drag {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    color: var(--text-muted);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    letter-spacing: -2px;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-drag:hover,
+.xb-agent-settings-surface .xb-assistant-preset-drag:focus-visible {
+    color: var(--text-primary);
+    outline: none;
+}
+
+body.xb-preset-sorting,
+body.xb-preset-sorting * {
+    cursor: grabbing !important;
+    user-select: none;
+}
+
+/* 名称有保底宽度（约 6 个汉字），空间不够时“…”菜单按钮换到下一行，而不是把名称挤没。 */
+.xb-agent-settings-surface .xb-assistant-preset-name {
+    flex: 1 1 6em;
+    min-width: 6em;
+    padding: 8px 4px;
+    color: var(--text-primary);
+    background: none;
+    border: none;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-name:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--border-focus);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-item.is-selected .xb-assistant-preset-name {
+    color: var(--accent);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-wrap {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-button {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-button[aria-expanded="true"] {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+}
+
+/* “更多操作”菜单是 position: fixed 浮层（位置由 character-card-menu.js 按按钮矩形算出），不会被列表的滚动区裁掉。 */
+.xb-agent-settings-surface .xb-assistant-preset-menu {
+    position: fixed;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 132px;
+    max-width: calc(100vw - 16px);
+    padding: 4px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu[hidden] {
+    display: none;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    box-sizing: border-box;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-item:hover:not(:disabled),
+.xb-agent-settings-surface .xb-assistant-preset-menu-item:focus-visible {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+    outline: none;
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-item:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--border-focus);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-item.is-danger {
+    color: var(--danger);
+}
+
+.xb-agent-settings-surface .xb-assistant-preset-menu-item.is-danger:hover:not(:disabled),
+.xb-agent-settings-surface .xb-assistant-preset-menu-item.is-danger:focus-visible {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .xb-agent-settings-surface .xb-assistant-preset-name {
+        min-height: 44px;
+    }
+
+    .xb-agent-settings-surface .xb-assistant-preset-menu-item {
+        min-height: 44px;
+        font-size: 13px;
+    }
+
+    .xb-agent-settings-surface .xb-assistant-preset-menu-button {
+        width: 44px;
+        height: 44px;
+    }
+}
+
 @media (max-width: 560px) {
     .xb-agent-settings-surface .xb-assistant-preset-row {
         grid-template-columns: minmax(0, 1fr);

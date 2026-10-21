@@ -119,6 +119,8 @@ const draftCharacters = new Map();
 const saveBtnStates = new WeakMap();
 const promptTextDraftsByPreset = new Map();
 const modelGuideDraftsByPreset = new Map();
+// 请求结构的未保存草稿：presetId -> 布局。与上面两个不同，草稿与已保存版本一致时会被丢弃（见 pruneLayoutDrafts）。
+const layoutDraftsByPreset = new Map();
 let promptChainRequestId = 0;
 let charFilters = { query: '', type: 'all', status: 'all' };
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
@@ -2975,12 +2977,19 @@ function renderUploadedBooks(books) {
     });
 }
 
-function renderLastLlmRequest(snapshot) {
-    const preview = $('nd_llm_request_preview');
-    if (!preview) return;
-    preview.textContent = snapshot
-        ? JSON.stringify(snapshot, null, 2)
-        : '暂无请求记录，请先触发一次画图分析。';
+let LRV = null; // llm-records-view.js（最近请求记录查看器），与角色库模块一同动态引入
+let llmRecordsView = null;
+let lastLlmRecords = [];
+
+function renderLastLlmRequest(records) {
+    lastLlmRecords = Array.isArray(records) ? records : [];
+    const container = $('nd_llm_request_preview');
+    if (!container || !LRV) return;
+    if (!llmRecordsView) {
+        llmRecordsView = LRV.createLlmRecordsView({ document, container, getRecords: () => lastLlmRecords });
+        return;
+    }
+    llmRecordsView.render(lastLlmRecords);
 }
 
 function renderWorldbookEntriesLocal(book) {
@@ -3111,6 +3120,10 @@ function handleApiSaveStatus(data) {
     if (data.target === 'api') updateStatus($('nd_api_status'), data.state, data.text);
     pending.resolve(ok);
 }
+let PO = null; // preset-order.js（预设排序的纯函数），与角色库模块一同动态引入
+let SL = null; // sortable-list.js（列表拖拽 / 键盘排序控制器），与角色库模块一同动态引入
+let PLV = null; // preset-list-view.js（预设列表的行标记与点击委托，参数 / 提示词预设共用），与角色库模块一同动态引入
+let PLE = null; // prompt-layout-editor.js（请求结构编辑器，另外转出布局契约的纯函数），与角色库模块一同动态引入
 
 function applyStateToUI() {
     console.log('[ND-UI] applyStateToUI: autoLearn=%s, advMode=%s, presets=%d',
@@ -3127,17 +3140,11 @@ function applyStateToUI() {
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
 
-        const pSel = $('nd_params_preset');
-        pSel.innerHTML = DOMPurify.sanitize((state.paramsPresets || []).map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}</option>`).join(''));
-        pSel.value = state.selectedParamsPresetId || '';
-
+        renderParamsPresetList();
         applyParamsPreset();
 
-        // 提示词预设下拉框 — 与参数预设完全一致的填充模式
-        const ppSel = $('nd_prompt_preset');
-        const presets = state.promptPresets || [];
-        ppSel.innerHTML = DOMPurify.sanitize(presets.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}</option>`).join(''));
-        ppSel.value = state.selectedPromptPresetId || '';
+        pruneLayoutDrafts();
+        renderPromptPresetList();
         applyPromptPreset();
 
         renderCharList();
@@ -3163,6 +3170,103 @@ function applyStateToUI() {
         applyAdvancedMode();
     } catch (e) {
         console.error('[ND-UI] applyAdvancedMode 失败:', e);
+    }
+}
+
+// ── 参数预设列表 ─────────────────────────────────────────────
+// 每个预设一行：拖动手柄 + 名称（点选）+ “…”菜单。点选只在页面里切换（和保存前的下拉框一样不通知宿主），
+// 新建 / 删除 / 导出等操作都带上被点的那一行的 id，不依赖宿主记的选中项。
+
+// 当前真正显示的预设 id：选中项找不到时 applyParamsPreset 会退回第一个，列表高亮跟它保持一致。
+function currentParamsPresetId() {
+    const presets = state.paramsPresets || [];
+    return (presets.find(p => p.id === state.selectedParamsPresetId) || presets[0])?.id ?? null;
+}
+
+// 行标记、点击委托、拖拽排序挂接都在 shared/preset-list-view.js，参数 / 提示词两个列表各建一份视图，
+// 只有数据来源和动作处理不同。视图在第一次用到时才创建（模块是动态引入的，晚于页面脚本）。
+function autoScrollPresetList(event, list) {
+    // 靠近列表上 / 下缘时先滚列表自己，滚到头再带动外层 / 整页。
+    CS?.autoScrollForPointer({
+        start: document.elementFromPoint(event.clientX, event.clientY) || list,
+        pointerY: event.clientY,
+        getStyle: element => getComputedStyle(element),
+        getRect: element => element.getBoundingClientRect(),
+        viewport: { top: 0, bottom: window.innerHeight },
+        pageScroller: document.scrollingElement || document.documentElement,
+    });
+}
+
+function createPresetListView(options) {
+    return PLV.createPresetListView({
+        document,
+        escapeHtml,
+        closeMenu: closeOptions => cardMenu?.close(closeOptions),
+        toggleMenu: button => getCardMenu()?.toggle(button),
+        createSortable: sortableOptions => (SL ? SL.createSortableList(sortableOptions) : null),
+        moveStep: (ids, id, direction) => (PO ? PO.movePresetId(ids, id, direction) : ids),
+        autoScroll: autoScrollPresetList,
+        ...options,
+    });
+}
+
+let paramsListView = null;
+function getParamsListView() {
+    if (!paramsListView && PLV) {
+        paramsListView = createPresetListView({
+            listId: 'novel-params',
+            getToggle: () => $('nd_params_collapse'),
+            getList: () => $('nd_params_list'),
+            getPresets: () => state.paramsPresets || [],
+            getCurrentId: currentParamsPresetId,
+            noun: '参数预设',
+            onSelect: id => selectParamsPreset(id),
+            onAction: handleParamsPresetAction,
+            onReorder: reorderParamsPresets,
+        });
+    }
+    return paramsListView;
+}
+
+function renderParamsPresetList() {
+    getParamsListView()?.render();
+}
+
+// 只改高亮，不重绘：被点的按钮留在原处，键盘焦点不丢。
+function syncParamsPresetSelection() {
+    getParamsListView()?.syncSelection();
+}
+
+function selectParamsPreset(id) {
+    if (!id || id === state.selectedParamsPresetId) return; // 再点已选中的一行不重填表单，免得冲掉未保存的编辑
+    state.selectedParamsPresetId = id;
+    applyParamsPreset();
+    syncParamsPresetSelection();
+}
+
+// 排序：本地先重排并重绘列表（不重填表单，未保存的编辑保留），宿主只收到新的 id 顺序。
+function reorderParamsPresets(orderedIds) {
+    if (!PO) return;
+    state.paramsPresets = PO.reorderPresetsByIds(state.paramsPresets, orderedIds);
+    renderParamsPresetList();
+    postToParent({ type: 'REORDER_PARAMS_PRESETS', order: orderedIds });
+}
+
+// 菜单项的动作：点选与“…”按钮由视图处理，这里只收 rename / duplicate / export / delete。
+function handleParamsPresetAction(action, id, preset) {
+    if (action === 'rename') {
+        const name = prompt('输入新名称：', preset.name || '');
+        if (name && name.trim()) {
+            preset.name = name.trim();
+            renderParamsPresetList();
+            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+        }
+    } else if (action === 'duplicate') {
+        postToParent({ type: 'ADD_PARAMS_PRESET', baseId: id, name: `${preset.name || preset.id} 副本` });
+    } else if (action === 'export') {
+        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: id });
+    } else if (action === 'delete') {
+        if (confirm(`确定删除参数预设“${preset.name || preset.id}”？`)) postToParent({ type: 'DEL_PARAMS_PRESET', presetId: id });
     }
 }
 
@@ -3202,10 +3306,11 @@ function applyParamsPreset() {
     $('nd_decrisper').checked = pm.decrisper ?? dp.decrisper;
     
     updateModelOptions();
+    refreshLayoutSummaries(); // “数量约束”块的摘要读的是当前参数预设
 }
 
-/** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset） */
-function applyPromptPreset() {
+/** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset）；collapseLayout=切换预设时收起布局里展开的消息块 */
+function applyPromptPreset({ collapseLayout = false } = {}) {
     const active = getActivePromptPresetForForm() || {};
     const drafts = active.id ? promptTextDraftsByPreset.get(active.id) : null;
     $('nd_prompt_system').value = drafts?.has('topSystem')
@@ -3215,6 +3320,96 @@ function applyPromptPreset() {
         ? drafts.get('sceneRules')
         : active.sceneRules ?? '';
     applyModelGuideForCurrentModel();
+    renderLayoutEditor({ collapse: collapseLayout });
+}
+
+// ── 提示词预设列表 ───────────────────────────────────────────
+// 和参数预设列表同一套视图。区别在于：点选立即通知宿主持久化（SELECT_PROMPT_PRESET，沿用旧下拉框的行为），
+// 排序只重绘列表、不重填三个文本框（它们里面可能有未保存的编辑），宿主只收到新的 id 顺序。
+
+// 当前真正显示的预设 id：和 getActivePromptPresetForForm 的回退一致，但不改 state。
+function currentPromptPresetId() {
+    const presets = state.promptPresets || [];
+    return (presets.find(p => p.id === state.selectedPromptPresetId) || presets[0])?.id ?? null;
+}
+
+let promptListView = null;
+function getPromptListView() {
+    if (!promptListView && PLV) {
+        promptListView = createPresetListView({
+            listId: 'novel-prompts',
+            getToggle: () => $('nd_prompt_collapse'),
+            getList: () => $('nd_prompt_list'),
+            getPresets: () => state.promptPresets || [],
+            getCurrentId: currentPromptPresetId,
+            noun: '提示词预设',
+            onSelect: id => selectPromptPreset(id),
+            onAction: handlePromptPresetAction,
+            onReorder: reorderPromptPresets,
+        });
+    }
+    return promptListView;
+}
+
+function renderPromptPresetList() {
+    getPromptListView()?.render();
+}
+
+function selectPromptPreset(id) {
+    if (!id || id === currentPromptPresetId()) return; // 再点已选中的一行什么也不做
+    state.selectedPromptPresetId = id;
+    applyPromptPreset({ collapseLayout: true });
+    getPromptListView()?.syncSelection();
+    requestPromptChainPreview();
+    postToParent({ type: 'SELECT_PROMPT_PRESET', id });
+}
+
+function reorderPromptPresets(orderedIds) {
+    if (!PO) return;
+    state.promptPresets = PO.reorderPresetsByIds(state.promptPresets, orderedIds);
+    renderPromptPresetList();
+    postToParent({ type: 'REORDER_PROMPT_PRESETS', order: orderedIds });
+}
+
+function handlePromptPresetAction(action, id, preset) {
+    const label = preset.name || preset.id;
+    if (action === 'rename') {
+        const name = prompt('输入新名称：', preset.name || '');
+        if (name && name.trim()) postToParent({ type: 'RENAME_PROMPT_PRESET', id, name: name.trim() });
+    } else if (action === 'duplicate') {
+        postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
+    } else if (action === 'export') {
+        exportPromptPreset(preset);
+    } else if (action === 'delete') {
+        if (confirm(`确定删除提示词预设“${label}”？`)) postToParent({ type: 'DEL_PROMPT_PRESET', id });
+    }
+}
+
+/**
+ * 导出一个提示词预设为 JSON 文件。正在编辑的那个按文本框里的内容导出（含未保存的编辑）；
+ * 其它预设按已保存内容加上本页对它的未保存草稿导出，不碰当前表单。
+ */
+function exportPromptPreset(preset) {
+    const isActive = preset.id === getActivePromptPresetForForm()?.id;
+    const drafts = promptTextDraftsByPreset.get(preset.id);
+    // 默认布局仍导出 V3（旧版本能导入）；带自定义布局导出 V4，旧版本会明确拒绝而不是悄悄丢掉布局。
+    // 版本规则与 novel-prompt-import.js 的 promptTemplateExportVersion 一致（panel 测试会对账）。
+    const layout = promptLayoutForExport(preset);
+    const data = {
+        _type: 'novel-draw-prompt-template',
+        _version: layout ? 4 : 3,
+        name: preset.name || '',
+        topSystem: isActive ? $('nd_prompt_system').value : (drafts?.has('topSystem') ? drafts.get('topSystem') : preset.topSystem ?? ''),
+        sceneRules: isActive ? $('nd_prompt_format').value : (drafts?.has('sceneRules') ? drafts.get('sceneRules') : preset.sceneRules ?? ''),
+        modelGuideOverrides: collectModelGuideOverrides(preset, { fromForm: isActive }),
+    };
+    if (layout) data.layout = layout;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${preset.name || '提示词预设'}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 function getActivePromptPresetForForm() {
@@ -3224,9 +3419,161 @@ function getActivePromptPresetForForm() {
         || null;
     if (active && state.selectedPromptPresetId !== active.id) {
         state.selectedPromptPresetId = active.id;
-        if ($('nd_prompt_preset')) $('nd_prompt_preset').value = active.id;
     }
     return active;
+}
+
+// ── 请求结构（共享编辑器 shared/prompt-layout-editor.js）─────────────────────────
+// 布局跟着提示词预设走：已保存的在 preset.layout（缺省 = 默认布局），未保存的修改放在 layoutDraftsByPreset。
+// 生效布局 = 草稿 ?? 已保存 ?? 默认。编辑器只改草稿；保存按钮把生效布局随 promptDraft.layout 交给宿主。
+// 页面是普通脚本，布局契约的纯函数（指纹 / 默认判断 / 规范化）经 PLE 转出。
+
+const LAYOUT_UNSUPPORTED_REASON = '当前酒馆端的 LittleWhiteBox 版本还不支持请求结构，请刷新酒馆页面后再试。';
+const LAYOUT_TEXT_TARGETS = { opening: 'nd_prompt_system', guide: 'nd_prompt_guide', rules: 'nd_prompt_format' };
+
+/** 宿主认识 layout 字段、且编辑器模块已加载：此时才允许读写 / 保存布局。 */
+function layoutSupported() {
+    return Boolean(PLE) && state.promptLayoutSupported === true;
+}
+
+function getSavedPromptLayout(preset) {
+    return PLE.normalizeLayout(preset?.layout).layout; // 没有 layout 字段 = 默认布局
+}
+
+function getEffectivePromptLayout(preset) {
+    if (!PLE) return null;
+    const draft = preset?.id ? layoutDraftsByPreset.get(preset.id) : null;
+    return draft || getSavedPromptLayout(preset);
+}
+
+/** 记下编辑器给出的新布局；与已保存的一致就直接丢草稿，这样“未保存”徽标与保存后的清理都不用特殊处理。 */
+function setPromptLayoutDraft(preset, layout) {
+    if (!PLE || !preset?.id) return;
+    if (PLE.layoutFingerprint(layout) === PLE.layoutFingerprint(getSavedPromptLayout(preset))) layoutDraftsByPreset.delete(preset.id);
+    else layoutDraftsByPreset.set(preset.id, layout);
+}
+
+/** 宿主推来新数据后：草稿与已保存一致（保存成功）或预设已不存在的草稿丢弃，其余保留（保存失败 / 还在编辑）。 */
+function pruneLayoutDrafts() {
+    if (!PLE) return;
+    for (const [presetId, draft] of Array.from(layoutDraftsByPreset)) {
+        const preset = (state.promptPresets || []).find(item => item.id === presetId);
+        if (!preset || PLE.layoutFingerprint(draft) === PLE.layoutFingerprint(getSavedPromptLayout(preset))) {
+            layoutDraftsByPreset.delete(presetId);
+        }
+    }
+}
+
+/**
+ * 保存时附带的 layout 字段：生效布局是默认 -> null（宿主删掉已存的 layout），否则是规范化后的对象。
+ * 编辑器不可用时一个字段都不带——宿主把“键缺席”当作不动，避免旧宿主 / 加载失败时误删已存布局。
+ */
+function layoutFieldForSave() {
+    if (!layoutSupported()) return {};
+    const layout = getEffectivePromptLayout(getActivePromptPresetForForm());
+    return { layout: PLE.isDefaultLayout(layout) ? null : PLE.normalizeLayout(layout).layout };
+}
+
+/** 导出用的布局：默认 / 没有 -> null（导出 V3，旧版本照常能导入）；否则规范化后的对象（导出 V4）。 */
+function promptLayoutForExport(preset) {
+    // 编辑器没加载时拿不到草稿，但已保存的布局不能在导出里悄悄丢掉。
+    if (!PLE) return preset.layout && typeof preset.layout === 'object' ? preset.layout : null;
+    const layout = getEffectivePromptLayout(preset);
+    return PLE.isDefaultLayout(layout) ? null : PLE.normalizeLayout(layout).layout;
+}
+
+function summarizeLayoutText(value, emptyText) {
+    const text = String(value ?? '');
+    if (!text.trim()) return emptyText;
+    const flat = text.replace(/\s+/g, ' ').trim();
+    const chars = Array.from(flat);
+    const head = chars.length > 60 ? `${chars.slice(0, 60).join('')}…` : flat;
+    return `${head}（共 ${text.length} 字）`;
+}
+
+function describeBuiltinBlock(id) {
+    switch (id) {
+        case 'opening':
+            return { summary: summarizeLayoutText($('nd_prompt_system')?.value, '（当前为空，不注入）'), action: 'edit' };
+        case 'guide':
+            return { label: '模型TAG指南', summary: summarizeLayoutText($('nd_prompt_guide')?.value, '（当前为空，不注入）'), action: 'edit' };
+        case 'rules':
+            return { summary: summarizeLayoutText($('nd_prompt_format')?.value, '（当前为空，不注入）'), action: 'edit' };
+        case 'frame':
+            return { summary: '固定文本：说明下面提供了哪些材料，以及结果要通过工具交回（程序生成，不可编辑）', action: 'view' };
+        case 'tools':
+            return { summary: '固定工具：submit_scene_plan 及各字段说明（程序生成，不可编辑）', action: 'view' };
+        case 'worldInfo':
+            return { summary: state.useWorldInfo === true ? '世界书注入已开启：命中的条目放在这里' : '世界书注入未开启（在世界书页面开启）', action: 'edit' };
+        case 'content': {
+            const chars = Array.isArray(state.characterTags) ? state.characterTags : [];
+            const enabled = chars.filter(char => char.enabled !== false).length;
+            return { summary: `最近的聊天正文与角色标签（共 ${chars.length} 个角色，启用 ${enabled} 个）`, action: 'edit' };
+        }
+        case 'limits': {
+            const presets = state.paramsPresets || [];
+            const params = presets.find(item => item.id === state.selectedParamsPresetId) || presets[0] || {};
+            const images = Number(params.maxImages) || 0;
+            const perImage = Number(params.maxCharactersPerImage) || 0;
+            return { summary: `每次最多 ${images || '不限'} 张图，每张图最多 ${perImage || '不限'} 个角色`, action: 'edit' };
+        }
+        default:
+            return { summary: '', action: null };
+    }
+}
+
+/** 内置块的“去编辑 / 查看”：文本类跳到对应文本框，其余切到数据所在的页面。 */
+function editBuiltinBlock(id) {
+    const textTarget = LAYOUT_TEXT_TARGETS[id] && $(LAYOUT_TEXT_TARGETS[id]);
+    if (textTarget) {
+        textTarget.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        textTarget.focus?.();
+    } else if (id === 'worldInfo') {
+        switchView('worldbook');
+    } else if (id === 'content') {
+        switchView('characters');
+    } else if (id === 'limits') {
+        switchView('params');
+        const input = $('nd_max_images');
+        input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        input?.focus?.();
+    } else if (id === 'frame' || id === 'tools') {
+        const details = $('nd_prompt_chain_details');
+        if (details) {
+            details.open = true;
+            details.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        }
+    }
+}
+
+let layoutEditor = null;
+function getLayoutEditor() {
+    if (!layoutEditor && PLE) {
+        const container = $('nd_prompt_layout');
+        if (!container) return null;
+        layoutEditor = PLE.createPromptLayoutEditor({
+            document,
+            container,
+            getLayout: () => getEffectivePromptLayout(getActivePromptPresetForForm()),
+            getSavedLayout: () => getSavedPromptLayout(getActivePromptPresetForForm()),
+            onChange: layout => setPromptLayoutDraft(getActivePromptPresetForForm(), layout),
+            describeBuiltin: describeBuiltinBlock,
+            onEditBuiltin: editBuiltinBlock,
+            confirm: message => confirm(message),
+            autoScroll: autoScrollPresetList,
+            getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
+        });
+    }
+    return layoutEditor;
+}
+
+function renderLayoutEditor(options) {
+    getLayoutEditor()?.render(options);
+}
+
+/** 文本框 / 参数预设变化后刷新内置块摘要：原地改字，不重绘列表。 */
+function refreshLayoutSummaries() {
+    layoutEditor?.refreshSummaries();
 }
 
 function setCurrentPromptTextDraft(key, content) {
@@ -3242,7 +3589,11 @@ function setCurrentPromptTextDraft(key, content) {
 
 /** 当前指南以用户眼前的 textarea 为准；其他模型草稿沿用本页临时状态。 */
 function collectModelGuideOverridesFromForm() {
-    const active = getActivePromptPresetForForm();
+    return collectModelGuideOverrides(getActivePromptPresetForForm(), { fromForm: true });
+}
+
+/** 某个预设的指南覆盖：已保存的覆盖 + 本页草稿；fromForm 时再叠上当前模型指南文本框（只对正在编辑的预设有意义）。 */
+function collectModelGuideOverrides(active, { fromForm }) {
     const source = active?.modelGuideOverrides && typeof active.modelGuideOverrides === 'object'
         && !Array.isArray(active.modelGuideOverrides)
         ? active.modelGuideOverrides
@@ -3261,10 +3612,12 @@ function collectModelGuideOverridesFromForm() {
     };
     drafts?.forEach((content, guideId) => applyDraft(guideId, content));
 
-    const guideId = getCurrentModelGuideId();
-    const textarea = $('nd_prompt_guide');
-    if (textarea) {
-        applyDraft(guideId, textarea.value);
+    if (fromForm) {
+        const guideId = getCurrentModelGuideId();
+        const textarea = $('nd_prompt_guide');
+        if (textarea) {
+            applyDraft(guideId, textarea.value);
+        }
     }
     return overrides;
 }
@@ -3307,6 +3660,7 @@ function applyModelGuideForCurrentModel() {
             : defaultContent;
 
     $('nd_prompt_guide').value = content;
+    refreshLayoutSummaries();
 }
 
 function setSelectOrCustom(kind, value) {
@@ -3539,7 +3893,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'LAST_LLM_REQUEST_DATA':
-            renderLastLlmRequest(data.snapshot || null);
+            renderLastLlmRequest(data.history);
             break;
 
         case 'SYNC_SUMMARY_FILTER_RESULT': {
@@ -3696,42 +4050,21 @@ function initializePage() {
     // ═══════════════════════════════════════════════════════════════════════
     // 参数预设管理
     // ═══════════════════════════════════════════════════════════════════════
-    $('nd_params_preset').addEventListener('change', () => { 
-        state.selectedParamsPresetId = $('nd_params_preset').value; 
-        applyParamsPreset(); 
-    });
-    
+    // 列表里的点击（点选 / “…”菜单）由 preset-list-view.js 在第一次绘制时挂上委托。
     $('nd_params_save').addEventListener('click', () => {
         setSavingState($('nd_params_save'));
         collectParamsPreset();
         postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
     });
     
-    $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET' }));
-    
-    $('nd_params_del').addEventListener('click', () => { 
-        if (confirm('确定删除当前参数预设？')) postToParent({ type: 'DEL_PARAMS_PRESET' }); 
-    });
-    
-    $('nd_params_rename').addEventListener('click', () => {
-        const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
-        if (!p) return;
-        const name = prompt('输入新名称：', p.name || '');
-        if (name && name.trim()) {
-            p.name = name.trim();
-            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
-        }
-    });
+    // 宿主只在“保存”时才知道页面选中了哪个预设，所以新建要带上页面当前显示的那个作为底板。
+    $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET', baseId: state.selectedParamsPresetId }));
     
     // ═══════════════════════════════════════════════════════════════════════
     // 云端预设（新增）
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_params_cloud').addEventListener('click', () => {
         postToParent({ type: 'OPEN_CLOUD_PRESETS' });
-    });
-    
-    $('nd_params_export').addEventListener('click', () => {
-        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: state.selectedParamsPresetId });
     });
     
     // ═══════════════════════════════════════════════════════════════════════
@@ -3942,14 +4275,8 @@ function initializePage() {
     });
     
     // ═══════════════════════════════════════════════════════════════════════
-    // 提示词预设管理 — 切换立即持久化，模板正文仍由保存按钮提交
-    $('nd_prompt_preset').addEventListener('change', () => {
-        state.selectedPromptPresetId = $('nd_prompt_preset').value;
-        applyPromptPreset();
-        requestPromptChainPreview();
-        postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
-    });
-
+    // 提示词预设管理 — 切换立即持久化，模板正文仍由保存按钮提交；
+    // 列表里的点选 / “…”菜单由 preset-list-view.js 在第一次绘制时挂上委托（selectPromptPreset / handlePromptPresetAction）。
     $('nd_prompt_preset_save').addEventListener('click', () => {
         setSavingState($('nd_prompt_preset_save'));
         getActivePromptPresetForForm();
@@ -3957,6 +4284,7 @@ function initializePage() {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            ...layoutFieldForSave(),
         }, statusTarget: 'prompt-preset' });
     });
 
@@ -3964,21 +4292,6 @@ function initializePage() {
         type: 'ADD_PROMPT_PRESET',
         sourcePresetId: state.selectedPromptPresetId,
     }));
-
-    $('nd_prompt_del').addEventListener('click', () => {
-        if (confirm('确定删除当前提示词预设？')) {
-            postToParent({ type: 'DEL_PROMPT_PRESET', id: state.selectedPromptPresetId });
-        }
-    });
-
-    $('nd_prompt_rename').addEventListener('click', () => {
-        const p = (state.promptPresets || []).find(x => x.id === state.selectedPromptPresetId);
-        if (!p) return;
-        const name = prompt('输入新名称：', p.name || '');
-        if (name && name.trim()) {
-            postToParent({ type: 'RENAME_PROMPT_PRESET', id: state.selectedPromptPresetId, name: name.trim() });
-        }
-    });
 
     // 提示词模板保存（底部按钮，等同于预设栏保存）
     $('nd_prompts_save').addEventListener('click', () => {
@@ -3988,6 +4301,7 @@ function initializePage() {
             topSystem: $('nd_prompt_system').value,
             sceneRules: $('nd_prompt_format').value,
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            ...layoutFieldForSave(),
         }, statusTarget: 'prompts' });
     });
 
@@ -3999,22 +4313,25 @@ function initializePage() {
         const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
         $('nd_prompt_system').value = defaultTopSystem;
         setCurrentPromptTextDraft('topSystem', defaultTopSystem);
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
         const defaultSceneRules = state._defaultPrompts?.sceneRules || '';
         $('nd_prompt_format').value = defaultSceneRules;
         setCurrentPromptTextDraft('sceneRules', defaultSceneRules);
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
         const defaultContent = state.modelGuideDefaults?.[getCurrentModelGuideId()] ?? '';
         $('nd_prompt_guide').value = defaultContent;
         setCurrentModelGuideDraft(defaultContent);
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
     $('nd_prompts_reset_all').addEventListener('click', () => {
-        if (!confirm('确认将当前预设的全部提示词恢复为默认值？（需点击保存才会生效）')) return;
+        if (!confirm('确认将当前预设的全部提示词（含请求结构）恢复为默认值？（需点击保存才会生效）')) return;
         const defaults = state._defaultPrompts || {};
         const activePreset = getActivePromptPresetForForm();
         if (!activePreset) {
@@ -4035,29 +4352,16 @@ function initializePage() {
                 .filter(([, content]) => typeof content === 'string'),
         ));
         applyModelGuideForCurrentModel();
+        // 布局草稿一并回到默认（与已保存的默认布局一致时 setPromptLayoutDraft 会直接丢草稿）。
+        if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
+        renderLayoutEditor({ collapse: true });
+        refreshLayoutSummaries();
         refreshChainIfOpen();
     });
 
-    $('nd_prompt_preset_export').addEventListener('click', () => {
-        const activePreset = getActivePromptPresetForForm() || {};
-        const data = {
-            _type: 'novel-draw-prompt-template',
-            _version: 3,
-            name: activePreset.name || '',
-            topSystem: $('nd_prompt_system').value,
-            sceneRules: $('nd_prompt_format').value,
-            modelGuideOverrides: collectModelGuideOverridesFromForm(),
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${activePreset.name || '提示词预设'}.json`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-    });
-
     $('nd_prompt_preset_import').addEventListener('change', observeAsyncCallback(async (e) => {
-        const file = e.target.files?.[0];
+        const input = e.target; // await 之后事件对象可能已被重置，先留住输入框
+        const file = input.files?.[0];
         if (!file) return;
         try {
             const text = await file.text();
@@ -4071,7 +4375,7 @@ function initializePage() {
         } catch (err) {
             alert('导入失败: ' + err.message);
         }
-        e.target.value = '';
+        input.value = '';
     }, { source: import.meta.url, operation: "callback" }));
 
     $('nd_prompt_chain_details').addEventListener('toggle', (event) => {
@@ -4080,11 +4384,13 @@ function initializePage() {
     ['nd_prompt_system', 'nd_prompt_format'].forEach((id) => {
         $(id).addEventListener('input', () => {
             setCurrentPromptTextDraft(id === 'nd_prompt_system' ? 'topSystem' : 'sceneRules', $(id).value);
+            refreshLayoutSummaries();
             if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         });
     });
     $('nd_prompt_guide').addEventListener('input', () => {
         setCurrentModelGuideDraft($('nd_prompt_guide').value);
+        refreshLayoutSummaries();
         if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         else promptChainRequestId += 1;
     });
@@ -4139,6 +4445,21 @@ function initializePage() {
         import('../../shared/api-presets-ui.js')
             .then((module) => { AP_UI = module; renderApiPresetBar(); })
             .catch((error) => { console.error('[ND-UI] API 预设模块加载失败，API 配置预设不可用:', error); }),
+        import('../../shared/preset-order.js')
+            .then((module) => { PO = module; })
+            .catch((error) => { console.error('[ND-UI] 预设排序模块加载失败，参数预设无法排序:', error); }),
+        import('../../shared/sortable-list.js')
+            .then((module) => { SL = module; paramsListView?.ensureSortable(); promptListView?.ensureSortable(); })
+            .catch((error) => { console.error('[ND-UI] 列表排序模块加载失败，预设列表无法拖拽排序:', error); }),
+        import('../../shared/preset-list-view.js')
+            .then((module) => { PLV = module; })
+            .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，参数 / 提示词预设列表无法显示:', error); }),
+        import('../../shared/prompt-layout-editor.js')
+            .then((module) => { PLE = module; })
+            .catch((error) => { console.error('[ND-UI] 请求结构编辑器加载失败，请求结构不可用:', error); }),
+        import('../../shared/llm-records-view.js')
+            .then((module) => { LRV = module; renderLastLlmRequest(lastLlmRecords); })
+            .catch((error) => { console.error('[ND-UI] 请求记录查看器加载失败，最近请求不可用:', error); }),
     ]).finally(() => postToParent({ type: 'FRAME_READY' })), { source: import.meta.url, operation: "initializePage" });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializePage, { once: true });
