@@ -3079,7 +3079,7 @@ test('the layout card sits between the preset list and the text cards, shows eig
     assert.match(layoutRowOf(panel, 'opening').querySelector('[data-ple-summary]').textContent, /sys-t1/);
     assert.match(layoutRowOf(panel, 'rules').querySelector('[data-ple-summary]').textContent, /rules-t1/);
     sameJson(LAYOUT_BLOCK_IDS.map(id => layoutFieldOf(panel, id, 'edit').textContent), ['去编辑', '查看', '去编辑', '去编辑', '查看', '去编辑', '去编辑', '去编辑']);
-    assert.match(card.querySelector('#nd_prompt_layout_note').textContent, /请求结构.*默认结构/);
+    assert.match(card.querySelector('#nd_prompt_layout_note').textContent, /请求内容预览.*默认结构/);
     assert.equal(layoutDirtyShown(panel), false);
     assert.match(fs.readFileSync(PAGE, 'utf8'), /<link rel="stylesheet" href="\.\.\/\.\.\/shared\/prompt-layout-editor\.css">/);
     assert.deepEqual(panel.errors, []);
@@ -3377,7 +3377,7 @@ test('去编辑 / 查看 jump to where each built-in block is edited', (t) => {
     const details = panel.$('#nd_prompt_chain_details');
     assert.notEqual(details.open, true);
     jump('frame');
-    assert.equal(details.open, true, '“请求结构”展开');
+    assert.equal(details.open, true, '“请求内容预览”展开');
     details.open = false;
     jump('tools');
     assert.equal(details.open, true);
