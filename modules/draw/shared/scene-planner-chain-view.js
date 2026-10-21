@@ -17,6 +17,8 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
     const focusEditable = (key) => {
         const target = getEditable?.(key);
         if (!target) return;
+        const editor = target.closest('details');
+        if (editor) editor.open = true;
         target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target.focus();
     };
@@ -50,10 +52,10 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
                 sectionSummary.className = 'chain-section-summary';
                 sectionSummary.textContent = `${sectionIndex + 1}. ${section.summary || ''}`;
                 if (section.editable) {
-                    const edit = document.createElement('span');
+                    const edit = document.createElement('button');
+                    edit.type = 'button';
                     edit.className = 'chain-editable';
-                    edit.title = '可在上方编辑';
-                    edit.textContent = ' ✏️';
+                    edit.textContent = '编辑';
                     edit.addEventListener('click', (event) => {
                         event.stopPropagation();
                         focusEditable(section.key);
@@ -67,7 +69,7 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
                     vars.className = 'chain-variables';
                     section.variables.forEach((value) => {
                         const span = document.createElement('span');
-                        span.textContent = `📎 ${value}`;
+                        span.textContent = value;
                         vars.appendChild(span);
                     });
                     sectionRow.appendChild(vars);

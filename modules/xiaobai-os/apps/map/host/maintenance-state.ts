@@ -16,7 +16,6 @@ function failureReason(reason: string): string {
         case 'background-capture-failed': return '没有读到角色或故事背景，请先打开聊天再试。';
         case 'session-creation-failed': return '地图暂时加载不了，请重新打开地图。';
         case 'session-result-failed': return '这次没能生成地图，请稍后重试。';
-        case 'save-unconfirmed': return '还不确定是否保存成功，请先检查保存，不要再次更新。';
         case 'save-failed': return '地图没能保存，请检查连接后重试。';
         default: return '请稍后重试；如果一直失败，可查看控制台报错。';
     }
@@ -35,6 +34,9 @@ export function skippedMaintenanceMessage(reason: string): string {
 }
 
 export function maintenanceState(status: MaintenanceStatus): Pick<MapClientState, 'maintenanceStatus' | 'maintenanceMessage'> {
+    if (status.reason === 'save-unconfirmed' && status.state !== 'running') {
+        return { maintenanceStatus: 'idle', maintenanceMessage: '' };
+    }
     if (status.state === 'running') {
         return { maintenanceStatus: status.mode === 'rebuild' ? 'rebuilding' : 'maintaining', maintenanceMessage: '' };
     }

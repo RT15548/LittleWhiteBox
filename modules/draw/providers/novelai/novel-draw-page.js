@@ -198,11 +198,6 @@ function getGalleryImageUrl(image = {}) {
     }
 }
 
-function getCharEmoji(name) {
-    const emojis = ['👤','👩','👨','🧑','👧','👦','👸','🤴','🧙','🧝','🧛','🦸'];
-    return emojis[String(name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % emojis.length];
-}
-
 function parseDelay(str) {
     const parts = String(str).split('-').map(s => parseInt(s.trim()));
     if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
@@ -2041,9 +2036,9 @@ function renderPromptChain(chain) {
         const sections = Array.isArray(item.sections) ? item.sections : [];
         const sectionsHtml = sections.map((section, sectionIndex) => {
             if (typeof section.content === 'string') sectionContent.set(section.key, section.content);
-            const sectionVars = (section.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
+            const sectionVars = (section.variables || []).map(v => `<span>${escapeHtml(v)}</span>`).join(' ');
             const sectionEdit = section.editable
-                ? ' <span class="chain-editable" data-edit-trigger title="可在上方编辑">✏️</span>'
+                ? ' <button type="button" class="chain-editable" data-edit-trigger aria-label="编辑此内容"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>'
                 : '';
             return `
             <div class="chain-section" data-key="${escapeHtml(section.key)}" data-editable-id="${editableMap[section.key] || ''}">
@@ -2086,6 +2081,8 @@ function renderPromptChain(chain) {
             const editableId = trigger.closest('.chain-section')?.dataset.editableId;
             const target = editableId ? $(editableId) : null;
             if (target) {
+                const blockId = target.closest('[data-prompt-editor]')?.dataset.promptEditor;
+                if (blockId) getLayoutEditor()?.openBuiltin(blockId);
                 target.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 target.focus();
             }
@@ -2152,7 +2149,7 @@ function createGallerySection(charName) {
     section.setAttribute('data-char', charName);
     section.innerHTML = DOMPurify.sanitize(`
         <div class="gallery-char-header">
-            <div class="gallery-char-avatar">${getCharEmoji(charName)}</div>
+            <div class="gallery-char-avatar"><i class="fa-solid fa-user-group" aria-hidden="true"></i></div>
             <span class="gallery-char-name">${escapeHtml(charName)}</span>
             <span class="gallery-char-stats"></span>
             <i class="fa-solid fa-chevron-down gallery-char-toggle"></i>
@@ -3338,6 +3335,7 @@ function getPromptListView() {
     if (!promptListView && PLV) {
         promptListView = createPresetListView({
             listId: 'novel-prompts',
+            defaultCollapsed: true,
             getToggle: () => $('nd_prompt_collapse'),
             getList: () => $('nd_prompt_list'),
             getPresets: () => state.promptPresets || [],
@@ -3526,6 +3524,7 @@ function describeBuiltinBlock(id) {
 function editBuiltinBlock(id) {
     const textTarget = LAYOUT_TEXT_TARGETS[id] && $(LAYOUT_TEXT_TARGETS[id]);
     if (textTarget) {
+        getLayoutEditor()?.openBuiltin(id);
         textTarget.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
         textTarget.focus?.();
     } else if (id === 'worldInfo') {
@@ -3560,6 +3559,8 @@ function getLayoutEditor() {
             onChange: layout => setPromptLayoutDraft(getActivePromptPresetForForm(), layout),
             describeBuiltin: describeBuiltinBlock,
             onEditBuiltin: editBuiltinBlock,
+            builtinEditors: Object.fromEntries(Array.from(document.querySelectorAll('[data-prompt-editor]'), node => [node.dataset.promptEditor, node])),
+            editorParking: $('nd_prompt_editors'),
             confirm: message => confirm(message),
             autoScroll: autoScrollPresetList,
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),

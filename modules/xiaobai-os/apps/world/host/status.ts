@@ -17,13 +17,14 @@ export function worldStatusMessage(write: XiaobaiOsFileState, status: Maintenanc
     switch (write) {
         case 'loading': return '正在加载新闻…';
         case 'saving': return '正在保存新闻…';
-        case 'unconfirmed': return '还不确定是否保存成功，请先检查保存，不要重新生成。';
+        case 'unconfirmed': return '';
         case 'conflict': return '服务器上的存档与当前内容不同，请先使用已保存版本。';
         case 'failed': return pendingSave
-            ? '暂时无法确认是否保存成功。新内容还在，请检查连接后再试，不要重新生成。'
+            ? '保存请求失败，新内容仍保留在当前页面。请检查连接后重试保存。'
             : '新闻暂时加载不了，请重试。';
     }
     if (status.state === 'running') { return '正在更新新闻…'; }
+    if (status.reason === 'save-unconfirmed') { return ''; }
     if (status.message === 'updated') { return '新闻已更新。'; }
     if (status.message === 'unchanged') { return '暂时没有新消息。'; }
     if (status.message === 'cancelled') { return '已取消更新。'; }
@@ -38,7 +39,6 @@ export function worldStatusMessage(write: XiaobaiOsFileState, status: Maintenanc
         'round-limit': '这次更新还没完成，可以稍后再试。',
         'background-capture-failed': '没有读到故事背景，请先打开聊天。',
         'session-creation-failed': '新闻暂时加载不了，请重试。',
-        'save-unconfirmed': '还不确定是否保存成功，请先检查保存。',
         'save-failed': '新闻没能保存，请检查连接后重试。',
     };
     return '本次更新未完成。' + (providerFailureMessage(status.reason)

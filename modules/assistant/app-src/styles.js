@@ -507,6 +507,7 @@ export function injectAssistantStyles(rootId) {
             grid-template-columns: minmax(0, 1fr) var(--xb-assistant-workspace-width, 520px);
         }
         .xb-assistant-conversation {
+            --xb-assistant-chat-width: 840px;
             display: grid;
             grid-template-rows: minmax(0, 1fr) auto auto;
             gap: 0;
@@ -950,8 +951,9 @@ export function injectAssistantStyles(rootId) {
             min-height: 0;
             overflow: auto;
             overflow-x: hidden;
-            padding: 18px 18px 12px;
+            padding: 24px max(24px, calc((100% - var(--xb-assistant-chat-width)) / 2)) 20px;
             display: grid;
+            grid-template-columns: minmax(0, 1fr);
             gap: 14px;
             align-content: start;
             justify-items: start;
@@ -1037,8 +1039,8 @@ export function injectAssistantStyles(rootId) {
             padding: 4px 0;
         }
         .xb-assistant-bubble {
-            width: min(100%, calc(100% - 20px));
-            max-width: calc(100% - 20px);
+            width: 100%;
+            max-width: 100%;
             min-width: 0;
             box-sizing: border-box;
             border-radius: 18px;
@@ -1088,22 +1090,29 @@ export function injectAssistantStyles(rootId) {
             color: var(--xb-assistant-text);
         }
         .xb-assistant-message-actions {
-            display: inline-flex;
-            flex: 0 0 auto;
+            display: flex;
             flex-wrap: wrap;
-            justify-content: flex-end;
-            gap: 6px;
+            gap: 4px;
+            margin-top: 8px;
+        }
+        .xb-assistant-message-actions[hidden] { display: none; }
+        .xb-assistant-bubble.has-message-actions { cursor: pointer; }
+        .xb-assistant-bubble.has-message-actions:focus-visible,
+        .xb-assistant-message-action:focus-visible {
+            outline: 2px solid var(--xb-assistant-accent);
+            outline-offset: 2px;
         }
         .xb-assistant-message-action {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 0;
-            padding: 4px 9px;
+            min-height: 32px;
+            padding: 6px 8px;
             border: none;
-            border-radius: 999px;
-            background: var(--xb-assistant-surface-muted);
+            border-radius: 8px;
+            background: transparent;
             color: var(--xb-assistant-text-soft);
+            font: inherit;
             font-size: 12px;
             line-height: 1.1;
             cursor: pointer;
@@ -1584,10 +1593,11 @@ export function injectAssistantStyles(rootId) {
             margin-top: 2px;
             background: var(--xb-assistant-surface);
             border-radius: 0;
-            padding: 0 18px 16px;
+            padding: 0 24px 16px;
             box-shadow: none;
             width: 100%;
-            max-width: 100%;
+            max-width: calc(var(--xb-assistant-chat-width) + 48px);
+            margin-inline: auto;
             box-sizing: border-box;
             min-height: 0;
             overflow: visible;

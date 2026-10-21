@@ -2,227 +2,38 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Novel Draw</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="../../shared/settings-shell.css">
+<link rel="stylesheet" href="../../shared/settings-icons.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
 <link rel="stylesheet" href="../../shared/prompt-layout-editor.css">
 <script type="module">
 import { loadBuildEntry, reportBuildFailure } from '../../../../core/build-assets.js';
-loadBuildEntry('runtime/draw-usage').catch(reportBuildFailure);
+loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      样式
      ═══════════════════════════════════════════════════════════════════════════ -->
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-:root {
-    --bg-primary: #0d1117;
-    --bg-secondary: #161b22;
-    --bg-tertiary: #21262d;
-    --bg-input: rgba(0, 0, 0, 0.25);
-    --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --text-muted: #484f58;
-    --border: rgba(255, 255, 255, 0.1);
-    --border-focus: rgba(212, 165, 116, 0.5);
-    --accent: #d4a574;
-    --accent-soft: rgba(212, 165, 116, 0.15);
-    --success: #3fb950;
-    --danger: #f85149;
-    --warning: #d29922;
-}
-html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 14px;
-    line-height: 1.5;
-    min-height: 100vh;
-}
-.app-container { display: flex; flex-direction: column; min-height: 100vh; }
-.app-header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 20px; background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border); flex-wrap: wrap;
-}
-.app-body { display: flex; flex: 1; min-height: 0; }
-.app-sidebar {
-    width: 200px; min-width: 200px; background: var(--bg-secondary);
-    border-right: 1px solid var(--border); padding: 16px 8px;
-    display: flex; flex-direction: column; gap: 4px;
-}
-.app-main { flex: 1; padding: 24px; overflow-y: auto; }
-.header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
-.header-logo i { color: var(--accent); }
-.header-badge {
-    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
-    background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 12px; font-size: 11px; color: var(--text-muted);
-}
-.header-badge.on { color: var(--success); border-color: rgba(63, 185, 80, 0.3); }
-.header-badge i { font-size: 6px; }
-.header-spacer { flex: 1; min-width: 10px; }
-.header-mode {
-    display: flex; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 16px; padding: 2px;
-}
-.header-toggles { display: flex; gap: 6px; margin-right: 8px; }
-.header-toggle {
-    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
-    font-size: 11px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
-}
-.header-toggle input { accent-color: var(--accent); }
-.header-mode button {
-    padding: 6px 14px; border: none; border-radius: 14px;
-    background: transparent; color: var(--text-secondary);
-    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
-}
-.header-mode button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
-.header-close {
-    width: 36px; height: 36px; min-width: 36px;
-    border: 1px solid var(--border); border-radius: 8px;
-    background: transparent; color: var(--text-secondary);
-    cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
-}
-.header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
-.header-credit {
-    font-size: 11px; color: var(--text-muted); opacity: 0.5;
-    margin-left: 6px; letter-spacing: 0.02em; font-style: italic;
-    transition: opacity 0.2s; white-space: nowrap;
-}
-.header-credit:hover { opacity: 0.9; }
-.credit-author {
-    font-style: normal;
-    color: var(--text-secondary);
-    transition: color 0.15s, opacity 0.15s;
-    cursor: default;
-}
-.credit-author:hover {
-    color: var(--accent);
-    opacity: 1;
-    text-shadow: 0 0 8px rgba(212, 165, 116, 0.5);
-}
-.nav-item {
-    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    border-radius: 8px; color: var(--text-secondary); cursor: pointer;
-    transition: all 0.15s; font-size: 13px;
-}
-.nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
-.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
-.nav-item i { width: 18px; text-align: center; }
-.nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
-.view { display: none; max-width: 800px; margin: 0 auto; }
-.view.active { display: block; animation: viewIn 0.2s ease; }
-.view.wide { max-width: 1200px; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
-.view-header { margin-bottom: 20px; }
-.view-title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
-.view-desc { font-size: 13px; color: var(--text-secondary); }
-.card {
-    background: var(--bg-secondary); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px; margin-bottom: 16px;
-}
-.card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
-.form-group { margin-bottom: 16px; }
-.form-group:last-child { margin-bottom: 0; }
-.form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
-.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
-.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.input {
-    width: 100%; padding: 10px 12px; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text-primary); font-size: 13px; transition: border-color 0.15s;
-}
-.input:focus { outline: none; border-color: var(--border-focus); }
-.input::placeholder { color: var(--text-muted); }
-textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
-select.input { cursor: pointer; }
-.input-row { display: flex; gap: 8px; }
-.input-row .input { flex: 1; min-width: 0; }
-.btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
-    border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary);
-    font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
-}
-.btn:hover { background: rgba(255,255,255,0.08); }
-.btn:active { transform: scale(0.98); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
-.btn-primary:hover { background: #e5b685; }
-.btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
-.btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
-.btn-icon { width: 40px; padding: 0; }
-.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
-.nd-mode-btn.mode-active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
-.nd-mode-btn.mode-active:hover { background: #e5b685; }
+.nd-mode-btn.mode-active { background: var(--accent); border-color: var(--accent); color: var(--bg-primary); font-weight: 500; }
+.nd-mode-btn.mode-active:hover { background: var(--text-primary); }
 .nd-backend-panel { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 .nd-backend-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nd-status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; flex: 0 0 auto; }
-.nd-status-dot.ok { background: #3ecf8e; box-shadow: 0 0 6px rgba(62,207,142,0.6); }
-.nd-status-dot.bad { background: #f85149; box-shadow: 0 0 6px rgba(248,81,73,0.6); }
-.nd-status-dot.checking { background: #f0b429; }
+.nd-status-dot.ok { background: var(--success); }
+.nd-status-dot.bad { background: var(--danger); }
+.nd-status-dot.checking { background: var(--warning); }
 .nd-status-txt { font-size: 13px; color: var(--text-primary); flex: 1 1 auto; }
 .nd-backend-status-row .btn-sm { margin-left: auto; }
-.btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
-.btn.saving { pointer-events: none; opacity: 0.7; }
-.btn.save-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; pointer-events: none; }
-.btn.save-success i { animation: checkBounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-.btn.save-failed { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; pointer-events: none; }
-.btn.save-failed i { animation: shakeFail 0.4s ease; }
 @keyframes checkBounce { 0% { transform: scale(0) rotate(-45deg); } 50% { transform: scale(1.3) rotate(0deg); } 100% { transform: scale(1) rotate(0deg); } }
 @keyframes shakeFail { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
-.preset-bar {
-    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-    background: var(--bg-tertiary); border: 1px solid var(--border);
-    border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
-}
-.preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
-.action-status-row {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px;
-}
-.action-status-row .btn-group { margin-top: 0 !important; }
-.char-management-layout {
-    display: grid; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-    gap: 16px; align-items: start;
-}
-.char-management-sidebar {
-    display: flex; flex-direction: column; gap: 16px;
-    position: sticky; top: 0; align-self: start;
-}
-.char-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.char-summary-item {
-    background: var(--bg-tertiary); border: 1px solid var(--border);
-    border-radius: 10px; padding: 14px 12px;
-}
-.char-summary-label { font-size: 11px; color: var(--text-secondary); }
-.char-summary-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text-primary); }
-.char-summary-value.accent { color: var(--accent); }
-.char-filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.char-filter-summary {
-    margin-top: 12px; font-size: 12px; color: var(--text-secondary);
-    padding: 10px 12px; border-radius: 8px; background: var(--bg-input); border: 1px solid var(--border);
-}
-.char-list-card { min-height: 520px; }
-.char-list-card-header {
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 12px; margin-bottom: 16px;
-}
-.char-list-card-header .card-title { margin-bottom: 0; }
-.char-list-count {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 84px; padding: 8px 12px; border-radius: 999px;
-    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
-}
-.char-list-body { display: flex; flex-direction: column; gap: 12px; }
 .char-grid { display: flex; flex-direction: column; gap: 0; }
 .char-grid:empty { display: none; }
 .char-group-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -242,8 +53,7 @@ select.input { cursor: pointer; }
 .char-group-switch:not(.active) { color: var(--text-muted); }
 /* 分组关闭：整组变淡、虚线边框；角色自己的启用开关仍可点，只是组内角色当前不参与出图。 */
 .char-group.group-disabled { border-style: dashed; }
-.char-group.group-disabled .char-group-name,
-.char-group.group-disabled .char-group-count { opacity: .6; }
+.char-group.group-disabled .char-group-name, .char-group.group-disabled .char-group-count { opacity: .6; }
 .char-group.group-disabled .char-identity { opacity: .45; }
 .char-group.group-disabled .char-status { color: var(--text-secondary); }
 .char-batch-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; padding: 8px; border: 1px solid var(--border-focus); border-radius: 8px; background: var(--bg-secondary); }
@@ -255,7 +65,6 @@ select.input { cursor: pointer; }
 .char-drag-handle { flex-shrink: 0; width: 18px; text-align: center; color: var(--text-muted); cursor: grab; user-select: none; touch-action: none; letter-spacing: -2px; }
 .char-drag-handle:hover, .char-drag-handle:focus-visible { color: var(--text-primary); }
 .char-select, .char-group-select { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
-body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-dragging * { cursor: grabbing !important; user-select: none; }
 .char-card.dragging, .char-group.dragging { opacity: .45; }
 .drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
 .drop-after { box-shadow: 0 2px 0 0 var(--accent); }
@@ -274,7 +83,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 .preset-list-card .status-text.inline-status { margin-top: 8px; }
 .preset-row { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 4px 8px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.03); }
 .preset-row:hover { background: rgba(255,255,255,.06); }
-.preset-row.selected { border-color: var(--accent); background: var(--accent-soft); }
+.preset-row.selected { background: var(--accent-soft); border-color: var(--border); }
 .preset-row.dragging { opacity: .45; }
 /* 名称有保底宽度（约 6 个汉字），空间不够时“…”菜单按钮换到下一行，而不是把名称挤没。 */
 .preset-row-name { flex: 1 1 6em; min-width: 6em; padding: 8px 4px; background: none; border: none; border-radius: 6px; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -317,7 +126,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 .char-action-button {
     display: inline-flex; align-items: center; justify-content: center;
     width: 34px; height: 34px; padding: 0; box-sizing: border-box;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px;
+    background: transparent; border: 1px solid transparent; border-radius: 7px;
     color: var(--text-secondary); cursor: pointer;
 }
 .char-action-button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); border-color: var(--border-focus); }
@@ -325,7 +134,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
     width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8;
     stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
 }
-.char-action-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.char-action-button.active { color: var(--text-primary); background: var(--accent-soft); }
 /* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
 .char-menu-wrap { display: inline-flex; flex-shrink: 0; }
 .char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }
@@ -347,15 +156,12 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 .char-menu-item.active { color: var(--accent); }
 .char-menu-item.danger { color: var(--danger); }
 .char-menu-item.danger:hover, .char-menu-item.danger:focus-visible { background: rgba(248,81,73,.12); color: var(--danger); }
-.char-card.disabled .char-identity,
-.char-card.disabled .char-status { opacity: .45; }
+.char-card.disabled .char-identity, .char-card.disabled .char-status { opacity: .45; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
 .char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 /* ── Inline edit mode ── */
-.char-card.editing {
-    padding: 12px;
-    background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
+.char-card.editing { padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
 }
 .char-edit-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .char-edit-form .form-group { margin-bottom: 10px; }
@@ -400,8 +206,6 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 }
 .char-section-header .card-title { margin-bottom: 0; }
 .char-section-toggle { color: var(--text-muted); font-size: 12px; transition: transform 0.2s; }
-.card.collapsed .char-section-toggle { transform: rotate(-90deg); }
-.card.collapsed .char-section-content { display: none; }
 .char-section-content { margin-top: 16px; }
 .preview-box {
     margin-top: 16px; background: var(--bg-input); border: 1px solid var(--border);
@@ -409,23 +213,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 }
 .preview-box.visible { display: block; }
 .preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
-.status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
-.status-text.success { color: var(--success); }
-.status-text.error { color: var(--danger); }
-.status-text.loading { color: var(--warning); }
-.preset-bar .status-text.inline-status,
-.action-status-row .status-text {
-    margin-top: 0;
-    flex: 1 1 220px;
-    min-width: 180px;
-}
-.tip-box {
-    display: flex; gap: 10px; padding: 12px 14px; background: var(--accent-soft);
-    border: 1px solid rgba(212, 165, 116, 0.2); border-radius: 8px;
-    font-size: 12px; color: var(--text-secondary); line-height: 1.6;
-}
 .tip-text { display: flex; flex-direction: column; gap: 4px; }
-.tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
 .gallery-char-section { margin-bottom: 16px; }
 .gallery-char-header {
     display: flex; align-items: center; gap: 12px; padding: 14px 18px;
@@ -527,98 +315,31 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 .gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
 .gallery-modal-load-status { color: #fff; font-size: 13px; text-align: center; }
 .gallery-modal-load-status .btn { margin-left: 8px; color: #fff; background: rgba(255,255,255,0.15); }
-.mobile-nav {
-    display: none; position: fixed; bottom: 0; left: 0; right: 0;
-    height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
-}
-.mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.mobile-nav-inner::-webkit-scrollbar { display: none; }
-.mobile-nav-item {
-    flex: 1; min-width: 60px; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 4px;
-    color: var(--text-muted); font-size: 10px; cursor: pointer; padding: 8px 4px;
-}
-.mobile-nav-item i { font-size: 18px; }
-.mobile-nav-item.active { color: var(--accent); }
 @media (max-width: 768px) {
     .char-group-body { max-height: none; overflow-y: visible; }
-    .app-sidebar { display: none; }
-    .mobile-nav { display: block; }
-    .app-body { padding-bottom: 60px; }
-    .app-main { padding: 16px; padding-bottom: 76px; }
-    .app-header { padding: 10px 12px; gap: 8px; }
-    .header-logo span { display: none; }
-    .header-badge { padding: 4px 8px; font-size: 10px; }
-    .header-badge span { display: none; }
-    .header-mode button { padding: 5px 10px; font-size: 11px; }
-    .header-close { width: 32px; height: 32px; min-width: 32px; font-size: 14px; }
-    .header-credit { display: none; }
-    .view-title { font-size: 18px; }
-    .card { padding: 16px; }
-    .form-row { grid-template-columns: 1fr; }
-    .char-management-layout { grid-template-columns: minmax(0, 1fr); }
-    .char-management-sidebar { position: static; }
-    .char-filter-row { grid-template-columns: 1fr; }
-    .char-list-card-header { flex-direction: column; }
     /* 角色库窄屏：容器允许收缩，角色摘要行换成两行（名字+类型徽标 / 摘要文字+操作按钮），分组头按钮换行，避免页面内横向滚动 */
-    .char-list-card, .char-list-body, .char-grid, .char-group, .char-group-body, .char-card { min-width: 0; max-width: 100%; }
+    .char-grid, .char-group, .char-group-body, .char-card { min-width: 0; max-width: 100%; }
     .char-group-header { min-width: 0; }
     .char-group-actions { flex-wrap: wrap; flex-shrink: 1; max-width: 100%; }
     /* 参数预设列表窄屏：容器允许收缩，标题与按钮分行，预设行里名称保底宽度、“…”换行，避免页面内横向滚动 */
     .preset-list-card, .preset-list, .preset-row { min-width: 0; max-width: 100%; }
     .preset-list-header .btn-group { flex-wrap: wrap; max-width: 100%; }
     .char-card-summary { flex-wrap: wrap; min-width: 0; }
-    .char-card-summary::after { content: ''; order: 2; flex: 0 0 100%; height: 0; }
     .char-identity { flex: 1 1 0; min-width: 0; }
-    .char-status { order: 3; flex: 1 1 0; min-width: 0; margin-top: 4px; }
-    .char-actions { order: 3; flex-wrap: wrap; justify-content: flex-end; min-width: 0; margin-top: 4px; }
-    .preset-bar { padding: 10px 12px; }
-    .preset-bar select { max-width: none; }
-    .preset-bar .status-text.inline-status,
-    .action-status-row .status-text { flex-basis: 100%; min-width: 0; }
+    .char-status { order: 3; flex: 1 1 100%; min-width: 0; padding-left: 26px; }
+    .char-actions { justify-content: flex-end; min-width: 0; }
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
 }
-@media (max-width: 400px) {
-    .app-header { padding: 8px 10px; }
-    .header-mode button { padding: 4px 8px; font-size: 10px; }
-    .mobile-nav-item { min-width: 48px; font-size: 9px; }
-    .mobile-nav-item i { font-size: 16px; }
-}
 @media (hover: none) and (pointer: coarse) {
-    .btn { min-height: 44px; }
-    .input { min-height: 44px; padding: 12px; }
-    .nav-item { min-height: 44px; }
     .preset-row-name { min-height: 44px; }
-    .header-close { width: 44px; height: 44px; min-width: 44px; }
     .char-action-button { width: 44px; height: 44px; }
     .char-menu-item { min-height: 44px; font-size: 13px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-.hidden { display: none !important; }
 
 /* ── 提示词模板始终可见 ── */
 .nd-advanced-only { display: flex !important; }
 .nd-simple-only { display: none !important; }
-
-.prompt-textarea {
-    width: 100%; min-height: 180px; max-height: 400px;
-    padding: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 12px; line-height: 1.6; resize: vertical;
-    background: var(--bg-input); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: 8px;
-    transition: border-color 0.2s;
-}
-.prompt-textarea:focus { border-color: var(--border-focus); outline: none; }
-
-.prompt-card-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 8px;
-}
-.prompt-card-header .card-title { margin: 0; }
 
 .wb-book-list { display: flex; flex-direction: column; gap: 6px; }
 .wb-book-item {
@@ -706,12 +427,6 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 .auto-learn-mode-row select { max-width: 200px; }
 
 /* 消息链可视化 */
-.prompt-advanced-card { margin-top: 16px; }
-.prompt-advanced-card > summary { list-style: none; cursor: pointer; }
-.prompt-advanced-card > summary::-webkit-details-marker { display: none; }
-.prompt-advanced-card .chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
-.prompt-advanced-card .chain-toggle-icon::before { content: '▶ 展开'; }
-.prompt-advanced-card[open] .chain-toggle-icon::before { content: '▼ 收起'; }
 .prompt-chain-container { margin-top: 8px; }
 .chain-item {
     display: flex; align-items: flex-start; gap: 8px;
@@ -719,16 +434,8 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
     cursor: pointer; transition: background 0.15s; margin-bottom: 4px;
 }
 .chain-item:hover { background: var(--bg-tertiary); }
-.chain-role {
-    display: inline-block; padding: 1px 6px; border-radius: 4px;
-    font-size: 10px; font-weight: 600; white-space: nowrap; min-width: 60px; text-align: center;
-}
-.chain-role.system { background: #7c3aed22; color: #a78bfa; }
-.chain-role.user { background: #10b98122; color: #34d399; }
-.chain-role.tools { background: #f59e0b22; color: #fbbf24; }
 .chain-summary { flex: 1; min-width: 0; }
 .chain-summary-text { display: flex; align-items: center; gap: 6px; }
-.chain-editable { font-size: 10px; opacity: 0.7; }
 .chain-variables { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 .chain-section-content {
     display: none; margin-top: 6px; padding: 8px;
@@ -783,7 +490,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <button data-mode="manual" class="active">手动</button>
             <button data-mode="auto">自动</button>
         </div>
-        <button id="nd_close" class="header-close">✕</button>
+        <button aria-label="关闭绘图设置" id="nd_close" class="header-close">✕</button>
     </header>
 
     <div class="app-body">
@@ -791,17 +498,17 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
              侧边栏
              ═══════════════════════════════════════════════════════════════════ -->
         <nav class="app-sidebar">
-            <div class="nav-item active" data-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
-            <div class="nav-item" data-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
+            <div tabindex="0" role="button" class="nav-item active" data-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
+            <div tabindex="0" role="button" class="nav-item" data-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
             <div class="nav-divider"></div>
-            <div class="nav-item" data-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
-            <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>场景 Agent</div>
+            <div tabindex="0" role="button" class="nav-item" data-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
+            <div tabindex="0" role="button" class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>场景 Agent</div>
             <div class="nav-divider"></div>
-            <div class="nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
-            <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
+            <div tabindex="0" role="button" class="nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
+            <div tabindex="0" role="button" class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
             <div class="nav-divider"></div>
-            <div class="nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i>提示词模板</div>
-            <div class="nav-item" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
+            <div tabindex="0" role="button" class="nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i>提示词模板</div>
+            <div tabindex="0" role="button" class="nav-item" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
         </nav>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -815,7 +522,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-test" class="view active">
                 <div class="view-header">
                     <h2 class="view-title">快速测试</h2>
-                    <p class="view-desc">验证 API 连接和生成效果</p>
+
                 </div>
                 <div class="card">
                     <div class="form-group">
@@ -831,8 +538,8 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                 <div class="tip-box">
                     <i class="fa-solid fa-lightbulb"></i>
                     <div class="tip-text">
-                        <div data-draw-usage></div>
-                        <div>悬浮按钮的 🎨 仅作用于最后一条AI消息。</div>
+                        <div data-draw-usage=""></div>
+                        <div>悬浮菜单中的“绘图” 仅作用于最后一条AI消息。</div>
                         <div>开启自动模式后，AI回复时会自动配图。</div>
                     </div>
                 </div>
@@ -844,7 +551,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-api" class="view">
                 <div class="view-header">
                     <h2 class="view-title">API 配置</h2>
-                    <p class="view-desc">NovelAI 服务连接设置</p>
+
                 </div>
                 <fieldset id="nd_api_form" class="card" style="min-width:0;margin:0;" disabled>
                     <div id="nd_api_presets" class="preset-bar"></div>
@@ -910,9 +617,9 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-params" class="view">
                 <div class="view-header">
                     <h2 class="view-title">绘图参数</h2>
-                    <p class="view-desc">模型与生成参数设置</p>
+
                 </div>
-                
+
                 <div class="card preset-list-card">
                     <div class="preset-list-header">
                         <div class="preset-list-title">
@@ -928,9 +635,9 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                     <div id="nd_params_list" class="preset-list" role="list"></div>
                     <div id="nd_params_status" class="status-text inline-status"></div>
                 </div>
-                
+
                 <div class="card">
-                    <div class="card-title">🌐 全局标签</div>
+                    <div class="card-title">全局标签</div>
                     <div class="form-group">
                         <label class="form-label">正向固定 / 画风固定</label>
                         <textarea id="nd_positive" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
@@ -942,7 +649,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         <p class="form-hint">鬼图、畸形、风格污染相关的排除词也建议固定在这里。</p>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <div class="card-title">模型与采样</div>
                     <div class="form-row">
@@ -984,7 +691,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <div class="card-title">尺寸与参数</div>
                     <div class="form-row">
@@ -1013,7 +720,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <div class="card-title">数量限制</div>
                     <p class="form-hint">指定 LLM 应规划的图片数量和每张图角色数 (0 = 不指定)</p>
@@ -1109,7 +816,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-llm" class="view">
                 <div class="view-header">
                     <h2 class="view-title">Agent API 配置</h2>
-                    <p class="view-desc">共享 Agent 主预设</p>
+
                 </div>
 
                 <div id="nd-agent-settings-surface" class="draw-agent-settings-surface xb-agent-settings-surface">
@@ -1117,7 +824,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                 </div>
 
                 <div class="card" style="margin-top:12px;">
-                    <div class="card-title">🔁 失败自动重试</div>
+                    <div class="card-title">失败自动重试</div>
                     <div class="planner-retry-row">
                         <label for="nd_planner_retries">失败重试次数：</label>
                         <input id="nd_planner_retries" type="number" class="input" min="0" max="10" step="1" value="3" inputmode="numeric">
@@ -1133,48 +840,13 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-characters" class="view">
                 <div class="view-header">
                     <h2 class="view-title">角色标签</h2>
-                    <p class="view-desc">集中管理角色固定外貌、服装与动态外貌，自动学习与 Danbooru 资源库，PC 端支持双栏管理</p>
+
                 </div>
 
-                <div class="char-management-layout">
-                    <aside class="char-management-sidebar">
-                        <div class="card">
-                            <div class="card-title">📊 角色概览</div>
-                            <div class="char-summary-grid">
-                                <div class="char-summary-item">
-                                    <div class="char-summary-label">总角色数</div>
-                                    <div class="char-summary-value accent" id="nd_char_stat_total">0</div>
-                                </div>
-                                <div class="char-summary-item">
-                                    <div class="char-summary-label">已配置外貌</div>
-                                    <div class="char-summary-value" id="nd_char_stat_ready">0</div>
-                                </div>
-                                <div class="char-summary-item">
-                                    <div class="char-summary-label">待完善</div>
-                                    <div class="char-summary-value" id="nd_char_stat_missing">0</div>
-                                </div>
-                                <div class="char-summary-item">
-                                    <div class="char-summary-label">Danbooru 已绑定</div>
-                                    <div class="char-summary-value" id="nd_char_stat_danbooru">0</div>
-                                </div>
-                                <div class="char-summary-item">
-                                    <div class="char-summary-label">已启用</div>
-                                    <div class="char-summary-value" id="nd_char_stat_enabled">0</div>
-                                </div>
-                                <div class="char-summary-item">
-                                    <div class="char-summary-label">分组数</div>
-                                    <div class="char-summary-value" id="nd_char_stat_groups">0</div>
-                                </div>
-                            </div>
-                            <p id="nd_char_limit_hint" class="form-hint hidden" style="margin-top:8px;color:var(--danger);">已启用角色超过 500 个：使用“后台出图”时请求会被拒绝。请停用暂时不用的角色，或关闭后台出图。</p>
-                        </div>
+                <div class="char-management-layout"><div class="char-quick-tools"><input aria-label="搜索角色" id="nd_char_search" type="text" class="input" placeholder="搜索角色、别名或标签"><button id="nd_char_add" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> 添加角色</button></div>
+                    <details class="draw-disclosure char-library-options"><summary>筛选与管理</summary><aside class="char-management-sidebar"><section class="card"><div class="card-title">筛选角色</div>
 
-                        <div class="card">
-                            <div class="card-title">🔎 搜索与筛选</div>
-                            <div class="form-group">
-                                <label class="form-label">关键词</label>
-                                <input id="nd_char_search" type="text" class="input" placeholder="搜索名称、别名、外貌、Danbooru 标签">
-                            </div>
+
                             <div class="char-filter-row">
                                 <div class="form-group">
                                     <label class="form-label">角色类型</label>
@@ -1206,12 +878,44 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                                 <button id="nd_char_filter_reset" class="btn btn-sm"><i class="fa-solid fa-rotate-left"></i> 重置筛选</button>
                             </div>
                             <div id="nd_char_filter_summary" class="char-filter-summary">当前显示全部角色</div>
+                        </section>
+                        <div class="card">
+                            <div class="card-title">角色概览</div>
+                            <div class="char-summary-grid">
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">总角色数</div>
+                                    <div class="char-summary-value accent" id="nd_char_stat_total">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">已配置外貌</div>
+                                    <div class="char-summary-value" id="nd_char_stat_ready">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">待完善</div>
+                                    <div class="char-summary-value" id="nd_char_stat_missing">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">Danbooru 已绑定</div>
+                                    <div class="char-summary-value" id="nd_char_stat_danbooru">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">已启用</div>
+                                    <div class="char-summary-value" id="nd_char_stat_enabled">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">分组数</div>
+                                    <div class="char-summary-value" id="nd_char_stat_groups">0</div>
+                                </div>
+                            </div>
+                            <p id="nd_char_limit_hint" class="form-hint hidden" style="margin-top:8px;color:var(--danger);">已启用角色超过 500 个：使用“后台出图”时请求会被拒绝。请停用暂时不用的角色，或关闭后台出图。</p>
                         </div>
 
+
+
                         <div class="card">
-                            <div class="card-title">🧰 批量操作</div>
+                            <div class="card-title">导入与导出</div>
                             <div class="btn-group">
-                                <button id="nd_char_add" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> 添加角色</button>
+
                                 <button id="nd_char_clear" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i> 清除全部</button>
                                 <button id="nd_char_export" class="btn btn-sm" title="选择范围后导出：全部 / 某个分组 / 当前已选"><i class="fa-solid fa-upload"></i> 导出</button>
                                 <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-download"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
@@ -1224,7 +928,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         </div>
 
                         <div class="card">
-                            <div class="card-title">🧠 智能辅助</div>
+                            <div class="card-title">智能辅助</div>
                             <div class="auto-learn-section" style="margin-bottom:12px;">
                                 <div class="auto-learn-toggle-row">
                                     <label class="toggle-switch">
@@ -1258,33 +962,33 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                                 <p class="form-hint" style="margin-left:44px;margin-top:4px;">启用后加载本地 Danbooru top 7000 角色库，支持离线搜索和自动修正 danbooruTag</p>
                             </div>
                         </div>
-                    </aside>
+                    </aside></details>
 
                     <section class="char-management-main">
                         <div class="card char-list-card" id="nd_char_card">
                             <div class="char-list-card-header">
                                 <div>
-                                    <div class="card-title">👥 角色列表</div>
-                                    <p class="form-hint" style="margin-top:6px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                                    <div class="card-title">角色列表</div>
+
                                 </div>
                                 <div class="char-list-count" id="nd_char_result_count">0 / 0</div>
                             </div>
                             <div class="char-group-toolbar">
                                 <button id="nd_group_add" class="btn btn-sm"><i class="fa-solid fa-folder-plus"></i> 新建分组</button>
                                 <button id="nd_char_select_toggle" class="btn btn-sm" type="button"><i class="fa-regular fa-square-check"></i> 多选</button>
-                                <span class="form-hint">分组可折叠；在角色“编辑”里选择所属分组；关闭分组后组内角色不参与出图（各角色自己的开关保持不变）</span>
+
                             </div>
                             <div id="nd_char_batch_bar" class="char-batch-bar hidden">
                                 <span id="nd_char_batch_count">已选 0 个</span>
                                 <button class="btn btn-sm" type="button" data-batch="select-all">全选可见</button>
-                                <button class="btn btn-sm" type="button" data-batch="enable" data-needs-selection>启用</button>
-                                <button class="btn btn-sm" type="button" data-batch="disable" data-needs-selection>停用</button>
+                                <button class="btn btn-sm" type="button" data-batch="enable" data-needs-selection="">启用</button>
+                                <button class="btn btn-sm" type="button" data-batch="disable" data-needs-selection="">停用</button>
                                 <select id="nd_batch_target" class="input" aria-label="目标分组"></select>
-                                <button class="btn btn-sm" type="button" data-batch="move" data-needs-selection>移到</button>
-                                <button class="btn btn-sm" type="button" data-batch="copy-to" data-needs-selection>复制到</button>
-                                <button class="btn btn-sm" type="button" data-batch="copy" data-needs-selection>就地复制</button>
-                                <button class="btn btn-sm" type="button" data-batch="export" data-needs-selection title="把所选角色（可跨组）导出为文件"><i class="fa-solid fa-file-export"></i> 导出所选</button>
-                                <button class="btn btn-danger btn-sm" type="button" data-batch="delete" data-needs-selection>删除</button>
+                                <button class="btn btn-sm" type="button" data-batch="move" data-needs-selection="">移到</button>
+                                <button class="btn btn-sm" type="button" data-batch="copy-to" data-needs-selection="">复制到</button>
+                                <button class="btn btn-sm" type="button" data-batch="copy" data-needs-selection="">就地复制</button>
+                                <button class="btn btn-sm" type="button" data-batch="export" data-needs-selection="" title="把所选角色（可跨组）导出为文件"><i class="fa-solid fa-file-export"></i> 导出所选</button>
+                                <button class="btn btn-danger btn-sm" type="button" data-batch="delete" data-needs-selection="">删除</button>
                                 <button class="btn btn-sm" type="button" data-batch="exit">完成</button>
                             </div>
                             <div id="nd_char_undo" class="char-undo hidden">
@@ -1296,7 +1000,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                                 <div id="nd_char_empty" class="char-empty">
                                     <i class="fa-solid fa-user-plus"></i>
                                     <strong>暂无角色配置</strong>
-                                    <p>点击左侧“添加角色”，开始建立你的角色标签库</p>
+                                    <p>添加角色，保存外貌与服装标签。</p>
                                 </div>
                             </div>
                         </div>
@@ -1310,9 +1014,9 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-gallery" class="view wide">
                 <div class="view-header">
                     <h2 class="view-title">图片管理</h2>
-                    <p class="view-desc">查看、管理和清理生成的配图</p>
+
                 </div>
-                
+
                 <div class="card" style="margin-bottom:20px;">
                     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
                         <div style="display:flex;gap:32px;">
@@ -1339,7 +1043,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         </div>
                     </div>
                 </div>
-                
+
                 <div id="nd_gallery_container"></div>
                 <div id="nd_gallery_empty" class="gallery-empty" style="display:none;">
                     <i class="fa-solid fa-images"></i>
@@ -1354,7 +1058,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-prompts" class="view">
                 <div class="view-header">
                     <h2 class="view-title">提示词模板</h2>
-                    <p class="view-desc">自定义场景分析的 LLM 提示词模板</p>
+
                 </div>
 
                 <div class="card preset-list-card">
@@ -1375,35 +1079,35 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
 
                 <div class="card prompt-layout-card" id="nd_prompt_layout_card">
                     <div id="nd_prompt_layout"></div>
-                    <p class="form-hint" id="nd_prompt_layout_note">请求结构随提示词预设一起保存（点上方“保存”或下方“保存到当前预设”）。下方“请求内容预览”目前仍按默认结构显示，还不反映这里的调整。</p>
-                </div>
 
-                <div class="card">
+                <div hidden id="nd_prompt_editors"><div data-prompt-editor="opening" class="prompt-inline-editor">
                     <div class="prompt-card-header">
                         <div class="card-title">开场与视角</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_system"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
                     <p class="form-hint">规划器是谁、要做什么、正文用什么视角写成。第一人称预设在这里说明 &lt;user&gt; 是相机、默认不出镜。</p>
-                    <textarea id="nd_prompt_system" class="prompt-textarea" rows="8"></textarea>
-                </div>
-
-                <div class="card">
+                    <textarea aria-label="开场与视角" id="nd_prompt_system" class="prompt-textarea" rows="8"></textarea>
+                </div><div data-prompt-editor="guide" class="prompt-inline-editor">
                     <div class="prompt-card-header">
                         <div class="card-title">模型 Tag 指南</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_guide"><i class="fa-solid fa-rotate-left"></i> 恢复当前模型默认</button>
                     </div>
                     <p class="form-hint">当前模型认哪些 tag、权重和语法怎么写。随参数预设中的模型自动切换 V4.5 / V5；修改保存到当前提示词预设。</p>
-                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
-                </div>
-
-                <div class="card">
+                    <textarea aria-label="模型 Tag 指南" id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
+                </div><div data-prompt-editor="rules" class="prompt-inline-editor">
                     <div class="prompt-card-header">
                         <div class="card-title">场景规则</div>
                         <button class="btn btn-sm" id="nd_prompt_reset_format"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                     </div>
                     <p class="form-hint">画什么、怎么画：分级、构图、角色外貌与服装、动作、光影、物理约束与内容偏好。</p>
-                    <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
-                </div>
+                    <textarea aria-label="场景规则" id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
+                </div></div></div>
+
+
+
+
+
+
 
                 <div class="action-status-row">
                     <div class="btn-group" style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -1438,7 +1142,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         <div class="card-title"><i class="fa-solid fa-eye"></i> 请求内容预览</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint">点击各段查看内容；工具一节列出模型读到的字段说明。</p>
+                    <p class="form-hint">此处展示默认请求结构；自定义结构以“最近一次实际请求”为准。</p>
                     <div id="nd_prompt_chain" class="prompt-chain-container"></div>
                 </details>
 
@@ -1461,7 +1165,7 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
             <div id="view-worldbook" class="view">
                 <div class="view-header">
                     <h2 class="view-title">世界书</h2>
-                    <p class="view-desc">统一管理画图场景分析可注入的世界书来源</p>
+
                 </div>
 
                 <div class="card">
@@ -1519,14 +1223,14 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
          ═══════════════════════════════════════════════════════════════════════ -->
     <nav class="mobile-nav">
         <div class="mobile-nav-inner">
-            <div class="mobile-nav-item active" data-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
-            <div class="mobile-nav-item" data-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
-            <div class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
-            <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>Agent</span></div>
-            <div class="mobile-nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
-            <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
-            <div class="mobile-nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
-            <div class="mobile-nav-item" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item active" data-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item" data-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>Agent</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
+            <div tabindex="0" role="button" class="mobile-nav-item" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
         </div>
     </nav>
 

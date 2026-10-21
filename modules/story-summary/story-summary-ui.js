@@ -1,6 +1,7 @@
 // story-summary-ui.js
 // iframe 内 UI 逻辑
 
+import { ARCHIVE_COPY, createSummaryArchive, getArchiveCharacters, getArchiveStateFacts } from './archive-view.js';
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './data/summary-delay.js';
 import { DEFAULT_RECALL_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec } from './data/recall-settings.js';
@@ -17,6 +18,7 @@ const UNANNOTATED_LABEL = '未标注';
 (function () {
     'use strict';
     let memoryMaintenancePage;
+    let archiveView;
 
     function formatVectorPackageCounts(result) {
         return `${result.stateVectorCount} 锚点向量、${result.chunkCount} 片段向量、${result.eventCount} 事件向量`;
@@ -360,8 +362,8 @@ const UNANNOTATED_LABEL = '未标注';
     let summaryModelFetchSeq = 0;
     let pendingSummaryModelFetchRequestId = '';
     let summaryModelFetchTimeoutId = null;
-    let timelineHasRenderedEvents = false;
     let currentTimelineChatId = '';
+    let tlUnfilteredPage = null;
     const TL_PAGE_SIZE = 20;
     const TL_PAGING_KEY = 'xb-tl-paging';
     const TL_PAGE_KEY = 'xb-tl-page';
@@ -504,6 +506,7 @@ const UNANNOTATED_LABEL = '未标注';
 
     function syncCurrentChatSummaryControls() {
         const { hasChat, chatEnabled, effectiveEnabled, changing } = currentChatSummaryState;
+        $('archive-chat-state').textContent = chatEnabled ? ARCHIVE_COPY.currentChat : ARCHIVE_COPY.disabledChat;
         const controlsEnabled = canUseCurrentChatControls();
         const copy = SUMMARY_FEEDBACK_COPY.summaryControls;
         const toggle = $('current-chat-enabled');
@@ -1466,38 +1469,6 @@ const UNANNOTATED_LABEL = '未标注';
             : '<div class="empty">暂无关键词</div>');
     }
 
-    function getTimelineScrollState() {
-        const el = $('timeline-list');
-        if (!el) return { scrollTop: 0, scrollHeight: 0, clientHeight: 0, wasAtBottom: true };
-        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        return {
-            scrollTop: el.scrollTop,
-            scrollHeight: el.scrollHeight,
-            clientHeight: el.clientHeight,
-            wasAtBottom: distanceToBottom <= 24,
-        };
-    }
-
-    function restoreTimelineScroll(state, mode = 'auto') {
-        const el = $('timeline-list');
-        if (!el) return;
-        requestAnimationFrame(() => {
-            const preserve = () => {
-                const delta = el.scrollHeight - state.scrollHeight;
-                el.scrollTop = Math.max(0, state.scrollTop + delta);
-            };
-            if (mode === 'preserve') {
-                preserve();
-                return;
-            }
-            if (!timelineHasRenderedEvents || state.wasAtBottom) {
-                el.scrollTop = el.scrollHeight;
-                return;
-            }
-            preserve();
-        });
-    }
-
     function getCssVar(name, fallback) {
         const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
         return value || fallback;
@@ -1519,7 +1490,7 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function tlTotalPages() {
-        return Math.max(1, Math.ceil((summaryData.events || []).length / TL_PAGE_SIZE));
+        return Math.max(1, Math.ceil(archiveView.timelineEvents().length / TL_PAGE_SIZE));
     }
 
     function clampTlPage(page) {
@@ -1545,19 +1516,7 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function tlItemHtml(e) {
-        const participants = (e.participants || e.characters || []).map(h).join('、');
-        return `<div class="tl-item">
-                <div class="tl-dot"></div>
-                <div class="tl-head">
-                    <div class="tl-title">${h(e.title || '')}</div>
-                    <div class="tl-time">${h(e.timeLabel || '')}</div>
-                </div>
-                <div class="tl-brief">${h(e.summary || e.brief || '')}</div>
-                <div class="tl-meta">
-                    <span>人物：${participants || '—'}</span>
-                    <span class="imp">${h(e.memoryRole || '未标注')}</span>
-                </div>
-            </div>`;
+        return archiveView.timelineItem(e);
     }
 
     function revealTlCurrentPage() {
@@ -1610,38 +1569,40 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function renderTimeline(ev, options = {}) {
-        const scrollState = getTimelineScrollState();
-        const previousPage = tlCurrentPage;
-        const wasPaging = timelineHasRenderedEvents && !$('tl-pager').classList.contains('hidden');
         summaryData.events = ev || [];
-        const c = $('timeline-list');
-        if (!ev?.length) {
-            setHtml(c, '<div class="empty">暂无事件记录</div>');
-            tlCurrentPage = -1;
-            tlSavePage();
-            timelineHasRenderedEvents = false;
+        archiveView.refreshIndexes();
+        const filtered = archiveView.hasTimelineFilter();
+        if (filtered && tlUnfilteredPage === null) {
+            tlUnfilteredPage = tlCurrentPage;
+        } else if (!filtered && tlUnfilteredPage !== null) {
+            tlCurrentPage = Math.max(0, tlUnfilteredPage);
+            options = { ...options, page: tlCurrentPage };
+            tlUnfilteredPage = null;
+        }
+        const events = archiveView.timelineEvents();
+        const container = $('timeline-list');
+        if (!events.length) {
+            setHtml(container, summaryData.events.length
+                ? `<div class="archive-empty">${ARCHIVE_COPY.noResults}</div>`
+                : `<div class="archive-empty"><h2>${ARCHIVE_COPY.noEvents}</h2><p>${ARCHIVE_COPY.noEventsHint}</p></div>`);
             updateTlPager(false);
             return;
         }
         if (tlPagingEnabled) {
-            tlCurrentPage = options.page != null
-                ? clampTlPage(options.page)
-                : (tlCurrentPage < 0 || tlCurrentPage > tlTotalPages() - 1 ? tlTotalPages() - 1 : tlCurrentPage);
-            tlSavePage();
+            tlCurrentPage = clampTlPage(options.page ?? Math.max(0, tlCurrentPage));
+            // Search and type filters are temporary, not a saved reading position.
+            if (!filtered) tlSavePage();
             const start = tlCurrentPage * TL_PAGE_SIZE;
-            setHtml(c, summaryData.events.slice(start, start + TL_PAGE_SIZE).map(tlItemHtml).join(''));
-            updateTlPager(true, options.page != null || !wasPaging || previousPage !== tlCurrentPage);
-            c.scrollTop = wasPaging && previousPage === tlCurrentPage ? scrollState.scrollTop : 0;
+            setHtml(container, events.slice(start, start + TL_PAGE_SIZE).map(tlItemHtml).join(''));
+            updateTlPager(true, options.page != null);
         } else {
-            setHtml(c, summaryData.events.map(tlItemHtml).join(''));
+            setHtml(container, events.map(tlItemHtml).join(''));
             updateTlPager(false);
-            restoreTimelineScroll(scrollState, options.scrollMode || 'auto');
         }
-        timelineHasRenderedEvents = true;
     }
 
-    function getCharName(c) {
-        return typeof c === 'string' ? c : c.name;
+    function getCharName(character) {
+        return typeof character === 'string' ? character : character.name;
     }
 
     function hideRelationTooltip() {
@@ -1676,11 +1637,12 @@ const UNANNOTATED_LABEL = '未标注';
     function renderRelations(data) {
         summaryData.characters = data || { main: [], relationships: [] };
         const dom = $('relation-chart');
+        if (!archiveView.isPeopleVisible()) return;
         if (!relationChart) relationChart = echarts.init(dom);
         const theme = getRelationTheme();
 
         const rels = data?.relationships || [];
-        const allNames = new Set((data?.main || []).map(getCharName));
+        const allNames = new Set(getArchiveCharacters(summaryData).map(character => character.name));
         rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to); });
 
         const degrees = {};
@@ -1689,7 +1651,7 @@ const UNANNOTATED_LABEL = '未标注';
             degrees[r.to] = (degrees[r.to] || 0) + 1;
         });
 
-        const nodeColors = { main: '#d87a7a', sec: '#f1c3c3', ter: '#888888', qua: '#b8b8b8' };
+        const nodeColors = { main: getCssVar('--archive-accent', theme.text), sec: getCssVar('--archive-accent', theme.text), ter: theme.textMuted, qua: theme.textMuted };
         const sortedDegs = Object.values(degrees).sort((a, b) => b - a);
         const getPercentile = deg => {
             if (!sortedDegs.length || deg === 0) return 100;
@@ -1707,10 +1669,10 @@ const UNANNOTATED_LABEL = '未标注';
             else { col = nodeColors.qua; fontWeight = '400'; }
             return {
                 id: name, name, symbol: 'circle',
-                symbolSize: Math.min(36, Math.max(16, deg * 3 + 12)),
+                symbolSize: Math.min(48, Math.max(28, deg * 3 + 24)),
                 draggable: true,
                 itemStyle: { color: col, borderColor: theme.nodeBorder, borderWidth: 2, shadowColor: theme.nodeShadow, shadowBlur: 6, shadowOffsetY: 2 },
-                label: { show: true, position: 'right', distance: 5, color: theme.text, fontSize: 11, fontWeight },
+                label: { show: true, position: 'right', distance: 5, color: theme.text, fontSize: 13, fontWeight },
                 degree: deg
             };
         });
@@ -1783,6 +1745,7 @@ const UNANNOTATED_LABEL = '未标注';
                 hideRelationTooltip();
                 const id = p.data.id;
                 selectCharacter(id);
+                archiveView.showPerson();
                 updateChart(allNodes, allLinks, id);
             } else if (p.dataType === 'edge') {
                 const d = p.data;
@@ -1795,6 +1758,7 @@ const UNANNOTATED_LABEL = '未标注';
             }
         });
 
+        relationChart.getZr().off('click');
         relationChart.getZr().on('click', p => {
             if (!p.target) {
                 hideRelationTooltip();
@@ -1804,54 +1768,23 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function selectCharacter(id) {
-        currentCharacterId = id;
-        const txt = $('sel-char-text');
-        const opts = $('char-sel-opts');
-        if (opts && id) {
-            opts.querySelectorAll('.sel-opt').forEach(o => {
-                if (o.dataset.value === id) {
-                    o.classList.add('sel');
-                    if (txt) txt.textContent = o.textContent;
-                } else {
-                    o.classList.remove('sel');
-                }
-            });
-        } else if (!id && txt) {
-            txt.textContent = '选择角色';
-        }
+        const character = getArchiveCharacters(summaryData).find(entry => entry.id === id || entry.name === id);
+        currentCharacterId = character?.id || null;
         renderCharacterProfile();
-        if (relationChart && id) {
+        renderCharacterAliases(summaryData.characterAliases);
+        archiveView.refreshRoster();
+        if (relationChart && character) {
             const opt = relationChart.getOption();
-            const idx = opt?.series?.[0]?.data?.findIndex(n => n.id === id || n.name === id);
+            const idx = opt?.series?.[0]?.data?.findIndex(node => node.name === character.name);
+            relationChart.dispatchAction({ type: 'downplay', seriesIndex: 0 });
             if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx });
         }
     }
 
-    function updateCharacterSelector(arcs) {
-        const opts = $('char-sel-opts');
-        const txt = $('sel-char-text');
-        if (!opts) return;
-        if (!arcs?.length) {
-            setHtml(opts, '<div class="sel-opt" data-value="">暂无角色</div>');
-            if (txt) txt.textContent = '暂无角色';
-            currentCharacterId = null;
-            return;
-        }
-        setHtml(opts, arcs.map(a => `<div class="sel-opt" data-value="${h(a.id || a.name)}">${h(a.name || '角色')}</div>`).join(''));
-        opts.querySelectorAll('.sel-opt').forEach(o => {
-            o.onclick = e => {
-                e.stopPropagation();
-                if (o.dataset.value) {
-                    selectCharacter(o.dataset.value);
-                    $('char-sel').classList.remove('open');
-                }
-            };
-        });
-        if (currentCharacterId && arcs.some(a => (a.id || a.name) === currentCharacterId)) {
-            selectCharacter(currentCharacterId);
-        } else if (arcs.length) {
-            selectCharacter(arcs[0].id || arcs[0].name);
-        }
+    function updateCharacterSelector() {
+        const characters = getArchiveCharacters(summaryData);
+        const selected = characters.find(character => character.id === currentCharacterId);
+        selectCharacter(selected?.id || characters[0]?.id || null);
     }
 
     function renderCharacterProfile() {
@@ -1859,19 +1792,15 @@ const UNANNOTATED_LABEL = '未标注';
         const arcs = summaryData.arcs || [];
         const rels = summaryData.characters?.relationships || [];
 
-        if (!currentCharacterId || !arcs.length) {
+        if (!currentCharacterId) {
             setHtml(c, '<div class="empty">暂无角色数据</div>');
             return;
         }
 
+        const character = getArchiveCharacters(summaryData).find(entry => entry.id === currentCharacterId);
         const arc = arcs.find(a => (a.id || a.name) === currentCharacterId);
-        if (!arc) {
-            setHtml(c, '<div class="empty">未找到角色数据</div>');
-            return;
-        }
-
-        const name = arc.name || '角色';
-        const moments = (arc.moments || arc.beats || []).map(m => typeof m === 'string' ? m : m.text);
+        const name = character.name;
+        const moments = (arc?.moments || arc?.beats || []).map(m => typeof m === 'string' ? m : m.text);
         const outRels = rels.filter(r => r.from === name);
         const inRels = rels.filter(r => r.to === name);
 
@@ -1879,9 +1808,9 @@ const UNANNOTATED_LABEL = '未标注';
             <div class="prof-arc">
                 <div>
                     <div class="prof-name">${h(name)}</div>
-                    <div class="prof-traj">${h(arc.trajectory || arc.phase || '')}</div>
+                    <div class="prof-traj">${h(arc?.trajectory || arc?.phase || ARCHIVE_COPY.noTrajectory)}</div>
                 </div>
-                <div class="prof-prog-wrap">
+                ${arc ? `<div class="prof-prog-wrap">
                     <div class="prof-prog-lbl">
                         <span>弧光进度</span>
                         <span>${Math.round((arc.progress || 0) * 100)}%</span>
@@ -1889,7 +1818,7 @@ const UNANNOTATED_LABEL = '未标注';
                     <div class="prof-prog">
                         <div class="prof-prog-inner" style="width:${(arc.progress || 0) * 100}%"></div>
                     </div>
-                </div>
+                </div>` : ''}
                 ${moments.length ? `
                     <div class="prof-moments">
                         <div class="prof-moments-title">关键时刻</div>
@@ -1932,11 +1861,13 @@ const UNANNOTATED_LABEL = '未标注';
         summaryData.characterAliases = aliases || [];
         const list = $('aliases-list');
         if (!list) return;
-        if (!aliases?.length) {
-            setHtml(list, '<div class="empty">暂无别名映射</div>');
+        const name = getArchiveCharacters(summaryData).find(character => character.id === currentCharacterId)?.name;
+        const related = aliases.filter(alias => alias.to === name || alias.from === name);
+        if (!related.length) {
+            setHtml(list, `<div class="archive-muted">${ARCHIVE_COPY.noAliases}</div>`);
             return;
         }
-        setHtml(list, aliases.map(alias => `
+        setHtml(list, related.map(alias => `
             <div class="alias-item">
                 <span class="alias-from">${h(alias.from || '')}</span>
                 <span class="alias-arrow" aria-hidden="true">→</span>
@@ -2407,6 +2338,7 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function openEditor(section) {
+        archiveView.closeDialogs();
         currentEditSection = section;
         currentEditBaseline = structuredClone(section === 'aliases' ? summaryData.characterAliases : summaryData[section]);
         if (section === 'facts') currentEditBaseline = currentEditBaseline.filter(fact => !fact.retracted);
@@ -2625,18 +2557,23 @@ const UNANNOTATED_LABEL = '未标注';
                     memoryMaintenancePage.setChat(nextChatId);
                     if (nextChatId !== currentTimelineChatId) {
                         currentTimelineChatId = nextChatId;
-                        timelineHasRenderedEvents = false;
+                        tlUnfilteredPage = null;
+                        archiveView.reset();
+                        currentCharacterId = null;
                         tlCurrentPage = tlLoadPage();
                     }
                     if (p.keywords) renderKeywords(p.keywords);
                     if (p.events) renderTimeline(p.events);
-                    if (p.characters) renderRelations(p.characters);
+                    if (p.characters) summaryData.characters = p.characters;
                     if (p.arcs) renderArcs(p.arcs);
                     if (p.facts) renderFacts(p.facts);
                     if (p.characterAliases) renderCharacterAliases(p.characterAliases);
+                    renderRelations(summaryData.characters);
                     $('stat-events').textContent = p.events?.length || 0;
                     if (p.lastSummarizedMesId != null) $('stat-summarized').textContent = p.lastSummarizedMesId + 1;
                     if (p.stats) updateStats(p.stats);
+                    updateCharacterSelector();
+                    archiveView.refresh();
                 }
                 break;
 
@@ -2663,12 +2600,16 @@ const UNANNOTATED_LABEL = '未标注';
                 $('summarized-count').textContent = 0;
                 summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [], characterAliases: [] };
                 currentTimelineChatId = '';
+                tlUnfilteredPage = null;
+                currentCharacterId = null;
+                archiveView.reset();
                 renderKeywords([]);
                 renderTimeline([]);
                 renderRelations(null);
                 renderArcs([]);
                 renderFacts([]);
                 renderCharacterAliases([]);
+                archiveView.refresh();
                 break;
             }
 
@@ -2853,7 +2794,7 @@ const UNANNOTATED_LABEL = '未标注';
         $('editor-save').onclick = saveEditor;
 
         // Settings modal
-        $('btn-settings').onclick = openSettings;
+        $('btn-settings').onclick = () => { archiveView.closeDialogs(); openSettings(); };
         $('settings-backdrop').onclick = closeSettings;
         $('settings-close').onclick = closeSettings;
         $('settings-cancel').onclick = closeSettings;
@@ -2931,6 +2872,7 @@ const UNANNOTATED_LABEL = '未标注';
 
         // Main actions
         $('btn-clear').onclick = async () => {
+            archiveView.closeDialogs();
             const action = await showCleanActionMenu();
             if (action === 'rollback') {
                 const currentUpTo = cleanActionState.summarizedUpTo || 0;
@@ -2971,17 +2913,6 @@ const UNANNOTATED_LABEL = '未标注';
         $('rel-fs-close').onclick = closeRelationsFullscreen;
 
         // HF guide
-
-        // Character selector
-        $('char-sel-trigger').onclick = e => {
-            e.stopPropagation();
-            $('char-sel').classList.toggle('open');
-        };
-
-        document.onclick = e => {
-            const cs = $('char-sel');
-            if (cs && !cs.contains(e.target)) cs.classList.remove('open');
-        };
 
         // Vector UI
         initSummaryIOUI();
@@ -3084,6 +3015,15 @@ const UNANNOTATED_LABEL = '未标注';
     // ═══════════════════════════════════════════════════════════════════════════
 
     function init() {
+        archiveView = createSummaryArchive({
+            getData: () => summaryData,
+            getSelectedCharacter: () => currentCharacterId,
+            onSelectCharacter: selectCharacter,
+            onTimelineChange: options => renderTimeline(summaryData.events, options),
+            onFactsChange: () => renderFacts(summaryData.facts),
+            onPeopleVisible: () => { renderRelations(summaryData.characters); relationChart?.resize(); },
+            onEdit: openEditor, postMsg, setHtml, h,
+        });
         $('memory-agent-tab').textContent = MEMORY_COPY.tab;
         $('settings-save').textContent = MEMORY_COPY.settingsSave;
         $('settings-cancel').textContent = MEMORY_COPY.settingsClose;
@@ -3127,6 +3067,13 @@ const UNANNOTATED_LABEL = '未标注';
             applyTheme(saved);
             sel.value = saved;
 
+            $('archive-theme').onclick = () => {
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                const neo = sel.value.startsWith('neo');
+                sel.value = neo ? (isDark ? 'neo' : 'neo-dark') : (isDark ? 'default' : 'dark');
+                sel.dispatchEvent(new Event('change'));
+            };
+
             // 下拉框切换
             sel.addEventListener('change', function () {
                 const theme = sel.value;
@@ -3156,11 +3103,11 @@ const UNANNOTATED_LABEL = '未标注';
         const container = $('facts-list');
         if (!container) return;
 
-        const isRelation = f => /^对.+的/.test(f.p);
-        const stateFacts = (facts || []).filter(f => !f.retracted && !isRelation(f));
+        archiveView.refreshIndexes();
+        const stateFacts = archiveView.filteredFacts();
 
         if (!stateFacts.length) {
-            setHtml(container, '<div class="empty">暂无状态记录</div>');
+            setHtml(container, `<div class="archive-empty">${getArchiveStateFacts(summaryData).length ? ARCHIVE_COPY.noResults : ARCHIVE_COPY.noFacts}</div>`);
             return;
         }
 

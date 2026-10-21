@@ -21,7 +21,7 @@ export const entries = {
     'runtime/call-generate': 'bridges/call-generate-service.js',
     'runtime/worldbook': 'bridges/worldbook-bridge.js',
     'runtime/context': 'bridges/context-bridge.js',
-    'runtime/draw-usage': 'modules/draw/shared/draw-usage.js',
+    'runtime/draw-settings': 'modules/draw/shared/settings-page.js',
 };
 
 // These are design/asset-authoring pages, not plugin pages. They still receive lint.

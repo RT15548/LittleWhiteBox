@@ -11,13 +11,14 @@
 
 const COLLAPSE_KEY_PREFIX = 'xb-draw-list-collapsed:';
 
-function readCollapsed(document, listId) {
-    if (!listId) return false;
+function readCollapsed(document, listId, defaultCollapsed) {
+    if (!listId) return defaultCollapsed;
     try {
-        return document.defaultView?.localStorage?.getItem(COLLAPSE_KEY_PREFIX + listId) === '1';
+        const saved = document.defaultView?.localStorage?.getItem(COLLAPSE_KEY_PREFIX + listId);
+        return saved === null || saved === undefined ? defaultCollapsed : saved === '1';
     } catch (error) {
         console.warn({ source: import.meta.url, operation: 'readCollapsed' }, error);
-        return false;
+        return defaultCollapsed;
     }
 }
 
@@ -56,6 +57,7 @@ const DEFAULT_MENU_ITEMS = [
  * @param {function(Event, Element): void} [options.autoScroll] 拖拽中靠近边缘时滚动（第二个参数是列表容器）
  * @param {string} [options.listId] 折叠状态的存储名（如 'novel-params'）；缺省则不记忆
  * @param {function(): (Element|null)} [options.getToggle] 折叠 / 展开按钮；点击切换，状态同步到 aria-expanded 和 .collapsed
+ * @param {boolean} [options.defaultCollapsed] 尚无折叠偏好时的初始状态
  * @returns {{render: function(): void, syncSelection: function(): void, ensureSortable: function(): void, bind: function(): void, destroy: function(): void, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, toggle: function(): void}}
  */
 export function createPresetListView({
@@ -76,6 +78,7 @@ export function createPresetListView({
     autoScroll = null,
     listId = '',
     getToggle = null,
+    defaultCollapsed = false,
 } = {}) {
     if (!document || typeof getList !== 'function' || typeof getPresets !== 'function' || typeof escapeHtml !== 'function') {
         throw new TypeError('缺少 document / getList / getPresets / escapeHtml');
@@ -86,7 +89,7 @@ export function createPresetListView({
     let collapsed = null; // 首次用到时才读存储
 
     function isCollapsed() {
-        if (collapsed === null) collapsed = readCollapsed(document, listId);
+        if (collapsed === null) collapsed = readCollapsed(document, listId, defaultCollapsed);
         return collapsed;
     }
 

@@ -84,6 +84,41 @@ function customIds(ctx) {
     return ctx.ids().filter(id => !BUILTIN_BLOCK_IDS.includes(id));
 }
 
+// 契约：展开、折叠与重排请求结构后，内置文本草稿及绑定必须保留，否则保存会丢用户编辑。
+test('inline builtin editors retain draft nodes and input bindings across collapse and reorder', () => {
+    const { document } = parseHTML('<html><body><div id="host"></div><div id="parking" hidden><div id="opening"><textarea id="draft"></textarea></div><div id="guide"><textarea></textarea></div></div></body></html>');
+    const host = document.getElementById('host');
+    const parking = document.getElementById('parking');
+    const opening = document.getElementById('opening');
+    const guide = document.getElementById('guide');
+    const draft = document.getElementById('draft');
+    let inputCount = 0;
+    draft.addEventListener('input', () => { inputCount += 1; });
+    draft.value = '未保存的角色与场景要求';
+    const editor = createPromptLayoutEditor({ document, container: host, onChange: () => {},
+        builtinEditors: { opening, guide }, editorParking: parking,
+        describeBuiltin: () => ({ action: 'edit' }),
+    });
+    const click = id => host.querySelector(`[data-block-id="${id}"] [data-ple-field="edit"]`)
+        .dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+    editor.render();
+    click('opening');
+    assert.equal(host.contains(opening), true);
+    click('guide');
+    assert.equal(parking.contains(opening), true);
+    assert.equal(host.contains(guide), true);
+    const layout = createDefaultLayout();
+    layout.blocks.reverse();
+    editor.setLayout(layout);
+    assert.equal(document.getElementById('draft'), draft);
+    assert.equal(draft.value, '未保存的角色与场景要求');
+    draft.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    assert.equal(inputCount, 1);
+    editor.destroy();
+    assert.equal(parking.contains(opening), true);
+    assert.equal(parking.contains(guide), true);
+});
+
 // ── 纯函数 ──────────────────────────────────────────────
 
 test('previewText takes the first non-empty line, collapses it and truncates by characters', () => {
@@ -135,11 +170,9 @@ test('renders the default layout as eight locked built-in rows in contract order
     assert.equal(ctx.host.querySelector('[data-ple-reset]').textContent, '恢复默认结构');
 });
 
-test('built-in rows show the injected summary and a 去编辑 / 查看 button that calls back with the id', (t) => {
+test('built-in actions call back with their block id without modifying the layout', (t) => {
     const ctx = setup(t, { describeBuiltin: id => ({ summary: `摘要-${id}`, action: id === 'frame' ? 'view' : id === 'limits' ? null : 'edit', label: id === 'guide' ? '模型TAG指南' : undefined }) });
     assert.equal(ctx.row('opening').querySelector('[data-ple-summary]').textContent, '摘要-opening');
-    assert.equal(ctx.field('opening', 'edit').textContent, '去编辑');
-    assert.equal(ctx.field('frame', 'edit').textContent, '查看');
     assert.equal(ctx.field('limits', 'edit'), undefined, 'action 为 null 时不显示按钮');
     assert.equal(ctx.row('guide').querySelector('.lwb-ple-label').textContent, '模型TAG指南', 'label 可由宿主覆盖');
     assert.equal(ctx.row('rules').querySelector('.lwb-ple-label').textContent, '场景规则');

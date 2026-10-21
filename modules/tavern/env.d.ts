@@ -274,6 +274,7 @@ declare module '*.js' {
     export function getWrapperScript(): string;
     export function replaceXbGetVarInString(value: string): string;
     export function createAgentSettingsPanel(deps?: Record<string, unknown>): {
+        completePresetSave(requestId: string, outcome: { ok: boolean; config?: Record<string, unknown> }): boolean;
         getActiveProviderConfig(options?: Record<string, unknown>): Record<string, unknown>;
         syncConfigToForm(root: ParentNode): void;
         bindSettingsPanelEvents(root: ParentNode): void;

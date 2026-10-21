@@ -8,7 +8,7 @@ import { MAP_NAV_COPY } from './map-copy.js';
 import { useMapState } from './use-map-state.js';
 
 const props = defineProps<XiaobaiOsAppProps>();
-const { state, activeRequest, busy, disabledReason, requiresConfirmation, status, notice, isError, dismissNotice, refresh, confirmSave, adopt, setAuto, setProjection, update, rebuild } = useMapState(props);
+const { state, activeRequest, busy, disabledReason, requiresConfirmation, status, notice, isError, dismissNotice, refresh, adopt, setAuto, setProjection, update, rebuild } = useMapState(props);
 const settingsOpen = ref(false);
 watch(() => state.value.chatIdentity, () => { settingsOpen.value = false; });
 </script>
@@ -17,10 +17,9 @@ watch(() => state.value.chatIdentity, () => { settingsOpen.value = false; });
         <template #toolbar><button type="button" class="map-round-button" aria-label="地图设置" @click="settingsOpen = true"><MapIcon name="more" /></button></template>
         <template #feedback>
             <div v-if="status" class="map-progress" role="status"><span />{{ status }}</div>
-            <aside v-if="notice || requiresConfirmation || state.status === 'conflict'" class="map-notice" :class="{ 'is-error': isError }" role="status">
-                <p>{{ notice || (requiresConfirmation ? '还不确定是否保存成功，请先检查保存。' : '服务器上的存档与当前内容不同。') }}</p>
-                <button v-if="requiresConfirmation" type="button" :disabled="busy" @click="confirmSave">检查保存</button>
-                <template v-else-if="state.status === 'conflict'"><small>恢复会放弃尚未保存的更改，并使用当前聊天已保存的 OS 数据（不只是地图）。</small><button type="button" :disabled="busy" @click="adopt">放弃未保存更改并恢复</button></template>
+            <aside v-if="notice" class="map-notice" :class="{ 'is-error': isError }" role="status">
+                <p>{{ notice }}</p>
+                <template v-if="state.status === 'conflict'"><small>恢复会放弃尚未保存的更改，并使用当前聊天已保存的 OS 数据（不只是地图）。</small><button type="button" :disabled="busy" @click="adopt">放弃未保存更改并恢复</button></template>
                 <button v-else-if="state.status === 'error' || state.status === 'blocked'" type="button" :disabled="busy" @click="refresh">重新加载</button>
                 <button v-else type="button" class="map-notice-close" aria-label="关闭地图提示" @click="dismissNotice"><MapIcon name="close" /></button>
             </aside>

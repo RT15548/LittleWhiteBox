@@ -33,7 +33,7 @@ type Confirmation = { kind: 'publish'; form: TaskPublishedForm }
     | { kind: 'cancel'; task: TaskRecord; scopeId: string | null }
     | { kind: 'assign'; task: TaskRecord; candidateId: string };
 const REQUEST_TIMEOUT_MS = 35_000;
-const SAVE_CONFIRMATION_FAILED = '检查保存失败，尚不能确认账目是否写入。请检查连接后再试。';
+const SAVE_CONFIRMATION_FAILED = '保存请求失败，请检查连接后重试。';
 const props = defineProps<XiaobaiOsAppProps>();
 
 function fallbackState(): TasksPresentation {
@@ -114,7 +114,7 @@ const writeDisabledReason = computed(() => {
     if (writeBusy.value) {return '正在处理上一项任务操作';}
     if (state.value.status === 'loading') {return '正在加载任务';}
     if (state.value.status === 'saving') {return '任务与资金正在保存';}
-    if (state.value.status === 'unconfirmed') {return '请先检查上一次是否保存成功';}
+    if (state.value.status === 'unconfirmed') {return '正在保存，请稍候';}
     if (state.value.status === 'conflict') {return '请先使用已保存版本';}
     if (state.value.status === 'blocked') {return state.value.message || '任务暂时不可用';}
     if (state.value.generationActive) {return '正在生成内容，请稍后';}
@@ -476,11 +476,11 @@ onBeforeUnmount(() => {
             <button v-if="isMainPage" type="button" class="tasks-icon-button" aria-label="任务设置" data-navigation-id="settings" @click="go('settings')"><TaskIcon name="settings" /></button>
         </header>
         <div class="tasks-notices" aria-live="polite">
-            <aside v-if="state.message || (errorMessage && !confirmation) || actionMessage" class="tasks-notice" :class="{ 'is-error': Boolean(errorMessage) || state.status === 'conflict' || state.status === 'blocked', 'is-warning': requiresConfirmation }" role="status">
-                <div><p>{{ (confirmation ? '' : errorMessage) || state.message || actionMessage }}</p><button v-if="requiresConfirmation" type="button" :disabled="saveBusy" @click="confirmSave">{{ saveBusy ? '正在检查…' : '检查保存' }}</button><button v-else-if="state.status === 'conflict'" type="button" :disabled="saveBusy" @click="adoptServer">{{ saveBusy ? '正在加载…' : '使用已保存版本' }}</button><button v-else-if="state.status === 'blocked'" type="button" :disabled="saveBusy" @click="retryRead">{{ saveBusy ? '正在读取…' : '重新加载' }}</button></div>
+            <aside v-if="state.writeState !== 'unconfirmed' && (state.message || (errorMessage && !confirmation) || actionMessage)" class="tasks-notice" :class="{ 'is-error': Boolean(errorMessage) || state.status === 'conflict' || state.status === 'blocked' || state.writeState === 'failed' }" role="status">
+                <div><p>{{ (confirmation ? '' : errorMessage) || state.message || actionMessage }}</p><button v-if="requiresConfirmation" type="button" :disabled="saveBusy" @click="confirmSave">{{ saveBusy ? '正在保存…' : '重试保存' }}</button><button v-else-if="state.status === 'conflict'" type="button" :disabled="saveBusy" @click="adoptServer">{{ saveBusy ? '正在加载…' : '使用已保存版本' }}</button><button v-else-if="state.status === 'blocked'" type="button" :disabled="saveBusy" @click="retryRead">{{ saveBusy ? '正在读取…' : '重新加载' }}</button></div>
                 <button v-if="!state.message" type="button" class="tasks-icon-button" aria-label="关闭提示" @click="errorMessage = ''; actionMessage = ''"><TaskIcon name="close" /></button>
             </aside>
-            <aside v-if="state.generation.message && !state.message" class="tasks-notice" role="status"><p>{{ state.generation.message }}</p></aside>
+            <aside v-if="!requiresConfirmation && state.generation.message && !state.message" class="tasks-notice" role="status"><p>{{ state.generation.message }}</p></aside>
         </div>
         <div class="tasks-workspace" :class="{ 'is-main': isMainPage }">
             <div ref="content" class="tasks-content" tabindex="-1">

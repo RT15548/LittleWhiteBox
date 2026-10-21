@@ -2816,25 +2816,26 @@ function createCharacterEmptyState() {
     const title = document.createElement('strong');
     title.textContent = '暂无角色配置';
     const desc = document.createElement('p');
-    desc.textContent = '点击左侧"添加角色"，开始建立你的共享角色标签库';
+    desc.textContent = '添加角色，保存外貌与服装标签。';
     empty.append(icon, title, desc);
     return empty;
 }
 
 function renderCharacterCard({ character: tag, ordinal }) {
     const index = ordinal - 1;
-    const card = document.createElement('div');
+    const card = document.createElement('details');
     card.className = 'sd-char-card';
+    card.open = !tag.name;
     card.dataset.characterId = String(tag.id || `comfy-char-${index + 1}`);
 
-    const top = document.createElement('div');
+    const top = document.createElement('summary');
     top.className = 'sd-char-card-header';
     const title = document.createElement('div');
     title.className = 'sd-char-card-title';
     const titleIcon = document.createElement('i');
-    titleIcon.className = 'fa-solid fa-user';
+    titleIcon.className = 'fa-solid fa-user-group';
     const titleText = document.createElement('span');
-    titleText.textContent = `角色 ${index + 1}`;
+    titleText.textContent = tag.name || `角色 ${index + 1}`;
     title.append(titleIcon, titleText);
     const delButton = document.createElement('button');
     delButton.className = 'btn btn-danger btn-sm';
@@ -2889,6 +2890,9 @@ function renderCharacterCard({ character: tag, ordinal }) {
     panel.className = 'danbooru-panel hidden';
     panel.dataset.charId = card.dataset.characterId;
     card.appendChild(panel);
+    card.addEventListener('input', event => {
+        if (event.target.dataset.sdCharField === 'name') titleText.textContent = event.target.value || `角色 ${index + 1}`;
+    });
     return card;
 }
 

@@ -114,7 +114,7 @@ useAppBack(() => {
 
         <div v-if="notice" class="world-notice" :class="{ 'is-error': error }" role="status" aria-live="polite">
             <span>{{ notice }}</span>
-            <button v-if="state.writeState === 'unconfirmed' || (state.pendingSave && state.writeState === 'failed')" :disabled="pending" type="button" @click="request('confirm-save')">检查保存</button>
+            <button v-if="state.pendingSave && state.writeState === 'failed'" :disabled="pending" type="button" @click="request('confirm-save')">重试保存</button>
             <button v-else-if="state.writeState === 'conflict'" :disabled="pending" type="button" @click="request('adopt-server-state')">使用已保存版本</button>
             <button
                 v-else-if="state.writeState === 'failed' || error" :disabled="pending || state.writeState === 'saving'" type="button"

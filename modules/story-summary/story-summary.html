@@ -4,7 +4,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>剧情总结 · Story Summary</title>
     <link rel="stylesheet" href="story-summary.css">
@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="settings-config.css">
     <link rel="stylesheet" href="maintenance/ui.css">
     <link rel="stylesheet" href="maintenance/chat-ui.css">
+    <link rel="stylesheet" href="archive.css">
     <style>
         #xb-frame-boot {
             position: fixed;
@@ -67,89 +68,54 @@
             <div class="xb-frame-boot-text">正在加载</div>
         </div>
     </div>
-    <div class="container">
-        <!-- Header -->
-        <header>
+    <div class="archive">
+        <div class="archive-topbar">
+            <div class="archive-brand">剧情总结</div>
+            <div class="archive-actions">
+                <button class="archive-icon" id="archive-theme" aria-label="切换深浅主题" title="切换深浅主题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.4A8 8 0 0 1 10.6 4 8.1 8.1 0 1 0 20 13.4Z"/></svg></button>
+                <button class="archive-icon" id="archive-manage-open" aria-label="设置与管理" title="设置与管理"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5"/><circle cx="15" cy="17" r="2.5"/></svg></button>
+            </div>
+        </div>
+        <div class="archive-hero">
             <div>
-                <h1 style="user-select: none;">剧情<span>总结</span></h1>
-                <div class="subtitle">Story Summary · Timeline · Character Arcs</div>
+                <h1>剧情档案</h1>
+                <div class="archive-meta"><span><b id="stat-events">0</b> 段剧情</span><span>已总结至 <b id="stat-summarized">0</b> 楼</span><span id="archive-chat-state">当前聊天</span></div>
             </div>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-val" id="stat-events">0</div>
-                    <div class="stat-lbl">已记录事件</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-val" id="stat-summarized">0</div>
-                    <div class="stat-lbl">已总结楼层</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-val"><span class="hl" id="stat-pending">0</span></div>
-                    <div class="stat-lbl">待总结</div>
-                    <div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div>
-                </div>
-            </div>
-        </header>
-
-        <!-- Controls -->
-        <div class="controls">
-            <label class="chk-label current-chat-toggle" title="只影响当前聊天；关闭后停止自动总结和长期记忆注入，但保留已有数据">
-                <input type="checkbox" id="current-chat-enabled" checked>
-                <span>当前聊天启用</span>
-            </label>
-            <label class="chk-label">
-                <input type="checkbox" id="hide-summarized">
-                <span>隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留<input type="number" id="keep-visible-count"
-                        min="0" max="50" value="3">楼）</span>
-            </label>
-            <div class="vector-boundary-container" id="container-vector-boundary">
-                <label class="chk-label vector-boundary-label" id="lbl-vector-boundary"
-                    title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。若隐藏范围不对，可先关闭试试。">
-                    <input type="checkbox" id="use-vector-boundary" checked>
-                    <span>向量边界</span>
-                </label>
-                <span class="info-dot" id="vector-boundary-info"
-                    title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。若隐藏范围不对，可先关闭试试。">i</span>
-            </div>
-            <span class="spacer"></span>
-            <div class="btn-group">
-                <button class="btn btn-icon" id="btn-settings">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3" />
-                        <path
-                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                    </svg>
-                    <span>设置</span>
-                </button>
-                <button class="btn" id="btn-clear">清理</button>
+            <div class="archive-actions archive-generate">
+                <div><span class="archive-muted"><b id="stat-pending">0</b> 楼待总结</span><div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div></div>
                 <button class="btn btn-p" id="btn-generate"></button>
             </div>
         </div>
-
+        <div class="archive-nav">
+            <nav class="archive-tabs" role="tablist" aria-label="剧情档案">
+                <button class="archive-tab" id="archive-tab-story" role="tab" data-view="story" aria-selected="true" aria-controls="archive-story">剧情</button>
+                <button class="archive-tab" id="archive-tab-people" role="tab" data-view="people" aria-selected="false" aria-controls="archive-people" tabindex="-1">人物 <span id="archive-people-count">0</span></button>
+                <button class="archive-tab" id="archive-tab-world" role="tab" data-view="world" aria-selected="false" aria-controls="archive-world" tabindex="-1">世界 <span id="archive-world-count">0</span></button>
+            </nav>
+            <label class="archive-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="archive-search" type="search" aria-label="搜索当前视图" placeholder="搜索剧情"></label>
+        </div>
         <div id="summary-notice" class="summary-notice" hidden>
             <div id="summary-status" class="summary-status" role="status" aria-live="polite"></div>
             <button id="btn-dismiss-summary" class="summary-dismiss" type="button" hidden></button>
         </div>
-
-        <!-- Main Content -->
-        <main>
-            <div class="left">
-                <!-- Keywords -->
-                <section class="card">
-                    <div class="sec-head">
-                        <div class="sec-title">核心关键词</div>
-                        <button class="sec-btn" data-section="keywords">编辑</button>
-                    </div>
-                    <div class="keywords" id="keywords-cloud"></div>
-                </section>
-
-                <!-- Timeline -->
-                <section class="card timeline">
-                    <div class="sec-head">
-                        <div class="sec-title">剧情时间线</div>
-                        <div class="sec-actions">
-                            <button class="sec-btn" id="tl-paging-toggle" aria-pressed="false" aria-controls="tl-pager">分页</button>
-                            <button class="sec-btn" data-section="events">编辑</button>
+        <div class="archive-content">
+            <section id="archive-story" role="tabpanel" aria-labelledby="archive-tab-story" class="archive-story">
+                <aside class="archive-index">
+                    <div class="archive-label">剧情索引</div>
+                    <nav id="archive-story-index" aria-label="剧情类型"></nav>
+                    <details class="archive-keywords" open>
+                        <summary>核心关键词</summary>
+                        <div id="keywords-cloud" class="archive-keyword-list"></div>
+                        <button class="archive-text sec-btn" data-section="keywords">编辑关键词</button>
+                    </details>
+                </aside>
+                <div class="archive-reading">
+                    <div class="archive-section-head">
+                        <h2 id="archive-story-heading">全部剧情</h2>
+                        <div class="archive-actions">
+                            <button class="archive-text" id="archive-order">最新在前</button>
+                            <button class="archive-text" id="tl-paging-toggle" aria-pressed="false" aria-controls="tl-pager">分页</button>
+                            <button class="archive-text sec-btn" data-section="events">编辑</button>
                         </div>
                     </div>
                     <div class="tl-pager hidden" id="tl-pager">
@@ -158,69 +124,60 @@
                         <div class="tl-pg-strip" id="tl-pg-strip"></div>
                         <input type="number" class="tl-pg-num" id="tl-pg-num" min="1" value="1" title="跳转到指定页">
                         <button class="tl-pg-btn" id="tl-pg-next" aria-label="下一页">&rsaquo;</button>
-                        <button class="tl-pg-btn" id="tl-pg-last" aria-label="最新页">&raquo;</button>
+                        <button class="tl-pg-btn" id="tl-pg-last" aria-label="最后一页">&raquo;</button>
                     </div>
-                    <div class="tl-list scroll" id="timeline-list"></div>
-                </section>
-            </div>
-
-            <div class="right">
-                <!-- Facts -->
-                <section class="card facts">
-                    <div class="sec-head">
-                        <div class="sec-title">世界状态</div>
-                        <button class="sec-btn" data-section="facts">编辑</button>
+                    <div id="timeline-list"></div>
+                </div>
+            </section>
+            <section id="archive-people" role="tabpanel" aria-labelledby="archive-tab-people" hidden>
+                <div class="archive-people-layout">
+                    <div class="archive-graph">
+                        <div class="archive-section-head"><h2>人物关系</h2><div class="archive-actions"><button class="archive-text" id="archive-profile-open"></button><button class="archive-text" id="btn-fullscreen-relations">全屏查看</button><button class="archive-text sec-btn" data-section="characters">编辑关系</button></div></div>
+                        <div id="relation-chart"></div>
+                        <div class="archive-roster" id="archive-roster"></div>
                     </div>
-                    <div class="facts-list scroll" id="facts-list"></div>
-                </section>
-
-                <!-- Relations -->
-                <section class="card relations">
-                    <div class="sec-head">
-                        <div class="sec-title">人物关系</div>
-                        <div class="sec-actions">
-                            <button class="sec-btn sec-icon" id="btn-fullscreen-relations" title="全屏查看">
-                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <path
-                                        d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-                                </svg>
-                            </button>
-                            <button class="sec-btn" data-section="characters">编辑</button>
-                        </div>
+                    <div id="archive-profile-home">
+                        <section class="archive-profile" id="archive-profile">
+                            <div class="archive-section-head"><h2>人物档案</h2><button class="archive-text sec-btn" data-section="arcs">编辑</button></div>
+                            <div id="profile-content"></div>
+                            <details class="archive-aliases">
+                                <summary>称呼与别名</summary>
+                                <div id="aliases-list"></div>
+                                <button class="archive-text sec-btn" data-section="aliases">管理全部别名</button>
+                            </details>
+                        </section>
                     </div>
-                    <div id="relation-chart"></div>
-                </section>
-
-                <!-- Profile -->
-                <section class="card profile">
-                    <div class="sec-head">
-                        <div class="sec-title">人物档案</div>
-                        <div class="sec-actions">
-                            <div class="custom-select" id="char-sel">
-                                <div class="sel-trigger" id="char-sel-trigger">
-                                    <span id="sel-char-text">选择角色</span>
-                                </div>
-                                <div class="sel-opts" id="char-sel-opts">
-                                    <div class="sel-opt" data-value="">暂无角色</div>
-                                </div>
-                            </div>
-                            <button class="sec-btn" data-section="arcs">编辑</button>
-                        </div>
-                    </div>
-                    <div class="profile-content scroll" id="profile-content"></div>
-                </section>
-
-                <section class="card aliases">
-                    <div class="sec-head">
-                        <div class="sec-title">别名映射</div>
-                        <button class="sec-btn" data-section="aliases">编辑</button>
-                    </div>
-                    <div class="aliases-list scroll" id="aliases-list"></div>
-                </section>
-            </div>
-        </main>
+                </div>
+            </section>
+            <section id="archive-world" role="tabpanel" aria-labelledby="archive-tab-world" hidden>
+                <div class="archive-world-layout">
+                    <nav class="archive-world-index" id="archive-world-index" aria-label="世界状态对象"></nav>
+                    <div><div class="archive-section-head"><h2>世界状态</h2><button class="archive-text sec-btn" data-section="facts">编辑</button></div><div id="facts-list"></div></div>
+                </div>
+            </section>
+        </div>
     </div>
+
+    <dialog class="archive-drawer" id="archive-manage" aria-labelledby="archive-manage-title">
+        <div class="archive-drawer-head"><h2 id="archive-manage-title">设置与管理</h2><button class="archive-icon" data-close-archive aria-label="关闭设置与管理">×</button></div>
+        <div class="archive-drawer-body">
+            <h3>当前聊天</h3>
+            <label class="archive-setting" title="只影响当前聊天；关闭后停止自动总结和长期记忆注入，但保留已有数据"><span>启用剧情总结</span><input type="checkbox" id="current-chat-enabled" checked></label>
+            <label class="archive-setting"><span>隐藏已总结楼层 · <strong id="summarized-count">0</strong> 楼</span><input type="checkbox" id="hide-summarized"></label>
+            <label class="archive-setting"><span>保留最近楼层</span><input type="number" id="keep-visible-count" min="0" max="50" value="3"></label>
+            <div id="container-vector-boundary" class="vector-boundary-container">
+                <label class="archive-setting" id="lbl-vector-boundary" title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。"><span>按智能记忆进度隐藏</span><input type="checkbox" id="use-vector-boundary" checked></label>
+                <span class="info-dot" id="vector-boundary-info" title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。">i</span>
+            </div>
+            <h3>配置与维护</h3>
+            <button class="archive-setting archive-setting-link" id="btn-settings"><span>总结、记忆与 API 设置</span><span aria-hidden="true">›</span></button>
+            <button class="archive-setting archive-setting-link" id="btn-clear"><span>清理与回退</span><span aria-hidden="true">›</span></button>
+        </div>
+    </dialog>
+    <dialog class="archive-drawer" id="archive-detail" aria-labelledby="archive-detail-title">
+        <div class="archive-drawer-head"><h2 id="archive-detail-title"></h2><button class="archive-icon" data-close-archive aria-label="返回档案">×</button></div>
+        <div class="archive-drawer-body" id="archive-detail-body"></div>
+    </dialog>
 
     <!-- Editor Modal -->
     <div class="modal" id="editor-modal">

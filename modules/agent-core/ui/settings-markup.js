@@ -144,6 +144,7 @@ export function syncAgentSettingsPanelFeedback(root, options = {}) {
     });
 
     [
+        '#xb-assistant-preset-select',
         '#xb-assistant-new-preset',
         '#xb-assistant-rename-preset',
         '#xb-assistant-pull-models',

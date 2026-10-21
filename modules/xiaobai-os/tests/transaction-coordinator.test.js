@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
+import { startSaveRecovery } from '../host/save-recovery.js';
 
 import { XiaobaiOsPartitionRegistry } from '../kernel/partition-registry.js';
 import { createTransactionCoordinator } from '../kernel/transaction-coordinator.js';
@@ -78,6 +80,72 @@ function harness(initial = envelope({ good: { schemaVersion: 1, value: 1 } }), o
     });
     return { state, storage, chatReferences, registry, coordinator };
 }
+
+// Acceptance: uncertain saves recover without user intervention or replaying the
+// business operation; conflicts, expired evidence and disposal must not overwrite data.
+for (const outcome of ['already-saved', 'retry', 'conflict', 'expired-guard', 'disposed']) {
+    test(`automatic save recovery: ${outcome}`, async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const h = harness();
+        const good = partition('good'); h.registry.register(good);
+        const store = h.coordinator.createScopedStore(good);
+        const candidates = [];
+        let operations = 0;
+        let allowed = true;
+        h.state.replace = async input => {
+            candidates.push(structuredClone(input.candidate));
+            if (outcome === 'already-saved' || candidates.length > 1) {
+                h.state.persisted = structuredClone(input.candidate);
+            }
+            return candidates.length === 1 ? { status: 'unconfirmed', observed: null } : { status: 'confirmed' };
+        };
+        const stop = startSaveRecovery(h.coordinator);
+        t.after(stop);
+        const result = await store.transact(tx => {
+            operations++;
+            tx.replace({ schemaVersion: 1, value: 7 });
+        }, { commitGuard: () => allowed });
+        assert.equal(result.status, 'unconfirmed');
+        if (outcome === 'conflict') { h.state.persisted.commitId = 'another-writer'; }
+        if (outcome === 'expired-guard') { allowed = false; }
+        if (outcome === 'disposed') { stop(); }
+        t.mock.timers.tick(2_000);
+        await setImmediate();
+        assert.equal(operations, 1);
+        assert.equal(candidates.length, outcome === 'retry' ? 2 : 1);
+        if (outcome === 'retry') { assert.deepEqual(candidates[1], candidates[0]); }
+        assert.equal(h.coordinator.getFileState(),
+            outcome === 'conflict' ? 'conflict'
+                : ['expired-guard', 'disposed'].includes(outcome) ? 'unconfirmed' : 'ready');
+        if (outcome === 'conflict') {
+            const reads = h.state.reads;
+            t.mock.timers.tick(60_000);
+            await setImmediate();
+            assert.equal(h.state.reads, reads);
+            assert.equal(h.state.persisted.commitId, 'another-writer');
+        }
+    });
+}
+
+test('returning to a chat resumes background recovery without writing into another chat', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const h = harness(); const good = partition('good'); h.registry.register(good);
+    const store = h.coordinator.createScopedStore(good);
+    const original = structuredClone(h.state.capture);
+    const stop = startSaveRecovery(h.coordinator); t.after(stop);
+    h.state.replace = async () => ({ status: 'unconfirmed', observed: null });
+    await store.transact(tx => tx.replace({ schemaVersion: 1, value: 7 }));
+    h.state.capture = { ...original, identityKey: 'other', binding: { ...binding, chatId: 'other' }, reference: null };
+    h.coordinator.invalidateCurrent();
+    t.mock.timers.tick(2_000); await setImmediate();
+    assert.equal(h.state.writes, 1);
+    h.state.capture = original; h.coordinator.invalidateCurrent();
+    h.state.replace = null;
+    t.mock.timers.tick(2_000); await setImmediate();
+    assert.equal(h.coordinator.getFileState(), 'ready');
+    assert.equal(h.state.persisted.binding.chatId, binding.chatId);
+    assert.equal(h.state.persisted.partitions.good.value, 7);
+});
 
 test('a malformed unrelated partition is never parsed or normalized by another owner', async () => {
     const badRaw = { malformed: true, nested: ['keep', 1] };

@@ -9,7 +9,7 @@
 // 只有结构变化（添加 / 删除 / 移动 / 恢复默认 / 展开收起）才重建列表，且重建前后会还原焦点与选区。
 //
 // 展开与选择是两件独立的事，都只存在于本页面、不进布局数据：
-// - 展开（手风琴）：同一时间最多展开一条自定义消息；新添加的消息插在它的下方并成为新的展开项。
+// - 展开（手风琴）：同一时间最多编辑一条消息；内置表单由宿主提供，折叠时保留原节点。
 // - 选择（多选）：“多选”按钮或 Ctrl / Shift 点击行头；选中的行拖动时整组一起动，选择条里可批量复制 / 删除 / 启用 / 停用。
 //   复制与删除只针对自定义块，内置块自动跳过。删除和批量复制后出现“撤销”条，还原操作前的整份布局。
 
@@ -98,7 +98,9 @@ function blocksOf(layout) {
  * @param {function(): (object|null)} [options.getSavedLayout] 已保存的布局，用来判断"未保存"徽标；缺省时拿 setLayout 最近一次设置的值比
  * @param {function(object): void} options.onChange 每次用户修改后的新布局（已规范化）。输入框打字也会调，但不会因此重绘
  * @param {function(string): ({summary?: string, label?: string, action?: ('edit'|'view'|null)}|null)} [options.describeBuiltin]
- *        内置块的一行摘要；action 决定按钮是"去编辑"、"查看"还是不显示；label 可覆盖契约里的显示名
+ *        内置块的一行摘要；action 决定按钮动作；label 可覆盖契约里的显示名
+ * @param {Object<string, Element>} [options.builtinEditors] 宿主拥有的内置文本表单节点
+ * @param {Element} [options.editorParking] 折叠时保留表单的隐藏容器
  * @param {function(string): void} [options.onEditBuiltin] 点内置块的按钮（去编辑 / 查看）
  * @param {function(string): boolean} [options.confirm] 危险操作前的确认；缺省一律视为确认
  * @param {function(string): void} [options.announce] 额外的播报通道（组件自带一条 aria-live 状态行，这里是可选的镜像）
@@ -116,6 +118,8 @@ export function createPromptLayoutEditor({
     onChange,
     describeBuiltin = null,
     onEditBuiltin = null,
+    builtinEditors = {},
+    editorParking = null,
     confirm = null,
     announce = null,
     autoScroll = null,
@@ -130,7 +134,7 @@ export function createPromptLayoutEditor({
     const readLayout = () => (getLayout ? getLayout() : ownLayout);
     const readSaved = () => (getSavedLayout ? getSavedLayout() : ownSaved);
 
-    const expanded = new Set(); // 展开的自定义块 id（手风琴：最多一个）；只存在于本页面，不进布局数据
+    const expanded = new Set(); // 正在编辑的块 id（最多一个）；只存在于本页面，不进布局数据
     const selected = new Set(); // 选中的块 id（内置块也可以选，用于整组拖动）；同样不进布局数据
     let selectMode = false; // “多选”模式：每行前出现选择框
     let anchorId = null; // Shift 选范围的起点
@@ -153,7 +157,7 @@ export function createPromptLayoutEditor({
     const resetButton = create(document, 'button', { className: 'lwb-ple-btn', text: '恢复默认结构', attrs: { type: 'button', 'data-ple-reset': '', title: '恢复内置块的默认顺序并移除自定义消息（只改草稿，保存后才生效）' } });
     const hint = create(document, 'p', {
         className: 'lwb-ple-hint',
-        text: '带锁的内置块内容固定、只能调整顺序，内容在各自的编辑处修改；自定义消息可以随意添加、编辑和排序。拖动左侧手柄，或聚焦手柄后按 ↑ / ↓ 调整顺序；点“多选”或按住 Ctrl / Shift 点击可选中多条，整组拖动。',
+        text: '按发送顺序排列。点击编辑，拖动手柄调整顺序。',
     });
     const notice = create(document, 'p', { className: 'lwb-ple-notice', attrs: { hidden: true, role: 'alert', 'data-ple-notice': '' } });
     const selectionCount = create(document, 'span', { className: 'lwb-ple-selection-count', attrs: { 'data-ple-selection-count': '' } });
@@ -240,8 +244,10 @@ export function createPromptLayoutEditor({
         const meta = describeBlock(block);
         const info = builtinInfo(block.id);
         const label = info.label || meta.label;
+        const editor = builtinEditors[block.id];
+        const open = expanded.has(block.id);
         const row = create(document, 'div', {
-            className: 'lwb-ple-row lwb-ple-builtin',
+            className: `lwb-ple-row lwb-ple-builtin${open ? ' expanded' : ''}`,
             attrs: { role: 'listitem', 'data-block-id': block.id, 'data-builtin': 'true' },
         });
         const line = create(document, 'div', { className: 'lwb-ple-line' }, [
@@ -251,11 +257,14 @@ export function createPromptLayoutEditor({
                 create(document, 'i', { className: 'fa-solid fa-lock', attrs: { 'aria-hidden': 'true' } }),
             ]),
             roleBadge(meta.role),
-            create(document, 'span', { className: 'lwb-ple-label', text: label }),
+            create(document, editor ? 'button' : 'span', {
+                className: editor ? 'lwb-ple-main lwb-ple-label' : 'lwb-ple-label', text: label,
+                attrs: editor ? { type: 'button', 'data-ple-field': 'main', 'aria-expanded': String(open) } : {},
+            }),
             create(document, 'span', { className: 'lwb-ple-summary', text: info.summary, attrs: { 'data-ple-summary': '' } }),
         ]);
         if (info.action) {
-            const verb = info.action === 'view' ? '查看' : '去编辑';
+            const verb = editor ? (open ? '收起' : '编辑') : info.action === 'view' ? '查看' : '设置';
             line.appendChild(create(document, 'button', {
                 className: 'lwb-ple-btn lwb-ple-btn-small',
                 text: verb,
@@ -263,6 +272,7 @@ export function createPromptLayoutEditor({
             }));
         }
         row.appendChild(line);
+        if (editor && open) row.appendChild(editor);
         return row;
     }
 
@@ -382,6 +392,7 @@ export function createPromptLayoutEditor({
         for (const id of Array.from(selected)) if (!known.has(id)) selected.delete(id);
         if (!known.has(anchorId)) anchorId = null;
         if (!known.has(lastSelectedId)) lastSelectedId = null;
+        parkBuiltinEditors();
         clearNode(list);
         const reason = disabledReason();
         if (!reason) {
@@ -393,6 +404,13 @@ export function createPromptLayoutEditor({
         refreshStatus();
         refreshSelectionUi();
         restoreFocus(focusTarget);
+    }
+
+    // 保留原表单节点，折叠、排序、切换预设均不销毁输入值或事件绑定。
+    function parkBuiltinEditors() {
+        if (editorParking) {
+            for (const editor of Object.values(builtinEditors)) editorParking.appendChild(editor);
+        }
     }
 
     function signatureOf(layout, reason) {
@@ -777,7 +795,10 @@ export function createPromptLayoutEditor({
         if (hit.field === 'select') {
             if (event.shiftKey) selectRangeTo(hit.id); else selectOne(hit.id, Boolean(hit.node.checked));
         } else if (hit.field === 'main') toggleExpanded(hit.id);
-        else if (hit.field === 'edit') onEditBuiltin?.(hit.id);
+        else if (hit.field === 'edit') {
+            if (builtinEditors[hit.id]) toggleExpanded(hit.id);
+            else onEditBuiltin?.(hit.id);
+        }
         else if (hit.field === 'delete') handleDelete(hit.id);
     });
     listen(list, 'input', (event) => {
@@ -804,6 +825,11 @@ export function createPromptLayoutEditor({
 
     return {
         render,
+        openBuiltin(id) {
+            if (!builtinEditors[id]) return;
+            expandOnly(id);
+            rebuildList();
+        },
         /** 自持模式：设置布局（同时当作"已保存"的基准）并重绘。 */
         setLayout(layout) {
             clearUndo();
@@ -815,6 +841,7 @@ export function createPromptLayoutEditor({
         refreshStatus: () => refreshStatus(),
         getLayout: () => readLayout(),
         destroy() {
+            parkBuiltinEditors();
             sortable?.destroy?.();
             sortable = null;
             listeners.splice(0).forEach(off => off());

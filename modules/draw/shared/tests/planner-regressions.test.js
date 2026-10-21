@@ -66,7 +66,7 @@ for (const renderAfterSwitch of [false, true]) {
 }
 
 for (const outcome of ['success', 'error', 'throw']) {
-    test(`preset row save preserves edits and background refresh on ${outcome}`, async (t) => {
+    test(`API preset save preserves submitted edits and rejects stale background refresh on ${outcome}`, async (t) => {
         const { document, window } = parseHTML('<html><body><div id="agent-root"></div></body></html>');
         const selectPrototype = window.HTMLSelectElement.prototype;
         const originalValue = Object.getOwnPropertyDescriptor(selectPrototype, 'value');
@@ -107,22 +107,26 @@ for (const outcome of ['success', 'error', 'throw']) {
         });
         await surface.refresh();
         const pendingRefresh = surface.refresh({ background: true });
-        root.querySelector('[data-preset-action="duplicate"]').dispatchEvent(new window.Event('click', { bubbles: true }));
-        assert.equal(surface.getState().configSave.status, 'saving');
-        await surface.refresh({ background: true });
-        assert.equal(loads, 2);
         const input = root.querySelector('#xb-assistant-model');
         input.value = 'newer-model';
         input.dispatchEvent(new window.Event('input', { bubbles: true }));
+        root.querySelector('#xb-assistant-save').dispatchEvent(new window.Event('click', { bubbles: true }));
+        assert.equal(surface.getState().configSave.status, 'saving');
+        await surface.refresh({ background: true });
+        assert.equal(loads, 2);
         finishRefresh();
         await pendingRefresh;
         assert.equal(surface.getState().configDirty, true);
         finishSave();
         await new Promise(resolve => setTimeout(resolve, 0));
         assert.equal(surface.getState().configSave.status, outcome === 'success' ? 'success' : 'error');
-        assert.equal(surface.getState().configDirty, true);
-        await surface.refresh({ background: true });
-        assert.equal(loads, 2);
+        assert.equal(surface.getState().configDirty, outcome !== 'success');
+        if (outcome !== 'success') {
+            await surface.refresh({ background: true });
+            assert.equal(loads, 2);
+        } else {
+            assert.equal(stored.presets.A.modelConfigs['openai-compatible'].model, 'newer-model');
+        }
         assert.equal(root.querySelector('#xb-assistant-model').value, 'newer-model');
         assert.equal(surface.getState().configDraft.model, 'newer-model');
     });

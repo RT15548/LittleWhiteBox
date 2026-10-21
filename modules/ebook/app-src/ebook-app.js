@@ -369,6 +369,7 @@ export function createEbookApp(options = {}) {
                 requestId,
                 error: '保存超时，请重试',
             };
+            settingsPanel.completePresetSave(requestId, { ok: false });
             if (!renderSettingsSurface()) render();
             scheduleConfigSaveReset();
         }, CONFIG_SAVE_TIMEOUT_MS);
@@ -408,16 +409,21 @@ export function createEbookApp(options = {}) {
             beginConfigSave(requestId);
             try {
                 const result = await hostBridge.requestHost('xb-ebook:save-config', payload);
-                state.config = normalizeEbookConfig(result?.config || config || {});
+                if (state.configSave.requestId !== requestId || state.configSave.status !== 'saving') return;
+                const confirmed = normalizeEbookConfig(result?.config || config || {});
                 state.configLoadError = '';
-                state.configDraft = null;
-                state.configDirty = false;
-                state.configFormSyncPending = true;
+                if (!settingsPanel.completePresetSave(requestId, { ok: true, config: confirmed })) {
+                    state.config = confirmed;
+                    state.configDraft = null;
+                    state.configDirty = false;
+                    state.configFormSyncPending = true;
+                }
                 completeConfigSave(requestId, { ok: true });
                 showToast('配置已保存');
                 if (!renderSettingsSurface()) render();
                 if (!renderAgentControlsSurface()) renderAgentSurface();
             } catch (error) {
+                settingsPanel.completePresetSave(requestId, { ok: false });
                 completeConfigSave(requestId, { ok: false, error: describeError(error) });
                 showToast(describeError(error));
             }

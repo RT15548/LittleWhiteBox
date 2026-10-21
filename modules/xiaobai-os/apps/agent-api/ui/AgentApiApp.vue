@@ -11,11 +11,12 @@ import { observeBackgroundTask } from '../../../../../shared/common/async-errors
 
 
 type UnknownRecord = Record<string, unknown>;
-type SaveRequest = { payload?: UnknownRecord };
+type SaveRequest = { requestId: string; payload?: UnknownRecord };
 type Panel = {
     getActiveProviderConfigFromForm: (root: ParentNode) => UnknownRecord;
     syncConfigToForm: (root: ParentNode) => void;
     bindSettingsPanelEvents: (root: ParentNode) => void;
+    completePresetSave: (requestId: string, outcome: { ok: boolean; config?: UnknownRecord }) => boolean;
 };
 
 const NETWORK_TIMEOUT_MS = 130_000;
@@ -74,13 +75,16 @@ async function handleSaveConfig(request: SaveRequest): Promise<void> {
         if (result.ok !== true || !result.config) {
             throw new Error(result.error || '模型设置保存失败');
         }
-        panelState.config = normalizeAgentConfig(result.config);
-        panelState.configDraft = null;
-        panelState.configDirty = false;
-        panelState.configFormSyncPending = true;
+        if (!panel.completePresetSave(request.requestId, { ok: true, config: result.config })) {
+            panelState.config = normalizeAgentConfig(result.config);
+            panelState.configDraft = null;
+            panelState.configDirty = false;
+            panelState.configFormSyncPending = true;
+        }
         panelState.configSave = { status: 'success', requestId: '', error: '' };
         panelState.inlineToastText = '设置已保存';
     } catch (error) {
+        panel.completePresetSave(request.requestId, { ok: false });
         const message = describeError(error);
         panelState.configSave = { status: 'error', requestId: '', error: message };
         panelState.inlineToastText = message;

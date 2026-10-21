@@ -45,7 +45,7 @@ function clientStatus(writeState: ReturnType<MapService['getWriteState']>): {
     if (writeState === 'loading') { return { status: 'loading', message: '正在加载地图…' }; }
     if (writeState === 'saving') { return { status: 'saving', message: '正在确认地图保存结果…' }; }
     if (writeState === 'unconfirmed') {
-        return { status: 'unconfirmed', message: '还不确定地图是否保存成功，请先检查保存，再继续更新。' };
+        return { status: 'unconfirmed', message: '' };
     }
     if (writeState === 'conflict') {
         return { status: 'conflict', message: '服务器上的存档与当前内容不同，请先选择要保留的版本。' };

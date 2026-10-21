@@ -1,5 +1,5 @@
 // 角色标签库界面（SD WebUI / ComfyUI 共用）：分组、折叠、多选与批量、复制、拖拽排序、导入导出。
-// 与 NovelAI 面板的区别：这里的角色列表是“每个角色一张展开的整表单卡”，DOM 才是真值，点“保存角色”才落盘。
+// 与 NovelAI 面板的区别：表单节点持有草稿，折叠不销毁，点“保存角色”才落盘。
 // 因此所有库操作都作用在“草稿”上：先 getLibrary() 从表单读出当前草稿（含未保存的编辑），
 // 交给 character-library.js 的纯函数得到新库，再 render() 重绘；本模块从不写盘，保存由宿主页面完成。
 //
@@ -639,7 +639,7 @@ export function createCharacterLibraryUi(options = {}) {
         }, [iconNode(document, 'fa-regular fa-square-check'), create(document, 'span', { text: ' 多选' })]);
         const hint = create(document, 'span', {
             className: 'form-hint lwb-cl-toolbar-hint',
-            text: '拖动 ⋮⋮ 调整顺序或分组；分组与排序同样需要点击“保存角色”后生效',
+            text: '拖动手柄调整顺序；修改后保存角色。',
         });
         bar.append(addGroup, selectToggle, hint);
 

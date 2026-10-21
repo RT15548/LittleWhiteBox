@@ -1971,6 +1971,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
             apiConfigSaveTimeout = null;
             if (apiConfigSave.value.requestId !== requestId || apiConfigSave.value.status !== 'saving') {return;}
             apiConfigSave.value = { status: 'error', requestId, error: '保存超时，请重试' };
+            apiSettingsPanel?.completePresetSave(requestId, { ok: false });
             apiSettingsPanelState.configSave = apiConfigSave.value;
             apiConfigStatus.value = '保存失败：保存超时，请重试';
             apiConfigSaveResetTimer = window.setTimeout(() => {
@@ -2052,12 +2053,18 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
         apiSettingsPanel.bindSettingsPanelEvents(root);
     }
     function handleApiConfigSaved(payload: Record<string, unknown>) {
+        if (payload.requestId !== apiConfigSave.value.requestId || apiConfigSave.value.status !== 'saving') {return;}
         const ok = payload.ok === true;
+        const presetSave = apiSettingsPanel?.completePresetSave(String(payload.requestId || ''), {
+            ok, config: payload.config as Record<string, unknown> | undefined,
+        });
         if (ok) {
             options.agentConfig.value = payload.config as Record<string, unknown> || options.agentConfig.value;
             agentConfigLoadError.value = '';
-            apiSettingsPanelState.configDirty = false;
-            syncApiSettingsConfigFromAgentConfig();
+            if (!presetSave) {
+                apiSettingsPanelState.configDirty = false;
+                syncApiSettingsConfigFromAgentConfig();
+            }
             completeApiConfigSave(String(payload.requestId || ''), { ok: true });
             return;
         }

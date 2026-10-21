@@ -2345,7 +2345,7 @@ async function toggleEditPanel(container, show) {
 
         let html = `
             <div class="xb-nd-edit-group">
-                <div class="xb-nd-edit-group-label">🎬 场景</div>
+                <div class="xb-nd-edit-group-label">场景</div>
                 <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
             </div>`;
 
@@ -2354,7 +2354,7 @@ async function toggleEditPanel(container, show) {
                 const name = char.name || `角色 ${i + 1}`;
                 html += `
                 <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">👤 ${escapeHtml(name)}</div>
+                    <div class="xb-nd-edit-group-label">${escapeHtml(name)}</div>
                     <textarea class="xb-nd-edit-input" data-type="char" data-index="${i}">${escapeHtml(char.prompt || '')}</textarea>
                 </div>`;
             });

@@ -62,7 +62,8 @@ export function createTaskGenerationRuntime({
             run.state = {
                 ...run.state,
                 state: 'idle',
-                message: (run.state.kind === 'board' ? '任务刷新失败。' : '招募失败。') + taskFailureMessage(run.failureReason),
+                message: run.failureReason === 'save-unconfirmed' ? ''
+                    : (run.state.kind === 'board' ? '任务刷新失败。' : '招募失败。') + taskFailureMessage(run.failureReason),
             };
         } finally {
             if (isCurrent(run)) {onChange();}

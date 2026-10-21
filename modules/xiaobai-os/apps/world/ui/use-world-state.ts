@@ -18,10 +18,10 @@ export function useWorldState(props: XiaobaiOsAppProps) {
     }
     const writable = computed(() => !pending.value && state.value.writeState === 'ready');
     const refreshing = computed(() => state.value.maintenance === 'running');
-    const notice = computed(() => localError.value ? localMessage.value : state.value.writeState !== 'ready'
+    const notice = computed(() => localError.value ? localMessage.value : state.value.writeState === 'unconfirmed' ? '' : state.value.writeState !== 'ready'
         ? state.value.message : localMessage.value || state.value.message);
     const error = computed(() => localError.value || state.value.maintenance === 'error'
-        || ['failed', 'unconfirmed', 'conflict'].includes(state.value.writeState));
+        || ['failed', 'conflict'].includes(state.value.writeState));
 
     async function request(action: string, extra: Record<string, unknown> = {}) {
         if (pending.value) { return; }
@@ -40,10 +40,9 @@ export function useWorldState(props: XiaobaiOsAppProps) {
         } catch (caught) {
             if (!mounted || state.value.chatIdentity !== identity) { return; }
             const message = caught instanceof Error ? caught.message : '';
-            localMessage.value = message === 'host_request_timeout'
-                ? '暂时没收到结果，更新可能还在继续。请稍后重新加载，不要再次生成。'
-                : caught instanceof HostRequestError && caught.code === 'app_request_failed' ? message
-                    : '操作未完成，请检查保存状态或稍后重试。';
+            if (message === 'host_request_timeout') { return; }
+            localMessage.value = caught instanceof HostRequestError && caught.code === 'app_request_failed' ? message
+                : '操作未完成，请稍后重试。';
             localError.value = true;
         } finally { if (mounted) { pending.value = false; } }
     }

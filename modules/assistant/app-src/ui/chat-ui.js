@@ -1,6 +1,7 @@
 import { buildMarkdownFragment } from '../../../agent-core/ui/message-markdown.js';
 import { createToolActivityProjection } from './tool-activity.js';
 import { createToolProcess } from './tool-process.js';
+import { createMessageActions } from './message-actions.js';
 import { expandMessageWindow, getMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 
 function isAssistantToolCallMessageForWindow(message) {
@@ -67,6 +68,7 @@ export function createChatUi(deps) {
     };
     const projectTools = createToolActivityProjection(getToolActivity);
     const processViews = new WeakMap();
+    const appendMessageActions = createMessageActions(state);
 
     async function copyText(text) {
         const normalized = String(text || '');
@@ -315,7 +317,7 @@ export function createChatUi(deps) {
             bubble.dataset.messageIndex = String(messageIndex);
         }
         const assistantContentText = String(message.content || '').trim();
-        const canShowAssistantActions = message.role === 'assistant' && !!assistantContentText;
+        const canShowAssistantActions = message.role === 'assistant' && !!assistantContentText && !message.streaming;
         const isEditing = canShowAssistantActions && state.editingMessageIndex === messageIndex;
 
         const metaRow = document.createElement('div');
@@ -327,47 +329,6 @@ export function createChatUi(deps) {
             ? '你'
             : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`;
         metaRow.appendChild(meta);
-
-        if (canShowAssistantActions) {
-            const actions = document.createElement('div');
-            actions.className = 'xb-assistant-message-actions';
-            const getActionDefinition = (action, label, title) => {
-                const feedbackKey = `${action}:${messageIndex}`;
-                const feedbackState = state.messageActionFeedback?.[feedbackKey] || '';
-                if (feedbackState === 'success') {
-                    return { action, label: '✓', title: '已复制' };
-                }
-                if (feedbackState === 'error') {
-                    return { action, label: '!', title: '复制失败' };
-                }
-                return { action, label, title };
-            };
-            const actionDefinitions = isEditing
-                ? [
-                    { action: 'save-edit', label: '✓', title: '保存这条消息的修改' },
-                    { action: 'cancel-edit', label: '✕', title: '取消本次修改' },
-                ]
-                : [
-                    getActionDefinition('copy', '⧉', '复制整条消息'),
-                    { action: 'edit', label: '✎', title: '编辑这条消息' },
-                    { action: 'reroll', label: '↻', title: '从这里重新生成后续回复' },
-                    { action: 'delete', label: '🗑', title: '删除这条消息' },
-                ];
-
-            actionDefinitions.forEach((item) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'xb-assistant-message-action';
-                button.dataset.messageAction = item.action;
-                button.dataset.messageIndex = String(messageIndex);
-                button.textContent = item.label;
-                button.title = item.title;
-                button.setAttribute('aria-label', item.title);
-                actions.appendChild(button);
-            });
-
-            metaRow.appendChild(actions);
-        }
 
         bubble.appendChild(metaRow);
 
@@ -409,6 +370,10 @@ export function createChatUi(deps) {
             gallery.className = 'xb-assistant-attachment-gallery';
             renderAttachmentGallery(gallery, message.attachments, { compact: true });
             bubble.appendChild(gallery);
+        }
+
+        if (canShowAssistantActions) {
+            appendMessageActions(bubble, message, messageIndex, isEditing);
         }
 
         return bubble;

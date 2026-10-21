@@ -50,7 +50,7 @@ test('editor sends its opening projection even after a background refresh', () =
     const messages = [];
     const summaryData = { facts: [{ id: 'f1', s: 'A', p: 'location', o: 'old', since: 2, _addedAt: 2 }] };
     const ui = uiEntry(['openEditor', 'closeEditor', 'readEditorData', 'saveEditor'], {
-        currentEditSection: null, currentEditBaseline: null, structuredClone, summaryData,
+        currentEditSection: null, currentEditBaseline: null, structuredClone, summaryData, archiveView: { closeDialogs() {} },
         SECTION_META: { facts: { title: '', hint: '' } }, $: id => document.getElementById(id),
         postMsg: (type, data) => messages.push(structuredClone({ type, ...data })), renderFacts() {},
     });
@@ -73,7 +73,7 @@ test('an editor default does not become an unintended change', () => {
         + '<div id="editor-title"></div><div id="editor-hint"></div><div id="editor-err"></div><div id="editor-modal"></div>');
     const messages = [], summaryData = { keywords: [{ text: 'A' }] };
     const ui = uiEntry(['openEditor', 'closeEditor', 'readEditorData', 'saveEditor', 'preserveAddedAt'], {
-        currentEditSection: null, currentEditBaseline: null, structuredClone, summaryData,
+        currentEditSection: null, currentEditBaseline: null, structuredClone, summaryData, archiveView: { closeDialogs() {} },
         SECTION_META: { keywords: { title: '', hint: '' } }, $: id => document.getElementById(id),
         postMsg: (type, data) => messages.push(structuredClone({ type, ...data })), renderKeywords() {},
     });

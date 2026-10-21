@@ -61,10 +61,9 @@ function clientStatus(view: TasksServiceView, economyReady: boolean): { status: 
     if (view.writeState === 'conflict') {
         return { status: 'conflict', message: '服务器上的存档与当前内容不同，请先使用已保存版本，再修改任务。' };
     }
-    if (view.writeState === 'unconfirmed' || (view.pendingSave && view.writeState === 'failed')) {
-        return { status: 'unconfirmed', message: view.writeState === 'failed'
-            ? '暂时无法确认是否保存成功。新内容还在，请检查连接后再试，不要重新生成。'
-            : '还不确定任务是否保存成功。请先检查保存，暂时不能修改任务或操作小白币。' };
+    if (view.writeState === 'unconfirmed') { return { status: 'unconfirmed', message: '' }; }
+    if (view.pendingSave && view.writeState === 'failed') {
+        return { status: 'unconfirmed', message: '保存请求失败，新内容仍保留在当前页面。请检查连接后重试保存。' };
     }
     if (view.writeState === 'saving') {return { status: 'saving', message: '正在保存任务和账目…' };}
     if (view.writeState === 'loading') {return { status: 'loading', message: '正在加载任务…' };}

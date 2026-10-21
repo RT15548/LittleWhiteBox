@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
+import { startSaveRecovery } from '../host/save-recovery.js';
 import { administratorHarness } from './administrator-harness.js';
 import { createMaintenanceRunner } from '../capabilities/maintenance/runner.js';
 import { createMaintenanceRegistry } from '../capabilities/maintenance/registry.js';
@@ -29,10 +31,27 @@ async function prepare(id) {
             async openSession() { return { providerConfig: {}, supportsSessionToolLoop: false, async run() { return step++ === 0 ? { toolCalls: [{ id: 'edit', ...tool }] } : { text: 'done' }; } }; },
         },
     });
-    return { h, runner };
+    return { h, runner, modelCalls: () => step };
 }
 
 for (const id of ['map', 'tasks', 'world']) {
+    test(`${id} automatically recovers a save without generating again`, async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const { h, runner, modelCalls } = await prepare(id);
+        t.after(() => runner.stopBackground());
+        const stop = startSaveRecovery(h.coordinator); t.after(stop);
+        h.state.replace = async () => ({ status: 'unconfirmed', observed: h.state.persisted });
+        await runner.startManual(id).completion;
+        const calls = modelCalls();
+        const writes = h.state.writes.length;
+        h.state.replace = null;
+        t.mock.timers.tick(2_000);
+        await setImmediate();
+        assert.equal(h.coordinator.getFileState(), 'ready');
+        assert.equal(h.state.writes.length, writes + 1);
+        assert.equal(modelCalls(), calls);
+        if (id === 'tasks') { assert.equal(h.economy.getPlayerBalance(), 250); }
+    });
     for (const invalidation of ['none', 'source', 'cancel']) {
         test(`${id} maintenance pending save keeps repeatable constraints: ${invalidation}`, async () => {
             const { h, runner } = await prepare(id);

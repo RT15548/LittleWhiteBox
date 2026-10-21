@@ -3,7 +3,7 @@ import type { XiaobaiOsAppProps } from '../../../shell/app-contract.js';
 import type { MapClientState } from '../types.js';
 import { MAP_PROJECTION_COPY } from './map-copy.js';
 
-type Action = 'refresh' | 'settings' | 'projection' | 'maintain' | 'rebuild' | 'confirm' | 'adopt';
+type Action = 'refresh' | 'settings' | 'projection' | 'maintain' | 'rebuild' | 'adopt';
 function record(value: unknown): value is Record<string, unknown> {return !!value && typeof value === 'object' && !Array.isArray(value);}
 function maintaining(state: MapClientState): boolean {return state.maintenanceStatus === 'maintaining' || state.maintenanceStatus === 'rebuilding';}
 
@@ -21,7 +21,7 @@ export function useMapState(props: XiaobaiOsAppProps) {
     const busy = computed(() => activeRequest.value !== null || ['loading', 'saving'].includes(state.value.status) || ['maintaining', 'rebuilding'].includes(state.value.maintenanceStatus || ''));
     const disabledReason = computed(() => {
         if (busy.value) {return '正在更新地图，请稍候';}
-        if (requiresConfirmation.value) {return '请先检查上一次是否保存成功';}
+        if (requiresConfirmation.value) {return '正在保存，请稍候';}
         if (state.value.status === 'conflict') {return '存档有变化，请先选择要保留的版本';}
         if (state.value.status !== 'ready') {return state.value.message || '地图暂时不可更新';}
         if (!state.value.chatIdentity) {return '请先打开一个聊天';}
@@ -30,13 +30,12 @@ export function useMapState(props: XiaobaiOsAppProps) {
     const status = computed(() => {
         if (state.value.maintenanceStatus === 'rebuilding' || activeRequest.value === 'rebuild') {return '正在绘制世界…';}
         if (state.value.maintenanceStatus === 'maintaining' || activeRequest.value === 'maintain') {return '正在更新地图…';}
-        if (activeRequest.value === 'confirm') {return '正在检查保存…';}
         if (busy.value) {return '请稍候…';}
         return '';
     });
-    // A status snapshot is history, not a new notification. Storage warnings remain visible.
-    const notice = computed(() => state.value.message || localMessage.value);
-    const isError = computed(() => state.value.message ? ['blocked', 'error', 'conflict', 'unconfirmed'].includes(state.value.status) : localError.value);
+    // Pending acknowledgement belongs to background recovery, not an error banner.
+    const notice = computed(() => localError.value ? localMessage.value : requiresConfirmation.value ? '' : state.value.message || localMessage.value);
+    const isError = computed(() => localError.value || (!requiresConfirmation.value && ['blocked', 'error', 'conflict'].includes(state.value.status)));
     function apply(next: MapClientState): void {
         const wasMaintaining = maintaining(state.value);
         state.value = structuredClone(next);
@@ -51,8 +50,6 @@ export function useMapState(props: XiaobaiOsAppProps) {
     function readableError(error: unknown, action: Action): string {
         const text = error instanceof Error ? error.message : String(error);
         if (text.includes('聊天已切换')) {return '聊天已切换，请重新打开地图。';}
-        if (text === 'host_request_timeout') {return '暂时没收到结果，地图可能还在更新。请稍后查看，不要再次更新。';}
-        if (action === 'confirm') {return '仍无法确认保存结果，请稍后再试。';}
         if (action === 'adopt') {return '已保存版本暂时加载不了，当前修改还在，请稍后重试。';}
         if (action === 'settings' || action === 'projection') {return '设置未能保存，请重试。';}
         return '地图操作未完成，请稍后重试。';
@@ -77,10 +74,10 @@ export function useMapState(props: XiaobaiOsAppProps) {
             if (action === 'refresh' && state.value.status === 'ready') {localMessage.value = '已加载保存的地图。';}
             if (action === 'settings') {localMessage.value = state.value.autoMaintenance ? '自动更新已开启。' : '自动更新已关闭。';}
             if (action === 'projection') {localMessage.value = state.value.projectToChat ? MAP_PROJECTION_COPY.enabled : MAP_PROJECTION_COPY.disabled;}
-            if (action === 'confirm' && state.value.status === 'ready') {localMessage.value = '已确认保存成功。';}
             if (action === 'adopt' && record(result) && result.adoption === 'adopted') {localMessage.value = '已使用当前聊天里保存的 OS 存档。';}
         } catch (error) {
             if (mounted && sequence === requestSequence && state.value.chatIdentity === identity) {
+                if (error instanceof Error && error.message === 'host_request_timeout') { return; }
                 localMessage.value = readableError(error, action);
                 localError.value = true;
             }
@@ -106,7 +103,6 @@ export function useMapState(props: XiaobaiOsAppProps) {
         state, activeRequest, busy, disabledReason, requiresConfirmation, status, notice, isError,
         dismissNotice: () => {localMessage.value = ''; localError.value = false;},
         refresh: () => {if (!busy.value && !requiresConfirmation.value) {return request('map/refresh', 'refresh');}},
-        confirmSave: () => {if (!busy.value) {return request('map/confirm-save', 'confirm');}},
         adopt: () => {if (!busy.value) {return request('map/adopt-server-state', 'adopt');}},
         setAuto: (enabled: boolean) => request('map/set-auto-maintenance', 'settings', { enabled }),
         setProjection: (enabled: boolean) => request('map/set-projection', 'projection', { enabled }),

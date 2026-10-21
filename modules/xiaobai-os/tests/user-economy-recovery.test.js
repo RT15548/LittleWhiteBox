@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
+import { startSaveRecovery } from '../host/save-recovery.js';
 import { userEconomyHarness } from './user-economy-harness.js';
 import { createChatReferencePort } from '../storage/chat-reference.js';
 import { createChatBindingManager } from '../storage/chat-binding.js';
@@ -13,6 +15,30 @@ import { createBankService } from '../apps/bank/application/service.js';
 import { TASKS_PARTITION } from '../apps/tasks/partition.js';
 import { createTasksService } from '../apps/tasks/application/service.js';
 import { USER_DOCUMENT_FILENAME } from '../kernel/user-document.js';
+
+test('automatic user-document recovery settles one bank payment without repeating the debit', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const h = await userEconomyHarness(); await h.economy.refresh();
+    const bank = createBankService(h.store(BANK_PARTITION), h.transactions, h.economy);
+    t.after(bank.dispose);
+    const initial = await bank.refreshCurrent();
+    const stop = startSaveRecovery(h.transactions); t.after(stop);
+    h.state.mode = 'unknown';
+    await assert.rejects(bank.openDeposit({ actionId: 'one-deposit', expectedRevision: initial.revision,
+        expectedEventId: initial.eventId, productId: 'short-term', amount: 100 }));
+    const candidate = h.state.writes.at(-1);
+    h.state.mode = 'confirmed';
+    t.mock.timers.tick(2_000);
+    await setImmediate();
+    assert.equal(h.transactions.getFileState(), 'ready');
+    assert.deepEqual(h.state.writes.at(-1), candidate);
+    assert.equal(bank.readCurrent().deposits.length, 1);
+    assert.equal(h.economy.getPlayerBalance(), 0);
+    const writes = h.state.writes.length;
+    t.mock.timers.tick(60_000);
+    await setImmediate();
+    assert.equal(h.state.writes.length, writes);
+});
 
 test('only an opted-in candidate can be abandoned, and an old abort cannot release another owner', async () => {
     const h = await userEconomyHarness(); await h.economy.refresh();

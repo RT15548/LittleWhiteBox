@@ -9,28 +9,33 @@ const open = ref(false);
 useAppBack(() => { open.value = false; return true; }, () => open.value);
 const ratio = computed(() => Math.min(1, props.stats.usedTokens / props.stats.limit));
 const format = (value: number) => `${(value / 1000).toFixed(1)}k`;
+const usageLabel = computed(() => `约 ${format(props.stats.usedTokens)} / ${format(props.stats.limit)}`);
 const phases = { counting: '计算中', summarizing: '总结中', saving: '保存中', replying: '回复中' };
 </script>
 
 <template>
-    <div class="fourth-wall-context">
+    <div class="fourth-wall-context" @keydown.esc.stop="open = false">
         <button
             type="button" class="fourth-wall-context-ring" :class="{ 'is-warning': stats.usedTokens >= stats.trigger }"
-            :style="{ '--context-fill': `${ratio * 360}deg` }" :aria-label="`上下文：约 ${format(stats.usedTokens)} / 158k`"
+            :aria-label="`上下文：${usageLabel}`"
             :aria-expanded="open" title="上下文" @click="open = !open"
         >
-            <span>{{ busy ? '…' : '' }}</span>
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+                <circle class="fourth-wall-context-track" cx="16" cy="16" r="13" />
+                <circle v-if="ratio > 0" class="fourth-wall-context-fill" cx="16" cy="16" r="13" pathLength="100" :stroke-dasharray="`${ratio * 100} 100`" />
+            </svg>
+            <span v-if="busy" class="fourth-wall-context-busy" aria-hidden="true">…</span>
         </button>
         <section v-if="open" class="fourth-wall-context-popover" aria-label="上下文用量">
             <header><strong>上下文</strong><button type="button" aria-label="关闭上下文用量" @click="open = false">×</button></header>
-            <p class="fourth-wall-context-total">约 {{ format(stats.usedTokens) }} / 158k</p>
+            <p class="fourth-wall-context-total">{{ usageLabel }}</p>
             <dl>
                 <dt>主剧情</dt><dd>{{ format(stats.mainTokens) }}</dd>
                 <dt>皮下记忆</dt><dd>{{ format(stats.memoryTokens) }}</dd>
                 <dt>皮下聊天</dt><dd>{{ format(stats.historyTokens) }}</dd>
                 <dt>提示词与输入</dt><dd>{{ format(stats.promptTokens) }}</dd>
             </dl>
-            <p>128k 时在下次回复前自动总结。</p>
+            <p>{{ Math.round(stats.trigger / 1000) }}k 时在下次回复前自动总结。</p>
             <button v-if="busy" type="button" @click="emit('cancel')">{{ phase ? phases[phase] : '处理中' }} · 取消</button>
             <button v-else type="button" :disabled="!stats.canSummarize" @click="emit('summarize'); open = false">立即总结</button>
             <small v-if="!stats.canSummarize && !busy">暂无可总结的较早聊天，近期原文会保留。</small>

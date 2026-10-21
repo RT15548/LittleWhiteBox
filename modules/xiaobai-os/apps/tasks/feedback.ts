@@ -16,7 +16,7 @@ export function taskFailureMessage(reason: string): string {
         case 'background-capture-failed': return '没有读到故事背景，请先打开聊天再试。';
         case 'session-creation-failed':
         case 'session-result-failed': return '任务暂时加载不了，请重新加载后再试。';
-        case 'save-unconfirmed': return '还不确定是否保存成功，请先检查保存，不要重新生成。';
+        case 'save-unconfirmed': return '';
         case 'save-conflict': return '服务器上的存档与当前内容不同，请先使用已保存版本，不要重新生成。';
         case 'save-failed': return '这次没能保存，原来的任务还在。请检查连接后重试。';
         case 'task-version-changed': return '任务在检查期间已变化，请根据最新进展重新检查。';
@@ -27,7 +27,7 @@ export function taskFailureMessage(reason: string): string {
 
 export function taskMaintenanceMessage(status: MaintenanceStatus, saveRecovered: boolean): string {
     if (status.state === 'running') { return ''; }
-    if (saveRecovered && status.reason === 'save-unconfirmed') { return '已加载保存的任务。'; }
+    if (status.reason === 'save-unconfirmed') { return saveRecovered ? '已加载保存的任务。' : ''; }
     switch (status.message) {
         case 'updated': return '任务已更新。';
         case 'unchanged': return '任务暂时没有新进展。';

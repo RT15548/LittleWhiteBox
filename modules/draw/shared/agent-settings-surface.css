@@ -4,6 +4,32 @@
     max-width: 920px;
 }
 
+.draw-agent-settings-surface .xb-assistant-preset-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+}
+
+.draw-agent-settings-surface .xb-assistant-preset-tools {
+    gap: 4px;
+}
+
+.draw-agent-settings-surface .xb-assistant-preset-field,
+.draw-agent-settings-surface .xb-assistant-config select.xb-assistant-preset-field {
+    height: 40px;
+    min-height: 40px;
+    font-weight: 400;
+}
+
+.draw-agent-settings-surface .xb-assistant-preset-tools .xb-assistant-icon-button {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+}
+
 .draw-agent-settings-state {
     min-height: 180px;
     display: flex;
@@ -15,6 +41,17 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 12px;
+}
+
+@media (max-width: 768px) {
+    .draw-agent-settings-surface .xb-assistant-preset-tools .xb-assistant-icon-button {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+    }
+    .draw-agent-settings-surface .xb-assistant-config select.xb-assistant-preset-field {
+        height: 44px;
+    }
 }
 
 .draw-agent-settings-state.is-error {

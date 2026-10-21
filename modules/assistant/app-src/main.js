@@ -896,6 +896,7 @@ function beginConfigSave(requestId) {
             requestId,
             error: '保存超时，请重试',
         };
+        settingsPanel.completePresetSave(requestId, { ok: false });
         render();
         scheduleConfigSaveReset();
     }, CONFIG_SAVE_TIMEOUT_MS);
@@ -906,6 +907,7 @@ function completeConfigSave(requestId, { ok, error = '' } = {}) {
     if (requestId && state.configSave.requestId && state.configSave.requestId !== requestId) {
         return;
     }
+    if (!ok) settingsPanel.completePresetSave(requestId, { ok: false });
     if (configSaveTimeout) {
         clearTimeout(configSaveTimeout);
         configSaveTimeout = null;
@@ -1030,7 +1032,7 @@ const settingsPanel = createSettingsPanel({
     describeError,
     saveConfig: ({ requestId, payload }) => {
         beginConfigSave(requestId);
-        post('xb-assistant:save-config', payload);
+        post('xb-assistant:save-config', { ...payload, requestId });
     },
     getRuntimeSummaryText: ({ draft, providerLabel }) => state.runtime
         ? `预设「${draft.currentPresetName || DEFAULT_PRESET_NAME}」 · ${providerLabel} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件`
@@ -2082,7 +2084,10 @@ window.addEventListener('message', (event) => {
     }
 
     if (data.type === 'xb-assistant:config-saved') {
-        applyConfig(data.payload?.config || {});
+        if (data.payload?.requestId !== state.configSave.requestId || state.configSave.status !== 'saving') return;
+        if (!settingsPanel.completePresetSave(data.payload?.requestId || '', { ok: true, config: data.payload?.config })) {
+            applyConfig(data.payload?.config || {});
+        }
         completeConfigSave(data.payload?.requestId || '', { ok: true });
         showToast('配置已保存');
         return;
@@ -2148,6 +2153,7 @@ window.addEventListener('message', (event) => {
     }
 
     if (data.type === 'xb-assistant:config-save-error') {
+        if (data.payload?.requestId !== state.configSave.requestId || state.configSave.status !== 'saving') return;
         completeConfigSave(data.payload?.requestId || '', { ok: false, error: data.payload?.error || '网络异常' });
         showToast(`保存失败：${data.payload?.error || '网络异常'}`);
         return;

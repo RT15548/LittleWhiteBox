@@ -206,6 +206,10 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         if (state === 'ready') { states.delete(identityKey); } else { states.set(identityKey, state); }
         if (error) { stateErrors.set(identityKey, error); } else { stateErrors.delete(identityKey); }
         if (previous === state && previousError?.code === error?.code && previousError?.message === error?.message) { return; }
+        publishFileState(identityKey, state, error);
+    }
+
+    function publishFileState(identityKey: string, state: XiaobaiOsFileState, error?: KernelWriteFailure): void {
         const change: XiaobaiOsFileStateChange = error
             ? { identityKey, state, error }
             : { identityKey, state };
@@ -690,6 +694,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         activeIdentity = null;
         const capture = chatReferences.capture();
         if (!capture) { return; }
+        publishFileState(capture.identityKey, stateFor(capture), stateErrors.get(capture.identityKey));
         for (const registration of partitions.list()) {
             publishPartition(registration.key, capture.identityKey, null);
         }

@@ -81,6 +81,7 @@ export function createMapService(
     }
 
     async function refreshCurrent(): Promise<MapServiceView> {
+        if (files.getFileState() === 'failed') { await files.retryPending(); }
         await store.read();
         return buildView();
     }
