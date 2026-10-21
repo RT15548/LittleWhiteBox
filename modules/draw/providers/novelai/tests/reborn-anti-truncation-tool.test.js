@@ -1,5 +1,5 @@
-// Reborn2.4.2 的“防截断2.0”（提示词块 + game_content 工具绑定）作为请求结构里的工具块：
-// 经真实的模板导入路径进来（导入时工具块先停用），启用后工具名解析为 game_content；
+// Reborn2.4.2 的“防截断2.0”（提示词块 + game_content 工具绑定）作为请求结构里一条“附带工具”的消息：
+// 经真实的模板导入路径进来（没确认时这条消息连同工具一起停用），启用后工具名解析为 game_content；
 // 若模型照说明把所有输出放进 game_content、不提交 submit_scene_plan，给出明确的报错。
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -8,7 +8,7 @@ import { OpenAICompatibleAdapter } from '../../../../agent-core/adapters/openai-
 import { collectToolBlocks, extractToolName, resolveCustomToolDefinitions } from '../../../shared/custom-tools.js';
 import { getLastDrawAgentDiagnostic, resetDrawAgentRuntimeForTests } from '../../../shared/draw-agent.js';
 import { generateAndParseScenePlan } from '../../../shared/scene-planner.js';
-import { setBlocksEnabled } from '../../../shared/scene-planner-layout.js';
+import { hasTool, setBlocksEnabled } from '../../../shared/scene-planner-layout.js';
 import { createInProcessToolHost } from '../../../shared/tests/helpers/in-process-tool-host.js';
 import { parseNovelPromptPresetImport } from '../novel-prompt-import.js';
 
@@ -27,20 +27,21 @@ const TEMPLATE = {
         version: 1,
         blocks: [
             { id: 'opening' }, { id: 'frame' }, { id: 'guide' }, { id: 'rules' },
-            { id: 'msg-69zf15', role: 'system', name: '防截断2.0', content: INSTRUCTION, enabled: true, kind: 'tool', code: CODE },
             { id: 'tools' }, { id: 'worldInfo' }, { id: 'content' }, { id: 'limits' },
+            { id: 'msg-69zf15', role: 'system', name: '防截断2.0', content: INSTRUCTION, enabled: true, tool: { code: CODE } },
         ],
     },
 };
 
-test('the anti-truncation tool block survives the real import path: kept verbatim, imported disabled, resolves to game_content once enabled', async () => {
+test('the anti-truncation message survives the real import path: kept verbatim, imported disabled, resolves to game_content once enabled', async () => {
     const imported = parseNovelPromptPresetImport(TEMPLATE);
     assert.equal(imported.disabledToolBlocks, 1);
-    const block = imported.layout.blocks.find(item => item.kind === 'tool');
+    const block = imported.layout.blocks.find(hasTool);
     assert.equal(block.enabled, false);
     assert.equal(block.content, INSTRUCTION);
-    assert.equal(block.code, CODE);
-    assert.equal(extractToolName(block.code), 'game_content');
+    assert.equal(block.tool.code, CODE);
+    assert.equal(extractToolName(block.tool.code), 'game_content');
+    assert.equal(imported.layout.blocks.at(-1).id, 'msg-69zf15', 'Reborn 把它排在最后');
     assert.deepEqual(collectToolBlocks(imported.layout), []);
 
     const enabled = setBlocksEnabled(imported.layout, [block.id], true);
@@ -61,7 +62,7 @@ test('a confirmed import keeps the block enabled straight away', async () => {
 test('if the model follows the instruction and puts everything into game_content, the run ends with a clear error instead of a silent failure', async () => {
     resetDrawAgentRuntimeForTests();
     const imported = parseNovelPromptPresetImport(TEMPLATE);
-    const layout = setBlocksEnabled(imported.layout, [imported.layout.blocks.find(item => item.kind === 'tool').id], true);
+    const layout = setBlocksEnabled(imported.layout, [imported.layout.blocks.find(hasTool).id], true);
     const settings = {
         currentPresetName: '主预设',
         presets: { 主预设: { provider: 'openai-compatible', modelConfigs: { 'openai-compatible': { baseUrl: 'https://x.example/v1', model: 'm', apiKey: 'k', toolMode: 'native', reasoning: { mode: 'off' } } } } },

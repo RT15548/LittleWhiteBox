@@ -504,7 +504,7 @@ export function resolveRunCustomTools(options = {}, diagnostic = null) {
     if (!definitions.length) return [];
     if (typeof options.customToolHost?.invoke !== 'function') {
         const error = new ScenePlannerError(
-            '请求结构里启用了自定义工具块，需要在浏览器里运行；后台任务不会执行自定义代码。',
+            '请求结构里有启用的“附带工具”，需要在浏览器里运行；后台任务不会执行自定义代码。',
             'CUSTOM_TOOL_HOST_MISSING',
         );
         diagnostic?.fail(error, { stage: 'config' });

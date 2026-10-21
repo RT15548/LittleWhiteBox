@@ -6,8 +6,9 @@ import { getLastDrawAgentDiagnostic, resetDrawAgentRuntimeForTests } from '../dr
 import { MAX_CUSTOM_TOOL_CALLS } from '../custom-tools.js';
 import { executePreparedScenePlanner } from '../scene-planner-executor.js';
 import { generateAndParseScenePlan, prepareScenePlannerInput } from '../scene-planner.js';
-import { addBlockAfter, createDefaultLayout, createToolBlock } from '../scene-planner-layout.js';
+import { addBlockAfter, createDefaultLayout } from '../scene-planner-layout.js';
 import { createInProcessToolHost } from './helpers/in-process-tool-host.js';
+import { createToolBlock } from './helpers/tool-block.js';
 
 const NOTE_CODE = `return {
     name: "note",

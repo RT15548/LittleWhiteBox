@@ -3504,7 +3504,7 @@ test('importing a template with enabled tool code asks first: confirm keeps it e
         await tick();
         return sentBodies(panel).filter(message => message.type === 'IMPORT_PROMPT_PRESET');
     };
-    const tool = { id: 'msg-tool01', role: 'system', name: '防截断2.0', content: 'x', enabled: true, kind: 'tool', code: 'return { name: "game_content", action() {} };' };
+    const tool = { id: 'msg-tool01', role: 'system', name: '防截断2.0', content: 'x', enabled: true, tool: { code: 'return { name: "game_content", action() {} };' } };
     const payload = { _type: 'novel-draw-prompt-template', _version: 4, topSystem: 's', sceneRules: 'r', layout: { version: 1, blocks: [tool] } };
 
     const accepted = loadPanel(t);
@@ -3512,7 +3512,7 @@ test('importing a template with enabled tool code asks first: confirm keeps it e
     accepted.answers.confirm.push(true);
     const [acceptedMessage] = await importFile(accepted, payload);
     assert.equal(accepted.dialogs.confirms.length, 1);
-    assert.match(accepted.dialogs.confirms[0], /这份模板含自定义工具代码：确定=启用，取消=导入但先关闭。只启用你信任的模板。/);
+    assert.match(accepted.dialogs.confirms[0], /这份模板含自定义工具代码（消息的“附带工具”）：确定=启用，取消=导入但先关闭。只启用你信任的模板。/);
     assert.equal(acceptedMessage.keepToolBlocks, true);
 
     const declined = loadPanel(t);
@@ -3524,6 +3524,6 @@ test('importing a template with enabled tool code asks first: confirm keeps it e
     const plain = loadPanel(t);
     showPromptPresets(plain);
     const [plainMessage] = await importFile(plain, { ...payload, layout: { version: 1, blocks: [{ ...tool, enabled: false }] } });
-    assert.equal(plain.dialogs.confirms.length, 0, '工具块本来就是关着的：没有代码会运行，不用问');
+    assert.equal(plain.dialogs.confirms.length, 0, '带工具的消息本来就是关着的：没有代码会运行，不用问');
     assert.equal(Object.hasOwn(plainMessage, 'keepToolBlocks'), false);
 });

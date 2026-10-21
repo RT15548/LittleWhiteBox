@@ -136,7 +136,7 @@ export function buildReturnAttempts(record) {
 }
 
 /**
- * 自定义工具调用（请求结构里的工具块）：每次调用一段，标题带工具名、第几次请求和耗时，内容是参数与结果 / 错误。
+ * 自定义工具调用（请求结构里消息的“附带工具”）：每次调用一段，标题带工具名、第几次请求和耗时，内容是参数与结果 / 错误。
  * stealth 的工具在运行时就没有写进记录。
  */
 export function buildToolCallSections(record) {

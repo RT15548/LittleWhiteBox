@@ -1,7 +1,8 @@
 // 场景规划请求的"块布局"：存储、设置界面、请求组装三方共用的契约（纯函数）。
 // 零依赖：不得 import 任何模块；也不在逻辑里读时间或随机数（id 随机源由调用方注入）。
 // 布局 = 有序块列表：8 个内置块（内容与角色由代码决定，只能移动）+ 任意数量的自定义消息块。
-// 自定义块里有一种“工具块”（kind: 'tool'）：content 是随请求发出的说明消息，code 是用户写的工具代码（只在浏览器沙盒里执行，见 custom-tool-sandbox.js）。
+// 自定义块可以“附带工具”（tool: { code }）：块的 content 是随请求发出的说明消息，tool.code 是用户写的工具代码
+// （只在浏览器沙盒里执行，见 custom-tool-sandbox.js）。工具跟着这条消息走：消息启用，工具才注册。
 // 稀疏存储：预设只有在布局偏离默认时才带 layout 字段；内置块只存 {id}，避免内容随版本漂移。
 
 export const SCENE_PLANNER_LAYOUT_VERSION = 1;
@@ -24,8 +25,7 @@ export const BUILTIN_BLOCKS = Object.freeze([
 
 export const BUILTIN_BLOCK_IDS = Object.freeze(BUILTIN_BLOCKS.map(block => block.id));
 export const CUSTOM_BLOCK_ROLES = Object.freeze(['system', 'user', 'assistant']);
-export const TOOL_BLOCK_KIND = 'tool';
-export const MAX_TOOL_BLOCKS = 8;
+export const MAX_TOOLS = 8;
 export const MAX_TOOL_CODE_CHARS = 20000;
 
 const CUSTOM_LABEL_FALLBACK = '自定义消息';
@@ -81,6 +81,15 @@ function coerceText(value) {
     return { text: '', coerced: true };
 }
 
+/** 这个块是否附带了工具（不看启用状态）。 */
+export function hasTool(block) {
+    return isRecord(block) && isRecord(block.tool) && typeof block.tool.code === 'string';
+}
+
+function toolOf(code) {
+    return { code: coerceText(code).text.slice(0, MAX_TOOL_CODE_CHARS) };
+}
+
 export function createDefaultLayout() {
     return {
         version: SCENE_PLANNER_LAYOUT_VERSION,
@@ -89,7 +98,7 @@ export function createDefaultLayout() {
 }
 
 export function createCustomBlock(
-    { role = 'user', name = '', content = '', enabled = true } = {},
+    { role = 'user', name = '', content = '', enabled = true, tool = null } = {},
     existingIds = [],
     random = Math.random,
 ) {
@@ -101,19 +110,7 @@ export function createCustomBlock(
         name: coerceText(name).text.trim(),
         content: coerceText(content).text,
         enabled: enabled !== false,
-    };
-}
-
-/** 工具块：自定义消息块 + 工具代码。说明消息（content）默认用 system 角色。 */
-export function createToolBlock(
-    { role = 'system', name = '', content = '', code = '', enabled = true } = {},
-    existingIds = [],
-    random = Math.random,
-) {
-    return {
-        ...createCustomBlock({ role, name, content, enabled }, existingIds, random),
-        kind: TOOL_BLOCK_KIND,
-        code: coerceText(code).text.slice(0, MAX_TOOL_CODE_CHARS),
+        ...(hasTool({ tool }) ? { tool: toolOf(tool.code) } : {}),
     };
 }
 
@@ -155,7 +152,6 @@ function normalizeCore(raw, { trimName = true } = {}) {
     let droppedEntries = 0;
     let duplicateBuiltins = 0;
     let regeneratedIds = 0;
-    let toolBlocks = 0;
     let droppedTools = 0;
 
     for (const entry of rawBlocks) {
@@ -173,13 +169,6 @@ function normalizeCore(raw, { trimName = true } = {}) {
             }
             continue;
         }
-        if (entry.kind === TOOL_BLOCK_KIND) {
-            if (toolBlocks >= MAX_TOOL_BLOCKS) {
-                droppedTools += 1;
-                continue;
-            }
-            toolBlocks += 1;
-        }
         const idOk = typeof id === 'string' && CUSTOM_ID_PATTERN.test(id) && !used.has(id);
         if (idOk) used.add(id);
         slots.push({ entry, id: idOk ? id : null });
@@ -189,6 +178,7 @@ function normalizeCore(raw, { trimName = true } = {}) {
     const blocks = [];
     let invalidRoles = 0;
     let coercedFields = 0;
+    let toolCount = 0;
     for (const slot of slots) {
         if (slot.builtin) {
             blocks.push({ id: slot.builtin });
@@ -216,17 +206,20 @@ function normalizeCore(raw, { trimName = true } = {}) {
             // 角色无效时强制停用：宁可不发，也不悄悄发一条用户没选过角色的消息。
             enabled: roleValid && entry.enabled !== false,
         };
-        if (entry.kind === TOOL_BLOCK_KIND) {
-            const codeInfo = coerceText(entry.code);
-            if (codeInfo.coerced) coercedFields += 1;
-            custom.kind = TOOL_BLOCK_KIND;
-            custom.code = codeInfo.text.slice(0, MAX_TOOL_CODE_CHARS);
+        // 附带的工具；条目里别的字段（包括旧版独立工具块的 kind / code）一律忽略。
+        if (hasTool(entry)) {
+            if (toolCount >= MAX_TOOLS) {
+                droppedTools += 1;
+            } else {
+                custom.tool = { code: entry.tool.code.slice(0, MAX_TOOL_CODE_CHARS) };
+                toolCount += 1;
+            }
         }
         blocks.push(custom);
     }
 
     if (droppedEntries > 0) notes.push(`丢弃了 ${droppedEntries} 个无效的块条目`);
-    if (droppedTools > 0) notes.push(`工具块最多 ${MAX_TOOL_BLOCKS} 个，多出的 ${droppedTools} 个已丢弃`);
+    if (droppedTools > 0) notes.push(`附带工具最多 ${MAX_TOOLS} 个，多出的 ${droppedTools} 个已去掉（消息保留）`);
     if (duplicateBuiltins > 0) notes.push(`丢弃了 ${duplicateBuiltins} 个重复的内置块`);
     if (regeneratedIds > 0) notes.push(`为 ${regeneratedIds} 个自定义块重新生成了 id（缺失、非法或重复）`);
     if (invalidRoles > 0) notes.push(`${invalidRoles} 个自定义块的角色无效，已设为 user 并停用`);
@@ -295,8 +288,7 @@ export function describeBlock(block) {
     if (builtin) return { id, builtin: true, role: builtin.role, label: builtin.label };
     const role = isRecord(block) && CUSTOM_BLOCK_ROLES.includes(block.role) ? block.role : 'user';
     const name = isRecord(block) ? coerceText(block.name).text.trim() : '';
-    const kind = isRecord(block) && block.kind === TOOL_BLOCK_KIND ? TOOL_BLOCK_KIND : '';
-    return { id, builtin: false, role, label: name || CUSTOM_LABEL_FALLBACK, ...(kind ? { kind } : {}) };
+    return { id, builtin: false, role, label: name || CUSTOM_LABEL_FALLBACK, ...(hasTool(block) ? { hasTool: true } : {}) };
 }
 
 // ---- 纯操作：入参先规范化再改副本，结果再规范化一次，保证出来的永远是合法布局，且不改动入参 ----
@@ -339,8 +331,9 @@ function toIdList(ids) {
 
 /**
  * 复制自定义块：每个副本紧跟在它的原块后面（内容、角色、名称、启用状态原样带过去），id 由 random 生成。
+ * 副本不带附带工具：两个同名工具会让规划请求报错，要的话在副本上重新勾“附带工具”。
  * 内置块和不存在的 id 不复制，放进 skipped。
- * @returns {{layout: object, copies: Array<{sourceId: string, id: string}>, skipped: string[]}}
+ * @returns {{layout: object, copies: Array<{sourceId: string, id: string, droppedTool: boolean}>, skipped: string[]}}
  */
 export function duplicateBlocks(layout, ids, random = Math.random) {
     const wanted = new Set(toIdList(ids));
@@ -353,8 +346,10 @@ export function duplicateBlocks(layout, ids, random = Math.random) {
         if (!wanted.has(block.id) || isBuiltinId(block.id)) return [block];
         const id = pickFreeId(used, random);
         used.add(id);
-        copies.push({ sourceId: block.id, id });
-        return [block, { ...block, id }];
+        copies.push({ sourceId: block.id, id, droppedTool: hasTool(block) });
+        const copy = { ...block, id };
+        delete copy.tool;
+        return [block, copy];
     }));
     return { layout: next, copies, skipped };
 }
@@ -415,7 +410,9 @@ export function updateBlock(layout, id, patch) {
             if (CUSTOM_BLOCK_ROLES.includes(patch.role)) next.role = patch.role;
             if (typeof patch.name === 'string') next.name = patch.name;
             if (typeof patch.content === 'string') next.content = patch.content;
-            if (block.kind === TOOL_BLOCK_KIND && typeof patch.code === 'string') next.code = patch.code.slice(0, MAX_TOOL_CODE_CHARS);
+            // tool: null 取消附带；tool: { code } 附带 / 改代码。
+            if (patch.tool === null) delete next.tool;
+            else if (hasTool({ tool: patch.tool })) next.tool = toolOf(patch.tool.code);
             if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled;
             return next;
         });

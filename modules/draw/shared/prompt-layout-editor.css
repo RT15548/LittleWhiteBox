@@ -205,7 +205,10 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
     .lwb-ple-input, .lwb-ple-select { min-height: 44px; }
 }
 
-/* 工具块 */
+/* 消息附带的工具 */
+.lwb-ple-tool-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; width: fit-content; }
+.lwb-ple-tool-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent, #d4a574); cursor: pointer; }
+.lwb-ple-tool-toggle input:focus-visible { outline: 2px solid var(--accent, #d4a574); outline-offset: 1px; }
 .lwb-ple-tool-tag {
     flex-shrink: 0;
     padding: 1px 6px;

@@ -258,7 +258,7 @@ async function buildScenePlannerRequest(options = {}) {
 
         // 布局来自整份预设（customPrompts.layout）；缺省/默认布局走 legacy，请求与改造前逐字节一致。
         const { layout } = normalizeLayout(customPrompts?.layout);
-        // 工具块：代码在沙盒里读出定义；没有宿主（后台 / Node）时直接拒绝，不会运行用户代码。
+        // 附带工具：代码在沙盒里读出定义；没有宿主（后台 / Node）时直接拒绝，不会运行用户代码。
         const customTools = await resolveCustomToolDefinitions(layout, options.customToolHost, { signal: options.signal });
         const plan = planScenePlannerMessages({
             layout,

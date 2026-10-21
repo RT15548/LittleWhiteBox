@@ -1,6 +1,6 @@
 import { NOVEL_PROMPT_GUIDES } from './novel-model-capabilities.js';
 import { migrateLegacyNovelTagGuide } from './novel-prompt-migration.js';
-import { TOOL_BLOCK_KIND, isDefaultLayout, layoutForStorage, normalizeLayout } from '../../shared/scene-planner-layout.js';
+import { hasTool, isDefaultLayout, layoutForStorage, normalizeLayout } from '../../shared/scene-planner-layout.js';
 
 const PROMPT_TEMPLATE_TYPE = 'novel-draw-prompt-template';
 const SUPPORTED_GUIDE_IDS = new Set(Object.values(NOVEL_PROMPT_GUIDES));
@@ -44,11 +44,11 @@ function parseLayout(payload, { keepToolBlocks = false } = {}) {
         throw new TypeError(`V${payload._version} 提示词模板的 layout 格式无效`);
     }
     const { layout, notes } = normalizeLayout(payload.layout);
-    // 工具块带着可执行的代码：用户在页面上确认过（keepToolBlocks）才保留文件里的启用状态，
-    // 没确认（取消，或调用方没问）一律导入为停用，代码不会被运行。
+    // 附带工具的消息带着可执行的代码：用户在页面上确认过（keepToolBlocks）才保留文件里的启用状态，
+    // 没确认（取消，或调用方没问）一律导入为停用（消息和工具一起关），代码不会被运行。
     let disabledTools = 0;
     const blocks = layout.blocks.map((block) => {
-        if (keepToolBlocks || block.kind !== TOOL_BLOCK_KIND || block.enabled === false) return block;
+        if (keepToolBlocks || !hasTool(block) || block.enabled === false) return block;
         disabledTools += 1;
         return { ...block, enabled: false };
     });
@@ -60,7 +60,7 @@ function parseLayout(payload, { keepToolBlocks = false } = {}) {
  * The runtime only receives the current prompt preset shape.
  * V3 files may carry `modelContractOverrides` (template v12 era); the field has no
  * runtime reader any more and is ignored.
- * Tool blocks (code) in a V4 layout are imported disabled unless the caller passes keepToolBlocks: true,
+ * Blocks that carry a tool (code) in a V4 layout are imported disabled unless the caller passes keepToolBlocks: true,
  * which the page does only after the user confirmed the import dialog.
  * V4 files may carry `layout` (消息布局). It is returned only when it differs from the default;
  * `layoutNotes` (repair notes) is returned only when something was repaired. Both keys are absent otherwise,
@@ -97,7 +97,7 @@ export function parseNovelPromptPresetImport(payload, { fallbackName = '', keepT
         const { layout, notes, disabledTools } = parseLayout(payload, { keepToolBlocks });
         if (layout) result.layout = layout;
         if (notes.length > 0) result.layoutNotes = notes;
-        // 只在确有工具块时出现：导入的工具块一律先停用，界面据此提醒用户检查代码后再启用。
+        // 只在确有附带工具的消息时出现：它们一律先停用，界面据此提醒用户检查代码后再启用。
         if (disabledTools > 0) result.disabledToolBlocks = disabledTools;
     }
     return result;

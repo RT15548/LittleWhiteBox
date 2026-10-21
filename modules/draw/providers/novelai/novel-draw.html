@@ -4899,12 +4899,12 @@ function editBuiltinBlock(id) {
     }
 }
 
-/** 工具块“试运行”：在沙盒里读出工具定义并校验，不调用 action，也不发任何请求。 */
-async function testToolBlock(block) {
+/** 附带工具的“试运行”：在沙盒里读出工具定义并校验，不调用 action，也不发任何请求。 */
+async function testBlockTool(block) {
     if (!CTS || !CT) return { ok: false, message: '工具模块还没加载完，请稍后再试' };
     const host = CTS.createSandboxToolHost({ document });
     try {
-        const definition = CT.normalizeToolDefinition(await host.define(block.id, block.code));
+        const definition = CT.normalizeToolDefinition(await host.define(block.id, block.tool?.code ?? ''));
         const names = Object.keys(definition.parameters.properties || {});
         return {
             ok: true,
@@ -4933,7 +4933,7 @@ function getLayoutEditor() {
             confirm: message => confirm(message),
             autoScroll: autoScrollPresetList,
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
-            onTestTool: testToolBlock,
+            onTestTool: testBlockTool,
         });
     }
     return layoutEditor;
@@ -5771,12 +5771,12 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const text = await file.text();
             const data = JSON.parse(text);
-            // 模板里带可执行的工具代码时先问一句：确定 = 保留文件里的启用状态，取消 = 导入但先关闭。回答之前不会导入，更不会运行代码。
-            const hasEnabledToolCode = Array.isArray(data?.layout?.blocks) && data.layout.blocks.some(block => (
-                block && block.kind === 'tool' && block.enabled !== false && typeof block.code === 'string' && block.code.trim()
-            ));
+            // 模板里有启用的“附带工具”时先问一句：确定 = 保留文件里的启用状态，取消 = 导入但先关闭。回答之前不会导入，更不会运行代码。
+            const toolCodeOf = block => (block?.tool && typeof block.tool.code === 'string' ? block.tool.code : '');
+            const hasEnabledToolCode = Array.isArray(data?.layout?.blocks)
+                && data.layout.blocks.some(block => block && block.enabled !== false && toolCodeOf(block).trim());
             const keepToolBlocks = hasEnabledToolCode
-                ? confirm('这份模板含自定义工具代码：确定=启用，取消=导入但先关闭。只启用你信任的模板。')
+                ? confirm('这份模板含自定义工具代码（消息的“附带工具”）：确定=启用，取消=导入但先关闭。只启用你信任的模板。')
                 : false;
             postToParent({
                 type: 'IMPORT_PROMPT_PRESET',
@@ -5869,10 +5869,10 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch((error) => { console.error('[ND-UI] 请求结构编辑器加载失败，请求结构不可用:', error); }),
         import('../../shared/custom-tool-sandbox.js')
             .then((module) => { CTS = module; })
-            .catch((error) => { console.error('[ND-UI] 工具沙盒模块加载失败，工具块无法试运行:', error); }),
+            .catch((error) => { console.error('[ND-UI] 工具沙盒模块加载失败，附带工具无法试运行:', error); }),
         import('../../shared/custom-tools.js')
             .then((module) => { CT = module; })
-            .catch((error) => { console.error('[ND-UI] 工具模块加载失败，工具块无法试运行:', error); }),
+            .catch((error) => { console.error('[ND-UI] 工具模块加载失败，附带工具无法试运行:', error); }),
         import('../../shared/llm-records-view.js')
             .then((module) => { LRV = module; renderLastLlmRequest(lastLlmRecords); })
             .catch((error) => { console.error('[ND-UI] 请求记录查看器加载失败，最近请求不可用:', error); }),

@@ -1,11 +1,11 @@
-// 请求结构里的“自定义工具块”：纯函数契约（不执行任何代码）。
-// 块里的 code 沿用 Reborn 的写法：`return { name, description, parameters, action: async (args) => ..., stealth };`
+// 请求结构里消息块的“附带工具”：纯函数契约（不执行任何代码）。
+// 工具代码（block.tool.code）沿用 Reborn 的写法：`return { name, description, parameters, action: async (args) => ..., stealth };`
 // 代码只在浏览器的沙盒 iframe 里执行（custom-tool-sandbox.js），本模块只负责校验沙盒回传的定义、
 // 把它变成 Agent 的工具说明，以及把工具返回值整理成给模型的文本。
 import { SUBMIT_SCENE_PLAN_TOOL_NAME, ScenePlannerError } from './scene-plan-contract.js';
-import { MAX_TOOL_BLOCKS, MAX_TOOL_CODE_CHARS, TOOL_BLOCK_KIND } from './scene-planner-layout.js';
+import { MAX_TOOLS, MAX_TOOL_CODE_CHARS, hasTool } from './scene-planner-layout.js';
 
-export { MAX_TOOL_BLOCKS, MAX_TOOL_CODE_CHARS, TOOL_BLOCK_KIND };
+export { MAX_TOOLS, MAX_TOOL_CODE_CHARS };
 // 一次规划里，模型最多能调用自定义工具的总次数（含被判定为同批未执行的）。
 export const MAX_CUSTOM_TOOL_CALLS = 5;
 export const TOOL_ACTION_TIMEOUT_MS = 10000;
@@ -17,7 +17,7 @@ export const TOOL_RECORD_MAX_CHARS = 4000;
 const TOOL_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const DESCRIPTION_MAX_CHARS = 2000;
 
-/** 新建工具块时的模板：与 Reborn 的 game_content 同款（把整段输出放进 content 参数）。 */
+/** 勾选“附带工具”时的代码模板：与 Reborn 的 game_content 同款（把整段输出放进 content 参数）。 */
 export const DEFAULT_TOOL_CODE = `return {
     name: "note",
     description: "记下一段分析，之后再调用 submit_scene_plan 提交结果。",
@@ -34,22 +34,16 @@ export const DEFAULT_TOOL_CODE = `return {
     stealth: false,
 };`;
 
-export const DEFAULT_TOOL_INSTRUCTION = '先调用 note 工具写下你的分析，再调用 submit_scene_plan 提交场景规划。';
-
 /** 编辑器里的“从代码读取工具名”：只做文本匹配，绝不执行代码；真正的定义以沙盒运行结果为准。 */
 export function extractToolName(code) {
     const match = /\bname\s*:\s*(["'`])([^"'`\r\n]{1,80})\1/.exec(String(code ?? ''));
     return match ? match[2].trim() : '';
 }
 
-export function isToolBlock(block) {
-    return block?.kind === TOOL_BLOCK_KIND;
-}
-
-/** 启用、且带代码的工具块（按布局顺序）。 */
+/** 启用、且附带了代码的消息块（按布局顺序）。工具跟着消息：消息关掉，工具就不注册。 */
 export function collectToolBlocks(layout) {
     const blocks = Array.isArray(layout?.blocks) ? layout.blocks : [];
-    return blocks.filter(block => isToolBlock(block) && block.enabled !== false && String(block.code ?? '').trim());
+    return blocks.filter(block => hasTool(block) && block.enabled !== false && String(block.tool.code).trim());
 }
 
 function isPlainObject(value) {
@@ -145,8 +139,8 @@ export function toToolResponseObject(text) {
 }
 
 /**
- * 请求组装时：让宿主（浏览器沙盒）读出每个启用的工具块的定义，并校验。
- * 没有宿主（后台任务、Node）却启用了工具块时直接拒绝，绝不在没有沙盒的环境里运行用户代码。
+ * 请求组装时：让宿主（浏览器沙盒）读出每个启用且附带工具的消息块的定义，并校验。
+ * 没有宿主（后台任务、Node）却启用了带工具的消息时直接拒绝，绝不在没有沙盒的环境里运行用户代码。
  * @returns {Promise<Array<{name: string, description: string, parameters: object, stealth: boolean}>>}
  */
 export async function resolveCustomToolDefinitions(layout, host, { signal } = {}) {
@@ -154,20 +148,20 @@ export async function resolveCustomToolDefinitions(layout, host, { signal } = {}
     if (!blocks.length) return [];
     if (!host || typeof host.define !== 'function') {
         throw new ScenePlannerError(
-            '请求结构里启用了自定义工具块，需要在浏览器里运行；后台任务不会执行自定义代码。',
+            '请求结构里有启用的“附带工具”，需要在浏览器里运行；后台任务不会执行自定义代码。',
             'CUSTOM_TOOL_HOST_MISSING',
         );
     }
     const definitions = [];
     for (const block of blocks) {
-        const label = String(block.name || '').trim() || '自定义工具';
+        const label = String(block.name || '').trim() || '附带工具';
         try {
-            const raw = await host.define(block.id, block.code, { signal });
+            const raw = await host.define(block.id, block.tool.code, { signal });
             definitions.push(normalizeToolDefinition(raw, { usedNames: definitions.map(item => item.name) }));
         } catch (error) {
             if (error?.name === 'AbortError') throw error;
             throw new ScenePlannerError(
-                `自定义工具块“${label}”无法使用：${error?.message || '未知错误'}`,
+                `消息“${label}”的附带工具无法使用：${error?.message || '未知错误'}`,
                 'CUSTOM_TOOL_INVALID',
                 { blockId: block.id },
                 { cause: error },

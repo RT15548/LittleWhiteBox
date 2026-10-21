@@ -164,7 +164,7 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
     // 自定义工具要有能运行它们的宿主（浏览器沙盒）。后台 Draw Run 没有，所以带自定义工具的快照在这里就被拒绝。
     if (customTools.length && typeof options.customToolHost?.invoke !== 'function') {
         const error = new ScenePlannerError(
-            '请求结构里启用了自定义工具块，需要在浏览器里运行；后台任务不会执行自定义代码。',
+            '请求结构里有启用的“附带工具”，需要在浏览器里运行；后台任务不会执行自定义代码。',
             'CUSTOM_TOOL_HOST_MISSING',
         );
         diagnostic.fail(error, { stage: 'config' });

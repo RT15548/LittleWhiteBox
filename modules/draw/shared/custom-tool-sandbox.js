@@ -1,4 +1,4 @@
-// 自定义工具代码的执行环境：每个工具块一个沙盒 iframe（sandbox="allow-scripts"，没有 allow-same-origin）。
+// 自定义工具代码的执行环境：每个带工具的消息块一个沙盒 iframe（sandbox="allow-scripts"，没有 allow-same-origin）。
 // 代码拿不到酒馆页面的 DOM、存储和 Cookie，也不在页面的 JS 环境里运行；只能经 postMessage 收发可序列化的数据。
 // 注意沙盒挡不住联网：代码里的 fetch 仍然能发请求，所以只启用你信任的代码。
 // 超时、取消或出错时直接移除 iframe，卡死的代码不会拖住后面的请求。

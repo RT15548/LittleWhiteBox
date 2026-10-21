@@ -12,13 +12,13 @@ import {
     toToolResponseObject,
 } from '../custom-tools.js';
 import {
-    MAX_TOOL_BLOCKS,
+    MAX_TOOLS,
     addBlockAfter,
     createCustomBlock,
     createDefaultLayout,
-    createToolBlock,
     describeBlock,
     duplicateBlocks,
+    hasTool,
     isDefaultLayout,
     layoutForStorage,
     normalizeLayout,
@@ -27,6 +27,7 @@ import {
 } from '../scene-planner-layout.js';
 import { planScenePlannerMessages } from '../scene-planner-assembly.js';
 import { createInProcessToolHost } from './helpers/in-process-tool-host.js';
+import { createToolBlock } from './helpers/tool-block.js';
 
 const GAME_CONTENT_CODE = `return {
     name: "game_content",
@@ -36,17 +37,17 @@ const GAME_CONTENT_CODE = `return {
     stealth: false,
 };`;
 
-test('tool blocks keep kind and code through normalization, other blocks stay exactly as before', () => {
+test('a message can carry a tool; it survives normalization and other blocks stay exactly as before', () => {
     const tool = createToolBlock({ name: '防截断', content: '说明', code: GAME_CONTENT_CODE }, [], () => 0.1);
     const plain = createCustomBlock({ role: 'user', content: 'hi' }, [tool.id], () => 0.2);
     const layout = addBlockAfter(addBlockAfter(createDefaultLayout(), tool), plain, tool.id);
     const blocks = layout.blocks.filter(block => !describeBlock(block).builtin);
     assert.deepEqual(blocks[0], { ...tool });
-    assert.equal(blocks[0].kind, 'tool');
+    assert.deepEqual(blocks[0].tool, { code: GAME_CONTENT_CODE });
     assert.equal(blocks[0].role, 'system');
-    assert.equal(Object.hasOwn(blocks[1], 'kind'), false);
-    assert.equal(Object.hasOwn(blocks[1], 'code'), false);
-    assert.equal(describeBlock(blocks[0]).kind, 'tool');
+    assert.equal(Object.hasOwn(blocks[1], 'tool'), false);
+    assert.equal(describeBlock(blocks[0]).hasTool, true);
+    assert.equal(Object.hasOwn(describeBlock(blocks[1]), 'hasTool'), false);
     // 序列化往返不变；默认布局不受影响。
     assert.deepEqual(normalizeLayout(JSON.parse(JSON.stringify(layout))).layout, layout);
     assert.equal(isDefaultLayout(createDefaultLayout()), true);
@@ -54,33 +55,53 @@ test('tool blocks keep kind and code through normalization, other blocks stay ex
     assert.deepEqual(layoutForStorage(layout), layout);
 });
 
-test('tool block code is editable, copyable and toggleable like other custom blocks; plain blocks ignore code patches', () => {
+test('the tool is attached, edited and detached by patching the message; disabling the message disables the tool', () => {
     const tool = createToolBlock({ code: 'return {}' }, [], () => 0.3);
     const plain = createCustomBlock({ content: 'x' }, [tool.id], () => 0.4);
     let layout = addBlockAfter(addBlockAfter(createDefaultLayout(), tool), plain);
-    layout = updateBlock(layout, tool.id, { code: GAME_CONTENT_CODE });
-    layout = updateBlock(layout, plain.id, { code: 'evil()' });
     const find = id => layout.blocks.find(block => block.id === id);
-    assert.equal(find(tool.id).code, GAME_CONTENT_CODE);
+    layout = updateBlock(layout, tool.id, { tool: { code: GAME_CONTENT_CODE } });
+    assert.equal(find(tool.id).tool.code, GAME_CONTENT_CODE);
+    layout = updateBlock(layout, plain.id, { tool: { code: 'return {}' } });
+    assert.equal(hasTool(find(plain.id)), true, '勾上“附带工具”就是给这条消息 patch 一个 tool');
+    layout = updateBlock(layout, plain.id, { tool: null });
+    assert.equal(Object.hasOwn(find(plain.id), 'tool'), false);
+    assert.equal(find(plain.id).content, 'x', '取消附带工具不动消息本身');
+    layout = updateBlock(layout, plain.id, { code: 'evil()', kind: 'tool' });
     assert.equal(Object.hasOwn(find(plain.id), 'code'), false);
-    const copied = duplicateBlocks(layout, [tool.id], () => 0.5);
-    assert.equal(copied.copies.length, 1);
+    assert.equal(Object.hasOwn(find(plain.id), 'kind'), false);
+    // 复制只带消息，不带工具（两个同名工具会冲突）。
+    const copied = duplicateBlocks(layout, [tool.id, plain.id], () => 0.5);
+    assert.deepEqual(copied.copies.map(copy => copy.droppedTool), [true, false]);
     const copy = copied.layout.blocks.find(block => block.id === copied.copies[0].id);
-    assert.equal(copy.kind, 'tool');
-    assert.equal(copy.code, GAME_CONTENT_CODE);
+    assert.equal(copy.content, find(tool.id).content);
+    assert.equal(Object.hasOwn(copy, 'tool'), false);
+    assert.equal(collectToolBlocks(copied.layout).length, 1);
     layout = setBlocksEnabled(layout, [tool.id], false);
     assert.equal(find(tool.id).enabled, false);
     assert.equal(collectToolBlocks(layout).length, 0);
 });
 
-test('at most MAX_TOOL_BLOCKS tool blocks survive normalization, with a note', () => {
-    const raw = { version: 1, blocks: Array.from({ length: MAX_TOOL_BLOCKS + 2 }, (_, index) => ({ id: `t${index}`, role: 'system', name: '', content: '', enabled: true, kind: 'tool', code: 'x' })) };
-    const { layout, notes } = normalizeLayout(raw);
-    assert.equal(layout.blocks.filter(block => block.kind === 'tool').length, MAX_TOOL_BLOCKS);
-    assert.ok(notes.some(note => note.includes('工具块最多')));
+test('an old standalone tool block (kind: tool + code) is not migrated: it reads as a plain message', () => {
+    const raw = { version: 1, blocks: [{ id: 'old1', role: 'system', name: '旧工具', content: '说明', enabled: true, kind: 'tool', code: GAME_CONTENT_CODE }] };
+    const { layout } = normalizeLayout(raw);
+    const old = layout.blocks.find(block => block.id === 'old1');
+    assert.equal(old.content, '说明');
+    assert.equal(Object.hasOwn(old, 'tool'), false);
+    assert.equal(Object.hasOwn(old, 'kind'), false);
+    assert.equal(Object.hasOwn(old, 'code'), false);
+    assert.equal(collectToolBlocks(layout).length, 0);
 });
 
-test('a tool block sends its instruction like a custom message and only while enabled', () => {
+test('at most MAX_TOOLS attached tools survive normalization (the messages stay), with a note', () => {
+    const raw = { version: 1, blocks: Array.from({ length: MAX_TOOLS + 2 }, (_, index) => ({ id: `t${index}`, role: 'system', name: '', content: 'm', enabled: true, tool: { code: 'x' } })) };
+    const { layout, notes } = normalizeLayout(raw);
+    assert.equal(layout.blocks.filter(hasTool).length, MAX_TOOLS);
+    assert.equal(layout.blocks.filter(block => !describeBlock(block).builtin).length, MAX_TOOLS + 2);
+    assert.ok(notes.some(note => note.includes('附带工具最多')));
+});
+
+test('a message with a tool sends its content like any custom message and only while enabled', () => {
     const tool = createToolBlock({ content: '请调用 game_content', code: GAME_CONTENT_CODE }, [], () => 0.6);
     const layout = addBlockAfter(createDefaultLayout(), tool);
     const builtinTexts = { opening: 'O', frame: 'F', guide: 'G', rules: 'R', worldInfo: 'W', content: 'C', limits: 'L' };

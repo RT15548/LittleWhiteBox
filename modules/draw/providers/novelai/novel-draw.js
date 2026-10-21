@@ -2634,7 +2634,7 @@ async function buildNovelScenePlannerOptions({
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
         plannerProfile: getNovelPlannerProfile(model),
         plannerRetry: { maxRetries: settings.plannerMaxRetries },
-        // 请求结构里有启用的工具块时，由浏览器沙盒执行工具代码；没有工具块就不创建宿主。
+        // 请求结构里有启用且附带工具的消息时，由浏览器沙盒执行工具代码；没有就不创建宿主。
         ...(typeof document !== 'undefined' && collectToolBlocks(normalizeLayout(customPrompts?.layout).layout).length
             ? { customToolHost: createSandboxToolHost({ document }) }
             : {}),
@@ -3583,7 +3583,7 @@ async function handleFrameMessage(event) {
             const { layoutNotes = [], disabledToolBlocks = 0, ...presetFields } = imported;
             const importedText = [
                 layoutNotes.length ? `布局已自动修复：${layoutNotes.join('；')}` : '',
-                disabledToolBlocks ? `含 ${disabledToolBlocks} 个自定义工具块（带代码），已先关闭：看过代码、确认可信再在“请求结构”里启用` : '',
+                disabledToolBlocks ? `含 ${disabledToolBlocks} 条带自定义工具（代码）的消息，已先关闭：看过代码、确认可信再在“请求结构”里启用` : '',
             ].filter(Boolean).reduce((text, note) => `${text}（${note}）`, '已导入为新预设');
             const ok = await updateSettingsPersistent((settings) => {
                 settings.promptPresets.push({

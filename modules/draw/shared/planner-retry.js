@@ -21,7 +21,7 @@ const NON_RETRYABLE_CODES = new Set([
     'PROMPT_EXPANSION_FAILED',
     'PREPARED_INPUT_INVALID',
     'TOOL_CONTRACT_INVALID',
-    // 自定义工具块：代码有问题、环境不能运行、调用次数超限，重试结果不会变。
+    // 附带工具：代码有问题、环境不能运行、调用次数超限，重试结果不会变。
     'CUSTOM_TOOL_INVALID',
     'CUSTOM_TOOL_HOST_MISSING',
     'CUSTOM_TOOL_LIMIT_EXCEEDED',
