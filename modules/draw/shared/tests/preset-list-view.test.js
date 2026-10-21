@@ -183,3 +183,131 @@ test('required options are checked', () => {
     assert.throws(() => createPresetListView({}), TypeError);
     assert.throws(() => createPresetListView({ document: {}, getList: () => null, getPresets: () => [] }), TypeError);
 });
+
+// ───────────── 折叠 ─────────────
+
+function withToggle(options = {}) {
+    const ctx = setup({ extra: { listId: 'test', ...options.extra }, ...options.setup });
+    const toggle = ctx.document.createElement('button');
+    toggle.setAttribute('aria-expanded', 'true');
+    ctx.document.body.appendChild(toggle);
+    ctx.view.destroy();
+    // 重新创建时带上折叠按钮（setup 的 extra 不能引用 document，所以这里换一个带 getToggle 的视图）
+    const view = createPresetListView({
+        document: ctx.document,
+        getList: () => ctx.list,
+        getPresets: () => ctx.data.presets,
+        getCurrentId: () => ctx.data.current,
+        escapeHtml,
+        noun: '测试预设',
+        onSelect: (id, preset) => ctx.calls.select.push([id, preset.name]),
+        onAction: (action, id, preset) => ctx.calls.action.push([action, id, preset.name]),
+        onReorder: ids => ctx.calls.reorder.push(ids),
+        closeMenu: options => ctx.calls.close.push(options),
+        toggleMenu: button => ctx.calls.toggle.push(button.dataset.presetId),
+        listId: 'test',
+        getToggle: () => toggle,
+        ...options.view,
+    });
+    return { ...ctx, view, toggle };
+}
+
+function fakeStorage(document, { throwing = false } = {}) {
+    const store = new Map();
+    const storage = {
+        getItem: key => { if (throwing) throw new Error('blocked'); return store.has(key) ? store.get(key) : null; },
+        setItem: (key, value) => { if (throwing) throw new Error('blocked'); store.set(key, String(value)); },
+    };
+    Object.defineProperty(document.defaultView, 'localStorage', { value: storage, configurable: true });
+    return store;
+}
+
+test('the toggle collapses the list to the current preset only: no drag handles, the menu and select still work', () => {
+    const { view, toggle, rows, click, list, calls } = withToggle({ setup: { current: 'b' } });
+    view.render();
+    assert.equal(rows().length, 3);
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    click(toggle);
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['b']);
+    assert.equal(list.querySelectorAll('[data-preset-drag]').length, 0);
+    assert.equal(list.classList.contains('preset-list-collapsed'), true);
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(toggle.classList.contains('collapsed'), true);
+    assert.match(toggle.getAttribute('aria-label'), /^展开测试预设列表$/);
+    click(rows()[0].querySelector('[data-preset-action="menu"]'));
+    assert.deepEqual(calls.toggle, ['b']);
+    click(rows()[0].querySelector('[data-preset-action="select"]'));
+    assert.deepEqual(calls.select, [['b', '乙']]);
+    click(toggle);
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['a', 'b', 'c']);
+    assert.equal(list.querySelectorAll('[data-preset-drag]').length, 3);
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.match(toggle.getAttribute('aria-label'), /^折叠测试预设列表$/);
+});
+
+test('while collapsed a change of the current preset redraws the single row; a missing current falls back to the first', () => {
+    const { view, data, rows } = withToggle({ setup: { current: 'a' } });
+    view.render();
+    view.setCollapsed(true);
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['a']);
+    data.current = 'c';
+    view.syncSelection();
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['c']);
+    assert.equal(rows()[0].classList.contains('selected'), true);
+    data.current = 'gone';
+    view.render();
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['a']);
+});
+
+test('the collapsed state is remembered per list id in localStorage and survives a new view', () => {
+    const first = withToggle();
+    const store = fakeStorage(first.document);
+    first.view.render();
+    assert.equal(first.view.isCollapsed(), false, '默认展开');
+    first.view.setCollapsed(true);
+    assert.equal(store.get('xb-draw-list-collapsed:test'), '1');
+    const second = createPresetListView({
+        document: first.document,
+        getList: () => first.list,
+        getPresets: () => first.data.presets,
+        getCurrentId: () => first.data.current,
+        escapeHtml,
+        noun: '测试预设',
+        listId: 'test',
+        getToggle: () => first.toggle,
+    });
+    second.render();
+    assert.equal(second.isCollapsed(), true);
+    assert.equal(first.rows().length, 1);
+    const other = createPresetListView({
+        document: first.document, getList: () => first.list, getPresets: () => first.data.presets, getCurrentId: () => first.data.current, escapeHtml, noun: '测试预设', listId: 'other',
+    });
+    assert.equal(other.isCollapsed(), false, '别的列表不受影响');
+    first.view.setCollapsed(false);
+    assert.equal(store.get('xb-draw-list-collapsed:test'), '0');
+});
+
+test('collapsing keeps working when the storage is unavailable or blocked', () => {
+    const blocked = withToggle();
+    fakeStorage(blocked.document, { throwing: true });
+    blocked.view.render();
+    assert.equal(blocked.view.isCollapsed(), false);
+    blocked.click(blocked.toggle);
+    assert.equal(blocked.view.isCollapsed(), true, '写失败也能折叠');
+    assert.equal(blocked.rows().length, 1);
+    const none = withToggle();
+    none.view.render();
+    none.click(none.toggle);
+    assert.equal(none.rows().length, 1, '没有 localStorage 的环境同样可用');
+});
+
+test('a view without a toggle or list id is never collapsed and setCollapsed still works', () => {
+    const { view, rows } = setup();
+    view.render();
+    assert.equal(view.isCollapsed(), false);
+    view.setCollapsed(true);
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['a']);
+    view.toggle();
+    assert.equal(rows().length, 3);
+    view.destroy();
+});

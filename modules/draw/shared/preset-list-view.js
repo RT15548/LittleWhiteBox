@@ -5,7 +5,27 @@
 // .char-drag-handle / .char-menu*），和角色卡共用同一套 CSS。
 // 菜单开关、拖拽排序分别由 character-card-menu.js 与 sortable-list.js 负责，这里经注入的函数调用它们，
 // 这两个模块晚于页面脚本加载，所以都用“调用时才取”的函数而不是直接引用。
+// 可折叠：调用方给出 listId 和折叠按钮（getToggle），折叠后列表只显示当前使用的那一个预设（没有拖动手柄，
+// “…”菜单照常可用）；折叠状态按 listId 记在 localStorage（xb-draw-list-collapsed:<listId>），存储不可用时只在本次页面内生效。
 // 不得 import 任何模块；DOM 与转义函数全部由调用方注入。
+
+const COLLAPSE_KEY_PREFIX = 'xb-draw-list-collapsed:';
+
+function readCollapsed(document, listId) {
+    if (!listId) return false;
+    try {
+        return document.defaultView?.localStorage?.getItem(COLLAPSE_KEY_PREFIX + listId) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function writeCollapsed(document, listId, collapsed) {
+    if (!listId) return;
+    try {
+        document.defaultView?.localStorage?.setItem(COLLAPSE_KEY_PREFIX + listId, collapsed ? '1' : '0');
+    } catch { /* 存储不可用：只在本次页面内记住 */ }
+}
 
 const DEFAULT_MENU_ITEMS = [
     { action: 'rename', label: '重命名', icon: 'fa-pen' },
@@ -31,7 +51,9 @@ const DEFAULT_MENU_ITEMS = [
  * @param {function(object): (object|null)} [options.createSortable] 用给定选项创建排序控制器；排序模块未就绪时返回 null
  * @param {function(string[], string, number): string[]} [options.moveStep] 键盘 ↑ / ↓ 移动一格
  * @param {function(Event, Element): void} [options.autoScroll] 拖拽中靠近边缘时滚动（第二个参数是列表容器）
- * @returns {{render: function(): void, syncSelection: function(): void, ensureSortable: function(): void, bind: function(): void, destroy: function(): void}}
+ * @param {string} [options.listId] 折叠状态的存储名（如 'novel-params'）；缺省则不记忆
+ * @param {function(): (Element|null)} [options.getToggle] 折叠 / 展开按钮；点击切换，状态同步到 aria-expanded 和 .collapsed
+ * @returns {{render: function(): void, syncSelection: function(): void, ensureSortable: function(): void, bind: function(): void, destroy: function(): void, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, toggle: function(): void}}
  */
 export function createPresetListView({
     document,
@@ -49,14 +71,23 @@ export function createPresetListView({
     createSortable = null,
     moveStep = null,
     autoScroll = null,
+    listId = '',
+    getToggle = null,
 } = {}) {
     if (!document || typeof getList !== 'function' || typeof getPresets !== 'function' || typeof escapeHtml !== 'function') {
         throw new TypeError('缺少 document / getList / getPresets / escapeHtml');
     }
     let sortable = null;
     let bound = null; // 已挂上点击委托的容器
+    let boundToggle = null;
+    let collapsed = null; // 首次用到时才读存储
 
-    function rowMarkup(preset, current) {
+    function isCollapsed() {
+        if (collapsed === null) collapsed = readCollapsed(document, listId);
+        return collapsed;
+    }
+
+    function rowMarkup(preset, current, withHandle) {
         const pid = escapeHtml(preset.id);
         const pname = escapeHtml(preset.name || preset.id);
         const selected = preset.id === current;
@@ -64,7 +95,7 @@ export function createPresetListView({
                     <button type="button" role="menuitem" class="char-menu-item${item.danger ? ' danger' : ''}" data-preset-action="${escapeHtml(item.action)}" data-preset-id="${pid}" title="${escapeHtml(item.label)}"><i class="fa-solid ${escapeHtml(item.icon)}" aria-hidden="true"></i><span class="char-menu-label">${escapeHtml(item.label)}</span></button>`).join('');
         return `
         <div class="preset-row${selected ? ' selected' : ''}" role="listitem" data-preset-id="${pid}">
-            <span class="char-drag-handle" role="button" tabindex="0" data-preset-drag="${pid}" title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${escapeHtml(noun)} ${pname} 的顺序">⋮⋮</span>
+            ${withHandle ? `<span class="char-drag-handle" role="button" tabindex="0" data-preset-drag="${pid}" title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${escapeHtml(noun)} ${pname} 的顺序">⋮⋮</span>` : ''}
             <button type="button" class="preset-row-name" data-preset-action="select" data-preset-id="${pid}" title="${pname}"${selected ? ' aria-current="true"' : ''}>${pname}</button>
             <span class="char-menu-wrap" data-card-menu>
                 <button type="button" class="char-action-button char-menu-button" data-preset-action="menu" data-preset-id="${pid}" title="更多操作" aria-label="更多操作 ${pname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
@@ -115,24 +146,57 @@ export function createPresetListView({
         }) || null;
     }
 
+    function handleToggle() {
+        setCollapsed(!isCollapsed());
+    }
+
+    function syncToggle() {
+        const toggle = getToggle?.();
+        if (!toggle) return;
+        const folded = isCollapsed();
+        toggle.classList.toggle('collapsed', folded);
+        toggle.setAttribute('aria-expanded', String(!folded));
+        toggle.setAttribute('aria-label', `${folded ? '展开' : '折叠'}${noun}列表`);
+        if (boundToggle !== toggle) {
+            boundToggle?.removeEventListener('click', handleToggle);
+            toggle.addEventListener('click', handleToggle);
+            boundToggle = toggle;
+        }
+    }
+
     function render() {
         const list = getList();
         if (!list) return;
         closeMenu?.(); // 整体重绘会换掉所有行，已打开的菜单随之失效
         const presets = getPresets();
         const current = getCurrentId();
+        const folded = isCollapsed();
+        list.classList.toggle('preset-list-collapsed', folded);
+        // 折叠时只显示当前使用的预设（当前项缺失时退到第一个），不画拖动手柄。
+        const shown = folded ? (presets.filter(preset => preset.id === current).concat(presets).slice(0, 1)) : presets;
         // eslint-disable-next-line no-unsanitized/property -- 名称与 id 都经注入的 escapeHtml 转义，其余是固定标记
-        list.innerHTML = presets.length
-            ? presets.map(preset => rowMarkup(preset, current)).join('')
+        list.innerHTML = shown.length
+            ? shown.map(preset => rowMarkup(preset, current, !folded)).join('')
             : `<div class="preset-list-empty">暂无${escapeHtml(noun)}</div>`;
+        syncToggle();
         bind();
         ensureSortable();
     }
 
-    // 只改高亮，不重绘：被点的按钮留在原处，键盘焦点不丢。
+    function setCollapsed(value) {
+        collapsed = Boolean(value);
+        writeCollapsed(document, listId, collapsed);
+        render();
+    }
+
+    // 只改高亮，不重绘：被点的按钮留在原处，键盘焦点不丢。折叠时列表里只有当前项，换了当前项就要重绘。
     function syncSelection() {
         const list = getList();
         if (!list) return;
+        if (isCollapsed()) {
+            render();
+            return;
+        }
         const current = getCurrentId();
         list.querySelectorAll('.preset-row').forEach((row) => {
             const selected = row.dataset.presetId === current;
@@ -145,9 +209,20 @@ export function createPresetListView({
     function destroy() {
         bound?.removeEventListener('click', handleClick);
         bound = null;
+        boundToggle?.removeEventListener('click', handleToggle);
+        boundToggle = null;
         sortable?.destroy?.();
         sortable = null;
     }
 
-    return { render, syncSelection, ensureSortable, bind, destroy };
+    return {
+        render,
+        syncSelection,
+        ensureSortable,
+        bind,
+        destroy,
+        isCollapsed,
+        setCollapsed,
+        toggle: handleToggle,
+    };
 }

@@ -2240,7 +2240,7 @@ test('the old select and its row of buttons are gone; new / cloud / save stay in
     }
     const header = panel.$('#view-params .preset-list-header');
     assert.match(header.querySelector('.card-title').textContent, /参数预设/);
-    sameJson(Array.from(header.querySelectorAll('button')).map(button => button.id), ['nd_params_add', 'nd_params_cloud', 'nd_params_save']);
+    sameJson(Array.from(header.querySelectorAll('.btn-group button')).map(button => button.id), ['nd_params_add', 'nd_params_cloud', 'nd_params_save']);
     assert.ok(panel.$('#nd_params_list'));
     assert.ok(panel.$('#nd_params_status'));
     assert.equal(panel.$$('#view-params select#nd_params_preset').length, 0);
@@ -2641,7 +2641,7 @@ test('the old prompt select and its buttons are gone; new / import / save sit in
     assert.ok(card);
     const header = card.querySelector('.preset-list-header');
     assert.match(header.querySelector('.card-title').textContent, /提示词预设/);
-    sameJson(Array.from(header.querySelectorAll('button, label, input')).map(node => node.id || node.tagName), ['nd_prompt_add', 'LABEL', 'nd_prompt_preset_import', 'nd_prompt_preset_save']);
+    sameJson(Array.from(header.querySelectorAll('.btn-group button, .btn-group label, .btn-group input')).map(node => node.id || node.tagName), ['nd_prompt_add', 'LABEL', 'nd_prompt_preset_import', 'nd_prompt_preset_save']);
     assert.equal(header.querySelector('#nd_prompt_preset_import').getAttribute('type'), 'file');
     assert.equal(header.querySelector('label').closest('.btn-group') !== null, true);
     assert.match(header.querySelector('label').textContent, /导入/);
@@ -3461,4 +3461,38 @@ test('host source: layout is kept by normalizeSettings, copied by duplicate, sav
 
     assert.match(source, /promptLayoutSupported: true/);
     assert.doesNotMatch(source, /CONFIG_VERSION\s*=\s*\d+[\s\S]{0,0}layout/, '不动配置版本');
+});
+
+// ───────────── 预设列表折叠 ─────────────
+
+test('both preset lists have a collapse button in the card header that shows only the current preset', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't2' });
+    for (const [button, list, rowsOf, ids] of [
+        ['#nd_params_collapse', '#nd_params_list', paramsRows, ['p1', 'p2', 'p3']],
+        ['#nd_prompt_collapse', '#nd_prompt_list', promptRows, ['t1', 't2', 't3']],
+    ]) {
+        const toggle = panel.$(button);
+        assert.equal(toggle.getAttribute('title'), '折叠 / 展开');
+        assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+        sameJson(rowsOf(panel).map(row => row.dataset.presetId), ids);
+        panel.click(toggle);
+        assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+        assert.equal(panel.$$(`${list} [data-preset-drag]`).length, 0, '折叠后没有拖动手柄');
+        assert.equal(rowsOf(panel).length, 1);
+        panel.click(toggle);
+        sameJson(rowsOf(panel).map(row => row.dataset.presetId), ids);
+    }
+});
+
+test('a collapsed prompt list shows the newly selected preset and keeps its menu working', (t) => {
+    const panel = loadPanel(t);
+    showPromptPresets(panel, { selected: 't1' });
+    panel.click(panel.$('#nd_prompt_collapse'));
+    sameJson(promptRowIds(panel), ['t1']);
+    const menu = openPromptMenu(panel, 't1');
+    assert.equal(menu.hasAttribute('hidden'), false);
+    panel.click(promptMenuButton(panel, 't1'));
+    panel.initData({ paramsPresets: threePresets(), selectedParamsPresetId: 'p1', promptPresets: threePrompts(), selectedPromptPresetId: 't3', modelGuideDefaults: { 'v4.5': 'GUIDE-DEFAULT' } });
+    sameJson(promptRowIds(panel), ['t3'], '折叠时跟着当前使用的预设走');
 });
