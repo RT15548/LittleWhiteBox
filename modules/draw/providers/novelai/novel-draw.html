@@ -298,6 +298,27 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
 }
 .char-action-button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+/* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
+.char-menu-wrap { display: inline-flex; flex-shrink: 0; }
+.char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }
+.char-menu {
+    position: fixed; z-index: 200; display: flex; flex-direction: column; gap: 2px;
+    min-width: 132px; max-width: calc(100vw - 16px); padding: 4px; overflow-y: auto; box-sizing: border-box;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.char-menu[hidden] { display: none; }
+.char-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; box-sizing: border-box;
+    background: none; border: none; border-radius: 6px; color: var(--text-secondary);
+    font: inherit; font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.char-menu-item i { width: 14px; text-align: center; flex-shrink: 0; }
+.char-menu-item:hover, .char-menu-item:focus-visible { background: rgba(255,255,255,.08); color: var(--text-primary); outline: none; }
+.char-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus); }
+.char-menu-item.active { color: var(--accent); }
+.char-menu-item.danger { color: var(--danger); }
+.char-menu-item.danger:hover, .char-menu-item.danger:focus-visible { background: rgba(248,81,73,.12); color: var(--danger); }
 .char-card.disabled .char-identity,
 .char-card.disabled .char-status { opacity: .45; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
@@ -538,6 +559,7 @@ body.char-dragging, body.char-dragging * { cursor: grabbing !important; user-sel
     .nav-item { min-height: 44px; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
     .char-action-button { width: 44px; height: 44px; }
+    .char-menu-item { min-height: 44px; font-size: 13px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -2115,6 +2137,12 @@ let CD = null; // character-library-dialog.js（导入对话框、导出文件�
 let CS = null; // character-list-scroll.js（拖拽时的自动滚动），与 CL 一同动态引入
 let GP = null; // character-group-presets-ui.js（分组预设面板组件），与 CL 一同动态引入
 let GPM = null; // 分组预设领域操作，与角色库一起加载
+let CM = null; // character-card-menu.js（角色卡“更多操作”下拉菜单的开关与定位），与 CL 一同动态引入
+let cardMenu = null; // 菜单控制器：第一次打开菜单时才创建（它会在 document 上挂监听）
+function getCardMenu() {
+    if (!cardMenu && CM) cardMenu = CM.createCardMenuController({ document });
+    return cardMenu;
+}
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
 
@@ -5450,6 +5478,9 @@ document.addEventListener('DOMContentLoaded', () => {
         import('../../shared/character-library-dialog.js')
             .then((module) => { CD = module; })
             .catch((error) => { console.error('[ND-UI] 角色导入对话框加载失败，导入导出不可用:', error); }),
+        import('../../shared/character-card-menu.js')
+            .then((module) => { CM = module; })
+            .catch((error) => { console.error('[ND-UI] 角色卡菜单模块加载失败，“更多操作”菜单不可用:', error); }),
         import('../../shared/character-list-scroll.js')
             .then((module) => { CS = module; })
             .catch((error) => { console.error('[ND-UI] 拖拽自动滚动模块加载失败，拖拽时不会自动滚动:', error); }),
