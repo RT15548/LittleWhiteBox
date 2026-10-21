@@ -89,6 +89,24 @@ function removeMappedBlocksInOnePass(mapped, rules) {
     return removeMappedRanges(mapped, ranges);
 }
 
+// A `<name>` ... `</name>` rule whose opening tag never made it into the message (the host or a
+// prefill swallowed it, common for chain-of-thought tags) leaves a dangling `</name>`: a closing
+// tag with no opening tag of the same rule in front of it. Drop everything before it. Runs before
+// the block pass (the lost block may mention other rules' tags) and after it (a stray closer
+// behind complete blocks).
+function dropDanglingClosingTags(mapped, blockRules) {
+    let result = mapped;
+    for (const { start, end } of blockRules) {
+        const name = /^<([^\s<>/]+)>$/.exec(start)?.[1];
+        if (!name || end.toLowerCase() !== `</${name}>`.toLowerCase()) continue;
+        const text = getMappedText(result).toLowerCase();
+        const index = text.indexOf(end.toLowerCase());
+        if (index < 0 || text.slice(0, index).includes(start.toLowerCase())) continue;
+        result = result.slice(index + end.length);
+    }
+    return result;
+}
+
 // Two-sided (start + end) rules are applied together in one earliest-start-wins
 // pass wherever they sit in the list, so a block removed by one rule can never
 // be cut open by another rule. One-sided rules (truncate from `start`, or drop
@@ -104,7 +122,10 @@ function applyMappedFilterRules(mapped, rules = []) {
         else oneSidedRules.push({ start, end });
     }
 
-    let result = blockRules.length ? removeMappedBlocksInOnePass(mapped, blockRules) : mapped;
+    // Before the block pass, so a tag mentioned inside the lost block cannot open a block that swallows the story.
+    let result = dropDanglingClosingTags(mapped, blockRules);
+    if (blockRules.length) result = removeMappedBlocksInOnePass(result, blockRules);
+    result = dropDanglingClosingTags(result, blockRules);
     for (const { start, end } of oneSidedRules) {
         const text = getMappedText(result);
         if (start) {

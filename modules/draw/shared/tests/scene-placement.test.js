@@ -370,3 +370,37 @@ test('scene slot delivery clears selection and image when deletion races with se
         'fence', 'store', 'fence', 'select', 'fence', 'clear-selection', 'fence', 'delete-image',
     ]);
 });
+
+test('a closing tag whose opening tag is missing drops the text before it, for tag-pair rules', () => {
+    const rules = [{ start: '<konatan_planning~>', end: '</konatan_planning~>' }, { start: '<options>', end: '</options>' }];
+    const dangling = createSceneSource('推理残留。第二句。</konatan_planning~>\n正文一。<options>A</options>正文二。', { filterRules: rules });
+    assert.equal(dangling.content, '正文一。正文二。');
+    assert.ok(dangling.points.every(point => point.offset > '推理残留。第二句。</konatan_planning~>'.length));
+
+    // A complete block behaves as before, and an unclosed opener is left alone (no closing tag to drop up to).
+    assert.equal(createSceneSource('<konatan_planning~>推理</konatan_planning~>正文。', { filterRules: rules }).content, '正文。');
+    assert.equal(
+        createSceneSource('前文<konatan_planning~>没写完', { filterRules: rules }).content,
+        '前文<konatan_planning~>没写完',
+    );
+    // Non-tag rules (such as 【 … ”) never get this treatment: a lone ” is ordinary dialogue punctuation.
+    assert.equal(createSceneSource('他说：“好。”然后走了。', { filterRules: [{ start: '【', end: '”' }] }).content, '他说：“好。”然后走了。');
+});
+
+test('a lost opening tag whose thinking mentions another rule tag does not hand the story to that rule', () => {
+    const rules = [
+        { start: '<UpdateVariable>', end: '</UpdateVariable>' },
+        { start: '<konatan_planning~>', end: '</konatan_planning~>' },
+        { start: '<options>', end: '</options>' },
+    ];
+    const story = '雨停了。她推开门，说：“我回来了。”\n';
+    const message = `先写 <UpdateVariable> 再引用“她推开门”这句。</konatan_planning~>\n${story}<options>A</options><UpdateVariable>x</UpdateVariable>`;
+    const source = createSceneSource(message, { filterRules: rules });
+    assert.equal(source.content, story.trim());
+    // Every scene point lies in the story, i.e. after the dangling closing tag.
+    const storyStart = message.indexOf(story);
+    assert.ok(source.points.length > 0 && source.points.every(point => point.offset >= storyStart));
+    // The anchor sentence also appears inside the thinking; placement still lands in the story.
+    const inserted = insertScenePlacements(message, [{ placement: { mode: 'source', offset: source.points[0].offset, sourceHash: source.sourceHash }, content: '[image:slot-a]' }]);
+    assert.ok(inserted.indexOf('[image:slot-a]') >= storyStart);
+});
