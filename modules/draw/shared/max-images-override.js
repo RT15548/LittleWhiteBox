@@ -32,6 +32,13 @@ export function resolveEffectiveMaxImages(settings, preset) {
     return preset?.maxImages || 0;
 }
 
+/** 当前选中预设的“要求出图数”（选中项不存在时取第一个预设；没有预设或未设置为 0 = 不指定）。 */
+export function pickPresetMaxImages(presets, selectedId) {
+    const list = Array.isArray(presets) ? presets : [];
+    const preset = list.find((item) => item.id === selectedId) || list[0];
+    return preset?.maxImages || 0;
+}
+
 export const MAX_IMAGES_INVALID_INPUT_MESSAGE =
     `出图数目需为 ${MAX_IMAGES_OVERRIDE_MIN}–${MAX_IMAGES_OVERRIDE_MAX} 的整数（0 = 不指定，留空 = 跟随预设）`;
 

@@ -16,13 +16,11 @@ import {
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 import { DRAW_CAPSULE_COPY } from '../../shared/draw-capsule-copy.js';
-import { buildMaxImagesSavedMessage, normalizeMaxImagesOverride } from '../../shared/max-images-override.js';
+import { pickPresetMaxImages } from '../../shared/max-images-override.js';
 import {
     MAX_IMAGES_INPUT_CLASS,
     MAX_IMAGES_INPUT_CSS,
-    bindMaxImagesInput,
-    createMaxImagesInputRow,
-    syncMaxImagesInput,
+    createMaxImagesController,
 } from '../../shared/max-images-input.js';
 import {
     resolveCurrentDrawRunActivityTarget,
@@ -598,36 +596,20 @@ function fillSizeSelect(selectEl) {
     });
 }
 
-function getCurrentPresetMaxImages() {
-    const settings = getSettings();
-    const presets = settings.paramsPresets || [];
-    const preset = presets.find((item) => item.id === settings.selectedParamsPresetId) || presets[0];
-    return preset?.maxImages || 0;
-}
-
-function fillMaxImagesInput(inputEl, force = false) {
-    syncMaxImagesInput(inputEl, {
-        override: getSettings().overrideMaxImages,
-        presetMaxImages: getCurrentPresetMaxImages(),
-        force,
-    });
-}
-
-function createMaxImagesRow() {
-    const row = createMaxImagesInputRow(document);
-    fillMaxImagesInput(row.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`));
-    return row;
-}
-
-function bindMaxImagesInputEvents(inputEl) {
-    return bindMaxImagesInput(inputEl, {
-        getOverride: () => getSettings().overrideMaxImages,
-        save: setQuickMaxImages,
-        refresh: fillMaxImagesInput,
-        notify: (message) => globalThis.toastr?.warning?.(message),
-    });
-}
-
+const maxImages = createMaxImagesController({
+    getOverride: () => getSettings().overrideMaxImages,
+    getPresetMaxImages: () => {
+        const settings = getSettings();
+        return pickPresetMaxImages(settings.paramsPresets, settings.selectedParamsPresetId);
+    },
+    persistOverride: (next, { okText, afterSave }) => persistQuickSetting(
+        (settings) => { settings.overrideMaxImages = next; },
+        okText,
+        afterSave,
+    ),
+    listInputs: () => [...panelMap.values()].map((data) => data.$cache?.maxImagesInput).concat($floatingCache.maxImagesInput),
+    notify: (message) => globalThis.toastr?.warning?.(message),
+});
 // ═══════════════════════════════════════════════════════════════════════════
 // ▼▼▼ 楼层按钮逻辑 ▼▼▼
 // ═══════════════════════════════════════════════════════════════════════════
@@ -711,7 +693,7 @@ function createFloorPanelElement(messageId) {
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    card.append(rowPreset, innerSep, rowSize, createMaxImagesRow());
+    card.append(rowPreset, innerSep, rowSize, maxImages.createRow());
 
     const controls = createEl('div', 'nd-controls');
     const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
@@ -1081,7 +1063,7 @@ function bindFloorPanelEvents(panelData) {
         await setQuickSize(e.target.value);
     });
 
-    const maxImagesBinding = bindMaxImagesInputEvents(panelData.$cache.maxImagesInput);
+    const maxImagesBinding = maxImages.bind(panelData.$cache.maxImagesInput);
 
     panelData.$cache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
@@ -1124,7 +1106,7 @@ function refreshFloorSizeSelect(messageId) {
 }
 
 function refreshFloorMaxImagesInput(messageId) {
-    fillMaxImagesInput(panelMap.get(messageId)?.$cache?.maxImagesInput);
+    maxImages.fill(panelMap.get(messageId)?.$cache?.maxImagesInput);
 }
 
 async function persistQuickSetting(mutator, okText, afterSave) {
@@ -1149,18 +1131,6 @@ async function setQuickSize(value) {
         '尺寸已切换',
         updateAllSizeSelects,
     );
-}
-
-// value 已由数字输入框校验：0 = 覆盖为不指定，1-20 的整数 = 覆盖，null = 清除覆盖（跟随预设）。
-async function setQuickMaxImages(value) {
-    const next = normalizeMaxImagesOverride(value);
-    const ok = await persistQuickSetting(
-        (settings) => { settings.overrideMaxImages = next; },
-        buildMaxImagesSavedMessage(next),
-        updateAllMaxImagesInputs,
-    );
-    if (!ok) updateAllMaxImagesInputs();
-    return ok;
 }
 
 async function toggleQuickAutoMode() {
@@ -1651,7 +1621,7 @@ function refreshFloatingSizeSelect() {
 }
 
 function refreshFloatingMaxImagesInput() {
-    fillMaxImagesInput($floatingCache.maxImagesInput);
+    maxImages.fill($floatingCache.maxImagesInput);
 }
 
 function cacheFloatingDOM() {
@@ -1726,7 +1696,7 @@ function createFloatingButton() {
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    card.append(rowPreset, innerSep, rowSize, createMaxImagesRow());
+    card.append(rowPreset, innerSep, rowSize, maxImages.createRow());
 
     const controls = createEl('div', 'nd-controls');
     const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
@@ -1781,7 +1751,7 @@ function createFloatingButton() {
         await setQuickSize(e.target.value);
     });
 
-    $floatingCache.maxImagesBinding = bindMaxImagesInputEvents($floatingCache.maxImagesInput);
+    $floatingCache.maxImagesBinding = maxImages.bind($floatingCache.maxImagesInput);
 
     $floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
@@ -1838,10 +1808,7 @@ function updateAllSizeSelects() {
 }
 
 function updateAllMaxImagesInputs() {
-    panelMap.forEach((data) => {
-        fillMaxImagesInput(data.$cache?.maxImagesInput);
-    });
-    fillMaxImagesInput($floatingCache.maxImagesInput);
+    maxImages.updateAll();
 }
 
 export function updateAutoModeUI() {
