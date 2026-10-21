@@ -1,4 +1,4 @@
-// 场景规划“最近记录”查看器：NovelAI / SD WebUI / ComfyUI 提示词页的「最近实际请求」共用。
+// 场景规划“最近记录”查看器：NovelAI / SD WebUI / ComfyUI 提示词页的「最近请求记录」共用。
 // 数据来自 draw-agent-runtime 的历史记录（getDrawAgentDiagnosticHistory，新到旧）。
 // 默认列出全部记录（成功、失败、进行中）；勾选“只看失败”后只列失败的。每条默认折叠，展开后分“模型返回 / 请求 / 原始 JSON”。
 // 只用 DOM API + textContent，不拼 HTML：返回内容里有故事文本和供应商原文。
