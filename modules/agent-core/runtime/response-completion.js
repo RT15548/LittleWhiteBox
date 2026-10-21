@@ -18,6 +18,12 @@ export function requireResponseCompletion(protocol, reason, refused = false, tex
     throw error;
 }
 
+/** An error thrown after the request went out (including an abnormal finish) still tells what was sent. */
+export function attachRequestInspection(error, inspection) {
+    if (inspection && error && typeof error === 'object' && !error.requestInspection) error.requestInspection = inspection;
+    return error;
+}
+
 /** Responses has its own wire-event validation; consumers still share the output-limit category. */
 export function isResponseTruncated(error) {
     return error?.code === 'AGENT_RESPONSE_TRUNCATED'

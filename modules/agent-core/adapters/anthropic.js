@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { resolveModelFamily } from '../../../shared/host-llm/model-family.js';
 import { resolveAgentAuth } from '../provider-auth.js';
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { attachRequestInspection, requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -366,10 +366,20 @@ export class AnthropicAdapter {
     }
 
     async chat(task) {
+        const sent = {};
+        try {
+            return await this.runChat(task, sent);
+        } catch (error) {
+            throw attachRequestInspection(error, sent.requestInspection);
+        }
+    }
+
+    async runChat(task, sent) {
         const protocol = resolveAnthropicRequestProtocol(this.config, task);
         const effectiveReasoning = protocol.effectiveReasoning;
         const body = this.buildRequestBody(task, protocol);
         const requestInspection = this.inspectRequest(task, { body, protocol });
+        sent.requestInspection = requestInspection;
         let response;
 
         if (typeof task.onStreamProgress === 'function') {

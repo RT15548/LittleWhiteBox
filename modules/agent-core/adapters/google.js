@@ -1,6 +1,6 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { resolveAgentAuth } from '../provider-auth.js';
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { attachRequestInspection, requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     buildEffectiveReasoningConfig,
     buildSdkRequestInspection,
@@ -801,6 +801,17 @@ export class GoogleAdapter {
         };
     }
 
+    async sendTracked(sendPayload, task, effectiveReasoning, requestInspection) {
+        try {
+            return {
+                ...await this.sendThroughChat(this.activeChat, sendPayload, task, effectiveReasoning),
+                requestInspection,
+            };
+        } catch (error) {
+            throw attachRequestInspection(error, requestInspection);
+        }
+    }
+
     async chat(task) {
         const requestedReasoning = resolveTaskReasoning('google', this.config, task.reasoning);
         const continuingSession = (Array.isArray(task.toolResponses) && task.toolResponses.length)
@@ -815,10 +826,7 @@ export class GoogleAdapter {
             const sendPayload = {
                 message: buildToolResponseMessage(task.toolResponses),
             };
-            return {
-                ...await this.sendThroughChat(this.activeChat, sendPayload, task, effectiveReasoning),
-                requestInspection: this.inspectSendRequest(sendPayload, task, effectiveReasoning),
-            };
+            return this.sendTracked(sendPayload, task, effectiveReasoning, this.inspectSendRequest(sendPayload, task, effectiveReasoning));
         }
 
         const finalAnswerReminderText = String(task.finalAnswerReminderText || '').trim();
@@ -829,19 +837,13 @@ export class GoogleAdapter {
             const sendPayload = {
                 message: [buildTextPart(finalAnswerReminderText)],
             };
-            return {
-                ...await this.sendThroughChat(this.activeChat, sendPayload, task, effectiveReasoning),
-                requestInspection: this.inspectSendRequest(sendPayload, task, effectiveReasoning),
-            };
+            return this.sendTracked(sendPayload, task, effectiveReasoning, this.inspectSendRequest(sendPayload, task, effectiveReasoning));
         }
 
         const created = this.createChat(task, effectiveReasoning);
         this.activeChat = created.chat;
         this.sessionConfig = created.sessionConfig;
         this.sessionReasoning = effectiveReasoning;
-        return {
-            ...await this.sendThroughChat(this.activeChat, created.sendPayload, task, effectiveReasoning),
-            requestInspection: created.requestInspection,
-        };
+        return this.sendTracked(created.sendPayload, task, effectiveReasoning, created.requestInspection);
     }
 }

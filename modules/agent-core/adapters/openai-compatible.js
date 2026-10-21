@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { resolveAgentAuth } from '../provider-auth.js';
-import { requireResponseCompletion } from '../runtime/response-completion.js';
+import { attachRequestInspection, requireResponseCompletion } from '../runtime/response-completion.js';
 import {
     getLastUserMessageIndex,
     shouldPreserveHistoricalReasoning,
@@ -1220,12 +1220,22 @@ export class OpenAICompatibleAdapter {
     }
 
     async chat(task) {
+        const sent = {};
+        try {
+            return await this.runChat(task, sent);
+        } catch (error) {
+            throw attachRequestInspection(error, sent.requestInspection);
+        }
+    }
+
+    async runChat(task, sent) {
         const effectiveReasoning = resolveTaskReasoning('openai-compatible', this.config, task.reasoning);
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
         const body = this.buildRequestBody(task, effectiveReasoning);
         const requestInspection = this.inspectRequest(task, { body, effectiveReasoning });
+        sent.requestInspection = requestInspection;
         const createRequest = async (request) => {
             try {
                 return await request(body);

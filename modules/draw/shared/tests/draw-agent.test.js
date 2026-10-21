@@ -1196,4 +1196,8 @@ test('scene planner names the provider block reason when a reply is filtered', a
     assert.equal(diagnostic.blockReason, 'PROHIBITED_CONTENT');
     assert.equal(diagnostic.attempts[0].blockReason, 'PROHIBITED_CONTENT');
     assert.match(diagnostic.errorMessage, /PROHIBITED_CONTENT/);
+    // The request that was sent stays inspectable even though the reply ended abnormally, without credentials.
+    assert.ok(diagnostic.request, 'failed run keeps the sent request');
+    assert.match(JSON.stringify(diagnostic.request), /relay-model/);
+    assert.doesNotMatch(JSON.stringify(diagnostic), /main-key/);
 });
