@@ -740,12 +740,6 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
     background: var(--bg-tertiary); font-size: 11px; color: var(--text-secondary);
 }
 .chain-field code { font-size: 10px; color: var(--accent); word-break: break-all; }
-.llm-request-preview {
-    margin-top: 10px; padding: 12px; max-height: 360px; overflow: auto;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
-    white-space: pre-wrap; word-break: break-word;
-}
 </style>
 </head>
 
@@ -1434,11 +1428,11 @@ body.char-dragging, body.char-dragging *, body.sortable-dragging, body.sortable-
                         <div class="card-title"><i class="fa-solid fa-code"></i> 最近一次实际请求</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint">查看最近一次场景分析真正发送的请求、Provider 适配结果与诊断信息。</p>
+                    <p class="form-hint">最近几次场景分析的请求与模型返回，默认列出成功的记录；勾选“只看失败”查看失败的。</p>
                     <div class="btn-group" style="margin-top:8px;">
                         <button id="nd_llm_request_refresh" class="btn btn-sm" type="button">刷新最近请求</button>
                     </div>
-                    <pre id="nd_llm_request_preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                    <div id="nd_llm_request_preview"></div>
                 </details>
             </div>
 
@@ -4412,12 +4406,19 @@ function renderUploadedBooks(books) {
     });
 }
 
-function renderLastLlmRequest(snapshot) {
-    const preview = $('nd_llm_request_preview');
-    if (!preview) return;
-    preview.textContent = snapshot
-        ? JSON.stringify(snapshot, null, 2)
-        : '暂无请求记录，请先触发一次画图分析。';
+let LRV = null; // llm-records-view.js（最近请求记录查看器），与角色库模块一同动态引入
+let llmRecordsView = null;
+let lastLlmRecords = [];
+
+function renderLastLlmRequest(records) {
+    lastLlmRecords = Array.isArray(records) ? records : [];
+    const container = $('nd_llm_request_preview');
+    if (!container || !LRV) return;
+    if (!llmRecordsView) {
+        llmRecordsView = LRV.createLlmRecordsView({ document, container, getRecords: () => lastLlmRecords });
+        return;
+    }
+    llmRecordsView.render(lastLlmRecords);
 }
 
 function renderWorldbookEntriesLocal(book) {
@@ -5220,7 +5221,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'LAST_LLM_REQUEST_DATA':
-            renderLastLlmRequest(data.snapshot || null);
+            renderLastLlmRequest(data.history);
             break;
 
         case 'SYNC_SUMMARY_FILTER_RESULT': {
@@ -5820,6 +5821,9 @@ document.addEventListener('DOMContentLoaded', () => {
         import('../../shared/prompt-layout-editor.js')
             .then((module) => { PLE = module; })
             .catch((error) => { console.error('[ND-UI] 请求结构编辑器加载失败，请求结构不可用:', error); }),
+        import('../../shared/llm-records-view.js')
+            .then((module) => { LRV = module; renderLastLlmRequest(lastLlmRecords); })
+            .catch((error) => { console.error('[ND-UI] 请求记录查看器加载失败，最近请求不可用:', error); }),
     ]).finally(() => postToParent({ type: 'FRAME_READY' }));
 });
 </script>

@@ -34,7 +34,8 @@ import {
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
 } from "../../shared/draw-settings.js";
-import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import { getDrawAgentDiagnosticHistory } from "../../shared/draw-agent.js";
+import { createLlmRecordsView } from "../../shared/llm-records-view.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
@@ -172,6 +173,8 @@ let pendingController = null;
 let resizeHandler = null;
 let eventsBound = false;
 let agentSettingsSurface = null;
+let llmRecordsView = null;
+let llmRecordsViewContainer = null;
 let characterLibraryUi = null;
 let groupPresetBinding = null;
 let promptChainPreviewFrame = 0;
@@ -2639,6 +2642,9 @@ function hideSettings() {
     abortPendingRequest();
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
+    llmRecordsView?.destroy();
+    llmRecordsView = null;
+    llmRecordsViewContainer = null;
     destroyCharacterLibraryUi();
     if (promptChainPreviewFrame) cancelAnimationFrame(promptChainPreviewFrame);
     promptChainPreviewFrame = 0;
@@ -2712,12 +2718,16 @@ function updateStatusText(elementId, state, text) {
 }
 
 function renderLastLlmRequestPreview() {
-    const preview = getSettingsElement('sd-llm-request-preview');
-    if (!preview) return;
-    const snapshot = getLastDrawAgentDiagnostic();
-    preview.textContent = snapshot
-        ? JSON.stringify(snapshot, null, 2)
-        : '暂无请求记录，请先触发一次画图分析。';
+    const container = getSettingsElement('sd-llm-request-preview');
+    const doc = getSettingsDocument();
+    if (!container || !doc) return;
+    if (llmRecordsViewContainer !== container) {
+        llmRecordsView?.destroy();
+        llmRecordsView = createLlmRecordsView({ document: doc, container, getRecords: getDrawAgentDiagnosticHistory });
+        llmRecordsViewContainer = container;
+        return;
+    }
+    llmRecordsView.render(getDrawAgentDiagnosticHistory());
 }
 
 function ensureAgentSettingsSurface() {

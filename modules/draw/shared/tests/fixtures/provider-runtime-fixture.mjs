@@ -25,7 +25,7 @@ export async function buildProviderFixture(provider, { platform = 'node', realHo
             for(const [k,fn]of own)globalThis.__review.events.set(k,(globalThis.__review.events.get(k)||[]).filter(x=>x!==fn));}}};`,
         'server-storage.js': 'export const SdDrawStorage={getStrict:async()=>null,setAndSave:async()=>true};export const NovelDrawStorage=SdDrawStorage;export const ComfyDrawStorage=SdDrawStorage;',
         'constants.js': 'export const extensionFolderPath="fixture";',
-        'draw-agent.js': 'export const getLastDrawAgentDiagnostic=()=>null;export const executeDrawAgent=()=>{throw new Error("unexpected model");};',
+        'draw-agent.js': 'export const getLastDrawAgentDiagnostic=()=>null;export const getDrawAgentDiagnosticHistory=()=>[];export const executeDrawAgent=()=>{throw new Error("unexpected model");};',
         'agent-settings-surface.js': 'export const attachDrawAgentSettingsSurface=()=>{};',
         'scene-planner.js': 'export class ScenePlannerError extends Error {} export const generateAndParseScenePlan=async()=>[{scene:"fixture",placement:{mode:"append"}}];export const prepareScenePlannerInput=()=>{};',
         [`${name}-prompts.js`]: `export const DEFAULT_PROMPT_CONFIG={};export const PROMPT_TEMPLATE_VERSION=1;

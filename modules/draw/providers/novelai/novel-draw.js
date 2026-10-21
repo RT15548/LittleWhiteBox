@@ -48,7 +48,7 @@ import {
     normalizeSharedCacheDays,
     mergeNovelDrawProviderSettingsIntoStorageRoot,
 } from "../../shared/draw-settings.js";
-import { getLastDrawAgentDiagnostic } from "../../shared/draw-agent.js";
+import { getDrawAgentDiagnosticHistory } from "../../shared/draw-agent.js";
 import {
     applyGroupPresetForCurrentChat,
     getActiveCharacterAvatars,
@@ -3882,7 +3882,7 @@ async function handleFrameMessage(event) {
             if (iframe) {
                 postToIframe(iframe, {
                     type: 'LAST_LLM_REQUEST_DATA',
-                    snapshot: getLastDrawAgentDiagnostic(),
+                    history: getDrawAgentDiagnosticHistory(),
                 }, 'LittleWhiteBox-NovelDraw');
             }
             break;
