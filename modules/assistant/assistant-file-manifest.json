@@ -2736,7 +2736,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/settings-page.js",
       "relativePath": "modules/draw/shared/settings-page.js",
       "extension": ".js",
-      "sizeBytes": 511
+      "sizeBytes": 510
     },
     {
       "source": "littlewhitebox",
@@ -14272,7 +14272,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/administrator-app-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/administrator-app-target-design.md",
       "extension": ".md",
-      "sizeBytes": 43871
+      "sizeBytes": 44013
     },
     {
       "source": "littlewhitebox",
@@ -14587,7 +14587,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/docs/os-kernel-target-design.md",
       "relativePath": "modules/xiaobai-os/docs/os-kernel-target-design.md",
       "extension": ".md",
-      "sizeBytes": 34594
+      "sizeBytes": 35551
     },
     {
       "source": "littlewhitebox",
