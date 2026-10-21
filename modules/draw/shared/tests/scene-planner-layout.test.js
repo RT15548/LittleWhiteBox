@@ -8,16 +8,21 @@ import {
     CUSTOM_BLOCK_ROLES,
     SCENE_PLANNER_LAYOUT_VERSION,
     addBlock,
+    addBlockAfter,
     createCustomBlock,
     createDefaultLayout,
     describeBlock,
+    duplicateBlocks,
     isDefaultLayout,
     layoutFingerprint,
     layoutForStorage,
     moveBlock,
+    moveBlocks,
     normalizeLayout,
     removeBlock,
+    removeBlocks,
     reorderBlocks,
+    setBlocksEnabled,
     updateBlock,
 } from '../scene-planner-layout.js';
 
@@ -557,4 +562,105 @@ test('操作链：所有操作结果都是合法规范化布局', () => {
     layout = reorderBlocks(layout, DEFAULT_ORDER);
     assert.equal(isDefaultLayout(layout), true);
     assert.equal(layoutForStorage(layout), undefined);
+});
+
+// ---- 请求结构编辑器的批量 / 定点操作 ----
+
+function threeCustom() {
+    return withBuiltins(DEFAULT_ORDER, {});
+}
+
+function layoutWithCustoms() {
+    // opening, frame, A, guide, B, C, rules, tools, worldInfo, content, limits
+    return layoutOf(
+        { id: 'opening' }, { id: 'frame' }, custom('A', { content: 'a' }), { id: 'guide' },
+        custom('B', { content: 'b', enabled: false }), custom('C', { content: 'c' }),
+        { id: 'rules' }, { id: 'tools' }, { id: 'worldInfo' }, { id: 'content' }, { id: 'limits' },
+    );
+}
+
+test('addBlockAfter：插到指定块的正下方，找不到就放末尾，内置块不能再加', () => {
+    const base = layoutWithCustoms();
+    assert.deepEqual(ids(addBlockAfter(base, custom('N'), 'A')), ['opening', 'frame', 'A', 'N', 'guide', 'B', 'C', 'rules', 'tools', 'worldInfo', 'content', 'limits']);
+    assert.deepEqual(ids(addBlockAfter(base, custom('N'), 'opening')).slice(0, 3), ['opening', 'N', 'frame'], '也可以插在内置块后面');
+    assert.equal(ids(addBlockAfter(base, custom('N'), 'limits')).at(-1), 'N');
+    assert.equal(ids(addBlockAfter(base, custom('N'), 'nope')).at(-1), 'N');
+    assert.equal(ids(addBlockAfter(base, custom('N'))).at(-1), 'N');
+    assert.deepEqual(ids(addBlockAfter(base, { id: 'guide' }, 'A')), ids(base));
+    const frozen = deepFreeze(layoutWithCustoms());
+    assert.doesNotThrow(() => addBlockAfter(frozen, custom('N'), 'A'));
+});
+
+test('duplicateBlocks：副本紧跟在各自原块后面，内容原样带过去，内置块与未知 id 跳过', () => {
+    const base = layoutWithCustoms();
+    const result = duplicateBlocks(base, ['A', 'C', 'guide', 'nope'], (() => { let n = 0; return () => { n += 1; return n * 0.01; }; })());
+    assert.deepEqual(result.skipped.sort(), ['guide', 'nope']);
+    assert.equal(result.copies.length, 2);
+    assert.deepEqual(result.copies.map(copy => copy.sourceId), ['A', 'C']);
+    const out = ids(result.layout);
+    assert.equal(out.length, ids(base).length + 2);
+    assert.equal(out[out.indexOf('A') + 1], result.copies[0].id);
+    assert.equal(out[out.indexOf('C') + 1], result.copies[1].id);
+    assert.equal(new Set(out).size, out.length, 'id 不重复');
+    const copyOfA = result.layout.blocks.find(block => block.id === result.copies[0].id);
+    assert.deepEqual({ ...copyOfA, id: 'A' }, base.blocks.find(block => block.id === 'A'));
+    assert.deepEqual(result.layout.blocks.filter(block => BUILTIN_BLOCK_IDS.includes(block.id)).map(block => block.id), DEFAULT_ORDER, '内置块顺序不变');
+    assert.equal(duplicateBlocks(base, ['guide']).copies.length, 0);
+    assert.deepEqual(ids(duplicateBlocks(base, ['guide']).layout), ids(base), '全是内置块时布局不变');
+    assert.equal(duplicateBlocks(base, null).copies.length, 0);
+    assert.doesNotThrow(() => duplicateBlocks(deepFreeze(layoutWithCustoms()), ['A']));
+});
+
+test('duplicateBlocks：副本保留停用状态；random 一直撞库也能给出唯一 id', () => {
+    const result = duplicateBlocks(layoutWithCustoms(), ['B'], () => 0);
+    const copy = result.layout.blocks.find(block => block.id === result.copies[0].id);
+    assert.equal(copy.enabled, false);
+    assert.notEqual(copy.id, 'B');
+    assert.equal(new Set(ids(result.layout)).size, ids(result.layout).length);
+});
+
+test('removeBlocks：只删自定义块，内置块保留并报告', () => {
+    const base = layoutWithCustoms();
+    const result = removeBlocks(base, ['A', 'B', 'guide', 'nope']);
+    assert.deepEqual(result.removedIds, ['A', 'B']);
+    assert.deepEqual(result.skipped.sort(), ['guide', 'nope']);
+    assert.deepEqual(ids(result.layout), ['opening', 'frame', 'guide', 'C', 'rules', 'tools', 'worldInfo', 'content', 'limits']);
+    assert.deepEqual(ids(removeBlocks(base, ['guide', 'rules']).layout), ids(base));
+    assert.deepEqual(ids(removeBlocks(base, undefined).layout), ids(base));
+    assert.doesNotThrow(() => removeBlocks(deepFreeze(layoutWithCustoms()), ['A']));
+});
+
+test('setBlocksEnabled：批量启用 / 停用自定义块，内置块忽略', () => {
+    const base = layoutWithCustoms();
+    const off = setBlocksEnabled(base, ['A', 'C', 'guide'], false);
+    assert.deepEqual(off.blocks.filter(block => !BUILTIN_BLOCK_IDS.includes(block.id)).map(block => block.enabled), [false, false, false]);
+    assert.deepEqual(ids(off), ids(base));
+    const on = setBlocksEnabled(base, ['B'], true);
+    assert.equal(on.blocks.find(block => block.id === 'B').enabled, true);
+    assert.deepEqual(setBlocksEnabled(base, [], false), base);
+});
+
+test('moveBlocks：整组上移 / 下移一格，组内顺序不变，内置块也可以一起动', () => {
+    const base = layoutWithCustoms();
+    assert.deepEqual(ids(moveBlocks(base, ['B', 'C'], -1)), ['opening', 'frame', 'A', 'B', 'C', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits']);
+    assert.deepEqual(ids(moveBlocks(base, ['B', 'C'], 1)), ['opening', 'frame', 'A', 'guide', 'rules', 'B', 'C', 'tools', 'worldInfo', 'content', 'limits']);
+    assert.deepEqual(ids(moveBlocks(base, ['A', 'guide'], -1)).slice(0, 4), ['opening', 'A', 'guide', 'frame'], '不连续的组：先并拢到上一个位置');
+    assert.deepEqual(ids(moveBlocks(base, ['opening', 'frame'], -1)), ids(base), '已在最前');
+    assert.deepEqual(ids(moveBlocks(base, ['content', 'limits'], 1)), ids(base), '已在最后');
+    assert.deepEqual(ids(moveBlocks(base, [], 1)), ids(base));
+    assert.deepEqual(ids(moveBlocks(base, ['A'], 0)), ids(base));
+    assert.deepEqual(ids(moveBlocks(base, ['A'], 1)), ids(moveBlock(base, 'A', 1)), '一个块时等于 moveBlock');
+    assert.deepEqual(ids(moveBlocks(base, ['A'], -1)), ids(moveBlock(base, 'A', -1)));
+    assert.deepEqual(base.blocks.length, 11, '不改动入参');
+});
+
+test('批量操作的结果永远是合法布局，默认布局不被改动', () => {
+    const base = createDefaultLayout();
+    assert.equal(isDefaultLayout(duplicateBlocks(base, [...DEFAULT_ORDER]).layout), true);
+    assert.equal(isDefaultLayout(removeBlocks(base, [...DEFAULT_ORDER]).layout), true);
+    assert.equal(isDefaultLayout(setBlocksEnabled(base, [...DEFAULT_ORDER], false)), true);
+    const lots = threeCustom();
+    for (const layout of [moveBlocks(lots, ['opening'], 1), addBlockAfter(lots, custom('Z'), 'opening')]) {
+        assert.equal(normalizeLayout(layout).repaired, false);
+    }
 });

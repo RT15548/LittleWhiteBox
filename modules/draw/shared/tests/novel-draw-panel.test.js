@@ -3000,7 +3000,7 @@ test('host source: prompt reorder persists ids only, delete picks the neighbour,
     assert.match(caseBody('RENAME_PROMPT_PRESET'), /data\.id/);
 });
 
-// ── 提示词预设：消息布局（共享编辑器接进设置页）─────────────────────────────
+// ── 提示词预设：请求结构（共享编辑器接进设置页）─────────────────────────────
 // 编辑器本身的行为在 prompt-layout-editor.test.js；这里只验证页面接线：草稿、保存、导出、切换预设、跳转。
 // 没有真浏览器：焦点 / 滚动 / 拖拽几何都是 linkedom 里的手写替身。
 
@@ -3336,7 +3336,7 @@ test('"全部恢复默认" also resets the layout draft and its confirm text men
     panel.state()._defaultPrompts = { topSystem: 'DEFAULT-TOP', sceneRules: 'DEFAULT-RULES' };
     layoutAddMessage(panel);
     panel.click(panel.$('#nd_prompts_reset_all'));
-    assert.match(panel.dialogs.confirms.at(-1), /消息布局/);
+    assert.match(panel.dialogs.confirms.at(-1), /请求结构/);
     sameJson(layoutIds(panel), LAYOUT_BLOCK_IDS);
     assert.equal(layoutDrafts(panel).size, 0);
     assert.equal(panel.$('#nd_prompt_system').value, 'DEFAULT-TOP');

@@ -287,6 +287,83 @@ export function addBlock(layout, block, index) {
     });
 }
 
+/** 插到 afterId 那一块的正下方；afterId 不存在（或没给）时放到最后。 */
+export function addBlockAfter(layout, block, afterId) {
+    return editBlocks(layout, blocks => {
+        if (!isRecord(block) || isBuiltinId(block.id)) return blocks;
+        const at = blocks.findIndex(item => item.id === afterId);
+        const next = blocks.slice();
+        next.splice(at === -1 ? next.length : at + 1, 0, { ...block });
+        return next;
+    });
+}
+
+function toIdList(ids) {
+    return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
+}
+
+/**
+ * 复制自定义块：每个副本紧跟在它的原块后面（内容、角色、名称、启用状态原样带过去），id 由 random 生成。
+ * 内置块和不存在的 id 不复制，放进 skipped。
+ * @returns {{layout: object, copies: Array<{sourceId: string, id: string}>, skipped: string[]}}
+ */
+export function duplicateBlocks(layout, ids, random = Math.random) {
+    const wanted = new Set(toIdList(ids));
+    const copies = [];
+    const normalized = safeNormalize(layout, { trimName: false }).blocks;
+    const customIds = new Set(normalized.filter(block => !isBuiltinId(block.id)).map(block => block.id));
+    const skipped = Array.from(wanted).filter(id => !customIds.has(id));
+    const used = new Set(normalized.map(block => block.id));
+    const next = editBlocks(layout, blocks => blocks.flatMap((block) => {
+        if (!wanted.has(block.id) || isBuiltinId(block.id)) return [block];
+        const id = pickFreeId(used, random);
+        used.add(id);
+        copies.push({ sourceId: block.id, id });
+        return [block, { ...block, id }];
+    }));
+    return { layout: next, copies, skipped };
+}
+
+/** 批量删除自定义块；内置块永远不删，放进 skipped。 */
+export function removeBlocks(layout, ids) {
+    const wanted = new Set(toIdList(ids));
+    const existing = safeNormalize(layout, { trimName: false }).blocks;
+    const removedIds = existing.filter(block => wanted.has(block.id) && !isBuiltinId(block.id)).map(block => block.id);
+    const skipped = Array.from(wanted).filter(id => !removedIds.includes(id));
+    const removed = new Set(removedIds);
+    const next = editBlocks(layout, blocks => blocks.filter(block => !removed.has(block.id)));
+    return { layout: next, removedIds, skipped };
+}
+
+/** 批量启用 / 停用自定义块（内置块没有启用开关，忽略）。 */
+export function setBlocksEnabled(layout, ids, enabled) {
+    const wanted = new Set(toIdList(ids));
+    return editBlocks(layout, blocks => blocks.map(block => (
+        wanted.has(block.id) && !isBuiltinId(block.id) ? { ...block, enabled: enabled !== false } : block
+    )));
+}
+
+/**
+ * 把一组块整体上移 / 下移一格（内置块也可以一起动）。组按在布局里的先后顺序保持相对次序；
+ * 上移 / 下移是相对“组外的块”算的：组里不连续时会先并拢到同一处。已在边界时原样返回。
+ */
+export function moveBlocks(layout, ids, direction) {
+    return editBlocks(layout, blocks => {
+        const wanted = new Set(toIdList(ids));
+        const group = blocks.filter(block => wanted.has(block.id));
+        const step = direction > 0 ? 1 : direction < 0 ? -1 : 0;
+        if (!group.length || step === 0) return blocks;
+        const rest = blocks.filter(block => !wanted.has(block.id));
+        const outsideBefore = (index) => blocks.slice(0, index).filter(block => !wanted.has(block.id)).length;
+        const first = blocks.findIndex(block => wanted.has(block.id));
+        const last = blocks.length - 1 - blocks.slice().reverse().findIndex(block => wanted.has(block.id));
+        const at = step < 0
+            ? Math.max(0, outsideBefore(first) - 1)
+            : Math.min(rest.length, outsideBefore(last) + 1);
+        return [...rest.slice(0, at), ...group, ...rest.slice(at)];
+    });
+}
+
 export function removeBlock(layout, id) {
     return editBlocks(layout, blocks => {
         if (isBuiltinId(id)) return blocks;

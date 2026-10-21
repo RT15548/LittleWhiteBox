@@ -1,4 +1,4 @@
-// 提示词"消息布局"编辑器（后端无关的共享 UI 组件；NovelAI 先用，SD WebUI / ComfyUI 之后接入）。
+// 提示词"请求结构"编辑器（后端无关的共享 UI 组件；NovelAI 先用，SD WebUI / ComfyUI 之后接入）。
 // 受控组件：布局数据由宿主页面持有（草稿 / 已保存版本经 getLayout / getSavedLayout 取），
 // 用户操作时用 scene-planner-layout.js 的纯操作算出新布局，交给 onChange(newLayout)，由页面决定怎么存草稿。
 // 组件自己不碰存储、不发消息、不依赖页面全局；DOM、confirm、滚动、跳转到"去编辑"的目标全部经参数注入。
@@ -7,19 +7,28 @@
 //
 // 重绘规则（输入法与焦点）：input / change 只改数据和原地更新文字，绝不重建 DOM；
 // 只有结构变化（添加 / 删除 / 移动 / 恢复默认 / 展开收起）才重建列表，且重建前后会还原焦点与选区。
+//
+// 展开与选择是两件独立的事，都只存在于本页面、不进布局数据：
+// - 展开（手风琴）：同一时间最多展开一条自定义消息；新添加的消息插在它的下方并成为新的展开项。
+// - 选择（多选）：“多选”按钮或 Ctrl / Shift 点击行头；选中的行拖动时整组一起动，选择条里可批量复制 / 删除 / 启用 / 停用。
+//   复制与删除只针对自定义块，内置块自动跳过。删除和批量复制后出现“撤销”条，还原操作前的整份布局。
 
 import {
     CUSTOM_BLOCK_ROLES,
-    addBlock,
+    addBlockAfter,
     createCustomBlock,
     createDefaultLayout,
     describeBlock,
+    duplicateBlocks,
     isDefaultLayout,
     layoutFingerprint,
     layoutForStorage,
+    moveBlocks,
     normalizeLayout,
     removeBlock,
+    removeBlocks,
     reorderBlocks,
+    setBlocksEnabled,
     updateBlock,
 } from './scene-planner-layout.js';
 import { createSortableList, moveIdToIndex } from './sortable-list.js';
@@ -31,6 +40,8 @@ const PREVIEW_LENGTH = 40;
 const EMPTY_TITLE = '（空消息）';
 const ROW_SELECTOR = '.lwb-ple-row';
 const HANDLE_SELECTOR = '[data-ple-drag]';
+// 点这些控件时即使按着 Ctrl / Shift 也不当作“选择行”。
+const MODIFIER_IGNORE_SELECTOR = 'textarea, select, input[type="text"], [data-ple-field="toggle"], [data-ple-field="select"], [data-ple-field="edit"], [data-ple-field="delete"]';
 
 /** 标题里的内容预览：取第一个非空行，压成单行并截断。 */
 export function previewText(content, limit = PREVIEW_LENGTH) {
@@ -117,7 +128,12 @@ export function createPromptLayoutEditor({
     const readLayout = () => (getLayout ? getLayout() : ownLayout);
     const readSaved = () => (getSavedLayout ? getSavedLayout() : ownSaved);
 
-    const expanded = new Set(); // 展开的自定义块 id；只存在于本页面，不进布局数据
+    const expanded = new Set(); // 展开的自定义块 id（手风琴：最多一个）；只存在于本页面，不进布局数据
+    const selected = new Set(); // 选中的块 id（内置块也可以选，用于整组拖动）；同样不进布局数据
+    let selectMode = false; // “多选”模式：每行前出现选择框
+    let anchorId = null; // Shift 选范围的起点
+    let lastSelectedId = null; // 最近一次选中的块：没有展开项时，新消息插在它下方
+    let undoState = null; // { layout } 删除 / 批量复制前的整份布局
     let pendingFocus = null; // 重建后要聚焦的 { id, field }
     let lastSignature = null;
     let sortable = null;
@@ -126,24 +142,41 @@ export function createPromptLayoutEditor({
 
     // ── 外壳：只建一次，列表在里面重建，状态行（aria-live）因此不会被换掉 ──
     const root = create(document, 'div', { className: 'lwb-ple', attrs: { 'data-ple': '' } });
-    const titleNode = create(document, 'span', { className: 'lwb-ple-title', text: '消息布局' });
+    const titleIcon = create(document, 'i', { className: 'fa-solid fa-link lwb-ple-title-icon', attrs: { 'aria-hidden': 'true' } });
+    const titleNode = create(document, 'span', { className: 'lwb-ple-title', text: '请求结构' });
     const dirtyBadge = create(document, 'span', { className: 'lwb-ple-dirty', text: '未保存', attrs: { hidden: true, 'data-ple-dirty': '' } });
-    const addButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-primary', text: '添加消息', attrs: { type: 'button', 'data-ple-add': '', title: '在末尾添加一条自定义消息' } });
+    const addButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-primary', text: '添加消息', attrs: { type: 'button', 'data-ple-add': '', title: '在当前展开的消息下方添加一条自定义消息（没有展开项时，加在最近选中的消息下方，再没有就加在末尾）' } });
+    const selectModeButton = create(document, 'button', { className: 'lwb-ple-btn', text: '多选', attrs: { type: 'button', 'data-ple-select-mode': '', 'aria-pressed': 'false', title: '显示选择框；也可以按住 Ctrl / Shift 点击消息行选择（Shift 选范围）' } });
     const resetButton = create(document, 'button', { className: 'lwb-ple-btn', text: '恢复默认结构', attrs: { type: 'button', 'data-ple-reset': '', title: '恢复内置块的默认顺序并移除自定义消息（只改草稿，保存后才生效）' } });
     const hint = create(document, 'p', {
         className: 'lwb-ple-hint',
-        text: '带锁的内置块内容固定、只能调整顺序，内容在各自的编辑处修改；自定义消息可以随意添加、编辑和排序。拖动左侧手柄，或聚焦手柄后按 ↑ / ↓ 调整顺序。',
+        text: '带锁的内置块内容固定、只能调整顺序，内容在各自的编辑处修改；自定义消息可以随意添加、编辑和排序。拖动左侧手柄，或聚焦手柄后按 ↑ / ↓ 调整顺序；点“多选”或按住 Ctrl / Shift 点击可选中多条，整组拖动。',
     });
     const notice = create(document, 'p', { className: 'lwb-ple-notice', attrs: { hidden: true, role: 'alert', 'data-ple-notice': '' } });
-    const list = create(document, 'div', { className: 'lwb-ple-list', attrs: { role: 'list', 'aria-label': '消息布局' } });
+    const selectionCount = create(document, 'span', { className: 'lwb-ple-selection-count', attrs: { 'data-ple-selection-count': '' } });
+    const copyButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-small', text: '复制', attrs: { type: 'button', 'data-ple-bulk': 'copy', title: '复制选中的自定义消息，副本放在原消息下方（内置块不能复制）' } });
+    const bulkDeleteButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-small lwb-ple-btn-danger', text: '删除', attrs: { type: 'button', 'data-ple-bulk': 'delete', title: '删除选中的自定义消息（内置块不能删除）' } });
+    const bulkEnableButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-small', text: '停用', attrs: { type: 'button', 'data-ple-bulk': 'enable' } });
+    const clearSelectionButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-small', text: '取消选择', attrs: { type: 'button', 'data-ple-bulk': 'clear' } });
+    const selectionNote = create(document, 'span', { className: 'lwb-ple-selection-note', attrs: { 'data-ple-selection-note': '' } });
+    const selectionBar = create(document, 'div', { className: 'lwb-ple-selection-bar', attrs: { hidden: true, 'data-ple-selection-bar': '' } }, [
+        selectionCount, copyButton, bulkDeleteButton, bulkEnableButton, clearSelectionButton, selectionNote,
+    ]);
+    const list = create(document, 'div', { className: 'lwb-ple-list', attrs: { role: 'list', 'aria-label': '请求结构' } });
+    const undoText = create(document, 'span', { className: 'lwb-ple-undo-text', attrs: { 'data-ple-undo-text': '' } });
+    const undoButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-small', text: '撤销', attrs: { type: 'button', 'data-ple-undo': '' } });
+    const undoClose = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-small', text: '×', attrs: { type: 'button', 'data-ple-undo-close': '', 'aria-label': '关闭撤销提示' } });
+    const undoBar = create(document, 'div', { className: 'lwb-ple-undo-bar', attrs: { hidden: true, role: 'status', 'data-ple-undo-bar': '' } }, [undoText, undoButton, undoClose]);
     const status = create(document, 'div', { className: 'lwb-ple-status', attrs: { role: 'status', 'aria-live': 'polite', 'data-ple-status': '' } });
     root.appendChild(create(document, 'div', { className: 'lwb-ple-head' }, [
-        create(document, 'div', { className: 'lwb-ple-headline' }, [titleNode, dirtyBadge]),
-        create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, resetButton]),
+        create(document, 'div', { className: 'lwb-ple-headline' }, [titleIcon, titleNode, dirtyBadge]),
+        create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, selectModeButton, resetButton]),
     ]));
     root.appendChild(hint);
     root.appendChild(notice);
+    root.appendChild(selectionBar);
     root.appendChild(list);
+    root.appendChild(undoBar);
     root.appendChild(status);
 
     function say(text) {
@@ -193,6 +226,13 @@ export function createPromptLayoutEditor({
         });
     }
 
+    function buildSelectBox(block, label) {
+        const box = create(document, 'input', {
+            attrs: { type: 'checkbox', 'data-ple-field': 'select', 'aria-label': `选择 ${label}`, title: '选中（Shift 点击选范围）' },
+        });
+        return create(document, 'label', { className: 'lwb-ple-select-box' }, [box]);
+    }
+
     function buildBuiltinRow(block) {
         const meta = describeBlock(block);
         const info = builtinInfo(block.id);
@@ -203,6 +243,7 @@ export function createPromptLayoutEditor({
         });
         const line = create(document, 'div', { className: 'lwb-ple-line' }, [
             buildHandle(block, label),
+            buildSelectBox(block, label),
             create(document, 'span', { className: 'lwb-ple-lock', attrs: { title: '内置块：内容固定，只能移动，不能删除', role: 'img', 'aria-label': '内置块' } }, [
                 create(document, 'i', { className: 'fa-solid fa-lock', attrs: { 'aria-hidden': 'true' } }),
             ]),
@@ -273,6 +314,7 @@ export function createPromptLayoutEditor({
         ]);
         row.appendChild(create(document, 'div', { className: 'lwb-ple-line' }, [
             buildHandle(block, title),
+            buildSelectBox(block, title),
             roleBadge(block.role),
             create(document, 'label', { className: 'lwb-ple-toggle' }, [toggle]),
             main,
@@ -300,6 +342,7 @@ export function createPromptLayoutEditor({
         row.classList.toggle('off', !block.enabled);
         row.querySelector('[data-ple-field="toggle"]')?.setAttribute('aria-label', `启用 ${title}`);
         row.querySelector('[data-ple-drag]')?.setAttribute('aria-label', `拖动调整 ${title} 的顺序`);
+        row.querySelector('[data-ple-field="select"]')?.setAttribute('aria-label', `选择 ${title}`);
     }
 
     // ── 焦点保持 ──
@@ -333,6 +376,9 @@ export function createPromptLayoutEditor({
         pendingFocus = null;
         const known = new Set(blocks.map(block => block.id));
         for (const id of Array.from(expanded)) if (!known.has(id)) expanded.delete(id);
+        for (const id of Array.from(selected)) if (!known.has(id)) selected.delete(id);
+        if (!known.has(anchorId)) anchorId = null;
+        if (!known.has(lastSelectedId)) lastSelectedId = null;
         clearNode(list);
         const reason = disabledReason();
         if (!reason) {
@@ -342,6 +388,7 @@ export function createPromptLayoutEditor({
         }
         lastSignature = signatureOf(layout, reason);
         refreshStatus();
+        refreshSelectionUi();
         restoreFocus(focusTarget);
     }
 
@@ -360,8 +407,9 @@ export function createPromptLayoutEditor({
         setHidden(notice, !reason);
         setHidden(hint, Boolean(reason));
         addButton.disabled = Boolean(reason);
+        selectModeButton.disabled = Boolean(reason);
         resetButton.disabled = Boolean(reason) || isDefaultLayout(layout);
-        for (const button of [addButton, resetButton]) {
+        for (const button of [addButton, selectModeButton, resetButton]) {
             if (button.disabled) button.setAttribute('disabled', ''); else button.removeAttribute('disabled');
         }
     }
@@ -387,6 +435,9 @@ export function createPromptLayoutEditor({
                 const from = ids.indexOf(id);
                 return from < 0 ? ids : moveIdToIndex(ids, id, from + (direction < 0 ? -1 : 1));
             },
+            // 拖动 / 键盘移动选中的行之一时，整组一起动。
+            getGroupIds: id => (selected.size > 1 && selected.has(id) ? selectedInOrder() : null),
+            moveGroupStep: (ids, group, direction) => blocksOf(moveBlocks(readLayout(), group, direction)).map(block => block.id),
             autoScroll: autoScroll ? event => autoScroll(event, list) : null,
             document,
             draggingClass: 'dragging',
@@ -407,7 +458,11 @@ export function createPromptLayoutEditor({
             mounted = true;
             ensureSortable();
         }
-        if (collapse) expanded.clear();
+        if (collapse) {
+            expanded.clear();
+            clearSelection({ leaveMode: true });
+            clearUndo();
+        }
         const layout = readLayout();
         if (!force && !collapse && lastSignature === signatureOf(layout, disabledReason())) {
             refreshStatus(layout);
@@ -420,6 +475,7 @@ export function createPromptLayoutEditor({
     // ── 用户操作 ──
 
     function commit(next, { rebuild = true } = {}) {
+        clearUndo();
         if (!getLayout) ownLayout = next;
         onChange(next);
         if (rebuild) {
@@ -436,17 +492,151 @@ export function createPromptLayoutEditor({
         return meta.builtin ? (builtinInfo(block.id).label || meta.label) : customTitle(block);
     }
 
+    const orderedIds = () => blocksOf(readLayout()).map(block => block.id);
+    const selectedInOrder = () => orderedIds().filter(id => selected.has(id));
+    const selectedCustomIds = () => blocksOf(readLayout()).filter(block => selected.has(block.id) && !describeBlock(block).builtin).map(block => block.id);
+
+    // ── 展开（手风琴）──
+
+    function expandOnly(id) {
+        expanded.clear();
+        if (id) expanded.add(id);
+    }
+
+    function toggleExpanded(id) {
+        if (expanded.has(id)) expanded.delete(id); else expandOnly(id);
+        pendingFocus = { id, field: 'main' };
+        rebuildList();
+    }
+
+    // ── 选择 ──
+
+    function refreshSelectionUi() {
+        root.classList.toggle('select-mode', selectMode);
+        selectModeButton.setAttribute('aria-pressed', selectMode ? 'true' : 'false');
+        for (const row of list.querySelectorAll(ROW_SELECTOR)) {
+            const on = selected.has(row.getAttribute('data-block-id'));
+            row.classList.toggle('selected', on);
+            const box = row.querySelector('[data-ple-field="select"]');
+            if (box) {
+                box.checked = on;
+                if (on) box.setAttribute('checked', ''); else box.removeAttribute('checked');
+            }
+        }
+        const blocks = blocksOf(readLayout());
+        const customSelected = blocks.filter(block => selected.has(block.id) && !describeBlock(block).builtin);
+        setHidden(selectionBar, selected.size === 0);
+        selectionCount.textContent = `已选 ${selected.size} 项`;
+        const noCustom = customSelected.length === 0;
+        const anyEnabled = customSelected.some(block => block.enabled);
+        bulkEnableButton.textContent = anyEnabled || noCustom ? '停用' : '启用';
+        bulkEnableButton.title = anyEnabled ? '停用选中的自定义消息（内容保留，但不发送）' : '启用选中的自定义消息';
+        for (const button of [copyButton, bulkDeleteButton, bulkEnableButton]) {
+            if (noCustom) button.setAttribute('disabled', ''); else button.removeAttribute('disabled');
+        }
+        if (selected.size === 0) selectionNote.textContent = '';
+    }
+
+    function clearSelection({ leaveMode = false } = {}) {
+        selected.clear();
+        anchorId = null;
+        lastSelectedId = null;
+        if (!leaveMode) selectMode = false;
+        selectionNote.textContent = '';
+        refreshSelectionUi();
+    }
+
+    function afterSelectionChange() {
+        if (selected.size > 0) selectMode = true;
+        selectionNote.textContent = '';
+        refreshSelectionUi();
+        say(selected.size ? `已选 ${selected.size} 项` : '已取消选择');
+    }
+
+    function selectOne(id, on = null) {
+        const shouldAdd = on === null ? !selected.has(id) : on;
+        if (shouldAdd) {
+            selected.add(id);
+            lastSelectedId = id;
+        } else {
+            selected.delete(id);
+            if (lastSelectedId === id) lastSelectedId = selectedInOrder().at(-1) || null;
+        }
+        anchorId = id;
+        afterSelectionChange();
+    }
+
+    function selectRangeTo(id) {
+        const ids = orderedIds();
+        const from = ids.indexOf(anchorId ?? id);
+        const to = ids.indexOf(id);
+        if (to < 0) return;
+        const [lo, hi] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
+        for (const item of ids.slice(lo, hi + 1)) selected.add(item);
+        lastSelectedId = id;
+        if (anchorId === null) anchorId = id;
+        afterSelectionChange();
+    }
+
+    function toggleSelectMode() {
+        if (disabledReason()) return;
+        if (selectMode) {
+            clearSelection();
+            say('已退出多选');
+        } else {
+            selectMode = true;
+            refreshSelectionUi();
+            say('已进入多选：点选择框，或按住 Shift 点击选范围');
+        }
+    }
+
+    // ── 撤销条 ──
+
+    function clearUndo() {
+        undoState = null;
+        setHidden(undoBar, true);
+        undoText.textContent = '';
+    }
+
+    function showUndo(text, previousLayout) {
+        undoState = { layout: previousLayout };
+        undoText.textContent = text;
+        setHidden(undoBar, false);
+    }
+
+    function handleUndo() {
+        if (!undoState) return;
+        const previous = undoState.layout;
+        commit(previous);
+        say('已撤销，布局恢复到操作之前');
+    }
+
+    // ── 添加 / 恢复 / 删除 / 排序 ──
+
+    /** 新消息插在谁的下方：当前展开的消息 → 最近选中的消息 → 末尾（null）。 */
+    function insertionAnchorId(blocks) {
+        const known = new Set(blocks.map(block => block.id));
+        const open = Array.from(expanded).find(id => known.has(id));
+        if (open) return open;
+        if (lastSelectedId && known.has(lastSelectedId)) return lastSelectedId;
+        return selectedInOrder().at(-1) || null;
+    }
+
     function handleAdd() {
         if (disabledReason()) return;
         const layout = readLayout();
-        const ids = blocksOf(layout).map(block => block.id);
-        const block = createCustomBlock({ role: 'user' }, ids, random);
-        expanded.add(block.id);
+        const blocks = blocksOf(layout);
+        const anchorBlock = blocks.find(block => block.id === insertionAnchorId(blocks)) || null;
+        const block = createCustomBlock({ role: 'user' }, blocks.map(item => item.id), random);
+        expandOnly(block.id);
         pendingFocus = { id: block.id, field: 'content' };
-        commit(addBlock(layout, block));
+        commit(addBlockAfter(layout, block, anchorBlock?.id));
         const row = Array.from(list.querySelectorAll(ROW_SELECTOR)).find(item => item.getAttribute('data-block-id') === block.id);
         row?.scrollIntoView?.({ block: 'nearest' });
-        say(`已在末尾添加一条自定义消息，共 ${list.querySelectorAll(ROW_SELECTOR).length} 项`);
+        const total = list.querySelectorAll(ROW_SELECTOR).length;
+        say(anchorBlock
+            ? `已在“${labelOf(anchorBlock)}”下方添加一条自定义消息，共 ${total} 项`
+            : `已在末尾添加一条自定义消息，共 ${total} 项`);
     }
 
     function handleReset() {
@@ -456,6 +646,7 @@ export function createPromptLayoutEditor({
         if (customCount > 0 && confirm
             && !confirm(`恢复默认结构会移除全部 ${customCount} 条自定义消息，并把内置块恢复到默认顺序。\n只改当前草稿，点击保存后才会生效。确定吗？`)) return;
         expanded.clear();
+        clearSelection({ leaveMode: true });
         commit(createDefaultLayout());
         addButton.focus?.();
         say(customCount > 0 ? `已恢复默认结构，移除了 ${customCount} 条自定义消息` : '已恢复默认结构');
@@ -471,23 +662,79 @@ export function createPromptLayoutEditor({
             && !confirm(`确定删除“${customTitle(block)}”吗？其中的内容会一并丢失。`)) return;
         const name = customTitle(block);
         expanded.delete(id);
+        selected.delete(id);
         // 删完后焦点落到原位置的下一项（没有就上一项）的手柄，键盘用户不至于丢到页面顶部。
         const neighbor = blocks[index + 1] || blocks[index - 1];
         pendingFocus = neighbor ? { id: neighbor.id, field: 'handle' } : null;
         commit(removeBlock(layout, id));
+        showUndo(`已删除“${name}”`, layout);
         say(`已删除“${name}”`);
     }
 
-    function handleReorder(orderedIds) {
-        const oldIds = blocksOf(readLayout()).map(block => block.id);
-        const movedId = findMovedId(oldIds, orderedIds);
-        const next = reorderBlocks(readLayout(), orderedIds);
+    function handleBulkCopy() {
+        const ids = selectedInOrder();
+        const layout = readLayout();
+        const { layout: next, copies, skipped } = duplicateBlocks(layout, ids, random);
+        if (!copies.length) {
+            selectionNote.textContent = '选中的都是内置块，内置块不能复制';
+            say(selectionNote.textContent);
+            return;
+        }
+        selected.clear();
+        for (const copy of copies) selected.add(copy.id);
+        lastSelectedId = copies.at(-1).id;
+        anchorId = lastSelectedId;
         commit(next);
+        const skippedText = skipped.length ? `；跳过 ${skipped.length} 个内置块（内置块不能复制）` : '';
+        selectionNote.textContent = skipped.length ? `跳过 ${skipped.length} 个内置块` : '';
+        showUndo(`已复制 ${copies.length} 条消息${skippedText}`, layout);
+        say(`已复制 ${copies.length} 条消息，副本放在原消息下方并已选中${skippedText}`);
+    }
+
+    function handleBulkDelete() {
+        const layout = readLayout();
+        const { layout: next, removedIds, skipped } = removeBlocks(layout, selectedInOrder());
+        if (!removedIds.length) {
+            selectionNote.textContent = '选中的都是内置块，内置块不能删除';
+            say(selectionNote.textContent);
+            return;
+        }
+        for (const id of removedIds) {
+            selected.delete(id);
+            expanded.delete(id);
+        }
+        commit(next);
+        const skippedText = skipped.length ? `；${skipped.length} 个内置块保留` : '';
+        selectionNote.textContent = skipped.length ? `${skipped.length} 个内置块保留` : '';
+        showUndo(`已删除 ${removedIds.length} 条消息${skippedText}`, layout);
+        say(`已删除 ${removedIds.length} 条消息${skippedText}`);
+    }
+
+    function handleBulkEnable() {
+        const ids = selectedCustomIds();
+        if (!ids.length) return;
+        const layout = readLayout();
+        const anyEnabled = blocksOf(layout).some(block => ids.includes(block.id) && block.enabled);
+        commit(setBlocksEnabled(layout, ids, !anyEnabled));
+        say(anyEnabled ? `已停用 ${ids.length} 条消息` : `已启用 ${ids.length} 条消息`);
+    }
+
+    function handleReorder(orderedIdsNext, meta = {}) {
+        const oldIds = orderedIds();
+        const next = reorderBlocks(readLayout(), orderedIdsNext);
+        const nextIds = blocksOf(next).map(block => block.id);
+        commit(next);
+        if (meta?.group?.length > 1) {
+            const positions = meta.group.map(id => nextIds.indexOf(id) + 1).filter(position => position > 0);
+            say(`已移动 ${meta.group.length} 项，现在位于第 ${Math.min(...positions)}–${Math.max(...positions)} 位，共 ${orderedIdsNext.length} 位`);
+            return;
+        }
+        const movedId = findMovedId(oldIds, orderedIdsNext);
         if (movedId) {
             const blocks = blocksOf(next);
             const block = blocks.find(item => item.id === movedId);
             const position = blocks.findIndex(item => item.id === movedId) + 1;
-            say(`“${block ? labelOf(block) : movedId}”已移到第 ${position} 位，共 ${orderedIds.length} 位`);
+            say(`“${block ? labelOf(block) : movedId}”已移到第 ${position} 位，共 ${orderedIdsNext.length} 位`);
         }
     }
 
@@ -498,12 +745,6 @@ export function createPromptLayoutEditor({
         if (block && row) patchCustomRow(row, block);
     }
 
-    function toggleExpanded(id) {
-        if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
-        pendingFocus = { id, field: 'main' };
-        rebuildList();
-    }
-
     function fieldOf(event) {
         const node = event.target?.closest?.('[data-ple-field]');
         const row = node?.closest?.(ROW_SELECTOR);
@@ -512,9 +753,20 @@ export function createPromptLayoutEditor({
     }
 
     listen(list, 'click', (event) => {
+        // Ctrl / ⌘ / Shift 点击行头 = 选择（Shift 选范围），不触发展开、编辑等原有操作。
+        const modifier = event.ctrlKey || event.metaKey || event.shiftKey;
+        const row = event.target?.closest?.(ROW_SELECTOR);
+        if (modifier && row && list.contains(row) && event.target.closest('.lwb-ple-line') && !event.target.closest(MODIFIER_IGNORE_SELECTOR)) {
+            event.preventDefault?.();
+            const id = row.getAttribute('data-block-id');
+            if (event.shiftKey) selectRangeTo(id); else selectOne(id);
+            return;
+        }
         const hit = fieldOf(event);
         if (!hit) return;
-        if (hit.field === 'main') toggleExpanded(hit.id);
+        if (hit.field === 'select') {
+            if (event.shiftKey) selectRangeTo(hit.id); else selectOne(hit.id, Boolean(hit.node.checked));
+        } else if (hit.field === 'main') toggleExpanded(hit.id);
         else if (hit.field === 'edit') onEditBuiltin?.(hit.id);
         else if (hit.field === 'delete') handleDelete(hit.id);
     });
@@ -532,6 +784,13 @@ export function createPromptLayoutEditor({
     });
     listen(addButton, 'click', handleAdd);
     listen(resetButton, 'click', handleReset);
+    listen(selectModeButton, 'click', toggleSelectMode);
+    listen(copyButton, 'click', handleBulkCopy);
+    listen(bulkDeleteButton, 'click', handleBulkDelete);
+    listen(bulkEnableButton, 'click', handleBulkEnable);
+    listen(clearSelectionButton, 'click', () => { clearSelection({ leaveMode: true }); say('已取消选择'); });
+    listen(undoButton, 'click', handleUndo);
+    listen(undoClose, 'click', clearUndo);
 
     return {
         render,

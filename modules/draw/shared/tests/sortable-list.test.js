@@ -4,7 +4,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 
-import { computeInsertIndex, createSortableList, dropMarkFor, moveIdToIndex } from '../sortable-list.js';
+import {
+    computeGroupInsertIndex,
+    computeInsertIndex,
+    createSortableList,
+    dropMarkFor,
+    dropMarkForGroup,
+    moveGroupToIndex,
+    moveIdToIndex,
+} from '../sortable-list.js';
 import { movePresetId } from '../preset-order.js';
 
 // ── 纯函数 ──────────────────────────────────────────────
@@ -52,11 +60,12 @@ test('moveIdToIndex puts the id at the given final position without touching its
 
 // ── 控制器 ──────────────────────────────────────────────
 
-function setup(t, { moveStep, autoScroll, keepKeyboard = true } = {}) {
+function setup(t, { moveStep, autoScroll, keepKeyboard = true, getGroupIds, moveGroupStep, ids = ['a', 'b', 'c'] } = {}) {
     const { document } = parseHTML('<!doctype html><html><body><ul id="list"></ul></body></html>');
     const container = document.getElementById('list');
-    let order = ['a', 'b', 'c'];
+    let order = [...ids];
     const reorders = [];
+    const metas = [];
     const focus = { id: null }; // linkedom 的 focus() 是空操作、没有 activeElement：记下最后一次被聚焦的手柄
     const render = () => {
         // eslint-disable-next-line no-unsanitized/property -- 测试里的固定标记，id 都是字面量
@@ -75,7 +84,9 @@ function setup(t, { moveStep, autoScroll, keepKeyboard = true } = {}) {
         rowSelector: '.row',
         handleSelector: '.handle',
         getId: row => row.dataset.id,
-        onReorder: (ids) => { reorders.push(ids); order = [...ids]; render(); },
+        onReorder: (next, meta) => { reorders.push(next); metas.push(meta); order = [...next]; render(); },
+        getGroupIds,
+        moveGroupStep,
         moveStep: keepKeyboard ? (moveStep || movePresetId) : null,
         autoScroll,
     });
@@ -90,7 +101,7 @@ function setup(t, { moveStep, autoScroll, keepKeyboard = true } = {}) {
     const handle = id => container.querySelector(`.handle[data-handle="${id}"]`);
     const row = id => container.querySelector(`.row[data-id="${id}"]`);
     const rowOrder = () => Array.from(container.querySelectorAll('.row')).map(item => item.dataset.id);
-    return { document, container, controller, reorders, focus, fire, handle, row, rowOrder, render };
+    return { document, container, controller, reorders, metas, focus, fire, handle, row, rowOrder, render };
 }
 
 test('dragging a handle shows the drop line, and releasing it sends the complete new id order once', (t) => {
@@ -261,4 +272,84 @@ test('the controller keeps working after the rows are redrawn, and destroy() sto
 
 test('createSortableList requires a container and a document', () => {
     assert.throws(() => createSortableList({}), TypeError);
+});
+
+// ── 多选：整组一起动 ──────────────────────────────────────
+
+test('computeGroupInsertIndex counts the midlines of rows outside the group only', () => {
+    const five = [0, 1, 2, 3, 4].map(i => ({ top: i * 100, bottom: i * 100 + 100 }));
+    assert.equal(computeGroupInsertIndex(0, five, [1, 2]), 0);
+    assert.equal(computeGroupInsertIndex(160, five, [1, 2]), 1, 'passed row 0 (midline 50) only; rows 1 and 2 are in the group');
+    assert.equal(computeGroupInsertIndex(260, five, [1, 2]), 1, 'row 3 midline is 350');
+    assert.equal(computeGroupInsertIndex(360, five, [1, 2]), 2);
+    assert.equal(computeGroupInsertIndex(999, five, [1, 2]), 3, 'after every outside row');
+    assert.equal(computeGroupInsertIndex(Number.NaN, five, [1]), 0);
+    assert.equal(computeGroupInsertIndex(10, null, [1]), 0);
+});
+
+test('dropMarkForGroup draws the line among the rows outside the group', () => {
+    assert.deepEqual(dropMarkForGroup(5, [1, 2], 0), { index: 0, side: 'before' });
+    assert.deepEqual(dropMarkForGroup(5, [1, 2], 1), { index: 3, side: 'before' });
+    assert.deepEqual(dropMarkForGroup(5, [1, 2], 3), { index: 4, side: 'after' });
+    assert.equal(dropMarkForGroup(2, [0, 1], 0), null, 'nothing outside the group');
+});
+
+test('moveGroupToIndex moves the group as one block and keeps its internal order', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    assert.deepEqual(moveGroupToIndex(ids, ['b', 'c'], 0), ['b', 'c', 'a', 'd', 'e']);
+    assert.deepEqual(moveGroupToIndex(ids, ['b', 'c'], 3), ['a', 'd', 'e', 'b', 'c']);
+    assert.deepEqual(moveGroupToIndex(ids, ['d', 'b'], 1), ['a', 'b', 'd', 'c', 'e'], 'group keeps the order it has in the list, and gathers');
+    assert.deepEqual(moveGroupToIndex(ids, ['x'], 2), ids, 'unknown ids change nothing');
+    assert.deepEqual(moveGroupToIndex(ids, ['b'], 99), ['a', 'c', 'd', 'e', 'b'], 'clamped');
+    assert.deepEqual(moveGroupToIndex(ids, ['b'], 1), moveIdToIndex(ids, 'b', 1), 'a group of one equals a single move');
+});
+
+test('dragging one row of a selected group moves the whole group and reports it', (t) => {
+    const s = setup(t, { ids: ['a', 'b', 'c', 'd'], getGroupIds: id => (['a', 'b'].includes(id) ? ['a', 'b'] : null) });
+    s.fire(s.handle('a'), 'pointerdown', { clientY: 10 });
+    assert.equal(s.row('b').classList.contains('dragging'), true, 'the other selected row is marked too');
+    s.fire(s.document, 'pointermove', { clientY: 390 }); // below every row
+    assert.equal(s.row('d').classList.contains('drop-after'), true);
+    s.fire(s.document, 'pointerup', { clientY: 390 });
+    assert.deepEqual(s.reorders, [['c', 'd', 'a', 'b']]);
+    assert.deepEqual(s.metas, [{ group: ['a', 'b'] }]);
+    assert.equal(s.container.querySelectorAll('.dragging, .drop-before, .drop-after').length, 0);
+});
+
+test('dragging a group and dropping it where it started sends nothing', (t) => {
+    const s = setup(t, { ids: ['a', 'b', 'c'], getGroupIds: () => ['a', 'b'] });
+    s.fire(s.handle('b'), 'pointerdown', { clientY: 110 });
+    s.fire(s.document, 'pointermove', { clientY: 290 });
+    s.fire(s.document, 'pointermove', { clientY: 120 });
+    s.fire(s.document, 'pointerup', { clientY: 120 });
+    assert.deepEqual(s.reorders, []);
+});
+
+test('a row outside the group, or a group of one, still moves alone', (t) => {
+    const s = setup(t, { getGroupIds: id => (id === 'a' ? ['a'] : ['a', 'b']) });
+    s.fire(s.handle('a'), 'pointerdown', { clientY: 10 });
+    s.fire(s.document, 'pointermove', { clientY: 290 });
+    s.fire(s.document, 'pointerup', { clientY: 290 });
+    assert.deepEqual(s.reorders, [['b', 'c', 'a']]);
+    assert.equal(s.metas[0], undefined, 'no group metadata for a single move');
+    const outside = setup(t, { getGroupIds: () => ['a', 'b'] });
+    outside.fire(outside.handle('c'), 'pointerdown', { clientY: 250 });
+    outside.fire(outside.document, 'pointermove', { clientY: 10 });
+    outside.fire(outside.document, 'pointerup', { clientY: 10 });
+    assert.deepEqual(outside.reorders, [['c', 'a', 'b']], 'a group id list that does not contain the row is ignored');
+});
+
+test('keyboard on a grouped row moves the whole group through moveGroupStep', (t) => {
+    const calls = [];
+    const s = setup(t, {
+        ids: ['a', 'b', 'c', 'd'],
+        getGroupIds: id => (['b', 'c'].includes(id) ? ['b', 'c'] : null),
+        moveGroupStep: (ids, group, direction) => { calls.push([group, direction]); return ['b', 'c', 'a', 'd']; },
+    });
+    s.fire(s.handle('c'), 'keydown', { key: 'ArrowUp' });
+    assert.deepEqual(calls, [[['b', 'c'], -1]]);
+    assert.deepEqual(s.reorders, [['b', 'c', 'a', 'd']]);
+    assert.deepEqual(s.metas, [{ group: ['b', 'c'] }]);
+    s.fire(s.handle('d'), 'keydown', { key: 'ArrowUp' });
+    assert.deepEqual(s.reorders.at(-1), ['b', 'c', 'd', 'a'], 'rows outside the group still use moveStep');
 });
