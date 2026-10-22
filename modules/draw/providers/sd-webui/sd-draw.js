@@ -3468,6 +3468,11 @@ async function toggleEditPanel(container, show) {
                 const name = char.name || `角色 ${i + 1}`;
                 appendEditGroup(scrollWrap, { label: name, value: char.prompt || '', type: 'char', index: i });
             });
+            // 角色专属负向（uc）：放在所有编辑框最下面，每个角色固定一个框，方便随时新增
+            preview.characterPrompts.forEach((char, i) => {
+                const name = char.name || `角色 ${i + 1}`;
+                appendEditGroup(scrollWrap, { label: `${name} 负向`, value: char.uc || '', type: 'uc', index: i });
+            });
         }
 
         if (btnsPanel) {
