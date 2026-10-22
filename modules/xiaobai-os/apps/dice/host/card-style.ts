@@ -29,12 +29,11 @@ export const DICE_CARD_CSS = `
 .xb-dice-card .xb-dice-score-value { font-size: 1.25em; font-weight: 650; font-variant-numeric: tabular-nums; }
 .xb-dice-card .xb-dice-identity { display: block; margin-bottom: .45em; font-size: .85em; font-weight: 650; }
 .xb-dice-card .xb-dice-copy { display: block; margin-top: .65em; padding-top: .7em; border-top: 1px solid color-mix(in srgb, currentColor 11%, transparent); }
-.xb-dice-card .xb-dice-action { display: block; font-size: .92em; }
-.xb-dice-card .xb-dice-stakes { display: block; margin: .45em 0 0; font-size: .8em; opacity: .7; }
-.xb-dice-card .xb-dice-stakes-label { margin-right: .6em; font-weight: 650; }
-.xb-dice-card details.xb-dice-stakes { padding: 0; border: 0; background: none; }
-.xb-dice-card .xb-dice-stakes summary { cursor: pointer; min-height: 36px; display: list-item; align-content: center; width: fit-content; }
-.xb-dice-card .xb-dice-stakes-text { white-space: pre-wrap; }
+.xb-dice-card .xb-dice-action { display: block; font-size: .92em; font-weight: 600; }
+.xb-dice-card .xb-dice-consequence { display: block; margin-top: .35em; font-size: .88em; white-space: pre-wrap; }
+.xb-dice-card details.xb-dice-context { margin: .45em 0 0; padding: 0; border: 0; background: none; font-size: .8em; }
+.xb-dice-card .xb-dice-context summary { cursor: pointer; min-height: 36px; display: list-item; align-content: center; width: fit-content; opacity: .7; }
+.xb-dice-card .xb-dice-context-text { white-space: pre-wrap; }
 .xb-dice-card .xb-dice-status { display: flex; align-items: center; flex-wrap: wrap; gap: .75em; margin-top: .8em; padding-top: .7em; border-top: 1px dashed color-mix(in srgb, currentColor 24%, transparent); font-size: .8em; }
 .xb-dice-card .xb-dice-note { display: block; flex-basis: 100%; }
 .xb-dice-card button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-inline-size: min(9em, 100%); max-inline-size: 100%; color: inherit; background: transparent; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 8px; padding: .55em 1.25em; min-height: 44px; font: inherit; cursor: pointer; box-shadow: none; }

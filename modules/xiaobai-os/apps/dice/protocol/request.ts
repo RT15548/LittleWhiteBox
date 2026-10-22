@@ -2,12 +2,13 @@ import { ACTION_CHECK_REQUEST_FIELDS, parseActionCheckRequest, type ActionCheckR
 import { ACTION_CHECK_CLOSE, ACTION_CHECK_OPEN, findActionCheckStart } from './markup.js';
 import { COC7_REQUEST_FIELDS, parseCoc7Request, type Coc7Request } from '../domain/coc7-request.js';
 import type { ActionCheckRule } from '../types.js';
+import { CHECK_CONSEQUENCE_FIELDS } from '../domain/check-consequences.js';
 
 export const ACTION_CHECK_FIELDS = Object.freeze({
     action: { ...ACTION_CHECK_REQUEST_FIELDS.action, description: 'The attempt and objective.' },
     stat: { ...ACTION_CHECK_REQUEST_FIELDS.stat, description: 'The ability used.' },
     character: { ...ACTION_CHECK_REQUEST_FIELDS.character, description: 'Acting character, if ambiguous.' },
-    stakes: ACTION_CHECK_REQUEST_FIELDS.stakes,
+    ...CHECK_CONSEQUENCE_FIELDS,
 });
 
 export type ActionCheckParseResult = { kind: 'none' }
@@ -61,5 +62,5 @@ export function parseActionCheck(body: string, generatedFrom = 0, rule: ActionCh
 }
 
 export const ACTION_CHECK_EXAMPLE = 'Mira reaches for the ledge.\n\n<xb_action_check>'
-    + '{"action":"Climb the wet wall","stat":"Agility","difficulty":"hard","character":"Mira","stakes":"Reach the balcony unseen"}'
+    + '{"action":"Climb the wet wall","stat":"Agility","difficulty":"hard","character":"Mira","success":"Reach the balcony unseen.","failure":"Make noise and draw a guard."}'
     + '</xb_action_check>';

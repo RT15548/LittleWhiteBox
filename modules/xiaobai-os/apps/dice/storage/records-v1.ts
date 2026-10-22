@@ -1,7 +1,7 @@
 // Frozen upstream a32c28d0 message format. Keep this reader while those saved chats
 // are supported. Conversion happens only at the record parsing boundary; runtime
 // records carry neither the former offsets nor their prose hashes.
-interface RequestV1 {
+export interface RequestV1 {
     action: string;
     stat: string;
     difficulty: 'easy' | 'ordinary' | 'hard' | 'very_hard' | 'nearly_impossible';
@@ -18,7 +18,7 @@ interface RecordV1 {
     prefixDigest: string;
 }
 
-function readRequestV1(value: unknown): RequestV1 {
+export function readRequestV1(value: unknown): RequestV1 {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { throw new TypeError('dice_request_object_required'); }
     const input = value as Record<string, unknown>;
     const fields = { action: [true, 240], stat: [true, 120], character: [false, 120], stakes: [false, 240] } as const;
@@ -65,7 +65,7 @@ export function readDiceChecksV1(value: unknown) {
         }
         ids.add(record.id);
         previousOffset = record.offset;
-        return { rule: 'd20', id: record.id, request: readRequestV1(record.request), roll: record.roll, dc: record.dc, outcome: record.outcome };
+        return { rule: 'd20' as const, id: record.id, request: readRequestV1(record.request), roll: record.roll, dc: record.dc, outcome: record.outcome };
     });
     return checks;
 }

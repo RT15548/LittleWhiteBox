@@ -29,8 +29,7 @@ export const DICE_SESSION_COPY = {
     insufficientFunds: '余额不足',
     unavailable: '这条检定记录暂时无法显示。',
     rolling: '正在掷骰',
-    stakes: '风险',
-    stakesDetails: '风险与后果',
+    context: '检定背景',
     continuing: continuationLabels.preparing,
     retryFailed: '暂时无法重试。请等酒馆生成结束；若已修改回复，请用酒馆的「继续」。',
 } as const;

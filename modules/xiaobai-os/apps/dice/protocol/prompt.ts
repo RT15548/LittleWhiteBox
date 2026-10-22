@@ -25,8 +25,10 @@ const INTIMACY_CHECK_SCOPE = 'Whether intimacy happens or continues, and each ch
 
 export function projectActionCheckResults(records: readonly ActionCheckRecord[]) {
     return records.map(record => record.rule === 'coc7' ? { rule: record.rule, ...record.request, result: record.result,
+        ...(record.context ? { context: record.context } : {}),
         ...(record.resolution ? { resolution: record.resolution } : {}) }
-        : { rule: record.rule, ...record.request, roll: record.roll, dc: record.dc, outcome: record.outcome });
+        : { rule: record.rule, ...record.request, roll: record.roll, dc: record.dc, outcome: record.outcome,
+            ...(record.context ? { context: record.context } : {}) });
 }
 
 function escapePromptMacros(json: string): string {
@@ -97,7 +99,8 @@ export function buildActionCheckContinuation(body: string, records: readonly Act
         'Failure leaves the objective unachieved; the scene continues from there.',
         'Critical success achieves the objective with a modest extra benefit tied to it.',
         'Critical failure leaves the objective unachieved and adds a setback arising from the attempt itself.',
-        'Scale any extra benefit or setback to the stakes.',
+        'The success and failure fields describe alternative consequences; narrate only the one selected by the recorded verdict. Optional context is background, not another outcome.',
+        'Scale any extra benefit or setback to that consequence and the attempt.',
         'Skip new-message opening formats: opening markers (such as <-begin-response->), introductory phrases (such as “好的，这是你需求的最终输出：”), and written reasoning blocks (such as <think> or <thinking>).',
         'Use normal end-of-response formatting, such as status panels, when finishing the reply, not when pausing for another check.',
         ...(availability ? [availability] : []),

@@ -4,6 +4,7 @@ import { createCoc7Result } from './coc7-result.js';
 import { diceSpan } from './card-elements.js';
 import { createCardTexture } from './card-texture.js';
 import { DICE_SESSION_COPY as labels } from './session-copy.js';
+import { checkConsequence } from '../domain/check-consequences.js';
 
 /** A saved check's view. It never rolls, saves, or starts generation. */
 export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
@@ -21,16 +22,15 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
     const rolling = diceSpan('xb-dice-rolling-label', labels.rolling);
     result.rollingSlot.append(rolling);
     const copy = diceSpan('xb-dice-copy');
-    copy.append(diceSpan('xb-dice-action', record.request.action));
-    if (record.request.stakes) {
-        const text = diceSpan('xb-dice-stakes-text', record.request.stakes);
-        if (record.request.stakes.length > 96) {
-            const details = document.createElement('details'); details.className = 'xb-dice-stakes';
-            const summary = document.createElement('summary'); summary.textContent = labels.stakesDetails;
-            details.append(summary, text); copy.append(details);
-        } else {
-            const stakes = diceSpan('xb-dice-stakes');
-            stakes.append(diceSpan('xb-dice-stakes-label', labels.stakes), text); copy.append(stakes);
+    function renderCopy(settled: boolean): void {
+        copy.replaceChildren(diceSpan('xb-dice-action', record.request.action));
+        if (!settled) { return; }
+        const consequence = checkConsequence(record);
+        if (consequence) { copy.append(diceSpan('xb-dice-consequence', consequence)); }
+        if (record.context) {
+            const details = document.createElement('details'); details.className = 'xb-dice-context';
+            const summary = document.createElement('summary'); summary.textContent = labels.context;
+            details.append(summary, diceSpan('xb-dice-context-text', record.context)); copy.append(details);
         }
     }
     const status = diceSpan('xb-dice-status'); status.hidden = true;
@@ -43,6 +43,7 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
         if (record.rule === 'coc7') { element.dataset.verdict = record.result.verdict; }
         identity.hidden = record.rule === 'coc7';
         element.setAttribute('aria-label', record.rule === 'coc7' ? result.label : `${name}检定：${result.label}`);
+        renderCopy(true);
         copy.hidden = false; rolling.hidden = true;
         result.settle();
     }
@@ -55,6 +56,7 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
         if (isPending) {
             element.dataset.state = 'rolling';
             element.setAttribute('aria-label', `${name}检定，${labels.rolling}`);
+            renderCopy(false);
             copy.hidden = !retainCopy;
             result.draw(0);
         } else { settle(); }

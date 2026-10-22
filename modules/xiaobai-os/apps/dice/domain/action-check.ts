@@ -1,3 +1,5 @@
+import { CHECK_CONSEQUENCE_FIELDS, type CheckConsequences } from './check-consequences.js';
+
 export const ACTION_CHECK_DC_RANGES = Object.freeze({
     easy: { min: 2, max: 5 }, ordinary: { min: 6, max: 10 }, hard: { min: 11, max: 15 },
     very_hard: { min: 16, max: 20 }, nearly_impossible: { min: 21, max: 21 },
@@ -5,12 +7,11 @@ export const ACTION_CHECK_DC_RANGES = Object.freeze({
 export type ActionCheckDifficulty = keyof typeof ACTION_CHECK_DC_RANGES;
 export type ActionCheckOutcome = 'critical_failure' | 'failure' | 'success' | 'critical_success';
 
-export interface ActionCheckRequest {
+export interface ActionCheckRequest extends CheckConsequences {
     action: string;
     stat: string;
     difficulty: ActionCheckDifficulty;
     character?: string;
-    stakes?: string;
 }
 
 export interface ActionCheckResult {
@@ -22,7 +23,7 @@ export interface ActionCheckResult {
 export const ACTION_CHECK_REQUEST_FIELDS = Object.freeze({
     action: { required: true, maxLength: 240 }, stat: { required: true, maxLength: 120 },
     character: { required: false, maxLength: 120 },
-    stakes: { required: false, maxLength: 240, description: 'What success and failure each mean.' },
+    ...CHECK_CONSEQUENCE_FIELDS,
 });
 
 export function parseActionCheckRequest(value: unknown): ActionCheckRequest {
@@ -45,7 +46,8 @@ export function parseActionCheckRequest(value: unknown): ActionCheckRequest {
     }
     return { action: fields.action, stat: fields.stat, difficulty: input.difficulty as ActionCheckDifficulty,
         ...(fields.character === undefined ? {} : { character: fields.character }),
-        ...(fields.stakes === undefined ? {} : { stakes: fields.stakes }) };
+        ...(fields.success === undefined ? {} : { success: fields.success }),
+        ...(fields.failure === undefined ? {} : { failure: fields.failure }) };
 }
 
 export function resolveActionCheck(dc: number, roll: number): ActionCheckResult {

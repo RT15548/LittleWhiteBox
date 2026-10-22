@@ -1,9 +1,10 @@
 import { ACTION_CHECK_REQUEST_FIELDS } from './action-check.js';
 import { COC7_REQUEST_FIELDS, type Coc7Difficulty } from './coc7-request.js';
+import type { CheckConsequences } from './check-consequences.js';
 
 // A result keeps the capability name used at the time, independently of today's
 // request catalog. This is a historical fact, never a request to look up a sheet.
-export interface Coc7RecordedRequest { action: string; stat: string; difficulty: Coc7Difficulty; stakes?: string }
+export interface Coc7RecordedRequest extends CheckConsequences { action: string; stat: string; difficulty: Coc7Difficulty }
 // Canonical checks need no annotation. Other checks retain the input mapping or
 // untrained source as a historical fact, without consulting the current catalog.
 export type Coc7Resolution = { kind: 'mapped'; input: string }
@@ -39,5 +40,6 @@ export function parseCoc7RecordedRequest(value: unknown): Coc7RecordedRequest {
             : !(spec.values as readonly string[]).includes(raw))) { return invalid(); }
     }
     return { action: input.action, stat: input.stat, difficulty: input.difficulty,
-        ...(Object.hasOwn(input, 'stakes') ? { stakes: input.stakes } : {}) };
+        ...(Object.hasOwn(input, 'success') ? { success: input.success } : {}),
+        ...(Object.hasOwn(input, 'failure') ? { failure: input.failure } : {}) };
 }

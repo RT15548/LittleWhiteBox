@@ -12,6 +12,7 @@ export interface DiceResultOverride {
 
 /** Fixed adjudication data, not property order or the editable prose around a check. */
 export function checkBasis(record: ActionCheckRecord): string {
+    if (record.basis) { return record.basis; }
     const resolution = record.rule === 'coc7' ? record.resolution : undefined;
     return sha256(JSON.stringify([record.rule, Object.keys(record.request).sort().map(key =>
         [key, record.request[key as keyof typeof record.request]]),
