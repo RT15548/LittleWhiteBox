@@ -5,6 +5,8 @@ import { NOVEL_API_DEFAULTS, NOVEL_API_FIELDS, normalizeNovelApiConfig } from '.
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import { CHARACTER_LOCK_COPY } from '../../shared/character-lock-copy.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
+import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -3552,6 +3554,22 @@ function editBuiltinBlock(id) {
     }
 }
 
+async function testBlockTool(block) {
+    const host = createSandboxToolHost({ document });
+    try {
+        const definition = normalizeToolDefinition(await host.define(block.id, block.tool?.code ?? ''));
+        const names = Object.keys(definition.parameters.properties || {});
+        return {
+            ok: true,
+            message: `可用：工具名 ${definition.name}；参数 ${names.length ? names.join('、') : '无'}${definition.stealth ? '；调用不记入工具记录' : ''}`,
+        };
+    } catch (error) {
+        return { ok: false, message: String(error?.message || '读取工具定义失败') };
+    } finally {
+        host.dispose();
+    }
+}
+
 let layoutEditor = null;
 function getLayoutEditor() {
     if (!layoutEditor && PLE) {
@@ -3571,6 +3589,7 @@ function getLayoutEditor() {
             confirm: message => confirm(message),
             autoScroll: autoScrollPresetList,
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
+            onTestTool: testBlockTool,
         });
     }
     return layoutEditor;
@@ -4375,11 +4394,16 @@ function initializePage() {
         try {
             const text = await file.text();
             const data = JSON.parse(text);
+            const hasEnabledToolCode = collectToolBlocks(data?.layout).length > 0;
+            const keepToolBlocks = hasEnabledToolCode
+                ? confirm('这份模板含自定义工具代码，可在浏览器中执行并联网。是否启用？取消则导入但先关闭带工具的消息。只启用你信任的模板。')
+                : false;
             postToParent({
                 type: 'IMPORT_PROMPT_PRESET',
                 payload: data,
                 fallbackName: file.name.replace(/\.json$/i, '').trim()
                     || `导入的预设-${(state.promptPresets || []).length + 1}`,
+                ...(hasEnabledToolCode ? { keepToolBlocks } : {}),
             });
         } catch (err) {
             alert('导入失败: ' + err.message);

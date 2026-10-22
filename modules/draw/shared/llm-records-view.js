@@ -1,16 +1,16 @@
-// 场景规划“最近记录”查看器：NovelAI / SD WebUI / ComfyUI 提示词页的「最近一次实际请求」共用。
+// 场景规划“最近记录”查看器：NovelAI / SD WebUI / ComfyUI 提示词页的「最近请求记录」共用。
 // 数据来自 draw-agent-runtime 的历史记录（getDrawAgentDiagnosticHistory，新到旧）。
-// 默认列出成功（含进行中）的记录；勾选“只看失败”后只列失败的。每条默认折叠，展开后分“模型返回 / 请求 / 原始 JSON”。
+// 默认列出全部记录（成功、失败、进行中）；勾选“只看失败”后只列失败的。每条默认折叠，展开后分“模型返回 / 请求 / 原始 JSON”。
 // 只用 DOM API + textContent，不拼 HTML：返回内容里有故事文本和供应商原文。
 
 const STATUS_LABELS = { success: '成功', error: '失败', running: '进行中' };
 
 // ───────────── 纯函数（不依赖 DOM，便于测试）─────────────
 
-/** 默认只留成功/进行中的记录；failedOnly 时只留失败的。 */
+/** 默认全部保留；failedOnly 时只留失败的。 */
 export function filterRecords(records, { failedOnly = false } = {}) {
     const list = Array.isArray(records) ? records : [];
-    return list.filter(record => (record?.status === 'error') === failedOnly);
+    return failedOnly ? list.filter(record => record?.status === 'error') : list;
 }
 
 export function formatDuration(ms) {
@@ -35,7 +35,7 @@ export function describeRecord(record) {
     if (duration) meta.push(duration);
     if (record?.retryCount > 0) meta.push(`重试 ${record.retryCount} 次`);
     if (status === 'success' && Number.isFinite(record?.imageTaskCount)) meta.push(`${record.imageTaskCount} 张图`);
-    if (status === 'error') meta.push(record?.errorCode || '失败');
+    if (status === 'error') meta.push(record?.blockReason || record?.errorCode || '失败');
     else if (record?.finishReason) meta.push(`finish: ${record.finishReason}`);
     return { status, statusLabel: STATUS_LABELS[status], time: formatClock(record?.timestamp), model, meta };
 }
@@ -131,6 +131,26 @@ export function buildReturnAttempts(record) {
             tone: attempt?.errorCode ? 'error' : failure ? 'warn' : 'ok',
             meta: [formatDuration(attempt?.durationMs), attempt?.finishReason ? `finish: ${attempt.finishReason}` : ''].filter(Boolean),
             sections,
+        };
+    });
+}
+
+/**
+ * 自定义工具调用（请求结构里消息的“附带工具”）：每次调用一段，标题带工具名、第几次请求和耗时，内容是参数与结果 / 错误。
+ * stealth 的工具在运行时就没有写进记录。
+ */
+export function buildToolCallSections(record) {
+    const calls = Array.isArray(record?.customToolCalls) ? record.customToolCalls : [];
+    return calls.map((call, index) => {
+        const duration = formatDuration(call?.durationMs);
+        const title = [`${index + 1}. ${call?.name || '未命名工具'}`, call?.attempt ? `第 ${call.attempt} 次请求后` : '', duration].filter(Boolean).join(' · ');
+        return {
+            title: call?.error ? `${title} · 出错` : title,
+            kind: 'json',
+            value: {
+                arguments: call?.arguments,
+                ...(call?.error ? { error: call.error } : { result: call?.result }),
+            },
         };
     });
 }
@@ -299,6 +319,13 @@ export function createLlmRecordsView({ document, container, getRecords }) {
         }
         body.appendChild(returns.details);
 
+        const toolSections = buildToolCallSections(record);
+        if (toolSections.length) {
+            const tools = createSection(document, '自定义工具调用');
+            renderBlocks(document, tools.body, toolSections);
+            body.appendChild(tools.details);
+        }
+
         const request = createSection(document, '请求');
         const notices = Array.isArray(record?.notices) ? record.notices.filter(Boolean) : [];
         if (notices.length) renderBlocks(document, request.body, [{ title: '提示', kind: 'text', text: notices.join('\n') }]);
@@ -320,7 +347,7 @@ export function createLlmRecordsView({ document, container, getRecords }) {
         count.textContent = `${shown.length} / ${all.length} 条`;
         if (!shown.length) {
             const text = all.length
-                ? (checkbox.checked ? '最近没有失败的记录。' : '最近没有成功的记录，勾选“只看失败”查看失败记录。')
+                ? '最近没有失败的记录。'
                 : '暂无请求记录，请先触发一次画图分析。';
             list.appendChild(create(document, 'div', 'lr-empty', text));
             return;

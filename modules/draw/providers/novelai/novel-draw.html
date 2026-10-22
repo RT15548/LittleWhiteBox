@@ -1155,10 +1155,10 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 
                 <details class="card prompt-advanced-card">
                     <summary class="prompt-card-header">
-                        <div class="card-title"><i class="fa-solid fa-code"></i> 最近一次实际请求</div>
+                        <div class="card-title"><i class="fa-solid fa-code"></i> 最近请求记录</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint">最近几次场景分析的请求与模型返回，默认列出成功的记录；勾选“只看失败”查看失败的。</p>
+                    <p class="form-hint">最近几次场景分析的请求与模型返回，默认成功和失败都列出；勾选“只看失败”只列失败的。</p>
                     <div class="btn-group" style="margin-top:8px;">
                         <button id="nd_llm_request_refresh" class="btn btn-sm" type="button">刷新最近请求</button>
                     </div>

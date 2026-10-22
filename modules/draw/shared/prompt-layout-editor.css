@@ -209,3 +209,25 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
     .lwb-ple-select-box { min-width: 44px; min-height: 44px; }
     .lwb-ple-input, .lwb-ple-select { min-height: 44px; }
 }
+
+/* 消息附带的工具 */
+.lwb-ple-tool-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; width: fit-content; }
+.lwb-ple-tool-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent, #d4a574); cursor: pointer; }
+.lwb-ple-tool-toggle input:focus-visible { outline: 2px solid var(--accent, #d4a574); outline-offset: 1px; }
+.lwb-ple-tool-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    background: #f59e0b22;
+    color: var(--text-primary, #e6edf3);
+    white-space: nowrap;
+}
+.lwb-ple-textarea.lwb-ple-code { min-height: 200px; white-space: pre; overflow: auto; tab-size: 4; }
+.lwb-ple-tool-name { margin: 0; font-size: 12px; color: var(--text-secondary, #8b949e); overflow-wrap: anywhere; }
+.lwb-ple-tool-warning { margin: 0; font-size: 12px; color: var(--text-primary, #e6edf3); }
+.lwb-ple-body-actions { align-items: center; gap: 10px; }
+.lwb-ple-tool-result { font-size: 12px; color: var(--text-secondary, #8b949e); overflow-wrap: anywhere; }
+.lwb-ple-tool-result[data-ok="true"] { color: var(--success, #3fb950); }
+.lwb-ple-tool-result[data-ok="false"] { color: var(--danger, #f85149); }

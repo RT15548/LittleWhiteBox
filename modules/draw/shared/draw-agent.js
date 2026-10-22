@@ -11,6 +11,7 @@ import {
     getDrawAgentDiagnosticHistory,
     getLastDrawAgentDiagnostic,
     normalizeScenePlannerTimeout,
+    resolveRunCustomTools,
     resetDrawAgentRuntimeForTests as resetPureDrawAgentRuntimeForTests,
 } from './draw-agent-runtime.js';
 
@@ -178,7 +179,7 @@ export async function callDrawScenePlannerAgent(options = {}) {
     const task = options.task || {};
     const diagnostic = options.diagnostic
         || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
-    assertDrawScenePlannerTask(task, diagnostic);
+    assertDrawScenePlannerTask(task, diagnostic, { customTools: resolveRunCustomTools(options, diagnostic) });
     diagnostic.update({ stage: 'config' });
 
     let agentCore;

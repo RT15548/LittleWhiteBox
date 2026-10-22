@@ -177,6 +177,14 @@ export async function submitProviderDrawRun({
             'DRAW_RUN_BACKEND_OUTDATED',
         );
     }
+    // 带“附带工具”的消息要运行用户写的代码，代码只在浏览器沙盒里执行；后台任务不会也不能执行它，
+    // 所以带自定义工具的请求结构不提交后台，给出可操作的提示。
+    if (prepared?.planner?.customTools?.length) {
+        throw new DrawRunProductionError(
+            '请求结构里有启用的“附带工具”（会运行你写的代码），代码只能在浏览器里运行。请关闭“后台任务”后使用浏览器流程，或在请求结构里停用带工具的消息。',
+            'DRAW_RUN_CUSTOM_TOOLS_UNSUPPORTED',
+        );
+    }
     // 旧版后台插件的请求校验不认识 planner.retry；它不会重试，但也不能因此拒绝整个任务。
     if (prepared?.planner && !status.capabilities.includes(DRAW_RUN_PLANNER_RETRY_CAPABILITY)) {
         delete prepared.planner.retry;

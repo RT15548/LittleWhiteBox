@@ -28,3 +28,9 @@ export function readResponseCompletion(protocol, reason, refused = false, respon
         ...(responseInfo !== undefined ? { responseInfo } : {}),
     };
 }
+
+/** An error thrown after the request went out (including an abnormal finish) still tells what was sent. */
+export function attachRequestInspection(error, inspection) {
+    if (inspection && error && typeof error === 'object' && !error.requestInspection) error.requestInspection = inspection;
+    return error;
+}

@@ -30,6 +30,9 @@ const AGENT_CONFIG_ERROR_CODES = new Set([
 ]);
 const PROMPT_ERROR_CODES = new Set([
     'PROMPT_EXPANSION_FAILED',
+    'CUSTOM_TOOL_INVALID',
+    'CUSTOM_TOOL_HOST_MISSING',
+    'CUSTOM_TOOL_LIMIT_EXCEEDED',
 ]);
 const INPUT_ERROR_CODES = new Set([
     'EMPTY_MESSAGE',
@@ -388,7 +391,7 @@ export function parseSubmittedScenePlan(result = {}, options = {}) {
         const model = String(options.model || '').trim();
         const context = [presetName, provider, model].filter(Boolean).join(' / ');
         throw new ScenePlannerError(
-            `本次响应没有解析到 submit_scene_plan Tool Call${context ? `（${context}）` : ''}。这不代表模型不支持 Tool Calling，请根据最近一次实际请求核对返回协议。`,
+            `本次响应没有解析到 submit_scene_plan Tool Call${context ? `（${context}）` : ''}。这不代表模型不支持 Tool Calling，请根据最近请求记录核对返回协议。`,
             'TOOL_CALL_MISSING',
             {
                 path: 'toolCalls',

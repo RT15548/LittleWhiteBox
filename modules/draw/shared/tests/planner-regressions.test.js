@@ -7,11 +7,58 @@ import { createPromptLayoutEditor } from '../prompt-layout-editor.js';
 import { callDrawScenePlannerAgentRuntime, getDrawAgentDiagnosticHistory, resetDrawAgentRuntimeForTests } from '../draw-agent-runtime.js';
 import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
 import { createDrawAgentSettingsSurface } from '../agent-settings-surface.js';
+import { DEFAULT_TOOL_CODE } from '../custom-tools.js';
 
 // Acceptance contracts:
 // Provider errors/refusals must not retain echoed credentials in diagnostics (credential disclosure).
 // Undo belongs to one preset, even when host selection changes (overwriting another preset).
 // Preset-row saves and background refreshes preserve newer form edits on every outcome (lost edits).
+// Tool drafts belong to their preset, even when imported messages share an id (wrong executable code).
+
+test('tool drafts cannot cross preset ownership with the same block id', t => {
+    const { document } = parseHTML('<html><body><div id="editor"></div></body></html>');
+    const block = createCustomBlock({ content: 'tool', tool: { code: 'return { name: "private_a", action() {} };' } });
+    const layouts = { A: addBlock(createDefaultLayout(), block), B: addBlock(createDefaultLayout(), { ...block, tool: undefined }) };
+    let owner = 'A';
+    const container = document.getElementById('editor');
+    const editor = createPromptLayoutEditor({ document, container, getOwnerKey: () => owner, getLayout: () => layouts[owner], onChange: next => { layouts[owner] = next; } });
+    t.after(() => editor.destroy());
+    const toggle = checked => {
+        container.querySelector(`[data-block-id="${block.id}"] [data-ple-field="main"]`).dispatchEvent(new document.defaultView.Event('click', { bubbles: true }));
+        const node = container.querySelector('[data-ple-field="tool-toggle"]');
+        node.checked = checked;
+        node.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+    };
+    editor.render();
+    toggle(false);
+    owner = 'B';
+    editor.render();
+    toggle(true);
+    assert.equal(layouts.B.blocks.find(item => item.id === block.id).tool.code, DEFAULT_TOOL_CODE);
+    owner = 'A';
+    editor.render();
+    toggle(true);
+    assert.equal(layouts.A.blocks.find(item => item.id === block.id).tool.code, block.tool.code);
+});
+
+test('provider refusal reason and redacted request survive in draw history', async () => {
+    resetDrawAgentRuntimeForTests();
+    const providerConfig = { provider: 'openai-compatible', baseUrl: 'https://invalid.example/v1', model: 'stub', apiKey: 'secret-fixture', toolMode: 'native' };
+    await assert.rejects(callDrawScenePlannerAgentRuntime({
+        providerConfig,
+        task: { messages: [{ role: 'user', content: 'A book' }], tools: [createSubmitScenePlanTool()] },
+        agentCore: { createAgentAdapter(config) {
+            const adapter = new OpenAICompatibleAdapter(config);
+            adapter.client.chat.completions.create = async () => ({ choices: [{ finish_reason: 'content_filter', message: { content: '' } }] });
+            return adapter;
+        } },
+    }), { code: 'PROVIDER_REQUEST_FAILED' });
+    const [record] = getDrawAgentDiagnosticHistory();
+    assert.equal(record.blockReason, 'content_filter');
+    assert.equal(record.attempts[0].blockReason, 'content_filter');
+    assert.ok(record.request);
+    assert.equal(JSON.stringify(record).includes('secret-fixture'), false);
+});
 
 for (const refused of [false, true]) {
     test(`provider ${refused ? 'refusal' : 'error body'} diagnostics exclude echoed API credentials`, async () => {

@@ -99,3 +99,24 @@ test('removing drawing-only unsupported settings does not hide an invalid requir
     prepared.agent.providerConfig.model = '';
     assert.throws(() => validate(envelopeFor(prepared)), { status: 400, code: 'invalid_draw_run' });
 });
+
+// User code cannot be submitted to or executed by background drawing (unwanted server execution).
+test('custom tools are rejected before background recipes or submissions are created', async () => {
+    const prepared = await preparedFor('openai-compatible');
+    prepared.planner.customTools = [{ name: 'note', parameters: { type: 'object' } }];
+    const message = { mes: source, swipe_id: 0 };
+    const ctx = { chatId: 'offline-chat', chat: [message] };
+    let writes = 0;
+    await assert.rejects(submitProviderDrawRun({
+        ctx, message, messageId: 0, provider: 'novelai', getCurrentContext: () => ctx,
+        pendingJobsLoader: async () => [],
+        statusLoader: async () => ({ ready: true, version: '3.0.0', capabilities: [
+            'draw-runs-v1', 'draw-run-runtime-v4', 'draw-work-cancellation-v1', 'draw-run-planner-retry-v1',
+        ] }),
+        preparePlanner: async () => prepared,
+        createGenerationRecipe: () => { writes++; return recipeFor('novelai'); },
+        submit: async () => { writes++; },
+    }), { code: 'DRAW_RUN_CUSTOM_TOOLS_UNSUPPORTED' });
+    assert.equal(writes, 0);
+    assert.throws(() => validate(envelopeFor(prepared)), { code: 'custom_tools_unsupported' });
+});

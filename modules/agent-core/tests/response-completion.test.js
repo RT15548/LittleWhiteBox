@@ -13,6 +13,7 @@ import { parseSubmittedScenePlan } from '../../draw/shared/scene-plan-contract.j
 // - A valid draw plan is accepted once, without issuing a replacement model request.
 // - Cut-off native arguments cannot be repaired into executable writes.
 // - Explicit refusal and genuine provider errors still fail the request.
+// - Failed replies retain the sent, credential-free request for inspection (credential disclosure / lost diagnostics).
 const text = '<dialogue>我点点头。\n「Here is the "+" sign。」</dialogue>';
 const parameters = { images: [{ insert_after: 1, scene: 'warm city street', characters: [] }] };
 const args = JSON.stringify(parameters);
@@ -168,5 +169,31 @@ test('explicit refusal remains a failure rather than authorizing a tool call', (
     for (const [protocol, reason, refused] of [['openai', 'content_filter'], ['openai', 'stop', true],
         ['anthropic', 'refusal'], ['google', 'SAFETY'], ['responses', 'content_filter']]) {
         assert.throws(() => readResponseCompletion(protocol, reason, refused), { code: 'AGENT_RESPONSE_REFUSED' });
+    }
+});
+
+test('refused replies retain request inspection across direct providers', async t => {
+    for (const provider of ['openai-compatible', 'anthropic', 'google']) {
+        for (const streaming of [false, true]) await t.test(`${provider}/${streaming}`, async t => {
+            const wire = fixture(provider, 'normal');
+            const reason = { 'openai-compatible': 'content_filter', anthropic: 'refusal', google: 'PROHIBITED_CONTENT' }[provider];
+            if (provider === 'openai-compatible') {
+                wire.json.choices[0].finish_reason = reason;
+                wire.events.at(-1).choices[0].finish_reason = reason;
+            } else if (provider === 'anthropic') {
+                wire.json.stop_reason = reason;
+                wire.events.find(event => event.type === 'message_delta').delta.stop_reason = reason;
+            } else wire.json.candidates[0].finishReason = reason;
+            const service = await localProvider(t, wire, streaming);
+            const adapter = createAgentAdapter({ provider, apiKey: 'secret-fixture-not-real', model: 'fixture', baseUrl: service.baseUrl });
+            await assert.rejects(adapter.chat({ messages, tools, ...(streaming ? { onStreamProgress() {} } : {}) }), error => {
+                assert.equal(error.code, 'AGENT_RESPONSE_REFUSED');
+                assert.equal(error.reason, reason);
+                assert.ok(error.requestInspection);
+                assert.equal(JSON.stringify(error.requestInspection).includes('secret-fixture-not-real'), false);
+                return true;
+            });
+            assert.equal(service.requests(), 1);
+        });
     }
 });

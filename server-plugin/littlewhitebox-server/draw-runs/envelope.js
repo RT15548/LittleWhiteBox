@@ -139,6 +139,10 @@ function validateSceneSource(value, runtime) {
 }
 
 function validatePlanner(value, runtime) {
+    // 带“附带工具”的消息要运行用户写的代码，只允许在浏览器沙盒里执行；后台永远不执行用户代码，直接给出明确的拒绝原因。
+    if (value && typeof value === 'object' && Object.hasOwn(value, 'customTools')) {
+        throw invalid('planner.customTools is not supported: custom tool code only runs in the browser', 400, 'custom_tools_unsupported');
+    }
     const planner = assertExactKeys(
         value,
         ['prompt', 'tool', 'validationContext', 'presentCharacters', 'retry'],

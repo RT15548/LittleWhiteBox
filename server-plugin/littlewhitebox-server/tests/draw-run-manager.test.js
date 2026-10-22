@@ -1096,3 +1096,12 @@ test('backend hands the whole multi-message planner prompt to the Planner runtim
     await waitFor(() => received);
     assert.deepEqual(received, { systemPrompt: 'system', messages });
 });
+
+test('Draw Run rejects planner.customTools: custom tool code only ever runs in the browser', () => {
+    const validate = createEnvelopeValidator(drawRuntime);
+    const envelope = createEnvelope('run-custom-tools');
+    envelope.planner.customTools = [{ name: 'note', description: '', parameters: { type: 'object', properties: {} }, stealth: false }];
+    assert.throws(() => validate(envelope), (error) => error.status === 400
+        && error.code === 'custom_tools_unsupported'
+        && /only runs in the browser/.test(error.message));
+});

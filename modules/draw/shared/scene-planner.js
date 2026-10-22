@@ -24,6 +24,7 @@ import {
 import { planScenePlannerMessages } from './scene-planner-assembly.js';
 import { normalizeLayout } from './scene-planner-layout.js';
 import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker } from '../../agent-core/adapters/tool-protocol-marker.js';
+import { resolveCustomToolDefinitions } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
 import {
@@ -257,6 +258,8 @@ async function buildScenePlannerRequest(options = {}) {
 
         // 布局来自整份预设（customPrompts.layout）；缺省/默认布局走 legacy，请求与改造前逐字节一致。
         const { layout } = normalizeLayout(customPrompts?.layout);
+        // 附带工具：代码在沙盒里读出定义；没有宿主（后台 / Node）时直接拒绝，不会运行用户代码。
+        const customTools = await resolveCustomToolDefinitions(layout, options.customToolHost, { signal: options.signal });
         const plan = planScenePlannerMessages({
             layout,
             builtinTexts: {
@@ -332,9 +335,11 @@ async function buildScenePlannerRequest(options = {}) {
                 effectiveMaxCharactersPerImage,
                 centerMode,
             },
+            customTools,
         };
     } catch (error) {
         if (error instanceof ScenePlannerError) throw error;
+        if (error?.name === 'AbortError') throw error;
         throw wrapPromptExpansionError(error);
     }
 }
@@ -348,6 +353,7 @@ export async function buildScenePlannerTask(options = {}) {
             tool: request.tool,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
+            ...(request.customTools.length ? { customTools: request.customTools } : {}),
         },
         agent: { channel: '', providerConfig: null },
     });
@@ -359,9 +365,12 @@ export async function prepareScenePlannerInput(options = {}) {
     try {
         request = await buildScenePlannerRequest(options);
     } catch (error) {
+        options.customToolHost?.dispose?.();
         diagnostic?.fail(error, { stage: 'prompt' });
         throw error;
     }
+    // 只生成快照（后台任务路径）时，沙盒读完定义就关；要继续执行的调用方（generateAndParseScenePlan）自己保留宿主。
+    if (options.keepCustomToolHost !== true) options.customToolHost?.dispose?.();
 
     let providerConfig = options.agentOptions?.providerConfig || null;
     if (!providerConfig && !options.agentCaller) {
@@ -383,6 +392,7 @@ export async function prepareScenePlannerInput(options = {}) {
             tool: request.tool,
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
+            ...(request.customTools.length ? { customTools: request.customTools } : {}),
             // 重试设置随快照冻结：后台 Draw Run 只能读到这里，与浏览器流程行为一致。
             ...(options.plannerRetry ? { retry: normalizePlannerRetry(options.plannerRetry) } : {}),
         },
@@ -396,16 +406,21 @@ export async function prepareScenePlannerInput(options = {}) {
 export async function generateAndParseScenePlan(options = {}) {
     const diagnostic = options.diagnostic
         || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
-    const prepared = await prepareScenePlannerInput({ ...options, diagnostic });
-    return executePreparedScenePlanner(prepared, {
-        timeout: options.timeout,
-        signal: options.signal,
-        diagnostic,
-        onDiagnosticUpdate: options.onDiagnosticUpdate,
-        agentCaller: options.agentCaller || callDrawScenePlannerAgent,
-        agentOptions: options.agentOptions,
-        agentCore: options.agentCore,
-        logger: options.logger || xbLog,
-        ...(Object.hasOwn(options, 'hostClient') ? { hostClient: options.hostClient } : {}),
-    });
+    try {
+        const prepared = await prepareScenePlannerInput({ ...options, diagnostic, keepCustomToolHost: true });
+        return await executePreparedScenePlanner(prepared, {
+            customToolHost: options.customToolHost,
+            timeout: options.timeout,
+            signal: options.signal,
+            diagnostic,
+            onDiagnosticUpdate: options.onDiagnosticUpdate,
+            agentCaller: options.agentCaller || callDrawScenePlannerAgent,
+            agentOptions: options.agentOptions,
+            agentCore: options.agentCore,
+            logger: options.logger || xbLog,
+            ...(Object.hasOwn(options, 'hostClient') ? { hostClient: options.hostClient } : {}),
+        });
+    } finally {
+        options.customToolHost?.dispose?.();
+    }
 }

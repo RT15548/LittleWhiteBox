@@ -104,7 +104,9 @@ import {
     normalizeNovelPromptGuideOverrides,
 } from "./novel-prompts.js";
 import { parseNovelPromptPresetImport } from "./novel-prompt-import.js";
-import { layoutForStorage } from "../../shared/scene-planner-layout.js";
+import { layoutForStorage, normalizeLayout } from "../../shared/scene-planner-layout.js";
+import { collectToolBlocks } from "../../shared/custom-tools.js";
+import { createSandboxToolHost } from "../../shared/custom-tool-sandbox.js";
 import { createScenePlannerDefaultPresets, isPovPromptPreset, SCENE_PLANNER_PRESET_INSTALL_NOTICE } from "../../shared/scene-planner-presets.js";
 import {
     getNovelModelCapability,
@@ -2668,6 +2670,10 @@ async function buildNovelScenePlannerOptions({
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
         plannerProfile: getNovelPlannerProfile(model),
         plannerRetry: { maxRetries: settings.plannerMaxRetries },
+        // 请求结构里有启用且附带工具的消息时，由浏览器沙盒执行工具代码；没有就不创建宿主。
+        ...(typeof document !== 'undefined' && collectToolBlocks(normalizeLayout(customPrompts?.layout).layout).length
+            ? { customToolHost: createSandboxToolHost({ document }) }
+            : {}),
         onDiagnosticUpdate: diagnostic => onStateChange?.('llm', toScenePlannerProgress(diagnostic)),
         signal,
     };
@@ -3608,6 +3614,8 @@ async function handleFrameMessage(event) {
             try {
                 imported = parseNovelPromptPresetImport(data.payload, {
                     fallbackName: data.fallbackName,
+                    // 页面确认过“启用工具代码”才会带这个标记；没有就一律先停用。
+                    keepToolBlocks: data.keepToolBlocks === true,
                 });
             } catch (error) {
                 postStatus('error', `导入失败：${error?.message || '模板格式无效'}`, 'prompt-preset');
@@ -3615,10 +3623,11 @@ async function handleFrameMessage(event) {
             }
             const id = generateSlotId();
             // layoutNotes 只是导入时的修复说明，不属于预设数据，不能随展开写进存储。
-            const { layoutNotes = [], ...presetFields } = imported;
-            const importedText = layoutNotes.length
-                ? `已导入为新预设（布局已自动修复：${layoutNotes.join('；')}）`
-                : '已导入为新预设';
+            const { layoutNotes = [], disabledToolBlocks = 0, ...presetFields } = imported;
+            const importedText = [
+                layoutNotes.length ? `布局已自动修复：${layoutNotes.join('；')}` : '',
+                disabledToolBlocks ? `含 ${disabledToolBlocks} 条带自定义工具（代码）的消息，已先关闭：看过代码、确认可信再在“请求结构”里启用` : '',
+            ].filter(Boolean).reduce((text, note) => `${text}（${note}）`, '已导入为新预设');
             const ok = await updateSettingsPersistent((settings) => {
                 settings.promptPresets.push({
                     id,
