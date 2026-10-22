@@ -173,7 +173,7 @@ import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, I
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
-import { persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
+import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
@@ -2350,24 +2350,12 @@ async function toggleEditPanel(container, show) {
                 <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
             </div>`;
 
-        if (preview?.characterPrompts?.length > 0) {
-            preview.characterPrompts.forEach((char, i) => {
-                const name = char.name || `角色 ${i + 1}`;
-                html += `
+        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
+            html += `
                 <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">${escapeHtml(name)}</div>
-                    <textarea class="xb-nd-edit-input" data-type="char" data-index="${i}">${escapeHtml(char.prompt || '')}</textarea>
+                    <div class="xb-nd-edit-group-label">${escapeHtml(group.label)}</div>
+                    <textarea class="xb-nd-edit-input" aria-label="${escapeHtml(group.label)}" data-type="${group.type}" data-index="${group.index}">${escapeHtml(group.value)}</textarea>
                 </div>`;
-            });
-            // 角色专属负向（uc）：放在所有编辑框最下面，每个角色固定一个框，方便随时新增
-            preview.characterPrompts.forEach((char, i) => {
-                const name = char.name || `角色 ${i + 1}`;
-                html += `
-                <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">${escapeHtml(name)} 负向</div>
-                    <textarea class="xb-nd-edit-input" data-type="uc" data-index="${i}">${escapeHtml(char.uc || '')}</textarea>
-                </div>`;
-            });
         }
 
         // eslint-disable-next-line no-unsanitized/property -- Escaped data used in template.

@@ -4,6 +4,16 @@ import { captureImageCardTarget, readImageCardTarget } from './image-card-target
 import { createImageIdentifiers } from './prepared-image-placement.js';
 import { DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, PreviewStatus } from './image-record.js';
 
+export function getCharacterTagEditGroups(characterPrompts = []) {
+    return (characterPrompts || []).flatMap((character, index) => {
+        const name = character.name || `角色 ${index + 1}`;
+        return [
+            { label: name, value: character.prompt || '', type: 'char', index },
+            { label: `${name} 负向`, value: character.uc || '', type: 'uc', index },
+        ];
+    });
+}
+
 export async function readCardTagEditor(container) {
     const target = captureImageCardTarget(container);
     const panel = container.querySelector('.xb-nd-edit');

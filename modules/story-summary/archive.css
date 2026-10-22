@@ -15,6 +15,8 @@
 }
 .archive-topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .archive-brand { font-size: 15px; font-weight: 600; letter-spacing: .06em; }
+.archive-topbar .archive-brand { white-space: nowrap; }
+.archive-topbar .archive-actions { flex-wrap: nowrap; flex-shrink: 0; }
 .archive-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .archive-icon {
     width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; display: inline-grid;
@@ -27,7 +29,7 @@
 .archive-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--txt3); }
 .archive-meta b, .archive-muted b { font-weight: 500; }
 .archive-muted { color: var(--txt3); font-size: 12px; }
-.archive-generate { gap: 18px; padding-bottom: 3px; }
+.archive-generate { gap: 8px; padding-bottom: 3px; flex-wrap: nowrap; flex-shrink: 0; }
 .archive-generate .btn { min-height: 42px; border-radius: 7px; padding: 9px 18px; font-size: 13px; }
 .archive-nav { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--bdr); background: var(--bg); }
 .archive-tabs { display: flex; gap: 34px; }
@@ -136,9 +138,12 @@
     .archive { padding: 0 20px 32px; }
     .archive-topbar { height: 58px; }
     .archive-brand { font-size: 14px; }
-    .archive-hero { display: block; padding: 16px 0 18px; }
-    .archive-meta { gap: 8px 12px; font-size: 11px; }
-    .archive-generate { justify-content: space-between; margin-top: 20px; padding: 0; }
+    .archive-topbar .archive-actions { gap: 4px; }
+    .archive-hero { padding: 6px 0 10px; gap: 8px; }
+    .archive-meta { gap: 4px 8px; font-size: 11px; }
+    .archive-meta > span { white-space: nowrap; }
+    .archive-generate { padding: 0; gap: 6px; }
+    .archive-generate .btn { padding: 8px 10px; min-height: 40px; font-size: 12px; }
     .archive-tabs { gap: 22px; }
     .archive-tab { font-size: 14px; }
     .archive-nav { gap: 12px; }
@@ -146,14 +151,14 @@
     .archive-search:focus-within input { width: 92px; }
     .archive-nav:has(.archive-search:focus-within) .archive-tab span { display: none; }
     .archive-nav:has(.archive-search:focus-within) .archive-tabs { gap: 12px; }
-    .archive-content { padding-top: 18px; }
+    .archive-content { padding-top: 10px; }
     .archive-story, .archive-people-layout, .archive-world-layout { display: block; }
     .archive-index > .archive-label { display: none; }
-    #archive-story-index, .archive-world-index { display: flex; gap: 18px; overflow-x: auto; margin-bottom: 12px; padding-bottom: 6px; }
+    #archive-story-index, .archive-world-index { display: flex; gap: 18px; overflow-x: auto; margin-bottom: 4px; padding-bottom: 0; }
     .archive-index-button { flex: 0 0 auto; width: auto; max-width: 200px; border: 0; padding: 10px 0; font-size: 12px; }
     .archive-index-button[aria-pressed="true"] { border: 0; padding: 10px 0; }
     .archive-index-button span { font-size: 10px; }
-    .archive-keywords { margin: 0 0 14px; }
+    .archive-keywords { margin: 0 0 4px; }
     .archive-keywords summary { min-height: 36px; padding: 6px 0; }
     .archive-section-head { margin-bottom: 18px; }
     .archive-section-head h2 { font-size: 16px; }

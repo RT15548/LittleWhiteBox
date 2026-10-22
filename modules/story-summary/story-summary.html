@@ -75,23 +75,20 @@
             <div class="archive-actions">
                 <button class="archive-icon" id="archive-theme" aria-label="切换深浅主题" title="切换深浅主题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.4A8 8 0 0 1 10.6 4 8.1 8.1 0 1 0 20 13.4Z" /></svg></button>
                 <button class="archive-icon" id="archive-manage-open" aria-label="设置" title="设置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="2.5" /><circle cx="15" cy="17" r="2.5" /></svg></button>
-                <button class="archive-icon" id="archive-data" aria-label="数据管理" title="数据管理">⋯</button>
+                <button class="archive-icon" id="archive-data" aria-label="数据管理" title="数据管理"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 19a5 5 0 0 1-1-9.9 6 6 0 0 1 11.6-1.6A5.8 5.8 0 0 1 18 19Z" /></svg></button>
                 <button class="archive-icon" id="archive-close" aria-label="关闭剧情总结" title="关闭剧情总结">×</button>
             </div>
         </div>
         <div class="archive-hero">
-            <div>
-                <div class="archive-meta"><span><b id="stat-events">0</b> 段剧情</span><span>已总结至 <b id="stat-summarized">0</b> 楼</span><span id="archive-chat-state" hidden></span></div>
-            </div>
+            <div class="archive-meta"><span>已总结 <b id="stat-summarized">0</b> 楼</span><span>待总结 <b id="stat-pending">0</b> 楼</span><span id="archive-chat-state" hidden></span><div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div></div>
             <div class="archive-actions archive-generate">
-                <div><span class="archive-muted"><b id="stat-pending">0</b> 楼待总结</span><div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div></div>
                 <button class="btn" id="archive-assistant"></button>
                 <button class="btn btn-p" id="btn-generate"></button>
             </div>
         </div>
         <div class="archive-nav">
             <nav class="archive-tabs" role="tablist" aria-label="剧情档案">
-                <button class="archive-tab" id="archive-tab-story" role="tab" data-view="story" aria-selected="true" aria-controls="archive-story">剧情</button>
+                <button class="archive-tab" id="archive-tab-story" role="tab" data-view="story" aria-selected="true" aria-controls="archive-story">剧情 <span id="stat-events">0</span></button>
                 <button class="archive-tab" id="archive-tab-people" role="tab" data-view="people" aria-selected="false" aria-controls="archive-people" tabindex="-1">人物 <span id="archive-people-count">0</span></button>
                 <button class="archive-tab" id="archive-tab-world" role="tab" data-view="world" aria-selected="false" aria-controls="archive-world" tabindex="-1">世界 <span id="archive-world-count">0</span></button>
             </nav>
@@ -106,7 +103,7 @@
                 <aside class="archive-index">
                     <div class="archive-label">剧情索引</div>
                     <nav id="archive-story-index" aria-label="剧情类型"></nav>
-                    <details class="archive-keywords" open>
+                    <details class="archive-keywords">
                         <summary>核心关键词</summary>
                         <div id="keywords-cloud" class="archive-keyword-list"></div>
                         <button class="archive-text sec-btn" data-section="keywords">编辑关键词</button>
@@ -202,7 +199,7 @@
                 <span id="settings-config-message"></span>
                 <button type="button" class="btn btn-sm" id="settings-config-retry" hidden></button>
             </div>
-            <div class="workspace-layout"><div aria-label="设置分类" class="settings-tabs"><button data-family="settings" data-tab="tab-summary" type="button" class="settings-tab">总结规则</button><button data-family="settings" data-tab="tab-vector" type="button" class="settings-tab">向量召回</button><button data-family="settings" data-tab="tab-models" type="button" class="settings-tab">模型连接</button><button data-family="settings" data-tab="tab-appearance" type="button" class="settings-tab">外观</button><button data-family="settings" data-tab="tab-prompts" type="button" class="settings-tab">高级</button><button data-family="data" data-tab="tab-transfer" type="button" class="settings-tab">导入与导出</button><button data-family="data" data-tab="tab-backups" type="button" class="settings-tab">服务器备份</button><button data-family="data" data-tab="tab-clear" type="button" class="settings-tab">清理与回退</button><button data-family="data" data-tab="tab-guide" type="button" class="settings-tab">使用说明</button></div><div class="modal-body">
+            <div class="workspace-layout"><div aria-label="设置分类" class="settings-tabs"><button data-family="settings" data-tab="tab-summary" type="button" class="settings-tab">总结规则</button><button data-family="settings" data-tab="tab-models" type="button" class="settings-tab">模型连接</button><button data-family="settings" data-tab="tab-vector" type="button" class="settings-tab">向量召回</button><button data-family="settings" data-tab="tab-prompts" type="button" class="settings-tab">提示词</button><button data-family="settings" data-tab="tab-appearance" type="button" class="settings-tab">外观</button><button data-family="data" data-tab="tab-transfer" type="button" class="settings-tab">导入与导出</button><button data-family="data" data-tab="tab-backups" type="button" class="settings-tab">服务器备份</button><button data-family="data" data-tab="tab-clear" type="button" class="settings-tab">清理与回退</button><button data-family="data" data-tab="tab-guide" type="button" class="settings-tab">使用说明</button></div><div class="modal-body">
                 <!-- Tab 1: Summary Settings -->
                 <div class="tab-pane active" id="tab-summary"><section class="settings-section"><h3 class="settings-section-title">此聊天<small class="workspace-scope">即时生效</small></h3><label class="archive-setting" title="只影响当前聊天；关闭后停止自动总结和长期记忆注入，但保留已有数据"><span>启用剧情总结</span><input type="checkbox" id="current-chat-enabled" checked></label></section><section class="settings-section"><h3 class="settings-section-title">自动总结<small class="workspace-scope">全局</small></h3><div class="settings-checkbox-group">
                             <label class="settings-checkbox">
@@ -229,7 +226,7 @@
                                 <input type="checkbox" id="trigger-notify-on-complete">
                                 <span class="checkbox-mark"></span>
                                 <span class="checkbox-label">总结完成提醒</span>
-                            </label></section><section class="settings-section"><h3 class="settings-section-title">总结范围<small class="workspace-scope">全局</small></h3><div class="settings-field">
+                            </label></section><details class="settings-section summary-group"><summary>总结范围<small class="workspace-scope">全局</small></summary><div class="settings-field">
                                 <label for="trigger-max-per-run">单次最大总结（楼）</label>
                                 <select id="trigger-max-per-run">
                                     <option value="25">25</option>
@@ -239,12 +236,12 @@
                                     <option value="200">200</option>
                                 </select>
                             </div><div class="settings-field">
-                                <label for="trigger-delay-floors" title="保留最近 N 层不纳入总结，手动与自动一致；0 = 总结到最新">延迟总结楼层</label>
+                                <label for="trigger-delay-floors" title="保留最近 N 层不纳入总结，手动与自动一致；0 = 总结到最新">最近几楼暂不总结</label>
                                 <input type="number" id="trigger-delay-floors" min="0" max="30" step="1" value="2">
-                            </div></section><section class="settings-section"><h3 class="settings-section-title">原文处理<small class="workspace-scope">全局</small></h3><label class="archive-setting"><span>隐藏已总结楼层 · <strong id="summarized-count">0</strong> 楼</span><input type="checkbox" id="hide-summarized"></label><label class="archive-setting"><span>保留最近楼层</span><input type="number" id="keep-visible-count" min="0" max="50" value="3"></label><div id="container-vector-boundary" class="vector-boundary-container">
-                <label class="archive-setting" id="lbl-vector-boundary" title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。"><span>按向量召回进度隐藏</span><input type="checkbox" id="use-vector-boundary" checked></label>
-                <span class="info-dot" id="vector-boundary-info" title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。">i</span>
-            </div></section><section class="settings-section"><h3 class="settings-section-title">记忆注入<small class="workspace-scope">全局</small></h3><div class="settings-field summary-role-field">
+                            </div></details><details class="settings-section summary-group"><summary>原文处理<small class="workspace-scope">全局</small></summary><label class="archive-setting"><span>隐藏已总结楼层 · <strong id="summarized-count">0</strong> 楼</span><input type="checkbox" id="hide-summarized"></label><label class="archive-setting"><span>保留最近楼层</span><input type="number" id="keep-visible-count" min="0" max="50" value="3"></label><div id="container-vector-boundary" class="vector-boundary-container">
+                <label class="archive-setting" id="lbl-vector-boundary" title="开：按向量处理的最新进度隐藏；关：按剧情总结的最新进度隐藏。"><span>按向量进度隐藏</span><input type="checkbox" id="use-vector-boundary" checked></label>
+                <span class="info-dot" id="vector-boundary-info" title="开：按向量处理的最新进度隐藏；关：按剧情总结的最新进度隐藏。">i</span>
+            </div></details><details class="settings-section summary-group"><summary>记忆注入<small class="workspace-scope">全局</small></summary><div class="settings-field summary-role-field">
                                 <label for="trigger-role">注入角色</label>
                                 <select id="trigger-role">
                                     <option value="system">System</option>
@@ -271,18 +268,23 @@
                                     </div>
                                 </div>
                             </div>
-                        </div><div class="settings-section">
-                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
-                            <div class="settings-section-title" style="margin: 0;">记忆注入提示词</div>
-                            <button class="btn btn-sm" id="btn-reset-memory-prompt-template" style="margin-left:auto;">恢复默认</button>
+                        </div></details>
+                    <div class="settings-collapse" id="filter-rules-collapse" style="margin-top:0; margin-bottom: 16px;">
+                        <div class="settings-collapse-header" id="filter-rules-toggle">
+                            <span>文本过滤规则 · <strong id="filter-rules-count">0</strong> 条</span>
+                            <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9" /></svg>
                         </div>
-                        <div class="settings-row">
-                            <div class="settings-field full">
-                                <textarea class="editor-ta" id="memory-prompt-template" style="min-height: 220px;" placeholder="聊天注入模板"></textarea>
-                                <div class="settings-hint">必须保留 <code>{$剧情记忆}</code> 这个占位符，运行时会替换成实际记忆内容。</div>
+                        <div class="settings-collapse-content hidden" id="filter-rules-content">
+                            <div class="filter-rules-header">
+                                <p class="settings-hint" style="margin:0">过滤干扰内容（如思考标签）</p>
+                                <button class="btn btn-sm btn-add" id="btn-add-filter-rule">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg> 添加
+                                </button>
                             </div>
+                            <div id="filter-rules-list" class="filter-rules-list"></div>
                         </div>
-                    </div></section></div>
+                    </div>
+                </div>
 
                 <!-- Tab 2: Vector Settings -->
                 <div class="tab-pane" id="tab-vector">
@@ -411,26 +413,19 @@
                 <details class="workspace-disclosure"><summary>召回记录</summary><pre id="recall-log-content" class="debug-log-viewer"></pre></details></div>
 
                 <div class="tab-pane" id="tab-agent"></div>
-                <div class="tab-pane" id="tab-prompts"><div class="settings-collapse" id="filter-rules-collapse" style="margin-top:0; margin-bottom: 16px;">
-                            <div class="settings-collapse-header" id="filter-rules-toggle">
-                                <span>文本过滤规则 · <strong id="filter-rules-count">0</strong> 条</span>
-                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="6 9 12 15 18 9" />
-                                </svg>
-                            </div>
-                            <div class="settings-collapse-content hidden" id="filter-rules-content" style="border-left: 1px solid var(--bdr); border-right: 1px solid var(--bdr); border-bottom: 1px solid var(--bdr); border-radius: 0 0 6px 6px; margin-top: -2px;">
-                                <div class="filter-rules-header">
-                                    <p class="settings-hint" style="margin:0">过滤干扰内容（如思考标签）</p>
-                                    <button class="btn btn-sm btn-add" id="btn-add-filter-rule">
-                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                                            <line x1="12" y1="5" x2="12" y2="19" />
-                                            <line x1="5" y1="12" x2="19" y2="12" />
-                                        </svg> 添加
-                                    </button>
-                                </div>
-                                <div id="filter-rules-list" class="filter-rules-list"></div>
+                <div class="tab-pane" id="tab-prompts">
+                    <div class="settings-section">
+                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
+                            <div class="settings-section-title" style="margin: 0;">记忆注入提示词</div>
+                            <button class="btn btn-sm" id="btn-reset-memory-prompt-template" style="margin-left:auto;">恢复默认</button>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="memory-prompt-template" style="min-height: 220px;" placeholder="聊天注入模板"></textarea>
+                                <div class="settings-hint">必须保留 <code>{$剧情记忆}</code> 这个占位符，运行时会替换成实际记忆内容。</div>
                             </div>
                         </div>
+                    </div>
                     <details class="workspace-disclosure"><summary>内置总结提示词 · 只读</summary><div class="settings-section">
 
 
@@ -850,6 +845,7 @@
                                                 <div class="settings-hint" id="rerank-api-connect-status" style="margin-bottom:16px;"></div>
                                             </div></section></div></div>
             <div class="modal-foot"><div id="api-connect-status" role="status"></div><button class="btn" id="settings-cancel">还原修改</button>
+                <button class="btn memory-chat-entry" id="settings-chat" hidden></button>
                 <button class="btn btn-p" id="settings-save"></button>
             </div>
         </div>

@@ -22,6 +22,20 @@ body:has(.summary-workspace.active) { overflow: hidden; }
 .workspace-shell #tab-summary .settings-field { display: flex; flex-direction: row; justify-content: space-between; align-items: center; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--bdr); margin: 0; }
 .workspace-shell #tab-summary .settings-field > :is(input, select) { max-width: 220px; width: 40%; }
 .workspace-shell #tab-summary .settings-field:has(textarea) { display: block; border: 0; }
+.workspace-shell #tab-summary > .settings-section { margin-bottom: 22px; }
+.workspace-shell #tab-summary .settings-section-title { margin-bottom: 4px; }
+.workspace-shell #tab-summary :is(.settings-checkbox, .archive-setting, .settings-field) { min-height: 48px; padding: 8px 0; }
+.workspace-shell #tab-summary .settings-checkbox-group { margin: 0; }
+.workspace-shell #tab-summary .settings-row { margin: 0; gap: 12px; }
+.workspace-shell #tab-summary .settings-sub-options { margin: 0; padding: 0 0 0 16px; border-top: 0; border-left: 2px solid var(--bdr); }
+.workspace-shell #tab-summary .settings-field > label { margin: 0; color: var(--txt); }
+.workspace-shell #tab-summary .vector-boundary-container { display: flex; width: 100%; margin: 0; gap: 8px; }
+.workspace-shell #tab-summary .vector-boundary-container .archive-setting { flex: 1; }
+.workspace-shell #tab-summary > .summary-group { margin: 0; border-top: 1px solid var(--bdr); }
+.summary-group > summary { cursor: pointer; min-height: 56px; padding: 18px 0; color: var(--txt); font-size: 14px; }
+.summary-group > summary .workspace-scope { float: right; }
+.summary-group[open] > summary { color: var(--archive-accent); }
+.workspace-shell #tab-summary .summary-group > .settings-section { margin: 18px 0; }
 .workspace-shell .settings-checkbox { display: flex; flex-direction: row-reverse; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--bdr); width: 100%; }
 .workspace-shell .settings-checkbox .checkbox-mark { display: none; }
 .workspace-shell .settings-checkbox input { display: block; position: relative; opacity: 1; pointer-events: auto; }
@@ -49,6 +63,9 @@ body:has(.summary-workspace.active) { overflow: hidden; }
 .summary-workspace.assistant-page .workspace-layout { display: block; max-width: 880px; margin: auto; }
 .summary-workspace.assistant-page .settings-tabs { display: none; }
 .summary-workspace.assistant-page .modal-foot { max-width: 880px; margin: auto; }
+.summary-workspace.assistant-page:has(#tab-agent.active) .modal-foot { min-height: 72px; }
+.summary-workspace.assistant-page:has(#tab-agent.active) #api-connect-status:empty { display: none; }
+.summary-workspace.assistant-page:has(#tab-agent.active) #settings-chat { margin-right: auto; }
 .summary-workspace.workspace-local .workspace-layout { display: block; max-width: 720px; margin: auto; }
 .summary-workspace.workspace-local .settings-tabs { display: none; }
 .summary-workspace.workspace-local .modal-foot { max-width: 720px; margin: auto; }
@@ -71,5 +88,6 @@ body:has(.summary-workspace.active) { overflow: hidden; }
     .workspace-shell .settings-row { flex-wrap: wrap; }
     .workspace-shell .settings-field { flex: 1 1 140px; }
     .workspace-shell .settings-section-title { font-size: 14px; }
+    .workspace-shell #tab-summary .settings-field { flex-basis: 100%; }
     .memory-chat-dialog { inset: auto; left: 0; top: var(--memory-chat-view-top); transform: none; width: 100%; height: var(--memory-chat-view-height); max-height: none; border: 0; border-radius: 0; }
 }

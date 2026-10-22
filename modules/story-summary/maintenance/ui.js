@@ -4,7 +4,7 @@ import { element, button, disclosure } from './ui-elements.js';
 import { createOperationList } from './operation-list.js';
 import { reportMarkdown } from './report-markdown.js';
 import { createMemoryChatDialog } from './chat-ui.js';
-import { MEMORY_CHAT_COPY as chatCopy, memoryChatErrorText } from './chat-copy.js';
+import { memoryChatErrorText } from './chat-copy.js';
 
 export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     let chatId = null;
@@ -24,11 +24,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     const settingsState = element('p', 'memory-settings-state');
     settingsState.setAttribute('role', 'status');
     authorization.append(label, element('p', 'memory-hint', copy.behavior), api, settingsState);
-    const toolbar = element('div', 'memory-toolbar');
-    const heading = element('div', 'memory-heading');
-    heading.append(element('h3', '', chatCopy.title));
     const cancel = button(copy.cancel, () => send('MEMORY_MAINTENANCE_CANCEL'));
-    toolbar.append(heading, button(chatCopy.entry, () => chat.open(), 'memory-button memory-chat-entry'));
     const recordsHeading = element('div', 'memory-records-heading');
     recordsHeading.append(element('h3', '', copy.heading), cancel);
     const state = element('p', 'memory-state');
@@ -45,7 +41,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     empty.append(element('p', 'memory-empty-title', copy.empty), emptyHint);
     const more = button(copy.more, () => { more.disabled = true; send('MEMORY_MAINTENANCE_QUERY', { offset: next }); });
     more.classList.add('memory-more');
-    root.append(toolbar, authorization, recordsHeading, ranges, state, index, list, empty, more);
+    root.append(authorization, recordsHeading, ranges, state, index, list, empty, more);
     cancel.hidden = index.hidden = more.hidden = true;
     const updateEmpty = () => { emptyHint.textContent = toggle.checked ? copy.emptyEnabled : copy.emptyDisabled; };
     toggle.onchange = () => { settingsState.textContent = ''; updateEmpty(); };
@@ -265,6 +261,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
         getEnabled: () => toggle.checked,
         settingsSaved(success) { settingsState.textContent = success ? copy.settingsSaved : copy.settingsFailed; },
         open() { state.textContent = copy.loading; send('MEMORY_MAINTENANCE_QUERY'); },
+        openChat() { chat.open(); },
         close() { if (reader.open) reader.close(); chat.close(); },
         renderChat(data) { chat.render(data); },
         dispose() { clearReceipts(); chat.dispose(); reader.remove(); },

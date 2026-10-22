@@ -129,7 +129,7 @@ import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, I
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
-import { persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
+import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
@@ -4261,6 +4261,7 @@ function appendEditGroup(container, { label, value, type, index = null }) {
 
     const textarea = document.createElement('textarea');
     textarea.className = 'xb-nd-edit-input';
+    textarea.setAttribute('aria-label', label);
     textarea.dataset.type = type;
     if (index !== null) textarea.dataset.index = String(index);
     textarea.value = value || '';
@@ -4468,24 +4469,13 @@ async function toggleEditPanel(container, show) {
         scrollWrap.replaceChildren();
         appendEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
 
-        if (preview?.characterPrompts?.length > 0) {
-            preview.characterPrompts.forEach((char, i) => {
-                const name = char.name || `角色 ${i + 1}`;
-                appendEditGroup(scrollWrap, { label: name, value: char.prompt || '', type: 'char', index: i });
-            });
+        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
+            appendEditGroup(scrollWrap, group);
         }
 
         // 追加位：与角色框一致，记录里实际存了 post_prompt 才渲染；为空的图不出框
         if (preview?.postPrompt) {
             appendEditGroup(scrollWrap, { label: '追加 (post_prompt)', value: preview.postPrompt, type: 'post_prompt' });
-        }
-
-        // 角色专属负向（uc）：放在所有编辑框最下面，每个角色固定一个框，方便随时新增
-        if (preview?.characterPrompts?.length > 0) {
-            preview.characterPrompts.forEach((char, i) => {
-                const name = char.name || `角色 ${i + 1}`;
-                appendEditGroup(scrollWrap, { label: `${name} 负向`, value: char.uc || '', type: 'uc', index: i });
-            });
         }
 
         if (btnsPanel) {

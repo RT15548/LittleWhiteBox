@@ -66,7 +66,7 @@ export function redrawImageCard(provider, container) {
 }
 
 // 重生本楼失败项：把当前楼层（当前 swipe）上所有显示“失败 / 结果未知”卡片的图片，作为同一批任务重新提交。
-// 沿用各张图自己保存的 TAG 与提示词，不重新规划；每张图与单张“重新生成”一样进入生成状态，
+// 沿用各张图保存的场景、角色和追加词，套用当前绘图参数，不重新规划；每张图与单张“重新生成”一样进入生成状态，
 // 请求仍由 Provider 的串行队列依次执行。已在生成、已在排队或有后台任务的格子会被跳过。
 const FLOOR_REDRAW_PREFIX = 'floor-failed:';
 // 进行中的整楼重生认领了哪些格子（整楼键 → 格子集合）。在收集阶段第一个 await 之前就登记候选格子，
@@ -157,8 +157,7 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
             const tags = record?.tags ?? card.dataset.tags;
             if (!tags?.trim()) { claims.delete(slotId); skipped += 1; continue; }
             slotIds.push(slotId);
-            // 重画与「生成」同一语义：正负向都从当前绘图参数读，不用记录里的旧成品。
-            // 记录里的 negativePrompt 只是历史快照，不再参与出图（角色 uc 仍在 characterPrompts 里）。
+            // 不传历史合成负向：编译时使用当前全局负向与本图已保存的角色 uc。
             tasks.push({ scene: tags, characterPrompts: record?.characterPrompts ?? [],
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } });
@@ -197,7 +196,6 @@ async function redraw(provider, container) {
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
             tasks: [{ scene: tags, characterPrompts: record?.characterPrompts ?? [],
                 post_prompt: record?.postPrompt ?? '',
-                // 同上：不带记录里的 negativePrompt，负向完全由当前绘图参数 + 角色 uc 重新拼
                 placement: { mode: 'existing', slotId } }] });
     } finally {
         if (String(getContext().chatId) === String(ctx.chatId)) await renderPreviewsForMessage(messageId, { refreshSlotIds: [slotId] });

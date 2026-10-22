@@ -127,6 +127,13 @@ textarea.input { min-height: 90px; resize: vertical; }
 .char-empty i, .gallery-empty i { margin-inline: auto; }
 .char-quick-tools { display: flex; gap: 8px; align-items: center; }
 .char-quick-tools > .input { flex: 1; width: 0; }
+.sticky-tools > .char-quick-tools {
+    position: sticky; top: 0; z-index: 20;
+    flex-wrap: wrap; padding: 10px 0;
+    background: var(--bg-primary); border-bottom: 1px solid var(--border);
+}
+.sticky-tools > .char-quick-tools > .input { flex: 1 1 80px; }
+.sticky-tools input, .sticky-tools textarea, .sticky-tools select { scroll-margin-top: 120px; }
 .draw-disclosure, .prompt-advanced-card { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .draw-disclosure > summary, .prompt-advanced-card > summary { display: flex; align-items: center; gap: 10px; min-height: 36px; list-style: none; cursor: pointer; color: var(--text-secondary); font-size: 13px; }
 .draw-disclosure > summary::-webkit-details-marker, .prompt-advanced-card > summary::-webkit-details-marker { display: none; }
