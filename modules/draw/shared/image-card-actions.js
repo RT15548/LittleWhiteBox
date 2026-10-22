@@ -157,9 +157,10 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
             const tags = record?.tags ?? card.dataset.tags;
             if (!tags?.trim()) { claims.delete(slotId); skipped += 1; continue; }
             slotIds.push(slotId);
+            // 重画与「生成」同一语义：正负向都从当前绘图参数读，不用记录里的旧成品。
+            // 记录里的 negativePrompt 只是历史快照，不再参与出图（角色 uc 仍在 characterPrompts 里）。
             tasks.push({ scene: tags, characterPrompts: record?.characterPrompts ?? [],
                 post_prompt: record?.postPrompt ?? '',
-                negativePrompt: record?.negativePrompt ?? undefined,
                 placement: { mode: 'existing', slotId } });
         }
         if (!tasks.length) return { submitted: 0, skipped };
@@ -196,7 +197,7 @@ async function redraw(provider, container) {
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
             tasks: [{ scene: tags, characterPrompts: record?.characterPrompts ?? [],
                 post_prompt: record?.postPrompt ?? '',
-                negativePrompt: record?.negativePrompt ?? undefined,
+                // 同上：不带记录里的 negativePrompt，负向完全由当前绘图参数 + 角色 uc 重新拼
                 placement: { mode: 'existing', slotId } }] });
     } finally {
         if (String(getContext().chatId) === String(ctx.chatId)) await renderPreviewsForMessage(messageId, { refreshSlotIds: [slotId] });

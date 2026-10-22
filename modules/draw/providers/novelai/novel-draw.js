@@ -2358,6 +2358,15 @@ async function toggleEditPanel(container, show) {
                     <textarea class="xb-nd-edit-input" data-type="char" data-index="${i}">${escapeHtml(char.prompt || '')}</textarea>
                 </div>`;
             });
+            // 角色专属负向（uc）：放在所有编辑框最下面，每个角色固定一个框，方便随时新增
+            preview.characterPrompts.forEach((char, i) => {
+                const name = char.name || `角色 ${i + 1}`;
+                html += `
+                <div class="xb-nd-edit-group">
+                    <div class="xb-nd-edit-group-label">${escapeHtml(name)} 负向</div>
+                    <textarea class="xb-nd-edit-input" data-type="uc" data-index="${i}">${escapeHtml(char.uc || '')}</textarea>
+                </div>`;
+            });
         }
 
         // eslint-disable-next-line no-unsanitized/property -- Escaped data used in template.
