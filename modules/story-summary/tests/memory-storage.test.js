@@ -1,4 +1,4 @@
-/* global Buffer */
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 // Real summary/anchor/history transaction, HTTP confirmation and IndexedDB boundary.
 // Protects import undo, source retirement and ambiguous saves; no model calls or source-text assertions.
 import assert from 'node:assert/strict';
@@ -76,7 +76,7 @@ const bundled = await build({
     } }],
 });
 // eslint-disable-next-line no-unsanitized/method -- Generated local test bundle, never external code.
-const mod = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+const mod = await import(await createTestModuleUrl(bundled.outputFiles[0].text));
 const originalFetch = globalThis.fetch;
 after(() => { mod.db.close(); globalThis.fetch = originalFetch; delete globalThis.__memoryStorageTest; delete globalThis.LWB_StateRollbackHook; });
 const ext = () => host.metadata.extensions.LittleWhiteBox;

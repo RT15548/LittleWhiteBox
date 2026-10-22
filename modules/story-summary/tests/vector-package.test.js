@@ -1,4 +1,5 @@
 /* global Buffer */
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 import assert from 'node:assert/strict';
 import { beforeEach, after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -54,7 +55,7 @@ const bundled = await build({
     } }],
 });
 // eslint-disable-next-line no-unsanitized/method -- Local test bundle, no external code.
-const mod = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+const mod = await import(await createTestModuleUrl(bundled.outputFiles[0].text));
 const { db } = mod;
 after(() => db.close());
 

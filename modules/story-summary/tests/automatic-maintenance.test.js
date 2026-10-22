@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { Buffer } from 'node:buffer';
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -23,7 +23,7 @@ const built = await build({
     } }],
 });
 // eslint-disable-next-line no-unsanitized/method -- Locally built production module with host boundaries replaced.
-const { waitForAfterAiReady } = await import('data:text/javascript;base64,' + Buffer.from(built.outputFiles[0].text).toString('base64'));
+const { waitForAfterAiReady } = await import(await createTestModuleUrl(built.outputFiles[0].text));
 
 function readinessFixture(t) {
     t.mock.timers.enable({ apis: ['setTimeout'] });

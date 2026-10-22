@@ -1,4 +1,4 @@
-/* global Buffer */
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 // Host/scheduler acceptance: transient metadata saves retain triggers, while only
 // a new confirmed summary can restart failed paid work. Exercise real sessions,
 // runner, receipts and commit waits; replace only browser/API/index boundaries.
@@ -55,7 +55,7 @@ const bundled = await build({
     } }],
 });
 // eslint-disable-next-line no-unsanitized/method -- Generated local test bundle, never external code.
-const mod = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+const mod = await import(await createTestModuleUrl(bundled.outputFiles[0].text));
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; delete globalThis.__maintenanceSchedulerTest; });
 const memory = () => host.metadata.extensions.LittleWhiteBox;

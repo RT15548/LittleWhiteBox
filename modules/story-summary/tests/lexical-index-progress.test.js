@@ -1,4 +1,4 @@
-/* global Buffer */
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +32,7 @@ const bundled = await build({
     } }],
 });
 // eslint-disable-next-line no-unsanitized/method -- Generated local test bundle, never external code.
-const mod = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+const mod = await import(await createTestModuleUrl(bundled.outputFiles[0].text));
 after(() => { delete globalThis.__lexicalProgressTest; });
 
 function resetFixture() {

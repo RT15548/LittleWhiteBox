@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { Buffer } from 'node:buffer';
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 import { setImmediate } from 'node:timers';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +26,7 @@ const bundle = await build({
         builder.onLoad({ filter: /.*/, namespace: 'host' }, ({ path }) => ({ contents: shims[path] }));
     } }],
 });
-const moduleUrl = 'data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64');
+const moduleUrl = await createTestModuleUrl(bundle.outputFiles[0].text);
 
 async function scenario() {
     const { parentPort, workerData } = await import('node:worker_threads');

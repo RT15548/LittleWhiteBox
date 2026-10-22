@@ -1,4 +1,4 @@
-/* global Buffer */
+import { createTestModuleUrl } from './helpers/bundle-module.js';
 // Exercise the real operation-scoped coordinator. Only storage/embedding/host
 // boundaries are replaced; cancellation must settle without buying another call.
 import assert from 'node:assert/strict';
@@ -40,7 +40,7 @@ const bundled = await build({
     } }],
 });
 // eslint-disable-next-line no-unsanitized/method -- Generated local test bundle, never external code.
-const mod = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+const mod = await import(await createTestModuleUrl(bundled.outputFiles[0].text));
 const impact = { eventIds: ['event'], atomIds: ['atom'] };
 const deferred = () => {
     let resolve, reject;
