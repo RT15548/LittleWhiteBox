@@ -17,11 +17,11 @@ export const MEMORY_SAVE_ERRORS = Object.freeze({
 });
 
 export const MEMORY_COPY = Object.freeze({
-    tab: 'Agent', toggle: '允许 Agent 维护记忆', scope: '所有聊天',
+    tab: '助手', toggle: '自动维护记忆', scope: '所有聊天',
     behavior: '保存后，从下一次总结开始自动检查与修正记忆。',
     apiHeading: 'Agent API',
     api: '使用共享 Agent API，可在Agent模块任意功能中设置，如小白 OS 的「Agent API」；已配置则无需重复设置。',
-    heading: '维护记录', currentChat: '当前聊天', cancel: '停止（已完成部分保留）', repair: '重试更新', more: '更早记录',
+    heading: '维护记录', cancel: '停止（已完成部分保留）', repair: '重试更新', more: '更早记录',
     empty: '还没有维护记录', emptyEnabled: '下一次总结后，维护成果会出现在这里。',
     emptyDisabled: '自动维护未开启。', loading: '正在读取…',
     settingsSave: '保存设置', settingsClose: '关闭',

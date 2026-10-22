@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl, joinApiUrl } from '../../../shared/common/openai-url-utils.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildSamplingParameters } from '../sampling.js';
 import { resolveModelFamily } from '../../../shared/host-llm/model-family.js';
@@ -224,6 +225,10 @@ export function normalizeAnthropicSdkBaseUrl(baseUrl = '') {
         .replace(/\/v1$/i, '');
 }
 
+function messagesUrl(config) {
+    return joinApiUrl(config.resolvedBaseUrl || resolveApiBaseUrl(config.baseUrl || 'https://api.anthropic.com', '/v1'), '/messages');
+}
+
 export function resolveAnthropicToolChoice(toolChoice = 'auto', tools = []) {
     const availableNames = new Set((Array.isArray(tools) ? tools : [])
         .map((tool) => String(tool?.function?.name || '').trim())
@@ -337,7 +342,6 @@ export class AnthropicAdapter {
 
     inspectRequest(task, options = {}) {
         const stream = typeof task.onStreamProgress === 'function';
-        const baseUrl = normalizeAnthropicSdkBaseUrl(this.config.baseUrl);
         const protocol = options.protocol || resolveAnthropicRequestProtocol(this.config, task);
         const body = options.body || this.buildRequestBody(task, protocol);
         const reasoning = protocol.effectiveReasoning;
@@ -345,7 +349,7 @@ export class AnthropicAdapter {
             provider: 'anthropic',
             model: this.config.model,
             transport: 'anthropic-sdk',
-            url: `${baseUrl}/v1/messages`,
+            url: messagesUrl(this.config),
             headers: {
                 'Content-Type': 'application/json',
                 ...this.auth.headers,
@@ -381,6 +385,7 @@ export class AnthropicAdapter {
         if (typeof task.onStreamProgress === 'function') {
             const stream = this.client.messages.stream(body, {
                 signal: task.signal,
+                path: messagesUrl(this.config),
             });
             const thoughtMap = new Map();
             let receivedMessage;
@@ -476,6 +481,7 @@ export class AnthropicAdapter {
         } else {
             response = await this.client.messages.create(body, {
                 signal: task.signal,
+                path: messagesUrl(this.config),
             });
         }
 

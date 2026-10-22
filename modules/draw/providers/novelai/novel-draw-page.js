@@ -100,6 +100,7 @@ const GALLERY_LOAD_COPY = Object.freeze({
     versionsLoading: '正在加载其他版本…',
     versionsFailed: '其他版本加载失败',
     pageFailed: '图组加载失败',
+    refreshHint: '建议先尝试刷新页面',
     retry: '重试',
 });
 const galleryPageRequests = new Map(); // charName -> { requestId, offset, limit, reload, timer }
@@ -2387,6 +2388,13 @@ function disconnectGallerySentinel(charName) {
     gallerySentinelObservers.delete(charName);
 }
 
+function galleryLoadFailureHtml(message, retryAction = '') {
+    const action = retryAction ? `data-retry="${retryAction}"` : 'data-action="more"';
+    return `<div class="gallery-load-error"><span>${escapeHtml(message)}</span>
+        <span class="gallery-load-hint">${GALLERY_LOAD_COPY.refreshHint}</span>
+        <button class="btn btn-sm" type="button" ${action}>${GALLERY_LOAD_COPY.retry}</button></div>`;
+}
+
 function updateGallerySentinel(charName) {
     const container = getGallerySlotsContainer(charName);
     const entry = loadedCharPreviews[charName];
@@ -2396,7 +2404,7 @@ function updateGallerySentinel(charName) {
     if (galleryPageRequests.has(charName)) {
         sentinel.innerHTML = DOMPurify.sanitize(`<i class="fa-solid fa-spinner fa-spin"></i> 加载中…（${progress}）`);
     } else if (entry.loadError) {
-        sentinel.innerHTML = '加载失败 <button class="btn btn-sm" type="button" data-action="more">重试</button>';
+        sentinel.innerHTML = DOMPurify.sanitize(galleryLoadFailureHtml(GALLERY_LOAD_COPY.pageFailed));
     } else if (!galleryHasIntersectionObserver()) {
         sentinel.innerHTML = DOMPurify.sanitize(`<button class="btn btn-sm" type="button" data-action="more">加载更多</button> ${progress}`);
     } else {
@@ -2503,7 +2511,7 @@ function failCharacterRequest(charName, requestId) {
     }
     const container = getGallerySlotsContainer(charName);
     if (!container) return;
-    container.innerHTML = '<div class="gallery-loading">加载失败 <button class="btn btn-sm" type="button" data-action="more">重试</button></div>';
+    container.innerHTML = DOMPurify.sanitize(`<div class="gallery-loading">${galleryLoadFailureHtml(GALLERY_LOAD_COPY.pageFailed)}</div>`);
     container.querySelector('[data-action="more"]').addEventListener('click', () => {
         container.innerHTML = '<div class="gallery-loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
         ensureCharacterPreviews(charName);
@@ -2688,8 +2696,7 @@ function renderModalLoadStatus() {
         : versionsLoading ? GALLERY_LOAD_COPY.versionsLoading : '';
     status.hidden = !message;
     status.dataset.state = retry ? 'error' : versionsLoading ? 'loading' : 'idle';
-    status.innerHTML = DOMPurify.sanitize(escapeHtml(message) + (retry
-        ? ` <button class="btn btn-sm" type="button" data-retry="${retry}">${GALLERY_LOAD_COPY.retry}</button>` : ''));
+    status.innerHTML = DOMPurify.sanitize(retry ? galleryLoadFailureHtml(message, retry) : escapeHtml(message));
 }
 
 // ── 大图 ──────────────────────────────────────────────────────────────────

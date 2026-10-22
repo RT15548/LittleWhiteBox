@@ -1,4 +1,6 @@
-﻿import { extension_settings } from '../../../../../extensions.js';
+import { resolveTextApi, generateFeatureText, handleTextApiRequest } from '../text-api/host.js';
+import { getTextApiRepository } from '../text-api/repository.js';
+import { extension_settings } from '../../../../../extensions.js';
 import {
     event_types,
     getRequestHeaders,
@@ -15,21 +17,11 @@ import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.
 import { migratePlannerPromptConfig } from './ena-planner-prompt-migration.js';
 import { buildPlannerTurnMessages } from './ena-planner-messages.js';
 import { createEnaPlannerSendInterceptor } from './ena-planner-interceptor.js';
-import { assertPlannerApiUrlConfigured } from './ena-planner-api-config.js';
+import { assertPlannerPresetReady } from './ena-planner-api-config.js';
 import {
-    createAbortError,
-    mergeAbortSignals,
     throwIfSignalAborted,
 } from '../../shared/common/abort-utils.js';
 import { scheduleDelayedNotice } from '../../shared/common/delayed-notice.js';
-import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
-import {
-    buildHostOpenAICompatibleGeneratePayload,
-    createHostChatCompletion,
-    fetchHostOpenAICompatibleModels,
-    setHostChatCompletionsRequestHeadersProvider,
-    streamHostChatCompletion,
-} from '../../shared/host-llm/chat-completions/client.js';
 import { getStorySummaryForEna } from '../story-summary/story-summary.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
 import jsyaml from '../../libs/js-yaml.mjs';
@@ -75,23 +67,6 @@ function getDefaultSettings() {
         promptTemplates: structuredClone(BUILTIN_TEMPLATES),
         // Currently selected prompt template name in UI
         activePromptTemplate: '',
-
-        // Planner API
-        api: {
-            channel: 'openai',
-            baseUrl: '',
-            prefixMode: 'auto',
-            customPrefix: '',
-            apiKey: '',
-            model: '',
-            stream: true,
-            temperature: 1,
-            top_p: 1,
-            top_k: 0,
-            presence_penalty: '',
-            frequency_penalty: '',
-            max_tokens: ''
-        },
 
         // Logs
         logsPersist: true,
@@ -159,6 +134,7 @@ function normalizeSettings(value) {
     delete s.worldbookActivationMode;
     delete s.skipIfPlotPresent;
 
+    delete s.api;
     return s;
 }
 
@@ -225,6 +201,7 @@ async function saveConfigNow(updateConfig) {
         try {
             assertCurrentLifecycle(operationEpoch);
             if (!configLoaded || !config) throw new Error('配置尚未成功加载');
+            await (await getTextApiRepository()).load();
             let nextConfig = structuredClone(config);
             const updated = typeof updateConfig === 'function' ? updateConfig(nextConfig) : updateConfig;
             if (updated !== undefined) nextConfig = updated;
@@ -304,68 +281,6 @@ function loadPersistedLogsMaybe() {
 
 function nowISO() {
     return new Date().toISOString();
-}
-
-function normalizeUrlBase(u) {
-    if (!u) return '';
-    return u.replace(/\/+$/g, '');
-}
-
-function getDefaultPrefixByChannel(channel) {
-    return getDefaultApiPrefix(channel);
-}
-
-function buildApiPrefix() {
-    const s = ensureSettings();
-    if (s.api.prefixMode === 'custom' && s.api.customPrefix?.trim()) return s.api.customPrefix.trim();
-    return getDefaultPrefixByChannel(s.api.channel);
-}
-
-function buildResolvedApiBaseUrl() {
-    const s = ensureSettings();
-    const base = normalizeUrlBase(s.api.baseUrl);
-    return resolveApiBaseUrl(base, buildApiPrefix());
-}
-
-function setHostRequestHeaders() {
-    setHostChatCompletionsRequestHeadersProvider(() => getRequestHeaders());
-}
-
-function buildPlannerHostPayload(messages) {
-    const s = ensureSettings();
-    const maxTokens = s.api.max_tokens === '' ? undefined : Number(s.api.max_tokens);
-    const temperature = Number(s.api.temperature);
-    const payload = buildHostOpenAICompatibleGeneratePayload(
-        {
-            baseUrl: buildResolvedApiBaseUrl(),
-            apiKey: s.api.apiKey,
-            model: s.api.model,
-        },
-        {
-            maxTokens: Number.isNaN(maxTokens) || maxTokens <= 0 ? undefined : maxTokens,
-            temperature: Number.isNaN(temperature) ? undefined : temperature,
-        },
-        messages,
-        !!s.api.stream,
-    );
-
-    const topP = Number(s.api.top_p);
-    if (!Number.isNaN(topP)) payload.top_p = topP;
-
-    const topK = Number(s.api.top_k);
-    if (!Number.isNaN(topK) && topK > 0) payload.top_k = topK;
-
-    const presencePenalty = s.api.presence_penalty === '' ? null : Number(s.api.presence_penalty);
-    if (presencePenalty != null && !Number.isNaN(presencePenalty)) {
-        payload.presence_penalty = presencePenalty;
-    }
-
-    const frequencyPenalty = s.api.frequency_penalty === '' ? null : Number(s.api.frequency_penalty);
-    if (frequencyPenalty != null && !Number.isNaN(frequencyPenalty)) {
-        payload.frequency_penalty = frequencyPenalty;
-    }
-
-    return payload;
 }
 
 function safeStringify(val) {
@@ -1028,55 +943,9 @@ function filterPlannerPreview(rawPartial) {
  * Planner API calls
  * --------------------------
  */
-async function callPlanner(messages, options = {}) {
-    const s = ensureSettings();
-    if (!s.api.apiKey) throw new Error('未配置 API KEY');
-    if (!s.api.model) throw new Error('未选择模型');
-    setHostRequestHeaders();
-    const payload = buildPlannerHostPayload(messages);
-
-    const timeoutController = new AbortController();
-    const timeoutMessage = `规划请求超时（>${Math.floor(PLANNER_REQUEST_TIMEOUT_MS / 1000)}s）`;
-    const signal = mergeAbortSignals(options.signal, timeoutController.signal) || timeoutController.signal;
-    const timeoutId = setTimeout(() => {
-        timeoutController.abort(createAbortError(timeoutMessage));
-    }, PLANNER_REQUEST_TIMEOUT_MS);
-    try {
-        throwIfSignalAborted(signal, 'Ena Planner request cancelled');
-        if (!s.api.stream) {
-            const data = await createHostChatCompletion(payload, { signal });
-            const text = String(data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? '');
-            if (text) options?.onDelta?.(text, text);
-            return text;
-        }
-
-        let full = '';
-        await streamHostChatCompletion(payload, (event) => {
-            const delta = event?.choices?.[0]?.delta;
-            const piece = delta?.content ?? delta?.text ?? '';
-            if (!piece) return;
-            full += piece;
-            options?.onDelta?.(piece, full);
-        }, { signal });
-        return full;
-    } catch (err) {
-        if (options.signal?.aborted) throwIfSignalAborted(options.signal, 'Ena Planner request cancelled');
-        if (timeoutController.signal.aborted) throw new Error(timeoutMessage);
-        throw err;
-    } finally {
-        clearTimeout(timeoutId);
-    }
-}
-
-async function fetchModelsForUi() {
-    const s = ensureSettings();
-    if (!s.api.baseUrl) throw new Error('请先填写 API URL');
-    if (!s.api.apiKey) throw new Error('请先填写 API KEY');
-    setHostRequestHeaders();
-    return await fetchHostOpenAICompatibleModels({
-        baseUrl: buildResolvedApiBaseUrl(),
-        apiKey: s.api.apiKey,
-    });
+async function callPlanner(messages, options, snapshot) {
+    return (await generateFeatureText('planner', { ...options, onDelta: snapshot.stream ? options.onDelta : undefined,
+        messages, timeoutMs: PLANNER_REQUEST_TIMEOUT_MS }, snapshot)).text;
 }
 
 async function debugWorldbookForUi() {
@@ -1257,22 +1126,22 @@ async function buildPlannerMessages(rawUserInput, options = {}) {
  */
 async function runPlanningOnce(rawUserInput, silent = false, options = {}) {
     const operationEpoch = lifecycleEpoch;
-    const s = ensureSettings();
-
     const log = {
-        time: nowISO(), ok: false, model: s.api.model,
+        time: nowISO(), ok: false, model: '',
         requestMessages: [], rawReply: '', filteredReply: '', error: ''
     };
 
     try {
-        assertPlannerApiUrlConfigured(s);
+        const snapshot = await resolveTextApi('planner');
+        assertPlannerPresetReady(snapshot);
+        log.model = snapshot.model;
         const { messages } = await buildPlannerMessages(rawUserInput, {
             signal: options.signal,
             storyMemoryText: options.storyMemoryText,
         });
         log.requestMessages = messages;
 
-        const rawReply = await callPlanner(messages, options);
+        const rawReply = await callPlanner(messages, options, snapshot);
         log.rawReply = rawReply;
 
         const filtered = filterPlannerForInput(rawReply);
@@ -1381,6 +1250,10 @@ function closeSettings() {
 async function handleIframeMessage(ev) {
     const iframe = overlay?.querySelector('iframe');
     if (!isTrustedIframeEvent(ev, iframe)) return;
+    if (ev.data?.type === 'TEXT_API_REQUEST') {
+        await handleTextApiRequest(ev.data, 'planner', message => postToIframe(iframe, message));
+        return;
+    }
     if (!ev.data?.type?.startsWith('xb-ena:')) return;
 
     const messageEpoch = lifecycleEpoch;
@@ -1493,17 +1366,7 @@ async function handleIframeMessage(ev) {
             }
             break;
         }
-        case 'xb-ena:fetch-models': {
-            try {
-                const models = await fetchModelsForUi();
-                if (!isCurrentLifecycle(messageEpoch)) return;
-                postToIframe(iframe, { type: 'xb-ena:models', payload: { models } });
-            } catch (err) {
-                if (!isCurrentLifecycle(messageEpoch)) return;
-                postToIframe(iframe, { type: 'xb-ena:models-error', payload: { message: String(err?.message ?? err) } });
-            }
-            break;
-        }
+
         case 'xb-ena:debug-worldbook': {
             try {
                 const output = await debugWorldbookForUi();

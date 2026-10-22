@@ -498,7 +498,7 @@ test('backend dispatches a decorated tagged plan once and retains ambiguous-call
     const cases = [
         { body: `\`\`\`json\n${payload}\n\`\`\`\n</unexpected>[完成]<status value="[done]"/> "完成"` },
         { body: `${payload}}\n</｜｜DSML｜｜ parameter> ]\n[2 张已完成]` },
-        { body: `${payload},\n${payload}`, ambiguous: true },
+        { body: `${payload},\n{"name":null,"arguments":{}}`, ambiguous: true },
         { body: `${payload} "完成`, ambiguous: true },
         { body: `${payload.slice(0, -1)},"images":[]}}`, ambiguous: true },
     ];

@@ -615,7 +615,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         <input id="comfy-planner-retries" type="number" class="input" min="0" max="10" step="1" value="3" inputmode="numeric">
                         <span>次</span>
                     </div>
-                    <p class="form-hint">仅在场景 Agent 请求失败（超时、供应商或网络错误、返回的 Tool 调用不合格）时重试，画图失败不受影响。从 2 秒开始，每次等待时间翻倍，最长 30 秒。填 0 表示不重试。浏览器流程与后台任务都生效。</p>
+                    <p class="form-hint" data-planner-retry-hint></p>
                 </div>
             </section>
 

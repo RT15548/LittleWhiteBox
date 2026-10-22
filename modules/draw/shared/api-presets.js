@@ -112,14 +112,14 @@ export function isSameApiConfig(a, b, fields) {
 
 /**
  * 宽松规范化（读取 / 保存时用）：丢弃非对象项，补发缺失 / 重复的 id，名称截断并唯一化（重名追加序号而不是丢弃预设），
- * 数量封顶，config 只留白名单字段。normalizeConfig（可选）由 Provider 提供，用来把字段值规范成自己的合法取值。
+ * config 只留白名单字段；数量上限只限制新建，不截断已存配置。normalizeConfig 由 Provider 提供字段规范化。
  */
 export function normalizeApiPresets(raw, { fields, normalizeConfig, makeId } = {}) {
     const usedIds = new Set();
     const usedNames = new Set();
     const presets = [];
     for (const item of Array.isArray(raw) ? raw : []) {
-        if (!isPlainObject(item) || presets.length >= MAX_API_PRESETS) continue;
+        if (!isPlainObject(item)) continue;
         const givenId = typeof item.id === 'string' ? item.id.trim() : '';
         const id = givenId && !usedIds.has(givenId)
             ? (usedIds.add(givenId), givenId)
@@ -134,15 +134,28 @@ export function normalizeApiPresets(raw, { fields, normalizeConfig, makeId } = {
     return presets;
 }
 
-/** 当前选中的预设 id：必须指向现有预设，否则为 null（= 未保存为预设）。 */
+/** 解析已存选择；无有效选择时由 normalizeApiPresetState 收纳当前配置。 */
 export function normalizeActiveApiPresetId(id, presets = []) {
     return typeof id === 'string' && id && presets.some(preset => preset.id === id) ? id : null;
 }
 
-/** 预设列表 + 当前选中 id 一起规范化。 */
-export function normalizeApiPresetState({ apiPresets, activeApiPresetId } = {}, options = {}) {
-    const presets = normalizeApiPresets(apiPresets, options);
-    return { apiPresets: presets, activeApiPresetId: normalizeActiveApiPresetId(activeApiPresetId, presets) };
+/**
+ * 配置读取入口：正式线的单套 API 配置收纳为第一条真实预设，配置值不变。
+ * 已有有效选择时保留它；否则复用相同配置或保留当前配置为独立预设，不自动换用另一套凭据。
+ */
+export function normalizeApiPresetState(source = {}, options = {}) {
+    const presets = normalizeApiPresets(source.apiPresets, options);
+    const activeId = normalizeActiveApiPresetId(source.activeApiPresetId, presets);
+    if (activeId) return { apiPresets: presets, activeApiPresetId: activeId };
+    const config = pickApiConfig(options.normalizeConfig ? options.normalizeConfig(source) : source, options.fields);
+    const matching = presets.find(preset => isSameApiConfig(preset.config, config, options.fields));
+    if (matching) return { apiPresets: presets, activeApiPresetId: matching.id };
+    // 稳定 ID：首次落盘前的重复读取仍指向同一条配置。
+    const ids = new Set(presets.map(preset => preset.id));
+    let id = 'apipreset-default';
+    for (let n = 2; ids.has(id); n += 1) id = `apipreset-default-${n}`;
+    const name = takeUniqueName(API_PRESET_COPY.initialName, new Set(presets.map(preset => lowerKey(preset.name))));
+    return { apiPresets: [{ id, name, config }, ...presets], activeApiPresetId: id };
 }
 
 /** 深拷贝预设列表（交给界面 / 持久化前用，避免共享引用）。 */
@@ -202,6 +215,7 @@ export function renameApiPreset(presets, presetId, name) {
 
 export function deleteApiPreset(presets, presetId) {
     requirePreset(presets, presetId);
+    if (presets.length === 1) throw new ApiPresetError('LAST_PRESET', API_PRESET_COPY.lastPreset);
     return presets.filter(preset => preset.id !== presetId);
 }
 

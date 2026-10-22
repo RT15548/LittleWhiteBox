@@ -18,7 +18,6 @@ import {
     accumulateStreamedAssistantSnapshot,
     applyOpenAICompatibleReasoningControls,
     assertSignedToolCallsIntact,
-    buildTaggedToolCallDraft,
     buildToolCallResultsFromOpenAI,
     buildNativeMessages,
     buildProviderPayload,
@@ -26,12 +25,11 @@ import {
     buildTaggedMessages,
     captureRawAssistantMessage,
     extractResponseTaggedToolCalls,
-    extractThinkTaggedContent,
+    analyzeAssistantText,
     extractThoughtsFromMessage,
     flattenTextContent,
     getStreamedSnapshotText,
     getStreamedSnapshotToolCalls,
-    stripTaggedToolCallsForDisplay,
 } from './openai-compatible.js';
 
 function emitStreamProgress(task, payload, effectiveReasoning) {
@@ -47,12 +45,12 @@ function emitStreamProgress(task, payload, effectiveReasoning) {
 }
 
 function cleanTextForToolMode(content, standardToolCalls = [], streaming = false) {
-    const thinkTagged = extractThinkTaggedContent(content);
+    const thinkTagged = analyzeAssistantText(content, { streaming });
     return {
         thinkTagged,
         cleanedText: standardToolCalls.length
             ? thinkTagged.cleaned
-            : stripTaggedToolCallsForDisplay(thinkTagged.cleaned, { streaming }),
+            : thinkTagged.text,
     };
 }
 
@@ -186,7 +184,7 @@ export class SillyTavernOpenAICompatibleAdapter {
             );
             const progressToolCalls = standardToolCalls.length
                 ? standardToolCalls
-                : buildTaggedToolCallDraft(thinkTagged.cleaned);
+                : thinkTagged.draft;
             emitStreamProgress(task, {
                 text: cleanedText,
                 thoughts: isReasoningOutputVisible(effectiveReasoning)
@@ -209,7 +207,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         );
         const thoughts = extractThoughtsFromMessage(assistantSnapshot, {});
         thinkTagged.thoughts.forEach((item) => thoughts.push(item));
-        const taggedToolCalls = standardToolCalls.length ? [] : extractResponseTaggedToolCalls(task, thinkTagged.cleaned, assistantSnapshot);
+        const taggedToolCalls = standardToolCalls.length ? [] : extractResponseTaggedToolCalls(task, thinkTagged, assistantSnapshot);
 
         return {
             text: cleanedText,
@@ -236,7 +234,7 @@ export class SillyTavernOpenAICompatibleAdapter {
         const contentText = flattenTextContent(message.content);
         const { thinkTagged, cleanedText } = cleanTextForToolMode(contentText, standardToolCalls);
         thinkTagged.thoughts.forEach((item) => thoughts.push(item));
-        const taggedToolCalls = standardToolCalls.length ? [] : extractResponseTaggedToolCalls(task, thinkTagged.cleaned, message);
+        const taggedToolCalls = standardToolCalls.length ? [] : extractResponseTaggedToolCalls(task, thinkTagged, message);
         const replayableMessage = buildReplayableAssistantMessage(message, choice);
 
         return {

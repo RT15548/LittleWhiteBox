@@ -58,8 +58,8 @@ function errorMessage(error) {
  *  readConfig()                   → 表单里现在的 API 配置（已规范化）
  *  getEffectiveConfig()           → 已持久化、正在生效的 API 配置
  *  onCommit(change)               → Promise<boolean>；change = { reason, apiPresets, activeApiPresetId, config }
- *                                   reason: select | deselect | create | overwrite | rename | delete
- *                                   config: 需要作为生效配置写入的配置（select / create / overwrite），其余为 null
+ *                                   reason: select | create | overwrite | rename | delete
+ *                                   config: 需要作为生效配置写入的配置，重命名时为 null
  *  confirm(message) / prompt(message, fallback)   可选，缺省用 document.defaultView 上的同名函数
  */
 export function createApiPresetBar(options = {}) {
@@ -105,7 +105,7 @@ export function createApiPresetBar(options = {}) {
 
     function describe(state) {
         const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
-        if (!active) return state.apiPresets.length ? API_PRESET_COPY.noActive : API_PRESET_COPY.emptyList;
+        if (!active) return '';
         const same = isSameApiConfig(readConfig(), active.config, fields);
         return same ? API_PRESET_COPY.current(active.name) : API_PRESET_COPY.modified(active.name);
     }
@@ -114,7 +114,6 @@ export function createApiPresetBar(options = {}) {
         if (destroyed) return;
         const state = readState();
         while (select.firstChild) select.removeChild(select.firstChild);
-        select.appendChild(create(document, 'option', { text: API_PRESET_COPY.none, attrs: { value: '' } }));
         for (const preset of state.apiPresets) {
             select.appendChild(create(document, 'option', { text: preset.name, attrs: { value: preset.id } }));
         }
@@ -126,7 +125,7 @@ export function createApiPresetBar(options = {}) {
         const hasActive = Boolean(state.activeApiPresetId);
         for (const [action, button] of buttons) {
             const needsActive = action !== 'save-as';
-            setDisabled(button, busy || (needsActive && !hasActive));
+            setDisabled(button, busy || (needsActive && !hasActive) || (action === 'delete' && state.apiPresets.length < 2));
         }
         setDisabled(select, busy);
         if (form) {
@@ -184,10 +183,6 @@ export function createApiPresetBar(options = {}) {
         const state = readState();
         const targetId = select.value;
         if (targetId === (state.activeApiPresetId || '')) return;
-        if (!targetId) {
-            await commit({ reason: 'deselect', apiPresets: state.apiPresets, activeApiPresetId: null, config: null }, API_PRESET_COPY.deselected);
-            return;
-        }
         const target = findApiPreset(state.apiPresets, targetId);
         if (!target) { render(); return; }
         const unsaved = hasUnsavedApiConfig({
@@ -263,12 +258,14 @@ export function createApiPresetBar(options = {}) {
         const state = readState();
         const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
         if (!active) return;
-        if (!confirmFn(API_PRESET_COPY.confirmDelete(active.name))) return;
+        const next = state.apiPresets.find(preset => preset.id !== active.id);
+        if (!next) return;
+        if (!confirmFn(API_PRESET_COPY.confirmDelete(active.name, next.name))) return;
         await commit({
             reason: 'delete',
             apiPresets: deleteApiPreset(state.apiPresets, active.id),
-            activeApiPresetId: null,
-            config: null,
+            activeApiPresetId: next.id,
+            config: pickApiConfig(next.config, fields),
         }, API_PRESET_COPY.deleted(active.name));
     }
 

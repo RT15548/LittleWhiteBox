@@ -7,6 +7,7 @@
  *   (b) 传给宏运行时 substituteParams 的字符串序列（个数与顺序都是契约；占位符盐值已归一化）
  *   (c) 发给 eventSource 的 CHAT_COMPLETION_PROMPT_READY 载荷
  *   (d) 经 OpenAICompatibleAdapter 转成的 provider 消息（tagged-json / native × gpt-4o / claude-3-5-sonnet）
+ *       tagged-json 由冻结的绘图输入与当前 core 协议派生，不在绘图层冻结共享协议文案。
  *   以及 tool、validationContext、世界书解析器的入参、console.warn 记录、错误码。
  * 内置提示词 md 文件另存 sha256，防止默认文案被无意改动。
  *
@@ -42,6 +43,7 @@ import {
 import { prepareScenePlannerInput } from '../scene-planner.js';
 import { createPreparedScenePlannerTask } from '../scene-planner-executor.js';
 import { createSceneSource } from '../scene-source.js';
+import { markToolProtocolMessages } from '../../../agent-core/adapters/tool-protocol-marker.js';
 
 const FIXTURE_URL = new URL('./fixtures/scene-planner-golden.json', import.meta.url);
 const UPDATE_MODE = process.env.GOLDEN_UPDATE === '1';
@@ -634,6 +636,21 @@ async function compareGroup(group) {
         const out = [];
         const expected = inflate(stored, fixture);
         const actual = structuredClone(records.get(spec.id));
+        // Draw owns the frozen domain inputs, not the shared protocol's wording.
+        // Derive tagged messages from those inputs so domain/placement changes still fail.
+        if (expected.adapter) {
+            const task = {
+                ...expected.prompt,
+                messages: markToolProtocolMessages(expected.prompt.messages),
+                tools: [expected.tool],
+                toolChoice: expected.toolChoice,
+            };
+            for (const [model, mode] of MODEL_MODES) {
+                if (mode === 'tagged-json') {
+                    expected.adapter[`${model}/${mode}`].messages = buildTaggedMessages(task, model);
+                }
+            }
+        }
         // Logs are expression, not a request contract. Current runtime reports listener failures.
         if (spec.runtime?.emitThrows) assert.ok(actual.warnings.length > 0);
         delete expected.warnings;

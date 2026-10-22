@@ -8,7 +8,7 @@ const formatTokens = value => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : 
 const formatRanges = ranges => ranges.map(range => copy.floorRange(range.from, range.to)).join('、') || copy.none;
 
 /** UI only: the host owns conversation, work and identity; closing is not cancellation. */
-export function createMemoryChatDialog({ send, root = document.body }) {
+export function createMemoryChatDialog({ send, root = document.body, onExit }) {
     let state = null, chatId = null, identity = null, composing = false, ownsDraft = false;
     let draftTimer = null, pendingSend = null, followLatest = true, readingAnchor = null;
     let disposed = false;
@@ -18,8 +18,9 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     const layout = element('div', 'memory-chat-layout');
     const header = element('header', 'memory-chat-header');
     const heading = element('div', 'memory-chat-heading');
-    const subtitle = element('small', '', copy.currentChat);
-    heading.append(element('strong', '', copy.title), subtitle);
+    heading.append(element('strong', '', copy.title));
+    const back = iconButton('', copy.back, close, 'back');
+    back.replaceChildren(lineIcon('M14 6l-6 6 6 6'));
     const actions = element('div', 'memory-chat-header-actions');
     const contextButton = iconButton('◔', copy.context, () => {
         context.hidden = !context.hidden;
@@ -36,9 +37,10 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     }, 'clear');
     // Inline SVG is static presentation, never model content.
     clear.replaceChildren(trashIcon());
-    const closeButton = iconButton('×', copy.close, close, 'close');
+    const closeButton = iconButton('', copy.close, () => { close(); onExit?.(); }, 'close');
+    closeButton.replaceChildren(lineIcon('M6 6l12 12M6 18L18 6'));
     actions.append(contextButton, clear, closeButton);
-    header.append(heading, actions);
+    header.append(back, heading, actions);
     const context = element('section', 'memory-chat-context-popover');
     context.hidden = true;
     context.setAttribute('aria-label', copy.context);
@@ -88,6 +90,7 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     latest.hidden = true;
     const composer = element('form', 'memory-chat-composer');
     const regenerate = iconButton('↻', copy.regenerate, () => act('regenerate'), 'regenerate');
+    regenerate.replaceChildren(lineIcon('M4 10a8 8 0 1 1 1 8M4 4v6h6'));
     regenerate.title = copy.regenerateHint;
     const input = element('textarea');
     input.rows = 1;
@@ -135,15 +138,16 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         node.dataset.action = name;
         return node;
     }
-    function trashIcon() {
+    function lineIcon(d) {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('aria-hidden', 'true');
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5');
+        path.setAttribute('d', d);
         svg.append(path);
         return svg;
     }
+    function trashIcon() { return lineIcon('M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5'); }
     function manualBusy() { return !!state?.busy || !!state?.turns?.some(turn => ['queued', 'running'].includes(turn.status)); }
     const totalTurns = () => state?.page?.total ?? state?.turns?.length ?? 0;
     const queued = () => state?.activeStatus === 'queued' || state?.turns?.some(turn => turn.status === 'queued');
@@ -237,7 +241,7 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     const automaticRunning = () => ['running', 'saving', 'indexing'].includes(state?.automatic?.status);
     function updateControls() {
         const busy = manualBusy();
-        submit.textContent = busy ? '■' : '↑';
+        submit.replaceChildren(lineIcon(busy ? 'M8 8h8v8H8Z' : 'M12 19V5m-6 6 6-6 6 6'));
         submit.setAttribute('aria-label', busy ? copy.stop : copy.send);
         submit.title = busy ? copy.stop : copy.send;
         submit.dataset.action = busy ? 'stop' : 'send';
@@ -273,7 +277,6 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         const pageChanged = oldOffset !== state.page?.offset;
         const anchor = pageChanged ? null : captureAnchor();
         if (pageChanged) { followLatest = !state.page?.offset; viewport.scrollTop = 0; }
-        subtitle.textContent = state.chatId || copy.currentChat;
         const keep = new Set(state.turns.map(turn => turn.id));
         for (const [id, view] of turns) if (!keep.has(id)) { view.element.remove(); turns.delete(id); }
         for (const turn of state.turns) {

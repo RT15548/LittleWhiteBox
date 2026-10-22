@@ -1,5 +1,4 @@
 import { createAbortError } from '../../shared/common/abort-utils.js';
-import { assertPlannerApiUrlConfigured } from './ena-planner-api-config.js';
 import { observeBackgroundTask } from '../../shared/common/async-errors.js';
 
 
@@ -149,7 +148,6 @@ export function createEnaPlannerSendInterceptor({
         activeRun = run;
 
         try {
-            assertPlannerApiUrlConfigured(getSettings());
             try {
                 run.cancelNotice = scheduleNotice();
             } catch (caughtError) {
@@ -161,7 +159,6 @@ export function createEnaPlannerSendInterceptor({
                 signal: controller.signal,
                 storyMemoryText,
                 onDelta(_piece, full) {
-                    if (!getSettings()?.api?.stream) return;
                     const preview = filterPreview(full);
                     writeInput(run, appendPlan(run.raw, preview));
                 },

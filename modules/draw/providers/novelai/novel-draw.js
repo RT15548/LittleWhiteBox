@@ -888,12 +888,13 @@ async function loadSettings() {
         if (!saved
             || saved.configVersion !== CONFIG_VERSION
             || Number(saved._promptTemplateVersion) !== PROMPT_TEMPLATE_VERSION
+            || saved.activeApiPresetId !== settingsCache.activeApiPresetId
             || promptUpgrade.migrated) {
             settingsCache.configVersion = CONFIG_VERSION;
             settingsCache.updatedAt = Date.now();
             const storageValue = mergeNovelDrawProviderSettingsIntoStorageRoot(saved, settingsCache);
             const savedMigration = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, storageValue, { silent: true });
-            if (!savedMigration) throw new Error('默认设置保存失败');
+            if (!savedMigration) throw new Error(API_PRESET_COPY.saveFailed);
         }
         settingsLoaded = true;
         if (saved && promptUpgrade.installed) {

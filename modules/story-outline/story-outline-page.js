@@ -1,3 +1,4 @@
+import { mountTextApiSettings } from '../text-api/settings-ui.js';
 import { DOMPurify } from '../../../../../../lib.js';
 import { tryParseJson } from '../../shared/common/json-candidate.js';
 const D = { stage: 0, deviationScore: 0, simulationTarget: 5, meta: { truth: null, onion_layers: null, timeline: null, user_guide: null }, world: {}, maps: { outdoor: { nodes: [] }, indoor: null }, sceneSetup: null, contacts: { strangers: [], contacts: [{ name: "{{characterName}}", avatar: "", color: "#555", location: "在线", info: "", online: true, worldbookUid: "__CHARACTER_CARD__", messages: [], summarizedCount: 0 }] } };
@@ -213,7 +214,7 @@ const saveAll = () => post("SAVE_ALL_DATA", { allData: { meta: D.meta, world: D.
   const e = (D.contacts.contacts || []).find(isCharCardContact);
   D.contacts.contacts = (e ? [e] : []).concat(Array.isArray(t) ? t : []);
 }]];
-let gSet = { apiUrl: "", apiKey: "", model: "", mode: "assist" }, dataCk = {}, editCtx = null, commSet = { historyCount: 50, npcPosition: 0, npcOrder: 100, stream: false }, promptDefaults = { jsonTemplates: {}, promptSources: {} }, promptStores = { global: { jsonTemplates: {}, promptSources: {} }, character: { jsonTemplates: {}, promptSources: {} } };
+let gSet = { mode: "assist" }, dataCk = {}, editCtx = null, commSet = { historyCount: 50, npcPosition: 0, npcOrder: 100 }, promptDefaults = { jsonTemplates: {}, promptSources: {} }, promptStores = { global: { jsonTemplates: {}, promptSources: {} }, character: { jsonTemplates: {}, promptSources: {} } };
 const reqSet = () => post("GET_SETTINGS"), renderDataList = () => {
   $("data-list").innerHTML = DOMPurify.sanitize(dataKeys.map((([t, e, s]) => `<div class="data-item ${dataCk[t] ? "sel" : ""}" data-k="${t}"><div class="data-ck"><i class="fa-solid fa-check"></i></div><div class="data-info"><div class="data-nm">${e}</div><div class="data-desc">${s}</div></div><button class="data-edit" data-k="${t}" title="编辑"><i class="fa-solid fa-pen"></i></button></div>`)).join("")), $$("#data-list .data-item").forEach(((t) => t.onclick = (e) => {
     if (e.target.closest(".data-edit")) return;
@@ -326,10 +327,7 @@ $("data-edit-save").onclick = () => {
     $("data-edit-err").textContent = `JSON错误: ${t.message}`, $("data-edit-err").classList.add("vis");
   }
 }, $("data-edit-ta").addEventListener("input", updateEditPreview);
-const showTestRes = (t, e) => {
-  const s = $("test-res");
-  s.textContent = e, s.className = "set-test-res " + (t ? "ok" : "err");
-}, showResultModal = (t, e, s = false, o = null) => {
+const showResultModal = (t, e, s = false, o = null) => {
   $("res-title").textContent = t, $("res-title").style.color = s ? "var(--err)" : "", $("res-msg").textContent = e;
   const a = $("res-record-box"), n = $("res-record");
   o ? (a.style.display = "block", n.textContent = "object" == typeof o ? JSON.stringify(o, null, 2) : String(o)) : (a.style.display = "none", n.textContent = "");
@@ -417,14 +415,12 @@ function drawLines() {
     i.setAttribute("stroke", c ? "var(--c)" : "var(--c4)"), i.setAttribute("stroke-width", c ? "2" : "1"), c || i.setAttribute("stroke-dasharray", "4 3"), svg.appendChild(i);
   }));
 }
+const textApiEditor = mountTextApiSettings(document.getElementById('outline-text-api'), { feature: 'outline', namespace: 'LittleWhiteBox-OutlineFrame' });
 $("btn-settings").onclick = () => {
-  reqSet(), $("set-api-url").value = gSet.apiUrl || "", $("set-api-key").value = gSet.apiKey || "", $("set-model").value = gSet.model || "", $("set-model-list").style.display = "none", $("test-res").className = "set-test-res", $("set-stage").value = D.stage || 0, $("set-deviation").value = D.deviationScore || 0, $("set-sim-target").value = D.simulationTarget ?? 5, $("set-mode").value = gSet.mode || "story", $("set-history-count").value = commSet.historyCount || 50, $("set-use-stream").checked = !!commSet.stream, $("set-npc-position").value = commSet.npcPosition || 0, $("set-npc-order").value = commSet.npcOrder || 100, renderDataList(), syncSimDueUI(), openM("m-settings");
-}, $("btn-adv-prompts").onclick = () => advOpen(), $("adv-save-global").onclick = () => advSaveTo("global"), $("adv-save-char").onclick = () => advSaveTo("character"), $("adv-reset").onclick = () => advReset(), $("btn-fetch-models").onclick = () => {
-  BtnState.load($("btn-fetch-models"), "加载"), post("FETCH_MODELS", { apiUrl: $("set-api-url").value.trim(), apiKey: $("set-api-key").value.trim() });
-}, $("btn-test-conn").onclick = () => {
-  $("test-res").className = "set-test-res", BtnState.load($("btn-test-conn"), "测试"), post("TEST_CONNECTION", { apiUrl: $("set-api-url").value.trim(), apiKey: $("set-api-key").value.trim(), model: $("set-model").value.trim() });
-}, $("set-save").onclick = () => {
-  gSet = { apiUrl: $("set-api-url").value.trim(), apiKey: $("set-api-key").value.trim(), model: $("set-model").value.trim(), mode: $("set-mode").value || "story" }, D.stage = Math.max(0, Math.min(10, parseInt($("set-stage").value, 10) || 0)), D.deviationScore = Math.max(0, Math.min(100, parseInt($("set-deviation").value, 10) || 0)), D.simulationTarget = parseInt($("set-sim-target").value, 10), Number.isNaN(D.simulationTarget) && (D.simulationTarget = 5), commSet = { historyCount: Math.max(0, Math.min(200, parseInt($("set-history-count").value, 10) || 50)), stream: !!$("set-use-stream").checked, npcPosition: parseInt($("set-npc-position").value, 10) || 0, npcOrder: Math.max(0, Math.min(1e3, parseInt($("set-npc-order").value, 10) || 100)) };
+  void textApiEditor.refresh();
+  reqSet(), $("set-stage").value = D.stage || 0, $("set-deviation").value = D.deviationScore || 0, $("set-sim-target").value = D.simulationTarget ?? 5, $("set-mode").value = gSet.mode || "story", $("set-history-count").value = commSet.historyCount || 50, $("set-npc-position").value = commSet.npcPosition || 0, $("set-npc-order").value = commSet.npcOrder || 100, renderDataList(), syncSimDueUI(), openM("m-settings");
+}, $("btn-adv-prompts").onclick = () => advOpen(), $("adv-save-global").onclick = () => advSaveTo("global"), $("adv-save-char").onclick = () => advSaveTo("character"), $("adv-reset").onclick = () => advReset(), $("set-save").onclick = () => {
+  gSet = { mode: $("set-mode").value || "story" }, D.stage = Math.max(0, Math.min(10, parseInt($("set-stage").value, 10) || 0)), D.deviationScore = Math.max(0, Math.min(100, parseInt($("set-deviation").value, 10) || 0)), D.simulationTarget = parseInt($("set-sim-target").value, 10), Number.isNaN(D.simulationTarget) && (D.simulationTarget = 5), commSet = { historyCount: Math.max(0, Math.min(200, parseInt($("set-history-count").value, 10) || 50)), npcPosition: parseInt($("set-npc-position").value, 10) || 0, npcOrder: Math.max(0, Math.min(1e3, parseInt($("set-npc-order").value, 10) || 100)) };
   const t = {};
   dataKeys.forEach((([e, , , s]) => {
     dataCk[e] && (t[e] = s());
@@ -436,7 +432,7 @@ window.addEventListener("message", ((t) => {
   if ("LittleWhiteBox" !== t.data?.source) return;
   const e = t.data, s = e.type;
   if ("LOAD_SETTINGS" === s) {
-    if (e.globalSettings && (gSet = e.globalSettings), void 0 !== e.stage && (D.stage = e.stage), void 0 !== e.deviationScore && (D.deviationScore = e.deviationScore), void 0 !== e.simulationTarget && (D.simulationTarget = e.simulationTarget), e.playerLocation && (playerLocation = e.playerLocation), e.commSettings && (commSet = { historyCount: e.commSettings.historyCount ?? 50, npcPosition: e.commSettings.npcPosition ?? 0, npcOrder: e.commSettings.npcOrder ?? 100, stream: !!e.commSettings.stream }), e.dataChecked && (dataCk = e.dataChecked), e.promptConfig && (promptDefaults = e.promptConfig.defaults || promptDefaults, e.promptConfig.stores ? (promptStores.global = e.promptConfig.stores.global || { jsonTemplates: {}, promptSources: {} }, promptStores.character = e.promptConfig.stores.character || { jsonTemplates: {}, promptSources: {} }) : (promptStores.global = e.promptConfig.current || { jsonTemplates: {}, promptSources: {} }, promptStores.character = promptStores.character || { jsonTemplates: {}, promptSources: {} })), e.outlineData) {
+    if (e.globalSettings && (gSet = e.globalSettings), void 0 !== e.stage && (D.stage = e.stage), void 0 !== e.deviationScore && (D.deviationScore = e.deviationScore), void 0 !== e.simulationTarget && (D.simulationTarget = e.simulationTarget), e.playerLocation && (playerLocation = e.playerLocation), e.commSettings && (commSet = { historyCount: e.commSettings.historyCount ?? 50, npcPosition: e.commSettings.npcPosition ?? 0, npcOrder: e.commSettings.npcOrder ?? 100 }), e.dataChecked && (dataCk = e.dataChecked), e.promptConfig && (promptDefaults = e.promptConfig.defaults || promptDefaults, e.promptConfig.stores ? (promptStores.global = e.promptConfig.stores.global || { jsonTemplates: {}, promptSources: {} }, promptStores.character = e.promptConfig.stores.character || { jsonTemplates: {}, promptSources: {} }) : (promptStores.global = e.promptConfig.current || { jsonTemplates: {}, promptSources: {} }, promptStores.character = promptStores.character || { jsonTemplates: {}, promptSources: {} })), e.outlineData) {
       const t3 = e.outlineData;
       t3.meta && (D.meta = t3.meta), t3.world && (D.world = t3.world), t3.outdoor && (D.maps.outdoor = t3.outdoor), t3.indoor && (D.maps.indoor = t3.indoor), t3.sceneSetup && (D.sceneSetup = t3.sceneSetup), t3.strangers && (D.contacts.strangers = t3.strangers), t3.contacts && (D.contacts.contacts = t3.contacts);
     }
@@ -445,22 +441,13 @@ window.addEventListener("message", ((t) => {
       charSmsHistory = { messages: Array.isArray(t3.messages) ? t3.messages : [], summarizedCount: t3.summarizedCount || 0, summaries: t3.summaries || {} };
     }
     let t2 = D.contacts.contacts.find(((t3) => "__CHARACTER_CARD__" === t3.worldbookUid));
-    t2 || (t2 = D.contacts.contacts.find(((t3) => !t3.worldbookUid && "炒饭智能" === t3.name)), t2 ? (t2.worldbookUid = "__CHARACTER_CARD__", t2.info = "角色卡联络人", t2.location = "在线", t2.online = true) : (D.contacts.contacts.unshift({ name: e.characterCardName || "{{characterName}}", avatar: "", color: "#555", location: "在线", info: "角色卡联络人", online: true, worldbookUid: "__CHARACTER_CARD__", messages: [], summarizedCount: 0 }), t2 = D.contacts.contacts[0])), t2 && e.characterCardName && (t2.name = e.characterCardName, t2.avatar = (e.characterCardName || "")[0] || t2.avatar || ""), render(), syncSimDueUI(), $("m-settings").classList.contains("act") && ($("set-api-url").value = gSet.apiUrl || "", $("set-api-key").value = gSet.apiKey || "", $("set-model").value = gSet.model || "", $("set-stage").value = D.stage, $("set-deviation").value = D.deviationScore, $("set-sim-target").value = D.simulationTarget ?? 5, $("set-mode").value = gSet.mode || "story", $("set-history-count").value = commSet.historyCount, $("set-use-stream").checked = !!commSet.stream, $("set-npc-position").value = commSet.npcPosition, $("set-npc-order").value = commSet.npcOrder, renderDataList());
+    t2 || (t2 = D.contacts.contacts.find(((t3) => !t3.worldbookUid && "炒饭智能" === t3.name)), t2 ? (t2.worldbookUid = "__CHARACTER_CARD__", t2.info = "角色卡联络人", t2.location = "在线", t2.online = true) : (D.contacts.contacts.unshift({ name: e.characterCardName || "{{characterName}}", avatar: "", color: "#555", location: "在线", info: "角色卡联络人", online: true, worldbookUid: "__CHARACTER_CARD__", messages: [], summarizedCount: 0 }), t2 = D.contacts.contacts[0])), t2 && e.characterCardName && (t2.name = e.characterCardName, t2.avatar = (e.characterCardName || "")[0] || t2.avatar || ""), render(), syncSimDueUI(), $("m-settings").classList.contains("act") && ($("set-stage").value = D.stage, $("set-deviation").value = D.deviationScore, $("set-sim-target").value = D.simulationTarget ?? 5, $("set-mode").value = gSet.mode || "story", $("set-history-count").value = commSet.historyCount, $("set-npc-position").value = commSet.npcPosition, $("set-npc-order").value = commSet.npcOrder, renderDataList());
   } else if ("PROMPT_CONFIG_UPDATED" === s) {
     if (e.promptConfig && (promptDefaults = e.promptConfig.defaults || promptDefaults, e.promptConfig.stores ? (promptStores.global = e.promptConfig.stores.global || { jsonTemplates: {}, promptSources: {} }, promptStores.character = e.promptConfig.stores.character || { jsonTemplates: {}, promptSources: {} }) : (promptStores.global = e.promptConfig.current || { jsonTemplates: {}, promptSources: {} }, promptStores.character = promptStores.character || { jsonTemplates: {}, promptSources: {} }), $("m-adv-prompts").classList.contains("act"))) {
       const t2 = $("adv-key")?.value;
       t2 && advApplyToUI(t2, advGetScope());
     }
-  } else if ("FETCH_MODELS_RESULT" === s) {
-    BtnState.reset($("btn-fetch-models"), "获取");
-    const t2 = $("set-model-list");
-    if (e.error) return t2.style.display = "none", void showTestRes(false, "获取模型失败: " + e.error);
-    if (!e.models?.length) return t2.style.display = "none", void showTestRes(false, "未找到可用模型");
-    t2.innerHTML = DOMPurify.sanitize('<option value="">-- 选择模型 --</option>' + e.models.map(((t3) => `<option value="${t3}">${t3}</option>`)).join("")), t2.style.display = "block", t2.onchange = () => {
-      t2.value && ($("set-model").value = t2.value);
-    }, showTestRes(true, `找到 ${e.models.length} 个模型`);
-  } else if ("TEST_CONN_RESULT" === s) BtnState.reset($("btn-test-conn"), "测试连接"), showTestRes(e.success, e.message);
-  else if ("CHECK_WORLDBOOK_UID_RESULT" === s) {
+  } else if ("CHECK_WORLDBOOK_UID_RESULT" === s) {
     if (BtnState.reset($("btn-check-uid"), '<i class="fa-solid fa-search"></i> 检查'), !Req.match(e.requestId)) return;
     if (e.error) return void showUidErr(e.error);
     if (!e.primaryKeys?.length) return void showUidErr("该条目没有主要关键字");

@@ -1,3 +1,4 @@
+import { mountTextApiSettings } from '../text-api/settings-ui.js';
 // story-summary-ui.js
 // iframe 内 UI 逻辑
 
@@ -11,7 +12,7 @@ import { MEMORY_COPY } from './maintenance/copy.js';
 import { MEMORY_CHAT_MESSAGES } from './maintenance/chat-contract.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from './maintenance/settings.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
-import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY, writeSummaryConfigLocalCache } from './data/config-local-cache.js';
+import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY } from './data/config-local-cache.js';
 
 const UNANNOTATED_LABEL = '未标注';
 
@@ -19,6 +20,7 @@ const UNANNOTATED_LABEL = '未标注';
     'use strict';
     let memoryMaintenancePage;
     let archiveView;
+    const textApiEditor = mountTextApiSettings(document.getElementById('summary-text-api'), { feature: 'summary', namespace: 'LittleWhiteBox-StoryFrame' });
 
     function formatVectorPackageCounts(result) {
         return `${result.stateVectorCount} 锚点向量、${result.chunkCount} 片段向量、${result.eventCount} 事件向量`;
@@ -148,12 +150,6 @@ const UNANNOTATED_LABEL = '未标注';
         catch { return window.location.origin; }
     })();
 
-    const PROVIDER_DEFAULTS = {
-        st: { url: '', needKey: false, canFetch: false },
-        openai: { url: 'https://api.openai.com', needKey: true, canFetch: true },
-        google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false },
-        claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false }
-    };
     const VECTOR_PROVIDER_DEFAULTS = {
         siliconflow: { url: 'https://api.siliconflow.cn/v1', needKey: true, canFetch: true },
         openrouter: { url: 'https://openrouter.ai/api/v1', needKey: true, canFetch: true },
@@ -299,9 +295,7 @@ const UNANNOTATED_LABEL = '未标注';
 
     const config = {
         memoryMaintenanceEnabled: DEFAULT_MEMORY_MAINTENANCE_ENABLED,
-        api: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
-        gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
-        trigger: { enabled: false, interval: 20, delayFloors: DEFAULT_SUMMARY_DELAY_FLOORS, timing: 'before_user', role: 'system', useStream: true, maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false },
+        trigger: { enabled: false, interval: 20, delayFloors: DEFAULT_SUMMARY_DELAY_FLOORS, timing: 'before_user', role: 'system', maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false },
         ui: { hideSummarized: true, keepVisibleCount: 6, useVectorBoundary: true },
         prompts: {
             memoryTemplate: '',
@@ -357,11 +351,7 @@ const UNANNOTATED_LABEL = '未标注';
     let allLinks = [];
     let activeRelationTooltip = null;
     let lastRecallLogText = '';
-    let modelListFetchedThisIframe = false;
     let configSaveSeq = 0;
-    let summaryModelFetchSeq = 0;
-    let pendingSummaryModelFetchRequestId = '';
-    let summaryModelFetchTimeoutId = null;
     let currentTimelineChatId = '';
     let tlUnfilteredPage = null;
     const TL_PAGE_SIZE = 20;
@@ -391,20 +381,6 @@ const UNANNOTATED_LABEL = '未标注';
     function nextConfigSaveRequestId() {
         configSaveSeq += 1;
         return `summary-config-save-${Date.now()}-${configSaveSeq}`;
-    }
-
-    function nextSummaryModelFetchRequestId() {
-        summaryModelFetchSeq += 1;
-        return `summary-model-fetch-${Date.now()}-${summaryModelFetchSeq}`;
-    }
-
-    function resetSummaryModelFetchUi() {
-        if (summaryModelFetchTimeoutId) {
-            clearTimeout(summaryModelFetchTimeoutId);
-            summaryModelFetchTimeoutId = null;
-        }
-        $('btn-connect').disabled = false;
-        $('btn-connect').textContent = '连接 / 拉取模型列表';
     }
 
     function resetSettingsSaveUi() {
@@ -506,7 +482,8 @@ const UNANNOTATED_LABEL = '未标注';
 
     function syncCurrentChatSummaryControls() {
         const { hasChat, chatEnabled, effectiveEnabled, changing } = currentChatSummaryState;
-        $('archive-chat-state').textContent = chatEnabled ? ARCHIVE_COPY.currentChat : ARCHIVE_COPY.disabledChat;
+        $('archive-chat-state').textContent = chatEnabled ? '' : ARCHIVE_COPY.disabledChat;
+        $('archive-chat-state').hidden = chatEnabled;
         const controlsEnabled = canUseCurrentChatControls();
         const copy = SUMMARY_FEEDBACK_COPY.summaryControls;
         const toggle = $('current-chat-enabled');
@@ -554,7 +531,7 @@ const UNANNOTATED_LABEL = '未标注';
             }
             localGenerating = true;
             syncCurrentChatSummaryControls();
-            postMsg('REQUEST_GENERATE', { config: { api: config.api, gen: config.gen, trigger: config.trigger } });
+            postMsg('REQUEST_GENERATE', { config: { trigger: config.trigger } });
         };
     }
 
@@ -607,10 +584,6 @@ const UNANNOTATED_LABEL = '未标注';
             if (s) {
                 const p = JSON.parse(s);
                 config.memoryMaintenanceEnabled = p.memoryMaintenanceEnabled === true;
-                Object.assign(config.api, p.api || {});
-                normalizeSummaryApiConfigUI(config.api);
-                config.api.modelCache = [];
-                Object.assign(config.gen, p.gen || {});
                 Object.assign(config.trigger, p.trigger || {});
                 Object.assign(config.ui, p.ui || {});
                 config.ui.useVectorBoundary = p.ui?.useVectorBoundary !== false;
@@ -628,15 +601,6 @@ const UNANNOTATED_LABEL = '未标注';
         if (!cfg) return;
         config.memoryMaintenanceEnabled = cfg.memoryMaintenanceEnabled === true;
         memoryMaintenancePage?.setEnabled(config.memoryMaintenanceEnabled);
-        const currentApiKey = String(config.api?.key || '').trim();
-        const currentInputKey = String($('api-key')?.value || '').trim();
-        Object.assign(config.api, cfg.api || {});
-        normalizeSummaryApiConfigUI(config.api);
-        if (!String(config.api.key || '').trim() && (currentInputKey || currentApiKey)) {
-            config.api.key = currentInputKey || currentApiKey;
-        }
-        config.api.modelCache = [];
-        Object.assign(config.gen, cfg.gen || {});
         Object.assign(config.trigger, cfg.trigger || {});
         Object.assign(config.ui, cfg.ui || {});
         config.ui.useVectorBoundary = cfg.ui?.useVectorBoundary !== false;
@@ -649,17 +613,6 @@ const UNANNOTATED_LABEL = '未标注';
         if (cfg.vector) config.vector = normalizeVectorConfigUI(cfg.vector);
         normalizeTriggerConfig();
         syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
-        writeSummaryConfigLocalCache(config, (message, errorName) => console.warn(message, errorName));
-    }
-
-    function normalizeSummaryApiConfigUI(apiCfg = {}) {
-        if (String(apiCfg.provider || '').toLowerCase() === 'custom') {
-            apiCfg.provider = 'openai';
-        }
-        if (!PROVIDER_DEFAULTS[apiCfg.provider]) {
-            apiCfg.provider = 'st';
-        }
-        return apiCfg;
     }
 
     function applyBuiltInSummaryPrompts(prompts) {
@@ -1252,33 +1205,21 @@ const UNANNOTATED_LABEL = '未标注';
     // Settings Modal
     // ═══════════════════════════════════════════════════════════════════════════
 
-    function updateProviderUI(provider) {
-        const pv = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai;
-        const isSt = provider === 'st';
-        const hasModelCache = modelListFetchedThisIframe && Array.isArray(config.api.modelCache) && config.api.modelCache.length > 0;
-
-        $('api-url-row').classList.toggle('hidden', isSt);
-        $('api-key-row').classList.toggle('hidden', !pv.needKey);
-        $('api-model-manual-row').classList.toggle('hidden', isSt);
-        $('api-model-select-row').classList.toggle('hidden', isSt || !hasModelCache);
-        $('api-connect-row').classList.toggle('hidden', isSt || !pv.canFetch);
-        $('api-connect-status').classList.toggle('hidden', isSt || !pv.canFetch);
-
-        const urlInput = $('api-url');
-        if (!urlInput.value && pv.url) urlInput.value = pv.url;
+    function selectSettingsTab(targetId) {
+        $$('.settings-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === targetId));
+        $$('.tab-pane').forEach(pane => pane.classList.toggle('active', pane.id === targetId));
+        if (targetId === 'tab-debug') postMsg('REQUEST_RECALL_LOG');
+        if (targetId === 'tab-agent') memoryMaintenancePage.open();
     }
 
-    function openSettings({ preserveTab = false } = {}) {
+    function openSettings({ preserveTab = false, tab = 'tab-summary' } = {}) {
+        if (!preserveTab) {
+            const assistant = tab === 'tab-agent';
+            $('settings-modal').classList.toggle('assistant-page', assistant);
+            $('assistant-page-title').hidden = !assistant;
+            $('assistant-page-title').textContent = MEMORY_COPY.tab;
+        }
         memoryMaintenancePage.setEnabled(config.memoryMaintenanceEnabled);
-        $('api-provider').value = config.api.provider;
-        $('api-url').value = config.api.url;
-        $('api-key').value = config.api.key;
-        $('api-model-text').value = config.api.model;
-        $('gen-temp').value = config.gen.temperature ?? '';
-        $('gen-top-p').value = config.gen.top_p ?? '';
-        $('gen-top-k').value = config.gen.top_k ?? '';
-        $('gen-presence').value = config.gen.presence_penalty ?? '';
-        $('gen-frequency').value = config.gen.frequency_penalty ?? '';
         if ($('trigger-notify-on-complete')) {
             $('trigger-notify-on-complete').checked = !!config.trigger.notifyOnComplete;
         }
@@ -1287,7 +1228,6 @@ const UNANNOTATED_LABEL = '未标注';
         $('trigger-delay-floors').value = normalizeSummaryDelayFloors(config.trigger.delayFloors);
         $('trigger-timing').value = config.trigger.timing;
         $('trigger-role').value = config.trigger.role || 'system';
-        $('trigger-stream').checked = config.trigger.useStream !== false;
         $('trigger-max-per-run').value = config.trigger.maxPerRun || 100;
         $('trigger-wrapper-head').value = config.trigger.wrapperHead || '';
         $('trigger-wrapper-tail').value = config.trigger.wrapperTail || '';
@@ -1298,14 +1238,7 @@ const UNANNOTATED_LABEL = '未标注';
 
         syncAutoSummaryControls();
 
-        if (config.api.modelCache.length) {
-            setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
-            $('api-model-select').value = config.api.modelCache.includes(config.api.model) ? config.api.model : '';
-        } else {
-            setSelectOptions($('api-model-select'), [], '请选择');
-        }
-
-        updateProviderUI(config.api.provider);
+        if (!preserveTab) void textApiEditor.refresh();
         if (config.vector) loadVectorConfig(config.vector);
         renderFilterRules(Array.isArray(config.textFilterRules) ? config.textFilterRules : DEFAULT_FILTER_RULES);
         settingsOpenedWithServerConfig = panelConfigLoad.status === 'ready';
@@ -1325,10 +1258,7 @@ const UNANNOTATED_LABEL = '未标注';
 
         // Opening starts on Summary; recovery preserves the user's current tab.
         if (!preserveTab) {
-            $$('.settings-tab').forEach(t => t.classList.remove('active'));
-            $$('.settings-tab[data-tab="tab-summary"]').forEach(t => t.classList.add('active'));
-            $$('.tab-pane').forEach(p => p.classList.remove('active'));
-            $('tab-summary').classList.add('active');
+            selectSettingsTab(tab);
         }
 
         postMsg('SETTINGS_OPENED');
@@ -1336,21 +1266,6 @@ const UNANNOTATED_LABEL = '未标注';
 
     function collectSettingsFormToConfig() {
         config.memoryMaintenanceEnabled = memoryMaintenancePage.getEnabled();
-        const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
-        const provider = $('api-provider').value;
-
-        config.api.provider = provider;
-        config.api.url = $('api-url').value;
-        config.api.key = $('api-key').value;
-        config.api.model = provider === 'st' ? '' : $('api-model-text').value.trim();
-        config.api.modelCache = [];
-
-        config.gen.temperature = pn('gen-temp');
-        config.gen.top_p = pn('gen-top-p');
-        config.gen.top_k = pn('gen-top-k');
-        config.gen.presence_penalty = pn('gen-presence');
-        config.gen.frequency_penalty = pn('gen-frequency');
-
         const timing = $('trigger-timing').value;
         config.trigger.timing = normalizeTriggerTiming(timing);
         config.trigger.role = $('trigger-role').value || 'system';
@@ -1360,7 +1275,6 @@ const UNANNOTATED_LABEL = '未标注';
         config.trigger.enabled = $('trigger-enabled').checked;
         config.trigger.interval = Math.max(1, Math.min(30, parseInt($('trigger-interval').value) || 20));
         config.trigger.delayFloors = normalizeSummaryDelayFloors($('trigger-delay-floors').value);
-        config.trigger.useStream = $('trigger-stream').checked;
         config.trigger.maxPerRun = parseInt($('trigger-max-per-run').value) || 100;
         config.trigger.wrapperHead = $('trigger-wrapper-head').value;
         config.trigger.wrapperTail = $('trigger-wrapper-tail').value;
@@ -1414,52 +1328,6 @@ const UNANNOTATED_LABEL = '未标注';
         $('settings-modal').classList.remove('active');
         postMsg('SETTINGS_CLOSED');
     }
-
-    async function fetchModels() {
-        const btn = $('btn-connect');
-        const statusEl = $('api-connect-status');
-        const provider = $('api-provider').value;
-
-        if (!PROVIDER_DEFAULTS[provider]?.canFetch) {
-            statusEl.textContent = '当前渠道不支持自动拉取模型';
-            return;
-        }
-
-        const baseUrl = $('api-url').value.trim();
-        const apiKey = $('api-key').value.trim();
-
-        if (!apiKey) {
-            statusEl.textContent = '请先填写 API KEY';
-            return;
-        }
-
-        const requestId = nextSummaryModelFetchRequestId();
-        pendingSummaryModelFetchRequestId = requestId;
-        btn.disabled = true;
-        btn.textContent = '连接中...';
-        statusEl.textContent = '连接中...';
-        if (summaryModelFetchTimeoutId) {
-            clearTimeout(summaryModelFetchTimeoutId);
-        }
-        summaryModelFetchTimeoutId = setTimeout(() => {
-            if (pendingSummaryModelFetchRequestId !== requestId) return;
-            pendingSummaryModelFetchRequestId = '';
-            resetSummaryModelFetchUi();
-            setStatusText(statusEl, '拉取失败：请求超时（>5s）', 'error');
-        }, 5000);
-
-        postMsg('FETCH_SUMMARY_MODELS', {
-            requestId,
-            provider,
-            url: baseUrl,
-            apiKey,
-            timeoutMs: 5000,
-        });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Rendering Functions
-    // ═══════════════════════════════════════════════════════════════════════════
 
     function renderKeywords(kw) {
         summaryData.keywords = kw || [];
@@ -2648,36 +2516,6 @@ const UNANNOTATED_LABEL = '未标注';
                 break;
             }
 
-            case 'SUMMARY_MODELS': {
-                if (!d.requestId || d.requestId !== pendingSummaryModelFetchRequestId) break;
-                pendingSummaryModelFetchRequestId = '';
-                resetSummaryModelFetchUi();
-
-                const models = Array.isArray(d.models) ? [...new Set(d.models.filter(Boolean))] : [];
-                config.api.modelCache = models;
-                modelListFetchedThisIframe = models.length > 0;
-                setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
-                $('api-model-select-row').classList.toggle('hidden', !models.length);
-
-                if (!config.api.model && models.length) {
-                    config.api.model = models[0];
-                    $('api-model-text').value = models[0];
-                    $('api-model-select').value = models[0];
-                } else if (config.api.model) {
-                    $('api-model-select').value = config.api.model;
-                }
-
-                setStatusText($('api-connect-status'), `拉取成功：${models.length} 个模型`, 'success');
-                break;
-            }
-
-            case 'SUMMARY_MODELS_ERROR':
-                if (!d.requestId || d.requestId !== pendingSummaryModelFetchRequestId) break;
-                pendingSummaryModelFetchRequestId = '';
-                resetSummaryModelFetchUi();
-                setStatusText($('api-connect-status'), '拉取失败：' + (d.message || '请检查 URL 和 KEY'), 'error');
-                break;
-
             case 'VECTOR_CONFIG':
                 if (d.config) loadVectorConfig(d.config);
                 break;
@@ -2795,6 +2633,8 @@ const UNANNOTATED_LABEL = '未标注';
 
         // Settings modal
         $('btn-settings').onclick = () => { archiveView.closeDialogs(); openSettings(); };
+        $('archive-assistant').textContent = MEMORY_COPY.tab;
+        $('archive-assistant').onclick = () => { archiveView.closeDialogs(); openSettings({ tab: 'tab-agent' }); };
         $('settings-backdrop').onclick = closeSettings;
         $('settings-close').onclick = closeSettings;
         $('settings-cancel').onclick = closeSettings;
@@ -2807,40 +2647,10 @@ const UNANNOTATED_LABEL = '未标注';
                 const targetId = tab.dataset.tab;
                 if (!targetId) return;
 
-                // Update tab active state
-                $$('.settings-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-
-                // Update pane active state
-                $$('.tab-pane').forEach(p => p.classList.remove('active'));
-                $(targetId).classList.add('active');
-
-                // If switching to debug tab, refresh log
-                if (targetId === 'tab-debug') {
-                    postMsg('REQUEST_RECALL_LOG');
-                }
-                if (targetId === 'tab-agent') memoryMaintenancePage.open();
+                selectSettingsTab(targetId);
             };
         });
 
-        // API provider change
-        $('api-provider').onchange = e => {
-            const pv = PROVIDER_DEFAULTS[e.target.value] || PROVIDER_DEFAULTS.openai;
-            $('api-url').value = '';
-            modelListFetchedThisIframe = false;
-            if (!pv.canFetch) config.api.modelCache = [];
-            updateProviderUI(e.target.value);
-        };
-
-        $('btn-connect').onclick = fetchModels;
-        $('api-model-text').oninput = e => { config.api.model = e.target.value.trim(); };
-        $('api-model-select').onchange = e => {
-            const value = e.target.value || '';
-            if (value) {
-                $('api-model-text').value = value;
-                config.api.model = value;
-            }
-        };
         $('btn-reset-memory-prompt-template').onclick = () => {
             $('memory-prompt-template').value = DEFAULT_MEMORY_PROMPT_TEMPLATE;
         };
@@ -2917,17 +2727,6 @@ const UNANNOTATED_LABEL = '未标注';
         // Vector UI
         initSummaryIOUI();
         initVectorUI();
-
-        // Gen params collapsible
-        const genParamsToggle = $('gen-params-toggle');
-        const genParamsContent = $('gen-params-content');
-        if (genParamsToggle && genParamsContent) {
-            genParamsToggle.onclick = () => {
-                const collapse = genParamsToggle.closest('.settings-collapse');
-                collapse.classList.toggle('open');
-                genParamsContent.classList.toggle('hidden');
-            };
-        }
 
         // Filter rules collapsible
         const filterRulesToggle = $('filter-rules-toggle');
@@ -3027,7 +2826,8 @@ const UNANNOTATED_LABEL = '未标注';
         $('memory-agent-tab').textContent = MEMORY_COPY.tab;
         $('settings-save').textContent = MEMORY_COPY.settingsSave;
         $('settings-cancel').textContent = MEMORY_COPY.settingsClose;
-        memoryMaintenancePage = createMemoryMaintenancePage($('tab-agent'), postMsg);
+        $('settings-close').setAttribute('aria-label', MEMORY_COPY.settingsClose);
+        memoryMaintenancePage = createMemoryMaintenancePage($('tab-agent'), postMsg, { close: closeSettings });
         loadConfig();
         tlPagingEnabled = localStorage.getItem(TL_PAGING_KEY) === '1';
 

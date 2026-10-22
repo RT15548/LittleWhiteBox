@@ -74,15 +74,16 @@
             <div class="archive-actions">
                 <button class="archive-icon" id="archive-theme" aria-label="切换深浅主题" title="切换深浅主题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.4A8 8 0 0 1 10.6 4 8.1 8.1 0 1 0 20 13.4Z"/></svg></button>
                 <button class="archive-icon" id="archive-manage-open" aria-label="设置与管理" title="设置与管理"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5"/><circle cx="15" cy="17" r="2.5"/></svg></button>
+                <button class="archive-icon" id="archive-close" aria-label="关闭剧情总结" title="关闭剧情总结">×</button>
             </div>
         </div>
         <div class="archive-hero">
             <div>
-                <h1>剧情档案</h1>
-                <div class="archive-meta"><span><b id="stat-events">0</b> 段剧情</span><span>已总结至 <b id="stat-summarized">0</b> 楼</span><span id="archive-chat-state">当前聊天</span></div>
+                <div class="archive-meta"><span><b id="stat-events">0</b> 段剧情</span><span>已总结至 <b id="stat-summarized">0</b> 楼</span><span id="archive-chat-state" hidden></span></div>
             </div>
             <div class="archive-actions archive-generate">
                 <div><span class="archive-muted"><b id="stat-pending">0</b> 楼待总结</span><div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div></div>
+                <button class="btn" id="archive-assistant"></button>
                 <button class="btn btn-p" id="btn-generate"></button>
             </div>
         </div>
@@ -133,12 +134,13 @@
                 <div class="archive-people-layout">
                     <div class="archive-graph">
                         <div class="archive-section-head"><h2>人物关系</h2><div class="archive-actions"><button class="archive-text" id="archive-profile-open"></button><button class="archive-text" id="btn-fullscreen-relations">全屏查看</button><button class="archive-text sec-btn" data-section="characters">编辑关系</button></div></div>
-                        <div id="relation-chart"></div>
                         <div class="archive-roster" id="archive-roster"></div>
+                        <div id="relation-chart"></div>
                     </div>
                     <div id="archive-profile-home">
                         <section class="archive-profile" id="archive-profile">
                             <div class="archive-section-head"><h2>人物档案</h2><button class="archive-text sec-btn" data-section="arcs">编辑</button></div>
+                            <select id="archive-person-select" class="archive-person-select" aria-label="选择人物档案"></select>
                             <div id="profile-content"></div>
                             <details class="archive-aliases">
                                 <summary>称呼与别名</summary>
@@ -210,6 +212,7 @@
         <div class="modal-bg" id="settings-backdrop"></div>
         <div class="modal-box settings-modal-box">
             <div class="modal-head">
+                <h2 id="assistant-page-title" hidden></h2>
                 <div class="settings-tabs">
                     <div class="settings-tab active" data-tab="tab-summary">总结</div>
                     <div class="settings-tab" data-tab="tab-vector">向量</div>
@@ -248,102 +251,8 @@
                         </div>
                     </div>
 
-                    <!-- API Config & Gen Params Combined -->
-                    <div class="settings-section">
-                        <div class="settings-section-title">API 配置</div>
-                        <div class="settings-row">
-                            <div class="settings-field">
-                                <label>渠道</label>
-                                <select id="api-provider">
-                                    <option value="st">酒馆主 API（沿用当前）</option>
-                                    <option value="openai">OpenAI 兼容</option>
-                                    <option value="google">Google (Gemini)</option>
-                                    <option value="claude">Claude (Anthropic)</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="settings-row hidden" id="api-url-row">
-                            <div class="settings-field full">
-                                <label>API URL</label>
-                                <input type="text" id="api-url" placeholder="https://api.openai.com 或代理地址">
-                                <div class="settings-hint">可直接填写完整前缀（如 /v1、/v3、/v1beta）；若只填裸地址，则按渠道补默认前缀：OpenAI/Claude：/v1，Gemini：/v1beta。</div>
-                            </div>
-                        </div>
-                        <div class="settings-row hidden" id="api-key-row">
-                            <div class="settings-field full">
-                                <label>API KEY</label>
-                                <input type="password" id="api-key" placeholder="保存到小白X配置">
-                            </div>
-                        </div>
-                        <div class="settings-row hidden" id="api-model-manual-row">
-                            <div class="settings-field full">
-                                <label>模型名</label>
-                                <input type="text" id="api-model-text" placeholder="可手动填写，如 cursor/google/gemini-3-flash">
-                            </div>
-                        </div>
-                        <div class="settings-row hidden" id="api-model-select-row">
-                            <div class="settings-field full">
-                                <label>已拉取模型</label>
-                                <select id="api-model-select">
-                                    <option value="">请选择</option>
-                                </select>
-                                <div class="settings-hint">选择后会回填到上面的模型名输入框。</div>
-                            </div>
-                        </div>
-                        <div class="settings-btn-row hidden" id="api-connect-row"
-                            style="display: flex; gap: 12px; align-items: center; justify-content: space-between;">
-                            <button class="btn btn-sm btn-p" id="btn-connect" style="flex: 4;">连接 / 拉取模型列表</button>
-                            <label class="chk-label compact"
-                                style="margin: 0; flex: 1; display: flex; align-items: center; gap: 6px; white-space: nowrap; justify-content: center;">
-                                <input type="checkbox" id="trigger-stream" checked>
-                                <span>流式</span>
-                            </label>
-                        </div>
-                        <div class="settings-hint hidden" id="api-connect-status"></div>
-
-                        <!-- Collapsible Gen Params -->
-                        <div class="settings-collapse">
-                            <div class="settings-collapse-header" id="gen-params-toggle">
-                                <span>生成参数</span>
-                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                </svg>
-                            </div>
-                            <div class="settings-collapse-content hidden" id="gen-params-content">
-                                <div class="settings-row">
-                                    <div class="settings-field">
-                                        <label>Temperature</label>
-                                        <input type="number" id="gen-temp" step="0.01" min="0" max="2"
-                                            placeholder="未设置">
-                                    </div>
-                                    <div class="settings-field">
-                                        <label>Top P</label>
-                                        <input type="number" id="gen-top-p" step="0.01" min="0" max="1"
-                                            placeholder="未设置">
-                                    </div>
-                                    <div class="settings-field">
-                                        <label>Top K</label>
-                                        <input type="number" id="gen-top-k" step="1" min="1" placeholder="未设置">
-                                    </div>
-                                </div>
-                                <div class="settings-row">
-                                    <div class="settings-field">
-                                        <label>存在惩罚</label>
-                                        <input type="number" id="gen-presence" step="0.01" min="-2" max="2"
-                                            placeholder="未设置">
-                                    </div>
-                                    <div class="settings-field">
-                                        <label>频率惩罚</label>
-                                        <input type="number" id="gen-frequency" step="0.01" min="-2" max="2"
-                                            placeholder="未设置">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Trigger Settings -->
+                    <div class="settings-section"><div id="summary-text-api"></div><div id="api-connect-status" role="status"></div></div>
+                        <!-- Trigger Settings -->
                     <div class="settings-section">
                         <div class="settings-section-title">总结设置</div>
 

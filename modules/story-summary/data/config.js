@@ -1,3 +1,4 @@
+import { getTextApiRepository } from '../../text-api/repository.js';
 import { extension_settings } from "../../../../../../extensions.js";
 import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
@@ -171,7 +172,7 @@ ${SUMMARY_ALIAS_RULES}
     "fact_changes": "识别到的事实变化概述"
   },
   "keywords": [
-    {"text": "综合历史+新内容的全剧情关键词(5-10个)", "weight": "核心|重要|一般"}
+    {"text": "综合历史与新内容，提取3–8个全局剧情标签，每个2–5字，表达贯穿剧情的主题、冲突、关系或核心设定", "weight": "核心|重要|一般"}
   ],
   "events": [
     {
@@ -200,7 +201,6 @@ ${SUMMARY_ALIAS_RULES}
 ## CRITICAL NOTES
 - 仅输出【增量】内容，已有事件绝不重复
 - summary 按 doc 中的“Event Summary Style”执行，不要写成泛化概括
-- keywords 是全局关键词，综合已有+新增
 - factUpdates 可为空数组
 - characterAliasUpdates 是可选字段；没有可靠的同一人依据时不要输出这个 key
 - 合法JSON，字符串值内部避免英文双引号
@@ -353,8 +353,6 @@ function normalizeVectorConfig(rawVector = null) {
 function createDefaultSummaryPanelConfig() {
     const defaults = {
         memoryMaintenanceEnabled: DEFAULT_MEMORY_MAINTENANCE_ENABLED,
-        api: { provider: "st", url: "", key: "", model: "", modelCache: [] },
-        gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
         trigger: {
             enabled: false,
             notifyOnComplete: false,
@@ -362,7 +360,6 @@ function createDefaultSummaryPanelConfig() {
             delayFloors: DEFAULT_SUMMARY_DELAY_FLOORS,
             timing: "before_user",
             role: "system",
-            useStream: true,
             maxPerRun: 100,
             wrapperHead: "",
             wrapperTail: "",
@@ -397,14 +394,6 @@ function assertSummaryConfigPersisted(expected, actual) {
         throw new Error('memory_maintenance_setting_not_saved');
     }
 
-    const expectedApi = expected?.api || {};
-    const actualApi = actual?.api || {};
-    const fields = ["provider", "url", "key", "model"];
-    for (const field of fields) {
-        if (String(actualApi[field] ?? "") !== String(expectedApi[field] ?? "")) {
-            throw new Error(`保存校验失败：API ${field} 未写入服务器`);
-        }
-    }
 }
 
 function normalizeSummaryPanelConfig(rawConfig = null) {
@@ -431,8 +420,6 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
 
     const result = {
         memoryMaintenanceEnabled: rawConfig.memoryMaintenanceEnabled === true,
-        api: { ...defaults.api, ...(rawConfig.api || {}) },
-        gen: { ...defaults.gen, ...(rawConfig.gen || {}) },
         trigger: { ...defaults.trigger, ...(rawConfig.trigger || {}) },
         ui: { ...defaults.ui, ...(rawConfig.ui || {}) },
         textFilterRules,
@@ -443,9 +430,6 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
         vector: normalizeVectorConfig(rawConfig.vector || null),
     };
 
-    if (String(result.api.provider || "").toLowerCase() === "custom") {
-        result.api.provider = "openai";
-    }
 
     if (result.trigger.timing === "manual") {
         result.trigger.timing = defaults.trigger.timing;
@@ -453,7 +437,7 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
     } else if (!VALID_TRIGGER_TIMINGS.has(result.trigger.timing)) {
         result.trigger.timing = defaults.trigger.timing;
     }
-    if (result.trigger.useStream === undefined) result.trigger.useStream = true;
+    delete result.trigger.useStream;
     result.trigger.notifyOnComplete = rawConfig?.trigger?.notifyOnComplete === true;
     result.trigger.delayFloors = normalizeSummaryDelayFloors(result.trigger.delayFloors);
     result.ui.hideSummarized = !!result.ui.hideSummarized;
@@ -463,7 +447,7 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
     return result;
 }
 
-function setSummaryPanelConfigCache(config, { persistLocal = true } = {}) {
+function setSummaryPanelConfigCache(config, { persistLocal = false } = {}) {
     const normalized = normalizeSummaryPanelConfig(config);
     summaryPanelConfigCache = normalized;
     if (persistLocal) {
@@ -493,7 +477,10 @@ export function getSummaryPanelConfig() {
 export function saveSummaryPanelConfig(config) {
     try {
         const normalized = setSummaryPanelConfigCache(config);
-        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, normalized).catch((e) => {
+        getTextApiRepository().then(repository => repository.load()).then(async () => {
+            await CommonSettingStorage.set(SUMMARY_CONFIG_KEY, normalized);
+            writeSummaryConfigLocalCache(normalized, (message, errorName) => xbLog.warn(MODULE_ID, message, errorName));
+        }).catch((e) => {
             xbLog.error(MODULE_ID, "保存面板配置失败", e);
         });
         return normalized;
@@ -520,7 +507,10 @@ export function saveVectorConfig(vectorCfg) {
         const parsed = ensureSummaryPanelConfigCache();
         parsed.vector = normalizeVectorConfig(vectorCfg || null);
         setSummaryPanelConfigCache(parsed);
-        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, parsed).catch((e) => {
+        getTextApiRepository().then(repository => repository.load()).then(async () => {
+            await CommonSettingStorage.set(SUMMARY_CONFIG_KEY, parsed);
+            writeSummaryConfigLocalCache(parsed, (message, errorName) => xbLog.warn(MODULE_ID, message, errorName));
+        }).catch((e) => {
             xbLog.error(MODULE_ID, "保存向量配置失败", e);
         });
         return cloneConfig(parsed.vector);
@@ -531,13 +521,14 @@ export function saveVectorConfig(vectorCfg) {
 }
 
 export async function saveSummaryPanelConfigVerified(config) {
+    await (await getTextApiRepository()).load();
     const normalized = normalizeSummaryPanelConfig(config);
     await CommonSettingStorage.setAndSave(SUMMARY_CONFIG_KEY, normalized, { silent: false });
     CommonSettingStorage.clearCache();
     const savedConfig = await CommonSettingStorage.getStrict(SUMMARY_CONFIG_KEY, null);
     const savedNormalized = normalizeSummaryPanelConfig(savedConfig);
     assertSummaryConfigPersisted(normalized, savedNormalized);
-    setSummaryPanelConfigCache(savedNormalized);
+    setSummaryPanelConfigCache(savedNormalized, { persistLocal: true });
     return cloneConfig(savedNormalized);
 }
 

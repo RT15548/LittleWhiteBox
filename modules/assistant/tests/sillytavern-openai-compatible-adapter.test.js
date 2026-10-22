@@ -2446,7 +2446,6 @@ test('sillytavern OpenAI-compatible tagged-json mode does not send native tools 
         assert.equal(Object.hasOwn(receivedBody, 'tools'), false);
         assert.equal(Object.hasOwn(receivedBody, 'tool_choice'), false);
         assert.equal(receivedBody.messages[0].role, 'system');
-        assert.equal(receivedBody.messages[0].content.includes('<tool_call>{"name":"工具名","arguments":{...}}</tool_call>'), true);
         assert.deepEqual(result.toolCalls, [{
             id: 'tool-call-1',
             name: 'Read',
@@ -2526,7 +2525,6 @@ test('sillytavern OpenAI-compatible retries malformed native tool host failures 
         assert.equal(requests[0].body.tools.length, 1);
         assert.equal(Object.hasOwn(requests[1].body, 'tools'), false);
         assert.equal(Object.hasOwn(requests[1].body, 'tool_choice'), false);
-        assert.equal(requests[1].body.messages[0].content.includes('<tool_call>{"name":"工具名","arguments":{...}}</tool_call>'), true);
         assert.deepEqual(result.toolCalls, [{
             id: 'tool-call-1',
             name: 'Read',

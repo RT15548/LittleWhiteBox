@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import { parseHTML } from 'linkedom';
 import { createApiPresetPage } from '../api-preset-page.js';
+import { normalizeApiPresetState } from '../api-presets.js';
 
 // Acceptance: failed saves must not replace credentials or presets; concurrent
 // saves share one gate; a late receipt must not overwrite a reopened form.
 // These are persisted-configuration/data-loss boundaries, not UI-copy assertions.
-function fixture(t, persistResult) {
+// Rename must preserve credentials; delete must commit the replacement selection
+// and credentials together, or leave both unchanged on failure (data-loss boundary).
+function fixture(t, persistResult, { initialSettings, prompt, confirm } = {}) {
     const normalizeConfig = (raw = {}) => ({ host: String(raw.host || '').trim(), auth: String(raw.auth || '').trim() });
-    const initial = {
+    const initial = initialSettings || {
         host: 'https://before.invalid', auth: 'before-key', unrelated: 7,
         activeApiPresetId: 'one',
         apiPresets: [{ id: 'one', name: 'One', config: { host: 'https://before.invalid', auth: 'before-key' } }],
@@ -36,12 +40,18 @@ function fixture(t, persistResult) {
             settings = draft;
             return true;
         },
+        prompt, confirm,
     });
     t.after(() => page.destroy());
     return {
         page, initial, filled, open,
         settings: () => settings, form: () => document.querySelector('#form'),
         config: () => formConfig, writes: () => writes,
+        click: async action => {
+            page.ensureBar();
+            document.querySelector(`[data-action="${action}"]`).click();
+            await nextTurn();
+        },
     };
 }
 
@@ -88,3 +98,40 @@ test('a late API save receipt cannot refill a newly opened settings document', a
     assert.deepEqual(h.filled, []);
     assert.equal(h.form().hasAttribute('disabled'), false);
 });
+
+for (const success of [true, false]) {
+    test(`renaming a migrated preset ${success ? 'persists its name' : 'rolls back'} without changing credentials`, async t => {
+        const legacy = { host: 'https://legacy.invalid', auth: 'legacy-key' };
+        const initialSettings = { ...legacy, ...normalizeApiPresetState(legacy, { fields: ['host', 'auth'] }) };
+        const h = fixture(t, async () => success, { initialSettings, prompt: () => 'Renamed' });
+        await h.click('rename');
+        assert.equal(h.settings().apiPresets.length, 1);
+        assert.equal(h.settings().activeApiPresetId, initialSettings.activeApiPresetId);
+        assert.equal(h.settings().apiPresets[0].name, success ? 'Renamed' : initialSettings.apiPresets[0].name);
+        assert.equal(h.settings().auth, legacy.auth);
+        assert.deepEqual(h.settings().apiPresets[0].config, legacy);
+        assert.equal(h.filled.length, 0);
+        if (!success) assert.deepEqual(h.settings(), initialSettings);
+    });
+
+    test(`deleting the selected API preset ${success ? 'switches config atomically' : 'preserves config on failure'}`, async t => {
+        const first = { host: 'https://first.invalid', auth: 'first-key' };
+        const second = { host: 'https://second.invalid', auth: 'second-key' };
+        const initialSettings = {
+            ...first, activeApiPresetId: 'first',
+            apiPresets: [{ id: 'first', name: 'First', config: first }, { id: 'second', name: 'Second', config: second }],
+        };
+        const h = fixture(t, async () => success, { initialSettings, confirm: () => true });
+        await h.click('delete');
+        if (success) {
+            assert.equal(h.settings().activeApiPresetId, 'second');
+            assert.deepEqual(h.settings().apiPresets, initialSettings.apiPresets.slice(1));
+            assert.equal(h.settings().auth, second.auth);
+            assert.deepEqual(h.config(), second);
+        } else {
+            assert.deepEqual(h.settings(), initialSettings);
+            assert.equal(h.filled.length, 0);
+            assert.equal(h.config().auth, 'edited-key');
+        }
+    });
+}

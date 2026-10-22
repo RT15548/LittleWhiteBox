@@ -30,7 +30,6 @@ import { notifySummaryCommitted } from '../maintenance/notification.js';
 import { getChatIdentity } from '../data/chat-identity.js';
 
 const MODULE_ID = 'summaryGenerator';
-const SUMMARY_SESSION_ID = 'xb9';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 辅助函数
@@ -144,7 +143,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     const existingSummary = formatExistingSummaryForAI(store);
     const existingFacts = getFacts();
     const existingEventCount = store?.json?.events?.length || 0;
-    const useStream = config.trigger?.useStream !== false;
 
     let raw;
     try {
@@ -154,15 +152,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
             newHistoryText: slice.text,
             historyRange: slice.range,
             existingEventCount,
-            llmApi: {
-                provider: config.api?.provider,
-                url: config.api?.url,
-                key: config.api?.key,
-                model: config.api?.model,
-            },
-            genParams: config.gen || {},
-            useStream,
-            sessionId: SUMMARY_SESSION_ID,
             signal,
         });
         if (isSummaryRunInactive(signal, targetChatId)) {

@@ -518,9 +518,9 @@ export async function loadSettings() {
         const saved = await ComfyDrawStorage.getStrict(SERVER_FILE_KEY, null);
         const upgrade = installScenePlannerPresets(saved, DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION, { installVersion: 10 });
         settingsCache = normalizeSettings(upgrade.settings);
-        if (!saved || upgrade.changed) {
+        if (!saved || upgrade.changed || saved.activeApiPresetId !== settingsCache.activeApiPresetId) {
             const savedDefaults = await ComfyDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
-            if (!savedDefaults) throw new Error('新版提示词预设保存失败');
+            if (!savedDefaults) throw new Error(API_PRESET_COPY.saveFailed);
         }
         if (saved && upgrade.installed) {
             toastr.info(SCENE_PLANNER_PRESET_INSTALL_NOTICE, 'ComfyUI', { timeOut: 8000 });

@@ -2574,42 +2574,13 @@
                                 <label class="form-l">上下文楼层数</label>
                                 <input type="number" class="form-in w100" id="set-history-count" min="0" max="200"
                                     value="50" />
-                                <label class="fc g4 fs12 c2 usn" style="margin-left:auto">
-                                    <input type="checkbox" id="set-use-stream" /> <span style="font-weight:600">启用流式
-                                        (Streaming)</span>
-                                </label>
+
                             </div>
-                            <div class="set-test-res" id="test-res"></div>
                         </div>
                     </div>
 
                     <!-- Tab: Connection -->
-                    <div class="set-tab-page" id="tab-conn">
-                        <div class="set-group">
-                            <div class="set-group-t">API 设置</div>
-                            <div class="form-g">
-                                <label class="form-l">API 端点 (URL)</label>
-                                <input type="text" class="form-in" id="set-api-url" placeholder="默认使用 SillyTavern 设置" />
-                            </div>
-                            <div class="form-g">
-                                <label class="form-l">API 密钥 (Key)</label>
-                                <input type="password" class="form-in" id="set-api-key" placeholder="如需覆盖请填写" />
-                            </div>
-                        </div>
-
-                        <div class="set-group">
-                            <div class="set-group-t">模型选择 (Model)</div>
-                            <div class="set-row g10">
-                                <input type="text" class="form-in f1" id="set-model" placeholder="Model ID" />
-                                <button class="btn btn-s" id="btn-fetch-models">获取列表</button>
-                            </div>
-                            <select class="form-in mt6" id="set-model-list"></select>
-                            <div class="mt10">
-                                <button class="btn btn-s btn-p w100" id="btn-test-conn">测试连接</button>
-                            </div>
-                        </div>
-                    </div>
-
+                    <div class="set-tab-page" id="tab-conn"><div id="outline-text-api"></div></div>
                     <!-- Tab: Data -->
                     <div class="set-tab-page" id="tab-data">
                         <div class="set-group">

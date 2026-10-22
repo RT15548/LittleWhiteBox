@@ -1,10 +1,11 @@
 import { DEEPSEEK_TOOL_MODE_GUIDANCE, DSML_TOOL_CALL_INVALID } from '../runtime/error-guidance.js';
+import { extractLooseField, findLooseKeyMatch, repairLooseToolArguments } from '../runtime/loose-tool-arguments.js';
 
 // Compatibility: DeepSeek V3.2 DSML leaked into assistant text by compatible endpoints.
 // Reference: https://huggingface.co/deepseek-ai/DeepSeek-V3.2/blob/main/encoding/encoding_dsv32.py
 // Also accepts the repeated bars / spaces / `calls` spelling in reported relay output.
 // Remove DSML support when supported endpoints no longer leak it into assistant text.
-const TOOL_START = /<tool_call\b|<\/?[｜|]+DSML[｜|]+\s*/gi;
+const TOOL_START = /<tool_call\b|<\/?[｜|]+DSML[｜|]+\s*/iy;
 const INVOKE_OPEN = /<[｜|]+DSML[｜|]+\s*invoke\s+name="([^"]+)"\s*>/iy;
 const INVOKE_CLOSE = /<\/[｜|]+DSML[｜|]+\s*invoke\s*>/iy;
 const GROUP_OPEN = /<[｜|]+DSML[｜|]+\s*(function_calls|calls)\s*>/iy;
@@ -13,14 +14,53 @@ const PARAMETER_OPEN = /<[｜|]+DSML[｜|]+\s*parameter\s+name="([^"]+)"\s+strin
 const PARAMETER_BOUNDARY = /<(\/?)[｜|]+DSML[｜|]+\s*parameter\b/gi;
 const PARAMETER_CLOSE = /<\/[｜|]+DSML[｜|]+\s*parameter\s*>/iy;
 const DECORATION_TAG = /<[^<>"']*(?:"[^"]*"[^<>"']*|'[^']*'[^<>"']*)*>/y;
+const TAGGED_JSON_REASONS = {
+    unclosedQuote: 'JSON 外的说明文字引号未闭合',
+    incompleteBatch: '批量调用中存在不完整的 JSON，无法确定调用边界',
+    ambiguousBoundary: 'JSON 未完成且包含结束标签，无法确定调用边界',
+    unrepairable: '无法识别完整的工具名称和参数',
+};
+const PROSE_QUOTES = { '"': '"', "'": "'", '“': '”', '‘': '’', '「': '」', '『': '』' };
 
 function matchAt(pattern, text, index) {
     pattern.lastIndex = index;
     return pattern.exec(text);
 }
 
-export function findTextToolStart(text, fromIndex = 0) {
-    return matchAt(TOOL_START, text, fromIndex);
+// Only used for strings/annotations inside a tool payload, not to interpret prose.
+function readQuotedTextEnd(text, start) {
+    const closing = PROSE_QUOTES[text[start]];
+    if (!closing) return -1;
+    for (let index = start + 1; index < text.length; index += 1) {
+        if (text[index] === '\\') { index += 1; continue; }
+        if (text[index] === closing) return index + 1;
+    }
+    return -1;
+}
+
+function isFenceLinePrefix(text, index) {
+    return /^[ \t>]*$/.test(text.slice(text.lastIndexOf('\n', index - 1) + 1, index));
+}
+
+function readCodeLiteral(text, start, { inTool = false, streaming = false } = {}) {
+    const run = matchAt(/`+|~{3,}/y, text, start)?.[0];
+    if (!run) return -1;
+    // Inside a real tool block, fences wrap the payload rather than quote an example.
+    if (inTool && run.length >= 3) return start + run.length;
+    const fenced = run.length >= 3 && isFenceLinePrefix(text, start)
+        && (run[0] !== '`' || !matchAt(/[^\r\n]*/y, text, start + run.length)[0].includes('`'));
+    for (let cursor = start + run.length; cursor < text.length;) {
+        const next = matchAt(/`+|~{3,}/g, text, cursor);
+        if (!next) break;
+        const sameMarker = next[0][0] === run[0]
+            && (fenced ? next[0].length >= run.length : next[0].length === run.length);
+        const end = next.index + next[0].length;
+        if (sameMarker && (!fenced || (isFenceLinePrefix(text, next.index)
+            && matchAt(/[ \t]*(?:\r?\n|$)/y, text, end)))) return end;
+        cursor = next.index + next[0].length;
+    }
+    // A lone inline backtick is text once the response ends; an open fence is still a code block.
+    return run.length >= 3 || streaming ? text.length : -1;
 }
 
 function skipWhitespace(text, index) {
@@ -138,19 +178,34 @@ function isBracketedAnnotation(text, start, structure) {
 
 // Compatibility: model prose, code fences and foreign tags around a complete tagged JSON call.
 // Remove when supported endpoints emit only the requested JSON inside tool_call tags.
-function findJsonEnvelope(text, start) {
+function findJsonEnvelope(text, start, toolStart) {
     let cursor = start;
     let token;
-    while ((token = matchAt(/["<{[]/g, text, cursor))) {
+    while ((token = matchAt(/["'“‘「『`~<{[]/g, text, cursor))) {
         cursor = token.index;
-        if (token[0] === '"') {
-            const end = findQuotedTextEnd(text, cursor);
-            if (end < 0) failTaggedJson(start, 'JSON 前的说明文字引号未闭合');
+        const codeEnd = readCodeLiteral(text, cursor, { inTool: true });
+        if (codeEnd >= 0) {
+            cursor = codeEnd;
+            continue;
+        }
+        const quoteEnd = readQuotedTextEnd(text, cursor);
+        if (quoteEnd >= 0) {
+            const end = quoteEnd;
+            if (text[skipWhitespace(text, end)] === ':') {
+                failTaggedJson(toolStart, '完整 JSON 外出现字段，不能作为杂文剥离');
+            }
             cursor = end;
             continue;
         }
+        if (token[0] === '"') failTaggedJson(toolStart, TAGGED_JSON_REASONS.unclosedQuote);
+        if (token[0] !== '<' && token[0] !== '{' && token[0] !== '[') {
+            cursor += 1;
+            continue;
+        }
         if (token[0] === '<') {
-            if (matchAt(/<\/tool_call>/iy, text, cursor)) return null;
+            if (matchAt(/<[｜|]+DSML[｜|]+\s*(?:invoke|function_calls|calls)\b/iy, text, cursor)) {
+                failTaggedJson(toolStart, 'JSON 工具块中混入 DSML 调用，无法确定调用边界');
+            }
             const tag = matchAt(DECORATION_TAG, text, cursor);
             cursor += tag?.[0].length || 1;
             continue;
@@ -167,136 +222,240 @@ function findJsonEnvelope(text, start) {
     return null;
 }
 
-function findQuotedTextEnd(text, start) {
-    for (let index = start + 1; index < text.length; index += 1) {
-        if (text[index] === '\\') index += 1;
-        else if (text[index] === '"') return index + 1;
-    }
-    return -1;
-}
-
-function assertJsonDecoration(text, toolStart) {
-    for (let cursor = 0; cursor < text.length;) {
-        const char = text[cursor];
-        // Tags and quoted annotations are opaque; brackets in their text are not JSON roots.
-        const tag = char === '<' ? matchAt(DECORATION_TAG, text, cursor) : null;
-        if (tag) {
-            cursor += tag[0].length;
-        } else if (char === '"') {
-            const end = findQuotedTextEnd(text, cursor);
-            if (end < 0) failTaggedJson(toolStart, 'JSON 外的说明文字引号未闭合');
-            const next = skipWhitespace(text, end);
-            if (text[next] === ':') failTaggedJson(toolStart, '完整 JSON 外出现字段，不能作为杂文剥离');
-            cursor = end;
-        } else if (char === '{' || char === '[') {
-            const structure = scanJsonStructure(text, cursor);
-            if (!isBracketedAnnotation(text, cursor, structure)) {
-                failTaggedJson(toolStart, '同一工具块中存在多个 JSON 结构');
-            }
-            cursor = structure.end;
-        } else {
-            // Extra closers are outside an already complete envelope; they cannot change its fields.
-            cursor += 1;
+function assertJsonToolEnvelope(parsed, toolStart) {
+    for (const call of Array.isArray(parsed) ? parsed : [parsed]) {
+        if (!call || typeof call !== 'object' || Array.isArray(call)
+            || typeof call.name !== 'string' || !call.name.trim()) {
+            failTaggedJson(toolStart, '每条调用必须是包含工具名称 name 的 JSON 对象');
+        }
+        if (Object.keys(call).some(key => !['id', 'name', 'arguments'].includes(key))) {
+            // An early arguments closer can move real parameters to the envelope root.
+            // Stripping its extra final closer must never silently discard those fields.
+            failTaggedJson(toolStart, '工具封装中存在 id、name、arguments 之外的字段，无法确定参数边界');
         }
     }
 }
 
-function findJsonToolClosing(text, start, toolStart) {
-    let cursor = start;
-    let token;
-    while ((token = matchAt(/["<]/g, text, cursor))) {
-        cursor = token.index;
-        if (token[0] === '"') {
-            const end = findQuotedTextEnd(text, cursor);
-            if (end < 0) failTaggedJson(toolStart, 'JSON 外的说明文字引号未闭合');
-            cursor = end;
-        } else {
-            const closing = matchAt(/<\/tool_call>/iy, text, cursor);
-            if (closing) return closing;
-            const tag = matchAt(DECORATION_TAG, text, cursor);
-            cursor += tag?.[0].length || 1;
-        }
-    }
-    return null;
-}
-
-function assertJsonToolEnvelope(payload, toolStart) {
-    let parsed;
-    try {
-        parsed = JSON.parse(payload);
-    } catch {
-        return; // Existing argument repair owns malformed JSON inside the envelope.
-    }
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        && Object.keys(parsed).some(key => !['id', 'name', 'arguments'].includes(key))) {
-        // An early arguments closer can move real parameters to the envelope root.
-        // Stripping its extra final closer must never silently discard those fields.
-        failTaggedJson(toolStart, '工具封装中存在 id、name、arguments 之外的字段，无法确定参数边界');
-    }
-}
-
-function readJsonBlock(text, start) {
-    const opening = matchAt(/<tool_call>/iy, text, start);
-    if (!opening) return null;
-    const payloadStart = start + opening[0].length;
-    const envelope = findJsonEnvelope(text, payloadStart);
-    if (envelope?.mismatched) failTaggedJson(start, 'JSON 括号不匹配，无法确定调用边界');
-    // Even malformed JSON shields literal tool tags inside strings. An unfinished string cannot
-    // fall back to its first literal closing tag and release embedded examples as real calls.
-    const closing = findJsonToolClosing(text, envelope?.boundary ?? payloadStart, start);
-    if (!closing) {
-        if (envelope && matchAt(/<\/tool_call>/gi, text, envelope.start)) {
-            failTaggedJson(start, '未找到 JSON 字符串之外的 tool_call 结束标签');
-        }
-        if (/<\/[｜|]+DSML[｜|]+/i.test(text.slice(payloadStart))) {
-            failDsml(start, 'tool_call 开头与 DSML 结尾混用，无法确定调用边界');
-        }
-        return null;
-    }
-    let payload = text.slice(payloadStart, closing.index);
-    const prefix = text.slice(payloadStart, envelope?.start ?? payloadStart);
-    const suffix = text.slice(envelope?.boundary ?? payloadStart, closing.index);
-    const nestedTool = /<tool_call\b|<[｜|]+DSML[｜|]+\s*(?:invoke|function_calls|calls)\b/i;
-    if (nestedTool.test(prefix) || nestedTool.test(suffix)) {
-        failTaggedJson(start, '同一工具块中出现另一条工具调用，不能作为杂文剥离');
-    }
-    if (envelope?.end >= 0) {
-        assertJsonDecoration(prefix, start);
-        assertJsonDecoration(suffix, start);
-        payload = text.slice(envelope.start, envelope.end);
-        assertJsonToolEnvelope(payload, start);
-    }
-    return { end: closing.index + closing[0].length, payload };
-}
-
-// Consume each block before looking for the next one: values cannot create extra calls.
-// Nothing is returned until every DSML block has passed structural validation.
-export function scanTextToolBlocks(text) {
-    const blocks = [];
+function readJsonPayloads(text, toolStart) {
+    const envelopes = [];
     let cursor = 0;
-    let start;
-    while ((start = findTextToolStart(text, cursor))) {
-        if (/^<tool_call/i.test(start[0])) {
-            const block = readJsonBlock(text, start.index);
-            if (!block) break;
-            blocks.push(block);
-            cursor = block.end;
-        } else {
-            const block = readDsmlBlock(text, start.index);
-            blocks.push(block);
-            cursor = block.end;
+    let next;
+    while ((next = findJsonEnvelope(text, cursor, toolStart))) {
+        if (next.mismatched) failTaggedJson(toolStart, 'JSON 括号不匹配，无法确定调用边界');
+        if (envelopes.length && !/^\s*,?\s*$/.test(text.slice(cursor, next.start))) {
+            failTaggedJson(toolStart, '调用对象之间存在非分隔内容，无法确定调用边界');
+        }
+        envelopes.push(next);
+        cursor = next.boundary;
+        if (next.end < 0) break;
+    }
+    const envelope = envelopes.at(-1);
+    if (envelopes.length > 1 && envelope.end < 0) {
+        failTaggedJson(toolStart, TAGGED_JSON_REASONS.incompleteBatch);
+    }
+    const payloads = envelope?.end >= 0
+        ? envelopes.map(item => text.slice(item.start, item.end))
+        : [text];
+    return payloads;
+}
+
+function readThought(text, start) {
+    const contentStart = start + '<think>'.length;
+    // Thinking is opaque. Only its protocol delimiter matters, never JSON, code or tools inside it.
+    const closing = matchAt(/<\/think>/gi, text, contentStart);
+    return { contentStart, contentEnd: closing?.index ?? text.length,
+        end: closing ? closing.index + closing[0].length : text.length };
+}
+
+function partialProtocol(text, index) {
+    const tail = text.slice(index).replace(/[｜|]+/g, '|').toLowerCase();
+    const candidates = ['<tool_call', '<|dsml|', '</|dsml|', '<think'].filter(prefix => prefix.startsWith(tail));
+    return candidates.length > 1 ? '<' : candidates[0];
+}
+
+// DSML parameter values are opaque until their own delimiter. Validation belongs to the decoder.
+function findDsmlEnd(text, start) {
+    const opening = matchAt(/<[｜|]+DSML[｜|]+\s*(invoke|function_calls|calls)\b[^>]*>/iy, text, start);
+    if (!opening) return text.length;
+    const grouped = opening[1].toLowerCase() !== 'invoke';
+    let cursor = start + opening[0].length;
+    let tag;
+    while ((tag = matchAt(/<(\/?)[｜|]+DSML[｜|]+\s*(parameter|invoke|function_calls|calls)\b[^>]*>/gi, text, cursor))) {
+        cursor = tag.index + tag[0].length;
+        const name = tag[2].toLowerCase();
+        if (!tag[1] && name === 'parameter') {
+            const closing = matchAt(/<\/[｜|]+DSML[｜|]+\s*parameter\s*>/gi, text, cursor);
+            if (closing) cursor = closing.index + closing[0].length;
+        } else if (tag[1] && (grouped ? name === 'function_calls' || name === 'calls' : name === 'invoke')) {
+            return cursor;
         }
     }
-    const partial = findPartialTextToolStart(text);
-    if (partial >= cursor && /^<\/?[｜|]/.test(text.slice(partial))) {
-        failDsml(partial, 'DSML 标记未输出完整');
+    return text.length;
+}
+
+function isQuotedMarker(text, start, end) {
+    return Object.hasOwn(PROSE_QUOTES, text[start - 1]) && text[end] === PROSE_QUOTES[text[start - 1]];
+}
+
+// Pair complete JSON tags backwards, like the state-block protocol. Unmatched opens are drafts,
+// not errors and not candidates for repair. Calls are decoded only after the entire scan finishes.
+function pairJsonTags(tags, sourceLength) {
+    const blocks = [];
+    const paired = new Set();
+    for (let index = tags.length - 1; index > 0; index -= 1) {
+        const close = tags[index];
+        const open = tags[index - 1];
+        if (!close.closing || open.closing) continue;
+        blocks.push({ kind: 'tool', protocol: 'json', start: open.start, contentStart: open.end,
+            contentEnd: close.start, end: close.end });
+        paired.add(open);
+        index -= 1;
     }
+    tags.forEach((tag, index) => {
+        if (!tag.closing && !paired.has(tag)) blocks.push({ kind: 'tool', protocol: 'json',
+            start: tag.start, end: tags[index + 1]?.start ?? sourceLength, incomplete: true,
+            partial: tag.partial, ambiguousBoundary: tag.ambiguousBoundary });
+    });
     return blocks;
 }
 
-export function findPartialTextToolStart(text) {
-    const index = text.lastIndexOf('<');
-    if (index < 0) return -1;
-    const tail = text.slice(index).replace(/[｜|]+/g, '|').toLowerCase();
-    return ['<tool_call', '<|dsml|', '</|dsml|'].some(prefix => prefix.startsWith(tail)) ? index : -1;
+// This scan only partitions the response. It never parses or validates a tool payload.
+// Display, streaming drafts, final decoding and replay all consume these same ranges.
+export function scanAssistantText(value = '', { streaming = false } = {}) {
+    const text = String(value || '');
+    const ranges = [];
+    let tags = [];
+    let cursor = 0;
+    let inJson = false;
+    const flushTags = end => {
+        ranges.push(...pairJsonTags(tags, end));
+        tags = [];
+    };
+    while (cursor < text.length) {
+        if (inJson && (text[cursor] === '{' || text[cursor] === '[')) {
+            const structure = scanJsonStructure(text, cursor);
+            // A broken JSON string may hide both a closer and later calls. Keep that
+            // boundary ambiguous instead of treating the whole remainder as an absent closer.
+            if (structure.end < 0 && structure.boundary === text.length
+                && /<\/tool_call>/i.test(text.slice(cursor))) tags.at(-1).ambiguousBoundary = true;
+            cursor = Math.max(cursor + 1, structure.boundary);
+            continue;
+        }
+        const literalEnd = inJson
+            ? Math.max(readQuotedTextEnd(text, cursor), readCodeLiteral(text, cursor, { inTool: true }))
+            : readCodeLiteral(text, cursor, { streaming });
+        if (literalEnd >= 0) { cursor = literalEnd; continue; }
+        const marker = matchAt(/<think>|<\/?tool_call>/iy, text, cursor);
+        if (marker && isQuotedMarker(text, cursor, cursor + marker[0].length)) {
+            cursor += marker[0].length;
+            continue;
+        }
+        if (marker?.[0].toLowerCase() === '<think>') {
+            flushTags(cursor);
+            inJson = false;
+            const thought = readThought(text, cursor);
+            ranges.push({ kind: 'thought', start: cursor, ...thought });
+            cursor = thought.end;
+            continue;
+        }
+        if (marker && /tool_call/i.test(marker[0])) {
+            const closing = marker[0][1] === '/';
+            tags.push({ start: cursor, end: cursor + marker[0].length, closing });
+            inJson = !closing;
+            cursor += marker[0].length;
+            continue;
+        }
+        const tool = !inJson && matchAt(TOOL_START, text, cursor);
+        const partial = text[cursor] === '<' ? partialProtocol(text, cursor) : null;
+        if (tool && /DSML/i.test(tool[0])) {
+            flushTags(cursor);
+            const end = findDsmlEnd(text, cursor);
+            ranges.push({ kind: 'tool', protocol: 'dsml', start: cursor, end });
+            cursor = end;
+            continue;
+        }
+        if (partial) {
+            if (partial === '<tool_call') tags.push({ start: cursor, end: text.length, partial: true });
+            else if (!inJson && /DSML/i.test(partial)) {
+                flushTags(cursor);
+                ranges.push({ kind: 'tool', protocol: 'dsml', start: cursor, end: text.length, partial: true });
+            } else if (!inJson && streaming) ranges.push({ kind: 'pending', start: cursor, end: text.length });
+            break;
+        }
+        const tag = text[cursor] === '<' ? matchAt(DECORATION_TAG, text, cursor) : null;
+        cursor += tag?.[0].length || 1;
+    }
+    flushTags(text.length);
+    const segments = [];
+    cursor = 0;
+    for (const range of ranges.sort((a, b) => a.start - b.start)) {
+        if (cursor < range.start) segments.push({ kind: 'text', start: cursor, end: range.start });
+        segments.push(range);
+        cursor = range.end;
+    }
+    if (cursor < text.length) segments.push({ kind: 'text', start: cursor, end: text.length });
+    return { source: text, segments };
+}
+
+function normalizeTaggedArguments(value, toolName) {
+    const text = typeof value === 'string' ? value : JSON.stringify(value ?? {});
+    try {
+        JSON.parse(text);
+        return text;
+    } catch {
+        // Schema validation owns irreparable arguments; never invent generic fields here.
+        return repairLooseToolArguments(text, toolName) || text;
+    }
+}
+
+function parseLoosePayload(source) {
+    const name = extractLooseField(source, 'name', ['id', 'arguments'])
+        || extractLooseField(source, 'toolName', ['id', 'arguments']);
+    const id = extractLooseField(source, 'id', ['name', 'toolName', 'arguments']);
+    const match = findLooseKeyMatch(source, 'arguments');
+    if (!name?.trim() || !match) return null;
+    const start = skipWhitespace(source, match.end);
+    const argumentsText = source[start] === '"'
+        ? source.slice(start + 1).replace(/"\s*\}\s*$/, '').trimEnd()
+        : source.slice(start).replace(/\}\s*$/, '').trimEnd();
+    if (!argumentsText) return null;
+    return { id, name, arguments: normalizeTaggedArguments(argumentsText, name) };
+}
+
+export function decodeTextToolCalls(scan) {
+    const results = [];
+    for (const block of scan.segments.filter(segment => segment.kind === 'tool')) {
+        if (block.ambiguousBoundary) failTaggedJson(block.start, TAGGED_JSON_REASONS.ambiguousBoundary);
+        if (block.incomplete) continue;
+        if (block.protocol === 'dsml') {
+            results.push(...readDsmlBlock(scan.source.slice(0, block.end), block.start).calls);
+            continue;
+        }
+        const payloads = readJsonPayloads(scan.source.slice(block.contentStart, block.contentEnd), block.start);
+        for (const payload of payloads) {
+            let parsed;
+            try { parsed = JSON.parse(payload); } catch {
+                if (payloads.length > 1 || payload.trimStart().startsWith('[')) {
+                    failTaggedJson(block.start, TAGGED_JSON_REASONS.incompleteBatch);
+                }
+                const repaired = parseLoosePayload(payload);
+                if (!repaired) failTaggedJson(block.start, TAGGED_JSON_REASONS.unrepairable);
+                results.push(repaired);
+                continue;
+            }
+            assertJsonToolEnvelope(parsed, block.start);
+            for (const call of Array.isArray(parsed) ? parsed : [parsed]) {
+                results.push({ id: call.id, name: call.name, arguments: normalizeTaggedArguments(call.arguments, call.name) });
+            }
+        }
+    }
+    const usedIds = new Set(results.filter(item => item.id).map(item => String(item.id)));
+    return results.map((call, index) => {
+        if (call.id) return call;
+        let number = index + 1;
+        while (usedIds.has(`tool-call-${number}`)) number += 1;
+        const id = `tool-call-${number}`;
+        usedIds.add(id);
+        return { ...call, id };
+    });
 }

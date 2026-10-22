@@ -6,13 +6,13 @@ import { reportMarkdown } from './report-markdown.js';
 import { createMemoryChatDialog } from './chat-ui.js';
 import { MEMORY_CHAT_COPY as chatCopy, memoryChatErrorText } from './chat-copy.js';
 
-export function createMemoryMaintenancePage(root, send) {
+export function createMemoryMaintenancePage(root, send, { close: onExit } = {}) {
     let chatId = null;
     let next = null;
     let runIds = [];
     let requestSequence = 0;
     let sourceRequest = null;
-    const chat = createMemoryChatDialog({ send });
+    const chat = createMemoryChatDialog({ send, onExit });
     const authorization = element('section', 'memory-settings');
     const label = element('label', 'memory-authorization');
     const toggle = element('input');
@@ -27,9 +27,11 @@ export function createMemoryMaintenancePage(root, send) {
     authorization.append(label, element('p', 'memory-hint', copy.behavior), api, settingsState);
     const toolbar = element('div', 'memory-toolbar');
     const heading = element('div', 'memory-heading');
-    heading.append(element('h3', '', copy.heading), element('span', '', copy.currentChat));
+    heading.append(element('h3', '', chatCopy.title));
     const cancel = button(copy.cancel, () => send('MEMORY_MAINTENANCE_CANCEL'));
-    toolbar.append(heading, button(chatCopy.entry, () => chat.open()), cancel);
+    toolbar.append(heading, button(chatCopy.entry, () => chat.open(), 'memory-button memory-chat-entry'));
+    const recordsHeading = element('div', 'memory-records-heading');
+    recordsHeading.append(element('h3', '', copy.heading), cancel);
     const state = element('p', 'memory-state');
     state.setAttribute('role', 'status');
     state.setAttribute('aria-live', 'polite');
@@ -44,7 +46,7 @@ export function createMemoryMaintenancePage(root, send) {
     empty.append(element('p', 'memory-empty-title', copy.empty), emptyHint);
     const more = button(copy.more, () => { more.disabled = true; send('MEMORY_MAINTENANCE_QUERY', { offset: next }); });
     more.classList.add('memory-more');
-    root.append(authorization, toolbar, ranges, state, index, list, empty, more);
+    root.append(toolbar, authorization, recordsHeading, ranges, state, index, list, empty, more);
     cancel.hidden = index.hidden = more.hidden = true;
     const updateEmpty = () => { emptyHint.textContent = toggle.checked ? copy.emptyEnabled : copy.emptyDisabled; };
     toggle.onchange = () => { settingsState.textContent = ''; updateEmpty(); };

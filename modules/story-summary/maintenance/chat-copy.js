@@ -2,7 +2,7 @@ import { MEMORY_COPY, MEMORY_SAVE_ERRORS, MEMORY_RESULT_COPY } from './copy.js';
 import { agentErrorGuidance } from '../../agent-core/runtime/error-guidance.js';
 
 export const MEMORY_CHAT_COPY = Object.freeze({
-    entry: '与助手聊天', title: '总结助手', currentChat: '当前聊天', close: '关闭对话',
+    entry: '与助手聊天', title: '总结助手', close: '关闭助手', back: '返回维护记录',
     user: '你', assistant: '助手', previousAnswer: '上一版回复', input: '和总结助手说些什么…', send: '发送', stop: '停止当前回复',
     regenerate: '重答上一条请求', regenerateHint: '基于当前状态重新处理，不回滚已保存的修改。',
     clear: '清空对话', clearTitle: '清空与助手的对话？', clearRunningTitle: '停止并清空对话？',

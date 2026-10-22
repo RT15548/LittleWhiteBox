@@ -9,7 +9,7 @@ export const ARCHIVE_COPY = Object.freeze({
     noPeople: '暂无人物记录', noFacts: '暂无世界状态', noAliases: '暂无相关别名',
     eventDetail: '剧情详情', personDetail: '人物档案', editEvents: '编辑剧情',
     participants: '参与人物', causes: '前因', noTime: '未标注时间', untitled: '未命名事件',
-    noTrajectory: '暂无人物轨迹', currentChat: '当前聊天', disabledChat: '当前聊天已停用',
+    noTrajectory: '暂无人物轨迹', disabledChat: '当前聊天已停用',
 });
 
 export function getArchiveCharacters(data) {
@@ -124,6 +124,11 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
 
     function refreshRoster() {
         const data = getData();
+        const characters = getArchiveCharacters(data);
+        const selector = $('archive-person-select');
+        setHtml(selector, characters.map(c => `<option value="${h(c.id)}">${h(c.name)}</option>`).join(''));
+        selector.value = getSelectedCharacter() || '';
+        selector.disabled = characters.length === 0;
         const chars = getArchiveCharacters(data).filter(c => view !== 'people' || matches(c.name, ...data.characterAliases.filter(a => a.to === c.name).map(a => a.from)));
         setHtml($('archive-roster'), chars.length ? chars.map(c => `<button class="archive-person" data-archive-person="${h(c.id)}" aria-pressed="${getSelectedCharacter() === c.id}"><span class="archive-avatar" aria-hidden="true">${h(Array.from(c.name)[0])}</span><span>${h(c.name)}</span></button>`).join('') : `<p class="archive-empty">${getArchiveCharacters(data).length ? ARCHIVE_COPY.noResults : ARCHIVE_COPY.noPeople}</p>`);
     }
@@ -176,6 +181,8 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         onTimelineChange({ page: 0 });
     });
     $('archive-manage-open').addEventListener('click', () => openDialog(manage));
+    $('archive-close').addEventListener('click', () => postMsg('CLOSE_PANEL'));
+    $('archive-person-select').addEventListener('change', event => onSelectCharacter(event.target.value));
     $('archive-profile-open').textContent = ARCHIVE_COPY.personDetail;
     $('archive-profile-open').addEventListener('click', showPerson);
     document.querySelectorAll('[data-close-archive]').forEach(button => button.addEventListener('click', closeDialogs));

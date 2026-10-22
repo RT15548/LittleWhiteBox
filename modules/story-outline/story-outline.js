@@ -1,3 +1,5 @@
+import { generateFeatureText, handleTextApiRequest } from '../text-api/host.js';
+import { getTextApiRepository } from '../text-api/repository.js';
 /**
  * ============================================================================
  * Story Outline 模块 - 小白板
@@ -24,7 +26,6 @@ import { extension_settings, saveMetadataDebounced } from "../../../../../extens
 import { chat_metadata, name1, processCommands, eventSource, event_types as st_event_types } from "../../../../../../script.js";
 import { loadWorldInfo, saveWorldInfo, world_names, world_info } from "../../../../../world-info.js";
 import { getContext } from "../../../../../st-context.js";
-import { streamingGeneration } from "../streaming-generation.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
@@ -38,7 +39,6 @@ import {
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
 } from "./story-outline-prompt.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
-import { getDefaultApiPrefix, getModelListCandidateUrls, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 import { observeBackgroundTask } from '../../shared/common/async-errors.js';
 
 
@@ -330,9 +330,13 @@ function getOutlineStore() {
 }
 
 /** 全局/通讯设置读写 */
-const getGlobalSettings = () => getStore(STORAGE_KEYS.global, { apiUrl: '', apiKey: '', model: '', mode: 'assist' });
+const getGlobalSettings = () => ({ mode: getStore(STORAGE_KEYS.global, {}).mode || 'assist' });
 const saveGlobalSettings = s => setStore(STORAGE_KEYS.global, s);
-const getCommSettings = () => ({ historyCount: 50, npcPosition: 0, npcOrder: 100, stream: false, ...getStore(STORAGE_KEYS.comm, {}) });
+const getCommSettings = () => {
+    const settings = { historyCount: 50, npcPosition: 0, npcOrder: 100, ...getStore(STORAGE_KEYS.comm, {}) };
+    delete settings.stream;
+    return settings;
+};
 const saveCommSettings = s => setStore(STORAGE_KEYS.comm, s);
 
 /** 获取角色卡信息 */
@@ -355,148 +359,19 @@ function getCharSmsHistory() {
 
 // ==================== 5. LLM调用 ====================
 
-const STREAM_DONE_EVT = 'xiaobaix_streaming_completed';
-let streamLlmQueue = Promise.resolve();
-
-function createStreamingWaiter(sessionId, timeoutMs = 180000) {
-    let done = false;
-    let timer = null;
-    let handler = null;
-
-    const cleanup = () => {
-        if (done) return;
-        done = true;
-        try { if (timer) clearTimeout(timer); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
-        try { eventSource.removeListener?.(STREAM_DONE_EVT, handler); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); }
-    };
-
-    const promise = new Promise((resolve, reject) => {
-        handler = (payload) => {
-            if (!payload || payload.sessionId !== sessionId) return;
-            cleanup();
-            resolve(String(payload.finalText ?? ''));
-        };
-        timer = setTimeout(() => {
-            cleanup();
-            reject(new Error('Streaming timeout'));
-        }, timeoutMs);
-        try { eventSource.on?.(STREAM_DONE_EVT, handler); } catch (e) {
-            cleanup();
-            reject(e);
-        }
-    });
-
-    return { promise, cleanup };
-}
-
-/** 调用LLM */
-async function callLLM(promptOrMsgs, useRaw = false) {
-    const { apiUrl, apiKey, model } = getGlobalSettings();
-    const useStream = !!getCommSettings()?.stream;
-    const resolvedApiUrl = apiUrl?.trim()
-        ? resolveApiBaseUrl(apiUrl.trim(), getDefaultApiPrefix('openai'))
-        : '';
-
-    const normalize = r => {
-        if (r == null) return '';
-        if (typeof r === 'string') return r;
-        if (typeof r === 'object') {
-            if (r.data && typeof r.data === 'object') return normalize(r.data);
-            if (typeof r.text === 'string') return r.text;
-            if (typeof r.response === 'string') return r.response;
-            const inner = r.content?.trim?.() || r.reasoning_content?.trim?.() || r.choices?.[0]?.message?.content?.trim?.() || r.choices?.[0]?.message?.reasoning_content?.trim?.() || null;
-            if (inner != null) return String(inner);
-            return safe(() => JSON.stringify(r)) || String(r);
-        }
-        return String(r);
-    };
-
-    const baseOpts = { lock: 'on' };
-    if (!useStream) baseOpts.nonstream = 'true';
-    if (resolvedApiUrl) Object.assign(baseOpts, { api: 'openai', apiurl: resolvedApiUrl, ...(apiKey && { apipassword: apiKey }), ...(model && { model }) });
-
-    if (!useStream) {
-        const opts = { ...baseOpts };
-
-        if (useRaw) {
-            const messages = Array.isArray(promptOrMsgs)
-                ? promptOrMsgs
-                : [{ role: 'user', content: String(promptOrMsgs || '').trim() }];
-
-            const roleMap = { user: 'user', assistant: 'assistant', system: 'sys' };
-            const topParts = messages
-                .filter(m => m?.role && typeof m.content === 'string' && m.content.trim())
-                .map(m => {
-                    const role = roleMap[m.role] || m.role;
-                    return `${role}={${m.content}}`;
-                });
-            const topParam = topParts.join(';');
-            opts.top = topParam;
-
-            const raw = await streamingGeneration.xbgenrawCommand(opts, '');
-            const text = normalize(raw).trim();
-
-            if (isDebug()) {
-                try {
-                    console.groupCollapsed('[StoryOutline] callLLM(useRaw via xbgenrawCommand)');
-                    console.log('opts.top.length', topParam.length);
-                    console.log('raw', raw);
-                    console.log('normalized.length', text.length);
-                    console.groupEnd();
-                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "callLLM" }, caughtError); }
-            }
-            return text;
-        }
-
-        opts.as = 'user';
-        opts.position = 'history';
-        return normalize(await streamingGeneration.xbgenCommand(opts, promptOrMsgs)).trim();
-    }
-
-    const runStreaming = async () => {
-        const sessionId = 'xb10';
-        const waiter = createStreamingWaiter(sessionId);
-        const opts = { ...baseOpts, id: sessionId };
-        try {
-            if (useRaw) {
-                const messages = Array.isArray(promptOrMsgs)
-                    ? promptOrMsgs
-                    : [{ role: 'user', content: String(promptOrMsgs || '').trim() }];
-
-                const roleMap = { user: 'user', assistant: 'assistant', system: 'sys' };
-                const topParts = messages
-                    .filter(m => m?.role && typeof m.content === 'string' && m.content.trim())
-                    .map(m => {
-                        const role = roleMap[m.role] || m.role;
-                        return `${role}={${m.content}}`;
-                    });
-                opts.top = topParts.join(';');
-                await streamingGeneration.xbgenrawCommand(opts, '');
-                return (await waiter.promise).trim();
-            }
-
-            opts.as = 'user';
-            opts.position = 'history';
-            await streamingGeneration.xbgenCommand(opts, promptOrMsgs);
-            return (await waiter.promise).trim();
-        } finally {
-            waiter.cleanup();
-        }
-    };
-
-    streamLlmQueue = streamLlmQueue.then(runStreaming, runStreaming);
-    return streamLlmQueue;
+async function callLLM(messages) {
+    return String((await generateFeatureText('outline', { messages })).text || '').trim();
 }
 
 /** 调用LLM并解析JSON */
-async function callLLMJson({ messages, useRaw = true, isArray = false, validate }) {
+async function callLLMJson({ messages, isArray = false, validate }) {
     try {
-        const result = await callLLM(messages, useRaw);
+        const result = await callLLM(messages);
         if (isDebug()) {
             try {
                 const s = String(result ?? '');
                 console.groupCollapsed('[StoryOutline] callLLMJson');
-                console.log({ useRaw, isArray, length: s.length });
+                console.log({ isArray, length: s.length });
                 console.log('result.head', s.slice(0, 500));
                 console.log('result.tail', s.slice(Math.max(0, s.length - 500)));
                 console.groupEnd();
@@ -831,58 +706,6 @@ function normalizeStep2Maps(data) {
 }
 
 // --- 处理器 ---
-
-async function handleFetchModels({ apiUrl, apiKey }) {
-    try {
-        let models = [];
-        if (!apiUrl) {
-            for (const ep of ['/api/backends/chat-completions/models', '/api/openai/models']) {
-                try { const r = await fetch(ep, { headers: { 'Content-Type': 'application/json' } }); if (r.ok) { const j = await r.json(); models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string'); if (models.length) break; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFetchModels" }, caughtError); }
-            }
-            if (!models.length) throw new Error('无法从酒馆获取模型列表');
-        } else {
-            const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
-            let lastStatus = '';
-            for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
-                try {
-                    const r = await fetch(url, { headers: h });
-                    if (!r.ok) {
-                        lastStatus = `HTTP ${r.status}`;
-                        continue;
-                    }
-                    const j = await r.json();
-                    models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string');
-                } catch {
-                    continue;
-                }
-                if (models.length) break;
-            }
-            if (!models.length) throw new Error(lastStatus || '未获取到模型列表');
-        }
-        postFrame({ type: "FETCH_MODELS_RESULT", models });
-    } catch (e) { postFrame({ type: "FETCH_MODELS_RESULT", error: e.message }); }
-}
-
-async function handleTestConn({ apiUrl, apiKey, model }) {
-    try {
-        if (!apiUrl) { for (const ep of ['/api/backends/chat-completions/status', '/api/openai/models', '/api/backends/chat-completions/models']) { try { if ((await fetch(ep, { headers: { 'Content-Type': 'application/json' } })).ok) { postFrame({ type: "TEST_CONN_RESULT", success: true, message: `连接成功${model ? ` (模型: ${model})` : ''}` }); return; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleTestConn" }, caughtError); } } throw new Error('无法连接到酒馆API'); }
-        const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
-        let connected = false;
-        for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
-            try {
-                const r = await fetch(url, { headers: h });
-                if (!r.ok) continue;
-                await r.json();
-                connected = true;
-                break;
-            } catch {
-                continue;
-            }
-        }
-        if (!connected) throw new Error('连接失败');
-        postFrame({ type: "TEST_CONN_RESULT", success: true, message: `连接成功${model ? ` (模型: ${model})` : ''}` });
-    } catch (e) { postFrame({ type: "TEST_CONN_RESULT", success: false, message: `连接失败: ${e.message}` }); }
-}
 
 async function handleCheckUid({ uid, requestId }) {
     const num = parseInt(uid, 10);
@@ -1225,7 +1048,8 @@ async function handleSimWorld({ requestId, currentData, isAuto }) {
     } catch (e) { replyErr('SIMULATE_WORLD_RESULT', requestId, `推演失败: ${e.message}`); }
 }
 
-function handleSaveSettings(d) {
+async function handleSaveSettings(d) {
+    await (await getTextApiRepository()).load();
     if (d.globalSettings) saveGlobalSettings(d.globalSettings);
     if (d.commSettings) saveCommSettings(d.commSettings);
     const store = getOutlineStore();
@@ -1322,8 +1146,6 @@ const handlers = {
     SAVE_PROMPTS: handleSavePrompts,
     SAVE_CONTACTS: handleSaveContacts,
     SAVE_ALL_DATA: handleSaveAllData,
-    FETCH_MODELS: handleFetchModels,
-    TEST_CONNECTION: handleTestConn,
     CHECK_WORLDBOOK_UID: handleCheckUid,
     SEND_SMS: handleSendSms,
     LOAD_SMS_HISTORY: handleLoadSmsHistory,
@@ -1348,7 +1170,11 @@ const handleMsg = (event) => {
     const iframe = document.getElementById("xiaobaix-story-outline-iframe");
     if (!isTrustedMessage(event, iframe, "LittleWhiteBox-OutlineFrame")) return;
     const { data } = event;
-    handlers[data.type]?.(data);
+    if (data.type === 'TEXT_API_REQUEST') {
+        observeBackgroundTask(handleTextApiRequest(data, 'outline', postFrame), { source: import.meta.url, operation: 'text-api' });
+        return;
+    }
+    observeBackgroundTask(Promise.resolve().then(() => handlers[data.type]?.(data)), { source: import.meta.url, operation: data.type });
 };
 
 // ==================== 10. UI管理 ====================

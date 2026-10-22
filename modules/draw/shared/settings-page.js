@@ -1,5 +1,10 @@
 import './draw-usage.js';
 
+const PLANNER_RETRY_HINT = '场景分析失败时自动重试，填 0 关闭。不重试出图。重试会增加 API 消耗。';
+document.querySelectorAll('[data-planner-retry-hint]').forEach(element => {
+    element.textContent = PLANNER_RETRY_HINT;
+});
+
 document.addEventListener('click', event => {
     if (event.target.closest('.nav-item, .mobile-nav-item')) window.scrollTo(0, 0);
 });

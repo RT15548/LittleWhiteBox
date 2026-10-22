@@ -1,0 +1,25 @@
+.text-api { color: inherit; min-width: 0; font: inherit; }
+.text-api * { box-sizing: border-box; }
+.text-api fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.text-api .text-api-presets { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+.text-api .text-api-presets select { flex: 1; min-width: 0; }
+.text-api .text-api-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.text-api button { font: inherit; cursor: pointer; color: inherit; background: transparent; border: 1px solid var(--bdr, var(--border, #8885)); border-radius: 6px; padding: 8px 12px; }
+.text-api button:disabled { opacity: .45; cursor: default; }
+.text-api .text-api-icon { display: grid; place-items: center; width: 36px; height: 40px; padding: 8px; border: 0; }
+.text-api .text-api-icon:hover { background: #8882; }
+.text-api svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.text-api label { display: flex; flex-direction: column; gap: 7px; margin-bottom: 15px; font-size: 13px; }
+.text-api input:not([type=checkbox]), .text-api select { width: 100%; min-width: 0; height: 40px; padding: 8px 10px; color: inherit; background: var(--bg2, var(--surface, transparent)); border: 1px solid var(--bdr, var(--border, #8885)); border-radius: 6px; font: inherit; }
+.text-api option { color: var(--txt, var(--text, #222)); background: var(--bg2, var(--surface, #fff)); }
+.text-api .text-api-inline { display: flex; align-items: center; gap: 8px; }
+.text-api .text-api-inline input { flex: 1; }
+.text-api .text-api-inline button { flex: none; }
+.text-api .text-api-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0 16px; }
+.text-api details { margin-top: 20px; }
+.text-api summary { cursor: pointer; padding: 10px 0; font-weight: 500; }
+.text-api .text-api-check { flex-direction: row; align-items: center; }
+.text-api .text-api-status { min-height: 20px; margin: 12px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.text-api .text-api-status[data-error=true] { color: var(--danger, #c65353); }
+.text-api :focus-visible { outline: 2px solid var(--accent, #7878be); outline-offset: 2px; }
+@media (max-width: 420px) { .text-api .text-api-grid { grid-template-columns: 1fr; } .text-api .text-api-presets { gap: 3px; } .text-api .text-api-icon { width: 32px; } }

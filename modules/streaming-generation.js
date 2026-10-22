@@ -449,7 +449,7 @@ class StreamingGeneration {
         }
     }
 
-    async processGeneration(generateData, prompt, sessionId, stream = true) {
+    async processGeneration(generateData, prompt, sessionId, stream = true, onDelta) {
         const session = this._ensureSession(sessionId, prompt);
         const abortController = new AbortController();
         session.abortController = abortController;
@@ -469,11 +469,14 @@ class StreamingGeneration {
                     if (abortController.signal.aborted) {
                         break;
                     }
+                    const previous = session.text;
                     this.updateTempReply(chunk, session.id);
+                    onDelta?.(session.text.startsWith(previous) ? session.text.slice(previous.length) : session.text, session.text);
                 }
             } else {
                 const result = await this.callAPI(generateData, abortController.signal, false);
                 this.updateTempReply(result, session.id);
+                onDelta?.(session.text, session.text);
             }
 
             const payload = { finalText: session.text, originalPrompt: prompt, sessionId: session.id };
@@ -985,7 +988,7 @@ class StreamingGeneration {
 
     // Programmatic callers receive the actual completion, including failures;
     // slash commands retain their streaming-ID / nonstreaming-text contract.
-    async startRawGeneration(args, prompt, { signal } = {}) {
+    async startRawGeneration(args, prompt, { signal, onDelta } = {}) {
         throwIfSignalAborted(signal);
         const hasScaffolding = Boolean(String(
             args?.top || args?.top64 ||
@@ -1155,7 +1158,7 @@ class StreamingGeneration {
                 const preparedMessages = await this._emitPromptReady(messages);
                 throwIfSignalAborted(signal);
                 const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
-                return task(this.processGeneration(common, prompt || '', sessionId, !nonstream)
+                return task(this.processGeneration(common, prompt || '', sessionId, !nonstream, onDelta)
                     .finally(() => { try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); } }));
             } catch (error) {
                 try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
@@ -1260,7 +1263,7 @@ class StreamingGeneration {
                 const preparedMessages = await this._emitPromptReady(finalMessages);
                 throwIfSignalAborted(signal);
                 const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
-                return await this.processGeneration(common, prompt || '', sessionId, !nonstream);
+                return await this.processGeneration(common, prompt || '', sessionId, !nonstream, onDelta);
             } finally {
                 try { if (lock) activateSendButtons(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "startRawGeneration" }, caughtError); }
             }

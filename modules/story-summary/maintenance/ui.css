@@ -21,9 +21,29 @@
 .memory-api { font-size: .75rem; color: var(--txt2); }
 .memory-api summary { width: fit-content; padding: 6px 0; min-height: 32px; }
 .memory-api p { max-width: 56ch; padding: 4px 0; }
-.memory-toolbar { display: flex; align-items: center; gap: 10px; margin: 24px 0 8px; }
+.memory-toolbar { display: flex; align-items: center; gap: 16px; margin: 0 0 28px; }
 .memory-heading { flex: 1; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
-.memory-heading h3 { font-size: 1rem; font-weight: 600; }
+.memory-heading h3 { font-size: 1.25rem; font-weight: 500; }
+.memory-chat-entry { border: 0 !important; background: transparent !important; color: var(--archive-accent) !important; padding-inline: 0 !important; }
+.memory-records-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 28px 0 4px; }
+.memory-records-heading h3 { font-size: .875rem; font-weight: 600; }
+.assistant-page .settings-tabs { display: none; }
+body:has(#settings-modal.assistant-page.active) { overflow: hidden; }
+body:has(#settings-modal.assistant-page.active) { overflow: hidden; }
+.assistant-page .settings-modal-box { width: min(900px, calc(100vw - 40px)); height: min(820px, calc(100dvh - 48px)); max-width: none; max-height: none; border-radius: 14px; background: var(--bg); }
+.assistant-page .modal-head { min-height: 64px; padding: 10px 24px; flex-shrink: 0; }
+.assistant-page .modal-head h2 { letter-spacing: 0; text-transform: none; }
+.assistant-page .modal-close { border: 0; width: 40px; height: 40px; border-radius: 7px; }
+.assistant-page .modal-body { padding: 30px 42px; min-height: 0; }
+.assistant-page .modal-foot { background: var(--bg); padding: 10px 24px; }
+.assistant-page .modal-foot .btn { border-radius: 7px; }
+@media (max-width: 600px) {
+    #settings-modal.assistant-page { padding: 0; }
+    #settings-modal.assistant-page .settings-modal-box { width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+    .assistant-page .modal-head { min-height: 56px; padding: 8px 14px; }
+    .assistant-page .modal-body { padding: 24px 20px; }
+    .assistant-page .modal-foot { padding: 10px 20px max(10px, env(safe-area-inset-bottom)); }
+}
 .memory-heading span { color: var(--txt2); font-size: .75rem; }
 .memory-button { background: transparent; border: 1px solid var(--bdr); border-radius: 6px; color: var(--txt); min-height: 40px; padding: 7px 13px; white-space: nowrap; }
 .memory-button:hover:not(:disabled) { background: var(--bg2); border-color: var(--txt3); }

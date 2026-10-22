@@ -1,3 +1,4 @@
+import { mountTextApiSettings } from '../text-api/settings-ui.js';
 import { DOMPurify } from '../../../../../../lib.js';
 const PARENT_ORIGIN = (() => {
       try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
@@ -100,7 +101,9 @@ const PARENT_ORIGIN = (() => {
         : '<span style="color:var(--txt3)">未启用</span>');
     }
 
+    const textApiEditor = mountTextApiSettings(document.getElementById('planner-text-api'), { feature: 'planner', namespace: 'LittleWhiteBox-EnaFrame' });
     function activateTab(viewId) {
+      if (viewId === 'api') void textApiEditor.refresh();
       $$('.nav-item, .mobile-nav-item').forEach(n => {
         n.classList.toggle('active', n.dataset.view === viewId);
       });
@@ -108,10 +111,6 @@ const PARENT_ORIGIN = (() => {
         v.classList.toggle('active', v.id === `view-${viewId}`);
       });
       if (viewId === 'debug') post('xb-ena:logs-request');
-    }
-
-    function updatePrefixModeUI() {
-      $('ep_custom_prefix_group').classList.toggle('hidden', $('ep_prefix_mode').value !== 'custom');
     }
 
     /* ── Type conversion ── */
@@ -278,18 +277,6 @@ const PARENT_ORIGIN = (() => {
 
     /* ── Model selector ── */
 
-    function showModelSelector(models) {
-      const sel = $('ep_model_select');
-      const cur = $('ep_model').value.trim();
-      sel.innerHTML = '<option value="">-- 从列表选择 --</option>';
-      models.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m; opt.textContent = m; opt.selected = m === cur;
-        sel.appendChild(opt);
-      });
-      $('ep_model_selector').classList.remove('hidden');
-    }
-
     /* ── Logs ── */
 
     function renderLogs() {
@@ -348,21 +335,6 @@ const PARENT_ORIGIN = (() => {
       $('ep_enabled').value = String(toBool(cfg.enabled, true));
       $('ep_merge_system_msgs').value = String(toBool(cfg.mergeConsecutiveSystemMessages, false));
 
-      const api = cfg.api || {};
-      $('ep_api_channel').value = api.channel || 'openai';
-      $('ep_prefix_mode').value = api.prefixMode || 'auto';
-      $('ep_api_base').value = api.baseUrl || '';
-      $('ep_prefix_custom').value = api.customPrefix || '';
-      $('ep_api_key').value = api.apiKey || '';
-      $('ep_model').value = api.model || '';
-      $('ep_stream').value = String(toBool(api.stream, false));
-      $('ep_temp').value = String(toNum(api.temperature, 1));
-      $('ep_top_p').value = String(toNum(api.top_p, 1));
-      $('ep_top_k').value = String(toNum(api.top_k, 0));
-      $('ep_pp').value = api.presence_penalty ?? '';
-      $('ep_fp').value = api.frequency_penalty ?? '';
-      $('ep_mt').value = api.max_tokens ?? '';
-
       $('ep_include_global_wb').value = String(toBool(cfg.includeGlobalWorldbooks, false));
       $('ep_wb_pos4').value = String(toBool(cfg.excludeWorldbookPosition4, true));
       $('ep_wb_exclude_names').value = arrToCsv(cfg.worldbookExcludeNames);
@@ -374,7 +346,6 @@ const PARENT_ORIGIN = (() => {
       $('ep_logs_max').value = String(toNum(cfg.logsMax, 20));
 
       setBadge(toBool(cfg.enabled, true));
-      updatePrefixModeUI();
       const keepSelectedTemplate = cfg?.activePromptTemplate || $('ep_tpl_select')?.value || '';
       renderTemplateSelect(keepSelectedTemplate);
       renderPromptList();
@@ -387,21 +358,6 @@ const PARENT_ORIGIN = (() => {
       p.enabled = toBool($('ep_enabled').value, true);
       p.mergeConsecutiveSystemMessages = toBool($('ep_merge_system_msgs').value, false);
 
-      p.api = {
-        channel: $('ep_api_channel').value,
-        prefixMode: $('ep_prefix_mode').value,
-        baseUrl: $('ep_api_base').value.trim(),
-        customPrefix: $('ep_prefix_custom').value.trim(),
-        apiKey: $('ep_api_key').value,
-        model: $('ep_model').value.trim(),
-        stream: toBool($('ep_stream').value, false),
-        temperature: toNum($('ep_temp').value, 1),
-        top_p: toNum($('ep_top_p').value, 1),
-        top_k: Math.floor(toNum($('ep_top_k').value, 0)),
-        presence_penalty: $('ep_pp').value.trim(),
-        frequency_penalty: $('ep_fp').value.trim(),
-        max_tokens: $('ep_mt').value.trim()
-      };
 
       p.includeGlobalWorldbooks = toBool($('ep_include_global_wb').value, false);
       p.excludeWorldbookPosition4 = toBool($('ep_wb_pos4').value, true);
@@ -437,31 +393,6 @@ const PARENT_ORIGIN = (() => {
         setLocalStatus('ep_test_status', '测试中…', 'loading');
       });
 
-      $('ep_toggle_key').addEventListener('click', () => {
-        const input = $('ep_api_key');
-        const btn = $('ep_toggle_key');
-        if (input.type === 'password') {
-          input.type = 'text'; btn.textContent = '隐藏';
-        } else {
-          input.type = 'password'; btn.textContent = '显示';
-        }
-      });
-
-      $('ep_prefix_mode').addEventListener('change', updatePrefixModeUI);
-
-      $('ep_fetch_models').addEventListener('click', () => {
-        post('xb-ena:fetch-models');
-        setLocalStatus('ep_api_status', '拉取中…', 'loading');
-      });
-      $('ep_test_conn').addEventListener('click', () => {
-        post('xb-ena:fetch-models');
-        setLocalStatus('ep_api_status', '测试中…', 'loading');
-      });
-
-      $('ep_model_select').addEventListener('change', () => {
-        const val = $('ep_model_select').value;
-        if (val) { $('ep_model').value = val; scheduleSave(); }
-      });
       $('ep_keep_tags').addEventListener('change', () => {
         const normalized = normalizeKeepTagsInput($('ep_keep_tags').value);
         $('ep_keep_tags').value = normalized.join(', ');
@@ -605,19 +536,6 @@ const PARENT_ORIGIN = (() => {
           logs = Array.isArray(payload?.logs) ? payload.logs : [];
           renderLogs();
           setSaveIndicator('error', payload?.message || '日志清空失败');
-          break;
-        case 'xb-ena:models': {
-          const models = Array.isArray(payload?.models) ? payload.models : [];
-          if (models.length) {
-            showModelSelector(models);
-            setLocalStatus('ep_api_status', `获取到 ${models.length} 个模型`, 'success');
-          } else {
-            setLocalStatus('ep_api_status', '未获取到模型', 'error');
-          }
-          break;
-        }
-        case 'xb-ena:models-error':
-          setLocalStatus('ep_api_status', payload?.message || '拉取模型失败', 'error');
           break;
         case 'xb-ena:debug-output': {
           const out = $('ep_debug_output');

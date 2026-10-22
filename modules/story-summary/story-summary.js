@@ -1,3 +1,4 @@
+import { handleTextApiRequest } from '../text-api/host.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // Story Summary - 主入口
 //
@@ -14,7 +15,6 @@ import {
     extension_prompts,
     extension_prompt_types,
     extension_prompt_roles,
-    getRequestHeaders,
     chat_metadata,
 } from "../../../../../../script.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
@@ -38,7 +38,6 @@ import {
     runClearWithFeedback,
 } from './user-feedback.js';
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler, waitForAfterAiReady } from "../../core/after-ai-gate.js";
-import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 import {
     commitIfSignalActive,
     createAbortError,
@@ -50,10 +49,6 @@ import {
     registerGenerateInterceptor,
     unregisterGenerateInterceptor,
 } from "../../shared/common/generate-interceptor.js";
-import {
-    fetchHostOpenAICompatibleModels,
-    setHostChatCompletionsRequestHeadersProvider,
-} from "../../shared/host-llm/chat-completions/client.js";
 
 // config/store
 import {
@@ -272,8 +267,6 @@ let saveChatSummaryState = context => context.saveMetadata();
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
-const SUMMARY_MODEL_FETCH_PROVIDERS = new Set(["openai"]);
-const SUMMARY_MODEL_FETCH_TIMEOUT_MS = 5000;
 const AUTO_SUMMARY_MAX_ATTEMPTS = 3;
 let chatSummaryStateChanging = false;
 let activeSummaryExecution = null;
@@ -390,42 +383,6 @@ function compactRecallRuntimeStatsForLog(statsList = getRecallRuntimeStats()) {
             `err=${stats.lastError || "-"}`,
         ].join(" ");
     }).join(" | ");
-}
-
-async function fetchSummaryModelsForUi(payload = {}) {
-    const provider = String(payload?.provider || "").trim().toLowerCase() === "custom"
-        ? "openai"
-        : String(payload?.provider || "").trim().toLowerCase();
-    const baseUrl = String(payload?.url || "").trim();
-    const apiKey = String(payload?.apiKey || "").trim();
-
-    if (!SUMMARY_MODEL_FETCH_PROVIDERS.has(provider)) {
-        throw new Error("当前渠道不支持自动拉取模型");
-    }
-    if (!baseUrl) {
-        throw new Error("请先填写 API URL");
-    }
-    if (!apiKey) {
-        throw new Error("请先填写 API KEY");
-    }
-
-    const controller = new AbortController();
-    const timeoutMs = Math.max(1000, Number(payload?.timeoutMs) || SUMMARY_MODEL_FETCH_TIMEOUT_MS);
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        setHostChatCompletionsRequestHeadersProvider(() => getRequestHeaders());
-        return await fetchHostOpenAICompatibleModels({
-            baseUrl: resolveApiBaseUrl(baseUrl, getDefaultApiPrefix(provider)),
-            apiKey,
-        }, { signal: controller.signal });
-    } catch (error) {
-        if (error?.name === "AbortError") {
-            throw new Error(`请求超时（>${Math.floor(timeoutMs / 1000)}s）`);
-        }
-        throw error;
-    } finally {
-        clearTimeout(timeoutId);
-    }
 }
 
 function logRecallRuntimeCheckpoint(label, extra = "") {
@@ -2209,19 +2166,10 @@ function createOverlay() {
                            background:#fafafa !important;">
                 </iframe>
             </div>
-            <button class="xb-ss-close-btn" style="
-                position: absolute !important; top: 20px !important; right: 20px !important;
-                z-index: 2 !important; width: 36px !important; height: 36px !important;
-                border-radius: 50% !important; border: none !important;
-                background: rgba(0,0,0,.6) !important; color: #fff !important;
-                font-size: 20px !important; cursor: pointer !important;
-                display: flex !important; align-items: center !important;
-                justify-content: center !important;
-            ">✕</button>
         </div>
     `);
 
-    $overlay.on("click", ".xb-ss-backdrop, .xb-ss-close-btn", hideOverlay);
+    $overlay.on("click", ".xb-ss-backdrop", hideOverlay);
     document.body.appendChild($overlay[0]);
     stopOverlayViewport = observeViewport(() => {
         for (const [property, value] of Object.entries(getSafeViewportStyles())) {
@@ -3046,7 +2994,7 @@ async function maybeAutoRunSummary(reason) {
     const { target, triggered } = getAutoSummaryPlan(getContext().chat, lastSummarized, trig, reason);
     if (!triggered) return;
 
-    await autoRunSummaryWithRetry(target, { api: cfgAll.api, gen: cfgAll.gen, trigger: trig });
+    await autoRunSummaryWithRetry(target, { trigger: trig });
 }
 
 async function autoRunSummaryWithRetry(targetMesId, configForRun) {
@@ -3152,6 +3100,10 @@ async function handleFrameMessage(event) {
     if (!isTrustedMessage(event, iframe, "LittleWhiteBox-StoryFrame")) return;
 
     const data = event.data;
+    if (data.type === 'TEXT_API_REQUEST') {
+        await handleTextApiRequest(data, 'summary', postToFrame);
+        return;
+    }
     const chatAction = Object.keys(MEMORY_CHAT_MESSAGES).find(action => action !== 'state' && MEMORY_CHAT_MESSAGES[action] === data.type);
     if (chatAction) {
         const requestIdentity = chatAction === 'query' ? memoryMaintenance.chat.identity : data.identity;
@@ -3198,22 +3150,8 @@ async function handleFrameMessage(event) {
             break;
         }
 
-        case "SETTINGS_OPENED":
-        case "FULLSCREEN_OPENED":
-        case "EDITOR_OPENED":
-        case "CONFIRM_OPENED":
-            $(".xb-ss-close-btn").hide();
-            break;
-
         case "SETTINGS_CLOSED":
             removeBackupManagerModal();
-            $(".xb-ss-close-btn").show();
-            break;
-
-        case "FULLSCREEN_CLOSED":
-        case "EDITOR_CLOSED":
-        case "CONFIRM_CLOSED":
-            $(".xb-ss-close-btn").show();
             break;
 
         case "SET_CURRENT_CHAT_ENABLED": {
@@ -3244,25 +3182,6 @@ async function handleFrameMessage(event) {
             if (activeSummaryExecution?.chatId === getContext()?.chatId && cancelActiveSummaryExecution()) {
                 postToFrame({ type: "SUMMARY_STATUS", statusText: "正在停止..." });
             }
-            break;
-
-        case "FETCH_SUMMARY_MODELS":
-            observeBackgroundTask((async () => {
-                try {
-                    const models = await fetchSummaryModelsForUi(data);
-                    postToFrame({
-                        type: "SUMMARY_MODELS",
-                        requestId: data.requestId || "",
-                        models,
-                    });
-                } catch (e) {
-                    postToFrame({
-                        type: "SUMMARY_MODELS_ERROR",
-                        requestId: data.requestId || "",
-                        message: String(e?.message || e || "拉取模型失败"),
-                    });
-                }
-            })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
         case "VECTOR_TEST_ONLINE":

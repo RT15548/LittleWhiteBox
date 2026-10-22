@@ -24,7 +24,11 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
 .nd-mode-btn.mode-active { background: var(--accent); border-color: var(--accent); color: var(--bg-primary); font-weight: 500; }
 .nd-mode-btn.mode-active:hover { background: var(--text-primary); }
-.nd-backend-panel { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+.nd-backend-options { margin-top: 8px; }
+.nd-backend-option { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px 0; font-size: 13px; line-height: 20px; cursor: pointer; }
+.nd-backend-option input { flex: 0 0 16px; width: 16px; height: 16px; margin: 2px 0 0; }
+.nd-backend-option small { display: block; color: var(--text-muted); font-size: 12px; line-height: 18px; }
+.nd-backend-panel { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
 .nd-backend-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nd-status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; flex: 0 0 auto; }
 .nd-status-dot.ok { background: var(--success); }
@@ -274,6 +278,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .gallery-more, .gallery-end-hint { grid-column: 1 / -1; text-align: center; padding: 14px 10px; color: var(--text-muted); font-size: 12px; }
 .gallery-more i { margin-right: 6px; }
 .gallery-more .btn { margin: 0 8px; }
+.gallery-load-error { display: grid; justify-items: center; gap: 8px; }
+.gallery-load-hint { font-size: 12px; }
+.gallery-load-error .btn { margin: 0; }
 .gallery-modal {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(0,0,0,0.9); z-index: 1000;
@@ -577,9 +584,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                             <button type="button" class="btn nd-mode-btn" data-send-mode="frontend"><i class="fa-solid fa-globe"></i> 前端直连</button>
                             <button type="button" class="btn nd-mode-btn" data-send-mode="backend"><i class="fa-solid fa-server"></i> 后端发送</button>
                         </div>
-                        <div id="nd_backend_options" class="hidden">
-                            <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_insecure_tls"> 忽略证书验证（连接自签证书端点时勾选）</label>
-                            <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="nd_use_backend_jobs"> 使用小白X后台任务（场景分析 + 批量出图）</label>
+                        <div id="nd_backend_options" class="nd-backend-options hidden">
+                            <label class="nd-backend-option"><input type="checkbox" id="nd_insecure_tls"><span>忽略证书验证<small>仅在连接自签证书端点时勾选</small></span></label>
+                            <label class="nd-backend-option"><input type="checkbox" id="nd_use_backend_jobs"><span>使用小白X后台任务<small>场景分析与批量出图</small></span></label>
 
                             <!-- 后端插件状态栏（仅后端发送模式显示） -->
                             <div id="nd_backend_panel" class="nd-backend-panel hidden">
@@ -781,7 +788,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                             <label class="check-row" style="margin-top:10px;">
                                 <input type="checkbox" id="nd_transparent_background"> Transparent BG
                             </label>
-                            <p class="form-hint">开启后追加 transparent background，并请求 V5 透明背景输出。PNG alpha 通道始终保留。</p>
+                            <p class="form-hint">请求 V5 透明背景输出</p>
                         </div>
                     </div>
                     <div class="form-row">
@@ -830,7 +837,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         <input id="nd_planner_retries" type="number" class="input" min="0" max="10" step="1" value="3" inputmode="numeric">
                         <span>次</span>
                     </div>
-                    <p class="form-hint">仅在场景 Agent 请求失败（超时、供应商或网络错误、返回的 Tool 调用不合格）时重试，画图失败不受影响。从 2 秒开始，每次等待时间翻倍，最长 30 秒。填 0 表示不重试。浏览器流程与后台任务都生效。注意：每次重试都会重新规划，最坏情况下每次重试内部还包含最多 3 轮纠错，请按需设置次数。后台任务的重试需要把扩展里的 server-plugin/littlewhitebox-image-jobs 更新到最新版插件，旧版插件会忽略该设置。</p>
+                    <p class="form-hint" data-planner-retry-hint></p>
                 </div>
             </div>
 

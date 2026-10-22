@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from '../../../shared/common/openai-url-utils.js';
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { buildSamplingParameters } from '../sampling.js';
 import { resolveAgentAuth } from '../provider-auth.js';
@@ -548,7 +549,8 @@ export class GoogleAdapter {
             ...this.auth.sdkOptions,
             httpOptions: {
                 headers: this.auth.headers,
-                baseUrl: String(config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, ''),
+                baseUrl: config.resolvedBaseUrl || resolveApiBaseUrl(config.baseUrl || 'https://generativelanguage.googleapis.com', '/v1beta'),
+                apiVersion: '',
                 timeout: Number(config.timeoutMs) || 15 * 60 * 1000,
             },
         });
@@ -633,7 +635,7 @@ export class GoogleAdapter {
         const effectiveReasoning = options.effectiveReasoning
             || resolveTaskReasoning('google', this.config, task.reasoning);
         const payload = options.payload || this.buildChatPayload(task, effectiveReasoning);
-        const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+        const baseUrl = this.config.resolvedBaseUrl || resolveApiBaseUrl(this.config.baseUrl || 'https://generativelanguage.googleapis.com', '/v1beta');
         return buildSdkRequestInspection({
             provider: 'google',
             model: this.config.model,
@@ -663,7 +665,7 @@ export class GoogleAdapter {
     }
 
     inspectSendRequest(sendPayload, task, effectiveReasoning) {
-        const baseUrl = String(this.config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+        const baseUrl = this.config.resolvedBaseUrl || resolveApiBaseUrl(this.config.baseUrl || 'https://generativelanguage.googleapis.com', '/v1beta');
         return buildSdkRequestInspection({
             provider: 'google',
             model: this.config.model,
