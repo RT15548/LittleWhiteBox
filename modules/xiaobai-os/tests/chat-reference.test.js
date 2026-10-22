@@ -52,7 +52,7 @@ test('chat reference install persists only formatVersion and osId without inspec
     assert.deepEqual(state.persisted.extensions.LittleWhiteBox.unrelated, { keep: true });
 });
 
-test('an explicitly rejected metadata save rolls local metadata back', async () => {
+test('an explicitly rejected chat save keeps the published reference and reports its persistence failure', async () => {
     const { state, port } = harness();
     state.metadata.extensions = { LittleWhiteBox: { unrelated: true } };
     state.persisted = structuredClone(state.metadata);
@@ -61,8 +61,11 @@ test('an explicitly rejected metadata save rolls local metadata back', async () 
     };
     const result = await port.install(port.capture(), { formatVersion: 1, osId: 'os_1' });
     assert.equal(result.status, 'failed');
+    assert.equal(result.applied, true);
     assert.equal(state.reads, 0);
-    assert.deepEqual(state.metadata, { extensions: { LittleWhiteBox: { unrelated: true } } });
+    assert.deepEqual(readXiaobaiOsReference(state.metadata), { formatVersion: 1, osId: 'os_1' });
+    assert.equal(state.metadata.extensions.LittleWhiteBox.unrelated, true);
+    assert.deepEqual(state.persisted, { extensions: { LittleWhiteBox: { unrelated: true } } });
 });
 
 test('an unknown metadata result is confirmed only by persisted header read-back', async () => {
@@ -103,6 +106,24 @@ test('invalid existing references are rejected instead of treated as absent', ()
     }), /formatVersion/);
 });
 
+test('host-owned references are applied without IO and a later manual confirmation recognizes the host save', async () => {
+    const { state, port } = harness();
+    const original = port.capture();
+    const reference = { formatVersion: 1, osId: 'host-owned' };
+    let saves = 0;
+    state.save = async () => { saves++; };
+    assert.deepEqual(await port.install(original, reference, { chatPersistence: 'host' }), { status: 'deferred' });
+    assert.deepEqual(await port.install(port.capture(), reference, { chatPersistence: 'host' }), { status: 'deferred' });
+    assert.equal(port.isCurrent(original), true);
+    assert.equal(saves, 0);
+    assert.equal(state.reads, 0);
+    assert.deepEqual(state.persisted, {});
+    state.persisted = structuredClone(state.metadata);
+    assert.deepEqual(await port.install(port.capture(), reference, { chatPersistence: 'immediate' }), { status: 'confirmed' });
+    assert.equal(state.reads, 1);
+    assert.equal(saves, 0);
+});
+
 test('SillyTavern 1.18 chat header fixtures preserve single, group and branch metadata', async () => {
     const fixture = JSON.parse(await readFile(new URL('./fixtures/sillytavern-1.18-chat-lifecycle.json', import.meta.url), 'utf8'));
     assert.deepEqual(readXiaobaiOsReference(readChatMetadataHeader(fixture.singleHeader)), {
@@ -116,4 +137,31 @@ test('SillyTavern 1.18 chat header fixtures preserve single, group and branch me
     assert.equal(readChatMetadataHeader(fixture.branchHeader).main_chat, 'parent-chat');
     assert.equal(readChatMetadataHeader([]), null);
     assert.equal(readChatMetadataHeader({}), null);
+});
+
+// Acceptance (data loss): restoring an unsaved reference must not overwrite a
+// different reference or publish the original chat's reference into another chat.
+test('pending restoration preserves a genuinely different current reference', async () => {
+    const { state, port } = harness();
+    const original = port.capture();
+    await port.install(original, { formatVersion: 1, osId: 'published' }, { chatPersistence: 'host' });
+    state.metadata = { extensions: { LittleWhiteBox: { xiaobaiOsRef: { formatVersion: 1, osId: 'different' } } } };
+    const result = await port.restorePending(port.capture(), 'host');
+    assert.equal(result.status, 'failed');
+    assert.equal(result.error.code, 'reference_conflict');
+    assert.equal(port.capture().reference.osId, 'different');
+    assert.equal(state.reads, 0);
+    assert.deepEqual(state.persisted, {});
+});
+
+test('pending restoration does not install into a different active chat', async () => {
+    let current = { identityKey: 'a', binding, metadata: {} };
+    const port = createChatReferencePort({ capture: () => current,
+        save: async () => assert.fail('unexpected chat save'), read: async () => assert.fail('unexpected chat read') });
+    const original = port.capture();
+    await port.install(original, { formatVersion: 1, osId: 'published' }, { chatPersistence: 'host' });
+    current = { identityKey: 'b', binding: { ...binding, chatId: 'chat-b' }, metadata: {} };
+    assert.equal(await port.restorePending(port.capture(), 'host'), null);
+    assert.equal((await port.restorePending(original, 'host')).status, 'failed');
+    assert.deepEqual(current.metadata, {});
 });

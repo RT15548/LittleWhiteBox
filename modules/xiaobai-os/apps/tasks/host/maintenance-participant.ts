@@ -53,6 +53,6 @@ export function createTaskMaintenanceParticipant({
                     && record.status === 'active' && !!receipt && receipt.phase !== 'pending'
                     && (receipt.digest !== digest || mode === 'manual' && receipt.phase === 'checked');
             });
-            return records.length ? createTaskMaintenanceSession(tasks, records, digest) : null;
+            return records.length ? createTaskMaintenanceSession(tasks, records, digest, mode) : null;
     }
 }

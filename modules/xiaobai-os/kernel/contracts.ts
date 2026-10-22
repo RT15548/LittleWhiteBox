@@ -104,7 +104,11 @@ export interface ScopedTransaction<T> {
     useCapability<C>(token: CapabilityToken<C>): C;
 }
 
+export type ChatPersistence = 'host' | 'immediate';
+
 export interface TransactionOptions {
+    /** Automatic work leaves chat metadata persistence to the host. File writes are unaffected. */
+    chatPersistence?: ChatPersistence;
     signal?: AbortSignal;
     commitGuard?: () => boolean | Promise<boolean>;
     /** Only an explicitly recoverable command may replace its run-scoped guard when retrying its prepared candidate. */
@@ -165,16 +169,23 @@ export interface CapturedChatBinding {
 
 export type ReferenceInstallResult =
     | { status: 'confirmed' }
-    | { status: 'failed'; error: KernelWriteFailure }
-    | { status: 'unconfirmed'; error: KernelWriteFailure };
+    /** Applied to the current metadata only; the host owns its next save. */
+    | { status: 'deferred' }
+    /** Once applied, chat persistence failure cannot revoke the reference or its file. */
+    | { status: 'failed'; applied: boolean; error: KernelWriteFailure }
+    | { status: 'unconfirmed'; applied: true; error: KernelWriteFailure };
 
 export interface ChatReferencePort {
+    /** A published reference still awaiting chat persistence, not a pending file write. */
+    hasPending(captured: CapturedChatBinding): boolean;
+    /** Reapply this runtime's published reference after the host reloads its older metadata. */
+    restorePending(captured: CapturedChatBinding, chatPersistence: ChatPersistence): Promise<ReferenceInstallResult | null>;
     capture(): CapturedChatBinding | null;
     isCurrent(captured: CapturedChatBinding): boolean | Promise<boolean>;
     install(
         captured: CapturedChatBinding,
         reference: XiaobaiOsReferenceV1,
-        signal?: AbortSignal,
+        options?: { signal?: AbortSignal; chatPersistence?: ChatPersistence },
     ): Promise<ReferenceInstallResult>;
     recordOrphan?(osId: string, binding: XiaobaiOsChatBindingV1): void | Promise<void>;
     recordReference?(osId: string, binding: XiaobaiOsChatBindingV1): void | Promise<void>;
@@ -186,6 +197,7 @@ export interface PendingCommitRecoveryResult {
 }
 
 export interface PendingCommitRecoveryOptions {
+    chatPersistence?: ChatPersistence;
     /** Inspect the submitted commit without dispatching its candidate again. */
     readOnly?: boolean;
     /** Read-back may confirm an already submitted write; only a new dispatch needs fresh evidence. */

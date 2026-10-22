@@ -1,3 +1,4 @@
+import { createIdentifier } from '../../../../shared/common/identifier.js';
 /* eslint-env node */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -44,7 +45,7 @@ export async function bundleAssistantGrep(source, browser = false) {
 
 export async function loadAssistantGrep(source) {
     // A distinct module per fixture keeps the manifest cache isolated.
-    const url = `data:text/javascript;base64,${Buffer.from(await bundleAssistantGrep(source)).toString('base64')}#${crypto.randomUUID()}`;
+    const url = `data:text/javascript;base64,${Buffer.from(await bundleAssistantGrep(source)).toString('base64')}#${createIdentifier()}`;
     // eslint-disable-next-line no-unsanitized/method -- Local compiled test module, never user input.
     return (await import(url)).grepFiles;
 }

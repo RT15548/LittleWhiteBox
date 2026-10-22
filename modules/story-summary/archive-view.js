@@ -31,7 +31,6 @@ export function getArchiveStateFacts(data) {
 export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCharacter, onTimelineChange, onFactsChange, onPeopleVisible, onEdit, postMsg, setHtml, h }) {
     const $ = id => document.getElementById(id);
     const detail = $('archive-detail');
-    const manage = $('archive-manage');
     const profile = $('archive-profile');
     let view = 'story';
     let role = '';
@@ -43,7 +42,7 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
     const matches = (...values) => values.join(' ').toLocaleLowerCase().includes($('archive-search').value.trim().toLocaleLowerCase());
 
     function closeDialogs() {
-        for (const dialog of [detail, manage]) {
+        for (const dialog of [detail]) {
             if (!dialog.open) continue;
             if (profileInDialog && dialog === detail) {
                 $('archive-profile-home').append(profile);
@@ -180,13 +179,12 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         refreshIndexes();
         onTimelineChange({ page: 0 });
     });
-    $('archive-manage-open').addEventListener('click', () => openDialog(manage));
     $('archive-close').addEventListener('click', () => postMsg('CLOSE_PANEL'));
     $('archive-person-select').addEventListener('change', event => onSelectCharacter(event.target.value));
     $('archive-profile-open').textContent = ARCHIVE_COPY.personDetail;
     $('archive-profile-open').addEventListener('click', showPerson);
     document.querySelectorAll('[data-close-archive]').forEach(button => button.addEventListener('click', closeDialogs));
-    for (const dialog of [detail, manage]) {
+    for (const dialog of [detail]) {
         dialog.addEventListener('cancel', event => { event.preventDefault(); closeDialogs(); });
         dialog.addEventListener('click', event => {
             if (event.target !== dialog) return;

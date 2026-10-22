@@ -1,4 +1,5 @@
 import type {
+    MaintenanceMode,
     MaintenanceCommitGuard,
     MaintenanceParticipantResult,
     MaintenanceSession,
@@ -13,6 +14,7 @@ export function createTaskMaintenanceSession(
     tasks: Pick<TasksService, 'readCurrent' | 'createActionId' | 'commitMaintenance'>,
     recordsValue: readonly TaskRecord[],
     evidenceDigest: string,
+    mode: MaintenanceMode = 'manual',
 ): MaintenanceSession {
     const records = new Map(recordsValue.map(record => [record.taskId, structuredClone(record)]));
     const staged = new Map<string, TaskMaintenanceCommand>();
@@ -85,7 +87,7 @@ export function createTaskMaintenanceSession(
                         expectedEventId: record.eventId,
                     })) : [],
                     evidenceDigest,
-                }, guard);
+                }, guard, mode === 'automatic' ? 'host' : 'immediate');
                 committed = true;
                 return result.staleTaskIds?.length
                     ? { status: 'stale' as const, changed: result.changed }

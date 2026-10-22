@@ -231,12 +231,13 @@ export function createFourthWallUpstreamImport(
             prepared.delete(capture.identityKey);
             let applied = false;
             return {
-                apply() {
-                    removeLegacy(capture.metadata, capture.binding.chatId, entry.legacy);
+                apply(metadata: ChatMetadata) {
+                    applied = false;
+                    removeLegacy(metadata, capture.binding.chatId, entry.legacy);
                     applied = true;
                 },
-                rollback() {
-                    if (applied) { restoreLegacy(capture.metadata, capture.binding.chatId, entry.legacy); }
+                rollback(metadata: ChatMetadata) {
+                    if (applied) { restoreLegacy(metadata, capture.binding.chatId, entry.legacy); }
                     applied = false;
                 },
                 matches(persisted: ChatMetadata) {

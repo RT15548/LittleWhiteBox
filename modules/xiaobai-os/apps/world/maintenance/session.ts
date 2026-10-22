@@ -70,7 +70,7 @@ export function createWorldMaintenanceSession(world: WorldService, mode: Mainten
             if (failures.size) { throw new Error('world_edits_unresolved'); }
             if (!changed()) { return; }
             const guard = () => !invalid && beforeCommit();
-            const result = await world.replaceContent(original.identityKey, expected, staged, guard);
+            const result = await world.replaceContent(original.identityKey, expected, staged, guard, mode === 'automatic' ? 'host' : 'immediate');
             committed = true;
             return result;
         },

@@ -100,6 +100,7 @@ async function createHarness({ extraFunds = 0, initialShop, refreshShop = true }
         async delete() { return 'deleted'; },
     };
     const chatReferences = {
+        hasPending: () => false,
         capture: () => structuredClone(currentIdentity()),
         isCurrent: captured => captured.identityKey === currentIdentity().identityKey,
         async install() { return { status: 'confirmed' }; },

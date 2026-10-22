@@ -4,6 +4,7 @@ import {
     type EconomyTransactionCapability,
 } from '../../../capabilities/economy/index.js';
 import type {
+    ChatPersistence,
     PendingCommitRecoveryResult,
     PartitionStore,
     XiaobaiOsFileControls,
@@ -120,7 +121,7 @@ export interface TasksService {
     assignCandidate: (input: AssignCandidateRequest, guard: CommitGuard) => Promise<TasksActionResult>;
     cancel: (input: CancelTaskRequest, guard: CommitGuard) => Promise<TasksActionResult>;
     replaceBoard: (input: ReplaceBoardRequest, guard: CommitGuard) => Promise<TasksActionResult>;
-    commitMaintenance: (input: MaintenanceCommitRequest, guard: CommitGuard) => Promise<TasksActionResult>;
+    commitMaintenance: (input: MaintenanceCommitRequest, guard: CommitGuard, chatPersistence?: ChatPersistence) => Promise<TasksActionResult>;
     getWriteState: () => XiaobaiOsFileState;
     subscribeWriteState: (listener: () => void) => () => void;
     confirmPending: (guard?: () => boolean) => Promise<PendingCommitRecoveryResult>;
@@ -155,6 +156,7 @@ export interface TaskApplicationContext {
     execute(
         guard: CommitGuard,
         mutate: (domain: TaskDomainV1, economy: EconomyTransactionCapability) => PreparedTaskAction,
+        chatPersistence?: ChatPersistence,
     ): Promise<TasksActionResult>;
 }
 
@@ -240,7 +242,7 @@ export function createTasksService(
                     if (!pending.length) {return;}
                     for (const receipt of pending) {receipt.phase = 'baseline'; receipt.digest = evidenceDigest;}
                     transaction.replace(domain);
-                }, { commitGuard: () => store.peekBinding()?.identityKey === identityKey });
+                }, { chatPersistence: 'host', commitGuard: () => store.peekBinding()?.identityKey === identityKey });
                 if (result.status !== 'confirmed' && result.status !== 'unchanged') {throw transactionError(result);}
             }
             if (store.peekBinding()?.identityKey === identityKey) {readyIdentity = identityKey; failedIdentity = '';}
@@ -286,7 +288,7 @@ export function createTasksService(
                 transaction.useCapability(ECONOMY_TRANSACTION_CAPABILITY),
             );
             return domain;
-        });
+        }, { chatPersistence: 'host' });
         if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') {
             throw transactionError(result);
         }
@@ -297,6 +299,7 @@ export function createTasksService(
     async function execute(
         guard: CommitGuard,
         mutate: (domain: TaskDomainV1, transactionEconomy: EconomyTransactionCapability) => PreparedTaskAction,
+        chatPersistence: ChatPersistence = 'immediate',
     ): Promise<TasksActionResult> {
         await ensureReady();
         await assertCommitGuard(guard);
@@ -309,6 +312,7 @@ export function createTasksService(
             if (prepared.changed || prepared.persist) { transaction.replace(prepared.domain); }
             return prepared;
         }, {
+            chatPersistence,
             commitGuard: async () => {
                 await assertCommitGuard(guard);
                 return true;

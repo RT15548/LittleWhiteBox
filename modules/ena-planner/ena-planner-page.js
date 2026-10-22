@@ -1,4 +1,5 @@
 import { mountTextApiSettings } from '../text-api/settings-ui.js';
+import { createIdentifier } from '../../shared/common/identifier.js';
 import { DOMPurify } from '../../../../../../lib.js';
 const PARENT_ORIGIN = (() => {
       try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
@@ -9,7 +10,7 @@ const PARENT_ORIGIN = (() => {
     const $$ = sel => document.querySelectorAll(sel);
 
     function genId() {
-      try { return crypto.randomUUID(); } catch { return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
+      return createIdentifier();
     }
 
     let cfg = null;

@@ -59,6 +59,10 @@ module.exports = {
         sourceType: 'module',
     },
     rules: {
+        'no-restricted-properties': ['error', {
+            property: 'randomUUID',
+            message: 'randomUUID is forbidden repository-wide: it requires a secure context and fails on LAN HTTP. Use an HTTP-compatible identifier generator.',
+        }],
         '@eslint-community/eslint-comments/require-description': ['error', { ignore: ['eslint-env', 'global', 'globals', 'exported'] }],
         '@eslint-community/eslint-comments/no-unlimited-disable': 'error',
         '@eslint-community/eslint-comments/no-use': ['error', { allow: ['eslint-disable-next-line', 'eslint-disable-line', 'eslint-env', 'global', 'globals', 'exported'] }],
@@ -126,15 +130,6 @@ module.exports = {
         {
             files: ['**/*.cjs'],
             parserOptions: { sourceType: 'script' },
-        },
-        {
-            files: ['modules/xiaobai-os/**/*.{js,ts,vue}'],
-            rules: {
-                'no-restricted-properties': ['error', {
-                    property: 'randomUUID',
-                    message: 'randomUUID requires a secure context and is unavailable on LAN HTTP. Use createStorageId from modules/xiaobai-os/kernel/identity.ts instead.',
-                }],
-            },
         },
         {
             files: ['modules/xiaobai-os/**/*.js'],

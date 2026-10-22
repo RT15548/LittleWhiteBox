@@ -1,4 +1,5 @@
 import { getRequestHeaders } from '../../../../../../script.js';
+import { createIdentifier } from '../../shared/common/identifier.js';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../shared/host-llm/chat-completions/client.js';
 import { getTextApiRepository } from './repository.js';
 import { resolveFeaturePreset } from './model.js';
@@ -15,7 +16,7 @@ function encodeMessages(messages) {
 async function generateHost(preset, { messages, signal, onDelta }) {
     const { streamingGeneration } = await import('../streaming-generation.js');
     const args = { as: 'user', nonstream: preset.stream ? 'false' : 'true', top64: encodeMessages(messages),
-        id: `text-api-${crypto.randomUUID()}` };
+        id: `text-api-${createIdentifier()}` };
     if (preset.temperature != null) args.temperature = preset.temperature;
     if (preset.maxTokens != null) args.max_tokens = preset.maxTokens;
     const fields = { topP: 'top_p', topK: 'top_k', presencePenalty: 'presence_penalty', frequencyPenalty: 'frequency_penalty' };

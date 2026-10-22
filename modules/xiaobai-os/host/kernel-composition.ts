@@ -8,7 +8,7 @@ import {
     type AppModuleRegistry,
     type XiaobaiOsAppModule,
 } from '../kernel/app-registry.js';
-import type { ChatReferencePort, CapturedChatBinding, PartitionRegistration, CapabilityToken, XiaobaiOsStoragePort, JsonUserFilePort } from '../kernel/contracts.js';
+import type { ChatReferencePort, ChatPersistence, CapturedChatBinding, PartitionRegistration, CapabilityToken, XiaobaiOsStoragePort, JsonUserFilePort } from '../kernel/contracts.js';
 import { createUserTransactions, type UserTransactions } from '../kernel/user-transactions.js';
 import { startSaveRecovery } from './save-recovery.js';
 import { XiaobaiOsPartitionRegistry } from '../kernel/partition-registry.js';
@@ -29,7 +29,7 @@ export interface KernelCompositionOptions {
     user?: {
         storage: JsonUserFilePort;
         initialPartitions(): Promise<Record<string, unknown>>;
-        resolveStory(write: boolean): Promise<CapturedChatBinding>;
+        resolveStory(write: boolean, chatPersistence?: ChatPersistence): Promise<CapturedChatBinding>;
     };
 }
 

@@ -3,11 +3,13 @@ import type {
     CapabilityTransactionAccess,
     CapturedChatBinding,
     ChatReferencePort,
+    ChatPersistence,
     KernelWriteFailure,
     PartitionRegistration,
     PartitionSnapshot,
     PendingCommitRecoveryResult,
     PendingCommitRecoveryOptions,
+    ReferenceInstallResult,
     PartitionStore,
     ScopedTransaction,
     ScopedTransactionResult,
@@ -76,12 +78,12 @@ export interface TransactionCoordinator {
 }
 
 interface PendingCommit {
+    chatPersistence: ChatPersistence;
     capture: CapturedChatBinding;
     expected: SidecarRevision | null;
     candidate: XiaobaiOsSidecarV1;
     preparedResult: unknown;
     owner: PartitionRegistration<unknown>;
-    stage: 'replace' | 'reference';
     observed: XiaobaiOsSidecarV1 | null;
     retainFailedCandidate: boolean;
     commitGuard?: () => boolean | Promise<boolean>;
@@ -361,15 +363,16 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         }
     }
 
-    async function installInitialReference(
+    async function installReference(
         entry: PendingCommit,
+        chatPersistence: ChatPersistence,
     ): Promise<'confirmed' | 'failed' | 'unconfirmed'> {
         const reference: XiaobaiOsReferenceV1 = { formatVersion: 1, osId: entry.candidate.osId };
-        const result = await chatReferences.install(entry.capture, reference);
-        if (result.status === 'confirmed') {
+        const result = await chatReferences.install(entry.capture, reference, { chatPersistence });
+        if (result.status === 'confirmed' || result.status === 'deferred' || result.applied) {
             try {
                 void Promise.resolve(
-                    chatReferences.recordReference?.(entry.candidate.osId, entry.capture.binding),
+                    !entry.capture.reference && chatReferences.recordReference?.(entry.candidate.osId, entry.capture.binding),
                 ).catch(error => {
                     console.error('[LittleWhiteBox] 小白 OS sidecar 索引登记失败', error);
                 });
@@ -379,17 +382,10 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
             installEnvelope(entry.capture, entry.candidate);
             pending.delete(entry.capture.identityKey);
             setState(entry.capture.identityKey, 'ready');
-            return 'confirmed';
-        }
-        if (result.status === 'unconfirmed') {
-            entry.stage = 'reference';
-            pending.set(entry.capture.identityKey, entry);
-            setState(entry.capture.identityKey, 'unconfirmed', result.error);
-            return 'unconfirmed';
+            return result.status === 'deferred' ? 'confirmed' : result.status;
         }
         await cleanupUnreferencedSidecar(entry.capture, entry.candidate.osId);
         if (entry.retainFailedCandidate) {
-            entry.stage = 'replace';
             pending.set(entry.capture.identityKey, entry);
             setState(entry.capture.identityKey, 'failed', result.error);
         } else {
@@ -399,18 +395,11 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         return 'failed';
     }
 
-    async function acceptConfirmed(entry: PendingCommit): Promise<'confirmed' | 'failed' | 'unconfirmed'> {
-        if (!entry.capture.reference) {
-            return await installInitialReference(entry);
-        }
-        installEnvelope(entry.capture, entry.candidate);
-        pending.delete(entry.capture.identityKey);
-        setState(entry.capture.identityKey, 'ready');
-        return 'confirmed';
+    async function acceptConfirmed(entry: PendingCommit, chatPersistence = entry.chatPersistence): Promise<'confirmed' | 'failed' | 'unconfirmed'> {
+        return await installReference(entry, chatPersistence);
     }
 
     function savePending(entry: PendingCommit, result: StorageReplaceResult): void {
-        entry.stage = 'replace';
         entry.observed = result.status === 'unconfirmed' || result.status === 'conflict' ? result.observed : null;
         pending.set(entry.capture.identityKey, entry);
         setState(
@@ -512,6 +501,14 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
                     throw error;
                 }
                 if (replacements.size === 0) {
+                    if (transactionOptions.chatPersistence === 'immediate' && envelope) {
+                        const confirmation = await confirmPublishedReference(requested, async () => !transactionOptions.signal?.aborted
+                            && (!transactionOptions.commitGuard || await transactionOptions.commitGuard()));
+                        if (confirmation?.status === 'failed') { return { status: 'failed', error: confirmation.error }; }
+                        if (confirmation?.status === 'unconfirmed') {
+                            return { status: 'unconfirmed', preparedResult: result, commitId: envelope.commitId };
+                        }
+                    }
                     return { status: 'unchanged', result };
                 }
                 if (transactionOptions.signal?.aborted || transactionOptions.commitGuard && !await transactionOptions.commitGuard()) {
@@ -550,12 +547,14 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
                     return { status: 'failed', error: asWriteFailure(error, 'candidate_invariant_failed') };
                 }
                 const entry: PendingCommit = {
+                    // Existing callers only installed a reference on their first
+                    // write. Do not turn later file-only writes into chat saves.
+                    chatPersistence: transactionOptions.chatPersistence ?? (requested.reference ? 'host' : 'immediate'),
                     capture: requested,
                     expected: envelope ? sidecarRevision(envelope) : null,
                     candidate: cloneJsonValue(candidate),
                     preparedResult: result,
                     owner: registration as PartitionRegistration<unknown>,
-                    stage: 'replace',
                     observed: null,
                     retainFailedCandidate: transactionOptions.retainFailedCandidate === true,
                     commitGuard: transactionOptions.recoveryGuard ?? (async () => !transactionOptions.signal?.aborted
@@ -700,22 +699,27 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
         }
     }
 
+    async function confirmPublishedReference(requested: CapturedChatBinding, guard?: () => boolean | Promise<boolean>): Promise<ReferenceInstallResult | null> {
+        if (!requested.reference || !chatReferences.hasPending(requested)) { return null; }
+        if (guard && !await guard()) {
+            return { status: 'failed', applied: true, error: writeFailure('commit_guard_rejected', 'The pending write requires fresh evidence before retrying', false) };
+        }
+        return await chatReferences.install(requested, requested.reference, { chatPersistence: 'immediate' });
+    }
+
     async function retryPending(recovery: PendingCommitRecoveryOptions = {}): Promise<PendingCommitRecoveryResult> {
+        const chatPersistence = recovery.readOnly ? 'host' : recovery.chatPersistence ?? 'immediate';
         const requested = requireCapture();
         return await enqueue(async () => {
             const entry = pending.get(requested.identityKey);
-            if (!entry) { return { status: 'none' }; }
-            await assertCurrent(entry.capture);
-            if (entry.stage === 'reference') {
-                if (recovery.readOnly) { return { status: 'unconfirmed' }; }
-                const installed = await installInitialReference(entry);
-                if (installed === 'confirmed') { return { status: 'confirmed' }; }
-                if (installed === 'unconfirmed') { return { status: 'unconfirmed' }; }
-                return {
-                    status: 'failed',
-                    error: writeFailure('reference_install_failed', 'Could not install the sidecar chat reference', true),
-                };
+            if (!entry) {
+                if (chatPersistence !== 'immediate') { return { status: 'none' }; }
+                const result = await confirmPublishedReference(requested, recovery.beforeRetry);
+                if (!result) { return { status: 'none' }; }
+                return result.status === 'confirmed' || result.status === 'deferred'
+                    ? { status: 'confirmed' } : { status: result.status, error: result.error };
             }
+            await assertCurrent(entry.capture);
 
             let observed: XiaobaiOsSidecarV1 | null;
             try {
@@ -726,7 +730,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
                 return { status: 'unconfirmed', error: failure };
             }
             if (observed?.commitId === entry.candidate.commitId) {
-                const accepted = await acceptConfirmed(entry);
+                const accepted = await acceptConfirmed(entry, chatPersistence);
                 return { status: accepted };
             }
             if (!sameSidecarRevision(entry.expected, observed)) {
@@ -750,7 +754,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
                 return { status: 'failed', error: failure };
             }
             if (result.status === 'confirmed') {
-                const accepted = await acceptConfirmed(entry);
+                const accepted = await acceptConfirmed(entry, chatPersistence);
                 return { status: accepted };
             }
             if (result.status === 'failed') {
@@ -777,7 +781,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
                 return { status: 'conflict', error: failure };
             }
             if (!observed) {
-                if (entry.expected === null && !entry.capture.reference && entry.stage === 'replace'
+                if (entry.expected === null && !entry.capture.reference
                     && !chatReferences.capture()?.reference) {
                     installEnvelope(entry.capture, null);
                     pending.delete(entry.capture.identityKey);
@@ -790,7 +794,7 @@ export function createTransactionCoordinator(options: TransactionCoordinatorOpti
             }
             if (!entry.capture.reference) {
                 entry.candidate = observed;
-                const installed = await installInitialReference(entry);
+                const installed = await installReference(entry, 'immediate');
                 return installed === 'confirmed' ? { status: 'adopted' } : { status: installed };
             }
             installEnvelope(entry.capture, observed);

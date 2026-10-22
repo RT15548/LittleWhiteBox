@@ -2,7 +2,7 @@
 import { build } from 'esbuild';
 import { parseHTML } from 'linkedom';
 import { IDBFactory } from 'fake-indexeddb';
-import { randomUUID } from 'node:crypto';
+import { createIdentifier } from '../../../../../shared/common/identifier.js';
 import { Buffer } from 'node:buffer';
 import { setImmediate as yieldLoop } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -14,11 +14,11 @@ export async function fixture(sources, options = {}) {
  let frameId = 0;
  for (let id=0;id<sources.length;id++) { const floor=document.createElement('div');floor.className='mes';floor.setAttribute('mesid',id); const content=document.createElement('div');content.className='mes_text';content.textContent=sources[id];floor.append(content);document.getElementById('chat').append(floor); }
  const messages=sources.map(mes=>({mes,name:'review',swipe_id:0,swipes:[mes]}));
- const ctx={chatId:'journey-'+randomUUID(),groupId:'review',chat:messages,chatMetadata:options.metadata??{},characters:[],getRequestHeaders:()=>({})};
+ const ctx={chatId:'journey-'+createIdentifier(),groupId:'review',chat:messages,chatMetadata:options.metadata??{},characters:[],getRequestHeaders:()=>({})};
  let persisted=structuredClone(ctx.chat),mode=options.save??'ok',releaseRequest,releaseSave;
  ctx.saveChat=async()=>{ counters.saves++;if(mode==='hold') await new Promise(resolve=>{releaseSave=resolve}); if(mode==='ok') persisted=structuredClone(ctx.chat); };
  const events=new Map();
- const host={ctx,counters,uuid:randomUUID,events,window};
+ const host={ctx,counters,uuid:createIdentifier,events,window};
  globalThis.__drawJourneyReview=host;
  const idb=new IDBFactory();
  Object.assign(globalThis,{window,document,indexedDB:idb,BroadcastChannel:undefined,requestAnimationFrame:callback=>{frames.set(++frameId,callback);return frameId},cancelAnimationFrame:id=>frames.delete(id),MutationObserver:class{observe(){}disconnect(){}takeRecords(){return[]}},IntersectionObserver:class{constructor(callback){this.callback=callback;observers.push(this)}observe(){}unobserve(){}disconnect(){}},getComputedStyle:()=>({getPropertyValue:()=>''}),fetch:async()=>{if(mode==='read-fail')throw Error('read failed');return{ok:true,json:async()=>structuredClone(persisted)}},toastr:{error:(...v)=>counters.errors.push(v),warning:(...v)=>counters.warnings.push(v),info:()=>{}}});
@@ -41,7 +41,7 @@ export async function fixture(sources, options = {}) {
  'draw-common.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js','confirmable-chat-save.js'
  ].map(f=>'export * from "./'+f+'";').join('\n'),resolveDir:fileURLToPath(new URL('../../', import.meta.url))},bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'host-boundary',setup(b){b.onResolve({filter:/\.js$/},({path:p})=>{const name=p.split('/').at(-1);return Object.hasOwn(stubs,name)?{path:name,namespace:'host'}:null});b.onLoad({filter:/.*/,namespace:'host'},({path:p})=>({contents:stubs[p]}));}}]});
  // eslint-disable-next-line no-unsanitized/method -- Only locally bundled source and fixed test stubs enter this module.
- const api=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text+'\n//# sourceURL=draw-journey-review-'+randomUUID()+'.mjs').toString('base64'));
+ const api=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text+'\n//# sourceURL=draw-journey-review-'+createIdentifier()+'.mjs').toString('base64'));
  api.registerPreparedImageProvider('review-provider', input=>api.submitPreparedChatImages({...input,metadata:input.tasks.map(t=>({tags:t.scene,positive:t.scene})),backend:false,run:async handlers=>{for(let index=0;index<input.tasks.length;index++){if(await handlers.onItemStarting({index})===false)continue;counters.requests.push({messageId:input.messageId,tags:input.tasks[index].scene});if(options.holdRequest)await new Promise(resolve=>{releaseRequest=resolve});await handlers.onItemReady({index,base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN3sAAAAASUVORK5CYII='});}}}));
  const body=id=>document.querySelector('.mes[mesid="'+id+'"] .mes_text');
  const settle=async(rounds=24)=>{for(let i=0;i<rounds;i++)await yieldLoop();};

@@ -39,6 +39,7 @@ export function createMapKernelHarness(initialMap = null) {
         async delete() { return 'deleted'; },
     };
     const chatReferences = {
+        hasPending: () => false,
         capture: () => structuredClone(state.capture),
         isCurrent: captured => captured.identityKey === state.capture.identityKey,
         async install(_captured, reference) {

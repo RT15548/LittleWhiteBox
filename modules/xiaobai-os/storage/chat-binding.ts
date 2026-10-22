@@ -1,6 +1,7 @@
 import type {
     CapturedChatBinding,
     ChatReferencePort,
+    ChatPersistence,
     KernelWriteFailure,
     SidecarRevision,
     XiaobaiOsChatBindingV1,
@@ -35,9 +36,9 @@ export interface ChatBindingManagerOptions {
 }
 
 export interface ChatBindingManager {
-    ensureCurrent(): Promise<ChatBindingResolution>;
-    resolveCurrent(): Promise<ChatBindingResolution>;
-    retryPendingCurrent(): Promise<ChatBindingResolution>;
+    ensureCurrent(options?: { chatPersistence?: ChatPersistence }): Promise<ChatBindingResolution>;
+    resolveCurrent(options?: { chatPersistence?: ChatPersistence }): Promise<ChatBindingResolution>;
+    retryPendingCurrent(options?: { chatPersistence?: ChatPersistence }): Promise<ChatBindingResolution>;
     handleChatDeleted(chatId: string, ownerLocator?: string): Promise<'deleted' | 'retained'>;
     handleCharacterRenamed(oldOwnerLocator: string, newOwnerLocator: string): Promise<void>;
 }
@@ -47,7 +48,6 @@ interface PendingNewSidecar {
     referenceCapture: CapturedChatBinding;
     candidate: XiaobaiOsSidecarV1;
     stage: 'replace' | 'reference';
-    referenceAttempted: boolean;
 }
 
 function failure(code: string, message: string, retryable: boolean): KernelWriteFailure {
@@ -83,34 +83,26 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
 
     async function finishReference(
         entry: PendingNewSidecar,
-        allowWrite: boolean,
+        chatPersistence: ChatPersistence,
     ): Promise<ChatBindingResolution> {
-        if (!allowWrite) {
-            try {
-                const persisted = await metadata.read(entry.capture.binding);
-                const actual = persisted ? readXiaobaiOsReference(persisted) : null;
-                if (actual?.osId === entry.candidate.osId) {
-                    pending.delete(entry.capture.identityKey);
-                    rememberBestEffort(entry.candidate.osId, entry.capture.binding);
-                    return { status: 'ready', envelope: entry.candidate, created: true };
-                }
-            } catch {
-                return { status: 'unconfirmed', osId: entry.candidate.osId };
-            }
-            return { status: 'unconfirmed', osId: entry.candidate.osId };
-        }
-        entry.referenceAttempted = true;
         const installed = await references.install(entry.referenceCapture, {
             formatVersion: 1,
             osId: entry.candidate.osId,
-        });
-        if (installed.status === 'confirmed') {
+        }, { chatPersistence });
+        if (installed.status === 'confirmed' || installed.status === 'deferred') {
             pending.delete(entry.capture.identityKey);
             rememberBestEffort(entry.candidate.osId, entry.capture.binding);
             return { status: 'ready', envelope: entry.candidate, created: true };
         }
-        if (installed.status === 'unconfirmed') { return { status: 'unconfirmed', osId: entry.candidate.osId }; }
         pending.delete(entry.capture.identityKey);
+        if (installed.applied) {
+            // The file is usable. Only the reference port retains the outstanding
+            // chat save; keeping this file candidate could restore an old revision.
+            rememberBestEffort(entry.candidate.osId, entry.capture.binding);
+            return installed.status === 'unconfirmed'
+                ? { status: 'unconfirmed', osId: entry.candidate.osId }
+                : { status: 'failed', error: installed.error };
+        }
         try {
             await storage.delete(entry.candidate.osId);
             await options.cleanupAttachments?.(entry.candidate.osId);
@@ -123,6 +115,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
     async function continuePending(
         entry: PendingNewSidecar,
         retry: boolean,
+        chatPersistence: ChatPersistence,
     ): Promise<ChatBindingResolution> {
         if (entry.stage === 'replace') {
             let observed: XiaobaiOsSidecarV1 | null;
@@ -148,19 +141,19 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
                 entry.stage = 'reference';
             }
         }
-        return await finishReference(entry, retry || !entry.referenceAttempted);
+        return await finishReference(entry, chatPersistence);
     }
 
     async function completeNewSidecar(
         capture: ChatMetadataCapture,
         candidate: XiaobaiOsSidecarV1,
+        chatPersistence: ChatPersistence,
     ): Promise<ChatBindingResolution> {
         const entry: PendingNewSidecar = {
             capture,
             referenceCapture: captureForReference(capture),
             candidate,
             stage: 'replace',
-            referenceAttempted: false,
         };
         const written = await storage.replace({ expected: null, candidate });
         if (written.status === 'failed') {
@@ -174,31 +167,13 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
                 : { status: 'unconfirmed', osId: candidate.osId };
         }
         entry.stage = 'reference';
-        entry.referenceAttempted = true;
-        const installed = await references.install(entry.referenceCapture, {
-            formatVersion: 1,
-            osId: candidate.osId,
-        });
-        if (installed.status === 'confirmed') {
-            rememberBestEffort(candidate.osId, capture.binding);
-            return { status: 'ready', envelope: candidate, created: true };
-        }
-        if (installed.status === 'unconfirmed') {
-            pending.set(capture.identityKey, entry);
-            return { status: 'unconfirmed', osId: candidate.osId };
-        }
-        try {
-            await storage.delete(candidate.osId);
-            await options.cleanupAttachments?.(candidate.osId);
-        } catch {
-            rememberBestEffort(candidate.osId, capture.binding);
-        }
-        return { status: 'failed', error: installed.error };
+        return await finishReference(entry, chatPersistence);
     }
 
     async function cloneForCurrent(
         capture: ChatMetadataCapture,
         source: XiaobaiOsSidecarV1,
+        chatPersistence: ChatPersistence,
     ): Promise<ChatBindingResolution> {
         const partitions = cloneJsonValue(source.partitions);
         const osId = createId();
@@ -211,7 +186,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
             commitId: createId(),
             partitions,
         };
-        return await completeNewSidecar(capture, candidate);
+        return await completeNewSidecar(capture, candidate, chatPersistence);
     }
 
     async function updateBinding(
@@ -239,6 +214,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
     async function resolveReferenced(
         capture: ChatMetadataCapture,
         osId: string,
+        chatPersistence: ChatPersistence,
     ): Promise<ChatBindingResolution> {
         let sidecar: XiaobaiOsSidecarV1 | null;
         try {
@@ -264,7 +240,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
         // A still-existing former owner proves this is a copied/imported chat. Absence proves a missed rename.
         try {
             const formerChat = await metadata.read(sidecar.binding);
-            if (formerChat !== null) { return await cloneForCurrent(capture, sidecar); }
+            if (formerChat !== null) { return await cloneForCurrent(capture, sidecar, chatPersistence); }
             return await updateBinding(capture, sidecar);
         } catch {
             return {
@@ -278,7 +254,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
         }
     }
 
-    async function resolveBranch(capture: ChatMetadataCapture): Promise<ChatBindingResolution> {
+    async function resolveBranch(capture: ChatMetadataCapture, chatPersistence: ChatPersistence): Promise<ChatBindingResolution> {
         const mainChatId = String(capture.mainChatId || '').trim();
         if (!mainChatId) { return { status: 'empty' }; }
         const parentBinding = { ...capture.binding, chatId: mainChatId };
@@ -315,7 +291,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
             if (!parentSidecar) {
                 return { status: 'failed', error: failure('branch_parent_missing', 'Branch parent sidecar is missing', true) };
             }
-            return await cloneForCurrent(capture, parentSidecar);
+            return await cloneForCurrent(capture, parentSidecar, chatPersistence);
         } catch (error) {
             return {
                 status: 'failed',
@@ -328,7 +304,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
         }
     }
 
-    async function resolveCurrent(): Promise<ChatBindingResolution> {
+    async function resolveCurrent({ chatPersistence = 'host' }: { chatPersistence?: ChatPersistence } = {}): Promise<ChatBindingResolution> {
         const capture = metadata.capture();
         if (!capture) {
             return { status: 'failed', error: failure('chat_unavailable', 'No chat is currently open', false) };
@@ -338,10 +314,15 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
             if (!sameBinding(pendingEntry.capture.binding, capture.binding)) {
                 return { status: 'conflict', error: failure('identity_conflict', 'Pending sidecar belongs to another chat', false) };
             }
-            return await continuePending(pendingEntry, false);
+            return await continuePending(pendingEntry, false, chatPersistence);
         }
         let reference;
         try {
+            const restored = await references.restorePending(captureForReference(capture), chatPersistence);
+            if (restored?.status === 'failed') { return { status: 'failed', error: restored.error }; }
+            if (restored?.status === 'unconfirmed') {
+                return { status: 'unconfirmed', osId: readXiaobaiOsReference(capture.metadata)!.osId };
+            }
             reference = readXiaobaiOsReference(capture.metadata);
         } catch (error) {
             return {
@@ -353,16 +334,16 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
                 ),
             };
         }
-        return reference ? await resolveReferenced(capture, reference.osId) : await resolveBranch(capture);
+        return reference ? await resolveReferenced(capture, reference.osId, chatPersistence) : await resolveBranch(capture, chatPersistence);
     }
 
-    async function retryPendingCurrent(): Promise<ChatBindingResolution> {
+    async function retryPendingCurrent({ chatPersistence = 'immediate' }: { chatPersistence?: ChatPersistence } = {}): Promise<ChatBindingResolution> {
         const capture = metadata.capture();
         if (!capture) {
             return { status: 'failed', error: failure('chat_unavailable', 'No chat is currently open', false) };
         }
         const entry = pending.get(capture.identityKey);
-        return entry ? await continuePending(entry, true) : await resolveCurrent();
+        return entry ? await continuePending(entry, true, chatPersistence) : await resolveCurrent({ chatPersistence });
     }
 
     async function handleChatDeleted(chatId: string, ownerLocator?: string): Promise<'deleted' | 'retained'> {
@@ -384,9 +365,9 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
         await index.updateOwner(oldOwnerLocator, newOwnerLocator);
     }
 
-    async function ensureCurrent(): Promise<ChatBindingResolution> {
+    async function ensureCurrent({ chatPersistence = 'immediate' }: { chatPersistence?: ChatPersistence } = {}): Promise<ChatBindingResolution> {
         const capture = metadata.capture();
-        const resolved = await resolveCurrent();
+        const resolved = await resolveCurrent({ chatPersistence });
         if (resolved.status !== 'empty' || !capture) { return resolved; }
         const referenceCapture = captureForReference(capture);
         const partitions = await options.prepareInitialPartitions?.(referenceCapture) ?? {};
@@ -394,7 +375,7 @@ export function createChatBindingManager(options: ChatBindingManagerOptions): Ch
             return { status: 'failed', error: failure('chat_changed', 'Chat changed while preparing its reference', true) };
         }
         return await completeNewSidecar(capture, { formatVersion: 1, osId: createId(), binding: { ...capture.binding },
-            revision: 0, commitId: createId(), partitions });
+            revision: 0, commitId: createId(), partitions }, chatPersistence);
     }
     return Object.freeze({ resolveCurrent, ensureCurrent, retryPendingCurrent, handleChatDeleted, handleCharacterRenamed });
 }

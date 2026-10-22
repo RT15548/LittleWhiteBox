@@ -1,0 +1,15 @@
+export const WORKSPACE_COPY = Object.freeze({
+    dirty: '有未保存的修改',
+    discardTitle: '放弃修改？',
+    discardDetail: '尚未保存的修改将丢失。',
+    discard: '放弃修改',
+    stay: '继续编辑',
+    noRollback: '当前没有可回退的总结。',
+    busy: '当前任务结束后可操作。',
+    back: '返回首页',
+    backParent: '返回上一层',
+    agentApi: '助手 · 共享 Agent API',
+    retry: '重新读取',
+    loading: '正在读取',
+    timeout: '请求超时，请重试',
+});

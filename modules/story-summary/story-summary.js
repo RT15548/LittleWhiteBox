@@ -10,6 +10,8 @@ import { handleTextApiRequest } from '../text-api/host.js';
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../extensions.js";
+import { loadSharedAgentSettings, saveSharedAgentSettings } from '../agent-core/settings-repository.js';
+import { pullModelsForProvider } from '../agent-core/model-list.js';
 import {
     event_types,
     extension_prompts,
@@ -3100,6 +3102,19 @@ async function handleFrameMessage(event) {
     if (!isTrustedMessage(event, iframe, "LittleWhiteBox-StoryFrame")) return;
 
     const data = event.data;
+    if (data.type === 'SUMMARY_AGENT_SETTINGS') {
+        try {
+            let result;
+            if (data.action === 'load') result = await loadSharedAgentSettings();
+            else if (data.action === 'save') result = await saveSharedAgentSettings(data.payload);
+            else if (data.action === 'models') result = await pullModelsForProvider(data.payload);
+            else throw new Error('Unknown Agent settings action');
+            postToFrame({ type: 'SUMMARY_AGENT_SETTINGS_RESULT', requestId: data.requestId, result });
+        } catch (error) {
+            postToFrame({ type: 'SUMMARY_AGENT_SETTINGS_RESULT', requestId: data.requestId, error: error.message });
+        }
+        return;
+    }
     if (data.type === 'TEXT_API_REQUEST') {
         await handleTextApiRequest(data, 'summary', postToFrame);
         return;

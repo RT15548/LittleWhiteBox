@@ -1,6 +1,7 @@
 import type {
     CapturedChatBinding,
     ChatReferencePort,
+    ChatPersistence,
     KernelWriteFailure,
     ReferenceInstallResult,
     XiaobaiOsChatBindingV1,
@@ -30,8 +31,8 @@ export interface ChatReferenceOptions {
 }
 
 export interface ChatReferenceInstallEffect {
-    apply(): void;
-    rollback(): void;
+    apply(metadata: ChatMetadata): void;
+    rollback(metadata: ChatMetadata): void;
     matches(metadata: ChatMetadata): boolean;
 }
 
@@ -131,7 +132,6 @@ export function createChatReferencePort(
     const pending = new Map<string, {
         captured: CapturedChatBinding;
         reference: XiaobaiOsReferenceV1;
-        previousExtensions: unknown;
         effect: ChatReferenceInstallEffect | null;
     }>();
 
@@ -166,15 +166,17 @@ export function createChatReferencePort(
     async function install(
         captured: CapturedChatBinding,
         reference: XiaobaiOsReferenceV1,
-        signal?: AbortSignal,
+        { signal, chatPersistence = 'immediate' }: { signal?: AbortSignal; chatPersistence?: ChatPersistence } = {},
     ): Promise<ReferenceInstallResult> {
+        const pendingInstall = pending.get(captured.identityKey);
+        const applied = captured.reference?.osId === reference.osId || pendingInstall?.reference.osId === reference.osId;
         const current = adapter.capture();
         if (
             !current
             || current.identityKey !== captured.identityKey
             || !sameBinding(current.binding, captured.binding)
         ) {
-            return { status: 'failed', error: failure('chat_changed', 'The active chat changed before reference save', true) };
+            return { status: 'failed', applied, error: failure('chat_changed', 'The active chat changed before reference save', true) };
         }
         let existing: XiaobaiOsReferenceV1 | null;
         try {
@@ -182,6 +184,7 @@ export function createChatReferencePort(
         } catch (error) {
             return {
                 status: 'failed',
+                applied,
                 error: failure(
                     'invalid_chat_metadata',
                     error instanceof Error ? error.message : 'Chat metadata is invalid',
@@ -189,13 +192,13 @@ export function createChatReferencePort(
                 ),
             };
         }
-        const pendingInstall = pending.get(captured.identityKey);
         if (existing?.osId === reference.osId && captured.reference?.osId === reference.osId && !pendingInstall) {
             return { status: 'confirmed' };
         }
         if (existing && existing.osId !== reference.osId && existing.osId !== captured.reference?.osId) {
             return {
                 status: 'failed',
+                applied,
                 error: failure('reference_conflict', 'The chat reference changed before it could be replaced', false),
             };
         }
@@ -203,24 +206,25 @@ export function createChatReferencePort(
         if (pendingInstall && pendingInstall.reference.osId !== reference.osId) {
             return {
                 status: 'failed',
+                applied,
                 error: failure('reference_conflict', 'Another chat reference save is still pending', false),
             };
         }
 
-        const previousExtensions = pendingInstall?.previousExtensions ?? (current.metadata.extensions === undefined
-            ? undefined
-            : structuredClone(current.metadata.extensions));
         let effect = pendingInstall?.effect ?? null;
         if (existing?.osId !== reference.osId) {
+            const previousExtensions = current.metadata.extensions === undefined
+                ? undefined : structuredClone(current.metadata.extensions);
             try {
                 effect ??= options.createInstallEffect?.(current) ?? null;
                 installReference(current.metadata, reference);
-                effect?.apply();
+                effect?.apply(current.metadata);
             } catch (error) {
-                effect?.rollback();
+                effect?.rollback(current.metadata);
                 restoreRoot(current.metadata, previousExtensions);
                 return {
                     status: 'failed',
+                    applied,
                     error: failure(
                         'invalid_chat_metadata',
                         error instanceof Error ? error.message : 'Could not install the sidecar reference',
@@ -230,15 +234,18 @@ export function createChatReferencePort(
             }
         }
         pending.set(captured.identityKey, {
-            captured: {
+            captured: pendingInstall?.captured ?? {
                 identityKey: captured.identityKey,
                 binding: { ...captured.binding },
                 reference: captured.reference ? { ...captured.reference } : null,
             },
             reference: { ...reference },
-            previousExtensions,
             effect,
         });
+
+        // The file is already durable. Publish its reference without starting or
+        // waiting for a chat save; a later ordinary host save carries this metadata.
+        if (chatPersistence === 'host') { return { status: 'deferred' }; }
 
         let saveError: unknown;
         try {
@@ -256,11 +263,11 @@ export function createChatReferencePort(
             saveError = error;
         }
         if (saveError && isExplicitFailure(saveError)) {
-            effect?.rollback();
-            restoreRoot(current.metadata, previousExtensions);
-            pending.delete(captured.identityKey);
+            // Publishing the reference ends rollback ownership. Other file
+            // transactions may already use it, even while this save is in flight.
             return {
                 status: 'failed',
+                applied: true,
                 error: failure(
                     'reference_save_failed',
                     saveError instanceof Error ? saveError.message : 'Chat reference save failed',
@@ -281,6 +288,7 @@ export function createChatReferencePort(
         }
         return {
             status: 'unconfirmed',
+            applied: true,
             error: failure('reference_save_unconfirmed', 'Could not confirm the saved chat reference', true),
         };
     }
@@ -288,6 +296,14 @@ export function createChatReferencePort(
     return Object.freeze({
         capture,
         isCurrent,
+        hasPending: (captured: CapturedChatBinding) => pending.has(captured.identityKey),
+        async restorePending(captured: CapturedChatBinding, chatPersistence: ChatPersistence) {
+            const entry = pending.get(captured.identityKey);
+            if (!entry || !sameBinding(entry.captured.binding, captured.binding)) { return null; }
+            // Use the original baseline, not the reloaded reference: a genuinely
+            // different reference must still fail the install conflict check.
+            return await install(entry.captured, entry.reference, { chatPersistence });
+        },
         install,
         recordOrphan: options.recordOrphan,
         recordReference: options.recordReference,

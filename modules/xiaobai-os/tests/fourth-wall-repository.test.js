@@ -49,6 +49,7 @@ function createHarness({ upgradeSource } = {}) {
         },
     };
     const chatReferences = {
+        hasPending: () => false,
         capture: () => structuredClone(captures[state.current]),
         isCurrent: captured => captured.identityKey === captures[state.current].identityKey,
         async install(captured, reference) {

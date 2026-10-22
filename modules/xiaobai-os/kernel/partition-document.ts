@@ -40,7 +40,7 @@ export function createPartitionDocument<T>(store: PartitionStore<T>, registratio
                 if (jsonValuesEqual(candidate, expected.value)) { return expected.value; }
                 transaction.replace(next);
                 return next;
-            }, { commitGuard: valid });
+            }, { chatPersistence: 'immediate', commitGuard: valid });
         },
     };
 }

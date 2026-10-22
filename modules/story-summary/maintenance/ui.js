@@ -6,13 +6,13 @@ import { reportMarkdown } from './report-markdown.js';
 import { createMemoryChatDialog } from './chat-ui.js';
 import { MEMORY_CHAT_COPY as chatCopy, memoryChatErrorText } from './chat-copy.js';
 
-export function createMemoryMaintenancePage(root, send, { close: onExit } = {}) {
+export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     let chatId = null;
     let next = null;
     let runIds = [];
     let requestSequence = 0;
     let sourceRequest = null;
-    const chat = createMemoryChatDialog({ send, onExit });
+    const chat = createMemoryChatDialog({ send });
     const authorization = element('section', 'memory-settings');
     const label = element('label', 'memory-authorization');
     const toggle = element('input');
@@ -20,8 +20,7 @@ export function createMemoryMaintenancePage(root, send, { close: onExit } = {}) 
     toggle.id = 'memory-maintenance-enabled';
     toggle.setAttribute('role', 'switch');
     label.append(element('span', 'memory-authorization-title', copy.toggle), element('small', '', copy.scope), toggle);
-    const api = disclosure(copy.apiHeading, 'memory-api');
-    api.append(element('p', '', copy.api));
+    const api = button(copy.apiHeading, () => openApi(), 'memory-button memory-api');
     const settingsState = element('p', 'memory-settings-state');
     settingsState.setAttribute('role', 'status');
     authorization.append(label, element('p', 'memory-hint', copy.behavior), api, settingsState);

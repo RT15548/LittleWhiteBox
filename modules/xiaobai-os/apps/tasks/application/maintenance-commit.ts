@@ -1,4 +1,5 @@
 import type { EconomyTransactionCapability } from '../../../capabilities/economy/index.js';
+import type { ChatPersistence } from '../../../kernel/contracts.js';
 import { completeTask, failTask, progressTask } from '../../../domains/tasks/commands/maintenance.js';
 import type { TaskCommandResult, TaskDomainV1 } from '../../../domains/tasks/types.js';
 import { postTaskEconomyEvent } from './economy-protocol.js';
@@ -32,7 +33,7 @@ function applyCommand(
 }
 
 export function createTaskMaintenanceCommit(context: TaskApplicationContext) {
-    return async function commitMaintenance(input: MaintenanceCommitRequest, guard: CommitGuard) {
+    return async function commitMaintenance(input: MaintenanceCommitRequest, guard: CommitGuard, chatPersistence: ChatPersistence = 'immediate') {
         if (!Array.isArray(input.commands) || !Array.isArray(input.checkedTasks)
             || typeof input.evidenceDigest !== 'string') {throw new TypeError('Invalid task maintenance commit');}
         if (new Set(input.commands.map(command => command.taskId)).size !== input.commands.length) {
@@ -79,6 +80,6 @@ export function createTaskMaintenanceCommit(context: TaskApplicationContext) {
                 staleTaskIds,
                 ...(lastRecord ? { record: lastRecord } : {}),
             };
-        });
+        }, chatPersistence);
     };
 }

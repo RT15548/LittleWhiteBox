@@ -1,4 +1,4 @@
-import type { PartitionStore, XiaobaiOsFileControls, XiaobaiOsFileState } from '../../../kernel/contracts.js';
+import type { ChatPersistence, PartitionStore, XiaobaiOsFileControls, XiaobaiOsFileState } from '../../../kernel/contracts.js';
 import { parseWorld, parseWorldContent } from '../../../domains/world/invariants.js';
 import { worldContent } from '../../../domains/world/projection.js';
 import { createEmptyWorld, sameWorldContent, type WorldContent, type WorldDomain } from '../../../domains/world/types.js';
@@ -35,7 +35,7 @@ export function createWorldService(
             writeState: files.getFileState(), pendingSave: files.hasPendingCommit() };
     }
 
-    async function change(identityKey: string, update: (current: WorldDomain) => WorldDomain, guard: () => boolean) {
+    async function change(identityKey: string, update: (current: WorldDomain) => WorldDomain, guard: () => boolean, chatPersistence: ChatPersistence) {
         const valid = () => !!identityKey && store.peekCurrent()?.identityKey === identityKey && guard();
         if (!valid()) { throw new Error('world_context_changed'); }
         const result = await store.transact(transaction => {
@@ -43,7 +43,7 @@ export function createWorldService(
             const current = transaction.currentOrInitial();
             const next = parseWorld(update(current));
             if (!sameWorldContent(current, next)) { transaction.replace(next); }
-        }, { commitGuard: valid });
+        }, { commitGuard: valid, chatPersistence });
         if (result.status === 'failed' || result.status === 'unconfirmed' || result.status === 'conflict') {
             throw Object.assign(new Error(`world_save_${result.status}`), {
                 code: result.status === 'failed' ? result.error.code : result.status === 'unconfirmed' ? 'SAVE_UNCONFIRMED' : 'SAVE_CONFLICT',
@@ -57,12 +57,12 @@ export function createWorldService(
         document: createPartitionDocument(store, WORLD_PARTITION),
         readCurrent,
         async refreshCurrent() { await store.read(); return readCurrent(); },
-        replaceContent(identityKey: string, expected: WorldContent, candidate: WorldContent, guard: () => boolean) {
+        replaceContent(identityKey: string, expected: WorldContent, candidate: WorldContent, guard: () => boolean, chatPersistence: ChatPersistence = 'immediate') {
             const replacement = parseWorldContent(candidate);
             return change(identityKey, current => {
                 if (!sameWorldContent(worldContent(current), expected)) { throw new Error('world_content_conflict'); }
                 return { ...current, ...replacement };
-            }, guard);
+            }, guard, chatPersistence);
         },
         confirmPending: (guard?: () => boolean) => files.retryPending({ beforeRetry: guard }),
         adoptServerState: files.adoptServerState,

@@ -126,7 +126,8 @@ export function createMapMaintenanceSession(
             };
             guard();
             try {
-                const result = await map.replaceCurrent(staged, { expectedRevision, beforeCommit: guard });
+                const result = await map.replaceCurrent(staged, { expectedRevision, beforeCommit: guard,
+                    chatPersistence: mode === 'automatic' ? 'host' : 'immediate' });
                 committed = true;
                 return result;
             } catch (error) {

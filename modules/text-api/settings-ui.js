@@ -1,4 +1,5 @@
 import './settings-ui.css';
+import { createIdentifier } from '../../shared/common/identifier.js';
 import { buildPresetActionIcon } from '../agent-core/ui/settings-markup.js';
 import { PROVIDER_OPTIONS } from '../agent-core/provider-resolution.js';
 import { samplingParametersFor } from '../agent-core/sampling.js';
@@ -32,7 +33,7 @@ export function mountTextApiSettings(root, { feature, namespace }) {
     }
     function feedback(text, error = false) { status.textContent = text; status.dataset.error = String(error); }
     function request(action, extra = {}) {
-        const requestId = crypto.randomUUID();
+        const requestId = createIdentifier();
         return new Promise((resolve, reject) => {
             const timer = win.setTimeout(() => { requests.delete(requestId); reject(new Error(COPY.timeout)); }, 190000);
             requests.set(requestId, { resolve, reject, timer, action });
@@ -94,7 +95,7 @@ export function mountTextApiSettings(root, { feature, namespace }) {
     async function add() {
         const name = win.prompt(COPY.name, draft ? `${draft.name} 副本` : COPY.title);
         if (!name?.trim()) return;
-        await mutate({ type: 'add', id: crypto.randomUUID(), afterId: selected, name, preset: draft || createPreset('', '') });
+        await mutate({ type: 'add', id: createIdentifier(), afterId: selected, name, preset: draft || createPreset('', '') });
     }
     async function rename() {
         const saved = settings.presets.find(preset => preset.id === selected);

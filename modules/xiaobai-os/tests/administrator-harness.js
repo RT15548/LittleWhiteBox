@@ -49,7 +49,7 @@ export async function administratorHarness(initial = {}, { fresh = false } = {})
     for (const registration of [...capabilities.partitions(), ADMINISTRATOR_PARTITION, TASKS_PARTITION, MAP_PARTITION, WORLD_PARTITION]) { partitions.register(registration); }
     const coordinator = createTransactionCoordinator({ partitions, capabilityBinder: capabilities, createId: () => `test-${++id}`,
         storage: { async read() { return structuredClone(state.persisted); }, async replace(input) { state.writes.push(structuredClone(input)); if (state.replace) { return state.replace(input); } state.persisted = structuredClone(input.candidate); return { status: 'confirmed' }; }, async delete() { return 'deleted'; } },
-        chatReferences: { capture: () => structuredClone(state.capture), isCurrent: captured => captured.identityKey === state.capture.identityKey,
+        chatReferences: { hasPending: () => false, capture: () => structuredClone(state.capture), isCurrent: captured => captured.identityKey === state.capture.identityKey,
             async install(_, reference) { state.capture.reference = reference; return { status: 'confirmed' }; } },
     });
     await capabilities.install({ createStore: (registration, allowedCapabilities) => coordinator.createScopedStore(registration, { allowedCapabilities }), files: coordinator });

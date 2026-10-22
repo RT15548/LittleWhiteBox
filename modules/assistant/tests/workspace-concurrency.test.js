@@ -1,3 +1,4 @@
+import { createIdentifier } from '../../../shared/common/identifier.js';
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +35,7 @@ const content = (sources, path = fileA) => findLocalFileByPath(sources, path)?.f
 
 async function setup(t) {
     t.mock.method(console, 'info', () => {});
-    const name = `workspace-contract-${crypto.randomUUID()}`;
+    const name = `workspace-contract-${createIdentifier()}`;
     const a = new Dexie(name), b = new Dexie(name);
     for (const database of [a, b]) database.version(1).stores({ workspace: 'id' });
     await a.open(); await b.open();
@@ -122,7 +123,7 @@ function editorWindow(t, repository, sources = initial, { beforeReceipt, timeout
     const runtime = createLocalSourcesToolRuntime({ repository, getLocalSources: () => cache, setLocalSources: value => { cache = value; }, normalizeLocalSourcesSnapshot: normalizeLocalSources, executeToolCall });
     const pending = new Map();
     const active = new Map();
-    const controller = createHostToolRequestController({ state, pendingToolCalls: pending, createRequestId: () => crypto.randomUUID(), REQUEST_TIMEOUT_MS: timeout,
+    const controller = createHostToolRequestController({ state, pendingToolCalls: pending, createRequestId: () => createIdentifier(), REQUEST_TIMEOUT_MS: timeout,
         flushBeforeToolCall: options => manager.flushPendingWorkspaceChanges(options),
         post: (type, payload) => {
             if (type === 'xb-assistant:tool-abort') { active.get(payload.requestId)?.abort(); return; }
@@ -142,7 +143,7 @@ function editorWindow(t, repository, sources = initial, { beforeReceipt, timeout
             }, error => pending.get(payload.requestId)?.reject(error)).finally(() => active.delete(payload.requestId));
         },
     });
-    const manager = createLocalSourcesManager({ state, createRequestId: () => crypto.randomUUID(), persistWorkspaceUiState: async () => ({ ok: true }), callHostTool: controller.callHostTool });
+    const manager = createLocalSourcesManager({ state, createRequestId: () => createIdentifier(), persistWorkspaceUiState: async () => ({ ok: true }), callHostTool: controller.callHostTool });
     return { state, manager, controller, runtime, pending };
 }
 

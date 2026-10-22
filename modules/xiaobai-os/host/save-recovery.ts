@@ -23,7 +23,7 @@ export function startSaveRecovery(files: XiaobaiOsFileControls): () => void {
         try {
             // The coordinator reads back first, preserves commit IDs and rechecks
             // the original owner's guard before sending the same candidate again.
-            await files.retryPending({ beforeRetry: () => !stopped });
+            await files.retryPending({ chatPersistence: 'host', beforeRetry: () => !stopped });
         } catch (error) {
             console.debug('[Xiaobai OS] Background save recovery', error);
         } finally {

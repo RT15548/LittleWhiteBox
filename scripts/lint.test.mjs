@@ -37,6 +37,23 @@ for (const [file, wrap] of [
         const [accepted] = await eslint.lintText(wrap(safe), { filePath: file });
         assert.deepEqual(accepted.messages, []);
     });
+    // Contract: an unsupported UUID API must fail lint in every source format,
+    // including new modules outside Phone OS (cost: broken pages on LAN HTTP).
+    test(`the root lint rejects randomUUID in ${file}`, async () => {
+        for (const source of [
+            'crypto.randomUUID();',
+            'window.crypto.randomUUID();',
+            'globalThis.crypto?.randomUUID?.();',
+            'crypto["randomUUID"]();',
+            'const { randomUUID: makeId } = crypto; makeId();',
+        ]) {
+            const [result] = await eslint.lintText(wrap(source), { filePath: file });
+            assert.ok(result.messages.some(message => message.ruleId === 'no-restricted-properties' && message.severity === 2), source);
+            assert.ok(result.errorCount > 0);
+        }
+        const [accepted] = await eslint.lintText(wrap('crypto.getRandomValues(new Uint8Array(16));'), { filePath: file });
+        assert.deepEqual(accepted.messages, []);
+    });
 }
 
 test('typed scripts and Vue reject Promise callbacks passed to void-only APIs', async () => {

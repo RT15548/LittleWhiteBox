@@ -101,6 +101,28 @@ function createHarness(metadata, chatId) {
     return { coordinator, importer, references, state, store: coordinator.createScopedStore(registration) };
 }
 
+// Acceptance (data loss): a reload before host persistence must reapply both
+// reference and legacy removal to the new metadata object, without reimporting.
+test('pending upstream import is restored on reloaded metadata without rewriting its file', async () => {
+    const metadata = await loadFixture('upstream-fourth-wall-chat-sessions.json');
+    const h = createHarness(metadata, 'character-chat-a');
+    await h.store.transact(tx => tx.replace({ schemaVersion: 1, value: 'saved' }), { chatPersistence: 'host' });
+    const reference = h.references.capture().reference;
+    const partition = structuredClone(h.state.files.get(reference.osId).partitions.fourthWall);
+    h.state.metadata = structuredClone(h.state.persistedHeader);
+    h.state.metadata.unrelated = { keep: true };
+    assert.equal((await h.references.restorePending(h.references.capture(), 'host')).status, 'deferred');
+    assert.deepEqual(h.references.capture().reference, reference);
+    assert.equal(h.importer.readCurrentPartition(), null);
+    assert.deepEqual(h.state.metadata.unrelated, { keep: true });
+    assert.deepEqual(h.state.files.get(reference.osId).partitions.fourthWall, partition);
+    assert.equal(h.state.writes.length, 1);
+    assert.equal(h.state.saveCalls, 0);
+    assert.equal((await h.references.restorePending(h.references.capture(), 'immediate')).status, 'confirmed');
+    assert.equal(h.state.saveCalls, 1);
+    assert.deepEqual(h.state.persistedHeader, h.state.metadata);
+});
+
 test('converts the upstream sessions fixture into the frozen Fourth Wall partition', async () => {
     const metadata = await loadFixture('upstream-fourth-wall-chat-sessions.json');
     const partition = convertUpstreamFourthWall(
@@ -163,7 +185,7 @@ test('the first unrelated APP write imports Fourth Wall in one candidate and one
     assert.equal(harness.references.capture().reference.osId, harness.state.writes[0].candidate.osId);
 });
 
-test('an explicit metadata failure restores upstream data and removes the orphan candidate', async () => {
+test('an explicit chat save failure preserves the published converted data and leaves its file usable', async () => {
     const metadata = await loadFixture('upstream-fourth-wall-chat-sessions.json');
     const before = structuredClone(metadata);
     const harness = createHarness(metadata, 'character-chat-a');
@@ -174,9 +196,33 @@ test('an explicit metadata failure restores upstream data and removes the orphan
 
     assert.equal(result.status, 'failed');
     assert.equal(result.error.code, 'reference_install_failed');
-    assert.deepEqual(metadata, before);
-    assert.deepEqual(harness.state.deleted, [harness.state.writes[0].candidate.osId]);
-    assert.equal(harness.state.files.size, 0);
+    assert.deepEqual(harness.state.persistedHeader, before);
+    assert.equal(metadata['character-chat-a'].extensions.LittleWhiteBox.fw, undefined);
+    assert.deepEqual(harness.state.deleted, []);
+    assert.equal(harness.state.files.size, 1);
+    assert.equal(harness.coordinator.getFileState(), 'ready');
+    assert.equal(harness.coordinator.hasPendingCommit(), false);
+    assert.ok(harness.state.writes[0].candidate.partitions.fourthWall);
+});
+
+test('automatic first write imports Fourth Wall without saving chat; the host carries reference and cleanup together', async () => {
+    const metadata = await loadFixture('upstream-fourth-wall-chat-sessions.json');
+    const harness = createHarness(metadata, 'character-chat-a');
+    const original = structuredClone(metadata);
+    const result = await harness.store.transact(transaction => {
+        transaction.replace({ schemaVersion: 1, value: 'automatic' });
+    }, { chatPersistence: 'host' });
+    assert.equal(result.status, 'confirmed');
+    assert.equal(harness.state.saveCalls, 0);
+    assert.equal(harness.state.writes.length, 1);
+    assert.deepEqual(harness.state.persistedHeader, original);
+    assert.equal(metadata['character-chat-a'].extensions.LittleWhiteBox.fw, undefined);
+    assert.ok(harness.state.writes[0].candidate.partitions.fourthWall);
+    harness.state.persistedHeader = structuredClone(metadata);
+    const reference = harness.references.capture().reference;
+    assert.equal((await harness.references.install(harness.references.capture(), reference)).status, 'confirmed');
+    assert.equal(harness.state.saveCalls, 0);
+    assert.deepEqual(harness.state.deleted, []);
 });
 
 test('an unknown metadata result confirms by header without creating another sidecar identity', async () => {

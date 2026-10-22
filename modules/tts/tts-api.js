@@ -1,4 +1,5 @@
-﻿/**
+import { createIdentifier } from '../../shared/common/identifier.js';
+/**
  * 火山引擎 TTS API 封装
  * V3 单向流式 + V1试用
  */
@@ -328,7 +329,7 @@ export async function synthesizeFreeV1(params, options = {}) {
         text: String(text || ''),
         speed: Number(speed) || 1.0,
         uid: 'xb_' + Date.now(),
-        reqid: crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        reqid: createIdentifier(),
     };
 
     if (emotion) {

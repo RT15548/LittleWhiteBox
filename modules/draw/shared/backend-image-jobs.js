@@ -1,3 +1,4 @@
+import { createIdentifier } from '../../../shared/common/identifier.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 
@@ -241,8 +242,7 @@ export function createImageBackendJobsClient({
     requestTimeout = DEFAULT_REQUEST_TIMEOUT,
     maxConsecutiveRetries = DEFAULT_MAX_CONSECUTIVE_RETRIES,
     maxRetryDelay = DEFAULT_MAX_RETRY_DELAY,
-    createRequestId = () => globalThis.crypto?.randomUUID?.()
-        || `job-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    createRequestId = createIdentifier,
 } = {}) {
     if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
     const retryLimit = Math.max(0, Math.floor(Number(maxConsecutiveRetries) || 0));

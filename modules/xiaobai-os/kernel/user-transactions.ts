@@ -1,4 +1,4 @@
-import type { CapabilityToken, CapabilityTransactionAccess, CapturedChatBinding, ChatReferencePort, JsonUserFilePort, KernelWriteFailure, PartitionRegistration,
+import type { CapabilityToken, CapabilityTransactionAccess, CapturedChatBinding, ChatReferencePort, ChatPersistence, JsonUserFilePort, KernelWriteFailure, PartitionRegistration,
     PartitionSnapshot, PartitionStore, PendingCommitRecoveryOptions, PendingCommitRecoveryResult, ScopedTransaction,
     ScopedTransactionResult, TransactionOptions, XiaobaiOsFileControls, XiaobaiOsFileState, XiaobaiOsFileStateChange } from './contracts.js';
 import { cloneJsonValue } from './envelope.js';
@@ -53,7 +53,7 @@ export function createUserTransactions(options: {
     partitions: XiaobaiOsPartitionRegistry;
     binder: TransactionCapabilityBinder;
     references: ChatReferencePort;
-    resolveStory(write: boolean): Promise<CapturedChatBinding>;
+    resolveStory(write: boolean, chatPersistence?: ChatPersistence): Promise<CapturedChatBinding>;
     initialPartitions(): Promise<Record<string, unknown>>;
     createId?: () => string;
 }): UserTransactions {
@@ -215,7 +215,7 @@ export function createUserTransactions(options: {
                 const guard = async () => await commitGuard() && await bindingGuard();
                 if (!await guard()) { return { status: 'failed', error: changed() }; }
                 await prepare();
-                const current = storyOwned ? await options.resolveStory(true) : null;
+                const current = storyOwned ? await options.resolveStory(true, transactionOptions.chatPersistence ?? 'immediate') : null;
                 if (storyOwned && current?.identityKey === requested?.identityKey && !requested?.reference) { requested = current; }
                 if (!await guard()) { return { status: 'failed', error: changed() }; }
                 const scope = current?.reference?.osId;

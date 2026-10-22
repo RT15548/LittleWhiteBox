@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { entry, uiEntry } from './helpers/story-summary-entry.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import { ARCHIVE_COPY } from '../archive-view.js';
+import { WORKSPACE_COPY } from '../workspace-copy.js';
 
 // Acceptance: a failed run cannot revoke retry/hiding or strand cancellation.
 // Cost: unusable summaries and repeated model requests. Execute real handlers.
@@ -17,7 +18,8 @@ function panel() {
     };
     const ui = uiEntry(['canUseCurrentChatControls', 'syncCurrentChatSummaryControls', 'syncVectorBoundaryControl', 'renderSummaryStatus',
         'bindSummaryActions', 'handleParentMessage'], {
-        $, SUMMARY_FEEDBACK_COPY, ARCHIVE_COPY, PARENT_ORIGIN: 'test', window: { parent }, document: { activeElement: null },
+        $, SUMMARY_FEEDBACK_COPY, ARCHIVE_COPY, WORKSPACE_COPY, PARENT_ORIGIN: 'test', window: { parent }, document: { activeElement: null },
+        cleanActionState: { canRollback: false }, isBusyLike: () => false,
         currentChatSummaryState: {}, summaryStatusId: 0, localGenerating: false,
         config: { api: {}, gen: {}, trigger: {}, vector: { enabled: true }, ui: { hideSummarized: true } },
         postMsg: (type, data) => messages.push({ type, ...data }),
@@ -49,7 +51,7 @@ for (const state of [{ hasChat: false }, { effectiveEnabled: false }, { changing
     test(`running stop remains operable while controls are unavailable: ${JSON.stringify(state)}`, () => {
         const p = panel(); p.state(state);
         assert.equal(p.$('btn-generate').disabled, true);
-        assert.equal(p.$('hide-summarized').disabled, true);
+        assert.equal(p.$('hide-summarized').disabled, false); // Global settings remain editable without a current chat.
         p.send({ type: 'GENERATION_STATE', isGenerating: true });
         assert.equal(p.$('btn-generate').disabled, false);
         p.$('btn-generate').onclick();

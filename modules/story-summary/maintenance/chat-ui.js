@@ -8,7 +8,7 @@ const formatTokens = value => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : 
 const formatRanges = ranges => ranges.map(range => copy.floorRange(range.from, range.to)).join('、') || copy.none;
 
 /** UI only: the host owns conversation, work and identity; closing is not cancellation. */
-export function createMemoryChatDialog({ send, root = document.body, onExit }) {
+export function createMemoryChatDialog({ send, root = document.body }) {
     let state = null, chatId = null, identity = null, composing = false, ownsDraft = false;
     let draftTimer = null, pendingSend = null, followLatest = true, readingAnchor = null;
     let disposed = false;
@@ -37,9 +37,7 @@ export function createMemoryChatDialog({ send, root = document.body, onExit }) {
     }, 'clear');
     // Inline SVG is static presentation, never model content.
     clear.replaceChildren(trashIcon());
-    const closeButton = iconButton('', copy.close, () => { close(); onExit?.(); }, 'close');
-    closeButton.replaceChildren(lineIcon('M6 6l12 12M6 18L18 6'));
-    actions.append(contextButton, clear, closeButton);
+    actions.append(contextButton, clear);
     header.append(back, heading, actions);
     const context = element('section', 'memory-chat-context-popover');
     context.hidden = true;

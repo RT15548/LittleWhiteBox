@@ -1,4 +1,6 @@
 import { mountTextApiSettings } from '../text-api/settings-ui.js';
+import { WORKSPACE_COPY } from './workspace-copy.js';
+import { createSummaryAgentSettings } from './maintenance/api-settings.js';
 // story-summary-ui.js
 // iframe 内 UI 逻辑
 
@@ -20,6 +22,13 @@ const UNANNOTATED_LABEL = '未标注';
     'use strict';
     let memoryMaintenancePage;
     let archiveView;
+    let settingsDirty = false;
+    let settingsSnapshot;
+    let agentSettings;
+    let settingsPage = 'tab-summary';
+    let settingsSaving = false;
+    const settingsScroll = new Map();
+    let agentSettingsParent = 'tab-agent';
     const textApiEditor = mountTextApiSettings(document.getElementById('summary-text-api'), { feature: 'summary', namespace: 'LittleWhiteBox-StoryFrame' });
 
     function formatVectorPackageCounts(result) {
@@ -406,9 +415,6 @@ const UNANNOTATED_LABEL = '未标注';
         const retry = $('settings-config-retry');
         retry.textContent = SUMMARY_FEEDBACK_COPY.configLoad.retry;
         retry.hidden = status !== 'error';
-        for (const prefix of ['l0', 'embedding', 'rerank']) {
-            $(`${prefix}-btn-save`).disabled = status !== 'ready';
-        }
         resetSettingsSaveUi();
     }
 
@@ -500,11 +506,12 @@ const UNANNOTATED_LABEL = '未标注';
                 : changing ? copy.changing : !effectiveEnabled ? copy.disabled : '';
         }
 
-        for (const id of ['hide-summarized', 'keep-visible-count', 'use-vector-boundary']) {
-            const control = $(id);
-            if (control) control.disabled = !controlsEnabled;
-        }
-        syncVectorBoundaryControl(config.vector?.enabled, controlsEnabled && config.ui.hideSummarized);
+        syncVectorBoundaryControl($('vector-enabled').checked, $('hide-summarized').checked);
+        const busy = isBusyLike();
+        $('workspace-rollback').disabled = busy || !cleanActionState.canRollback;
+        $('workspace-rollback').title = busy ? WORKSPACE_COPY.busy : cleanActionState.canRollback ? '' : WORKSPACE_COPY.noRollback;
+        $('workspace-clear').disabled = busy;
+        $('workspace-clear').title = busy ? WORKSPACE_COPY.busy : '';
     }
 
     function renderSummaryStatus(data) {
@@ -556,8 +563,7 @@ const UNANNOTATED_LABEL = '未标注';
         const container = $('container-vector-boundary');
         if (!input || !label || !container) return;
 
-        const enabled = canUseCurrentChatControls() && !!vectorEnabled && !!hideEnabled;
-        input.checked = config.ui.useVectorBoundary !== false;
+        const enabled = !!vectorEnabled && !!hideEnabled;
         input.disabled = !enabled;
         container.classList.toggle('is-disabled', !enabled);
         label.classList.toggle('is-disabled', !enabled);
@@ -600,10 +606,11 @@ const UNANNOTATED_LABEL = '未标注';
     function applyConfig(cfg) {
         if (!cfg) return;
         config.memoryMaintenanceEnabled = cfg.memoryMaintenanceEnabled === true;
-        memoryMaintenancePage?.setEnabled(config.memoryMaintenanceEnabled);
+        if (!settingsDirty) memoryMaintenancePage?.setEnabled(config.memoryMaintenanceEnabled);
         Object.assign(config.trigger, cfg.trigger || {});
         Object.assign(config.ui, cfg.ui || {});
         config.ui.useVectorBoundary = cfg.ui?.useVectorBoundary !== false;
+        if (!settingsDirty) $('use-vector-boundary').checked = config.ui.useVectorBoundary;
         config.prompts.memoryTemplate = String(cfg.prompts?.memoryTemplate || config.prompts.memoryTemplate || '').trim();
         config.textFilterRules = Array.isArray(cfg.textFilterRules)
             ? cfg.textFilterRules
@@ -764,15 +771,6 @@ const UNANNOTATED_LABEL = '未标注';
         $(`${prefix}-api-model-select`).value = cache.includes(profile.model) ? profile.model : '';
     }
 
-    async function saveVectorApiSection(prefix) {
-        saveCurrentVectorApiProfile(prefix);
-        await saveConfig({
-            statusId: `${prefix}-api-connect-status`,
-            loadingMessage: '保存中...',
-            successMessage: '此组配置已保存',
-        });
-    }
-
     async function fetchVectorModels(prefix) {
         const provider = $(`${prefix}-api-provider`).value;
         const pv = VECTOR_PROVIDER_DEFAULTS[provider] || VECTOR_PROVIDER_DEFAULTS.custom;
@@ -879,6 +877,7 @@ const UNANNOTATED_LABEL = '未标注';
             btn.onclick = () => {
                 btn.closest('.filter-rule-item')?.remove();
                 updateFilterRulesCount();
+                markSettingsDirty();
             };
         });
 
@@ -919,9 +918,11 @@ const UNANNOTATED_LABEL = '未标注';
         div.querySelector('.btn-del-rule').onclick = () => {
             div.remove();
             updateFilterRulesCount();
+            markSettingsDirty();
         };
         list.appendChild(div);
         updateFilterRulesCount();
+        markSettingsDirty();
     }
 
     function updateFilterRulesCount() {
@@ -1096,7 +1097,6 @@ const UNANNOTATED_LABEL = '未标注';
                     updateVectorOnlineStatus(prefix, 'idle', '');
                 });
             }
-            $(`${prefix}-btn-save`).onclick = () => saveVectorApiSection(prefix);
             $(`${prefix}-btn-test`).onclick = () => {
                 const btn = $(`${prefix}-btn-test`);
                 if (btn) btn.disabled = true;
@@ -1206,13 +1206,38 @@ const UNANNOTATED_LABEL = '未标注';
     // ═══════════════════════════════════════════════════════════════════════════
 
     function selectSettingsTab(targetId) {
-        $$('.settings-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === targetId));
+        settingsScroll.set(settingsPage, $('settings-modal').scrollTop);
+        settingsPage = targetId;
+        $$('.settings-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === targetId);
+            if (tab.dataset.tab === targetId) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+        });
         $$('.tab-pane').forEach(pane => pane.classList.toggle('active', pane.id === targetId));
-        if (targetId === 'tab-debug') postMsg('REQUEST_RECALL_LOG');
+        const tab = document.querySelector(`.settings-tab[data-tab="${targetId}"]`);
+        const childPage = $(targetId).dataset.parent;
+        const assistant = targetId === 'tab-agent' || targetId === 'tab-agent-api';
+        $('settings-modal').classList.toggle('assistant-page', assistant);
+        $('settings-modal').classList.toggle('workspace-local', !!childPage);
+        $('assistant-page-title').hidden = false;
+        $('assistant-page-title').textContent = childPage ? $(targetId).dataset.title : targetId === 'tab-agent-api' ? WORKSPACE_COPY.agentApi : assistant ? MEMORY_COPY.tab : tab.textContent;
+        $('settings-close').setAttribute('aria-label', childPage || targetId === 'tab-agent-api' ? WORKSPACE_COPY.backParent : WORKSPACE_COPY.back);
+        $$('.settings-tab').forEach(item => { item.hidden = !!childPage || assistant || item.dataset.family !== tab.dataset.family; });
+        $('settings-save').parentElement.hidden = ['tab-agent-api', 'tab-models', 'tab-appearance', 'tab-transfer', 'tab-backups', 'tab-clear', 'tab-guide'].includes(targetId);
+        if (targetId === 'tab-vector') postMsg('REQUEST_RECALL_LOG');
         if (targetId === 'tab-agent') memoryMaintenancePage.open();
+        if (targetId === 'tab-agent-api') void agentSettings.open();
+        if (targetId === 'tab-clear') syncCurrentChatSummaryControls();
+        $('settings-modal').scrollTop = settingsScroll.get(targetId) || 0;
+    }
+
+    function markSettingsDirty() {
+        settingsDirty = true;
+        $('api-connect-status').textContent = WORKSPACE_COPY.dirty;
     }
 
     function openSettings({ preserveTab = false, tab = 'tab-summary' } = {}) {
+        settingsDirty = false;
+        settingsSnapshot = structuredClone(config);
         if (!preserveTab) {
             const assistant = tab === 'tab-agent';
             $('settings-modal').classList.toggle('assistant-page', assistant);
@@ -1235,6 +1260,9 @@ const UNANNOTATED_LABEL = '未标注';
         fillBuiltInSummaryPromptFields();
         $('memory-prompt-template').value = config.prompts.memoryTemplate || '';
         $('api-connect-status').textContent = '';
+        $('hide-summarized').checked = config.ui.hideSummarized;
+        $('keep-visible-count').value = config.ui.keepVisibleCount;
+        $('use-vector-boundary').checked = config.ui.useVectorBoundary;
 
         syncAutoSummaryControls();
 
@@ -1255,6 +1283,7 @@ const UNANNOTATED_LABEL = '未标注';
         }
 
         $('settings-modal').classList.add('active');
+        document.querySelector('.archive').inert = true;
 
         // Opening starts on Summary; recovery preserves the user's current tab.
         if (!preserveTab) {
@@ -1265,6 +1294,9 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function collectSettingsFormToConfig() {
+        config.ui.hideSummarized = $('hide-summarized').checked;
+        config.ui.keepVisibleCount = Number($('keep-visible-count').value);
+        config.ui.useVectorBoundary = $('use-vector-boundary').checked;
         config.memoryMaintenanceEnabled = memoryMaintenancePage.getEnabled();
         const timing = $('trigger-timing').value;
         config.trigger.timing = normalizeTriggerTiming(timing);
@@ -1297,11 +1329,16 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     async function saveSettings() {
+        if (settingsSaving) return false;
         if (!settingsOpenedWithServerConfig) {
             retryPanelConfigLoad();
             return false;
         }
+        const previousConfig = structuredClone(config);
         collectSettingsFormToConfig();
+        settingsSaving = true;
+        $('settings-modal').querySelector('.workspace-layout').inert = true;
+        $('settings-cancel').disabled = true;
         const btn = $('settings-save');
         const statusEl = $('api-connect-status');
         resetSettingsSaveUi();
@@ -1317,15 +1354,31 @@ const UNANNOTATED_LABEL = '未标注';
             timeoutMs: 5000,
         });
         const saved = await savePromise;
+        if (saved) {
+            settingsDirty = false;
+            settingsSnapshot = structuredClone(config);
+        }
+        else Object.assign(config, previousConfig);
+        settingsSaving = false;
+        $('settings-modal').querySelector('.workspace-layout').inert = false;
+        $('settings-cancel').disabled = false;
         resetSettingsSaveUi();
         return saved;
     }
 
-    function closeSettings() {
+    async function closeSettings() {
+        if (settingsSaving) return;
+        const parentPage = $(settingsPage).dataset.parent;
+        if (parentPage) { selectSettingsTab(parentPage); return; }
+        if (settingsPage === 'tab-agent-api') { selectSettingsTab(agentSettingsParent); return; }
+        if (settingsDirty && !await showConfirm(WORKSPACE_COPY.discardTitle, WORKSPACE_COPY.discardDetail, WORKSPACE_COPY.discard, WORKSPACE_COPY.stay)) return;
+        if (settingsDirty) Object.assign(config, settingsSnapshot);
+        settingsDirty = false;
         memoryMaintenancePage.close();
         resetSettingsSaveUi();
         settingsOpenedWithServerConfig = false;
         $('settings-modal').classList.remove('active');
+        document.querySelector('.archive').inert = false;
         postMsg('SETTINGS_CLOSED');
     }
 
@@ -1888,75 +1941,6 @@ const UNANNOTATED_LABEL = '未标注';
         });
     }
 
-    function showCleanActionMenu() {
-        return new Promise(resolve => {
-            const modal = $('confirm-modal');
-            const titleEl = $('confirm-title');
-            const msgEl = $('confirm-message');
-            const inputWrap = $('confirm-input-wrap');
-            const inputEl = $('confirm-input');
-            const actionList = $('confirm-action-list');
-            const rollbackBtn = $('confirm-action-rollback');
-            const clearBtn = $('confirm-action-clear');
-            const rollbackDesc = $('confirm-action-rollback-desc');
-            const clearDesc = $('confirm-action-clear-desc');
-            const okBtn = $('confirm-ok');
-            const cancelBtn = $('confirm-cancel');
-            const closeBtn = $('confirm-close');
-            const backdrop = $('confirm-backdrop');
-            const busy = isBusyLike();
-
-            titleEl.textContent = '清理总结数据';
-            msgEl.textContent = '请选择要执行的清理操作。';
-            inputWrap.classList.add('hidden');
-            inputEl.value = '';
-            actionList.classList.remove('hidden');
-            okBtn.classList.add('hidden');
-            cancelBtn.textContent = '退出';
-
-            if (busy) {
-                rollbackBtn.disabled = true;
-                clearBtn.disabled = true;
-                rollbackDesc.textContent = '当前有任务运行中，暂时不能执行。';
-                clearDesc.textContent = '当前有任务运行中，暂时不能执行。';
-            } else {
-                rollbackBtn.disabled = !cleanActionState.canRollback;
-                clearBtn.disabled = false;
-                rollbackDesc.textContent = cleanActionState.canRollback
-                    ? (cleanActionState.rollbackWillResetBoundary
-                        ? '撤销首次总结生成的内容；人工修改不会被覆盖，存在冲突时将拒绝回退。聊天记录不会删除。'
-                        : `撤销最近一次总结，已总结楼层将回退到 ${cleanActionState.rollbackTargetSummarizedUpTo} 楼。聊天记录不会删除。`)
-                    : '当前没有可回退的总结快照。';
-                clearDesc.textContent = '删除本聊天的全部总结数据，聊天记录不会删除。';
-            }
-
-            const close = (result) => {
-                modal.classList.remove('active');
-                postMsg('CONFIRM_CLOSED');
-                actionList.classList.add('hidden');
-                okBtn.classList.remove('hidden');
-                rollbackBtn.onclick = null;
-                clearBtn.onclick = null;
-                cancelBtn.onclick = null;
-                if (closeBtn) closeBtn.onclick = null;
-                backdrop.onclick = null;
-                resolve(result);
-            };
-
-            rollbackBtn.onclick = () => {
-                if (!rollbackBtn.disabled) close('rollback');
-            };
-            clearBtn.onclick = () => {
-                if (!clearBtn.disabled) close('clear');
-            };
-            cancelBtn.onclick = () => close(null);
-            if (closeBtn) closeBtn.onclick = () => close(null);
-            backdrop.onclick = () => close(null);
-
-            modal.classList.add('active');
-            postMsg('CONFIRM_OPENED');
-        });
-    }
 
     function renderArcsEditor(arcs) {
         const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }];
@@ -2389,6 +2373,9 @@ const UNANNOTATED_LABEL = '未标注';
         if (!d || d.source !== 'LittleWhiteBox') return;
 
         switch (d.type) {
+            case 'SUMMARY_AGENT_SETTINGS_RESULT':
+                agentSettings.receive(d);
+                break;
             case 'CHAT_SUMMARY_STATE':
                 currentChatSummaryState = d.state;
                 syncCurrentChatSummaryControls();
@@ -2406,16 +2393,19 @@ const UNANNOTATED_LABEL = '未标注';
                     cleanActionState.summarizedUpTo = d.stats.summarizedUpTo ?? 0;
                 }
                 if (d.hideSummarized !== undefined) {
-                    $('hide-summarized').checked = d.hideSummarized;
+                    if (!settingsDirty) $('hide-summarized').checked = d.hideSummarized;
                     config.ui.hideSummarized = d.hideSummarized;
                 }
-                if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount;
+                if (d.keepVisibleCount !== undefined) {
+                    config.ui.keepVisibleCount = d.keepVisibleCount;
+                    if (!settingsDirty) $('keep-visible-count').value = d.keepVisibleCount;
+                }
                 if (d.useVectorBoundary !== undefined) config.ui.useVectorBoundary = d.useVectorBoundary !== false;
                 if (d.vectorEnabled !== undefined) config.vector.enabled = d.vectorEnabled;
-                syncCurrentChatSummaryControls();
                 cleanActionState.canRollback = !!d.canRollback;
                 cleanActionState.rollbackTargetSummarizedUpTo = Number(d.rollbackTargetSummarizedUpTo || 0);
                 cleanActionState.rollbackWillResetBoundary = !!d.rollbackWillResetBoundary;
+                syncCurrentChatSummaryControls();
                 break;
 
             case 'SUMMARY_FULL_DATA':
@@ -2517,7 +2507,7 @@ const UNANNOTATED_LABEL = '未标注';
             }
 
             case 'VECTOR_CONFIG':
-                if (d.config) loadVectorConfig(d.config);
+                if (d.config && !settingsDirty) loadVectorConfig(d.config);
                 break;
 
             case 'VECTOR_ONLINE_STATUS':
@@ -2632,14 +2622,22 @@ const UNANNOTATED_LABEL = '未标注';
         $('editor-save').onclick = saveEditor;
 
         // Settings modal
-        $('btn-settings').onclick = () => { archiveView.closeDialogs(); openSettings(); };
+        $('archive-manage-open').onclick = () => { archiveView.closeDialogs(); openSettings(); };
+        $('archive-data').onclick = () => { archiveView.closeDialogs(); openSettings({ tab: 'tab-transfer' }); };
         $('archive-assistant').textContent = MEMORY_COPY.tab;
         $('archive-assistant').onclick = () => { archiveView.closeDialogs(); openSettings({ tab: 'tab-agent' }); };
-        $('settings-backdrop').onclick = closeSettings;
         $('settings-close').onclick = closeSettings;
-        $('settings-cancel').onclick = closeSettings;
+        $('settings-cancel').onclick = () => {
+            Object.assign(config, settingsSnapshot);
+            openSettings({ preserveTab: true });
+        };
         $('settings-config-retry').onclick = retryPanelConfigLoad;
         $('settings-save').onclick = saveSettings;
+        $$('[data-workspace-page]').forEach(button => { button.onclick = () => selectSettingsTab(button.dataset.workspacePage); });
+        $('settings-modal').addEventListener('input', event => {
+            if (event.target.closest('.text-api, #tab-agent-api') || ['theme-select', 'current-chat-enabled'].includes(event.target.id)) return;
+            markSettingsDirty();
+        });
 
         // Settings tabs
         $$('.settings-tab').forEach(tab => {
@@ -2653,6 +2651,7 @@ const UNANNOTATED_LABEL = '未标注';
 
         $('btn-reset-memory-prompt-template').onclick = () => {
             $('memory-prompt-template').value = DEFAULT_MEMORY_PROMPT_TEMPLATE;
+            markSettingsDirty();
         };
 
         // Trigger timing
@@ -2681,9 +2680,8 @@ const UNANNOTATED_LABEL = '未标注';
         };
 
         // Main actions
-        $('btn-clear').onclick = async () => {
-            archiveView.closeDialogs();
-            const action = await showCleanActionMenu();
+        const clean = async action => {
+            if (isBusyLike() || (action === 'rollback' && !cleanActionState.canRollback)) return;
             if (action === 'rollback') {
                 const currentUpTo = cleanActionState.summarizedUpTo || 0;
                 const rollbackMessage = cleanActionState.rollbackWillResetBoundary
@@ -2698,23 +2696,18 @@ const UNANNOTATED_LABEL = '未标注';
                 }
             }
         };
+        $('workspace-rollback').onclick = () => clean('rollback');
+        $('workspace-clear').onclick = () => clean('clear');
         bindSummaryActions();
 
         // Hide summarized
         $('hide-summarized').onchange = e => {
-            config.ui.hideSummarized = e.target.checked;
-            syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
-            postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
-        };
-        $('use-vector-boundary').onchange = e => {
-            config.ui.useVectorBoundary = e.target.checked;
-            postMsg('TOGGLE_USE_VECTOR_BOUNDARY', { enabled: e.target.checked });
+            syncVectorBoundaryControl($('vector-enabled').checked, e.target.checked);
         };
         $('keep-visible-count').onchange = e => {
             const parsedCount = Number.parseInt(e.target.value, 10);
             const c = Number.isFinite(parsedCount) ? Math.max(0, Math.min(50, parsedCount)) : 6;
             e.target.value = c;
-            postMsg('UPDATE_KEEP_VISIBLE', { count: c });
         };
 
         // Fullscreen relations
@@ -2823,11 +2816,17 @@ const UNANNOTATED_LABEL = '未标注';
             onPeopleVisible: () => { renderRelations(summaryData.characters); relationChart?.resize(); },
             onEdit: openEditor, postMsg, setHtml, h,
         });
-        $('memory-agent-tab').textContent = MEMORY_COPY.tab;
         $('settings-save').textContent = MEMORY_COPY.settingsSave;
-        $('settings-cancel').textContent = MEMORY_COPY.settingsClose;
-        $('settings-close').setAttribute('aria-label', MEMORY_COPY.settingsClose);
-        memoryMaintenancePage = createMemoryMaintenancePage($('tab-agent'), postMsg, { close: closeSettings });
+        const agentRoot = document.createElement('section');
+        agentRoot.id = 'tab-agent-api'; agentRoot.className = 'tab-pane xb-agent-settings-surface';
+        $('tab-agent').parentElement.append(agentRoot);
+        agentSettings = createSummaryAgentSettings(agentRoot, postMsg, setHtml);
+        const openAgentApi = parent => { agentSettingsParent = parent; selectSettingsTab('tab-agent-api'); };
+        memoryMaintenancePage = createMemoryMaintenancePage($('tab-agent'), postMsg, { openApi: () => openAgentApi('tab-agent') });
+        const agentLink = document.createElement('button');
+        agentLink.type = 'button'; agentLink.className = 'workspace-model-link'; agentLink.textContent = WORKSPACE_COPY.agentApi;
+        agentLink.onclick = () => openAgentApi('tab-models');
+        $('tab-models').append(agentLink);
         loadConfig();
         tlPagingEnabled = localStorage.getItem(TL_PAGING_KEY) === '1';
 

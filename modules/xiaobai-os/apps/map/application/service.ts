@@ -1,4 +1,5 @@
 import type {
+    ChatPersistence,
     PendingCommitRecoveryResult,
     PartitionStore,
     XiaobaiOsFileState,
@@ -17,6 +18,7 @@ export interface MapServiceView {
 }
 
 export interface MapMutationOptions {
+    chatPersistence?: ChatPersistence;
     expectedRevision: number;
     beforeCommit?: () => void | Promise<void>;
 }
@@ -81,14 +83,14 @@ export function createMapService(
     }
 
     async function refreshCurrent(): Promise<MapServiceView> {
-        if (files.getFileState() === 'failed') { await files.retryPending(); }
+        if (files.getFileState() === 'failed') { await files.retryPending({ chatPersistence: 'host' }); }
         await store.read();
         return buildView();
     }
 
     async function replaceCurrent(
         candidate: unknown,
-        { expectedRevision, beforeCommit }: MapMutationOptions,
+        { expectedRevision, beforeCommit, chatPersistence = 'immediate' }: MapMutationOptions,
     ): Promise<MapServiceView> {
         const replacement = parseMapDomain(candidate);
         const result = await store.transact(transaction => {
@@ -100,6 +102,7 @@ export function createMapService(
             transaction.replace(next);
             return next;
         }, {
+            chatPersistence,
             commitGuard: beforeCommit
                 ? async () => { await beforeCommit(); return true; }
                 : undefined,

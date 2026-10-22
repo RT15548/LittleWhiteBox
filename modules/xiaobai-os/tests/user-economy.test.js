@@ -204,7 +204,7 @@ test('a pending global wallet does not block chat saves and cannot be accessed f
     let store;
     const composition = createKernelComposition({
         storage: { read: async () => structuredClone(sidecar), replace: async ({ candidate }) => { sidecar = structuredClone(candidate); return { status: 'confirmed' }; }, delete: async () => 'missing' },
-        chatReferences: { capture: () => capture, isCurrent: () => true, install: async () => ({ status: 'confirmed' }) },
+        chatReferences: { hasPending: () => false, capture: () => capture, isCurrent: () => true, install: async () => ({ status: 'confirmed' }) },
         capabilities: createEconomyCapabilityRegistrations(),
         modules: [{ descriptor: { id: 'learning', name: 'Learning', accent: '#000' }, partition: LEARNING_PARTITION,
             capabilities: [ECONOMY_TRANSACTION_CAPABILITY], install(context) { store = context.partition; } }],

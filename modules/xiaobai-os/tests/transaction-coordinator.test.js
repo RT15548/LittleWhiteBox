@@ -58,6 +58,7 @@ function harness(initial = envelope({ good: { schemaVersion: 1, value: 1 } }), o
         async delete() { return 'deleted'; },
     };
     const chatReferences = {
+        hasPending: () => false,
         capture: () => structuredClone(state.capture),
         isCurrent: captured => captured.identityKey === state.capture.identityKey,
         async install(_captured, reference) {
