@@ -118,7 +118,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/slash-command.js",
       "relativePath": "core/slash-command.js",
       "extension": ".js",
-      "sizeBytes": 1221
+      "sizeBytes": 1832
     },
     {
       "source": "littlewhitebox",
@@ -3524,6 +3524,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/README.md",
+      "relativePath": "modules/scheduled-tasks/README.md",
+      "extension": ".md",
+      "sizeBytes": 22097
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/embedded-tasks.html",
       "relativePath": "modules/scheduled-tasks/embedded-tasks.html",
       "extension": ".html",
@@ -3531,10 +3538,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/preset-lifecycle.test.js",
+      "relativePath": "modules/scheduled-tasks/preset-lifecycle.test.js",
+      "extension": ".js",
+      "sizeBytes": 39927
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/preset-task-events.js",
       "relativePath": "modules/scheduled-tasks/preset-task-events.js",
       "extension": ".js",
-      "sizeBytes": 1080
+      "sizeBytes": 1390
     },
     {
       "source": "littlewhitebox",
@@ -3548,7 +3562,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/scheduled-tasks.js",
       "relativePath": "modules/scheduled-tasks/scheduled-tasks.js",
       "extension": ".js",
-      "sizeBytes": 115951
+      "sizeBytes": 125191
     },
     {
       "source": "littlewhitebox",

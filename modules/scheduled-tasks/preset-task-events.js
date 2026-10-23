@@ -7,6 +7,12 @@ function onPresetChanged(event) {
     refreshPresetTasks();
 }
 
+function onMainApiChanged() {
+    // Leaving chat completion also leaves its preset, even though the event's
+    // apiId now names the destination API rather than openai.
+    refreshPresetTasks();
+}
+
 export function initPresetTaskEvents(refresh) {
     refreshPresetTasks = refresh;
     // The selected preset and its stored tasks are already available on change.
@@ -14,15 +20,16 @@ export function initPresetTaskEvents(refresh) {
     $(document)
         .off('change.xbTaskPreset', '#settings_preset_openai')
         .on('change.xbTaskPreset', '#settings_preset_openai', onPresetChanged);
-    // Settings live for the page, independently of task execution. These read-only
+    // Preset selection lives for the page, independently of task execution. These
     // listeners must survive both task cleanup and the master EventCenter cleanup.
     for (const type of [
         event_types.OAI_PRESET_CHANGED_AFTER,
         event_types.PRESET_CHANGED,
-        event_types.MAIN_API_CHANGED,
     ]) {
         eventSource.removeListener(type, onPresetChanged);
         eventSource.on(type, onPresetChanged);
     }
+    eventSource.removeListener(event_types.MAIN_API_CHANGED, onMainApiChanged);
+    eventSource.on(event_types.MAIN_API_CHANGED, onMainApiChanged);
     refreshPresetTasks();
 }

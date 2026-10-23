@@ -54,20 +54,27 @@ let state = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const normalizeTaskKey = (name) => String(name || '').trim();
+// Host work and cleanup keep their own receipts until they actually settle.
+const isRetainedExecution = entry => entry?.source === 'host' || entry?.source === 'cleanup';
 const refreshExecutionState = () => {
     const records = state.executingRecords instanceof Map ? state.executingRecords : new Map();
     state.executingRecords = records;
     state.executingCount = records.size;
-    state.isCommandGenerated = Array.from(records.values()).some(entry => entry?.source === 'command');
+    state.isCommandGenerated = Array.from(records.values()).some(entry => entry?.source === 'command' || isRetainedExecution(entry));
 };
-const startExecutionRecord = (taskName, source = 'command') => {
+const startExecutionRecord = (taskName, source = 'command', signal = null) => {
     const token = uuidv4();
-    state.executingRecords.set(token, { taskName: normalizeTaskKey(taskName), source, startedAt: Date.now() });
+    const onAbort = () => finishExecutionRecord(token);
+    state.executingRecords.set(token, { taskName: normalizeTaskKey(taskName), source, startedAt: Date.now(),
+        release: () => signal?.removeEventListener('abort', onAbort) });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) finishExecutionRecord(token);
     refreshExecutionState();
     return token;
 };
 const finishExecutionRecord = (token) => {
     if (!token) return;
+    state.executingRecords.get(token)?.release();
     if (state.executingRecords.delete(token)) refreshExecutionState();
 };
 const clearExecutionRecordsByTask = (taskName) => {
@@ -75,8 +82,8 @@ const clearExecutionRecordsByTask = (taskName) => {
     if (!key) return 0;
     let removed = 0;
     for (const [token, entry] of state.executingRecords.entries()) {
-        if (entry?.taskName === key) {
-            state.executingRecords.delete(token);
+        if (entry?.taskName === key && !isRetainedExecution(entry)) {
+            finishExecutionRecord(token);
             removed++;
         }
     }
@@ -84,7 +91,9 @@ const clearExecutionRecordsByTask = (taskName) => {
     return removed;
 };
 const clearAllExecutionRecords = () => {
-    if (state.executingRecords.size > 0) state.executingRecords.clear();
+    for (const [token, entry] of state.executingRecords) {
+        if (!isRetainedExecution(entry)) finishExecutionRecord(token);
+    }
     refreshExecutionState();
 };
 const isTaskExecutionActive = (taskName) => {
@@ -147,6 +156,7 @@ const allTasksMeta = () => [
 const allTasks = allTasksMeta;
 
 async function allTasksFull() {
+    const preset = syncPresetTaskBinding();
     const globalMeta = getSettings().globalTasks || [];
     const globalTasks = (await Promise.all(globalMeta.map(async (task) => {
         try {
@@ -156,10 +166,14 @@ async function allTasksFull() {
             return null;
         }
     }))).filter(Boolean);
+    // Keep the visit identity across I/O, not a stale snapshot of its tasks.
+    const presetTasks = isTaskRuntimeActive({ preset })
+        ? getPresetTasks().map(task => ({ ...mapTiming(task), __runtime: captureTaskRuntime(task, 'preset') }))
+        : [];
     return [
         ...globalTasks.map(mapTiming),
         ...getCharacterTasks().map(mapTiming),
-        ...getPresetTasks().map(mapTiming)
+        ...presetTasks
     ];
 }
 
@@ -319,6 +333,7 @@ const PresetTasksStore = (() => {
     };
 
     const currentName = () => {
+        if (getContext().mainApi !== 'openai') return '';
         try { return getPresetManagerSafe()?.getSelectedPresetName?.() || ''; } catch { return ''; }
     };
 
@@ -361,6 +376,52 @@ const PresetTasksStore = (() => {
 
     return { currentName, read, write };
 })();
+
+// A preset visit owns its running work. This is runtime-only: leaving and returning
+// creates a new signal, so an old asynchronous continuation cannot reattach itself.
+let presetTaskBinding = null;
+function syncPresetTaskBinding() {
+    const name = PresetTasksStore.currentName();
+    if (!presetTaskBinding || presetTaskBinding.name !== name) {
+        const previous = presetTaskBinding;
+        presetTaskBinding = { name, abort: new AbortController() };
+        previous?.abort.abort();
+    }
+    return presetTaskBinding;
+}
+
+function captureTaskRuntime(task, scope) {
+    if (scope !== 'preset') return { key: normalizeTaskKey(task.name), preset: null };
+    const preset = syncPresetTaskBinding();
+    // Names already identify task execution; preset scope prevents cross-preset
+    // collisions without making a read depend on saving generated task IDs.
+    return { key: JSON.stringify(['preset', preset.name, normalizeTaskKey(task.name)]), preset };
+}
+
+function isTaskRuntimeActive(runtime) {
+    if (runtime?.abort?.signal.aborted) return false;
+    if (!runtime?.preset) return true;
+    return syncPresetTaskBinding() === runtime.preset && !!runtime.preset.name && !runtime.preset.abort.signal.aborted;
+}
+
+function waitForTaskSignal(work, signal) {
+    if (!signal) return work;
+    return new Promise((resolve, reject) => {
+        const onAbort = () => resolve(undefined);
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        Promise.resolve(work).then(value => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(value);
+        }, error => {
+            signal.removeEventListener('abort', onAbort);
+            if (signal.aborted && error?.name !== 'AbortError') {
+                console.error({ source: import.meta.url, operation: 'waitForTaskSignal' }, error);
+            }
+            reject(error);
+        });
+    });
+}
 
 const ensurePresetTaskIds = (tasks) => {
     let mutated = false;
@@ -456,11 +517,25 @@ async function removeTaskByScope(scope, taskId, fallbackIndex = -1) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const __taskRunMap = new Map();
+// A command pipeline owns its request before any asynchronous work. It remains
+// cancellable while waiting for reads or a previous instance's cleanup. Resident
+// script resources are owned separately by __taskRunMap after the pipeline ends.
+const __taskExecutionMap = new Map();
 const __taskDynamicCallbackPrefix = (taskName) => `${normalizeTaskKey(taskName)}_fl_`;
 
 function cleanupTaskRunOwner(taskKey, entry) {
     if (!entry || entry.cleaned) return false;
     entry.cleaned = true;
+    entry.releasePreset?.();
+
+    // Publish the completion before dispatching abort: an abort callback can
+    // synchronously request a replacement which must wait for this cleanup too.
+    let resolveCleanup, rejectCleanup;
+    entry.cleanupCompletion = new Promise((resolve, reject) => {
+        resolveCleanup = resolve;
+        rejectCleanup = reject;
+    });
+    observeBackgroundTask(entry.cleanupCompletion, { source: import.meta.url, operation: 'cleanupTaskRunOwner', taskKey });
 
     for (const callbackId of Array.from(entry.callbackIds || [])) {
         const callbackEntry = state.dynamicCallbacks.get(callbackId);
@@ -471,7 +546,10 @@ function cleanupTaskRunOwner(taskKey, entry) {
         entry.callbackIds.delete(callbackId);
     }
 
-    try { entry.abort?.abort?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
+    // Native abort handlers run synchronously. Only commands started inside that
+    // dispatch are cleanup; unrelated continuations never get a blanket bypass.
+    entry.dispatchingAbort = true;
+    try { entry.abort.abort(); } finally { entry.dispatchingAbort = false; }
     try { entry.timers?.forEach?.((id) => clearTimeout(id)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
     try { entry.intervals?.forEach?.((id) => clearInterval(id)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupTaskRunOwner" }, caughtError); }
     for (const listener of Array.from(entry.listeners || [])) {
@@ -480,14 +558,33 @@ function cleanupTaskRunOwner(taskKey, entry) {
     }
     entry.timers?.clear?.();
     entry.intervals?.clear?.();
-    if (__taskRunMap.get(taskKey) === entry) __taskRunMap.delete(taskKey);
+    for (const callback of entry.cleanupCallbacks) {
+        entry.cleanupWork.push(Promise.resolve().then(callback));
+    }
+    entry.cleanupCallbacks.clear();
+    const removeEntry = () => {
+        if (__taskRunMap.get(taskKey) === entry) __taskRunMap.delete(taskKey);
+    };
+    if (entry.cleanupWork.length) {
+        const token = startExecutionRecord(taskKey, 'cleanup');
+        Promise.allSettled(entry.cleanupWork).then(results => {
+            const errors = results.filter(result => result.status === 'rejected').map(result => result.reason);
+            finishExecutionRecord(token);
+            removeEntry();
+            if (errors.length) rejectCleanup(new AggregateError(errors, 'Task cleanup failed'));
+            else resolveCleanup();
+        }).catch(error => rejectCleanup(error));
+    } else {
+        removeEntry();
+        resolveCleanup();
+    }
     return true;
 }
 
 function releaseTaskRunOwnerIfIdle(entry) {
     if (!entry || entry.cleaned || !entry.bodySettled) return false;
     if (entry.inFlightCallbacks > 0 || entry.callbackIds.size > 0 ||
-        entry.timers.size > 0 || entry.intervals.size > 0 || entry.listeners.size > 0) return false;
+        entry.timers.size > 0 || entry.intervals.size > 0 || entry.listeners.size > 0 || entry.cleanupCallbacks.size > 0) return false;
     return cleanupTaskRunOwner(entry.taskKey, entry);
 }
 
@@ -508,6 +605,7 @@ function abortTaskRunEntry(entry) {
 function resetTaskRun(taskName) {
     const taskKey = normalizeTaskKey(taskName);
     if (!taskKey) return { taskKey, clearedRuns: 0, clearedCallbacks: 0, clearedExecutions: 0 };
+    for (const execution of Array.from(__taskExecutionMap.get(taskKey) || [])) execution.abort.abort();
 
     let clearedRuns = 0;
     const runEntry = __taskRunMap.get(taskKey);
@@ -531,6 +629,11 @@ function resetTaskRun(taskName) {
 }
 
 function resetAllTaskRuns() {
+    for (const executions of Array.from(__taskExecutionMap.values())) {
+        for (const execution of Array.from(executions)) execution.abort.abort();
+    }
+    presetTaskBinding?.abort.abort();
+    presetTaskBinding = null;
     for (const entry of Array.from(__taskRunMap.values())) abortTaskRunEntry(entry);
 
     for (const [id, entry] of state.dynamicCallbacks.entries()) {
@@ -611,12 +714,25 @@ CacheRegistry.register('scheduledTasks', {
     },
 });
 
-async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
+async function __runTaskSingleInstance(taskName, jsRunner, signature = null, runtime = null, isLightTask = false) {
+    if (!isTaskRuntimeActive(runtime)) return;
+    // Only JavaScript instances replace one another. Plain slash-command tasks
+    // retain their existing concurrency; an explicit stop cancels either kind.
+    for (const pending of __taskExecutionMap.get(taskName) || []) {
+        if (pending === runtime) break;
+        pending.abort.abort();
+    }
     const existing = __taskRunMap.get(taskName);
     if (existing) {
+        const wasStopped = existing.cleaned;
         abortTaskRunEntry(existing);
-        try { await Promise.resolve(existing.completion).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
+        if (!wasStopped && !isLightTask) {
+            try { await waitForTaskSignal(existing.completion, runtime?.abort.signal); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
+        }
+        await waitForTaskSignal(existing.cleanupCompletion, runtime?.abort.signal);
     }
+
+    if (!isTaskRuntimeActive(runtime)) return;
 
     const abort = new AbortController();
     const timers = new Set();
@@ -634,8 +750,21 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
         bodySettled: false,
         inFlightCallbacks: 0,
         cleaned: false,
+        dispatchingAbort: false,
+        cleanupCallbacks: new Set(),
+        cleanupWork: [],
+        cleanupCompletion: null,
     };
     __taskRunMap.set(taskName, entry);
+    if (runtime?.preset) {
+        const signal = runtime.preset.abort.signal;
+        const onPresetExit = () => {
+            cleanupTaskRunOwner(taskName, entry);
+            clearTaskCooldown(taskName);
+        };
+        signal.addEventListener('abort', onPresetExit, { once: true });
+        entry.releasePreset = () => signal.removeEventListener('abort', onPresetExit);
+    }
 
     const reportCallbackError = (kind, error) => {
         console.error(`[任务${kind}回调错误]`, taskName, error);
@@ -761,26 +890,55 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
 // 命令执行
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function executeCommands(commands, taskName) {
-    if (!String(commands || '').trim()) return null;
-    const execToken = startExecutionRecord(taskName || 'AnonymousTask', 'command');
+async function executeCommands(commands, taskName, runtime = null) {
+    if (!isTaskRuntimeActive(runtime)) return null;
+    if (typeof commands !== 'function' && !String(commands || '').trim()) return null;
+    const key = runtime?.key || normalizeTaskKey(taskName) || 'AnonymousTask';
+    const execution = { ...runtime, key, abort: new AbortController() };
+    let executions = __taskExecutionMap.get(key);
+    if (!executions) __taskExecutionMap.set(key, executions = new Set());
+    executions.add(execution);
+    const onPresetExit = () => execution.abort.abort();
+    const presetSignal = execution.preset?.abort.signal;
+    presetSignal?.addEventListener('abort', onPresetExit, { once: true });
+    if (presetSignal?.aborted) onPresetExit();
+    let execToken;
     try {
-        return await processTaskCommands(commands, taskName);
+        if (typeof commands === 'function') commands = await waitForTaskSignal(commands(), execution.abort.signal);
+        if (!String(commands || '').trim() || !isTaskRuntimeActive(execution)) return null;
+        execToken = startExecutionRecord(key, 'command', execution.abort.signal);
+        return await waitForTaskSignal(processTaskCommands(commands, taskName, execution), execution.abort.signal);
     } finally {
-        setTimeout(() => finishExecutionRecord(execToken), 500);
+        presetSignal?.removeEventListener('abort', onPresetExit);
+        executions.delete(execution);
+        if (!executions.size && __taskExecutionMap.get(key) === executions) __taskExecutionMap.delete(key);
+        if (execToken) setTimeout(() => finishExecutionRecord(execToken), 500);
     }
 }
 
-async function processTaskCommands(commands, taskName) {
+async function executeTaskSlashCommand(command, taskKey, signal) {
+    if (signal?.aborted) return;
+    const token = startExecutionRecord(taskKey, 'host');
+    try {
+        return await executeSlashCommand(command, { signal });
+    } finally {
+        setTimeout(() => finishExecutionRecord(token), 500);
+    }
+}
+
+async function processTaskCommands(commands, taskName, runtime = null) {
     const jsTagRegex = /<<taskjs>>([\s\S]*?)<<\/taskjs>>/g;
     let lastIndex = 0, result = null, match;
+    const slash = command => executeTaskSlashCommand(command, runtime?.key || taskName, runtime?.abort.signal);
 
     while ((match = jsTagRegex.exec(commands)) !== null) {
+        if (!isTaskRuntimeActive(runtime)) return result;
         const beforeJs = commands.slice(lastIndex, match.index).trim();
-        if (beforeJs) result = await executeSlashCommand(beforeJs);
+        if (beforeJs) result = await slash(beforeJs);
+        if (!isTaskRuntimeActive(runtime)) return result;
         const jsCode = match[1].trim();
         if (jsCode) {
-            try { result = await executeTaskJS(jsCode, taskName || 'AnonymousTask'); }
+            try { result = await executeTaskJS(jsCode, taskName || 'AnonymousTask', runtime); }
             catch (error) {
                 console.error(`[任务JS执行错误] ${error.message}`);
                 try { xbLog.error('scheduledTasks', `taskjs error task=${String(taskName || 'AnonymousTask')}`, error); } catch (error) { console.warn({ source: import.meta.url, operation: 'processTaskCommands' }, error); }
@@ -789,11 +947,12 @@ async function processTaskCommands(commands, taskName) {
         lastIndex = match.index + match[0].length;
     }
 
+    if (!isTaskRuntimeActive(runtime)) return result;
     if (lastIndex === 0) {
-        result = await executeSlashCommand(commands);
+        result = await slash(commands);
     } else {
         const remaining = commands.slice(lastIndex).trim();
-        if (remaining) result = await executeSlashCommand(remaining);
+        if (remaining) result = await slash(remaining);
     }
     return result;
 }
@@ -808,19 +967,27 @@ function __hashStringForKey(str) {
     } catch { return Math.random().toString(36).slice(2); }
 }
 
-async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
+async function executeTaskJS(jsCode, taskName = 'AnonymousTask', runtime = null) {
+    if (!isTaskRuntimeActive(runtime)) return;
     const codeSig = __hashStringForKey(String(jsCode || ''));
-    const stableKey = (String(taskName || '').trim()) || `js-${codeSig}`;
-    const isLightTask = stableKey.startsWith('[x]');
-    const STscript = async (command) => {
-        if (!command) return { error: "命令为空" };
-        if (!command.startsWith('/')) command = '/' + command;
-        const execToken = startExecutionRecord(stableKey, 'command');
-        try {
-            return await executeSlashCommand(command);
-        } finally {
-            setTimeout(() => finishExecutionRecord(execToken), 500);
+    const stableKey = runtime?.key || (String(taskName || '').trim()) || `js-${codeSig}`;
+    const isLightTask = String(taskName).startsWith('[x]');
+    let runOwner;
+    const STscript = (command) => {
+        if (runOwner?.dispatchingAbort) {
+            const work = executeTaskSlashCommand(command, stableKey);
+            runOwner.cleanupWork.push(work);
+            return work;
         }
+        if (runOwner?.abort.signal.aborted || !isTaskRuntimeActive(runtime)) return Promise.resolve();
+        const owner = runOwner;
+        if (owner) owner.inFlightCallbacks++;
+        return executeTaskSlashCommand(command, stableKey, owner?.abort.signal).finally(() => {
+            if (owner) {
+                owner.inFlightCallbacks--;
+                releaseTaskRunOwnerIfIdle(owner);
+            }
+        });
     };
 
     const taskContext = {
@@ -831,22 +998,6 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         warn: (msg, extra) => { try { xbLog.warn('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }); } catch (error) { console.warn({ source: import.meta.url, operation: 'executeTaskJS' }, error); } },
         error: (msg, err, extra) => { try { xbLog.error('scheduledTasks', { task: stableKey, msg: String(msg ?? ''), extra }, err || null); } catch (error) { console.warn({ source: import.meta.url, operation: 'executeTaskJS' }, error); } }
     };
-
-    const old = __taskRunMap.get(stableKey);
-    if (old) {
-        abortTaskRunEntry(old);
-        if (!isLightTask) {
-            try { await Promise.resolve(old.completion).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "executeTaskJS" }, caughtError); }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeTaskJS" }, caughtError); }
-        }
-    }
-
-    const callbackPrefix = `${stableKey}_fl_`;
-    for (const [id, entry] of state.dynamicCallbacks.entries()) {
-        if (id.startsWith(callbackPrefix)) {
-            try { entry?.abortController?.abort(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeTaskJS" }, caughtError); }
-            state.dynamicCallbacks.delete(id);
-        }
-    }
 
     const jsRunner = async (utils) => {
         const {
@@ -859,6 +1010,20 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             abortSignal,
             owner
         } = utils;
+        runOwner = owner;
+
+        // Async cleanup must use the supplied STscript, not the cancelled normal
+        // capability captured by the task body: onCleanup(async ({ STscript }) => ...).
+        const onCleanup = callback => {
+            if (typeof callback !== 'function') throw new TypeError('onCleanup callback must be a function');
+            if (owner.cleaned) return () => {};
+            const cleanup = () => callback({ STscript: command => executeTaskSlashCommand(command, stableKey) });
+            owner.cleanupCallbacks.add(cleanup);
+            return () => {
+                owner.cleanupCallbacks.delete(cleanup);
+                releaseTaskRunOwnerIfIdle(owner);
+            };
+        };
 
         const addFloorListener = (callback, options = {}) => {
             if (typeof callback !== 'function') throw new Error('callback 必须是函数');
@@ -890,20 +1055,16 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             // eslint-disable-next-line no-new-func -- intentional: user-defined task expression
             const fn = new Function(
                 'taskContext', 'ctx', 'STscript', 'addFloorListener',
-                'addListener', 'removeListener', 'setTimeoutSafe', 'clearTimeoutSafe', 'setIntervalSafe', 'clearIntervalSafe', 'abortSignal',
+                'addListener', 'removeListener', 'setTimeoutSafe', 'clearTimeoutSafe', 'setIntervalSafe', 'clearIntervalSafe', 'abortSignal', 'onCleanup',
                 `return (async () => { ${code} })();`
             );
-            return await fn(taskContext, taskContext, STscript, addFloorListener, addListener, removeListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal);
+            return await fn(taskContext, taskContext, STscript, addFloorListener, addListener, removeListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal, onCleanup);
         };
 
         return await runInScope(jsCode);
     };
 
-    if (isLightTask) {
-        return __runTaskSingleInstance(stableKey, jsRunner, codeSig);
-    }
-
-    return await __runTaskSingleInstance(stableKey, jsRunner, codeSig);
+    return await __runTaskSingleInstance(stableKey, jsRunner, codeSig, runtime, isLightTask);
 }
 
 function handleTaskMessage(event) {
@@ -971,6 +1132,7 @@ function matchInterval(task, counts, triggerContext) {
 
 async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatChanged = null, overrideNewChat = null) {
     if (!isGloballyEnabled()) return;
+    syncPresetTaskBinding();
     if (isAnyTaskExecuting()) {
         logExecutionLockSkip('checkAndExecuteTasks', { triggerContext, commandGenerated: state.isCommandGenerated });
         return;
@@ -1007,7 +1169,8 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
 
     const tasksToExecute = combined.filter(task => {
         if (task.disabled) return false;
-        if (isTaskInCooldown(task.name, n)) return false;
+        if (!isTaskRuntimeActive(task.__runtime)) return false;
+        if (isTaskInCooldown(task.__runtime?.key || task.name, n)) return false;
         const tt = task.triggerTiming || 'after_ai';
         if (tt === 'chat_changed') {
             if (shouldSkipByContext(tt, triggerContext)) return false;
@@ -1026,7 +1189,8 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
     const execToken = startExecutionRecord(`__trigger__${triggerContext}`, 'system');
     try {
         for (const task of tasksToExecute) {
-            state.taskLastExecutionTime.set(task.name, n);
+            if (!isTaskRuntimeActive(task.__runtime)) continue;
+            state.taskLastExecutionTime.set(task.__runtime?.key || task.name, n);
             if (task.__dynamic) {
                 const callbackEntry = state.dynamicCallbacks.get(task.name);
                 if (callbackEntry !== task.__callbackEntry || callbackEntry.abortController?.signal?.aborted) continue;
@@ -1035,23 +1199,27 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
                 if (owner) owner.inFlightCallbacks++;
                 try {
                     const currentFloor = pickFloorByType(task.floorType || 'all', counts);
-                    await Promise.resolve().then(() => task.__callback({
-                        timing: triggerContext,
-                        floors: counts,
-                        currentFloor,
-                        interval: task.interval,
-                        floorType: task.floorType || 'all'
-                    }));
+                    const work = Promise.resolve().then(() => {
+                        if (callbackEntry.abortController?.signal?.aborted) return;
+                        return task.__callback({
+                            timing: triggerContext,
+                            floors: counts,
+                            currentFloor,
+                            interval: task.interval,
+                            floorType: task.floorType || 'all'
+                        });
+                    }).finally(() => {
+                        if (owner) {
+                            owner.inFlightCallbacks = Math.max(0, owner.inFlightCallbacks - 1);
+                            releaseTaskRunOwnerIfIdle(owner);
+                        }
+                    });
+                    await waitForTaskSignal(work, owner?.abort.signal);
                 } catch (e) {
                     console.error('[动态回调错误]', task.name, e);
-                } finally {
-                    if (owner) {
-                        owner.inFlightCallbacks = Math.max(0, owner.inFlightCallbacks - 1);
-                        releaseTaskRunOwnerIfIdle(owner);
-                    }
                 }
             } else {
-                await executeCommands(task.commands, task.name);
+                await executeCommands(task.commands, task.name, task.__runtime);
             }
         }
     } finally {
@@ -1136,6 +1304,7 @@ async function onChatCreated() {
 }
 
 function refreshPresetTasks() {
+    syncPresetTaskBinding();
     resetPresetTasksCache();
     state.lastTasksHash = '';
     refreshUI();
@@ -1523,6 +1692,7 @@ async function saveTaskFromEditor(task, scope) {
     const isEditingExistingTask = state.currentEditingIndex >= 0 || !!state.currentEditingId;
     const previousTask = isEditingExistingTask ? state.currentEditingTask : null;
     const previousName = previousTask?.name;
+    const previousRuntime = previousTask ? captureTaskRuntime(previousTask, state.currentEditingScope) : null;
     const shouldResetPreviousRun = !!previousName && (
         normalizeTaskKey(previousName) !== normalizeTaskKey(task.name)
         || String(previousTask?.commands ?? '') !== String(task.commands ?? '')
@@ -1535,6 +1705,7 @@ async function saveTaskFromEditor(task, scope) {
         toastr?.warning?.('请先选择一个OpenAI预设。');
         return;
     }
+    if (shouldResetPreviousRun || taskTypeChanged) resetTaskRun(previousRuntime?.key);
 
     if (taskTypeChanged) {
         await removeTaskByScope(previousScope, state.currentEditingId, state.currentEditingIndex);
@@ -1553,7 +1724,6 @@ async function saveTaskFromEditor(task, scope) {
     }
 
     await persistTaskListByScope(targetScope, [...list]);
-    if (shouldResetPreviousRun) resetTaskRun(previousName);
 
     resetTaskEditorState();
     state.lastTasksHash = '';
@@ -1571,6 +1741,7 @@ async function deleteTask(index, scope) {
     const list = getTaskListByScope(scope);
     const task = list[index];
     if (!task) return;
+    const runtime = captureTaskRuntime(task, scope);
 
     try {
         const styleId = 'temp-dialog-style';
@@ -1583,8 +1754,8 @@ async function deleteTask(index, scope) {
         const result = await callPopup(`确定要删除任务 "${task.name}" 吗？`, 'confirm');
         document.getElementById(styleId)?.remove();
         if (result) {
+            resetTaskRun(runtime.key);
             await removeTaskByScope(scope, task.id, index);
-            resetTaskRun(task.name);
             if (state.currentEditingId === task.id || (state.currentEditingScope === scope && state.currentEditingIndex === index)) {
                 resetTaskEditorState();
             }
@@ -1993,10 +2164,10 @@ function cleanup() {
             newCommands = body;
         }
 
-        const previousName = hit.task.name;
+        const previousKey = captureTaskRuntime(hit.task, hit.scope).key;
         hit.task.commands = newCommands;
+        resetTaskRun(previousKey);
         await persistTaskListByScope(hit.scope, hit.list);
-        resetTaskRun(previousName);
         refreshTaskLists();
         return { ok: true, scope: hit.scope, name: hit.task.name };
     }
@@ -2011,6 +2182,7 @@ function cleanup() {
         if (!hit) throw new Error(`找不到任务: ${name}`);
         const patch = props || {};
         const previousName = hit.task.name;
+        const previousKey = captureTaskRuntime(hit.task, hit.scope).key;
         const wasDisabled = !!hit.task.disabled;
         const shouldResetPreviousRun = (
             (Object.prototype.hasOwnProperty.call(patch, 'name')
@@ -2021,8 +2193,8 @@ function cleanup() {
                 && !!patch.disabled)
         );
         Object.assign(hit.task, patch);
+        if (shouldResetPreviousRun) resetTaskRun(previousKey);
         await persistTaskListByScope(hit.scope, hit.list);
-        if (shouldResetPreviousRun) resetTaskRun(previousName);
         refreshTaskLists();
         return { ok: true, scope: hit.scope, name: hit.task.name };
     }
@@ -2030,10 +2202,11 @@ function cleanup() {
     async function exec(name) {
         const hit = find(name, 'all');
         if (!hit) throw new Error(`找不到任务: ${name}`);
+        const runtime = captureTaskRuntime(hit.task, hit.scope);
         const commands = hit.scope === 'global'
-            ? await readGlobalTaskCommands(hit.task)
+            ? () => readGlobalTaskCommands(hit.task)
             : String(hit.task.commands || '');
-        return await executeCommands(commands, hit.task.name);
+        return await executeCommands(commands, hit.task.name, runtime);
     }
 
     async function dump(scope = 'all') {
@@ -2065,23 +2238,27 @@ window.xbqte = async (name) => {
         if (!name?.trim()) throw new Error('请提供任务名称');
         const expected = name.toLowerCase();
         const globalTask = getSettings().globalTasks.find(task => task.name.toLowerCase() === expected);
+        const characterTask = globalTask ? null : getCharacterTasks().find(item => item.name.toLowerCase() === expected);
         const task = globalTask
-            || getCharacterTasks().find(item => item.name.toLowerCase() === expected)
+            || characterTask
             || getPresetTasks().find(item => item.name.toLowerCase() === expected);
         if (!task) throw new Error(`找不到名为 "${name}" 的任务`);
         if (task.disabled) throw new Error(`任务 "${name}" 已被禁用`);
+        const runtime = captureTaskRuntime(task, globalTask || characterTask ? 'global' : 'preset');
         const commands = task === globalTask
-            ? await readGlobalTaskCommands(task)
+            ? () => readGlobalTaskCommands(task)
             : String(task.commands || '');
-        if (isTaskExecutionActive(task.name) || __taskRunMap.has(normalizeTaskKey(task.name))) {
-            resetTaskRun(task.name);
+        if (!isTaskRuntimeActive(runtime)) return;
+        if (isTaskExecutionActive(runtime.key) || __taskRunMap.has(runtime.key) || __taskExecutionMap.has(runtime.key)) {
+            resetTaskRun(runtime.key);
         }
-        if (isTaskInCooldown(task.name)) {
-            const cd = getTaskCooldownStatus()[task.name];
+        if (isTaskInCooldown(runtime.key)) {
+            const cd = getTaskCooldownStatus()[runtime.key];
             throw new Error(`任务 "${name}" 仍在冷却中，剩余 ${cd.remainingCooldown}ms`);
         }
-        setTaskCooldown(task.name);
-        const result = await executeCommands(commands, task.name);
+        setTaskCooldown(runtime.key);
+        const result = await executeCommands(commands, task.name, runtime);
+        if (!isTaskRuntimeActive(runtime)) return;
         return result || `已执行任务: ${task.name}`;
     } catch (error) {
         console.error(`执行任务失败: ${error.message}`);
@@ -2091,6 +2268,7 @@ window.xbqte = async (name) => {
 
 window.xbtaskreset = async () => {
     resetAllTaskRuns();
+    await Promise.all(Array.from(__taskRunMap.values(), entry => entry.cleanupCompletion));
     return '已清理所有运行中任务、动态回调、冷却和执行状态';
 };
 
@@ -2217,9 +2395,9 @@ function registerSlashCommands() {
 
                 if (changed.length === 0) throw new Error('未提供要修改的参数');
 
+                if (!wasDisabled && task.disabled === true) resetTaskRun(previousTaskName);
                 if (isCharacter) await saveCharacterTasks(getCharacterTasks());
                 else saveSettingsDebounced();
-                if (!wasDisabled && task.disabled === true) resetTaskRun(previousTaskName);
                 refreshTaskLists();
 
                 return `已更新任务 "${name}": ${changed.join(', ')}`;
@@ -2338,8 +2516,8 @@ async function initTasks() {
                 const wasDisabled = !!list[idx].disabled;
                 const disabled = $(this).prop('checked');
                 list[idx].disabled = disabled;
-                await saveCharacterTasks(list);
                 if (!wasDisabled && disabled) resetTaskRun(taskName);
+                await saveCharacterTasks(list);
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
@@ -2369,12 +2547,12 @@ async function initTasks() {
             const list = getPresetTasks();
             const idx = list.findIndex(t => t?.id === id);
             if (idx !== -1) {
-                const taskName = list[idx].name;
+                const taskKey = captureTaskRuntime(list[idx], 'preset').key;
                 const wasDisabled = !!list[idx].disabled;
                 const disabled = $(this).prop('checked');
                 list[idx].disabled = disabled;
+                if (!wasDisabled && disabled) resetTaskRun(taskKey);
                 await savePresetTasks([...list]);
-                if (!wasDisabled && disabled) resetTaskRun(taskName);
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
