@@ -4,7 +4,7 @@ import { buildPresetActionIcon } from '../agent-core/ui/settings-markup.js';
 import { PROVIDER_OPTIONS } from '../agent-core/provider-resolution.js';
 import { samplingParametersFor } from '../agent-core/sampling.js';
 import { resolveReasoningCapability, getReasoningModeOptions, getReasoningEffortOptions } from '../agent-core/reasoning-capabilities.js';
-import { MODEL_LIST_AUTH_OPTIONS, supportsModelListAuth } from '../agent-core/model-list-auth.js';
+import { getModelListAuthOptions, normalizeModelListAuth, supportsModelListAuth } from '../agent-core/model-list-auth.js';
 import { createPreset, HOST_BINDING, HOST_PROVIDER } from './model.js';
 import { TEXT_API_COPY as COPY, deletionMessage } from './copy.js';
 
@@ -156,7 +156,7 @@ export function mountTextApiSettings(root, { feature, namespace }) {
             const modelInput = input('model');
             modelInput.onchange = () => renderParameters();
             control(COPY.model, modelInput);
-            if (supportsModelListAuth(draft.provider)) control(COPY.modelListAuth, select(MODEL_LIST_AUTH_OPTIONS, draft.modelListAuth, value => { draft.modelListAuth = value; }));
+            if (supportsModelListAuth(draft.provider)) control(COPY.modelListAuth, select(getModelListAuthOptions(draft.provider), normalizeModelListAuth(draft.modelListAuth, draft.provider), value => { draft.modelListAuth = value; }));
         }
         const modelList = select([{ value: '', label: COPY.manual }], '', value => { if (value) { draft.model = value; render(); } });
         modelList.hidden = true; modelList.setAttribute('aria-label', COPY.pull);

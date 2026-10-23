@@ -3,7 +3,7 @@
 // 代码只在浏览器的沙盒 iframe 里执行（custom-tool-sandbox.js），本模块只负责校验沙盒回传的定义、
 // 把它变成 Agent 的工具说明，以及把工具返回值整理成给模型的文本。
 import { SUBMIT_SCENE_PLAN_TOOL_NAME, ScenePlannerError } from './scene-plan-contract.js';
-import { MAX_TOOLS, MAX_TOOL_CODE_CHARS, hasTool } from './scene-planner-layout.js';
+import { MAX_TOOLS, MAX_TOOL_CODE_CHARS, hasTool, assertToolCodeLength } from './scene-planner-layout.js';
 
 export { MAX_TOOLS, MAX_TOOL_CODE_CHARS };
 // 一次规划里，模型最多能调用自定义工具的总次数（含被判定为同批未执行的）。
@@ -156,6 +156,7 @@ export async function resolveCustomToolDefinitions(layout, host, { signal } = {}
     for (const block of blocks) {
         const label = String(block.name || '').trim() || '附带工具';
         try {
+            assertToolCodeLength(block.tool.code);
             const raw = await host.define(block.id, block.tool.code, { signal });
             definitions.push(normalizeToolDefinition(raw, { usedNames: definitions.map(item => item.name) }));
         } catch (error) {

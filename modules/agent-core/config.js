@@ -144,7 +144,7 @@ export function normalizeModelConfigs(modelConfigs = {}) {
             baseUrl: String(source.baseUrl ?? defaults.baseUrl ?? ''),
             model: String(source.model ?? defaults.model ?? ''),
             apiKey: normalizeAgentApiKey(source.apiKey ?? defaults.apiKey),
-            ...(supportsModelListAuth(provider) ? { modelListAuth: normalizeModelListAuth(source.modelListAuth) } : {}),
+            ...(supportsModelListAuth(provider) ? { modelListAuth: normalizeModelListAuth(source.modelListAuth, provider) } : {}),
             temperature: source.temperature ?? defaults.temperature,
             maxTokens: normalizeMaxTokens(source.maxTokens, defaults.maxTokens),
             sendTemperature: typeof source.sendTemperature === 'boolean'

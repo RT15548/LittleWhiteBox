@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseNovelPromptPresetImport } from '../novel-prompt-import.js';
-import { addBlock, createCustomBlock, createDefaultLayout, hasTool } from '../../../shared/scene-planner-layout.js';
+import { MAX_TOOL_CODE_CHARS, addBlock, createCustomBlock, createDefaultLayout, hasTool } from '../../../shared/scene-planner-layout.js';
 import { createToolBlock } from '../../../shared/tests/helpers/tool-block.js';
 
 // Imported executable code stays disabled unless explicitly accepted (unwanted execution).
 const TYPE = 'novel-draw-prompt-template';
+
+// Import refuses oversize code without changing the supplied template (lost executable source).
+test('import rejects an oversize tool whether or not its execution was accepted', () => {
+    const code = 'x'.repeat(MAX_TOOL_CODE_CHARS + 1);
+    const file = { _type: TYPE, _version: 4, topSystem: '', sceneRules: '', name: 'long',
+        layout: addBlock(createDefaultLayout(), createCustomBlock({ tool: { code } })) };
+    const before = JSON.stringify(file);
+    for (const keepToolBlocks of [false, true]) {
+        assert.throws(() => parseNovelPromptPresetImport(file, { keepToolBlocks }), { code: 'CUSTOM_TOOL_CODE_TOO_LONG' });
+        assert.equal(JSON.stringify(file), before);
+    }
+});
 
 test('imported messages with a tool arrive disabled with their code kept, and the import reports how many', () => {
     const tool = createToolBlock({ name: '防截断', content: '说明', code: 'return { name: "game_content", action() {} };' }, [], () => 0.2);

@@ -1,6 +1,7 @@
 import { readSseEventsFromResponse } from './sse.js';
 import { resolveModelFamily } from '../model-family.js';
 import { getHostRequestHeaders } from '../../host-request-headers.js';
+import { extractModelListIds } from '../../common/model-list.js';
 export { setHostRequestHeadersProvider as setHostChatCompletionsRequestHeadersProvider } from '../../host-request-headers.js';
 
 export const HOST_CHAT_COMPLETIONS_SOURCE_OPENAI = 'openai';
@@ -311,10 +312,7 @@ async function fetchModels(
         throw new Error(`酒馆后端模型列表拉取失败：${message}`);
     }
 
-    const models = Array.isArray(data?.data)
-        ? data.data.map((item) => String(item?.id || item?.name || '').trim()).filter(Boolean)
-        : [];
-    return [...new Set(models)];
+    return [...new Set(extractModelListIds(data))];
 }
 
 export async function fetchHostChatCompletionsModels(

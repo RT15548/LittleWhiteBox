@@ -87,7 +87,22 @@ export function hasTool(block) {
 }
 
 function toolOf(code) {
-    return { code: coerceText(code).text.slice(0, MAX_TOOL_CODE_CHARS) };
+    return { code: coerceText(code).text };
+}
+
+/** 草稿保留原文；长度限制只在保存、导入及执行边界拒绝，不截断代码。 */
+export function getToolCodeLengthError(code) {
+    return typeof code === 'string' && code.length > MAX_TOOL_CODE_CHARS
+        ? `工具代码共 ${code.length} 字符，超过 ${MAX_TOOL_CODE_CHARS} 字符上限。请缩短后再保存或运行；原文未截断。`
+        : '';
+}
+
+export function assertToolCodeLength(code) {
+    const message = getToolCodeLengthError(code);
+    if (!message) return;
+    const error = new RangeError(message);
+    error.code = 'CUSTOM_TOOL_CODE_TOO_LONG';
+    throw error;
 }
 
 export function createDefaultLayout() {
@@ -211,7 +226,7 @@ function normalizeCore(raw, { trimName = true } = {}) {
             if (toolCount >= MAX_TOOLS) {
                 droppedTools += 1;
             } else {
-                custom.tool = { code: entry.tool.code.slice(0, MAX_TOOL_CODE_CHARS) };
+                custom.tool = toolOf(entry.tool.code);
                 toolCount += 1;
             }
         }
@@ -279,6 +294,9 @@ export function isDefaultLayout(layout) {
 
 export function layoutForStorage(raw) {
     const { layout } = normalizeLayout(raw);
+    for (const block of layout.blocks) {
+        if (hasTool(block)) assertToolCodeLength(block.tool.code);
+    }
     return JSON.stringify(layout) === DEFAULT_FINGERPRINT ? undefined : layout;
 }
 

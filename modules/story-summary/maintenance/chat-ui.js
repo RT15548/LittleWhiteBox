@@ -161,8 +161,12 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         if (ownsDraft && identity) act('draft', { text: input.value });
     }
     function fitInput() {
-        input.style.height = '44px';
-        input.style.height = `${Math.min(132, Math.max(44, input.scrollHeight + 2))}px`;
+        const scrollTop = viewport.scrollTop;
+        input.style.height = 'auto';
+        // The textarea has no border; CSS owns its minimum and maximum height.
+        input.style.height = `${input.scrollHeight}px`;
+        // Measuring a shorter composer can temporarily clamp the transcript scroll.
+        viewport.scrollTop = scrollTop;
         layout.style.setProperty('--memory-chat-composer-height', `${composer.getBoundingClientRect().height}px`);
     }
     function sendQuestion() {

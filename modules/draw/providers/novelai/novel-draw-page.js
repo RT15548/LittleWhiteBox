@@ -3478,7 +3478,25 @@ function pruneLayoutDrafts() {
 function layoutFieldForSave() {
     if (!layoutSupported()) return {};
     const layout = getEffectivePromptLayout(getActivePromptPresetForForm());
-    return { layout: PLE.isDefaultLayout(layout) ? null : PLE.normalizeLayout(layout).layout };
+    return { layout: PLE.layoutForStorage(layout) ?? null };
+}
+
+function savePromptPreset(buttonId, statusTarget, statusId) {
+    getActivePromptPresetForForm();
+    let layoutFields;
+    try {
+        layoutFields = layoutFieldForSave();
+    } catch (error) {
+        updateStatus($(statusId), 'error', error.message);
+        return;
+    }
+    setSavingState($(buttonId));
+    postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
+        topSystem: $('nd_prompt_system').value,
+        sceneRules: $('nd_prompt_format').value,
+        modelGuideOverrides: collectModelGuideOverridesFromForm(),
+        ...layoutFields,
+    }, statusTarget });
 }
 
 /** 导出用的布局：默认 / 没有 -> null（导出 V3，旧版本照常能导入）；否则规范化后的对象（导出 V4）。 */
@@ -4306,14 +4324,7 @@ function initializePage() {
     // 提示词预设管理 — 切换立即持久化，模板正文仍由保存按钮提交；
     // 列表里的点选 / “…”菜单由 preset-list-view.js 在第一次绘制时挂上委托（selectPromptPreset / handlePromptPresetAction）。
     $('nd_prompt_preset_save').addEventListener('click', () => {
-        setSavingState($('nd_prompt_preset_save'));
-        getActivePromptPresetForForm();
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
-            topSystem: $('nd_prompt_system').value,
-            sceneRules: $('nd_prompt_format').value,
-            modelGuideOverrides: collectModelGuideOverridesFromForm(),
-            ...layoutFieldForSave(),
-        }, statusTarget: 'prompt-preset' });
+        savePromptPreset('nd_prompt_preset_save', 'prompt-preset', 'nd_prompt_preset_status');
     });
 
     $('nd_prompt_add').addEventListener('click', () => postToParent({
@@ -4323,14 +4334,7 @@ function initializePage() {
 
     // 提示词模板保存（底部按钮，等同于预设栏保存）
     $('nd_prompts_save').addEventListener('click', () => {
-        setSavingState($('nd_prompts_save'));
-        getActivePromptPresetForForm();
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, promptDraft: {
-            topSystem: $('nd_prompt_system').value,
-            sceneRules: $('nd_prompt_format').value,
-            modelGuideOverrides: collectModelGuideOverridesFromForm(),
-            ...layoutFieldForSave(),
-        }, statusTarget: 'prompts' });
+        savePromptPreset('nd_prompts_save', 'prompts', 'nd_prompts_status');
     });
 
     // 恢复默认只改表单；点保存才落盘

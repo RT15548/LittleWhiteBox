@@ -581,7 +581,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
     const customRecords = [];
     let customCallsUsed = 0;
     let toolRounds = 0;
-    if (customTools.length) diagnostic.update({ toolsCount: 1 + customTools.length });
+    if (customTools.length) diagnostic.update({ toolsCount: 1 + customTools.length, customToolCalls: [], customToolCallCount: 0 });
     try {
         for (let attempt = 1; attempt <= MAX_SCENE_PLANNER_ATTEMPTS + toolRounds; attempt += 1) {
             const agentTask = { ...baseAgentTask };
@@ -742,7 +742,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 const argumentRepair = parsed?.argumentRepair ? {
                     ...parsed.argumentRepair,
                     attempt,
-                    originalArguments: validationToolCalls[0]?.arguments,
+                    originalArguments: validationResult.toolCalls[0]?.arguments,
                 } : null;
                 if (argumentRepair) {
                     logScenePlannerArgumentsRepair(argumentRepair, logContext);
@@ -766,7 +766,7 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 const signature = getScenePlannerCorrectionSignature(error);
                 const repeated = signature === previousCorrectionSignature;
                 const failureRecord = buildValidationFailureRecord({
-                    result: validationResult,
+                    result,
                     error,
                     attempt,
                     startedAt,
@@ -792,7 +792,8 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
                 }
 
                 const correction = buildCorrectionTurn({
-                    result: validationResult,
+                    // 校验只看提交工具，协议回放仍须为本轮所有调用逐一回复。
+                    result,
                     providerConfig,
                     error,
                     attempt,

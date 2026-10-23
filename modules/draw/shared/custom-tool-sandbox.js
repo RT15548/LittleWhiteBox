@@ -8,6 +8,7 @@
 //   invoke(name, args, { signal })    → Promise<string>   工具返回值（字符串原样，其余 JSON 化）
 //   dispose()
 import { TOOL_ACTION_TIMEOUT_MS, TOOL_DEFINE_TIMEOUT_MS, formatToolResult } from './custom-tools.js';
+import { assertToolCodeLength } from './scene-planner-layout.js';
 
 const MESSAGE_KEY = 'xbCustomTool';
 
@@ -180,6 +181,7 @@ export function createSandboxToolHost({
 
     return {
         async define(blockId, code, { signal } = {}) {
+            assertToolCodeLength(code);
             const key = String(blockId);
             open(key);
             let raw;

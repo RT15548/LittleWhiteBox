@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { createPreset } from '../model.js';
 import { generateText, listTextModels, testTextConnection, resolveConnection, connectionError } from '../runtime.js';
 import { createAgentAdapter } from '../../agent-core/provider-config.js';
-import { createHostChatCompletionsClient } from '../../../shared/host-llm/chat-completions/client.js';
+import { createHostChatCompletionsClient, setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 
 const messages = [{ role: 'system', content: 'fixture' }, { role: 'user', content: 'input {nested}; text' }];
 const event = data => `${data.type ? `event: ${data.type}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
@@ -84,6 +84,60 @@ test('real SDK requests use the selected protocol, one resolved version prefix a
                     assert.deepEqual(preset.sampling, {});
                 });
             }
+        }
+    }
+});
+
+// Credential/protocol contract: Text API's saved listing preference must affect
+// only discovery; generation must retain Google's authentication and protocol.
+test('Google Text API uses Bearer for discovery without changing generation auth', async t => {
+    for (const [base, listPrefix, generatePrefix] of [
+        ['', '/v1', '/v1beta'], ['/v1', '/v1', '/v1'], ['/v1beta', '/v1beta', '/v1beta'],
+    ]) {
+        await t.test(base || 'bare', async t => {
+            const wire = await service(t, 'google');
+            const preset = createPreset('p', 'P', { provider: 'google', baseUrl: wire.url + base,
+                apiKey: 'fixture-key', model: 'fixture', stream: false, modelListAuth: 'bearer' });
+            assert.deepEqual(await listTextModels(preset), ['fixture']);
+            assert.equal(wire.requests[0].url, listPrefix + '/models');
+            assert.equal(wire.requests[0].headers.authorization, 'Bearer fixture-key');
+            assert.equal(wire.requests[0].headers['x-goog-api-key'], undefined);
+            assert.equal((await generateText(preset, { messages })).text, 'OK');
+            assert.equal(wire.requests.length, 2);
+            assert.equal(new URL(wire.requests[1].url, wire.url).pathname, generatePrefix + '/models/fixture:generateContent');
+            assert.equal(wire.requests[1].headers.authorization, undefined);
+            assert.equal(wire.requests[1].headers['x-goog-api-key'], 'fixture-key');
+        });
+    }
+});
+
+test('Text API resolves discovery independently from generation and honors explicit prefixes', async t => {
+    setHostChatCompletionsRequestHeadersProvider(() => ({}));
+    t.after(() => setHostChatCompletionsRequestHeadersProvider(null));
+    for (const provider of ['google', 'sillytavern-google']) {
+        for (const [base, prefixMode, customPrefix, listPrefix, generatePrefix] of [
+            ['', 'auto', '', '/v1', '/v1beta'],
+            ['/v1', 'auto', '', '/v1', '/v1'],
+            ['/v1beta', 'auto', '', '/v1beta', '/v1beta'],
+            ['/v3', 'auto', '', '/v3', '/v3'],
+            ['/gateway', 'custom', '/api', '/gateway/api', '/gateway/api'],
+            ['/gateway', 'custom', '', '/gateway', '/gateway'],
+        ]) {
+            await t.test(`${provider}/${base}/${prefixMode}/${customPrefix}`, async t => {
+                const requests = [];
+                t.mock.method(globalThis, 'fetch', async (url, options) => {
+                    const body = options?.body ? JSON.parse(options.body) : null;
+                    requests.push(body ? `${body.reverse_proxy}/models` : String(url));
+                    return Response.json({ models: [{ name: 'models/vendor/gemini-test' }] });
+                });
+                const preset = createPreset('p', 'P', { provider, baseUrl: 'https://relay.test' + base,
+                    prefixMode, customPrefix, apiKey: 'fixture', modelListAuth: 'bearer' });
+                const before = structuredClone(preset);
+                assert.deepEqual(await listTextModels(preset), ['vendor/gemini-test']);
+                assert.deepEqual(requests, ['https://relay.test' + listPrefix + '/models']);
+                assert.equal(resolveConnection(preset).baseUrl, 'https://relay.test' + generatePrefix);
+                assert.deepEqual(preset, before);
+            });
         }
     }
 });

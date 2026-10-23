@@ -1,5 +1,5 @@
 import { PROVIDER_OPTIONS } from '../agent-core/provider-resolution.js';
-import { DEFAULT_MODEL_LIST_AUTH } from '../agent-core/model-list-auth.js';
+import { normalizeModelListAuth } from '../agent-core/model-list-auth.js';
 import { TEXT_API_COPY as COPY } from './copy.js';
 
 export const TEXT_API_SETTINGS_KEY = 'textApiPresets';
@@ -15,7 +15,7 @@ export function createPreset(id, name, input = {}) {
         prefixMode: input.prefixMode ?? 'auto', customPrefix: input.customPrefix ?? '',
         stream: input.stream ?? true, temperature: input.temperature ?? null,
         maxTokens: input.maxTokens ?? null, sampling: structuredClone(input.sampling ?? {}),
-        reasoning: structuredClone(input.reasoning ?? {}), modelListAuth: input.modelListAuth ?? DEFAULT_MODEL_LIST_AUTH,
+        reasoning: structuredClone(input.reasoning ?? {}), modelListAuth: normalizeModelListAuth(input.modelListAuth, input.provider),
     };
 }
 

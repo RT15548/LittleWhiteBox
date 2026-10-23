@@ -39,7 +39,9 @@ createPlanLedger({ plansTable });
 
 OpenAI 兼容、Responses、Anthropic 的免密请求不发送认证头；Google 受当前 SDK 约束发送空 `x-goog-api-key`。SDK 内部适配不保存占位密钥，也不把占位值或 Node 环境凭据发给反代。模型拉取和实际请求均保留供应商鉴权错误，不切换身份重试。
 
-Claude 的模型列表鉴权与生成鉴权分开：直连 Anthropic 和酒馆 Claude 共用模型拉取入口，预设中的 `modelListAuth` 由 `model-list-auth.js` 定义。设置界面的「模型列表鉴权」默认 `x-api-key`；模型列表使用 OpenAI 兼容鉴权的中转可选 `Bearer`，只发送 `Authorization: Bearer`。两者沿用已有 Key，不同时发送、不按域名猜测、不在 401/403 后切换认证重试。空 Key 不发送认证头，也不改变 Messages 生成请求的鉴权。主助手和分身独立保存此选择，其他渠道不使用该字段。
+Claude 和 Google 的模型列表鉴权与生成鉴权分开：预设中的 `modelListAuth` 由 `model-list-auth.js` 定义，Text API、主助手和分身沿用各自保存的选择。Claude 默认 `x-api-key`，Google 默认原生 Google API Key；中转可选 `Bearer`，列表请求只使用 `Authorization: Bearer`，不附加原生 Key 头或 URL 参数。不按域名猜测，也不在 401/403 后切换认证重试，生成仍使用所选模型协议的原生鉴权。
+
+模型发现的默认路径由 `getModelListApiPrefix` 定义：Google 原生鉴权使用 `/v1beta/models`，Bearer 使用 `/v1/models`；显式版本路径和 Text API 自定义前缀优先，不因此改变生成地址。酒馆 Google 的 Bearer 列表请求通过宿主 OpenAI `/status` 通道发送，生成仍走 Google。直连与宿主共用 `shared/common/model-list.js` 解析 `data` 和 `models` 列表；模型 `id` 原样保留，只移除 Google `name` 开头的 `models/`。
 
 直连反代必须允许浏览器跨域。酒馆托管渠道仍遵守宿主协议：SillyTavern 1.18.0 的 Claude 转发强制要求密码，免密 Claude 反代应选择直连 Anthropic，不会自动替用户切换渠道。官方 API、联网渠道和图片生成供应商自身的鉴权要求不变。
 

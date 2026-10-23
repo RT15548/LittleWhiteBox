@@ -31,7 +31,7 @@ import {
 import { WEB_PROVIDERS, normalizeWebSettings } from '../web/settings.js';
 import { bindWebSettingsGuide, readWebSettingsForm, syncWebSettingsForm } from './web-settings.js';
 import { buildPresetListRowsMarkup, syncPresetListControls } from './settings-markup.js';
-import { MODEL_LIST_AUTH_OPTIONS, normalizeModelListAuth, supportsModelListAuth } from '../model-list-auth.js';
+import { getModelListAuthOptions, normalizeModelListAuth, supportsModelListAuth } from '../model-list-auth.js';
 import { SAMPLING_PARAMETERS, normalizeSampling } from '../sampling.js';
 import { readSamplingForm, syncSamplingForm, bindSamplingSettings, validateSamplingForm } from './sampling-settings.js';
 
@@ -219,7 +219,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: String(delegateProviderConfig.baseUrl || ''),
             delegateModel: String(delegateProviderConfig.model || ''),
             delegateApiKey: String(delegateProviderConfig.apiKey || ''),
-            delegateModelListAuth: normalizeModelListAuth(delegateProviderConfig.modelListAuth),
+            delegateModelListAuth: normalizeModelListAuth(delegateProviderConfig.modelListAuth, delegateProvider),
             delegateTemperature: normalizeTemperature(delegateProviderConfig.temperature, 1),
             delegateMaxTokens: normalizeMaxTokens(delegateProviderConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(delegateProviderConfig),
@@ -239,7 +239,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(providerConfig.baseUrl || ''),
             model: String(providerConfig.model || ''),
             apiKey: String(providerConfig.apiKey || ''),
-            modelListAuth: normalizeModelListAuth(providerConfig.modelListAuth),
+            modelListAuth: normalizeModelListAuth(providerConfig.modelListAuth, provider),
             temperature: normalizeTemperature(providerConfig.temperature, 1),
             maxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             sendTemperature: shouldSendTemperature(providerConfig),
@@ -257,7 +257,7 @@ export function createAgentSettingsPanel(deps = {}) {
             delegateBaseUrl: String(providerConfig.baseUrl || ''),
             delegateModel: String(providerConfig.model || ''),
             delegateApiKey: String(providerConfig.apiKey || ''),
-            delegateModelListAuth: normalizeModelListAuth(providerConfig.modelListAuth),
+            delegateModelListAuth: normalizeModelListAuth(providerConfig.modelListAuth, provider),
             delegateTemperature: normalizeTemperature(providerConfig.temperature, 1),
             delegateMaxTokens: normalizeMaxTokens(providerConfig.maxTokens),
             delegateSendTemperature: shouldSendTemperature(providerConfig),
@@ -339,6 +339,7 @@ export function createAgentSettingsPanel(deps = {}) {
             apiKey: root.querySelector('#xb-assistant-api-key')?.value.trim() || '',
             ...(supportsModelListAuth(provider) ? { modelListAuth: normalizeModelListAuth(
                 root.querySelector('#xb-assistant-model-list-auth')?.value ?? draft.modelListAuth,
+                provider,
             ) } : {}),
             temperature: normalizeTemperature(root.querySelector('#xb-assistant-temperature')?.value, draft.temperature ?? 1),
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-max-tokens')?.value, draft.maxTokens),
@@ -355,6 +356,7 @@ export function createAgentSettingsPanel(deps = {}) {
             apiKey: root.querySelector('#xb-assistant-delegate-api-key')?.value.trim() ?? draft.delegateApiKey ?? '',
             ...(supportsModelListAuth(delegateProvider) ? { modelListAuth: normalizeModelListAuth(
                 root.querySelector('#xb-assistant-delegate-model-list-auth')?.value ?? draft.delegateModelListAuth,
+                delegateProvider,
             ) } : {}),
             temperature: normalizeTemperature(root.querySelector('#xb-assistant-delegate-temperature')?.value, draft.delegateTemperature ?? 1),
             maxTokens: normalizeMaxTokens(root.querySelector('#xb-assistant-delegate-max-tokens')?.value, draft.delegateMaxTokens),
@@ -429,7 +431,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(draft.baseUrl || ''),
             model: String(draft.model || ''),
             apiKey: String(draft.apiKey || ''),
-            ...(supportsModelListAuth(draft.provider) ? { modelListAuth: normalizeModelListAuth(draft.modelListAuth) } : {}),
+            ...(supportsModelListAuth(draft.provider) ? { modelListAuth: normalizeModelListAuth(draft.modelListAuth, draft.provider) } : {}),
             temperature: normalizeTemperature(draft.temperature, 1),
             maxTokens: normalizeMaxTokens(draft.maxTokens),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
@@ -450,7 +452,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: String(draft.delegateBaseUrl || ''),
             model: String(draft.delegateModel || ''),
             apiKey: String(draft.delegateApiKey || ''),
-            ...(supportsModelListAuth(draft.delegateProvider) ? { modelListAuth: normalizeModelListAuth(draft.delegateModelListAuth) } : {}),
+            ...(supportsModelListAuth(draft.delegateProvider) ? { modelListAuth: normalizeModelListAuth(draft.delegateModelListAuth, draft.delegateProvider) } : {}),
             temperature: normalizeTemperature(draft.delegateTemperature, 1),
             maxTokens: normalizeMaxTokens(draft.delegateMaxTokens),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
@@ -487,7 +489,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: draft.baseUrl || '',
             model: draft.model || '',
             apiKey: draft.apiKey || '',
-            ...(supportsModelListAuth(draft.provider) ? { modelListAuth: normalizeModelListAuth(draft.modelListAuth) } : {}),
+            ...(supportsModelListAuth(draft.provider) ? { modelListAuth: normalizeModelListAuth(draft.modelListAuth, draft.provider) } : {}),
             ...normalizeWebSettings(draft),
             temperature: draft.sendTemperature === false ? undefined : normalizeTemperature(draft.temperature, 1),
             sendTemperature: Boolean(draft.sendTemperature ?? true),
@@ -514,7 +516,7 @@ export function createAgentSettingsPanel(deps = {}) {
             baseUrl: draft.delegateBaseUrl || '',
             model: draft.delegateModel || '',
             apiKey: draft.delegateApiKey || '',
-            ...(supportsModelListAuth(draft.delegateProvider) ? { modelListAuth: normalizeModelListAuth(draft.delegateModelListAuth) } : {}),
+            ...(supportsModelListAuth(draft.delegateProvider) ? { modelListAuth: normalizeModelListAuth(draft.delegateModelListAuth, draft.delegateProvider) } : {}),
             ...normalizeWebSettings(draft),
             temperature: draft.delegateSendTemperature === false ? undefined : normalizeTemperature(draft.delegateTemperature, 1),
             sendTemperature: Boolean(draft.delegateSendTemperature ?? true),
@@ -705,8 +707,8 @@ export function createAgentSettingsPanel(deps = {}) {
         const select = root.querySelector(`${prefix}-model-list-auth`);
         if (wrap) wrap.style.display = supportsModelListAuth(provider) ? '' : 'none';
         if (select) {
-            refillSelect(select, MODEL_LIST_AUTH_OPTIONS);
-            select.value = normalizeModelListAuth(value);
+            refillSelect(select, getModelListAuthOptions(provider));
+            select.value = normalizeModelListAuth(value, provider);
         }
     }
 

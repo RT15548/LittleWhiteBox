@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 
 import { createDefaultLayout, createPromptLayoutEditor } from '../prompt-layout-editor.js';
-import { MAX_TOOLS, addBlockAfter, hasTool } from '../scene-planner-layout.js';
+import { MAX_TOOLS, MAX_TOOL_CODE_CHARS, addBlockAfter, hasTool, layoutForStorage } from '../scene-planner-layout.js';
 import { DEFAULT_TOOL_CODE } from '../custom-tools.js';
 import { createToolBlock } from './helpers/tool-block.js';
 
@@ -48,6 +48,30 @@ function setup(t, { layout = createDefaultLayout(), onTestTool } = {}) {
     };
     return ui;
 }
+
+// An invalid-length edit stays intact across rerenders and remains editable after rejected storage (lost user edits).
+test('oversize tool code remains visible and editable after validation failure', t => {
+    const ui = setup(t);
+    let row = ui.setTool(ui.addMessage(), true);
+    let codeBox = ui.field(row, 'code');
+    const code = 'x'.repeat(MAX_TOOL_CODE_CHARS + 47);
+    codeBox.value = code;
+    ui.fire(codeBox, 'input');
+    assert.equal(ui.toolBlocks()[0].tool.code, code);
+    assert.equal(codeBox.value, code);
+    assert.equal(codeBox.getAttribute('aria-invalid'), 'true');
+    assert.equal(row.querySelector('[data-ple-code-error]').hidden, false);
+    assert.throws(() => layoutForStorage(ui.layout()), { code: 'CUSTOM_TOOL_CODE_TOO_LONG' });
+    ui.editor.render({ force: true });
+    row = ui.toolRows()[0];
+    codeBox = ui.field(row, 'code');
+    assert.equal(codeBox.value, code);
+    codeBox.value = DEFAULT_TOOL_CODE;
+    ui.fire(codeBox, 'input');
+    assert.equal(codeBox.getAttribute('aria-invalid'), 'false');
+    assert.equal(row.querySelector('[data-ple-code-error]').hidden, true);
+    assert.equal(layoutForStorage(ui.layout()).blocks.at(-1).tool.code, DEFAULT_TOOL_CODE);
+});
 
 test('在消息上勾“附带工具”：带 Reborn 同款代码模板，消息本身不变，并读出工具名', (t) => {
     const ui = setup(t);

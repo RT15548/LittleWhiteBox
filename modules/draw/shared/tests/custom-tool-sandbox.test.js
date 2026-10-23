@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import { createIframeSandboxFactory, createSandboxToolHost } from '../custom-tool-sandbox.js';
+import { MAX_TOOL_CODE_CHARS } from '../scene-planner-layout.js';
+
+// Trial execution rejects oversize code before creating an executable frame (unintended code execution).
+test('oversize code is rejected before opening a sandbox', async () => {
+    const frames = [];
+    const host = createSandboxToolHost({ createFrame: createVmFrameFactory(frames) });
+    await assert.rejects(host.define('long', 'x'.repeat(MAX_TOOL_CODE_CHARS + 1)), { code: 'CUSTOM_TOOL_CODE_TOO_LONG' });
+    assert.equal(frames.length, 0);
+    host.dispose();
+});
 
 const GAME_CONTENT_CODE = `return {
     name: "game_content",

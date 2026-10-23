@@ -44,8 +44,12 @@ body:has(.summary-workspace.active) { overflow: hidden; }
 .workspace-shell :is(.settings-checkbox, .archive-setting) input[type=checkbox]:checked { background: var(--archive-accent); }
 .workspace-shell :is(.settings-checkbox, .archive-setting) input[type=checkbox]:checked::before { transform: translateX(14px); }
 .workspace-model-link { width: 100%; text-align: left; background: none; color: var(--txt); border: 0; border-bottom: 1px solid var(--bdr); padding: 22px 0; font: inherit; cursor: pointer; }
-.workspace-models { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 22px 0 36px; }
-.workspace-models .workspace-model-link { font-size: 13px; }
+.workspace-models { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 12px 0 24px; }
+.workspace-models .workspace-model-link { font-size: 13px; padding-block: 14px; }
+.workspace-shell #tab-vector .settings-field { margin-bottom: 0; }
+.workspace-shell #tab-vector .settings-checkbox-group { padding: 0; }
+.workspace-shell #tab-vector .settings-checkbox-group .settings-hint { margin-left: 0; }
+.workspace-shell #tab-vector .neo-card { margin: 20px 0; }
 .workspace-shell #tab-agent-api { --text-primary: var(--txt); --text-secondary: var(--txt2); --text-muted: var(--txt3); --bg-input: var(--bg2); --bg-secondary: var(--bg2); --border: var(--bdr); --border-focus: var(--archive-accent); --accent: var(--archive-accent); --accent-soft: var(--archive-accent-soft); --danger: #d65454; font-size: 14px; }
 .workspace-shell .settings-checkbox-group { margin: 12px 0; }
 .workspace-shell .archive-setting { border-bottom: 1px solid var(--bdr); padding: 16px 0; }
@@ -86,7 +90,7 @@ body:has(.summary-workspace.active) { overflow: hidden; }
     .workspace-layout .settings-tab.active { border-color: var(--archive-accent); background: none; }
     .workspace-shell > .modal-foot { margin-left: 0; }
     .workspace-shell .settings-row { flex-wrap: wrap; }
-    .workspace-shell .settings-field { flex: 1 1 140px; }
+    .workspace-shell .settings-field { flex: 1 1 auto; }
     .workspace-shell .settings-section-title { font-size: 14px; }
     .workspace-shell #tab-summary .settings-field { flex-basis: 100%; }
     .memory-chat-dialog { inset: auto; left: 0; top: var(--memory-chat-view-top); transform: none; width: 100%; height: var(--memory-chat-view-height); max-height: none; border: 0; border-radius: 0; }

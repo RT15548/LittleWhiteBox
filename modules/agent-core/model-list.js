@@ -1,4 +1,5 @@
-import { hasExplicitApiVersion, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
+import { getDefaultApiPrefix, hasExplicitApiVersion, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
+import { extractModelListIds } from '../../shared/common/model-list.js';
 import {
  HOST_CHAT_COMPLETIONS_SOURCE_CLAUDE, HOST_CHAT_COMPLETIONS_SOURCE_MAKERSUITE,
  HOST_CHAT_COMPLETIONS_SOURCE_OPENAI, HOST_CHAT_COMPLETIONS_DEFAULT_REVERSE_PROXY,
@@ -6,7 +7,7 @@ import {
 } from '../../shared/host-llm/chat-completions/client.js';
 import { isSillyTavernProvider } from './provider-resolution.js';
 import { resolveAgentAuth } from './provider-auth.js';
-import { normalizeModelListAuth, supportsModelListAuth } from './model-list-auth.js';
+import { normalizeModelListAuth } from './model-list-auth.js';
 
 const MODEL_FILTERS = {
     chat: {
@@ -64,6 +65,14 @@ function buildVersionedCandidateUrls(baseUrl, prefix, exact) {
     return uniqueUrls([`${normalized}${prefix}/models`, `${normalized}/models`]);
 }
 
+// Discovery defaults are independent of generation. Explicit versions and
+// caller-resolved custom prefixes remain authoritative at the URL boundary.
+export function getModelListApiPrefix(providerConfig) {
+    const nativeGoogle = ['google', 'sillytavern-google'].includes(providerConfig.provider)
+        && normalizeModelListAuth(providerConfig.modelListAuth, providerConfig.provider) !== 'bearer';
+    return getDefaultApiPrefix(nativeGoogle ? 'google' : 'openai');
+}
+
 function extractErrorSnippet(payload, rawText) {
     const candidates = [
         payload?.error?.message,
@@ -109,11 +118,7 @@ function extractAnthropicModels(data) {
 }
 
 function extractGoogleModels(data) {
-    return filterModels(
-        ((data?.models || data?.data || []).map((item) => String(item?.id || item?.name || '')))
-            .map((item) => item.split('/').pop() || '')
-            .filter(Boolean),
-    );
+    return filterModels(extractModelListIds(data));
 }
 
 async function tryCandidateFetches({ urls, requestOptionsList, extractModels, providerLabel }) {
@@ -218,27 +223,34 @@ export async function pullModelsForProvider(providerConfig, options = {}) {
         return filterModels(await pullSillyTavernClaudeModels(providerConfig, options));
     }
 
+    const googleBearer = provider === 'sillytavern-google'
+        && normalizeModelListAuth(providerConfig.modelListAuth, provider) === 'bearer';
+    if (!baseUrl && (!isSillyTavernProvider(provider) || googleBearer)) {
+        throw new Error('请先填写 Base URL。');
+    }
+
     if (isSillyTavernProvider(provider)) {
         return filterModels(await fetchHostChatCompletionsModels(
-            providerConfig,
-            getSillyTavernChatCompletionSource(provider),
+            googleBearer ? {
+                ...providerConfig,
+                baseUrl: options.baseUrlResolved ? baseUrl : resolveApiBaseUrl(baseUrl, getModelListApiPrefix(providerConfig)),
+            } : providerConfig,
+            googleBearer ? HOST_CHAT_COMPLETIONS_SOURCE_OPENAI : getSillyTavernChatCompletionSource(provider),
             { signal: options.signal },
         ));
     }
 
-    if (!baseUrl) {
-        throw new Error('请先填写 Base URL。');
-    }
-
     if (provider === 'google') {
+        const bearer = normalizeModelListAuth(providerConfig.modelListAuth, provider) === 'bearer';
+        const listAuth = bearer ? resolveAgentAuth('openai-compatible', providerConfig.apiKey) : auth;
         return await tryCandidateFetches({
-            urls: buildVersionedCandidateUrls(baseUrl, '/v1beta', options.baseUrlResolved)
-                .map(url => auth.apiKey ? `${url}?key=${encodeURIComponent(auth.apiKey)}` : url),
+            urls: buildVersionedCandidateUrls(baseUrl, getModelListApiPrefix(providerConfig), options.baseUrlResolved)
+                .map(url => !bearer && auth.apiKey ? `${url}?key=${encodeURIComponent(auth.apiKey)}` : url),
             requestOptionsList: [
                 {
                     headers: {
                         Accept: 'application/json',
-                        ...auth.headers,
+                        ...listAuth.headers,
                     },
                     signal: options.signal,
                 },
@@ -248,7 +260,7 @@ export async function pullModelsForProvider(providerConfig, options = {}) {
         });
     }
 
-    if (supportsModelListAuth(provider)) {
+    if (provider === 'anthropic') {
         return await pullAnthropicModels(baseUrl, providerConfig, options);
     }
 

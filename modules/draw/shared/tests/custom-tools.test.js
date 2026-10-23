@@ -13,6 +13,7 @@ import {
 } from '../custom-tools.js';
 import {
     MAX_TOOLS,
+    MAX_TOOL_CODE_CHARS,
     addBlockAfter,
     createCustomBlock,
     createDefaultLayout,
@@ -28,6 +29,25 @@ import {
 import { planScenePlannerMessages } from '../scene-planner-assembly.js';
 import { createInProcessToolHost } from './helpers/in-process-tool-host.js';
 import { createToolBlock } from './helpers/tool-block.js';
+
+// Oversize executable code must remain intact in drafts and be rejected before storage/execution (lost code / unintended execution).
+test('oversize code survives editing and normalization but cannot be stored or executed', async () => {
+    const code = 'x'.repeat(MAX_TOOL_CODE_CHARS + 1);
+    const block = createCustomBlock({ tool: { code } });
+    const layout = addBlockAfter(createDefaultLayout(), block);
+    assert.equal(normalizeLayout(layout).layout.blocks.at(-1).tool.code, code);
+    assert.throws(() => layoutForStorage(layout), { code: 'CUSTOM_TOOL_CODE_TOO_LONG' });
+    let defined = false;
+    await assert.rejects(resolveCustomToolDefinitions(layout, { define() { defined = true; } }), error => {
+        assert.equal(error.code, 'CUSTOM_TOOL_INVALID');
+        assert.equal(error.cause.code, 'CUSTOM_TOOL_CODE_TOO_LONG');
+        return true;
+    });
+    assert.equal(defined, false);
+    assert.equal(layout.blocks.at(-1).tool.code, code);
+    const shorter = updateBlock(layout, block.id, { tool: { code: code.slice(0, MAX_TOOL_CODE_CHARS) } });
+    assert.equal(layoutForStorage(shorter).blocks.at(-1).tool.code.length, MAX_TOOL_CODE_CHARS);
+});
 
 const GAME_CONTENT_CODE = `return {
     name: "game_content",

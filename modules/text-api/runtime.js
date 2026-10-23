@@ -1,5 +1,5 @@
 import { createAgentAdapter } from '../agent-core/provider-config.js';
-import { pullModelsForProvider } from '../agent-core/model-list.js';
+import { getModelListApiPrefix, pullModelsForProvider } from '../agent-core/model-list.js';
 import { resolveRuntimeReasoning } from '../agent-core/reasoning-capabilities.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
 import { runWithAbortDeadline } from '../../shared/common/abort-utils.js';
@@ -7,10 +7,11 @@ import { HOST_PROVIDER, assertPreset } from './model.js';
 import { TEXT_API_COPY as COPY } from './copy.js';
 import { CONNECTION_TEST_PROMPT } from './prompts.js';
 
-export function resolveConnection(preset) {
+export function resolveConnection(preset, { modelList = false } = {}) {
     const config = structuredClone(assertPreset(preset));
     const prefix = preset.prefixMode === 'custom' ? preset.customPrefix
-        : getDefaultApiPrefix(['google', 'sillytavern-google'].includes(preset.provider) ? 'google' : 'openai');
+        : modelList ? getModelListApiPrefix(preset)
+            : getDefaultApiPrefix(['google', 'sillytavern-google'].includes(preset.provider) ? 'google' : 'openai');
     config.baseUrl = resolveApiBaseUrl(preset.baseUrl, prefix);
     config.resolvedBaseUrl = config.baseUrl;
     config.apiKey = String(preset.apiKey || '').trim();
@@ -20,7 +21,7 @@ export function resolveConnection(preset) {
 
 export async function listTextModels(preset, { signal, timeoutMs = 30000 } = {}) {
     if (preset.provider === HOST_PROVIDER) return [];
-    const config = resolveConnection(preset);
+    const config = resolveConnection(preset, { modelList: true });
     if (!config.baseUrl) throw new Error(COPY.urlRequired);
     const controller = new AbortController();
     const abort = () => controller.abort(signal.reason);

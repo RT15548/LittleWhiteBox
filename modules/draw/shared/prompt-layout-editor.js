@@ -24,6 +24,7 @@ import {
     createDefaultLayout,
     describeBlock,
     duplicateBlocks,
+    getToolCodeLengthError,
     hasTool,
     isDefaultLayout,
     layoutFingerprint,
@@ -336,13 +337,17 @@ export function createPromptLayoutEditor({
             }, [toolToggle, create(document, 'span', { text: '附带工具' })]),
         ];
         if (tool) {
+            const codeError = getToolCodeLengthError(block.tool.code);
             const code = create(document, 'textarea', {
                 className: 'lwb-ple-textarea lwb-ple-code',
-                attrs: { rows: '12', 'data-ple-field': 'code', placeholder: 'return { name, description, parameters, action: async (args) => … };', spellcheck: 'false', autocomplete: 'off' },
+                attrs: { rows: '12', 'data-ple-field': 'code', 'aria-invalid': String(Boolean(codeError)), placeholder: 'return { name, description, parameters, action: async (args) => … };', spellcheck: 'false', autocomplete: 'off' },
             });
             code.value = block.tool.code || '';
+            const errorNode = create(document, 'p', { className: 'lwb-ple-tool-result', text: codeError, attrs: { 'data-ple-code-error': '', 'data-ok': 'false', role: 'alert' } });
+            setHidden(errorNode, !codeError);
             children.push(
                 create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: '工具代码' }), code]),
+                errorNode,
                 create(document, 'p', { className: 'lwb-ple-tool-name', text: toolNameText(block), attrs: { 'data-ple-tool-name': '' } }),
                 create(document, 'p', { className: 'lwb-ple-tool-warning', text: '代码在浏览器的沙盒里运行，读不到酒馆页面和存储，但仍可联网。只启用你信任的代码；导入带工具代码的模板时会先问你是否启用。' }),
             );
@@ -406,6 +411,13 @@ export function createPromptLayoutEditor({
         if (toolTag && hasTool(block)) toolTag.textContent = toolTagText(block);
         const toolName = row.querySelector('[data-ple-tool-name]');
         if (toolName) toolName.textContent = toolNameText(block);
+        const codeError = getToolCodeLengthError(block.tool?.code);
+        const errorNode = row.querySelector('[data-ple-code-error]');
+        if (errorNode) {
+            errorNode.textContent = codeError;
+            setHidden(errorNode, !codeError);
+            row.querySelector('[data-ple-field="code"]')?.setAttribute('aria-invalid', String(Boolean(codeError)));
+        }
         const badge = row.querySelector('[data-ple-role]');
         if (badge) {
             badge.setAttribute('class', `lwb-ple-role ${block.role}`);
