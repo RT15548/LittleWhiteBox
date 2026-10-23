@@ -13,7 +13,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/README.md",
       "relativePath": "README.md",
       "extension": ".md",
-      "sizeBytes": 689
+      "sizeBytes": 781
     },
     {
       "source": "littlewhitebox",
@@ -468,7 +468,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/manifest.json",
       "relativePath": "manifest.json",
       "extension": ".json",
-      "sizeBytes": 382
+      "sizeBytes": 383
     },
     {
       "source": "littlewhitebox",

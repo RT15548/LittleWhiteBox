@@ -2,6 +2,8 @@
 
 面向 SillyTavern 的多功能扩展，为长篇角色扮演提供剧情记忆、状态管理、绘图、语音和应用面板。
 
+版本更新与说明见 [Releases](https://github.com/RT15548/LittleWhiteBox/releases)。
+
 ## 主要功能
 
 - 剧情总结与记忆：整理剧情，辅助长对话中的记忆召回。
