@@ -1661,7 +1661,7 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
                 ...base,
                 id: base.id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
                 name: uniqueName,
-                commands: String(editorTemplate.find('.task_commands_edit').val() || '').trim(),
+                commands: String(editorTemplate.find('.task_commands_edit').val() || ''),
                 interval: parseInt(String(editorTemplate.find('.task_interval_edit').val() || '0'), 10) || 0,
                 floorType: editorTemplate.find('.task_floor_type_edit').val() || 'all',
                 triggerTiming: task?.triggerTiming === 'character_init' && selectedTriggerTiming === 'initialization'
@@ -1687,9 +1687,9 @@ function resetTaskEditorState() {
 async function saveTaskFromEditor(task, scope) {
     const targetScope = scope === 'character' || scope === 'preset' ? scope : 'global';
     const isManual = (task?.interval === 0);
-    if (!task.name || (!isManual && !task.commands)) return;
-
     const isEditingExistingTask = state.currentEditingIndex >= 0 || !!state.currentEditingId;
+    if (!task.name || (!isEditingExistingTask && !isManual && !task.commands)) return;
+
     const previousTask = isEditingExistingTask ? state.currentEditingTask : null;
     const previousName = previousTask?.name;
     const previousRuntime = previousTask ? captureTaskRuntime(previousTask, state.currentEditingScope) : null;

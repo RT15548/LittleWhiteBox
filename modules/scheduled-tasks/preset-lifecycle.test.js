@@ -33,11 +33,12 @@ const { SlashCommandAbortController } = await import(controllerUrl.href);
 // - Stop/edit/delete invalidate pending work before persistence finishes (scripts surviving user stop).
 // - Waiting for script storage or executing empty input does not lock unrelated tasks (blocked chat).
 // - After asynchronous global reads, use current preset task configuration only within the original visit (deleted/disabled or obsolete scripts running).
+// - Saving an existing task preserves the editor text exactly, including empty content and whitespace; reopening/exporting must match and the old instance must stop (lost edits / stale scripts / wrong prompts).
 const compile = (file, extra = '') => transformSync(fs.readFileSync(new URL(file, import.meta.url), 'utf8') + extra, {
     format: 'cjs', target: 'es2022', define: { 'import.meta.url': JSON.stringify(file) },
 }).code;
 // Expose private entry points to the harness without replacing their implementations.
-const runtimeCode = compile('./scheduled-tasks.js', '\nexport { checkAndExecuteTasks, state, __taskRunMap, __taskExecutionMap, deleteTask, saveTaskFromEditor, onMessageReceived };');
+const runtimeCode = compile('./scheduled-tasks.js', '\nexport { checkAndExecuteTasks, state, __taskRunMap, __taskExecutionMap, deleteTask, showTaskEditor, exportSingleTask, onMessageReceived };');
 const eventCode = compile('./preset-task-events.js');
 const slashCode = compile('../../core/slash-command.js');
 const deferred = () => {
@@ -62,7 +63,26 @@ function harness(t) {
     const scripts = new Map();
     const timers = new Map(), intervals = new Map(), handlers = [];
     let timerId = 0;
+    let editorCompletion;
+    const editorResult = deferred();
+    const editorFields = new Map();
+    const editor = {
+        clone() { return this; }, removeAttr() { return this; }, show() { return this; },
+        find(selector) {
+            if (!editorFields.has(selector)) {
+                const field = { length: 1, value: '', props: {},
+                    val(value) { if (!arguments.length) return this.value; this.value = value; return this; },
+                    prop(key, value) { if (arguments.length === 1) return this.props[key]; this.props[key] = value; return this; },
+                    on() { return this; }, css() { return this; }, html() { return this; },
+                    show() { return this; }, hide() { return this; },
+                };
+                editorFields.set(selector, field);
+            }
+            return editorFields.get(selector);
+        },
+    };
     const $ = target => {
+        if (target === '#task_editor_template') return editor;
         const chain = { 0: document.createElement('div'), length: 0 };
         for (const method of ['children', 'first', 'clone', 'attr', 'text', 'find', 'prop', 'empty', 'append']) chain[method] = () => chain;
         chain.sortable = () => null;
@@ -80,6 +100,7 @@ function harness(t) {
     };
     const settings = { enabled: true, globalTasks: globals, processedMessages: [], character_allowed_tasks: [] };
     const calls = [];
+    const downloads = [];
     const host = {
         saveSettingsDebounced() {}, characters: [], this_chid: null,
         chat: [{ is_user: true }, { is_user: false }], callPopup: async () => true,
@@ -99,16 +120,21 @@ function harness(t) {
     const imports = {
         '../../../../../extensions.js': extensions,
         '../../../../../../script.js': host,
+        '../../../../../popup.js': { POPUP_TYPE: { CONFIRM: 1 }, callGenericPopup: () => editorResult.promise },
         '../../../../../preset-manager.js': { getPresetManager: () => manager },
         '../../../../../openai.js': { oai_settings: liveSettings },
-        '../../../../../utils.js': { uuidv4: randomUUID, debounce: fn => fn },
+        '../../../../../utils.js': { uuidv4: randomUUID, debounce: fn => fn, download: data => downloads.push(JSON.parse(data)) },
         '../../core/constants.js': { EXT_ID: 'test' },
         '../../core/event-manager.js': { createModuleEvents: () => ({ cleanup() {} }), event_types },
         '../../core/debug-core.js': { CacheRegistry: { register() {} }, xbLog: console },
         '../../core/server-storage.js': { TasksStorage: storage },
         '../../../../extensions.js': { getContext: () => context },
         '../../../../slash-commands/SlashCommandAbortController.js': { SlashCommandAbortController },
-        '../../shared/common/async-errors.js': { observeAsyncCallback: fn => fn, observeBackgroundTask: work => Promise.resolve(work).catch(error => errors.push(error)) },
+        '../../shared/common/async-errors.js': { observeAsyncCallback: fn => fn, observeBackgroundTask: (work, context) => {
+            const completion = Promise.resolve(work).catch(error => errors.push(error));
+            if (context.operation === 'showTaskEditor') editorCompletion = completion;
+            return completion;
+        } },
     };
     const box = vm.createContext({
         window: win, document, $, console, AbortController, CustomEvent, structuredClone,
@@ -135,9 +161,15 @@ function harness(t) {
     api.initTaskSettings();
     t.after(() => win.xbtaskreset());
     return {
-        win, api, calls, timers, intervals, storage, emitter, event_types, manager, errors, liveSettings, extensions,
+        win, api, calls, downloads, timers, intervals, storage, emitter, event_types, manager, errors, liveSettings, extensions,
         storedTasks: name => data.get(name)?.prompt_order[0].xiaobai_ext.scheduledTasks,
         slash: imports['../../core/slash-command.js'].executeSlashCommand,
+        async saveInEditor(task, scope, commands) {
+            await api.showTaskEditor(task, true, scope);
+            editor.find('.task_commands_edit').val(commands);
+            editorResult.resolve(true);
+            await editorCompletion;
+        },
         flushRecords() {
             for (const [id, timer] of timers) if (timer.delay === 500) { timers.delete(id); timer.fn(...timer.args); }
         },
@@ -420,6 +452,52 @@ test('disabling, replacing and deleting a preset task still cleans its isolated 
     await h.api.deleteTask(0, 'preset');
     assert.equal(h.api.__taskRunMap.size, 0);
     assert.equal(h.win.XBTasks.preset.length, 0);
+});
+
+test('editor saves commands verbatim without retaining the old instance', async t => {
+    for (const scope of ['preset', 'global', 'character']) {
+        for (const [label, commands] of [
+            ['clear', ''],
+            ['blank lines', '\n\n'],
+            ['spaces and tabs', ' \t\n  \n\t '],
+            ['replace', '<<taskjs>>\nwindow.replacementRan = true;\n<</taskjs>>'],
+            ['padded script', '\n \t<<taskjs>>\nwindow.replacementRan = true;\n<</taskjs>> \t\n\n'],
+        ]) {
+            await t.test(`${scope}: ${label}`, async t => {
+                const h = harness(t);
+                const old = { ...task('editable', resident('old')), interval: 3 };
+                if (scope === 'preset') { h.preset('A', [old]); h.change('A'); }
+                else h[scope](old);
+                await h.win.XBTasks.exec('editable'); h.flushRecords();
+                const hit = h.win.XBTasks.find('editable', scope);
+                await h.saveInEditor(hit.task, scope, commands);
+
+                assert.equal(h.win.signals.old.aborted, true);
+                assert.equal(h.win.stops.old, 1);
+                assert.equal(h.api.__taskRunMap.size, 0);
+                assert.equal(h.api.state.dynamicCallbacks.size, 0);
+                assert.equal(h.intervals.size, 0);
+                assert.equal(h.win.document.getElementById('old'), null);
+                if (scope === 'preset') {
+                    assert.equal(h.storedTasks('A')[0].commands, commands);
+                    h.change('B'); h.change('A');
+                } else if (scope === 'global') {
+                    assert.equal(await h.storage.getStrict(old.id), commands);
+                }
+                const [reopened] = await h.win.XBTasks.dump(scope);
+                assert.equal(reopened.commands, commands);
+                assert.equal(reopened.id, old.id);
+                assert.equal(reopened.interval, 3);
+                assert.equal(reopened.triggerTiming, 'plugin_init');
+                await h.api.exportSingleTask(0, scope);
+                assert.equal(h.downloads[0].tasks[0].commands, commands);
+                await h.win.XBTasks.exec('editable');
+                assert.equal(h.win.starts.old, 1);
+                assert.equal(h.win.replacementRan, commands.trim() ? true : undefined);
+                assert.equal(h.errors.length, 0);
+            });
+        }
+    }
 });
 
 test('native abort cleanup still issues STscript on disable, delete, rerun, preset exit and global reset', async t => {
