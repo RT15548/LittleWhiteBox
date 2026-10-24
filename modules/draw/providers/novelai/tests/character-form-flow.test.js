@@ -245,12 +245,14 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     await flush();
     let forms = Array.from(editing().querySelectorAll('.char-form'));
     assert.equal(forms.length, 2);
-    // 头部只有一个“…”按钮，没有红色删除按钮和启用开关
+    // 头部：启用开关与删除是图标按钮，另有一个“…”菜单（里面只有复制）
     for (const form of forms) {
         const header = form.querySelector('.char-form-header');
         assert.equal(header.querySelectorAll('.char-menu-button').length, 1);
         assert.equal(header.querySelectorAll('.btn-danger, .named-tag-switch').length, 0);
-        assert.deepEqual(menuLabels(header), ['复制', '停用', '删除']);
+        assert.equal(header.querySelectorAll('.char-enabled-control[data-action="toggle-form-enabled"]').length, 1);
+        assert.equal(header.querySelector('.editor-item-delete[data-action="remove-form"]').getAttribute('title'), '删除');
+        assert.deepEqual(menuLabels(header), ['复制']);
     }
 
     // 点“…”只开菜单，不切换折叠；Esc 关闭
@@ -271,7 +273,8 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     click(second.querySelector('[data-action="toggle-form-enabled"]'));
     assert.equal(second.dataset.enabled, 'false');
     assert.ok(second.classList.contains('is-disabled'));
-    assert.deepEqual(menuLabels(second.querySelector('.char-form-header')), ['复制', '启用', '删除']);
+    const toggle = second.querySelector('.editor-item-enabled-toggle');
+    assert.deepEqual([toggle.getAttribute('title'), toggle.getAttribute('aria-pressed'), toggle.classList.contains('active')], ['启用', 'false', false]);
 
     // 复制第二个形态：副本紧跟其后，名称加“副本”，展开且启用，原形态保持停用
     click(second.querySelector('[data-action="duplicate-form"]'));
@@ -289,7 +292,7 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
 
     // 服装条目：复制紧跟其后（名称加“副本”），再停用副本
     const outfitMenu = forms[0].querySelector('.char-outfit-editor-item');
-    assert.deepEqual(menuLabels(outfitMenu.querySelector('.named-tag-header')), ['复制', '停用', '删除']);
+    assert.deepEqual(menuLabels(outfitMenu.querySelector('.named-tag-header')), ['复制']);
     click(outfitMenu.querySelector('[data-action="duplicate-named-item"]'));
     await flush();
     const outfitRows = Array.from(forms[0].querySelectorAll('.char-outfit-editor-item'));

@@ -9,6 +9,7 @@
 import { MAX_CHARACTER_FORMS, normalizeForms } from './character-forms.js';
 import { makeCopyLabel, parseNamedTagLines, serializeNamedTagLines } from './named-tag-items.js';
 import { EXTRA_TAGS_COPY, FIXED_APPEARANCE_COPY, ITEM_MENU_COPY } from './character-editor-copy.js';
+import { createCharacterActionIcon } from './character-action-icons.js';
 
 export const FORM_FIELD_KEY = 'sdFormField';
 const FORM_FIELD_ATTR = 'data-sd-form-field';
@@ -73,8 +74,18 @@ function setBlockEnabled(block, enabled) {
     const label = `${enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable}形态`;
     toggle.title = label;
     toggle.setAttribute('aria-label', label);
-    toggle.setAttribute('aria-pressed', String(!enabled));
-    toggle.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? 'fa-eye-slash' : 'fa-eye'}`);
+    toggle.setAttribute('aria-pressed', String(enabled));
+    toggle.classList.toggle('active', enabled);
+    while (toggle.firstChild) toggle.removeChild(toggle.firstChild);
+    toggle.append(createCharacterActionIcon(block.ownerDocument, enabled ? 'enabled' : 'disabled'));
+}
+
+/** 启用开关：与角色卡 / NovelAI 条目头部同款的打勾方块图标按钮（外观来自 preset-list-view.css 的 .char-action-button）。 */
+function enabledToggleButton(document) {
+    const button = el(document, 'button', 'char-action-button char-enabled-control');
+    button.type = 'button';
+    button.setAttribute('data-sd-form-toggle', '');
+    return button;
 }
 
 function formTitleText(name, index) {
@@ -101,8 +112,8 @@ export function createFormBlock({ document, form = {}, index = 0, createField, o
     const state = el(document, 'span', 'sd-char-form-state', ITEM_MENU_COPY.disabledTag);
     const tools = el(document, 'span', 'sd-char-form-tools');
     tools.append(
+        enabledToggleButton(document),
         iconButton(document, 'btn btn-sm', 'fa-clone', `${ITEM_MENU_COPY.duplicate}形态`, 'data-sd-form-copy'),
-        iconButton(document, 'btn btn-sm', 'fa-eye-slash', `${ITEM_MENU_COPY.disable}形态`, 'data-sd-form-toggle'),
         iconButton(document, 'btn btn-sm', 'fa-arrow-up', '上移形态', 'data-sd-form-up'),
         iconButton(document, 'btn btn-sm', 'fa-arrow-down', '下移形态', 'data-sd-form-down'),
         iconButton(document, 'btn btn-danger btn-sm', 'fa-trash', '删除形态', 'data-sd-form-delete'),

@@ -81,15 +81,20 @@ test('2+ items render folded: one-line header (handle, chevron, name input, tags
         assert.equal(row.querySelector('.named-tag-toggle').getAttribute('aria-expanded'), 'false');
         assert.ok(row.querySelector('.named-tag-header [data-named-drag]'));
         assert.ok(row.querySelector('.named-tag-header input.char-outfit-name'));
-        // 启用开关与红色删除按钮不再直接摆在头部：它们收进“…”菜单（复制 / 停用·启用 / 删除）。
-        assert.equal(row.querySelector('.named-tag-header .named-tag-switch'), null);
-        assert.equal(row.querySelector('.named-tag-header > [data-action="remove-outfit"]'), null);
-        assert.equal(row.querySelector('.named-tag-header > .btn-danger'), null);
-        assert.equal(row.querySelectorAll('.named-tag-header .char-menu-button').length, 1);
+        // 头部：启用开关（角色卡同款打勾方块图标按钮）和删除图标按钮直接摆出来，“…”菜单里只剩复制。
+        const header = row.querySelector('.named-tag-header');
+        assert.equal(header.querySelector('.named-tag-switch'), null);
+        assert.equal(header.querySelector('.btn-danger'), null);
+        assert.ok(header.querySelector(':scope > .editor-item-enabled-toggle.char-enabled-control.char-action-button svg'));
+        assert.ok(header.querySelector(':scope > .editor-item-delete.char-action-button[data-action="remove-outfit"] svg'));
+        assert.equal(header.querySelectorAll('.char-menu-button').length, 1);
+        assert.deepEqual(Array.from(header.querySelectorAll('[role="menuitem"]')).map(item => item.dataset.action), ['duplicate-named-item']);
         assert.deepEqual(
-            Array.from(row.querySelectorAll('.named-tag-header [role="menuitem"]')).map(item => item.dataset.action),
-            ['duplicate-named-item', 'toggle-named-enabled', 'remove-outfit'],
+            Array.from(header.children).map(node => node.className.split(' ')[0]).slice(-4),
+            ['editor-item-state', 'char-action-button', 'char-action-button', 'char-menu-wrap'],
+            '已停用标签、启用开关、删除、菜单，依次排在名称之后',
         );
+        assert.equal(header.querySelector('.editor-item-delete').getAttribute('title'), '删除');
     }
     const first = rows(card)[0];
     assert.equal(first.querySelector('.char-outfit-name').getAttribute('value'), '白裙');
@@ -224,10 +229,11 @@ test('header preview follows the tags input (the name input is the title itself)
     assert.ok(row.querySelector('.named-tag-preview').textContent.length < 60);
 });
 
-test('the menu 停用 / 启用 item flips the row state, its own label, the 已停用 tag and the enabled/total badge', () => {
+test('the header enable button (ticked-square icon, like the character cards) flips the row state, its icon, pressed state, title, the 已停用 tag and the enabled/total badge', () => {
     const { card } = mount(OUTFITS);
     const count = () => card.querySelector('.char-section-count').textContent;
-    const toggleLabel = row => row.querySelector('.editor-item-enabled-toggle .char-menu-label').textContent;
+    const toggleOf = row => row.querySelector('.editor-item-enabled-toggle');
+    const iconShapes = row => Array.from(toggleOf(row).querySelectorAll('svg > *')).map(node => node.tagName.toLowerCase());
     assert.equal(count(), '2/3');
     const [a, b] = rows(card);
     for (const row of [a, b]) {
@@ -236,20 +242,37 @@ test('the menu 停用 / 启用 item flips the row state, its own label, the 已�
         assert.equal(row.querySelector('.named-tag-body').querySelector('input[type="checkbox"]'), null);
     }
     assert.ok(b.classList.contains('is-disabled'));
-    assert.equal(toggleLabel(a), '停用');
-    assert.equal(toggleLabel(b), '启用');
+    assert.deepEqual([toggleOf(a).getAttribute('title'), toggleOf(a).getAttribute('aria-pressed'), toggleOf(a).classList.contains('active')], ['停用', 'true', true]);
+    assert.deepEqual([toggleOf(b).getAttribute('title'), toggleOf(b).getAttribute('aria-pressed'), toggleOf(b).classList.contains('active')], ['启用', 'false', false]);
+    assert.deepEqual(iconShapes(a), ['rect', 'path'], 'enabled = ticked square');
+    assert.deepEqual(iconShapes(b), ['rect'], 'disabled = empty square');
 
     assert.equal(toggleNamedTagItemEnabled(b), true);
     assert.ok(!b.classList.contains('is-disabled'));
     assert.equal(b.dataset.enabled, 'true');
-    assert.equal(toggleLabel(b), '停用');
+    assert.deepEqual([toggleOf(b).getAttribute('title'), toggleOf(b).getAttribute('aria-pressed'), toggleOf(b).classList.contains('active')], ['停用', 'true', true]);
+    assert.deepEqual(iconShapes(b), ['rect', 'path']);
     assert.equal(count(), '3');
 
     assert.equal(toggleNamedTagItemEnabled(a), false);
     assert.ok(a.classList.contains('is-disabled'));
-    assert.equal(toggleLabel(a), '启用');
-    assert.equal(a.querySelector('.editor-item-enabled-toggle i').getAttribute('class'), 'fa-solid fa-eye');
+    assert.deepEqual([toggleOf(a).getAttribute('title'), toggleOf(a).getAttribute('aria-pressed')], ['启用', 'false']);
+    assert.match(toggleOf(a).getAttribute('aria-label'), /^启用 服装 1$/);
+    assert.deepEqual(iconShapes(a), ['rect']);
     assert.deepEqual(collectNamedTagEditorValues(card, 'outfit').map(item => item.enabled === false), [true, false, false]);
+});
+
+test('the delete icon button (trash) keeps its index and the action buttons keep their numbering after a removal', () => {
+    const { card } = mount(OUTFITS);
+    const del = row => row.querySelector('.editor-item-delete');
+    assert.equal(del(rows(card)[1]).dataset.action, 'remove-outfit');
+    assert.equal(del(rows(card)[1]).dataset.index, '1');
+    assert.equal(del(rows(card)[1]).getAttribute('aria-label'), '删除 服装 2');
+    assert.equal(del(rows(card)[1]).querySelectorAll('svg path').length, 5, 'the shared trash icon');
+    removeNamedTagEditorItem(rows(card)[0], 'outfit');
+    assert.equal(del(rows(card)[0]).getAttribute('aria-label'), '删除 服装 1');
+    assert.equal(rows(card)[0].querySelector('.editor-item-enabled-toggle').getAttribute('aria-label'), '启用 服装 1');
+    assert.equal(rows(card)[0].querySelector('.char-menu-button').getAttribute('aria-label'), '更多操作 服装 1');
 });
 
 test('复制 inserts a copy right below the item: name + 副本, the tags as currently typed, expanded and enabled whatever the source state', () => {

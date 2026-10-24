@@ -75,11 +75,13 @@ test('two forms render as folded cards with the name input as the header title; 
         assert.ok(form.querySelector('.char-form-body').hasAttribute('hidden'));
         assert.ok(form.querySelector('.char-form-header > input.char-form-name'));
         assert.ok(form.querySelector('.char-form-header > [data-form-drag]'));
-        assert.equal(form.querySelector('.char-form-header > [data-action="remove-form"]'), null, 'delete lives in the … menu now');
-        assert.ok(form.querySelector('.char-form-header .char-menu [data-action="remove-form"]'));
+        // 启用开关与删除是头部的图标按钮，“…”菜单里只剩复制。
+        assert.ok(form.querySelector('.char-form-header > .char-enabled-control[data-action="toggle-form-enabled"]'));
+        assert.ok(form.querySelector('.char-form-header > .editor-item-delete[data-action="remove-form"]'));
+        assert.equal(form.querySelector('.char-form-header .char-menu [data-action="remove-form"]'), null);
         assert.deepEqual(
             Array.from(form.querySelectorAll('.char-form-header [role="menuitem"]')).map(item => item.dataset.action),
-            ['duplicate-form', 'toggle-form-enabled', 'remove-form'],
+            ['duplicate-form'],
         );
     }
     assert.deepEqual(formNames(card), ['人形', '龙形']);

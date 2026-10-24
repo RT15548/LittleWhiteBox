@@ -4,6 +4,7 @@
 // 分区折叠按卡片 id 记在 createEditorSectionState() 里，整个页面会话内有效；两者都不进入保存的数据。
 
 import { createSortableList } from './sortable-list.js';
+import { createCharacterActionIcon, renderCharacterActionIcon } from './character-action-icons.js';
 import { movePresetId } from './preset-order.js';
 import {
     isNamedTagEnabled,
@@ -53,7 +54,15 @@ export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
 
 let nextItemUid = 0; // 条目行的界面内唯一标识：拖拽排序按它认行（下标会随排序变化）
 const ENABLED_HINT = '停用后不会发给 AI';
-const itemMenuLabel = (meta, index) => `${ITEM_MENU_COPY.more} ${meta.title} ${index + 1}`;
+
+/** 重排 / 增删后刷新头部三个按钮的无障碍名称里的序号（subject 如“服装 2”）。 */
+function relabelEditorActions(row, subject, enabled) {
+    const toggleLabel = enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable;
+    row.querySelector('.editor-item-enabled-toggle')?.setAttribute('aria-label', `${toggleLabel} ${subject}`);
+    row.querySelector('.editor-item-delete')?.setAttribute('aria-label', `${ITEM_MENU_COPY.remove} ${subject}`);
+    row.querySelector('.char-menu-button')?.setAttribute('aria-label', `${ITEM_MENU_COPY.more} ${subject}`);
+    row.querySelector('.char-menu')?.setAttribute('aria-label', `${ITEM_MENU_COPY.more} ${subject}`);
+}
 
 function defaultEscapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -63,36 +72,46 @@ function kindMeta(kind) {
     return NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
 }
 
-// ── 条目 / 形态头部的“…”菜单 ─────────────────────────────────
-// 与角色卡外面的“…”菜单同一套标记和样式（.char-menu*，开关与定位由 character-card-menu.js 的 getCardMenu() 负责）：
-// 复制、停用 / 启用（文案随状态翻转）、删除。菜单按钮的 data-action="menu" 由页面的点击委托交给菜单控制器。
+// ── 条目 / 形态头部的操作 ─────────────────────────────────────
+// 头部右侧依次是：“已停用”小标签（停用时才显示）、启用开关（与角色卡外面同款的打勾方块图标按钮，.char-enabled-control）、
+// 删除图标按钮（垃圾桶，悬停变危险色）、“…”菜单（只放剩下的操作，目前是“复制”，以后要加别的直接往菜单里加）。
+// 菜单与角色卡外面是同一套标记和样式（.char-menu*，开关与定位由 character-card-menu.js 的 getCardMenu() 负责），
+// 菜单按钮的 data-action="menu" 由页面的点击委托交给菜单控制器。
 
-const ENABLE_ICON = Object.freeze({ on: 'fa-eye-slash', off: 'fa-eye' });
+/** 启用开关按钮里的图标：启用 = 打勾方块，停用 = 空方块（与角色卡同一份图形）。 */
+const enabledIconName = enabled => (enabled ? 'enabled' : 'disabled');
 
-/** 头部右侧的“已停用”小标签 + “…”菜单。actions 里的三个 data-action 由调用方决定（条目和形态各用各的）。 */
-export function renderEditorItemMenu({ label, enabled = true, duplicateAction, toggleAction, removeAction, removeAttrs = '' }) {
+/**
+ * 头部右侧的操作区。duplicateAction / toggleAction / removeAction 是三个按钮的 data-action（条目和形态各用各的）；
+ * removeAttrs 原样放在删除按钮上（条目的 data-index、形态的 data-form-key）；subject 是无障碍名称里的对象（如“服装 1”）。
+ */
+export function renderEditorItemMenu({ subject, enabled = true, duplicateAction, toggleAction, removeAction, removeAttrs = '' }) {
     const toggleLabel = enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable;
+    const moreLabel = `${ITEM_MENU_COPY.more} ${subject}`;
     return `
             <span class="editor-item-state" title="${ENABLED_HINT}">${ITEM_MENU_COPY.disabledTag}</span>
+            <button type="button" class="char-action-button char-enabled-control editor-item-enabled-toggle${enabled ? ' active' : ''}" data-action="${toggleAction}" title="${toggleLabel}" aria-label="${toggleLabel} ${subject}" aria-pressed="${enabled}">${renderCharacterActionIcon(enabledIconName(enabled))}</button>
+            <button type="button" class="char-action-button editor-item-delete" data-action="${removeAction}"${removeAttrs ? ` ${removeAttrs}` : ''} title="${ITEM_MENU_COPY.remove}" aria-label="${ITEM_MENU_COPY.remove} ${subject}">${renderCharacterActionIcon('delete')}</button>
             <span class="char-menu-wrap" data-card-menu>
-                <button type="button" class="char-action-button char-menu-button" data-action="menu" title="${ITEM_MENU_COPY.more}" aria-label="${label}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
-                <div class="char-menu" role="menu" aria-label="${label}" hidden>
+                <button type="button" class="char-action-button char-menu-button" data-action="menu" title="${ITEM_MENU_COPY.more}" aria-label="${moreLabel}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+                <div class="char-menu" role="menu" aria-label="${moreLabel}" hidden>
                     <button type="button" role="menuitem" class="char-menu-item" data-action="${duplicateAction}" title="${ITEM_MENU_COPY.duplicate}"><i class="fa-solid fa-clone" aria-hidden="true"></i><span class="char-menu-label">${ITEM_MENU_COPY.duplicate}</span></button>
-                    <button type="button" role="menuitem" class="char-menu-item editor-item-enabled-toggle" data-action="${toggleAction}" title="${toggleLabel}"><i class="fa-solid ${enabled ? ENABLE_ICON.on : ENABLE_ICON.off}" aria-hidden="true"></i><span class="char-menu-label">${toggleLabel}</span></button>
-                    <button type="button" role="menuitem" class="char-menu-item danger" data-action="${removeAction}"${removeAttrs ? ` ${removeAttrs}` : ''} title="${ITEM_MENU_COPY.remove}"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="char-menu-label">${ITEM_MENU_COPY.remove}</span></button>
                 </div>
             </span>`;
 }
 
-/** 停用 / 启用后同步菜单里那一项的文案、图标和提示（不碰别的内容）。 */
+/** 停用 / 启用后同步启用开关按钮的图标、选中态、提示和无障碍状态（不碰别的内容）。 */
 function syncEnabledToggleItem(root, enabled) {
-    const item = root?.querySelector('.editor-item-enabled-toggle');
-    if (!item) return;
+    const button = root?.querySelector('.editor-item-enabled-toggle');
+    if (!button) return;
     const label = enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable;
-    item.setAttribute('title', label);
-    const text = item.querySelector('.char-menu-label');
-    if (text) text.textContent = label;
-    item.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? ENABLE_ICON.on : ENABLE_ICON.off}`);
+    const subject = (button.getAttribute('aria-label') || '').split(' ').slice(1).join(' ');
+    button.classList.toggle('active', enabled);
+    button.setAttribute('title', label);
+    button.setAttribute('aria-label', subject ? `${label} ${subject}` : label);
+    button.setAttribute('aria-pressed', String(enabled));
+    while (button.firstChild) button.removeChild(button.firstChild);
+    button.appendChild(createCharacterActionIcon(button.ownerDocument, enabledIconName(enabled)));
 }
 
 // ── 可折叠分区 ──────────────────────────────────────────────
@@ -175,7 +194,7 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
             <input type="text" class="${p}-name named-tag-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.nameLabel}" title="${meta.nameHint}" aria-label="${meta.nameLabel}">
             <span class="named-tag-preview">${escapeHtml(previewNamedTags(item.tags))}</span>
             ${renderEditorItemMenu({
-                label: itemMenuLabel(meta, index),
+                subject: `${meta.title} ${index + 1}`,
                 enabled,
                 duplicateAction: 'duplicate-named-item',
                 toggleAction: 'toggle-named-enabled',
@@ -269,9 +288,7 @@ export function syncNamedTagEditorList(list, kind = 'outfit') {
         row.dataset.index = String(index);
         const removeBtn = row.querySelector(`[data-action="${meta.removeAction}"]`);
         if (removeBtn) removeBtn.dataset.index = String(index);
-        const menuLabel = itemMenuLabel(meta, index);
-        row.querySelector('.char-menu-button')?.setAttribute('aria-label', menuLabel);
-        row.querySelector('.char-menu')?.setAttribute('aria-label', menuLabel);
+        relabelEditorActions(row, `${meta.title} ${index + 1}`, readRowEnabled(row));
         row.querySelector('[data-named-drag]')?.setAttribute('aria-label', `拖动调整${meta.title} ${index + 1} 的顺序`);
         if (rows.length < 2 && row.dataset.expanded !== 'true') setNamedTagItemExpanded(row, true, kind);
         refreshNamedTagItemHeader(row, kind);
@@ -588,7 +605,7 @@ export function renderFormCard(model, index, { total = 2, charId, escapeHtml = d
             ${typeShort ? `<span class="char-type-badge char-form-type">${escapeHtml(typeShort(resolveTypeValue(model.type, model.typeCustom)))}</span>` : ''}
             <span class="char-form-preview">${escapeHtml(previewNamedTags(model.appearance))}</span>
             ${renderEditorItemMenu({
-                label: `${ITEM_MENU_COPY.more} ${FORM_COPY.sectionTitle} ${index + 1}`,
+                subject: `${FORM_COPY.sectionTitle} ${index + 1}`,
                 enabled,
                 duplicateAction: 'duplicate-form',
                 toggleAction: 'toggle-form-enabled',
@@ -698,6 +715,7 @@ export function syncFormList(list) {
     rows.forEach((row, index) => {
         row.querySelector('[data-form-drag]')?.setAttribute('aria-label', `拖动调整形态 ${index + 1} 的顺序`);
         row.querySelector('.char-form-toggle')?.setAttribute('aria-label', `展开 / 折叠形态 ${index + 1}`);
+        relabelEditorActions(row, `${FORM_COPY.sectionTitle} ${index + 1}`, row.dataset.enabled !== 'false');
         refreshFormHeader(row);
     });
     const count = list.closest('.char-forms')?.querySelector('.char-forms-title .char-section-count');
