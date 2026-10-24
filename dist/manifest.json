@@ -1,5 +1,5 @@
 {
-  "buildId": "bd41695befcbc5355d20",
+  "buildId": "1ea5dd332ad61deb02f0",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-CEltBsiF.js",
@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-ZdsepPgn.js",
+      "file": "apps/novel-draw-DGtO6ZW8.js",
       "css": []
     },
     "apps/story-outline": {
@@ -151,7 +151,7 @@
         "assets/settings-ui-BHYFWe17.css"
       ]
     },
-    "apps/novel-draw-ZdsepPgn.js": {
+    "apps/novel-draw-DGtO6ZW8.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/textarea-autofit-BXO4yG-r.js",
@@ -282,10 +282,10 @@
         "shared/error-guidance-Cpmi65bN.js",
         "shared/protocol-D8r1ym6v.js",
         "shared/settings-repository-C5uZiyAW.js",
-        "shared/comfy-draw-lMOaXbtW.js",
+        "shared/comfy-draw-BdWPFs0q.js",
         "shared/message-toolbar-BkngduTg.js",
         "shared/novel-draw-C-oOCFNb.js",
-        "shared/sd-draw-BgEahvKW.js",
+        "shared/sd-draw-C8xW7ClM.js",
         "shared/draw-common-CJPb3hY0.js",
         "shared/gallery-cache-Cvt9SXAd.js",
         "shared/chat-message-image-markup-Cqn-Ihag.js",
@@ -858,7 +858,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/comfy-draw-lMOaXbtW.js": {
+    "shared/comfy-draw-BdWPFs0q.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/constants-RJ4jNr01.js",
@@ -866,7 +866,7 @@
         "shared/server-storage-CEVLaYK3.js",
         "shared/message-toolbar-BkngduTg.js",
         "shared/textarea-autofit-BXO4yG-r.js",
-        "shared/scene-planner-chain-view-CABegelf.js",
+        "shared/scene-planner-chain-view-B4-8gKn-.js",
         "shared/character-library-C-JfCSWU.js",
         "shared/draw-common-CJPb3hY0.js",
         "shared/gallery-cache-Cvt9SXAd.js",
@@ -875,7 +875,7 @@
         "shared/async-errors-C4kfchr9.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-B_sqhqP9.js"
+        "shared/floating-panel-CD5atxNG.js"
       ],
       "css": []
     },
@@ -1006,10 +1006,10 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-BBH5q8O0.js": {
+    "shared/floating-panel-B1FasQSb.js": {
       "imports": [
         "shared/message-toolbar-BkngduTg.js",
-        "shared/sd-draw-BgEahvKW.js",
+        "shared/sd-draw-C8xW7ClM.js",
         "shared/draw-common-CJPb3hY0.js",
         "shared/gallery-cache-Cvt9SXAd.js",
         "shared/draw-run-ui-state-C2Q6Q5r7.js",
@@ -1018,9 +1018,9 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-B_sqhqP9.js": {
+    "shared/floating-panel-CD5atxNG.js": {
       "imports": [
-        "shared/comfy-draw-lMOaXbtW.js",
+        "shared/comfy-draw-BdWPFs0q.js",
         "shared/message-toolbar-BkngduTg.js",
         "shared/draw-common-CJPb3hY0.js",
         "shared/gallery-cache-Cvt9SXAd.js",
@@ -1386,7 +1386,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/scene-planner-chain-view-CABegelf.js": {
+    "shared/scene-planner-chain-view-B4-8gKn-.js": {
       "imports": [
         "shared/textarea-autofit-BXO4yG-r.js",
         "shared/api-presets-ui-Cihs1uRp.js",
@@ -1400,7 +1400,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/sd-draw-BgEahvKW.js": {
+    "shared/sd-draw-C8xW7ClM.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/constants-RJ4jNr01.js",
@@ -1408,7 +1408,7 @@
         "shared/server-storage-CEVLaYK3.js",
         "shared/message-toolbar-BkngduTg.js",
         "shared/textarea-autofit-BXO4yG-r.js",
-        "shared/scene-planner-chain-view-CABegelf.js",
+        "shared/scene-planner-chain-view-B4-8gKn-.js",
         "shared/character-library-C-JfCSWU.js",
         "shared/draw-common-CJPb3hY0.js",
         "shared/gallery-cache-Cvt9SXAd.js",
@@ -1417,7 +1417,7 @@
         "shared/async-errors-C4kfchr9.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-BBH5q8O0.js"
+        "shared/floating-panel-B1FasQSb.js"
       ],
       "css": []
     },
