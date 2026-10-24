@@ -93,7 +93,7 @@
 @supports (background: color-mix(in srgb, red, blue)) {
     .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #171922) 52%, #000); }
     @media (prefers-color-scheme: light) {
-        .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 88%, #000); }
+        .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 92%, #000); }
     }
 }
 .lwb-ple-row.lwb-ple-builtin {
