@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     NAMED_TAG_PREVIEW_LIMIT,
+    applyLocalNamedTagEnabled,
     countEnabledNamedTags,
     isNamedTagEnabled,
     isNamedTagItemExpanded,
@@ -10,6 +11,7 @@ import {
     previewNamedTags,
     selectEnabledNamedTags,
     serializeNamedTagLines,
+    stripNamedTagEnabled,
 } from '../named-tag-items.js';
 
 // Acceptance contracts (cost: a disabled outfit/state silently reaching the AI, or old data changing shape):
@@ -85,4 +87,18 @@ test('SD/ComfyUI text lines round-trip including disabled ("# ") entries', () =>
     ]);
     // 没有空格的 # 不是停用标记
     assert.deepEqual(parseNamedTagLines('#hash = x'), [{ name: '#hash', tags: 'x' }]);
+});
+
+test('stripNamedTagEnabled drops the flag only; applyLocalNamedTagEnabled takes the switch from the local item with the same name', () => {
+    assert.deepEqual(stripNamedTagEnabled([{ name: 'a', tags: 'b', enabled: false }, { name: 'c', tags: 'd' }]), [{ name: 'a', tags: 'b' }, { name: 'c', tags: 'd' }]);
+    assert.deepEqual(stripNamedTagEnabled(undefined), []);
+    const local = [{ name: ' a ', tags: 'x', enabled: false }, { name: 'a', tags: 'y' }, { name: 'z', tags: '1', enabled: false }];
+    const incoming = [{ name: 'a', tags: '1', enabled: true }, { name: 'a', tags: '2' }, { name: 'a', tags: '3' }, { name: 'new', tags: '4', enabled: false }];
+    assert.deepEqual(applyLocalNamedTagEnabled(incoming, local), [
+        { name: 'a', tags: '1', enabled: false },
+        { name: 'a', tags: '2' },
+        { name: 'a', tags: '3' },
+        { name: 'new', tags: '4' },
+    ]);
+    assert.deepEqual(applyLocalNamedTagEnabled(incoming, []), stripNamedTagEnabled(incoming));
 });

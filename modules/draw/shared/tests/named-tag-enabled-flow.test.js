@@ -57,19 +57,129 @@ test('duplicate keeps each item switch and does not share nested objects with th
     assert.equal(library.characters[0].outfits[1].enabled, false);
 });
 
-test('export -> import round trip preserves the switches, and field-level replace takes the file value', () => {
-    const library = normalizeCharacterLibrary({ characters: [source], groups: [] });
-    const payload = JSON.parse(JSON.stringify(exportCharacters(library, { scope: 'all' })));
-    assert.equal(payload.characters[0].outfits[1].enabled, false);
-    assert.equal(Object.hasOwn(payload.characters[0].outfits[0], 'enabled'), false);
+const hasKey = (value, key) => JSON.stringify(value).includes(`"${key}"`);
+const exportPayload = library => JSON.parse(JSON.stringify(exportCharacters(library, { scope: 'all' })));
+const fileOf = (characters, groups = []) => ({ type: 'novel-draw-characters', version: 4, groups, characters });
 
-    const parsed = parseCharacterImport(payload);
-    assert.deepEqual(parsed.entries[0].character.outfits, library.characters[0].outfits);
+test('export carries no enabled key at character, item or group level (the switches are local-only)', () => {
+    const library = normalizeCharacterLibrary({
+        characters: [{ ...source, enabled: false, groupId: 'g' }, { id: 'b', name: 'Bob', enabled: false }],
+        groups: [{ id: 'g', name: 'G', enabled: false }],
+    });
+    assert.equal(library.characters[0].enabled, false);
+    assert.equal(library.characters[0].outfits[1].enabled, false);
+    assert.equal(library.groups[0].enabled, false);
+    const payload = exportPayload(library);
+    assert.equal(hasKey(payload, 'enabled'), false);
+    // 停用的条目照常导出（名称与 TAG 在），只是不带开关
+    assert.deepEqual(payload.characters.find(char => char.id === 'a').outfits[1], { name: '泳装', tags: SECRET });
+    assert.deepEqual(payload.groups, [{ id: 'g', name: 'G' }]);
+    // 导出不改动本机库
+    assert.equal(library.characters[0].outfits[1].enabled, false);
+});
 
-    // 本地同 id 角色里该服装是开的：导入文件里它是关的，字段级替换后应是关的
-    const local = normalizeCharacterLibrary({ characters: [{ id: 'a', name: 'Alice', outfits: [{ name: '泳装', tags: SECRET }] }], groups: [] });
-    const plan = planCharacterImport(local, parsed, { policy: 'replace' });
-    assert.deepEqual(plan.library.characters[0].outfits, library.characters[0].outfits);
+test('importing a file with or without enabled keys creates enabled characters, items and groups (a file cannot switch anything off)', () => {
+    const plain = exportPayload(normalizeCharacterLibrary({ characters: [source], groups: [] }));
+    const hostile = fileOf(
+        [{ ...source, enabled: false, groupId: 'g', outfits: source.outfits.map(item => ({ ...item, enabled: false })) }],
+        [{ id: 'g', name: 'G', enabled: false }],
+    );
+    for (const file of [plain, hostile]) {
+        const parsed = parseCharacterImport(file);
+        assert.equal(hasKey(parsed.entries[0].character, 'enabled'), false);
+        const { library } = planCharacterImport({ characters: [], groups: [] }, parsed);
+        const [created] = library.characters;
+        assert.equal(created.enabled, true);
+        assert.deepEqual(created.outfits, [
+            { name: '白裙', tags: 'white dress' }, { name: '泳装', tags: SECRET }, { name: '睡衣', tags: 'pajamas' },
+        ]);
+        assert.equal(created.dynamicStates.some(item => 'enabled' in item), false);
+        assert.equal(library.groups.some(group => 'enabled' in group), false);
+    }
+});
+
+test('"import as disabled" is an import-time local choice for new characters only; their items stay enabled', () => {
+    const parsed = parseCharacterImport(exportPayload(normalizeCharacterLibrary({ characters: [source], groups: [] })));
+    const { library } = planCharacterImport({ characters: [], groups: [] }, parsed, { importNewAsDisabled: true });
+    assert.equal(library.characters[0].enabled, false);
+    assert.ok(library.characters[0].outfits.every(item => item.enabled !== false));
+});
+
+test('importing over an existing local entry keeps the LOCAL character, item and group switches', () => {
+    const payload = exportPayload(normalizeCharacterLibrary({
+        characters: [{
+            id: 'a', name: 'Alice', appearance: 'new hair', groupId: 'g',
+            outfits: [{ name: '白裙', tags: 'new white' }, { name: '泳装', tags: 'new swim' }, { name: '新装', tags: 'fresh' }],
+            dynamicStates: [{ name: '害羞', tags: 'new blush' }],
+        }],
+        groups: [{ id: 'g', name: 'Crew' }],
+    }));
+    const local = normalizeCharacterLibrary({
+        characters: [{
+            id: 'a', name: 'Alice', enabled: false, groupId: 'lg',
+            outfits: [{ name: '白裙', tags: 'old' }, { name: '泳装', tags: 'old', enabled: false }],
+            dynamicStates: [{ name: '害羞', tags: 'old', enabled: false }],
+        }],
+        groups: [{ id: 'lg', name: 'crew', enabled: false }],
+    });
+    for (const options of [{}, { mode: 'existing-group', groupId: 'lg' }]) {
+        const { library } = planCharacterImport(local, parseCharacterImport(payload), options);
+        const [alice] = library.characters;
+        assert.equal(alice.appearance, 'new hair');
+        assert.equal(alice.enabled, false);
+        assert.deepEqual(alice.outfits, [
+            { name: '白裙', tags: 'new white' },
+            { name: '泳装', tags: 'new swim', enabled: false },
+            { name: '新装', tags: 'fresh' },
+        ]);
+        assert.deepEqual(alice.dynamicStates, [{ name: '害羞', tags: 'new blush', enabled: false }]);
+        assert.equal(library.groups.length, 1);
+        assert.equal(library.groups[0].enabled, false);
+    }
+    // 本机启用的保持启用，哪怕文件把同名角色 / 条目 / 分组标成停用
+    const hostile = fileOf(
+        [{ id: 'a', name: 'Alice', enabled: false, groupId: 'f', outfits: [{ name: '白裙', tags: 'x', enabled: false }] }],
+        [{ id: 'f', name: 'Crew', enabled: false }],
+    );
+    const localOn = normalizeCharacterLibrary({
+        characters: [{ id: 'a', name: 'Alice', groupId: 'lg', outfits: [{ name: '白裙', tags: 'old' }] }],
+        groups: [{ id: 'lg', name: 'Crew' }],
+    });
+    const { library } = planCharacterImport(localOn, parseCharacterImport(hostile));
+    assert.equal(library.characters[0].enabled, true);
+    assert.deepEqual(library.characters[0].outfits, [{ name: '白裙', tags: 'x' }]);
+    assert.equal('enabled' in library.groups[0], false);
+});
+
+test('name-matched replace (overwriteSameName) keeps local switches; same-named items pair up in order', () => {
+    const file = fileOf([{ id: 'other', name: 'Alice', outfits: [{ name: 'x', tags: '1' }, { name: 'x', tags: '2' }, { name: 'x', tags: '3' }] }]);
+    const local = normalizeCharacterLibrary({
+        characters: [{ id: 'a', name: 'Alice', enabled: false, outfits: [{ name: 'x', tags: 'a', enabled: false }, { name: 'x', tags: 'b' }] }],
+        groups: [],
+    });
+    const { library } = planCharacterImport(local, parseCharacterImport(file), { overwriteSameName: true });
+    assert.equal(library.characters.length, 1);
+    assert.equal(library.characters[0].id, 'a');
+    assert.equal(library.characters[0].enabled, false);
+    assert.deepEqual(library.characters[0].outfits.map(item => item.enabled === false), [true, false, false]);
+});
+
+test('groups are matched by name (case-insensitive): a same-name local group keeps its own switch, a new group is on', () => {
+    const file = fileOf(
+        [{ id: 'n1', name: 'N1', groupId: 'f1' }, { id: 'n2', name: 'N2', groupId: 'f2' }],
+        [{ id: 'f1', name: 'Crew', enabled: false }, { id: 'f2', name: 'Fresh', enabled: false }],
+    );
+    const local = normalizeCharacterLibrary({ characters: [], groups: [{ id: 'lg', name: 'crew', enabled: false }] });
+    const { library } = planCharacterImport(local, parseCharacterImport(file));
+    assert.equal(library.groups.find(group => group.name === 'crew').enabled, false);
+    assert.equal('enabled' in library.groups.find(group => group.name === 'Fresh'), false);
+    assert.equal(library.characters.find(char => char.id === 'n1').groupId, 'lg');
+});
+
+test('export -> import onto the same library leaves every local switch as it was', () => {
+    const library = normalizeCharacterLibrary({ characters: [{ ...source, enabled: false }], groups: [] });
+    const { library: next } = planCharacterImport(library, parseCharacterImport(exportPayload(library)));
+    assert.deepEqual(next.characters, library.characters);
 });
 
 test('imported items with a non-boolean enabled are treated as on (only an explicit false disables)', () => {

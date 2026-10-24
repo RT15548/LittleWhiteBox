@@ -7,10 +7,12 @@
 // 上锁（locked）是本机状态：角色与分组都可以上锁，导入按 id 或名字命中替换时默认保护上锁角色；
 // 键只在为 true 时才写，不进入导出文件，也不读取导入文件。角色“有效上锁”= 自己上锁 或 所在分组上锁。
 // 服装 / 动态外貌条目同理有自己的开关（enabled，缺省=开，只在关闭时才写 enabled:false，见 named-tag-items.js），停用的条目不会发给规划器。
+// 角色 / 条目 / 分组的启用状态都只属于本机：导出文件不带任何 enabled，导入时文件里的 enabled 一律不认——
+// 新的默认启用（“导入为停用”是导入时的本机选择，不是文件字段），与本机已有项对上的保留本机状态。
 // 排序的唯一事实来源是 characters 数组顺序；groupId 缺省（空）表示“未分组”。
 
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
-import { normalizeNamedTagList } from './named-tag-items.js';
+import { applyLocalNamedTagEnabled, normalizeNamedTagList, stripNamedTagEnabled } from './named-tag-items.js';
 
 export const UNGROUPED_ID = '';
 export const UNGROUPED_NAME = '未分组';
@@ -89,6 +91,17 @@ function stripLocked(item) {
     const rest = { ...item };
     delete rest.locked;
     return rest;
+}
+
+// 导出 / 导入共用：角色自己与服装、状态条目的启用状态都是本机状态，文件里不带。
+function stripLocalEnabled(character) {
+    const rest = { ...character };
+    delete rest.enabled;
+    return {
+        ...rest,
+        ...(Array.isArray(rest.outfits) ? { outfits: stripNamedTagEnabled(rest.outfits) } : {}),
+        ...(Array.isArray(rest.dynamicStates) ? { dynamicStates: stripNamedTagEnabled(rest.dynamicStates) } : {}),
+    };
 }
 
 /** 白名单规范化单个角色；groupId、locked 缺省时不保存该键。 */
@@ -554,8 +567,8 @@ export function exportCharacters(library, { scope = 'all', groupId, ids } = {}, 
         scope,
         // 分组开关属于本机的使用状态，不进入导出文件：只带 id 与名称。
         groups: groups.map(group => ({ id: group.id, name: group.name })),
-        // 上锁同样属于本机状态，不进入导出文件。
-        characters: characters.map(character => cloneJson(stripLocked(character))),
+        // 上锁、角色与条目的启用状态同样属于本机状态，不进入导出文件。
+        characters: characters.map(character => cloneJson(stripLocalEnabled(stripLocked(character)))),
     };
 }
 
@@ -646,8 +659,8 @@ export function parseCharacterImport(payload, { makeId } = {}) {
             .filter(key => Object.hasOwn(IMPORT_FIELD_MAP, key))
             .map(key => IMPORT_FIELD_MAP[key]))];
         entries.push({
-            // 上锁是本机状态：文件里的 locked 一律忽略。
-            character: stripLocked(stripGroupId(normalizeCharacter(raw, { id: fileId }))),
+            // 上锁与启用都是本机状态：文件里的 locked / enabled（含条目的）一律忽略，新角色默认启用。
+            character: stripLocalEnabled(stripLocked(stripGroupId(normalizeCharacter(raw, { id: fileId })))),
             fields,
             groupName: groupNameById.get(String(raw.groupId || '').trim()) || '',
             duplicate,
@@ -708,11 +721,11 @@ export function placeCharactersAfterGroupMembers(rest, placements) {
 /**
  * 计算导入结果，不修改入参；用户确认后再采用返回的 library。
  * options.mode:
- *   'auto'           按 id 替换（默认）。替换保留本地的启用状态、分组与位置；新角色按文件分组名归位（同名并入，没有则新建）。
+ *   'auto'           按 id 替换（默认）。替换保留本地的启用状态（角色、服装 / 状态条目、所在分组的开关）、分组与位置；新角色按文件分组名归位（同名并入，没有则新建）。
  *   'existing-group' 导入到 options.groupId。
  *   'new-group'      新建 options.newGroupName 并导入。
  * options.sameIdPolicy（仅非 auto 模式）：'replace'（默认，替换并移入目标分组）| 'keep-both'（副本使用新 id）| 'skip'。
- * options.importNewAsDisabled：新增角色一律以停用状态导入（已有角色的替换不受影响）。
+ * options.importNewAsDisabled：新增角色一律以停用状态导入（已有角色的替换不受影响）；这是导入时的本机选择，文件里没有启用字段。
  * options.overwriteSameName：未命中 id 时按名字覆盖，保留本地 id；sameIdPolicy 只影响同 id 命中。
  * options.replaceLocked：仅显式 true 允许替换上锁角色。按 id 或名字命中替换时，默认检查角色自身及导入前分组的锁，
  *   受保护角色不覆盖字段、不移组，计入 summary.lockedSkipped；允许替换也保留其本地锁。
@@ -811,7 +824,12 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
         }
         if (replacing) {
             const oldName = String(existing.name || '').trim();
+            const localItems = { outfits: existing.outfits, dynamicStates: existing.dynamicStates };
             for (const field of fields) existing[field] = cloneJson(character[field]);
+            // 服装 / 状态：按名称对上本机条目，保留它们各自的启用状态（角色自己的 enabled 本来就不在 fields 里）。
+            for (const field of ['outfits', 'dynamicStates']) {
+                if (fields.includes(field)) existing[field] = applyLocalNamedTagEnabled(existing[field], localItems[field]);
+            }
             const newName = String(existing.name || '').trim();
             if (oldName !== newName) {
                 if (byName.get(oldName) === existing) {
@@ -837,7 +855,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             ...cloneJson(character),
             id,
             ...(keepBoth ? { aliases: [] } : {}),
-            enabled: options.importNewAsDisabled ? false : character.enabled,
+            enabled: !options.importNewAsDisabled,
         };
         if (keepBoth) {
             added.name = makeCopyName(character.name, takenNameKeys);

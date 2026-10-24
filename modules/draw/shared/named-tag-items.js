@@ -31,6 +31,29 @@ export function selectEnabledNamedTags(list = []) {
         .map(({ name, tags }) => ({ name, tags }));
 }
 
+/** 去掉每个条目的 enabled 键（其余原样保留）：启用状态只属于本机，导出文件不带，导入文件里的也一律不认。 */
+export function stripNamedTagEnabled(list = []) {
+    return (Array.isArray(list) ? list : []).map(({ enabled: _enabled, ...rest }) => rest);
+}
+
+/**
+ * 导入替换服装 / 状态列表时保留本机的启用状态：文件里的条目按名称（去首尾空白）对应本机已有的同名条目，
+ * 本机停用的继续停用；对不上的新条目默认启用。同名条目按先后顺序一一对应，文件本身的 enabled 不起作用。
+ */
+export function applyLocalNamedTagEnabled(incoming = [], local = []) {
+    const disabledByName = new Map();
+    for (const item of normalizeNamedTagList(local)) {
+        const key = item.name;
+        const flags = disabledByName.get(key) || [];
+        flags.push(!isNamedTagEnabled(item));
+        disabledByName.set(key, flags);
+    }
+    return stripNamedTagEnabled(normalizeNamedTagList(incoming)).map((item) => {
+        const disabled = disabledByName.get(item.name)?.shift() === true;
+        return disabled ? { ...item, enabled: false } : item;
+    });
+}
+
 /** 启用条目数（状态标签只在 > 0 时出现）。 */
 export function countEnabledNamedTags(list = []) {
     return selectEnabledNamedTags(list).length;
