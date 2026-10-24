@@ -208,3 +208,14 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
     .lwb-cl-card-group-row { flex-wrap: wrap; }
     .lwb-cl-card-group-row .input { min-width: 0; max-width: 100%; }
 }
+
+/* ── 角色形态（SD / ComfyUI 卡片里的额外形态编辑区）── */
+.sd-char-forms { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.sd-char-forms-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.sd-char-form-list { display: flex; flex-direction: column; gap: 8px; }
+.sd-char-form { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
+.sd-char-form-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; list-style: none; cursor: pointer; }
+.sd-char-form-summary::-webkit-details-marker { display: none; }
+.sd-char-form-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.sd-char-form-tools { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sd-char-form[open] > .sd-char-form-summary { margin-bottom: 10px; }

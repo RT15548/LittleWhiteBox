@@ -7,6 +7,7 @@
 // 用户文本（分组名、角色名、文件名）只用 textContent / 属性赋值，不拼 innerHTML。
 // 样式见 character-library-ui.css（由宿主页面自行引入）。
 
+import { getCharacterSearchFields } from './character-forms.js';
 import {
     MAX_IMPORT_FILE_BYTES,
     UNGROUPED_ID,
@@ -235,7 +236,7 @@ export function createCharacterLibraryUi(options = {}) {
     function filterCards() {
         const query = String(searchInput?.value || '').trim().toLowerCase();
         const matches = new Set(readCharacters({ keepEmpty: true }).filter(character => !query
-            || [character.name, ...(character.aliases || []), character.appearance, character.danbooruTag]
+            || getCharacterSearchFields(character)
                 .filter(Boolean).join(' ').toLowerCase().includes(query)).map(character => character.id));
         for (const card of cardsIn()) {
             const hidden = !matches.has(cardId(card));

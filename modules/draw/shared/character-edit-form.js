@@ -8,8 +8,17 @@ import { movePresetId } from './preset-order.js';
 import {
     isNamedTagEnabled,
     isNamedTagItemExpanded,
+    normalizeNamedTagList,
     previewNamedTags,
 } from './named-tag-items.js';
+import {
+    MAX_CHARACTER_FORMS,
+    getCharacterForms,
+    normalizeForms,
+} from './character-forms.js';
+
+// 角色 id 与形态 key 的拼接分隔符：分区折叠记录、Danbooru 搜索面板都用“角色 id#形态 key”区分同一角色的不同形态。
+export const FORM_REF_SEPARATOR = '#';
 
 export const EDITOR_SECTION_KEYS = Object.freeze(['appearance', 'negative', 'outfits', 'dynamicStates']);
 
@@ -70,11 +79,11 @@ export function createEditorSectionState() {
             api.setCollapsed(cardId, key, next);
             return next;
         },
-        /** 丢弃已经不存在的卡片的记录。 */
+        /** 丢弃已经不存在的卡片的记录（形态的记录 id 形如“角色 id#形态 key”，按角色 id 判断）。 */
         prune(validIds) {
             const valid = new Set(Array.from(validIds, String));
             for (const id of Array.from(collapsedByCard.keys())) {
-                if (!valid.has(id)) collapsedByCard.delete(id);
+                if (!valid.has(id.split(FORM_REF_SEPARATOR)[0])) collapsedByCard.delete(id);
             }
         },
     };
@@ -282,10 +291,15 @@ export function createNamedTagSortables({ container, document, autoScroll = null
             rowSelector: `.${p}-editor-item`,
             handleSelector: '[data-named-drag]',
             getId: row => row.dataset.uid,
-            onReorder: uids => reorderNamedTagEditorRows(container.querySelector(`.${p}-editor-list`), kind, uids),
+            onReorder: (uids) => {
+                const first = uids.map(uid => container.querySelector(`[data-uid="${uid}"]`)).find(Boolean);
+                reorderNamedTagEditorRows(first?.closest(`.${p}-editor-list`) || container.querySelector(`.${p}-editor-list`), kind, uids);
+            },
             moveStep: movePresetId,
             autoScroll,
             bodyClass: 'char-dragging',
+            // 每个形态有自己的服装 / 状态列表：只在被拖行所在的列表内排序。
+            scopeSelector: `.${p}-editor-list`,
             document,
         });
     });
@@ -311,4 +325,334 @@ export function collectNamedTagEditorValues(card, kind = 'outfit', { keepEmpty =
         ...(readRowEnabled(row) ? {} : { enabled: false }),
         ...(withUiState ? { expanded: row.dataset.expanded === 'true' } : {}),
     })).filter(item => keepEmpty || item.name || item.tags);
+}
+
+// ── 形态 ────────────────────────────────────────────────────
+// 编辑卡片里的“形态”：角色有 ≥2 个形态时，每个形态是一张可折叠、可拖动排序的子卡片（头部 = 拖动手柄 + 折叠箭头 + 名称输入框 + 外貌预览 + 删除），
+// 正文是该形态自己的 类型 / 固定外貌 / 负向标签 / 服装列表 / 动态外貌（组件与单形态时完全相同）。只有一个形态时不渲染这些，卡片与以前一样。
+// 数据：界面里的每个形态是一个“编辑模型” { key, id, name, type, typeCustom, appearance, negativeTags, danbooruTag, outfits, dynamicStates, expanded? }；
+// 第一张卡片写回角色顶层字段（formName 等），其余写回 forms（见 character-forms.js）。key 只在界面里区分形态，不保存。
+
+export const FORM_MAX_COUNT = MAX_CHARACTER_FORMS;
+const FIRST_FORM_KEY = 'main';
+let nextFormUid = 0;
+
+export const FORM_COPY = Object.freeze({
+    addAction: '添加形态',
+    sectionTitle: '形态',
+    nameLabel: '形态名称',
+    nameHint: '点击修改名称，如：人形、龙形',
+    hint: '同一角色的不同形态（如人形 / 龙形）各有自己的类型、外貌、服装与状态；规划时形态名称会拼进角色名，一般同一画面只出现其中一个。可拖动调整顺序，第一个是默认形态。',
+    limit: `一个角色最多 ${MAX_CHARACTER_FORMS} 个形态`,
+});
+
+export function formRef(charId, formKey = '') {
+    return formKey ? `${charId}${FORM_REF_SEPARATOR}${formKey}` : String(charId);
+}
+
+export function parseFormRef(ref) {
+    const text = String(ref ?? '');
+    const at = text.indexOf(FORM_REF_SEPARATOR);
+    return at < 0 ? { charId: text, formKey: '' } : { charId: text.slice(0, at), formKey: text.slice(at + 1) };
+}
+
+/** 类型下拉框 + 自定义输入框的取值：选“自定义”且填了内容就取内容，否则取下拉框的值（缺省 girl）。 */
+export function resolveTypeValue(type, typeCustom) {
+    const selected = String(type || 'girl');
+    const custom = String(typeCustom || '').trim();
+    return selected === 'custom' && custom ? custom : selected;
+}
+
+function newFormKey() {
+    nextFormUid += 1;
+    return `new-${nextFormUid}`;
+}
+
+const defaultSplitType = type => ({ type, typeCustom: '' });
+
+/** 新建一个空白形态的编辑模型（始终展开）。 */
+export function createBlankFormModel(splitType = defaultSplitType) {
+    return {
+        key: newFormKey(), id: '', name: '', ...splitType('girl'),
+        appearance: '', negativeTags: '', danbooruTag: '', outfits: [], dynamicStates: [], expanded: true,
+    };
+}
+
+/** 角色 → 全部形态的编辑模型（第一形态 = 顶层字段）。splitType(savedType) 返回 { type: 下拉框的值, typeCustom }。 */
+export function formModelsFromCharacter(character, splitType = defaultSplitType) {
+    return getCharacterForms(character).map((form, index) => ({
+        key: index === 0 ? FIRST_FORM_KEY : (form.id || newFormKey()),
+        id: form.id || '',
+        name: form.name,
+        ...splitType(form.type),
+        appearance: form.appearance,
+        negativeTags: form.negativeTags,
+        danbooruTag: form.danbooruTag,
+        outfits: normalizeNamedTagList(form.outfits),
+        dynamicStates: normalizeNamedTagList(form.dynamicStates),
+    }));
+}
+
+const SINGLE_FORM_DRAFT_KEYS = Object.freeze(['type', 'typeCustom', 'appearance', 'negativeTags', 'danbooruTag', 'outfits', 'dynamicStates', 'formName']);
+
+function omitKeys(source, keys) {
+    const rest = { ...source };
+    for (const key of keys) delete rest[key];
+    return rest;
+}
+
+/** 单形态草稿 → 两个形态的多形态草稿：原有内容成为第一形态，再追加一个空白形态。 */
+export function draftToMultiForm(draft, splitType) {
+    const first = {
+        key: FIRST_FORM_KEY, id: '', name: String(draft.formName || ''),
+        type: draft.type || 'girl', typeCustom: draft.typeCustom || '',
+        appearance: draft.appearance || '', negativeTags: draft.negativeTags || '', danbooruTag: draft.danbooruTag || '',
+        outfits: draft.outfits || [], dynamicStates: draft.dynamicStates || [],
+    };
+    const rest = omitKeys(draft, SINGLE_FORM_DRAFT_KEYS);
+    return { ...rest, multi: true, forms: [first, createBlankFormModel(splitType)] };
+}
+
+/** 多形态草稿 → 单形态草稿（删到只剩一个形态时回到普通布局）：剩下的第一个形态成为顶层字段。 */
+export function draftToSingleForm(draft) {
+    const [only] = draft.forms || [];
+    const rest = omitKeys(draft, ['multi', 'forms']);
+    return {
+        ...rest,
+        formName: only?.name || '',
+        type: only?.type || 'girl', typeCustom: only?.typeCustom || '',
+        appearance: only?.appearance || '', negativeTags: only?.negativeTags || '', danbooruTag: only?.danbooruTag || '',
+        outfits: only?.outfits || [], dynamicStates: only?.dynamicStates || [],
+    };
+}
+
+/**
+ * 把编辑模型（按卡片顺序）写回角色对象：第一个是顶层字段，其余是 forms（缺 id 的补发）。
+ * 没有有内容的额外形态时不写 forms；formName 为空时不留该键。就地修改并返回 character。
+ */
+export function applyFormModelsToCharacter(character, models, { makeId = () => `form-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` } = {}) {
+    const [first, ...others] = models;
+    if (first) {
+        character.type = resolveTypeValue(first.type, first.typeCustom);
+        character.appearance = String(first.appearance || '').trim();
+        character.negativeTags = String(first.negativeTags || '').trim();
+        character.danbooruTag = String(first.danbooruTag || '').trim();
+        character.outfits = normalizeNamedTagList(first.outfits);
+        character.dynamicStates = normalizeNamedTagList(first.dynamicStates);
+        const formName = String(first.name || '').trim();
+        if (formName) character.formName = formName; else delete character.formName;
+    }
+    const forms = normalizeForms(others.map(model => ({
+        id: model.id || makeId(),
+        name: model.name,
+        type: resolveTypeValue(model.type, model.typeCustom),
+        appearance: String(model.appearance || '').trim(),
+        negativeTags: String(model.negativeTags || '').trim(),
+        danbooruTag: String(model.danbooruTag || '').trim(),
+        outfits: model.outfits,
+        dynamicStates: model.dynamicStates,
+    })));
+    if (forms.length) character.forms = forms; else delete character.forms;
+    return character;
+}
+
+/** 一个形态的四个可折叠分区（固定外貌 / 负向标签 / 服装列表 / 动态外貌）；单形态布局与形态卡片共用。 */
+export function renderCharacterFormSections(model, {
+    charId, formKey = '', escapeHtml = defaultEscapeHtml, isSectionCollapsed = () => false, danbooruEnabled = false,
+} = {}) {
+    const ref = formRef(charId, formKey);
+    const keyAttr = formKey ? ` data-form-key="${escapeHtml(formKey)}"` : '';
+    const outfits = model.outfits || [];
+    const dynamicStates = model.dynamicStates || [];
+    const danbooru = String(model.danbooruTag || '');
+    const appearanceSection = renderEditorSection({
+        key: 'appearance',
+        title: '固定外貌 (appearance)',
+        collapsed: isSectionCollapsed('appearance'),
+        actionsHtml: `<button class="btn" type="button" data-action="search-danbooru" data-id="${escapeHtml(charId)}"${keyAttr} style="padding:2px 8px;font-size:10px;"${!danbooruEnabled ? ' disabled style="opacity:0.3"' : ''}><i class="fa-solid fa-magnifying-glass"></i> Danbooru</button>`,
+        bodyHtml: `
+                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(model.appearance || '')}</textarea>
+                            <input type="hidden" class="char-form-danbooru" value="${escapeHtml(danbooru)}">
+                            <div class="form-hint char-danbooru-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;"${danbooru ? '' : ' hidden'}>Danbooru: ${escapeHtml(danbooru.replace(/_/g, ' '))}</div>
+                            <div class="danbooru-panel hidden" data-char-id="${escapeHtml(ref)}"></div>
+                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>`,
+    });
+    const negativeSection = renderEditorSection({
+        key: 'negative',
+        title: '负向标签（可选）',
+        collapsed: isSectionCollapsed('negative'),
+        bodyHtml: `<textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(model.negativeTags || '')}</textarea>`,
+    });
+    const outfitSection = renderEditorSection({
+        key: 'outfits',
+        title: '服装列表（可选）',
+        collapsed: isSectionCollapsed('outfits'),
+        actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${escapeHtml(charId)}"><i class="fa-solid fa-plus"></i> 添加服装</button>`,
+        bodyHtml: `
+                            <div class="char-outfit-editor-list">
+                                <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。停用的服装不会发送。</div>
+                                ${renderNamedTagEditorItems(outfits, 'outfit', { escapeHtml })}
+                            </div>
+                            <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves。条目多时自动折叠，点标题行展开。</p>`,
+    });
+    const dynamicStateSection = renderEditorSection({
+        key: 'dynamicStates',
+        title: '动态外貌（可选）',
+        collapsed: isSectionCollapsed('dynamicStates'),
+        actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${escapeHtml(charId)}"><i class="fa-solid fa-plus"></i> 添加状态</button>`,
+        bodyHtml: `
+                            <div class="char-dynstate-editor-list">
+                                <div class="char-dynstate-editor-empty"${dynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。停用的状态不会发送。</div>
+                                ${renderNamedTagEditorItems(dynamicStates, 'dynstate', { escapeHtml })}
+                            </div>
+                            <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>`,
+    });
+    return `${appearanceSection}${negativeSection}${outfitSection}${dynamicStateSection}`;
+}
+
+/**
+ * 渲染一个形态子卡片。renderTypeFields(model) 由调用方给出类型下拉框 + 自定义输入框的 HTML（类型选项属于各页面）；
+ * isSectionCollapsed(formKey, sectionKey) 给出分区折叠状态；total 决定折叠规则（≥2 个形态时，只有 expanded:true 的展开）。
+ */
+export function renderFormCard(model, index, { total = 2, charId, escapeHtml = defaultEscapeHtml, renderTypeFields, isSectionCollapsed, danbooruEnabled = false } = {}) {
+    const key = escapeHtml(model.key);
+    const expanded = isNamedTagItemExpanded(model, total);
+    return `
+    <div class="char-form${expanded ? '' : ' is-folded'}" data-form-key="${key}" data-form-id="${escapeHtml(model.id || '')}" data-expanded="${expanded}">
+        <div class="char-form-header" data-action="toggle-form">
+            <span class="char-drag-handle named-tag-drag" role="button" tabindex="0" data-form-drag title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整形态 ${index + 1} 的顺序">⋮⋮</span>
+            <button type="button" class="char-form-toggle" aria-expanded="${expanded}" title="展开 / 折叠" aria-label="展开 / 折叠形态 ${index + 1}">
+                <i class="fa-solid fa-chevron-down named-tag-chevron" aria-hidden="true"></i>
+            </button>
+            <input type="text" class="char-form-name" value="${escapeHtml(model.name || '')}" placeholder="${FORM_COPY.nameLabel}" title="${FORM_COPY.nameHint}" aria-label="${FORM_COPY.nameLabel}">
+            <span class="char-form-preview">${escapeHtml(previewNamedTags(model.appearance))}</span>
+            <button class="btn btn-danger btn-sm" type="button" data-action="remove-form" data-form-key="${key}"><i class="fa-solid fa-trash"></i> 删除</button>
+        </div>
+        <div class="char-form-body"${expanded ? '' : ' hidden'}>
+            ${renderTypeFields ? renderTypeFields(model) : ''}
+            ${renderCharacterFormSections(model, {
+                charId, formKey: model.key, escapeHtml, danbooruEnabled,
+                isSectionCollapsed: sectionKey => (isSectionCollapsed ? isSectionCollapsed(model.key, sectionKey) : false),
+            })}
+        </div>
+    </div>`;
+}
+
+/** 形态区（标题行 + 添加按钮 + 形态卡片列表 + 说明），≥2 个形态时替换单形态的字段区。 */
+export function renderFormsSection(models, ctx = {}) {
+    const escapeHtml = ctx.escapeHtml || defaultEscapeHtml;
+    const full = models.length >= FORM_MAX_COUNT;
+    return `
+    <div class="form-group char-forms">
+        <div class="char-section-head">
+            <span class="char-section-toggle char-forms-title">${FORM_COPY.sectionTitle}<span class="char-section-count">${models.length}</span></span>
+            <span class="char-section-actions"><button class="btn btn-sm" type="button" data-action="add-form" data-id="${escapeHtml(ctx.charId)}"${full ? ` disabled title="${FORM_COPY.limit}"` : ''}><i class="fa-solid fa-plus"></i> ${FORM_COPY.addAction}</button></span>
+        </div>
+        <div class="char-form-list">${models.map((model, index) => renderFormCard(model, index, { ...ctx, total: models.length })).join('')}</div>
+        <p class="form-hint">${FORM_COPY.hint}</p>
+    </div>`;
+}
+
+const formRowsOf = list => Array.from(list?.querySelectorAll('.char-form') || []);
+
+/** 折叠头里的外貌预览（折叠时看不到输入框，所以折叠 / 重排时都要刷新）；名称输入框就在头部。 */
+export function refreshFormHeader(form) {
+    if (!form) return;
+    const preview = form.querySelector('.char-form-preview');
+    if (preview) preview.textContent = previewNamedTags(form.querySelector('.char-edit-appearance')?.value);
+}
+
+export function setFormExpanded(form, expanded) {
+    if (!form) return;
+    form.dataset.expanded = String(expanded);
+    form.classList.toggle('is-folded', !expanded);
+    form.querySelector('.char-form-body')?.toggleAttribute('hidden', !expanded);
+    form.querySelector('.char-form-toggle')?.setAttribute('aria-expanded', String(expanded));
+    if (!expanded) refreshFormHeader(form);
+}
+
+/** 点折叠头：返回切换后是否展开。 */
+export function toggleFormCard(form) {
+    const next = form?.dataset.expanded !== 'true';
+    setFormExpanded(form, next);
+    return next;
+}
+
+/** 点在形态头部的输入框 / 拖动手柄上是在操作它们，不切换折叠；删除按钮自带 data-action。 */
+export function isFormHeaderToggleTarget(target) {
+    return !target?.closest?.('input, textarea, label, [data-form-drag]');
+}
+
+/** 整理形态列表：序号标签、数量标记、折叠头预览。 */
+export function syncFormList(list) {
+    if (!list) return;
+    const rows = formRowsOf(list);
+    rows.forEach((row, index) => {
+        row.querySelector('[data-form-drag]')?.setAttribute('aria-label', `拖动调整形态 ${index + 1} 的顺序`);
+        row.querySelector('.char-form-toggle')?.setAttribute('aria-label', `展开 / 折叠形态 ${index + 1}`);
+        refreshFormHeader(row);
+    });
+    const count = list.closest('.char-forms')?.querySelector('.char-forms-title .char-section-count');
+    if (count) count.textContent = String(rows.length);
+}
+
+/** 按 key 的新顺序重排形态卡片（真实移动 DOM 节点，输入框里未保存的内容与折叠状态跟着走）。 */
+export function reorderFormCards(list, orderedKeys) {
+    if (!list) return;
+    const rows = formRowsOf(list);
+    const byKey = new Map(rows.map(row => [row.dataset.formKey, row]));
+    const ordered = [];
+    for (const key of Array.isArray(orderedKeys) ? orderedKeys : []) {
+        const row = byKey.get(key);
+        if (row && !ordered.includes(row)) ordered.push(row);
+    }
+    for (const row of rows) if (!ordered.includes(row)) ordered.push(row);
+    const anchor = rows.length ? rows[rows.length - 1].nextSibling : null;
+    ordered.forEach(row => list.insertBefore(row, anchor));
+    syncFormList(list);
+}
+
+/** 形态卡片的拖拽 + 键盘（↑ / ↓）排序，复用 sortable-list.js；事件委托在 container 上。 */
+export function createFormSortable({ container, document, autoScroll = null, createSortable = createSortableList } = {}) {
+    return createSortable({
+        container,
+        rowSelector: '.char-form',
+        handleSelector: '[data-form-drag]',
+        getId: row => row.dataset.formKey,
+        onReorder: keys => reorderFormCards(container.querySelector('.char-form-list'), keys),
+        moveStep: movePresetId,
+        autoScroll,
+        bodyClass: 'char-dragging',
+        document,
+    });
+}
+
+/**
+ * 读出一个形态（形态卡片，或单形态布局下的整张编辑卡片）里的字段，折叠的也读。
+ * 返回编辑模型的字段部分；keepEmpty / withUiState 同 collectNamedTagEditorValues。
+ */
+export function readFormFields(root, options = {}) {
+    const value = selector => root.querySelector(selector)?.value ?? '';
+    return {
+        type: value('.char-edit-type') || 'girl',
+        typeCustom: value('.char-edit-type-custom'),
+        appearance: value('.char-edit-appearance'),
+        negativeTags: value('.char-edit-neg'),
+        danbooruTag: value('.char-form-danbooru'),
+        outfits: collectNamedTagEditorValues(root, 'outfit', options),
+        dynamicStates: collectNamedTagEditorValues(root, 'dynstate', options),
+    };
+}
+
+/** 读出编辑卡片里全部形态卡片（按 DOM 顺序）；没有形态卡片（单形态布局）时返回 null。 */
+export function collectFormModels(card, { keepEmpty = false, withUiState = false } = {}) {
+    const list = card.querySelector('.char-form-list');
+    if (!list) return null;
+    return formRowsOf(list).map(form => ({
+        key: form.dataset.formKey,
+        id: form.dataset.formId || '',
+        name: form.querySelector('.char-form-name')?.value?.trim() || '',
+        ...readFormFields(form, { keepEmpty, withUiState }),
+        ...(withUiState ? { expanded: form.dataset.expanded === 'true' } : {}),
+    }));
 }

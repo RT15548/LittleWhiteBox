@@ -9,15 +9,26 @@
 // 服装 / 动态外貌条目同理有自己的开关（enabled，缺省=开，只在关闭时才写 enabled:false，见 named-tag-items.js），停用的条目不会发给规划器。
 // 角色 / 条目 / 分组的启用状态都只属于本机：导出文件不带任何 enabled，导入时文件里的 enabled 一律不认——
 // 新的默认启用（“导入为停用”是导入时的本机选择，不是文件字段），与本机已有项对上的保留本机状态。
+// 形态（forms，见 character-forms.js）：角色顶层字段就是第一形态，forms 只存额外的形态，没有额外形态的角色不带 formName / forms 键。
+// 形态的内容会导出 / 导入（它是内容），条目启用状态同样不进文件；导入的重名检查仍以角色为单位。
 // 排序的唯一事实来源是 characters 数组顺序；groupId 缺省（空）表示“未分组”。
 
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
 import { applyLocalNamedTagEnabled, normalizeNamedTagList, stripNamedTagEnabled } from './named-tag-items.js';
+import {
+    applyLocalFormsEnabled,
+    normalizeForms,
+    stripFormsEnabled,
+    withFreshFormIds,
+} from './character-forms.js';
 
 export const UNGROUPED_ID = '';
 export const UNGROUPED_NAME = '未分组';
 export const CHARACTER_EXPORT_TYPE = 'novel-draw-characters';
 export const CHARACTER_EXPORT_VERSION = 4;
+// 文件里含有形态（formName / forms）时导出的版本号：旧版本读到会提示“来自更新的版本，无法识别的字段会被忽略”，只会用到第一形态。
+// 不含形态的文件仍是 CHARACTER_EXPORT_VERSION，与以前字节一致。
+export const CHARACTER_EXPORT_VERSION_WITH_FORMS = 5;
 export const MAX_GROUPS = 50;
 export const MAX_GROUP_NAME_LENGTH = 32;
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -40,6 +51,8 @@ const IMPORT_FIELD_MAP = Object.freeze({
     costumes: 'outfits',
     clothes: 'outfits',
     dynamicStates: 'dynamicStates',
+    formName: 'formName',
+    forms: 'forms',
 });
 
 function cloneJson(value) {
@@ -101,6 +114,7 @@ function stripLocalEnabled(character) {
         ...rest,
         ...(Array.isArray(rest.outfits) ? { outfits: stripNamedTagEnabled(rest.outfits) } : {}),
         ...(Array.isArray(rest.dynamicStates) ? { dynamicStates: stripNamedTagEnabled(rest.dynamicStates) } : {}),
+        ...(Array.isArray(rest.forms) ? { forms: stripFormsEnabled(rest.forms) } : {}),
     };
 }
 
@@ -108,6 +122,8 @@ function stripLocalEnabled(character) {
 export function normalizeCharacter(raw, { id } = {}) {
     const char = isPlainObject(raw) ? raw : {};
     const groupId = String(char.groupId || '').trim();
+    const formName = String(char.formName || '').trim();
+    const forms = normalizeForms(char.forms);
     return {
         id: String(id ?? char.id ?? ''),
         enabled: char.enabled !== false,
@@ -121,6 +137,8 @@ export function normalizeCharacter(raw, { id } = {}) {
         danbooruTag: String(char.danbooruTag || ''),
         outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
+        ...(formName ? { formName } : {}),
+        ...(forms.length ? { forms } : {}),
         ...(groupId ? { groupId } : {}),
         ...(char.locked === true ? { locked: true } : {}),
     };
@@ -526,6 +544,8 @@ export function duplicateCharacters(library, ids, { toGroupId, makeId } = {}) {
         };
         // 副本不继承上锁：用户复制出来通常就是要改。
         delete copy.locked;
+        // 形态各自换新 id（没有额外形态的角色不带该键，副本也不带）。
+        if (Array.isArray(copy.forms)) copy.forms = withFreshFormIds(copy.forms, makeId || defaultMakeId);
         newIds.push(id);
         if (hasTarget) copies.push(withGroupId(copy, String(toGroupId || '')));
         else characters.push(copy);
@@ -562,7 +582,9 @@ export function exportCharacters(library, { scope = 'all', groupId, ids } = {}, 
         : library.groups.filter(group => referenced.has(group.id));
     return {
         type: CHARACTER_EXPORT_TYPE,
-        version: CHARACTER_EXPORT_VERSION,
+        version: characters.some(character => character.formName || character.forms?.length)
+            ? CHARACTER_EXPORT_VERSION_WITH_FORMS
+            : CHARACTER_EXPORT_VERSION,
         exportedAt: new Date(now).toISOString(),
         scope,
         // 分组开关属于本机的使用状态，不进入导出文件：只带 id 与名称。
@@ -595,11 +617,22 @@ function isBadNamedTagList(value) {
         || value.some(item => !isPlainObject(item) || hasBadText(item, ['name', 'tags'])));
 }
 
+const NAMED_TAG_LIST_KEYS = ['outfits', 'costumes', 'clothes', 'dynamicStates'];
+
+// forms 必须是对象数组，每个形态的文本字段与条目列表同样要合规；数量超限的部分由规范化截断，不在这里拒绝。
+function isBadFormList(value) {
+    return isProvided(value) && (!Array.isArray(value)
+        || value.some(form => !isPlainObject(form)
+            || hasBadText(form, ['id', 'name', 'type', 'appearance', 'tags', 'negativeTags', 'danbooruTag'])
+            || NAMED_TAG_LIST_KEYS.some(key => isBadNamedTagList(form[key]))));
+}
+
 /** 文件里的角色条目是否含有类型不合规的字段（决定整条跳过）。 */
 function hasInvalidImportFieldType(raw) {
-    return hasBadText(raw, ['name', 'id', 'type', 'appearance', 'tags', 'negativeTags', 'danbooruTag', 'groupId'])
+    return hasBadText(raw, ['name', 'id', 'type', 'appearance', 'tags', 'negativeTags', 'danbooruTag', 'groupId', 'formName'])
         || isBadAliasList(raw.aliases)
-        || ['outfits', 'costumes', 'clothes', 'dynamicStates'].some(key => isBadNamedTagList(raw[key]));
+        || NAMED_TAG_LIST_KEYS.some(key => isBadNamedTagList(raw[key]))
+        || isBadFormList(raw.forms);
 }
 
 /**
@@ -618,7 +651,7 @@ export function parseCharacterImport(payload, { makeId } = {}) {
     }
     const warnings = [];
     const version = Number.isFinite(Number(payload.version)) ? Number(payload.version) : 1;
-    if (version > CHARACTER_EXPORT_VERSION) {
+    if (version > CHARACTER_EXPORT_VERSION_WITH_FORMS) {
         warnings.push({ code: 'newer-version', message: '文件来自更新的版本，无法识别的字段会被忽略' });
     }
     let invalidGroups = 0;
@@ -825,10 +858,18 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
         if (replacing) {
             const oldName = String(existing.name || '').trim();
             const localItems = { outfits: existing.outfits, dynamicStates: existing.dynamicStates };
-            for (const field of fields) existing[field] = cloneJson(character[field]);
+            const localForms = existing.forms;
+            // formName / forms 在文件里是空值时规范化后没有这个键：替换就是清除，而不是写入 undefined。
+            for (const field of fields) {
+                if (character[field] === undefined) delete existing[field];
+                else existing[field] = cloneJson(character[field]);
+            }
             // 服装 / 状态：按名称对上本机条目，保留它们各自的启用状态（角色自己的 enabled 本来就不在 fields 里）。
             for (const field of ['outfits', 'dynamicStates']) {
                 if (fields.includes(field)) existing[field] = applyLocalNamedTagEnabled(existing[field], localItems[field]);
+            }
+            if (fields.includes('forms') && Array.isArray(existing.forms)) {
+                existing.forms = applyLocalFormsEnabled(existing.forms, localForms);
             }
             const newName = String(existing.name || '').trim();
             if (oldName !== newName) {

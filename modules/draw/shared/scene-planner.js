@@ -28,6 +28,7 @@ import { resolveCustomToolDefinitions } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
 import { isNamedTagEnabled } from './named-tag-items.js';
+import { FORM_EXCLUSIVE_NOTE } from './character-forms.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -102,7 +103,11 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
         const outfits = formatReferenceList(character.outfits, '服装');
         const dynamicStates = formatReferenceList(character.dynamicStates, '状态');
-        return `- ${character.name}${aliases} [${type}]${danbooru}${appear}`
+        // 多形态角色的各个形态相邻排列：在第一个形态前声明一次“同一角色、一般同一画面只出现其中一个”。
+        const formNote = character.formIndex === 0 && character.formCount > 1
+            ? `（${character.baseName}：${FORM_EXCLUSIVE_NOTE}）\n`
+            : '';
+        return `${formNote}- ${character.name}${aliases} [${type}]${danbooru}${appear}`
             + (outfits ? `\n  服装参考: ${outfits}` : '')
             + (dynamicStates ? `\n  状态参考（随剧情变化的外观，按画面选用，可并存的可多选，互斥的只取一条，融入 action）: ${dynamicStates}` : '');
     });

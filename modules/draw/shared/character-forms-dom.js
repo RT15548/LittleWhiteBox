@@ -1,0 +1,202 @@
+// SD WebUI / ComfyUI 角色卡片里的“形态”编辑区（用 DOM API 构建，不拼 HTML 字符串）。
+// 卡片顶层的 类型 / 固定外貌 / 负向标签 / Danbooru Tag / 服装 / 动态外貌 就是第一形态，这里编辑的是“额外形态”（character.forms，见 character-forms.js）。
+// 每个额外形态是一个可折叠的块（<details>），含 形态名称 + 与顶层相同的字段，另有 上移 / 下移 / 删除。
+// 字段输入框由页面传入的 createField 构建（与顶层字段同一套），只是用 data-sd-form-field 标记，避免和顶层的 data-sd-char-field 混淆。
+// 草稿安全：读卡片（readFormsFromCard）会保留空白形态，让未保存时重绘列表不丢失刚点“添加形态”的块；保存前由 normalizeForms 丢弃空白形态。
+// 不得 import 酒馆宿主模块。
+
+import { MAX_CHARACTER_FORMS, normalizeForms } from './character-forms.js';
+import { parseNamedTagLines, serializeNamedTagLines } from './named-tag-items.js';
+
+export const FORM_FIELD_KEY = 'sdFormField';
+const FORM_FIELD_ATTR = 'data-sd-form-field';
+
+const FIELD_SPECS = Object.freeze([
+    { field: 'name', label: '形态名称', placeholder: '例如 人形、龙形' },
+    { field: 'type', label: '类型', placeholder: '例如 girl / boy / no humans' },
+    { field: 'appearance', label: '固定外貌', placeholder: '会拼进角色外观提示词', multiline: true },
+    { field: 'negativeTags', label: '负向标签', placeholder: '该形态专属 negative / uc 标签', multiline: true },
+    { field: 'danbooruTag', label: 'Danbooru Tag', placeholder: '可选' },
+    { field: 'outfits', label: '服装参考（每行一套，行首加 # 停用）', placeholder: '校服 = white shirt, pleated skirt', multiline: true },
+    { field: 'dynamicStates', label: '动态外貌（每行一条，行首加 # 停用）', placeholder: '害羞 = blush, embarrassed', multiline: true },
+]);
+
+let nextBlockUid = 0;
+
+function el(document, tag, className = '', text = '') {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+}
+
+function iconButton(document, className, icon, label, attr) {
+    const button = el(document, 'button', className);
+    button.type = 'button';
+    button.setAttribute(attr, '');
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    const i = el(document, 'i', `fa-solid ${icon}`);
+    i.setAttribute('aria-hidden', 'true');
+    button.append(i);
+    return button;
+}
+
+function formTitleText(name, index) {
+    return String(name || '').trim() || `形态 ${index + 1}`;
+}
+
+function formValueOf(form, field) {
+    if (field === 'outfits' || field === 'dynamicStates') return serializeNamedTagLines(form[field] || []);
+    if (field === 'type') return form.type || 'girl';
+    return form[field] || '';
+}
+
+/** 构建一个额外形态的块。 */
+export function createFormBlock({ document, form = {}, index = 0, createField, open = false }) {
+    nextBlockUid += 1;
+    const block = el(document, 'details', 'sd-char-form');
+    block.open = open;
+    block.dataset.formId = String(form.id || '');
+    block.dataset.formUid = `sd-form-${nextBlockUid}`;
+
+    const summary = el(document, 'summary', 'sd-char-form-summary');
+    const title = el(document, 'span', 'sd-char-form-title', formTitleText(form.name, index));
+    const tools = el(document, 'span', 'sd-char-form-tools');
+    tools.append(
+        iconButton(document, 'btn btn-sm', 'fa-arrow-up', '上移形态', 'data-sd-form-up'),
+        iconButton(document, 'btn btn-sm', 'fa-arrow-down', '下移形态', 'data-sd-form-down'),
+        iconButton(document, 'btn btn-danger btn-sm', 'fa-trash', '删除形态', 'data-sd-form-delete'),
+    );
+    summary.append(title, tools);
+
+    const body = el(document, 'div', 'sd-char-form-body');
+    for (const spec of FIELD_SPECS) {
+        body.append(createField(spec.label, spec.field, formValueOf(form, spec.field), spec.placeholder, {
+            multiline: spec.multiline === true,
+            dataKey: FORM_FIELD_KEY,
+        }));
+    }
+    block.append(summary, body);
+    block.addEventListener('input', (event) => {
+        if (event.target?.getAttribute?.(FORM_FIELD_ATTR) === 'name') {
+            const blocks = Array.from(block.parentElement?.children || []);
+            title.textContent = formTitleText(event.target.value, Math.max(0, blocks.indexOf(block)));
+        }
+    });
+    return block;
+}
+
+function renumber(list) {
+    Array.from(list.children).forEach((block, index) => {
+        const name = block.querySelector(`[${FORM_FIELD_ATTR}="name"]`)?.value;
+        const title = block.querySelector('.sd-char-form-title');
+        if (title) title.textContent = formTitleText(name, index);
+    });
+}
+
+/**
+ * 构建形态编辑区：标题行（含“添加形态”）+ 额外形态的块列表 + 说明。点击都在容器上委托，页面不需要再接线。
+ * @param {object} options
+ * @param {Document} options.document
+ * @param {object[]} [options.forms] 额外形态（character.forms）
+ * @param {function} options.createField 页面的字段构建函数 (label, field, value, placeholder, { multiline, dataKey })
+ */
+export function createFormsEditor({ document, forms = [], createField }) {
+    const root = el(document, 'div', 'sd-char-forms');
+    const head = el(document, 'div', 'sd-char-forms-head');
+    head.append(el(document, 'span', 'form-label', '额外形态（可选）'));
+    const addButton = el(document, 'button', 'btn btn-sm');
+    addButton.type = 'button';
+    addButton.setAttribute('data-sd-form-add', '');
+    const addIcon = el(document, 'i', 'fa-solid fa-plus');
+    addIcon.setAttribute('aria-hidden', 'true');
+    addButton.append(addIcon, el(document, 'span', '', '添加形态'));
+    head.append(addButton);
+
+    const list = el(document, 'div', 'sd-char-form-list');
+    forms.forEach((form, i) => list.append(createFormBlock({ document, form, index: i + 1, createField })));
+    const hint = el(document, 'p', 'form-hint',
+        '上面的 类型 / 固定外貌 / 负向标签 / Danbooru Tag / 服装 / 动态外貌 是第一形态（默认形态，可在上方填写形态名称）；这里添加同一角色的其他形态（如龙形）。规划时形态名称会拼进角色名，一般同一画面只出现其中一个。');
+    root.append(head, list, hint);
+
+    const syncAddButton = () => {
+        const full = list.children.length + 1 >= MAX_CHARACTER_FORMS;
+        addButton.disabled = full;
+        addButton.title = full ? `一个角色最多 ${MAX_CHARACTER_FORMS} 个形态` : '';
+    };
+    syncAddButton();
+
+    root.addEventListener('click', (event) => {
+        const target = event.target;
+        const button = target?.closest?.('[data-sd-form-add], [data-sd-form-up], [data-sd-form-down], [data-sd-form-delete]');
+        if (!button || !root.contains(button)) return;
+        // 按钮在 <summary> 里：阻止它顺带切换折叠。
+        event.preventDefault();
+        event.stopPropagation();
+        if (button.hasAttribute('data-sd-form-add')) {
+            if (list.children.length + 1 >= MAX_CHARACTER_FORMS) return;
+            const block = createFormBlock({ document, form: {}, index: list.children.length + 1, createField, open: true });
+            list.append(block);
+            renumber(list);
+            syncAddButton();
+            block.querySelector(`[${FORM_FIELD_ATTR}="name"]`)?.focus?.();
+            return;
+        }
+        const block = button.closest('.sd-char-form');
+        if (!block) return;
+        if (button.hasAttribute('data-sd-form-delete')) {
+            block.remove();
+        } else if (button.hasAttribute('data-sd-form-up')) {
+            if (block.previousElementSibling) list.insertBefore(block, block.previousElementSibling);
+        } else if (block.nextElementSibling) {
+            list.insertBefore(block.nextElementSibling, block);
+        }
+        renumber(list);
+        syncAddButton();
+    });
+    return root;
+}
+
+/**
+ * 读出卡片里全部额外形态（按 DOM 顺序）。保留空白形态（草稿里刚添加的块），空白的丢弃交给 normalizeForms（保存 / 导出前）。
+ * 没有形态编辑区的卡片返回 null（调用方据此保留已保存的 forms）。
+ */
+export function readFormsFromCard(card) {
+    const list = card?.querySelector?.('.sd-char-form-list');
+    if (!list) return null;
+    return Array.from(list.querySelectorAll('.sd-char-form')).map((block) => {
+        const read = field => String(block.querySelector(`[${FORM_FIELD_ATTR}="${field}"]`)?.value || '');
+        return {
+            ...(block.dataset.formId ? { id: block.dataset.formId } : {}),
+            name: read('name').trim(),
+            type: read('type').trim() || 'girl',
+            appearance: read('appearance').trim(),
+            negativeTags: read('negativeTags').trim(),
+            danbooruTag: read('danbooruTag').trim(),
+            outfits: parseNamedTagLines(read('outfits')),
+            dynamicStates: parseNamedTagLines(read('dynamicStates')),
+        };
+    });
+}
+
+/**
+ * 把表单读出的字段并入角色记录（页面的 readCharacterCardsFromForm 先展开已保存记录再覆盖字段，清空字段需要显式删除）：
+ * formName 为空、没有额外形态时不留这两个键；表单里没有形态编辑区时原样保留记录里的 forms。
+ * @param {object} record 已展开的角色记录（会被修改）
+ * @param {Element} card
+ * @param {{keepEmpty?: boolean}} [options] keepEmpty 时保留空白形态（草稿）；否则丢弃（保存 / 导出）
+ */
+export function applyFormFieldsFromCard(record, card, { keepEmpty = false } = {}) {
+    const formNameInput = card.querySelector('[data-sd-char-field="formName"]');
+    if (formNameInput) {
+        const formName = String(formNameInput.value || '').trim();
+        if (formName) record.formName = formName; else delete record.formName;
+    }
+    const forms = readFormsFromCard(card);
+    if (forms) {
+        const finalForms = keepEmpty ? forms : normalizeForms(forms);
+        if (finalForms.length) record.forms = finalForms; else delete record.forms;
+    }
+    return record;
+}

@@ -72,6 +72,7 @@ import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import { NOVEL_API_FIELDS, NOVEL_API_PRESET_OPTIONS, normalizeNovelApiConfig, normalizeNovelApiPresets } from './novel-api-config.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
 import { normalizeNamedTagList } from "../../shared/named-tag-items.js";
+import { normalizeForms } from "../../shared/character-forms.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
 import {
@@ -835,6 +836,9 @@ function normalizeSettings(saved = {}) {
         danbooruTag: char.danbooruTag || '',
         outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
+        // 形态（见 character-forms.js）：不丢弃，也不给没有形态的角色添加这两个键。
+        ...(String(char.formName || '').trim() ? { formName: String(char.formName).trim() } : {}),
+        ...(normalizeForms(char.forms).length ? { forms: normalizeForms(char.forms) } : {}),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;

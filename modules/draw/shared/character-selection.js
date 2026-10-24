@@ -4,6 +4,8 @@ export function isCharacterEnabled(character) {
 
 function characterMatchesName(character, normalizedName) {
     return String(character?.name || '').toLowerCase() === normalizedName
+        // 展开后的形态记录（见 character-forms.js）：原角色名也指向它们，第一形态排在最前，所以回复原名称时命中第一形态。
+        || (character?.baseName !== undefined && String(character.baseName).toLowerCase() === normalizedName)
         || (Array.isArray(character?.aliases) ? character.aliases : [])
             .some(alias => String(alias || '').toLowerCase() === normalizedName);
 }

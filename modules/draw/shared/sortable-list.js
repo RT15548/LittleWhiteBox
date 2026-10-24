@@ -123,6 +123,8 @@ export function moveGroupToIndex(ids, groupIds, insertAt) {
  * @param {string} [options.beforeClass] 落点在某行上方时给那一行加的类名
  * @param {string} [options.afterClass] 落点在某行下方时给那一行加的类名
  * @param {string} [options.bodyClass] 拖拽期间加在 body 上的类名（用来统一光标、禁止选中文字）
+ * @param {string} [options.scopeSelector] 一个 container 里有多个互相独立的列表时（如多个形态各有自己的服装列表）：
+ *        被拖行最近的、匹配它的祖先就是排序范围，只在这个范围内的行之间定位与排序；不传则 container 里的全部行是同一个列表
  * @returns {{destroy: function(): void, isDragging: function(): boolean, cancel: function(): void}}
  */
 export function createSortableList({
@@ -140,12 +142,14 @@ export function createSortableList({
     beforeClass = 'drop-before',
     afterClass = 'drop-after',
     bodyClass = 'sortable-dragging',
+    scopeSelector = null,
 } = {}) {
     if (!container || !document) throw new TypeError('缺少 container / document');
-    let drag = null; // { pointerId, id, startY, lastY, moved, handle, group }
+    let drag = null; // { pointerId, id, startY, lastY, moved, handle, group, scope }
     const removers = [];
 
-    const rowsOf = () => Array.from(container.querySelectorAll(rowSelector));
+    const rowsOf = scope => Array.from((scope || container).querySelectorAll(rowSelector));
+    const scopeOf = row => (scopeSelector ? row.closest?.(scopeSelector) || null : null);
     const idsOf = rows => rows.map(row => String(getId(row)));
     // 这一行是否带着一组一起动：getGroupIds 返回含自己的多项时才算。
     const groupOf = (id) => {
@@ -153,13 +157,13 @@ export function createSortableList({
         return Array.isArray(group) && group.length > 1 && group.map(String).includes(id) ? group.map(String) : null;
     };
 
-    function clearMarks() {
-        for (const row of rowsOf()) row.classList.remove(draggingClass, beforeClass, afterClass);
+    function clearMarks(scope) {
+        for (const row of rowsOf(scope)) row.classList.remove(draggingClass, beforeClass, afterClass);
     }
 
     /** 按指针当前位置实时读一遍行矩形，得出被拖项的当前下标与目标下标；被拖行已不在列表里时返回 null。 */
     function locate(pointerY) {
-        const rows = rowsOf();
+        const rows = rowsOf(drag.scope);
         const ids = idsOf(rows);
         const fromIndex = ids.indexOf(drag.id);
         if (fromIndex < 0) return null;
@@ -178,12 +182,12 @@ export function createSortableList({
 
     function finish({ cancelled }) {
         if (!drag) return;
-        const { moved, lastY } = drag;
+        const { moved, lastY, scope } = drag;
         const found = cancelled || !moved ? null : locate(lastY);
         drag = null;
         removers.splice(0).forEach(off => off());
         document.body?.classList.remove(bodyClass);
-        clearMarks();
+        clearMarks(scope);
         if (!found) return;
         if (found.groupIndexes) {
             const next = moveGroupToIndex(found.ids, found.groupIndexes.map(index => found.ids[index]), found.insertAt);
@@ -219,12 +223,12 @@ export function createSortableList({
         if (!handle || !row || !container.contains(row)) return;
         event.preventDefault?.();
         const id = String(getId(row));
-        drag = { pointerId: event.pointerId, id, startY: event.clientY, lastY: event.clientY, moved: false, handle, group: groupOf(id) };
+        drag = { pointerId: event.pointerId, id, startY: event.clientY, lastY: event.clientY, moved: false, handle, group: groupOf(id), scope: scopeOf(row) };
         try { handle.setPointerCapture?.(event.pointerId); } catch (error) {
             console.warn({ source: import.meta.url, operation: 'setPointerCapture' }, error);
         }
         document.body?.classList.add(bodyClass);
-        for (const item of rowsOf()) {
+        for (const item of rowsOf(drag.scope)) {
             if (item === row || drag.group?.includes(String(getId(item)))) item.classList.add(draggingClass);
         }
         removers.push(
@@ -247,7 +251,8 @@ export function createSortableList({
         const row = handle?.closest?.(rowSelector);
         if (!handle || !row || !container.contains(row)) return;
         event.preventDefault?.();
-        const ids = idsOf(rowsOf());
+        const scope = scopeOf(row);
+        const ids = idsOf(rowsOf(scope));
         const id = String(getId(row));
         const group = moveGroupStep ? groupOf(id) : null;
         const direction = event.key === 'ArrowUp' ? -1 : 1;
@@ -255,7 +260,7 @@ export function createSortableList({
         if (!Array.isArray(next) || next.length !== ids.length || next.every((item, index) => item === ids[index])) return; // 边界处不动
         onReorder(next, group ? { group } : undefined);
         // 调用方重绘后旧手柄已被换掉：把焦点还给同一行的手柄，便于连续按键；被移动的行保持在可视范围内。
-        const moved = rowsOf().find(item => String(getId(item)) === id);
+        const moved = rowsOf(scope).find(item => String(getId(item)) === id);
         moved?.querySelector(handleSelector)?.focus?.();
         moved?.scrollIntoView?.({ block: 'nearest' });
     }

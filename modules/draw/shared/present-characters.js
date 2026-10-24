@@ -3,6 +3,7 @@
 import { selectEnabledCharacters } from './character-library.js';
 import { isCharacterEnabled } from './character-selection.js';
 import { selectEnabledNamedTags } from './named-tag-items.js';
+import { expandCharacterForms } from './character-forms.js';
 
 function escapeRegexChars(str) {
     return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -33,17 +34,23 @@ export function detectPresentCharacters(messageText, characterLibrary) {
         });
 
         if (isPresent) {
-            present.push({
-                name: char.name,
-                aliases: char.aliases || [],
-                type: char.type || 'girl',
-                appearance: char.appearance || '',
-                danbooruTag: char.danbooruTag || '',
-                negativeTags: char.negativeTags || '',
-                // 停用的服装 / 状态在这里就被剔除：规划器的输入里根本没有它们。
-                outfits: selectEnabledNamedTags(char.outfits),
-                dynamicStates: selectEnabledNamedTags(char.dynamicStates),
-            });
+            // 有多个形态的角色按形态展开成多条（名称 `名称（形态名）`、别名共用）；单形态角色展开后就是它自己，输出与以前一致。
+            for (const entry of expandCharacterForms([char])) {
+                present.push({
+                    name: entry.name,
+                    aliases: entry.aliases || [],
+                    type: entry.type || 'girl',
+                    appearance: entry.appearance || '',
+                    danbooruTag: entry.danbooruTag || '',
+                    negativeTags: entry.negativeTags || '',
+                    // 停用的服装 / 状态在这里就被剔除：规划器的输入里根本没有它们。
+                    outfits: selectEnabledNamedTags(entry.outfits),
+                    dynamicStates: selectEnabledNamedTags(entry.dynamicStates),
+                    ...(entry.baseName !== undefined
+                        ? { baseName: entry.baseName, formIndex: entry.formIndex, formCount: entry.formCount }
+                        : {}),
+                });
+            }
         }
     }
     return present;

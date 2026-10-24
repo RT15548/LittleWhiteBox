@@ -8,22 +8,38 @@ import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
 import { countEnabledNamedTags, normalizeNamedTagList } from '../../shared/named-tag-items.js';
+import { getCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
 import { createGroupHeightController } from '../../shared/character-group-height.js';
 import {
+    FORM_COPY,
+    FORM_MAX_COUNT,
     NAMED_TAG_EDITOR_KINDS,
     appendNamedTagEditorItem,
+    applyFormModelsToCharacter,
     applyNamedTagEnabledChange,
-    collectNamedTagEditorValues,
+    collectFormModels,
+    createBlankFormModel,
     createEditorSectionState,
+    createFormSortable,
     createNamedTagSortables,
+    draftToMultiForm,
+    draftToSingleForm,
+    formModelsFromCharacter,
+    formRef,
+    isFormHeaderToggleTarget,
     isNamedTagHeaderToggleTarget,
     namedTagKindOfRow,
+    parseFormRef,
+    readFormFields,
+    refreshFormHeader,
     refreshNamedTagItemHeader,
     removeNamedTagEditorItem,
-    renderEditorSection,
-    renderNamedTagEditorItems,
+    renderCharacterFormSections,
+    renderFormsSection,
     setEditorSectionCollapsed,
+    syncFormList,
     syncNamedTagEditorList,
+    toggleFormCard,
     toggleNamedTagItem,
 } from '../../shared/character-edit-form.js';
 
@@ -516,29 +532,36 @@ function getFilteredCharacters(chars = []) {
     const library = getCharacterLibrary();
 
     return chars.filter(char => {
+        // 多形态角色：搜索覆盖每个形态的名称与内容，类型 / 状态筛选按形态汇总（没有额外形态时就是角色自己的字段）。
+        const forms = getCharacterForms(char);
         if (query) {
             const haystack = [
                 char.name,
                 ...(char.aliases || []),
-                char.type,
-                char.appearance,
-                char.negativeTags,
-                char.danbooruTag,
-                ...((char.outfits || []).flatMap(outfit => [outfit?.name, outfit?.tags])),
-                ...((char.dynamicStates || []).flatMap(item => [item?.name, item?.tags])),
+                ...forms.flatMap(form => [
+                    form.name,
+                    form.type,
+                    form.appearance,
+                    form.negativeTags,
+                    form.danbooruTag,
+                    ...((form.outfits || []).flatMap(outfit => [outfit?.name, outfit?.tags])),
+                    ...((form.dynamicStates || []).flatMap(item => [item?.name, item?.tags])),
+                ]),
             ].filter(Boolean).join(' ').toLowerCase();
 
             if (!haystack.includes(query)) return false;
         }
 
-        if (typeFilter !== 'all' && normalizeCharType(char.type || 'girl') !== typeFilter) {
+        if (typeFilter !== 'all' && !forms.some(form => normalizeCharType(form.type || 'girl') === typeFilter)) {
             return false;
         }
 
-        if (statusFilter === 'complete' && !char.appearance) return false;
-        if (statusFilter === 'incomplete' && !!char.appearance) return false;
-        if (statusFilter === 'danbooru' && !char.danbooruTag) return false;
-        if (statusFilter === 'negative' && !char.negativeTags) return false;
+        // “完整”= 每个形态都有固定外貌；“缺外貌”= 至少一个形态没有。
+        const allHaveAppearance = forms.every(form => !!form.appearance);
+        if (statusFilter === 'complete' && !allHaveAppearance) return false;
+        if (statusFilter === 'incomplete' && allHaveAppearance) return false;
+        if (statusFilter === 'danbooru' && !forms.some(form => !!form.danbooruTag)) return false;
+        if (statusFilter === 'negative' && !forms.some(form => !!form.negativeTags)) return false;
         // “已启用”= 有效启用；“已停用”= 自己关了或所在分组关了。
         if (statusFilter === 'enabled' && !isCharacterEffectivelyEnabled(char, library)) return false;
         if (statusFilter === 'disabled' && isCharacterEffectivelyEnabled(char, library)) return false;
@@ -551,9 +574,9 @@ function updateCharacterPanelMeta(allChars, filteredChars) {
     // 顶部统计 / 500 上限提示 / 结果数只算已保存的角色：未保存的空白草稿（enabled 默认 true）不该被计入。
     allChars = allChars.filter(char => !draftCharacters.has(char.id));
     filteredChars = filteredChars.filter(char => !draftCharacters.has(char.id));
-    const readyCount = allChars.filter(char => !!char.appearance).length;
+    const readyCount = allChars.filter(char => getCharacterForms(char).every(form => !!form.appearance)).length;
     const missingCount = allChars.length - readyCount;
-    const danbooruCount = allChars.filter(char => !!char.danbooruTag).length;
+    const danbooruCount = allChars.filter(char => getCharacterForms(char).some(form => !!form.danbooruTag)).length;
     const filtersActive = !!String(charFilters.query || '').trim() || charFilters.type !== 'all' || charFilters.status !== 'all';
 
     $('nd_char_stat_total').textContent = String(allChars.length);
@@ -1373,6 +1396,8 @@ function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
     // 编辑卡片里服装 / 状态条目的拖拽排序（复用 sortable-list.js，与预设列表同一套指针 + 键盘交互）。
     createNamedTagSortables({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
+    // 多形态角色的形态卡片：同一套拖拽 + 键盘排序。
+    createFormSortable({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
     // 分组滚动区高度：用户可在分组下沿拖动调整，存本机 localStorage（见 character-group-height.js）。
     groupHeights = createGroupHeightController({ list, document, groupSelector: '.char-group', bodySelector: '.char-group-body' });
     list.addEventListener('pointerdown', (event) => {
@@ -1425,22 +1450,43 @@ function readEditingDraft() {
         .find(node => node.dataset.id === editingCharId);
     if (!card) return null;
     const value = selector => card.querySelector(selector)?.value ?? '';
-    return {
+    const base = {
         id: editingCharId,
         // 所属分组下拉框（库里没有分组时不渲染 → undefined）。groupBase 是这张卡片渲染时的已保存分组（data-saved-group）：
         // 只有用户真的改动了下拉框（≠ groupBase）才算草稿，否则以库里最新的分组为准。
         groupId: card.querySelector('.char-edit-group')?.value,
         groupBase: card.querySelector('.char-edit-group')?.getAttribute('data-saved-group') ?? '',
         name: value('.char-edit-name'),
-        type: value('.char-edit-type') || 'girl',
-        typeCustom: value('.char-edit-type-custom'),
         aliases: value('.char-edit-aliases'),
-        appearance: value('.char-edit-appearance'),
-        negativeTags: value('.char-edit-neg'),
-        // withUiState：条目的展开 / 折叠也带进草稿，重绘后恢复。
-        outfits: collectNamedTagEditorValues(card, 'outfit', { keepEmpty: true, withUiState: true }),
-        dynamicStates: collectNamedTagEditorValues(card, 'dynstate', { keepEmpty: true, withUiState: true }),
     };
+    // 多形态布局：每个形态卡片读成一个编辑模型（折叠 / 展开状态一并带上，重绘后恢复）。
+    const forms = collectFormModels(card, { keepEmpty: true, withUiState: true });
+    if (forms) return { ...base, multi: true, forms };
+    // withUiState：条目的展开 / 折叠也带进草稿，重绘后恢复。
+    return {
+        ...base,
+        formName: value('.char-edit-form-name'),
+        ...readFormFields(card, { keepEmpty: true, withUiState: true }),
+    };
+}
+
+// 类型下拉框的值 ←→ 保存的类型文本：不在预设列表里的类型显示为“自定义”并把原文放进自定义输入框。
+function splitCharType(savedType) {
+    const selected = normalizeCharType(savedType || 'girl');
+    return { type: selected, typeCustom: selected === 'custom' ? String(savedType || '') : '' };
+}
+
+// 类型下拉框 + 自定义输入框（单形态布局与每张形态卡片共用）。
+function renderCharTypeFields(model) {
+    const typeOptions = CHARACTER_TYPES.map(t =>
+        `<option value="${t.value}"${t.value === model.type ? ' selected' : ''}>${t.label}</option>`
+    ).join('');
+    return `
+                        <div class="form-group">
+                            <label class="form-label">类型</label>
+                            <select class="input char-edit-type">${typeOptions}</select>
+                            <input type="text" class="input char-edit-type-custom${model.type === 'custom' ? '' : ' hidden'}" value="${escapeHtml(model.typeCustom || '')}" placeholder="如: mature female" style="margin-top:4px;">
+                        </div>`;
 }
 
 // 重绘之前调用：把当前表单读回草稿；卡片不在 DOM 里（例如被筛选条件暂时隐藏）时保留已有草稿，
@@ -1513,6 +1559,7 @@ function revealCharCard(id) {
 const CHARACTER_STATUS_COPY = Object.freeze({
     groupDisabled: '分组已关闭', disabled: '停用', appearance: '固定外貌', negative: '负向',
     danbooru: 'DB', outfits: '服装', dynamicStates: '动态外貌',
+    forms: count => `${count} 个形态`,
 });
 
 function characterStatusParts(char, library = getCharacterLibrary()) {
@@ -1522,12 +1569,15 @@ function characterStatusParts(char, library = getCharacterLibrary()) {
     else if (char.enabled === false) add('disabled', CHARACTER_STATUS_COPY.disabled);
     const lockLabel = characterLockLabel(char, library);
     if (lockLabel) add(char.locked === true ? 'own-lock' : 'group-lock', lockLabel);
-    if (char.appearance) add('appearance', CHARACTER_STATUS_COPY.appearance);
-    if (char.negativeTags) add('negative', CHARACTER_STATUS_COPY.negative);
-    if (char.danbooruTag) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
+    // 多形态角色：芯片按全部形态汇总（任一形态有就算有），另加“N 个形态”。
+    const forms = getCharacterForms(char);
+    if (forms.length > 1) add('forms', CHARACTER_STATUS_COPY.forms(forms.length));
+    if (forms.some(form => form.appearance)) add('appearance', CHARACTER_STATUS_COPY.appearance);
+    if (forms.some(form => form.negativeTags)) add('negative', CHARACTER_STATUS_COPY.negative);
+    if (forms.some(form => form.danbooruTag)) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
     // 只数启用的条目：全部停用的服装 / 状态不算“有”，因为规划器看不到它们。
-    if (countEnabledNamedTags(char.outfits)) add('outfits', CHARACTER_STATUS_COPY.outfits);
-    if (countEnabledNamedTags(char.dynamicStates)) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
+    if (forms.some(form => countEnabledNamedTags(form.outfits))) add('outfits', CHARACTER_STATUS_COPY.outfits);
+    if (forms.some(form => countEnabledNamedTags(form.dynamicStates))) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
     return parts;
 }
 
@@ -1652,85 +1702,61 @@ function renderCharList() {
             const groupSelectHtml = CL && (state.characterGroups || []).length
                 ? `<div class="form-group"><label class="form-label">所属分组</label><select class="input char-edit-group" data-saved-group="${escapeHtml(c.groupId || '')}"><option value=""${selectedGroupId === '' ? ' selected' : ''}>未分组</option>${state.characterGroups.map(g => `<option value="${escapeHtml(g.id)}"${g.id === selectedGroupId ? ' selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>`
                 : '';
-            const savedType = c.type || 'girl';
-            const selectedType = draft ? draft.type : normalizeCharType(savedType);
-            const customTypeValue = draft ? draft.typeCustom : (selectedType === 'custom' ? savedType : '');
             const formName = draft ? draft.name : (c.name || '');
             const formAliases = draft ? draft.aliases : (c.aliases || []).join(', ');
-            const formAppearance = draft ? draft.appearance : appearance;
-            const formNegative = draft ? draft.negativeTags : (c.negativeTags || '');
-            const isSectionCollapsed = key => editorSections.isCollapsed(c.id, key);
-            const formOutfits = draft ? draft.outfits : outfits;
-            const formDynamicStates = draft ? draft.dynamicStates : dynamicStates;
-            const appearanceSection = renderEditorSection({
-                key: 'appearance',
-                title: '固定外貌 (appearance)',
-                collapsed: isSectionCollapsed('appearance'),
-                actionsHtml: `<button class="btn" data-action="search-danbooru" data-id="${charId}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}><i class="fa-solid fa-magnifying-glass"></i> Danbooru</button>`,
-                bodyHtml: `
-                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(formAppearance)}</textarea>
-                            ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
-                            <div class="danbooru-panel hidden" data-char-id="${charId}"></div>
-                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>`,
-            });
-            const negativeSection = renderEditorSection({
-                key: 'negative',
-                title: '负向标签（可选）',
-                collapsed: isSectionCollapsed('negative'),
-                bodyHtml: `<textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(formNegative)}</textarea>`,
-            });
-            const outfitSection = renderEditorSection({
-                key: 'outfits',
-                title: '服装列表（可选）',
-                collapsed: isSectionCollapsed('outfits'),
-                actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加服装</button>`,
-                bodyHtml: `
-                            <div class="char-outfit-editor-list">
-                                <div class="char-outfit-editor-empty"${formOutfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。停用的服装不会发送。</div>
-                                ${renderNamedTagEditorItems(formOutfits, 'outfit', { escapeHtml })}
-                            </div>
-                            <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves。条目多时自动折叠，点标题行展开。</p>`,
-            });
-            const dynamicStateSection = renderEditorSection({
-                key: 'dynamicStates',
-                title: '动态外貌（可选）',
-                collapsed: isSectionCollapsed('dynamicStates'),
-                actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加状态</button>`,
-                bodyHtml: `
-                            <div class="char-dynstate-editor-list">
-                                <div class="char-dynstate-editor-empty"${formDynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。停用的状态不会发送。</div>
-                                ${renderNamedTagEditorItems(formDynamicStates, 'dynstate', { escapeHtml })}
-                            </div>
-                            <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>`,
-            });
-            const typeOptions = CHARACTER_TYPES.map(t =>
-                `<option value="${t.value}"${t.value === selectedType ? ' selected' : ''}>${t.label}</option>`
-            ).join('');
+            const isMulti = draft ? draft.multi === true : hasMultipleForms(c);
+            const sectionCtx = { charId: c.id, escapeHtml, danbooruEnabled: !!state.danbooruLocalDB };
+            const nameHtml = `
+                        <div class="form-group">
+                            <label class="form-label">角色名称</label>
+                            <input type="text" class="input char-edit-name" value="${escapeHtml(formName)}" placeholder="角色名称">
+                        </div>`;
+            const aliasesHtml = `
+                    <div class="form-group">
+                        <label class="form-label">别名（逗号分隔）</label>
+                        <input type="text" class="input char-edit-aliases" value="${escapeHtml(formAliases)}" placeholder="小名, 昵称, ...">
+                    </div>`;
+            let formsHtml;
+            let nameRowHtml;
+            if (isMulti) {
+                // ≥2 个形态：类型与四个分区都在各自的形态卡片里。
+                const models = draft ? draft.forms : formModelsFromCharacter(c, splitCharType);
+                nameRowHtml = nameHtml;
+                formsHtml = renderFormsSection(models, {
+                    ...sectionCtx,
+                    renderTypeFields: renderCharTypeFields,
+                    isSectionCollapsed: (formKey, sectionKey) => editorSections.isCollapsed(formRef(c.id, formKey), sectionKey),
+                });
+            } else {
+                // 单形态：与加入形态之前的编辑卡片相同，只多一个“添加形态”按钮；形态名称（删到只剩一个形态时留下的）放在隐藏输入框里随草稿 / 保存带着走。
+                const single = draft
+                    ? { ...draft }
+                    : { ...splitCharType(c.type), appearance, negativeTags: c.negativeTags || '', danbooruTag: c.danbooruTag || '', outfits, dynamicStates, formName: c.formName || '' };
+                nameRowHtml = `
+                    <div class="char-edit-row">
+                        ${nameHtml}
+                        ${renderCharTypeFields(single)}
+                    </div>`;
+                formsHtml = `
+                    <input type="hidden" class="char-edit-form-name" value="${escapeHtml(single.formName || '')}">
+                    ${renderCharacterFormSections(single, {
+                        ...sectionCtx,
+                        isSectionCollapsed: key => editorSections.isCollapsed(c.id, key),
+                    })}
+                    <div class="char-forms-add">
+                        <button class="btn btn-sm" type="button" data-action="add-form" data-id="${charId}"><i class="fa-solid fa-plus"></i> ${FORM_COPY.addAction}</button>
+                        <span class="form-hint">同一角色的不同样子（如人形 / 龙形），各有自己的类型、外貌、服装与状态</span>
+                    </div>`;
+            }
 
             return `
             <div class="char-card editing${isEnabled ? '' : ' disabled'}${groupClosed ? ' group-closed' : ''}" data-id="${charId}">
                 ${summary}
                 <div class="char-edit-form">
-                    <div class="char-edit-row">
-                        <div class="form-group">
-                            <label class="form-label">角色名称</label>
-                            <input type="text" class="input char-edit-name" value="${escapeHtml(formName)}" placeholder="角色名称">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">类型</label>
-                            <select class="input char-edit-type">${typeOptions}</select>
-                            <input type="text" class="input char-edit-type-custom${selectedType === 'custom' ? '' : ' hidden'}" value="${escapeHtml(customTypeValue)}" placeholder="如: mature female" style="margin-top:4px;">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">别名（逗号分隔）</label>
-                        <input type="text" class="input char-edit-aliases" value="${escapeHtml(formAliases)}" placeholder="小名, 昵称, ...">
-                    </div>
+                    ${nameRowHtml}
+                    ${aliasesHtml}
                     ${groupSelectHtml}
-                    ${appearanceSection}
-                    ${negativeSection}
-                    ${outfitSection}
-                    ${dynamicStateSection}
+                    ${formsHtml}
                 </div>
             </div>`;
         }
@@ -1747,14 +1773,55 @@ function renderCharList() {
 
     list.querySelectorAll('.char-edit-type').forEach(sel => {
         sel.addEventListener('change', function() {
-            const customInput = this.closest('.char-edit-form').querySelector('.char-edit-type-custom');
+            const customInput = (this.closest('.char-form') || this.closest('.char-edit-form')).querySelector('.char-edit-type-custom');
             if (customInput) customInput.classList.toggle('hidden', this.value !== 'custom');
         });
     });
 
     list.querySelectorAll('.char-outfit-editor-list').forEach(item => syncNamedTagEditorList(item, 'outfit'));
     list.querySelectorAll('.char-dynstate-editor-list').forEach(item => syncNamedTagEditorList(item, 'dynstate'));
+    list.querySelectorAll('.char-form-list').forEach(item => syncFormList(item));
     syncSelectionCheckboxes();
+}
+
+// 分区折叠状态按“角色 id”记；形态卡片里的分区按“角色 id#形态 key”记（同一角色的各形态互不影响）。
+function sectionStateId(charId, trigger) {
+    const form = trigger?.closest?.('.char-form');
+    return form ? formRef(charId, form.dataset.formKey) : charId;
+}
+
+// 形态的增删都走草稿：先把表单读回草稿，改草稿里的形态列表，再整体重绘（输入框里未保存的内容不丢）。
+function addCharacterForm(id) {
+    captureEditingDraft();
+    let draft = editingDraft && editingDraft.id === id ? editingDraft : null;
+    if (!draft) return;
+    if (!draft.multi) {
+        draft = draftToMultiForm(draft, splitCharType);
+    } else if (draft.forms.length >= FORM_MAX_COUNT) {
+        alert(FORM_COPY.limit);
+        return;
+    } else {
+        draft = { ...draft, forms: [...draft.forms, createBlankFormModel(splitCharType)] };
+    }
+    editingDraft = draft;
+    renderCharList();
+    const added = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing .char-form')).pop();
+    added?.scrollIntoView?.({ block: 'nearest' });
+    added?.querySelector('.char-form-name')?.focus();
+}
+
+function removeCharacterForm(formKey) {
+    captureEditingDraft();
+    const draft = editingDraft && editingDraft.id === editingCharId ? editingDraft : null;
+    if (!draft?.multi) return;
+    const target = draft.forms.find(form => form.key === formKey);
+    if (!target) return;
+    const hasContent = target.name || target.appearance || target.negativeTags || target.outfits?.length || target.dynamicStates?.length;
+    if (hasContent && !confirm(`确定删除形态“${target.name || '未命名形态'}”？`)) return;
+    const next = { ...draft, forms: draft.forms.filter(form => form.key !== formKey) };
+    // 只剩一个形态：回到普通布局（剩下的形态成为角色自己的字段）。
+    editingDraft = next.forms.length < 2 ? draftToSingleForm(next) : next;
+    renderCharList();
 }
 
 function handleCharAction(action, id, card, trigger, event) {
@@ -1808,7 +1875,7 @@ function handleCharAction(action, id, card, trigger, event) {
         const section = trigger?.closest('.char-edit-section');
         const key = trigger?.dataset.section;
         if (!section || !key) return;
-        setEditorSectionCollapsed(section, editorSections.toggle(id, key));
+        setEditorSectionCollapsed(section, editorSections.toggle(sectionStateId(id, trigger), key));
     } else if (action === 'toggle-named-item') {
         // 折叠头整行都是触发区；点名称输入框 / 开关 / 拖动手柄是在操作它们，不切换折叠。
         if (!isNamedTagHeaderToggleTarget(event?.target)) return;
@@ -1817,12 +1884,13 @@ function handleCharAction(action, id, card, trigger, event) {
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
         const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
-        const list = card?.querySelector(`.${meta.classPrefix}-editor-list`);
+        // 多形态时按钮属于哪个形态卡片就操作哪个形态的列表。
+        const list = (trigger?.closest('.char-form') || card)?.querySelector(`.${meta.classPrefix}-editor-list`);
         if (!list) return;
         // 分区折叠着时新条目看不见：先展开分区。
         const section = list.closest('.char-edit-section');
         if (section?.classList.contains('is-collapsed')) {
-            editorSections.setCollapsed(id, section.dataset.section, false);
+            editorSections.setCollapsed(sectionStateId(id, trigger), section.dataset.section, false);
             setEditorSectionCollapsed(section, false);
         }
         const row = appendNamedTagEditorItem(list, kind, {
@@ -1838,12 +1906,21 @@ function handleCharAction(action, id, card, trigger, event) {
     } else if (action === 'search-danbooru') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
         // 搜索面板在“固定外貌”分区正文里：分区折叠着就先展开。
-        const appearanceSection = card?.querySelector('.char-edit-section[data-section="appearance"]');
+        const formCard = trigger?.closest('.char-form');
+        const appearanceSection = (formCard || card)?.querySelector('.char-edit-section[data-section="appearance"]');
         if (appearanceSection?.classList.contains('is-collapsed')) {
-            editorSections.setCollapsed(id, 'appearance', false);
+            editorSections.setCollapsed(sectionStateId(id, trigger), 'appearance', false);
             setEditorSectionCollapsed(appearanceSection, false);
         }
-        showLocalDanbooruFix(id);
+        showLocalDanbooruFix(formRef(id, formCard?.dataset.formKey || ''));
+    } else if (action === 'toggle-form') {
+        // 形态头部整行都是触发区；点名称输入框 / 拖动手柄是在操作它们，不切换折叠。
+        if (!isFormHeaderToggleTarget(event?.target)) return;
+        toggleFormCard(trigger?.closest('.char-form'));
+    } else if (action === 'add-form') {
+        addCharacterForm(id);
+    } else if (action === 'remove-form') {
+        removeCharacterForm(trigger?.dataset.formKey);
     } else if (action === 'edit') {
         if (editingCharId === id) return;
         editingCharId = id;
@@ -1862,18 +1939,14 @@ function handleCharAction(action, id, card, trigger, event) {
         const name = card.querySelector('.char-edit-name')?.value?.trim();
         if (!name) { alert('请输入角色名称'); return; }
         
-        const typeSelect = card.querySelector('.char-edit-type');
-        const typeCustom = card.querySelector('.char-edit-type-custom');
-        let type = typeSelect?.value || 'girl';
-        if (type === 'custom' && typeCustom?.value?.trim()) type = typeCustom.value.trim();
-        
         char.name = name;
-        char.type = type;
         char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-        char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
-        char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
-        char.outfits = collectNamedTagEditorValues(card, 'outfit');
-        char.dynamicStates = collectNamedTagEditorValues(card, 'dynstate');
+        // 多形态：第一张形态卡片写回顶层字段，其余写回 forms；单形态：读整张卡片（forms 不留）。
+        const formModels = collectFormModels(card);
+        applyFormModelsToCharacter(char, formModels || [{
+            ...readFormFields(card),
+            name: card.querySelector('.char-edit-form-name')?.value || '',
+        }]);
 
         // 点了“保存”才算真正的角色：从未保存草稿里移出，之后才会随库一起存盘。
         draftCharacters.delete(id);
@@ -1916,12 +1989,15 @@ function handleCharAction(action, id, card, trigger, event) {
 
 // ── Danbooru 搜索（本地 DB）─────────────────────────────────
 
-function showLocalDanbooruFix(charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
+// ref 是“角色 id”或“角色 id#形态 key”（见 formRef）：多形态时每个形态各有自己的搜索面板和 Danbooru 标签。
+function showLocalDanbooruFix(ref) {
+    const charId = ref;
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${ref}"]`);
     if (!panel) return;
 
-    const char = state.characterTags.find(c => c.id === charId);
-    const defaultQuery = char?.danbooruTag || char?.name || '';
+    const char = state.characterTags.find(c => c.id === parseFormRef(ref).charId);
+    const formDanbooru = panel.closest('.char-form, .char-edit-form')?.querySelector('.char-form-danbooru')?.value;
+    const defaultQuery = formDanbooru || char?.danbooruTag || char?.name || '';
 
     panel.classList.remove('hidden');
     panel.innerHTML = DOMPurify.sanitize(`
@@ -1955,8 +2031,8 @@ function showLocalDanbooruFix(charId) {
     if (defaultQuery) doSearch();
 }
 
-function renderLocalDanbooruResults(query, results, charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
+function renderLocalDanbooruResults(query, results, ref) {
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${ref}"]`);
     if (!panel) return;
     const container = panel.querySelector('.danbooru-results');
     if (!container) return;
@@ -1989,17 +2065,39 @@ function renderLocalDanbooruResults(query, results, charId) {
             let appearanceTags = [];
             try { appearanceTags = JSON.parse(item.dataset.tags); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "renderLocalDanbooruResults" }, caughtError); }
 
-            const char = state.characterTags.find(c => c.id === charId);
+            const { charId: realCharId, formKey } = parseFormRef(ref);
+            if (formKey) {
+                // 形态卡片：只改这个形态的表单（隐藏的 Danbooru 标签、提示行、外貌），点保存才写入数据；不重绘，其它输入原样保留。
+                const formCard = panel.closest('.char-form');
+                if (!formCard) return;
+                const hidden = formCard.querySelector('.char-form-danbooru');
+                if (hidden) hidden.value = tagName;
+                const hint = formCard.querySelector('.char-danbooru-hint');
+                if (hint) {
+                    hint.textContent = `Danbooru: ${tagName.replace(/_/g, ' ')}`;
+                    hint.removeAttribute('hidden');
+                }
+                if (appearanceTags.length) {
+                    const appearanceInput = formCard.querySelector('.char-edit-appearance');
+                    if (appearanceInput) appearanceInput.value = appearanceTags.map(t => t.replace(/_/g, ' ')).join(', ');
+                }
+                refreshFormHeader(formCard);
+                panel.classList.add('hidden');
+                panel.innerHTML = '';
+                return;
+            }
+            const char = state.characterTags.find(c => c.id === realCharId);
             if (!char) return;
 
             // 先把表单里其它尚未保存的输入读回草稿：选中 Danbooru 角色后编辑器保持打开、其它输入原样保留
             // （新建且未保存的角色关掉编辑器就等于被丢弃）。
             captureEditingDraft();
             char.danbooruTag = tagName;
+            if (editingDraft && editingDraft.id === realCharId) editingDraft.danbooruTag = tagName;
             // 用本地库的 tag 替换角色外貌
             if (appearanceTags.length) {
                 char.appearance = appearanceTags.map(t => t.replace(/_/g, ' ')).join(', ');
-                if (editingDraft && editingDraft.id === charId) editingDraft.appearance = char.appearance;
+                if (editingDraft && editingDraft.id === realCharId) editingDraft.appearance = char.appearance;
             }
 
             saveCharacterLibrary();

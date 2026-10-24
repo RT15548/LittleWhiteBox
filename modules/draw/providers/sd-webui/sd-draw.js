@@ -57,6 +57,7 @@ import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
+import { applyFormFieldsFromCard, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
@@ -1743,7 +1744,7 @@ function readCharacterCardsFromForm({ keepEmpty = false } = {}) {
         // 已保存记录里的 groupId 可能已过期（草稿里可能刚换过分组），一律丢弃，以卡片所在位置为准。
         const saved = { ...(existingById.get(String(card.dataset.characterId || '')) || {}) };
         delete saved.groupId;
-        return {
+        const record = {
             ...saved,
             id: card.dataset.characterId || `sd-char-${Date.now()}-${index}`,
             enabled: getCharacterEnabledFromCard(card),
@@ -1759,7 +1760,9 @@ function readCharacterCardsFromForm({ keepEmpty = false } = {}) {
             outfits: parseNamedTagLines(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
             dynamicStates: parseNamedTagLines(card.querySelector('[data-sd-char-field="dynamicStates"]')?.value || ''),
         };
-    }).filter((item) => keepEmpty || item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length);
+        // 形态：第一形态名称与额外形态并入记录（清空时显式删除，因为上面先展开了已保存的记录）。
+        return applyFormFieldsFromCard(record, card, { keepEmpty });
+    }).filter((item) => keepEmpty || item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length || item.forms?.length);
 }
 
 // 当前草稿里的角色（含未保存的编辑与所属分组，已丢弃全空的新卡片），保存与导出用。
@@ -1920,16 +1923,19 @@ function renderCharacterCard({ character: tag, ordinal }) {
         createCharacterField('角色名', 'name', tag.name || '', '例如 芙蕾雅'),
         createCharacterField('类型', 'type', tag.type || 'girl', '例如 girl / boy'),
     );
+    const formNameField = createCharacterField('形态名称（可选）', 'formName', tag.formName || '', '例如 人形；有多个形态时用来区分');
 
     card.append(
         top,
         grid,
         createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
+        formNameField,
         createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
         createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
         createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
         createCharacterField('服装参考（每行一套，行首加 # 停用）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
         createCharacterField('动态外貌（每行一条，行首加 # 停用）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
+        createFormsEditor({ document, forms: tag.forms || [], createField: createCharacterField }),
     );
     const panel = document.createElement('div');
     panel.className = 'danbooru-panel hidden';
@@ -1952,7 +1958,7 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
 
     const input = document.createElement(options.multiline ? 'textarea' : 'input');
     input.className = 'input';
-    input.dataset.sdCharField = fieldName;
+    input.dataset[options.dataKey || 'sdCharField'] = fieldName;
     input.placeholder = placeholder;
     if (options.multiline) {
         input.rows = 3;
