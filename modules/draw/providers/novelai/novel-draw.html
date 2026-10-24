@@ -234,8 +234,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .named-tag-item.dragging { opacity: .45; }
 .named-tag-drag { align-self: center; }
 .named-tag-item.is-folded { padding-top: 8px; padding-bottom: 8px; }
-.named-tag-switch, .named-tag-body-enable { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
-.named-tag-body-enable { margin-top: 10px; }
+.named-tag-switch { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
 .named-tag-switch-text { min-width: 2em; }
 /* 停用的条目：整体变淡、标题划线，但输入框仍可编辑；开关和删除保持原样，方便改回来。 */
 .named-tag-item.is-disabled { border-style: dashed; background: rgba(255,255,255,.01); }

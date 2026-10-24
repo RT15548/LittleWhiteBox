@@ -36,6 +36,8 @@ export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
 
 let nextItemUid = 0; // 条目行的界面内唯一标识：拖拽排序按它认行（下标会随排序变化）
 const ENABLED_COPY = Object.freeze({ on: '启用', off: '停用' });
+const ENABLED_HINT = '停用后不会发给 AI';
+const enabledAriaLabel = (meta, index) => `启用${meta.title} ${index + 1}（${ENABLED_HINT}）`;
 
 function defaultEscapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -125,8 +127,8 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
             </button>
             <input type="text" class="${p}-name named-tag-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.nameLabel}" title="${meta.nameHint}" aria-label="${meta.nameLabel}">
             <span class="named-tag-preview">${escapeHtml(previewNamedTags(item.tags))}</span>
-            <label class="named-tag-switch" title="停用后不会发给 AI">
-                <input type="checkbox" class="named-tag-enabled named-tag-enabled-header"${enabled ? ' checked' : ''} aria-label="启用${meta.title} ${index + 1}">
+            <label class="named-tag-switch" title="${ENABLED_HINT}">
+                <input type="checkbox" class="named-tag-enabled"${enabled ? ' checked' : ''} aria-label="${enabledAriaLabel(meta, index)}">
                 <span class="named-tag-switch-text">${enabledLabel}</span>
             </label>
             <button class="btn btn-danger btn-sm" type="button" data-action="${meta.removeAction}" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
@@ -136,10 +138,6 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
                 <label class="form-label">${meta.tagsLabel}</label>
                 <textarea class="input ${p}-tags" placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
             </div>
-            <label class="named-tag-body-enable">
-                <input type="checkbox" class="named-tag-enabled named-tag-enabled-body"${enabled ? ' checked' : ''}>
-                <span>启用此${meta.title}（停用后不会发给 AI）</span>
-            </label>
         </div>
     </div>`;
 }
@@ -183,7 +181,7 @@ export function toggleNamedTagItem(row, kind = 'outfit') {
     return next;
 }
 
-/** 同步头部与正文里的两个启用开关、停用样式和开关文案。 */
+/** 同步启用开关、停用样式和开关文案。 */
 export function setNamedTagItemEnabled(row, enabled) {
     if (!row) return;
     row.dataset.enabled = String(enabled);
@@ -198,7 +196,7 @@ export function namedTagKindOfRow(row) {
     return row?.classList.contains('char-dynstate-editor-item') ? 'dynstate' : 'outfit';
 }
 
-/** 启用开关（头部或正文）变化后：同步另一个开关、停用样式，并更新分区标题行里的“启用数/总数”。 */
+/** 启用开关变化后：同步停用样式，并更新分区标题行里的“启用数/总数”。 */
 export function applyNamedTagEnabledChange(box) {
     const row = box?.closest('.named-tag-item');
     if (!row) return;
@@ -213,7 +211,7 @@ export function isCheckboxChecked(box) {
 }
 
 function readRowEnabled(row) {
-    const box = row.querySelector('.named-tag-enabled-header') || row.querySelector('.named-tag-enabled');
+    const box = row.querySelector('.named-tag-enabled');
     return box ? isCheckboxChecked(box) : row.dataset.enabled !== 'false';
 }
 
@@ -228,8 +226,7 @@ export function syncNamedTagEditorList(list, kind = 'outfit') {
         row.dataset.index = String(index);
         const removeBtn = row.querySelector(`[data-action="${meta.removeAction}"]`);
         if (removeBtn) removeBtn.dataset.index = String(index);
-        const switchBox = row.querySelector('.named-tag-enabled-header');
-        if (switchBox) switchBox.setAttribute('aria-label', `启用${meta.title} ${index + 1}`);
+        row.querySelector('.named-tag-enabled')?.setAttribute('aria-label', enabledAriaLabel(meta, index));
         row.querySelector('[data-named-drag]')?.setAttribute('aria-label', `拖动调整${meta.title} ${index + 1} 的顺序`);
         if (rows.length < 2 && row.dataset.expanded !== 'true') setNamedTagItemExpanded(row, true, kind);
         refreshNamedTagItemHeader(row, kind);
