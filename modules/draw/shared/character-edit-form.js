@@ -519,7 +519,7 @@ export function renderCharacterFormSections(model, {
  * 渲染一个形态子卡片。renderTypeFields(model) 由调用方给出类型下拉框 + 自定义输入框的 HTML（类型选项属于各页面）；
  * isSectionCollapsed(formKey, sectionKey) 给出分区折叠状态；total 决定折叠规则（≥2 个形态时，只有 expanded:true 的展开）。
  */
-export function renderFormCard(model, index, { total = 2, charId, escapeHtml = defaultEscapeHtml, renderTypeFields, isSectionCollapsed, danbooruEnabled = false } = {}) {
+export function renderFormCard(model, index, { total = 2, charId, escapeHtml = defaultEscapeHtml, renderTypeFields, isSectionCollapsed, danbooruEnabled = false, typeShort = null } = {}) {
     const key = escapeHtml(model.key);
     const expanded = isNamedTagItemExpanded(model, total);
     return `
@@ -530,6 +530,7 @@ export function renderFormCard(model, index, { total = 2, charId, escapeHtml = d
                 <i class="fa-solid fa-chevron-down named-tag-chevron" aria-hidden="true"></i>
             </button>
             <input type="text" class="char-form-name" value="${escapeHtml(model.name || '')}" placeholder="${FORM_COPY.nameLabel}" title="${FORM_COPY.nameHint}" aria-label="${FORM_COPY.nameLabel}">
+            ${typeShort ? `<span class="char-type-badge char-form-type">${escapeHtml(typeShort(resolveTypeValue(model.type, model.typeCustom)))}</span>` : ''}
             <span class="char-form-preview">${escapeHtml(previewNamedTags(model.appearance))}</span>
             <button class="btn btn-danger btn-sm" type="button" data-action="remove-form" data-form-key="${key}"><i class="fa-solid fa-trash"></i> 删除</button>
         </div>
@@ -561,6 +562,14 @@ export function refreshFormHeader(form) {
     if (!form) return;
     const preview = form.querySelector('.char-form-preview');
     if (preview) preview.textContent = previewNamedTags(form.querySelector('.char-edit-appearance')?.value);
+}
+
+/** 形态头部的类型徽标随该形态的类型下拉框 / 自定义输入框实时刷新；typeShort(类型值) 给出短标签（与摘要栏同一套）。 */
+export function refreshFormTypeBadge(form, typeShort) {
+    const badge = form?.querySelector('.char-form-type');
+    if (!badge || typeof typeShort !== 'function') return;
+    const type = form.querySelector('.char-edit-type')?.value || 'girl';
+    badge.textContent = typeShort(resolveTypeValue(type, form.querySelector('.char-edit-type-custom')?.value));
 }
 
 export function setFormExpanded(form, expanded) {

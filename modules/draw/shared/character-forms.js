@@ -193,6 +193,14 @@ export function withFreshFormIds(forms = [], makeId) {
     });
 }
 
+/**
+ * 角色卡摘要栏里的类型标记：按形态顺序列出每个形态的类型（用页面给的 shortLabel 取短标签），英文逗号连接，如 `boy,other`。
+ * 单形态角色就是它自己的类型，与以前一致。
+ */
+export function formatFormTypeSummary(character, shortLabel = type => type) {
+    return getCharacterForms(character).map(form => shortLabel(form.type)).join(',');
+}
+
 /** 形态在界面 / 搜索里的显示名。 */
 export function formTitle(form, index = 0) {
     return String(form?.name || '').trim() || (index === 0 ? '默认形态' : `形态 ${index + 1}`);

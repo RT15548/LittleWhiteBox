@@ -183,6 +183,8 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-form-list { display: flex; flex-direction: column; gap: 6px; }
 .char-form { padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08)); background: rgba(255,255,255,.03); }
 .char-form-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
+/* 形态头部的类型徽标（外观同摘要栏的 .char-type-badge）：紧跟名称输入框，占住名称与 TAG 预览之间的空位；窄屏时名称先收缩。 */
+.char-form-type { flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
 .named-tag-switch { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
 .named-tag-switch-text { min-width: 2em; }

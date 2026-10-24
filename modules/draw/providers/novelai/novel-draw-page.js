@@ -8,7 +8,7 @@ import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
 import { countEnabledNamedTags, normalizeNamedTagList } from '../../shared/named-tag-items.js';
-import { getCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
+import { formatFormTypeSummary, getCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
 import { createGroupHeightController } from '../../shared/character-group-height.js';
 import {
     FORM_COPY,
@@ -32,10 +32,12 @@ import {
     parseFormRef,
     readFormFields,
     refreshFormHeader,
+    refreshFormTypeBadge,
     refreshNamedTagItemHeader,
     removeNamedTagEditorItem,
     renderCharacterFormSections,
     renderFormsSection,
+    resolveTypeValue,
     setEditorSectionCollapsed,
     syncFormList,
     syncNamedTagEditorList,
@@ -91,6 +93,11 @@ const CHARACTER_TYPES = [
     { value: 'no_humans', label: 'no_humans (非人主体)' },
     { value: 'custom', label: '自定义...' }
 ];
+
+// 类型的短标签（摘要栏 / 形态头部的小徽标）：预设类型取下拉框文案的第一个词（girl），自定义类型取它自己的第一个词。
+function shortCharType(type) {
+    return (CHARACTER_TYPES.find(t => t.value === type)?.label || type || 'girl').split(' ')[0];
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -1430,6 +1437,8 @@ function setupCharacterDragAndSelection() {
     // 编辑卡片里的服装 / 动态标签条目：标签输入时同步折叠头里的预览（名称输入框本身就在头部）。
     list.addEventListener('input', (event) => {
         const input = event.target;
+        // 形态的自定义类型：头部的类型徽标跟着输入走。
+        if (input.matches?.('.char-form .char-edit-type-custom')) refreshFormTypeBadge(input.closest('.char-form'), shortCharType);
         if (!input.matches?.('.char-outfit-tags, .char-dynstate-tags')) return;
         const row = input.closest('.named-tag-item');
         refreshNamedTagItemHeader(row, namedTagKindOfRow(row));
@@ -1649,8 +1658,8 @@ function renderCharList({ keepDraft = false } = {}) {
         const groupClosed = isCharacterGroupClosed(c, renderLibrary);
         const charId = escapeHtml(c.id);
         const charName = escapeHtml(c.name || '新角色');
-        const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
-        const typeShort = typeLabel.split(' ')[0];
+        // 多形态角色列出每个形态的类型（按形态顺序，逗号连接）；单形态就是它自己的类型。
+        const typeShort = formatFormTypeSummary(c, shortCharType);
         const appearance = c.appearance || '';
         const outfits = normalizeNamedTagList(c.outfits);
         const dynamicStates = normalizeNamedTagList(c.dynamicStates);
@@ -1719,6 +1728,7 @@ function renderCharList({ keepDraft = false } = {}) {
                 formsHtml = renderFormsSection(models, {
                     ...sectionCtx,
                     renderTypeFields: renderCharTypeFields,
+                    typeShort: shortCharType,
                     isSectionCollapsed: (formKey, sectionKey) => editorSections.isCollapsed(formRef(c.id, formKey), sectionKey),
                 });
             } else {
@@ -1765,6 +1775,7 @@ function renderCharList({ keepDraft = false } = {}) {
         sel.addEventListener('change', function() {
             const customInput = (this.closest('.char-form') || this.closest('.char-edit-form')).querySelector('.char-edit-type-custom');
             if (customInput) customInput.classList.toggle('hidden', this.value !== 'custom');
+            refreshFormTypeBadge(this.closest('.char-form'), shortCharType);
         });
     });
 

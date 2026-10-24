@@ -12,9 +12,9 @@ export const EXTRA_TAGS_COPY = Object.freeze({
 /** 固定外貌分区：正向 + 负向两个输入框放在同一个可折叠分区里。 */
 export const FIXED_APPEARANCE_COPY = Object.freeze({
     title: '固定外貌',
-    hint: '静态外貌描述，固定输入，不被 LLM 修改，负向非必选',
+    hint: '静态外貌描述固定输入，动作由LLM完成。',
     positiveLabel: '正向',
-    negativeLabel: '负向',
+    negativeLabel: '负向（可选）',
 });
 
 /** 条目标签输入框的标签（服装 / 动态标签共用）。 */

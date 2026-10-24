@@ -191,3 +191,41 @@ test('the edit form has no 所属分组 dropdown: saving keeps the group, and dr
     assert.equal(fresh.closest('.char-group').dataset.groupId, 'g1');
     assert.equal(fresh.querySelectorAll('.char-edit-group').length, 0);
 });
+
+test('the summary bar badge lists every form type in order, and each form header badge follows its own type select', async () => {
+    const list = document.getElementById('nd_char_list');
+    const editing = () => list.querySelector('.char-card.editing');
+    const badgeOf = id => list.querySelector(`.char-card[data-id="${id}"] .char-card-summary .char-type-badge`)?.textContent;
+    const select = (root, value) => {
+        root.querySelector('.char-edit-type').value = value;
+        root.querySelector('.char-edit-type').dispatchEvent(new window.Event('change', { bubbles: true }));
+    };
+
+    click(editing().querySelector('[data-action="cancel"]'));
+    await flush();
+    assert.equal(badgeOf('c1'), 'girl', 'a single-form character keeps its one type');
+
+    click(list.querySelector('.char-card[data-id="c1"] [data-action="edit"]'));
+    await flush();
+    click(editing().querySelector('[data-action="add-form"]'));
+    await flush();
+    const [first, second] = Array.from(editing().querySelectorAll('.char-form'));
+    // 形态头部：名称输入框后面紧跟该形态自己的类型徽标（外观同摘要栏）。
+    assert.equal(first.querySelector('.char-form-header > .char-form-name').nextElementSibling, first.querySelector('.char-form-type'));
+    assert.ok(first.querySelector('.char-form-type').classList.contains('char-type-badge'));
+    assert.equal(first.querySelector('.char-form-type').textContent, 'girl');
+    select(first, 'boy');
+    select(second, 'other');
+    assert.equal(first.querySelector('.char-form-type').textContent, 'boy', 'live-updates when the form select changes');
+    assert.equal(second.querySelector('.char-form-type').textContent, 'other');
+    second.querySelector('.char-form-name').value = '兽形';
+    select(second, 'custom');
+    second.querySelector('.char-edit-type-custom').value = 'mature female';
+    second.querySelector('.char-edit-type-custom').dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.equal(second.querySelector('.char-form-type').textContent, 'mature', 'custom types use their first word');
+    select(second, 'other');
+
+    click(editing().querySelector('[data-action="save"]'));
+    await flush();
+    assert.equal(badgeOf('c1'), 'boy,other');
+});

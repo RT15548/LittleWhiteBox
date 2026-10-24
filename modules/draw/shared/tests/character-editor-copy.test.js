@@ -67,8 +67,8 @@ test('each form has three sections; 固定外貌 holds the 正向 and 负向 inp
     assert.equal(document.querySelector('[data-section="negative"]'), null);
 
     const [appearance] = sections;
-    assert.equal(appearance.querySelector('.char-section-hint').textContent, '静态外貌描述，固定输入，不被 LLM 修改，负向非必选');
-    assert.deepEqual(Array.from(appearance.querySelectorAll('.char-section-body label.form-label')).map(node => node.textContent), ['正向', '负向']);
+    assert.equal(appearance.querySelector('.char-section-hint').textContent, '静态外貌描述固定输入，动作由LLM完成。');
+    assert.deepEqual(Array.from(appearance.querySelectorAll('.char-section-body label.form-label')).map(node => node.textContent), ['正向', '负向（可选）']);
     assert.equal(appearance.querySelector('textarea.char-edit-appearance').textContent, 'long hair');
     assert.equal(appearance.querySelector('textarea.char-edit-neg').textContent, 'bad hands');
     assert.ok(appearance.querySelector('[data-action="search-danbooru"]'));
@@ -99,15 +99,15 @@ test('SD / ComfyUI: the fixed-appearance group keeps both fields on the existing
     const group = createFixedAppearanceGroup({ document, createField, values: { appearance: 'a', negativeTags: 'n' } });
     assert.deepEqual(calls.map(call => [call.label, call.field, call.value, call.dataKey, call.multiline]), [
         ['正向', 'appearance', 'a', undefined, true],
-        ['负向', 'negativeTags', 'n', undefined, true],
+        ['负向（可选）', 'negativeTags', 'n', undefined, true],
     ]);
-    assert.equal(group.querySelector('.char-section-hint').textContent, '静态外貌描述，固定输入，不被 LLM 修改，负向非必选');
+    assert.equal(group.querySelector('.char-section-hint').textContent, '静态外貌描述固定输入，动作由LLM完成。');
 
     calls.length = 0;
     const block = createFormBlock({ document, form: { appearance: 'a2', negativeTags: 'n2' }, createField });
     assert.deepEqual(calls.filter(call => call.field === 'appearance' || call.field === 'negativeTags').map(call => [call.label, call.field, call.dataKey]), [
         ['正向', 'appearance', 'sdFormField'],
-        ['负向', 'negativeTags', 'sdFormField'],
+        ['负向（可选）', 'negativeTags', 'sdFormField'],
     ]);
     assert.equal(block.querySelectorAll('.sd-char-fieldgroup').length, 1);
 });

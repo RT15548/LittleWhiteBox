@@ -14,6 +14,7 @@ import {
     FORM_EXCLUSIVE_NOTE,
     MAX_CHARACTER_FORMS,
     expandCharacterForms,
+    formatFormTypeSummary,
     getCharacterSearchFields,
     normalizeForms,
 } from '../character-forms.js';
@@ -263,4 +264,12 @@ test('auto-learn: a form-qualified reply never creates a new character; only the
 test('library search text covers form names and each form appearance', () => {
     const text = getCharacterSearchFields(normalizeCharacter(SI)).filter(Boolean).join(' ');
     assert.ok(text.includes('龙形') && text.includes('black dragon') && text.includes('人形'));
+});
+
+test('type summary: every form type in order, comma-joined with the page short label; a single form is just its type', () => {
+    const short = type => String(type).split(' ')[0];
+    assert.equal(formatFormTypeSummary(normalizeCharacter(SI), short), 'boy,no');
+    assert.equal(formatFormTypeSummary(normalizeCharacter(PLAIN), short), 'girl');
+    assert.equal(formatFormTypeSummary({ name: 'x' }, short), 'girl');
+    assert.equal(formatFormTypeSummary({ type: 'boy', forms: [{ type: 'other' }, { type: 'girl' }] }), 'boy,other,girl');
 });
