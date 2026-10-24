@@ -41,7 +41,7 @@ test('the explanation block carries the exact wording with its line breaks', () 
     const { document } = parseHTML(`<html><body>${renderCharacterEditorNote()}</body></html>`);
     const html = document.querySelector('.char-edit-note');
     assert.equal(document.querySelectorAll('.char-edit-note').length, 1);
-    assert.equal(html.querySelectorAll('br').length, 4);
+    assert.equal(html.querySelectorAll('br').length, 3);
     assert.equal(html.innerHTML.split('<br>').join('\n'), NOTE);
 
     const dom = createCharacterEditorNote(document);
