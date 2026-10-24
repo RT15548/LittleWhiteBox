@@ -1658,7 +1658,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 215118
+      "sizeBytes": 215438
     },
     {
       "source": "littlewhitebox",
@@ -1742,14 +1742,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 239667
+      "sizeBytes": 240276
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 90171
+      "sizeBytes": 90379
     },
     {
       "source": "littlewhitebox",
@@ -1816,10 +1816,24 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/character-form-flow.test.js",
+      "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
+      "extension": ".js",
+      "sizeBytes": 5726
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/custom-tool-import.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/custom-tool-import.test.js",
       "extension": ".js",
       "sizeBytes": 3717
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/host-lib-hook.mjs",
+      "relativePath": "modules/draw/providers/novelai/tests/host-lib-hook.mjs",
+      "extension": ".mjs",
+      "sizeBytes": 452
     },
     {
       "source": "littlewhitebox",
@@ -1903,7 +1917,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 174792
+      "sizeBytes": 175112
     },
     {
       "source": "littlewhitebox",
@@ -1987,14 +2001,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-edit-form.js",
       "relativePath": "modules/draw/shared/character-edit-form.js",
       "extension": ".js",
-      "sizeBytes": 36093
+      "sizeBytes": 36027
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-editor-copy.js",
       "relativePath": "modules/draw/shared/character-editor-copy.js",
       "extension": ".js",
-      "sizeBytes": 2448
+      "sizeBytes": 2469
     },
     {
       "source": "littlewhitebox",
@@ -2008,14 +2022,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-forms-dom.js",
       "relativePath": "modules/draw/shared/character-forms-dom.js",
       "extension": ".js",
-      "sizeBytes": 11612
+      "sizeBytes": 11442
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-forms.js",
       "relativePath": "modules/draw/shared/character-forms.js",
       "extension": ".js",
-      "sizeBytes": 9822
+      "sizeBytes": 9858
     },
     {
       "source": "littlewhitebox",
@@ -2806,7 +2820,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner.js",
       "relativePath": "modules/draw/shared/scene-planner.js",
       "extension": ".js",
-      "sizeBytes": 19725
+      "sizeBytes": 19770
     },
     {
       "source": "littlewhitebox",
@@ -2862,7 +2876,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/settings-shell.css",
       "relativePath": "modules/draw/shared/settings-shell.css",
       "extension": ".css",
-      "sizeBytes": 12844
+      "sizeBytes": 13044
     },
     {
       "source": "littlewhitebox",
@@ -2946,7 +2960,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-editor-copy.test.js",
       "relativePath": "modules/draw/shared/tests/character-editor-copy.test.js",
       "extension": ".js",
-      "sizeBytes": 8120
+      "sizeBytes": 8141
     },
     {
       "source": "littlewhitebox",
@@ -2967,7 +2981,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-forms.test.js",
       "relativePath": "modules/draw/shared/tests/character-forms.test.js",
       "extension": ".js",
-      "sizeBytes": 15380
+      "sizeBytes": 15528
     },
     {
       "source": "littlewhitebox",
@@ -3086,7 +3100,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "relativePath": "modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "extension": ".json",
-      "sizeBytes": 1217140
+      "sizeBytes": 1217872
     },
     {
       "source": "littlewhitebox",
@@ -3156,7 +3170,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/named-tag-enabled-flow.test.js",
       "relativePath": "modules/draw/shared/tests/named-tag-enabled-flow.test.js",
       "extension": ".js",
-      "sizeBytes": 13071
+      "sizeBytes": 13617
     },
     {
       "source": "littlewhitebox",
@@ -3276,6 +3290,20 @@
       "relativePath": "modules/draw/shared/tests/sortable-list.test.js",
       "extension": ".js",
       "sizeBytes": 19198
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/textarea-autofit.test.js",
+      "relativePath": "modules/draw/shared/tests/textarea-autofit.test.js",
+      "extension": ".js",
+      "sizeBytes": 9284
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/textarea-autofit.js",
+      "relativePath": "modules/draw/shared/textarea-autofit.js",
+      "extension": ".js",
+      "sizeBytes": 6347
     },
     {
       "source": "littlewhitebox",
