@@ -1658,7 +1658,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 215135
+      "sizeBytes": 215118
     },
     {
       "source": "littlewhitebox",
@@ -1742,14 +1742,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 239498
+      "sizeBytes": 239667
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 90070
+      "sizeBytes": 90171
     },
     {
       "source": "littlewhitebox",
@@ -1903,7 +1903,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 174809
+      "sizeBytes": 174792
     },
     {
       "source": "littlewhitebox",
@@ -1987,7 +1987,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-edit-form.js",
       "relativePath": "modules/draw/shared/character-edit-form.js",
       "extension": ".js",
-      "sizeBytes": 36314
+      "sizeBytes": 36093
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-editor-copy.js",
+      "relativePath": "modules/draw/shared/character-editor-copy.js",
+      "extension": ".js",
+      "sizeBytes": 2448
     },
     {
       "source": "littlewhitebox",
@@ -2001,14 +2008,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-forms-dom.js",
       "relativePath": "modules/draw/shared/character-forms-dom.js",
       "extension": ".js",
-      "sizeBytes": 10275
+      "sizeBytes": 11612
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-forms.js",
       "relativePath": "modules/draw/shared/character-forms.js",
       "extension": ".js",
-      "sizeBytes": 9804
+      "sizeBytes": 9822
     },
     {
       "source": "littlewhitebox",
@@ -2071,7 +2078,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library-dialog.js",
       "relativePath": "modules/draw/shared/character-library-dialog.js",
       "extension": ".js",
-      "sizeBytes": 33851
+      "sizeBytes": 33857
     },
     {
       "source": "littlewhitebox",
@@ -2092,7 +2099,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library-ui.css",
       "relativePath": "modules/draw/shared/character-library-ui.css",
       "extension": ".css",
-      "sizeBytes": 11003
+      "sizeBytes": 11442
     },
     {
       "source": "littlewhitebox",
@@ -2106,7 +2113,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library.js",
       "relativePath": "modules/draw/shared/character-library.js",
       "extension": ".js",
-      "sizeBytes": 45413
+      "sizeBytes": 45450
     },
     {
       "source": "littlewhitebox",
@@ -2533,7 +2540,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/named-tag-items.js",
       "relativePath": "modules/draw/shared/named-tag-items.js",
       "extension": ".js",
-      "sizeBytes": 6145
+      "sizeBytes": 6191
     },
     {
       "source": "littlewhitebox",
@@ -2596,7 +2603,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/present-characters.js",
       "relativePath": "modules/draw/shared/present-characters.js",
       "extension": ".js",
-      "sizeBytes": 3136
+      "sizeBytes": 3142
     },
     {
       "source": "littlewhitebox",
@@ -2932,7 +2939,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-edit-form.test.js",
       "relativePath": "modules/draw/shared/tests/character-edit-form.test.js",
       "extension": ".js",
-      "sizeBytes": 23112
+      "sizeBytes": 23262
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-editor-copy.test.js",
+      "relativePath": "modules/draw/shared/tests/character-editor-copy.test.js",
+      "extension": ".js",
+      "sizeBytes": 8120
     },
     {
       "source": "littlewhitebox",
@@ -2946,7 +2960,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-forms-editor.test.js",
       "relativePath": "modules/draw/shared/tests/character-forms-editor.test.js",
       "extension": ".js",
-      "sizeBytes": 14467
+      "sizeBytes": 14749
     },
     {
       "source": "littlewhitebox",
