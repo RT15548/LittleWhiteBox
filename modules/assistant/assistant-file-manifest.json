@@ -1749,7 +1749,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 91239
+      "sizeBytes": 95951
     },
     {
       "source": "littlewhitebox",
@@ -1819,7 +1819,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "extension": ".js",
-      "sizeBytes": 18537
+      "sizeBytes": 18883
     },
     {
       "source": "littlewhitebox",
@@ -2008,7 +2008,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-edit-form.js",
       "relativePath": "modules/draw/shared/character-edit-form.js",
       "extension": ".js",
-      "sizeBytes": 42261
+      "sizeBytes": 43777
     },
     {
       "source": "littlewhitebox",
@@ -2029,7 +2029,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-forms-dom.js",
       "relativePath": "modules/draw/shared/character-forms-dom.js",
       "extension": ".js",
-      "sizeBytes": 14311
+      "sizeBytes": 14803
     },
     {
       "source": "littlewhitebox",
@@ -2120,7 +2120,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library-ui.css",
       "relativePath": "modules/draw/shared/character-library-ui.css",
       "extension": ".css",
-      "sizeBytes": 11686
+      "sizeBytes": 14054
     },
     {
       "source": "littlewhitebox",
@@ -2967,7 +2967,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-edit-form.test.js",
       "relativePath": "modules/draw/shared/tests/character-edit-form.test.js",
       "extension": ".js",
-      "sizeBytes": 25163
+      "sizeBytes": 27426
     },
     {
       "source": "littlewhitebox",
@@ -2988,14 +2988,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-forms-dom.test.js",
       "relativePath": "modules/draw/shared/tests/character-forms-dom.test.js",
       "extension": ".js",
-      "sizeBytes": 9728
+      "sizeBytes": 10232
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-forms-editor.test.js",
       "relativePath": "modules/draw/shared/tests/character-forms-editor.test.js",
       "extension": ".js",
-      "sizeBytes": 15119
+      "sizeBytes": 15276
     },
     {
       "source": "littlewhitebox",
@@ -3017,6 +3017,13 @@
       "relativePath": "modules/draw/shared/tests/character-library-import.test.js",
       "extension": ".js",
       "sizeBytes": 4742
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-tones-css.test.js",
+      "relativePath": "modules/draw/shared/tests/character-tones-css.test.js",
+      "extension": ".js",
+      "sizeBytes": 3590
     },
     {
       "source": "littlewhitebox",
