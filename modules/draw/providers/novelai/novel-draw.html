@@ -212,14 +212,22 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 10px;
 }
-.char-outfit-editor-title, .char-dynstate-editor-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .char-outfit-editor-item .form-group:last-child, .char-dynstate-editor-item .form-group:last-child { margin-bottom: 0; }
-/* 条目折叠头：[箭头 + 名称 + TAG 预览（点击展开 / 折叠）] [启用开关] [删除]。折叠时头部就是整条的高度。 */
+/* 条目折叠头：[拖动手柄] [折叠箭头] [名称输入框（平时看上去就是加粗标题，悬停 / 聚焦才显示输入框）] [TAG 预览（折叠时）] [启用开关] [删除]。
+   点箭头、预览或头部空白处展开 / 折叠；点名称输入框是直接编辑。折叠时头部就是整条的高度。 */
+.named-tag-header { cursor: pointer; }
 .named-tag-toggle {
-    display: flex; align-items: center; flex: 1 1 auto; gap: 8px; min-width: 0; padding: 4px 0; border: 0; background: none;
-    color: inherit; font: inherit; text-align: left; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px; border: 0; background: none;
+    color: inherit; font: inherit; cursor: pointer;
 }
-.named-tag-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.named-tag-name {
+    flex: 1 1 auto; min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent;
+    color: var(--text-primary); font: inherit; font-size: 12px; font-weight: 600; text-overflow: ellipsis; cursor: text;
+}
+.named-tag-name::placeholder { font-weight: 400; color: var(--text-muted); }
+.named-tag-name:hover { border-color: var(--border); }
+.named-tag-name:focus { outline: none; border-color: var(--accent); background: var(--bg-input); }
+.named-tag-item.is-folded .named-tag-name { flex: 0 1 11em; }
 .named-tag-preview { display: none; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
 .named-tag-item.is-folded .named-tag-preview { display: block; }
 .named-tag-item.is-folded .named-tag-header { margin-bottom: 0; }
@@ -231,8 +239,8 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .named-tag-switch-text { min-width: 2em; }
 /* 停用的条目：整体变淡、标题划线，但输入框仍可编辑；开关和删除保持原样，方便改回来。 */
 .named-tag-item.is-disabled { border-style: dashed; background: rgba(255,255,255,.01); }
-.named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-body > .form-group { opacity: .5; }
-.named-tag-item.is-disabled .named-tag-title { text-decoration: line-through; }
+.named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-name, .named-tag-item.is-disabled .named-tag-preview, .named-tag-item.is-disabled .named-tag-body > .form-group { opacity: .5; }
+.named-tag-item.is-disabled .named-tag-name { text-decoration: line-through; }
 .named-tag-item.is-disabled .named-tag-switch-text { color: var(--warning); }
 .char-outfit-tags, .char-dynstate-tags { min-height: 72px; }
 /* ── Toggle switch ── */

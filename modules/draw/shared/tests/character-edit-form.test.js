@@ -9,6 +9,7 @@ import {
     createEditorSectionState,
     createNamedTagSortables,
     isCheckboxChecked,
+    isNamedTagHeaderToggleTarget,
     refreshNamedTagItemHeader,
     removeNamedTagEditorItem,
     renderEditorSection,
@@ -71,7 +72,7 @@ test('0 items: only the empty hint; 1 item: expanded like before', () => {
     assert.equal(one.card.querySelector('.char-outfit-editor-empty').style.display, 'none');
 });
 
-test('2+ items render folded: one-line header (handle, name, tags preview, switch, delete), body hidden', () => {
+test('2+ items render folded: one-line header (handle, chevron, name input, tags preview, switch, delete), body hidden', () => {
     const { card } = mount(OUTFITS);
     assert.deepEqual(expandedFlags(card), [false, false, false]);
     for (const row of rows(card)) {
@@ -79,12 +80,42 @@ test('2+ items render folded: one-line header (handle, name, tags preview, switc
         assert.ok(row.classList.contains('is-folded'));
         assert.equal(row.querySelector('.named-tag-toggle').getAttribute('aria-expanded'), 'false');
         assert.ok(row.querySelector('.named-tag-header [data-named-drag]'));
+        assert.ok(row.querySelector('.named-tag-header input.char-outfit-name'));
         assert.ok(row.querySelector('.named-tag-header .named-tag-enabled-header'));
         assert.ok(row.querySelector('.named-tag-header [data-action="remove-outfit"]'));
     }
     const first = rows(card)[0];
-    assert.equal(first.querySelector('.named-tag-title').textContent, '白裙');
+    assert.equal(first.querySelector('.char-outfit-name').getAttribute('value'), '白裙');
     assert.equal(first.querySelector('.named-tag-preview').textContent, 'white dress');
+});
+
+test('the name lives only in the header input (no second name field in the body); placeholder is the field label', () => {
+    for (const [kind, p, label] of [['outfit', 'char-outfit', '服装名称'], ['dynstate', 'char-dynstate', '状态名称']]) {
+        const { card } = mount([{ name: 'a', tags: 'x' }, { name: '', tags: 'y' }], kind);
+        for (const row of rows(card, kind)) {
+            assert.equal(row.querySelectorAll(`.${p}-name`).length, 1);
+            assert.ok(row.querySelector(`.named-tag-header .${p}-name`));
+            assert.equal(row.querySelector('.named-tag-body').querySelector(`.${p}-name`), null);
+            assert.equal(row.querySelector(`.${p}-name`).getAttribute('placeholder'), label);
+            assert.equal(row.querySelector('.named-tag-title'), null);
+        }
+        // 空名称不再回退成“服装 N”：输入框为空，占位符提示
+        assert.equal(collectNamedTagEditorValues(card, kind)[1].name, '');
+    }
+});
+
+test('header click toggles fold except on the name input, the switch and the drag handle', () => {
+    const { card } = mount(OUTFITS);
+    const row = rows(card)[0];
+    assert.equal(row.querySelector('.named-tag-header').dataset.action, 'toggle-named-item');
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-toggle')), true);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-preview')), true);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-header')), true);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.char-outfit-name')), false);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-enabled-header')), false);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-switch')), false);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('[data-named-drag]')), false);
+    assert.equal(isNamedTagHeaderToggleTarget(null), true);
 });
 
 test('clicking the header toggles one item and leaves the others', () => {
@@ -178,13 +209,11 @@ test('removing down to one item expands the survivor; indexes and the hint are r
     assert.equal(list.querySelector('.char-outfit-editor-empty').style.display, 'block');
 });
 
-test('header title and preview follow the inputs; empty name falls back to the numbered title', () => {
+test('header preview follows the tags input (the name input is the title itself)', () => {
     const { card } = mount(OUTFITS);
     const row = rows(card)[2];
-    row.querySelector('.char-outfit-name').value = '';
     row.querySelector('.char-outfit-tags').value = 'x'.repeat(100);
     refreshNamedTagItemHeader(row, 'outfit');
-    assert.equal(row.querySelector('.named-tag-title').textContent, '服装 3');
     assert.ok(row.querySelector('.named-tag-preview').textContent.endsWith('…'));
     assert.ok(row.querySelector('.named-tag-preview').textContent.length < 60);
 });

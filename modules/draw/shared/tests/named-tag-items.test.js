@@ -5,7 +5,6 @@ import {
     countEnabledNamedTags,
     isNamedTagEnabled,
     isNamedTagItemExpanded,
-    namedTagItemTitle,
     normalizeNamedTagList,
     parseNamedTagLines,
     previewNamedTags,
@@ -67,8 +66,6 @@ test('header preview collapses whitespace, truncates by code point and has a pla
     const long = '😀'.repeat(NAMED_TAG_PREVIEW_LIMIT + 5);
     assert.equal(Array.from(previewNamedTags(long)).length, NAMED_TAG_PREVIEW_LIMIT + 1);
     assert.ok(previewNamedTags(long).endsWith('…'));
-    assert.equal(namedTagItemTitle(' 礼服 ', '服装', 0), '礼服');
-    assert.equal(namedTagItemTitle('', '服装', 1), '服装 2');
 });
 
 test('SD/ComfyUI text lines round-trip including disabled ("# ") entries', () => {

@@ -8,7 +8,6 @@ import { movePresetId } from './preset-order.js';
 import {
     isNamedTagEnabled,
     isNamedTagItemExpanded,
-    namedTagItemTitle,
     previewNamedTags,
 } from './named-tag-items.js';
 
@@ -19,7 +18,7 @@ export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
         classPrefix: 'char-outfit',
         title: '服装',
         nameLabel: '服装名称',
-        namePlaceholder: '如：常服、礼服、战斗服',
+        nameHint: '点击修改名称，如：常服、礼服、战斗服',
         tagsLabel: '服装 TAG',
         tagsPlaceholder: 'white shirt, black skirt, ribbon...',
         removeAction: 'remove-outfit',
@@ -28,7 +27,7 @@ export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
         classPrefix: 'char-dynstate',
         title: '状态',
         nameLabel: '状态名称',
-        namePlaceholder: '如：睡觉、淋雨、害羞',
+        nameHint: '点击修改名称，如：睡觉、淋雨、害羞',
         tagsLabel: '状态 TAG',
         tagsPlaceholder: 'closed eyes, sleeping...',
         removeAction: 'remove-dynstate',
@@ -119,13 +118,13 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
     nextItemUid += 1;
     return `
     <div class="${p}-editor-item named-tag-item${enabled ? '' : ' is-disabled'}${expanded ? '' : ' is-folded'}" data-index="${index}" data-uid="nt-${nextItemUid}" data-enabled="${enabled}" data-expanded="${expanded}">
-        <div class="${p}-editor-header named-tag-header">
+        <div class="${p}-editor-header named-tag-header" data-action="toggle-named-item">
             <span class="char-drag-handle named-tag-drag" role="button" tabindex="0" data-named-drag title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${meta.title} ${index + 1} 的顺序">⋮⋮</span>
-            <button type="button" class="named-tag-toggle" data-action="toggle-named-item" aria-expanded="${expanded}" title="展开 / 折叠">
+            <button type="button" class="named-tag-toggle" aria-expanded="${expanded}" title="展开 / 折叠" aria-label="展开 / 折叠${meta.title} ${index + 1}">
                 <i class="fa-solid fa-chevron-down named-tag-chevron" aria-hidden="true"></i>
-                <span class="${p}-editor-title named-tag-title">${escapeHtml(namedTagItemTitle(item.name, meta.title, index))}</span>
-                <span class="named-tag-preview">${escapeHtml(previewNamedTags(item.tags))}</span>
             </button>
+            <input type="text" class="${p}-name named-tag-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.nameLabel}" title="${meta.nameHint}" aria-label="${meta.nameLabel}">
+            <span class="named-tag-preview">${escapeHtml(previewNamedTags(item.tags))}</span>
             <label class="named-tag-switch" title="停用后不会发给 AI">
                 <input type="checkbox" class="named-tag-enabled named-tag-enabled-header"${enabled ? ' checked' : ''} aria-label="启用${meta.title} ${index + 1}">
                 <span class="named-tag-switch-text">${enabledLabel}</span>
@@ -133,10 +132,6 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
             <button class="btn btn-danger btn-sm" type="button" data-action="${meta.removeAction}" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
         </div>
         <div class="${p}-editor-body named-tag-body"${expanded ? '' : ' hidden'}>
-            <div class="form-group">
-                <label class="form-label">${meta.nameLabel}</label>
-                <input type="text" class="input ${p}-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.namePlaceholder}">
-            </div>
             <div class="form-group">
                 <label class="form-label">${meta.tagsLabel}</label>
                 <textarea class="input ${p}-tags" placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
@@ -159,14 +154,10 @@ function rowsOf(list, kind) {
     return Array.from(list.querySelectorAll(`.${kindMeta(kind).classPrefix}-editor-item`));
 }
 
-/** 按输入框内容刷新折叠头的标题与 TAG 预览（折叠时看不到输入框，所以折叠 / 重排时都要刷新）。 */
+/** 按 TAG 输入框刷新折叠头里的预览（折叠时看不到输入框，所以折叠 / 重排时都要刷新）；名称输入框就在头部，本身就是实时的。 */
 export function refreshNamedTagItemHeader(row, kind = 'outfit') {
-    const meta = kindMeta(kind);
-    const p = meta.classPrefix;
+    const p = kindMeta(kind).classPrefix;
     if (!row) return;
-    const index = Number(row.dataset.index) || 0;
-    const title = row.querySelector(`.${p}-editor-title`);
-    if (title) title.textContent = namedTagItemTitle(row.querySelector(`.${p}-name`)?.value, meta.title, index);
     const preview = row.querySelector('.named-tag-preview');
     if (preview) preview.textContent = previewNamedTags(row.querySelector(`.${p}-tags`)?.value);
 }
@@ -178,6 +169,11 @@ export function setNamedTagItemExpanded(row, expanded, kind = 'outfit') {
     row.querySelector('.named-tag-body')?.toggleAttribute('hidden', !expanded);
     row.querySelector('.named-tag-toggle')?.setAttribute('aria-expanded', String(expanded));
     if (!expanded) refreshNamedTagItemHeader(row, kind);
+}
+
+/** 点在折叠头上的这些控件时不切换折叠：名称输入框（点一下就编辑）、启用开关、拖动手柄；删除按钮自带 data-action，不会落到折叠头上。 */
+export function isNamedTagHeaderToggleTarget(target) {
+    return !target?.closest?.('input, textarea, label, [data-named-drag]');
 }
 
 /** 点折叠头：返回切换后是否展开。 */

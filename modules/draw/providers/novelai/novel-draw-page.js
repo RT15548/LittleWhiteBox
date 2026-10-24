@@ -16,6 +16,7 @@ import {
     collectNamedTagEditorValues,
     createEditorSectionState,
     createNamedTagSortables,
+    isNamedTagHeaderToggleTarget,
     namedTagKindOfRow,
     refreshNamedTagItemHeader,
     removeNamedTagEditorItem,
@@ -1399,10 +1400,10 @@ function setupCharacterDragAndSelection() {
             renderBatchBar();
         }
     });
-    // 编辑卡片里的服装 / 状态条目：名称、TAG 输入时同步折叠头的标题与预览。
+    // 编辑卡片里的服装 / 状态条目：TAG 输入时同步折叠头里的预览（名称输入框本身就在头部）。
     list.addEventListener('input', (event) => {
         const input = event.target;
-        if (!input.matches?.('.char-outfit-name, .char-outfit-tags, .char-dynstate-name, .char-dynstate-tags')) return;
+        if (!input.matches?.('.char-outfit-tags, .char-dynstate-tags')) return;
         const row = input.closest('.named-tag-item');
         refreshNamedTagItemHeader(row, namedTagKindOfRow(row));
     });
@@ -1756,7 +1757,7 @@ function renderCharList() {
     syncSelectionCheckboxes();
 }
 
-function handleCharAction(action, id, card, trigger) {
+function handleCharAction(action, id, card, trigger, event) {
     if (action === 'menu') {
         if (trigger) getCardMenu()?.toggle(trigger);
     } else if (action === 'toggle-enabled') {
@@ -1809,6 +1810,8 @@ function handleCharAction(action, id, card, trigger) {
         if (!section || !key) return;
         setEditorSectionCollapsed(section, editorSections.toggle(id, key));
     } else if (action === 'toggle-named-item') {
+        // 折叠头整行都是触发区；点名称输入框 / 开关 / 拖动手柄是在操作它们，不切换折叠。
+        if (!isNamedTagHeaderToggleTarget(event?.target)) return;
         const row = trigger?.closest('.named-tag-item');
         toggleNamedTagItem(row, namedTagKindOfRow(row));
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
@@ -4160,7 +4163,7 @@ function initializePage() {
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
         if (btn.closest('[role="menu"]')) cardMenu?.close({ restoreFocus: true });
-        if (id) handleCharAction(btn.dataset.action, id, card, btn);
+        if (id) handleCharAction(btn.dataset.action, id, card, btn, e);
     });
 
     // auto-learn (toggle + subordinate checkbox)

@@ -112,6 +112,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .tip-box i { flex-shrink: 0; margin-top: 3px; }
 .char-management-layout { display: flex; flex-direction: column; gap: 12px; }
 .char-management-main { min-width: 0; }
+.char-library-options > summary { font-weight: 600; color: var(--text-primary); } /* 与各区块标题（.card-title）一致 */
 .char-library-options > .char-management-sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; padding-top: 12px; }
 .char-management-sidebar > .card { margin: 0; }
 .char-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

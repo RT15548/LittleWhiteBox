@@ -66,12 +66,6 @@ export function previewNamedTags(tags, limit = NAMED_TAG_PREVIEW_LIMIT) {
     return chars.length > limit ? `${chars.slice(0, limit).join('')}…` : text;
 }
 
-/** 条目标题：有名称用名称，否则“服装 N”。 */
-export function namedTagItemTitle(name, label, index) {
-    const trimmed = String(name || '').trim();
-    return trimmed || `${label} ${Number(index) + 1}`;
-}
-
 // ── SD WebUI / ComfyUI 的文本框写法（每行一条，“名称 = tags”）──
 // 行首的“# ”表示该条已停用；其余格式与旧版一致。
 
