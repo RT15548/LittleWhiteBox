@@ -86,6 +86,8 @@ button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline:
 .input:focus { outline: none; border-color: var(--border-focus); }
 .input::placeholder { color: var(--text-muted); }
 textarea.input { min-height: 90px; resize: vertical; }
+/* 随内容自动长高的文本框（见 textarea-autofit.js）：不要固定的最小高度，一行内容就是一行高。 */
+textarea.input[data-autofit] { min-height: 0; overflow-y: hidden; }
 .input-row { display: flex; gap: 8px; }
 .input-row .input { flex: 1; min-width: 0; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-primary); background: transparent; font-size: 13px; white-space: nowrap; cursor: pointer; }

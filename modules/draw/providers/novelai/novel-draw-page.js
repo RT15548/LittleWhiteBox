@@ -43,6 +43,7 @@ import {
     toggleNamedTagItem,
 } from '../../shared/character-edit-form.js';
 import { EXTRA_TAGS_COPY, renderCharacterEditorNote } from '../../shared/character-editor-copy.js';
+import { installTextareaAutofit } from '../../shared/textarea-autofit.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -4233,6 +4234,8 @@ function initializePage() {
         setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
     });
     
+    // 角色编辑卡里的文本框（外貌 / 条目标签）随内容长高；折叠 / 展开、重绘、宽度变化后自动补量。
+    installTextareaAutofit($('nd_char_list'));
     $('nd_char_list').addEventListener('click', e => {
         const groupBtn = e.target.closest('[data-group-action]');
         if (groupBtn) {

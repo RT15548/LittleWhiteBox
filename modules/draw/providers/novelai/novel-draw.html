@@ -140,13 +140,12 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
-.char-edit-form textarea.input { min-height: 60px; }
-.char-outfit-editor-list, .char-dynstate-editor-list { display: flex; flex-direction: column; gap: 10px; }
+.char-outfit-editor-list, .char-dynstate-editor-list { display: flex; flex-direction: column; gap: 6px; }
 .char-outfit-editor-empty, .char-dynstate-editor-empty { padding: 2px 0; color: var(--text-muted); font-size: 11px; }
 .char-section-hint { margin: 0 0 8px; font-size: 11px; }
 .char-edit-note { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .char-outfit-editor-item, .char-dynstate-editor-item {
-    padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+    padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08));
     background: rgba(255,255,255,.03);
 }
 .char-outfit-editor-header, .char-dynstate-editor-header {
@@ -174,11 +173,15 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .named-tag-item.is-folded .named-tag-header, .char-form.is-folded > .char-form-header { margin-bottom: 0; }
 .named-tag-item.dragging, .char-form.dragging { opacity: .45; }
 .named-tag-drag { align-self: center; }
-.named-tag-item.is-folded, .char-form.is-folded { padding-top: 8px; padding-bottom: 8px; }
+.named-tag-item.is-folded, .char-form.is-folded { padding-top: 4px; padding-bottom: 4px; }
+/* 折叠的行就是一行：头部按钮不再撑到 34px 的最小高度（触屏保持原来的点按大小）。 */
+@media (pointer: fine) {
+    .named-tag-item.is-folded .named-tag-header .btn-sm, .char-form.is-folded > .char-form-header .btn-sm { min-height: 26px; padding: 2px 8px; }
+}
 /* ── 形态（同一角色的不同样子）：形态卡片的头部沿用条目折叠头的样式 ── */
 .char-forms-title { cursor: default; }
-.char-form-list { display: flex; flex-direction: column; gap: 10px; }
-.char-form { padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); }
+.char-form-list { display: flex; flex-direction: column; gap: 6px; }
+.char-form { padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08)); background: rgba(255,255,255,.03); }
 .char-form-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
 .char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
 .char-forms-add { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -190,7 +193,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-name, .named-tag-item.is-disabled .named-tag-preview, .named-tag-item.is-disabled .named-tag-body > .form-group { opacity: .5; }
 .named-tag-item.is-disabled .named-tag-name { text-decoration: line-through; }
 .named-tag-item.is-disabled .named-tag-switch-text { color: var(--warning); }
-.char-outfit-tags, .char-dynstate-tags { min-height: 72px; }
 /* ── Toggle switch ── */
 .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }

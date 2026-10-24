@@ -151,7 +151,7 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
         <div class="${p}-editor-body named-tag-body"${expanded ? '' : ' hidden'}>
             <div class="form-group">
                 <label class="form-label">${meta.tagsLabel}</label>
-                <textarea class="input ${p}-tags" placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
+                <textarea class="input ${p}-tags" rows="1" data-autofit placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
             </div>
         </div>
     </div>`;
@@ -480,14 +480,14 @@ export function renderCharacterFormSections(model, {
                             <p class="form-hint char-section-hint">${FIXED_APPEARANCE_COPY.hint}</p>
                             <div class="form-group">
                                 <label class="form-label">${FIXED_APPEARANCE_COPY.positiveLabel}</label>
-                                <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(model.appearance || '')}</textarea>
+                                <textarea class="input char-edit-appearance" rows="1" data-autofit placeholder="long hair, blue eyes, white dress">${escapeHtml(model.appearance || '')}</textarea>
                                 <input type="hidden" class="char-form-danbooru" value="${escapeHtml(danbooru)}">
                                 <div class="form-hint char-danbooru-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;"${danbooru ? '' : ' hidden'}>Danbooru: ${escapeHtml(danbooru.replace(/_/g, ' '))}</div>
                                 <div class="danbooru-panel hidden" data-char-id="${escapeHtml(ref)}"></div>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">${FIXED_APPEARANCE_COPY.negativeLabel}</label>
-                                <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(model.negativeTags || '')}</textarea>
+                                <textarea class="input char-edit-neg" rows="1" data-autofit placeholder="避免的特征...">${escapeHtml(model.negativeTags || '')}</textarea>
                             </div>`,
     });
     const outfitSection = renderEditorSection({

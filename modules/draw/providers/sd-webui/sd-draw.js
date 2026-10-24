@@ -58,6 +58,7 @@ import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../.
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
+import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
@@ -194,6 +195,7 @@ let agentSettingsSurface = null;
 let llmRecordsView = null;
 let llmRecordsViewContainer = null;
 let characterLibraryUi = null;
+let characterListAutofit = null;
 let groupPresetBinding = null;
 let promptChainPreviewFrame = 0;
 let ensureSdDrawPanelRef = null;
@@ -1782,6 +1784,8 @@ function ensureCharacterLibraryUi() {
     if (!doc || !list || !toolbar) return null;
     if (characterLibraryUi?.document === doc) return characterLibraryUi;
     characterLibraryUi?.destroy();
+    characterListAutofit?.dispose();
+    characterListAutofit = installTextareaAutofit(list);
     characterLibraryUi = createCharacterLibraryUi({
         document: doc,
         listElement: list,
@@ -1804,6 +1808,8 @@ function destroyCharacterLibraryUi() {
     destroyGroupPresetBinding();
     characterLibraryUi?.destroy();
     characterLibraryUi = null;
+    characterListAutofit?.dispose();
+    characterListAutofit = null;
 }
 
 // 分组预设卡片：预设不属于角色草稿，修改立即持久化；展示用的分组 / 角色取自角色库草稿（用户所见）。
@@ -1962,7 +1968,8 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
     input.dataset[options.dataKey || 'sdCharField'] = fieldName;
     input.placeholder = placeholder;
     if (options.multiline) {
-        input.rows = 3;
+        input.rows = 1;
+        input.setAttribute("data-autofit", "");
         input.textContent = String(value || '');
     } else {
         input.type = 'text';
