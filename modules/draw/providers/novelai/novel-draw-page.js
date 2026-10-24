@@ -1598,11 +1598,13 @@ function setCharStatus(statusEl, char, library = getCharacterLibrary()) {
     });
 }
 
-function renderCharList() {
+// keepDraft：调用方刚刚改过 editingDraft（添加 / 删除形态、Danbooru 修正），草稿已是权威内容；
+// 此时不能再把旧 DOM 读回草稿，否则会把刚做的改动覆盖掉（重绘出来的还是旧布局）。
+function renderCharList({ keepDraft = false } = {}) {
     const list = $('nd_char_list');
     const empty = $('nd_char_empty');
     cardMenu?.close();
-    captureEditingDraft();
+    if (!keepDraft) captureEditingDraft();
     reconcileEditingState();
     const chars = state.characterTags || [];
     const groups = state.characterGroups || [];
@@ -1806,7 +1808,7 @@ function addCharacterForm(id) {
         draft = { ...draft, forms: [...draft.forms, createBlankFormModel(splitCharType)] };
     }
     editingDraft = draft;
-    renderCharList();
+    renderCharList({ keepDraft: true });
     const added = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing .char-form')).pop();
     added?.scrollIntoView?.({ block: 'nearest' });
     added?.querySelector('.char-form-name')?.focus();
@@ -1823,7 +1825,7 @@ function removeCharacterForm(formKey) {
     const next = { ...draft, forms: draft.forms.filter(form => form.key !== formKey) };
     // 只剩一个形态：回到普通布局（剩下的形态成为角色自己的字段）。
     editingDraft = next.forms.length < 2 ? draftToSingleForm(next) : next;
-    renderCharList();
+    renderCharList({ keepDraft: true });
 }
 
 function handleCharAction(action, id, card, trigger, event) {
@@ -2105,7 +2107,7 @@ function renderLocalDanbooruResults(query, results, ref) {
             saveCharacterLibrary();
             panel.classList.add('hidden');
             panel.innerHTML = '';
-            renderCharList();
+            renderCharList({ keepDraft: true });
         });
     });
 }
