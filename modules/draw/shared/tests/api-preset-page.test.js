@@ -49,7 +49,9 @@ function fixture(t, persistResult, { initialSettings, prompt, confirm } = {}) {
         config: () => formConfig, writes: () => writes,
         click: async action => {
             page.ensureBar();
-            document.querySelector(`[data-action="${action}"]`).click();
+            // 重命名 / 删除是预设行“…”菜单里的项（第一行 = 当前预设），其余是标题行按钮
+            const rowAction = ['rename', 'delete'].includes(action);
+            document.querySelector(rowAction ? `[data-preset-action="${action}"]` : `[data-action="${action}"]`).click();
             await nextTurn();
         },
     };

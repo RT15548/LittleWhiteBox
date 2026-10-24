@@ -8,6 +8,7 @@
 <title>Novel Draw</title>
 <link rel="stylesheet" href="../../shared/settings-shell.css">
 <link rel="stylesheet" href="../../shared/settings-icons.css">
+<link rel="stylesheet" href="../../shared/preset-list-view.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
@@ -67,35 +68,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-batch-bar button:disabled { opacity: .4; cursor: not-allowed; }
 .char-undo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12px; }
 #nd_char_select_toggle.active { color: var(--accent); border-color: var(--accent); }
-.char-drag-handle { flex-shrink: 0; width: 18px; text-align: center; color: var(--text-muted); cursor: grab; user-select: none; touch-action: none; letter-spacing: -2px; }
-.char-drag-handle:hover, .char-drag-handle:focus-visible { color: var(--text-primary); }
 .char-select, .char-group-select { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
 .char-card.dragging, .char-group.dragging { opacity: .45; }
-.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
-.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
 .drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
-/* 参数预设列表：每行 = 拖动手柄 + 名称（点选）+ “…”菜单（菜单样式复用 .char-menu*）。列表自己滚动，上下各留 2px 给拖拽落点线。 */
-.preset-list-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
-.preset-list-header .card-title { margin-bottom: 0; }
-.preset-list-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.preset-list-toggle { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; background: none; border: 1px solid transparent; border-radius: 6px; color: var(--text-secondary); cursor: pointer; }
-.preset-list-toggle:hover { color: var(--text-primary); background: rgba(255,255,255,.06); }
-.preset-list-toggle:focus-visible { outline: none; border-color: var(--border-focus); }
-.preset-list-toggle i { transition: transform .15s; }
-.preset-list-toggle.collapsed i { transform: rotate(-90deg); }
-.preset-list.preset-list-collapsed { max-height: none; overflow-y: visible; }
-.preset-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; padding: 2px; }
-.preset-list-card .status-text.inline-status { margin-top: 8px; }
-.preset-row { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 4px 8px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.03); }
-.preset-row:hover { background: rgba(255,255,255,.06); }
-.preset-row.selected { background: var(--accent-soft); border-color: var(--border); }
-.preset-row.dragging { opacity: .45; }
-/* 名称有保底宽度（约 6 个汉字），空间不够时“…”菜单按钮换到下一行，而不是把名称挤没。 */
-.preset-row-name { flex: 1 1 6em; min-width: 6em; padding: 8px 4px; background: none; border: none; border-radius: 6px; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preset-row-name:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--border-focus); }
-.preset-row.selected .preset-row-name { color: var(--accent); }
-.preset-row .char-menu-wrap { margin-left: auto; }
-.preset-list-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
 .planner-retry-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .planner-retry-row .input { width: 72px; padding: 4px 8px; }
 .auto-learn-group-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
@@ -128,39 +103,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
 .char-lock-label { color: var(--text-primary); font-weight: 600; }
 .char-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
-.char-action-button {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 34px; height: 34px; padding: 0; box-sizing: border-box;
-    background: transparent; border: 1px solid transparent; border-radius: 7px;
-    color: var(--text-secondary); cursor: pointer;
-}
-.char-action-button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); border-color: var(--border-focus); }
-.char-action-button svg {
-    width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8;
-    stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
-}
-.char-action-button.active { color: var(--text-primary); background: var(--accent-soft); }
-/* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
-.char-menu-wrap { display: inline-flex; flex-shrink: 0; }
-.char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }
-.char-menu {
-    position: fixed; z-index: 200; display: flex; flex-direction: column; gap: 2px;
-    min-width: 132px; max-width: calc(100vw - 16px); padding: 4px; overflow-y: auto; box-sizing: border-box;
-    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,.45);
-}
-.char-menu[hidden] { display: none; }
-.char-menu-item {
-    display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; box-sizing: border-box;
-    background: none; border: none; border-radius: 6px; color: var(--text-secondary);
-    font: inherit; font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer;
-}
-.char-menu-item i { width: 14px; text-align: center; flex-shrink: 0; }
-.char-menu-item:hover, .char-menu-item:focus-visible { background: rgba(255,255,255,.08); color: var(--text-primary); outline: none; }
-.char-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus); }
-.char-menu-item.active { color: var(--accent); }
-.char-menu-item.danger { color: var(--danger); }
-.char-menu-item.danger:hover, .char-menu-item.danger:focus-visible { background: rgba(248,81,73,.12); color: var(--danger); }
 .char-card.disabled .char-identity, .char-card.disabled .char-status { opacity: .45; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
@@ -382,9 +324,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     .char-grid, .char-group, .char-group-body, .char-card { min-width: 0; max-width: 100%; }
     .char-group-header { min-width: 0; }
     .char-group-actions { flex-wrap: wrap; flex-shrink: 1; max-width: 100%; }
-    /* 参数预设列表窄屏：容器允许收缩，标题与按钮分行，预设行里名称保底宽度、“…”换行，避免页面内横向滚动 */
-    .preset-list-card, .preset-list, .preset-row { min-width: 0; max-width: 100%; }
-    .preset-list-header .btn-group { flex-wrap: wrap; max-width: 100%; }
     .char-card-summary { flex-wrap: wrap; min-width: 0; }
     /* 窄屏滚动的是文档本身，底部有固定的 .mobile-nav（至少 64px + 安全区）：滚入视野时让出这块 */
     .char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item { scroll-margin-bottom: calc(80px + env(safe-area-inset-bottom)); }
@@ -399,9 +338,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     .char-edit-save, .char-edit-cancel { padding-inline: 10px; }
 }
 @media (hover: none) and (pointer: coarse) {
-    .preset-row-name { min-height: 44px; }
-    .char-action-button { width: 44px; height: 44px; }
-    .char-menu-item { min-height: 44px; font-size: 13px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 
@@ -622,7 +558,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 
                 </div>
                 <fieldset id="nd_api_form" class="card" style="min-width:0;margin:0;" disabled>
-                    <div id="nd_api_presets" class="preset-bar"></div>
+                    <div id="nd_api_presets" class="api-preset-list"></div>
                     <div class="form-group">
                         <label class="form-label">NovelAI API Key</label>
                         <div class="input-row">

@@ -311,3 +311,49 @@ test('a view without a toggle or list id is never collapsed and setCollapsed sti
     assert.equal(rows().length, 3);
     view.destroy();
 });
+test('refresh redraws only when the shown rows (ids, names, order, collapse) differ, otherwise just moves the highlight', () => {
+    const { view, rows, data, list } = setup({ current: 'a' });
+    view.refresh(); // 从未画过：第一次必须画出来
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['a', 'b', 'c']);
+    const before = rows();
+    data.current = 'b';
+    view.refresh();
+    assert.deepEqual(rows(), before, '只换了当前项：不重绘，行节点原样');
+    assert.deepEqual(rows().map(row => row.classList.contains('selected')), [false, true, false]);
+
+    data.presets = [data.presets[2], data.presets[0], data.presets[1]];
+    view.refresh();
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['c', 'a', 'b']);
+    data.presets = data.presets.map(preset => (preset.id === 'a' ? { ...preset, name: '甲改' } : preset));
+    view.refresh();
+    assert.equal(rows()[1].querySelector('.preset-row-name').textContent, '甲改');
+    data.presets = data.presets.slice(0, 2);
+    view.refresh();
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['c', 'a']);
+
+    view.setCollapsed(true);
+    data.current = 'a';
+    view.refresh();
+    assert.deepEqual(rows().map(row => row.dataset.presetId), ['a'], '折叠时当前项换了，留下的是新的当前项');
+    assert.equal(list.classList.contains('preset-list-collapsed'), true);
+});
+
+test('the sortable controller follows the list container when it is replaced by a new node', () => {
+    const { document, calls, list } = setup();
+    let current = list;
+    const holder = list.parentNode;
+    const view2 = createPresetListView({
+        document, getList: () => current, getPresets: () => [{ id: 'a', name: '甲' }], getCurrentId: () => 'a', escapeHtml, noun: '测试',
+        createSortable: (options) => { calls.sortable.push(options); return { destroy() { calls.sortable.destroyed = (calls.sortable.destroyed || 0) + 1; } }; },
+    });
+    calls.sortable.length = 0;
+    view2.render();
+    assert.equal(calls.sortable.length, 1);
+    const replacement = document.createElement('div');
+    holder.replaceChild(replacement, current);
+    current = replacement;
+    view2.render();
+    assert.equal(calls.sortable.length, 2);
+    assert.equal(calls.sortable.destroyed, 1);
+    assert.equal(calls.sortable[1].container, replacement);
+});

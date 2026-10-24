@@ -58,7 +58,7 @@ const DEFAULT_MENU_ITEMS = [
  * @param {string} [options.listId] 折叠状态的存储名（如 'novel-params'）；缺省则不记忆
  * @param {function(): (Element|null)} [options.getToggle] 折叠 / 展开按钮；点击切换，状态同步到 aria-expanded 和 .collapsed
  * @param {boolean} [options.defaultCollapsed] 尚无折叠偏好时的初始状态
- * @returns {{render: function(): void, syncSelection: function(): void, ensureSortable: function(): void, bind: function(): void, destroy: function(): void, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, toggle: function(): void}}
+ * @returns {{render: function(): void, syncSelection: function(): void, refresh: function(): void, ensureSortable: function(): void, bind: function(): void, destroy: function(): void, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, toggle: function(): void}}
  */
 export function createPresetListView({
     document,
@@ -84,6 +84,7 @@ export function createPresetListView({
         throw new TypeError('缺少 document / getList / getPresets / escapeHtml');
     }
     let sortable = null;
+    let sortableList = null; // 排序控制器挂着的容器
     let bound = null; // 已挂上点击委托的容器
     let boundToggle = null;
     let collapsed = null; // 首次用到时才读存储
@@ -139,7 +140,11 @@ export function createPresetListView({
 
     function ensureSortable() {
         const list = getList();
-        if (sortable || !list || !createSortable) return;
+        if (!list || !createSortable) return;
+        if (sortable && sortableList === list) return;
+        sortable?.destroy?.(); // 容器被换成了新节点（页面整块重绘）：旧控制器还挂在旧节点上
+        sortable = null;
+        sortableList = list;
         sortable = createSortable({
             container: list,
             rowSelector: '.preset-row',
@@ -170,6 +175,11 @@ export function createPresetListView({
         }
     }
 
+    // 折叠时只显示当前使用的预设（当前项缺失时退到第一个），不画拖动手柄。
+    function visiblePresets(presets, current, folded) {
+        return folded ? presets.filter(preset => preset.id === current).concat(presets).slice(0, 1) : presets;
+    }
+
     function render() {
         const list = getList();
         if (!list) return;
@@ -178,8 +188,7 @@ export function createPresetListView({
         const current = getCurrentId();
         const folded = isCollapsed();
         list.classList.toggle('preset-list-collapsed', folded);
-        // 折叠时只显示当前使用的预设（当前项缺失时退到第一个），不画拖动手柄。
-        const shown = folded ? (presets.filter(preset => preset.id === current).concat(presets).slice(0, 1)) : presets;
+        const shown = visiblePresets(presets, current, folded);
         // eslint-disable-next-line no-unsanitized/property -- 名称与 id 都经注入的 escapeHtml 转义，其余是固定标记
         list.innerHTML = shown.length
             ? shown.map(preset => rowMarkup(preset, current, !folded)).join('')
@@ -212,6 +221,23 @@ export function createPresetListView({
         });
     }
 
+    // 数据可能在外面变了（保存回执、重命名、增删、排序）：显示的行（id、名称、顺序）与现在不一致就重绘，
+    // 一致则只刷新高亮，不动 DOM，焦点不丢。
+    function refresh() {
+        const list = getList();
+        if (!list) return;
+        const folded = isCollapsed();
+        const shown = visiblePresets(getPresets(), getCurrentId(), folded);
+        const rows = Array.from(list.querySelectorAll('.preset-row'));
+        const same = bound === list
+            && list.classList.contains('preset-list-collapsed') === folded
+            && rows.length === shown.length
+            && rows.every((row, index) => row.dataset.presetId === String(shown[index].id)
+                && row.querySelector('.preset-row-name')?.textContent === String(shown[index].name || shown[index].id));
+        if (same) syncSelection();
+        else render();
+    }
+
     function destroy() {
         bound?.removeEventListener('click', handleClick);
         bound = null;
@@ -219,11 +245,13 @@ export function createPresetListView({
         boundToggle = null;
         sortable?.destroy?.();
         sortable = null;
+        sortableList = null;
     }
 
     return {
         render,
         syncSelection,
+        refresh,
         ensureSortable,
         bind,
         destroy,

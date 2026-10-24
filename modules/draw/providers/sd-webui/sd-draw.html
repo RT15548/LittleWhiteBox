@@ -8,6 +8,7 @@
 <title>SD Draw</title>
 <link rel="stylesheet" href="../../shared/settings-shell.css">
 <link rel="stylesheet" href="../../shared/settings-icons.css">
+<link rel="stylesheet" href="../../shared/preset-list-view.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-library-ui.css">
@@ -253,7 +254,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                 </div>
 
                 <fieldset id="sd-api-form" class="card" style="min-width:0;margin:0;">
-                    <div id="sd-api-presets" class="preset-bar"></div>
+                    <div id="sd-api-presets" class="api-preset-list"></div>
                     <div class="form-group">
                         <label class="form-label">SD WebUI 地址</label>
                         <div class="input-row">

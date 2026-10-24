@@ -30,6 +30,8 @@ export const API_PRESET_COPY = Object.freeze({
     overwritten: name => `已覆盖保存到预设「${name}」`,
     renamed: name => `已重命名为「${name}」`,
     confirmDelete: (name, nextName) => `删除 API 预设「${name}」并切换到「${nextName}」？当前表单尚未保存的修改也会舍弃。`,
+    confirmDeleteOther: name => `删除 API 预设「${name}」？`,
+    reordered: '已调整预设顺序',
     deleted: name => `已删除预设「${name}」`,
     synced: name => `已保存，并同步到 API 预设「${name}」`,
 });

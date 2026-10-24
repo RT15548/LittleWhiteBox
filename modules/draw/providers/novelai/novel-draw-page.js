@@ -1372,7 +1372,7 @@ function handleDragKeydown(event) {
 function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
     // 编辑卡片里服装 / 状态条目的拖拽排序（复用 sortable-list.js，与预设列表同一套指针 + 键盘交互）。
-    createNamedTagSortables({ container: list, document, autoScroll: event => autoScrollPresetList(event, list) });
+    createNamedTagSortables({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
     // 分组滚动区高度：用户可在分组下沿拖动调整，存本机 localStorage（见 character-group-height.js）。
     groupHeights = createGroupHeightController({ list, document, groupSelector: '.char-group', bodySelector: '.char-group-body' });
     list.addEventListener('pointerdown', (event) => {
@@ -3073,7 +3073,7 @@ function fillApiConfigForm(config) {
 }
 
 function renderApiPresetBar() {
-    if (!AP_UI || !apiSettingsReady) return;
+    if (!AP_UI || !presetListKit || !apiSettingsReady) return;
     if (apiPresetBar) {
         apiPresetBar.render();
         return;
@@ -3090,6 +3090,7 @@ function renderApiPresetBar() {
         onCommit: change => requestApiSave('SAVE_API_PRESETS', change, Boolean(change.config)),
         confirm: message => confirm(message),
         prompt: (message, fallback) => prompt(message, fallback),
+        createListView: createPresetListView, // 与参数 / 提示词预设列表共用同一份接线（函数声明，已提升）
     });
 }
 
@@ -3130,8 +3131,7 @@ function handleApiSaveStatus(data) {
     pending.resolve(ok);
 }
 let PO = null; // preset-order.js（预设排序的纯函数），与角色库模块一同动态引入
-let SL = null; // sortable-list.js（列表拖拽 / 键盘排序控制器），与角色库模块一同动态引入
-let PLV = null; // preset-list-view.js（预设列表的行标记与点击委托，参数 / 提示词预设共用），与角色库模块一同动态引入
+let presetListKit = null; // preset-list-kit.js 建出的接线（预设列表视图 + 排序 / 菜单 / 键盘移动 / 边缘滚动），参数 / 提示词 / API 配置预设共用，与角色库模块一同动态引入
 let PLE = null; // prompt-layout-editor.js（请求结构编辑器，另外转出布局契约的纯函数），与角色库模块一同动态引入
 
 function applyStateToUI() {
@@ -3192,36 +3192,16 @@ function currentParamsPresetId() {
     return (presets.find(p => p.id === state.selectedParamsPresetId) || presets[0])?.id ?? null;
 }
 
-// 行标记、点击委托、拖拽排序挂接都在 shared/preset-list-view.js，参数 / 提示词两个列表各建一份视图，
-// 只有数据来源和动作处理不同。视图在第一次用到时才创建（模块是动态引入的，晚于页面脚本）。
-function autoScrollPresetList(event, list) {
-    // 靠近列表上 / 下缘时先滚列表自己，滚到头再带动外层 / 整页。
-    CS?.autoScrollForPointer({
-        start: document.elementFromPoint(event.clientX, event.clientY) || list,
-        pointerY: event.clientY,
-        getStyle: element => getComputedStyle(element),
-        getRect: element => element.getBoundingClientRect(),
-        viewport: { top: 0, bottom: window.innerHeight },
-        pageScroller: document.scrollingElement || document.documentElement,
-    });
-}
-
+// 行标记、点击委托、拖拽排序、折叠都在 shared/preset-list-view.js，接线（排序 / 菜单 / 键盘移动 / 边缘滚动）在 shared/preset-list-kit.js；
+// 参数 / 提示词 / API 配置三个列表各建一份视图，只有数据来源和动作处理不同。菜单控制器与角色卡共用同一个（同一时间只开一个菜单）。
+// 视图在第一次用到时才创建（模块是动态引入的，晚于页面脚本）。
 function createPresetListView(options) {
-    return PLV.createPresetListView({
-        document,
-        escapeHtml,
-        closeMenu: closeOptions => cardMenu?.close(closeOptions),
-        toggleMenu: button => getCardMenu()?.toggle(button),
-        createSortable: sortableOptions => (SL ? SL.createSortableList(sortableOptions) : null),
-        moveStep: (ids, id, direction) => (PO ? PO.movePresetId(ids, id, direction) : ids),
-        autoScroll: autoScrollPresetList,
-        ...options,
-    });
+    return presetListKit.createPresetListView({ document, ...options });
 }
 
 let paramsListView = null;
 function getParamsListView() {
-    if (!paramsListView && PLV) {
+    if (!paramsListView && presetListKit) {
         paramsListView = createPresetListView({
             listId: 'novel-params',
             getToggle: () => $('nd_params_collapse'),
@@ -3344,7 +3324,7 @@ function currentPromptPresetId() {
 
 let promptListView = null;
 function getPromptListView() {
-    if (!promptListView && PLV) {
+    if (!promptListView && presetListKit) {
         promptListView = createPresetListView({
             listId: 'novel-prompts',
             defaultCollapsed: true,
@@ -3608,7 +3588,7 @@ function getLayoutEditor() {
             builtinEditors: Object.fromEntries(Array.from(document.querySelectorAll('[data-prompt-editor]'), node => [node.dataset.promptEditor, node])),
             editorParking: $('nd_prompt_editors'),
             confirm: message => confirm(message),
-            autoScroll: autoScrollPresetList,
+            autoScroll: (event, list) => presetListKit?.autoScroll(event, list),
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
             onTestTool: testBlockTool,
         });
@@ -4488,12 +4468,12 @@ function initializePage() {
         import('../../shared/preset-order.js')
             .then((module) => { PO = module; })
             .catch((error) => { console.error('[ND-UI] 预设排序模块加载失败，参数预设无法排序:', error); }),
-        import('../../shared/sortable-list.js')
-            .then((module) => { SL = module; paramsListView?.ensureSortable(); promptListView?.ensureSortable(); })
-            .catch((error) => { console.error('[ND-UI] 列表排序模块加载失败，预设列表无法拖拽排序:', error); }),
-        import('../../shared/preset-list-view.js')
-            .then((module) => { PLV = module; })
-            .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，参数 / 提示词预设列表无法显示:', error); }),
+        import('../../shared/preset-list-kit.js')
+            .then((module) => {
+                presetListKit = module.createPresetListKit({ escapeHtml, shareMenu: { get: () => getCardMenu(), peek: () => cardMenu } });
+                renderApiPresetBar();
+            })
+            .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，预设列表无法显示或排序:', error); }),
         import('../../shared/prompt-layout-editor.js')
             .then((module) => { PLE = module; })
             .catch((error) => { console.error('[ND-UI] 请求结构编辑器加载失败，请求结构不可用:', error); }),

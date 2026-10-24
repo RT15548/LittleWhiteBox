@@ -49,7 +49,7 @@ for (const [operation, editing] of [
                 else delete globalThis[key];
             }
         });
-        const click = id => root.querySelector(`#${id}`).dispatchEvent(new window.Event('click', { bubbles: true }));
+        const click = selector => root.querySelector(selector).dispatchEvent(new window.Event('click', { bubbles: true }));
         const edit = value => {
             const input = root.querySelector('#xb-assistant-model');
             input.value = value;
@@ -57,7 +57,11 @@ for (const [operation, editing] of [
         };
         await surface.refresh();
         if (editing === 'before') edit('unsaved');
-        click({ rename: 'xb-assistant-rename-preset', create: 'xb-assistant-new-preset', delete: 'xb-assistant-delete-preset' }[operation]);
+        click({
+            rename: '[data-preset-action="rename"][data-preset-id="A"]',
+            create: '#xb-assistant-new-preset',
+            delete: '[data-preset-action="delete"][data-preset-id="A"]',
+        }[operation]);
         if (editing === 'during' || editing === 'reverted') edit('unsaved');
         if (editing === 'reverted') edit('saved');
         if (editing.startsWith('sampling')) {
@@ -89,7 +93,7 @@ for (const [operation, editing] of [
             }
         } else {
             assert.ok(surface.getState().config.presets.D);
-            click('xb-assistant-save');
+            click('#xb-assistant-save');
             finishSave();
             await nextTurn();
             assert.ok(stored.presets.D);
