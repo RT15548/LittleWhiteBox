@@ -227,3 +227,35 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
 .sd-char-fieldgroup > .char-section-hint { margin: 0 0 6px; font-size: 11px; }
 .sd-char-fieldgroup > .form-group { margin-bottom: 8px; }
 .sd-char-editor-note { margin-top: 10px; color: var(--text-muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* ── 角色标签页的明暗层次（SD WebUI / ComfyUI；与 NovelAI 页面 #nd_char_list 的同名方案一致，只作用于角色分组内部）──
+   分组是一层浅灰“托盘”，分组头略深，角色卡是托盘里的白卡片，展开的卡片是更柔和的底；形态块是比卡片正文灰一档的底，输入框保持白色。
+   颜色全部由页面已有的 --bg-* / --text-primary 混合得到（缺省值只为单独使用时可读），深色主题是同一套结构的提亮版本。 */
+.lwb-cl-group {
+    --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 40%, var(--bg-primary, #0d1117));
+    --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 3%, var(--bg-tertiary, #21262d));
+    --ct-card: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-secondary, #161b22));
+    --ct-open: var(--bg-secondary, #161b22);
+    --ct-form: color-mix(in srgb, var(--text-primary, #e6edf3) 3%, var(--bg-tertiary, #21262d));
+    --ct-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-color-scheme: light) {
+    .lwb-cl-group {
+        --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 60%, var(--bg-primary, #0d1117));
+        --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-tertiary, #21262d));
+        --ct-card: var(--bg-secondary, #161b22);
+        --ct-open: color-mix(in srgb, var(--bg-tertiary, #21262d) 35%, var(--bg-secondary, #161b22));
+        --ct-form: color-mix(in srgb, var(--bg-tertiary, #21262d) 70%, var(--bg-secondary, #161b22));
+        --ct-shadow: 0 1px 2px rgba(60, 50, 30, 0.08);
+    }
+}
+.lwb-cl-group { background: var(--ct-group); box-shadow: var(--ct-shadow); }
+.lwb-cl-group-header { background: var(--ct-group-head); border-bottom: 1px solid var(--border); }
+.lwb-cl-group.collapsed .lwb-cl-group-header { border-bottom-color: transparent; }
+.lwb-cl-group-body { padding: 6px; }
+.lwb-cl-group-body > .sd-char-card {
+    padding: 8px 10px; background: var(--ct-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--ct-shadow);
+}
+.lwb-cl-group-body > .sd-char-card + .sd-char-card { margin-top: 4px; }
+.lwb-cl-group-body > .sd-char-card[open] { background: var(--ct-open); border-color: var(--border-focus, var(--border)); }
+.lwb-cl-group-body > .sd-char-card[open] .sd-char-form { background: var(--ct-form); }

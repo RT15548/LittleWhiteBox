@@ -70,6 +70,60 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 #nd_char_select_toggle.active { color: var(--accent); border-color: var(--accent); }
 .char-select, .char-group-select { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
 .char-card.dragging, .char-group.dragging { opacity: .45; }
+/* ── 角色标签页的明暗层次（只作用于 #nd_char_list，别的页面不受影响）──
+   页面本身保持以白为主：外层的分组是一层浅灰的“托盘”，角色卡是托盘里的白卡片；编辑中的卡片顶栏与表单正文是两个色调，
+   形态卡片是比表单正文更灰一档的底，里面的服装 / 动态标签条目和输入框仍是白色；分区标题行有一条很淡的灰色底。
+   颜色都由页面已有的 --bg-* / --text-primary 混合得到（文字色只混很少一点），深色主题是同一套结构的“提亮”版本，没有写死的色值。
+   正文文字（--text-primary / --text-secondary）在这些底色上都保持 AA 对比度；--text-muted 只用在最浅的白卡和托盘上。 */
+#nd_char_list {
+    --ct-group: color-mix(in srgb, var(--bg-tertiary) 40%, var(--bg-primary));
+    --ct-group-head: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+    --ct-card: color-mix(in srgb, var(--text-primary) 2%, var(--bg-secondary));
+    --ct-edit-bar: color-mix(in srgb, var(--text-primary) 6%, var(--bg-tertiary));
+    --ct-edit-body: var(--bg-secondary);
+    --ct-form: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+    --ct-item: color-mix(in srgb, var(--text-primary) 2%, var(--bg-secondary));
+    --ct-band: color-mix(in srgb, var(--text-primary) 8%, var(--bg-tertiary));
+    --ct-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+@media (prefers-color-scheme: light) {
+    #nd_char_list {
+        --ct-group: color-mix(in srgb, var(--bg-tertiary) 60%, var(--bg-primary));
+        --ct-group-head: color-mix(in srgb, var(--text-primary) 2%, var(--bg-tertiary));
+        --ct-card: var(--bg-secondary);
+        --ct-edit-bar: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+        --ct-edit-body: color-mix(in srgb, var(--bg-tertiary) 35%, var(--bg-secondary));
+        --ct-form: color-mix(in srgb, var(--bg-tertiary) 70%, var(--bg-secondary));
+        --ct-item: var(--bg-secondary);
+        --ct-band: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+        --ct-shadow: 0 1px 2px rgba(60, 50, 30, .08);
+    }
+}
+#nd_char_list .char-group { background: var(--ct-group); box-shadow: var(--ct-shadow); }
+#nd_char_list .char-group-header { background: var(--ct-group-head); border-bottom: 1px solid var(--border); }
+#nd_char_list .char-group.collapsed .char-group-header { border-bottom-color: transparent; }
+#nd_char_list .char-group-body { padding: 6px; }
+#nd_char_list .char-group-body > .char-card, #nd_char_list .char-card:not(.editing) {
+    background: var(--ct-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--ct-shadow);
+}
+#nd_char_list .char-group-body > .char-card + .char-card { margin-top: 4px; }
+#nd_char_list .char-card:not(.editing):hover { background: color-mix(in srgb, var(--text-primary) 4%, var(--ct-card)); }
+#nd_char_list .char-card.editing { background: var(--ct-edit-body); border-color: var(--border-focus); box-shadow: var(--ct-shadow); }
+#nd_char_list .char-card.editing:hover { background: var(--ct-edit-body); }
+#nd_char_list .char-card.editing > .char-card-summary { background: var(--ct-edit-bar); }
+#nd_char_list .char-form { background: var(--ct-form); }
+#nd_char_list .char-outfit-editor-item, #nd_char_list .char-dynstate-editor-item { background: var(--ct-item); }
+#nd_char_list .char-form .char-outfit-editor-item, #nd_char_list .char-form .char-dynstate-editor-item { background: var(--ct-item); }
+#nd_char_list .char-edit-section > .char-section-head { padding: 3px 8px; border-radius: 6px; background: var(--ct-band); }
+#nd_char_list .char-forms > .char-section-head { padding: 3px 8px; border-radius: 6px; background: var(--ct-band); }
+/* 灰底上的小字用 --text-secondary（--text-muted 在这些底色上不到 AA）：分组计数、分区标题与数量、状态、折叠预览与说明文字。 */
+#nd_char_list .char-group-count,
+#nd_char_list .char-status,
+#nd_char_list .named-tag-preview, #nd_char_list .char-form-preview,
+#nd_char_list .char-section-toggle, #nd_char_list .char-forms-title { color: var(--text-secondary); }
+#nd_char_list .char-section-toggle:hover { color: var(--text-primary); }
+#nd_char_list .char-section-count, #nd_char_list .char-edit-note, #nd_char_list .char-section-hint { color: var(--text-secondary); }
+/* ── 角色标签页层次结束 ── */
 .drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .planner-retry-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .planner-retry-row .input { width: 72px; padding: 4px 8px; }
@@ -96,8 +150,8 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-identity { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .char-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .char-type-badge {
-    font-size: 10px; padding: 1px 5px; border-radius: 3px;
-    background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
+    font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+    background: color-mix(in srgb, var(--text-primary) 9%, transparent); color: var(--text-secondary); white-space: nowrap;
 }
 .char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
@@ -153,7 +207,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     gap: 10px; margin-bottom: 10px;
 }
 .char-outfit-editor-item .form-group:last-child, .char-dynstate-editor-item .form-group:last-child { margin-bottom: 0; }
-/* 条目折叠头：[拖动手柄] [折叠箭头] [名称输入框（平时看上去就是加粗标题，悬停 / 聚焦才显示输入框）] [TAG 预览（折叠时）] [已停用（停用时）] [“…”菜单：复制 / 停用 · 启用 / 删除]。
+/* 条目折叠头：[拖动手柄] [折叠箭头] [名称输入框（平时看上去就是加粗标题，悬停 / 聚焦才显示输入框）] [TAG 预览（折叠时）] [已停用（停用时）] [启用开关] [删除] [“…”菜单：复制]。
    点箭头、预览或头部空白处展开 / 折叠；点名称输入框是直接编辑。折叠时头部就是整条的高度。 */
 .named-tag-header { cursor: pointer; }
 .named-tag-toggle, .char-form-toggle {
@@ -187,6 +241,8 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* 形态头部的类型徽标（外观同摘要栏的 .char-type-badge）：紧跟名称输入框，占住名称与 TAG 预览之间的空位；窄屏时名称先收缩。 */
 .char-form-type { flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
+/* 头部的删除图标按钮：平时与别的图标按钮一样是灰色，悬停才变危险色。 */
+.editor-item-delete:hover, .editor-item-delete:focus-visible { color: var(--danger); border-color: var(--danger); background: transparent; }
 /* 头部的“已停用”小标签：只在停用时出现，淡色小字不抢眼。 */
 .editor-item-state { display: none; flex-shrink: 0; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 .named-tag-item.is-disabled .editor-item-state, .char-form.is-disabled .editor-item-state { display: inline; }
