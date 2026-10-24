@@ -66,7 +66,8 @@ import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
-import { applyFormFieldsFromCard, createFormsEditor } from "../../shared/character-forms-dom.js";
+import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
+import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
@@ -2879,24 +2880,24 @@ function renderCharacterCard({ character: tag, ordinal }) {
         createCharacterField('角色名', 'name', tag.name || '', '例如 芙蕾雅'),
         createCharacterField('类型', 'type', tag.type || 'girl', '例如 girl / boy'),
     );
-    const formNameField = createCharacterField('形态名称（可选）', 'formName', tag.formName || '', '例如 人形；有多个形态时用来区分');
+    const formNameField = createCharacterField('形态名称（可选）', 'formName', tag.formName || '', '形态名称');
 
     card.append(
         top,
         grid,
         createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
         formNameField,
-        createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
-        createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
+        createFixedAppearanceGroup({ document, createField: createCharacterField, values: tag }),
         createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
         createCharacterField('服装参考（每行一套，行首加 # 停用）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
-        createCharacterField('动态外貌（每行一条，行首加 # 停用）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
+        createCharacterField(`${EXTRA_TAGS_COPY.title}（每行一条，行首加 # 停用）`, 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '脸红 = blush, looking away', { multiline: true }),
         createFormsEditor({ document, forms: tag.forms || [], createField: createCharacterField }),
     );
     const panel = document.createElement('div');
     panel.className = 'danbooru-panel hidden';
     panel.dataset.charId = card.dataset.characterId;
     card.appendChild(panel);
+    card.appendChild(createCharacterEditorNote(document));
     card.addEventListener('input', event => {
         if (event.target.dataset.sdCharField === 'name') titleText.textContent = event.target.value || `角色 ${index + 1}`;
     });

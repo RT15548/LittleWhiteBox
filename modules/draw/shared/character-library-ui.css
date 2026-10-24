@@ -219,3 +219,9 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
 .sd-char-form-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
 .sd-char-form-tools { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .sd-char-form[open] > .sd-char-form-summary { margin-bottom: 10px; }
+
+/* ── 角色编辑区：固定外貌分组（正向 / 负向）与末尾说明 ── */
+.sd-char-fieldgroup > .form-label { font-weight: 600; }
+.sd-char-fieldgroup > .char-section-hint { margin: 0 0 6px; font-size: 11px; }
+.sd-char-fieldgroup > .form-group { margin-bottom: 8px; }
+.sd-char-editor-note { margin-top: 10px; color: var(--text-muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }

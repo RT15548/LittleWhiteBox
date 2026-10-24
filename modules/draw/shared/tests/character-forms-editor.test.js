@@ -92,9 +92,11 @@ test('each form body holds its own type, appearance, negative tags, outfits and 
     assert.deepEqual([dragon.type, dragon.typeCustom, dragon.appearance], ['custom', 'no humans', 'dragon']);
     assert.deepEqual(dragon.outfits.map(item => item.name), ['鳞甲', '裸']);
     assert.deepEqual(dragon.dynamicStates.map(item => item.name), ['喷火']);
-    for (const key of ['appearance', 'negative', 'outfits', 'dynamicStates']) {
+    for (const key of ['appearance', 'outfits', 'dynamicStates']) {
         assert.equal(card.querySelectorAll(`.char-form .char-edit-section[data-section="${key}"]`).length, 2);
     }
+    assert.equal(card.querySelectorAll('.char-form .char-edit-section').length, 6); // 固定外貌（含负向）/ 服装 / 附加标签，没有独立的负向分区
+    assert.equal(card.querySelectorAll('.char-form .char-edit-section[data-section="appearance"] .char-edit-neg').length, 2);
 });
 
 test('draft capture and redraw keep typed text, fold state and the hidden Danbooru tag', () => {

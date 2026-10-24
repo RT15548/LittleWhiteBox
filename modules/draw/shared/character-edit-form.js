@@ -1,4 +1,4 @@
-// 单角色编辑卡片的表单片段：可折叠分区、服装 / 动态外貌条目（折叠 + 单条启用）的渲染、同步与读取。
+// 单角色编辑卡片的表单片段：可折叠分区、服装 / 附加标签条目（折叠 + 单条启用）的渲染、同步与读取。
 // 只拼 HTML 字符串并操作传入的 DOM 节点，不依赖酒馆宿主模块；插入文档前由调用方负责 sanitize。
 // 折叠状态全是界面状态：条目折叠只活在 DOM 的 data-expanded 上，经草稿（collect 的 withUiState）带过重绘；
 // 分区折叠按卡片 id 记在 createEditorSectionState() 里，整个页面会话内有效；两者都不进入保存的数据。
@@ -16,11 +16,17 @@ import {
     getCharacterForms,
     normalizeForms,
 } from './character-forms.js';
+import {
+    EXTRA_TAGS_COPY,
+    FIXED_APPEARANCE_COPY,
+    NAMED_TAG_EMPTY_TEXT,
+    NAMED_TAG_TAGS_LABEL,
+} from './character-editor-copy.js';
 
 // 角色 id 与形态 key 的拼接分隔符：分区折叠记录、Danbooru 搜索面板都用“角色 id#形态 key”区分同一角色的不同形态。
 export const FORM_REF_SEPARATOR = '#';
 
-export const EDITOR_SECTION_KEYS = Object.freeze(['appearance', 'negative', 'outfits', 'dynamicStates']);
+export const EDITOR_SECTION_KEYS = Object.freeze(['appearance', 'outfits', 'dynamicStates']);
 
 export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
     outfit: {
@@ -28,17 +34,17 @@ export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
         title: '服装',
         nameLabel: '服装名称',
         nameHint: '点击修改名称，如：常服、礼服、战斗服',
-        tagsLabel: '服装 TAG',
+        tagsLabel: NAMED_TAG_TAGS_LABEL,
         tagsPlaceholder: 'white shirt, black skirt, ribbon...',
         removeAction: 'remove-outfit',
     },
     dynstate: {
         classPrefix: 'char-dynstate',
-        title: '状态',
-        nameLabel: '状态名称',
-        nameHint: '点击修改名称，如：睡觉、淋雨、害羞',
-        tagsLabel: '状态 TAG',
-        tagsPlaceholder: 'closed eyes, sleeping...',
+        title: EXTRA_TAGS_COPY.title,
+        nameLabel: EXTRA_TAGS_COPY.nameLabel,
+        nameHint: EXTRA_TAGS_COPY.nameHint,
+        tagsLabel: NAMED_TAG_TAGS_LABEL,
+        tagsPlaceholder: 'blush, looking away...',
         removeAction: 'remove-dynstate',
     },
 });
@@ -114,7 +120,7 @@ export function setEditorSectionCollapsed(section, collapsed) {
     section.querySelector('.char-section-toggle')?.setAttribute('aria-expanded', String(!collapsed));
 }
 
-// ── 服装 / 动态外貌条目 ─────────────────────────────────────
+// ── 服装 / 附加标签条目 ─────────────────────────────────────
 
 /**
  * 渲染一个条目。item 可带 enabled（false 才算停用）与 expanded（草稿里的展开状态）；
@@ -200,7 +206,7 @@ export function setNamedTagItemEnabled(row, enabled) {
     if (text) text.textContent = enabled ? ENABLED_COPY.on : ENABLED_COPY.off;
 }
 
-/** 条目行属于哪种列表（服装 / 状态）。 */
+/** 条目行属于哪种列表（服装 / 附加标签）。 */
 export function namedTagKindOfRow(row) {
     return row?.classList.contains('char-dynstate-editor-item') ? 'dynstate' : 'outfit';
 }
@@ -280,7 +286,7 @@ export function reorderNamedTagEditorRows(list, kind, orderedUids) {
 }
 
 /**
- * 服装 / 状态条目的拖拽 + 键盘（↑ / ↓）排序：直接复用 sortable-list.js 的控制器（与参数 / 提示词预设列表同一套交互），
+ * 服装 / 附加标签条目的拖拽 + 键盘（↑ / ↓）排序：直接复用 sortable-list.js 的控制器（与参数 / 提示词预设列表同一套交互），
  * 事件委托在 container 上（编辑中的卡片只有一张，所以每种列表至多一个）。折叠的条目用头部的手柄照样可拖。
  */
 export function createNamedTagSortables({ container, document, autoScroll = null, createSortable = createSortableList } = {}) {
@@ -298,7 +304,7 @@ export function createNamedTagSortables({ container, document, autoScroll = null
             moveStep: movePresetId,
             autoScroll,
             bodyClass: 'char-dragging',
-            // 每个形态有自己的服装 / 状态列表：只在被拖行所在的列表内排序。
+            // 每个形态有自己的服装 / 附加标签列表：只在被拖行所在的列表内排序。
             scopeSelector: `.${p}-editor-list`,
             document,
         });
@@ -314,7 +320,7 @@ export function removeNamedTagEditorItem(row, kind = 'outfit') {
 
 /**
  * 读出列表里所有条目（折叠的也读，输入框只是被隐藏）。停用的条目带 enabled:false，启用的不带该键。
- * keepEmpty：草稿保护时保留刚点“添加服装/状态”还没填内容的空行；保存时仍然过滤掉。
+ * keepEmpty：草稿保护时保留刚点“添加服装/附加标签”还没填内容的空行；保存时仍然过滤掉。
  * withUiState：草稿用，额外带上 expanded（界面状态，不会进入保存的数据）。
  */
 export function collectNamedTagEditorValues(card, kind = 'outfit', { keepEmpty = false, withUiState = false } = {}) {
@@ -329,7 +335,7 @@ export function collectNamedTagEditorValues(card, kind = 'outfit', { keepEmpty =
 
 // ── 形态 ────────────────────────────────────────────────────
 // 编辑卡片里的“形态”：角色有 ≥2 个形态时，每个形态是一张可折叠、可拖动排序的子卡片（头部 = 拖动手柄 + 折叠箭头 + 名称输入框 + 外貌预览 + 删除），
-// 正文是该形态自己的 类型 / 固定外貌 / 负向标签 / 服装列表 / 动态外貌（组件与单形态时完全相同）。只有一个形态时不渲染这些，卡片与以前一样。
+// 正文是该形态自己的 类型 / 固定外貌（正向 + 负向） / 服装列表 / 附加标签（组件与单形态时完全相同）。只有一个形态时不渲染这些，卡片与以前一样。
 // 数据：界面里的每个形态是一个“编辑模型” { key, id, name, type, typeCustom, appearance, negativeTags, danbooruTag, outfits, dynamicStates, expanded? }；
 // 第一张卡片写回角色顶层字段（formName 等），其余写回 forms（见 character-forms.js）。key 只在界面里区分形态，不保存。
 
@@ -342,7 +348,7 @@ export const FORM_COPY = Object.freeze({
     sectionTitle: '形态',
     nameLabel: '形态名称',
     nameHint: '点击修改名称，如：人形、龙形',
-    hint: '同一角色的不同形态（如人形 / 龙形）各有自己的类型、外貌、服装与状态；规划时形态名称会拼进角色名，一般同一画面只出现其中一个。可拖动调整顺序，第一个是默认形态。',
+    hint: '同一角色的不同形态（如人形 / 龙形）各有自己的类型、外貌、服装与附加标签；规划时形态名称会拼进角色名，一般同一画面只出现其中一个。可拖动调整顺序，第一个是默认形态。',
     limit: `一个角色最多 ${MAX_CHARACTER_FORMS} 个形态`,
 });
 
@@ -456,7 +462,7 @@ export function applyFormModelsToCharacter(character, models, { makeId = () => `
     return character;
 }
 
-/** 一个形态的四个可折叠分区（固定外貌 / 负向标签 / 服装列表 / 动态外貌）；单形态布局与形态卡片共用。 */
+/** 一个形态的三个可折叠分区（固定外貌〔正向 + 负向〕/ 服装 / 附加标签）；单形态布局与形态卡片共用。 */
 export function renderCharacterFormSections(model, {
     charId, formKey = '', escapeHtml = defaultEscapeHtml, isSectionCollapsed = () => false, danbooruEnabled = false,
 } = {}) {
@@ -467,47 +473,46 @@ export function renderCharacterFormSections(model, {
     const danbooru = String(model.danbooruTag || '');
     const appearanceSection = renderEditorSection({
         key: 'appearance',
-        title: '固定外貌 (appearance)',
+        title: FIXED_APPEARANCE_COPY.title,
         collapsed: isSectionCollapsed('appearance'),
         actionsHtml: `<button class="btn" type="button" data-action="search-danbooru" data-id="${escapeHtml(charId)}"${keyAttr} style="padding:2px 8px;font-size:10px;"${!danbooruEnabled ? ' disabled style="opacity:0.3"' : ''}><i class="fa-solid fa-magnifying-glass"></i> Danbooru</button>`,
         bodyHtml: `
-                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(model.appearance || '')}</textarea>
-                            <input type="hidden" class="char-form-danbooru" value="${escapeHtml(danbooru)}">
-                            <div class="form-hint char-danbooru-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;"${danbooru ? '' : ' hidden'}>Danbooru: ${escapeHtml(danbooru.replace(/_/g, ' '))}</div>
-                            <div class="danbooru-panel hidden" data-char-id="${escapeHtml(ref)}"></div>
-                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>`,
-    });
-    const negativeSection = renderEditorSection({
-        key: 'negative',
-        title: '负向标签（可选）',
-        collapsed: isSectionCollapsed('negative'),
-        bodyHtml: `<textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(model.negativeTags || '')}</textarea>`,
+                            <p class="form-hint char-section-hint">${FIXED_APPEARANCE_COPY.hint}</p>
+                            <div class="form-group">
+                                <label class="form-label">${FIXED_APPEARANCE_COPY.positiveLabel}</label>
+                                <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(model.appearance || '')}</textarea>
+                                <input type="hidden" class="char-form-danbooru" value="${escapeHtml(danbooru)}">
+                                <div class="form-hint char-danbooru-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;"${danbooru ? '' : ' hidden'}>Danbooru: ${escapeHtml(danbooru.replace(/_/g, ' '))}</div>
+                                <div class="danbooru-panel hidden" data-char-id="${escapeHtml(ref)}"></div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">${FIXED_APPEARANCE_COPY.negativeLabel}</label>
+                                <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(model.negativeTags || '')}</textarea>
+                            </div>`,
     });
     const outfitSection = renderEditorSection({
         key: 'outfits',
-        title: '服装列表（可选）',
+        title: '服装',
         collapsed: isSectionCollapsed('outfits'),
         actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${escapeHtml(charId)}"><i class="fa-solid fa-plus"></i> 添加服装</button>`,
         bodyHtml: `
                             <div class="char-outfit-editor-list">
-                                <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。停用的服装不会发送。</div>
+                                <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>${NAMED_TAG_EMPTY_TEXT}</div>
                                 ${renderNamedTagEditorItems(outfits, 'outfit', { escapeHtml })}
-                            </div>
-                            <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves。条目多时自动折叠，点标题行展开。</p>`,
+                            </div>`,
     });
     const dynamicStateSection = renderEditorSection({
         key: 'dynamicStates',
-        title: '动态外貌（可选）',
+        title: EXTRA_TAGS_COPY.title,
         collapsed: isSectionCollapsed('dynamicStates'),
-        actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${escapeHtml(charId)}"><i class="fa-solid fa-plus"></i> 添加状态</button>`,
+        actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${escapeHtml(charId)}"><i class="fa-solid fa-plus"></i> ${EXTRA_TAGS_COPY.addAction}</button>`,
         bodyHtml: `
                             <div class="char-dynstate-editor-list">
-                                <div class="char-dynstate-editor-empty"${dynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。停用的状态不会发送。</div>
+                                <div class="char-dynstate-editor-empty"${dynamicStates.length ? ' style="display:none;"' : ''}>${NAMED_TAG_EMPTY_TEXT}</div>
                                 ${renderNamedTagEditorItems(dynamicStates, 'dynstate', { escapeHtml })}
-                            </div>
-                            <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>`,
+                            </div>`,
     });
-    return `${appearanceSection}${negativeSection}${outfitSection}${dynamicStateSection}`;
+    return `${appearanceSection}${outfitSection}${dynamicStateSection}`;
 }
 
 /**

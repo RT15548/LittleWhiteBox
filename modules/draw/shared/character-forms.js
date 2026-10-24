@@ -1,4 +1,4 @@
-// 角色“形态”：同一个角色的不同样子（如 人形 / 龙形），各自有类型、固定外貌、负向标签、服装列表、动态外貌与 Danbooru 标签。
+// 角色“形态”：同一个角色的不同样子（如 人形 / 龙形），各自有类型、固定外貌（正向 + 负向）、服装列表、附加标签与 Danbooru 标签。
 // 纯函数，只依赖同目录的 named-tag-items.js；NovelAI iframe、SD / ComfyUI 页面、规划器、服务端 Draw Run 运行时都从这里取同一份实现。
 //
 // 数据模型（旧数据与单形态角色完全不变）：
@@ -141,7 +141,7 @@ export function expandCharacterForms(characters = []) {
     return result;
 }
 
-/** 导出 / 导入用：去掉每个形态里服装、状态条目的 enabled（启用状态只属于本机）。 */
+/** 导出 / 导入用：去掉每个形态里服装、附加标签条目的 enabled（启用状态只属于本机）。 */
 export function stripFormsEnabled(forms = []) {
     return (Array.isArray(forms) ? forms : []).map(form => ({
         ...form,
@@ -152,7 +152,7 @@ export function stripFormsEnabled(forms = []) {
 
 /**
  * 导入替换形态列表时保留本机条目的启用状态：文件里的形态按 id、其次按名称对应本机已有的形态，
- * 再对其服装 / 状态逐条按名称恢复启用状态；对不上的形态全部默认启用。
+ * 再对其服装 / 附加标签逐条按名称恢复启用状态；对不上的形态全部默认启用。
  */
 export function applyLocalFormsEnabled(incoming = [], local = []) {
     const localForms = (Array.isArray(local) ? local : []).filter(isPlainObject);

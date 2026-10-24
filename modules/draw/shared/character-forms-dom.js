@@ -1,5 +1,5 @@
 // SD WebUI / ComfyUI 角色卡片里的“形态”编辑区（用 DOM API 构建，不拼 HTML 字符串）。
-// 卡片顶层的 类型 / 固定外貌 / 负向标签 / Danbooru Tag / 服装 / 动态外貌 就是第一形态，这里编辑的是“额外形态”（character.forms，见 character-forms.js）。
+// 卡片顶层的 类型 / 固定外貌（正向 + 负向） / Danbooru Tag / 服装 / 附加标签 就是第一形态，这里编辑的是“额外形态”（character.forms，见 character-forms.js）。
 // 每个额外形态是一个可折叠的块（<details>），含 形态名称 + 与顶层相同的字段，另有 上移 / 下移 / 删除。
 // 字段输入框由页面传入的 createField 构建（与顶层字段同一套），只是用 data-sd-form-field 标记，避免和顶层的 data-sd-char-field 混淆。
 // 草稿安全：读卡片（readFormsFromCard）会保留空白形态，让未保存时重绘列表不丢失刚点“添加形态”的块；保存前由 normalizeForms 丢弃空白形态。
@@ -7,19 +7,38 @@
 
 import { MAX_CHARACTER_FORMS, normalizeForms } from './character-forms.js';
 import { parseNamedTagLines, serializeNamedTagLines } from './named-tag-items.js';
+import { EXTRA_TAGS_COPY, FIXED_APPEARANCE_COPY } from './character-editor-copy.js';
 
 export const FORM_FIELD_KEY = 'sdFormField';
 const FORM_FIELD_ATTR = 'data-sd-form-field';
 
 const FIELD_SPECS = Object.freeze([
-    { field: 'name', label: '形态名称', placeholder: '例如 人形、龙形' },
+    { field: 'name', label: '形态名称', placeholder: '形态名称' },
     { field: 'type', label: '类型', placeholder: '例如 girl / boy / no humans' },
-    { field: 'appearance', label: '固定外貌', placeholder: '会拼进角色外观提示词', multiline: true },
-    { field: 'negativeTags', label: '负向标签', placeholder: '该形态专属 negative / uc 标签', multiline: true },
+    { field: 'appearance', group: 'fixedAppearance' }, // 与 negativeTags 一起放进“固定外貌”分组（createFixedAppearanceGroup）
+    { field: 'negativeTags', group: 'fixedAppearance' },
     { field: 'danbooruTag', label: 'Danbooru Tag', placeholder: '可选' },
     { field: 'outfits', label: '服装参考（每行一套，行首加 # 停用）', placeholder: '校服 = white shirt, pleated skirt', multiline: true },
-    { field: 'dynamicStates', label: '动态外貌（每行一条，行首加 # 停用）', placeholder: '害羞 = blush, embarrassed', multiline: true },
+    { field: 'dynamicStates', label: `${EXTRA_TAGS_COPY.title}（每行一条，行首加 # 停用）`, placeholder: '脸红 = blush, looking away', multiline: true },
 ]);
+
+/**
+ * “固定外貌”分组（SD WebUI / ComfyUI 卡片顶层与额外形态共用）：标题 + 一行说明 + 两个输入框（正向 appearance、负向 negativeTags）。
+ * 输入框仍由页面的 createField 构建，字段名与读取方式不变；dataKey 缺省时用页面默认的 data-sd-char-field。
+ */
+export function createFixedAppearanceGroup({ document, createField, values = {}, dataKey } = {}) {
+    const group = el(document, 'div', 'form-group sd-char-fieldgroup');
+    group.append(
+        el(document, 'label', 'form-label', FIXED_APPEARANCE_COPY.title),
+        el(document, 'p', 'form-hint char-section-hint', FIXED_APPEARANCE_COPY.hint),
+    );
+    const options = { multiline: true, ...(dataKey ? { dataKey } : {}) };
+    group.append(
+        createField(FIXED_APPEARANCE_COPY.positiveLabel, 'appearance', values.appearance || '', '会拼进角色外观提示词', options),
+        createField(FIXED_APPEARANCE_COPY.negativeLabel, 'negativeTags', values.negativeTags || '', '避免的特征 / negative 标签', options),
+    );
+    return group;
+}
 
 let nextBlockUid = 0;
 
@@ -72,6 +91,10 @@ export function createFormBlock({ document, form = {}, index = 0, createField, o
 
     const body = el(document, 'div', 'sd-char-form-body');
     for (const spec of FIELD_SPECS) {
+        if (spec.group) {
+            if (spec.field === 'appearance') body.append(createFixedAppearanceGroup({ document, createField, values: form, dataKey: FORM_FIELD_KEY }));
+            continue;
+        }
         body.append(createField(spec.label, spec.field, formValueOf(form, spec.field), spec.placeholder, {
             multiline: spec.multiline === true,
             dataKey: FORM_FIELD_KEY,
@@ -117,7 +140,7 @@ export function createFormsEditor({ document, forms = [], createField }) {
     const list = el(document, 'div', 'sd-char-form-list');
     forms.forEach((form, i) => list.append(createFormBlock({ document, form, index: i + 1, createField })));
     const hint = el(document, 'p', 'form-hint',
-        '上面的 类型 / 固定外貌 / 负向标签 / Danbooru Tag / 服装 / 动态外貌 是第一形态（默认形态，可在上方填写形态名称）；这里添加同一角色的其他形态（如龙形）。规划时形态名称会拼进角色名，一般同一画面只出现其中一个。');
+        '上面的 类型 / 固定外貌 / Danbooru Tag / 服装 / 附加标签 是第一形态（默认形态，可在上方填写形态名称）；这里添加同一角色的其他形态（如龙形）。规划时形态名称会拼进角色名，一般同一画面只出现其中一个。');
     root.append(head, list, hint);
 
     const syncAddButton = () => {

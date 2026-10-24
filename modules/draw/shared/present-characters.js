@@ -43,7 +43,7 @@ export function detectPresentCharacters(messageText, characterLibrary) {
                     appearance: entry.appearance || '',
                     danbooruTag: entry.danbooruTag || '',
                     negativeTags: entry.negativeTags || '',
-                    // 停用的服装 / 状态在这里就被剔除：规划器的输入里根本没有它们。
+                    // 停用的服装 / 附加标签在这里就被剔除：规划器的输入里根本没有它们。
                     outfits: selectEnabledNamedTags(entry.outfits),
                     dynamicStates: selectEnabledNamedTags(entry.dynamicStates),
                     ...(entry.baseName !== undefined

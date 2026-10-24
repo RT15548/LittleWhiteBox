@@ -6,7 +6,7 @@
 // 分组开关与角色自己的状态互不改写：关掉分组再打开，组内每个角色保持关闭前的样子。
 // 上锁（locked）是本机状态：角色与分组都可以上锁，导入按 id 或名字命中替换时默认保护上锁角色；
 // 键只在为 true 时才写，不进入导出文件，也不读取导入文件。角色“有效上锁”= 自己上锁 或 所在分组上锁。
-// 服装 / 动态外貌条目同理有自己的开关（enabled，缺省=开，只在关闭时才写 enabled:false，见 named-tag-items.js），停用的条目不会发给规划器。
+// 服装 / 附加标签（dynamicStates）条目同理有自己的开关（enabled，缺省=开，只在关闭时才写 enabled:false，见 named-tag-items.js），停用的条目不会发给规划器。
 // 角色 / 条目 / 分组的启用状态都只属于本机：导出文件不带任何 enabled，导入时文件里的 enabled 一律不认——
 // 新的默认启用（“导入为停用”是导入时的本机选择，不是文件字段），与本机已有项对上的保留本机状态。
 // 形态（forms，见 character-forms.js）：角色顶层字段就是第一形态，forms 只存额外的形态，没有额外形态的角色不带 formName / forms 键。
@@ -106,7 +106,7 @@ function stripLocked(item) {
     return rest;
 }
 
-// 导出 / 导入共用：角色自己与服装、状态条目的启用状态都是本机状态，文件里不带。
+// 导出 / 导入共用：角色自己与服装、附加标签条目的启用状态都是本机状态，文件里不带。
 function stripLocalEnabled(character) {
     const rest = { ...character };
     delete rest.enabled;
@@ -754,7 +754,7 @@ export function placeCharactersAfterGroupMembers(rest, placements) {
 /**
  * 计算导入结果，不修改入参；用户确认后再采用返回的 library。
  * options.mode:
- *   'auto'           按 id 替换（默认）。替换保留本地的启用状态（角色、服装 / 状态条目、所在分组的开关）、分组与位置；新角色按文件分组名归位（同名并入，没有则新建）。
+ *   'auto'           按 id 替换（默认）。替换保留本地的启用状态（角色、服装 / 附加标签条目、所在分组的开关）、分组与位置；新角色按文件分组名归位（同名并入，没有则新建）。
  *   'existing-group' 导入到 options.groupId。
  *   'new-group'      新建 options.newGroupName 并导入。
  * options.sameIdPolicy（仅非 auto 模式）：'replace'（默认，替换并移入目标分组）| 'keep-both'（副本使用新 id）| 'skip'。
@@ -864,7 +864,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
                 if (character[field] === undefined) delete existing[field];
                 else existing[field] = cloneJson(character[field]);
             }
-            // 服装 / 状态：按名称对上本机条目，保留它们各自的启用状态（角色自己的 enabled 本来就不在 fields 里）。
+            // 服装 / 附加标签：按名称对上本机条目，保留它们各自的启用状态（角色自己的 enabled 本来就不在 fields 里）。
             for (const field of ['outfits', 'dynamicStates']) {
                 if (fields.includes(field)) existing[field] = applyLocalNamedTagEnabled(existing[field], localItems[field]);
             }

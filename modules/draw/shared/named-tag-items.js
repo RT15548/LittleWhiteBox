@@ -1,4 +1,4 @@
-// 角色「服装列表 / 动态外貌」条目（{ name, tags, enabled? }）的纯函数：规范化、启用过滤、折叠规则、文本行互转。
+// 角色「服装列表 / 附加标签（dynamicStates）」条目（{ name, tags, enabled? }）的纯函数：规范化、启用过滤、折叠规则、文本行互转。
 // 只依赖语言内建；NovelAI iframe、SD / ComfyUI 页面、规划器输入都从这里取同一份实现，不要各写一份。
 // 条目启用：enabled 缺省 = 开，只在关闭时才写 enabled:false（没用到这个开关的旧数据保持字节级不变）。
 // 折叠状态（expanded）只存在于编辑器的界面里，规范化后的数据不含该键，也不会保存或导出。
@@ -24,7 +24,7 @@ export function normalizeNamedTagList(list = []) {
         .filter(item => item.name || item.tags);
 }
 
-/** 只留启用的条目，并去掉 enabled 键：发给场景规划器的就是这份，AI 看不到停用的服装 / 状态。 */
+/** 只留启用的条目，并去掉 enabled 键：发给场景规划器的就是这份，AI 看不到停用的服装 / 附加标签。 */
 export function selectEnabledNamedTags(list = []) {
     return normalizeNamedTagList(list)
         .filter(isNamedTagEnabled)
@@ -37,7 +37,7 @@ export function stripNamedTagEnabled(list = []) {
 }
 
 /**
- * 导入替换服装 / 状态列表时保留本机的启用状态：文件里的条目按名称（去首尾空白）对应本机已有的同名条目，
+ * 导入替换服装 / 附加标签列表时保留本机的启用状态：文件里的条目按名称（去首尾空白）对应本机已有的同名条目，
  * 本机停用的继续停用；对不上的新条目默认启用。同名条目按先后顺序一一对应，文件本身的 enabled 不起作用。
  */
 export function applyLocalNamedTagEnabled(incoming = [], local = []) {
@@ -54,7 +54,7 @@ export function applyLocalNamedTagEnabled(incoming = [], local = []) {
     });
 }
 
-/** 启用条目数（状态标签只在 > 0 时出现）。 */
+/** 启用条目数（附加标签的状态芯片只在 > 0 时出现）。 */
 export function countEnabledNamedTags(list = []) {
     return selectEnabledNamedTags(list).length;
 }

@@ -123,7 +123,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-group-body .char-card.editing > .char-card-summary { top: -2px; } /* 分组滚动区自带 2px 上内边距：抵消它，滚过去的内容不会从栏上方漏出来 */
 .char-edit-save, .char-edit-cancel { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
 .char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item, .char-form { scroll-margin-top: 72px; scroll-margin-bottom: 16px; } /* 聚焦 / 滚入视野时别被吸顶栏盖住 */
-/* ── 可折叠分区（固定外貌 / 负向标签 / 服装列表 / 动态外貌）── */
+/* ── 可折叠分区（固定外貌〔正向 + 负向〕/ 服装 / 附加标签）── */
 .char-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .char-section-toggle {
     display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px 2px 0; border: 0; background: none;
@@ -142,10 +142,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
 .char-edit-form textarea.input { min-height: 60px; }
 .char-outfit-editor-list, .char-dynstate-editor-list { display: flex; flex-direction: column; gap: 10px; }
-.char-outfit-editor-empty, .char-dynstate-editor-empty {
-    padding: 10px 12px; border-radius: 8px; border: 1px dashed var(--border);
-    background: rgba(255,255,255,.02); color: var(--text-muted); font-size: 11px;
-}
+.char-outfit-editor-empty, .char-dynstate-editor-empty { padding: 2px 0; color: var(--text-muted); font-size: 11px; }
+.char-section-hint { margin: 0 0 8px; font-size: 11px; }
+.char-edit-note { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .char-outfit-editor-item, .char-dynstate-editor-item {
     padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
     background: rgba(255,255,255,.03);

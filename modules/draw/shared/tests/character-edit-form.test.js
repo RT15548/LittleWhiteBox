@@ -90,7 +90,7 @@ test('2+ items render folded: one-line header (handle, chevron, name input, tags
 });
 
 test('the name lives only in the header input (no second name field in the body); placeholder is the field label', () => {
-    for (const [kind, p, label] of [['outfit', 'char-outfit', '服装名称'], ['dynstate', 'char-dynstate', '状态名称']]) {
+    for (const [kind, p, label] of [['outfit', 'char-outfit', '服装名称'], ['dynstate', 'char-dynstate', '附加标签名称']]) {
         const { card } = mount([{ name: 'a', tags: 'x' }, { name: '', tags: 'y' }], kind);
         for (const row of rows(card, kind)) {
             assert.equal(row.querySelectorAll(`.${p}-name`).length, 1);
@@ -397,23 +397,24 @@ test('section state keeps only collapsed keys, ignores unknown keys and prunes r
     const state = createEditorSectionState();
     state.setCollapsed('c1', 'appearance', true);
     state.setCollapsed('c1', 'bogus', true);
-    state.setCollapsed('c2', 'negative', true);
+    state.setCollapsed('c2', 'negative', true); // 负向已并入固定外貌分区：不再是独立分区，记录被忽略
     assert.equal(state.isCollapsed('c1', 'bogus'), false);
     state.setCollapsed('c1', 'appearance', false);
     assert.equal(state.isCollapsed('c1', 'appearance'), false);
     state.prune(['c1']);
     assert.equal(state.isCollapsed('c2', 'negative'), false);
+    assert.equal(state.isCollapsed('c2', 'appearance'), false);
     state.setCollapsed('c3', 'outfits', true);
     state.prune(['c3']);
     assert.equal(state.isCollapsed('c3', 'outfits'), true);
 });
 
-test('all four sections render a chevron toggle on the label row, with the action beside it', () => {
+test('all three sections render a chevron toggle on the label row, with the action beside it', () => {
     const html = EDITOR_SECTION_KEYS.map(key => renderEditorSection({
         key, title: key, actionsHtml: key === 'outfits' ? '<button data-action="add-outfit">+</button>' : '', bodyHtml: `<i class="b-${key}"></i>`,
     })).join('');
     const { document } = parseHTML(`<html><body>${html}</body></html>`);
-    assert.equal(document.querySelectorAll('.char-section-head > .char-section-toggle .char-section-chevron').length, 4);
+    assert.equal(document.querySelectorAll('.char-section-head > .char-section-toggle .char-section-chevron').length, 3);
     assert.ok(document.querySelector('.char-section-head > .char-section-actions > [data-action="add-outfit"]'));
     // 操作按钮不在折叠按钮里面：点“添加”不会误触折叠
     assert.equal(document.querySelector('.char-section-toggle [data-action="add-outfit"]'), null);
