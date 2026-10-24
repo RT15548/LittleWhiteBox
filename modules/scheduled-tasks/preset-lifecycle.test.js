@@ -30,6 +30,8 @@ const { SlashCommandAbortController } = await import(controllerUrl.href);
 // - Reading tasks never writes presets or replaces live prompt switches (lost user settings).
 // - Missing IDs never make a preset exit wait for storage (blocked destination chat).
 // - Ordinary command results/concurrency and one-shot JavaScript remain unchanged (lost or duplicated actions).
+// - Returning from startup does not cancel detached initialization, native UI handlers or returned capabilities; idle UI never locks chat (broken panels / lost actions).
+// - Explicit stop/replacement revokes those capabilities even after startup returns, with only one current instance per task (stale writes / duplicate generation).
 // - Stop/edit/delete invalidate pending work before persistence finishes (scripts surviving user stop).
 // - Waiting for script storage or executing empty input does not lock unrelated tasks (blocked chat).
 // - After asynchronous global reads, use current preset task configuration only within the original visit (deleted/disabled or obsolete scripts running).
@@ -205,6 +207,97 @@ const resident = label => `
     setTimeoutSafe(() => {}, 60000); setIntervalSafe(() => {}, 60000);
     addFloorListener(() => {}, { interval: 1, timing: 'after_ai' });
 `;
+
+test('detached panel startup and native clicks survive body return without locking unrelated tasks', async t => {
+    const h = harness(t), gate = deferred();
+    h.win.gate = gate.promise;
+    h.preset('A', [task('panel', `
+        window.signal = abortSignal;
+        window.ready = (async () => {
+            await window.gate;
+            const button = document.createElement('button'); button.id = 'native-panel';
+            button.addEventListener('click', () => { window.clicked = STscript('/run'); });
+            document.body.append(button);
+            window.output = await STscript('/read');
+        })();
+    `), { ...task('other', 'window.otherRan = true;'), triggerTiming: 'after_ai' }]);
+    h.setSlash(async command => { h.calls.push(command); return { pipe: 'saved-output' }; });
+    await h.win.xbqte('panel'); h.flushRecords();
+    assert.equal(h.win.signal.aborted, false);
+    assert.equal(h.api.state.executingRecords.size, 0);
+    await h.api.checkAndExecuteTasks('after_ai'); h.flushRecords();
+    assert.equal(h.win.otherRan, true);
+    gate.resolve(); await h.win.ready;
+    assert.equal(h.win.output, 'saved-output');
+    const button = h.win.document.getElementById('native-panel');
+    button.click(); await h.win.clicked;
+    button.click(); await h.win.clicked;
+    h.flushRecords();
+    assert.deepEqual(h.calls, ['/read', '/run', '/run']);
+    assert.equal(h.api.state.executingRecords.size, 0);
+    h.change('B');
+    button.click(); await h.win.clicked;
+    assert.deepEqual(h.calls, ['/read', '/run', '/run']);
+    assert.equal(h.win.signal.aborted, true);
+    assert.equal(h.api.__taskRunMap.size, 0);
+});
+
+test('returned task capabilities remain usable until replacement or reset, without accumulating instances', async t => {
+    const h = harness(t);
+    h.global(task('capability', 'return { signal: abortSignal, run: STscript };'));
+    let previous;
+    for (let i = 0; i < 5; i++) {
+        const current = await h.win.XBTasks.exec('capability');
+        if (previous) {
+            assert.equal(previous.signal.aborted, true);
+            await previous.run('/stale');
+        }
+        assert.equal(current.signal.aborted, false);
+        await current.run('/current');
+        assert.equal(h.api.__taskRunMap.size, 1);
+        previous = current;
+    }
+    await h.win.xbtaskreset();
+    await previous.run('/stale');
+    assert.deepEqual(h.calls, Array(5).fill('/current'));
+    assert.equal(h.api.__taskRunMap.size, 0);
+});
+
+test('explicit stops revoke native callbacks and detached continuations after startup has returned', async t => {
+    for (const scope of ['global', 'character', 'preset']) {
+        const actions = ['disable', 'delete', 'edit', 'rename', 'reset', 'rerun'];
+        if (scope === 'preset') actions.push('exit', 'api-exit');
+        for (const action of actions) {
+            await t.test(`${scope}/${action}`, async t => {
+                const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+                h.win.instances = [];
+                const panel = task('panel', `
+                    const instance = { signal: abortSignal, click: () => STscript('/click') };
+                    instance.ready = (async () => { await window.gate; await STscript('/late'); })();
+                    window.instances.push(instance);
+                `);
+                if (scope === 'preset') h.preset('A', [panel]);
+                else h[scope](panel);
+                await h.win.XBTasks.exec('panel'); h.flushRecords();
+                const old = h.win.instances[0];
+                assert.equal(old.signal.aborted, false);
+                if (action === 'disable') await h.win.XBTasks.setProps('panel', { disabled: true }, scope);
+                if (action === 'delete') await h.api.deleteTask(0, scope);
+                if (action === 'edit') await h.win.XBTasks.setJS('panel', '', { scope });
+                if (action === 'rename') await h.win.XBTasks.setProps('panel', { name: 'renamed' }, scope);
+                if (action === 'reset') await h.win.xbtaskreset();
+                if (action === 'rerun') await h.win.xbqte('panel');
+                if (action === 'exit') { h.change('B'); h.change('A'); }
+                if (action === 'api-exit') h.change('A', { mainApi: 'textgenerationwebui' });
+                assert.equal(old.signal.aborted, true);
+                await old.click();
+                gate.resolve(); await Promise.all(h.win.instances.map(instance => instance.ready));
+                assert.deepEqual(h.calls, action === 'rerun' ? ['/late'] : []);
+                assert.equal(h.api.__taskRunMap.size, action === 'rerun' ? 1 : 0);
+            });
+        }
+    }
+});
 
 test('automatic preset exit removes owned UI/fetch/listeners/timers/floor hooks but preserves same-name global task', async t => {
     const h = harness(t);
@@ -432,7 +525,8 @@ test('automatic scheduling reads current preset tasks after asynchronous global 
             assert.equal(h.win.starts.old, undefined);
             assert.equal(h.win.document.getElementById('old'), null);
             assert.equal(h.win.starts.new, action === 'edit' ? 1 : undefined);
-            assert.equal(h.api.__taskRunMap.size, action === 'edit' ? 1 : 0);
+            assert.equal(h.api.__taskRunMap.has('global'), true);
+            assert.equal(h.api.__taskRunMap.size, action === 'edit' ? 2 : 1);
             assert.equal(h.intervals.size, action === 'edit' ? 1 : 0);
         });
     }
@@ -623,7 +717,7 @@ test('host bridge preserves result/error behavior and releases cancellation list
     await assert.rejects(h.slash('/error'), /host failed/);
 });
 
-test('detached STscript keeps its owner alive until its host command settles normally', async t => {
+test('detached STscript settles without cancelling its owner or retaining the execution lock', async t => {
     const h = harness(t), gate = deferred();
     let controller;
     h.setSlash(async (_command, hostController) => { controller = hostController; await gate.promise; });
@@ -632,8 +726,11 @@ test('detached STscript keeps its owner alive until its host command settles nor
     assert.equal(controller.signal.aborted, false);
     assert.equal(h.api.__taskRunMap.size, 1);
     gate.resolve(); await settle(); h.flushRecords();
-    assert.equal(h.api.__taskRunMap.size, 0);
+    assert.equal(h.api.__taskRunMap.size, 1);
     assert.equal(h.api.state.executingRecords.size, 0);
+    assert.equal(controller.signal.aborted, false);
+    await h.win.xbtaskreset();
+    assert.equal(h.api.__taskRunMap.size, 0);
 });
 
 test('one-shot floor unsubscription preserves the in-flight callback and its subsequent STscript', async t => {
@@ -657,9 +754,11 @@ test('one-shot floor unsubscription preserves the in-flight callback and its sub
             assert.equal(h.api.state.executingRecords.size, 1);
             gate.resolve(); await run; h.flushRecords();
             assert.deepEqual(h.calls, ['/first', '/second']);
-            assert.equal(h.api.__taskRunMap.size, 0);
+            assert.equal(h.api.__taskRunMap.size, 1);
             await h.api.checkAndExecuteTasks('after_ai');
             assert.deepEqual(h.calls, ['/first', '/second']);
+            await h.win.xbtaskreset();
+            assert.equal(h.api.__taskRunMap.size, 0);
         });
     }
 });

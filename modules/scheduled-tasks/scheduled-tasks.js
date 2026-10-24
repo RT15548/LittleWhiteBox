@@ -516,6 +516,9 @@ async function removeTaskByScope(scope, taskId, fallbackIndex = -1) {
 // 任务运行管理
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Startup completion releases the execution record, not the script's capabilities.
+// Native listeners and detached async work are not observable here. Keep one
+// current owner per task until explicit stop/replacement (or startup failure).
 const __taskRunMap = new Map();
 // A command pipeline owns its request before any asynchronous work. It remains
 // cancellable while waiting for reads or a previous instance's cleanup. Resident
@@ -581,13 +584,6 @@ function cleanupTaskRunOwner(taskKey, entry) {
     return true;
 }
 
-function releaseTaskRunOwnerIfIdle(entry) {
-    if (!entry || entry.cleaned || !entry.bodySettled) return false;
-    if (entry.inFlightCallbacks > 0 || entry.callbackIds.size > 0 ||
-        entry.timers.size > 0 || entry.intervals.size > 0 || entry.listeners.size > 0 || entry.cleanupCallbacks.size > 0) return false;
-    return cleanupTaskRunOwner(entry.taskKey, entry);
-}
-
 function removeFloorCallback(owner, callbackId) {
     const callbackEntry = state.dynamicCallbacks.get(callbackId);
     if (callbackEntry?.owner === owner) {
@@ -595,7 +591,6 @@ function removeFloorCallback(owner, callbackId) {
         state.dynamicCallbacks.delete(callbackId);
     }
     owner?.callbackIds?.delete?.(callbackId);
-    releaseTaskRunOwnerIfIdle(owner);
 }
 
 function abortTaskRunEntry(entry) {
@@ -747,8 +742,6 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
         signature,
         completion: null,
         callbackIds: new Set(),
-        bodySettled: false,
-        inFlightCallbacks: 0,
         cleaned: false,
         dispatchingAbort: false,
         cleanupCallbacks: new Set(),
@@ -772,30 +765,20 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
 
     const invokeOwnedCallback = (kind, callback, thisArg, args) => {
         if (entry.cleaned) return;
-        if (typeof callback !== 'function') {
-            releaseTaskRunOwnerIfIdle(entry);
-            return;
-        }
-        entry.inFlightCallbacks++;
+        if (typeof callback !== 'function') return;
         let result;
         try {
             result = callback.apply(thisArg, args);
         } catch (error) {
             reportCallbackError(kind, error);
-            entry.inFlightCallbacks = Math.max(0, entry.inFlightCallbacks - 1);
-            releaseTaskRunOwnerIfIdle(entry);
             return;
         }
-        Promise.resolve(result).catch(error => reportCallbackError(kind, error)).finally(() => {
-            entry.inFlightCallbacks = Math.max(0, entry.inFlightCallbacks - 1);
-            releaseTaskRunOwnerIfIdle(entry);
-        });
+        Promise.resolve(result).catch(error => reportCallbackError(kind, error));
     };
 
     const removeOwnedListener = (listener) => {
         if (!listener || !listeners.delete(listener)) return false;
         try { listener.target?.removeEventListener?.(listener.type, listener.wrapped, listener.capture); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeOwnedListener" }, caughtError); }
-        releaseTaskRunOwnerIfIdle(entry);
         return true;
     };
 
@@ -845,7 +828,6 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
     const clearTimeoutSafe = (id) => {
         clearTimeout(id);
         timers.delete(id);
-        releaseTaskRunOwnerIfIdle(entry);
     };
     const setIntervalSafe = (fn, t, ...a) => {
         if (entry.cleaned) return null;
@@ -856,7 +838,6 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
     const clearIntervalSafe = (id) => {
         clearInterval(id);
         intervals.delete(id);
-        releaseTaskRunOwnerIfIdle(entry);
     };
 
     let jsRunnerResult;
@@ -875,9 +856,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
             });
             succeeded = true;
         } finally {
-            entry.bodySettled = true;
-            if (succeeded) releaseTaskRunOwnerIfIdle(entry);
-            else cleanupTaskRunOwner(taskName, entry);
+            if (!succeeded) cleanupTaskRunOwner(taskName, entry);
             try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
         }
         return jsRunnerResult;
@@ -980,14 +959,7 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask', runtime = null)
             return work;
         }
         if (runOwner?.abort.signal.aborted || !isTaskRuntimeActive(runtime)) return Promise.resolve();
-        const owner = runOwner;
-        if (owner) owner.inFlightCallbacks++;
-        return executeTaskSlashCommand(command, stableKey, owner?.abort.signal).finally(() => {
-            if (owner) {
-                owner.inFlightCallbacks--;
-                releaseTaskRunOwnerIfIdle(owner);
-            }
-        });
+        return executeTaskSlashCommand(command, stableKey, runOwner?.abort.signal);
     };
 
     const taskContext = {
@@ -1021,7 +993,6 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask', runtime = null)
             owner.cleanupCallbacks.add(cleanup);
             return () => {
                 owner.cleanupCallbacks.delete(cleanup);
-                releaseTaskRunOwnerIfIdle(owner);
             };
         };
 
@@ -1196,7 +1167,6 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
                 if (callbackEntry !== task.__callbackEntry || callbackEntry.abortController?.signal?.aborted) continue;
                 const owner = callbackEntry.owner;
                 if (owner?.cleaned) continue;
-                if (owner) owner.inFlightCallbacks++;
                 try {
                     const currentFloor = pickFloorByType(task.floorType || 'all', counts);
                     const work = Promise.resolve().then(() => {
@@ -1208,11 +1178,6 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
                             interval: task.interval,
                             floorType: task.floorType || 'all'
                         });
-                    }).finally(() => {
-                        if (owner) {
-                            owner.inFlightCallbacks = Math.max(0, owner.inFlightCallbacks - 1);
-                            releaseTaskRunOwnerIfIdle(owner);
-                        }
                     });
                     await waitForTaskSignal(work, owner?.abort.signal);
                 } catch (e) {
