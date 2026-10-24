@@ -1,5 +1,5 @@
 {
-  "buildId": "d56e942e5beb35b96680",
+  "buildId": "bd41695befcbc5355d20",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-CEltBsiF.js",
@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-D4Zu8zUe.js",
+      "file": "apps/novel-draw-ZdsepPgn.js",
       "css": []
     },
     "apps/story-outline": {
@@ -151,7 +151,7 @@
         "assets/settings-ui-BHYFWe17.css"
       ]
     },
-    "apps/novel-draw-D4Zu8zUe.js": {
+    "apps/novel-draw-ZdsepPgn.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/textarea-autofit-BXO4yG-r.js",
