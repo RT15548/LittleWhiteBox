@@ -2008,7 +2008,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-editor-copy.js",
       "relativePath": "modules/draw/shared/character-editor-copy.js",
       "extension": ".js",
-      "sizeBytes": 2469
+      "sizeBytes": 2485
     },
     {
       "source": "littlewhitebox",
@@ -2960,7 +2960,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-editor-copy.test.js",
       "relativePath": "modules/draw/shared/tests/character-editor-copy.test.js",
       "extension": ".js",
-      "sizeBytes": 8141
+      "sizeBytes": 8187
     },
     {
       "source": "littlewhitebox",

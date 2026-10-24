@@ -1,4 +1,4 @@
-import{$t as T,Qt as G,Zt as g,en as X,nn as q,ot as O,tn as A}from"./message-toolbar-C3hi80tZ.js";import{ft as P,pt as $}from"./draw-common-au50voak.js";var D="nd-max-images-input",z="nd-max-images-reset",b=new WeakSet,J=`
+import{$t as T,Qt as G,Zt as g,en as X,nn as q,ot as O,tn as A}from"./message-toolbar-DkPvv7jB.js";import{ft as P,pt as $}from"./draw-common-0B_dOAdk.js";var D="nd-max-images-input",z="nd-max-images-reset",b=new WeakSet,J=`
 .nd-max-images-field { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
 .nd-max-images-input {
     flex: 1;
