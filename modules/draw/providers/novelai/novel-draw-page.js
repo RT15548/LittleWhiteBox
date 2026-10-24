@@ -38,7 +38,6 @@ import {
     removeNamedTagEditorItem,
     renderCharacterFormSections,
     renderFormsSection,
-    resolveTypeValue,
     setEditorSectionCollapsed,
     syncFormList,
     syncNamedTagEditorList,
