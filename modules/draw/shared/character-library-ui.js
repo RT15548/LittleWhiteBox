@@ -540,7 +540,7 @@ export function createCharacterLibraryUi(options = {}) {
         list.querySelectorAll('.lwb-cl-group').forEach(section => updateGroupHeader(section));
     }
 
-    /** 给卡片加上拖拽手柄、选择框、所属分组下拉与复制按钮。卡片本身的字段与既有事件不受影响。 */
+    /** 给卡片加上拖拽手柄、选择框与复制按钮（换分组走拖拽、批量“移到”或分组头的“在本组添加”，卡片上不再放分组下拉框）。卡片本身的字段与既有事件不受影响。 */
     function decorateCard(card, character) {
         const id = cardId(card);
         const label = String(character?.name || '').trim() || '新角色';
@@ -613,25 +613,6 @@ export function createCharacterLibraryUi(options = {}) {
                 text: GROUP_OFF_NOTE,
                 attrs: { title: GROUP_OFF_NOTE_TITLE },
             }));
-        }
-        if (state.groups.length) {
-            const select = create(document, 'select', {
-                className: 'input lwb-cl-card-group',
-                attrs: { 'aria-label': `所属分组 ${label}`, 'data-card-group': id },
-            });
-            const options = [{ id: UNGROUPED_ID, name: UNGROUPED_NAME }, ...state.groups];
-            for (const group of options) {
-                const option = create(document, 'option', { text: group.name, attrs: { value: group.id } });
-                if (group.id === String(character?.groupId || '')) option.setAttribute('selected', '');
-                select.appendChild(option);
-            }
-            const row = create(document, 'div', { className: 'lwb-cl-card-group-row' }, [
-                create(document, 'span', { className: 'lwb-cl-card-group-label', text: '所属分组' }),
-                select,
-            ]);
-            const header = card.querySelector('.sd-char-card-header');
-            if (header?.parentNode === card) card.insertBefore(row, header.nextSibling);
-            else card.insertBefore(row, card.firstChild);
         }
     }
 
@@ -1191,8 +1172,6 @@ export function createCharacterLibraryUi(options = {}) {
                 if (box.checked) state.selected.add(cardId(card)); else state.selected.delete(cardId(card));
             });
             syncSelectionControls();
-        } else if (box.classList?.contains('lwb-cl-card-group')) {
-            run(() => apply(moveCharacters(getLibrary(), [box.dataset.cardGroup], { groupId: readSelectValue(box) })));
         } else if (box.hasAttribute?.('data-character-enabled-control')) {
             // 卡片自己的启用开关变了：不重绘，只刷新分组头的计数（分组开关不受角色开关影响）
             refreshGroupHeaders();
