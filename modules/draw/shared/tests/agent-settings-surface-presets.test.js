@@ -57,11 +57,18 @@ for (const [operation, editing] of [
         };
         await surface.refresh();
         if (editing === 'before') edit('unsaved');
-        click({
-            rename: '[data-preset-action="rename"][data-preset-id="A"]',
-            create: '#xb-assistant-new-preset',
-            delete: '[data-preset-action="delete"][data-preset-id="A"]',
-        }[operation]);
+        if (operation === 'rename') {
+            // 在 A 行的名称输入框里改名（值取自 window.prompt 桩）
+            const input = root.querySelector('.preset-row[data-preset-id="A"] .preset-row-name');
+            input.dispatchEvent(new window.Event('focusin', { bubbles: true }));
+            input.value = window.prompt();
+            input.dispatchEvent(new window.Event('focusout', { bubbles: true }));
+        } else {
+            click({
+                create: '#xb-assistant-new-preset',
+                delete: '[data-preset-action="delete"][data-preset-id="A"]',
+            }[operation]);
+        }
         if (editing === 'during' || editing === 'reverted') edit('unsaved');
         if (editing === 'reverted') edit('saved');
         if (editing.startsWith('sampling')) {

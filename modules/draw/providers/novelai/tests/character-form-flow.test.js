@@ -342,7 +342,7 @@ test('提示词模板 page: one 保存 (the preset bar), no bottom action row; �
     const rows = Array.from(document.querySelectorAll('#nd_prompt_list .preset-row'));
     assert.ok(rows.length >= 1);
     const menuOf = row => Array.from(row.querySelectorAll('[role="menuitem"]')).map(item => item.dataset.presetAction);
-    assert.deepEqual(menuOf(rows[0]), ['rename', 'duplicate', 'export', 'reset-defaults', 'delete']);
+    assert.deepEqual(menuOf(rows[0]), ['duplicate', 'export', 'reset-defaults', 'delete'], 'no 重命名 item: the name is edited in place');
     assert.equal(rows[0].querySelector('[data-preset-action="reset-defaults"] .char-menu-label').textContent, '全部恢复默认');
 
     // 取消确认：什么也不动
@@ -390,4 +390,65 @@ test('the group switch says 已开启 / 已关闭 in text, flips aria-pressed an
     click(toggle());
     await flush();
     assert.equal(toggle().querySelector('.char-switch-text').textContent, '已开启');
+});
+
+test('group names, 绘图参数 presets and 提示词模板 presets are renamed in place: no 重命名 button or menu item, same validation and save path as before', async () => {
+    window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: {
+            source: 'LittleWhiteBox-NovelDraw', type: 'INIT_DATA', cacheStats: {},
+            settings: {
+                characterTags: [character], characterGroups: GROUPS,
+                selectedParamsPresetId: 'q1', paramsPresets: [{ id: 'q1', name: '参数一' }, { id: 'q2', name: '参数二' }],
+                selectedPromptPresetId: 'p1', promptPresets: [{ id: 'p1', name: '预设一' }, { id: 'p2', name: '预设二' }],
+            },
+        },
+    }));
+    await flush();
+    assert.equal(document.querySelector('[data-group-action="rename"]'), null);
+    assert.equal(document.querySelector('[data-preset-action="rename"]'), null);
+    const edit = (input, value) => {
+        const fire = type => input.dispatchEvent(new window.Event(type, { bubbles: true, cancelable: true }));
+        fire('focusin');
+        input.value = value;
+        fire('focusout');
+    };
+
+    // 分组：校验沿用 renameGroup，重名时提示并还原
+    const groupName = id => document.querySelector(`#nd_char_list .char-group[data-group-id="${id}"] .char-group-name`);
+    assert.equal(groupName('g1').tagName, 'INPUT');
+    assert.equal(groupName('g1').value, '组一');
+    const alerts = [];
+    const alertBefore = globalThis.alert;
+    globalThis.alert = message => alerts.push(message);
+    edit(groupName('g1'), '组二');
+    await flush();
+    assert.equal(alerts.length, 1, '重名被拒绝并提示');
+    assert.equal(groupName('g1').value, '组一', '输入框还原');
+    posted.length = 0;
+    edit(groupName('g1'), '  新组名 ');
+    await flush();
+    globalThis.alert = alertBefore;
+    assert.equal(groupName('g1').value, '新组名');
+    const saved = posted.filter(message => message.type === 'SAVE_CHARACTER_TAGS').at(-1);
+    assert.deepEqual(saved.characterGroups.map(group => group.name), ['新组名', '组二']);
+    assert.equal(alerts.length, 1);
+
+    // 参数预设：本地改名后整份保存
+    const rowName = (listId, id) => document.querySelector(`#${listId} .preset-row[data-preset-id="${id}"] .preset-row-name`);
+    posted.length = 0;
+    edit(rowName('nd_params_list', 'q2'), '参数二改');
+    await flush();
+    const paramsSave = posted.find(message => message.type === 'SAVE_PARAMS_PRESET');
+    assert.deepEqual(paramsSave.paramsPresets.map(preset => preset.name), ['参数一', '参数二改']);
+    assert.equal(paramsSave.selectedParamsPresetId, 'q1', '改名不切换当前预设');
+
+    // 提示词模板预设：交给宿主改名
+    posted.length = 0;
+    const promptList = document.querySelector('#nd_prompt_list');
+    promptList.querySelector('.preset-row-name').dispatchEvent(new window.Event('focusin', { bubbles: true }));
+    const promptName = promptList.querySelector('.preset-row-name');
+    promptName.value = '预设一改';
+    promptName.dispatchEvent(new window.Event('focusout', { bubbles: true }));
+    assert.deepEqual(posted.find(message => message.type === 'RENAME_PROMPT_PRESET'), { source: 'NovelDraw-Frame', type: 'RENAME_PROMPT_PRESET', id: 'p1', name: '预设一改' });
 });

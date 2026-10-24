@@ -46,10 +46,14 @@
     color: var(--text-secondary, #8b949e);
     cursor: pointer;
 }
-/* 分组名有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
+/* 分组名是就地改名输入框（.inline-name，未分组是普通文字），有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
 .lwb-cl-group-name {
-    flex: 1 1 6em;
+    flex: 0 1 auto;
+    field-sizing: content;
     min-width: 6em;
+    max-width: 100%;
+    padding: 3px 6px;
+    border: 1px solid transparent;
     font-size: 13px;
     font-weight: 600;
     overflow: hidden;

@@ -48,6 +48,7 @@ import {
 } from '../../shared/character-edit-form.js';
 import { EXTRA_TAGS_COPY, renderCharacterEditorNote } from '../../shared/character-editor-copy.js';
 import { installTextareaAutofit } from '../../shared/textarea-autofit.js';
+import { bindInlineRename } from '../../shared/inline-rename.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -890,10 +891,9 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。
         const groupSwitch = group.virtual ? '' : `
                     <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}" aria-hidden="true"></i><span class="char-switch-text">${header.switchText}</span></button>`;
-        // 分组头只留开关 / 添加 / 重命名；上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一套菜单，同一时间只开一个）。
+        // 分组头只留开关 / 添加（分组名是就地改名输入框）；上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一套菜单，同一时间只开一个）。
         const lockActionLabel = header.locked ? CHARACTER_LOCK_COPY.unlockAction : CHARACTER_LOCK_COPY.lockAction;
         const manage = group.virtual ? '' : `
-                    <button type="button" class="char-action-button" data-group-action="rename" data-group-id="${gid}" title="重命名分组" aria-label="重命名分组 ${gname}"><i class="fa-solid fa-pen"></i></button>
                     <span class="char-menu-wrap" data-card-menu>
                         <button type="button" class="char-action-button char-menu-button" data-group-action="menu" data-group-id="${gid}" title="${CHARACTER_CARD_COPY.more}" aria-label="${CHARACTER_CARD_COPY.more} ${gname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                         <div class="char-menu" role="menu" aria-label="${CHARACTER_CARD_COPY.more} ${gname}" hidden>
@@ -910,7 +910,7 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
                 <button type="button" class="char-group-collapse" data-group-action="collapse" data-group-id="${gid}" title="${collapsed ? '展开' : '折叠'}" aria-expanded="${!collapsed}" aria-label="${collapsed ? '展开' : '折叠'}分组 ${gname}"><i class="fa-solid ${collapsed ? 'fa-chevron-right' : 'fa-chevron-down'}"></i></button>
                 ${charSelectMode ? `<input type="checkbox" class="char-group-select" aria-label="选择分组 ${gname} 的全部角色">` : ''}
                 ${!group.virtual && !filtering ? `<span class="char-drag-handle" role="button" tabindex="0" data-drag-group="${gid}" title="拖动调整分组顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整分组 ${gname} 的顺序">⋮⋮</span>` : ''}
-                <span class="char-group-name" title="${gname}">${gname}</span>
+                ${group.virtual ? `<span class="char-group-name" title="${gname}">${gname}</span>` : `<input type="text" class="char-group-name inline-name" data-group-id="${gid}" value="${gname}" placeholder="分组名称" title="点一下改名（Enter 确认，Esc 还原）" aria-label="分组名称 ${gname}" autocomplete="off">`}
                 <span class="char-group-count" title="${header.countTitle}">${header.countText}</span>
                 <div class="char-group-actions">
 ${groupSwitch}
@@ -920,6 +920,16 @@ ${groupSwitch}
             <div class="char-group-body"${collapsed ? ' hidden' : ''}>${body}</div>
         </section>`;
     }).join('');
+}
+
+// 分组名就地改名：校验沿用 CL.renameGroup（空名 / 重名 / 过长由它拒绝），被拒绝时返回 false，输入框还原成原名。
+function renameGroupInline(input, name) {
+    let renamed = false;
+    runLibraryAction(() => {
+        applyCharacterLibrary(CL.renameGroup(getCharacterLibrary(), input.dataset.groupId, name));
+        renamed = true;
+    });
+    return renamed;
 }
 
 function handleGroupAction(action, groupId, trigger) {
@@ -962,11 +972,6 @@ function handleGroupAction(action, groupId, trigger) {
             renderCharList();
             revealEditingCard();
             setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
-        } else if (action === 'rename') {
-            const group = library.groups.find(item => item.id === groupId);
-            const name = prompt('分组名称', group?.name || '');
-            if (name === null) return;
-            applyCharacterLibrary(CL.renameGroup(library, groupId, name));
         } else if (action === 'delete') {
             const group = library.groups.find(item => item.id === groupId);
             if (!confirm(`确定删除分组“${group?.name || ''}”？`)) return;
@@ -1411,6 +1416,7 @@ function setupCharacterDragAndSelection() {
         else if (groupHandle) startDrag(event, 'group', groupHandle.dataset.dragGroup);
     });
     list.addEventListener('keydown', handleDragKeydown);
+    bindInlineRename(list, { selector: '.char-group-name.inline-name', onCommit: renameGroupInline });
     list.addEventListener('change', (event) => {
         const box = event.target;
         if (box.classList?.contains('char-select')) {
@@ -3335,6 +3341,7 @@ function getParamsListView() {
             noun: '参数预设',
             onSelect: id => selectParamsPreset(id),
             onAction: handleParamsPresetAction,
+            onRename: renameParamsPreset,
             onReorder: reorderParamsPresets,
         });
     }
@@ -3365,16 +3372,15 @@ function reorderParamsPresets(orderedIds) {
     postToParent({ type: 'REORDER_PARAMS_PRESETS', order: orderedIds });
 }
 
-// 菜单项的动作：点选与“…”按钮由视图处理，这里只收 rename / duplicate / export / delete。
+// 名称输入框提交（已 trim、非空、确实改了）：改本地再整份保存。
+function renameParamsPreset(id, name, preset) {
+    preset.name = name;
+    postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+}
+
+// 菜单项的动作：点选、改名与“…”按钮由视图处理，这里只收 duplicate / export / delete。
 function handleParamsPresetAction(action, id, preset) {
-    if (action === 'rename') {
-        const name = prompt('输入新名称：', preset.name || '');
-        if (name && name.trim()) {
-            preset.name = name.trim();
-            renderParamsPresetList();
-            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
-        }
-    } else if (action === 'duplicate') {
+    if (action === 'duplicate') {
         postToParent({ type: 'ADD_PARAMS_PRESET', baseId: id, name: `${preset.name || preset.id} 副本` });
     } else if (action === 'export') {
         postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: id });
@@ -3446,9 +3452,8 @@ function currentPromptPresetId() {
     return (presets.find(p => p.id === state.selectedPromptPresetId) || presets[0])?.id ?? null;
 }
 
-// 预设行的“…”菜单：通用的重命名 / 复制 / 导出 / 删除，外加“全部恢复默认”（原先在页面底部的独立按钮）。
+// 预设行的“…”菜单：通用的复制 / 导出 / 删除，外加“全部恢复默认”（原先在页面底部的独立按钮）。
 const PROMPT_PRESET_MENU_ITEMS = Object.freeze([
-    { action: 'rename', label: '重命名', icon: 'fa-pen' },
     { action: 'duplicate', label: '复制', icon: 'fa-clone' },
     { action: 'export', label: '导出', icon: 'fa-share-from-square' },
     { action: 'reset-defaults', label: '全部恢复默认', icon: 'fa-rotate-left' },
@@ -3500,6 +3505,10 @@ function getPromptListView() {
             noun: '提示词预设',
             onSelect: id => selectPromptPreset(id),
             onAction: handlePromptPresetAction,
+            onRename: (id, name, preset) => {
+                preset.name = name; // 先在本页显示新名字；宿主保存后回传的 INIT_DATA 是最终结果
+                postToParent({ type: 'RENAME_PROMPT_PRESET', id, name });
+            },
             onReorder: reorderPromptPresets,
             menuItems: PROMPT_PRESET_MENU_ITEMS,
         });
@@ -3529,10 +3538,7 @@ function reorderPromptPresets(orderedIds) {
 
 function handlePromptPresetAction(action, id, preset) {
     const label = preset.name || preset.id;
-    if (action === 'rename') {
-        const name = prompt('输入新名称：', preset.name || '');
-        if (name && name.trim()) postToParent({ type: 'RENAME_PROMPT_PRESET', id, name: name.trim() });
-    } else if (action === 'duplicate') {
+    if (action === 'duplicate') {
         postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
     } else if (action === 'export') {
         exportPromptPreset(preset);

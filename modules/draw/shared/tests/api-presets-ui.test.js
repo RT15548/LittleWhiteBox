@@ -48,13 +48,22 @@ function fixture(t, { active = 'one', commitResult = () => true, confirm = () =>
     const ids = () => rows().map(row => row.dataset.presetId);
     const click = node => node.dispatchEvent(new window.Event('click', { bubbles: true }));
     const rowButton = (id, selector) => document.querySelector(`.preset-row[data-preset-id="${id}"] ${selector}`);
+    const row = id => document.querySelector(`.preset-row[data-preset-id="${id}"]`);
+    // 在某一行的名称输入框里改名：聚焦、改字、离开
+    const rename = (id, value) => {
+        const input = rowButton(id, '.preset-row-name');
+        input.dispatchEvent(new window.Event('focusin', { bubbles: true }));
+        input.value = value;
+        input.dispatchEvent(new window.Event('focusout', { bubbles: true }));
+        return input;
+    };
     const press = (id, key) => {
         const event = new window.Event('keydown', { bubbles: true, cancelable: true });
         event.key = key;
         rowButton(id, '[data-preset-drag]').dispatchEvent(event);
         return event;
     };
-    return { bar, document, window, state, commits, prompts, confirms, storage, rows, ids, click, rowButton, press };
+    return { bar, document, window, state, commits, prompts, confirms, storage, rows, ids, click, rowButton, row, rename, press };
 }
 
 test('renders the presets as a list in saved order with the active one marked, plus the header buttons and a collapse toggle', t => {
@@ -66,10 +75,10 @@ test('renders the presets as a list in saved order with the active one marked, p
     assert.ok(h.document.querySelector('[data-action="overwrite"]'));
     assert.ok(h.document.querySelector('.preset-list-toggle'));
     assert.equal(h.document.querySelector('select'), null);
-    // 行菜单只有重命名 / 删除（另存为 / 覆盖保存在标题行）
+    // 行菜单只有删除（改名在名称输入框里；另存为 / 覆盖保存在标题行）
     assert.deepEqual(
         Array.from(h.rowButton('one', '.char-menu').querySelectorAll('[role="menuitem"]')).map(item => item.dataset.presetAction),
-        ['rename', 'delete'],
+        ['delete'],
     );
     assert.match(h.document.querySelector('[role="status"]').textContent, /当前预设：Two/);
 });
@@ -114,7 +123,8 @@ test('no second change is accepted while one is still being saved', async t => {
     const h = fixture(t, { commitResult: () => pending.promise });
     h.press('one', 'ArrowDown');
     h.press('two', 'ArrowDown');
-    h.click(h.rowButton('two', '[data-preset-action="select"]'));
+    h.click(h.row('two'));
+    h.rename('three', 'Busy');
     h.click(h.document.querySelector('[data-action="save-as"]'));
     assert.equal(h.commits.length, 1);
     assert.equal(h.document.querySelector('#form').hasAttribute('disabled'), true);
@@ -131,8 +141,8 @@ test('the collapse button shows only the current preset without drag handles, an
     assert.equal(h.document.querySelector('[data-preset-drag]'), null);
     assert.equal(toggle.getAttribute('aria-expanded'), 'false');
     assert.equal(h.storage.get('xb-draw-list-collapsed:api-presets'), '1');
-    // 折叠时行菜单仍可用（重命名当前项）
-    assert.ok(h.rowButton('two', '[data-preset-action="rename"]'));
+    // 折叠时行菜单仍可用（删除当前项）
+    assert.ok(h.rowButton('two', '[data-preset-action="delete"]'));
     h.click(toggle);
     assert.deepEqual(h.ids(), ['one', 'two', 'three']);
     assert.equal(h.storage.get('xb-draw-list-collapsed:api-presets'), '0');
@@ -140,10 +150,13 @@ test('the collapse button shows only the current preset without drag handles, an
 
 test('picking another row selects that preset and applies its config in one commit; picking the active row does nothing', async t => {
     const h = fixture(t);
-    h.click(h.rowButton('one', '[data-preset-action="select"]'));
+    h.click(h.row('one'));
     await nextTurn();
     assert.equal(h.commits.length, 0);
-    h.click(h.rowButton('three', '[data-preset-action="select"]'));
+    h.click(h.rowButton('three', '.preset-row-name'));
+    await nextTurn();
+    assert.equal(h.commits.length, 0, '点名称是改名，不切换');
+    h.click(h.row('three'));
     await nextTurn();
     assert.equal(h.commits.length, 1);
     assert.equal(h.commits[0].reason, 'select');
@@ -152,17 +165,35 @@ test('picking another row selects that preset and applies its config in one comm
     assert.equal(h.document.querySelector('.preset-row.selected').dataset.presetId, 'three');
 });
 
-test('rename from a row menu renames that row (not the active one) without touching the active preset or the form', async t => {
+test('renaming in place renames that row (not the active one) without touching the active preset or the form', async t => {
     const h = fixture(t);
-    h.click(h.rowButton('three', '[data-preset-action="rename"]'));
+    h.rename('three', '  Renamed ');
     await nextTurn();
-    assert.deepEqual(h.prompts, [['输入预设名称：', 'Three']]);
+    assert.deepEqual(h.prompts, [], '不再弹 prompt');
     assert.equal(h.commits.length, 1);
     assert.equal(h.commits[0].reason, 'rename');
     assert.equal(h.commits[0].activeApiPresetId, 'one');
     assert.equal(h.commits[0].config, null);
     assert.deepEqual(h.commits[0].apiPresets.map(preset => preset.name), ['One', 'Two', 'Renamed']);
-    assert.equal(h.rowButton('three', '.preset-row-name').textContent, 'Renamed');
+    assert.equal(h.rowButton('three', '.preset-row-name').value, 'Renamed');
+});
+
+test('a duplicate, empty or unchanged name, or a failed commit, puts the old name back', async t => {
+    const h = fixture(t);
+    h.rename('two', 'One');
+    await nextTurn();
+    assert.equal(h.rowButton('two', '.preset-row-name').value, 'Two', '重名被拒：重绘回原名');
+    assert.equal(h.document.querySelector('[role="status"]').dataset.state, 'error');
+    assert.equal(h.rename('two', '   ').value, 'Two');
+    assert.equal(h.rename('two', 'Two').value, 'Two');
+    await nextTurn();
+    assert.equal(h.commits.length, 0);
+
+    const failing = fixture(t, { commitResult: () => false });
+    failing.rename('two', 'Nope');
+    await nextTurn();
+    assert.equal(failing.commits.length, 1);
+    assert.equal(failing.rowButton('two', '.preset-row-name').value, 'Two', '保存失败：列表回到原名');
 });
 
 test('deleting a non-active row keeps the active preset and form; deleting the active row switches to its neighbour with that config', async t => {
@@ -189,10 +220,9 @@ test('deleting a non-active row keeps the active preset and form; deleting the a
     assert.equal(h.document.querySelector('[role="status"]').textContent, '至少保留一条 API 预设');
 });
 
-test('cancelling a delete or a rename writes nothing', async t => {
-    const h = fixture(t, { confirm: () => false, prompt: () => null });
+test('cancelling a delete writes nothing', async t => {
+    const h = fixture(t, { confirm: () => false });
     h.click(h.rowButton('two', '[data-preset-action="delete"]'));
-    h.click(h.rowButton('two', '[data-preset-action="rename"]'));
     await nextTurn();
     assert.equal(h.commits.length, 0);
     assert.deepEqual(h.ids(), ['one', 'two', 'three']);

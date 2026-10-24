@@ -64,7 +64,14 @@ function fixture(t, saveRename, layout = 'list', wrapState = value => value) {
             input.value = value;
             input.dispatchEvent(new window.Event('change'));
         },
-        rename: () => click(layout === 'list' ? '[data-preset-action="rename"][data-preset-id="A"]' : '#xb-assistant-rename-preset'),
+        // 列表布局：在 A 行的名称输入框里改名（值取自 window.prompt 桩），下拉框布局仍点重命名按钮
+        rename: () => {
+            if (layout !== 'list') { click('#xb-assistant-rename-preset'); return; }
+            const input = document.querySelector('.preset-row[data-preset-id="A"] .preset-row-name');
+            input.dispatchEvent(new window.Event('focusin', { bubbles: true }));
+            input.value = window.prompt();
+            input.dispatchEvent(new window.Event('focusout', { bubbles: true }));
+        },
         delete: () => click(layout === 'list' ? '[data-preset-action="delete"][data-preset-id="A"]' : '#xb-assistant-delete-preset'),
         create: () => click('#xb-assistant-new-preset'),
         save: () => click('#xb-assistant-save'),
@@ -81,6 +88,7 @@ for (const layout of ['list', 'select']) {
         assert.equal(h.saves.length, 0);
         assert.deepEqual(Object.keys(h.state.config.presets), ['A', 'B']);
         assert.equal(h.name(), 'A');
+        if (layout === 'list') assert.equal(h.document.querySelector('.preset-row[data-preset-id="A"] .preset-row-name').value, 'A', '重名被拒：输入框还原');
     });
 
     test(`${layout}: cancelling deletion does not change config or submit`, t => {
@@ -208,7 +216,7 @@ test('list: rows follow the config order with the current preset marked; picking
     const h = fixture(t, () => ({ ok: true }));
     assert.deepEqual(rowNames(h.document), ['A', 'B']);
     assert.equal(h.document.querySelector('.preset-row.selected').dataset.presetId, 'A');
-    h.document.querySelector('.preset-row[data-preset-id="B"] .preset-row-name').dispatchEvent(new h.window.Event('click', { bubbles: true }));
+    h.document.querySelector('.preset-row[data-preset-id="B"]').dispatchEvent(new h.window.Event('click', { bubbles: true }));
     assert.equal(h.document.querySelector('.preset-row.selected').dataset.presetId, 'B');
     assert.equal(h.state.config.currentPresetName, 'B');
     assert.equal(h.saves.length, 0); // 点选只切换表单，不落盘

@@ -191,7 +191,7 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
             <button type="button" class="named-tag-toggle" aria-expanded="${expanded}" title="展开 / 折叠" aria-label="展开 / 折叠${meta.title} ${index + 1}">
                 <i class="fa-solid fa-chevron-down named-tag-chevron" aria-hidden="true"></i>
             </button>
-            <input type="text" class="${p}-name named-tag-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.nameLabel}" title="${meta.nameHint}" aria-label="${meta.nameLabel}">
+            <input type="text" class="${p}-name named-tag-name inline-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.nameLabel}" title="${meta.nameHint}" aria-label="${meta.nameLabel}">
             <span class="named-tag-preview">${escapeHtml(previewNamedTags(item.tags))}</span>
             ${renderEditorItemMenu({
                 subject: `${meta.title} ${index + 1}`,
@@ -601,7 +601,7 @@ export function renderFormCard(model, index, { total = 2, charId, escapeHtml = d
             <button type="button" class="char-form-toggle" aria-expanded="${expanded}" title="展开 / 折叠" aria-label="展开 / 折叠形态 ${index + 1}">
                 <i class="fa-solid fa-chevron-down named-tag-chevron" aria-hidden="true"></i>
             </button>
-            <input type="text" class="char-form-name" value="${escapeHtml(model.name || '')}" placeholder="${FORM_COPY.nameLabel}" title="${FORM_COPY.nameHint}" aria-label="${FORM_COPY.nameLabel}">
+            <input type="text" class="char-form-name inline-name" value="${escapeHtml(model.name || '')}" placeholder="${FORM_COPY.nameLabel}" title="${FORM_COPY.nameHint}" aria-label="${FORM_COPY.nameLabel}">
             ${typeShort ? `<span class="char-type-badge char-form-type">${escapeHtml(typeShort(resolveTypeValue(model.type, model.typeCustom)))}</span>` : ''}
             <span class="char-form-preview">${escapeHtml(previewNamedTags(model.appearance))}</span>
             ${renderEditorItemMenu({

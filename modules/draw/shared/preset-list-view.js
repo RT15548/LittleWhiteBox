@@ -1,5 +1,5 @@
 // 预设列表视图（NovelAI 设置页的“参数预设”“提示词预设”共用，之后的请求布局等预设列表也用它）。
-// 每个预设一行：拖动手柄 + 名称按钮（点选）+ “…”菜单（重命名 / 复制 / 导出 / 删除）。
+// 每个预设一行：拖动手柄 + 名称（就地改名输入框，见 inline-rename.js）+ “…”菜单（复制 / 导出 / 删除）；点行里名称之外的地方（或聚焦行后按 Enter / 空格）= 选中。
 // 本模块只管“画列表 + 把点击翻译成动作”：预设数据、选中项、动作的具体处理都由调用方经回调提供，
 // 因此每个列表可以有自己的数据来源和消息协议；样式类名与 data 属性固定（.preset-row / .preset-row-name /
 // .char-drag-handle / .char-menu*），和角色卡共用同一套 CSS。
@@ -7,7 +7,9 @@
 // 这两个模块晚于页面脚本加载，所以都用“调用时才取”的函数而不是直接引用。
 // 可折叠：调用方给出 listId 和折叠按钮（getToggle），折叠后列表只显示当前使用的那一个预设（没有拖动手柄，
 // “…”菜单照常可用）；折叠状态按 listId 记在 localStorage（xb-draw-list-collapsed:<listId>），存储不可用时只在本次页面内生效。
-// 不得 import 任何模块；DOM 与转义函数全部由调用方注入。
+// 只 import 同目录的 inline-rename.js；DOM 与转义函数全部由调用方注入。
+
+import { bindInlineRename, INLINE_NAME_SELECTOR } from './inline-rename.js';
 
 const COLLAPSE_KEY_PREFIX = 'xb-draw-list-collapsed:';
 
@@ -34,7 +36,6 @@ export function writeCollapsed(document, listId, collapsed) {
 }
 
 const DEFAULT_MENU_ITEMS = [
-    { action: 'rename', label: '重命名', icon: 'fa-pen' },
     { action: 'duplicate', label: '复制', icon: 'fa-clone' },
     { action: 'export', label: '导出', icon: 'fa-share-from-square' },
     { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
@@ -50,6 +51,8 @@ const DEFAULT_MENU_ITEMS = [
  * @param {string} options.noun 列表对象的名字（如“参数预设”），用于空状态和手柄的无障碍标签
  * @param {function(string, object): void} options.onSelect 点选一行（含已选中的那一行：由调用方决定是否忽略）
  * @param {function(string, string, object): void} options.onAction (action, id, preset) 菜单项被点
+ * @param {function(string, string, object): (Promise|void)} [options.onRename] (id, 新名字, preset) 名称输入框提交（已 trim、非空、确实改了）；
+ *        返回 false = 拒绝，输入框还原成原名；返回 Promise 时落定后会核对一遍，名称与数据不一致的行重绘还原
  * @param {function(string[]): void} options.onReorder 拖拽 / 键盘排序的结果（完整的新 id 顺序）；本模块不改数据
  * @param {Array<{action: string, label: string, icon: string, danger?: boolean}>} [options.menuItems]
  * @param {function(object=): void} [options.closeMenu] 关闭已打开的菜单；不得为此去创建菜单控制器
@@ -71,6 +74,7 @@ export function createPresetListView({
     noun,
     onSelect,
     onAction,
+    onRename = null,
     onReorder,
     menuItems = DEFAULT_MENU_ITEMS,
     closeMenu = null,
@@ -89,6 +93,7 @@ export function createPresetListView({
     let sortableList = null; // 排序控制器挂着的容器
     let bound = null; // 已挂上点击委托的容器
     let boundToggle = null;
+    let unbindRename = null;
     let collapsed = null; // 首次用到时才读存储
 
     function isCollapsed() {
@@ -103,9 +108,9 @@ export function createPresetListView({
         const items = menuItems.map(item => `
                     <button type="button" role="menuitem" class="char-menu-item${item.danger ? ' danger' : ''}" data-preset-action="${escapeHtml(item.action)}" data-preset-id="${pid}" title="${escapeHtml(item.label)}"><i class="fa-solid ${escapeHtml(item.icon)}" aria-hidden="true"></i><span class="char-menu-label">${escapeHtml(item.label)}</span></button>`).join('');
         return `
-        <div class="preset-row${selected ? ' selected' : ''}" role="listitem" data-preset-id="${pid}">
+        <div class="preset-row${selected ? ' selected' : ''}" role="listitem" tabindex="0" data-preset-id="${pid}"${selected ? ' aria-current="true"' : ''}>
             ${withHandle ? `<span class="char-drag-handle" role="button" tabindex="0" data-preset-drag="${pid}" title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${escapeHtml(noun)} ${pname} 的顺序">⋮⋮</span>` : ''}
-            <button type="button" class="preset-row-name" data-preset-action="select" data-preset-id="${pid}" title="${pname}"${selected ? ' aria-current="true"' : ''}>${pname}</button>
+            <input type="text" class="preset-row-name inline-name" value="${pname}" placeholder="${escapeHtml(noun)}名称" title="点一下改名（Enter 确认，Esc 还原）" aria-label="${escapeHtml(noun)}名称" autocomplete="off">
             <span class="char-menu-wrap" data-card-menu>
                 <button type="button" class="char-action-button char-menu-button" data-preset-action="menu" data-preset-id="${pid}" title="更多操作" aria-label="更多操作 ${pname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                 <div class="char-menu" role="menu" aria-label="更多操作 ${pname}" hidden>${items}
@@ -114,14 +119,18 @@ export function createPresetListView({
         </div>`;
     }
 
+    // 行里除名称输入框、拖动手柄、菜单浮层之外的地方点一下 = 选中；带 data-preset-action 的按钮（“…”与菜单项）各走各的。
     function handleClick(event) {
         const list = getList();
-        const button = event.target?.closest?.('[data-preset-action]');
-        if (!button || !list || !list.contains(button)) return;
+        const target = event.target;
+        const button = target?.closest?.('[data-preset-action]');
+        const row = target?.closest?.('.preset-row');
+        if (!list || !row || !list.contains(row)) return;
+        if (!button && target.closest(`${INLINE_NAME_SELECTOR}, [data-preset-drag], .char-menu`)) return;
         // 选中菜单项：先关菜单（焦点回到“…”按钮），再走与点选一致的处理。
-        if (button.closest('[role="menu"]')) closeMenu?.({ restoreFocus: true });
-        const action = button.dataset.presetAction;
-        const id = button.dataset.presetId ?? '';
+        if (button?.closest('[role="menu"]')) closeMenu?.({ restoreFocus: true });
+        const action = button ? button.dataset.presetAction : 'select';
+        const id = row.dataset.presetId ?? '';
         if (action === 'menu') {
             toggleMenu?.(button);
             return;
@@ -132,12 +141,39 @@ export function createPresetListView({
         else onAction?.(action, id, preset);
     }
 
+    // 键盘：焦点在行本身时 Enter / 空格 = 选中（名称输入框里的按键归它自己）。
+    function handleKeydown(event) {
+        if ((event.key !== 'Enter' && event.key !== ' ') || !event.target?.classList?.contains('preset-row')) return;
+        event.preventDefault();
+        handleClick(event);
+    }
+
+    function handleRename(input, name) {
+        const id = input.closest('.preset-row')?.dataset.presetId ?? '';
+        const preset = getPresets().find(item => item.id === id);
+        const result = preset && onRename ? onRename(id, name, preset) : false;
+        if (result === false) return false;
+        // 返回 Promise 时，落定（成功或失败）后核对一遍：名称与数据不一致的行还原，一致的只刷新高亮；其余由调用方在数据变化后自己 refresh。
+        if (typeof result?.then === 'function') result.then(refresh, refresh);
+        return undefined;
+    }
+
     function bind() {
         const list = getList();
         if (!list || bound === list) return;
-        bound?.removeEventListener('click', handleClick);
+        destroyBindings();
         list.addEventListener('click', handleClick);
+        list.addEventListener('keydown', handleKeydown);
+        unbindRename = bindInlineRename(list, { onCommit: handleRename });
         bound = list;
+    }
+
+    function destroyBindings() {
+        bound?.removeEventListener('click', handleClick);
+        bound?.removeEventListener('keydown', handleKeydown);
+        unbindRename?.();
+        unbindRename = null;
+        bound = null;
     }
 
     function ensureSortable() {
@@ -218,8 +254,7 @@ export function createPresetListView({
         list.querySelectorAll('.preset-row').forEach((row) => {
             const selected = row.dataset.presetId === current;
             row.classList.toggle('selected', selected);
-            const name = row.querySelector('.preset-row-name');
-            if (selected) name?.setAttribute('aria-current', 'true'); else name?.removeAttribute('aria-current');
+            if (selected) row.setAttribute('aria-current', 'true'); else row.removeAttribute('aria-current');
         });
     }
 
@@ -228,6 +263,8 @@ export function createPresetListView({
     function refresh() {
         const list = getList();
         if (!list) return;
+        const active = list.ownerDocument?.activeElement;
+        if (active && list.contains(active) && active.matches?.(INLINE_NAME_SELECTOR)) return; // 正在改名：不重绘，免得丢掉输入
         const folded = isCollapsed();
         const shown = visiblePresets(getPresets(), getCurrentId(), folded);
         const rows = Array.from(list.querySelectorAll('.preset-row'));
@@ -235,14 +272,13 @@ export function createPresetListView({
             && list.classList.contains('preset-list-collapsed') === folded
             && rows.length === shown.length
             && rows.every((row, index) => row.dataset.presetId === String(shown[index].id)
-                && row.querySelector('.preset-row-name')?.textContent === String(shown[index].name || shown[index].id));
+                && row.querySelector('.preset-row-name')?.value === String(shown[index].name || shown[index].id));
         if (same) syncSelection();
         else render();
     }
 
     function destroy() {
-        bound?.removeEventListener('click', handleClick);
-        bound = null;
+        destroyBindings();
         boundToggle?.removeEventListener('click', handleToggle);
         boundToggle = null;
         sortable?.destroy?.();

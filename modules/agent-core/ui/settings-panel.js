@@ -977,15 +977,15 @@ export function createAgentSettingsPanel(deps = {}) {
         return true;
     }
 
-    function renamePreset(root, name) {
-        if (guardPresetBusy()) return;
-        const nextName = promptForPresetName('输入预设名称：', name);
+    // nextName 来自列表里的名称输入框；下拉框布局（没有列表）仍用 prompt 询问。被拒绝时返回 false（输入框据此还原）。
+    function renamePreset(root, name, nextName = promptForPresetName('输入预设名称：', name)) {
+        if (guardPresetBusy()) return false;
         if (!nextName) {
             showToast?.('预设名称不能为空');
-            return;
+            return false;
         }
-        if (nextName === name) return;
-        if (rejectExistingPresetName(nextName)) return;
+        if (nextName === name) return false;
+        if (rejectExistingPresetName(nextName)) return false;
         commitPresetChange(root, {
             transform: presets => renameRecordKey(presets, name, nextName),
             remap: current => (current === name ? nextName : current),
@@ -1027,7 +1027,6 @@ export function createAgentSettingsPanel(deps = {}) {
             noun: '场景 Agent 预设',
             listId: 'agent-presets',
             menuItems: [
-                { action: 'rename', label: '重命名', icon: 'fa-pen' },
                 { action: 'duplicate', label: '复制', icon: 'fa-clone' },
                 { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
             ],
@@ -1038,10 +1037,11 @@ export function createAgentSettingsPanel(deps = {}) {
                 syncPresetList();
             },
             onAction: (action, name) => {
-                if (action === 'rename') renamePreset(root, name);
-                else if (action === 'duplicate') duplicatePresetRow(root, name);
+                if (action === 'duplicate') duplicatePresetRow(root, name);
                 else if (action === 'delete') deletePreset(root, name);
             },
+            // 保存确认前输入框先显示新名字；失败时 commitPresetChange 的回执处理会重绘还原。
+            onRename: (name, nextName) => renamePreset(root, name, nextName),
             onReorder: names => reorderPresets(root, names),
         });
         presetListView.render();

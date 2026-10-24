@@ -8,6 +8,7 @@
 // 样式见 character-library-ui.css（由宿主页面自行引入）。
 
 import { getCharacterSearchFields } from './character-forms.js';
+import { bindInlineRename } from './inline-rename.js';
 import {
     MAX_IMPORT_FILE_BYTES,
     UNGROUPED_ID,
@@ -394,7 +395,10 @@ export function createCharacterLibraryUi(options = {}) {
                 },
             }));
         }
-        header.appendChild(create(document, 'span', { className: 'lwb-cl-group-name', text: group.name, attrs: { title: group.name } }));
+        // 分组名：真实分组是就地改名输入框（未分组只是文字）。
+        header.appendChild(group.virtual
+            ? create(document, 'span', { className: 'lwb-cl-group-name', text: group.name, attrs: { title: group.name } })
+            : create(document, 'input', { className: 'lwb-cl-group-name inline-name', attrs: { type: 'text', value: group.name, placeholder: '分组名称', title: '点一下改名（Enter 确认，Esc 还原）', 'aria-label': `分组名称 ${group.name}`, autocomplete: 'off' } }));
         // 窄栏里分组名优先：计数只写“自己开着数/总数”，完整含义放在 title 里（updateGroupHeader 会按卡片当前状态刷新）。
         header.appendChild(create(document, 'span', {
             className: 'lwb-cl-group-count',
@@ -420,7 +424,6 @@ export function createCharacterLibraryUi(options = {}) {
         }
         addAction('add', '在本组添加角色', 'fa-solid fa-plus');
         if (!group.virtual) {
-            addAction('rename', '重命名分组', 'fa-solid fa-pen');
             // 上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一个菜单控制器，同一时间只开一个）。
             const menuItem = (extraClass, action, title, iconClass, text) => create(document, 'button', {
                 className: `lwb-cl-menu-item${extraClass}`,
@@ -828,10 +831,6 @@ export function createCharacterLibraryUi(options = {}) {
                 apply(setGroupLocked(library, groupId, !isGroupLocked(library, groupId)));
             } else if (action === 'add') {
                 addCharacter({ groupId });
-            } else if (action === 'rename') {
-                const name = askPrompt('分组名称', group?.name || '');
-                if (name === null || name === undefined) return;
-                apply(renameGroup(library, groupId, name));
             } else if (action === 'delete') {
                 if (!askConfirm(`确定删除分组“${group?.name || ''}”？`)) return;
                 let removeMembers = false;
@@ -1181,6 +1180,15 @@ export function createCharacterLibraryUi(options = {}) {
             refreshGroupHeaders();
         }
     });
+
+    // 分组名就地改名：校验沿用 renameGroup（空名 / 重名 / 过长由它拒绝），被拒绝时 run 已提示，返回 false 让输入框还原。
+    listeners.push(bindInlineRename(list, {
+        selector: '.lwb-cl-group-name.inline-name',
+        onCommit: (input, name) => run(() => {
+            apply(renameGroup(getLibrary(), input.closest('.lwb-cl-group')?.dataset.groupId || '', name));
+            return true;
+        }) ?? false,
+    }));
 
     listen(list, 'pointerdown', (event) => {
         const charHandle = event.target.closest?.('[data-drag-char]');

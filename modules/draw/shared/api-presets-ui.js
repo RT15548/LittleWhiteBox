@@ -1,6 +1,6 @@
 // 画图 API 配置预设列表（共享 UI 组件，NovelAI / SD WebUI / ComfyUI 设置页的“API 配置”页共用）。
 // 预设显示在与绘图参数页同一套共享列表视图里（preset-list-view.js）：拖动手柄（或聚焦后 ↑ / ↓）调整顺序、点名称切换、
-// “…”菜单重命名 / 删除、标题旁的按钮折叠成只显示当前预设；顺序就是 apiPresets 数组的顺序，和其他预设改动一样经 onCommit 落盘。
+// 名称就地改名、“…”菜单删除、标题旁的按钮折叠成只显示当前预设；顺序就是 apiPresets 数组的顺序，和其他预设改动一样经 onCommit 落盘。
 // 受控组件：预设数据与表单读写都来自宿主提供的函数；用户操作时用 api-presets.js 的纯函数算出新预设数组，
 // 交给 onCommit({ reason, apiPresets, activeApiPresetId, config })，由宿主持久化（并在需要时把 config 填进表单）后返回是否成功。
 // 组件自己不碰存储和宿主全局；只用 DOM API + textContent，不拼 HTML 字符串。
@@ -24,13 +24,12 @@ import { pickNeighborAfterRemoval, reorderPresetsByIds } from './preset-order.js
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 
 
-// 标题行右侧的按钮；重命名 / 删除是每一行“…”菜单里的项（作用于被点的那一行）。
+// 标题行右侧的按钮；改名是行内名称输入框，删除是每一行“…”菜单里的项（都作用于那一行）。
 const ACTIONS = [
     { action: 'save-as', icon: 'fa-plus', label: '新建', title: API_PRESET_COPY.saveAs, className: 'btn' },
     { action: 'overwrite', icon: 'fa-floppy-disk', label: '覆盖保存', title: API_PRESET_COPY.overwrite, className: 'btn btn-primary' },
 ];
 const MENU_ITEMS = [
-    { action: 'rename', label: '重命名', icon: 'fa-pen' },
     { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
 ];
 
@@ -244,12 +243,10 @@ export function createApiPresetBar(options = {}) {
     }
 
     // 重命名 / 删除作用于被点的那一行，不一定是当前使用的预设。
-    async function handleRename(presetId) {
+    async function handleRename(presetId, name) {
         const state = readState();
         const target = findApiPreset(state.apiPresets, presetId);
-        if (!target) return;
-        const name = askName(API_PRESET_COPY.promptRename, target.name);
-        if (name === null || name === target.name) return;
+        if (!target || name === target.name) return;
         let next;
         try {
             next = renameApiPreset(state.apiPresets, target.id, name);
@@ -317,8 +314,13 @@ export function createApiPresetBar(options = {}) {
         onSelect: (id) => { if (!busy) task(handleSelect(id), 'select'); },
         onAction: (action, id) => {
             if (busy) return;
-            if (action === 'rename') task(handleRename(id), 'rename');
-            else if (action === 'delete') task(handleDelete(id), 'delete');
+            if (action === 'delete') task(handleDelete(id), 'delete');
+        },
+        onRename: (id, name) => {
+            if (busy) return false;
+            const done = handleRename(id, name);
+            task(done, 'rename');
+            return done; // 失败由 task 记录；列表在落定（成功或失败）后核对名称，被拒绝的名字还原
         },
         onReorder: (ids) => { if (!busy) task(handleReorder(ids), 'reorder'); },
     });

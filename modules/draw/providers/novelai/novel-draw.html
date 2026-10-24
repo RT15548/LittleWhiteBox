@@ -49,8 +49,8 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-group-header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; background: rgba(255,255,255,.03); border-radius: 8px 8px 0 0; }
 .char-group.collapsed .char-group-header { border-radius: 8px; }
 .char-group-collapse { flex-shrink: 0; width: 22px; height: 22px; background: none; border: none; color: var(--text-secondary); cursor: pointer; }
-/* 分组名有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
-.char-group-name { flex: 1 1 6em; min-width: 6em; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 分组名是就地改名输入框（.inline-name，未分组是普通文字），有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
+.char-group-name { flex: 0 1 auto; field-sizing: content; min-width: 6em; max-width: 100%; padding: 3px 6px; border: 1px solid transparent; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .char-group-count { flex-shrink: 0; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 .char-group-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
 .char-group-body { padding: 2px 4px; max-height: var(--lwb-group-height, max(320px, 60vh)); overflow-y: auto; } /* 展开的分组在自己的区域内滚动（分组头留在外面）；不设 overscroll-behavior，滚到头继续带动整页；上下各留 2px 给拖拽落点线 */
@@ -250,13 +250,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px; border: 0; background: none;
     color: inherit; font: inherit; cursor: pointer;
 }
-.named-tag-name, .char-form-name {
-    flex: 1 1 auto; min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent;
-    color: var(--text-primary); font: inherit; font-size: 12px; font-weight: 600; text-overflow: ellipsis; cursor: text;
-}
-.named-tag-name::placeholder, .char-form-name::placeholder { font-weight: 400; color: var(--text-muted); }
-.named-tag-name:hover, .char-form-name:hover { border-color: var(--border); }
-.named-tag-name:focus, .char-form-name:focus { outline: none; border-color: var(--accent); background: var(--bg-input); }
+.named-tag-name, .char-form-name { flex: 1 1 auto; font-size: 12px; } /* 其余外观是共用的 .inline-name（settings-shell.css） */
 .named-tag-item.is-folded .named-tag-name, .char-form.is-folded > .char-form-header .char-form-name { flex: 0 1 11em; }
 .named-tag-preview, .char-form-preview { display: none; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
 .named-tag-item.is-folded .named-tag-preview, .char-form.is-folded > .char-form-header .char-form-preview { display: block; }

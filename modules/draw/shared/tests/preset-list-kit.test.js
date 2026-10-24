@@ -28,7 +28,7 @@ test('rows are escaped by default and keyboard Up / Down on a handle reports the
     const { document, window, kit, reorders } = mount();
     t.after(() => kit.destroy());
     assert.equal(document.querySelectorAll('.preset-row').length, 3);
-    assert.equal(document.querySelectorAll('.preset-row-name')[1].textContent, '<乙>');
+    assert.equal(document.querySelectorAll('.preset-row-name')[1].value, '<乙>');
     const press = (id, key) => {
         const event = new window.Event('keydown', { bubbles: true, cancelable: true });
         event.key = key;

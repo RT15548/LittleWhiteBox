@@ -223,3 +223,8 @@ textarea.input[data-autofit] { min-height: 0; overflow-y: hidden; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+/* 就地改名的标题（shared/inline-rename.js）：平时就是一段加粗文字，悬停 / 聚焦才露出输入框，点一下就能改。 */
+.inline-name { min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; font-weight: 600; text-overflow: ellipsis; cursor: text; }
+.inline-name::placeholder { font-weight: 400; color: var(--text-muted); }
+.inline-name:hover { border-color: var(--border); }
+.inline-name:focus { outline: none; border-color: var(--border-focus); background: var(--bg-input); }
