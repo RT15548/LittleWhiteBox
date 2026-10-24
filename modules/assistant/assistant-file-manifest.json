@@ -1742,14 +1742,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 240592
+      "sizeBytes": 241721
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 95951
+      "sizeBytes": 96973
     },
     {
       "source": "littlewhitebox",
@@ -1819,7 +1819,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "extension": ".js",
-      "sizeBytes": 18883
+      "sizeBytes": 23506
     },
     {
       "source": "littlewhitebox",
@@ -2008,7 +2008,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-edit-form.js",
       "relativePath": "modules/draw/shared/character-edit-form.js",
       "extension": ".js",
-      "sizeBytes": 43777
+      "sizeBytes": 43843
     },
     {
       "source": "littlewhitebox",
@@ -2120,14 +2120,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library-ui.css",
       "relativePath": "modules/draw/shared/character-library-ui.css",
       "extension": ".css",
-      "sizeBytes": 14054
+      "sizeBytes": 15069
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-library-ui.js",
       "relativePath": "modules/draw/shared/character-library-ui.js",
       "extension": ".js",
-      "sizeBytes": 63881
+      "sizeBytes": 64371
     },
     {
       "source": "littlewhitebox",
@@ -2638,7 +2638,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/preset-list-view.css",
       "relativePath": "modules/draw/shared/preset-list-view.css",
       "extension": ".css",
-      "sizeBytes": 6485
+      "sizeBytes": 7580
     },
     {
       "source": "littlewhitebox",
@@ -2659,7 +2659,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prompt-layout-editor.css",
       "relativePath": "modules/draw/shared/prompt-layout-editor.css",
       "extension": ".css",
-      "sizeBytes": 13163
+      "sizeBytes": 14773
     },
     {
       "source": "littlewhitebox",
@@ -2967,7 +2967,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-edit-form.test.js",
       "relativePath": "modules/draw/shared/tests/character-edit-form.test.js",
       "extension": ".js",
-      "sizeBytes": 27426
+      "sizeBytes": 27615
     },
     {
       "source": "littlewhitebox",
@@ -2995,7 +2995,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-forms-editor.test.js",
       "relativePath": "modules/draw/shared/tests/character-forms-editor.test.js",
       "extension": ".js",
-      "sizeBytes": 15276
+      "sizeBytes": 15297
     },
     {
       "source": "littlewhitebox",
@@ -3023,7 +3023,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-tones-css.test.js",
       "relativePath": "modules/draw/shared/tests/character-tones-css.test.js",
       "extension": ".js",
-      "sizeBytes": 3590
+      "sizeBytes": 6267
     },
     {
       "source": "littlewhitebox",
@@ -3247,7 +3247,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/prompt-layout-editor-chrome.test.js",
       "relativePath": "modules/draw/shared/tests/prompt-layout-editor-chrome.test.js",
       "extension": ".js",
-      "sizeBytes": 12188
+      "sizeBytes": 15741
     },
     {
       "source": "littlewhitebox",
