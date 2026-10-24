@@ -13,16 +13,16 @@ import { renderCharacterFormSections, renderFormsSection } from '../character-ed
 import { createFixedAppearanceGroup, createFormBlock } from '../character-forms-dom.js';
 
 // Acceptance contracts (cost: users see two names for one list, or a long hint repeated on every section / every form):
-// - The dynamicStates list is called 附加标签 everywhere in the UI; "动态外貌" never appears in a shipped template.
-// - Each form has exactly three sections (固定外貌 with 正向 + 负向 inside, 服装, 附加标签); there is no separate 负向 section.
+// - The dynamicStates list is called 动态标签 everywhere in the UI; "动态外貌" never appears in a shipped template.
+// - Each form has exactly three sections (固定外貌 with 正向 + 负向 inside, 服装, 动态标签); there is no separate 负向 section.
 // - The explanation text appears once at the end of the whole card, not once per form or per section.
 
 const NOTE = [
-    '形态、服装、附加标签的名字非关键词调用，而是会发给 AI 的描述，可用自然语言写。',
+    '形态、服装、动态标签的名字非关键词调用，而是会发给 AI 的描述，可用自然语言写。',
     '形态示例：人形；兽形；男性；女性...',
     '服装示例：常服，家居穿 / white shirt, pleated skirt；礼服，正式场合 / evening dress, lace gloves',
-    '附加标签示例：草帽 / straw hat；脸红 / blush, looking away',
-    '形态和服装只选其一，附加标签按画面选若干',
+    '动态标签示例：草帽 / straw hat；脸红 / blush, looking away；尾巴 / tail',
+    '形态和服装只选其一，动态标签按画面选若干',
 ].join('\n');
 
 const drawDir = fileURLToPath(new URL('../..', import.meta.url));
@@ -64,7 +64,7 @@ test('each form has three sections; 固定外貌 holds the 正向 and 负向 inp
     const { document } = parseHTML(`<html><body>${renderCharacterFormSections({ appearance: 'long hair', negativeTags: 'bad hands', outfits: [], dynamicStates: [] }, { charId: 'c1' })}</body></html>`);
     const sections = Array.from(document.querySelectorAll('.char-edit-section'));
     assert.deepEqual(sections.map(node => node.dataset.section), ['appearance', 'outfits', 'dynamicStates']);
-    assert.deepEqual(sections.map(node => node.querySelector('.char-section-title').textContent), ['固定外貌', '服装', '附加标签']);
+    assert.deepEqual(sections.map(node => node.querySelector('.char-section-title').textContent), ['固定外貌', '服装', '动态标签']);
     assert.equal(document.querySelector('[data-section="negative"]'), null);
 
     const [appearance] = sections;
@@ -74,17 +74,17 @@ test('each form has three sections; 固定外貌 holds the 正向 and 负向 inp
     assert.equal(appearance.querySelector('textarea.char-edit-neg').textContent, 'bad hands');
     assert.ok(appearance.querySelector('[data-action="search-danbooru"]'));
     assert.equal(document.querySelectorAll('.char-section-hint').length, 1);
-    assert.equal(document.querySelector('[data-action="add-dynstate"]').textContent.trim(), '添加附加标签');
+    assert.equal(document.querySelector('[data-action="add-dynstate"]').textContent.trim(), '添加动态标签');
     assert.equal(document.querySelector('.char-dynstate-editor-empty').textContent, '暂无');
 });
 
 test('item inputs are labelled 标签 and the name inputs use the new placeholders', () => {
     const { document } = parseHTML(`<html><body>${renderCharacterFormSections({ outfits: [{ name: 'a', tags: 'x' }], dynamicStates: [{ name: 'b', tags: 'y' }] }, { charId: 'c1' })}</body></html>`);
     assert.equal(document.querySelector('.char-outfit-name').getAttribute('placeholder'), '服装名称');
-    assert.equal(document.querySelector('.char-dynstate-name').getAttribute('placeholder'), '附加标签名称');
+    assert.equal(document.querySelector('.char-dynstate-name').getAttribute('placeholder'), '动态标签名称');
     const labels = Array.from(document.querySelectorAll('.named-tag-body label')).map(node => node.textContent);
     assert.deepEqual(labels, ['标签', '标签']);
-    assert.match(document.querySelector('.char-dynstate-editor-item .named-tag-enabled').getAttribute('aria-label'), /^启用附加标签 1/);
+    assert.match(document.querySelector('.char-dynstate-editor-item .named-tag-enabled').getAttribute('aria-label'), /^启用动态标签 1/);
 });
 
 test('SD / ComfyUI: the fixed-appearance group keeps both fields on the existing field names and data keys', () => {
@@ -120,12 +120,12 @@ test('every card template appends the explanation exactly once', () => {
     assert.equal(countOf(read('providers/comfyui/comfy-draw.js'), 'createCharacterEditorNote(document)'), 1);
 });
 
-test('no shipped source or template still says 动态外貌, 状态 TAG, 服装 TAG or 添加状态', () => {
+test('no shipped source or template still says 动态外貌, 附加标签, 状态 TAG, 服装 TAG or 添加状态', () => {
     const files = sourceFiles(drawDir);
     assert.ok(files.length > 20);
     for (const file of files) {
         const text = readFileSync(file, 'utf8');
-        for (const banned of ['动态外貌', '状态 TAG', '服装 TAG', '添加状态', '状态名称']) {
+        for (const banned of ['动态外貌', '附加标签', '状态 TAG', '服装 TAG', '添加状态', '状态名称']) {
             assert.equal(text.includes(banned), false, `${file} still contains ${banned}`);
         }
     }

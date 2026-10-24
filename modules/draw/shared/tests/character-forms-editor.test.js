@@ -95,7 +95,7 @@ test('each form body holds its own type, appearance, negative tags, outfits and 
     for (const key of ['appearance', 'outfits', 'dynamicStates']) {
         assert.equal(card.querySelectorAll(`.char-form .char-edit-section[data-section="${key}"]`).length, 2);
     }
-    assert.equal(card.querySelectorAll('.char-form .char-edit-section').length, 6); // 固定外貌（含负向）/ 服装 / 附加标签，没有独立的负向分区
+    assert.equal(card.querySelectorAll('.char-form .char-edit-section').length, 6); // 固定外貌（含负向）/ 服装 / 动态标签，没有独立的负向分区
     assert.equal(card.querySelectorAll('.char-form .char-edit-section[data-section="appearance"] .char-edit-neg').length, 2);
 });
 

@@ -1,5 +1,5 @@
 // SD WebUI / ComfyUI 角色卡片里的“形态”编辑区（用 DOM API 构建，不拼 HTML 字符串）。
-// 卡片顶层的 类型 / 固定外貌（正向 + 负向） / Danbooru Tag / 服装 / 附加标签 就是第一形态，这里编辑的是“额外形态”（character.forms，见 character-forms.js）。
+// 卡片顶层的 类型 / 固定外貌（正向 + 负向） / Danbooru Tag / 服装 / 动态标签 就是第一形态，这里编辑的是“额外形态”（character.forms，见 character-forms.js）。
 // 每个额外形态是一个可折叠的块（<details>），含 形态名称 + 与顶层相同的字段，另有 上移 / 下移 / 删除。
 // 字段输入框由页面传入的 createField 构建（与顶层字段同一套），只是用 data-sd-form-field 标记，避免和顶层的 data-sd-char-field 混淆。
 // 草稿安全：读卡片（readFormsFromCard）会保留空白形态，让未保存时重绘列表不丢失刚点“添加形态”的块；保存前由 normalizeForms 丢弃空白形态。
@@ -140,7 +140,7 @@ export function createFormsEditor({ document, forms = [], createField }) {
     const list = el(document, 'div', 'sd-char-form-list');
     forms.forEach((form, i) => list.append(createFormBlock({ document, form, index: i + 1, createField })));
     const hint = el(document, 'p', 'form-hint',
-        '同一角色的不同样子，独立的类型、外貌、服装与附加标签；未提及默认第一个形态');
+        '同一角色的不同样子，独立的类型、外貌、服装与动态标签；未提及默认第一个形态');
     root.append(head, list, hint);
 
     const syncAddButton = () => {

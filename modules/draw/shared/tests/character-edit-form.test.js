@@ -90,7 +90,7 @@ test('2+ items render folded: one-line header (handle, chevron, name input, tags
 });
 
 test('the name lives only in the header input (no second name field in the body); placeholder is the field label', () => {
-    for (const [kind, p, label] of [['outfit', 'char-outfit', '服装名称'], ['dynstate', 'char-dynstate', '附加标签名称']]) {
+    for (const [kind, p, label] of [['outfit', 'char-outfit', '服装名称'], ['dynstate', 'char-dynstate', '动态标签名称']]) {
         const { card } = mount([{ name: 'a', tags: 'x' }, { name: '', tags: 'y' }], kind);
         for (const row of rows(card, kind)) {
             assert.equal(row.querySelectorAll(`.${p}-name`).length, 1);

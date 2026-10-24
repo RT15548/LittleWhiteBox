@@ -153,7 +153,7 @@ let editingCharId = null;
 // 正在编辑的卡片的表单内容快照：任何会重绘列表的操作（库操作、INIT_DATA 回包）前读回，重绘后恢复，
 // 避免丢掉尚未点“保存”的输入。
 let editingDraft = null;
-// 编辑卡片里“固定外貌 / 服装 / 附加标签”三个分区的折叠状态：按角色 id 记在页面会话里，
+// 编辑卡片里“固定外貌 / 服装 / 动态标签”三个分区的折叠状态：按角色 id 记在页面会话里，
 // 保存 / 取消 / 重绘后再次编辑同一个角色时保持上次的样子（界面状态，不进入保存的数据）。
 const editorSections = createEditorSectionState();
 // 点“添加角色”得到、尚未点“保存”的空白草稿（id → 角色对象）：只存在于本页，不写入持久化，
@@ -1396,7 +1396,7 @@ function handleDragKeydown(event) {
 
 function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
-    // 编辑卡片里服装 / 附加标签条目的拖拽排序（复用 sortable-list.js，与预设列表同一套指针 + 键盘交互）。
+    // 编辑卡片里服装 / 动态标签条目的拖拽排序（复用 sortable-list.js，与预设列表同一套指针 + 键盘交互）。
     createNamedTagSortables({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
     // 多形态角色的形态卡片：同一套拖拽 + 键盘排序。
     createFormSortable({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
@@ -1427,7 +1427,7 @@ function setupCharacterDragAndSelection() {
             renderBatchBar();
         }
     });
-    // 编辑卡片里的服装 / 附加标签条目：标签输入时同步折叠头里的预览（名称输入框本身就在头部）。
+    // 编辑卡片里的服装 / 动态标签条目：标签输入时同步折叠头里的预览（名称输入框本身就在头部）。
     list.addEventListener('input', (event) => {
         const input = event.target;
         if (!input.matches?.('.char-outfit-tags, .char-dynstate-tags')) return;
@@ -1445,7 +1445,7 @@ function setupCharacterDragAndSelection() {
     $('nd_char_undo_btn').addEventListener('click', performUndo);
 }
 
-// 读出正在编辑的卡片的表单内容（包括刚点“添加服装/附加标签”还没填的空行）。
+// 读出正在编辑的卡片的表单内容（包括刚点“添加服装/动态标签”还没填的空行）。
 function readEditingDraft() {
     if (!editingCharId) return null;
     const card = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing'))
@@ -1577,7 +1577,7 @@ function characterStatusParts(char, library = getCharacterLibrary()) {
     if (forms.some(form => form.appearance)) add('appearance', CHARACTER_STATUS_COPY.appearance);
     if (forms.some(form => form.negativeTags)) add('negative', CHARACTER_STATUS_COPY.negative);
     if (forms.some(form => form.danbooruTag)) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
-    // 只数启用的条目：全部停用的服装 / 附加标签不算“有”，因为规划器看不到它们。
+    // 只数启用的条目：全部停用的服装 / 动态标签不算“有”，因为规划器看不到它们。
     if (forms.some(form => countEnabledNamedTags(form.outfits))) add('outfits', CHARACTER_STATUS_COPY.outfits);
     if (forms.some(form => countEnabledNamedTags(form.dynamicStates))) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
     return parts;
@@ -1749,7 +1749,7 @@ function renderCharList({ keepDraft = false } = {}) {
                     })}
                     <div class="char-forms-add">
                         <button class="btn btn-sm" type="button" data-action="add-form" data-id="${charId}"><i class="fa-solid fa-plus"></i> ${FORM_COPY.addAction}</button>
-                        <span class="form-hint">同一角色的不同样子，独立的类型、外貌、服装与附加标签；未提及默认第一个形态</span>
+                        <span class="form-hint">同一角色的不同样子，独立的类型、外貌、服装与动态标签；未提及默认第一个形态</span>
                     </div>`;
             }
 
