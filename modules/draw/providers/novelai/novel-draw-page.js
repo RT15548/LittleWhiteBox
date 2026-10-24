@@ -7,6 +7,24 @@ import { CHARACTER_LOCK_COPY } from '../../shared/character-lock-copy.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
+import { countEnabledNamedTags, normalizeNamedTagList } from '../../shared/named-tag-items.js';
+import { createGroupHeightController } from '../../shared/character-group-height.js';
+import {
+    NAMED_TAG_EDITOR_KINDS,
+    appendNamedTagEditorItem,
+    applyNamedTagEnabledChange,
+    collectNamedTagEditorValues,
+    createEditorSectionState,
+    createNamedTagSortables,
+    namedTagKindOfRow,
+    refreshNamedTagItemHeader,
+    removeNamedTagEditorItem,
+    renderEditorSection,
+    renderNamedTagEditorItems,
+    setEditorSectionCollapsed,
+    syncNamedTagEditorList,
+    toggleNamedTagItem,
+} from '../../shared/character-edit-form.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -116,6 +134,9 @@ let editingCharId = null;
 // 正在编辑的卡片的表单内容快照：任何会重绘列表的操作（库操作、INIT_DATA 回包）前读回，重绘后恢复，
 // 避免丢掉尚未点“保存”的输入。
 let editingDraft = null;
+// 编辑卡片里“固定外貌 / 负向标签 / 服装列表 / 动态外貌”四个分区的折叠状态：按角色 id 记在页面会话里，
+// 保存 / 取消 / 重绘后再次编辑同一个角色时保持上次的样子（界面状态，不进入保存的数据）。
+const editorSections = createEditorSectionState();
 // 点“添加角色”得到、尚未点“保存”的空白草稿（id → 角色对象）：只存在于本页，不写入持久化，
 // 也不参与撤销快照 / 指纹 / 导出，直到用户保存。
 const draftCharacters = new Map();
@@ -559,78 +580,6 @@ function resetCharacterFilters(render = true) {
     if (render) renderCharList();
 }
 
-function normalizeNamedTagListForUI(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
-
-const NAMED_TAG_EDITOR_KINDS = {
-    outfit: {
-        classPrefix: 'char-outfit',
-        title: '服装',
-        nameLabel: '服装名称',
-        namePlaceholder: '如：常服、礼服、战斗服',
-        tagsLabel: '服装 TAG',
-        tagsPlaceholder: 'white shirt, black skirt, ribbon...',
-        removeAction: 'remove-outfit',
-    },
-    dynstate: {
-        classPrefix: 'char-dynstate',
-        title: '状态',
-        nameLabel: '状态名称',
-        namePlaceholder: '如：睡觉、淋雨、害羞',
-        tagsLabel: '状态 TAG',
-        tagsPlaceholder: 'closed eyes, sleeping...',
-        removeAction: 'remove-dynstate',
-    },
-};
-
-function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit') {
-    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
-    return `
-    <div class="${meta.classPrefix}-editor-item" data-index="${index}">
-        <div class="${meta.classPrefix}-editor-header">
-            <div class="${meta.classPrefix}-editor-title">${meta.title} ${index + 1}</div>
-            <button class="btn btn-danger btn-sm" type="button" data-action="${meta.removeAction}" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
-        </div>
-        <div class="form-group">
-            <label class="form-label">${meta.nameLabel}</label>
-            <input type="text" class="input ${meta.classPrefix}-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.namePlaceholder}">
-        </div>
-        <div class="form-group">
-            <label class="form-label">${meta.tagsLabel}</label>
-            <textarea class="input ${meta.classPrefix}-tags" placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
-        </div>
-    </div>`;
-}
-
-function syncNamedTagEditorList(list, kind = 'outfit') {
-    if (!list) return;
-    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
-    const rows = Array.from(list.querySelectorAll(`.${meta.classPrefix}-editor-item`));
-    const empty = list.querySelector(`.${meta.classPrefix}-editor-empty`);
-    if (empty) empty.style.display = rows.length ? 'none' : 'block';
-    rows.forEach((row, index) => {
-        row.dataset.index = String(index);
-        row.querySelector(`.${meta.classPrefix}-editor-title`).textContent = `${meta.title} ${index + 1}`;
-        const removeBtn = row.querySelector(`[data-action="${meta.removeAction}"]`);
-        if (removeBtn) removeBtn.dataset.index = String(index);
-    });
-}
-
-// keepEmpty：草稿保护时保留刚点“添加服装/状态”还没填内容的空行；保存时仍然过滤掉。
-function collectNamedTagEditorValues(card, kind = 'outfit', { keepEmpty = false } = {}) {
-    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
-    return Array.from(card.querySelectorAll(`.${meta.classPrefix}-editor-item`)).map(row => ({
-        name: row.querySelector(`.${meta.classPrefix}-name`)?.value?.trim() || '',
-        tags: row.querySelector(`.${meta.classPrefix}-tags`)?.value?.trim() || '',
-    })).filter(item => keepEmpty || item.name || item.tags);
-}
-
 function renderCharacterActionIcon(name) {
     const paths = {
         enabled: '<rect x="3" y="3" width="18" height="18" rx="4" /><path d="m8 12 3 3 5-6" />',
@@ -657,6 +606,7 @@ function getCardMenu() {
     if (!cardMenu && CM) cardMenu = CM.createCardMenuController({ document });
     return cardMenu;
 }
+let groupHeights = null; // 分组高度控制器，setupCharacterDragAndSelection 里创建
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
 
@@ -1420,6 +1370,10 @@ function handleDragKeydown(event) {
 
 function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
+    // 编辑卡片里服装 / 状态条目的拖拽排序（复用 sortable-list.js，与预设列表同一套指针 + 键盘交互）。
+    createNamedTagSortables({ container: list, document, autoScroll: event => autoScrollPresetList(event, list) });
+    // 分组滚动区高度：用户可在分组下沿拖动调整，存本机 localStorage（见 character-group-height.js）。
+    groupHeights = createGroupHeightController({ list, document, groupSelector: '.char-group', bodySelector: '.char-group-body' });
     list.addEventListener('pointerdown', (event) => {
         const charHandle = event.target.closest('[data-drag-char]');
         const groupHandle = event.target.closest('[data-drag-group]');
@@ -1433,6 +1387,9 @@ function setupCharacterDragAndSelection() {
             if (box.checked && !draftCharacters.has(box.dataset.selectChar)) selectedCharIds.add(box.dataset.selectChar); else selectedCharIds.delete(box.dataset.selectChar);
             syncSelectionCheckboxes();
             renderBatchBar();
+        } else if (box.classList?.contains('named-tag-enabled')) {
+            // 条目的启用开关（头部与正文各一个）：同步样式与另一个开关，列表上的“启用数/总数”也跟着更新。
+            applyNamedTagEnabledChange(box);
         } else if (box.classList?.contains('char-group-select')) {
             const section = box.closest('.char-group');
             section.querySelectorAll('.char-select').forEach((item) => {
@@ -1441,6 +1398,13 @@ function setupCharacterDragAndSelection() {
             syncSelectionCheckboxes();
             renderBatchBar();
         }
+    });
+    // 编辑卡片里的服装 / 状态条目：名称、TAG 输入时同步折叠头的标题与预览。
+    list.addEventListener('input', (event) => {
+        const input = event.target;
+        if (!input.matches?.('.char-outfit-name, .char-outfit-tags, .char-dynstate-name, .char-dynstate-tags')) return;
+        const row = input.closest('.named-tag-item');
+        refreshNamedTagItemHeader(row, namedTagKindOfRow(row));
     });
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', event => endDrag(event));
@@ -1472,8 +1436,9 @@ function readEditingDraft() {
         aliases: value('.char-edit-aliases'),
         appearance: value('.char-edit-appearance'),
         negativeTags: value('.char-edit-neg'),
-        outfits: collectNamedTagEditorValues(card, 'outfit', { keepEmpty: true }),
-        dynamicStates: collectNamedTagEditorValues(card, 'dynstate', { keepEmpty: true }),
+        // withUiState：条目的展开 / 折叠也带进草稿，重绘后恢复。
+        outfits: collectNamedTagEditorValues(card, 'outfit', { keepEmpty: true, withUiState: true }),
+        dynamicStates: collectNamedTagEditorValues(card, 'dynstate', { keepEmpty: true, withUiState: true }),
     };
 }
 
@@ -1488,6 +1453,7 @@ function captureEditingDraft() {
 // 重绘前整理编辑状态：被删除 / 被替换掉的卡片不再处于编辑中；已放弃（切换去编辑别的卡片、取消）的空白草稿移除。
 function reconcileEditingState() {
     const ids = new Set((state.characterTags || []).map(char => char.id));
+    editorSections.prune(ids);
     if (editingCharId && !ids.has(editingCharId)) editingCharId = null;
     for (const id of [...draftCharacters.keys()]) {
         if (!ids.has(id)) { draftCharacters.delete(id); continue; }
@@ -1558,8 +1524,9 @@ function characterStatusParts(char, library = getCharacterLibrary()) {
     if (char.appearance) add('appearance', CHARACTER_STATUS_COPY.appearance);
     if (char.negativeTags) add('negative', CHARACTER_STATUS_COPY.negative);
     if (char.danbooruTag) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
-    if (normalizeNamedTagListForUI(char.outfits).length) add('outfits', CHARACTER_STATUS_COPY.outfits);
-    if (normalizeNamedTagListForUI(char.dynamicStates).length) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
+    // 只数启用的条目：全部停用的服装 / 状态不算“有”，因为规划器看不到它们。
+    if (countEnabledNamedTags(char.outfits)) add('outfits', CHARACTER_STATUS_COPY.outfits);
+    if (countEnabledNamedTags(char.dynamicStates)) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
     return parts;
 }
 
@@ -1634,8 +1601,8 @@ function renderCharList() {
         const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
         const typeShort = typeLabel.split(' ')[0];
         const appearance = c.appearance || '';
-        const outfits = normalizeNamedTagListForUI(c.outfits);
-        const dynamicStates = normalizeNamedTagListForUI(c.dynamicStates);
+        const outfits = normalizeNamedTagList(c.outfits);
+        const dynamicStates = normalizeNamedTagList(c.dynamicStates);
         const statusParts = characterStatusParts(c, renderLibrary);
         const toggleTitle = isEnabled ? '停用角色' : '启用角色';
         const lockInfo = describeCharacterLock(c, renderLibrary);
@@ -1644,6 +1611,11 @@ function renderCharList() {
         const lockItem = CL
             ? `
                         <button type="button" role="menuitem" class="char-menu-item char-lock-control${lockInfo.own ? ' active' : ''}" data-action="toggle-lock" data-id="${charId}" title="${lockInfo.title}" aria-label="${lockActionLabel} ${charName}" aria-pressed="${lockInfo.own}"><i class="fa-solid ${lockInfo.icon}" aria-hidden="true"></i><span class="char-menu-label">${lockActionLabel}</span></button>`
+            : '';
+        // 编辑中：保存 / 取消放在吸顶的摘要行里，与启用 / 编辑 / 更多在同一行，长表单滚动时始终点得到。
+        const editButtons = isEditing
+            ? `<button type="button" class="btn btn-primary btn-sm char-edit-save" data-action="save" data-id="${charId}" title="保存" aria-label="保存 ${charName}"><i class="fa-solid fa-check" aria-hidden="true"></i><span>保存</span></button>
+                    <button type="button" class="btn btn-sm char-edit-cancel" data-action="cancel" data-id="${charId}" title="取消" aria-label="取消编辑 ${charName}"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span>取消</span></button>`
             : '';
         const canDrag = !!CL && !charFiltersActive() && !isEditing;
         const summary = `
@@ -1656,6 +1628,7 @@ function renderCharList() {
                 </div>
                 <span class="char-status">${renderCharStatusHtml(statusParts)}</span>
                 <div class="char-actions" aria-label="角色操作">
+                    ${editButtons}
                     <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>
                     <button type="button" class="char-action-button${isEditing ? ' active' : ''}" data-action="edit" data-id="${charId}" title="编辑" aria-label="编辑 ${charName}">${renderCharacterActionIcon('edit')}</button>
                     <span class="char-menu-wrap" data-card-menu>
@@ -1685,8 +1658,50 @@ function renderCharList() {
             const formAliases = draft ? draft.aliases : (c.aliases || []).join(', ');
             const formAppearance = draft ? draft.appearance : appearance;
             const formNegative = draft ? draft.negativeTags : (c.negativeTags || '');
+            const isSectionCollapsed = key => editorSections.isCollapsed(c.id, key);
             const formOutfits = draft ? draft.outfits : outfits;
             const formDynamicStates = draft ? draft.dynamicStates : dynamicStates;
+            const appearanceSection = renderEditorSection({
+                key: 'appearance',
+                title: '固定外貌 (appearance)',
+                collapsed: isSectionCollapsed('appearance'),
+                actionsHtml: `<button class="btn" data-action="search-danbooru" data-id="${charId}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}><i class="fa-solid fa-magnifying-glass"></i> Danbooru</button>`,
+                bodyHtml: `
+                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(formAppearance)}</textarea>
+                            ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
+                            <div class="danbooru-panel hidden" data-char-id="${charId}"></div>
+                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>`,
+            });
+            const negativeSection = renderEditorSection({
+                key: 'negative',
+                title: '负向标签（可选）',
+                collapsed: isSectionCollapsed('negative'),
+                bodyHtml: `<textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(formNegative)}</textarea>`,
+            });
+            const outfitSection = renderEditorSection({
+                key: 'outfits',
+                title: '服装列表（可选）',
+                collapsed: isSectionCollapsed('outfits'),
+                actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加服装</button>`,
+                bodyHtml: `
+                            <div class="char-outfit-editor-list">
+                                <div class="char-outfit-editor-empty"${formOutfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。停用的服装不会发送。</div>
+                                ${renderNamedTagEditorItems(formOutfits, 'outfit', { escapeHtml })}
+                            </div>
+                            <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves。条目多时自动折叠，点标题行展开。</p>`,
+            });
+            const dynamicStateSection = renderEditorSection({
+                key: 'dynamicStates',
+                title: '动态外貌（可选）',
+                collapsed: isSectionCollapsed('dynamicStates'),
+                actionsHtml: `<button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加状态</button>`,
+                bodyHtml: `
+                            <div class="char-dynstate-editor-list">
+                                <div class="char-dynstate-editor-empty"${formDynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。停用的状态不会发送。</div>
+                                ${renderNamedTagEditorItems(formDynamicStates, 'dynstate', { escapeHtml })}
+                            </div>
+                            <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>`,
+            });
             const typeOptions = CHARACTER_TYPES.map(t =>
                 `<option value="${t.value}"${t.value === selectedType ? ' selected' : ''}>${t.label}</option>`
             ).join('');
@@ -1711,48 +1726,10 @@ function renderCharList() {
                         <input type="text" class="input char-edit-aliases" value="${escapeHtml(formAliases)}" placeholder="小名, 昵称, ...">
                     </div>
                     ${groupSelectHtml}
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;gap:8px;">
-                            固定外貌 (appearance)
-                            <button class="btn" data-action="search-danbooru" data-id="${charId}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
-                                <i class="fa-solid fa-magnifying-glass"></i> Danbooru
-                            </button>
-                        </label>
-                        <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(formAppearance)}</textarea>
-                        ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
-                        <div class="danbooru-panel hidden" data-char-id="${charId}"></div>
-                        <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">负向标签（可选）</label>
-                        <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(formNegative)}</textarea>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                            <span>服装列表（可选）</span>
-                            <button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加服装</button>
-                        </label>
-                        <div class="char-outfit-editor-list">
-                            <div class="char-outfit-editor-empty"${formOutfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。</div>
-                            ${formOutfits.map((outfit, index) => renderNamedTagEditorItem(outfit, index, 'outfit')).join('')}
-                        </div>
-                        <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves</p>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                            <span>动态外貌（可选）</span>
-                            <button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加状态</button>
-                        </label>
-                        <div class="char-dynstate-editor-list">
-                            <div class="char-dynstate-editor-empty"${formDynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。</div>
-                            ${formDynamicStates.map((item, index) => renderNamedTagEditorItem(item, index, 'dynstate')).join('')}
-                        </div>
-                        <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>
-                    </div>
-                    <div class="btn-group" style="margin-top:12px;">
-                        <button class="btn btn-primary" data-action="save" data-id="${charId}"><i class="fa-solid fa-check"></i> 保存</button>
-                        <button class="btn" data-action="cancel" data-id="${charId}">取消</button>
-                    </div>
+                    ${appearanceSection}
+                    ${negativeSection}
+                    ${outfitSection}
+                    ${dynamicStateSection}
                 </div>
             </div>`;
         }
@@ -1765,6 +1742,7 @@ function renderCharList() {
     const groupScroll = captureGroupScroll(list);
     list.innerHTML = DOMPurify.sanitize(renderGroupedCharacterSections(filteredChars, renderCard));
     restoreGroupScroll(list, groupScroll);
+    groupHeights?.apply({ validGroupIds: groups.map(group => group.id) });
 
     list.querySelectorAll('.char-edit-type').forEach(sel => {
         sel.addEventListener('change', function() {
@@ -1824,22 +1802,44 @@ function handleCharAction(action, id, card, trigger) {
                 if (labelNode) labelNode.textContent = actionLabel;
             }
         });
+    } else if (action === 'toggle-section') {
+        // 只改 DOM 与会话记录，不重绘：其他输入框里尚未保存的内容不受影响。
+        const section = trigger?.closest('.char-edit-section');
+        const key = trigger?.dataset.section;
+        if (!section || !key) return;
+        setEditorSectionCollapsed(section, editorSections.toggle(id, key));
+    } else if (action === 'toggle-named-item') {
+        const row = trigger?.closest('.named-tag-item');
+        toggleNamedTagItem(row, namedTagKindOfRow(row));
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
         const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
         const list = card?.querySelector(`.${meta.classPrefix}-editor-list`);
         if (!list) return;
-        list.insertAdjacentHTML('beforeend', DOMPurify.sanitize(renderNamedTagEditorItem({}, list.querySelectorAll(`.${meta.classPrefix}-editor-item`).length, kind)));
-        syncNamedTagEditorList(list, kind);
+        // 分区折叠着时新条目看不见：先展开分区。
+        const section = list.closest('.char-edit-section');
+        if (section?.classList.contains('is-collapsed')) {
+            editorSections.setCollapsed(id, section.dataset.section, false);
+            setEditorSectionCollapsed(section, false);
+        }
+        const row = appendNamedTagEditorItem(list, kind, {
+            escapeHtml,
+            insertHtml: (target, html) => target.insertAdjacentHTML('beforeend', DOMPurify.sanitize(html)),
+        });
+        row?.scrollIntoView?.({ block: 'nearest' });
+        row?.querySelector(`.${meta.classPrefix}-name`)?.focus();
     } else if (action === 'remove-outfit' || action === 'remove-dynstate') {
         const kind = action === 'remove-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
-        const row = trigger?.closest(`.${meta.classPrefix}-editor-item`);
-        const list = row?.closest(`.${meta.classPrefix}-editor-list`);
-        row?.remove();
-        syncNamedTagEditorList(list, kind);
+        removeNamedTagEditorItem(trigger?.closest(`.${meta.classPrefix}-editor-item`), kind);
     } else if (action === 'search-danbooru') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
+        // 搜索面板在“固定外貌”分区正文里：分区折叠着就先展开。
+        const appearanceSection = card?.querySelector('.char-edit-section[data-section="appearance"]');
+        if (appearanceSection?.classList.contains('is-collapsed')) {
+            editorSections.setCollapsed(id, 'appearance', false);
+            setEditorSectionCollapsed(appearanceSection, false);
+        }
         showLocalDanbooruFix(id);
     } else if (action === 'edit') {
         if (editingCharId === id) return;
@@ -2889,7 +2889,7 @@ function parseWorldbookJson(jsonText, fileName) {
         entries.push({
             uid: Number(uid),
             comment: e.comment || '',
-            key: Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []),
+                key: Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []),
             keysecondary: Array.isArray(e.keysecondary) ? e.keysecondary : [],
             constant: !!e.constant,
             disable: !!e.disable,

@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
+<link rel="stylesheet" href="../../shared/character-group-height.css">
 <link rel="stylesheet" href="../../shared/prompt-layout-editor.css">
 <script type="module">
 import { loadBuildEntry, reportBuildFailure } from '../../../../core/build-assets.js';
@@ -50,7 +51,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-group-name { flex: 1 1 6em; min-width: 6em; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .char-group-count { flex-shrink: 0; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 .char-group-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
-.char-group-body { padding: 2px 4px; max-height: max(320px, 60vh); overflow-y: auto; } /* 展开的分组在自己的区域内滚动（分组头留在外面）；不设 overscroll-behavior，滚到头继续带动整页；上下各留 2px 给拖拽落点线 */
+.char-group-body { padding: 2px 4px; max-height: var(--lwb-group-height, max(320px, 60vh)); overflow-y: auto; } /* 展开的分组在自己的区域内滚动（分组头留在外面）；不设 overscroll-behavior，滚到头继续带动整页；上下各留 2px 给拖拽落点线 */
 .char-group-body > .char-card { flex-shrink: 0; }
 .char-group-body[hidden] { display: none; }
 .char-group-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
@@ -167,7 +168,33 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* ── Inline edit mode ── */
 .char-card.editing { padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
 }
-.char-edit-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.char-card.editing:hover { background: var(--bg-secondary); } /* 吸顶栏是不透明的，卡片悬停时不能只有卡片变色 */
+/* 编辑中的角色卡：顶部摘要行（名字 / 类型 / 状态 / 保存 · 取消 / 启用 / 编辑 / 更多）在长表单滚动时始终可见。
+   滚动的是最近的可滚动祖先：桌面端展开的分组里是 .char-group-body（max-height 内部滚动），没有分组或窄屏（max-height: none）时是 iframe 文档本身，
+   sticky 对两者都生效；用负外边距把栏铺满卡片内边距，滚过去的表单内容不会从栏的边缘漏出来。
+   “…”菜单是 fixed 浮层（z-index 200，在摘要的层叠上下文里），盖得住表单内容。
+   窄屏摘要行会换行（见下方媒体查询）：状态文字单独占一行，按钮区始终在第一行右侧，不会被挤出可视范围。 */
+.char-card.editing > .char-card-summary {
+    position: sticky; top: 0; z-index: 4; margin: -12px -12px 0; padding: 12px 12px 8px;
+    background: var(--bg-secondary); border-radius: 8px 8px 0 0; border-bottom: 1px solid var(--border);
+}
+.char-group-body .char-card.editing > .char-card-summary { top: -2px; } /* 分组滚动区自带 2px 上内边距：抵消它，滚过去的内容不会从栏上方漏出来 */
+.char-edit-save, .char-edit-cancel { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
+.char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item { scroll-margin-top: 72px; scroll-margin-bottom: 16px; } /* 聚焦 / 滚入视野时别被吸顶栏盖住 */
+/* ── 可折叠分区（固定外貌 / 负向标签 / 服装列表 / 动态外貌）── */
+.char-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.char-section-toggle {
+    display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px 2px 0; border: 0; background: none;
+    color: var(--text-secondary); font: inherit; font-size: 11px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.char-section-toggle:hover { color: var(--text-primary); }
+.char-section-chevron, .named-tag-chevron { width: 12px; flex-shrink: 0; font-size: 10px; text-align: center; transition: transform .15s; }
+.char-edit-section.is-collapsed .char-section-chevron, .named-tag-item.is-folded .named-tag-chevron { transform: rotate(-90deg); }
+.char-section-count { color: var(--text-muted); font-weight: 400; }
+.char-section-count:not(:empty)::before { content: '· '; }
+.char-section-actions { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.char-edit-section.is-collapsed .char-section-head { margin-bottom: 0; }
+.char-edit-form { margin-top: 0; padding-top: 10px; } /* 摘要行自带下边线 */
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
@@ -187,6 +214,26 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 }
 .char-outfit-editor-title, .char-dynstate-editor-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .char-outfit-editor-item .form-group:last-child, .char-dynstate-editor-item .form-group:last-child { margin-bottom: 0; }
+/* 条目折叠头：[箭头 + 名称 + TAG 预览（点击展开 / 折叠）] [启用开关] [删除]。折叠时头部就是整条的高度。 */
+.named-tag-toggle {
+    display: flex; align-items: center; flex: 1 1 auto; gap: 8px; min-width: 0; padding: 4px 0; border: 0; background: none;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.named-tag-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.named-tag-preview { display: none; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
+.named-tag-item.is-folded .named-tag-preview { display: block; }
+.named-tag-item.is-folded .named-tag-header { margin-bottom: 0; }
+.named-tag-item.dragging { opacity: .45; }
+.named-tag-drag { align-self: center; }
+.named-tag-item.is-folded { padding-top: 8px; padding-bottom: 8px; }
+.named-tag-switch, .named-tag-body-enable { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
+.named-tag-body-enable { margin-top: 10px; }
+.named-tag-switch-text { min-width: 2em; }
+/* 停用的条目：整体变淡、标题划线，但输入框仍可编辑；开关和删除保持原样，方便改回来。 */
+.named-tag-item.is-disabled { border-style: dashed; background: rgba(255,255,255,.01); }
+.named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-body > .form-group { opacity: .5; }
+.named-tag-item.is-disabled .named-tag-title { text-decoration: line-through; }
+.named-tag-item.is-disabled .named-tag-switch-text { color: var(--warning); }
 .char-outfit-tags, .char-dynstate-tags { min-height: 72px; }
 /* ── Toggle switch ── */
 .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
@@ -332,10 +379,17 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     .preset-list-card, .preset-list, .preset-row { min-width: 0; max-width: 100%; }
     .preset-list-header .btn-group { flex-wrap: wrap; max-width: 100%; }
     .char-card-summary { flex-wrap: wrap; min-width: 0; }
+    /* 窄屏滚动的是文档本身，底部有固定的 .mobile-nav（至少 64px + 安全区）：滚入视野时让出这块 */
+    .char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item { scroll-margin-bottom: calc(80px + env(safe-area-inset-bottom)); }
     .char-identity { flex: 1 1 0; min-width: 0; }
     .char-status { order: 3; flex: 1 1 100%; min-width: 0; padding-left: 26px; }
     .char-actions { justify-content: flex-end; min-width: 0; }
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
+}
+@media (max-width: 480px) {
+    /* 手机宽度：编辑摘要行里的 保存 / 取消 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
+    .char-edit-save span, .char-edit-cancel span { display: none; }
+    .char-edit-save, .char-edit-cancel { padding-inline: 10px; }
 }
 @media (hover: none) and (pointer: coarse) {
     .preset-row-name { min-height: 44px; }

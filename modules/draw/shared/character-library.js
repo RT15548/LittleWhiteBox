@@ -6,9 +6,11 @@
 // 分组开关与角色自己的状态互不改写：关掉分组再打开，组内每个角色保持关闭前的样子。
 // 上锁（locked）是本机状态：角色与分组都可以上锁，导入按 id 或名字命中替换时默认保护上锁角色；
 // 键只在为 true 时才写，不进入导出文件，也不读取导入文件。角色“有效上锁”= 自己上锁 或 所在分组上锁。
+// 服装 / 动态外貌条目同理有自己的开关（enabled，缺省=开，只在关闭时才写 enabled:false，见 named-tag-items.js），停用的条目不会发给规划器。
 // 排序的唯一事实来源是 characters 数组顺序；groupId 缺省（空）表示“未分组”。
 
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
+import { normalizeNamedTagList } from './named-tag-items.js';
 
 export const UNGROUPED_ID = '';
 export const UNGROUPED_NAME = '未分组';
@@ -67,15 +69,6 @@ function takeUniqueId(prefix, used, makeId = defaultMakeId) {
     const id = `${prefix}-${counter}`;
     used.add(id);
     return id;
-}
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
 }
 
 function truncateName(name) {

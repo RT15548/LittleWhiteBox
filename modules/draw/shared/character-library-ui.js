@@ -35,6 +35,7 @@ import { buildCharacterExportFileName, openCharacterExportDialog, openCharacterI
 import { getCharacterEnabledFromCard } from './character-enabled-control.js';
 import { autoScrollForPointer } from './character-list-scroll.js';
 import { createCardMenuController } from './character-card-menu.js';
+import { createGroupHeightController } from './character-group-height.js';
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
 
 // 与 NovelAI 面板共用同一个键：折叠状态按分组 id 记录，三个面板看到的分组一致。
@@ -179,6 +180,15 @@ export function createCharacterLibraryUi(options = {}) {
     const download = options.download || ((fileName, data) => downloadJson(fileName, data));
     // 角色卡“…”菜单：同一时间只开一个；整体重绘、点外面、Esc、选中菜单项都会关闭。
     const cardMenu = createCardMenuController({ document, getViewport: options.getViewport });
+
+    // 分组滚动区高度（用户可拖手柄调整，存本机 localStorage；见 character-group-height.js）
+    const groupHeights = createGroupHeightController({
+        list,
+        document,
+        getStorage: () => (options.getStorage ? options.getStorage() : (win?.localStorage ?? null)),
+        groupSelector: '.lwb-cl-group',
+        bodySelector: '.lwb-cl-group-body',
+    });
 
     const state = {
         groups: [],
@@ -333,6 +343,7 @@ export function createCharacterLibraryUi(options = {}) {
             }
         }
         restoreGroupScroll(groupScroll);
+        groupHeights.apply({ validGroupIds: state.groups.map(group => group.id) });
         renderToolbar();
         filterCards();
         emitChange();
@@ -1255,6 +1266,7 @@ export function createCharacterLibraryUi(options = {}) {
             importDialog?.close();
             exportDialog?.close();
             cardMenu.destroy();
+            groupHeights.destroy();
             listeners.splice(0).forEach(off => off());
             document.body?.classList?.remove('lwb-cl-is-dragging');
         },

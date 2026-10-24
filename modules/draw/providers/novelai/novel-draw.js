@@ -71,6 +71,7 @@ import {
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import { NOVEL_API_FIELDS, NOVEL_API_PRESET_OPTIONS, normalizeNovelApiConfig, normalizeNovelApiPresets } from './novel-api-config.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
+import { normalizeNamedTagList } from "../../shared/named-tag-items.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
 import {
@@ -1270,15 +1271,6 @@ async function ensureJSZip() {
 // ═══════════════════════════════════════════════════════════════════════════
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
 
 // ── 角色自动学习 ─────────────────────────────────────────────
 

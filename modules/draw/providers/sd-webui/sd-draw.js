@@ -56,6 +56,7 @@ import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
 import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
+import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
@@ -1927,8 +1928,8 @@ function renderCharacterCard({ character: tag, ordinal }) {
         createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
         createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
         createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
-        createCharacterField('服装参考（每行一套）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
-        createCharacterField('动态外貌（每行一条）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
+        createCharacterField('服装参考（每行一套，行首加 # 停用）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
+        createCharacterField('动态外貌（每行一条，行首加 # 停用）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
     );
     const panel = document.createElement('div');
     panel.className = 'danbooru-panel hidden';
@@ -1962,39 +1963,6 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
     }
     field.appendChild(input);
     return field;
-}
-
-function serializeNamedTagLines(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map((outfit) => {
-            const name = String(outfit?.name || '').trim();
-            const tags = String(outfit?.tags || '').trim();
-            if (!name && !tags) return '';
-            return name ? `${name} = ${tags}` : tags;
-        })
-        .filter(Boolean)
-        .join('\n');
-}
-
-function parseNamedTagLines(value = '') {
-    return String(value || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-            const matched = line.split('=');
-            if (matched.length >= 2) {
-                return {
-                    name: matched.shift().trim(),
-                    tags: matched.join('=').trim(),
-                };
-            }
-            return {
-                name: '',
-                tags: line,
-            };
-        })
-        .filter((outfit) => outfit.name || outfit.tags);
 }
 
 function renderFilterRuleRow(rule = { start: '', end: '' }) {

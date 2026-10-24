@@ -27,6 +27,7 @@ import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker
 import { resolveCustomToolDefinitions } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
+import { isNamedTagEnabled } from './named-tag-items.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -82,7 +83,8 @@ export function getEffectiveTagGuide(customGuide) {
 
 function formatReferenceList(items, fallbackLabel) {
     return (Array.isArray(items) ? items : [])
-        .filter((item) => item?.name || item?.tags)
+        // 停用的条目不给 AI 看（detectPresentCharacters 已剔除；这里兜底，直接传库里条目进来的路径同样不会泄漏）。
+        .filter((item) => isNamedTagEnabled(item) && (item?.name || item?.tags))
         .map((item) => `${item.name || fallbackLabel}=${item.tags || '未填写tag'}`)
         .join('； ');
 }

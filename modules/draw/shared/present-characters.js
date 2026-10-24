@@ -2,18 +2,10 @@
 // 只有“有效启用”的角色才会被检测到：角色自己 enabled !== false 且所在分组是开的（见 character-library.js 的嵌套启用模型）。
 import { selectEnabledCharacters } from './character-library.js';
 import { isCharacterEnabled } from './character-selection.js';
+import { selectEnabledNamedTags } from './named-tag-items.js';
 
 function escapeRegexChars(str) {
     return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
 }
 
 /**
@@ -48,8 +40,9 @@ export function detectPresentCharacters(messageText, characterLibrary) {
                 appearance: char.appearance || '',
                 danbooruTag: char.danbooruTag || '',
                 negativeTags: char.negativeTags || '',
-                outfits: normalizeNamedTagList(char.outfits),
-                dynamicStates: normalizeNamedTagList(char.dynamicStates),
+                // 停用的服装 / 状态在这里就被剔除：规划器的输入里根本没有它们。
+                outfits: selectEnabledNamedTags(char.outfits),
+                dynamicStates: selectEnabledNamedTags(char.dynamicStates),
             });
         }
     }

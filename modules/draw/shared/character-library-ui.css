@@ -153,7 +153,7 @@
     flex-direction: column;
     gap: 0;
     padding: 4px 8px;
-    max-height: max(320px, 60vh);
+    max-height: var(--lwb-group-height, max(320px, 60vh)); /* 用户可在分组下沿拖动调整，见 character-group-height.js */
     overflow-y: auto;
 }
 .lwb-cl-group-body > * { flex-shrink: 0; }
