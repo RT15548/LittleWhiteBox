@@ -4,11 +4,10 @@ import { parseHTML } from 'linkedom';
 import {
     EDITOR_SECTION_KEYS,
     appendNamedTagEditorItem,
-    applyNamedTagEnabledChange,
     collectNamedTagEditorValues,
     createEditorSectionState,
     createNamedTagSortables,
-    isCheckboxChecked,
+    duplicateNamedTagEditorItem,
     isNamedTagHeaderToggleTarget,
     refreshNamedTagItemHeader,
     removeNamedTagEditorItem,
@@ -18,6 +17,7 @@ import {
     setEditorSectionCollapsed,
     syncNamedTagEditorList,
     toggleNamedTagItem,
+    toggleNamedTagItemEnabled,
 } from '../character-edit-form.js';
 import { reorderNamedTagItems } from '../named-tag-items.js';
 
@@ -33,7 +33,7 @@ const OUTFITS = [
     { name: '制服', tags: 'school uniform, ribbon' },
 ];
 
-const insertHtml = (target, html) => target.insertAdjacentHTML('beforeend', html);
+const insertHtml = (target, html, position = 'beforeend') => target.insertAdjacentHTML(position, html);
 
 function mount(items, kind = 'outfit') {
     const { document, window } = parseHTML('<html><body><div id="card"></div></body></html>');
@@ -72,7 +72,7 @@ test('0 items: only the empty hint; 1 item: expanded like before', () => {
     assert.equal(one.card.querySelector('.char-outfit-editor-empty').style.display, 'none');
 });
 
-test('2+ items render folded: one-line header (handle, chevron, name input, tags preview, switch, delete), body hidden', () => {
+test('2+ items render folded: one-line header (handle, chevron, name input, tags preview, one … menu), body hidden', () => {
     const { card } = mount(OUTFITS);
     assert.deepEqual(expandedFlags(card), [false, false, false]);
     for (const row of rows(card)) {
@@ -81,8 +81,15 @@ test('2+ items render folded: one-line header (handle, chevron, name input, tags
         assert.equal(row.querySelector('.named-tag-toggle').getAttribute('aria-expanded'), 'false');
         assert.ok(row.querySelector('.named-tag-header [data-named-drag]'));
         assert.ok(row.querySelector('.named-tag-header input.char-outfit-name'));
-        assert.ok(row.querySelector('.named-tag-header .named-tag-enabled'));
-        assert.ok(row.querySelector('.named-tag-header [data-action="remove-outfit"]'));
+        // 启用开关与红色删除按钮不再直接摆在头部：它们收进“…”菜单（复制 / 停用·启用 / 删除）。
+        assert.equal(row.querySelector('.named-tag-header .named-tag-switch'), null);
+        assert.equal(row.querySelector('.named-tag-header > [data-action="remove-outfit"]'), null);
+        assert.equal(row.querySelector('.named-tag-header > .btn-danger'), null);
+        assert.equal(row.querySelectorAll('.named-tag-header .char-menu-button').length, 1);
+        assert.deepEqual(
+            Array.from(row.querySelectorAll('.named-tag-header [role="menuitem"]')).map(item => item.dataset.action),
+            ['duplicate-named-item', 'toggle-named-enabled', 'remove-outfit'],
+        );
     }
     const first = rows(card)[0];
     assert.equal(first.querySelector('.char-outfit-name').getAttribute('value'), '白裙');
@@ -104,7 +111,7 @@ test('the name lives only in the header input (no second name field in the body)
     }
 });
 
-test('header click toggles fold except on the name input, the switch and the drag handle', () => {
+test('header click toggles fold except on the name input, the … menu and the drag handle', () => {
     const { card } = mount(OUTFITS);
     const row = rows(card)[0];
     assert.equal(row.querySelector('.named-tag-header').dataset.action, 'toggle-named-item');
@@ -112,8 +119,8 @@ test('header click toggles fold except on the name input, the switch and the dra
     assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-preview')), true);
     assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-header')), true);
     assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.char-outfit-name')), false);
-    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-enabled')), false);
-    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.named-tag-switch')), false);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.char-menu-button')), false);
+    assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('.char-menu')), false);
     assert.equal(isNamedTagHeaderToggleTarget(row.querySelector('[data-named-drag]')), false);
     assert.equal(isNamedTagHeaderToggleTarget(null), true);
 });
@@ -174,8 +181,7 @@ test('draft capture -> redraw restores fold state, switches and unsaved text', (
     const [a, b] = rows(first.card);
     toggleNamedTagItem(b, 'outfit'); // 用户展开了第 2 条
     a.querySelector('.char-outfit-name').value = '白裙（改）';
-    a.querySelector('.named-tag-enabled').checked = false; // 关掉第 1 条（头部的开关）
-    applyNamedTagEnabledChange(a.querySelector('.named-tag-enabled'));
+    toggleNamedTagItemEnabled(a); // 停用第 1 条（菜单里的“停用”）
     appendNamedTagEditorItem(first.list, 'outfit', { insertHtml });
 
     const draft = collectNamedTagEditorValues(first.card, 'outfit', { keepEmpty: true, withUiState: true });
@@ -218,36 +224,58 @@ test('header preview follows the tags input (the name input is the title itself)
     assert.ok(row.querySelector('.named-tag-preview').textContent.length < 60);
 });
 
-test('each item has exactly one enable switch (in the header, with the hint); it styles the row and updates the enabled/total badge', () => {
+test('the menu 停用 / 启用 item flips the row state, its own label, the 已停用 tag and the enabled/total badge', () => {
     const { card } = mount(OUTFITS);
     const count = () => card.querySelector('.char-section-count').textContent;
+    const toggleLabel = row => row.querySelector('.editor-item-enabled-toggle .char-menu-label').textContent;
     assert.equal(count(), '2/3');
     const [a, b] = rows(card);
     for (const row of [a, b]) {
-        assert.equal(row.querySelectorAll('.named-tag-enabled').length, 1);
-        assert.ok(row.querySelector('.named-tag-header .named-tag-enabled'));
+        assert.equal(row.querySelectorAll('.editor-item-state').length, 1);
+        assert.equal(row.querySelector('.named-tag-header .editor-item-state').textContent, '已停用');
         assert.equal(row.querySelector('.named-tag-body').querySelector('input[type="checkbox"]'), null);
-        assert.equal(row.querySelector('.named-tag-body-enable'), null);
-        assert.equal(row.querySelector('.named-tag-switch').getAttribute('title'), '停用后不会发给 AI');
-        assert.ok(row.querySelector('.named-tag-enabled').getAttribute('aria-label').includes('停用后不会发给 AI'));
     }
     assert.ok(b.classList.contains('is-disabled'));
-    assert.equal(isCheckboxChecked(b.querySelector('.named-tag-enabled')), false);
+    assert.equal(toggleLabel(a), '停用');
+    assert.equal(toggleLabel(b), '启用');
 
-    const box = b.querySelector('.named-tag-enabled');
-    box.checked = true;
-    applyNamedTagEnabledChange(box);
+    assert.equal(toggleNamedTagItemEnabled(b), true);
     assert.ok(!b.classList.contains('is-disabled'));
     assert.equal(b.dataset.enabled, 'true');
-    assert.equal(b.querySelector('.named-tag-switch-text').textContent, '启用');
+    assert.equal(toggleLabel(b), '停用');
     assert.equal(count(), '3');
 
-    const other = a.querySelector('.named-tag-enabled');
-    other.checked = false;
-    applyNamedTagEnabledChange(other);
+    assert.equal(toggleNamedTagItemEnabled(a), false);
     assert.ok(a.classList.contains('is-disabled'));
-    assert.equal(a.querySelector('.named-tag-switch-text').textContent, '停用');
+    assert.equal(toggleLabel(a), '启用');
+    assert.equal(a.querySelector('.editor-item-enabled-toggle i').getAttribute('class'), 'fa-solid fa-eye');
     assert.deepEqual(collectNamedTagEditorValues(card, 'outfit').map(item => item.enabled === false), [true, false, false]);
+});
+
+test('复制 inserts a copy right below the item: name + 副本, the tags as currently typed, expanded and enabled whatever the source state', () => {
+    const { card, list } = mount(OUTFITS);
+    const [a] = rows(card);
+    a.querySelector('.char-outfit-tags').value = 'white dress, typed after open';
+    const copy = duplicateNamedTagEditorItem(a, 'outfit', { insertHtml });
+    assert.equal(a.nextElementSibling, copy);
+    const nameOf = row => row.querySelector('.char-outfit-name').getAttribute('value');
+    assert.deepEqual(rows(card).map(nameOf), ['白裙', '白裙 副本', '睡衣', '制服']);
+    assert.equal(copy.dataset.expanded, 'true');
+    assert.equal(copy.dataset.enabled, 'true');
+    assert.ok(!copy.classList.contains('is-disabled'));
+    assert.equal(copy.querySelector('.char-outfit-tags').textContent, 'white dress, typed after open');
+    assert.equal(rows(card)[0].dataset.expanded, 'false', 'the source keeps its own fold state');
+    assert.deepEqual(rows(card).map(row => row.dataset.index), ['0', '1', '2', '3']);
+    assert.equal(card.querySelector('.char-section-count').textContent, '3/4');
+
+    // 停用的源条目：副本仍是启用的；空名称的副本就叫“副本”
+    const fromDisabled = duplicateNamedTagEditorItem(rows(card)[2], 'outfit', { insertHtml });
+    assert.equal(fromDisabled.dataset.enabled, 'true');
+    assert.equal(nameOf(fromDisabled), '睡衣 副本');
+    const blank = mount([{ name: '', tags: 'x' }]);
+    assert.equal(nameOf(duplicateNamedTagEditorItem(rows(blank.card)[0], 'outfit', { insertHtml })), '副本');
+    assert.equal(duplicateNamedTagEditorItem(null, 'outfit', { insertHtml }), null);
+    assert.equal(list.querySelectorAll('.named-tag-item').length, 5);
 });
 
 test('dynamic states use the same editor with their own classes', () => {
@@ -293,7 +321,7 @@ test('reordering rows moves the real nodes: text, fold and switch state travel; 
     assert.deepEqual(rows(card).map(row => row.dataset.index), ['0', '1', '2']);
     assert.deepEqual(names(card), ['制服（改）', '白裙', '睡衣']);
     assert.deepEqual(expandedFlags(card), [true, false, false]);
-    assert.equal(isCheckboxChecked(rows(card)[2].querySelector('.named-tag-enabled')), false);
+    assert.equal(rows(card)[2].dataset.enabled, 'false');
     assert.equal(list.querySelector('.char-outfit-editor-empty').nextElementSibling, c); // 提示行仍在最前
     assert.equal(rows(card)[0].querySelector('[data-action="remove-outfit"]').dataset.index, '0');
     assert.ok(rows(card)[0].querySelector('[data-named-drag]').getAttribute('aria-label').includes('1'));
@@ -314,7 +342,7 @@ test('the new order survives a draft capture and redraw', () => {
     const second = mount(draft);
     assert.deepEqual(names(second.card), ['睡衣', '制服', '白裙']);
     assert.deepEqual(expandedFlags(second.card), [false, true, false]);
-    assert.equal(isCheckboxChecked(rows(second.card)[0].querySelector('.named-tag-enabled')), false); // 睡衣仍是停用
+    assert.equal(rows(second.card)[0].dataset.enabled, 'false'); // 睡衣仍是停用
     // 保存按 DOM 顺序读：不带 UI 状态，数组顺序即新顺序
     assert.deepEqual(collectNamedTagEditorValues(second.card, 'outfit').map(item => item.name), ['睡衣', '制服', '白裙']);
 });

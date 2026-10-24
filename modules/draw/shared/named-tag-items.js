@@ -8,6 +8,15 @@ export const NAMED_TAG_FOLD_MIN_ITEMS = 2;
 // 折叠头里 TAG 预览的最大字符数（按码点算），超出加省略号。
 export const NAMED_TAG_PREVIEW_LIMIT = 36;
 
+/** 复制条目 / 形态时在名称后加的后缀（与复制角色一致）。 */
+export const COPY_NAME_SUFFIX = '副本';
+
+/** 副本的名称：原名称 + “ 副本”；原名称为空时就是“副本”。 */
+export function makeCopyLabel(name) {
+    const base = String(name || '').trim();
+    return base ? `${base} ${COPY_NAME_SUFFIX}` : COPY_NAME_SUFFIX;
+}
+
 /** 条目是否启用：只有明确写了 enabled:false 才算停用。 */
 export function isNamedTagEnabled(item) {
     return item?.enabled !== false;

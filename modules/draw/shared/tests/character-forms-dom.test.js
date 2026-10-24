@@ -124,3 +124,44 @@ test('text-box lines round trip through the same named-tag parser the top-level 
     assert.equal(lines, '# 鳞甲 = scales');
     assert.deepEqual(parseNamedTagLines(lines), [{ name: '鳞甲', tags: 'scales', enabled: false }]);
 });
+
+test('SD / ComfyUI form blocks: 复制 inserts a 副本 below with the typed values and no id; 停用 shows 已停用 and saves enabled:false (and 启用 drops it again)', () => {
+    const { card } = mountCard();
+    const [first] = blocks(card);
+    fieldOf(first, 'appearance').value = 'dragon, typed after open';
+    click(window0(card), first.querySelector('[data-sd-form-copy]'));
+    assert.equal(blocks(card).length, 3);
+    const copy = blocks(card)[1];
+    assert.equal(fieldOf(copy, 'name').value, '龙形 副本');
+    assert.equal(fieldOf(copy, 'appearance').value, 'dragon, typed after open');
+    assert.equal(copy.dataset.formId, '', 'no id until saved');
+    assert.equal(copy.open, true);
+    assert.equal(copy.dataset.enabled, 'true');
+    assert.equal(copy.querySelector('.sd-char-form-state').hasAttribute('hidden'), true);
+
+    const toggle = copy.querySelector('[data-sd-form-toggle]');
+    assert.equal(toggle.getAttribute('title'), '停用形态');
+    click(window0(card), toggle);
+    assert.equal(copy.dataset.enabled, 'false');
+    assert.ok(copy.classList.contains('is-disabled'));
+    assert.equal(copy.querySelector('.sd-char-form-state').hasAttribute('hidden'), false);
+    assert.equal(copy.querySelector('.sd-char-form-state').textContent, '已停用');
+    assert.equal(toggle.getAttribute('title'), '启用形态');
+    assert.equal(copy.open, true, 'the toggle button inside <summary> does not fold the block');
+
+    const record = readRecord(card, SAVED);
+    assert.deepEqual(record.forms.map(form => [form.name, form.enabled]), [['龙形', undefined], ['龙形 副本', false], ['幼龙', undefined]]);
+    assert.equal('enabled' in record.forms[0], false);
+
+    click(window0(card), toggle);
+    assert.equal(readRecord(card, SAVED).forms[1].enabled, undefined);
+
+    // 第一形态的停用标记（只能在 NovelAI 页面设置）原样保留；没有额外形态后随之清掉
+    assert.equal(readRecord(card, { ...SAVED, formDisabled: true }).formDisabled, true);
+    blocks(card).forEach(block => click(window0(card), block.querySelector('[data-sd-form-delete]')));
+    assert.equal('formDisabled' in readRecord(card, { ...SAVED, formDisabled: true }), false);
+});
+
+function window0(card) {
+    return card.ownerDocument.defaultView;
+}

@@ -8,6 +8,7 @@ import { movePresetId } from './preset-order.js';
 import {
     isNamedTagEnabled,
     isNamedTagItemExpanded,
+    makeCopyLabel,
     normalizeNamedTagList,
     previewNamedTags,
 } from './named-tag-items.js';
@@ -19,6 +20,7 @@ import {
 import {
     EXTRA_TAGS_COPY,
     FIXED_APPEARANCE_COPY,
+    ITEM_MENU_COPY,
     NAMED_TAG_EMPTY_TEXT,
     NAMED_TAG_TAGS_LABEL,
 } from './character-editor-copy.js';
@@ -50,9 +52,8 @@ export const NAMED_TAG_EDITOR_KINDS = Object.freeze({
 });
 
 let nextItemUid = 0; // 条目行的界面内唯一标识：拖拽排序按它认行（下标会随排序变化）
-const ENABLED_COPY = Object.freeze({ on: '启用', off: '停用' });
 const ENABLED_HINT = '停用后不会发给 AI';
-const enabledAriaLabel = (meta, index) => `启用${meta.title} ${index + 1}（${ENABLED_HINT}）`;
+const itemMenuLabel = (meta, index) => `${ITEM_MENU_COPY.more} ${meta.title} ${index + 1}`;
 
 function defaultEscapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -60,6 +61,38 @@ function defaultEscapeHtml(str) {
 
 function kindMeta(kind) {
     return NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
+}
+
+// ── 条目 / 形态头部的“…”菜单 ─────────────────────────────────
+// 与角色卡外面的“…”菜单同一套标记和样式（.char-menu*，开关与定位由 character-card-menu.js 的 getCardMenu() 负责）：
+// 复制、停用 / 启用（文案随状态翻转）、删除。菜单按钮的 data-action="menu" 由页面的点击委托交给菜单控制器。
+
+const ENABLE_ICON = Object.freeze({ on: 'fa-eye-slash', off: 'fa-eye' });
+
+/** 头部右侧的“已停用”小标签 + “…”菜单。actions 里的三个 data-action 由调用方决定（条目和形态各用各的）。 */
+export function renderEditorItemMenu({ label, enabled = true, duplicateAction, toggleAction, removeAction, removeAttrs = '' }) {
+    const toggleLabel = enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable;
+    return `
+            <span class="editor-item-state" title="${ENABLED_HINT}">${ITEM_MENU_COPY.disabledTag}</span>
+            <span class="char-menu-wrap" data-card-menu>
+                <button type="button" class="char-action-button char-menu-button" data-action="menu" title="${ITEM_MENU_COPY.more}" aria-label="${label}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+                <div class="char-menu" role="menu" aria-label="${label}" hidden>
+                    <button type="button" role="menuitem" class="char-menu-item" data-action="${duplicateAction}" title="${ITEM_MENU_COPY.duplicate}"><i class="fa-solid fa-clone" aria-hidden="true"></i><span class="char-menu-label">${ITEM_MENU_COPY.duplicate}</span></button>
+                    <button type="button" role="menuitem" class="char-menu-item editor-item-enabled-toggle" data-action="${toggleAction}" title="${toggleLabel}"><i class="fa-solid ${enabled ? ENABLE_ICON.on : ENABLE_ICON.off}" aria-hidden="true"></i><span class="char-menu-label">${toggleLabel}</span></button>
+                    <button type="button" role="menuitem" class="char-menu-item danger" data-action="${removeAction}"${removeAttrs ? ` ${removeAttrs}` : ''} title="${ITEM_MENU_COPY.remove}"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="char-menu-label">${ITEM_MENU_COPY.remove}</span></button>
+                </div>
+            </span>`;
+}
+
+/** 停用 / 启用后同步菜单里那一项的文案、图标和提示（不碰别的内容）。 */
+function syncEnabledToggleItem(root, enabled) {
+    const item = root?.querySelector('.editor-item-enabled-toggle');
+    if (!item) return;
+    const label = enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable;
+    item.setAttribute('title', label);
+    const text = item.querySelector('.char-menu-label');
+    if (text) text.textContent = label;
+    item.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? ENABLE_ICON.on : ENABLE_ICON.off}`);
 }
 
 // ── 可折叠分区 ──────────────────────────────────────────────
@@ -131,7 +164,6 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
     const p = meta.classPrefix;
     const enabled = isNamedTagEnabled(item);
     const expanded = isNamedTagItemExpanded(item, total);
-    const enabledLabel = enabled ? ENABLED_COPY.on : ENABLED_COPY.off;
     nextItemUid += 1;
     return `
     <div class="${p}-editor-item named-tag-item${enabled ? '' : ' is-disabled'}${expanded ? '' : ' is-folded'}" data-index="${index}" data-uid="nt-${nextItemUid}" data-enabled="${enabled}" data-expanded="${expanded}">
@@ -142,11 +174,14 @@ export function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit', 
             </button>
             <input type="text" class="${p}-name named-tag-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.nameLabel}" title="${meta.nameHint}" aria-label="${meta.nameLabel}">
             <span class="named-tag-preview">${escapeHtml(previewNamedTags(item.tags))}</span>
-            <label class="named-tag-switch" title="${ENABLED_HINT}">
-                <input type="checkbox" class="named-tag-enabled"${enabled ? ' checked' : ''} aria-label="${enabledAriaLabel(meta, index)}">
-                <span class="named-tag-switch-text">${enabledLabel}</span>
-            </label>
-            <button class="btn btn-danger btn-sm" type="button" data-action="${meta.removeAction}" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
+            ${renderEditorItemMenu({
+                label: itemMenuLabel(meta, index),
+                enabled,
+                duplicateAction: 'duplicate-named-item',
+                toggleAction: 'toggle-named-enabled',
+                removeAction: meta.removeAction,
+                removeAttrs: `data-index="${index}"`,
+            })}
         </div>
         <div class="${p}-editor-body named-tag-body"${expanded ? '' : ' hidden'}>
             <div class="form-group">
@@ -184,9 +219,9 @@ export function setNamedTagItemExpanded(row, expanded, kind = 'outfit') {
     if (!expanded) refreshNamedTagItemHeader(row, kind);
 }
 
-/** 点在折叠头上的这些控件时不切换折叠：名称输入框（点一下就编辑）、启用开关、拖动手柄；删除按钮自带 data-action，不会落到折叠头上。 */
+/** 点在折叠头上的这些控件时不切换折叠：名称输入框（点一下就编辑）、拖动手柄、“…”菜单（按钮和浮层的空白处）；菜单项自带 data-action，不会落到折叠头上。 */
 export function isNamedTagHeaderToggleTarget(target) {
-    return !target?.closest?.('input, textarea, label, [data-named-drag]');
+    return !target?.closest?.('input, textarea, label, [data-named-drag], [data-card-menu]');
 }
 
 /** 点折叠头：返回切换后是否展开。 */
@@ -196,14 +231,12 @@ export function toggleNamedTagItem(row, kind = 'outfit') {
     return next;
 }
 
-/** 同步启用开关、停用样式和开关文案。 */
+/** 同步启用状态：行上的标记、停用样式（含头部“已停用”标签）和菜单里“停用 / 启用”一项的文案。 */
 export function setNamedTagItemEnabled(row, enabled) {
     if (!row) return;
     row.dataset.enabled = String(enabled);
     row.classList.toggle('is-disabled', !enabled);
-    row.querySelectorAll('.named-tag-enabled').forEach((box) => { box.checked = enabled; });
-    const text = row.querySelector('.named-tag-switch-text');
-    if (text) text.textContent = enabled ? ENABLED_COPY.on : ENABLED_COPY.off;
+    syncEnabledToggleItem(row, enabled);
 }
 
 /** 条目行属于哪种列表（服装 / 动态标签）。 */
@@ -211,23 +244,18 @@ export function namedTagKindOfRow(row) {
     return row?.classList.contains('char-dynstate-editor-item') ? 'dynstate' : 'outfit';
 }
 
-/** 启用开关变化后：同步停用样式，并更新分区标题行里的“启用数/总数”。 */
-export function applyNamedTagEnabledChange(box) {
-    const row = box?.closest('.named-tag-item');
-    if (!row) return;
+/** 菜单里的“停用 / 启用”：翻转这一条的启用状态，并更新分区标题行里的“启用数/总数”。返回翻转后的状态。 */
+export function toggleNamedTagItemEnabled(row) {
+    if (!row) return true;
     const kind = namedTagKindOfRow(row);
-    setNamedTagItemEnabled(row, box.checked);
+    const next = row.dataset.enabled === 'false';
+    setNamedTagItemEnabled(row, next);
     syncNamedTagEditorList(row.closest(`.${kindMeta(kind).classPrefix}-editor-list`), kind);
-}
-
-// 浏览器里读 checked 属性；没有实现 checked 属性的 DOM（如单测用的 linkedom）退回读 checked 特性。
-export function isCheckboxChecked(box) {
-    return typeof box.checked === 'boolean' ? box.checked : box.hasAttribute('checked');
+    return next;
 }
 
 function readRowEnabled(row) {
-    const box = row.querySelector('.named-tag-enabled');
-    return box ? isCheckboxChecked(box) : row.dataset.enabled !== 'false';
+    return row.dataset.enabled !== 'false';
 }
 
 /** 增删条目后整理列表：序号、空状态提示、数量标记；不足折叠门槛时把剩下的条目展开。 */
@@ -241,7 +269,9 @@ export function syncNamedTagEditorList(list, kind = 'outfit') {
         row.dataset.index = String(index);
         const removeBtn = row.querySelector(`[data-action="${meta.removeAction}"]`);
         if (removeBtn) removeBtn.dataset.index = String(index);
-        row.querySelector('.named-tag-enabled')?.setAttribute('aria-label', enabledAriaLabel(meta, index));
+        const menuLabel = itemMenuLabel(meta, index);
+        row.querySelector('.char-menu-button')?.setAttribute('aria-label', menuLabel);
+        row.querySelector('.char-menu')?.setAttribute('aria-label', menuLabel);
         row.querySelector('[data-named-drag]')?.setAttribute('aria-label', `拖动调整${meta.title} ${index + 1} 的顺序`);
         if (rows.length < 2 && row.dataset.expanded !== 'true') setNamedTagItemExpanded(row, true, kind);
         refreshNamedTagItemHeader(row, kind);
@@ -255,7 +285,7 @@ export function syncNamedTagEditorList(list, kind = 'outfit') {
 
 /**
  * 在列表末尾追加一个空白条目（始终展开）并整理列表，返回新行。
- * insertHtml(list, html) 由调用方提供，负责 sanitize 后插入（本模块不直接写 innerHTML）。
+ * insertHtml(target, html, position = 'beforeend') 由调用方提供，负责 sanitize 后插入（本模块不直接写 innerHTML）。
  */
 export function appendNamedTagEditorItem(list, kind = 'outfit', { escapeHtml = defaultEscapeHtml, insertHtml } = {}) {
     if (!list || typeof insertHtml !== 'function') return null;
@@ -264,6 +294,25 @@ export function appendNamedTagEditorItem(list, kind = 'outfit', { escapeHtml = d
     insertHtml(list, renderNamedTagEditorItem({ expanded: true }, rows.length, kind, { total: 1, escapeHtml }));
     syncNamedTagEditorList(list, kind);
     return rowsOf(list, kind).pop() || null;
+}
+
+/**
+ * 复制一个条目：副本紧跟在原条目下面，名称加“副本”，标签取输入框里当前的内容（含未保存的修改），展开、启用。
+ * insertHtml 同 appendNamedTagEditorItem；返回新行。
+ */
+export function duplicateNamedTagEditorItem(row, kind = 'outfit', { escapeHtml = defaultEscapeHtml, insertHtml } = {}) {
+    const p = kindMeta(kind).classPrefix;
+    const list = row?.closest(`.${p}-editor-list`);
+    if (!list || typeof insertHtml !== 'function') return null;
+    const item = {
+        name: makeCopyLabel(row.querySelector(`.${p}-name`)?.value),
+        tags: row.querySelector(`.${p}-tags`)?.value?.trim() || '',
+        expanded: true,
+    };
+    insertHtml(row, renderNamedTagEditorItem(item, 0, kind, { total: 1, escapeHtml }), 'afterend');
+    const copy = row.nextElementSibling;
+    syncNamedTagEditorList(list, kind);
+    return copy?.classList.contains('named-tag-item') ? copy : null;
 }
 
 /**
@@ -334,10 +383,10 @@ export function collectNamedTagEditorValues(card, kind = 'outfit', { keepEmpty =
 }
 
 // ── 形态 ────────────────────────────────────────────────────
-// 编辑卡片里的“形态”：角色有 ≥2 个形态时，每个形态是一张可折叠、可拖动排序的子卡片（头部 = 拖动手柄 + 折叠箭头 + 名称输入框 + 外貌预览 + 删除），
+// 编辑卡片里的“形态”：角色有 ≥2 个形态时，每个形态是一张可折叠、可拖动排序的子卡片（头部 = 拖动手柄 + 折叠箭头 + 名称输入框 + 类型徽标 + 外貌预览 + “…”菜单〔复制 / 停用 / 删除〕），
 // 正文是该形态自己的 类型 / 固定外貌（正向 + 负向） / 服装列表 / 动态标签（组件与单形态时完全相同）。只有一个形态时不渲染这些，卡片与以前一样。
-// 数据：界面里的每个形态是一个“编辑模型” { key, id, name, type, typeCustom, appearance, negativeTags, danbooruTag, outfits, dynamicStates, expanded? }；
-// 第一张卡片写回角色顶层字段（formName 等），其余写回 forms（见 character-forms.js）。key 只在界面里区分形态，不保存。
+// 数据：界面里的每个形态是一个“编辑模型” { key, id, name, type, typeCustom, appearance, negativeTags, danbooruTag, outfits, dynamicStates, enabled?, expanded? }；
+// 第一张卡片写回角色顶层字段（formName 等；停用标记写 formDisabled），其余写回 forms（停用写 enabled:false）（见 character-forms.js）。key 只在界面里区分形态，不保存。
 
 export const FORM_MAX_COUNT = MAX_CHARACTER_FORMS;
 const FIRST_FORM_KEY = 'main';
@@ -380,7 +429,7 @@ const defaultSplitType = type => ({ type, typeCustom: '' });
 export function createBlankFormModel(splitType = defaultSplitType) {
     return {
         key: newFormKey(), id: '', name: '', ...splitType('girl'),
-        appearance: '', negativeTags: '', danbooruTag: '', outfits: [], dynamicStates: [], expanded: true,
+        appearance: '', negativeTags: '', danbooruTag: '', outfits: [], dynamicStates: [], enabled: true, expanded: true,
     };
 }
 
@@ -396,6 +445,7 @@ export function formModelsFromCharacter(character, splitType = defaultSplitType)
         danbooruTag: form.danbooruTag,
         outfits: normalizeNamedTagList(form.outfits),
         dynamicStates: normalizeNamedTagList(form.dynamicStates),
+        enabled: form.enabled !== false,
     }));
 }
 
@@ -413,13 +463,13 @@ export function draftToMultiForm(draft, splitType) {
         key: FIRST_FORM_KEY, id: '', name: String(draft.formName || ''),
         type: draft.type || 'girl', typeCustom: draft.typeCustom || '',
         appearance: draft.appearance || '', negativeTags: draft.negativeTags || '', danbooruTag: draft.danbooruTag || '',
-        outfits: draft.outfits || [], dynamicStates: draft.dynamicStates || [],
+        outfits: draft.outfits || [], dynamicStates: draft.dynamicStates || [], enabled: true,
     };
     const rest = omitKeys(draft, SINGLE_FORM_DRAFT_KEYS);
     return { ...rest, multi: true, forms: [first, createBlankFormModel(splitType)] };
 }
 
-/** 多形态草稿 → 单形态草稿（删到只剩一个形态时回到普通布局）：剩下的第一个形态成为顶层字段。 */
+/** 多形态草稿 → 单形态草稿（删到只剩一个形态时回到普通布局）：剩下的第一个形态成为顶层字段（单形态没有可停用的形态，停用状态不带过来）。 */
 export function draftToSingleForm(draft) {
     const [only] = draft.forms || [];
     const rest = omitKeys(draft, ['multi', 'forms']);
@@ -447,6 +497,7 @@ export function applyFormModelsToCharacter(character, models, { makeId = () => `
         character.dynamicStates = normalizeNamedTagList(first.dynamicStates);
         const formName = String(first.name || '').trim();
         if (formName) character.formName = formName; else delete character.formName;
+        if (first.enabled === false) character.formDisabled = true; else delete character.formDisabled;
     }
     const forms = normalizeForms(others.map(model => ({
         id: model.id || makeId(),
@@ -457,8 +508,11 @@ export function applyFormModelsToCharacter(character, models, { makeId = () => `
         danbooruTag: String(model.danbooruTag || '').trim(),
         outfits: model.outfits,
         dynamicStates: model.dynamicStates,
+        ...(model.enabled === false ? { enabled: false } : {}),
     })));
     if (forms.length) character.forms = forms; else delete character.forms;
+    // 第一形态的停用标记只在有额外形态时才有意义。
+    if (!forms.length) delete character.formDisabled;
     return character;
 }
 
@@ -522,8 +576,9 @@ export function renderCharacterFormSections(model, {
 export function renderFormCard(model, index, { total = 2, charId, escapeHtml = defaultEscapeHtml, renderTypeFields, isSectionCollapsed, danbooruEnabled = false, typeShort = null } = {}) {
     const key = escapeHtml(model.key);
     const expanded = isNamedTagItemExpanded(model, total);
+    const enabled = model.enabled !== false;
     return `
-    <div class="char-form${expanded ? '' : ' is-folded'}" data-form-key="${key}" data-form-id="${escapeHtml(model.id || '')}" data-expanded="${expanded}">
+    <div class="char-form${expanded ? '' : ' is-folded'}${enabled ? '' : ' is-disabled'}" data-form-key="${key}" data-form-id="${escapeHtml(model.id || '')}" data-expanded="${expanded}" data-enabled="${enabled}">
         <div class="char-form-header" data-action="toggle-form">
             <span class="char-drag-handle named-tag-drag" role="button" tabindex="0" data-form-drag title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整形态 ${index + 1} 的顺序">⋮⋮</span>
             <button type="button" class="char-form-toggle" aria-expanded="${expanded}" title="展开 / 折叠" aria-label="展开 / 折叠形态 ${index + 1}">
@@ -532,7 +587,14 @@ export function renderFormCard(model, index, { total = 2, charId, escapeHtml = d
             <input type="text" class="char-form-name" value="${escapeHtml(model.name || '')}" placeholder="${FORM_COPY.nameLabel}" title="${FORM_COPY.nameHint}" aria-label="${FORM_COPY.nameLabel}">
             ${typeShort ? `<span class="char-type-badge char-form-type">${escapeHtml(typeShort(resolveTypeValue(model.type, model.typeCustom)))}</span>` : ''}
             <span class="char-form-preview">${escapeHtml(previewNamedTags(model.appearance))}</span>
-            <button class="btn btn-danger btn-sm" type="button" data-action="remove-form" data-form-key="${key}"><i class="fa-solid fa-trash"></i> 删除</button>
+            ${renderEditorItemMenu({
+                label: `${ITEM_MENU_COPY.more} ${FORM_COPY.sectionTitle} ${index + 1}`,
+                enabled,
+                duplicateAction: 'duplicate-form',
+                toggleAction: 'toggle-form-enabled',
+                removeAction: 'remove-form',
+                removeAttrs: `data-form-key="${key}"`,
+            })}
         </div>
         <div class="char-form-body"${expanded ? '' : ' hidden'}>
             ${renderTypeFields ? renderTypeFields(model) : ''}
@@ -588,9 +650,45 @@ export function toggleFormCard(form) {
     return next;
 }
 
-/** 点在形态头部的输入框 / 拖动手柄上是在操作它们，不切换折叠；删除按钮自带 data-action。 */
+/** 点在形态头部的输入框 / 拖动手柄 / “…”菜单上是在操作它们，不切换折叠；菜单项自带 data-action。 */
 export function isFormHeaderToggleTarget(target) {
-    return !target?.closest?.('input, textarea, label, [data-form-drag]');
+    return !target?.closest?.('input, textarea, label, [data-form-drag], [data-card-menu]');
+}
+
+/** 同步形态的启用状态：行上的标记、停用样式（含头部“已停用”标签）和菜单里“停用 / 启用”一项的文案。 */
+export function setFormEnabled(form, enabled) {
+    if (!form) return;
+    form.dataset.enabled = String(enabled);
+    form.classList.toggle('is-disabled', !enabled);
+    syncEnabledToggleItem(form, enabled);
+}
+
+/** 菜单里的“停用 / 启用”：只改 DOM（不重绘，其他输入框里未保存的内容不受影响）。返回翻转后的状态。 */
+export function toggleFormEnabled(form) {
+    if (!form) return true;
+    const next = form.dataset.enabled === 'false';
+    setFormEnabled(form, next);
+    return next;
+}
+
+/**
+ * 复制一个形态（编辑模型的纯函数）：深拷贝，副本紧跟在原形态后面，名称加“副本”，展开、启用，id 留空（保存时发新 id，不和原形态共用）。
+ * 找不到 key 时原样返回。返回 { models, copyKey }。
+ */
+export function duplicateFormModels(models, key) {
+    const list = Array.isArray(models) ? models : [];
+    const index = list.findIndex(model => model.key === key);
+    if (index < 0) return { models: list, copyKey: '' };
+    const source = list[index];
+    const copy = {
+        ...JSON.parse(JSON.stringify(source)),
+        key: newFormKey(),
+        id: '',
+        name: makeCopyLabel(source.name),
+        enabled: true,
+        expanded: true,
+    };
+    return { models: [...list.slice(0, index + 1), copy, ...list.slice(index + 1)], copyKey: copy.key };
 }
 
 /** 整理形态列表：序号标签、数量标记、折叠头预览。 */
@@ -663,6 +761,7 @@ export function collectFormModels(card, { keepEmpty = false, withUiState = false
         id: form.dataset.formId || '',
         name: form.querySelector('.char-form-name')?.value?.trim() || '',
         ...readFormFields(form, { keepEmpty, withUiState }),
+        enabled: form.dataset.enabled !== 'false',
         ...(withUiState ? { expanded: form.dataset.expanded === 'true' } : {}),
     }));
 }

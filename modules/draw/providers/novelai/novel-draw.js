@@ -839,6 +839,8 @@ function normalizeSettings(saved = {}) {
         // 形态（见 character-forms.js）：不丢弃，也不给没有形态的角色添加这两个键。
         ...(String(char.formName || '').trim() ? { formName: String(char.formName).trim() } : {}),
         ...(normalizeForms(char.forms).length ? { forms: normalizeForms(char.forms) } : {}),
+        // 第一形态的停用标记（本机状态）：只在有额外形态时保留。
+        ...(char.formDisabled === true && normalizeForms(char.forms).length ? { formDisabled: true } : {}),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;

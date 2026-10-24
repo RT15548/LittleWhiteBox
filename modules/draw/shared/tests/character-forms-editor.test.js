@@ -75,7 +75,12 @@ test('two forms render as folded cards with the name input as the header title; 
         assert.ok(form.querySelector('.char-form-body').hasAttribute('hidden'));
         assert.ok(form.querySelector('.char-form-header > input.char-form-name'));
         assert.ok(form.querySelector('.char-form-header > [data-form-drag]'));
-        assert.ok(form.querySelector('.char-form-header > [data-action="remove-form"]'));
+        assert.equal(form.querySelector('.char-form-header > [data-action="remove-form"]'), null, 'delete lives in the … menu now');
+        assert.ok(form.querySelector('.char-form-header .char-menu [data-action="remove-form"]'));
+        assert.deepEqual(
+            Array.from(form.querySelectorAll('.char-form-header [role="menuitem"]')).map(item => item.dataset.action),
+            ['duplicate-form', 'toggle-form-enabled', 'remove-form'],
+        );
     }
     assert.deepEqual(formNames(card), ['人形', '龙形']);
     assert.equal(forms(card)[1].querySelector('.char-form-preview').textContent, 'dragon');

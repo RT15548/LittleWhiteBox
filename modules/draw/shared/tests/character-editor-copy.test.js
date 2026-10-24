@@ -83,7 +83,7 @@ test('item inputs are labelled 标签 and the name inputs use the new placeholde
     assert.equal(document.querySelector('.char-dynstate-name').getAttribute('placeholder'), '动态标签名称');
     const labels = Array.from(document.querySelectorAll('.named-tag-body label')).map(node => node.textContent);
     assert.deepEqual(labels, ['标签', '标签']);
-    assert.match(document.querySelector('.char-dynstate-editor-item .named-tag-enabled').getAttribute('aria-label'), /^启用动态标签 1/);
+    assert.match(document.querySelector('.char-dynstate-editor-item .char-menu-button').getAttribute('aria-label'), /^更多操作 动态标签 1/);
 });
 
 test('SD / ComfyUI: the fixed-appearance group keeps both fields on the existing field names and data keys', () => {

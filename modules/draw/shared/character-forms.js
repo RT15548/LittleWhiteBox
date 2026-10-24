@@ -4,11 +4,14 @@
 // 数据模型（旧数据与单形态角色完全不变）：
 // - 角色顶层的 type / appearance / negativeTags / danbooruTag / outfits / dynamicStates 就是“第一形态”（默认形态），
 //   可选的 formName 是它的形态名称（只有角色有 ≥2 个形态时才用到）。
-// - forms 只保存“额外的形态”：[{ id?, name, type, appearance, negativeTags, danbooruTag, outfits, dynamicStates }]；没有额外形态时不写该键。
+// - forms 只保存“额外的形态”：[{ id?, name, type, appearance, negativeTags, danbooruTag, outfits, dynamicStates, enabled? }]；没有额外形态时不写该键。
+// - 形态可以停用（只属于本机，不导出，导入保留本机的值）：额外形态写 enabled:false（启用时不写该键），第一形态在角色顶层写 formDisabled:true。
+//   停用的形态不参与展开 / 发给智能体 / 摘要里的类型列表；第一形态停用时由后面第一个启用的形态顶替“未提及时用第一个”和原名称解析，
+//   全部形态都停用时这个角色不会被发出去。没有额外形态的角色没有可停用的形态，formDisabled 不起作用（规范化时也不保留）。
 // 因此没有 forms 的角色（所有旧数据、旧文件）行为与以前一致；旧版本读到带 forms 的数据只会用到第一形态。
 //
 // 展开：角色有 ≥2 个形态时，expandCharacterForms 把它展开成每个形态一条记录，名称为 `名称（形态名）`，别名共用，
-// 记录里带 baseName（原角色名）与 formIndex / formCount；单形态角色原样返回同一个对象。
+// 记录里带 baseName（原角色名）与 formIndex / formCount（只数启用的形态）；单形态角色原样返回同一个对象。
 
 import {
     applyLocalNamedTagEnabled,
@@ -56,6 +59,7 @@ export function normalizeForm(raw) {
         danbooruTag: String(form.danbooruTag || ''),
         outfits: normalizeNamedTagList(form.outfits || form.costumes || form.clothes || []),
         dynamicStates: normalizeNamedTagList(form.dynamicStates || []),
+        ...(form.enabled === false ? { enabled: false } : {}),
     };
 }
 
@@ -84,6 +88,7 @@ export function getCharacterForms(character) {
         danbooruTag: String(character?.danbooruTag || ''),
         outfits: Array.isArray(character?.outfits) ? character.outfits : [],
         dynamicStates: Array.isArray(character?.dynamicStates) ? character.dynamicStates : [],
+        enabled: character?.formDisabled !== true,
     };
     const extra = (Array.isArray(character?.forms) ? character.forms : []).map((form, i) => ({
         index: i + 1,
@@ -95,55 +100,68 @@ export function getCharacterForms(character) {
         danbooruTag: String(form?.danbooruTag || ''),
         outfits: Array.isArray(form?.outfits) ? form.outfits : [],
         dynamicStates: Array.isArray(form?.dynamicStates) ? form.dynamicStates : [],
+        enabled: form?.enabled !== false,
     }));
     return [first, ...extra];
 }
 
-function expandOne(character) {
+/**
+ * 参与出图的形态：多形态角色只留启用的（可能一个都不剩）；没有额外形态时只有第一形态，且不看 formDisabled。
+ * 每项仍带原来的 index，所以名称里的“形态N”不会因为别的形态被停用而变。
+ */
+export function getEnabledCharacterForms(character) {
+    const forms = getCharacterForms(character);
+    return hasMultipleForms(character) ? forms.filter(form => form.enabled) : forms.slice(0, 1);
+}
+
+function expandOne(character, includeDisabled) {
     const forms = getCharacterForms(character);
     const base = String(character.name || '');
     const used = new Set();
-    return forms.map((form, index) => {
+    // 名称按全部形态算（停用某个形态不会改变其余形态的名称），再只留启用的。
+    const named = forms.map((form, index) => {
         let name;
         if (!form.name) name = index === 0 ? base : `${base}（形态${index + 1}）`;
         else name = `${base}（${form.name}）`;
         if (used.has(lowerKey(name))) name = `${base}（${form.name || '形态'}${index + 1}）`;
         used.add(lowerKey(name));
-        return {
-            ...(character.id !== undefined ? { id: character.id } : {}),
-            ...(character.enabled === false ? { enabled: false } : {}),
-            name,
-            baseName: base,
-            aliases: character.aliases || [],
-            formIndex: index,
-            formCount: forms.length,
-            type: form.type,
-            appearance: form.appearance,
-            negativeTags: form.negativeTags,
-            danbooruTag: form.danbooruTag,
-            outfits: form.outfits,
-            dynamicStates: form.dynamicStates,
-        };
-    });
+        return { form, name };
+    }).filter(({ form }) => includeDisabled || form.enabled);
+    return named.map(({ form, name }, index) => ({
+        ...(character.id !== undefined ? { id: character.id } : {}),
+        ...(character.enabled === false ? { enabled: false } : {}),
+        name,
+        baseName: base,
+        aliases: character.aliases || [],
+        formIndex: index,
+        formCount: named.length,
+        type: form.type,
+        appearance: form.appearance,
+        negativeTags: form.negativeTags,
+        danbooruTag: form.danbooruTag,
+        outfits: form.outfits,
+        dynamicStates: form.dynamicStates,
+    }));
 }
 
 /**
  * 把有 ≥2 个形态的角色展开成每个形态一条；其余角色原样（同一个对象）保留，顺序不变。
  * 展开后的记录名称为 `名称（形态名）`（第一形态没有形态名时就是原名称），别名共用，
  * 所以智能体回复原名称 / 别名时仍解析到第一形态，回复 `名称（形态名）` 时解析到对应形态。
+ * 停用的形态不展开（发给智能体的只有启用的形态，全部停用的角色一条也没有）；includeDisabled 供“按名称认人”的场合（自动学习）使用，停用的形态也展开。
  */
-export function expandCharacterForms(characters = []) {
+export function expandCharacterForms(characters = [], { includeDisabled = false } = {}) {
     const result = [];
     for (const character of Array.isArray(characters) ? characters : []) {
-        if (hasMultipleForms(character)) result.push(...expandOne(character));
+        if (hasMultipleForms(character)) result.push(...expandOne(character, includeDisabled));
         else result.push(character);
     }
     return result;
 }
 
-/** 导出 / 导入用：去掉每个形态里服装、动态标签条目的 enabled（启用状态只属于本机）。 */
+/** 导出 / 导入用：去掉每个形态自己的 enabled 与其中服装、动态标签条目的 enabled（启用状态只属于本机）。 */
 export function stripFormsEnabled(forms = []) {
-    return (Array.isArray(forms) ? forms : []).map(form => ({
+    return (Array.isArray(forms) ? forms : []).map(({ enabled: _enabled, ...form }) => ({
         ...form,
         ...(Array.isArray(form?.outfits) ? { outfits: stripNamedTagEnabled(form.outfits) } : {}),
         ...(Array.isArray(form?.dynamicStates) ? { dynamicStates: stripNamedTagEnabled(form.dynamicStates) } : {}),
@@ -152,7 +170,7 @@ export function stripFormsEnabled(forms = []) {
 
 /**
  * 导入替换形态列表时保留本机条目的启用状态：文件里的形态按 id、其次按名称对应本机已有的形态，
- * 再对其服装 / 动态标签逐条按名称恢复启用状态；对不上的形态全部默认启用。
+ * 恢复该形态自己的启用状态，再对其服装 / 动态标签逐条按名称恢复启用状态；对不上的形态全部默认启用。
  */
 export function applyLocalFormsEnabled(incoming = [], local = []) {
     const localForms = (Array.isArray(local) ? local : []).filter(isPlainObject);
@@ -173,8 +191,10 @@ export function applyLocalFormsEnabled(incoming = [], local = []) {
     };
     return (Array.isArray(incoming) ? incoming : []).map((form) => {
         const match = pick(form);
+        const { enabled: _enabled, ...rest } = form;
         return {
-            ...form,
+            ...rest,
+            ...(match?.enabled === false ? { enabled: false } : {}),
             outfits: applyLocalNamedTagEnabled(form.outfits, match?.outfits),
             dynamicStates: applyLocalNamedTagEnabled(form.dynamicStates, match?.dynamicStates),
         };
@@ -194,11 +214,11 @@ export function withFreshFormIds(forms = [], makeId) {
 }
 
 /**
- * 角色卡摘要栏里的类型标记：按形态顺序列出每个形态的类型（用页面给的 shortLabel 取短标签），英文逗号连接，如 `boy,other`。
+ * 角色卡摘要栏里的类型标记：按形态顺序列出每个启用形态的类型（用页面给的 shortLabel 取短标签），英文逗号连接，如 `boy,other`。
  * 单形态角色就是它自己的类型，与以前一致。
  */
 export function formatFormTypeSummary(character, shortLabel = type => type) {
-    return getCharacterForms(character).map(form => shortLabel(form.type)).join(',');
+    return getEnabledCharacterForms(character).map(form => shortLabel(form.type)).join(',');
 }
 
 /** 形态在界面 / 搜索里的显示名。 */

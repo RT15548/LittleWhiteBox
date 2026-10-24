@@ -8,7 +8,7 @@ import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
 import { countEnabledNamedTags, normalizeNamedTagList } from '../../shared/named-tag-items.js';
-import { formatFormTypeSummary, getCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
+import { formatFormTypeSummary, getCharacterForms, getEnabledCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
 import { createGroupHeightController } from '../../shared/character-group-height.js';
 import {
     FORM_COPY,
@@ -16,7 +16,6 @@ import {
     NAMED_TAG_EDITOR_KINDS,
     appendNamedTagEditorItem,
     applyFormModelsToCharacter,
-    applyNamedTagEnabledChange,
     collectFormModels,
     createBlankFormModel,
     createEditorSectionState,
@@ -24,6 +23,8 @@ import {
     createNamedTagSortables,
     draftToMultiForm,
     draftToSingleForm,
+    duplicateFormModels,
+    duplicateNamedTagEditorItem,
     formModelsFromCharacter,
     formRef,
     isFormHeaderToggleTarget,
@@ -42,7 +43,9 @@ import {
     syncFormList,
     syncNamedTagEditorList,
     toggleFormCard,
+    toggleFormEnabled,
     toggleNamedTagItem,
+    toggleNamedTagItemEnabled,
 } from '../../shared/character-edit-form.js';
 import { EXTRA_TAGS_COPY, renderCharacterEditorNote } from '../../shared/character-editor-copy.js';
 import { installTextareaAutofit } from '../../shared/textarea-autofit.js';
@@ -1422,9 +1425,6 @@ function setupCharacterDragAndSelection() {
             if (box.checked && !draftCharacters.has(box.dataset.selectChar)) selectedCharIds.add(box.dataset.selectChar); else selectedCharIds.delete(box.dataset.selectChar);
             syncSelectionCheckboxes();
             renderBatchBar();
-        } else if (box.classList?.contains('named-tag-enabled')) {
-            // 条目的启用开关（头部与正文各一个）：同步样式与另一个开关，列表上的“启用数/总数”也跟着更新。
-            applyNamedTagEnabledChange(box);
         } else if (box.classList?.contains('char-group-select')) {
             const section = box.closest('.char-group');
             section.querySelectorAll('.char-select').forEach((item) => {
@@ -1566,7 +1566,7 @@ function revealCharCard(id) {
 const CHARACTER_STATUS_COPY = Object.freeze({
     groupDisabled: '分组已关闭', disabled: '停用', appearance: '固定外貌', negative: '负向',
     danbooru: 'DB', outfits: '服装', dynamicStates: EXTRA_TAGS_COPY.title,
-    forms: count => `${count} 个形态`,
+    forms: (total, enabled = total) => (enabled === total ? `${total} 个形态` : `${enabled}/${total} 个形态`),
 });
 
 function characterStatusParts(char, library = getCharacterLibrary()) {
@@ -1577,8 +1577,10 @@ function characterStatusParts(char, library = getCharacterLibrary()) {
     const lockLabel = characterLockLabel(char, library);
     if (lockLabel) add(char.locked === true ? 'own-lock' : 'group-lock', lockLabel);
     // 多形态角色：芯片按全部形态汇总（任一形态有就算有），另加“N 个形态”。
-    const forms = getCharacterForms(char);
-    if (forms.length > 1) add('forms', CHARACTER_STATUS_COPY.forms(forms.length));
+    // 停用的形态不会发给 AI：内容芯片只看启用的形态，形态数在有停用时写成“启用/总数”。
+    const allForms = getCharacterForms(char);
+    const forms = getEnabledCharacterForms(char);
+    if (allForms.length > 1) add('forms', CHARACTER_STATUS_COPY.forms(allForms.length, forms.length));
     if (forms.some(form => form.appearance)) add('appearance', CHARACTER_STATUS_COPY.appearance);
     if (forms.some(form => form.negativeTags)) add('negative', CHARACTER_STATUS_COPY.negative);
     if (forms.some(form => form.danbooruTag)) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
@@ -1685,7 +1687,7 @@ function renderCharList({ keepDraft = false } = {}) {
                 ${charSelectMode && !draftCharacters.has(c.id) ? `<input type="checkbox" class="char-select" data-select-char="${charId}" aria-label="选择 ${charName}">` : ''}
                 <div class="char-identity">
                     <span class="char-name">${charName}</span>
-                    <span class="char-type-badge">${escapeHtml(typeShort)}</span>
+                    ${typeShort ? `<span class="char-type-badge">${escapeHtml(typeShort)}</span>` : ''}
                 </div>
                 <span class="char-status">${renderCharStatusHtml(statusParts)}</span>
                 <div class="char-actions" aria-label="角色操作">
@@ -1811,6 +1813,25 @@ function addCharacterForm(id) {
     added?.querySelector('.char-form-name')?.focus();
 }
 
+// 复制形态也走草稿：副本紧跟在原形态后面，展开、启用、名称加“副本”。
+function duplicateCharacterForm(formKey) {
+    captureEditingDraft();
+    const draft = editingDraft && editingDraft.id === editingCharId ? editingDraft : null;
+    if (!draft?.multi) return;
+    if (draft.forms.length >= FORM_MAX_COUNT) {
+        alert(FORM_COPY.limit);
+        return;
+    }
+    const { models, copyKey } = duplicateFormModels(draft.forms, formKey);
+    if (!copyKey) return;
+    editingDraft = { ...draft, forms: models };
+    renderCharList({ keepDraft: true });
+    const copy = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing .char-form'))
+        .find(node => node.dataset.formKey === copyKey);
+    copy?.scrollIntoView?.({ block: 'nearest' });
+    copy?.querySelector('.char-form-name')?.focus();
+}
+
 function removeCharacterForm(formKey) {
     captureEditingDraft();
     const draft = editingDraft && editingDraft.id === editingCharId ? editingDraft : null;
@@ -1882,6 +1903,17 @@ function handleCharAction(action, id, card, trigger, event) {
         if (!isNamedTagHeaderToggleTarget(event?.target)) return;
         const row = trigger?.closest('.named-tag-item');
         toggleNamedTagItem(row, namedTagKindOfRow(row));
+    } else if (action === 'toggle-named-enabled') {
+        // 菜单里的“停用 / 启用”：只改这一条的 DOM，草稿 / 保存时照样按行上的状态读。
+        toggleNamedTagItemEnabled(trigger?.closest('.named-tag-item'));
+    } else if (action === 'duplicate-named-item') {
+        const row = trigger?.closest('.named-tag-item');
+        const copy = duplicateNamedTagEditorItem(row, namedTagKindOfRow(row), {
+            escapeHtml,
+            insertHtml: (target, html, position = 'beforeend') => target.insertAdjacentHTML(position, DOMPurify.sanitize(html)),
+        });
+        copy?.scrollIntoView?.({ block: 'nearest' });
+        copy?.querySelector('.named-tag-name')?.focus();
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
         const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
@@ -1918,6 +1950,10 @@ function handleCharAction(action, id, card, trigger, event) {
         // 形态头部整行都是触发区；点名称输入框 / 拖动手柄是在操作它们，不切换折叠。
         if (!isFormHeaderToggleTarget(event?.target)) return;
         toggleFormCard(trigger?.closest('.char-form'));
+    } else if (action === 'toggle-form-enabled') {
+        toggleFormEnabled(trigger?.closest('.char-form'));
+    } else if (action === 'duplicate-form') {
+        duplicateCharacterForm(trigger?.closest('.char-form')?.dataset.formKey);
     } else if (action === 'add-form') {
         addCharacterForm(id);
     } else if (action === 'remove-form') {

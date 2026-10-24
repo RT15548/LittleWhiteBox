@@ -229,3 +229,85 @@ test('the summary bar badge lists every form type in order, and each form header
     await flush();
     assert.equal(badgeOf('c1'), 'boy,other');
 });
+
+test('item and form headers: one … menu with 复制 / 停用·启用 / 删除; the menu never toggles fold, Esc closes it, and the copies and switches reach the saved character', async () => {
+    const list = document.getElementById('nd_char_list');
+    const editing = () => list.querySelector('.char-card.editing');
+    const lastSaved = () => posted.filter(message => message.type === 'SAVE_CHARACTER_TAGS').at(-1).characterTags.find(char => char.id === 'c1');
+    const press = (element, key) => {
+        const event = new window.Event('keydown', { bubbles: true, cancelable: true });
+        event.key = key;
+        element.dispatchEvent(event);
+    };
+    const menuLabels = root => Array.from(root.querySelectorAll('[role="menuitem"] .char-menu-label')).map(node => node.textContent);
+
+    click(list.querySelector('.char-card[data-id="c1"] [data-action="edit"]'));
+    await flush();
+    let forms = Array.from(editing().querySelectorAll('.char-form'));
+    assert.equal(forms.length, 2);
+    // 头部只有一个“…”按钮，没有红色删除按钮和启用开关
+    for (const form of forms) {
+        const header = form.querySelector('.char-form-header');
+        assert.equal(header.querySelectorAll('.char-menu-button').length, 1);
+        assert.equal(header.querySelectorAll('.btn-danger, .named-tag-switch').length, 0);
+        assert.deepEqual(menuLabels(header), ['复制', '停用', '删除']);
+    }
+
+    // 点“…”只开菜单，不切换折叠；Esc 关闭
+    const second = forms[1];
+    const foldBefore = second.dataset.expanded;
+    const menuButton = second.querySelector('.char-menu-button');
+    click(menuButton);
+    assert.equal(menuButton.getAttribute('aria-expanded'), 'true');
+    assert.equal(second.querySelector('.char-menu').hasAttribute('hidden'), false);
+    assert.equal(second.dataset.expanded, foldBefore, 'opening the menu does not toggle fold');
+    press(document.documentElement, 'Escape');
+    assert.equal(menuButton.getAttribute('aria-expanded'), 'false');
+    assert.equal(second.querySelector('.char-menu').hasAttribute('hidden'), true);
+    click(second.querySelector('.char-menu-wrap'));
+    assert.equal(second.dataset.expanded, foldBefore, 'clicking the menu wrapper does not toggle fold either');
+
+    // 停用第二个形态：只改 DOM，菜单文案翻转，仍可编辑
+    click(second.querySelector('[data-action="toggle-form-enabled"]'));
+    assert.equal(second.dataset.enabled, 'false');
+    assert.ok(second.classList.contains('is-disabled'));
+    assert.deepEqual(menuLabels(second.querySelector('.char-form-header')), ['复制', '启用', '删除']);
+
+    // 复制第二个形态：副本紧跟其后，名称加“副本”，展开且启用，原形态保持停用
+    click(second.querySelector('[data-action="duplicate-form"]'));
+    await flush();
+    forms = Array.from(editing().querySelectorAll('.char-form'));
+    assert.equal(forms.length, 3);
+    assert.deepEqual(forms.map(form => form.querySelector('.char-form-name').getAttribute('value')), ['', '兽形', '兽形 副本']);
+    assert.deepEqual(forms.map(form => form.dataset.enabled), ['true', 'false', 'true'], 'the copy is enabled even though the source is off');
+    assert.equal(forms[2].dataset.expanded, 'true');
+    assert.equal(forms[2].querySelector('.char-form-type').textContent, 'other', 'the copy keeps the type badge');
+    assert.notEqual(forms[2].dataset.formKey, forms[1].dataset.formKey);
+
+    // 停用第一个形态（角色顶层字段）
+    click(forms[0].querySelector('[data-action="toggle-form-enabled"]'));
+
+    // 服装条目：复制紧跟其后（名称加“副本”），再停用副本
+    const outfitMenu = forms[0].querySelector('.char-outfit-editor-item');
+    assert.deepEqual(menuLabels(outfitMenu.querySelector('.named-tag-header')), ['复制', '停用', '删除']);
+    click(outfitMenu.querySelector('[data-action="duplicate-named-item"]'));
+    await flush();
+    const outfitRows = Array.from(forms[0].querySelectorAll('.char-outfit-editor-item'));
+    assert.equal(outfitRows.length, 2);
+    assert.equal(outfitRows[1].querySelector('.char-outfit-name').getAttribute('value'), '白裙 副本');
+    assert.equal(outfitRows[1].dataset.expanded, 'true');
+    click(outfitRows[1].querySelector('[data-action="toggle-named-enabled"]'));
+    assert.equal(outfitRows[1].dataset.enabled, 'false');
+    assert.equal(forms[0].querySelector('.char-edit-section[data-section="outfits"] .char-section-count').textContent, '1/2');
+
+    click(editing().querySelector('[data-action="save"]'));
+    await flush();
+    const saved = lastSaved();
+    assert.equal(saved.formDisabled, true, 'the first form flag is stored on the character itself');
+    assert.deepEqual(saved.forms.map(form => [form.name, form.enabled]), [['兽形', false], ['兽形 副本', undefined]]);
+    assert.notEqual(saved.forms[0].id, saved.forms[1].id, 'the copy gets its own id');
+    assert.deepEqual(saved.outfits.map(item => [item.name, item.enabled]), [['白裙', undefined], ['白裙 副本', false]]);
+    // 摘要栏只列启用形态的类型；形态数写成 启用/总数
+    assert.equal(list.querySelector('.char-card[data-id="c1"] .char-type-badge').textContent, 'other');
+    assert.match(list.querySelector('.char-card[data-id="c1"] .char-status').textContent, /1\/3 个形态/);
+});

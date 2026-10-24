@@ -11,6 +11,7 @@
 // 新的默认启用（“导入为停用”是导入时的本机选择，不是文件字段），与本机已有项对上的保留本机状态。
 // 形态（forms，见 character-forms.js）：角色顶层字段就是第一形态，forms 只存额外的形态，没有额外形态的角色不带 formName / forms 键。
 // 形态的内容会导出 / 导入（它是内容），条目启用状态同样不进文件；导入的重名检查仍以角色为单位。
+// 形态自己的启用状态也只属于本机：额外形态的 enabled:false、第一形态的顶层 formDisabled:true 都不导出，导入时不认，替换同一角色时保留本机的值。
 // 排序的唯一事实来源是 characters 数组顺序；groupId 缺省（空）表示“未分组”。
 
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
@@ -110,6 +111,7 @@ function stripLocked(item) {
 function stripLocalEnabled(character) {
     const rest = { ...character };
     delete rest.enabled;
+    delete rest.formDisabled;
     return {
         ...rest,
         ...(Array.isArray(rest.outfits) ? { outfits: stripNamedTagEnabled(rest.outfits) } : {}),
@@ -139,6 +141,8 @@ export function normalizeCharacter(raw, { id } = {}) {
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
         ...(formName ? { formName } : {}),
         ...(forms.length ? { forms } : {}),
+        // 第一形态的停用标记：只在角色确实有额外形态时才有意义（本机状态，导出 / 导入时由 stripLocalEnabled 去掉）。
+        ...(char.formDisabled === true && forms.length ? { formDisabled: true } : {}),
         ...(groupId ? { groupId } : {}),
         ...(char.locked === true ? { locked: true } : {}),
     };
@@ -871,6 +875,8 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             if (fields.includes('forms') && Array.isArray(existing.forms)) {
                 existing.forms = applyLocalFormsEnabled(existing.forms, localForms);
             }
+            // 第一形态的停用标记是本机状态，替换时原样保留；替换后不再有额外形态就没有可停用的形态了。
+            if (!Array.isArray(existing.forms) || !existing.forms.length) delete existing.formDisabled;
             const newName = String(existing.name || '').trim();
             if (oldName !== newName) {
                 if (byName.get(oldName) === existing) {

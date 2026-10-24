@@ -215,6 +215,12 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
 .sd-char-form-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
 .sd-char-form-tools { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .sd-char-form[open] > .sd-char-form-summary { margin-bottom: 10px; }
+/* 停用的形态：虚线边框、整体变淡，摘要里的“已停用”小标签出现；输入框仍可编辑，工具按钮保持原样方便改回来。 */
+.sd-char-form-state { flex-shrink: 0; margin-right: auto; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.sd-char-form-state[hidden] { display: none; }
+.sd-char-form.is-disabled { border-style: dashed; }
+.sd-char-form.is-disabled > .sd-char-form-summary .sd-char-form-title, .sd-char-form.is-disabled > .sd-char-form-body { opacity: .5; }
+.sd-char-form.is-disabled > .sd-char-form-summary .sd-char-form-title { text-decoration: line-through; }
 
 /* ── 角色编辑区：固定外貌分组（正向 / 负向）与末尾说明 ── */
 .sd-char-fieldgroup > .form-label { font-weight: 600; }

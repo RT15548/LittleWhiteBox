@@ -1,13 +1,14 @@
 // SD WebUI / ComfyUI 角色卡片里的“形态”编辑区（用 DOM API 构建，不拼 HTML 字符串）。
 // 卡片顶层的 类型 / 固定外貌（正向 + 负向） / Danbooru Tag / 服装 / 动态标签 就是第一形态，这里编辑的是“额外形态”（character.forms，见 character-forms.js）。
-// 每个额外形态是一个可折叠的块（<details>），含 形态名称 + 与顶层相同的字段，另有 上移 / 下移 / 删除。
+// 每个额外形态是一个可折叠的块（<details>），含 形态名称 + 与顶层相同的字段，另有 复制 / 停用·启用 / 上移 / 下移 / 删除（停用后摘要里出现“已停用”，停用状态只属于本机）。
+// 第一形态（卡片顶层字段）在这里没有停用按钮：它的 formDisabled 标记（NovelAI 页面设置）原样保留。
 // 字段输入框由页面传入的 createField 构建（与顶层字段同一套），只是用 data-sd-form-field 标记，避免和顶层的 data-sd-char-field 混淆。
 // 草稿安全：读卡片（readFormsFromCard）会保留空白形态，让未保存时重绘列表不丢失刚点“添加形态”的块；保存前由 normalizeForms 丢弃空白形态。
 // 不得 import 酒馆宿主模块。
 
 import { MAX_CHARACTER_FORMS, normalizeForms } from './character-forms.js';
-import { parseNamedTagLines, serializeNamedTagLines } from './named-tag-items.js';
-import { EXTRA_TAGS_COPY, FIXED_APPEARANCE_COPY } from './character-editor-copy.js';
+import { makeCopyLabel, parseNamedTagLines, serializeNamedTagLines } from './named-tag-items.js';
+import { EXTRA_TAGS_COPY, FIXED_APPEARANCE_COPY, ITEM_MENU_COPY } from './character-editor-copy.js';
 
 export const FORM_FIELD_KEY = 'sdFormField';
 const FORM_FIELD_ATTR = 'data-sd-form-field';
@@ -61,6 +62,21 @@ function iconButton(document, className, icon, label, attr) {
     return button;
 }
 
+/** 停用 / 启用后同步块的标记、样式、“已停用”标签和切换按钮的图标与提示。 */
+function setBlockEnabled(block, enabled) {
+    block.dataset.enabled = String(enabled);
+    block.classList.toggle('is-disabled', !enabled);
+    const state = block.querySelector('.sd-char-form-state');
+    state?.toggleAttribute('hidden', enabled);
+    const toggle = block.querySelector('[data-sd-form-toggle]');
+    if (!toggle) return;
+    const label = `${enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable}形态`;
+    toggle.title = label;
+    toggle.setAttribute('aria-label', label);
+    toggle.setAttribute('aria-pressed', String(!enabled));
+    toggle.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? 'fa-eye-slash' : 'fa-eye'}`);
+}
+
 function formTitleText(name, index) {
     return String(name || '').trim() || `形态 ${index + 1}`;
 }
@@ -78,16 +94,20 @@ export function createFormBlock({ document, form = {}, index = 0, createField, o
     block.open = open;
     block.dataset.formId = String(form.id || '');
     block.dataset.formUid = `sd-form-${nextBlockUid}`;
+    block.dataset.enabled = String(form.enabled !== false);
 
     const summary = el(document, 'summary', 'sd-char-form-summary');
     const title = el(document, 'span', 'sd-char-form-title', formTitleText(form.name, index));
+    const state = el(document, 'span', 'sd-char-form-state', ITEM_MENU_COPY.disabledTag);
     const tools = el(document, 'span', 'sd-char-form-tools');
     tools.append(
+        iconButton(document, 'btn btn-sm', 'fa-clone', `${ITEM_MENU_COPY.duplicate}形态`, 'data-sd-form-copy'),
+        iconButton(document, 'btn btn-sm', 'fa-eye-slash', `${ITEM_MENU_COPY.disable}形态`, 'data-sd-form-toggle'),
         iconButton(document, 'btn btn-sm', 'fa-arrow-up', '上移形态', 'data-sd-form-up'),
         iconButton(document, 'btn btn-sm', 'fa-arrow-down', '下移形态', 'data-sd-form-down'),
         iconButton(document, 'btn btn-danger btn-sm', 'fa-trash', '删除形态', 'data-sd-form-delete'),
     );
-    summary.append(title, tools);
+    summary.append(title, state, tools);
 
     const body = el(document, 'div', 'sd-char-form-body');
     for (const spec of FIELD_SPECS) {
@@ -101,6 +121,7 @@ export function createFormBlock({ document, form = {}, index = 0, createField, o
         }));
     }
     block.append(summary, body);
+    setBlockEnabled(block, form.enabled !== false);
     block.addEventListener('input', (event) => {
         if (event.target?.getAttribute?.(FORM_FIELD_ATTR) === 'name') {
             const blocks = Array.from(block.parentElement?.children || []);
@@ -152,7 +173,7 @@ export function createFormsEditor({ document, forms = [], createField }) {
 
     root.addEventListener('click', (event) => {
         const target = event.target;
-        const button = target?.closest?.('[data-sd-form-add], [data-sd-form-up], [data-sd-form-down], [data-sd-form-delete]');
+        const button = target?.closest?.('[data-sd-form-add], [data-sd-form-copy], [data-sd-form-toggle], [data-sd-form-up], [data-sd-form-down], [data-sd-form-delete]');
         if (!button || !root.contains(button)) return;
         // 按钮在 <summary> 里：阻止它顺带切换折叠。
         event.preventDefault();
@@ -168,6 +189,24 @@ export function createFormsEditor({ document, forms = [], createField }) {
         }
         const block = button.closest('.sd-char-form');
         if (!block) return;
+        if (button.hasAttribute('data-sd-form-toggle')) {
+            setBlockEnabled(block, block.dataset.enabled === 'false');
+            return;
+        }
+        if (button.hasAttribute('data-sd-form-copy')) {
+            if (list.children.length + 1 >= MAX_CHARACTER_FORMS) return;
+            // 副本：当前输入框里的内容（含未保存的修改），名称加“副本”，没有 id（保存后才是独立的形态），展开、启用，紧跟在原形态后面。
+            const { id: _id, enabled: _enabled, ...values } = readFormBlock(block);
+            const copy = createFormBlock({
+                document, form: { ...values, name: makeCopyLabel(values.name) }, index: list.children.length + 1, createField, open: true,
+            });
+            list.insertBefore(copy, block.nextElementSibling);
+            renumber(list);
+            syncAddButton();
+            copy.scrollIntoView?.({ block: 'nearest' });
+            copy.querySelector(`[${FORM_FIELD_ATTR}="name"]`)?.focus?.();
+            return;
+        }
         if (button.hasAttribute('data-sd-form-delete')) {
             block.remove();
         } else if (button.hasAttribute('data-sd-form-up')) {
@@ -188,19 +227,23 @@ export function createFormsEditor({ document, forms = [], createField }) {
 export function readFormsFromCard(card) {
     const list = card?.querySelector?.('.sd-char-form-list');
     if (!list) return null;
-    return Array.from(list.querySelectorAll('.sd-char-form')).map((block) => {
-        const read = field => String(block.querySelector(`[${FORM_FIELD_ATTR}="${field}"]`)?.value || '');
-        return {
-            ...(block.dataset.formId ? { id: block.dataset.formId } : {}),
-            name: read('name').trim(),
-            type: read('type').trim() || 'girl',
-            appearance: read('appearance').trim(),
-            negativeTags: read('negativeTags').trim(),
-            danbooruTag: read('danbooruTag').trim(),
-            outfits: parseNamedTagLines(read('outfits')),
-            dynamicStates: parseNamedTagLines(read('dynamicStates')),
-        };
-    });
+    return Array.from(list.querySelectorAll('.sd-char-form')).map(readFormBlock);
+}
+
+/** 读出一个形态块（停用时带 enabled:false，启用时不带该键）。 */
+function readFormBlock(block) {
+    const read = field => String(block.querySelector(`[${FORM_FIELD_ATTR}="${field}"]`)?.value || '');
+    return {
+        ...(block.dataset.formId ? { id: block.dataset.formId } : {}),
+        name: read('name').trim(),
+        type: read('type').trim() || 'girl',
+        appearance: read('appearance').trim(),
+        negativeTags: read('negativeTags').trim(),
+        danbooruTag: read('danbooruTag').trim(),
+        outfits: parseNamedTagLines(read('outfits')),
+        dynamicStates: parseNamedTagLines(read('dynamicStates')),
+        ...(block.dataset.enabled === 'false' ? { enabled: false } : {}),
+    };
 }
 
 /**
@@ -220,6 +263,8 @@ export function applyFormFieldsFromCard(record, card, { keepEmpty = false } = {}
     if (forms) {
         const finalForms = keepEmpty ? forms : normalizeForms(forms);
         if (finalForms.length) record.forms = finalForms; else delete record.forms;
+        // 第一形态的停用标记只在有额外形态时才有意义。
+        if (!finalForms.length) delete record.formDisabled;
     }
     return record;
 }

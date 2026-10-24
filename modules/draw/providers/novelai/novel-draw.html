@@ -153,7 +153,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     gap: 10px; margin-bottom: 10px;
 }
 .char-outfit-editor-item .form-group:last-child, .char-dynstate-editor-item .form-group:last-child { margin-bottom: 0; }
-/* 条目折叠头：[拖动手柄] [折叠箭头] [名称输入框（平时看上去就是加粗标题，悬停 / 聚焦才显示输入框）] [TAG 预览（折叠时）] [启用开关] [删除]。
+/* 条目折叠头：[拖动手柄] [折叠箭头] [名称输入框（平时看上去就是加粗标题，悬停 / 聚焦才显示输入框）] [TAG 预览（折叠时）] [已停用（停用时）] [“…”菜单：复制 / 停用 · 启用 / 删除]。
    点箭头、预览或头部空白处展开 / 折叠；点名称输入框是直接编辑。折叠时头部就是整条的高度。 */
 .named-tag-header { cursor: pointer; }
 .named-tag-toggle, .char-form-toggle {
@@ -177,6 +177,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* 折叠的行就是一行：头部按钮不再撑到 34px 的最小高度（触屏保持原来的点按大小）。 */
 @media (pointer: fine) {
     .named-tag-item.is-folded .named-tag-header .btn-sm, .char-form.is-folded > .char-form-header .btn-sm { min-height: 26px; padding: 2px 8px; }
+    .named-tag-header .char-action-button, .char-form-header .char-action-button { width: 26px; height: 26px; }
 }
 /* ── 形态（同一角色的不同样子）：形态卡片的头部沿用条目折叠头的样式 ── */
 .char-forms-title { cursor: default; }
@@ -186,13 +187,14 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* 形态头部的类型徽标（外观同摘要栏的 .char-type-badge）：紧跟名称输入框，占住名称与 TAG 预览之间的空位；窄屏时名称先收缩。 */
 .char-form-type { flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
-.named-tag-switch { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
-.named-tag-switch-text { min-width: 2em; }
-/* 停用的条目：整体变淡、标题划线，但输入框仍可编辑；开关和删除保持原样，方便改回来。 */
-.named-tag-item.is-disabled { border-style: dashed; background: rgba(255,255,255,.01); }
-.named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-name, .named-tag-item.is-disabled .named-tag-preview, .named-tag-item.is-disabled .named-tag-body > .form-group { opacity: .5; }
-.named-tag-item.is-disabled .named-tag-name { text-decoration: line-through; }
-.named-tag-item.is-disabled .named-tag-switch-text { color: var(--warning); }
+/* 头部的“已停用”小标签：只在停用时出现，淡色小字不抢眼。 */
+.editor-item-state { display: none; flex-shrink: 0; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.named-tag-item.is-disabled .editor-item-state, .char-form.is-disabled .editor-item-state { display: inline; }
+/* 停用的条目 / 形态：整体变淡、标题划线、虚线边框，但输入框仍可编辑；头部的“…”菜单保持原样，方便改回来。 */
+.named-tag-item.is-disabled, .char-form.is-disabled { border-style: dashed; background: rgba(255,255,255,.01); }
+.named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-name, .named-tag-item.is-disabled .named-tag-preview, .named-tag-item.is-disabled .named-tag-body > .form-group,
+.char-form.is-disabled > .char-form-header .char-form-toggle, .char-form.is-disabled > .char-form-header .char-form-name, .char-form.is-disabled > .char-form-header .char-form-preview, .char-form.is-disabled > .char-form-header .char-form-type, .char-form.is-disabled .char-form-body { opacity: .5; }
+.named-tag-item.is-disabled .named-tag-name, .char-form.is-disabled > .char-form-header .char-form-name { text-decoration: line-through; }
 /* ── Toggle switch ── */
 .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }

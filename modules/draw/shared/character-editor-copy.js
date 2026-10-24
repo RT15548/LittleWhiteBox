@@ -17,6 +17,16 @@ export const FIXED_APPEARANCE_COPY = Object.freeze({
     negativeLabel: '负向（可选）',
 });
 
+/** 服装 / 动态标签条目与形态卡片头部的“…”菜单和停用标记（措辞与角色卡外面的菜单一致）。 */
+export const ITEM_MENU_COPY = Object.freeze({
+    more: '更多操作',
+    duplicate: '复制',
+    enable: '启用',
+    disable: '停用',
+    remove: '删除',
+    disabledTag: '已停用',
+});
+
 /** 条目标签输入框的标签（服装 / 动态标签共用）。 */
 export const NAMED_TAG_TAGS_LABEL = '标签';
 
