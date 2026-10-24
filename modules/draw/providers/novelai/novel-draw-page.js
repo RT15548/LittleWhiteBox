@@ -1454,10 +1454,6 @@ function readEditingDraft() {
     const value = selector => card.querySelector(selector)?.value ?? '';
     const base = {
         id: editingCharId,
-        // 所属分组下拉框（库里没有分组时不渲染 → undefined）。groupBase 是这张卡片渲染时的已保存分组（data-saved-group）：
-        // 只有用户真的改动了下拉框（≠ groupBase）才算草稿，否则以库里最新的分组为准。
-        groupId: card.querySelector('.char-edit-group')?.value,
-        groupBase: card.querySelector('.char-edit-group')?.getAttribute('data-saved-group') ?? '',
         name: value('.char-edit-name'),
         aliases: value('.char-edit-aliases'),
     };
@@ -1700,13 +1696,6 @@ function renderCharList({ keepDraft = false } = {}) {
         if (isEditing) {
             // 重绘前读回的未保存输入（见 captureEditingDraft）优先于已保存的值。
             const draft = editingDraft && editingDraft.id === c.id ? editingDraft : null;
-            // 分组下拉框：用户改动过就沿用草稿里的选择；该分组已被删除则回落为“未分组”。
-            const draftTouchedGroup = !!draft && draft.groupId !== undefined && draft.groupId !== draft.groupBase;
-            const wantedGroupId = draftTouchedGroup ? draft.groupId : (c.groupId || '');
-            const selectedGroupId = (state.characterGroups || []).some(g => g.id === wantedGroupId) ? wantedGroupId : '';
-            const groupSelectHtml = CL && (state.characterGroups || []).length
-                ? `<div class="form-group"><label class="form-label">所属分组</label><select class="input char-edit-group" data-saved-group="${escapeHtml(c.groupId || '')}"><option value=""${selectedGroupId === '' ? ' selected' : ''}>未分组</option>${state.characterGroups.map(g => `<option value="${escapeHtml(g.id)}"${g.id === selectedGroupId ? ' selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>`
-                : '';
             const formName = draft ? draft.name : (c.name || '');
             const formAliases = draft ? draft.aliases : (c.aliases || []).join(', ');
             const isMulti = draft ? draft.multi === true : hasMultipleForms(c);
@@ -1756,7 +1745,6 @@ function renderCharList({ keepDraft = false } = {}) {
                 <div class="char-edit-form">
                     ${nameRowHtml}
                     ${aliasesHtml}
-                    ${groupSelectHtml}
                     ${formsHtml}
                     ${renderCharacterEditorNote()}
                 </div>
@@ -1954,12 +1942,6 @@ function handleCharAction(action, id, card, trigger, event) {
         draftCharacters.delete(id);
         editingDraft = null;
         editingCharId = null;
-        const nextGroupId = card.querySelector('.char-edit-group')?.value;
-        if (CL && nextGroupId !== undefined && nextGroupId !== (char.groupId || '')) {
-            runLibraryAction(() => applyCharacterLibrary(CL.moveCharacters(getCharacterLibrary(), [id], { groupId: nextGroupId })));
-            revealCharCard(id);
-            return;
-        }
         saveCharacterLibrary();
         renderCharList();
         revealCharCard(id);
