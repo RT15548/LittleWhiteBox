@@ -11,7 +11,8 @@
 
 const COLLAPSE_KEY_PREFIX = 'xb-draw-list-collapsed:';
 
-function readCollapsed(document, listId, defaultCollapsed) {
+/** 读折叠偏好（存储不可用或没有记录时回到 defaultCollapsed）；请求结构编辑器共用这套约定。 */
+export function readCollapsed(document, listId, defaultCollapsed) {
     if (!listId) return defaultCollapsed;
     try {
         const saved = document.defaultView?.localStorage?.getItem(COLLAPSE_KEY_PREFIX + listId);
@@ -22,7 +23,8 @@ function readCollapsed(document, listId, defaultCollapsed) {
     }
 }
 
-function writeCollapsed(document, listId, collapsed) {
+/** 写折叠偏好；存储不可用时静默放弃（只在本次页面内生效）。 */
+export function writeCollapsed(document, listId, collapsed) {
     if (!listId) return;
     try {
         document.defaultView?.localStorage?.setItem(COLLAPSE_KEY_PREFIX + listId, collapsed ? '1' : '0');

@@ -49,6 +49,7 @@ import {
 } from '../../shared/character-edit-form.js';
 import { EXTRA_TAGS_COPY, renderCharacterEditorNote } from '../../shared/character-editor-copy.js';
 import { installTextareaAutofit } from '../../shared/textarea-autofit.js';
+import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -614,16 +615,6 @@ function resetCharacterFilters(render = true) {
     if ($('nd_char_filter_type')) $('nd_char_filter_type').value = 'all';
     if ($('nd_char_filter_status')) $('nd_char_filter_status').value = 'all';
     if (render) renderCharList();
-}
-
-function renderCharacterActionIcon(name) {
-    const paths = {
-        enabled: '<rect x="3" y="3" width="18" height="18" rx="4" /><path d="m8 12 3 3 5-6" />',
-        disabled: '<rect x="3" y="3" width="18" height="18" rx="4" />',
-        edit: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />',
-        delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />',
-    };
-    return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ''}</svg>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3720,6 +3711,7 @@ function getLayoutEditor() {
             autoScroll: (event, list) => presetListKit?.autoScroll(event, list),
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
             onTestTool: testBlockTool,
+            collapseId: 'prompt-layout',
         });
     }
     return layoutEditor;

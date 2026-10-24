@@ -12,6 +12,9 @@
 // - 展开（手风琴）：同一时间最多编辑一条消息；内置表单由宿主提供，折叠时保留原节点。
 // - 选择（多选）：“多选”按钮或 Ctrl / Shift 点击行头；选中的行拖动时整组一起动，选择条里可批量复制 / 删除 / 启用 / 停用。
 //   复制与删除只针对自定义块，内置块自动跳过。删除和批量复制后出现“撤销”条，还原操作前的整份布局。
+// - 整个面板可折叠：标题行最前面的箭头折叠 / 展开，折叠后只剩标题行和“共 N 条”；偏好按 collapseId 记在 localStorage
+//   （与预设列表同一约定：xb-draw-list-collapsed:<collapseId>，见 preset-list-view.js），存储不可用时只在本次页面内生效。
+// - 内置块（固定结构）的行底色比自定义消息深，编辑按钮是角色卡同款的笔形图标（character-action-icons.js）。
 // - 附带工具：自定义消息展开后可以勾“附带工具”，多出一个代码框；消息启用，工具才注册。编辑器只做文本层面的提示
 //   （从代码里读出 name），不执行代码；“试运行”经 onTestTool 交给宿主在沙盒里跑，结果显示在块里。
 //   取消勾选只是把工具从布局里拿掉，代码留在本页面的内存里，再勾上会恢复（保存 / 刷新后不保留）。
@@ -38,6 +41,8 @@ import {
     updateBlock,
 } from './scene-planner-layout.js';
 import { createSortableList, moveIdToIndex } from './sortable-list.js';
+import { createCharacterActionIcon } from './character-action-icons.js';
+import { readCollapsed, writeCollapsed } from './preset-list-view.js';
 import { DEFAULT_TOOL_CODE, extractToolName } from './custom-tools.js';
 
 // 页面是普通脚本、拿不到 scene-planner-layout.js，经本模块转手（指纹 / 默认判断 / 存储形态都以契约模块为准）。
@@ -115,7 +120,8 @@ function blocksOf(layout) {
  * @param {function(): string} [options.getDisabledReason] 返回非空字符串 = 编辑器停用并显示这段说明（例如宿主版本太旧）
  * @param {function(object): Promise<{ok: boolean, message: string}>} [options.onTestTool] 工具块“试运行”：宿主在沙盒里读出这个块的工具定义，返回要显示的结果；不传则不显示按钮
  * @param {function(): number} [options.random] 自定义块 id 的随机源，默认 Math.random
- * @returns {{render: function(object=): void, setLayout: function(object): void, refreshSummaries: function(): void, refreshStatus: function(): void, getLayout: function(): object, destroy: function(): void}}
+ * @param {string} [options.collapseId] 面板折叠偏好的存储名（如 'prompt-layout'）；缺省则不记忆
+ * @returns {{render: function(object=): void, setLayout: function(object): void, refreshSummaries: function(): void, refreshStatus: function(): void, getLayout: function(): object, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, destroy: function(): void}}
  */
 export function createPromptLayoutEditor({
     document,
@@ -134,6 +140,7 @@ export function createPromptLayoutEditor({
     getDisabledReason = null,
     onTestTool = null,
     random = Math.random,
+    collapseId = '',
 } = {}) {
     if (!document || !container || typeof onChange !== 'function') throw new TypeError('缺少 document / container / onChange');
 
@@ -156,9 +163,15 @@ export function createPromptLayoutEditor({
     let mounted = false;
     const toolDrafts = new Map(); // 预设与块 id → 本页面内取消勾选前的代码
     const listeners = [];
+    let collapsed = readCollapsed(document, collapseId, false); // 整个面板折叠（只剩标题行）；偏好存 localStorage，不进布局数据
 
     // ── 外壳：只建一次，列表在里面重建，状态行（aria-live）因此不会被换掉 ──
     const root = create(document, 'div', { className: 'lwb-ple', attrs: { 'data-ple': '' } });
+    const collapseButton = create(document, 'button', {
+        className: 'preset-list-toggle lwb-ple-collapse',
+        attrs: { type: 'button', 'data-ple-collapse': '', title: '折叠 / 展开' },
+    }, [create(document, 'i', { className: 'fa-solid fa-chevron-down', attrs: { 'aria-hidden': 'true' } })]);
+    const collapsedCount = create(document, 'span', { className: 'lwb-ple-collapsed-count', attrs: { hidden: true, 'data-ple-collapsed-count': '' } });
     const titleIcon = create(document, 'i', { className: 'fa-solid fa-link lwb-ple-title-icon', attrs: { 'aria-hidden': 'true' } });
     const titleNode = create(document, 'span', { className: 'lwb-ple-title', text: '请求结构' });
     const dirtyBadge = create(document, 'span', { className: 'lwb-ple-dirty', text: '未保存', attrs: { hidden: true, 'data-ple-dirty': '' } });
@@ -186,7 +199,7 @@ export function createPromptLayoutEditor({
     const undoBar = create(document, 'div', { className: 'lwb-ple-undo-bar', attrs: { hidden: true, role: 'status', 'data-ple-undo-bar': '' } }, [undoText, undoButton, undoClose]);
     const status = create(document, 'div', { className: 'lwb-ple-status', attrs: { role: 'status', 'aria-live': 'polite', 'data-ple-status': '' } });
     root.appendChild(create(document, 'div', { className: 'lwb-ple-head' }, [
-        create(document, 'div', { className: 'lwb-ple-headline' }, [titleIcon, titleNode, dirtyBadge]),
+        create(document, 'div', { className: 'lwb-ple-headline' }, [collapseButton, titleIcon, titleNode, dirtyBadge, collapsedCount]),
         create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, selectModeButton, resetButton]),
     ]));
     root.appendChild(hint);
@@ -293,11 +306,19 @@ export function createPromptLayoutEditor({
         ]);
         if (info.action) {
             const verb = editor ? (open ? '收起' : '编辑') : info.action === 'view' ? '查看' : '设置';
-            line.appendChild(create(document, 'button', {
-                className: 'lwb-ple-btn lwb-ple-btn-small',
-                text: verb,
-                attrs: { type: 'button', 'data-ple-field': 'edit', 'aria-label': `${verb}：${label}` },
-            }));
+            if (verb === '编辑') {
+                // 可编辑的行用角色卡同款的笔形图标按钮（样式沿用 .char-action-button）；查看 / 设置 / 收起仍是文字按钮。
+                line.appendChild(create(document, 'button', {
+                    className: 'char-action-button lwb-ple-icon-btn',
+                    attrs: { type: 'button', 'data-ple-field': 'edit', title: verb, 'aria-label': `${verb}：${label}` },
+                }, [createCharacterActionIcon(document, 'edit')]));
+            } else {
+                line.appendChild(create(document, 'button', {
+                    className: 'lwb-ple-btn lwb-ple-btn-small',
+                    text: verb,
+                    attrs: { type: 'button', 'data-ple-field': 'edit', 'aria-label': `${verb}：${label}` },
+                }));
+            }
         }
         row.appendChild(line);
         if (editor && open) row.appendChild(editor);
@@ -504,6 +525,28 @@ export function createPromptLayoutEditor({
         for (const button of [addButton, selectModeButton, resetButton]) {
             if (button.disabled) button.setAttribute('disabled', ''); else button.removeAttribute('disabled');
         }
+        syncCollapse(layout);
+    }
+
+    // ── 整个面板的折叠 ──
+
+    /** 折叠状态同步到外壳 class、箭头按钮和“共 N 条”（折叠时才显示）；不碰列表。 */
+    function syncCollapse(layout = readLayout()) {
+        root.classList.toggle('collapsed', collapsed);
+        collapseButton.classList.toggle('collapsed', collapsed);
+        collapseButton.setAttribute('aria-expanded', String(!collapsed));
+        collapseButton.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'}请求结构`);
+        collapsedCount.textContent = `共 ${blocksOf(layout).length} 条`;
+        setHidden(collapsedCount, !collapsed);
+    }
+
+    function setCollapsed(value) {
+        const next = Boolean(value);
+        if (next === collapsed) return;
+        collapsed = next;
+        writeCollapsed(document, collapseId, collapsed);
+        syncCollapse();
+        say(collapsed ? '已折叠请求结构' : '已展开请求结构');
     }
 
     /** 内置块的摘要随文本框内容变化：原地改字，不重建。 */
@@ -675,6 +718,7 @@ export function createPromptLayoutEditor({
 
     function toggleSelectMode() {
         if (disabledReason()) return;
+        setCollapsed(false); // 折叠时看不到选择框：先展开
         if (selectMode) {
             clearSelection();
             say('已退出多选');
@@ -723,6 +767,7 @@ export function createPromptLayoutEditor({
 
     function handleAdd() {
         if (disabledReason()) return;
+        setCollapsed(false); // 折叠时新消息会加在看不见的地方：先展开
         const layout = readLayout();
         const blocks = blocksOf(layout);
         const anchorBlock = blocks.find(block => block.id === insertionAnchorId(blocks)) || null;
@@ -925,6 +970,7 @@ export function createPromptLayoutEditor({
         else if (hit.field === 'role') handlePatch(hit.id, { role: hit.node.value }, hit.row);
         else if (hit.field === 'tool-toggle') handleToolToggle(hit.id, Boolean(hit.node.checked), hit.row);
     });
+    listen(collapseButton, 'click', () => setCollapsed(!collapsed));
     listen(addButton, 'click', handleAdd);
     listen(resetButton, 'click', handleReset);
     listen(selectModeButton, 'click', toggleSelectMode);
@@ -939,6 +985,7 @@ export function createPromptLayoutEditor({
         render,
         openBuiltin(id) {
             if (!builtinEditors[id]) return;
+            setCollapsed(false);
             expandOnly(id);
             rebuildList();
         },
@@ -952,6 +999,8 @@ export function createPromptLayoutEditor({
         refreshSummaries,
         refreshStatus: () => refreshStatus(),
         getLayout: () => readLayout(),
+        isCollapsed: () => collapsed,
+        setCollapsed,
         destroy() {
             parkBuiltinEditors();
             sortable?.destroy?.();

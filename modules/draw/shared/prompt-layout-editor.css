@@ -7,6 +7,18 @@
 
 .lwb-ple-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
 .lwb-ple-headline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 整个面板的折叠：箭头沿用预设列表的 .preset-list-toggle（preset-list-view.css），这里只补齐没有那份样式时也能用的最小样式。
+   折叠后只剩标题行（含按钮）和“共 N 条”；列表、说明、选择条、撤销条、状态行都收起（提醒 notice 是停用原因，照常显示）。 */
+.lwb-ple-collapse { flex-shrink: 0; cursor: pointer; }
+.lwb-ple-collapse i { transition: transform .15s; }
+.lwb-ple-collapse.collapsed i { transform: rotate(-90deg); }
+.lwb-ple-collapsed-count { flex-shrink: 0; font-size: 12px; color: var(--text-muted, #8b949e); white-space: nowrap; }
+.lwb-ple-collapsed-count[hidden] { display: none; }
+.lwb-ple.collapsed > .lwb-ple-hint,
+.lwb-ple.collapsed > .lwb-ple-selection-bar,
+.lwb-ple.collapsed > .lwb-ple-list,
+.lwb-ple.collapsed > .lwb-ple-undo-bar,
+.lwb-ple.collapsed > .lwb-ple-status { display: none; }
 .lwb-ple-title-icon { color: var(--accent, #d4a574); font-size: 13px; }
 .lwb-ple-title { font-size: 13px; font-weight: 600; color: var(--accent, #d4a574); letter-spacing: 0.05em; }
 .lwb-ple-dirty {
@@ -74,6 +86,23 @@
 }
 .lwb-ple-row:hover { background: var(--accent-soft); }
 .lwb-ple-row.expanded { background: var(--bg-secondary); }
+/* 内置块（开场与视角、材料说明与输出去向、模型TAG指南、场景规则、工具说明、世界书、角色与正文、数量约束）是默认的固定结构：
+   行底色比自定义消息深一档，左侧再加一道细边，一眼分得出。深色主题里页面底色本身已经很深，所以混入更多黑色；浅色主题混入少一点即可明显变深。
+   悬停 / 选中 / 展开仍有反馈：悬停与选中在深底上叠一层 accent-soft，展开编辑时沿用 bg-secondary 方便看清输入框。 */
+.lwb-ple { --lwb-ple-builtin-bg: var(--bg-tertiary, #242834); }
+@supports (background: color-mix(in srgb, red, blue)) {
+    .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #171922) 52%, #000); }
+    @media (prefers-color-scheme: light) {
+        .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 88%, #000); }
+    }
+}
+.lwb-ple-row.lwb-ple-builtin {
+    background: var(--lwb-ple-builtin-bg);
+    border-left: 3px solid var(--border-focus, rgba(212, 165, 116, 0.5));
+}
+.lwb-ple-row.lwb-ple-builtin:hover,
+.lwb-ple-row.lwb-ple-builtin.selected { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--lwb-ple-builtin-bg); }
+.lwb-ple-row.lwb-ple-builtin.expanded { background: var(--bg-secondary); }
 .lwb-ple-row.expanded .lwb-ple-summary { display: none; }
 .lwb-ple-row.off .lwb-ple-label,
 .lwb-ple-row.off .lwb-ple-count { opacity: 0.55; text-decoration: line-through; }
@@ -83,7 +112,7 @@
 .lwb-ple-row.drop-after { box-shadow: 0 2px 0 var(--accent, #d4a574); }
 body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; user-select: none; }
 
-.lwb-ple-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; padding: 8px 0; }
+.lwb-ple-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; padding: 8px 6px; }
 .lwb-ple-handle {
     flex-shrink: 0;
     width: 20px;
@@ -130,6 +159,9 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
 }
 .lwb-ple-builtin .lwb-ple-label { flex: 1 1 0; min-width: 0; }
 .lwb-ple-builtin .lwb-ple-line > .lwb-ple-btn { padding: 6px; border-color: transparent; background: transparent; color: var(--text-secondary); }
+/* 笔形图标按钮（角色卡同款，.char-action-button 的外观来自 preset-list-view.css）：这里只保证图标尺寸，样式表缺失时也不会撑成默认大小。 */
+.lwb-ple-icon-btn { flex-shrink: 0; }
+.lwb-ple-icon-btn svg { width: 16px; height: 16px; }
 .lwb-ple-count { flex-shrink: 0; margin-left: auto; font-size: 11px; color: var(--text-muted, #8b949e); white-space: nowrap; }
 .lwb-ple-chevron { flex-shrink: 0; width: 1em; text-align: center; color: var(--text-secondary, #8b949e); }
 
