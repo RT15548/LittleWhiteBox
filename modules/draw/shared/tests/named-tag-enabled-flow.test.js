@@ -205,6 +205,11 @@ test('planner character facts never mention disabled items, even when raw librar
     assert.ok(!text.includes('哭泣'));
     assert.ok(text.includes('服装参考: 白裙=white dress； 睡衣=pajamas'));
     assert.ok(text.includes('害羞=blush'));
+    // 附加标签行：称呼与写入位置都不再叫“状态”，也不融入 action 一处。
+    assert.ok(text.includes('附加标签参考（可叠加的额外外观，按画面选用，可并存的可多选，互斥的只取一条，写进 costume 或 action）: 害羞=blush'));
+    assert.ok(!text.includes('状态参考'));
+    // 没有名字的条目回退成“附加标签”。
+    assert.ok(buildCharacterInfoForLLM([{ name: 'C', type: 'girl', dynamicStates: [{ tags: 'straw hat' }] }]).includes('附加标签=straw hat'));
     // 全部停用 -> 整行省略，不留空的“服装参考:”
     const allOff = buildCharacterInfoForLLM([{ name: 'B', type: 'girl', outfits: [{ name: 'x', tags: 'y', enabled: false }] }]);
     assert.ok(!allOff.includes('服装参考'));
