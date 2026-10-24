@@ -16708,7 +16708,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-nocheck.mjs",
       "relativePath": "scripts/build-nocheck.mjs",
       "extension": ".mjs",
-      "sizeBytes": 1867
+      "sizeBytes": 1888
     },
     {
       "source": "littlewhitebox",
