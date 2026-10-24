@@ -31,7 +31,7 @@ ${t}`:""}function Ki(e){return bt(ya,"{$worldInfo}",e)}function Qi(e,t){return b
 ${e.map(t=>{const r=t.aliases?.length?`（别名: ${t.aliases.join(", ")}）`:"",n=t.type||"girl",a=t.danbooruTag?` | danbooru: ${t.danbooruTag}`:"",o=t.appearance?`
   外貌参考: ${t.appearance}`:"",s=Yr(t.outfits,"服装"),i=Yr(t.dynamicStates,"状态");return`- ${t.name}${r} [${n}]${a}${o}`+(s?`
   服装参考: ${s}`:"")+(i?`
-  状态参考（随剧情变化的外观，选贴合当前画面的一条融入 action）: ${i}`:"")}).join(`
+  状态参考（随剧情变化的外观，按画面选用，可并存的可多选，互斥的只取一条，融入 action）: ${i}`:"")}).join(`
 `)}`:"【已录入角色】: 无"}function cc(e){const t=[],r=(n,a)=>{const o=String(a||"").trim();o&&t.push(`【${n}】
 ${o}`)};return r("酒馆世界书-前置",e?.worldInfoBefore),Array.isArray(e?.worldInfoDepth)&&r("酒馆世界书-深度",e.worldInfoDepth.flatMap(n=>Array.isArray(n?.entries)?n.entries:[]).map(n=>String(n||"").trim()).filter(Boolean).join(`
 `)),r("酒馆世界书-后置",e?.worldInfoAfter),t}async function uc(e,t,r){try{let n=r;typeof n!="function"&&({getWorldInfoPrompt:n}=await de(()=>import("../../../../../world-info.js"),[],import.meta.url));const a=[e,(t||[]).map(o=>o?.name).filter(Boolean).join(" ")].map(o=>String(o||"").trim()).filter(Boolean);return a.length?cc(await n(a,8192,!0,{trigger:"normal"})).join(`

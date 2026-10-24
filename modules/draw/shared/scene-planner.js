@@ -104,7 +104,7 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const dynamicStates = formatReferenceList(character.dynamicStates, '状态');
         return `- ${character.name}${aliases} [${type}]${danbooru}${appear}`
             + (outfits ? `\n  服装参考: ${outfits}` : '')
-            + (dynamicStates ? `\n  状态参考（随剧情变化的外观，选贴合当前画面的一条融入 action）: ${dynamicStates}` : '');
+            + (dynamicStates ? `\n  状态参考（随剧情变化的外观，按画面选用，可并存的可多选，互斥的只取一条，融入 action）: ${dynamicStates}` : '');
     });
 
     return `【已录入角色】\n${lines.join('\n')}`;
