@@ -543,18 +543,14 @@ export function renderFormCard(model, index, { total = 2, charId, escapeHtml = d
     </div>`;
 }
 
-/** 形态区（标题行 + 添加按钮 + 形态卡片列表 + 说明），≥2 个形态时替换单形态的字段区。 */
+/** 形态区（标题行 + 形态卡片列表），≥2 个形态时替换单形态的字段区；“添加形态”按钮在页面的吸顶摘要行里。 */
 export function renderFormsSection(models, ctx = {}) {
-    const escapeHtml = ctx.escapeHtml || defaultEscapeHtml;
-    const full = models.length >= FORM_MAX_COUNT;
     return `
     <div class="form-group char-forms">
         <div class="char-section-head">
             <span class="char-section-toggle char-forms-title">${FORM_COPY.sectionTitle}<span class="char-section-count">${models.length}</span></span>
-            <span class="char-section-actions"><button class="btn btn-sm" type="button" data-action="add-form" data-id="${escapeHtml(ctx.charId)}"${full ? ` disabled title="${FORM_COPY.limit}"` : ''}><i class="fa-solid fa-plus"></i> ${FORM_COPY.addAction}</button></span>
         </div>
         <div class="char-form-list">${models.map((model, index) => renderFormCard(model, index, { ...ctx, total: models.length })).join('')}</div>
-        <p class="form-hint">${FORM_COPY.hint}</p>
     </div>`;
 }
 

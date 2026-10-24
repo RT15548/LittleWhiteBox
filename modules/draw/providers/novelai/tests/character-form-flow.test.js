@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
+import { FORM_COPY, FORM_MAX_COUNT } from '../../../shared/character-edit-form.js';
 
 // Real-flow contract (cost: the 添加形态 button silently did nothing because the redraw re-read the old DOM over the new draft):
 // - Opening a character for edit and clicking 添加形态 redraws the card with two form cards: the first keeps the typed values, the second is blank and expanded.
@@ -87,7 +88,21 @@ test('add-form / remove-form drive the real character edit card', async () => {
     assert.equal(editing().querySelectorAll('.char-form').length, 0, 'plain single layout before adding a form');
     editing().querySelector('.char-edit-appearance').value = 'silver hair, typed after open';
 
-    click(editing().querySelector('[data-action="add-form"]'));
+    // 添加形态在吸顶摘要行里（取消之后、启用 / 编辑图标之前）；表单正文里没有它，也没有那行长说明。
+    const addButton = editing().querySelector('.char-card-summary [data-action="add-form"]');
+    assert.ok(addButton, 'add-form button is in the sticky summary bar');
+    assert.equal(editing().querySelectorAll('.char-edit-form [data-action="add-form"]').length, 0);
+    assert.equal(editing().querySelectorAll('[data-action="add-form"]').length, 1);
+    assert.equal(addButton.previousElementSibling.getAttribute('data-action'), 'cancel');
+    assert.equal(addButton.nextElementSibling.getAttribute('data-action'), 'toggle-enabled');
+    assert.equal(addButton.getAttribute('title'), FORM_COPY.hint);
+    assert.equal(addButton.getAttribute('data-id'), 'c1');
+    assert.match(addButton.getAttribute('aria-label'), /添加形态/);
+    assert.equal(addButton.querySelector('i').getAttribute('class'), 'fa-solid fa-plus');
+    assert.equal(addButton.querySelector('span').textContent, '添加形态');
+    assert.ok(!editing().querySelector('.char-forms-add'));
+
+    click(addButton);
     await flush();
     const forms = Array.from(editing().querySelectorAll('.char-form'));
     assert.equal(forms.length, 2, 'two form cards after clicking 添加形态');
@@ -101,5 +116,31 @@ test('add-form / remove-form drive the real character edit card', async () => {
     await flush();
     assert.equal(editing().querySelectorAll('.char-form').length, 0, 'back to the plain layout after removing the blank form');
     assert.equal(editing().querySelector('.char-edit-appearance').value, 'silver hair, typed after open');
-    assert.ok(editing().querySelector('[data-action="add-form"]'));
+    assert.ok(editing().querySelector('.char-card-summary [data-action="add-form"]'));
+});
+
+test('with two or more forms the bar button still adds one, and stops with the limit alert at the maximum', async () => {
+    const list = document.getElementById('nd_char_list');
+    const editing = () => list.querySelector('.char-card.editing');
+    const alerts = [];
+    globalThis.alert = (message) => alerts.push(message);
+    const addButton = () => editing().querySelector('.char-card-summary [data-action="add-form"]');
+    const count = () => editing().querySelectorAll('.char-form').length;
+    assert.equal(count(), 0, 'previous test left the card in the single layout');
+    click(addButton());
+    await flush();
+    assert.equal(count(), 2);
+    assert.equal(editing().querySelectorAll('.char-forms [data-action="add-form"]').length, 0, 'no second add button in the forms section');
+    click(addButton());
+    await flush();
+    assert.equal(count(), 3, 'a third form is added from the same bar button');
+    while (count() < FORM_MAX_COUNT) {
+        click(addButton());
+        await flush();
+    }
+    assert.deepEqual(alerts, []);
+    click(addButton());
+    await flush();
+    assert.equal(count(), FORM_MAX_COUNT, 'no form is added past the maximum');
+    assert.deepEqual(alerts, [FORM_COPY.limit]);
 });

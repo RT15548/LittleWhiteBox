@@ -111,7 +111,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-card.editing { padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
 }
 .char-card.editing:hover { background: var(--bg-secondary); } /* 吸顶栏是不透明的，卡片悬停时不能只有卡片变色 */
-/* 编辑中的角色卡：顶部摘要行（名字 / 类型 / 状态 / 保存 · 取消 / 启用 / 编辑 / 更多）在长表单滚动时始终可见。
+/* 编辑中的角色卡：顶部摘要行（名字 / 类型 / 状态 / 保存 · 取消 · 添加形态 / 启用 / 编辑 / 更多）在长表单滚动时始终可见。
    滚动的是最近的可滚动祖先：桌面端展开的分组里是 .char-group-body（max-height 内部滚动），没有分组或窄屏（max-height: none）时是 iframe 文档本身，
    sticky 对两者都生效；用负外边距把栏铺满卡片内边距，滚过去的表单内容不会从栏的边缘漏出来。
    “…”菜单是 fixed 浮层（z-index 200，在摘要的层叠上下文里），盖得住表单内容。
@@ -121,7 +121,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     background: var(--bg-secondary); border-radius: 8px 8px 0 0; border-bottom: 1px solid var(--border);
 }
 .char-group-body .char-card.editing > .char-card-summary { top: -2px; } /* 分组滚动区自带 2px 上内边距：抵消它，滚过去的内容不会从栏上方漏出来 */
-.char-edit-save, .char-edit-cancel { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
+.char-edit-save, .char-edit-cancel, .char-edit-add-form { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
 .char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item, .char-form { scroll-margin-top: 72px; scroll-margin-bottom: 16px; } /* 聚焦 / 滚入视野时别被吸顶栏盖住 */
 /* ── 可折叠分区（固定外貌〔正向 + 负向〕/ 服装 / 动态标签）── */
 .char-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
@@ -184,8 +184,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-form { padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08)); background: rgba(255,255,255,.03); }
 .char-form-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
 .char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
-.char-forms-add { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.char-forms-add .form-hint { margin: 0; }
 .named-tag-switch { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
 .named-tag-switch-text { min-width: 2em; }
 /* 停用的条目：整体变淡、标题划线，但输入框仍可编辑；开关和删除保持原样，方便改回来。 */
@@ -342,9 +340,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
 }
 @media (max-width: 480px) {
-    /* 手机宽度：编辑摘要行里的 保存 / 取消 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
-    .char-edit-save span, .char-edit-cancel span { display: none; }
-    .char-edit-save, .char-edit-cancel { padding-inline: 10px; }
+    /* 手机宽度：编辑摘要行里的 保存 / 取消 / 添加形态 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
+    .char-edit-save span, .char-edit-cancel span, .char-edit-add-form span { display: none; }
+    .char-edit-save, .char-edit-cancel, .char-edit-add-form { padding-inline: 10px; }
 }
 @media (hover: none) and (pointer: coarse) {
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }

@@ -1667,10 +1667,11 @@ function renderCharList({ keepDraft = false } = {}) {
             ? `
                         <button type="button" role="menuitem" class="char-menu-item char-lock-control${lockInfo.own ? ' active' : ''}" data-action="toggle-lock" data-id="${charId}" title="${lockInfo.title}" aria-label="${lockActionLabel} ${charName}" aria-pressed="${lockInfo.own}"><i class="fa-solid ${lockInfo.icon}" aria-hidden="true"></i><span class="char-menu-label">${lockActionLabel}</span></button>`
             : '';
-        // 编辑中：保存 / 取消放在吸顶的摘要行里，与启用 / 编辑 / 更多在同一行，长表单滚动时始终点得到。
+        // 编辑中：保存 / 取消 / 添加形态放在吸顶的摘要行里，与启用 / 编辑 / 更多在同一行，长表单滚动时始终点得到。
         const editButtons = isEditing
             ? `<button type="button" class="btn btn-primary btn-sm char-edit-save" data-action="save" data-id="${charId}" title="保存" aria-label="保存 ${charName}"><i class="fa-solid fa-check" aria-hidden="true"></i><span>保存</span></button>
-                    <button type="button" class="btn btn-sm char-edit-cancel" data-action="cancel" data-id="${charId}" title="取消" aria-label="取消编辑 ${charName}"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span>取消</span></button>`
+                    <button type="button" class="btn btn-sm char-edit-cancel" data-action="cancel" data-id="${charId}" title="取消" aria-label="取消编辑 ${charName}"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span>取消</span></button>
+                    <button type="button" class="btn btn-sm char-edit-add-form" data-action="add-form" data-id="${charId}" title="${escapeHtml(FORM_COPY.hint)}" aria-label="${FORM_COPY.addAction} ${charName}"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>${FORM_COPY.addAction}</span></button>`
             : '';
         const canDrag = !!CL && !charFiltersActive() && !isEditing;
         const summary = `
@@ -1732,7 +1733,7 @@ function renderCharList({ keepDraft = false } = {}) {
                     isSectionCollapsed: (formKey, sectionKey) => editorSections.isCollapsed(formRef(c.id, formKey), sectionKey),
                 });
             } else {
-                // 单形态：与加入形态之前的编辑卡片相同，只多一个“添加形态”按钮；形态名称（删到只剩一个形态时留下的）放在隐藏输入框里随草稿 / 保存带着走。
+                // 单形态：与加入形态之前的编辑卡片相同（“添加形态”按钮在吸顶摘要行里）；形态名称（删到只剩一个形态时留下的）放在隐藏输入框里随草稿 / 保存带着走。
                 const single = draft
                     ? { ...draft }
                     : { ...splitCharType(c.type), appearance, negativeTags: c.negativeTags || '', danbooruTag: c.danbooruTag || '', outfits, dynamicStates, formName: c.formName || '' };
@@ -1746,11 +1747,7 @@ function renderCharList({ keepDraft = false } = {}) {
                     ${renderCharacterFormSections(single, {
                         ...sectionCtx,
                         isSectionCollapsed: key => editorSections.isCollapsed(c.id, key),
-                    })}
-                    <div class="char-forms-add">
-                        <button class="btn btn-sm" type="button" data-action="add-form" data-id="${charId}"><i class="fa-solid fa-plus"></i> ${FORM_COPY.addAction}</button>
-                        <span class="form-hint">同一角色的不同样子，独立的类型、外貌、服装与动态标签；未提及默认第一个形态</span>
-                    </div>`;
+                    })}`;
             }
 
             return `
