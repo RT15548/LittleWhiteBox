@@ -1,4 +1,5 @@
 import './draw-usage.js';
+import { mountThemeSwitch } from './theme-switch.js';
 
 const PLANNER_RETRY_HINT = '场景分析失败时自动重试，填 0 关闭。不重试出图。重试会增加 API 消耗。';
 document.querySelectorAll('[data-planner-retry-hint]').forEach(element => {
@@ -17,3 +18,6 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     target.click();
 });
+
+// 页头最左边的 Logo 图标就是主题开关（跟随系统 / 浅色 / 深色），三个后端页面共用。
+mountThemeSwitch({ document });

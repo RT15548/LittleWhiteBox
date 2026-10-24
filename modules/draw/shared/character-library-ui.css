@@ -246,8 +246,9 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
     --ct-form: color-mix(in srgb, var(--text-primary, #e6edf3) 3%, var(--bg-tertiary, #21262d));
     --ct-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
+/* 浅色：跟随系统（没有 data-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
 @media (prefers-color-scheme: light) {
-    .lwb-cl-group {
+    :root:not([data-theme="dark"]) .lwb-cl-group {
         --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 60%, var(--bg-primary, #0d1117));
         --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-tertiary, #21262d));
         --ct-card: var(--bg-secondary, #161b22);
@@ -255,6 +256,14 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
         --ct-form: color-mix(in srgb, var(--bg-tertiary, #21262d) 70%, var(--bg-secondary, #161b22));
         --ct-shadow: 0 1px 2px rgba(60, 50, 30, 0.08);
     }
+}
+:root[data-theme="light"] .lwb-cl-group {
+    --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 60%, var(--bg-primary, #0d1117));
+    --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-tertiary, #21262d));
+    --ct-card: var(--bg-secondary, #161b22);
+    --ct-open: color-mix(in srgb, var(--bg-tertiary, #21262d) 35%, var(--bg-secondary, #161b22));
+    --ct-form: color-mix(in srgb, var(--bg-tertiary, #21262d) 70%, var(--bg-secondary, #161b22));
+    --ct-shadow: 0 1px 2px rgba(60, 50, 30, 0.08);
 }
 .lwb-cl-group { background: var(--ct-group); box-shadow: var(--ct-shadow); }
 .lwb-cl-group-header { background: var(--ct-group-head); border-bottom: 1px solid var(--border); }
