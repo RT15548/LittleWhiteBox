@@ -1746,7 +1746,7 @@ function renderCharList() {
                     })}
                     <div class="char-forms-add">
                         <button class="btn btn-sm" type="button" data-action="add-form" data-id="${charId}"><i class="fa-solid fa-plus"></i> ${FORM_COPY.addAction}</button>
-                        <span class="form-hint">同一角色的不同样子（如人形 / 龙形），各有自己的类型、外貌、服装与附加标签</span>
+                        <span class="form-hint">同一角色的不同的样子，各有自己的类型、外貌、服装与附加标签</span>
                     </div>`;
             }
 
