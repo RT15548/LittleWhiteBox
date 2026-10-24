@@ -81,20 +81,22 @@ test('2+ items render folded: one-line header (handle, chevron, name input, tags
         assert.equal(row.querySelector('.named-tag-toggle').getAttribute('aria-expanded'), 'false');
         assert.ok(row.querySelector('.named-tag-header [data-named-drag]'));
         assert.ok(row.querySelector('.named-tag-header input.char-outfit-name'));
-        // 头部：启用开关（角色卡同款打勾方块图标按钮）和删除图标按钮直接摆出来，“…”菜单里只剩复制。
+        // 头部：启用开关（角色卡同款打勾方块图标按钮）直接摆出来，删除回到“…”菜单里（复制 + 危险样式的删除）。
         const header = row.querySelector('.named-tag-header');
         assert.equal(header.querySelector('.named-tag-switch'), null);
         assert.equal(header.querySelector('.btn-danger'), null);
         assert.ok(header.querySelector(':scope > .editor-item-enabled-toggle.char-enabled-control.char-action-button svg'));
-        assert.ok(header.querySelector(':scope > .editor-item-delete.char-action-button[data-action="remove-outfit"] svg'));
+        assert.equal(header.querySelector(':scope > .editor-item-delete'), null, 'no trash icon button in the header any more');
         assert.equal(header.querySelectorAll('.char-menu-button').length, 1);
-        assert.deepEqual(Array.from(header.querySelectorAll('[role="menuitem"]')).map(item => item.dataset.action), ['duplicate-named-item']);
+        assert.deepEqual(Array.from(header.querySelectorAll('[role="menuitem"]')).map(item => item.dataset.action), ['duplicate-named-item', 'remove-outfit']);
+        const del = header.querySelector('.char-menu .editor-item-delete');
+        assert.ok(del.classList.contains('danger') && del.classList.contains('char-menu-item'), 'delete is a danger-styled menu item');
+        assert.equal(del.querySelector('.char-menu-label').textContent, '删除');
         assert.deepEqual(
-            Array.from(header.children).map(node => node.className.split(' ')[0]).slice(-4),
-            ['editor-item-state', 'char-action-button', 'char-action-button', 'char-menu-wrap'],
-            '已停用标签、启用开关、删除、菜单，依次排在名称之后',
+            Array.from(header.children).map(node => node.className.split(' ')[0]).slice(-3),
+            ['editor-item-state', 'char-action-button', 'char-menu-wrap'],
+            '已停用标签、启用开关、菜单，依次排在名称之后',
         );
-        assert.equal(header.querySelector('.editor-item-delete').getAttribute('title'), '删除');
     }
     const first = rows(card)[0];
     assert.equal(first.querySelector('.char-outfit-name').getAttribute('value'), '白裙');
@@ -262,13 +264,13 @@ test('the header enable button (ticked-square icon, like the character cards) fl
     assert.deepEqual(collectNamedTagEditorValues(card, 'outfit').map(item => item.enabled === false), [true, false, false]);
 });
 
-test('the delete icon button (trash) keeps its index and the action buttons keep their numbering after a removal', () => {
+test('the delete menu item keeps its index and the header buttons keep their numbering after a removal', () => {
     const { card } = mount(OUTFITS);
     const del = row => row.querySelector('.editor-item-delete');
     assert.equal(del(rows(card)[1]).dataset.action, 'remove-outfit');
     assert.equal(del(rows(card)[1]).dataset.index, '1');
     assert.equal(del(rows(card)[1]).getAttribute('aria-label'), '删除 服装 2');
-    assert.equal(del(rows(card)[1]).querySelectorAll('svg path').length, 5, 'the shared trash icon');
+    assert.equal(del(rows(card)[1]).querySelector('i').getAttribute('class'), 'fa-solid fa-trash');
     removeNamedTagEditorItem(rows(card)[0], 'outfit');
     assert.equal(del(rows(card)[0]).getAttribute('aria-label'), '删除 服装 1');
     assert.equal(rows(card)[0].querySelector('.editor-item-enabled-toggle').getAttribute('aria-label'), '启用 服装 1');

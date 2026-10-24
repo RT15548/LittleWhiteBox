@@ -74,7 +74,7 @@ function kindMeta(kind) {
 
 // ── 条目 / 形态头部的操作 ─────────────────────────────────────
 // 头部右侧依次是：“已停用”小标签（停用时才显示）、启用开关（与角色卡外面同款的打勾方块图标按钮，.char-enabled-control）、
-// 删除图标按钮（垃圾桶，悬停变危险色）、“…”菜单（只放剩下的操作，目前是“复制”，以后要加别的直接往菜单里加）。
+// “…”菜单（复制、删除；删除是危险样式的菜单项，以后要加别的操作直接往菜单里加）。
 // 菜单与角色卡外面是同一套标记和样式（.char-menu*，开关与定位由 character-card-menu.js 的 getCardMenu() 负责），
 // 菜单按钮的 data-action="menu" 由页面的点击委托交给菜单控制器。
 
@@ -83,7 +83,7 @@ const enabledIconName = enabled => (enabled ? 'enabled' : 'disabled');
 
 /**
  * 头部右侧的操作区。duplicateAction / toggleAction / removeAction 是三个按钮的 data-action（条目和形态各用各的）；
- * removeAttrs 原样放在删除按钮上（条目的 data-index、形态的 data-form-key）；subject 是无障碍名称里的对象（如“服装 1”）。
+ * removeAttrs 原样放在菜单里的删除项上（条目的 data-index、形态的 data-form-key）；subject 是无障碍名称里的对象（如“服装 1”）。
  */
 export function renderEditorItemMenu({ subject, enabled = true, duplicateAction, toggleAction, removeAction, removeAttrs = '' }) {
     const toggleLabel = enabled ? ITEM_MENU_COPY.disable : ITEM_MENU_COPY.enable;
@@ -91,11 +91,11 @@ export function renderEditorItemMenu({ subject, enabled = true, duplicateAction,
     return `
             <span class="editor-item-state" title="${ENABLED_HINT}">${ITEM_MENU_COPY.disabledTag}</span>
             <button type="button" class="char-action-button char-enabled-control editor-item-enabled-toggle${enabled ? ' active' : ''}" data-action="${toggleAction}" title="${toggleLabel}" aria-label="${toggleLabel} ${subject}" aria-pressed="${enabled}">${renderCharacterActionIcon(enabledIconName(enabled))}</button>
-            <button type="button" class="char-action-button editor-item-delete" data-action="${removeAction}"${removeAttrs ? ` ${removeAttrs}` : ''} title="${ITEM_MENU_COPY.remove}" aria-label="${ITEM_MENU_COPY.remove} ${subject}">${renderCharacterActionIcon('delete')}</button>
             <span class="char-menu-wrap" data-card-menu>
                 <button type="button" class="char-action-button char-menu-button" data-action="menu" title="${ITEM_MENU_COPY.more}" aria-label="${moreLabel}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                 <div class="char-menu" role="menu" aria-label="${moreLabel}" hidden>
                     <button type="button" role="menuitem" class="char-menu-item" data-action="${duplicateAction}" title="${ITEM_MENU_COPY.duplicate}"><i class="fa-solid fa-clone" aria-hidden="true"></i><span class="char-menu-label">${ITEM_MENU_COPY.duplicate}</span></button>
+                    <button type="button" role="menuitem" class="char-menu-item danger editor-item-delete" data-action="${removeAction}"${removeAttrs ? ` ${removeAttrs}` : ''} title="${ITEM_MENU_COPY.remove}" aria-label="${ITEM_MENU_COPY.remove} ${subject}"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="char-menu-label">${ITEM_MENU_COPY.remove}</span></button>
                 </div>
             </span>`;
 }
