@@ -19,7 +19,7 @@ import {
 // 一个角色最多这么多个形态（含第一形态）。
 export const MAX_CHARACTER_FORMS = 20;
 // 多形态角色的“互斥”说明：发给场景规划器，每个角色只写一次。
-export const FORM_EXCLUSIVE_NOTE = '同一角色的不同形态，一般同一画面只出现其中一个';
+export const FORM_EXCLUSIVE_NOTE = '同一角色的不同形态，同一画面只出现其中一个；正文未提及形态时，用第一个';
 
 const DEFAULT_TYPE = 'girl';
 

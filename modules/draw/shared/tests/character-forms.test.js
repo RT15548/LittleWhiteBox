@@ -127,6 +127,7 @@ test('present characters: matched by name or alias only, one entry per form, dis
 test('planner text: exclusivity sentence once per multi-form character, nothing for single-form ones', () => {
     const library = normalizeCharacterLibrary({ characters: [SI, PLAIN], groups: [] });
     const text = buildCharacterInfoForLLM(detectPresentCharacters('司盈昃 and Alice', library));
+    assert.equal(FORM_EXCLUSIVE_NOTE, '同一角色的不同形态，同一画面只出现其中一个；正文未提及形态时，用第一个');
     assert.equal(text.split(FORM_EXCLUSIVE_NOTE).length - 1, 1);
     assert.ok(text.includes(`（司盈昃：${FORM_EXCLUSIVE_NOTE}）\n- 司盈昃（人形）（别名: 盈昃, 小司） [boy] | danbooru: si_yingze\n  外貌参考: black hair, red eyes`));
     assert.ok(text.includes('- 司盈昃（龙形）（别名: 盈昃, 小司） [no humans]\n  外貌参考: black dragon, red eyes, scales\n  服装参考: 鳞甲=armor scales'));

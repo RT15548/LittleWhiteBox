@@ -103,7 +103,7 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
         const outfits = formatReferenceList(character.outfits, '服装');
         const dynamicStates = formatReferenceList(character.dynamicStates, '附加标签');
-        // 多形态角色的各个形态相邻排列：在第一个形态前声明一次“同一角色、一般同一画面只出现其中一个”。
+        // 多形态角色的各个形态相邻排列：在第一个形态前声明一次“同一角色、同一画面只出现其中一个，未提及时用第一个”。
         const formNote = character.formIndex === 0 && character.formCount > 1
             ? `（${character.baseName}：${FORM_EXCLUSIVE_NOTE}）\n`
             : '';

@@ -348,7 +348,7 @@ export const FORM_COPY = Object.freeze({
     sectionTitle: '形态',
     nameLabel: '形态名称',
     nameHint: '点击修改名称，如：人形、兽形',
-    hint: '同一角色的不同的样子，各有自己的类型、外貌、服装与附加标签',
+    hint: '同一角色的不同样子，独立的类型、外貌、服装与附加标签；未提及默认第一个形态',
     limit: `一个角色最多 ${MAX_CHARACTER_FORMS} 个形态`,
 });
 

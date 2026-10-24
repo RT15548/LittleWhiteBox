@@ -140,7 +140,7 @@ export function createFormsEditor({ document, forms = [], createField }) {
     const list = el(document, 'div', 'sd-char-form-list');
     forms.forEach((form, i) => list.append(createFormBlock({ document, form, index: i + 1, createField })));
     const hint = el(document, 'p', 'form-hint',
-        '上面的 类型 / 固定外貌 / Danbooru Tag / 服装 / 附加标签 是第一形态（默认形态，可在上方填写形态名称）；这里添加同一角色的其他形态。');
+        '同一角色的不同样子，独立的类型、外貌、服装与附加标签；未提及默认第一个形态');
     root.append(head, list, hint);
 
     const syncAddButton = () => {

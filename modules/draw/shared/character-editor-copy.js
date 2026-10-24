@@ -26,7 +26,7 @@ export const NAMED_TAG_EMPTY_TEXT = '暂无';
 /** 编辑区末尾的统一说明（整张角色卡只出现一次）；每个元素一行。 */
 export const CHARACTER_EDITOR_NOTE_LINES = Object.freeze([
     '形态、服装、附加标签的名字非关键词调用，而是会发给 AI 的描述，可用自然语言写。',
-    '形态示例：人形，兽形',
+    '形态示例：人形；兽形；男性；女性...',
     '服装示例：常服，家居穿 / white shirt, pleated skirt；礼服，正式场合 / evening dress, lace gloves',
     '附加标签示例：草帽 / straw hat；脸红 / blush, looking away',
     '形态和服装只选其一，附加标签按画面选若干',
