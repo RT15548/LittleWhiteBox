@@ -2,8 +2,6 @@
    character-card-menu.js 的浮层菜单，NovelAI / SD WebUI / ComfyUI 三个设置页都引入这一份（角色卡也复用其中的手柄与菜单）。 */
 .char-drag-handle { flex-shrink: 0; width: 18px; text-align: center; color: var(--text-muted); cursor: grab; user-select: none; touch-action: none; letter-spacing: -2px; }
 .char-drag-handle:hover, .char-drag-handle:focus-visible { color: var(--text-primary); }
-.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
-.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
 /* 参数预设列表：每行 = 拖动手柄 + 名称（点选）+ “…”菜单（菜单样式复用 .char-menu*）。列表自己滚动，上下各留 2px 给拖拽落点线。 */
 .preset-list-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
 .preset-list-header .card-title { margin-bottom: 0; }

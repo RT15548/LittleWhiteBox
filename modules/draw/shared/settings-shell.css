@@ -223,6 +223,12 @@ textarea.input[data-autofit] { min-height: 0; overflow-y: hidden; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+/* 拖拽落点指示（所有可排序列表共用：预设行、角色卡 / 分组、服装 / 动态标签条目、形态、请求结构消息）：
+   落在某行之前 / 之后 = 那一行上 / 下沿一条线，放进分组 = 分组头虚线框。颜色取随主题变化的 --border-focus（青色，灰底上也醒目）；
+   box-shadow 用 !important，免得被各表面自带的卡片阴影（角色标签页的灰度层次）盖掉。 */
+.drop-before { box-shadow: 0 -3px 0 0 var(--border-focus) !important; }
+.drop-after { box-shadow: 0 3px 0 0 var(--border-focus) !important; }
+.drop-into { outline: 2px dashed var(--border-focus); outline-offset: -2px; }
 /* 就地改名的标题（shared/inline-rename.js）：平时就是一段加粗文字，悬停 / 聚焦才露出输入框，点一下就能改。 */
 .inline-name { min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; font-weight: 600; text-overflow: ellipsis; cursor: text; }
 .inline-name::placeholder { font-weight: 400; color: var(--text-muted); }

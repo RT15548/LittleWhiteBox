@@ -993,8 +993,8 @@ export function createCharacterLibraryUi(options = {}) {
 
     // ── 拖拽排序（Pointer 事件：鼠标与触屏通用）──────────────
     function clearDropMarks() {
-        document.querySelectorAll('.lwb-cl-drop-before, .lwb-cl-drop-after, .lwb-cl-drop-into').forEach((node) => {
-            node.classList.remove('lwb-cl-drop-before', 'lwb-cl-drop-after', 'lwb-cl-drop-into');
+        document.querySelectorAll('.drop-before, .drop-after, .drop-into').forEach((node) => {
+            node.classList.remove('drop-before', 'drop-after', 'drop-into');
         });
     }
 
@@ -1038,15 +1038,15 @@ export function createCharacterLibraryUi(options = {}) {
             if (result.position === 'into') return null;
             const node = sections.find(section => section.dataset.groupId === result.refId);
             return result.position === 'before'
-                ? { node, mark: 'lwb-cl-drop-before', beforeGroupId: result.refId }
-                : { node, mark: 'lwb-cl-drop-after', beforeGroupId: '' };
+                ? { node, mark: 'drop-before', beforeGroupId: result.refId }
+                : { node, mark: 'drop-after', beforeGroupId: '' };
         }
 
         const section = hit.closest('.lwb-cl-group');
         // 有分组时，命中列表本身（分组之间的缝隙）不属于任何分组：取消落点，而不是当成“未分组”。
         if (!section && state.groups.length) return null;
         if (section && hit.closest('.lwb-cl-group-header')) {
-            return { node: section.querySelector('.lwb-cl-group-header'), mark: 'lwb-cl-drop-into', groupId: section.dataset.groupId || '' };
+            return { node: section.querySelector('.lwb-cl-group-header'), mark: 'drop-into', groupId: section.dataset.groupId || '' };
         }
         const container = section ? section.querySelector('.lwb-cl-group-body') : list;
         const groupId = section ? (section.dataset.groupId || '') : '';
@@ -1055,13 +1055,13 @@ export function createCharacterLibraryUi(options = {}) {
         const result = resolveInsertion(items, y, state.drag.ids);
         if (result.position === 'into') {
             return section
-                ? { node: section.querySelector('.lwb-cl-group-header'), mark: 'lwb-cl-drop-into', groupId }
+                ? { node: section.querySelector('.lwb-cl-group-header'), mark: 'drop-into', groupId }
                 : null;
         }
         const node = cards.find(card => cardId(card) === result.refId);
         return result.position === 'before'
-            ? { node, mark: 'lwb-cl-drop-before', groupId, beforeId: result.refId }
-            : { node, mark: 'lwb-cl-drop-after', groupId };
+            ? { node, mark: 'drop-before', groupId, beforeId: result.refId }
+            : { node, mark: 'drop-after', groupId };
     }
 
     function onDragMove(event) {

@@ -201,9 +201,6 @@
 
 body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important; user-select: none; }
 .sd-char-card.lwb-cl-dragging, .lwb-cl-group.lwb-cl-dragging { opacity: 0.45; }
-.lwb-cl-drop-before { box-shadow: 0 -2px 0 0 var(--accent, #d4a574); }
-.lwb-cl-drop-after { box-shadow: 0 2px 0 0 var(--accent, #d4a574); }
-.lwb-cl-drop-into { outline: 2px dashed var(--accent, #d4a574); outline-offset: -2px; }
 
 /* 窄屏（宿主页面切换为单栏的断点）：取消分组内滚动，保持整页滚动。 */
 @media (max-width: 768px) {

@@ -109,8 +109,6 @@
 .lwb-ple-row.off .lwb-ple-count { opacity: 0.55; text-decoration: line-through; }
 .lwb-ple-row.selected { background: var(--accent-soft); }
 .lwb-ple-row.dragging { opacity: 0.45; }
-.lwb-ple-row.drop-before { box-shadow: 0 -2px 0 var(--accent, #d4a574); }
-.lwb-ple-row.drop-after { box-shadow: 0 2px 0 var(--accent, #d4a574); }
 body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; user-select: none; }
 
 .lwb-ple-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; padding: 8px 6px; }
