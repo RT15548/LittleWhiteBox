@@ -2046,7 +2046,10 @@ function showLocalDanbooruFix(ref) {
     };
 
     searchBtn.addEventListener('click', doSearch);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') doSearch();
+        else if (e.key === 'Escape') { e.preventDefault(); closeBtn.click(); } // Esc 先收起这个搜索面板，不关整个设置页
+    });
     closeBtn.addEventListener('click', () => {
         panel.classList.add('hidden');
         panel.innerHTML = '';

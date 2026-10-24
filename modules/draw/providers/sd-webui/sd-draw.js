@@ -59,6 +59,7 @@ import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
+import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
@@ -190,6 +191,7 @@ let overlayFrame = null;
 let frameReadyPromise = null;
 let pendingController = null;
 let resizeHandler = null;
+let hostEscapeDispose = null; // 宿主页面里的 Esc 监听（shared/panel-escape.js），随面板创建 / 关闭
 let eventsBound = false;
 let agentSettingsSurface = null;
 let llmRecordsView = null;
@@ -919,6 +921,7 @@ async function createOverlay() {
     frameWrap.appendChild(overlayFrame);
     overlayElement.append(backdrop, frameWrap);
     document.body.appendChild(overlayElement);
+    hostEscapeDispose = installHostPanelEscape({ hostWindow: window, getOverlay: () => overlayElement, getFrame: () => overlayFrame });
 
     resizeHandler = () => {
         if (overlayElement?.style.display !== 'none') {
@@ -2726,6 +2729,8 @@ function hideSettings() {
         resizeHandler = null;
     }
 
+    hostEscapeDispose?.();
+    hostEscapeDispose = null;
     overlayElement?.remove();
     overlayElement = null;
     overlayFrame = null;

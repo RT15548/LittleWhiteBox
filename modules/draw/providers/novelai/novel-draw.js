@@ -180,6 +180,7 @@ import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
+import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
 const handleDelegatedClickEvent = observeAsyncCallback(handleDelegatedClick, { source: import.meta.url, operation: "handleDelegatedClick" });
@@ -414,6 +415,7 @@ const novelImageRequestQueue = createSerialImageRequestQueue({
 const imageBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
+let hostEscapeDispose = null; // 宿主页面里的 Esc 监听（shared/panel-escape.js），随面板创建 / 关闭
 let afterAiGateDispose = null;
 let agentSettingsSurface = null;
 
@@ -3109,6 +3111,7 @@ function createOverlay() {
     overlay.appendChild(backdrop);
     overlay.appendChild(frameWrap);
     document.body.appendChild(overlay);
+    hostEscapeDispose = installHostPanelEscape({ hostWindow: window, getOverlay: () => overlay, getFrame: () => iframe });
     syncOverlayFrameLayout();
     // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedMessage (origin + source).
     window.addEventListener('message', handleFrameMessageEvent);
@@ -3129,6 +3132,8 @@ function showOverlay() {
 function hideOverlay() {
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
+    hostEscapeDispose?.();
+    hostEscapeDispose = null;
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) overlay.remove();
     overlayCreated = false;
