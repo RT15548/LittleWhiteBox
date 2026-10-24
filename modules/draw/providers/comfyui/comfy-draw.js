@@ -99,6 +99,7 @@ import {
     joinTags,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    appendTagEditGroup,
     classifyError,
     ErrorType,
     syncDrawSavedFromPreview,
@@ -4243,26 +4244,6 @@ function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEff
     };
 }
 
-function appendEditGroup(container, { label, value, type, index = null }) {
-    const group = document.createElement('div');
-    group.className = 'xb-nd-edit-group';
-
-    const labelEl = document.createElement('div');
-    labelEl.className = 'xb-nd-edit-group-label';
-    labelEl.textContent = label;
-    group.appendChild(labelEl);
-
-    const textarea = document.createElement('textarea');
-    textarea.className = 'xb-nd-edit-input';
-    textarea.setAttribute('aria-label', label);
-    textarea.dataset.type = type;
-    if (index !== null) textarea.dataset.index = String(index);
-    textarea.value = value || '';
-    group.appendChild(textarea);
-
-    container.appendChild(group);
-}
-
 async function navigateToImage(container, targetIndex) {
     const slotId = container.dataset.slotId;
     const historyCount = parseInt(container.dataset.historyCount) || 1;
@@ -4460,15 +4441,15 @@ async function toggleEditPanel(container, show) {
         }
 
         scrollWrap.replaceChildren();
-        appendEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
+        appendTagEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
 
         for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
-            appendEditGroup(scrollWrap, group);
+            appendTagEditGroup(scrollWrap, group);
         }
 
         // 追加位：与角色框一致，记录里实际存了 post_prompt 才渲染；为空的图不出框
         if (preview?.postPrompt) {
-            appendEditGroup(scrollWrap, { label: '追加 (post_prompt)', value: preview.postPrompt, type: 'post_prompt' });
+            appendTagEditGroup(scrollWrap, { label: '追加 (post_prompt)', value: preview.postPrompt, type: 'post_prompt' });
         }
 
         if (btnsPanel) {

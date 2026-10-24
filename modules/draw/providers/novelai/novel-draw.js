@@ -162,6 +162,7 @@ import {
     buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    appendTagEditGroup,
 } from "../../shared/draw-common.js";
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
@@ -2346,22 +2347,9 @@ async function toggleEditPanel(container, show) {
             editPanel.insertBefore(scrollWrap, editPanel.firstChild);
         }
 
-        let html = `
-            <div class="xb-nd-edit-group">
-                <div class="xb-nd-edit-group-label">场景</div>
-                <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
-            </div>`;
-
-        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
-            html += `
-                <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">${escapeHtml(group.label)}</div>
-                    <textarea class="xb-nd-edit-input" aria-label="${escapeHtml(group.label)}" data-type="${group.type}" data-index="${group.index}">${escapeHtml(group.value)}</textarea>
-                </div>`;
-        }
-
-        // eslint-disable-next-line no-unsanitized/property -- Escaped data used in template.
-        scrollWrap.innerHTML = html;
+        scrollWrap.replaceChildren();
+        appendTagEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
+        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) appendTagEditGroup(scrollWrap, group);
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
             btnsPanel.style.pointerEvents = 'none';

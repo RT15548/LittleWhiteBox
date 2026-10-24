@@ -16,6 +16,7 @@ import {
     deletePreview,
 } from "./gallery-cache.js";
 import { patchImageCard, reportImageCardReadError } from './image-card-view.js';
+import { installTextareaAutofit } from './textarea-autofit.js';
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from './image-save-ui.js';
 import {
     ScenePlannerError,
@@ -245,7 +246,7 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-group{margin-bottom:8px}
 .xb-nd-edit-group:last-child{margin-bottom:0}
 .xb-nd-edit-group-label{font-size:11px;color:inherit;opacity:.8;margin-bottom:4px}
-.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:clamp(100px,20dvh,240px);background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
+.xb-nd-edit-input{display:block;box-sizing:border-box;width:100%;background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
 .xb-nd-edit-actions{display:flex;flex-shrink:0;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
@@ -318,8 +319,33 @@ ${buildTagEditor(tags, false)}
 </div>`;
 }
 
+// 编辑面板里的文本框（场景 / 各角色各一个）随内容长高：一行内容只占一行，最多约 8 行再出现滚动条，手动拉伸手柄保留；
+// 面板此刻才可见，量得出高度（每个面板只装一次，面板里重绘 / 宽度变化后由观察器补量）。
+const tagEditorAutofit = new WeakMap();
+
+/** 往编辑面板的滚动区加一个“标签 + 文本框”字段（三个出图后端共用）。 */
+export function appendTagEditGroup(container, { label, value, type, index = null }) {
+    const group = document.createElement('div');
+    group.className = 'xb-nd-edit-group';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'xb-nd-edit-group-label';
+    labelEl.textContent = label;
+    const textarea = document.createElement('textarea');
+    textarea.className = 'xb-nd-edit-input';
+    textarea.setAttribute('aria-label', label);
+    textarea.setAttribute('data-autofit', '');
+    textarea.rows = 1; // 一行起步，由 data-autofit 按内容长高
+    textarea.dataset.type = type;
+    if (index !== null) textarea.dataset.index = String(index);
+    textarea.value = value || '';
+    group.append(labelEl, textarea);
+    container.appendChild(group);
+}
+
 export function showDrawTagEditor(editPanel) {
     editPanel.style.display = 'flex';
+    if (!tagEditorAutofit.has(editPanel)) tagEditorAutofit.set(editPanel, installTextareaAutofit(editPanel));
+    tagEditorAutofit.get(editPanel).refit();
     editPanel.scrollIntoView({ block: 'nearest' });
     editPanel.querySelector('[data-type="scene"]')?.focus({ preventScroll: true });
 }
@@ -327,7 +353,7 @@ export function showDrawTagEditor(editPanel) {
 function buildTagEditor(tags, failed) {
     return `<div class="xb-nd-edit${failed ? '' : ' xb-nd-edit-overlay'}" style="display:none;${failed ? 'margin-top:12px;' : 'position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,.94);color:#fff;z-index:15;'}border-radius:10px;padding:10px;text-align:left;">
     <label data-draw-edit-label style="display:block;font-size:11px;margin-bottom:6px;">${DRAW_SLOT_COPY.editTags}</label>
-    <textarea class="xb-nd-edit-input" aria-label="${DRAW_SLOT_COPY.editTags}">${escapeHtml(tags)}</textarea>
+    <textarea class="xb-nd-edit-input" data-autofit rows="1" aria-label="${DRAW_SLOT_COPY.editTags}">${escapeHtml(tags)}</textarea>
     <div class="xb-nd-edit-actions">
         <button data-action="save-tags">${DRAW_SLOT_COPY.saveTags}</button>
         ${failed ? `<button data-action="save-tags-retry">${DRAW_SLOT_COPY.saveAndRetry}</button>` : ''}

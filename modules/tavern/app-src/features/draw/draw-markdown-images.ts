@@ -1,5 +1,6 @@
 
 import { observeBackgroundTask } from '../../../../../shared/common/async-errors.js';
+import { installTextareaAutofit } from '../../../../draw/shared/textarea-autofit.js';
 export interface TavernDrawMarkdownImageEnhancerOptions {
     alertDialog: (options: { title?: string; message?: string; confirmText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<void>;
     confirmDialog: (options: { title?: string; message?: string; confirmText?: string; cancelText?: string; tone?: 'default' | 'danger' | 'warning' } | string) => Promise<boolean>;
@@ -45,6 +46,8 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
 
         const textarea = document.createElement('textarea');
         textarea.className = 'xb-tavern-image-edit-input';
+        textarea.setAttribute('data-autofit', ''); // 随内容长高（共用 draw/shared/textarea-autofit.js），见 buildTavernImageEditPanel
+        textarea.rows = 1;
         textarea.dataset.type = options.type;
         if (typeof options.index === 'number') {
             textarea.dataset.index = String(options.index);
@@ -110,8 +113,11 @@ export function createTavernDrawMarkdownImageEnhancer(options: TavernDrawMarkdow
         });
         editPanel.append(editLabel, editScroll, editActions);
 
+        // 文本框一行内容只占一行、最多约 8 行再滚动；面板显示后才量得出高度，所以每次打开后补量。
+        const autofit = installTextareaAutofit(editPanel);
         const setOpen = (open: boolean) => {
             editPanel.style.display = open ? 'block' : 'none';
+            if (open) {autofit.refit();}
             panelOptions.onToggle?.(open);
         };
 
