@@ -834,8 +834,9 @@ function renderAutoLearnGroupOptions() {
 
 // 分组头的“自己开着数 / 总数”与分组开关（两态）外观；整体渲染与轻量刷新共用，保证两处一致。
 // 分组开关是分组自己的状态，与组内各角色自己的 enabled 互相独立：有效启用 = 分组开 且 角色开。
-const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
-const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_TITLE_ON = '已开启。点击关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
+const GROUP_SWITCH_TITLE_OFF = '已关闭。点击开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_STATE_TEXT = Object.freeze({ on: '已开启', off: '已关闭' });
 
 function describeGroupHeader(library, group) {
     const { own, total, enabled, locked } = CL.getGroupSummary(library, group.id);
@@ -849,6 +850,7 @@ function describeGroupHeader(library, group) {
         countTitle: `组内自己开着的角色 ${own} 个，共 ${total} 个${enabled ? '' : '；分组已关闭，组内角色当前都不参与出图'}`,
         switchTitle: enabled ? GROUP_SWITCH_TITLE_ON : GROUP_SWITCH_TITLE_OFF,
         switchIcon: enabled ? 'fa-toggle-on' : 'fa-toggle-off',
+        switchText: enabled ? GROUP_SWITCH_STATE_TEXT.on : GROUP_SWITCH_STATE_TEXT.off,
     };
 }
 
@@ -888,7 +890,7 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
         const header = describeGroupHeader(library, group);
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。
         const groupSwitch = group.virtual ? '' : `
-                    <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}"></i></button>`;
+                    <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}" aria-hidden="true"></i><span class="char-switch-text">${header.switchText}</span></button>`;
         // 分组头只留开关 / 添加 / 重命名；上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一套菜单，同一时间只开一个）。
         const lockActionLabel = header.locked ? CHARACTER_LOCK_COPY.unlockAction : CHARACTER_LOCK_COPY.lockAction;
         const manage = group.virtual ? '' : `
@@ -3442,6 +3444,47 @@ function currentPromptPresetId() {
     return (presets.find(p => p.id === state.selectedPromptPresetId) || presets[0])?.id ?? null;
 }
 
+// 预设行的“…”菜单：通用的重命名 / 复制 / 导出 / 删除，外加“全部恢复默认”（原先在页面底部的独立按钮）。
+const PROMPT_PRESET_MENU_ITEMS = Object.freeze([
+    { action: 'rename', label: '重命名', icon: 'fa-pen' },
+    { action: 'duplicate', label: '复制', icon: 'fa-clone' },
+    { action: 'export', label: '导出', icon: 'fa-share-from-square' },
+    { action: 'reset-defaults', label: '全部恢复默认', icon: 'fa-rotate-left' },
+    { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
+]);
+
+/**
+ * 把当前正在编辑的提示词预设的全部文本（开场、场景规则、各模型指南）与请求结构恢复为默认值。
+ * 只改表单与草稿，点保存才落盘。
+ */
+function resetActivePromptPresetToDefaults() {
+    const defaults = state._defaultPrompts || {};
+    const activePreset = getActivePromptPresetForForm();
+    if (!activePreset) {
+        alert('没有可恢复的提示词预设');
+        return;
+    }
+    const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset.name);
+    const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
+    const sceneRulesVal = defaults.sceneRules || '';
+    $('nd_prompt_system').value = topSystemVal;
+    $('nd_prompt_format').value = sceneRulesVal;
+    promptTextDraftsByPreset.set(activePreset.id, new Map([
+        ['topSystem', topSystemVal],
+        ['sceneRules', sceneRulesVal],
+    ]));
+    modelGuideDraftsByPreset.set(activePreset.id, new Map(
+        Object.entries(state.modelGuideDefaults || {})
+            .filter(([, content]) => typeof content === 'string'),
+    ));
+    applyModelGuideForCurrentModel();
+    // 布局草稿一并回到默认（与已保存的默认布局一致时 setPromptLayoutDraft 会直接丢草稿）。
+    if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
+    renderLayoutEditor({ collapse: true });
+    refreshLayoutSummaries();
+    if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
+}
+
 let promptListView = null;
 function getPromptListView() {
     if (!promptListView && presetListKit) {
@@ -3456,6 +3499,7 @@ function getPromptListView() {
             onSelect: id => selectPromptPreset(id),
             onAction: handlePromptPresetAction,
             onReorder: reorderPromptPresets,
+            menuItems: PROMPT_PRESET_MENU_ITEMS,
         });
     }
     return promptListView;
@@ -3490,6 +3534,11 @@ function handlePromptPresetAction(action, id, preset) {
         postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
     } else if (action === 'export') {
         exportPromptPreset(preset);
+    } else if (action === 'reset-defaults') {
+        if (!confirm(`确认将提示词预设“${label}”的全部提示词（含请求结构）恢复为默认值？（需点击保存才会生效）`)) return;
+        // 恢复的是正在编辑的表单：不是当前预设时先切过去（与点选这一行一样）。
+        if (id !== currentPromptPresetId()) selectPromptPreset(id);
+        resetActivePromptPresetToDefaults();
     } else if (action === 'delete') {
         if (confirm(`确定删除提示词预设“${label}”？`)) postToParent({ type: 'DEL_PROMPT_PRESET', id });
     }
@@ -3982,10 +4031,9 @@ window.addEventListener('message', event => {
                 updateStatus($('nd_api_status'), data.state, data.text);
             } else if (data.target === 'params') {
                 updateStatus($('nd_params_status'), data.state, data.text);
-            } else if (data.target === 'prompt-preset') {
+            } else if (data.target === 'prompt-preset' || data.target === 'prompts') {
+                // 保存按钮只剩预设栏里的一个；宿主对旧目标名 prompts 的回执也落在同一行状态上。
                 updateStatus($('nd_prompt_preset_status'), data.state, data.text);
-            } else if (data.target === 'prompts') {
-                updateStatus($('nd_prompts_status'), data.state, data.text);
             } else if (data.target === 'filter') {
                 updateStatus($('nd_filter_status'), data.state, data.text);
             } else if (data.target === 'gallery') {
@@ -4438,11 +4486,6 @@ function initializePage() {
         sourcePresetId: state.selectedPromptPresetId,
     }));
 
-    // 提示词模板保存（底部按钮，等同于预设栏保存）
-    $('nd_prompts_save').addEventListener('click', () => {
-        savePromptPreset('nd_prompts_save', 'prompts', 'nd_prompts_status');
-    });
-
     // 恢复默认只改表单；点保存才落盘
     const refreshChainIfOpen = () => { if ($('nd_prompt_chain_details').open) requestPromptChainPreview(); };
     $('nd_prompt_reset_system').addEventListener('click', () => {
@@ -4468,35 +4511,6 @@ function initializePage() {
         refreshLayoutSummaries();
         refreshChainIfOpen();
     });
-    $('nd_prompts_reset_all').addEventListener('click', () => {
-        if (!confirm('确认将当前预设的全部提示词（含请求结构）恢复为默认值？（需点击保存才会生效）')) return;
-        const defaults = state._defaultPrompts || {};
-        const activePreset = getActivePromptPresetForForm();
-        if (!activePreset) {
-            alert('没有可恢复的提示词预设');
-            return;
-        }
-        const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset.name);
-        const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
-        const sceneRulesVal = defaults.sceneRules || '';
-        $('nd_prompt_system').value = topSystemVal;
-        $('nd_prompt_format').value = sceneRulesVal;
-        promptTextDraftsByPreset.set(activePreset.id, new Map([
-            ['topSystem', topSystemVal],
-            ['sceneRules', sceneRulesVal],
-        ]));
-        modelGuideDraftsByPreset.set(activePreset.id, new Map(
-            Object.entries(state.modelGuideDefaults || {})
-                .filter(([, content]) => typeof content === 'string'),
-        ));
-        applyModelGuideForCurrentModel();
-        // 布局草稿一并回到默认（与已保存的默认布局一致时 setPromptLayoutDraft 会直接丢草稿）。
-        if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
-        renderLayoutEditor({ collapse: true });
-        refreshLayoutSummaries();
-        refreshChainIfOpen();
-    });
-
     $('nd_prompt_preset_import').addEventListener('change', observeAsyncCallback(async (e) => {
         const input = e.target; // await 之后事件对象可能已被重置，先留住输入框
         const file = input.files?.[0];

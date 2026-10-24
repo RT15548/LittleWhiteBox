@@ -71,6 +71,13 @@
 .lwb-cl-icon-btn:hover:not(:disabled) { color: var(--text-primary, #e6edf3); background: rgba(255, 255, 255, 0.06); }
 .lwb-cl-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .lwb-cl-icon-btn.active { color: var(--accent, #d4a574); }
+/* 分组开关：开 = 实心强调色底 + 浅色图标 + “已开启”，关 = 描边 + 淡色图标 + “已关闭”（与 NovelAI 页面同一套语言）。 */
+.lwb-cl-group-switch { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; padding: 0 8px; border-color: var(--text-muted, #8b949e); color: var(--text-muted, #8b949e); }
+.lwb-cl-group-switch:not(.active) i { opacity: 0.7; }
+.lwb-cl-group-switch.active { color: var(--bg-primary, #0d1117); border-color: var(--accent, #d4a574); background: var(--accent, #d4a574); }
+.lwb-cl-group-switch:hover:not(:disabled) { color: var(--text-primary, #e6edf3); border-color: var(--text-secondary, #8b949e); background: var(--accent-soft, rgba(255, 255, 255, 0.06)); }
+.lwb-cl-group-switch.active:hover:not(:disabled) { color: var(--bg-primary, #0d1117); border-color: var(--text-primary, #e6edf3); background: var(--text-primary, #e6edf3); }
+.lwb-cl-switch-text { font-size: 11px; font-weight: 600; white-space: nowrap; }
 /* 分组关闭：整组变淡、虚线边框；角色自己的启用复选框仍可点，只是组内角色当前不参与出图。 */
 .lwb-cl-group-disabled { border-style: dashed; }
 .lwb-cl-group-disabled .lwb-cl-group-name,

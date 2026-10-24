@@ -245,14 +245,14 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     await flush();
     let forms = Array.from(editing().querySelectorAll('.char-form'));
     assert.equal(forms.length, 2);
-    // 头部：启用开关与删除是图标按钮，另有一个“…”菜单（里面只有复制）
+    // 头部：启用开关是图标按钮，另有一个“…”菜单（复制、删除）
     for (const form of forms) {
         const header = form.querySelector('.char-form-header');
         assert.equal(header.querySelectorAll('.char-menu-button').length, 1);
         assert.equal(header.querySelectorAll('.btn-danger, .named-tag-switch').length, 0);
         assert.equal(header.querySelectorAll('.char-enabled-control[data-action="toggle-form-enabled"]').length, 1);
-        assert.equal(header.querySelector('.editor-item-delete[data-action="remove-form"]').getAttribute('title'), '删除');
-        assert.deepEqual(menuLabels(header), ['复制']);
+        assert.equal(header.querySelectorAll(':scope > .editor-item-delete').length, 0);
+        assert.deepEqual(menuLabels(header), ['复制', '删除']);
     }
 
     // 点“…”只开菜单，不切换折叠；Esc 关闭
@@ -292,7 +292,7 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
 
     // 服装条目：复制紧跟其后（名称加“副本”），再停用副本
     const outfitMenu = forms[0].querySelector('.char-outfit-editor-item');
-    assert.deepEqual(menuLabels(outfitMenu.querySelector('.named-tag-header')), ['复制']);
+    assert.deepEqual(menuLabels(outfitMenu.querySelector('.named-tag-header')), ['复制', '删除']);
     click(outfitMenu.querySelector('[data-action="duplicate-named-item"]'));
     await flush();
     const outfitRows = Array.from(forms[0].querySelectorAll('.char-outfit-editor-item'));
@@ -313,4 +313,81 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     // 摘要栏只列启用形态的类型；形态数写成 启用/总数
     assert.equal(list.querySelector('.char-card[data-id="c1"] .char-type-badge').textContent, 'other');
     assert.match(list.querySelector('.char-card[data-id="c1"] .char-status').textContent, /1\/3 个形态/);
+});
+
+test('提示词模板 page: one 保存 (the preset bar), no bottom action row; 全部恢复默认 lives in the preset row menu and resets the form after a confirm', async () => {
+    const html = readFileSync(pageUrl, 'utf8');
+    assert.equal((html.match(/id="nd_prompt_preset_save"/g) || []).length, 1);
+    for (const gone of ['nd_prompts_save', 'nd_prompts_reset_all', 'nd_prompts_status', '保存到当前预设']) {
+        assert.equal(html.includes(gone), false, `${gone} is gone`);
+    }
+    assert.ok(html.includes('id="nd_prompt_preset_status"'), 'the one status line stays under the preset list');
+
+    window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: {
+            source: 'LittleWhiteBox-NovelDraw', type: 'INIT_DATA', cacheStats: {},
+            defaultPrompts: { topSystem: '默认开场', sceneRules: '默认规则' },
+            settings: {
+                characterTags: [character], characterGroups: GROUPS,
+                selectedPromptPresetId: 'p1',
+                promptPresets: [
+                    { id: 'p1', name: '预设一', topSystem: '自定义开场', sceneRules: '自定义规则' },
+                    { id: 'p2', name: '预设二', topSystem: '另一个开场', sceneRules: '另一个规则' },
+                ],
+            },
+        },
+    }));
+    await flush();
+    const rows = Array.from(document.querySelectorAll('#nd_prompt_list .preset-row'));
+    assert.ok(rows.length >= 1);
+    const menuOf = row => Array.from(row.querySelectorAll('[role="menuitem"]')).map(item => item.dataset.presetAction);
+    assert.deepEqual(menuOf(rows[0]), ['rename', 'duplicate', 'export', 'reset-defaults', 'delete']);
+    assert.equal(rows[0].querySelector('[data-preset-action="reset-defaults"] .char-menu-label').textContent, '全部恢复默认');
+
+    // 取消确认：什么也不动
+    const asked = [];
+    globalThis.confirm = (message) => { asked.push(message); return false; };
+    document.getElementById('nd_prompt_system').value = '正在编辑的开场';
+    click(rows[0].querySelector('[data-preset-action="reset-defaults"]'));
+    assert.equal(asked.length, 1);
+    assert.match(asked[0], /全部提示词（含请求结构）恢复为默认值/);
+    assert.equal(document.getElementById('nd_prompt_system').value, '正在编辑的开场');
+
+    // 确认：表单回到默认（只改表单，不发保存）
+    globalThis.confirm = () => true;
+    const savesBefore = posted.filter(message => message.type === 'SAVE_PROMPT_PRESET').length;
+    click(rows[0].querySelector('[data-preset-action="reset-defaults"]'));
+    assert.equal(document.getElementById('nd_prompt_system').value, '默认开场');
+    assert.equal(document.getElementById('nd_prompt_format').value, '默认规则');
+    assert.equal(posted.filter(message => message.type === 'SAVE_PROMPT_PRESET').length, savesBefore, 'needs 保存 to persist');
+});
+
+test('the group switch says 已开启 / 已关闭 in text, flips aria-pressed and keeps the disabled group look', async () => {
+    window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: { source: 'LittleWhiteBox-NovelDraw', type: 'INIT_DATA', cacheStats: {}, settings: { characterTags: [character], characterGroups: GROUPS } },
+    }));
+    await flush();
+    const list = document.getElementById('nd_char_list');
+    const section = () => list.querySelector('.char-group[data-group-id="g1"]');
+    const toggle = () => section().querySelector('[data-group-action="toggle-enabled"]');
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    assert.ok(toggle().classList.contains('active'));
+    assert.equal(toggle().querySelector('.char-switch-text').textContent, '已开启');
+    assert.match(toggle().getAttribute('title'), /^已开启/);
+    assert.equal(section().classList.contains('group-disabled'), false);
+
+    click(toggle());
+    await flush();
+    assert.equal(toggle().getAttribute('aria-pressed'), 'false');
+    assert.equal(toggle().classList.contains('active'), false);
+    assert.equal(toggle().querySelector('.char-switch-text').textContent, '已关闭');
+    assert.match(toggle().getAttribute('title'), /^已关闭/);
+    assert.ok(toggle().querySelector('i').classList.contains('fa-toggle-off'));
+    assert.ok(section().classList.contains('group-disabled'), 'dashed / dimmed group look is still driven by group-disabled');
+
+    click(toggle());
+    await flush();
+    assert.equal(toggle().querySelector('.char-switch-text').textContent, '已开启');
 });

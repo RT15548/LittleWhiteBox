@@ -46,8 +46,10 @@ const CARD_CLASS = 'sd-char-card';
 const DRAG_START_THRESHOLD_PX = 3;
 const DOWNLOAD_REVOKE_DELAY_MS = 1000;
 // 分组开关的文案：开关是分组自己的状态，与组内各角色自己的启用开关互相独立（有效启用 = 分组开 且 角色开）。
-const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
-const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_TITLE_ON = '已开启。点击关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
+const GROUP_SWITCH_TITLE_OFF = '已关闭。点击开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_TEXT_ON = '已开启';
+const GROUP_SWITCH_TEXT_OFF = '已关闭';
 const GROUP_OFF_NOTE = '分组已关闭';
 const GROUP_OFF_NOTE_TITLE = '本分组已关闭，组内角色当前不参与出图；角色自己的开关保持不变';
 // 上锁只保护导入替换；角色锁与分组锁独立，显示文案与 NovelAI 共用。
@@ -401,7 +403,7 @@ export function createCharacterLibraryUi(options = {}) {
         }));
 
         const actions = create(document, 'div', { className: 'lwb-cl-group-actions' });
-        const addAction = (action, title, icon, extraClass = '') => {
+        const addAction = (action, title, icon, extraClass = '', labelText = '') => {
             actions.appendChild(create(document, 'button', {
                 className: `lwb-cl-icon-btn${extraClass}`,
                 attrs: {
@@ -410,11 +412,11 @@ export function createCharacterLibraryUi(options = {}) {
                     title,
                     'aria-label': `${title} ${group.name}`,
                 },
-            }, [iconNode(document, icon)]));
+            }, [iconNode(document, icon), ...(labelText ? [create(document, 'span', { className: 'lwb-cl-switch-text', text: labelText, attrs: { 'data-role': 'switch-text' } })] : [])]));
         };
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。文案与状态由 updateGroupHeader 填。
         if (!group.virtual) {
-            addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch');
+            addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch', GROUP_SWITCH_TEXT_ON);
         }
         addAction('add', '在本组添加角色', 'fa-solid fa-plus');
         if (!group.virtual) {
@@ -483,6 +485,8 @@ export function createCharacterLibraryUi(options = {}) {
             toggle.setAttribute('aria-pressed', String(enabled));
             toggle.classList.toggle('active', enabled);
             toggle.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? 'fa-toggle-on' : 'fa-toggle-off'}`);
+            const stateText = toggle.querySelector('[data-role="switch-text"]');
+            if (stateText) stateText.textContent = enabled ? GROUP_SWITCH_TEXT_ON : GROUP_SWITCH_TEXT_OFF;
         }
         const lockButton = section.querySelector('.lwb-cl-group-lock');
         if (lockButton) {

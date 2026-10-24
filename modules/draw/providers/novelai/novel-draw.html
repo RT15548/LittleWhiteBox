@@ -56,7 +56,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-group-body > .char-card { flex-shrink: 0; }
 .char-group-body[hidden] { display: none; }
 .char-group-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
-.char-group-switch:not(.active) { color: var(--text-muted); }
 /* 分组关闭：整组变淡、虚线边框；角色自己的启用开关仍可点，只是组内角色当前不参与出图。 */
 .char-group.group-disabled { border-style: dashed; }
 .char-group.group-disabled .char-group-name, .char-group.group-disabled .char-group-count { opacity: .6; }
@@ -85,9 +84,15 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     --ct-item: color-mix(in srgb, var(--text-primary) 2%, var(--bg-secondary));
     --ct-band: color-mix(in srgb, var(--text-primary) 8%, var(--bg-tertiary));
     --ct-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+    --ct-btn: color-mix(in srgb, var(--text-primary) 9%, var(--bg-tertiary));
+    --ct-btn-hover: color-mix(in srgb, var(--text-primary) 15%, var(--bg-tertiary));
+    --ct-btn-border: color-mix(in srgb, var(--text-primary) 28%, transparent);
 }
 @media (prefers-color-scheme: light) {
     #nd_char_list {
+        --ct-btn: var(--bg-secondary);
+        --ct-btn-hover: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
+        --ct-btn-border: color-mix(in srgb, var(--text-primary) 26%, transparent);
         --ct-group: color-mix(in srgb, var(--bg-tertiary) 60%, var(--bg-primary));
         --ct-group-head: color-mix(in srgb, var(--text-primary) 2%, var(--bg-tertiary));
         --ct-card: var(--bg-secondary);
@@ -116,8 +121,23 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 #nd_char_list .char-form .char-outfit-editor-item, #nd_char_list .char-form .char-dynstate-editor-item { background: var(--ct-item); }
 #nd_char_list .char-edit-section > .char-section-head { padding: 3px 8px; border-radius: 6px; background: var(--ct-band); }
 #nd_char_list .char-forms > .char-section-head { padding: 3px 8px; border-radius: 6px; background: var(--ct-band); }
+/* 灰底上的按钮：次要按钮和图标按钮用近白（深色主题里是比灰底亮一档）的底加看得见的描边，悬停稍灰一点；主要按钮（保存）保持实心深色。
+   页面上其它位置的按钮不受影响；开关型按钮（启用方块、分组开关）自己有开 / 关两态，不在这里改。 */
+#nd_char_list .btn:not(.btn-primary),
+#nd_char_list .char-group-header .char-action-button:not(.char-enabled-control):not(.char-group-switch),
+#nd_char_list .char-card.editing .char-action-button:not(.char-enabled-control):not(.char-group-switch) {
+    background: var(--ct-btn); border-color: var(--ct-btn-border);
+}
+#nd_char_list .char-group-header .char-action-button:not(.char-enabled-control):not(.char-group-switch),
+#nd_char_list .char-card.editing .char-action-button:not(.char-enabled-control):not(.char-group-switch) { color: var(--text-primary); }
+#nd_char_list .btn:not(.btn-primary):hover:not(:disabled),
+#nd_char_list .char-group-header .char-action-button:not(.char-enabled-control):not(.char-group-switch):hover,
+#nd_char_list .char-card.editing .char-action-button:not(.char-enabled-control):not(.char-group-switch):hover,
+#nd_char_list .char-group-header .char-menu-button[aria-expanded="true"],
+#nd_char_list .char-card.editing .char-menu-button[aria-expanded="true"] { background: var(--ct-btn-hover); border-color: var(--text-secondary); }
 /* 灰底上的小字用 --text-secondary（--text-muted 在这些底色上不到 AA）：分组计数、分区标题与数量、状态、折叠预览与说明文字。 */
 #nd_char_list .char-group-count,
+#nd_char_list .editor-item-state,
 #nd_char_list .char-status,
 #nd_char_list .named-tag-preview, #nd_char_list .char-form-preview,
 #nd_char_list .char-section-toggle, #nd_char_list .char-forms-title { color: var(--text-secondary); }
@@ -241,8 +261,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* 形态头部的类型徽标（外观同摘要栏的 .char-type-badge）：紧跟名称输入框，占住名称与 TAG 预览之间的空位；窄屏时名称先收缩。 */
 .char-form-type { flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
-/* 头部的删除图标按钮：平时与别的图标按钮一样是灰色，悬停才变危险色。 */
-.editor-item-delete:hover, .editor-item-delete:focus-visible { color: var(--danger); border-color: var(--danger); background: transparent; }
 /* 头部的“已停用”小标签：只在停用时出现，淡色小字不抢眼。 */
 .editor-item-state { display: none; flex-shrink: 0; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 .named-tag-item.is-disabled .editor-item-state, .char-form.is-disabled .editor-item-state { display: inline; }
@@ -1179,14 +1197,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 
 
 
-
-                <div class="action-status-row">
-                    <div class="btn-group" style="display:flex;gap:12px;flex-wrap:wrap;">
-                        <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
-                        <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
-                    </div>
-                    <div id="nd_prompts_status" class="status-text"></div>
-                </div>
 
                 <details class="card prompt-advanced-card">
                     <summary class="prompt-card-header">

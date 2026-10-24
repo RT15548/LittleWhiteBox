@@ -38,6 +38,15 @@
     stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
 }
 .char-action-button.active { color: var(--text-primary); background: var(--accent-soft); }
+/* 开关型图标按钮（角色启用的打勾方块、分组开关）：开 = 实心强调色底 + 浅色图标，关 = 描边 + 淡色图标，一眼分得出。
+   指示色与周围底色的对比都在 3:1 以上（强调色 / 弱化文字色对页面各层底色，深浅主题各自核对过）。 */
+.char-enabled-control, .char-group-switch { border-color: var(--text-muted); color: var(--text-muted); background: transparent; }
+.char-enabled-control:hover, .char-group-switch:hover { color: var(--text-primary); border-color: var(--text-secondary); background: var(--accent-soft); }
+.char-enabled-control.active, .char-group-switch.active { color: var(--bg-primary); border-color: var(--accent); background: var(--accent); }
+.char-enabled-control.active:hover, .char-group-switch.active:hover { color: var(--bg-primary); border-color: var(--text-primary); background: var(--text-primary); }
+.char-group-switch { width: auto; gap: 6px; padding: 0 10px; }
+.char-group-switch:not(.active) i { opacity: .7; }
+.char-switch-text { font-size: 11px; font-weight: 600; white-space: nowrap; }
 /* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
 .char-menu-wrap { display: inline-flex; flex-shrink: 0; }
 .char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }

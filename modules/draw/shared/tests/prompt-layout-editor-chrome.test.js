@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import { createPromptLayoutEditor } from '../prompt-layout-editor.js';
-import { BUILTIN_BLOCK_IDS, createDefaultLayout } from '../scene-planner-layout.js';
+import { BUILTIN_BLOCK_IDS, CUSTOM_BLOCK_ROLES, addBlock, createCustomBlock, createDefaultLayout } from '../scene-planner-layout.js';
 import { renderCharacterActionIcon } from '../character-action-icons.js';
 
 // Acceptance contracts (cost: a user who folded the panel finds it open again after every reload, a custom message mistaken for a fixed block, or 编辑 turning back into a text button):
@@ -210,4 +210,53 @@ test('rows with an inline editor get the shared pen icon button titled 编辑; �
     const open = ctx.row('opening').querySelector('[data-ple-field="edit"]');
     assert.equal(open.textContent, '收起');
     assert.equal(ctx.row('opening').querySelector('#editor-opening') !== null, true);
+});
+
+test('role pills: system / user / assistant are three distinct classes on built-in and custom rows, each with its own colour tokens and a text label', (t) => {
+    let layout = createDefaultLayout();
+    for (const role of CUSTOM_BLOCK_ROLES) {
+        layout = addBlock(layout, createCustomBlock({ role, name: `自定义-${role}` }, layout.blocks.map(block => block.id), () => (role.length * 0.07) % 1));
+    }
+    const ctx = setup(t, { layout });
+    const pills = ctx.rows().map(row => row.querySelector('[data-ple-role]'));
+    assert.equal(pills.length, BUILTIN_BLOCK_IDS.length + 3);
+    for (const pill of pills) {
+        const role = pill.textContent;
+        assert.ok(CUSTOM_BLOCK_ROLES.includes(role), 'the text label stays');
+        assert.deepEqual(pill.getAttribute('class').split(' '), ['lwb-ple-role', role], 'one shared pill class plus the role class');
+    }
+    assert.deepEqual(pills.slice(BUILTIN_BLOCK_IDS.length).map(pill => pill.textContent), CUSTOM_BLOCK_ROLES);
+    assert.equal(new Set(pills.map(pill => pill.getAttribute('class'))).size, 3, 'built-in rows reuse the same three classes');
+
+    const css = readFileSync(new URL('../prompt-layout-editor.css', import.meta.url), 'utf8');
+    for (const role of CUSTOM_BLOCK_ROLES) {
+        const rule = css.match(new RegExp(`\\.lwb-ple-role\\.${role}\\s*\\{([^}]*)\\}`));
+        assert.ok(rule, `${role} rule`);
+        for (const part of ['bg', 'fg', 'line']) assert.ok(rule[1].includes(`var(--role-${role}-${part})`), `${role} uses its own ${part} token`);
+    }
+    const lightStart = css.indexOf('@media (prefers-color-scheme: light) {\n    .lwb-ple {\n        --role-system-bg');
+    const darkStart = css.indexOf('.lwb-ple {\n    --role-system-bg');
+    assert.ok(lightStart > darkStart && darkStart > 0, 'dark defaults first, light override after');
+    const dark = css.slice(darkStart, lightStart);
+    const light = css.slice(lightStart, css.indexOf('}\n.lwb-ple-role.system'));
+    const token = (scope, role, part) => scope.match(new RegExp(`--role-${role}-${part}:\\s*([^;]+);`))?.[1].trim();
+    const foregrounds = new Set();
+    for (const role of CUSTOM_BLOCK_ROLES) {
+        for (const scope of [dark, light]) for (const part of ['bg', 'fg', 'line']) assert.ok(token(scope, role, part), `${role} ${part} defined in both themes`);
+        foregrounds.add(token(dark, role, 'fg')).add(token(light, role, 'fg'));
+    }
+    assert.equal(foregrounds.size, 6, 'three hues in two themes, no shared colour');
+
+    // 文字对比度 >= 4.5:1：浅色是不透明浅底 + 深字；深色是带色调的半透明底叠在页面底色上 + 亮字。
+    const hex = value => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16));
+    const luminance = rgb => rgb.map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; })
+        .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+    const ratio = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+    const pageDark = hex('#171922');
+    for (const role of CUSTOM_BLOCK_ROLES) {
+        assert.ok(ratio(hex(token(light, role, 'fg')), hex(token(light, role, 'bg'))) >= 4.5, `${role} light`);
+        const [r, g, b, a] = token(dark, role, 'bg').match(/[\d.]+/g).map(Number);
+        const blended = [r, g, b].map((v, i) => v * a + pageDark[i] * (1 - a));
+        assert.ok(ratio(hex(token(dark, role, 'fg')), blended) >= 4.5, `${role} dark`);
+    }
 });
