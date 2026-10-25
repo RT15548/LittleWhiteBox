@@ -1,20 +1,5 @@
 /* Single palette for drawing settings, controls and chat images. */
 :root {
-    color-scheme: dark;
-    --draw-light-bg-primary: #fcfaf6;
-    --draw-light-bg-secondary: #fffdf9;
-    --draw-light-bg-tertiary: #f0eee8;
-    --draw-light-bg-input: #fffdf9;
-    --draw-light-text-primary: #292723;
-    --draw-light-text-secondary: #625f59;
-    --draw-light-text-muted: #79756d;
-    --draw-light-border: rgba(87,70,48,.16);
-    --draw-light-border-focus: #3d7c83;
-    --draw-light-accent: #3a3329;
-    --draw-light-accent-soft: rgba(87,70,48,.06);
-    --draw-light-success: #32766d;
-    --draw-light-danger: #b64d5d;
-    --draw-light-warning: #86672d;
     --draw-bg-primary: #171922;
     --draw-bg-secondary: #1c1f2a;
     --draw-bg-tertiary: #242834;
@@ -31,38 +16,20 @@
     --draw-warning: #c4ad84;
 }
 @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-        color-scheme: light;
-        --draw-bg-primary: var(--draw-light-bg-primary);
-        --draw-bg-secondary: var(--draw-light-bg-secondary);
-        --draw-bg-tertiary: var(--draw-light-bg-tertiary);
-        --draw-bg-input: var(--draw-light-bg-input);
-        --draw-text-primary: var(--draw-light-text-primary);
-        --draw-text-secondary: var(--draw-light-text-secondary);
-        --draw-text-muted: var(--draw-light-text-muted);
-        --draw-border: var(--draw-light-border);
-        --draw-border-focus: var(--draw-light-border-focus);
-        --draw-accent: var(--draw-light-accent);
-        --draw-accent-soft: var(--draw-light-accent-soft);
-        --draw-success: var(--draw-light-success);
-        --draw-danger: var(--draw-light-danger);
-        --draw-warning: var(--draw-light-warning);
+    :root {
+        --draw-bg-primary: #fcfaf6;
+        --draw-bg-secondary: #fffdf9;
+        --draw-bg-tertiary: #f0eee8;
+        --draw-bg-input: #fffdf9;
+        --draw-text-primary: #292723;
+        --draw-text-secondary: #625f59;
+        --draw-text-muted: #79756d;
+        --draw-border: rgba(87,70,48,.16);
+        --draw-border-focus: #3d7c83;
+        --draw-accent: #3a3329;
+        --draw-accent-soft: rgba(87,70,48,.06);
+        --draw-success: #32766d;
+        --draw-danger: #b64d5d;
+        --draw-warning: #86672d;
     }
-}
-:root[data-theme="light"] {
-    color-scheme: light;
-    --draw-bg-primary: var(--draw-light-bg-primary);
-    --draw-bg-secondary: var(--draw-light-bg-secondary);
-    --draw-bg-tertiary: var(--draw-light-bg-tertiary);
-    --draw-bg-input: var(--draw-light-bg-input);
-    --draw-text-primary: var(--draw-light-text-primary);
-    --draw-text-secondary: var(--draw-light-text-secondary);
-    --draw-text-muted: var(--draw-light-text-muted);
-    --draw-border: var(--draw-light-border);
-    --draw-border-focus: var(--draw-light-border-focus);
-    --draw-accent: var(--draw-light-accent);
-    --draw-accent-soft: var(--draw-light-accent-soft);
-    --draw-success: var(--draw-light-success);
-    --draw-danger: var(--draw-light-danger);
-    --draw-warning: var(--draw-light-warning);
 }

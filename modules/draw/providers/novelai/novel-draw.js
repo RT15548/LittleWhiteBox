@@ -3097,7 +3097,7 @@ function createOverlay() {
 
     const backdrop = document.createElement('div');
     backdrop.className = 'nd-backdrop';
-    backdrop.addEventListener('click', hideOverlay);
+    backdrop.addEventListener('click', requestOverlayClose);
 
     const frameWrap = document.createElement('div');
     frameWrap.className = 'nd-frame-wrap';
@@ -3148,6 +3148,15 @@ function hideOverlay() {
 
     window.removeEventListener('message', handleFrameMessageEvent);
     unsubscribeGroupPresetRefresh();
+}
+
+function requestOverlayClose() {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe?.contentWindow || !frameReady) {
+        hideOverlay();
+        return;
+    }
+    postToIframe(iframe, { type: 'REQUEST_CLOSE' }, 'LittleWhiteBox-NovelDraw');
 }
 
 async function sendInitData() {
@@ -3831,7 +3840,7 @@ async function handleFrameMessage(event) {
             // 带 requestId 的是编辑区的自动保存：只回一条带 requestId 的回执（页面据此串行保存、更新状态栏），不占用全局状态栏。
             if (data.requestId) postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'char-tags', { requestId: data.requestId });
             // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。
-            if (!ok) await sendInitData();
+            if (!ok && !data.requestId) await sendInitData();
             break;
         }
 

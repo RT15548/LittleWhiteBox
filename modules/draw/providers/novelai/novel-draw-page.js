@@ -1433,7 +1433,6 @@ function setupCharacterDragAndSelection() {
 // 点角色行展开 / 收起编辑区（同一时刻只开一张）；没有手动保存 / 取消：改动停下来等一小会儿后自动落盘，失焦 / 收起 / 切换 / 关页时立刻落盘。
 // 保存只改角色对象并发给宿主，不重绘、不碰表单节点，输入中的焦点和光标不受影响；保存一个接一个（见 auto-save.js）。
 const CHAR_SAVE_ACK_TIMEOUT_MS = 10000;
-let charSaveSeq = 0;
 let charSavePending = null; // { requestId, resolve, timer }：已发给宿主、等回执的那次保存
 let charEditorBusy = false; // 正在保存后切换，忽略重复点击
 let charTouchQueued = false;
@@ -1445,7 +1444,7 @@ function editingCardOf(id) {
 // 发出保存并等宿主回执（STATUS，target: 'char-tags'）；失败或超时返回 false。
 function saveCharacterLibraryAcked() {
     return new Promise((resolve) => {
-        const requestId = `char-save-${++charSaveSeq}`;
+        const requestId = crypto.randomUUID();
         const timer = setTimeout(() => {
             if (charSavePending?.requestId !== requestId) return;
             charSavePending = null;
@@ -1552,6 +1551,17 @@ async function leaveCharacterEditor() {
     editingCharId = null;
     editingDraft = null;
     return true;
+}
+
+let panelClosing = false;
+async function requestPanelClose() {
+    if (panelClosing) return;
+    panelClosing = true;
+    try {
+        if (await leaveCharacterEditor()) postToParent({ type: 'CLOSE' });
+    } finally {
+        panelClosing = false;
+    }
 }
 
 // 展开某张角色卡的编辑区（先收起并保存别的）；fresh：刚新建的草稿。
@@ -4205,6 +4215,10 @@ window.addEventListener('message', event => {
             }
             if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
             break;
+
+        case 'REQUEST_CLOSE':
+            runEditorTask(requestPanelClose());
+            break;
             
         case 'GALLERY_IMAGE_DELETED':
             applyGalleryImageDeleted(data.imgId);
@@ -4331,7 +4345,7 @@ function initializePage() {
     // ═══════════════════════════════════════════════════════════════════════
     // 关闭按钮
     // ═══════════════════════════════════════════════════════════════════════
-    $('nd_close').addEventListener('click', () => postToParent({ type: 'CLOSE' }));
+    $('nd_close').addEventListener('click', () => runEditorTask(requestPanelClose()));
     
     // ═══════════════════════════════════════════════════════════════════════
     // API 配置
