@@ -1658,7 +1658,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 215526
+      "sizeBytes": 215682
     },
     {
       "source": "littlewhitebox",
@@ -1742,7 +1742,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 252288
+      "sizeBytes": 253011
     },
     {
       "source": "littlewhitebox",
@@ -1819,7 +1819,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "extension": ".js",
-      "sizeBytes": 34704
+      "sizeBytes": 41185
     },
     {
       "source": "littlewhitebox",
@@ -1917,7 +1917,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 175188
+      "sizeBytes": 175344
     },
     {
       "source": "littlewhitebox",
@@ -2624,7 +2624,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/panel-escape.js",
       "relativePath": "modules/draw/shared/panel-escape.js",
       "extension": ".js",
-      "sizeBytes": 11569
+      "sizeBytes": 13987
     },
     {
       "source": "littlewhitebox",
@@ -2932,7 +2932,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/settings-page.js",
       "relativePath": "modules/draw/shared/settings-page.js",
       "extension": ".js",
-      "sizeBytes": 1415
+      "sizeBytes": 1460
     },
     {
       "source": "littlewhitebox",
@@ -3331,7 +3331,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/panel-escape.test.js",
       "relativePath": "modules/draw/shared/tests/panel-escape.test.js",
       "extension": ".js",
-      "sizeBytes": 19301
+      "sizeBytes": 25512
     },
     {
       "source": "littlewhitebox",
