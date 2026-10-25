@@ -8,6 +8,7 @@ import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
+import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
 import { DRAW_BACKEND_COPY, createDrawBackendStatusCopy } from '../../shared/draw-backend-copy.js';
@@ -39,15 +40,6 @@ import {
     preloadPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
-import * as galleryCacheModule from "../../shared/gallery-cache.js";
-// 注入 JPEG 策略：生成入庫時按共享設置決定是否轉 JPEG。
-// 用 namespace + 存在性守衛，兼容測試環境對 gallery-cache 的精簡 mock。
-if (typeof galleryCacheModule.setJpegPolicyProvider === 'function') {
-    galleryCacheModule.setJpegPolicyProvider(() => {
-        const s = getSharedDrawSettings();
-        return { saveAsJpeg: s.saveAsJpeg === true, jpegQuality: s.jpegQuality };
-    });
-}
 import { ScenePlannerError, generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { classifyScenePlannerErrorForUi } from "../../shared/scene-planner-error-ui.js";
 import {
@@ -411,6 +403,7 @@ const DEFAULT_SETTINGS = {
 let autoBusy = false;
 let overlayCreated = false;
 let frameReady = false;
+let galleryExportAbort = null;
 let jsZipLoaded = false;
 let messagePackDecoderPromise = null;
 let moduleInitialized = false;
@@ -3140,6 +3133,8 @@ function showOverlay() {
 }
 
 function hideOverlay() {
+    galleryExportAbort?.abort();
+    galleryExportAbort = null;
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
     hostEscapeDispose?.();
@@ -3499,94 +3494,37 @@ async function handleFrameMessage(event) {
         }
 
         case 'BATCH_DELETE': {
-            const { deletePreview } = await import('../../shared/gallery-cache.js');
-            const ids = Array.isArray(data.ids) ? data.ids : [];
-            try {
-                for (const id of ids) await deletePreview(id);
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, { type: 'BATCH_DELETED', ok: true, count: ids.length }, 'LittleWhiteBox-NovelDraw');
-            } catch (e) {
-                console.error('[NovelDraw] batch delete failed:', e);
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, { type: 'BATCH_DELETED', ok: false, message: e?.message || String(e) }, 'LittleWhiteBox-NovelDraw');
+            const result = await deleteGalleryImages(data.ids, deletePreview);
+            if (iframe.isConnected) {
+                postToIframe(iframe, { type: 'BATCH_DELETED', requestId: data.requestId, ...result }, 'LittleWhiteBox-NovelDraw');
+                const overview = await getGalleryOverview();
+                if (iframe.isConnected) postToIframe(iframe, { type: 'CACHE_DATA', cacheStats: overview.stats, gallerySummary: overview.summary }, 'LittleWhiteBox-NovelDraw');
             }
             break;
         }
 
         case 'BATCH_DOWNLOAD': {
-            // iOS WebView 會吞掉連續的多張 <a download>，改打包成單一 ZIP 導出，一次彈窗全部保存。
-            const { getPreview, getBase64ImagePayload } = await import('../../shared/gallery-cache.js');
-            const { zipSync } = await import('../../../../libs/fflate.mjs');
-            const ids = Array.isArray(data.ids) ? data.ids : [];
+            galleryExportAbort?.abort();
+            const controller = new AbortController();
+            galleryExportAbort = controller;
             try {
-                const files = {};
-                let saved = 0, failed = 0;
-                const usedNames = new Set();
-                for (const id of ids) {
-                    const p = await getPreview(id);
-                    if (!p?.base64) { failed++; continue; }
-                    const payload = getBase64ImagePayload(p.base64);
-                    if (!payload.base64) { failed++; continue; }
-                    const ts = new Date(p.timestamp || Date.now()).toISOString().replace(/[:.]/g, '-');
-                    let name = `${p.characterName || 'image'}-${p.imgId}-${ts}.${payload.format}`;
-                    // 同名衝突防覆蓋（imgId 相同但多選的罕見情況）
-                    let seq = 2;
-                    while (usedNames.has(name)) name = `${p.characterName || 'image'}-${p.imgId}-${ts}-${seq++}.${payload.format}`;
-                    usedNames.add(name);
-                    const binary = atob(payload.base64);
-                    const bytes = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                    // PNG/JPEG 本身已壓縮，ZIP 用 store 模式（level 0）省 CPU 和內存
-                    files[name] = [bytes, { level: 0 }];
-                    saved++;
+                const result = await exportGalleryZipPart(data.ids, { readPreview: getPreview, signal: controller.signal });
+                if (iframe.isConnected && !controller.signal.aborted) {
+                    postToIframe(iframe, { type: 'BATCH_DOWNLOADED', requestId: data.requestId, ...result }, 'LittleWhiteBox-NovelDraw');
                 }
-                if (!saved) throw new Error('沒有可導出的圖片');
-                const zipped = zipSync(files, { level: 0 });
-                const blob = new Blob([zipped], { type: 'application/zip' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `gallery-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.zip`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 10000);
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, { type: 'BATCH_DOWNLOADED', ok: true, saved, failed }, 'LittleWhiteBox-NovelDraw');
-            } catch (e) {
-                console.error('[NovelDraw] batch download failed:', e);
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, { type: 'BATCH_DOWNLOADED', ok: false, message: e?.message || String(e) }, 'LittleWhiteBox-NovelDraw');
+            } catch (error) {
+                if (!controller.signal.aborted && iframe.isConnected) {
+                    postToIframe(iframe, { type: 'BATCH_DOWNLOADED', requestId: data.requestId, error: error.message }, 'LittleWhiteBox-NovelDraw');
+                }
+            } finally {
+                if (galleryExportAbort === controller) galleryExportAbort = null;
             }
             break;
         }
 
-        case 'CONVERT_LEGACY_JPEG': {
-            const { convertLegacyPreviewsToJpeg } = await import('../../shared/gallery-cache.js');
-            const settings = getSharedDrawSettings();
-            try {
-                const stats = await convertLegacyPreviewsToJpeg({
-                    quality: settings.jpegQuality,
-                    onProgress: (done, total) => {
-                        if (total > 10 && (done % 10 === 0 || done === total)) {
-                            postStatus('info', `舊圖轉換中… ${done}/${total}`, 'gallery');
-                        }
-                    },
-                });
-                const savedMB = (stats.savedBytes / 1024 / 1024).toFixed(1);
-                postStatus('success',
-                    `已轉換 ${stats.converted} 張，節省 ${savedMB} MB${stats.failed ? `，失敗 ${stats.failed} 張` : ''}`,
-                    'gallery');
-                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
-            } catch (e) {
-                console.error('[NovelDraw] legacy JPEG conversion failed:', e);
-                postStatus('error', `轉換失敗：${e?.message || e}`, 'gallery');
-            } finally {
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, { type: 'CONVERT_LEGACY_DONE' }, 'LittleWhiteBox-NovelDraw');
-            }
+        case 'BATCH_CANCEL_EXPORT':
+            galleryExportAbort?.abort();
             break;
-        }
 
         case 'TEST_API': {
             try {

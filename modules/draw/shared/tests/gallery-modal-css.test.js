@@ -13,6 +13,7 @@ const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const html = read('../../providers/novelai/novel-draw.html');
 const page = read('../../providers/novelai/novel-draw-page.js');
 const shell = read('../settings-shell.css');
+const theme = read('../draw-theme.css');
 
 const parseColor = text => {
     const short = text.trim().match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
@@ -118,9 +119,12 @@ test('gallery cards: the hover layer stays inside the picture, the saved badge e
     const surface = over(parseColor(prop(overlayButton, 'background')), WHITE);
     assert.ok(ratio(parseColor(prop(overlayButton, 'color')), surface) >= 4.5);
 
-    const themes = { dark: shell.match(/:root\s*\{([^}]*)\}/)[1], light: shell.match(/:root\[data-theme="light"\]\s*\{([^}]*)\}/)[1] };
+    const defaults = theme.match(/:root\s*\{([^}]*)\}/)[1];
+    const aliases = shell.match(/:root\s*\{([^}]*)\}/)[1];
+    const themes = { dark: defaults, light: theme.match(/:root\[data-theme="light"\]\s*\{([^}]*)\}/)[1] };
     for (const [name, body] of Object.entries(themes)) {
-        const token = key => parseColor(prop(body, `--${key}`));
+        const resolve = value => value.replace(/var\((--[a-z-]+)\)/g, (_, key) => resolve(prop(body, key) || prop(defaults, key)));
+        const token = key => parseColor(resolve(prop(aliases, `--${key}`)));
         for (const [label, fg, bg] of [
             ['日期', 'text-secondary', 'bg-tertiary'], ['版数徽标', 'accent', 'bg-tertiary'], ['已保存徽标', 'success', 'bg-secondary'],
         ]) assert.ok(ratio(token(fg), token(bg)) >= 4.5, `${name} ${label}: ${ratio(token(fg), token(bg)).toFixed(2)}`);

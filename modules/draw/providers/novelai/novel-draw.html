@@ -466,10 +466,10 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .gallery-modal-thumb-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
 .gallery-modal-thumb-wrap > .batch-cb {
     position: absolute; top: 4px; left: 4px; z-index: 2;
-    width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent);
+    width: 16px; height: 16px; cursor: pointer; accent-color: var(--gm-primary);
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
 }
-.gallery-modal-thumb-wrap.batch-checked .gallery-modal-thumb { border-color: var(--accent); opacity: 1; }
+.gallery-modal-thumb-wrap.batch-checked .gallery-modal-thumb { border-color: var(--gm-primary); opacity: 1; }
 @media (max-width: 768px) {
     .char-group-body { max-height: none; overflow-y: visible; }
     /* 角色库窄屏：容器允许收缩，角色摘要行换成两行（名字+类型徽标 / 摘要文字+操作按钮），分组头按钮换行，避免页面内横向滚动 */
@@ -1200,24 +1200,24 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         <div style="display:flex;align-items:center;gap:6px;align-self:stretch;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
                             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);">
                                 <input id="nd_save_as_jpeg" type="checkbox">
-                                生成後存 JPEG（省空間）
+                                <span data-gallery-jpeg-label></span>
                             </label>
                         </div>
-                        <button id="nd_convert_legacy_jpeg" class="btn btn-sm" title="把缓存里仍是 PNG 的旧图批量转成 JPEG 以节省空间"><i class="fa-solid fa-images"></i> 舊圖轉JPEG</button>
-                        <button id="nd_batch" class="btn btn-sm"><i class="fa-solid fa-list-check"></i> 批量</button>
+                        <button id="nd_batch" class="btn btn-sm"><i class="fa-solid fa-check"></i> 批量</button>
                         <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
                         <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
                         <button id="nd_refresh_stats" class="btn btn-sm btn-icon"><i class="fa-solid fa-arrows-rotate"></i></button>
                         </div>
                     </div>
                     <!-- 批量模式操作欄（點「批量」後展開在這一行下方） -->
-                    <div id="nd_batch_bar" style="display:none;margin-top:12px;padding:8px 12px;border-radius:8px;background:rgba(20,20,25,0.6);border:1px solid var(--border);gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+                    <div id="nd_zip_output" class="btn-group" hidden></div>
+                    <div id="nd_batch_bar" style="display:none;margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--bg-secondary);border:1px solid var(--border);gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
                         <span id="nd_batch_count" style="font-size:13px;color:var(--text-secondary);"></span>
                         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                            <button class="btn btn-sm" id="nd_batch_select_all">全選</button>
-                            <button class="btn btn-sm" id="nd_batch_select_none">取消</button>
-                            <button class="btn btn-sm btn-primary" id="nd_batch_download"><i class="fa-solid fa-download"></i> 下載</button>
-                            <button class="btn btn-sm btn-danger" id="nd_batch_delete"><i class="fa-solid fa-trash"></i> 刪除</button>
+                            <button class="btn btn-sm" id="nd_batch_select_all">选中已加载</button>
+                            <button class="btn btn-sm" id="nd_batch_select_none">取消选择</button>
+                            <button class="btn btn-sm btn-primary" id="nd_batch_download"><i class="fa-solid fa-download"></i> 导出 ZIP</button>
+                            <button class="btn btn-sm btn-danger" id="nd_batch_delete"><i class="fa-solid fa-trash"></i> 删除记录</button>
                             <button class="btn btn-sm" id="nd_batch_done">完成</button>
                         </div>
                     </div>

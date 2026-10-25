@@ -9,6 +9,8 @@ import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
 import { createQuickTestView } from './quick-test-view.js';
+import { GALLERY_BATCH_COPY } from '../../shared/gallery-batch.js';
+import { createGalleryZipDownload } from '../../shared/gallery-zip-download.js';
 import { countEnabledNamedTags, normalizeNamedTagList } from '../../shared/named-tag-items.js';
 import { formatFormTypeSummary, getCharacterForms, getEnabledCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
 import { createGroupHeightController } from '../../shared/character-group-height.js';
@@ -1446,7 +1448,7 @@ function editingCardOf(id) {
 // 发出保存并等宿主回执（STATUS，target: 'char-tags'）；失败或超时返回 false。
 function saveCharacterLibraryAcked() {
     return new Promise((resolve) => {
-        const requestId = crypto.randomUUID();
+        const requestId = `char-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timer = setTimeout(() => {
             if (charSavePending?.requestId !== requestId) return;
             charSavePending = null;
@@ -2558,6 +2560,9 @@ function pruneGalleryObjectUrls() {
 // ═══════════════════════════════════════════════════════════════════════════
 let batchMode = false;
 const batchSelectedIds = new Set();
+let batchDeleteRequestId = null;
+const galleryZipDownload = createGalleryZipDownload({ document, container: $('nd_zip_output'), send: postToParent,
+    status: (kind, text) => updateStatus($('nd_gallery_status'), kind, text) });
 
 function toggleBatchMode() {
     batchMode = !batchMode;
@@ -2572,6 +2577,7 @@ function toggleBatchMode() {
         btn.classList.remove('btn-primary');
         btn.querySelector('i').className = 'fa-solid fa-list-check';
         batchSelectedIds.clear();
+        galleryZipDownload.dispose();
     }
     updateBatchCount();
     renderGalleryView();
@@ -2580,7 +2586,7 @@ function toggleBatchMode() {
 
 function slotLatestImgId(card) {
     const entry = loadedCharPreviews[card.dataset.char];
-    const images = entry?.slots[card.dataset.slot];
+    const images = entry?.slots?.[card.dataset.slot]?.images;
     return images?.[0]?.imgId || null;
 }
 
@@ -2589,9 +2595,7 @@ function toggleSlotSelection(card) {
     if (!imgId) return;
     if (batchSelectedIds.has(imgId)) batchSelectedIds.delete(imgId);
     else batchSelectedIds.add(imgId);
-    card.classList.toggle('batch-checked', batchSelectedIds.has(imgId));
-    const cb = card.querySelector(':scope > .batch-cb');
-    if (cb) cb.checked = batchSelectedIds.has(imgId);
+    syncBatchSelection();
     updateBatchCount();
 }
 
@@ -2600,7 +2604,7 @@ function updateBatchCount() {
     const el = $('nd_batch_count');
     if (!el) return;
     el.textContent = batchMode
-        ? (count ? `已選 ${count} 張` : '點選圖片開始挑選（可進入角色彈窗選歷史圖）')
+        ? GALLERY_BATCH_COPY.selected(count)
         : '';
 }
 
@@ -2618,6 +2622,11 @@ function setBatchCheckedAll(checked) {
             batchSelectedIds.add(thumb.dataset.imgid);
         });
     }
+    syncBatchSelection();
+    updateBatchCount();
+}
+
+function syncBatchSelection() {
     document.querySelectorAll('.gallery-slot').forEach(slot => {
         const imgId = slotLatestImgId(slot);
         const selected = !!imgId && batchSelectedIds.has(imgId);
@@ -2628,20 +2637,23 @@ function setBatchCheckedAll(checked) {
     document.querySelectorAll('#nd_modal_thumbs [data-imgid]').forEach(thumb => {
         const selected = batchSelectedIds.has(thumb.dataset.imgid);
         thumb.classList.toggle('batch-checked', selected);
+        const cb = thumb.querySelector('.batch-cb');
+        if (cb) cb.checked = selected;
     });
     updateBatchCount();
 }
 
 function batchDeleteSelected() {
-    if (!batchSelectedIds.size) return;
-    if (!confirm(`確定刪除 ${batchSelectedIds.size} 張圖片？此操作不可恢復。`)) return;
-    postToParent({ type: 'BATCH_DELETE', ids: [...batchSelectedIds] });
+    if (!batchSelectedIds.size || batchDeleteRequestId) return;
+    if (!confirm(GALLERY_BATCH_COPY.deleteConfirm(batchSelectedIds.size))) return;
+    batchDeleteRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    $('nd_batch_delete').disabled = true;
+    postToParent({ type: 'BATCH_DELETE', ids: [...batchSelectedIds], requestId: batchDeleteRequestId });
 }
 
 function batchDownloadSelected() {
     if (!batchSelectedIds.size) return;
-    updateStatus($('nd_gallery_status'), 'loading', '打包 ZIP 中…');
-    postToParent({ type: 'BATCH_DOWNLOAD', ids: [...batchSelectedIds] });
+    galleryZipDownload.start([...batchSelectedIds]);
 }
 
 function slotBadgesHtml(info) {
@@ -2651,7 +2663,7 @@ function slotBadgesHtml(info) {
 function slotCardHtml(charName, slotId, info) {
     const latest = info.images[0];
     const checkboxHtml = batchMode
-        ? `<input type="checkbox" class="batch-cb" ${latest?.imgId && batchSelectedIds.has(latest.imgId) ? 'checked' : ''}>`
+        ? `<input type="checkbox" class="batch-cb" aria-label="选择最新版本" ${latest?.imgId && batchSelectedIds.has(latest.imgId) ? 'checked' : ''}>`
         : '';
     const checkedCls = batchMode && latest?.imgId && batchSelectedIds.has(latest.imgId) ? ' batch-checked' : '';
     return `
@@ -2677,7 +2689,7 @@ function slotCardHtml(charName, slotId, info) {
 function bindSlotCard(card) {
     const open = () => openGalleryModalFromCache(card.dataset.char, card.dataset.slot);
     card.querySelectorAll('[data-action="view"]').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); if (batchMode) return; open(); });
+        btn.addEventListener('click', e => { e.stopPropagation(); open(); });
     });
     card.addEventListener('click', e => {
         if (e.target.closest('.batch-cb')) { e.stopPropagation(); toggleSlotSelection(card); return; }
@@ -3098,7 +3110,7 @@ function renderModalThumbs() {
     const { images, currentIndex } = modalData;
     if (!images.length) return;
     const total = Math.max(images.length, loadedCharPreviews[modalData.charName]?.slots[modalData.slotId]?.count || 0);
-    $('nd_modal_thumbs').hidden = images.length < 2; // 只有一个版本时不需要缩略图条
+    $('nd_modal_thumbs').hidden = images.length < 2 && !batchMode;
     $('nd_modal_thumbs').innerHTML = DOMPurify.sanitize(images.map((img, i) => {
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
@@ -3122,11 +3134,7 @@ function toggleModalThumbSelection(wrap) {
     if (!imgId) return;
     if (batchSelectedIds.has(imgId)) batchSelectedIds.delete(imgId);
     else batchSelectedIds.add(imgId);
-    wrap.classList.toggle('batch-checked', batchSelectedIds.has(imgId));
-    const cb = wrap.querySelector('.batch-cb');
-    if (cb) cb.checked = batchSelectedIds.has(imgId);
-    const inner = wrap.querySelector('img.gallery-modal-thumb');
-    if (inner) inner.classList.toggle('batch-checked', batchSelectedIds.has(imgId));
+    syncBatchSelection();
     updateBatchCount();
 }
 
@@ -3214,7 +3222,8 @@ function renderModalContent() {
 
 // 删除一张图后的本地处理：移除对应的图组 / 版本，并让随后到的 CACHE_DATA（张数少一）不被当成“数据变了”而整体重载。
 function applyGalleryImageDeleted(imgId) {
-    const charName = modalData.charName;
+    const charName = Object.keys(loadedCharPreviews).find(name =>
+        Object.values(loadedCharPreviews[name].slots).some(info => info.images.some(img => img.imgId === imgId)));
     const entry = charName ? loadedCharPreviews[charName] : null;
     if (!entry) return;
     const slotId = entry.order.find(id => entry.slots[id].images.some(img => img.imgId === imgId));
@@ -4269,35 +4278,34 @@ window.addEventListener('message', event => {
             break;
 
         case 'BATCH_DELETED': {
-            if (data.ok) {
-                if (batchMode) {
-                    batchSelectedIds.clear();
-                    updateBatchCount();
-                    // 不退出批量模式：就地刷新列表，勾选从零开始
-                    $('nd_batch_count').textContent = `已刪除 ${data.count} 張，可繼續勾選`;
+            if (data.requestId !== batchDeleteRequestId) break;
+            batchDeleteRequestId = null;
+            $('nd_batch_delete').disabled = false;
+            const ids = data.deletedIds || [];
+            for (const id of ids) {
+                applyGalleryImageDeleted(id);
+                batchSelectedIds.delete(id);
+            }
+            if (modalData.slotId) {
+                modalData.images = modalData.images.filter(img => !ids.includes(img.imgId));
+                if (!modalData.images.length) closeGalleryModal();
+                else {
+                    modalData.currentIndex = Math.min(modalData.currentIndex, modalData.images.length - 1);
+                    renderModalThumbs();
+                    renderModalContent();
                 }
-                // 宿主刪除後會推送新統計/數據；摘要未及時到時先按現狀重繪
-                renderGalleryView();
-            } else {
-                alert(`批量刪除失敗：${data.message || '未知錯誤'}`);
             }
+            updateBatchCount();
+            syncBatchSelection();
+            pruneGalleryObjectUrls();
+            updateStatus($('nd_gallery_status'), data.failures?.length ? 'error' : 'success',
+                GALLERY_BATCH_COPY.deleted(ids.length, data.failures?.length || 0));
             break;
         }
 
-        case 'BATCH_DOWNLOADED': {
-            if (data.ok) {
-                updateStatus($('nd_gallery_status'), 'success', `已導出 ZIP（${data.saved} 張${data.failed ? `，失敗 ${data.failed} 張` : ''}）`);
-            } else {
-                updateStatus($('nd_gallery_status'), 'error', `導出失敗：${data.message || '未知錯誤'}`);
-            }
+        case 'BATCH_DOWNLOADED':
+            galleryZipDownload.handle(data);
             break;
-        }
-
-        case 'CONVERT_LEGACY_DONE': {
-            const btn = $('nd_convert_legacy_jpeg');
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-images"></i> 舊圖轉JPEG'; }
-            break;
-        }
 
         case 'CHARACTER_PREVIEWS_LOADED':
             handleCharacterPreviewsLoaded(data);
@@ -4444,7 +4452,9 @@ window.addEventListener('message', event => {
     }
 });
 
-window.addEventListener('pagehide', event => { if (!event.persisted) quickTestView?.dispose(); });
+window.addEventListener('pagehide', event => {
+    if (!event.persisted) { quickTestView?.dispose(); galleryZipDownload.dispose(); }
+});
 window.addEventListener('beforeunload', () => {
     cardMenu?.destroy();
     cardMenu = null;
@@ -4761,14 +4771,6 @@ function initializePage() {
         postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked, jpegQuality: 0.8 });
     });
 
-    // 舊圖批量轉 JPEG（只影響仍是 PNG 的缓存記錄；已保存到服務器的文件不動）
-    $('nd_convert_legacy_jpeg')?.addEventListener('click', () => {
-        if (!confirm('把緩存裡仍是 PNG 的舊圖批量轉成 JPEG？此操作不可撤銷（畫質略有損失，透明背景會鋪白底）。')) return;
-        const btn = $('nd_convert_legacy_jpeg');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 轉換中…';
-        postToParent({ type: 'CONVERT_LEGACY_JPEG' });
-    });
 
     // 批量管理
     $('nd_batch').addEventListener('click', toggleBatchMode);

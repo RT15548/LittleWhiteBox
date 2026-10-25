@@ -53,7 +53,7 @@ const files = sources().filter(file => readFileSync(file, 'utf8').includes('pref
 
 test('the draw sources that follow the system theme are the ones this test knows about', () => {
     const names = files.map(file => path.basename(file)).sort();
-    assert.deepEqual(names, ['character-library-ui.css', 'novel-draw.html', 'prompt-layout-editor.css', 'settings-shell.css']);
+    assert.deepEqual(names, ['character-library-ui.css', 'draw-theme.css', 'novel-draw.html', 'prompt-layout-editor.css']);
 });
 
 for (const file of files) {
@@ -77,8 +77,8 @@ for (const file of files) {
     });
 }
 
-test('settings-shell.css: dark defaults, system light, forced light all set color-scheme and define the same token names', () => {
-    const css = readFileSync(new URL('../settings-shell.css', import.meta.url), 'utf8');
+test('draw-theme.css: dark defaults, system light, forced light all set color-scheme and define the same active token names', () => {
+    const css = readFileSync(new URL('../draw-theme.css', import.meta.url), 'utf8');
     const rules = rulesOf(css);
     const dark = rules.find(rule => rule.selector === ':root');
     const system = rules.find(rule => rule.selector === SYSTEM_PREFIX);
@@ -87,7 +87,7 @@ test('settings-shell.css: dark defaults, system light, forced light all set colo
     assert.match(dark.body, /color-scheme: dark;/);
     assert.match(system.body, /color-scheme: light;/);
     assert.match(forced.body, /color-scheme: light;/);
-    const names = body => Array.from(body.matchAll(/(--[a-z-]+):/g), match => match[1]).sort();
+    const names = body => Array.from(body.matchAll(/(--[a-z-]+):/g), match => match[1]).filter(name => !name.startsWith('--draw-light-')).sort();
     assert.ok(names(dark.body).length >= 14);
     assert.deepEqual(names(system.body), names(dark.body), 'every token has a light value');
     assert.deepEqual(names(forced.body), names(dark.body));

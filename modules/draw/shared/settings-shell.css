@@ -1,7 +1,6 @@
 @import url("./draw-theme.css");
 
 :root {
-    color-scheme: dark light;
     --bg-primary: var(--draw-bg-primary);
     --bg-secondary: var(--draw-bg-secondary);
     --bg-tertiary: var(--draw-bg-tertiary);
@@ -31,6 +30,23 @@ button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline:
 .app-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
 .header-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; white-space: nowrap; }
 .header-logo i { color: var(--text-secondary); }
+/* 主题开关（theme-switch.js）：Logo 图标本身就是按钮，右下角的小标记平时隐藏，悬停 / 聚焦 / 展开时显示当前主题；菜单是三项单选。 */
+.theme-switch { position: relative; display: inline-flex; }
+.theme-switch-button { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 5px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: inherit; cursor: pointer; }
+.theme-switch-button:hover, .theme-switch.open .theme-switch-button { background: var(--accent-soft); border-color: var(--border); }
+.theme-switch-mark { position: absolute; right: -3px; bottom: -3px; display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; border-radius: 50%; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); font-size: 8px; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.theme-switch-button:hover .theme-switch-mark, .theme-switch-button:focus-visible .theme-switch-mark, .theme-switch.open .theme-switch-mark { opacity: 1; }
+.theme-switch-menu { position: absolute; z-index: 300; top: calc(100% + 6px); left: 0; display: flex; flex-direction: column; gap: 2px; min-width: 148px; padding: 4px; box-sizing: border-box; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.theme-switch-menu[hidden] { display: none; }
+.theme-switch-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; box-sizing: border-box; background: none; border: none; border-radius: 6px; color: var(--text-secondary); font: inherit; text-align: left; cursor: pointer; }
+.theme-switch-item:hover, .theme-switch-item:focus-visible { background: var(--accent-soft); color: var(--text-primary); outline: none; }
+.theme-switch-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus); }
+.theme-switch-label { flex: 1; }
+.theme-switch-menu .theme-switch-item i { color: inherit; }
+.theme-switch-check { visibility: hidden; }
+.theme-switch-item[aria-checked="true"] { color: var(--text-primary); }
+.theme-switch-item[aria-checked="true"] .theme-switch-check { visibility: visible; color: var(--accent); }
+@media (hover: none) and (pointer: coarse) { .theme-switch-item { min-height: 44px; } .theme-switch-button { min-width: 36px; min-height: 36px; } }
 .header-badge { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
 .header-badge.on { color: var(--text-secondary); }
 .header-badge i { font-size: 6px; }
@@ -68,6 +84,8 @@ button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline:
 .input:focus { outline: none; border-color: var(--border-focus); }
 .input::placeholder { color: var(--text-muted); }
 textarea.input { min-height: 90px; resize: vertical; }
+/* 随内容自动长高的文本框（见 textarea-autofit.js）：不要固定的最小高度，一行内容就是一行高。 */
+textarea.input[data-autofit] { min-height: 0; overflow-y: hidden; }
 .input-row { display: flex; gap: 8px; }
 .input-row .input { flex: 1; min-width: 0; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-primary); background: transparent; font-size: 13px; white-space: nowrap; cursor: pointer; }
@@ -94,6 +112,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .tip-box i { flex-shrink: 0; margin-top: 3px; }
 .char-management-layout { display: flex; flex-direction: column; gap: 12px; }
 .char-management-main { min-width: 0; }
+.char-library-options > summary { font-weight: 600; color: var(--text-primary); } /* 与各区块标题（.card-title）一致 */
 .char-library-options > .char-management-sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; padding-top: 12px; }
 .char-management-sidebar > .card { margin: 0; }
 .char-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -165,3 +184,14 @@ textarea.input { min-height: 90px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+/* 拖拽落点指示（所有可排序列表共用：预设行、角色卡 / 分组、服装 / 动态标签条目、形态、请求结构消息）：
+   落在某行之前 / 之后 = 那一行上 / 下沿一条线，放进分组 = 分组头虚线框。颜色取随主题变化的 --border-focus（青色，灰底上也醒目）；
+   box-shadow 用 !important，免得被各表面自带的卡片阴影（角色标签页的灰度层次）盖掉。 */
+.drop-before { box-shadow: 0 -3px 0 0 var(--border-focus) !important; }
+.drop-after { box-shadow: 0 3px 0 0 var(--border-focus) !important; }
+.drop-into { outline: 2px dashed var(--border-focus); outline-offset: -2px; }
+/* 就地改名的标题（shared/inline-rename.js）：平时就是一段加粗文字，悬停 / 聚焦才露出输入框，点一下就能改。 */
+.inline-name { min-width: 0; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; font-weight: 600; text-overflow: ellipsis; cursor: text; }
+.inline-name::placeholder { font-weight: 400; color: var(--text-muted); }
+.inline-name:hover { border-color: var(--border); }
+.inline-name:focus { outline: none; border-color: var(--border-focus); background: var(--bg-input); }
