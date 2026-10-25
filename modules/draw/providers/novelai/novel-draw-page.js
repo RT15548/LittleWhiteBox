@@ -130,7 +130,6 @@ let state = {
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
     saveAsJpeg: false,
-    jpegQuality: 0.8,
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -1616,7 +1615,15 @@ function bindCharacterAutoSave(list) {
     list.addEventListener('focusout', (event) => {
         if (event.target.closest?.('.char-card.editing')) charAutoSave?.saver.flush();
     });
-    // 关页 / 切走：赶在页面销毁前把还没落盘的发出去（保存空闲时第一次 save 是同步发出的）。
+    // Browser navigation cannot await acknowledgements. Ordinary panel close
+    // uses requestPanelClose; navigation warns while an edit is still unsaved.
+    window.addEventListener('beforeunload', event => {
+        const card = editingCardOf(editingCharId);
+        if (!charAutoSave || !card || (draftCharacters.has(editingCharId) && isBlankCharacterEditor(card))) return;
+        if (!charAutoSave.saver.dirty && !charAutoSave.saver.pending) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
     window.addEventListener('pagehide', () => charAutoSave?.saver.flush());
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') charAutoSave?.saver.flush(); });
     list.addEventListener('keydown', (event) => {
@@ -2575,13 +2582,15 @@ function toggleBatchMode() {
     } else {
         bar.style.display = 'none';
         btn.classList.remove('btn-primary');
-        btn.querySelector('i').className = 'fa-solid fa-list-check';
+        btn.querySelector('i').className = 'fa-solid fa-check';
         batchSelectedIds.clear();
         galleryZipDownload.dispose();
     }
     updateBatchCount();
     renderGalleryView();
+    for (const charName of Object.keys(loadedCharPreviews)) renderCharacterSlots(charName);
     if (modalData.charName) renderModalThumbs();
+    syncGalleryImages();
 }
 
 function slotLatestImgId(card) {
@@ -4343,6 +4352,13 @@ window.addEventListener('message', event => {
 
             
         case 'STATUS':
+            if (data.target === 'jpeg') {
+                state.saveAsJpeg = data.saveAsJpeg === true;
+                $('nd_save_as_jpeg').checked = state.saveAsJpeg;
+                $('nd_save_as_jpeg').disabled = false;
+                updateStatus($('nd_gallery_status'), data.state, data.text);
+                break;
+            }
             if (data.target === 'group-presets') {
                 handleGroupPresetStatus(data);
                 break;
@@ -4766,9 +4782,10 @@ function initializePage() {
         postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
     });
 
-    // 生成後存 JPEG：勾選即保存（品質固定 0.8，與 fork 版一致）
+    // JPEG applies to new images only; wait for the host receipt before re-enabling the control.
     $('nd_save_as_jpeg')?.addEventListener('change', () => {
-        postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked, jpegQuality: 0.8 });
+        $('nd_save_as_jpeg').disabled = true;
+        postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked });
     });
 
 

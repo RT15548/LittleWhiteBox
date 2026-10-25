@@ -19,7 +19,6 @@ const DEFAULT_SHARED_DRAW_SETTINGS = {
     danbooruLocalDB: false,
     messageFilterRules: [],
     saveAsJpeg: false,
-    jpegQuality: 0.8,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     updatedAt: 0,
 };
@@ -107,7 +106,6 @@ export function normalizeSharedDrawSettings(saved = {}) {
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules,
         saveAsJpeg: source.saveAsJpeg === true,
-        jpegQuality: Math.max(0.1, Math.min(1, Number(source.jpegQuality) || DEFAULT_SHARED_DRAW_SETTINGS.jpegQuality)),
         worldbooks: {
             enabled: rawWorldbooks.enabled === true,
             uploadedBooks: Array.isArray(rawWorldbooks.uploadedBooks) ? rawWorldbooks.uploadedBooks : [],

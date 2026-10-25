@@ -33,13 +33,22 @@ Object.defineProperty(selectProto, 'value', {
 });
 
 const posted = [];
+let deferAck = false;
+const waitingAcks = [];
+function acknowledge(message, state = 'success') {
+    window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: { source: 'LittleWhiteBox-NovelDraw', type: 'STATUS', state, target: 'char-tags', requestId: message.requestId },
+    }));
+}
 const noop = () => {};
 Object.assign(window, {
     // 宿主：对带 requestId 的角色保存（编辑区自动保存）回一条成功回执，页面据此串行保存。
     parent: {
         postMessage: (message) => {
-            posted.push(message);
+            posted.push(structuredClone(message));
             if (message.type !== 'SAVE_CHARACTER_TAGS' || !message.requestId) return;
+            if (deferAck) { waitingAcks.push(structuredClone(message)); return; }
             setTimeout(() => window.dispatchEvent(Object.assign(new window.Event('message'), {
                 origin: window.location.origin, source: window.parent,
                 data: { source: 'LittleWhiteBox-NovelDraw', type: 'STATUS', state: 'success', target: 'char-tags', requestId: message.requestId },
@@ -574,4 +583,64 @@ test('a new draft character: saved on the first valid name, dropped when collaps
     assert.equal(statusOf().textContent, '已保存');
     await closeEditor();
     assert.ok(list.querySelector(`.char-card[data-id="${id}"]`), 'it stays in the list');
+});
+
+// Contract: closing with an in-flight save cannot discard a later edit; a
+// failed acknowledgement must leave the exact draft available to retry.
+for (const viaHost of [false, true]) {
+    test(`close waits for the latest acknowledged edit (host request: ${viaHost})`, async () => {
+        await bootPage();
+        await openEditor('c1');
+        const input = document.querySelector('.char-card.editing .char-edit-name');
+        const closeCount = () => posted.filter(m => m.type === 'CLOSE').length;
+        const before = closeCount();
+        deferAck = true;
+        typeInto(input, 'first pending value');
+        await afterDebounce();
+        assert.equal(waitingAcks.length, 1);
+        typeInto(input, 'latest value before close');
+        const close = () => viaHost ? window.dispatchEvent(Object.assign(new window.Event('message'), {
+            origin: window.location.origin, source: window.parent,
+            data: { source: 'LittleWhiteBox-NovelDraw', type: 'REQUEST_CLOSE' },
+        })) : click(document.getElementById('nd_close'));
+        close(); close();
+        await flush();
+        assert.equal(closeCount(), before);
+        acknowledge(waitingAcks.shift());
+        await flush();
+        assert.equal(waitingAcks.length, 1);
+        assert.equal(waitingAcks[0].characterTags.find(c => c.id === 'c1').name, 'latest value before close');
+        assert.equal(closeCount(), before);
+        acknowledge(waitingAcks.shift());
+        await settle();
+        assert.equal(closeCount(), before + 1);
+        deferAck = false;
+    });
+}
+
+test('failed close keeps the draft, and retry waits for its own acknowledgement', async () => {
+    await bootPage();
+    await openEditor('c1');
+    const input = document.querySelector('.char-card.editing .char-edit-name');
+    const count = () => posted.filter(m => m.type === 'CLOSE').length;
+    const before = count();
+    deferAck = true;
+    typeInto(input, 'retained after failure');
+    click(document.getElementById('nd_close'));
+    await flush();
+    const failed = waitingAcks.shift();
+    acknowledge(failed, 'error');
+    await flush();
+    assert.equal(count(), before);
+    assert.equal(input.value, 'retained after failure');
+    assert.equal(statusOf().dataset.state, 'error');
+    click(document.getElementById('nd_close'));
+    await flush();
+    acknowledge(failed); // a late receipt cannot release the new save
+    await flush();
+    assert.equal(count(), before);
+    acknowledge(waitingAcks.shift());
+    await settle();
+    assert.equal(count(), before + 1);
+    deferAck = false;
 });

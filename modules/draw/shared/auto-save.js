@@ -91,6 +91,7 @@ export function createAutoSave({ read, save, onStatus = () => {}, delay = AUTO_S
             if (disposed) return;
             stopTimer();
             const snapshot = read();
+            if (running) again = true;
             if (snapshot.error) { status('invalid', AUTO_SAVE_COPY.unsaved(snapshot.error)); return; }
             if (snapshot.key === savedKey && !running) { status('saved', AUTO_SAVE_COPY.saved); return; }
             status('saving', AUTO_SAVE_COPY.saving);
@@ -105,6 +106,10 @@ export function createAutoSave({ read, save, onStatus = () => {}, delay = AUTO_S
         },
         /** 当前是否有尚未落盘的改动（倒计时中或保存中）。 */
         get pending() { return timer !== null || running !== null; },
+        get dirty() {
+            const snapshot = read();
+            return !!snapshot.error || snapshot.key !== savedKey;
+        },
         dispose() {
             stopTimer();
             disposed = true;

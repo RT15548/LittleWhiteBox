@@ -6,6 +6,7 @@ import { saveBase64AsFile } from "../../../../../../utils.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
 
 import { getSharedDrawSettings } from './draw-settings.js';
+import { convertImageToJpeg, GALLERY_JPEG_COPY } from './gallery-image-codec.js';
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
 import { normalizeMediaUrl } from './media-url.js';
 import { parseBase64Image, base64ToBlob } from './preview-image-url.js';
@@ -99,48 +100,6 @@ async function savedUrlToDataUrl(savedUrl = '') {
     }
     return '';
 }
-
-// JPEG 的 base64 魔數以 /9j/ 開頭。輸入可能帶 data: 前綴，也可能是純 base64
-// （後台任務路徑回傳的 PNG 不帶前綴），因此不能靠前綴判斷格式，直接嗅探內容。
-export function isJpegBase64(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return false;
-    const body = raw.startsWith('data:') ? raw.slice(raw.indexOf(',') + 1) : raw;
-    return body.startsWith('/9j/');
-}
-
-/** 將 data URL 重編碼成 JPEG，節省快取與伺服器空間；透明 PNG 先鋪白底。
- *  已是 JPEG、或轉換失敗時回傳原值。 */
-export function convertImageToJpeg(base64, quality = 0.8) {
-    if (typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(base64);
-    const raw = String(base64 || '').trim();
-    // 不能沿用 parseBase64Image 包裝：它把無前綴數據一律標成 image/png，
-    // 但 mime 標註不影響解碼（瀏覽器按內容嗅探），故直接嗅探魔數判斷是否已轉換。
-    if (!raw || isJpegBase64(raw)) return Promise.resolve(base64);
-    const dataUrl = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
-    return new Promise((resolve) => {
-        const img = new Image();
-        let settled = false;
-        const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
-        img.onload = () => {
-            try {
-                if (!img.naturalWidth && !img.width) return finish(base64);
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth || img.width;
-                canvas.height = img.naturalHeight || img.height;
-                const ctx = canvas.getContext('2d');
-                // JPEG 无 alpha 通道，先铺白底防止透明 PNG 变黑
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-                finish(canvas.toDataURL('image/jpeg', Math.max(0.1, Math.min(1, Number(quality) || 0.8))));
-            } catch { finish(base64); }
-        };
-        img.onerror = () => finish(base64);
-        img.src = dataUrl;
-    });
-}
-
 
 function getObjectUrlCacheKey(imgId, base64) {
     return String(imgId || '').trim() || `inline-${String(base64 || '').slice(0, 80)}`;
@@ -670,16 +629,17 @@ export async function storePreview(opts) {
     const resolvedCharacterName = String(characterName || getChatCharacterName());
     const resolvedSlotId = slotId || imgId;
 
-    // 開啟「生成後存成 JPEG」時自動把原圖轉成 JPEG（節省快取/伺服器空間，PNG→JPEG 約縮 80-90%）
+    // Encode only the incoming result, before opening its write transaction.
     let workingBase64 = base64;
     if (workingBase64) {
         try {
             const policy = getSharedDrawSettings();
             if (policy?.saveAsJpeg) {
-                workingBase64 = await convertImageToJpeg(workingBase64, policy.jpegQuality) || workingBase64;
+                workingBase64 = await convertImageToJpeg(workingBase64);
             }
         } catch (e) {
-            console.warn('[gallery-cache] JPEG 轉換失敗，保留原圖：', e?.message);
+            console.warn(GALLERY_JPEG_COPY.conversionFailed, e);
+            globalThis.toastr?.warning(GALLERY_JPEG_COPY.conversionFailed);
         }
     }
 

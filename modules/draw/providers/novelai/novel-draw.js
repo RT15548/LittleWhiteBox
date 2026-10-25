@@ -9,6 +9,7 @@ import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
+import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
 import { DRAW_BACKEND_COPY, createDrawBackendStatusCopy } from '../../shared/draw-backend-copy.js';
@@ -3192,7 +3193,6 @@ async function sendInitData() {
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
             saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
-            jpegQuality: getSharedDrawSettings().jpegQuality,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             useWorldInfo: settings.useWorldInfo,
@@ -3481,15 +3481,14 @@ async function handleFrameMessage(event) {
 
         case 'SAVE_JPEG': {
             const nextJpeg = data.saveAsJpeg === true;
-            const nextQuality = Math.max(0.1, Math.min(1, Number(data.jpegQuality) || 0.8));
             const ok = await updateSharedDrawSettingsPersistent((settings) => {
                 settings.saveAsJpeg = nextJpeg;
-                settings.jpegQuality = nextQuality;
             }, '已保存', { notify: false, silent: false });
-            postStatus(ok ? 'success' : 'error',
-                ok ? (nextJpeg ? `已启用 JPEG（品質 ${nextQuality}）` : '已关闭 JPEG 转换') : '保存失败',
-                'gallery');
-            if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            if (iframe.isConnected) postToIframe(iframe, {
+                type: 'STATUS', state: ok ? 'success' : 'error', target: 'jpeg',
+                text: ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed,
+                saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
+            }, 'LittleWhiteBox-NovelDraw');
             break;
         }
 

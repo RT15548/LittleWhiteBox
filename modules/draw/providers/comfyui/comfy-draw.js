@@ -16,6 +16,7 @@ import {
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
 import { getContext } from "../../../../../../../extensions.js";
+import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
@@ -1469,16 +1470,18 @@ function bindOverlayEvents() {
             setValue('comfy-gallery-cache-days', nextDays);
         }
     });
-    // 生成後存 JPEG：勾選即保存（品質固定 0.8，與 NovelAI 端一致）
+    // JPEG applies to new images only.
     querySettings('#comfy-gallery-save-as-jpeg')?.addEventListener('change', async (event) => {
         const checkbox = event.currentTarget;
         const nextJpeg = checkbox.checked === true;
+        checkbox.disabled = true;
         const ok = await withSaveTimeout(updateSharedDrawSettingsPersistent((settings) => {
             settings.saveAsJpeg = nextJpeg;
-            settings.jpegQuality = 0.8;
         }, '已保存', { notify: false, silent: false }));
         updateStatusText('comfy-gallery-status', ok ? 'success' : 'error',
-            ok ? (nextJpeg ? '已启用 JPEG（品質 0.8）' : '已关闭 JPEG 转换') : '保存失败，请重试');
+            ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed);
+        checkbox.checked = getSharedDrawSettings().saveAsJpeg === true;
+        checkbox.disabled = false;
     });
     querySettings('#comfy-gallery-clear-expired')?.addEventListener('click', async () => {
         updateStatusText('comfy-gallery-status', '', '正在清理...');
@@ -2209,7 +2212,7 @@ function fillForm(settings) {
     setValue('comfy-draw-max-images', preset.maxImages || 0);
     setValue('comfy-draw-max-chars', preset.maxCharactersPerImage || 0);
     setValue('comfy-gallery-cache-days', getSharedDrawSettings().cacheDays);
-    const comfyJpegCheckbox = document.getElementById('comfy-gallery-save-as-jpeg');
+    const comfyJpegCheckbox = querySettings('#comfy-gallery-save-as-jpeg');
     if (comfyJpegCheckbox) comfyJpegCheckbox.checked = getSharedDrawSettings().saveAsJpeg === true;
 
     // 模型配置页面
