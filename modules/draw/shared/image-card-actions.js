@@ -159,6 +159,8 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
             slotIds.push(slotId);
             // 不传历史合成负向：编译时使用当前全局负向与本图已保存的角色 uc。
             tasks.push({ scene: tags, characterPrompts: record?.characterPrompts ?? [],
+                orientation: record?.orientation ?? null,
+                ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } });
         }
@@ -195,6 +197,8 @@ async function redraw(provider, container) {
         if (!tags?.trim()) throw new Error(DRAW_SLOT_COPY.emptyTags);
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
             tasks: [{ scene: tags, characterPrompts: record?.characterPrompts ?? [],
+                orientation: record?.orientation ?? null,
+                ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } }] });
     } finally {

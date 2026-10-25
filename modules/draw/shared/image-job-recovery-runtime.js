@@ -137,6 +137,7 @@ function previewOptions(record, item, target) {
         characterPrompts: item.previewMetadata?.characterPrompts ?? null,
         negativePrompt: item.previewMetadata?.negativePrompt ?? null,
         postPrompt: item.previewMetadata?.postPrompt ?? null,
+        orientation: item.previewMetadata?.orientation ?? null,
     };
 }
 

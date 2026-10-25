@@ -98,6 +98,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                         characterName: items[0].characterName },
                     items: items.map((item, index) => ({ index, slotId: item.slotId, imgId: item.imgId, discarded: item.discarded,
                         previewMetadata: { tags: item.tags, positive: item.positive, postPrompt: item.postPrompt,
+                            orientation: item.orientation ?? null,
                             characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt } })),
                 },
                 commitPlacements: async () => {

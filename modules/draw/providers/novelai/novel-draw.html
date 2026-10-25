@@ -218,6 +218,12 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .preview-box.visible { display: block; }
 .preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
 #nd_preview_img { cursor: zoom-in; }
+#nd_test_retry[hidden], #nd_test_reload[hidden] { display: none; }
+#nd_test_actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#nd_test_actions[hidden] { display: none; }
+#nd_test_download { text-decoration: none; }
+#nd_test_pages { margin-top: 12px; }
+#nd_test_storage { font-size: 13px; line-height: 1.5; margin: 8px 0; }
 .nd-test-strip { display: flex; gap: 8px; overflow-x: auto; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .nd-test-strip:empty { display: none; }
 .nd-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; opacity: .55; cursor: pointer; flex: none; }
@@ -547,6 +553,11 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         </div>
                     </div>
                     <div id="nd_preview" class="preview-box"><img id="nd_preview_img" alt=""><div id="nd_test_strip" class="nd-test-strip"></div></div>
+                    <div id="nd_test_actions" hidden><a id="nd_test_download" class="btn"></a> <button id="nd_test_retry" class="btn" hidden></button></div>
+                    <p id="nd_test_storage" role="status" hidden></p>
+                    <div id="nd_test_pages" hidden><button id="nd_test_previous" class="btn"></button> <button id="nd_test_next" class="btn"></button></div>
+                    <p id="nd_test_history_error" role="status" hidden></p>
+                    <button id="nd_test_reload" class="btn" hidden></button>
                     <button id="nd_open_gallery" class="btn nd-gallery-link"><i class="fa-solid fa-images"></i> 打开画廊</button>
                     <div id="nd_status" class="status-text"></div>
                 </div>

@@ -4,6 +4,7 @@ import { EVENT_MEMORY_ROLES } from '../data/events.js';
 import { RELATION_TRENDS } from '../data/fact-predicates.js';
 import { MEMORY_COLLECTIONS } from './domain.js';
 import { ARC_PROGRESS_MAX } from '../generate/arc-progress.js';
+import { SUMMARY_DIAGNOSTIC_LIMIT, SUMMARY_DIAGNOSTIC_REASON_CHARS } from '../summary-diagnostics.js';
 
 const string = { type: 'string' };
 const integer = { type: 'integer', minimum: 0 };
@@ -53,10 +54,13 @@ const edit = { anyOf: Object.entries(fields).map(([name, patch]) => object({
     patch: { ...object(patch), description: 'Only changed fields; omitted for a deletion. A merge carries the combined summary.' },
 }, ['collection', 'key'])) };
 
-export const READ_MAINTENANCE_TOOL = tool('ReadMaintenance', 'Read the current maintenance state and saved run diagnostics. Without runId, returns current summary/completed/pending ranges and a page of runs, newest first. With runId, returns that run and pages its recorded calls and operations using the same offset/limit; next follows the larger total. The run overview is always included. When this task starts with an unconfirmed save from an earlier task, the tool checks that save against the original chat without writing and includes saveState {state: confirmed|not_saved|unknown, error?}. Records may lack older diagnostic details; do not invent missing history. This tool is read-only and does not start maintenance.', {
-    runId: { ...string, minLength: 1, description: 'Run identifier returned by an earlier ReadMaintenance result; omit to list runs.' },
-    offset: { ...integer, default: 0, description: 'Zero-based run-list offset. Default 0.' },
-    limit: { type: 'integer', minimum: 1, maximum: 20, default: 10, description: 'Run-list page size. Default 10, maximum 20.' },
+export const READ_MAINTENANCE_TOOL = tool('ReadMaintenance', 'Read current maintenance state, saved maintenance runs and recent summary-generation attempts for this chat. Use it to investigate a failed summary or maintenance run. Without runId, returns current summary/completed/pending ranges and a page of maintenance runs, newest first. With runId, returns that maintenance run and pages its recorded calls and operations using offset/limit; next follows the larger total. The run overview is always included. '
+    + 'summaryGeneration is a separate page using the same offset/limit, with attempts, total and its own next offset. Each attempt has id, runId (grouping retries), automatic, attempt, startedAt/endedAt (epoch milliseconds), stage, inclusive one-based range or null, outcome, saveState and optional redacted reason/reasonTruncated. Stages identify preparation, history, request, save_confirmation, source_validation, response, parse, structure, merge, saving or followup. Outcomes are running, completed, failed, cancelled, stale (source changed), no_content or followup_failed. saveState is not_started, unconfirmed, not_saved or confirmed; a followup failure does not undo a confirmed summary. This is the save result observed at that attempt, not a later confirmation. '
+    + `Summary diagnostics have scope page_session, startedAt, retentionLimit (${SUMMARY_DIAGNOSTIC_LIMIT} attempts across chats) and historyMayBeTruncated. They survive notice dismissal and retries, but not refresh or module teardown. Reasons are limited to ${SUMMARY_DIAGNOSTIC_REASON_CHARS} characters. Empty or missing records do not establish that no failure occurred. `
+    + 'When this task starts with an unconfirmed save from an earlier task, the tool checks that save against the original chat without writing and includes saveState {state: confirmed|not_saved|unknown, error?}. This tool is read-only and does not start generation or maintenance.', {
+    runId: { ...string, minLength: 1, description: 'Maintenance run identifier from runs; omit to list runs. Summary-generation runId values are grouping labels, not lookup arguments.' },
+    offset: { ...integer, default: 0, description: 'Zero-based offset for both diagnostic pages. Default 0; each page returns its own next offset.' },
+    limit: { type: 'integer', minimum: 1, maximum: 20, default: 10, description: 'Page size for each diagnostic page. Default 10, maximum 20.' },
 });
 
 export const RECOVER_MAINTENANCE_SAVE_TOOL = tool('RecoverMaintenanceSave', 'Inspect or recover the final save of this task. check performs read-only confirmation against the original chat; it never sends another save. retry submits the retained draft only when the previous attempt is known not to have saved. Returns state confirmed, not_saved, unknown or not_needed, with saved (confirmed operation count), staged (pending operation count), receiptIds and error details when available. Unknown results keep writes paused; inspect with check rather than replaying edits. This tool is available during save recovery, after the task first attempts to finish.', {

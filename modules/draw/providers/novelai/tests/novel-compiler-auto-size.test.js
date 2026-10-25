@@ -44,10 +44,10 @@ function compileSize({ recipeOverrides = {}, requestOverrides = {} } = {}) {
     };
 }
 
-test('overrideSize=auto 缺省方向回落竖幅 832x1216', () => {
+test('automatic sizing without planned orientation retains the preset dimensions', () => {
     assert.deepEqual(
-        compileSize({ recipeOverrides: { overrideSize: 'auto' } }),
-        { width: 832, height: 1216 },
+        compileSize({ recipeOverrides: { overrideSize: 'auto' }, requestOverrides: { params: { ...buildRecipe().params, width: 1024, height: 1024 } } }),
+        { width: 1024, height: 1024 },
     );
 });
 
@@ -71,13 +71,13 @@ test('overrideSize=auto landscape 映射横幅 1216x832', () => {
     );
 });
 
-test('协议外方向值按竖幅兜底', () => {
-    assert.deepEqual(
+test('an unsupported orientation does not invent a new size', () => {
+    for (const orientation of ['square', 'toString', '__proto__']) assert.deepEqual(
         compileSize({
             recipeOverrides: { overrideSize: 'auto' },
-            requestOverrides: { orientation: 'square' },
+            requestOverrides: { orientation, params: { ...buildRecipe().params, width: 1024, height: 1024 } },
         }),
-        { width: 832, height: 1216 },
+        { width: 1024, height: 1024 },
     );
 });
 

@@ -186,6 +186,7 @@ function normalizeItem(source) {
             characterPrompts: metadata.characterPrompts ?? null,
             negativePrompt: metadata.negativePrompt ?? null,
             postPrompt: metadata.postPrompt ?? null,
+            orientation: metadata.orientation ?? null,
             providerMetadata,
         },
     };

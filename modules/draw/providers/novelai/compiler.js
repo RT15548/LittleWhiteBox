@@ -36,13 +36,13 @@ function mergeNovelParams(defaultParams, params) {
     return merged;
 }
 
-// AI 自动尺寸：规划器逐张给出画幅方向，映射到常规竖/横两档；方向缺失按竖幅兜底。
+// 无规划方向的手动输入沿用预设尺寸，不虚构方向。
 const AUTO_ORIENTATION_SIZE = Object.freeze({ portrait: '832x1216', landscape: '1216x832' });
 
 function applySizeOverride(params, overrideSize, orientation) {
     let size = String(overrideSize || '').trim();
     if (size.toLowerCase() === 'auto') {
-        size = orientation === 'landscape' ? AUTO_ORIENTATION_SIZE.landscape : AUTO_ORIENTATION_SIZE.portrait;
+        size = Object.hasOwn(AUTO_ORIENTATION_SIZE, orientation) ? AUTO_ORIENTATION_SIZE[orientation] : '';
     }
     const match = size.match(/^(832x1216|1216x832|1024x1024|768x1280|1280x768)$/i);
     if (!match) return { ...params };

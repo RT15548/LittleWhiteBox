@@ -723,6 +723,7 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
             positive: 'portrait',
             characterPrompts: [],
             postPrompt: '',
+            orientation: null,
             negativePrompt: 'bad',
         },
     });
@@ -733,6 +734,33 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
         () => manager.create('alice', conflicting, {}),
         error => error?.status === 409 && error?.code === 'draw_run_id_conflict',
     );
+});
+
+// Acceptance: paid image orientation survives backend handoff and a later reroll.
+test('NovelAI handoff retains the landscape input used by its paid request', async t => {
+    const task = { scene: 'landscape', chars: [], orientation: 'landscape', placement: { insertAfter: 1 } };
+    const { manager } = createManager({ runtime: createRuntime({
+        executePreparedScenePlanner: async () => [task],
+        compileDrawRunImages: drawRuntime.compileDrawRunImages,
+    }) });
+    t.after(() => manager.close());
+    const envelope = createEnvelope('run-landscape', { imageProvider: 'novelai' });
+    envelope.generationRecipe = {
+        apiBaseUrl: 'https://image.example.test', apiKey: 'fixture', insecureTLS: false, timeout: 5000,
+        requestDelay: { min: 1000, max: 1000 }, params: { model: 'nai-diffusion-3', width: 832, height: 1216 },
+        knownCharacters: [], positivePrefix: '', negativePrefix: '', seeds: [1],
+        autoLearnEnabled: false, autoLearnMode: 'new_only', overrideSize: 'auto', resolveForBackend: true,
+    };
+    manager.create('alice', envelope, {});
+    const run = await waitFor(() => {
+        const current = manager.get('alice', envelope.runId);
+        return current.state === 'dispatched' ? current : null;
+    });
+    const metadata = run.handoffManifest.items[0].displayMetadata;
+    assert.equal(metadata.orientation, 'landscape');
+    const repeated = drawRuntime.compileDrawRunImages('novelai', [{ scene: metadata.tags, orientation: metadata.orientation }], envelope.generationRecipe);
+    const params = repeated.items[0].request.payload.parameters;
+    assert.deepEqual([params.width, params.height], [1216, 832]);
 });
 
 test('ComfyUI handoff preserves the post-prompt as redraw input rather than only flattened output', async (t) => {

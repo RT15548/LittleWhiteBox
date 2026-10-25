@@ -103,6 +103,7 @@ function buildDisplayMetadata(artifact = {}) {
         positive: String(promptData.positive || promptData.scene || ''),
         characterPrompts: cloneJson(promptData.characterPrompts || []),
         postPrompt: String(artifact.task?.post_prompt || ''),
+        orientation: artifact.task?.orientation ?? null,
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
     };
     if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {

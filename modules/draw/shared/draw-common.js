@@ -437,6 +437,7 @@ function normalizeDrawSavedEntry(slotId, data = {}) {
         characterPrompts: data.characterPrompts ?? null,
         negativePrompt: data.negativePrompt ?? null,
         postPrompt: data.postPrompt ?? null,
+        orientation: data.orientation ?? null,
         updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
     };
 }
@@ -503,6 +504,7 @@ export async function setDrawSavedEntry(messageId, slotId, data) {
         previous.positive === entry.positive &&
         previous.negativePrompt === entry.negativePrompt &&
         previous.postPrompt === entry.postPrompt &&
+        previous.orientation === entry.orientation &&
         JSON.stringify(previous.characterPrompts) === JSON.stringify(entry.characterPrompts);
     const legacyMap = getSavedMap(message, LEGACY_NOVEL_SAVED_EXTRA_KEY);
     const hasLegacyEntry = !!legacyMap?.[slotId];

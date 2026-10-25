@@ -54,6 +54,7 @@ function normalizeMetadata(source) {
         characterPrompts: source?.characterPrompts ?? null,
         negativePrompt: source?.negativePrompt ?? null,
         postPrompt: source?.postPrompt ?? null,
+        orientation: source?.orientation ?? null,
         providerMetadata,
     };
 }

@@ -16,7 +16,7 @@ import { executeMemoryTask, hasMaintenanceBoundary } from './execution.js';
 import { readMaintenanceDiagnostics, createMaintenanceStatusReader } from './diagnostics.js';
 import { createMemoryChatController } from './chat-controller.js';
 
-export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed, chatChanged = () => {} }) {
+export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed, readSummaryDiagnostics, chatChanged = () => {} }) {
     let unregister = null, chat = null, executing = 0, refreshAfterRun = false, publishedRevision = 0;
     const readStatus = createMaintenanceStatusReader();
     const enabled = () => isEnabled() && getSummaryPanelConfig().memoryMaintenanceEnabled;
@@ -66,7 +66,9 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
         }
         if (chat) chatChanged(chat.liveSnapshot());
     }
-    function diagnostics(args) { return readMaintenanceDiagnostics(publishedState(), args); }
+    function diagnostics(args) {
+        return { ...readMaintenanceDiagnostics(publishedState(), args), summaryGeneration: readSummaryDiagnostics(args) };
+    }
     chat = createMemoryChatController({
         identity: () => getChatIdentity(getContext()), chatId: () => getContext().chatId,
         scheduler, execute, status: () => readStatus(publishedState()),

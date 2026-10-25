@@ -5,9 +5,15 @@ export const VECTOR_REBUILD_ADVICE = `请执行${VECTOR_REBUILD_ACTION}（${VECT
 export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     title: '剧情总结',
     summaryStopped: '已停止',
-    summaryFailed: '总结未能完成，请稍后重试。',
-    summaryResultInvalid: '模型返回的总结格式不正确，请重试。',
-    summaryFollowupFailed: '总结已保存，但后续处理未完成；详情见日志。',
+    summaryFailed: '总结失败',
+    summaryFailureReasons: Object.freeze({
+        empty: '模型没有返回总结内容。',
+        parse: '模型返回的内容不是有效的 JSON，无法读取总结。',
+        summary_invalid: '总结历史不完整，无法继续总结；请先导出留存，再修正后导入。',
+        unknown: '未收到具体错误信息。',
+    }),
+    summaryResultInvalid: '模型返回的总结格式不正确',
+    summaryFollowupFailed: detail => `总结已保存，但后续处理失败：\n${detail}`,
     summaryCompleted: (floor, count) => `剧情总结完成：更新至 #${floor} 楼（新增 ${count} 个事件）`,
     summaryControls: Object.freeze({
         generate: '总结',
@@ -18,12 +24,11 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
         disabled: '请先启用当前聊天的剧情总结',
     }),
     summaryAttempt: (attempt, total, text) => `自动总结 ${attempt}/${total}：${text}`,
-    summaryRunEnded: ({ automatic, attempts, summarizedThrough, uncertain, stale, reason }) => {
-        const outcome = uncertain ? '本次总结的保存结果尚未确认。'
-            : stale ? '对话或总结内容已变化，本次结果未保存。'
-                : `${automatic ? '自动' : '本次'}总结未完成${automatic ? `（已尝试 ${attempts} 次）` : ''}。`;
-        const retained = summarizedThrough > 0 ? `已有总结保留至第 ${summarizedThrough} 楼。` : '已有记忆未清空。';
-        return `${outcome}${retained}${reason || ''}${uncertain ? '点击“总结”可重新确认保存结果。' : '可点击“总结”重试。'}`;
+    summaryRunEnded: ({ automatic, attempts, uncertain, stale, reason }) => {
+        if (stale) return '对话或总结内容已变化，请重新总结。';
+        const outcome = uncertain ? '暂时无法确认总结是否保存'
+            : `${automatic ? '自动总结' : '总结'}失败${automatic ? `（已尝试 ${attempts} 次）` : ''}`;
+        return `${outcome}：\n${reason}${uncertain ? '\n点击“总结”重新确认保存结果。' : ''}`;
     },
     embeddingTitle: 'Embedding 异常',
     connectionChecking: '连接中…',

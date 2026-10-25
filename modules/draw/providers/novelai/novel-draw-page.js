@@ -1,5 +1,6 @@
 import { DOMPurify } from '../../../../../../../../lib.js';
-import { normalizeMediaUrl } from '../../shared/media-url.js';
+import { createGalleryImageWindow } from '../../shared/gallery-image-window.js';
+import { createGalleryImageRequests } from './gallery-image-requests.js';
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
 import { NOVEL_API_DEFAULTS, NOVEL_API_FIELDS, normalizeNovelApiConfig } from './novel-api-config.js';
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
@@ -7,6 +8,9 @@ import { CHARACTER_LOCK_COPY } from '../../shared/character-lock-copy.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
+import { createQuickTestView } from './quick-test-view.js';
+
+let quickTestView;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -146,60 +150,18 @@ function escapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-const previewObjectUrls = new Map();
+const galleryImageRequests = createGalleryImageRequests(postToParent);
+const galleryImageWindow = createGalleryImageWindow({ load: galleryImageRequests.load });
+function syncGalleryImages() {
+    const root = modalData.slotId ? $('nd_gallery_modal') : $('view-gallery');
+    galleryImageWindow.sync(root?.querySelectorAll('img[data-gallery-id]') || []);
+}
 // Preserve object-URL image previews as well as DOMPurify's standard safe URL schemes.
 const GALLERY_HTML_SANITIZE_OPTIONS = {
     ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|blob):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
 };
 
-function parsePreviewBase64(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return null;
-    const match = raw.match(/^data:([^;]+);base64,(.*)$/i);
-    return {
-        mime: match?.[1] || 'image/png',
-        data: match ? match[2] : raw,
-    };
-}
 
-function base64ToObjectUrl(base64, mime) {
-    const binary = atob(base64);
-    const chunkSize = 8192;
-    const chunks = [];
-    for (let offset = 0; offset < binary.length; offset += chunkSize) {
-        const slice = binary.slice(offset, offset + chunkSize);
-        const bytes = new Uint8Array(slice.length);
-        for (let i = 0; i < slice.length; i++) {
-            bytes[i] = slice.charCodeAt(i);
-        }
-        chunks.push(bytes);
-    }
-    return URL.createObjectURL(new Blob(chunks, { type: mime }));
-}
-
-function getGalleryImageUrl(image = {}) {
-    const savedUrl = normalizeMediaUrl(image.savedUrl);
-    if (savedUrl) return savedUrl;
-    const knownKey = String(image.imgId || '').trim();
-    if (knownKey && previewObjectUrls.has(knownKey)) return previewObjectUrls.get(knownKey);
-    const parsed = parsePreviewBase64(image.base64);
-    if (!parsed?.data) return '';
-    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
-        return `data:${parsed.mime};base64,${parsed.data}`;
-    }
-    const key = String(image.imgId || '').trim() || `inline-${parsed.data.slice(0, 80)}`;
-    const cached = previewObjectUrls.get(key);
-    if (cached) return cached;
-    try {
-        const url = base64ToObjectUrl(parsed.data, parsed.mime);
-        previewObjectUrls.set(key, url);
-        // blob 已持有图片数据：页面里不必再留一份 base64（随着往下加载会越积越多）。blob URL 在图组被替换 / 删除时由 pruneGalleryObjectUrls 释放。
-        if (knownKey) image.base64 = null;
-        return url;
-    } catch {
-        return `data:${parsed.mime};base64,${parsed.data}`;
-    }
-}
 
 function parseDelay(str) {
     const parts = String(str).split('-').map(s => parseInt(s.trim()));
@@ -235,6 +197,9 @@ function switchView(viewId) {
         const charList = $('nd_char_list');
         if (charList) restoreGroupScroll(charList);
     }
+    if (viewId !== 'gallery' && modalData.slotId) closeGalleryModal();
+    syncGalleryImages();
+    quickTestView?.setActive(viewId === 'test');
     if (viewId === 'gallery') postToParent({ type: 'REFRESH_CACHE_STATS' });
     if (viewId === 'llm') {
         postToParent({ type: 'ENSURE_AGENT_SETTINGS' });
@@ -2278,19 +2243,8 @@ function sortedSlotEntries(entry) {
     return (entry?.order || []).filter(id => entry.slots[id]).map(id => [id, entry.slots[id].images]);
 }
 
-// 页面里已无人引用的图片，释放它们的 blob URL（重新加载 / 删除后）。
 function pruneGalleryObjectUrls() {
-    const keep = new Set();
-    const add = img => { if (img?.imgId) keep.add(String(img.imgId)); };
-    for (const entry of Object.values(loadedCharPreviews)) {
-        for (const info of Object.values(entry.slots || {})) info.images.forEach(add);
-    }
-    (modalData.images || []).forEach(add);
-    for (const [key, url] of Array.from(previewObjectUrls)) {
-        if (keep.has(key)) continue;
-        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "pruneGalleryObjectUrls" }, caughtError); }
-        previewObjectUrls.delete(key);
-    }
+    syncGalleryImages();
 }
 
 function slotBadgesHtml(info) {
@@ -2299,10 +2253,9 @@ function slotBadgesHtml(info) {
 
 function slotCardHtml(charName, slotId, info) {
     const latest = info.images[0];
-    const imgSrc = getGalleryImageUrl(latest);
     return `
         <div class="gallery-slot" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
-            <img class="gallery-slot-img" src="${escapeHtml(imgSrc)}" loading="lazy" decoding="async">
+            <img class="gallery-slot-img" data-gallery-id="${escapeHtml(latest.imgId)}" decoding="async">
             <div class="gallery-slot-overlay">
                 <div class="gallery-slot-actions">
                     <button class="btn btn-sm" data-action="view" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
@@ -2345,6 +2298,7 @@ function renderCharacterSlots(charName) {
     }
     slotsContainer.innerHTML = DOMPurify.sanitize(slotEntries.map(([slotId]) => slotCardHtml(charName, slotId, entry.slots[slotId])).join(''), GALLERY_HTML_SANITIZE_OPTIONS);
     slotsContainer.querySelectorAll('.gallery-slot').forEach(bindSlotCard);
+    syncGalleryImages();
     syncGallerySentinel(charName);
 }
 
@@ -2361,6 +2315,7 @@ function appendCharacterSlots(charName, slotIds) {
         slotsContainer.insertBefore(card, sentinel || null);
         bindSlotCard(card);
     });
+    syncGalleryImages();
     syncGallerySentinel(charName);
 }
 
@@ -2373,6 +2328,7 @@ function rerenderSlotCard(charName, slotId) {
     const fresh = holder.firstElementChild;
     card.parentNode.replaceChild(fresh, card);
     bindSlotCard(fresh);
+    syncGalleryImages();
 }
 
 // 保存只改变某张图的 savedUrl：就地更新所在图组卡片的角标，不重建整个图片网格（避免整片图片重新加载闪一下）。
@@ -2710,6 +2666,7 @@ function openGalleryModalFromCache(charName, slotId) {
     renderModalThumbs();
     renderModalContent();
     $('nd_gallery_modal').classList.add('visible');
+    syncGalleryImages();
     requestSlotVersions(charName, slotId);
     prefetchNextWhenAtLoadedEnd();
 }
@@ -2717,18 +2674,21 @@ function openGalleryModalFromCache(charName, slotId) {
 function closeGalleryModal() {
     $('nd_gallery_modal').classList.remove('visible');
     $('nd_modal_img').removeAttribute('data-img-id');
+    $('nd_modal_img').removeAttribute('data-gallery-id');
+    $('nd_modal_img').removeAttribute('src');
+    $('nd_modal_thumbs').replaceChildren();
     modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
+    syncGalleryImages();
 }
 
 function renderModalThumbs() {
     const { images, currentIndex } = modalData;
     if (!images.length) return;
     $('nd_modal_thumbs').innerHTML = DOMPurify.sanitize(images.map((img, i) => {
-        const src = getGalleryImageUrl(img);
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
-        return `<img class="${cls.join(' ')}" src="${escapeHtml(src)}" data-index="${i}">`;
+        return `<img class="${cls.join(' ')}" data-gallery-id="${escapeHtml(img.imgId)}" data-index="${i}">`;
     }).join(''), GALLERY_HTML_SANITIZE_OPTIONS);
 
     $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
@@ -2785,10 +2745,11 @@ function renderModalContent() {
     const imgEl = $('nd_modal_img');
     const imgKey = String(current.imgId ?? '');
     if (!imgKey || imgEl.getAttribute('data-img-id') !== imgKey) {
-        imgEl.src = getGalleryImageUrl(current);
+        imgEl.dataset.galleryId = imgKey;
         imgEl.setAttribute('data-img-id', imgKey);
     }
     updateModalThumbState();
+    syncGalleryImages();
 
     const position = galleryModalPosition();
     $('nd_modal_prev').disabled = !position || position.index <= 0;
@@ -3845,6 +3806,10 @@ window.addEventListener('message', event => {
             failCharacterRequest(data.charName, data.requestId);
             break;
 
+        case 'GALLERY_IMAGE_LOADED':
+            galleryImageRequests.receive(data);
+            break;
+
         case 'SLOT_VERSIONS_LOADED':
             handleSlotVersionsLoaded(data);
             break;
@@ -3853,35 +3818,12 @@ window.addEventListener('message', event => {
             failSlotVersionsRequest(data.charName, data.slotId, data.requestId);
             break;
             
-        case 'TEST_RESULT': {
-            const items = data.items || [];
-            const strip = $('nd_test_strip');
-            const preview = $('nd_preview_img');
-            const selected = items.find(item => item.imgId === (data.selectedImgId || preview.dataset.imgId)) || items[0];
-            strip.innerHTML = '';
-            $('nd_preview').classList.toggle('visible', items.length > 0);
-            $('nd_open_gallery').classList.toggle('visible', items.length > 0);
-            if (items.length) {
-                preview.src = selected.url;
-                preview.dataset.imgId = selected.imgId;
-                items.forEach(item => {
-                    const t = document.createElement('img');
-                    t.src = item.url;
-                    t.className = 'nd-thumb' + (item.imgId === selected.imgId ? ' active' : '');
-                    t.addEventListener('click', () => {
-                        preview.src = item.url;
-                        preview.dataset.imgId = item.imgId;
-                        strip.querySelectorAll('.nd-thumb').forEach(el => el.classList.remove('active'));
-                        t.classList.add('active');
-                    });
-                    strip.appendChild(t);
-                });
-            } else {
-                preview.removeAttribute('src');
-                delete preview.dataset.imgId;
-            }
+        case 'TEST_RESULT':
+        case 'TEST_RETAINED':
+        case 'TEST_STATE':
+        case 'TEST_HISTORY_FAILED':
+            quickTestView?.handle(data);
             break;
-        }
 
         case 'BACKEND_PLUGIN_STATUS': {
             state.backendPluginStatus = data.status || {};
@@ -3994,13 +3936,13 @@ window.addEventListener('message', event => {
     }
 });
 
+window.addEventListener('pagehide', event => { if (!event.persisted) quickTestView?.dispose(); });
 window.addEventListener('beforeunload', () => {
     cardMenu?.destroy();
     cardMenu = null;
-    for (const url of previewObjectUrls.values()) {
-        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "module" }, caughtError); }
-    }
-    previewObjectUrls.clear();
+    galleryImageWindow.dispose();
+
+
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4008,10 +3950,11 @@ window.addEventListener('beforeunload', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function initializePage() {
+    quickTestView = createQuickTestView(document, postToParent, galleryImageRequests.load);
     mountServerPluginGuide(document.getElementById('nd_backend_guide'), 'nd-backend');
     shuffleCredits();
     postToParent({ type: 'TEST_HISTORY' });
-    const openTestGallery = () => postToParent({ type: 'OPEN_TEST_GALLERY', imgId: $('nd_preview_img').dataset.imgId });
+    const openTestGallery = () => quickTestView.openGallery();
     $('nd_open_gallery').addEventListener('click', openTestGallery);
     $('nd_preview_img').addEventListener('click', openTestGallery);
     // ═══════════════════════════════════════════════════════════════════════

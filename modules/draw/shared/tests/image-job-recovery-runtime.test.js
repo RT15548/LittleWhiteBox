@@ -122,7 +122,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     const attachments = [], passes = [];
     async function recordJob(id) {
         const record = await api.recordPendingImageJob({ jobId: id, provider: 'sd-webui', delivery: { mode: 'gallery' },
-            items: [{ index: 0, slotId: id + '-slot', imgId: id + '-image' }] });
+            items: [{ index: 0, slotId: id + '-slot', imgId: id + '-image', previewMetadata: { orientation: 'landscape' } }] });
         await api.markPendingImageJobActive(id, record.leaseId);
         await api.renewPendingImageJobLease(id, record.leaseId, { now: 0 });
     }
@@ -153,6 +153,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     }
     assert.equal(await api.getPendingImageJob('new-job'), null);
     assert.equal(host.previews.get('new-job-image')?.base64, 'delivered');
+    assert.equal(host.previews.get('new-job-image')?.orientation, 'landscape');
     assert.deepEqual(await api.drawCancellationJournal.list(), []);
     assert.deepEqual(attachments, ['long-job', 'new-job']);
     assert.equal(finished, false);
@@ -273,7 +274,7 @@ for (const mode of ['complete', 'fail', 'discard']) {
             const marker = { version: 1, provider: 'sd-webui', sourceHash, targetHash: hashSceneSource(original), createdAt: 100 };
             const items = [0, 1].map(index => ({
                 index, ...deriveDrawRunItemIds(runId, index), insertOffset: sourceText.length,
-                displayMetadata: { tags: 'scene', postPrompt: `tail-${index}` },
+                displayMetadata: { tags: 'scene', postPrompt: `tail-${index}`, orientation: 'landscape' },
             }));
             const run = {
                 id: runId, provider: marker.provider, state: 'dispatched', sourceHash,
@@ -290,6 +291,7 @@ for (const mode of ['complete', 'fail', 'discard']) {
             });
             assert.equal(adopted.status, 'ready');
             assert.deepEqual(adopted.record.items.map(item => item.previewMetadata.postPrompt), ['tail-0', 'tail-1']);
+            assert.deepEqual(adopted.record.items.map(item => item.previewMetadata.orientation), ['landscape', 'landscape']);
             const { jobId, leaseId } = adopted.record;
             await api.markPendingImageJobOriginRunAckReady(jobId, leaseId, runId);
             await api.activateAdoptingPendingImageJob(jobId, leaseId);
@@ -329,6 +331,7 @@ for (const mode of ['complete', 'fail', 'discard']) {
             if (mode === 'fail') {
                 assert.equal(host.previews.get(items[0].imgId)?.status, 'failed');
                 assert.equal(host.previews.get(items[0].imgId)?.postPrompt, 'tail-0');
+                assert.equal(host.previews.get(items[0].imgId)?.orientation, 'landscape');
                 assert.equal(host.previews.get(items[1].imgId)?.status === 'failed', !userDeletedSlot);
                 if (userDeletedSlot) assert.equal(host.previews.has(items[1].imgId), false);
             }

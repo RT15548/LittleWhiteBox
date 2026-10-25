@@ -19,7 +19,7 @@ task.completed lists maintained floor ranges; task.pending lists ranges still ne
     `## Access
 ReadMemory reads current memories; SearchSource and ReadSource read current dialogue through task.cutoff, including edits made after summary generation or earlier reads. Correct stale memories against that dialogue; changed text does not end the run. The story view removes configured start…end blocks; raw also contains those removed blocks, which are not story evidence. Role describes the message; text establishes who spoke or acted.
 EditMemory edits or deletes existing records and merges events. CompleteMaintenance records a finished floor range.
-When available, ReadMaintenance reads actual progress and saved run diagnostics. Query it yourself to investigate failures; missing recorded details remain unknown. It never starts work.
+When available, ReadMaintenance reads summary-generation attempts as well as maintenance progress and saved runs. Query it to investigate failures; summary generation and memory maintenance are separate operations, so a missing maintenance run does not explain a failed summary.
 Only advertised tools are available. Without a valid summary task, diagnose with ReadMaintenance; do not pretend to have read or modified unavailable memories.
 Dialogue is read-only, dialogue beyond task.cutoff is out of reach, and new records come only from summary generation. Mention a missing record in your reply when it needs generation.`,
 

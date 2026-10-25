@@ -28,8 +28,10 @@ import { createMessageButtonOwnership } from "../../core/message-button-ownershi
 import { STORY_SUMMARY_TOGGLE_EVENT } from './runtime-events.js';
 import { initChatDeletionLifecycle } from './chat-deletion-lifecycle.js';
 import { createMemoryMaintenanceHost } from './maintenance/host.js';
+import { createSummaryDiagnostics } from './summary-diagnostics.js';
 import { MEMORY_CHAT_MESSAGES } from './maintenance/chat-contract.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
+import { summaryFailureReason } from './summary-failure.js';
 import {
     clearEmbeddingFailureNotice,
     clearRecallFailureNotice,
@@ -116,7 +118,7 @@ import { isGenerating } from '../../shared/common/sillytavern-generation-state.j
 
 // summary generation
 import { runSummaryGeneration } from "./generate/generator.js";
-import { createSummaryGenerationCancelledError } from "./generate/llm.js";
+import { createSummaryGenerationCancelledError, isSummaryGenerationCancelledError } from "./generate/llm.js";
 
 // vector service
 import { embed, getEngineFingerprint } from "./vector/utils/embedder.js";
@@ -232,7 +234,9 @@ const serviceTests = createServiceTests({
     probes: { l0: testL0Service, rerank: testRerankService },
     onStatus: (target, state) => postToFrame({ type: 'VECTOR_ONLINE_STATUS', target, ...state }),
 });
+const summaryDiagnostics = createSummaryDiagnostics();
 const memoryMaintenance = createMemoryMaintenanceHost({
+    readSummaryDiagnostics: args => summaryDiagnostics.read(getChatIdentity(getContext()), args),
     isEnabled: () => isStorySummaryEnabledForCurrentChat(),
     invalidateRecall: () => {
         recallReuse.invalidate();
@@ -662,11 +666,14 @@ function isSummaryGenerating() {
     return guard.isRunning('summary');
 }
 
-function beginSummaryExecution() {
+function beginSummaryExecution(automatic = false) {
     const { chatId } = getContext();
     if (!chatId) return null;
+    const identity = getChatIdentity(getContext());
     const execution = {
         chatId,
+        identity,
+        diagnosticRun: summaryDiagnostics.startRun(identity, automatic),
         controller: new AbortController(),
     };
     activeSummaryExecution = execution;
@@ -695,31 +702,27 @@ function isSummaryExecutionActive(execution) {
     return !!execution
         && !execution.controller.signal.aborted
         && activeSummaryExecution === execution
-        && getContext()?.chatId === execution.chatId;
+        && getChatIdentity(getContext()) === execution.identity;
 }
 
 function postSummaryExecution(execution, payload) {
     // A stopped run may still report its final status, but never into another chat/run.
-    if (activeSummaryExecution === execution && getContext()?.chatId === execution.chatId) {
+    if (activeSummaryExecution === execution && getChatIdentity(getContext()) === execution.identity) {
         postToFrame(payload);
     }
 }
 
 function reportSummaryExecutionFailure(execution, error, { automatic = false, attempts = 1, stale = false } = {}) {
-    if (activeSummaryExecution !== execution || getContext()?.chatId !== execution.chatId) return;
-    // Source revalidation can cancel independently of the run's own controller.
-    if (error?.name === 'AbortError' || execution.controller.signal.aborted) {
+    if (activeSummaryExecution !== execution || getChatIdentity(getContext()) !== execution.identity) return;
+    // A provider deadline may also be named AbortError; it is still a failure.
+    if (isSummaryGenerationCancelledError(error) || execution.controller.signal.aborted) {
         postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryStopped });
         return;
     }
     xbLog.error(MODULE_ID, SUMMARY_FEEDBACK_COPY.summaryFailed, error);
     const uncertain = getMemoryCommitState() === 'unconfirmed' || error?.uncertain === true;
-    // Only known domain reasons reach the panel; provider errors may contain credentials.
-    const reason = ['metadata_saving', 'source_boundary_invalid', 'summary_history_invalid', 'history_discontinuous'].includes(error?.code)
-        ? memorySaveError(error) : '';
     const message = SUMMARY_FEEDBACK_COPY.summaryRunEnded({
-        automatic, attempts, uncertain, stale, reason,
-        summarizedThrough: (getPublishedSummaryStore()?.lastSummarizedMesId ?? -1) + 1,
+        automatic, attempts, uncertain, stale, reason: summaryFailureReason(error),
     });
     postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message, uncertain });
     return message;
@@ -745,9 +748,26 @@ async function prepareSummaryExecution(execution) {
     await updateFrameStatsAfterSummary(store, execution);
 }
 
+async function runSummaryAttempt(execution, mesId, config, callbacks) {
+    const id = summaryDiagnostics.begin(execution.diagnosticRun);
+    try {
+        await prepareSummaryExecution(execution);
+        const result = await runSummaryGeneration(mesId, config, {
+            ...callbacks,
+            onProgress: progress => summaryDiagnostics.progress(id, progress),
+        }, { signal: execution.controller.signal, targetChatId: execution.chatId });
+        summaryDiagnostics.finish(id, result);
+        return result;
+    } catch (error) {
+        summaryDiagnostics.finish(id, { success: false, error,
+            cancelled: execution.controller.signal.aborted || isSummaryGenerationCancelledError(error) });
+        throw error;
+    }
+}
+
 function notifySummaryState() {
     postToFrame({ type: "GENERATION_STATE", isGenerating: guard.isRunning('summary')
-        && activeSummaryExecution?.chatId === getContext()?.chatId });
+        && activeSummaryExecution?.identity === getChatIdentity(getContext()) });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3002,7 +3022,7 @@ async function maybeAutoRunSummary(reason) {
 async function autoRunSummaryWithRetry(targetMesId, configForRun) {
     const release = guard.acquire('summary');
     if (!release) return;
-    const execution = beginSummaryExecution();
+    const execution = beginSummaryExecution(true);
     if (!execution) {
         release();
         return;
@@ -3018,8 +3038,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                 postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryStopped });
                 return;
             }
-            await prepareSummaryExecution(execution);
-            const result = await runSummaryGeneration(targetMesId, configForRun, {
+            const result = await runSummaryAttempt(execution, targetMesId, configForRun, {
                 onStatus: (text) => postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: SUMMARY_FEEDBACK_COPY.summaryAttempt(attempt, AUTO_SUMMARY_MAX_ATTEMPTS, text) }),
                 onError: (msg) => postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: msg }),
                 onComplete: async ({ newEventIds, aliasChanged, store }) => {
@@ -3043,9 +3062,6 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                     await autoVectorizeMissingEvents(store, execution);
                     await rebuildActiveVectorCacheAfterSummary(execution);
                 },
-            }, {
-                signal: execution.controller.signal,
-                targetChatId: execution.chatId,
             });
             lastResult = result;
 
@@ -3069,7 +3085,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
             automatic: true, attempts, stale: lastResult?.stale,
         });
         if (!shouldNotifyMemoryFailure(lastResult?.error, getMemoryCommitState())) return;
-        window.toastr?.[lastResult?.stale ? 'warning' : 'error'](message, SUMMARY_FEEDBACK_COPY.title);
+        window.toastr?.[lastResult?.stale ? 'warning' : 'error'](message, SUMMARY_FEEDBACK_COPY.title, { escapeHtml: true });
     } catch (error) {
         reportSummaryExecutionFailure(execution, error, { automatic: true, attempts });
     } finally {
@@ -3194,7 +3210,7 @@ async function handleFrameMessage(event) {
         }
 
         case "REQUEST_CANCEL":
-            if (activeSummaryExecution?.chatId === getContext()?.chatId && cancelActiveSummaryExecution()) {
+            if (activeSummaryExecution?.identity === getChatIdentity(getContext()) && cancelActiveSummaryExecution()) {
                 postToFrame({ type: "SUMMARY_STATUS", statusText: "正在停止..." });
             }
             break;
@@ -3751,8 +3767,7 @@ async function handleManualGenerate(mesId, config) {
     notifySummaryState();
 
     try {
-        await prepareSummaryExecution(execution);
-        const result = await runSummaryGeneration(mesId, config, {
+        const result = await runSummaryAttempt(execution, mesId, config, {
             onStatus: (text) => postSummaryExecution(execution, { type: 'SUMMARY_STATUS', statusText: text }),
             onError: (msg) => postSummaryExecution(execution, { type: 'SUMMARY_ERROR', message: msg }),
             onComplete: async ({ newEventIds, aliasChanged, store }) => {
@@ -3774,9 +3789,6 @@ async function handleManualGenerate(mesId, config) {
                 await autoVectorizeMissingEvents(store, execution);
                 await rebuildActiveVectorCacheAfterSummary(execution);
             },
-        }, {
-            signal: execution.controller.signal,
-            targetChatId: execution.chatId,
         });
         if ((result.committed || result.noContent) && isStorySummaryConsumableForCurrentChat()) {
             scheduleVectorIntegrityCheck();
@@ -4669,6 +4681,7 @@ async function unregisterEvents() {
 }
 
 async function runStorySummaryTeardown() {
+    summaryDiagnostics.clear();
     messageSources.reset();
     embeddingConnection.cancel();
     serviceTests.cancel();
@@ -4740,6 +4753,8 @@ async function deactivateCurrentChatStorySummary() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleChatDeleted(chatId) {
+    // Host deletion events carry only a filename, not its character/group owner.
+    // Keep page-lifetime diagnostic history; a filename cannot identify its records.
     logRecallRuntimeCheckpoint("chatDeleted:clear-runtime", `chat=${chatId || "-"}`);
     clearWarningCooldownsForChat(chatId);
     // Drain existing writes before deleting their cache, including when summary

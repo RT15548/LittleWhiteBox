@@ -24,4 +24,8 @@ test('quick-test selection stays local and does not become a chat attachment', a
     h.api.closeGallery();
     await h.api.openGallery('test-history', 0);
     assert.equal(document.getElementById('nd-gallery-use').hidden, false);
+    const pendingOpen = h.api.openGallery('test-history', null);
+    h.api.closeGallery();
+    await pendingOpen;
+    assert.equal(document.getElementById('nd-gallery-overlay').classList.contains('visible'), false);
 });
