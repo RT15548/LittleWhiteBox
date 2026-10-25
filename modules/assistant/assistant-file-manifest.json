@@ -1658,7 +1658,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 215165
+      "sizeBytes": 215526
     },
     {
       "source": "littlewhitebox",
@@ -1742,7 +1742,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 251459
+      "sizeBytes": 252288
     },
     {
       "source": "littlewhitebox",
@@ -1756,7 +1756,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 207759
+      "sizeBytes": 207910
     },
     {
       "source": "littlewhitebox",
@@ -1917,7 +1917,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 174836
+      "sizeBytes": 175188
     },
     {
       "source": "littlewhitebox",
@@ -2565,6 +2565,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/last-tab.js",
+      "relativePath": "modules/draw/shared/last-tab.js",
+      "extension": ".js",
+      "sizeBytes": 2088
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/llm-records-view.js",
       "relativePath": "modules/draw/shared/llm-records-view.js",
       "extension": ".js",
@@ -2617,7 +2624,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/panel-escape.js",
       "relativePath": "modules/draw/shared/panel-escape.js",
       "extension": ".js",
-      "sizeBytes": 10621
+      "sizeBytes": 11569
     },
     {
       "source": "littlewhitebox",
@@ -3279,6 +3286,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/last-tab.test.js",
+      "relativePath": "modules/draw/shared/tests/last-tab.test.js",
+      "extension": ".js",
+      "sizeBytes": 4940
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/llm-records-view.test.js",
       "relativePath": "modules/draw/shared/tests/llm-records-view.test.js",
       "extension": ".js",
@@ -3317,7 +3331,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/panel-escape.test.js",
       "relativePath": "modules/draw/shared/tests/panel-escape.test.js",
       "extension": ".js",
-      "sizeBytes": 16637
+      "sizeBytes": 19301
     },
     {
       "source": "littlewhitebox",
