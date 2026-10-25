@@ -14,7 +14,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     generate: '生成',
     retry: '重试',
     regenerate: '重新生成',
-    moreActions: '更多',
+    moreActions: '更多操作',
     regenerateFloor: '重画本楼失败图',
     regenerateFloorHint: '重新生成本楼层所有失败或结果未知的图片，已成功的不受影响',
     editTagsAction: '编辑 TAG',
