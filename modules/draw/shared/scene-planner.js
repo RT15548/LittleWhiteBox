@@ -115,7 +115,7 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         if (multi) lines.push(`  形态 ${character.formName} ${type}${danbooru}`);
         const pad = multi ? '    ' : '  ';
         const outfits = formatReferenceList(character.outfits, '服装');
-        if (character.appearance) lines.push(`${pad}外貌参考: ${character.appearance}`);
+        if (character.appearance) lines.push(`${pad}固定外貌: ${character.appearance}`);
         if (outfits) lines.push(`${pad}服装参考: ${outfits}`);
         if (dynamicStates) lines.push(`${pad}动态标签: ${dynamicStates}`);
     }
