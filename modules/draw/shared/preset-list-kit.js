@@ -9,15 +9,7 @@ import { autoScrollForPointer } from './character-list-scroll.js';
 import { movePresetId } from './preset-order.js';
 import { createPresetListView } from './preset-list-view.js';
 import { createSortableList } from './sortable-list.js';
-
-export function defaultEscapeHtml(text = '') {
-    return String(text ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+import { escapeHtml as defaultEscapeHtml } from './html-escape.js';
 
 /** 拖拽中靠近列表上 / 下缘时先滚列表自己，滚到头再带动外层 / 整页。 */
 export function autoScrollPresetList(event, list) {

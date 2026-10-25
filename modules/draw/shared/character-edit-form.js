@@ -4,6 +4,7 @@
 // 分区折叠按卡片 id 记在 createEditorSectionState() 里，整个页面会话内有效；两者都不进入保存的数据。
 
 import { createSortableList } from './sortable-list.js';
+import { escapeHtml as defaultEscapeHtml } from './html-escape.js';
 import { createCharacterActionIcon, renderCharacterActionIcon } from './character-action-icons.js';
 import { movePresetId } from './preset-order.js';
 import {
@@ -62,10 +63,6 @@ function relabelEditorActions(row, subject, enabled) {
     row.querySelector('.editor-item-delete')?.setAttribute('aria-label', `${ITEM_MENU_COPY.remove} ${subject}`);
     row.querySelector('.char-menu-button')?.setAttribute('aria-label', `${ITEM_MENU_COPY.more} ${subject}`);
     row.querySelector('.char-menu')?.setAttribute('aria-label', `${ITEM_MENU_COPY.more} ${subject}`);
-}
-
-function defaultEscapeHtml(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function kindMeta(kind) {
@@ -546,7 +543,7 @@ export function renderCharacterFormSections(model, {
         key: 'appearance',
         title: FIXED_APPEARANCE_COPY.title,
         collapsed: isSectionCollapsed('appearance'),
-        actionsHtml: `<button class="btn" type="button" data-action="search-danbooru" data-id="${escapeHtml(charId)}"${keyAttr} style="padding:2px 8px;font-size:10px;"${!danbooruEnabled ? ' disabled style="opacity:0.3"' : ''}><i class="fa-solid fa-magnifying-glass"></i> Danbooru</button>`,
+        actionsHtml: `<button class="btn" type="button" data-action="search-danbooru" data-id="${escapeHtml(charId)}"${keyAttr} style="padding:2px 8px;font-size:10px;${danbooruEnabled ? '' : 'opacity:0.3;'}"${danbooruEnabled ? '' : ' disabled'}><i class="fa-solid fa-magnifying-glass"></i> Danbooru</button>`,
         bodyHtml: `
                             <p class="form-hint char-section-hint">${FIXED_APPEARANCE_COPY.hint}</p>
                             <div class="form-group">

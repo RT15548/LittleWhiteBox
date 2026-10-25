@@ -4,6 +4,8 @@
 // 首次绘制前的预置由 theme-boot.js 完成（避免闪一下系统主题）；本模块负责读写、切换和菜单。
 // 不依赖酒馆宿主模块，DOM 与存储都可注入，便于测试。
 
+import { createListenerBag, roveMenuFocus } from './menu-keyboard.js';
+
 export const THEME_STORAGE_KEY = 'xb-draw-theme';
 export const THEME_ATTRIBUTE = 'data-theme';
 
@@ -93,7 +95,7 @@ export function mountThemeSwitch({ document, storage = defaultStorage(document),
     const root = document.documentElement;
     let current = applyTheme(root, readStoredTheme(storage));
     let open = false;
-    const listeners = [];
+    const { on, clear: removeListeners } = createListenerBag();
 
     const markIcon = icon(document, choiceOf(current).icon);
     const mark = create(document, 'span', { className: 'theme-switch-mark' }, [markIcon]);
@@ -143,11 +145,6 @@ export function mountThemeSwitch({ document, storage = defaultStorage(document),
         return current;
     }
 
-    function on(target, type, handler, capture) {
-        target.addEventListener(type, handler, capture);
-        listeners.push(() => target.removeEventListener(type, handler, capture));
-    }
-
     on(button, 'click', () => setOpen(!open, { focus: open ? null : 'current' }));
     on(button, 'keydown', (event) => {
         if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -173,12 +170,7 @@ export function mountThemeSwitch({ document, storage = defaultStorage(document),
             setOpen(false);
             return;
         }
-        const index = items.indexOf(event.target?.closest?.('[role="menuitemradio"]'));
-        const move = (to) => { event.preventDefault?.(); items[(to + items.length) % items.length]?.focus?.(); };
-        if (event.key === 'ArrowDown') move(index + 1);
-        else if (event.key === 'ArrowUp') move(index < 0 ? items.length - 1 : index - 1);
-        else if (event.key === 'Home') move(0);
-        else if (event.key === 'End') move(items.length - 1);
+        roveMenuFocus(event, items, items.indexOf(event.target?.closest?.('[role="menuitemradio"]')));
     }, true);
     on(document, 'pointerdown', (event) => {
         if (open && !wrap.contains(event.target)) setOpen(false);
@@ -192,7 +184,7 @@ export function mountThemeSwitch({ document, storage = defaultStorage(document),
         isOpen: () => open,
         closeMenu: () => setOpen(false),
         destroy() {
-            for (const remove of listeners.splice(0)) remove();
+            removeListeners();
         },
     };
 }
