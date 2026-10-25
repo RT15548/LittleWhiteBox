@@ -3760,7 +3760,9 @@ async function handleFrameMessage(event) {
                 }
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
                 if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
-            }, '角色标签已保存');
+            }, '角色标签已保存', data.requestId ? { notify: false } : undefined);
+            // 带 requestId 的是编辑区的自动保存：只回一条带 requestId 的回执（页面据此串行保存、更新状态栏），不占用全局状态栏。
+            if (data.requestId) postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'char-tags', { requestId: data.requestId });
             // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。
             if (!ok) await sendInitData();
             break;

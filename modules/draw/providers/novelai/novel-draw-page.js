@@ -15,7 +15,6 @@ import {
     FORM_MAX_COUNT,
     NAMED_TAG_EDITOR_KINDS,
     appendNamedTagEditorItem,
-    applyFormModelsToCharacter,
     collectFormModels,
     createBlankFormModel,
     createEditorSectionState,
@@ -48,6 +47,15 @@ import {
 } from '../../shared/character-edit-form.js';
 import { EXTRA_TAGS_COPY, renderCharacterEditorNote } from '../../shared/character-editor-copy.js';
 import { installTextareaAutofit } from '../../shared/textarea-autofit.js';
+import { createAutoSave, AUTO_SAVE_COPY } from '../../shared/auto-save.js';
+import {
+    applyCharacterEdit,
+    isBlankCharacterEditor,
+    isCharacterRowToggleTarget,
+    readCharacterEditor,
+    renderCharacterSaveStatus,
+    setCharacterSaveStatus,
+} from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
@@ -161,6 +169,8 @@ const gallerySentinelObservers = new Map(); // charName -> { observer, sentinel 
 // DOM 里就没有展开状态了，后到的真实摘要只能画出全折叠的列表。
 const expandedGalleryChars = new Set();
 let editingCharId = null;
+// 正在编辑的那张卡片的自动保存（同一时刻最多一张）：{ id, saver, status }，见下方“角色编辑区：展开 / 收起与自动保存”。
+let charAutoSave = null;
 // 正在编辑的卡片的表单内容快照：任何会重绘列表的操作（库操作、INIT_DATA 回包）前读回，重绘后恢复，
 // 避免丢掉尚未点“保存”的输入。
 let editingDraft = null;
@@ -671,9 +681,9 @@ function getPersistedLibrary() {
 
 // 每次保存都带上完整的角色与分组快照：宿主按整表覆盖，不做按 id 的远程操作。
 // 未保存的空白草稿不会被写进去（否则任何库操作都会把空名角色连同存盘，并计入启用数 / 后台配方）。
-function saveCharacterLibrary(restorePresetReferences) {
+function saveCharacterLibrary(restorePresetReferences, requestId = '') {
     postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: persistedCharacters(), characterGroups: state.characterGroups || [],
-        ...(restorePresetReferences ? { restorePresetReferences } : {}) });
+        ...(restorePresetReferences ? { restorePresetReferences } : {}), ...(requestId ? { requestId } : {}) });
 }
 
 function registerDraftCharacter(char) {
@@ -950,6 +960,11 @@ function handleGroupAction(action, groupId, trigger) {
         if (icon) icon.className = `fa-solid ${collapsed ? 'fa-chevron-right' : 'fa-chevron-down'}`;
         return;
     }
+    // 新建角色会展开新的编辑区：先把正在编辑的那张保存好（保存不了就留在原处，不新建）。
+    if (action === 'add' && editingCharId) {
+        runEditorTask(leaveCharacterEditor().then((left) => { if (left) handleGroupAction(action, groupId, trigger); }));
+        return;
+    }
     runLibraryAction(() => {
         const library = getCharacterLibrary();
         const members = library.characters.filter(char => (char.groupId || '') === groupId);
@@ -964,14 +979,10 @@ function handleGroupAction(action, groupId, trigger) {
             const { library: next, id } = CL.addCharacter(library, { name: '' }, { groupId });
             state.characterTags = next.characters;
             registerDraftCharacter(next.characters.find(char => char.id === id));
-            editingCharId = id;
-            editingDraft = null;
             charGroupCollapsed[collapseKey(groupId)] = false;
             saveCharGroupCollapsed();
             resetCharacterFilters(false);
-            renderCharList();
-            revealEditingCard();
-            setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
+            runEditorTask(openCharacterEditor(id, { fresh: true }));
         } else if (action === 'delete') {
             const group = library.groups.find(item => item.id === groupId);
             if (!confirm(`确定删除分组“${group?.name || ''}”？`)) return;
@@ -1416,6 +1427,7 @@ function setupCharacterDragAndSelection() {
         else if (groupHandle) startDrag(event, 'group', groupHandle.dataset.dragGroup);
     });
     list.addEventListener('keydown', handleDragKeydown);
+    bindCharacterAutoSave(list);
     bindInlineRename(list, { selector: '.char-group-name.inline-name', onCommit: renameGroupInline });
     list.addEventListener('change', (event) => {
         const box = event.target;
@@ -1450,6 +1462,190 @@ function setupCharacterDragAndSelection() {
         if (button && !button.disabled) runBatchAction(button.dataset.batch);
     });
     $('nd_char_undo_btn').addEventListener('click', performUndo);
+}
+
+// ── 角色编辑区：展开 / 收起与自动保存 ──────────────────────────────────
+// 点角色行展开 / 收起编辑区（同一时刻只开一张）；没有手动保存 / 取消：改动停下来等一小会儿后自动落盘，失焦 / 收起 / 切换 / 关页时立刻落盘。
+// 保存只改角色对象并发给宿主，不重绘、不碰表单节点，输入中的焦点和光标不受影响；保存一个接一个（见 auto-save.js）。
+const CHAR_SAVE_ACK_TIMEOUT_MS = 10000;
+let charSaveSeq = 0;
+let charSavePending = null; // { requestId, resolve, timer }：已发给宿主、等回执的那次保存
+let charEditorBusy = false; // 正在保存后切换，忽略重复点击
+let charTouchQueued = false;
+
+function editingCardOf(id) {
+    return Array.from(document.querySelectorAll('#nd_char_list .char-card.editing')).find(node => node.dataset.id === id) || null;
+}
+
+// 发出保存并等宿主回执（STATUS，target: 'char-tags'）；失败或超时返回 false。
+function saveCharacterLibraryAcked() {
+    return new Promise((resolve) => {
+        const requestId = `char-save-${++charSaveSeq}`;
+        const timer = setTimeout(() => {
+            if (charSavePending?.requestId !== requestId) return;
+            charSavePending = null;
+            resolve(false);
+        }, CHAR_SAVE_ACK_TIMEOUT_MS);
+        charSavePending = { requestId, resolve, timer };
+        saveCharacterLibrary(undefined, requestId);
+    });
+}
+
+function handleCharSaveStatus(data) {
+    if (!charSavePending || charSavePending.requestId !== data.requestId || !['success', 'error'].includes(data.state)) return;
+    const { resolve, timer } = charSavePending;
+    clearTimeout(timer);
+    charSavePending = null;
+    resolve(data.state === 'success');
+}
+
+// 保存后只轻量刷新摘要行与计数（名字、类型徽标、状态、分组计数）：不重绘，正在输入的表单原样保留。
+function refreshCharSummary(card, char) {
+    if (!card) return;
+    const name = card.querySelector('.char-name');
+    if (name) name.textContent = char.name || '新角色';
+    const identity = card.querySelector('.char-identity');
+    let badge = identity?.querySelector('.char-type-badge');
+    const typeShort = formatFormTypeSummary(char, shortCharType);
+    if (!typeShort) badge?.remove();
+    else if (identity) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'char-type-badge';
+            identity.appendChild(badge);
+        }
+        badge.textContent = typeShort;
+    }
+    const status = card.querySelector('.char-status');
+    if (status) setCharStatus(status, char);
+    refreshEnabledSummary();
+}
+
+// 把读出的表单写回角色并存盘；点过“保存”才算真正的角色，所以第一次保存时把它从未保存草稿里移出（失败再放回去）。
+async function saveEditedCharacter(id, value) {
+    const char = state.characterTags.find(item => item.id === id);
+    if (!char) return { ok: false, error: '角色已不存在' };
+    applyCharacterEdit(char, value);
+    const wasDraft = draftCharacters.delete(id);
+    const ok = await saveCharacterLibraryAcked();
+    if (!ok) {
+        if (wasDraft) registerDraftCharacter(char);
+        return { ok: false, error: '保存失败' };
+    }
+    refreshCharSummary(editingCardOf(id), char);
+    return { ok: true };
+}
+
+function startCharAutoSave(id, { fresh = false } = {}) {
+    discardCharacterAutoSave();
+    const session = { id, saver: null, status: { state: 'saved', text: AUTO_SAVE_COPY.saved } };
+    let lastRead = null;
+    session.saver = createAutoSave({
+        // 卡片暂时不在 DOM 里（例如被筛选条件隐藏）时沿用上一次读到的内容。
+        read: () => {
+            const card = editingCardOf(id);
+            if (card) lastRead = readCharacterEditor(card);
+            return lastRead || { error: '' };
+        },
+        save: value => saveEditedCharacter(id, value),
+        onStatus: (status, text) => {
+            session.status = { state: status, text };
+            setCharacterSaveStatus(editingCardOf(id), status, text);
+        },
+    });
+    charAutoSave = session;
+    // 已有角色：打开时的内容就是“已保存”的基线；新建的角色还没存过，状态栏先提示要填名称。
+    const opened = editingCardOf(id) ? readCharacterEditor(editingCardOf(id)) : null;
+    if (!fresh && opened && !opened.error) session.saver.setBaseline(opened.key);
+    session.saver.touch();
+}
+
+function discardCharacterAutoSave() {
+    charAutoSave?.saver.dispose();
+    charAutoSave = null;
+}
+
+function scheduleCharAutoSaveTouch() {
+    if (!charAutoSave || charTouchQueued) return;
+    charTouchQueued = true;
+    setTimeout(() => { charTouchQueued = false; charAutoSave?.saver.touch(); }, 0);
+}
+
+// 离开当前编辑区之前把改动存好：空白的新建草稿直接丢掉；存不了（名称为空、宿主保存失败）就留在原处，状态栏写明原因。返回是否可以离开。
+async function leaveCharacterEditor() {
+    const id = editingCharId;
+    if (!id) return true;
+    const card = editingCardOf(id);
+    if (charAutoSave?.id === id && !(card && draftCharacters.has(id) && isBlankCharacterEditor(card))) {
+        const result = await charAutoSave.saver.flush();
+        if (!result.ok) {
+            editingCardOf(id)?.querySelector('.char-edit-name')?.focus();
+            return false;
+        }
+    }
+    discardCharacterAutoSave();
+    editingCharId = null;
+    editingDraft = null;
+    return true;
+}
+
+// 展开某张角色卡的编辑区（先收起并保存别的）；fresh：刚新建的草稿。
+async function openCharacterEditor(id, { fresh = false } = {}) {
+    if (editingCharId === id || charEditorBusy) return;
+    charEditorBusy = true;
+    try {
+        if (!(await leaveCharacterEditor())) return;
+        editingCharId = id;
+        editingDraft = null;
+        renderCharList();
+        startCharAutoSave(id, { fresh });
+        revealEditingCard();
+        if (fresh) setTimeout(() => editingCardOf(id)?.querySelector('.char-edit-name')?.focus(), 50);
+    } finally {
+        charEditorBusy = false;
+    }
+}
+
+async function closeCharacterEditor() {
+    const id = editingCharId;
+    if (!id || charEditorBusy) return;
+    charEditorBusy = true;
+    try {
+        if (!(await leaveCharacterEditor())) return;
+        renderCharList(); // 空白的新建草稿在这里被移除
+        revealCharCard(id);
+    } finally {
+        charEditorBusy = false;
+    }
+}
+
+function toggleCharacterEditor(id) {
+    return editingCharId === id ? closeCharacterEditor() : openCharacterEditor(id);
+}
+
+// 点击 / 键盘触发的展开、收起、新建不关心结果（存不了时状态栏已写明原因），这里只保证不留下未处理的 Promise。
+function runEditorTask(task) {
+    task.catch((caughtError) => { console.warn({ source: import.meta.url, operation: 'character-editor' }, caughtError); });
+}
+
+function bindCharacterAutoSave(list) {
+    // 表单改动（输入、下拉、增删 / 排序 / 启停条目等点击与拖动）之后重新判断要不要保存；内容没变时什么也不做。
+    for (const type of ['input', 'change', 'click', 'pointerup', 'keyup']) {
+        list.addEventListener(type, (event) => { if (event.target.closest?.('.char-card.editing')) scheduleCharAutoSaveTouch(); });
+    }
+    // 焦点离开输入框（换到别的输入框、按钮或页面其它地方）就立刻保存。
+    list.addEventListener('focusout', (event) => {
+        if (event.target.closest?.('.char-card.editing')) charAutoSave?.saver.flush();
+    });
+    // 关页 / 切走：赶在页面销毁前把还没落盘的发出去（保存空闲时第一次 save 是同步发出的）。
+    window.addEventListener('pagehide', () => charAutoSave?.saver.flush());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') charAutoSave?.saver.flush(); });
+    list.addEventListener('keydown', (event) => {
+        const toggle = event.target.closest?.('[data-char-toggle]');
+        if (!toggle || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        runEditorTask(toggleCharacterEditor(toggle.closest('.char-card')?.dataset.id));
+    });
 }
 
 // 读出正在编辑的卡片的表单内容（包括刚点“添加服装/动态标签”还没填的空行）。
@@ -1515,6 +1711,7 @@ function reconcileEditingState() {
         state.characterTags = state.characterTags.filter(char => char.id !== id);
     }
     if (editingDraft && editingDraft.id !== editingCharId) editingDraft = null;
+    if (charAutoSave && charAutoSave.id !== editingCharId) discardCharacterAutoSave(); // 卡片被删除 / 放弃：它的自动保存也随之结束
 }
 
 // 每个展开的分组有自己的滚动区（.char-group-body 的 max-height + overflow-y: auto）。整体重绘会换掉这些节点，
@@ -1672,10 +1869,10 @@ function renderCharList({ keepDraft = false } = {}) {
             ? `
                         <button type="button" role="menuitem" class="char-menu-item char-lock-control${lockInfo.own ? ' active' : ''}" data-action="toggle-lock" data-id="${charId}" title="${lockInfo.title}" aria-label="${lockActionLabel} ${charName}" aria-pressed="${lockInfo.own}"><i class="fa-solid ${lockInfo.icon}" aria-hidden="true"></i><span class="char-menu-label">${lockActionLabel}</span></button>`
             : '';
-        // 编辑中：保存 / 取消 / 添加形态放在吸顶的摘要行里，与启用 / 编辑 / 更多在同一行，长表单滚动时始终点得到。
+        // 编辑中：自动保存的状态（已保存 / 保存中… / 未保存：原因）和“添加形态”放在吸顶的摘要行里，长表单滚动时始终看得到；没有手动保存 / 取消。
+        const saveStatus = charAutoSave?.id === c.id ? charAutoSave.status : { state: 'saved', text: AUTO_SAVE_COPY.saved };
         const editButtons = isEditing
-            ? `<button type="button" class="btn btn-primary btn-sm char-edit-save" data-action="save" data-id="${charId}" title="保存" aria-label="保存 ${charName}"><i class="fa-solid fa-check" aria-hidden="true"></i><span>保存</span></button>
-                    <button type="button" class="btn btn-sm char-edit-cancel" data-action="cancel" data-id="${charId}" title="取消" aria-label="取消编辑 ${charName}"><i class="fa-solid fa-xmark" aria-hidden="true"></i><span>取消</span></button>
+            ? `${renderCharacterSaveStatus(saveStatus.state, saveStatus.text, escapeHtml)}
                     <button type="button" class="btn btn-sm char-edit-add-form" data-action="add-form" data-id="${charId}" title="${escapeHtml(FORM_COPY.hint)}" aria-label="${FORM_COPY.addAction} ${charName}"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>${FORM_COPY.addAction}</span></button>`
             : '';
         const canDrag = !!CL && !charFiltersActive() && !isEditing;
@@ -1683,7 +1880,7 @@ function renderCharList({ keepDraft = false } = {}) {
             <div class="char-card-summary">
                 ${canDrag ? `<span class="char-drag-handle" role="button" tabindex="0" data-drag-char="${charId}" title="拖动排序，也可聚焦后按 ↑ / ↓" aria-label="拖动排序 ${charName}">⋮⋮</span>` : ''}
                 ${charSelectMode && !draftCharacters.has(c.id) ? `<input type="checkbox" class="char-select" data-select-char="${charId}" aria-label="选择 ${charName}">` : ''}
-                <div class="char-identity">
+                <div class="char-identity" role="button" tabindex="0" aria-expanded="${isEditing}" aria-label="${isEditing ? '收起' : '展开'}编辑 ${charName}" data-char-toggle>
                     <span class="char-name">${charName}</span>
                     ${typeShort ? `<span class="char-type-badge">${escapeHtml(typeShort)}</span>` : ''}
                 </div>
@@ -1691,7 +1888,6 @@ function renderCharList({ keepDraft = false } = {}) {
                 <div class="char-actions" aria-label="角色操作">
                     ${editButtons}
                     <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>
-                    <button type="button" class="char-action-button${isEditing ? ' active' : ''}" data-action="edit" data-id="${charId}" title="编辑" aria-label="编辑 ${charName}">${renderCharacterActionIcon('edit')}</button>
                     <span class="char-menu-wrap" data-card-menu>
                         <button type="button" class="char-action-button char-menu-button" data-action="menu" data-id="${charId}" title="${CHARACTER_CARD_COPY.more}" aria-label="${CHARACTER_CARD_COPY.more} ${charName}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                         <div class="char-menu" role="menu" aria-label="${CHARACTER_CARD_COPY.more} ${charName}" hidden>${lockItem}
@@ -1956,40 +2152,6 @@ function handleCharAction(action, id, card, trigger, event) {
         addCharacterForm(id);
     } else if (action === 'remove-form') {
         removeCharacterForm(trigger?.dataset.formKey);
-    } else if (action === 'edit') {
-        if (editingCharId === id) return;
-        editingCharId = id;
-        editingDraft = null;
-        renderCharList();
-        revealEditingCard();
-    } else if (action === 'cancel') {
-        editingCharId = null;
-        editingDraft = null;
-        renderCharList(); // 未保存的空白草稿在这里被移除
-        revealCharCard(id);
-    } else if (action === 'save') {
-        const char = state.characterTags.find(c => c.id === id);
-        if (!char) return;
-        
-        const name = card.querySelector('.char-edit-name')?.value?.trim();
-        if (!name) { alert('请输入角色名称'); return; }
-        
-        char.name = name;
-        char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-        // 多形态：第一张形态卡片写回顶层字段，其余写回 forms；单形态：读整张卡片（forms 不留）。
-        const formModels = collectFormModels(card);
-        applyFormModelsToCharacter(char, formModels || [{
-            ...readFormFields(card),
-            name: card.querySelector('.char-edit-form-name')?.value || '',
-        }]);
-
-        // 点了“保存”才算真正的角色：从未保存草稿里移出，之后才会随库一起存盘。
-        draftCharacters.delete(id);
-        editingDraft = null;
-        editingCharId = null;
-        saveCharacterLibrary();
-        renderCharList();
-        revealCharCard(id);
     } else if (action === 'duplicate') {
         if (draftCharacters.has(id)) { alert('请先保存这个新角色，再复制'); return; }
         runLibraryAction(() => {
@@ -2136,6 +2298,7 @@ function renderLocalDanbooruResults(query, results, ref) {
             panel.classList.add('hidden');
             panel.innerHTML = '';
             renderCharList({ keepDraft: true });
+            scheduleCharAutoSaveTouch();
         });
     });
 }
@@ -4026,6 +4189,10 @@ window.addEventListener('message', event => {
                 handleGroupPresetStatus(data);
                 break;
             }
+            if (data.target === 'char-tags') {
+                handleCharSaveStatus(data);
+                break;
+            }
             if (data.target === 'api-presets' || (data.target === 'api' && data.requestId)) {
                 handleApiSaveStatus(data);
                 break;
@@ -4295,18 +4462,16 @@ function initializePage() {
         resetCharacterFilters();
     });
     
-    $('nd_char_add').addEventListener('click', () => {
+    $('nd_char_add').addEventListener('click', () => runEditorTask(addCharacterDraft()));
+    async function addCharacterDraft() {
+        if (editingCharId && !(await leaveCharacterEditor())) return; // 先保存正在编辑的那张；保存不了就留在原处
         const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, enabled: true, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', outfits: [], dynamicStates: [] };
         state.characterTags.push(nc);
         registerDraftCharacter(nc);
-        editingCharId = nc.id;
-        editingDraft = null;
         resetCharacterFilters(false);
-        renderCharList();
         switchView('characters');
-        revealEditingCard();
-        setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
-    });
+        await openCharacterEditor(nc.id, { fresh: true });
+    }
     
     // 角色编辑卡里的文本框（外貌 / 条目标签）随内容长高；折叠 / 展开、重绘、宽度变化后自动补量。
     installTextareaAutofit($('nd_char_list'));
@@ -4318,7 +4483,11 @@ function initializePage() {
             return;
         }
         const btn = e.target.closest('[data-action]');
-        if (!btn) return;
+        if (!btn) {
+            // 点角色行（摘要）本身：展开 / 收起编辑区；启用开关、“…”菜单、勾选框、拖动手柄各管各的，不触发。
+            if (isCharacterRowToggleTarget(e.target)) runEditorTask(toggleCharacterEditor(e.target.closest('.char-card')?.dataset.id));
+            return;
+        }
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
         if (btn.closest('[role="menu"]')) cardMenu?.close({ restoreFocus: true });

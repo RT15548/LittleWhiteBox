@@ -210,7 +210,13 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     background: var(--bg-secondary); border-radius: 8px 8px 0 0; border-bottom: 1px solid var(--border);
 }
 .char-group-body .char-card.editing > .char-card-summary { top: -2px; } /* 分组滚动区自带 2px 上内边距：抵消它，滚过去的内容不会从栏上方漏出来 */
-.char-edit-save, .char-edit-cancel, .char-edit-add-form { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
+.char-edit-add-form { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
+/* 编辑区自动保存的状态（已保存 / 保存中… / 未保存：原因）：吸顶栏里的一小段文字，没有保存 / 取消按钮；未保存用加粗的危险色，一眼能看出这次没存上。 */
+.char-save-status { flex-shrink: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
+.char-save-status[data-state="invalid"], .char-save-status[data-state="error"] { color: var(--danger); font-weight: 600; }
+/* 角色行本身可以点（展开 / 收起编辑区）：鼠标指针提示一下；里面的按钮、勾选框、拖动手柄、输入框保持自己的指针样式。 */
+#nd_char_list .char-card-summary { cursor: pointer; }
+#nd_char_list .char-card-summary input { cursor: auto; }
 .char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item, .char-form { scroll-margin-top: 72px; scroll-margin-bottom: 16px; } /* 聚焦 / 滚入视野时别被吸顶栏盖住 */
 /* ── 可折叠分区（固定外貌〔正向 + 负向〕/ 服装 / 动态标签）── */
 .char-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
@@ -427,9 +433,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
 }
 @media (max-width: 480px) {
-    /* 手机宽度：编辑摘要行里的 保存 / 取消 / 添加形态 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
-    .char-edit-save span, .char-edit-cancel span, .char-edit-add-form span { display: none; }
-    .char-edit-save, .char-edit-cancel, .char-edit-add-form { padding-inline: 10px; }
+    /* 手机宽度：编辑摘要行里的 添加形态 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
+    .char-edit-add-form span { display: none; }
+    .char-edit-add-form { padding-inline: 10px; }
 }
 @media (hover: none) and (pointer: coarse) {
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }

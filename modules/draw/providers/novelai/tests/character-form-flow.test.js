@@ -34,7 +34,17 @@ Object.defineProperty(selectProto, 'value', {
 const posted = [];
 const noop = () => {};
 Object.assign(window, {
-    parent: { postMessage: (message) => posted.push(message) },
+    // 宿主：对带 requestId 的角色保存（编辑区自动保存）回一条成功回执，页面据此串行保存。
+    parent: {
+        postMessage: (message) => {
+            posted.push(message);
+            if (message.type !== 'SAVE_CHARACTER_TAGS' || !message.requestId) return;
+            setTimeout(() => window.dispatchEvent(Object.assign(new window.Event('message'), {
+                origin: window.location.origin, source: window.parent,
+                data: { source: 'LittleWhiteBox-NovelDraw', type: 'STATUS', state: 'success', target: 'char-tags', requestId: message.requestId },
+            })), 0);
+        },
+    },
     matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
     requestAnimationFrame: (callback) => setTimeout(callback, 0),
     cancelAnimationFrame: clearTimeout,
@@ -78,14 +88,17 @@ async function bootPage() {
 
 const click = (element) => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true }));
 const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+// 点角色行展开 / 收起编辑区（没有编辑 / 保存 / 取消按钮）；收起时先自动保存，所以多等一会儿。
+const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
+const openEditor = async (id) => { click(document.querySelector(`#nd_char_list .char-card[data-id="${id}"] .char-card-summary`)); await settle(); };
+const closeEditor = async () => { click(document.querySelector('#nd_char_list .char-card.editing .char-card-summary')); await settle(); };
 
 test('add-form / remove-form drive the real character edit card', async () => {
     await bootPage();
     const list = document.getElementById('nd_char_list');
     assert.ok(list.querySelector('.char-card'), 'character card rendered');
 
-    click(list.querySelector('[data-action="edit"]'));
-    await flush();
+    await openEditor('c1');
     const editing = () => list.querySelector('.char-card.editing');
     assert.ok(editing(), 'card is in edit mode');
     assert.equal(editing().querySelectorAll('.char-form').length, 0, 'plain single layout before adding a form');
@@ -96,7 +109,8 @@ test('add-form / remove-form drive the real character edit card', async () => {
     assert.ok(addButton, 'add-form button is in the sticky summary bar');
     assert.equal(editing().querySelectorAll('.char-edit-form [data-action="add-form"]').length, 0);
     assert.equal(editing().querySelectorAll('[data-action="add-form"]').length, 1);
-    assert.equal(addButton.previousElementSibling.getAttribute('data-action'), 'cancel');
+    assert.ok(addButton.previousElementSibling.classList.contains('char-save-status'), 'the auto-save status sits right before 添加形态 (no 保存 / 取消 buttons)');
+    assert.equal(editing().querySelectorAll('[data-action="save"], [data-action="cancel"], [data-action="edit"]').length, 0, 'no pen / 保存 / 取消 buttons');
     assert.equal(addButton.nextElementSibling.getAttribute('data-action'), 'toggle-enabled');
     assert.equal(addButton.getAttribute('title'), FORM_COPY.hint);
     assert.equal(addButton.getAttribute('data-id'), 'c1');
@@ -154,16 +168,13 @@ test('the edit form has no 所属分组 dropdown: saving keeps the group, and dr
     const groupOf = id => list.querySelector(`.char-card[data-id="${id}"]`)?.closest('.char-group')?.dataset.groupId;
     const lastSaved = () => posted.filter(message => message.type === 'SAVE_CHARACTER_TAGS').at(-1);
 
-    click(editing().querySelector('[data-action="cancel"]'));
-    await flush();
+    await closeEditor();
     assert.equal(groupOf('c1'), 'g1');
-    click(list.querySelector('.char-card[data-id="c1"] [data-action="edit"]'));
-    await flush();
+    await openEditor('c1');
     assert.equal(editing().querySelectorAll('.char-edit-group, [data-saved-group]').length, 0, 'no group dropdown in the edit form');
     assert.ok(!editing().textContent.includes('所属分组'));
     editing().querySelector('.char-edit-name').value = '阿璃改';
-    click(editing().querySelector('[data-action="save"]'));
-    await flush();
+    await closeEditor();
     const saved = lastSaved().characterTags.find(char => char.id === 'c1');
     assert.equal(saved.name, '阿璃改');
     assert.equal(saved.groupId, 'g1', 'saving leaves groupId untouched');
@@ -201,12 +212,10 @@ test('the summary bar badge lists every form type in order, and each form header
         root.querySelector('.char-edit-type').dispatchEvent(new window.Event('change', { bubbles: true }));
     };
 
-    click(editing().querySelector('[data-action="cancel"]'));
-    await flush();
+    await closeEditor();
     assert.equal(badgeOf('c1'), 'girl', 'a single-form character keeps its one type');
 
-    click(list.querySelector('.char-card[data-id="c1"] [data-action="edit"]'));
-    await flush();
+    await openEditor('c1');
     click(editing().querySelector('[data-action="add-form"]'));
     await flush();
     const [first, second] = Array.from(editing().querySelectorAll('.char-form'));
@@ -225,8 +234,7 @@ test('the summary bar badge lists every form type in order, and each form header
     assert.equal(second.querySelector('.char-form-type').textContent, 'mature', 'custom types use their first word');
     select(second, 'other');
 
-    click(editing().querySelector('[data-action="save"]'));
-    await flush();
+    await closeEditor();
     assert.equal(badgeOf('c1'), 'boy,other');
 });
 
@@ -241,8 +249,7 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     };
     const menuLabels = root => Array.from(root.querySelectorAll('[role="menuitem"] .char-menu-label')).map(node => node.textContent);
 
-    click(list.querySelector('.char-card[data-id="c1"] [data-action="edit"]'));
-    await flush();
+    await openEditor('c1');
     let forms = Array.from(editing().querySelectorAll('.char-form'));
     assert.equal(forms.length, 2);
     // 头部：启用开关是图标按钮，另有一个“…”菜单（复制、删除）
@@ -303,8 +310,7 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     assert.equal(outfitRows[1].dataset.enabled, 'false');
     assert.equal(forms[0].querySelector('.char-edit-section[data-section="outfits"] .char-section-count').textContent, '1/2');
 
-    click(editing().querySelector('[data-action="save"]'));
-    await flush();
+    await closeEditor();
     const saved = lastSaved();
     assert.equal(saved.formDisabled, true, 'the first form flag is stored on the character itself');
     assert.deepEqual(saved.forms.map(form => [form.name, form.enabled]), [['兽形', false], ['兽形 副本', undefined]]);
