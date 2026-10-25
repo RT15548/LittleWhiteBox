@@ -26,6 +26,9 @@ import { getPendingImageJobSlots, PendingJobState } from './pending-image-jobs.j
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { hasPreviewImage, PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
+
+// 失败占位条上的重试图标（与 fork 一致的内联 SVG，避免外链字体依赖）
+export const RELOAD_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex:none;"><path d="M19.933 13.041a8 8 0 1 1 -9.925 -8.788c3.899 -1 7.935 1.007 9.425 4.747"></path><path d="M20 4v5h-5"></path></svg>';
 import { getSlotActivity } from './slot-activity.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
@@ -274,7 +277,12 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-actions{display:flex;flex-shrink:0;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
-.xb-nd-img button:focus-visible,.xb-nd-img summary:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.xb-nd-img button:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+/* 错误详情悬浮提示：失败条标题上 hover/聚焦弹出完整报错（fork 同款） */
+.xb-nd-error-tip{cursor:help;outline:none;position:relative}
+.xb-nd-error-tip::after{content:attr(data-tip);display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(320px,80vw);padding:8px 10px;border-radius:8px;background:rgba(20,20,20,.96);color:#fff;font-size:12px;font-weight:400;line-height:1.5;white-space:normal;text-align:left;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+.xb-nd-error-tip:hover::after,.xb-nd-error-tip:focus::after{display:block}
+.xb-nd-error-tip[data-tip=""]{cursor:default}
 .xb-nd-failed-icon{display:inline-block;color:rgba(248,113,113,0.9);font-size:14px;margin-inline-end:6px}
 .xb-nd-failed-title{display:inline;color:inherit;font-size:13px}
 .xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin:8px 0 12px;overflow-wrap:anywhere}
@@ -696,24 +704,21 @@ ${buildTagEditor(tags, true)}
 </div>`;
 }
 
-export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags, positive, errorType, errorMessage, historyCount = 0 }) {
+export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags, title = '', positive, errorType, errorMessage, historyCount = 0 }) {
     const escapedTags = escapeHtml(tags);
     const escapedPositive = escapeHtml(positive);
-    return `<div class="xb-nd-img" data-slot-id="${slotId}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(248,113,113,0.5);border-radius:14px;padding:20px;background:rgba(248,113,113,0.05);">
-<div class="xb-nd-failed-icon" aria-hidden="true">⚠</div>
-<div class="xb-nd-failed-title">${escapeHtml(errorType || DRAW_SLOT_COPY.generationFailed)}</div>
-<div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '')}</div>
-<div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.regenerate}</button>
-    ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
-    <details class="xb-nd-failed-more">
-        <summary>${DRAW_SLOT_COPY.moreActions}</summary>
-        <div class="xb-nd-failed-options">
-            <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
-            <button class="xb-nd-edit-btn" data-action="retry-floor-failed" title="${DRAW_SLOT_COPY.regenerateFloorHint}">${DRAW_SLOT_COPY.regenerateFloor}</button>
-            <button class="xb-nd-remove-btn" data-action="remove-placeholder">${DRAW_SLOT_COPY.remove}</button>
-        </div>
-    </details>
+    return `<div class="xb-nd-img" data-slot-id="${slotId}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapedTags}" data-title="${escapeHtml(String(title || ''))}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;background:#C0392B;border:1px solid rgba(255,255,255,0.85);border-radius:10px;padding:4px 8px;color:#fff;font-size:13px;">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+<div style="display:flex;align-items:center;gap:8px;min-width:0;">
+<span style="font-size:14px;flex:none;">⚠️</span>
+<span class="xb-nd-failed-title xb-nd-error-tip" tabindex="0" data-tip="${escapeHtml(errorMessage || '')}" style="font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(errorType || '生成失败')}</span>
+</div>
+<div class="xb-nd-failed-btns" style="display:flex;gap:4px;flex:none;">
+    <button class="xb-nd-retry-btn" data-action="retry-image" style="padding:2px 6px;background:transparent;border:none;color:#fff;font-size:16px;line-height:1;cursor:pointer;opacity:0.9;display:flex;align-items:center;" title="${DRAW_SLOT_COPY.regenerate}">${RELOAD_ICON_SVG}</button>
+    <button class="xb-nd-edit-btn" data-action="edit-tags" style="padding:2px 6px;background:transparent;border:none;color:#fff;font-size:14px;line-height:1;cursor:pointer;opacity:0.9;" title="${DRAW_SLOT_COPY.editTagsAction}">✎</button>
+    ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image" style="padding:2px 6px;background:transparent;border:none;color:#fff;font-size:13px;line-height:1;cursor:pointer;opacity:0.9;" title="${DRAW_SLOT_COPY.restoreImage}">↺</button>` : ''}
+    <button class="xb-nd-remove-btn" data-action="remove-placeholder" style="padding:2px 6px;background:transparent;border:none;color:#fff;font-size:14px;line-height:1;cursor:pointer;opacity:0.9;" title="${DRAW_SLOT_COPY.remove}">✕</button>
+</div>
 </div>
 ${buildTagEditor(tags, true)}
 </div>`;
