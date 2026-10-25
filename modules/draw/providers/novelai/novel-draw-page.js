@@ -58,6 +58,7 @@ import {
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
 import { reportEditsSaved } from '../../shared/panel-escape.js';
+import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -287,7 +288,19 @@ function shuffleCredits() {
 // UI 更新
 // ═══════════════════════════════════════════════════════════════════════════
 
+// 页面刚打开、还没有人点过页签时，才用“打开方指定的（?view=）/ 上次记住的”页签；用户先点了就不再覆盖。
+let viewChosen = false;
+
+function restoreInitialView() {
+    if (viewChosen) return;
+    const tabs = Array.from($$('.nav-item'),item => item.dataset.view);
+    const requested = new URLSearchParams(window.location.search).get('view');
+    switchView(resolveInitialTab({ provider: 'novelai', tabs, requested, fallback: 'test' }));
+}
+
 function switchView(viewId) {
+    viewChosen = true;
+    saveLastTab('novelai', viewId);
     $$('.view').forEach(v => v.classList.remove('active'));
     $$('.nav-item, .mobile-nav-item').forEach(n => n.classList.remove('active'));
     $(`view-${viewId}`)?.classList.add('active');
@@ -4153,6 +4166,7 @@ window.addEventListener('message', event => {
             applyStateToUI();
             clearUndoIfStale();
             shuffleCredits();
+            restoreInitialView();
             break;
         }
 

@@ -69,6 +69,7 @@ import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-t
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
 import { installHostPanelEscape, reportEditsSaved } from "../../shared/panel-escape.js";
+import { resolveInitialTab, saveLastTab } from "../../shared/last-tab.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
@@ -2582,6 +2583,7 @@ async function refreshComfySamplerOptions({ notify = true, timeoutMs = Math.max(
 function switchSettingsView(viewName = 'test') {
     const requested = COMFY_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
     const normalized = requested;
+    saveLastTab('comfy', normalized);
     querySettingsAll('[data-comfy-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyView === normalized);
     });
@@ -3577,7 +3579,7 @@ function populateSelect(id, options, { value, emptyLabel = '' } = {}) {
     setSelectValue(id, current);
 }
 
-export async function openSettings() {
+export async function openSettings({ view } = {}) {
     try {
         await loadSettings();
         await settingsUpdateQueue;
@@ -3587,7 +3589,7 @@ export async function openSettings() {
     }
     const overlay = await createOverlay();
     fillForm(getSettings());
-    switchSettingsView('test');
+    switchSettingsView(resolveInitialTab({ provider: 'comfy', tabs: COMFY_DRAW_VIEWS, requested: view, fallback: 'test' }));
     syncOverlayHeight();
     overlay.style.display = 'block';
     return true;
