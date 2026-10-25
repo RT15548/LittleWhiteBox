@@ -74,6 +74,8 @@ import { createQuickTestSession, QUICK_TEST_SLOT_ID as TEST_SLOT_ID, QUICK_TEST_
 import { getSlotPreviewPage } from '../../shared/gallery-cache.js';
 import { resolveImageTaskOrientations } from '../../shared/image-orientation.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
+import { normalizeNamedTagList } from "../../shared/named-tag-items.js";
+import { normalizeForms } from "../../shared/character-forms.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
 import {
@@ -163,6 +165,7 @@ import {
     buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    appendTagEditGroup,
 } from "../../shared/draw-common.js";
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
@@ -181,6 +184,7 @@ import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
+import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
 const handleDelegatedClickEvent = observeAsyncCallback(handleDelegatedClick, { source: import.meta.url, operation: "handleDelegatedClick" });
@@ -415,6 +419,7 @@ const novelImageRequestQueue = createSerialImageRequestQueue({
 const imageBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
+let hostEscapeDispose = null; // 宿主页面里的 Esc 监听（shared/panel-escape.js），随面板创建 / 关闭
 let afterAiGateDispose = null;
 let agentSettingsSurface = null;
 
@@ -838,6 +843,11 @@ function normalizeSettings(saved = {}) {
         danbooruTag: char.danbooruTag || '',
         outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
+        // 形态（见 character-forms.js）：不丢弃，也不给没有形态的角色添加这两个键。
+        ...(String(char.formName || '').trim() ? { formName: String(char.formName).trim() } : {}),
+        ...(normalizeForms(char.forms).length ? { forms: normalizeForms(char.forms) } : {}),
+        // 第一形态的停用标记（本机状态）：只在有额外形态时保留。
+        ...(char.formDisabled === true && normalizeForms(char.forms).length ? { formDisabled: true } : {}),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
@@ -1275,15 +1285,6 @@ async function ensureJSZip() {
 // ═══════════════════════════════════════════════════════════════════════════
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
 
 // ── 角色自动学习 ─────────────────────────────────────────────
 
@@ -2356,22 +2357,9 @@ async function toggleEditPanel(container, show) {
             editPanel.insertBefore(scrollWrap, editPanel.firstChild);
         }
 
-        let html = `
-            <div class="xb-nd-edit-group">
-                <div class="xb-nd-edit-group-label">场景</div>
-                <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
-            </div>`;
-
-        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
-            html += `
-                <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">${escapeHtml(group.label)}</div>
-                    <textarea class="xb-nd-edit-input" aria-label="${escapeHtml(group.label)}" data-type="${group.type}" data-index="${group.index}">${escapeHtml(group.value)}</textarea>
-                </div>`;
-        }
-
-        // eslint-disable-next-line no-unsanitized/property -- Escaped data used in template.
-        scrollWrap.innerHTML = html;
+        scrollWrap.replaceChildren();
+        appendTagEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
+        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) appendTagEditGroup(scrollWrap, group);
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
             btnsPanel.style.pointerEvents = 'none';
@@ -3124,6 +3112,7 @@ function createOverlay() {
     overlay.appendChild(backdrop);
     overlay.appendChild(frameWrap);
     document.body.appendChild(overlay);
+    hostEscapeDispose = installHostPanelEscape({ hostWindow: window, getOverlay: () => overlay, getFrame: () => iframe });
     syncOverlayFrameLayout();
     // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedMessage (origin + source).
     window.addEventListener('message', handleFrameMessageEvent);
@@ -3144,6 +3133,8 @@ function showOverlay() {
 function hideOverlay() {
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
+    hostEscapeDispose?.();
+    hostEscapeDispose = null;
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) overlay.remove();
     overlayCreated = false;
@@ -3836,7 +3827,9 @@ async function handleFrameMessage(event) {
                 }
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
                 if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
-            }, '角色标签已保存');
+            }, '角色标签已保存', data.requestId ? { notify: false } : undefined);
+            // 带 requestId 的是编辑区的自动保存：只回一条带 requestId 的回执（页面据此串行保存、更新状态栏），不占用全局状态栏。
+            if (data.requestId) postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'char-tags', { requestId: data.requestId });
             // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。
             if (!ok) await sendInitData();
             break;

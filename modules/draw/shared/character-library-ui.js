@@ -7,6 +7,8 @@
 // 用户文本（分组名、角色名、文件名）只用 textContent / 属性赋值，不拼 innerHTML。
 // 样式见 character-library-ui.css（由宿主页面自行引入）。
 
+import { getCharacterSearchFields } from './character-forms.js';
+import { bindInlineRename } from './inline-rename.js';
 import {
     MAX_IMPORT_FILE_BYTES,
     UNGROUPED_ID,
@@ -35,6 +37,7 @@ import { buildCharacterExportFileName, openCharacterExportDialog, openCharacterI
 import { getCharacterEnabledFromCard } from './character-enabled-control.js';
 import { autoScrollForPointer } from './character-list-scroll.js';
 import { createCardMenuController } from './character-card-menu.js';
+import { createGroupHeightController } from './character-group-height.js';
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
 
 // 与 NovelAI 面板共用同一个键：折叠状态按分组 id 记录，三个面板看到的分组一致。
@@ -44,8 +47,10 @@ const CARD_CLASS = 'sd-char-card';
 const DRAG_START_THRESHOLD_PX = 3;
 const DOWNLOAD_REVOKE_DELAY_MS = 1000;
 // 分组开关的文案：开关是分组自己的状态，与组内各角色自己的启用开关互相独立（有效启用 = 分组开 且 角色开）。
-const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
-const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_TITLE_ON = '已开启。点击关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
+const GROUP_SWITCH_TITLE_OFF = '已关闭。点击开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_TEXT_ON = '已开启';
+const GROUP_SWITCH_TEXT_OFF = '已关闭';
 const GROUP_OFF_NOTE = '分组已关闭';
 const GROUP_OFF_NOTE_TITLE = '本分组已关闭，组内角色当前不参与出图；角色自己的开关保持不变';
 // 上锁只保护导入替换；角色锁与分组锁独立，显示文案与 NovelAI 共用。
@@ -180,6 +185,15 @@ export function createCharacterLibraryUi(options = {}) {
     // 角色卡“…”菜单：同一时间只开一个；整体重绘、点外面、Esc、选中菜单项都会关闭。
     const cardMenu = createCardMenuController({ document, getViewport: options.getViewport });
 
+    // 分组滚动区高度（用户可拖手柄调整，存本机 localStorage；见 character-group-height.js）
+    const groupHeights = createGroupHeightController({
+        list,
+        document,
+        getStorage: () => (options.getStorage ? options.getStorage() : (win?.localStorage ?? null)),
+        groupSelector: '.lwb-cl-group',
+        bodySelector: '.lwb-cl-group-body',
+    });
+
     const state = {
         groups: [],
         order: [], // 角色 id，按库数组顺序；排序的唯一事实来源，读取草稿时据此还原数组顺序
@@ -225,7 +239,7 @@ export function createCharacterLibraryUi(options = {}) {
     function filterCards() {
         const query = String(searchInput?.value || '').trim().toLowerCase();
         const matches = new Set(readCharacters({ keepEmpty: true }).filter(character => !query
-            || [character.name, ...(character.aliases || []), character.appearance, character.danbooruTag]
+            || getCharacterSearchFields(character)
                 .filter(Boolean).join(' ').toLowerCase().includes(query)).map(character => character.id));
         for (const card of cardsIn()) {
             const hidden = !matches.has(cardId(card));
@@ -333,6 +347,7 @@ export function createCharacterLibraryUi(options = {}) {
             }
         }
         restoreGroupScroll(groupScroll);
+        groupHeights.apply({ validGroupIds: state.groups.map(group => group.id) });
         renderToolbar();
         filterCards();
         emitChange();
@@ -380,7 +395,10 @@ export function createCharacterLibraryUi(options = {}) {
                 },
             }));
         }
-        header.appendChild(create(document, 'span', { className: 'lwb-cl-group-name', text: group.name, attrs: { title: group.name } }));
+        // 分组名：真实分组是就地改名输入框（未分组只是文字）。
+        header.appendChild(group.virtual
+            ? create(document, 'span', { className: 'lwb-cl-group-name', text: group.name, attrs: { title: group.name } })
+            : create(document, 'input', { className: 'lwb-cl-group-name inline-name', attrs: { type: 'text', value: group.name, placeholder: '分组名称', title: '点一下改名（Enter 确认，Esc 还原）', 'aria-label': `分组名称 ${group.name}`, autocomplete: 'off' } }));
         // 窄栏里分组名优先：计数只写“自己开着数/总数”，完整含义放在 title 里（updateGroupHeader 会按卡片当前状态刷新）。
         header.appendChild(create(document, 'span', {
             className: 'lwb-cl-group-count',
@@ -389,7 +407,7 @@ export function createCharacterLibraryUi(options = {}) {
         }));
 
         const actions = create(document, 'div', { className: 'lwb-cl-group-actions' });
-        const addAction = (action, title, icon, extraClass = '') => {
+        const addAction = (action, title, icon, extraClass = '', labelText = '') => {
             actions.appendChild(create(document, 'button', {
                 className: `lwb-cl-icon-btn${extraClass}`,
                 attrs: {
@@ -398,15 +416,14 @@ export function createCharacterLibraryUi(options = {}) {
                     title,
                     'aria-label': `${title} ${group.name}`,
                 },
-            }, [iconNode(document, icon)]));
+            }, [iconNode(document, icon), ...(labelText ? [create(document, 'span', { className: 'lwb-cl-switch-text', text: labelText, attrs: { 'data-role': 'switch-text' } })] : [])]));
         };
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。文案与状态由 updateGroupHeader 填。
         if (!group.virtual) {
-            addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch');
+            addAction('toggle-enabled', '', 'fa-solid fa-toggle-on', ' lwb-cl-group-switch', GROUP_SWITCH_TEXT_ON);
         }
         addAction('add', '在本组添加角色', 'fa-solid fa-plus');
         if (!group.virtual) {
-            addAction('rename', '重命名分组', 'fa-solid fa-pen');
             // 上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一个菜单控制器，同一时间只开一个）。
             const menuItem = (extraClass, action, title, iconClass, text) => create(document, 'button', {
                 className: `lwb-cl-menu-item${extraClass}`,
@@ -471,6 +488,8 @@ export function createCharacterLibraryUi(options = {}) {
             toggle.setAttribute('aria-pressed', String(enabled));
             toggle.classList.toggle('active', enabled);
             toggle.querySelector('i')?.setAttribute('class', `fa-solid ${enabled ? 'fa-toggle-on' : 'fa-toggle-off'}`);
+            const stateText = toggle.querySelector('[data-role="switch-text"]');
+            if (stateText) stateText.textContent = enabled ? GROUP_SWITCH_TEXT_ON : GROUP_SWITCH_TEXT_OFF;
         }
         const lockButton = section.querySelector('.lwb-cl-group-lock');
         if (lockButton) {
@@ -528,7 +547,7 @@ export function createCharacterLibraryUi(options = {}) {
         list.querySelectorAll('.lwb-cl-group').forEach(section => updateGroupHeader(section));
     }
 
-    /** 给卡片加上拖拽手柄、选择框、所属分组下拉与复制按钮。卡片本身的字段与既有事件不受影响。 */
+    /** 给卡片加上拖拽手柄、选择框与复制按钮（换分组走拖拽、批量“移到”或分组头的“在本组添加”，卡片上不再放分组下拉框）。卡片本身的字段与既有事件不受影响。 */
     function decorateCard(card, character) {
         const id = cardId(card);
         const label = String(character?.name || '').trim() || '新角色';
@@ -601,25 +620,6 @@ export function createCharacterLibraryUi(options = {}) {
                 text: GROUP_OFF_NOTE,
                 attrs: { title: GROUP_OFF_NOTE_TITLE },
             }));
-        }
-        if (state.groups.length) {
-            const select = create(document, 'select', {
-                className: 'input lwb-cl-card-group',
-                attrs: { 'aria-label': `所属分组 ${label}`, 'data-card-group': id },
-            });
-            const options = [{ id: UNGROUPED_ID, name: UNGROUPED_NAME }, ...state.groups];
-            for (const group of options) {
-                const option = create(document, 'option', { text: group.name, attrs: { value: group.id } });
-                if (group.id === String(character?.groupId || '')) option.setAttribute('selected', '');
-                select.appendChild(option);
-            }
-            const row = create(document, 'div', { className: 'lwb-cl-card-group-row' }, [
-                create(document, 'span', { className: 'lwb-cl-card-group-label', text: '所属分组' }),
-                select,
-            ]);
-            const header = card.querySelector('.sd-char-card-header');
-            if (header?.parentNode === card) card.insertBefore(row, header.nextSibling);
-            else card.insertBefore(row, card.firstChild);
         }
     }
 
@@ -831,10 +831,6 @@ export function createCharacterLibraryUi(options = {}) {
                 apply(setGroupLocked(library, groupId, !isGroupLocked(library, groupId)));
             } else if (action === 'add') {
                 addCharacter({ groupId });
-            } else if (action === 'rename') {
-                const name = askPrompt('分组名称', group?.name || '');
-                if (name === null || name === undefined) return;
-                apply(renameGroup(library, groupId, name));
             } else if (action === 'delete') {
                 if (!askConfirm(`确定删除分组“${group?.name || ''}”？`)) return;
                 let removeMembers = false;
@@ -997,8 +993,8 @@ export function createCharacterLibraryUi(options = {}) {
 
     // ── 拖拽排序（Pointer 事件：鼠标与触屏通用）──────────────
     function clearDropMarks() {
-        document.querySelectorAll('.lwb-cl-drop-before, .lwb-cl-drop-after, .lwb-cl-drop-into').forEach((node) => {
-            node.classList.remove('lwb-cl-drop-before', 'lwb-cl-drop-after', 'lwb-cl-drop-into');
+        document.querySelectorAll('.drop-before, .drop-after, .drop-into').forEach((node) => {
+            node.classList.remove('drop-before', 'drop-after', 'drop-into');
         });
     }
 
@@ -1042,15 +1038,15 @@ export function createCharacterLibraryUi(options = {}) {
             if (result.position === 'into') return null;
             const node = sections.find(section => section.dataset.groupId === result.refId);
             return result.position === 'before'
-                ? { node, mark: 'lwb-cl-drop-before', beforeGroupId: result.refId }
-                : { node, mark: 'lwb-cl-drop-after', beforeGroupId: '' };
+                ? { node, mark: 'drop-before', beforeGroupId: result.refId }
+                : { node, mark: 'drop-after', beforeGroupId: '' };
         }
 
         const section = hit.closest('.lwb-cl-group');
         // 有分组时，命中列表本身（分组之间的缝隙）不属于任何分组：取消落点，而不是当成“未分组”。
         if (!section && state.groups.length) return null;
         if (section && hit.closest('.lwb-cl-group-header')) {
-            return { node: section.querySelector('.lwb-cl-group-header'), mark: 'lwb-cl-drop-into', groupId: section.dataset.groupId || '' };
+            return { node: section.querySelector('.lwb-cl-group-header'), mark: 'drop-into', groupId: section.dataset.groupId || '' };
         }
         const container = section ? section.querySelector('.lwb-cl-group-body') : list;
         const groupId = section ? (section.dataset.groupId || '') : '';
@@ -1059,13 +1055,13 @@ export function createCharacterLibraryUi(options = {}) {
         const result = resolveInsertion(items, y, state.drag.ids);
         if (result.position === 'into') {
             return section
-                ? { node: section.querySelector('.lwb-cl-group-header'), mark: 'lwb-cl-drop-into', groupId }
+                ? { node: section.querySelector('.lwb-cl-group-header'), mark: 'drop-into', groupId }
                 : null;
         }
         const node = cards.find(card => cardId(card) === result.refId);
         return result.position === 'before'
-            ? { node, mark: 'lwb-cl-drop-before', groupId, beforeId: result.refId }
-            : { node, mark: 'lwb-cl-drop-after', groupId };
+            ? { node, mark: 'drop-before', groupId, beforeId: result.refId }
+            : { node, mark: 'drop-after', groupId };
     }
 
     function onDragMove(event) {
@@ -1179,13 +1175,20 @@ export function createCharacterLibraryUi(options = {}) {
                 if (box.checked) state.selected.add(cardId(card)); else state.selected.delete(cardId(card));
             });
             syncSelectionControls();
-        } else if (box.classList?.contains('lwb-cl-card-group')) {
-            run(() => apply(moveCharacters(getLibrary(), [box.dataset.cardGroup], { groupId: readSelectValue(box) })));
         } else if (box.hasAttribute?.('data-character-enabled-control')) {
             // 卡片自己的启用开关变了：不重绘，只刷新分组头的计数（分组开关不受角色开关影响）
             refreshGroupHeaders();
         }
     });
+
+    // 分组名就地改名：校验沿用 renameGroup（空名 / 重名 / 过长由它拒绝），被拒绝时 run 已提示，返回 false 让输入框还原。
+    listeners.push(bindInlineRename(list, {
+        selector: '.lwb-cl-group-name.inline-name',
+        onCommit: (input, name) => run(() => {
+            apply(renameGroup(getLibrary(), input.closest('.lwb-cl-group')?.dataset.groupId || '', name));
+            return true;
+        }) ?? false,
+    }));
 
     listen(list, 'pointerdown', (event) => {
         const charHandle = event.target.closest?.('[data-drag-char]');
@@ -1255,6 +1258,7 @@ export function createCharacterLibraryUi(options = {}) {
             importDialog?.close();
             exportDialog?.close();
             cardMenu.destroy();
+            groupHeights.destroy();
             listeners.splice(0).forEach(off => off());
             document.body?.classList?.remove('lwb-cl-is-dragging');
         },

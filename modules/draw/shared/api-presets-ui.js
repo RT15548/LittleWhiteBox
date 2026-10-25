@@ -1,8 +1,10 @@
-// 画图 API 配置预设栏（共享 UI 组件，NovelAI / SD WebUI / ComfyUI 设置页的“API 配置”页共用）。
+// 画图 API 配置预设列表（共享 UI 组件，NovelAI / SD WebUI / ComfyUI 设置页的“API 配置”页共用）。
+// 预设显示在与绘图参数页同一套共享列表视图里（preset-list-view.js）：拖动手柄（或聚焦后 ↑ / ↓）调整顺序、点名称切换、
+// 名称就地改名、“…”菜单删除、标题旁的按钮折叠成只显示当前预设；顺序就是 apiPresets 数组的顺序，和其他预设改动一样经 onCommit 落盘。
 // 受控组件：预设数据与表单读写都来自宿主提供的函数；用户操作时用 api-presets.js 的纯函数算出新预设数组，
 // 交给 onCommit({ reason, apiPresets, activeApiPresetId, config })，由宿主持久化（并在需要时把 config 填进表单）后返回是否成功。
 // 组件自己不碰存储和宿主全局；只用 DOM API + textContent，不拼 HTML 字符串。
-// 外观沿用页面已有的 .preset-bar / .input / .btn / .btn-icon / .btn-primary / .btn-danger / .status-text.inline-status。
+// 外观沿用共享的 preset-list-view.css 与页面已有的 .btn / .btn-primary / .status-text.inline-status。
 // 预设里含 API Key 等敏感字段：状态文字、确认框、提示框都只出现预设名称，不出现任何配置内容。
 
 import {
@@ -17,14 +19,18 @@ import {
 } from './api-presets.js';
 
 import { API_PRESET_COPY } from './api-presets-copy.js';
+import { createPresetListKit } from './preset-list-kit.js';
+import { pickNeighborAfterRemoval, reorderPresetsByIds } from './preset-order.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 
 
+// 标题行右侧的按钮；改名是行内名称输入框，删除是每一行“…”菜单里的项（都作用于那一行）。
 const ACTIONS = [
-    { action: 'save-as', icon: 'fa-plus', title: API_PRESET_COPY.saveAs, className: 'btn btn-icon' },
-    { action: 'overwrite', icon: 'fa-floppy-disk', title: API_PRESET_COPY.overwrite, className: 'btn btn-icon btn-primary' },
-    { action: 'rename', icon: 'fa-pen', title: API_PRESET_COPY.rename, className: 'btn btn-icon' },
-    { action: 'delete', icon: 'fa-trash', title: API_PRESET_COPY.remove, className: 'btn btn-icon btn-danger' },
+    { action: 'save-as', icon: 'fa-plus', label: '新建', title: API_PRESET_COPY.saveAs, className: 'btn' },
+    { action: 'overwrite', icon: 'fa-floppy-disk', label: '覆盖保存', title: API_PRESET_COPY.overwrite, className: 'btn btn-primary' },
+];
+const MENU_ITEMS = [
+    { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
 ];
 
 function create(document, tag, { className, text, attrs } = {}, children = []) {
@@ -50,7 +56,7 @@ function errorMessage(error) {
 
 /**
  * options:
- *  document, container            挂载点（组件清空并重建 container 的内容；container 自带 .preset-bar 样式）
+ *  document, container            挂载点（组件清空并重建 container 的内容）
  *  form                           API 页的 fieldset；预设操作和 runSave 中的普通保存共用禁用范围
  *  fields                         API 配置字段白名单（由 Provider 传入）
  *  defaults                       缺省配置（可选，用于判断“没有东西可丢”）
@@ -58,9 +64,11 @@ function errorMessage(error) {
  *  readConfig()                   → 表单里现在的 API 配置（已规范化）
  *  getEffectiveConfig()           → 已持久化、正在生效的 API 配置
  *  onCommit(change)               → Promise<boolean>；change = { reason, apiPresets, activeApiPresetId, config }
- *                                   reason: select | create | overwrite | rename | delete
+ *                                   reason: select | create | overwrite | rename | delete | reorder
  *                                   config: 需要作为生效配置写入的配置，重命名时为 null
  *  confirm(message) / prompt(message, fallback)   可选，缺省用 document.defaultView 上的同名函数
+ *  createListView(options)        可选，创建列表视图（选项同 preset-list-view.js 的 createPresetListView）；
+ *                                 页面想让列表与自己的其他菜单共用一个菜单控制器时传入，缺省用 preset-list-kit.js 的一份
  */
 export function createApiPresetBar(options = {}) {
     const { document, container, form, fields, defaults, getState, readConfig, getEffectiveConfig, onCommit } = options;
@@ -72,23 +80,28 @@ export function createApiPresetBar(options = {}) {
     let busy = false;
     let destroyed = false;
 
-    const select = create(document, 'select', {
-        className: 'input',
-        attrs: { 'aria-label': API_PRESET_COPY.selectLabel, title: API_PRESET_COPY.selectLabel },
-    });
     const buttons = new Map();
     const group = create(document, 'div', { className: 'btn-group' });
     for (const item of ACTIONS) {
         const button = create(document, 'button', {
             className: item.className,
             attrs: { type: 'button', title: item.title, 'aria-label': item.title, 'data-action': item.action },
-        }, [create(document, 'i', { className: `fa-solid ${item.icon}` })]);
+        }, [create(document, 'i', { className: `fa-solid ${item.icon}`, attrs: { 'aria-hidden': 'true' } }), create(document, 'span', { text: ` ${item.label}` })]);
         buttons.set(item.action, button);
         group.appendChild(button);
     }
+    const toggle = create(document, 'button', {
+        className: 'preset-list-toggle',
+        attrs: { type: 'button', title: '折叠 / 展开', 'aria-label': '折叠 API 配置预设列表', 'aria-expanded': 'true' },
+    }, [create(document, 'i', { className: 'fa-solid fa-chevron-down', attrs: { 'aria-hidden': 'true' } })]);
+    const header = create(document, 'div', { className: 'preset-list-header' }, [
+        create(document, 'div', { className: 'preset-list-title' }, [toggle, create(document, 'div', { className: 'card-title', text: API_PRESET_COPY.selectLabel })]),
+        group,
+    ]);
+    const list = create(document, 'div', { className: 'preset-list', attrs: { role: 'list', 'aria-label': API_PRESET_COPY.selectLabel } });
     const status = create(document, 'div', { className: 'status-text inline-status', attrs: { role: 'status' } });
     while (container.firstChild) container.removeChild(container.firstChild);
-    container.append(select, group, status);
+    container.append(header, list, status);
 
     function readState() {
         const state = getState() || {};
@@ -113,21 +126,13 @@ export function createApiPresetBar(options = {}) {
     function render() {
         if (destroyed) return;
         const state = readState();
-        while (select.firstChild) select.removeChild(select.firstChild);
-        for (const preset of state.apiPresets) {
-            select.appendChild(create(document, 'option', { text: preset.name, attrs: { value: preset.id } }));
-        }
-        // 用 selected / disabled 属性而不是赋值属性：两者在浏览器里等价，属性写法在没有 value setter 的 DOM 实现里也能用。
-        const wanted = state.activeApiPresetId || '';
-        for (const option of select.children) {
-            if (option.getAttribute('value') === wanted) option.setAttribute('selected', '');
-        }
+        listView.refresh();
+        list.classList.toggle('is-busy', busy);
         const hasActive = Boolean(state.activeApiPresetId);
         for (const [action, button] of buttons) {
-            const needsActive = action !== 'save-as';
-            setDisabled(button, busy || (needsActive && !hasActive) || (action === 'delete' && state.apiPresets.length < 2));
+            setDisabled(button, busy || (action === 'overwrite' && !hasActive));
         }
-        setDisabled(select, busy);
+        setDisabled(toggle, busy);
         if (form) {
             setDisabled(form, busy);
             form.setAttribute('aria-busy', String(busy));
@@ -179,9 +184,8 @@ export function createApiPresetBar(options = {}) {
         return String(answer).trim();
     }
 
-    async function handleSelect() {
+    async function handleSelect(targetId) {
         const state = readState();
-        const targetId = select.value;
         if (targetId === (state.activeApiPresetId || '')) return;
         const target = findApiPreset(state.apiPresets, targetId);
         if (!target) { render(); return; }
@@ -238,42 +242,54 @@ export function createApiPresetBar(options = {}) {
         }, API_PRESET_COPY.overwritten(active.name));
     }
 
-    async function handleRename() {
+    // 重命名 / 删除作用于被点的那一行，不一定是当前使用的预设。
+    async function handleRename(presetId, name) {
         const state = readState();
-        const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
-        if (!active) return;
-        const name = askName(API_PRESET_COPY.promptRename, active.name);
-        if (name === null || name === active.name) return;
+        const target = findApiPreset(state.apiPresets, presetId);
+        if (!target || name === target.name) return;
         let next;
         try {
-            next = renameApiPreset(state.apiPresets, active.id, name);
+            next = renameApiPreset(state.apiPresets, target.id, name);
         } catch (error) {
             setStatus('error', errorMessage(error));
             return;
         }
-        await commit({ reason: 'rename', apiPresets: next, activeApiPresetId: active.id, config: null }, API_PRESET_COPY.renamed(name));
+        await commit({ reason: 'rename', apiPresets: next, activeApiPresetId: state.activeApiPresetId, config: null }, API_PRESET_COPY.renamed(name));
     }
 
-    async function handleDelete() {
+    async function handleDelete(presetId) {
         const state = readState();
-        const active = findApiPreset(state.apiPresets, state.activeApiPresetId);
-        if (!active) return;
-        const next = state.apiPresets.find(preset => preset.id !== active.id);
-        if (!next) return;
-        if (!confirmFn(API_PRESET_COPY.confirmDelete(active.name, next.name))) return;
+        const target = findApiPreset(state.apiPresets, presetId);
+        if (!target) return;
+        if (state.apiPresets.length < 2) {
+            setStatus('error', API_PRESET_COPY.lastPreset);
+            return;
+        }
+        const removingActive = target.id === state.activeApiPresetId;
+        // 删的是当前预设：切到原位置上顶上来的那一个（配置一并换上）；删别的预设不影响当前表单和选择。
+        const next = removingActive
+            ? findApiPreset(state.apiPresets, pickNeighborAfterRemoval(state.apiPresets.map(preset => preset.id), target.id))
+            : null;
+        if (!confirmFn(next ? API_PRESET_COPY.confirmDelete(target.name, next.name) : API_PRESET_COPY.confirmDeleteOther(target.name))) return;
         await commit({
             reason: 'delete',
-            apiPresets: deleteApiPreset(state.apiPresets, active.id),
-            activeApiPresetId: next.id,
-            config: pickApiConfig(next.config, fields),
-        }, API_PRESET_COPY.deleted(active.name));
+            apiPresets: deleteApiPreset(state.apiPresets, target.id),
+            activeApiPresetId: next ? next.id : state.activeApiPresetId,
+            config: next ? pickApiConfig(next.config, fields) : null,
+        }, API_PRESET_COPY.deleted(target.name));
+    }
+
+    // 拖拽 / 键盘排序：只改数组顺序，当前选择和表单都不动。
+    async function handleReorder(orderedIds) {
+        const state = readState();
+        const reordered = reorderPresetsByIds(state.apiPresets, orderedIds);
+        if (reordered.every((preset, index) => preset === state.apiPresets[index])) return;
+        await commit({ reason: 'reorder', apiPresets: reordered, activeApiPresetId: state.activeApiPresetId, config: null }, API_PRESET_COPY.reordered);
     }
 
     const handlers = {
         'save-as': handleSaveAs,
         overwrite: handleOverwrite,
-        rename: handleRename,
-        delete: handleDelete,
     };
 
     function onClick(event) {
@@ -282,11 +298,32 @@ export function createApiPresetBar(options = {}) {
         const handler = handlers[button.getAttribute('data-action')];
         if (handler) void handler();
     }
-    function onChange(event) {
-        if (event.target === select && !busy) observeBackgroundTask(handleSelect(), { source: "modules/draw/shared/api-presets-ui.js", operation: "onChange" });
-    }
     container.addEventListener('click', onClick);
-    container.addEventListener('change', onChange);
+
+    const task = (promise, operation) => observeBackgroundTask(promise, { source: 'modules/draw/shared/api-presets-ui.js', operation });
+    const ownKit = options.createListView ? null : createPresetListKit();
+    const listView = (options.createListView || (viewOptions => ownKit.createPresetListView(viewOptions)))({
+        document,
+        getList: () => list,
+        getToggle: () => toggle,
+        getPresets: () => readState().apiPresets,
+        getCurrentId: () => readState().activeApiPresetId,
+        noun: 'API 配置预设',
+        listId: 'api-presets',
+        menuItems: MENU_ITEMS,
+        onSelect: (id) => { if (!busy) task(handleSelect(id), 'select'); },
+        onAction: (action, id) => {
+            if (busy) return;
+            if (action === 'delete') task(handleDelete(id), 'delete');
+        },
+        onRename: (id, name) => {
+            if (busy) return false;
+            const done = handleRename(id, name);
+            task(done, 'rename');
+            return done; // 失败由 task 记录；列表在落定（成功或失败）后核对名称，被拒绝的名字还原
+        },
+        onReorder: (ids) => { if (!busy) task(handleReorder(ids), 'reorder'); },
+    });
 
     render();
     return {
@@ -299,7 +336,8 @@ export function createApiPresetBar(options = {}) {
         destroy() {
             destroyed = true;
             container.removeEventListener('click', onClick);
-            container.removeEventListener('change', onChange);
+            listView.destroy();
+            ownKit?.destroy();
             while (container.firstChild) container.removeChild(container.firstChild);
         },
     };

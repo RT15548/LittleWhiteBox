@@ -6,14 +6,30 @@
 // 分组开关与角色自己的状态互不改写：关掉分组再打开，组内每个角色保持关闭前的样子。
 // 上锁（locked）是本机状态：角色与分组都可以上锁，导入按 id 或名字命中替换时默认保护上锁角色；
 // 键只在为 true 时才写，不进入导出文件，也不读取导入文件。角色“有效上锁”= 自己上锁 或 所在分组上锁。
+// 服装 / 动态标签（dynamicStates）条目同理有自己的开关（enabled，缺省=开，只在关闭时才写 enabled:false，见 named-tag-items.js），停用的条目不会发给规划器。
+// 角色 / 条目 / 分组的启用状态都只属于本机：导出文件不带任何 enabled，导入时文件里的 enabled 一律不认——
+// 新的默认启用（“导入为停用”是导入时的本机选择，不是文件字段），与本机已有项对上的保留本机状态。
+// 形态（forms，见 character-forms.js）：角色顶层字段就是第一形态，forms 只存额外的形态，没有额外形态的角色不带 formName / forms 键。
+// 形态的内容会导出 / 导入（它是内容），条目启用状态同样不进文件；导入的重名检查仍以角色为单位。
+// 形态自己的启用状态也只属于本机：额外形态的 enabled:false、第一形态的顶层 formDisabled:true 都不导出，导入时不认，替换同一角色时保留本机的值。
 // 排序的唯一事实来源是 characters 数组顺序；groupId 缺省（空）表示“未分组”。
 
 import { CHARACTER_LOCK_COPY as LOCK_COPY } from './character-lock-copy.js';
+import { applyLocalNamedTagEnabled, normalizeNamedTagList, stripNamedTagEnabled } from './named-tag-items.js';
+import {
+    applyLocalFormsEnabled,
+    normalizeForms,
+    stripFormsEnabled,
+    withFreshFormIds,
+} from './character-forms.js';
 
 export const UNGROUPED_ID = '';
 export const UNGROUPED_NAME = '未分组';
 export const CHARACTER_EXPORT_TYPE = 'novel-draw-characters';
 export const CHARACTER_EXPORT_VERSION = 4;
+// 文件里含有形态（formName / forms）时导出的版本号：旧版本读到会提示“来自更新的版本，无法识别的字段会被忽略”，只会用到第一形态。
+// 不含形态的文件仍是 CHARACTER_EXPORT_VERSION，与以前字节一致。
+export const CHARACTER_EXPORT_VERSION_WITH_FORMS = 5;
 export const MAX_GROUPS = 50;
 export const MAX_GROUP_NAME_LENGTH = 32;
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -36,6 +52,8 @@ const IMPORT_FIELD_MAP = Object.freeze({
     costumes: 'outfits',
     clothes: 'outfits',
     dynamicStates: 'dynamicStates',
+    formName: 'formName',
+    forms: 'forms',
 });
 
 function cloneJson(value) {
@@ -69,15 +87,6 @@ function takeUniqueId(prefix, used, makeId = defaultMakeId) {
     return id;
 }
 
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
-
 function truncateName(name) {
     return Array.from(name).slice(0, MAX_GROUP_NAME_LENGTH).join('');
 }
@@ -98,10 +107,25 @@ function stripLocked(item) {
     return rest;
 }
 
+// 导出 / 导入共用：角色自己与服装、动态标签条目的启用状态都是本机状态，文件里不带。
+function stripLocalEnabled(character) {
+    const rest = { ...character };
+    delete rest.enabled;
+    delete rest.formDisabled;
+    return {
+        ...rest,
+        ...(Array.isArray(rest.outfits) ? { outfits: stripNamedTagEnabled(rest.outfits) } : {}),
+        ...(Array.isArray(rest.dynamicStates) ? { dynamicStates: stripNamedTagEnabled(rest.dynamicStates) } : {}),
+        ...(Array.isArray(rest.forms) ? { forms: stripFormsEnabled(rest.forms) } : {}),
+    };
+}
+
 /** 白名单规范化单个角色；groupId、locked 缺省时不保存该键。 */
 export function normalizeCharacter(raw, { id } = {}) {
     const char = isPlainObject(raw) ? raw : {};
     const groupId = String(char.groupId || '').trim();
+    const formName = String(char.formName || '').trim();
+    const forms = normalizeForms(char.forms);
     return {
         id: String(id ?? char.id ?? ''),
         enabled: char.enabled !== false,
@@ -115,6 +139,10 @@ export function normalizeCharacter(raw, { id } = {}) {
         danbooruTag: String(char.danbooruTag || ''),
         outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
+        ...(formName ? { formName } : {}),
+        ...(forms.length ? { forms } : {}),
+        // 第一形态的停用标记：只在角色确实有额外形态时才有意义（本机状态，导出 / 导入时由 stripLocalEnabled 去掉）。
+        ...(char.formDisabled === true && forms.length ? { formDisabled: true } : {}),
         ...(groupId ? { groupId } : {}),
         ...(char.locked === true ? { locked: true } : {}),
     };
@@ -520,6 +548,8 @@ export function duplicateCharacters(library, ids, { toGroupId, makeId } = {}) {
         };
         // 副本不继承上锁：用户复制出来通常就是要改。
         delete copy.locked;
+        // 形态各自换新 id（没有额外形态的角色不带该键，副本也不带）。
+        if (Array.isArray(copy.forms)) copy.forms = withFreshFormIds(copy.forms, makeId || defaultMakeId);
         newIds.push(id);
         if (hasTarget) copies.push(withGroupId(copy, String(toGroupId || '')));
         else characters.push(copy);
@@ -556,13 +586,15 @@ export function exportCharacters(library, { scope = 'all', groupId, ids } = {}, 
         : library.groups.filter(group => referenced.has(group.id));
     return {
         type: CHARACTER_EXPORT_TYPE,
-        version: CHARACTER_EXPORT_VERSION,
+        version: characters.some(character => character.formName || character.forms?.length)
+            ? CHARACTER_EXPORT_VERSION_WITH_FORMS
+            : CHARACTER_EXPORT_VERSION,
         exportedAt: new Date(now).toISOString(),
         scope,
         // 分组开关属于本机的使用状态，不进入导出文件：只带 id 与名称。
         groups: groups.map(group => ({ id: group.id, name: group.name })),
-        // 上锁同样属于本机状态，不进入导出文件。
-        characters: characters.map(character => cloneJson(stripLocked(character))),
+        // 上锁、角色与条目的启用状态同样属于本机状态，不进入导出文件。
+        characters: characters.map(character => cloneJson(stripLocalEnabled(stripLocked(character)))),
     };
 }
 
@@ -589,11 +621,22 @@ function isBadNamedTagList(value) {
         || value.some(item => !isPlainObject(item) || hasBadText(item, ['name', 'tags'])));
 }
 
+const NAMED_TAG_LIST_KEYS = ['outfits', 'costumes', 'clothes', 'dynamicStates'];
+
+// forms 必须是对象数组，每个形态的文本字段与条目列表同样要合规；数量超限的部分由规范化截断，不在这里拒绝。
+function isBadFormList(value) {
+    return isProvided(value) && (!Array.isArray(value)
+        || value.some(form => !isPlainObject(form)
+            || hasBadText(form, ['id', 'name', 'type', 'appearance', 'tags', 'negativeTags', 'danbooruTag'])
+            || NAMED_TAG_LIST_KEYS.some(key => isBadNamedTagList(form[key]))));
+}
+
 /** 文件里的角色条目是否含有类型不合规的字段（决定整条跳过）。 */
 function hasInvalidImportFieldType(raw) {
-    return hasBadText(raw, ['name', 'id', 'type', 'appearance', 'tags', 'negativeTags', 'danbooruTag', 'groupId'])
+    return hasBadText(raw, ['name', 'id', 'type', 'appearance', 'tags', 'negativeTags', 'danbooruTag', 'groupId', 'formName'])
         || isBadAliasList(raw.aliases)
-        || ['outfits', 'costumes', 'clothes', 'dynamicStates'].some(key => isBadNamedTagList(raw[key]));
+        || NAMED_TAG_LIST_KEYS.some(key => isBadNamedTagList(raw[key]))
+        || isBadFormList(raw.forms);
 }
 
 /**
@@ -612,7 +655,7 @@ export function parseCharacterImport(payload, { makeId } = {}) {
     }
     const warnings = [];
     const version = Number.isFinite(Number(payload.version)) ? Number(payload.version) : 1;
-    if (version > CHARACTER_EXPORT_VERSION) {
+    if (version > CHARACTER_EXPORT_VERSION_WITH_FORMS) {
         warnings.push({ code: 'newer-version', message: '文件来自更新的版本，无法识别的字段会被忽略' });
     }
     let invalidGroups = 0;
@@ -653,8 +696,8 @@ export function parseCharacterImport(payload, { makeId } = {}) {
             .filter(key => Object.hasOwn(IMPORT_FIELD_MAP, key))
             .map(key => IMPORT_FIELD_MAP[key]))];
         entries.push({
-            // 上锁是本机状态：文件里的 locked 一律忽略。
-            character: stripLocked(stripGroupId(normalizeCharacter(raw, { id: fileId }))),
+            // 上锁与启用都是本机状态：文件里的 locked / enabled（含条目的）一律忽略，新角色默认启用。
+            character: stripLocalEnabled(stripLocked(stripGroupId(normalizeCharacter(raw, { id: fileId })))),
             fields,
             groupName: groupNameById.get(String(raw.groupId || '').trim()) || '',
             duplicate,
@@ -715,11 +758,11 @@ export function placeCharactersAfterGroupMembers(rest, placements) {
 /**
  * 计算导入结果，不修改入参；用户确认后再采用返回的 library。
  * options.mode:
- *   'auto'           按 id 替换（默认）。替换保留本地的启用状态、分组与位置；新角色按文件分组名归位（同名并入，没有则新建）。
+ *   'auto'           按 id 替换（默认）。替换保留本地的启用状态（角色、服装 / 动态标签条目、所在分组的开关）、分组与位置；新角色按文件分组名归位（同名并入，没有则新建）。
  *   'existing-group' 导入到 options.groupId。
  *   'new-group'      新建 options.newGroupName 并导入。
  * options.sameIdPolicy（仅非 auto 模式）：'replace'（默认，替换并移入目标分组）| 'keep-both'（副本使用新 id）| 'skip'。
- * options.importNewAsDisabled：新增角色一律以停用状态导入（已有角色的替换不受影响）。
+ * options.importNewAsDisabled：新增角色一律以停用状态导入（已有角色的替换不受影响）；这是导入时的本机选择，文件里没有启用字段。
  * options.overwriteSameName：未命中 id 时按名字覆盖，保留本地 id；sameIdPolicy 只影响同 id 命中。
  * options.replaceLocked：仅显式 true 允许替换上锁角色。按 id 或名字命中替换时，默认检查角色自身及导入前分组的锁，
  *   受保护角色不覆盖字段、不移组，计入 summary.lockedSkipped；允许替换也保留其本地锁。
@@ -818,7 +861,22 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
         }
         if (replacing) {
             const oldName = String(existing.name || '').trim();
-            for (const field of fields) existing[field] = cloneJson(character[field]);
+            const localItems = { outfits: existing.outfits, dynamicStates: existing.dynamicStates };
+            const localForms = existing.forms;
+            // formName / forms 在文件里是空值时规范化后没有这个键：替换就是清除，而不是写入 undefined。
+            for (const field of fields) {
+                if (character[field] === undefined) delete existing[field];
+                else existing[field] = cloneJson(character[field]);
+            }
+            // 服装 / 动态标签：按名称对上本机条目，保留它们各自的启用状态（角色自己的 enabled 本来就不在 fields 里）。
+            for (const field of ['outfits', 'dynamicStates']) {
+                if (fields.includes(field)) existing[field] = applyLocalNamedTagEnabled(existing[field], localItems[field]);
+            }
+            if (fields.includes('forms') && Array.isArray(existing.forms)) {
+                existing.forms = applyLocalFormsEnabled(existing.forms, localForms);
+            }
+            // 第一形态的停用标记是本机状态，替换时原样保留；替换后不再有额外形态就没有可停用的形态了。
+            if (!Array.isArray(existing.forms) || !existing.forms.length) delete existing.formDisabled;
             const newName = String(existing.name || '').trim();
             if (oldName !== newName) {
                 if (byName.get(oldName) === existing) {
@@ -844,7 +902,7 @@ export function planCharacterImport(library, parsed, options = {}, { makeId } = 
             ...cloneJson(character),
             id,
             ...(keepBoth ? { aliases: [] } : {}),
-            enabled: options.importNewAsDisabled ? false : character.enabled,
+            enabled: !options.importNewAsDisabled,
         };
         if (keepBoth) {
             added.name = makeCopyName(character.name, takenNameKeys);

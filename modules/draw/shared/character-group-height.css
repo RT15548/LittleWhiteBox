@@ -1,0 +1,30 @@
+/* 分组滚动区下沿的高度手柄（见 character-group-height.js）。分组样式里的 max-height 读取 --lwb-group-height。 */
+.lwb-group-resize {
+    position: relative;
+    height: 10px;
+    margin: 0 8px;
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+}
+.lwb-group-resize::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 3px;
+    width: 36px;
+    height: 3px;
+    margin-left: -18px;
+    border-radius: 2px;
+    background: var(--text-muted, #8b949e);
+    opacity: .35;
+}
+.lwb-group-resize:hover::after, .lwb-group-resize:focus-visible::after, .lwb-group-resize.dragging::after { opacity: .9; }
+.lwb-group-resize:focus-visible { outline: 2px solid var(--border-focus, rgba(212, 165, 116, 0.5)); outline-offset: -2px; border-radius: 4px; }
+/* 折叠的分组没有滚动区，手柄一并隐藏 */
+.collapsed > .lwb-group-resize { display: none; }
+body.lwb-group-resizing, body.lwb-group-resizing * { cursor: ns-resize !important; user-select: none; }
+/* 窄屏取消分组内滚动，没有可调的高度 */
+@media (max-width: 768px) {
+    .lwb-group-resize { display: none; }
+}

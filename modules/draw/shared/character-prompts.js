@@ -1,3 +1,4 @@
+import { expandCharacterForms } from './character-forms.js';
 import { findEnabledCharacterByName } from './character-selection.js';
 import { toSceneCharacterPromptTag } from './scene-plan-contract.js';
 
@@ -41,8 +42,10 @@ function normalizeCharacterCenter(center, { acceptGrid = true } = {}) {
 
 export function assembleCharacterPrompts(sceneCharacters = [], knownCharacters = [], options = {}) {
     const characters = Array.isArray(sceneCharacters) ? sceneCharacters : [];
+    // 多形态角色在这里展开：智能体回复 `名称（形态名）` 命中对应形态，回复原名称 / 别名命中第一形态。
+    const expandedKnown = expandCharacterForms(knownCharacters);
     return characters.map((character) => {
-        const known = findEnabledCharacterByName(character?.name, knownCharacters);
+        const known = findEnabledCharacterByName(character?.name, expandedKnown);
         const center = normalizeCharacterCenter(character?.center, options);
         if (known) {
             // [K2] 场景 type（可携带方位）非空时打头并顶替库 type；为空（原生合同会清空已录入

@@ -6,11 +6,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>SD Draw</title>
+<script src="../../shared/theme-boot.js"></script>
 <link rel="stylesheet" href="../../shared/settings-shell.css">
 <link rel="stylesheet" href="../../shared/settings-icons.css">
+<link rel="stylesheet" href="../../shared/preset-list-view.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-library-ui.css">
+<link rel="stylesheet" href="../../shared/character-group-height.css">
 <link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
 <script type="module">
 import { loadBuildEntry, reportBuildFailure } from '../../../../core/build-assets.js';
@@ -252,7 +255,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                 </div>
 
                 <fieldset id="sd-api-form" class="card" style="min-width:0;margin:0;">
-                    <div id="sd-api-presets" class="preset-bar"></div>
+                    <div id="sd-api-presets" class="api-preset-list"></div>
                     <div class="form-group">
                         <label class="form-label">SD WebUI 地址</label>
                         <div class="input-row">
@@ -625,7 +628,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                                 <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-download"></i> 导入<input type="file" id="sd-shared-char-import" accept=".json" style="display:none;"></label>
 
                             </div>
-                            <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、动态外貌、角色负向标签都会被画图流程直接使用。</p>
+                            <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、动态标签、角色负向标签都会被画图流程直接使用。</p>
                         </div>
                         <div class="card">
                             <div id="sd-group-preset-root"></div>

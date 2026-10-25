@@ -114,7 +114,8 @@
     background: var(--accent-soft, rgba(212, 165, 116, 0.15));
 }
 
-.lwb-cid-mode.is-disabled {
+/* 不可用的选项只淡化选项本身，下面解释原因的说明文字保持正常对比度。 */
+.lwb-cid-mode.is-disabled .lwb-cid-choice {
     opacity: 0.55;
 }
 
@@ -270,18 +271,18 @@
 }
 
 .lwb-cid-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--accent-soft, rgba(255, 255, 255, 0.08));
 }
 
 .lwb-cid-btn-primary {
     background: var(--accent, #d4a574);
     border-color: var(--accent, #d4a574);
-    color: #000;
+    color: var(--bg-primary, #000);
     font-weight: 500;
 }
 
 .lwb-cid-btn-primary:hover {
-    background: #e5b685;
+    background: var(--text-primary, #e5b685);
 }
 
 .lwb-cid-btn:disabled {

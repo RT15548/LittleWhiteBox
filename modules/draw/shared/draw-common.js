@@ -17,6 +17,7 @@ import {
     deletePreview,
 } from "./gallery-cache.js";
 import { patchImageCard, reportImageCardReadError } from './image-card-view.js';
+import { installTextareaAutofit } from './textarea-autofit.js';
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from './image-save-ui.js';
 import {
     ScenePlannerError,
@@ -28,6 +29,7 @@ import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { hasPreviewImage, PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { getSlotActivity } from './slot-activity.js';
+import { buildFailedActionsHtml, buildUngeneratedActionsHtml, installImageCardMenu } from './image-card-menu.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { detectPresentCharacters } from './present-characters.js';
@@ -193,6 +195,7 @@ export function classifyError(error) {
 
 export function ensureDrawImageStyles() {
     ensureDrawVisuals();
+    installImageCardMenu(document);
     if (document.getElementById('xiaobaix-draw-image-styles')) return;
     const style = document.createElement('style');
     style.id = 'xiaobaix-draw-image-styles';
@@ -247,7 +250,7 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-group{margin-bottom:8px}
 .xb-nd-edit-group:last-child{margin-bottom:0}
 .xb-nd-edit-group-label{font-size:11px;color:inherit;opacity:.8;margin-bottom:4px}
-.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:clamp(100px,20dvh,240px);background:var(--draw-bg-input);border:1px solid var(--draw-border);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
+.xb-nd-edit-input{display:block;box-sizing:border-box;width:100%;background:var(--draw-bg-input);border:1px solid var(--draw-border);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
 .xb-nd-edit-actions{display:flex;flex-shrink:0;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid var(--draw-border);background:var(--draw-accent-soft);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:var(--draw-accent-soft)}
@@ -257,14 +260,18 @@ export function ensureDrawImageStyles() {
 .xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin:8px 0 12px;overflow-wrap:anywhere}
 .xb-nd-failed-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .xb-nd-failed-btns button{min-height:44px;padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer;transition:all 0.15s}
-.xb-nd-failed-more{min-width:0}
-.xb-nd-failed-more summary{box-sizing:border-box;min-height:44px;padding:8px 12px;display:inline-flex;align-items:center;gap:6px;list-style:none;font-size:12px;cursor:pointer;border-radius:8px}
-.xb-nd-failed-more summary::-webkit-details-marker{display:none}
-.xb-nd-failed-more summary .draw-icon{font-size:14px}
-.xb-nd-failed-more[open]{flex-basis:100%}
-.xb-nd-failed-more[open] summary .draw-icon{transform:rotate(180deg)}
-.xb-nd-failed-more summary:hover{background:var(--draw-accent-soft)}
-.xb-nd-failed-options{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding-top:8px}
+.xb-nd-failed-btns .xb-nd-more-btn{box-sizing:border-box;min-width:44px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--draw-border);background:var(--draw-bg-input);color:inherit}
+.xb-nd-more-btn svg{display:block;width:16px;height:16px;fill:currentColor}
+.xb-nd-more-btn:hover,.xb-nd-more-btn[aria-expanded="true"]{background:var(--draw-accent-soft)}
+.xb-nd-more{display:inline-flex}
+.xb-nd-more-menu{position:fixed;z-index:1000;display:flex;flex-direction:column;gap:2px;min-width:148px;max-width:calc(100vw - 16px);padding:4px;box-sizing:border-box;overflow-y:auto;text-align:left;background:var(--draw-bg-secondary);color:var(--draw-text-primary);border:1px solid var(--draw-border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(12px)}
+.xb-nd-more-menu[hidden]{display:none}
+.xb-nd-more-menu .xb-nd-more-item{display:flex;align-items:center;width:100%;min-height:36px;padding:7px 10px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:inherit;font-size:13px;text-align:left;white-space:nowrap;cursor:pointer}
+.xb-nd-more-menu .xb-nd-more-item:hover,.xb-nd-more-menu .xb-nd-more-item:focus-visible{background:var(--draw-accent-soft);outline:none}
+.xb-nd-more-menu .xb-nd-more-item:focus-visible{outline:2px solid currentColor;outline-offset:-2px}
+.xb-nd-more-menu .xb-nd-more-item.is-danger{color:var(--draw-danger)}
+.xb-nd-more-sep{height:1px;margin:2px 4px;background:var(--draw-border)}
+@media(hover:none),(pointer:coarse){.xb-nd-more-menu .xb-nd-more-item{min-height:44px}}
 .xb-nd-tag-actions{display:inline-flex;margin-inline-start:12px;vertical-align:middle}
 .xb-nd-tag-actions button{min-height:44px;min-width:64px}
 .xb-nd-retry-btn{border:1px solid var(--draw-border-focus);background:var(--draw-accent-soft);color:inherit}
@@ -323,8 +330,33 @@ ${buildTagEditor(tags, false)}
 </div>`;
 }
 
+// 编辑面板里的文本框（场景 / 各角色各一个）随内容长高：一行内容只占一行，最多约 8 行再出现滚动条，手动拉伸手柄保留；
+// 面板此刻才可见，量得出高度（每个面板只装一次，面板里重绘 / 宽度变化后由观察器补量）。
+const tagEditorAutofit = new WeakMap();
+
+/** 往编辑面板的滚动区加一个“标签 + 文本框”字段（三个出图后端共用）。 */
+export function appendTagEditGroup(container, { label, value, type, index = null }) {
+    const group = document.createElement('div');
+    group.className = 'xb-nd-edit-group';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'xb-nd-edit-group-label';
+    labelEl.textContent = label;
+    const textarea = document.createElement('textarea');
+    textarea.className = 'xb-nd-edit-input';
+    textarea.setAttribute('aria-label', label);
+    textarea.setAttribute('data-autofit', '');
+    textarea.rows = 1; // 一行起步，由 data-autofit 按内容长高
+    textarea.dataset.type = type;
+    if (index !== null) textarea.dataset.index = String(index);
+    textarea.value = value || '';
+    group.append(labelEl, textarea);
+    container.appendChild(group);
+}
+
 export function showDrawTagEditor(editPanel) {
     editPanel.style.display = 'flex';
+    if (!tagEditorAutofit.has(editPanel)) tagEditorAutofit.set(editPanel, installTextareaAutofit(editPanel));
+    tagEditorAutofit.get(editPanel).refit();
     editPanel.scrollIntoView({ block: 'nearest' });
     editPanel.querySelector('[data-type="scene"]')?.focus({ preventScroll: true });
 }
@@ -332,7 +364,7 @@ export function showDrawTagEditor(editPanel) {
 function buildTagEditor(tags, failed) {
     return `<div class="xb-nd-edit${failed ? '' : ' xb-nd-edit-overlay'}" style="display:none;${failed ? 'margin-top:12px;' : 'position:absolute;bottom:8px;left:8px;right:8px;z-index:15;'}border-radius:10px;padding:10px;text-align:left;">
     <label data-draw-edit-label style="display:block;font-size:11px;margin-bottom:6px;">${DRAW_SLOT_COPY.editTags}</label>
-    <textarea class="xb-nd-edit-input" aria-label="${DRAW_SLOT_COPY.editTags}">${escapeHtml(tags)}</textarea>
+    <textarea class="xb-nd-edit-input" data-autofit rows="1" aria-label="${DRAW_SLOT_COPY.editTags}">${escapeHtml(tags)}</textarea>
     <div class="xb-nd-edit-actions">
         <button data-action="save-tags">${DRAW_SLOT_COPY.saveTags}</button>
         ${failed ? `<button data-action="save-tags-retry">${DRAW_SLOT_COPY.saveAndRetry}</button>` : ''}
@@ -609,11 +641,7 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
 function buildUngeneratedImageHtml({ slotId, imgId, messageId, tags, positive }) {
     return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapeHtml(tags)}" data-positive="${escapeHtml(positive)}" data-mesid="${messageId}" data-state="ungenerated" style="margin:0.8em 0;text-align:center;position:relative;padding:12px;">
 <div class="xb-nd-failed-title">${DRAW_SLOT_COPY.unclaimed}</div>
-<div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.generate}</button>
-    <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
-    <button class="xb-nd-remove-btn" data-action="remove-placeholder">${DRAW_SLOT_COPY.remove}</button>
-</div>
+${buildUngeneratedActionsHtml()}
 ${buildTagEditor(tags, true)}
 </div>`;
 }
@@ -625,18 +653,7 @@ export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags
 <div class="xb-nd-failed-icon" aria-hidden="true">${drawIconHtml('triangle-exclamation')}</div>
 <div class="xb-nd-failed-title">${escapeHtml(errorType || DRAW_SLOT_COPY.generationFailed)}</div>
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '')}</div>
-<div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.regenerate}</button>
-    ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
-    <details class="xb-nd-failed-more">
-        <summary>${DRAW_SLOT_COPY.moreActions} ${drawIconHtml('chevron-down')}</summary>
-        <div class="xb-nd-failed-options">
-            <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
-            <button class="xb-nd-edit-btn" data-action="retry-floor-failed" title="${DRAW_SLOT_COPY.regenerateFloorHint}">${DRAW_SLOT_COPY.regenerateFloor}</button>
-            <button class="xb-nd-remove-btn" data-action="remove-placeholder">${DRAW_SLOT_COPY.remove}</button>
-        </div>
-    </details>
-</div>
+${buildFailedActionsHtml({ historyCount })}
 ${buildTagEditor(tags, true)}
 </div>`;
 }

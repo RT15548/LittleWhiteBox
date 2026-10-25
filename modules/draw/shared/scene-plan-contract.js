@@ -212,7 +212,9 @@ function normalizeCharacterLookup(presentCharacters = []) {
     for (const character of Array.isArray(presentCharacters) ? presentCharacters : []) {
         const canonicalName = String(character?.name || '').trim();
         if (!canonicalName) continue;
-        const names = [canonicalName, ...(Array.isArray(character.aliases) ? character.aliases : [])];
+        // 多形态角色展开后的记录带 baseName（原角色名）：智能体回复原名称时也要对上，并落到第一形态（它排在最前）。
+        const baseName = typeof character.baseName === 'string' ? [character.baseName] : [];
+        const names = [canonicalName, ...baseName, ...(Array.isArray(character.aliases) ? character.aliases : [])];
         names.forEach((name) => {
             const key = String(name || '').trim().toLocaleLowerCase();
             if (key && !lookup.has(key)) lookup.set(key, canonicalName);

@@ -27,6 +27,8 @@ import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker
 import { resolveCustomToolDefinitions } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
+import { isNamedTagEnabled } from './named-tag-items.js';
+import { FORM_EXCLUSIVE_NOTE } from './character-forms.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -82,7 +84,8 @@ export function getEffectiveTagGuide(customGuide) {
 
 function formatReferenceList(items, fallbackLabel) {
     return (Array.isArray(items) ? items : [])
-        .filter((item) => item?.name || item?.tags)
+        // 停用的条目不给 AI 看（detectPresentCharacters 已剔除；这里兜底，直接传库里条目进来的路径同样不会泄漏）。
+        .filter((item) => isNamedTagEnabled(item) && (item?.name || item?.tags))
         .map((item) => `${item.name || fallbackLabel}=${item.tags || '未填写tag'}`)
         .join('； ');
 }
@@ -99,10 +102,14 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const danbooru = character.danbooruTag ? ` | danbooru: ${character.danbooruTag}` : '';
         const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
         const outfits = formatReferenceList(character.outfits, '服装');
-        const dynamicStates = formatReferenceList(character.dynamicStates, '状态');
-        return `- ${character.name}${aliases} [${type}]${danbooru}${appear}`
+        const dynamicStates = formatReferenceList(character.dynamicStates, '动态标签');
+        // 多形态角色的各个形态相邻排列：在第一个形态前声明一次“同一角色、同一画面只出现其中一个，未提及时用第一个”。
+        const formNote = character.formIndex === 0 && character.formCount > 1
+            ? `（${character.baseName}：${FORM_EXCLUSIVE_NOTE}）\n`
+            : '';
+        return `${formNote}- ${character.name}${aliases} [${type}]${danbooru}${appear}`
             + (outfits ? `\n  服装参考: ${outfits}` : '')
-            + (dynamicStates ? `\n  状态参考（随剧情变化的外观，选贴合当前画面的一条融入 action）: ${dynamicStates}` : '');
+            + (dynamicStates ? `\n  动态标签参考（可叠加的额外外观，按画面选用，可并存的可多选，互斥的只取一条，写进 costume 或 action）: ${dynamicStates}` : '');
     });
 
     return `【已录入角色】\n${lines.join('\n')}`;

@@ -30,7 +30,6 @@ import {
 } from '../reasoning-config.js';
 import { WEB_PROVIDERS, normalizeWebSettings } from '../web/settings.js';
 import { bindWebSettingsGuide, readWebSettingsForm, syncWebSettingsForm } from './web-settings.js';
-import { buildPresetListRowsMarkup, syncPresetListControls } from './settings-markup.js';
 import { getModelListAuthOptions, normalizeModelListAuth, supportsModelListAuth } from '../model-list-auth.js';
 import { SAMPLING_PARAMETERS, normalizeSampling } from '../sampling.js';
 import { readSamplingForm, syncSamplingForm, bindSamplingSettings, validateSamplingForm } from './sampling-settings.js';
@@ -160,8 +159,9 @@ export function createAgentSettingsPanel(deps = {}) {
         getRuntimeSummaryText,
         // 预设区布局：默认是下拉框 + 图标按钮；'list' 是可排序的预设列表（opt-in，需配套 markup 的 presetLayout: 'list'）。
         presetLayout = 'select',
-        // 列表布局的交互件（拖拽排序 / 行菜单 / 自动滚动）由宿主注入，agent-core 不依赖具体页面的共享模块：
-        // { createSortableList, createMenuController, moveStep, autoScroll }
+        // 列表布局的列表视图（行、拖拽排序、折叠、“…”菜单）由宿主注入，agent-core 不依赖具体页面的共享模块：
+        // { createPresetListView(options) }，选项与 draw/shared/preset-list-view.js 的 createPresetListView 相同
+        // （宿主在 draw/shared/preset-list-kit.js 里接好）。没有它列表布局就没有预设行。
         presetListKit = null,
     } = deps;
     const isListLayout = presetLayout === 'list';
@@ -751,7 +751,7 @@ export function createAgentSettingsPanel(deps = {}) {
             );
             presetSelect.value = draft.currentPresetName || state.config.currentPresetName || DEFAULT_PRESET_NAME;
         }
-        if (isListLayout) syncPresetList(root);
+        if (isListLayout) syncPresetList();
         if (delegatePresetSelect) {
             refillSelect(delegatePresetSelect, presetOptions);
             delegatePresetSelect.value = resolveExistingPresetName(draft.delegatePresetName, draft.currentPresetName);
@@ -818,9 +818,7 @@ export function createAgentSettingsPanel(deps = {}) {
     let presetBaseline = null;
     let presetOwned = null;
     let pendingPresetSave = null;
-    let presetMenu = null;
-    let presetSortable = null;
-    const presetListOffs = [];
+    let presetListView = null;
 
     function getSavedConfig() {
         if (!presetBaseline || state.config !== presetOwned) {
@@ -849,29 +847,10 @@ export function createAgentSettingsPanel(deps = {}) {
         return candidates.find(name => names.includes(name)) ?? names[0] ?? '';
     }
 
-    function syncPresetList(root) {
-        const list = root?.querySelector?.('#xb-assistant-preset-list');
-        if (!list || !state.config) return;
-        const names = getPresetNames();
-        const selectedName = getSelectedPresetName(names);
-        const isBusy = state.configSave?.status === 'saving';
-        const canDeletePreset = names.length > 1;
-        const rows = Array.from(list.querySelectorAll('[data-preset-item]'));
-        if (rows.length !== names.length || rows.some((row, index) => row.dataset.presetName !== names[index])) {
-            presetMenu?.close(); // 整体重绘会换掉所有行，已打开的菜单随之失效
-            // eslint-disable-next-line no-unsanitized/property -- First-party markup escapes preset names before rendering.
-            list.innerHTML = buildPresetListRowsMarkup({ names, selectedName, isBusy, canDeletePreset });
-            return;
-        }
-        // 顺序没变只改高亮，不重绘：被点的按钮留在原处，键盘焦点不丢。
-        rows.forEach((row) => {
-            const selected = row.dataset.presetName === selectedName;
-            row.classList.toggle('is-selected', selected);
-            const nameButton = row.querySelector('.xb-assistant-preset-name');
-            if (selected) nameButton?.setAttribute('aria-current', 'true');
-            else nameButton?.removeAttribute('aria-current');
-        });
-        syncPresetListControls(root, { isBusy, canDeletePreset });
+    // 数据变了（保存回执、重命名、增删、排序、切换）就重绘变了的行，否则只刷新高亮，不动 DOM，焦点不丢。
+    function syncPresetList() {
+        if (!state.config) return;
+        presetListView?.refresh();
     }
 
     function guardPresetBusy() {
@@ -905,7 +884,7 @@ export function createAgentSettingsPanel(deps = {}) {
         pendingPresetSave = { requestId, complete(outcome) {
             if (!outcome.ok) {
                 syncConfigDirty(saved);
-                syncPresetList(root);
+                syncPresetList();
                 return;
             }
             const confirmed = normalizeAgentConfig(outcome.config || nextSaved);
@@ -998,15 +977,15 @@ export function createAgentSettingsPanel(deps = {}) {
         return true;
     }
 
-    function renamePreset(root, name) {
-        if (guardPresetBusy()) return;
-        const nextName = promptForPresetName('输入预设名称：', name);
+    // nextName 来自列表里的名称输入框；下拉框布局（没有列表）仍用 prompt 询问。被拒绝时返回 false（输入框据此还原）。
+    function renamePreset(root, name, nextName = promptForPresetName('输入预设名称：', name)) {
+        if (guardPresetBusy()) return false;
         if (!nextName) {
             showToast?.('预设名称不能为空');
-            return;
+            return false;
         }
-        if (nextName === name) return;
-        if (rejectExistingPresetName(nextName)) return;
+        if (nextName === name) return false;
+        if (rejectExistingPresetName(nextName)) return false;
         commitPresetChange(root, {
             transform: presets => renameRecordKey(presets, name, nextName),
             remap: current => (current === name ? nextName : current),
@@ -1032,65 +1011,46 @@ export function createAgentSettingsPanel(deps = {}) {
         });
     }
 
-    function getPresetMenu(doc) {
-        presetMenu ||= presetListKit?.createMenuController?.({ document: doc }) || null;
-        return presetMenu;
-    }
-
     function bindPresetList(root) {
-        const list = root.querySelector('#xb-assistant-preset-list');
-        if (!list) return;
-        presetListOffs.splice(0).forEach(off => off());
-        presetSortable?.destroy?.();
-        presetSortable = null;
-        const doc = root.ownerDocument || globalThis.document;
-        const onClick = (event) => {
-            const trigger = event.target?.closest?.('[data-preset-action]');
-            if (!trigger || !list.contains(trigger) || trigger.hasAttribute('disabled')) return;
-            const name = trigger.closest('[data-preset-item]')?.dataset?.presetName;
-            if (!name) return;
-            const action = trigger.dataset.presetAction;
-            if (action === 'menu') {
-                getPresetMenu(doc)?.toggle(trigger);
-                return;
-            }
-            presetMenu?.close();
-            if (action === 'select') {
+        presetListView?.destroy();
+        presetListView = null;
+        if (typeof presetListKit?.createPresetListView !== 'function') return;
+        const getList = () => root.querySelector('#xb-assistant-preset-list');
+        if (!getList()) return;
+        presetListView = presetListKit.createPresetListView({
+            document: root.ownerDocument || globalThis.document,
+            getList,
+            getToggle: () => root.querySelector('#xb-assistant-preset-collapse'),
+            // 预设本来就以名称为键，名称同时用作行 id。
+            getPresets: () => getPresetNames().map(name => ({ id: name, name })),
+            getCurrentId: () => getSelectedPresetName(getPresetNames()),
+            noun: '场景 Agent 预设',
+            listId: 'agent-presets',
+            menuItems: [
+                { action: 'duplicate', label: '复制', icon: 'fa-clone' },
+                { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
+            ],
+            onSelect: (name) => {
                 // 再点已选中的一行不重填表单，免得冲掉未保存的编辑
                 if (name === getSelectedPresetName(getPresetNames())) return;
                 switchPreset(root, name);
-                syncPresetList(root);
-            } else if (action === 'rename') renamePreset(root, name);
-            else if (action === 'duplicate') duplicatePresetRow(root, name);
-            else if (action === 'delete') deletePreset(root, name);
-        };
-        list.addEventListener('click', onClick);
-        presetListOffs.push(() => list.removeEventListener('click', onClick));
-        if (typeof presetListKit?.createSortableList === 'function') {
-            presetSortable = presetListKit.createSortableList({
-                container: list,
-                rowSelector: '[data-preset-item]',
-                handleSelector: '[data-preset-drag]',
-                getId: row => row.dataset.presetName,
-                onReorder: names => reorderPresets(root, names),
-                moveStep: presetListKit.moveStep,
-                autoScroll: event => presetListKit.autoScroll?.(list, event),
-                draggingClass: 'is-dragging',
-                beforeClass: 'is-drop-before',
-                afterClass: 'is-drop-after',
-                bodyClass: 'xb-preset-sorting',
-                document: doc,
-            });
-        }
+                syncPresetList();
+            },
+            onAction: (action, name) => {
+                if (action === 'duplicate') duplicatePresetRow(root, name);
+                else if (action === 'delete') deletePreset(root, name);
+            },
+            // 保存确认前输入框先显示新名字；失败时 commitPresetChange 的回执处理会重绘还原。
+            onRename: (name, nextName) => renamePreset(root, name, nextName),
+            onReorder: names => reorderPresets(root, names),
+        });
+        presetListView.render();
     }
 
     function destroy() {
         pendingPresetSave = null;
-        presetListOffs.splice(0).forEach(off => off());
-        presetSortable?.destroy?.();
-        presetSortable = null;
-        presetMenu?.destroy?.();
-        presetMenu = null;
+        presetListView?.destroy();
+        presetListView = null;
     }
 
     function postSaveConfig(payload) {

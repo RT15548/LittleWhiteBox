@@ -47,9 +47,19 @@ function fixture(t, persistResult, { initialSettings, prompt, confirm } = {}) {
         page, initial, filled, open,
         settings: () => settings, form: () => document.querySelector('#form'),
         config: () => formConfig, writes: () => writes,
-        click: async action => {
+        click: async (action, value) => {
             page.ensureBar();
-            document.querySelector(`[data-action="${action}"]`).click();
+            if (action === 'rename') {
+                // 改名是第一行（= 当前预设）名称输入框里的就地编辑：聚焦、改字、离开
+                const input = document.querySelector('.preset-row .preset-row-name');
+                const fire = type => input.dispatchEvent(new document.defaultView.Event(type, { bubbles: true }));
+                fire('focusin');
+                input.value = value;
+                fire('focusout');
+            } else {
+                // 删除是预设行“…”菜单里的项（第一行 = 当前预设），其余是标题行按钮
+                document.querySelector(action === 'delete' ? '[data-preset-action="delete"]' : `[data-action="${action}"]`).click();
+            }
             await nextTurn();
         },
     };
@@ -103,8 +113,8 @@ for (const success of [true, false]) {
     test(`renaming a migrated preset ${success ? 'persists its name' : 'rolls back'} without changing credentials`, async t => {
         const legacy = { host: 'https://legacy.invalid', auth: 'legacy-key' };
         const initialSettings = { ...legacy, ...normalizeApiPresetState(legacy, { fields: ['host', 'auth'] }) };
-        const h = fixture(t, async () => success, { initialSettings, prompt: () => 'Renamed' });
-        await h.click('rename');
+        const h = fixture(t, async () => success, { initialSettings });
+        await h.click('rename', 'Renamed');
         assert.equal(h.settings().apiPresets.length, 1);
         assert.equal(h.settings().activeApiPresetId, initialSettings.activeApiPresetId);
         assert.equal(h.settings().apiPresets[0].name, success ? 'Renamed' : initialSettings.apiPresets[0].name);
