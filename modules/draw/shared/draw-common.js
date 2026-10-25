@@ -280,8 +280,8 @@ export function ensureDrawImageStyles() {
 .xb-nd-img button:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 /* 错误详情悬浮提示：失败条标题上 hover/聚焦弹出完整报错（fork 同款） */
 .xb-nd-error-tip{cursor:help;outline:none;position:relative}
-.xb-nd-error-tip::after{content:attr(data-tip);display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(320px,80vw);padding:8px 10px;border-radius:8px;background:rgba(20,20,20,.96);color:#fff;font-size:12px;font-weight:400;line-height:1.5;white-space:normal;text-align:left;box-shadow:0 4px 16px rgba(0,0,0,.35)}
-.xb-nd-error-tip:hover::after,.xb-nd-error-tip:focus::after{display:block}
+.xb-nd-error-tip::after{content:attr(data-tip);display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:max-content;max-width:min(320px,80vw);padding:8px 10px;border-radius:8px;background:rgba(20,20,20,.96);color:#fff;font-size:12px;font-weight:400;line-height:1.5;white-space:pre-line;text-align:left;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+.xb-nd-error-tip:hover::after,.xb-nd-error-tip:focus::after,.xb-nd-error-tip.xb-nd-tip-open::after{display:block}
 .xb-nd-error-tip[data-tip=""]{cursor:default}
 .xb-nd-failed-icon{display:inline-block;color:rgba(248,113,113,0.9);font-size:14px;margin-inline-end:6px}
 .xb-nd-failed-title{display:inline;color:inherit;font-size:13px}
@@ -719,7 +719,7 @@ export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags
 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
 <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;">
 <span style="font-size:14px;flex:none;">⚠️</span>
-<span class="xb-nd-failed-title xb-nd-error-tip" tabindex="0" data-tip="${escapeHtml(tips.join('\n'))}" style="font-size:13px;color:#fff;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(errorDesc ? `${errorLabel}·${errorDesc}` : errorLabel)}</span>
+<span class="xb-nd-failed-title xb-nd-error-tip" tabindex="0" data-action="toggle-error-tip" data-tip="${escapeHtml(tips.join('\n'))}" style="font-size:13px;color:#fff;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(errorDesc ? `${errorLabel}·${errorDesc}` : errorLabel)}</span>
 </div>
 <div class="xb-nd-failed-btns" style="display:flex;gap:4px;flex:none;">
     <button class="xb-nd-retry-btn" data-action="retry-image" style="padding:2px 6px;background:transparent;border:none;color:#fff;font-size:16px;line-height:1;cursor:pointer;opacity:0.9;display:flex;align-items:center;" title="${DRAW_SLOT_COPY.regenerate}">${RELOAD_ICON_SVG}</button>
