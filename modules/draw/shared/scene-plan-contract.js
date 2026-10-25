@@ -123,6 +123,35 @@ function getCorrectionInstruction(code) {
     }
 }
 
+const MAX_HINT_FIELDS = 5;
+const MAX_HINT_FIELD_CHARS = 40;
+
+// 工具协议类错误（这一轮没有交出可执行的调用）在自动重试时附带的纠错消息；其它类别返回 ''。
+// 只带解析器自己的报错（含位置）和固定提示，不回放上一轮的错误输出（省 token）。
+export function buildToolProtocolRetryCorrection(error) {
+    if (getScenePlannerErrorCategory(error) !== ScenePlannerErrorCategory.TOOL_PROTOCOL) return '';
+    const message = String(error.message || '').trim();
+    if (error.code === 'TAGGED_TOOL_CALL_INVALID') {
+        // extraFields 来自解析器对封装的严格解析，这里只负责措辞。
+        const fields = (Array.isArray(error.details?.extraFields) ? error.details.extraFields : [])
+            .slice(0, MAX_HINT_FIELDS)
+            .map(field => JSON.stringify(String(field).slice(0, MAX_HINT_FIELD_CHARS)));
+        return [
+            `上一轮工具调用的 JSON 无效。解析器报错：${message}`,
+            ...(fields.length ? [`${fields.join('、')} 被写到了 arguments 外面（多半是 arguments 提前用 } 闭合了）。`] : []),
+            '请完整重新输出一个 <tool_call>，格式为 {"name":"submit_scene_plan","arguments":{…}}；'
+            + '逐层核对括号配对，所有参数字段（如 images）都必须放在 arguments 里面，不要多写或少写 } ]。',
+        ].join('\n');
+    }
+    if (error.code === 'DSML_TOOL_CALL_INVALID') {
+        // error.message 是给用户看的设置建议；具体原因在两层 cause 里。
+        const reason = String(error.cause?.cause?.message || '').trim();
+        return `上一轮工具调用的 DSML 格式无效${reason ? `。解析器报错：${reason}` : '。'}\n`
+            + '请完整重新输出一次 submit_scene_plan 调用，并检查所有标签与参数都已闭合。';
+    }
+    return `上一轮没有交出有效的工具调用：${message}\n${getCorrectionInstruction(error.code)}`;
+}
+
 function normalizeCorrectionDetails(details) {
     if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
     const normalized = {};

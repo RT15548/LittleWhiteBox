@@ -76,10 +76,12 @@ function failDsml(index, reason) {
     throw error;
 }
 
-function failTaggedJson(index, reason) {
+function failTaggedJson(index, reason, extraFields) {
     const error = new SyntaxError(`JSON 工具调用格式无效：${reason}（位置 ${index}）。本轮工具未执行。`);
     error.code = 'TAGGED_TOOL_CALL_INVALID';
     error.offset = index;
+    // Diagnostic only: the keys of the already strictly parsed envelope, so a retry can name them.
+    if (extraFields) error.extraFields = extraFields;
     throw error;
 }
 
@@ -228,10 +230,11 @@ function assertJsonToolEnvelope(parsed, toolStart) {
             || typeof call.name !== 'string' || !call.name.trim()) {
             failTaggedJson(toolStart, '每条调用必须是包含工具名称 name 的 JSON 对象');
         }
-        if (Object.keys(call).some(key => !['id', 'name', 'arguments'].includes(key))) {
+        const extraFields = Object.keys(call).filter(key => !['id', 'name', 'arguments'].includes(key));
+        if (extraFields.length) {
             // An early arguments closer can move real parameters to the envelope root.
             // Stripping its extra final closer must never silently discard those fields.
-            failTaggedJson(toolStart, '工具封装中存在 id、name、arguments 之外的字段，无法确定参数边界');
+            failTaggedJson(toolStart, '工具封装中存在 id、name、arguments 之外的字段，无法确定参数边界', extraFields);
         }
     }
 }
