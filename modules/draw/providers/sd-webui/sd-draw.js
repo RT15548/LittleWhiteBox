@@ -60,7 +60,8 @@ import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
-import { installHostPanelEscape } from "../../shared/panel-escape.js";
+import { installHostPanelEscape, reportEditsSaved } from "../../shared/panel-escape.js";
+import { resolveInitialTab, saveLastTab } from "../../shared/last-tab.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
@@ -1642,6 +1643,7 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
 function switchSettingsView(viewName = 'test') {
     const requested = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
     const normalized = requested;
+    saveLastTab('sd', normalized);
     querySettingsAll('[data-sd-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdView === normalized);
     });
@@ -2711,7 +2713,7 @@ async function refreshSdOptions({ notify = false } = {}) {
     }
 }
 
-export async function openSettings() {
+export async function openSettings({ view } = {}) {
     try {
         await loadSettings();
         await settingsUpdateQueue;
@@ -2721,7 +2723,7 @@ export async function openSettings() {
     }
     const overlay = await createOverlay();
     fillForm(getSettings());
-    switchSettingsView('test');
+    switchSettingsView(resolveInitialTab({ provider: 'sd', tabs: SD_DRAW_VIEWS, requested: view, fallback: 'test' }));
     syncOverlayHeight();
     overlay.style.display = 'block';
     observeBackgroundTask(refreshSdOptions(), { source: "modules/draw/providers/sd-webui/sd-draw.js", operation: "openSettings" });

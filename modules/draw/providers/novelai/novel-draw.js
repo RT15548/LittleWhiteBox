@@ -3077,7 +3077,7 @@ async function autoGenerateForLastAI() {
 // Overlay 设置面板
 // ═══════════════════════════════════════════════════════════════════════════
 
-function createOverlay() {
+function createOverlay(view = '') {
     if (overlayCreated) return;
     overlayCreated = true;
     ensureStyles();
@@ -3108,7 +3108,7 @@ function createOverlay() {
 
     const iframe = document.createElement('iframe');
     iframe.id = 'xiaobaix-novel-draw-iframe';
-    iframe.src = `${HTML_PATH}?v=${Date.now()}`;
+    iframe.src = `${HTML_PATH}?v=${Date.now()}${view ? `&view=${encodeURIComponent(view)}` : ''}`; // view：打开方指定的页签，优先于上次记住的
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d1117;display:block;';
 
     frameWrap.appendChild(iframe);
@@ -3122,8 +3122,8 @@ function createOverlay() {
     subscribeGroupPresetRefresh();
 }
 
-function showOverlay() {
-    if (!overlayCreated) createOverlay();
+function showOverlay(view = '') {
+    if (!overlayCreated) createOverlay(view);
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) {
         overlay.style.display = 'block';
@@ -4245,14 +4245,14 @@ async function handleFrameMessage(event) {
 // 初始化与清理
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function openNovelDrawSettings() {
+export async function openNovelDrawSettings({ view } = {}) {
     try {
         await loadSettings();
         await loadSharedDrawSettings();
     } catch {
         return false;
     }
-    showOverlay();
+    showOverlay(view);
     return true;
 }
 
