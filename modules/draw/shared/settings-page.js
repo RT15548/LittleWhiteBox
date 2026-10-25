@@ -23,10 +23,11 @@ document.addEventListener('keydown', event => {
 // 页头最左边的 Logo 图标就是主题开关（跟随系统 / 浅色 / 深色），三个后端页面共用。
 mountThemeSwitch({ document });
 
-// Esc 等同点页头 ✕ 关闭面板；菜单 / 对话框 / 拖拽开着、或有改过未保存的角色编辑卡时不关（规则见 panel-escape.js）。
+// Esc 等同点页头 ✕ 关闭面板；菜单 / 对话框 / 拖拽开着、或有改过未保存的角色编辑卡时先保存再关（规则见 panel-escape.js）。
 const editGuard = createEditGuard({ document });
 installPanelEscape({
     document,
     close: () => document.querySelector('.header-close')?.click(),
     hasUnsavedEdit: () => editGuard.hasUnsavedEdit(),
+    flush: () => editGuard.flush(),
 });

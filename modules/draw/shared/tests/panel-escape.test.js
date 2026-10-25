@@ -3,11 +3,12 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import {
-    EDITS_SAVED_EVENT, ESCAPE_LAYER_SELECTORS, createEditGuard, hasOpenLayer, installHostPanelEscape, installPanelEscape, isDragging, isHostPopupOpen, reportEditsSaved, shouldClosePanelOnEscape,
+    EDITS_SAVED_EVENT, ESCAPE_LAYER_SELECTORS, createEditGuard, hasOpenLayer, installHostPanelEscape, installPanelEscape, isDragging, isHostPopupOpen, onEditsFlush, reportEditsSaved, requestEditsFlush, shouldClosePanelOnEscape,
 } from '../panel-escape.js';
 
 // Acceptance contracts (cost: Esc closing the panel while a menu / dialog / drag is the thing the user meant to dismiss, losing a half-typed character card, or stealing Esc from SillyTavern's own popups):
 // - Esc closes the panel only when nothing else wants it: no open menu / dialog / popover, no drag, no edited-but-unsaved character card, not a key repeat, not IME composition, no modifiers.
+// - Esc with unsaved typing saves first (the page's own flush, serialized with any in-flight save) and closes only when that succeeded; a failed or missing save keeps the panel and the draft, and Esc while saving neither saves twice nor closes twice.
 // - The same decision applies whether focus is inside the settings iframe or in the SillyTavern page behind it; in the host page it additionally needs the panel visible, topmost and no ST popup open.
 // - The listeners are registered with the panel and removed with it.
 
@@ -246,6 +247,123 @@ test('iframe listener: type, save, Esc — closes with the field still focused; 
     assert.deepEqual(closed, ['closed']);
 });
 
+const idle = () => new Promise(resolve => setTimeout(resolve, 0));
+const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
+
+test('flush request: every registered save must succeed; nobody registered, a refusal or a throw all count as not saved', async () => {
+    const { document } = page();
+    assert.equal(await requestEditsFlush(document), false, 'no page save registered: stay blocked');
+    assert.equal(await requestEditsFlush(null), false);
+    const off = onEditsFlush(document, () => true);
+    assert.equal(await requestEditsFlush(document), true);
+    const offOk = onEditsFlush(document, async () => ({ ok: true, saved: false }));
+    assert.equal(await requestEditsFlush(document), true);
+    for (const bad of [() => false, async () => ({ ok: false, error: 'x' }), () => { throw new Error('boom'); }, () => Promise.reject(new Error('boom'))]) {
+        const offBad = onEditsFlush(document, bad);
+        assert.equal(await requestEditsFlush(document), false);
+        offBad();
+    }
+    off(); offOk();
+    assert.equal(await requestEditsFlush(document), false, 'unregistered');
+});
+
+test('edit guard flush asks the page to save and reports whether everything was saved', async () => {
+    const { document } = page();
+    const guard = createEditGuard({ document });
+    assert.equal(await guard.flush(), false);
+    let calls = 0;
+    onEditsFlush(document, () => { calls += 1; return true; });
+    assert.equal(await guard.flush(), true);
+    assert.equal(calls, 1);
+});
+
+test('iframe listener: Esc with unsaved typing saves first and closes after the save succeeded', async () => {
+    const save = deferred();
+    let flushes = 0;
+    const { closed, esc } = wire({ hasUnsavedEdit: () => true, flush: () => { flushes += 1; return save.promise; } });
+    const first = esc();
+    assert.ok(first.defaultPrevented);
+    assert.equal(flushes, 1, 'the save is issued right away');
+    await idle();
+    assert.deepEqual(closed, [], 'not closed before the host acknowledged');
+    save.resolve(true);
+    await idle();
+    assert.deepEqual(closed, ['closed']);
+});
+
+test('iframe listener: Esc pressed again while the save is running neither saves twice nor closes twice', async () => {
+    const save = deferred();
+    let flushes = 0;
+    let unsaved = true;
+    const { closed, esc } = wire({ hasUnsavedEdit: () => unsaved, flush: () => { flushes += 1; return save.promise; } });
+    esc();
+    esc();
+    unsaved = false; // “已保存”事件在回执之前就清掉了标记：第二下 Esc 也不能抢先关
+    esc();
+    assert.equal(flushes, 1);
+    assert.deepEqual(closed, []);
+    save.resolve(true);
+    await idle();
+    assert.deepEqual(closed, ['closed']);
+    esc();
+    assert.deepEqual(closed, ['closed', 'closed'], 'afterwards a plain Esc closes immediately as usual');
+    assert.equal(flushes, 1);
+});
+
+test('iframe listener: a refused, rejected or missing save keeps the panel open, and Esc can be tried again', async () => {
+    for (const outcome of [() => Promise.resolve(false), () => Promise.reject(new Error('boom')), () => { throw new Error('boom'); }, () => Promise.resolve(undefined)]) {
+        let attempts = 0;
+        const { closed, esc } = wire({ hasUnsavedEdit: () => true, flush: () => { attempts += 1; return outcome(); } });
+        esc();
+        await idle();
+        esc();
+        await idle();
+        assert.equal(attempts, 2, 'the failure released the lock');
+        assert.deepEqual(closed, []);
+    }
+    const noSave = wire({ hasUnsavedEdit: () => true });
+    const event = noSave.esc();
+    await idle();
+    assert.deepEqual(noSave.closed, [], 'nothing can save here: stay blocked as before');
+    assert.ok(!event.defaultPrevented);
+});
+
+test('iframe listener: no unsaved edit closes synchronously without saving; menus, drags and handled Esc never trigger a save', async () => {
+    let flushes = 0;
+    const { closed, esc } = wire({ hasUnsavedEdit: () => false, flush: () => { flushes += 1; return true; } });
+    esc();
+    assert.deepEqual(closed, ['closed'], 'closed in the same tick');
+    const busy = wire({ hasUnsavedEdit: () => true, flush: () => { flushes += 1; return true; } });
+    busy.open.add('.char-menu:not([hidden])');
+    busy.esc();
+    busy.open.delete('.char-menu:not([hidden])');
+    busy.open.add('body.sortable-dragging');
+    busy.esc();
+    busy.open.delete('body.sortable-dragging');
+    busy.esc({ defaultPrevented: true }); // 行内重命名等已消费
+    busy.esc({ repeat: true });
+    busy.esc({ shiftKey: true });
+    await idle();
+    assert.equal(flushes, 0);
+    assert.deepEqual(busy.closed, []);
+});
+
+test('iframe listener: type then Esc on a real guard saves through the page hook, then closes', async () => {
+    const { document, fire } = page('<div class="char-card editing" data-id="c1"><input id="name"></div>');
+    const guard = createEditGuard({ document });
+    let saved = 0;
+    onEditsFlush(document, () => { saved += 1; reportEditsSaved(document); return { ok: true }; });
+    const { closed, esc } = wire({ hasUnsavedEdit: () => guard.hasUnsavedEdit(), flush: () => guard.flush() });
+    esc();
+    assert.deepEqual([saved, closed.length], [0, 1], 'untouched card: plain close');
+    fire(document.getElementById('name'), 'input');
+    esc();
+    await idle();
+    assert.equal(saved, 1);
+    assert.deepEqual(closed, ['closed', 'closed']);
+    assert.ok(!guard.hasUnsavedEdit());
+});
+
 test('iframe listener: dispose removes it', () => {
     const { closed, esc, dispose } = wire();
     dispose();
@@ -327,7 +445,7 @@ test('host listener: dispose removes it', () => {
 
 test('wiring: the shared page entry installs the iframe listener bound to the header ✕; each host module registers on overlay creation and disposes on hide', () => {
     const entry = readFileSync(new URL('../settings-page.js', import.meta.url), 'utf8');
-    assert.match(entry, /installPanelEscape\(\{[^}]*close: \(\) => document\.querySelector\('\.header-close'\)\?\.click\(\)/s);
+    assert.match(entry, /installPanelEscape\(\{[^}]*close: \(\) => document\.querySelector\('\.header-close'\)\?\.click\(\)[^}]*flush: \(\) => editGuard\.flush\(\)/s);
     for (const [file, overlayVar, frameVar] of [
         ['../../providers/novelai/novel-draw.js', 'overlay', 'iframe'],
         ['../../providers/sd-webui/sd-draw.js', 'overlayElement', 'overlayFrame'],
@@ -340,6 +458,9 @@ test('wiring: the shared page entry installs the iframe listener bound to the he
     }
     const reports = (file, text) => assert.ok(readFileSync(new URL(file, import.meta.url), 'utf8').includes(text), `${file} reports saved edits`);
     reports('../../providers/novelai/novel-draw-page.js', "if (status === 'saved') reportEditsSaved(document);");
+    reports('../../providers/novelai/novel-draw-page.js', 'onEditsFlush(document, flushCharacterEditorForEscape);');
+    reports('../../providers/sd-webui/sd-draw.js', 'onEditsFlush(getSettingsDocument(), () => saveAllSettings({ notify: false }));');
+    reports('../../providers/comfyui/comfy-draw.js', 'onEditsFlush(getSettingsDocument(), () => saveAllSettings({ notify: false }));');
     for (const file of ['../../providers/sd-webui/sd-draw.js', '../../providers/comfyui/comfy-draw.js']) {
         reports(file, 'runPostSaveHooks = async () => {\n        reportEditsSaved(getSettingsDocument());');
     }

@@ -68,7 +68,7 @@ import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
-import { installHostPanelEscape, reportEditsSaved } from "../../shared/panel-escape.js";
+import { installHostPanelEscape, onEditsFlush, reportEditsSaved } from "../../shared/panel-escape.js";
 import { resolveInitialTab, saveLastTab } from "../../shared/last-tab.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
@@ -2152,6 +2152,7 @@ function bindOverlayEvents() {
         });
     });
     bindWorldbookUploadEvents();
+    onEditsFlush(getSettingsDocument(), () => saveAllSettings({ notify: false })); // Esc 关面板前走与“保存设置”相同的保存
     querySettingsAll('[data-comfy-save-shared]').forEach((button) => {
         button.addEventListener('click', async (event) => {
             const statusElementId = event.currentTarget.dataset.comfyStatus || '';

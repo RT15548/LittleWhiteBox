@@ -4,6 +4,7 @@ import { register } from 'node:module';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import { AUTO_SAVE_DELAY_MS } from '../../../shared/auto-save.js';
+import { createEditGuard, installPanelEscape } from '../../../shared/panel-escape.js';
 import { FORM_COPY, FORM_MAX_COUNT } from '../../../shared/character-edit-form.js';
 
 // Real-flow contract (cost: the 添加形态 button silently did nothing because the redraw re-read the old DOM over the new draft):
@@ -34,16 +35,18 @@ Object.defineProperty(selectProto, 'value', {
 
 const posted = [];
 const noop = () => {};
+const hostAck = { delay: 0, state: 'success' }; // 宿主回执：延迟 / 成功或失败（Esc 保存的测试里调）
 Object.assign(window, {
     // 宿主：对带 requestId 的角色保存（编辑区自动保存）回一条成功回执，页面据此串行保存。
     parent: {
         postMessage: (message) => {
             posted.push(message);
             if (message.type !== 'SAVE_CHARACTER_TAGS' || !message.requestId) return;
+            const { delay, state } = hostAck;
             setTimeout(() => window.dispatchEvent(Object.assign(new window.Event('message'), {
                 origin: window.location.origin, source: window.parent,
-                data: { source: 'LittleWhiteBox-NovelDraw', type: 'STATUS', state: 'success', target: 'char-tags', requestId: message.requestId },
-            })), 0);
+                data: { source: 'LittleWhiteBox-NovelDraw', type: 'STATUS', state, target: 'char-tags', requestId: message.requestId },
+            })), delay);
         },
     },
     matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
@@ -574,4 +577,128 @@ test('a new draft character: saved on the first valid name, dropped when collaps
     assert.equal(statusOf().textContent, '已保存');
     await closeEditor();
     assert.ok(list.querySelector(`.char-card[data-id="${id}"]`), 'it stays in the list');
+});
+
+// ── Esc：编辑中按 Esc 先保存再关闭面板（真实页面 + 真实编辑守卫 / Esc 监听，宿主回执可控）──────────────────
+const escClosed = [];
+const escGuard = createEditGuard({ document });
+installPanelEscape({ document, close: () => escClosed.push('closed'), hasUnsavedEdit: () => escGuard.hasUnsavedEdit(), flush: () => escGuard.flush() });
+const pressEsc = (extra = {}) => {
+    const event = Object.assign(new window.Event('keydown', { bubbles: true, cancelable: true }), { key: 'Escape' }, extra);
+    window.dispatchEvent(event);
+    return event;
+};
+const withHost = async (ack, run) => {
+    Object.assign(hostAck, ack);
+    try { await run(); } finally { Object.assign(hostAck, { delay: 0, state: 'success' }); }
+};
+const closedCount = () => escClosed.length;
+
+test('Esc: no pending edits closes at once; an open card that was only looked at does not hold it', async () => {
+    const list = document.getElementById('nd_char_list');
+    await openEditor('c1');
+    const before = [saves().length, closedCount()];
+    pressEsc();
+    assert.deepEqual([saves().length, closedCount()], [before[0], before[1] + 1], 'closed in the same tick, nothing saved');
+    await closeEditor();
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 0);
+});
+
+test('Esc right after typing: the save goes out at once (no debounce wait), the panel closes after the host ack, and the data is what was typed', async () => {
+    await openEditor('c1');
+    const beforeSaves = saves().length;
+    const beforeClosed = closedCount();
+    await withHost({ delay: 60 }, async () => {
+        typeInto(document.querySelector('.char-card.editing .char-edit-name'), '阿璃·Esc');
+        pressEsc();
+        await flush();
+        assert.equal(saves().length, beforeSaves + 1, 'issued immediately, long before the 600 ms debounce');
+        assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').name, '阿璃·Esc');
+        assert.equal(closedCount(), beforeClosed, 'still waiting for the host');
+        assert.equal(statusOf().textContent, '保存中…');
+        await afterDebounce();
+        assert.equal(closedCount(), beforeClosed + 1, 'closed once after the ack');
+        assert.equal(saves().length, beforeSaves + 1, 'the debounce timer did not save a second time');
+        assert.equal(statusOf().textContent, '已保存');
+    });
+    await closeEditor();
+});
+
+test('Esc while a save is already in flight waits for it, catches the newer typing, and closes exactly once', async () => {
+    await openEditor('c1');
+    const beforeSaves = saves().length;
+    const beforeClosed = closedCount();
+    await withHost({ delay: 150 }, async () => {
+        const name = document.querySelector('.char-card.editing .char-edit-name');
+        typeInto(name, '阿璃·一');
+        name.dispatchEvent(new window.Event('focusout', { bubbles: true })); // 失焦保存已发出，回执还没到
+        await flush();
+        assert.equal(saves().length, beforeSaves + 1);
+        typeInto(name, '阿璃·二'); // 保存期间又改了
+        pressEsc();
+        pressEsc(); // 重复按
+        assert.equal(closedCount(), beforeClosed);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        assert.equal(saves().length, beforeSaves + 2, 'one follow-up save for the newer content, none for the repeated Esc');
+        assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').name, '阿璃·二');
+        assert.equal(closedCount(), beforeClosed + 1, 'closed once');
+    });
+    await closeEditor();
+});
+
+test('Esc with an empty name: nothing is sent, the panel stays, and the status says why', async () => {
+    await openEditor('c1');
+    const beforeSaves = saves().length;
+    const beforeClosed = closedCount();
+    typeInto(document.querySelector('.char-card.editing .char-edit-name'), '  ');
+    pressEsc();
+    await flush();
+    assert.equal(saves().length, beforeSaves);
+    assert.equal(closedCount(), beforeClosed);
+    assert.equal(statusOf().textContent, '未保存：请输入角色名称');
+    assert.equal(statusOf().dataset.state, 'invalid');
+    typeInto(document.querySelector('.char-card.editing .char-edit-name'), '阿璃'); // 补上名称后再按 Esc 就能存好并关闭
+    pressEsc();
+    await settle();
+    assert.equal(closedCount(), beforeClosed + 1);
+    assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').name, '阿璃');
+    await closeEditor();
+});
+
+test('Esc when the host save fails: the panel stays open and the status keeps 未保存：保存失败; the next Esc retries', async () => {
+    await openEditor('c1');
+    const beforeClosed = closedCount();
+    await withHost({ state: 'error' }, async () => {
+        typeInto(document.querySelector('.char-card.editing .char-edit-name'), '阿璃·失败');
+        pressEsc();
+        await settle();
+        assert.equal(closedCount(), beforeClosed);
+        assert.equal(statusOf().textContent, '未保存：保存失败');
+        assert.equal(statusOf().dataset.state, 'error');
+    });
+    pressEsc(); // 宿主恢复后重试
+    await settle();
+    assert.equal(closedCount(), beforeClosed + 1);
+    assert.equal(statusOf().textContent, '已保存');
+    await closeEditor();
+});
+
+test('Esc still goes to the “…” menu, a drag, or an inline field first — no save, no close', async () => {
+    await openEditor('c1');
+    const beforeSaves = saves().length;
+    const beforeClosed = closedCount();
+    typeInto(document.querySelector('.char-card.editing .char-edit-name'), '阿璃·菜单');
+    const menuButton = document.querySelector('.char-card.editing .char-menu-button');
+    click(menuButton);
+    pressEsc();
+    document.querySelector('.char-card.editing .char-menu')?.setAttribute('hidden', '');
+    document.body.classList.add('sortable-dragging');
+    pressEsc();
+    document.body.classList.remove('sortable-dragging');
+    pressEsc({ defaultPrevented: true });
+    await flush();
+    assert.equal(saves().length, beforeSaves, 'no save was triggered by those Esc presses');
+    assert.equal(closedCount(), beforeClosed);
+    await settle();
+    await closeEditor();
 });

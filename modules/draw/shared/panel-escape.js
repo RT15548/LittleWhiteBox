@@ -1,7 +1,8 @@
 // Esc 关闭绘图设置面板（NovelAI / SD WebUI / ComfyUI 共用）。面板是酒馆页面上的一个全屏浮层，里面是 iframe；页头的 ✕ 按钮关闭它。
 // 规则（宁可不关，也不丢草稿、不抢别人的 Esc）：
 // - 页面里任何菜单 / 弹出层 / 对话框 / 拖拽正在进行，Esc 只交给它们，不关面板；
-// - 有改过、而且还没保存下来的角色编辑卡时，Esc 什么都不做（草稿还没落盘），用 ✕ 关；已经保存的编辑（自动保存完成 / 点过保存）不算；
+// - 有改过、而且还没保存下来的角色编辑卡时，Esc 先保存再关闭：页面通过 onEditsFlush 登记“立刻保存”，保存成功才关；
+//   保存失败（名称为空、宿主保存失败）或没人登记就留在原处，状态栏写明原因；保存期间再按 Esc 不会重复触发。已经保存的编辑（自动保存完成 / 点过保存）不算；
 // - 其余情况 Esc 等同点 ✕。
 // 两个入口：iframe 内部（焦点在设置页里）用 installPanelEscape；焦点在酒馆宿主页面时用 installHostPanelEscape，
 // 只做宿主侧的检查（面板可见、没有酒馆自己的弹窗、面板在最上层），然后把这次 Esc 转发进 iframe，交给同一套判断，保证两条路径规则一致。
@@ -80,6 +81,27 @@ export function reportEditsSaved(document) {
     if (View?.CustomEvent) document.dispatchEvent(new View.CustomEvent(EDITS_SAVED_EVENT));
 }
 
+// Esc 时守卫发这个事件要求“立刻保存”；页面用 onEditsFlush 登记保存函数（NovelAI：自动保存的 flush；SD / ComfyUI：保存设置）。
+export const EDITS_FLUSH_EVENT = 'xb-draw-flush-edits';
+
+/** 页面登记“立刻保存”：flush() 返回（Promise 的）true 或 { ok: true } 才表示已保存。返回取消登记。 */
+export function onEditsFlush(document, flush) {
+    const handler = (event) => { event.detail?.tasks?.push(new Promise(resolve => resolve(flush()))); };
+    document.addEventListener(EDITS_FLUSH_EVENT, handler);
+    return () => document.removeEventListener(EDITS_FLUSH_EVENT, handler);
+}
+
+/** 要求页面立刻保存并等结果：所有登记的保存都成功才是 true；没人登记、有失败 / 抛错都是 false。 */
+export async function requestEditsFlush(document) {
+    const View = document?.defaultView;
+    if (!View?.CustomEvent) return false;
+    const tasks = [];
+    document.dispatchEvent(new View.CustomEvent(EDITS_FLUSH_EVENT, { detail: { tasks } }));
+    if (!tasks.length) return false;
+    const results = await Promise.allSettled(tasks);
+    return results.every(item => item.status === 'fulfilled' && (item.value === true || item.value?.ok === true));
+}
+
 /**
  * 记录“哪些编辑卡里有还没保存的改动”：编辑卡里发生过 input / change 就记一笔（按卡的 id），
  * 收到 EDITS_SAVED_EVENT（已保存）就全部清掉；卡片关掉（保存 / 取消 / 重绘成非编辑态）之后，在下一次事件或查询时也会自动清掉。
@@ -118,6 +140,8 @@ export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } 
             prune();
             return dirty.size > 0;
         },
+        /** 立刻保存当前的编辑，Promise<boolean>：是否已全部保存（见 requestEditsFlush）。 */
+        flush: () => requestEditsFlush(document),
         destroy() {
             for (const remove of listeners.splice(0)) remove();
             dirty.clear();
@@ -133,14 +157,16 @@ export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } 
  * @param {Document} options.document
  * @param {function} options.close 关闭面板（与点 ✕ 相同）
  * @param {function} [options.hasUnsavedEdit]
+ * @param {function(): Promise<boolean>} [options.flush] 有未保存编辑时先保存；成功才关，没提供就保持“不关”
  * @param {string[]} [options.layerSelectors] 视为“开着的层”的选择器
  * @param {string[]} [options.dragSelectors] 视为“拖拽进行中”的选择器
  * @returns {function} 取消监听
  */
-export function installPanelEscape({ document, close, hasUnsavedEdit = () => false, layerSelectors = ESCAPE_LAYER_SELECTORS, dragSelectors = ESCAPE_DRAG_SELECTORS } = {}) {
+export function installPanelEscape({ document, close, hasUnsavedEdit = () => false, flush = null, layerSelectors = ESCAPE_LAYER_SELECTORS, dragSelectors = ESCAPE_DRAG_SELECTORS } = {}) {
     const win = document.defaultView;
     if (!win || typeof close !== 'function') return () => {};
     let snapshot = null;
+    let saving = false; // 保存期间再按 Esc 不重复触发，也不会关两次
     const onCapture = (event) => {
         if (event.key !== 'Escape') return;
         snapshot = {
@@ -149,14 +175,29 @@ export function installPanelEscape({ document, close, hasUnsavedEdit = () => fal
             unsavedEdit: Boolean(hasUnsavedEdit()),
         };
     };
+    const saveThenClose = async () => {
+        saving = true;
+        let saved = false;
+        try { saved = (await flush()) === true; } catch { saved = false; }
+        saving = false;
+        if (saved) close();
+    };
     const onBubble = (event) => {
         if (event.key !== 'Escape') return;
         const state = snapshot || { layerOpen: hasOpenLayer(document, layerSelectors), dragging: isDragging(document, dragSelectors), unsavedEdit: Boolean(hasUnsavedEdit()) };
         snapshot = null;
         const isComposing = Boolean(event.isComposing) || event.keyCode === 229;
-        if (!shouldClosePanelOnEscape({ ...state, key: event.key, repeat: event.repeat, isComposing, defaultPrevented: event.defaultPrevented, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey })) return;
+        const input = { ...state, key: event.key, repeat: event.repeat, isComposing, defaultPrevented: event.defaultPrevented, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey };
+        if (!shouldClosePanelOnEscape({ ...input, unsavedEdit: false })) return;
+        if (saving) { event.preventDefault?.(); return; }
+        if (!state.unsavedEdit) {
+            event.preventDefault?.();
+            close();
+            return;
+        }
+        if (!flush) return;
         event.preventDefault?.();
-        close();
+        saveThenClose().catch(error => console.warn('[panel-escape] 关闭面板失败', error));
     };
     win.addEventListener('keydown', onCapture, true);
     win.addEventListener('keydown', onBubble, false);

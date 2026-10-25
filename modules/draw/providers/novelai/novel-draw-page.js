@@ -57,7 +57,7 @@ import {
     setCharacterSaveStatus,
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
-import { reportEditsSaved } from '../../shared/panel-escape.js';
+import { onEditsFlush, reportEditsSaved } from '../../shared/panel-escape.js';
 import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
@@ -1634,6 +1634,17 @@ async function closeCharacterEditor() {
     }
 }
 
+// Esc 关面板前保存正在编辑的角色（与失焦 / 收起共用同一个 flush，并与进行中的保存串行）；空白的新建草稿没有内容可存，算已处理；存不了就返回 false，状态栏留着原因。
+async function flushCharacterEditorForEscape() {
+    const id = editingCharId;
+    if (!id || charAutoSave?.id !== id) return true;
+    const card = editingCardOf(id);
+    if (card && draftCharacters.has(id) && isBlankCharacterEditor(card)) return true;
+    const result = await charAutoSave.saver.flush();
+    if (!result.ok) editingCardOf(id)?.querySelector('.char-edit-name')?.focus();
+    return result.ok;
+}
+
 function toggleCharacterEditor(id) {
     return editingCharId === id ? closeCharacterEditor() : openCharacterEditor(id);
 }
@@ -1654,6 +1665,7 @@ function bindCharacterAutoSave(list) {
     });
     // 关页 / 切走：赶在页面销毁前把还没落盘的发出去（保存空闲时第一次 save 是同步发出的）。
     window.addEventListener('pagehide', () => charAutoSave?.saver.flush());
+    onEditsFlush(document, flushCharacterEditorForEscape);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') charAutoSave?.saver.flush(); });
     list.addEventListener('keydown', (event) => {
         const toggle = event.target.closest?.('[data-char-toggle]');
