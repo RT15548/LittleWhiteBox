@@ -2050,7 +2050,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-forms.js",
       "relativePath": "modules/draw/shared/character-forms.js",
       "extension": ".js",
-      "sizeBytes": 12008
+      "sizeBytes": 12291
     },
     {
       "source": "littlewhitebox",
@@ -2169,14 +2169,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-prompts.js",
       "relativePath": "modules/draw/shared/character-prompts.js",
       "extension": ".js",
-      "sizeBytes": 3842
+      "sizeBytes": 5247
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-selection.js",
       "relativePath": "modules/draw/shared/character-selection.js",
       "extension": ".js",
-      "sizeBytes": 1339
+      "sizeBytes": 2686
     },
     {
       "source": "littlewhitebox",
@@ -2673,7 +2673,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/present-characters.js",
       "relativePath": "modules/draw/shared/present-characters.js",
       "extension": ".js",
-      "sizeBytes": 3142
+      "sizeBytes": 3168
     },
     {
       "source": "littlewhitebox",
@@ -2778,7 +2778,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-plan-contract.js",
       "relativePath": "modules/draw/shared/scene-plan-contract.js",
       "extension": ".js",
-      "sizeBytes": 18394
+      "sizeBytes": 18030
     },
     {
       "source": "littlewhitebox",
@@ -2792,7 +2792,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-plan-tool.js",
       "relativePath": "modules/draw/shared/scene-plan-tool.js",
       "extension": ".js",
-      "sizeBytes": 9655
+      "sizeBytes": 9818
     },
     {
       "source": "littlewhitebox",
@@ -2834,7 +2834,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner-frame.js",
       "relativePath": "modules/draw/shared/scene-planner-frame.js",
       "extension": ".js",
-      "sizeBytes": 6777
+      "sizeBytes": 6814
     },
     {
       "source": "littlewhitebox",
@@ -2876,7 +2876,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner.js",
       "relativePath": "modules/draw/shared/scene-planner.js",
       "extension": ".js",
-      "sizeBytes": 20000
+      "sizeBytes": 20118
     },
     {
       "source": "littlewhitebox",
@@ -3044,7 +3044,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-form-enabled.test.js",
       "relativePath": "modules/draw/shared/tests/character-form-enabled.test.js",
       "extension": ".js",
-      "sizeBytes": 12980
+      "sizeBytes": 13107
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-form-selection.test.js",
+      "relativePath": "modules/draw/shared/tests/character-form-selection.test.js",
+      "extension": ".js",
+      "sizeBytes": 8428
     },
     {
       "source": "littlewhitebox",
@@ -3065,7 +3072,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-forms.test.js",
       "relativePath": "modules/draw/shared/tests/character-forms.test.js",
       "extension": ".js",
-      "sizeBytes": 16099
+      "sizeBytes": 16256
     },
     {
       "source": "littlewhitebox",
@@ -3205,7 +3212,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "relativePath": "modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "extension": ".json",
-      "sizeBytes": 1217651
+      "sizeBytes": 1237286
     },
     {
       "source": "littlewhitebox",
@@ -17093,7 +17100,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/vendor/draw-run-runtime.cjs",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/vendor/draw-run-runtime.cjs",
       "extension": ".cjs",
-      "sizeBytes": 76820
+      "sizeBytes": 77176
     },
     {
       "source": "littlewhitebox",
