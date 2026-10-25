@@ -19,7 +19,6 @@ import {
     toggleNamedTagItem,
     toggleNamedTagItemEnabled,
 } from '../character-edit-form.js';
-import { reorderNamedTagItems } from '../named-tag-items.js';
 
 // Acceptance contracts (cost: lost unsaved edits, a disabled item silently saved as enabled, or a reorder that does not persist):
 // - Lists with 2+ items open folded, 0-1 open expanded; a newly added item is always expanded.
@@ -325,18 +324,6 @@ test('item markup escapes user text', () => {
 });
 
 // ── 拖拽 / 键盘排序 ──
-
-test('pure reorder: valid permutations apply, anything else is a no-op copy that never adds or drops items', () => {
-    const items = ['a', 'b', 'c'];
-    assert.deepEqual(reorderNamedTagItems(items, [2, 0, 1]), ['c', 'a', 'b']);
-    assert.deepEqual(reorderNamedTagItems(items, [0, 1, 2]), items);
-    for (const bad of [[0, 1], [0, 0, 1], [0, 1, 3], [0, 1, 2, 2], null, undefined, ['x', 1, 2], [0.5, 1, 2]]) {
-        const result = reorderNamedTagItems(items, bad);
-        assert.deepEqual(result, items);
-        assert.notEqual(result, items);
-    }
-    assert.deepEqual(reorderNamedTagItems(undefined, [0]), []);
-});
 
 test('reordering rows moves the real nodes: text, fold and switch state travel; collected order follows', () => {
     const { card, list } = mount(OUTFITS);

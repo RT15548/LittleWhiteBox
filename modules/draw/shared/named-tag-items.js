@@ -77,19 +77,6 @@ export function isNamedTagItemExpanded(item, total) {
     return item?.expanded === true;
 }
 
-/**
- * 按“原下标的新顺序”重排条目（拖拽排序的纯数据版）：order 必须恰好是 0..n-1 的一个排列，
- * 否则（长度不符、重复、越界）原样返回副本，绝不会增删或复制条目。条目对象本身不复制。
- */
-export function reorderNamedTagItems(items, order) {
-    const list = Array.isArray(items) ? items : [];
-    const indexes = Array.isArray(order) ? order.map(Number) : [];
-    const valid = indexes.length === list.length
-        && new Set(indexes).size === list.length
-        && indexes.every(index => Number.isInteger(index) && index >= 0 && index < list.length);
-    return valid ? indexes.map(index => list[index]) : [...list];
-}
-
 /** 折叠头里的 TAG 预览：压缩空白，超长截断加省略号；没填写时给占位文案。 */
 export function previewNamedTags(tags, limit = NAMED_TAG_PREVIEW_LIMIT) {
     const text = String(tags || '').replace(/\s+/g, ' ').trim();

@@ -222,11 +222,6 @@ export function formatFormTypeSummary(character, shortLabel = type => type) {
     return getEnabledCharacterForms(character).map(form => shortLabel(form.type)).join(',');
 }
 
-/** 形态在界面 / 搜索里的显示名。 */
-export function formTitle(form, index = 0) {
-    return String(form?.name || '').trim() || (index === 0 ? '默认形态' : `形态 ${index + 1}`);
-}
-
 /** 角色库搜索（SD / ComfyUI 面板）用的字段：名称、别名、每个形态的名称 / 外貌 / Danbooru 标签。单形态角色与以前一致。 */
 export function getCharacterSearchFields(character) {
     const extra = (Array.isArray(character?.forms) ? character.forms : []);
