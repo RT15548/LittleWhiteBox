@@ -737,6 +737,7 @@ function normalizeParamsPreset(preset, index) {
             ? 2
             : Math.max(0, Number(source.maxImages) || 0),
         maxCharactersPerImage: Math.max(0, Number(source.maxCharactersPerImage) || 0),
+        overrideSize: source.overrideSize === 'auto' ? 'auto' : 'default',
         params: {
             model: String(params.model || DEFAULT_PARAMS_PRESET.params.model).trim(),
             sampler: String(params.sampler || DEFAULT_PARAMS_PRESET.params.sampler),
@@ -1155,6 +1156,7 @@ function compactPromptGuideOverrides(value) {
 
 const NOVEL_QUICK_SIZE_OPTIONS = [
     { value: 'default', label: '跟随预设' },
+    { value: 'auto', label: 'AI 自动（按构图）' },
     { value: '832x1216', label: '832 x 1216 竖图' },
     { value: '1216x832', label: '1216 x 832 横图' },
     { value: '1024x1024', label: '1024 x 1024 方图' },
@@ -1623,7 +1625,12 @@ export function createNovelGenerationRecipe({
             min: Number(settings.requestDelay?.min) || DEFAULT_SETTINGS.requestDelay.min,
             max: Number(settings.requestDelay?.max) || DEFAULT_SETTINGS.requestDelay.max,
         },
-        overrideSize: String(settings.overrideSize || 'default'),
+        overrideSize: (() => {
+            // 悬浮囊显式选择（含显式 AI 自动）优先；选「跟随预设」时回落预设自身的尺寸模式。
+            const globalOverride = String(settings.overrideSize || 'default');
+            if (globalOverride !== 'default') return globalOverride;
+            return preset?.overrideSize === 'auto' ? 'auto' : 'default';
+        })(),
         baseHref: globalThis.location?.href,
         resolveForBackend: resolveForBackend === true,
         params: cloneSettingsObject(params),
@@ -3283,6 +3290,18 @@ function ensureAgentSettingsSurface() {
     return agentSettingsSurface;
 }
 
+const TEST_SLOT_ID = 'novelai-quick-test';
+
+async function pushTestHistory() {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe) return;
+    const previews = await getPreviewsBySlot(TEST_SLOT_ID);
+    const items = previews
+        .filter(p => p.base64)
+        .map(p => ({ imgId: p.imgId, url: getPreviewDisplayUrl(p) }));
+    postToIframe(iframe, { type: 'TEST_RESULT', items }, 'LittleWhiteBox-NovelDraw');
+}
+
 async function handleFrameMessage(event) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!isTrustedMessage(event, iframe, 'NovelDraw-Frame')) return;
@@ -4070,16 +4089,30 @@ async function handleFrameMessage(event) {
                 const tags = (typeof data.tags === 'string' && data.tags.trim()) ? data.tags.trim() : '1girl, smile';
                 const scene = joinTags(preset?.positivePrefix, tags);
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
-                {
-                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: getPreviewDisplayUrl({ base64 }) }, 'LittleWhiteBox-NovelDraw');
-                }
+                await storePreview({
+                    imgId: `test-${Date.now()}`,
+                    slotId: TEST_SLOT_ID,
+                    base64,
+                    tags,
+                    positive: scene,
+                    negativePrompt: preset?.negativePrefix || '',
+                    source: 'quick-test',
+                });
+                await pushTestHistory();
                 postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {
                 postStatus('error', e?.message);
             }
             break;
         }
+
+        case 'TEST_HISTORY':
+            await pushTestHistory();
+            break;
+
+        case 'OPEN_TEST_GALLERY':
+            await openGallery(TEST_SLOT_ID, null);
+            break;
     }
 }
 

@@ -3297,8 +3297,13 @@ function applyParamsPreset() {
     $('nd_seed').value = pm.seed ?? dp.seed;
     $('nd_width').value = pm.width ?? dp.width;
     $('nd_height').value = pm.height ?? dp.height;
-    updateSizePreset();
-    
+    if (p.overrideSize === 'auto') {
+        $('nd_size_preset').value = 'auto';
+        $('nd_custom_size').classList.add('hidden');
+    } else {
+        updateSizePreset();
+    }
+
     $('nd_quality_toggle').value = (pm.qualityToggle ?? dp.qualityToggle) ? 'true' : 'false';
     $('nd_v5_quality').value = pm.v5QualityPresetId || dp.v5QualityPresetId;
     $('nd_v5_uc').value = pm.v5UcPresetId || dp.v5UcPresetId;
@@ -3767,6 +3772,7 @@ function collectParamsPreset() {
     p.params.scale = Number($('nd_scale').value) || 5;
     const seed = $('nd_seed').value.trim();
     p.params.seed = seed === '' ? -1 : Number(seed);
+    p.overrideSize = $('nd_size_preset').value === 'auto' ? 'auto' : 'default';
     p.params.width = Number($('nd_width').value) || 832;
     p.params.height = Number($('nd_height').value) || 1216;
     p.params.qualityToggle = $('nd_quality_toggle').value === 'true';
@@ -3847,10 +3853,28 @@ window.addEventListener('message', event => {
             failSlotVersionsRequest(data.charName, data.slotId, data.requestId);
             break;
             
-        case 'TEST_RESULT':
-            $('nd_preview_img').src = data.url;
-            $('nd_preview').classList.add('visible');
+        case 'TEST_RESULT': {
+            const items = data.items || [];
+            const strip = $('nd_test_strip');
+            strip.innerHTML = '';
+            if (items.length) {
+                $('nd_preview_img').src = items[0].url;
+                $('nd_preview').classList.add('visible');
+                items.forEach((item, i) => {
+                    const t = document.createElement('img');
+                    t.src = item.url;
+                    t.className = 'nd-thumb' + (i === 0 ? ' active' : '');
+                    t.addEventListener('click', () => {
+                        $('nd_preview_img').src = item.url;
+                        strip.querySelectorAll('.nd-thumb').forEach(el => el.classList.remove('active'));
+                        t.classList.add('active');
+                    });
+                    strip.appendChild(t);
+                });
+                $('nd_open_gallery').classList.add('visible');
+            }
             break;
+        }
 
         case 'BACKEND_PLUGIN_STATUS': {
             state.backendPluginStatus = data.status || {};
@@ -3979,6 +4003,9 @@ window.addEventListener('beforeunload', () => {
 function initializePage() {
     mountServerPluginGuide(document.getElementById('nd_backend_guide'), 'nd-backend');
     shuffleCredits();
+    postToParent({ type: 'TEST_HISTORY' });
+    $('nd_open_gallery').addEventListener('click', () => postToParent({ type: 'OPEN_TEST_GALLERY' }));
+    $('nd_preview_img').addEventListener('click', () => postToParent({ type: 'OPEN_TEST_GALLERY' }));
     // ═══════════════════════════════════════════════════════════════════════
     // 导航切换
     // ═══════════════════════════════════════════════════════════════════════
@@ -4085,6 +4112,9 @@ function initializePage() {
     $('nd_size_preset').addEventListener('change', function() {
         if (this.value === 'custom') {
             $('nd_custom_size').classList.remove('hidden');
+        } else if (this.value === 'auto') {
+            // AI 自动不写死宽高，沿用预设里保存的兜底值；生成时由 compiler 按构图方向覆盖。
+            $('nd_custom_size').classList.add('hidden');
         } else {
             const [w, h] = this.value.split('x');
             $('nd_width').value = w;

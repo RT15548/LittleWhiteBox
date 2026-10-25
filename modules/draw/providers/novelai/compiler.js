@@ -36,8 +36,15 @@ function mergeNovelParams(defaultParams, params) {
     return merged;
 }
 
-function applySizeOverride(params, overrideSize) {
-    const match = String(overrideSize || '').trim().match(/^(832x1216|1216x832|1024x1024|768x1280|1280x768)$/i);
+// AI 自动尺寸：规划器逐张给出画幅方向，映射到常规竖/横两档；方向缺失按竖幅兜底。
+const AUTO_ORIENTATION_SIZE = Object.freeze({ portrait: '832x1216', landscape: '1216x832' });
+
+function applySizeOverride(params, overrideSize, orientation) {
+    let size = String(overrideSize || '').trim();
+    if (size.toLowerCase() === 'auto') {
+        size = orientation === 'landscape' ? AUTO_ORIENTATION_SIZE.landscape : AUTO_ORIENTATION_SIZE.portrait;
+    }
+    const match = size.match(/^(832x1216|1216x832|1024x1024|768x1280|1280x768)$/i);
     if (!match) return { ...params };
     const [width, height] = match[1].toLowerCase().split('x').map(Number);
     return { ...params, width, height };
@@ -173,7 +180,7 @@ export function compileNovelImageRequest(request, generationRecipe, seed) {
     const params = applySizeOverride(mergeNovelParams(
         recipe.defaultParams || {},
         request?.params || recipe.params || {},
-    ), recipe.overrideSize);
+    ), recipe.overrideSize, request?.orientation);
     const capability = getNovelModelCapability(params.model);
     const transport = capability.transport === 'msgpack-stream' ? 'msgpack-stream' : 'legacy-image';
     const apiUrl = recipe.resolveForBackend === false
@@ -231,9 +238,10 @@ export function compile(scenePlan, generationRecipe) {
         provider: 'novelai',
         context: { key: String(recipe.apiKey || ''), insecure: recipe.insecureTLS === true },
         delay: { min: minDelay, max: maxDelay },
-        items: artifacts.map(({ promptData }, index) => {
+        items: artifacts.map(({ task, promptData }, index) => {
             const prepared = compileNovelImageRequest({
                 ...promptData,
+                orientation: task.orientation,
                 params: recipe.params,
             }, recipe, normalizeSeed(recipe.seeds[index], index));
             return {
