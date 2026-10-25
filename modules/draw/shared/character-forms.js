@@ -11,7 +11,7 @@
 // 因此没有 forms 的角色（所有旧数据、旧文件）行为与以前一致；旧版本读到带 forms 的数据只会用到第一形态。
 //
 // 展开：角色有 ≥2 个形态时，expandCharacterForms 把它展开成每个形态一条记录，名称为 `名称（形态名）`，别名共用，
-// 记录里带 baseName（原角色名）与 formIndex / formCount（只数启用的形态）；单形态角色原样返回同一个对象。
+// 记录里带 baseName（原角色名）、formName（形态名，未命名的形态是 `形态N`）与 formIndex / formCount（只数启用的形态）；单形态角色原样返回同一个对象。
 
 import {
     applyLocalNamedTagEnabled,
@@ -21,8 +21,8 @@ import {
 
 // 一个角色最多这么多个形态（含第一形态）。
 export const MAX_CHARACTER_FORMS = 20;
-// 多形态角色的“互斥”说明：发给场景规划器，每个角色只写一次。
-export const FORM_EXCLUSIVE_NOTE = '同一角色的不同形态，同一画面只出现其中一个；正文未提及形态时，用第一个';
+// 多形态角色的说明：发给场景规划器（每个角色只写一次，接在角色名 / 别名后面）和 Draw 页面文案共用。
+export const FORM_EXCLUSIVE_NOTE = '有多个形态：form 写其中一个，同一画面只出现一个，正文未提及时用第一个';
 
 const DEFAULT_TYPE = 'girl';
 
@@ -120,18 +120,21 @@ function expandOne(character, includeDisabled) {
     const used = new Set();
     // 名称按全部形态算（停用某个形态不会改变其余形态的名称），再只留启用的。
     const named = forms.map((form, index) => {
-        let name;
-        if (!form.name) name = index === 0 ? base : `${base}（形态${index + 1}）`;
-        else name = `${base}（${form.name}）`;
-        if (used.has(lowerKey(name))) name = `${base}（${form.name || '形态'}${index + 1}）`;
+        let formName = form.name || `形态${index + 1}`;
+        let name = index === 0 && !form.name ? base : `${base}（${formName}）`;
+        if (used.has(lowerKey(name))) {
+            formName = `${form.name || '形态'}${index + 1}`;
+            name = `${base}（${formName}）`;
+        }
         used.add(lowerKey(name));
-        return { form, name };
+        return { form, name, formName };
     }).filter(({ form }) => includeDisabled || form.enabled);
-    return named.map(({ form, name }, index) => ({
+    return named.map(({ form, name, formName }, index) => ({
         ...(character.id !== undefined ? { id: character.id } : {}),
         ...(character.enabled === false ? { enabled: false } : {}),
         name,
         baseName: base,
+        formName,
         aliases: character.aliases || [],
         formIndex: index,
         formCount: named.length,
@@ -147,7 +150,7 @@ function expandOne(character, includeDisabled) {
 /**
  * 把有 ≥2 个形态的角色展开成每个形态一条；其余角色原样（同一个对象）保留，顺序不变。
  * 展开后的记录名称为 `名称（形态名）`（第一形态没有形态名时就是原名称），别名共用，
- * 所以智能体回复原名称 / 别名时仍解析到第一形态，回复 `名称（形态名）` 时解析到对应形态。
+ * 智能体用 name（原名称 / 别名）+ form（形态名）选形态，见 character-selection.js 的 findEnabledCharacterForm；展开后的 `名称（形态名）` 只是内部记录名，不能当 name 回复。
  * 停用的形态不展开（发给智能体的只有启用的形态，全部停用的角色一条也没有）；includeDisabled 供“按名称认人”的场合（自动学习）使用，停用的形态也展开。
  */
 export function expandCharacterForms(characters = [], { includeDisabled = false } = {}) {

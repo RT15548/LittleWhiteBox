@@ -19,7 +19,7 @@ import {
     normalizeForms,
 } from '../character-forms.js';
 import { assembleCharacterPrompts } from '../character-prompts.js';
-import { findEnabledCharacterByName } from '../character-selection.js';
+import { findEnabledCharacterForm } from '../character-selection.js';
 import { detectPresentCharacters } from '../present-characters.js';
 import { buildCharacterInfoForLLM } from '../scene-planner.js';
 import { parseSubmittedScenePlan } from '../scene-plan-contract.js';
@@ -89,15 +89,16 @@ test('expansion: characters without forms come back as the very same object, ord
     assert.deepEqual(expandCharacterForms(undefined), []);
 });
 
-test('resolution: 名称（形态） hits that form, bare name and alias hit the first form', () => {
+test('resolution: name + form picks the form, bare name and alias hit the first form, 名称（形态） is not a name', () => {
     const known = expandCharacterForms([normalizeCharacter(SI)]);
-    assert.equal(findEnabledCharacterByName('司盈昃（龙形）', known).formIndex, 1);
-    assert.equal(findEnabledCharacterByName('司盈昃（人形）', known).formIndex, 0);
-    assert.equal(findEnabledCharacterByName('司盈昃', known).formIndex, 0);
-    assert.equal(findEnabledCharacterByName('小司', known).formIndex, 0);
+    assert.equal(findEnabledCharacterForm('司盈昃', '龙形', known).formIndex, 1);
+    assert.equal(findEnabledCharacterForm('小司', '人形', known).formIndex, 0);
+    assert.equal(findEnabledCharacterForm('司盈昃', '', known).formIndex, 0);
+    assert.equal(findEnabledCharacterForm('小司', undefined, known).formIndex, 0);
+    assert.equal(findEnabledCharacterForm('司盈昃（龙形）', '龙形', known), undefined);
 
     const prompts = assembleCharacterPrompts(
-        [{ name: '司盈昃（龙形）', action: 'flying' }, { name: '盈昃' }, { name: '司盈昃' }],
+        [{ name: '司盈昃', form: '龙形', action: 'flying' }, { name: '盈昃' }, { name: '司盈昃' }],
         [normalizeCharacter(SI)],
     );
     assert.equal(prompts[0].name, '司盈昃（龙形）');
@@ -128,16 +129,16 @@ test('present characters: matched by name or alias only, one entry per form, dis
 test('planner text: exclusivity sentence once per multi-form character, nothing for single-form ones', () => {
     const library = normalizeCharacterLibrary({ characters: [SI, PLAIN], groups: [] });
     const text = buildCharacterInfoForLLM(detectPresentCharacters('司盈昃 and Alice', library));
-    assert.equal(FORM_EXCLUSIVE_NOTE, '同一角色的不同形态，同一画面只出现其中一个；正文未提及形态时，用第一个');
+    assert.equal(FORM_EXCLUSIVE_NOTE, '有多个形态：form 写其中一个，同一画面只出现一个，正文未提及时用第一个');
     assert.equal(text.split(FORM_EXCLUSIVE_NOTE).length - 1, 1);
-    assert.ok(text.includes(`（司盈昃：${FORM_EXCLUSIVE_NOTE}）\n- 司盈昃（人形）（别名: 盈昃, 小司） [boy] | danbooru: si_yingze\n  外貌参考: black hair, red eyes`));
-    assert.ok(text.includes('- 司盈昃（龙形）（别名: 盈昃, 小司） [no humans]\n  外貌参考: black dragon, red eyes, scales\n  服装参考: 鳞甲=armor scales'));
-    assert.ok(!text.includes('形态说明'));
+    assert.ok(text.includes(`- 司盈昃（别名: 盈昃, 小司）${FORM_EXCLUSIVE_NOTE}\n  形态 人形 [boy] | danbooru: si_yingze\n    外貌参考: black hair, red eyes`));
+    assert.ok(text.includes('\n  形态 龙形 [no humans]\n    外貌参考: black dragon, red eyes, scales\n    服装参考: 鳞甲=armor scales'));
+    assert.ok(!/司盈昃（(人形|龙形|兽形)）/.test(text), 'the list never shows 名称（形态名） as a name');
     const single = buildCharacterInfoForLLM(detectPresentCharacters('Alice', library));
     assert.equal(single, '【已录入角色】\n- Alice（别名: Al） [girl]\n  外貌参考: silver hair');
 });
 
-test('planner contract: form name, bare name and alias all resolve to a present entry; bare / alias land on the first form', () => {
+test('planner contract: name / alias resolve to the official name, form picks the form (default the first)', () => {
     const library = normalizeCharacterLibrary({ characters: [SI], groups: [] });
     const present = detectPresentCharacters('司盈昃', library);
     const plan = parseSubmittedScenePlan({
@@ -147,12 +148,12 @@ test('planner contract: form name, bare name and alias all resolve to a present 
                 images: [{
                     insert_after: 1,
                     scene: 'night sky',
-                    characters: [{ name: '司盈昃（龙形）' }, { name: '司盈昃' }, { name: '小司' }],
+                    characters: [{ name: '司盈昃', form: '龙形' }, { name: '司盈昃' }, { name: '小司' }],
                 }],
             },
         }],
     }, { presentCharacters: present, sceneSource: { sourceHash: 'h', points: [{ number: 1, offset: 0 }] } });
-    assert.deepEqual(plan.tasks[0].chars.map(char => char.name), ['司盈昃（龙形）', '司盈昃（人形）', '司盈昃（人形）']);
+    assert.deepEqual(plan.tasks[0].chars.map(char => [char.name, char.form]), [['司盈昃', '龙形'], ['司盈昃', '人形'], ['司盈昃', '人形']]);
 });
 
 test('normalize: forms and formName are kept only when present; old data stays byte-identical', () => {

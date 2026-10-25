@@ -47,7 +47,7 @@ export function detectPresentCharacters(messageText, characterLibrary) {
                     outfits: selectEnabledNamedTags(entry.outfits),
                     dynamicStates: selectEnabledNamedTags(entry.dynamicStates),
                     ...(entry.baseName !== undefined
-                        ? { baseName: entry.baseName, formIndex: entry.formIndex, formCount: entry.formCount }
+                        ? { baseName: entry.baseName, formName: entry.formName, formIndex: entry.formIndex, formCount: entry.formCount }
                         : {}),
                 });
             }
