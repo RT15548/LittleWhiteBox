@@ -1,3 +1,4 @@
+import { ensureDrawVisuals, drawIconHtml } from './draw-visuals.js';
 import { getContext } from "../../../../../../extensions.js";
 import { formatScenePlannerProgress, toScenePlannerProgress } from './draw-capsule-copy.js';
 
@@ -191,14 +192,15 @@ export function classifyError(error) {
 }
 
 export function ensureDrawImageStyles() {
+    ensureDrawVisuals();
     if (document.getElementById('xiaobaix-draw-image-styles')) return;
     const style = document.createElement('style');
     style.id = 'xiaobaix-draw-image-styles';
     style.textContent = `
-.xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px;box-sizing:border-box}
-.xb-nd-img[data-state="preview"]{outline:1px dashed rgba(255,152,0,0.35);outline-offset:-1px}
-.xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
-.xb-nd-img[data-state="pending"]{border:1px dashed rgba(212,165,116,0.4);background:rgba(212,165,116,0.06);padding:18px;color:inherit}
+.xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px;box-sizing:border-box;color:var(--draw-text-primary)}
+.xb-nd-img[data-state="preview"]{outline:1px dashed var(--draw-border-focus);outline-offset:-1px}
+.xb-nd-img[data-state="failed"]{border:1px dashed var(--draw-danger);background:var(--draw-bg-secondary);padding:20px}
+.xb-nd-img:is([data-state="pending"],[data-state="ungenerated"]){border:1px dashed var(--draw-border);background:var(--draw-bg-secondary);padding:18px;color:inherit}
 .xb-nd-img.busy img{opacity:0.5}
 .xb-nd-img-wrap{position:relative;overflow:hidden;border-radius:10px;touch-action:pan-y pinch-zoom}
 .xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease}
@@ -210,28 +212,28 @@ export function ensureDrawImageStyles() {
 @keyframes ndSlideOutRight{from{transform:translateX(0);opacity:1}to{transform:translateX(30%);opacity:0}}
 @keyframes ndSlideInLeft{from{transform:translateX(30%);opacity:0}to{transform:translateX(0);opacity:1}}
 @keyframes ndSlideInRight{from{transform:translateX(-30%);opacity:0}to{transform:translateX(0);opacity:1}}
-.xb-nd-nav-pill{position:absolute;bottom:10px;left:10px;display:inline-flex;align-items:center;gap:2px;background:rgba(0,0,0,0.75);border-radius:20px;padding:4px 6px;font-size:12px;color:rgba(255,255,255,0.8);font-weight:500;user-select:none;z-index:5;opacity:0.72;transition:opacity 0.2s}
+.xb-nd-nav-pill{position:absolute;bottom:10px;left:10px;display:inline-flex;align-items:center;gap:2px;background:var(--draw-bg-secondary);border-radius:20px;padding:4px 6px;font-size:12px;color:var(--draw-text-primary);font-weight:500;user-select:none;z-index:5;opacity:0.72;transition:opacity 0.2s}
 .xb-nd-nav-pill:hover{opacity:0.92}
-.xb-nd-nav-arrow{width:24px;height:24px;border:none;background:transparent;color:rgba(255,255,255,0.8);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:14px;transition:background 0.15s,color 0.15s;padding:0}
-.xb-nd-nav-arrow:hover{background:rgba(255,255,255,0.15);color:#fff}
+.xb-nd-nav-arrow{width:24px;height:24px;border:none;background:transparent;color:var(--draw-text-primary);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:14px;transition:background 0.15s,color 0.15s;padding:0}
+.xb-nd-nav-arrow:hover{background:var(--draw-accent-soft);color:var(--draw-text-primary)}
 .xb-nd-nav-arrow:disabled{opacity:0.3;cursor:not-allowed}
 .xb-nd-nav-text{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;padding:0 2px}
 @media(hover:none),(pointer:coarse){.xb-nd-nav-pill{opacity:0.78;padding:5px 8px}}
 .xb-nd-menu-wrap{position:absolute;top:8px;right:8px;z-index:10}
 .xb-nd-menu-wrap.busy{pointer-events:none;opacity:0.3}
-.xb-nd-menu-trigger{width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,0.75);color:rgba(255,255,255,0.85);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;opacity:0.85}
-.xb-nd-menu-trigger:hover,.xb-nd-menu-wrap.open .xb-nd-menu-trigger{background:rgba(0,0,0,.9);opacity:1}
+.xb-nd-menu-trigger{width:32px;height:32px;border-radius:50%;border:none;background:var(--draw-bg-secondary);color:var(--draw-text-primary);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;opacity:0.85}
+.xb-nd-menu-trigger:hover,.xb-nd-menu-wrap.open .xb-nd-menu-trigger{background:var(--draw-bg-tertiary);opacity:1}
 .xb-nd-menu-wrap.open .xb-nd-dropdown{display:flex;opacity:1;visibility:visible;transform:translateY(0) scale(1);pointer-events:auto}
-.xb-nd-dropdown{position:absolute;top:calc(100% + 4px);right:0;background:rgba(20,20,24,0.98);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:4px;display:none;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transform:translateY(-4px) scale(0.96);transform-origin:top right;transition:all 0.15s ease;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
-.xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:rgba(255,255,255,0.85);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
-.xb-nd-dropdown button:hover{background:rgba(255,255,255,.15)}
-.xb-nd-dropdown [data-action="delete-image"]{color:rgba(248,113,113,.9)}
-.xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:8px 16px;border-radius:8px;color:#fff;font-size:12px;z-index:10}
-.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:rgba(0,0,0,.9);color:#fff;max-height:calc(100% - 16px);overflow:auto}
+.xb-nd-dropdown{position:absolute;top:calc(100% + 4px);right:0;background:var(--draw-bg-secondary);border:1px solid var(--draw-border);border-radius:16px;padding:4px;display:none;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transform:translateY(-4px) scale(0.96);transform-origin:top right;transition:all 0.15s ease;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
+.xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:var(--draw-text-primary);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
+.xb-nd-dropdown button:hover{background:var(--draw-accent-soft)}
+.xb-nd-dropdown [data-action="delete-image"]{color:var(--draw-danger)}
+.xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--draw-bg-secondary);padding:8px 16px;border-radius:8px;color:var(--draw-text-primary);font-size:12px;z-index:10}
+.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:var(--draw-bg-tertiary);color:var(--draw-text-primary);max-height:calc(100% - 16px);overflow:auto}
 .xb-nd-status-overlay .xb-nd-indicator{position:static;transform:none;background:none;padding:0}
 .xb-nd-view-notice{padding:12px;overflow-wrap:anywhere}
-.xb-nd-view-notice button{margin-inline-start:8px;min-height:44px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);border-radius:8px;background:rgba(127,127,127,.1);color:inherit;cursor:pointer}
-.xb-nd-view-empty .xb-nd-img-wrap{padding:12px;border:1px solid rgba(127,127,127,.3);background:rgba(127,127,127,.06)}
+.xb-nd-view-notice button{margin-inline-start:8px;min-height:44px;padding:6px 12px;border:1px solid var(--draw-border);border-radius:8px;background:var(--draw-accent-soft);color:inherit;cursor:pointer}
+.xb-nd-view-empty .xb-nd-img-wrap{padding:12px;border:1px solid var(--draw-border);background:var(--draw-bg-secondary)}
 .xb-nd-view-empty img{display:none}
 .xb-nd-view-empty .xb-nd-nav-pill{position:static;margin-inline-end:40px}
 .xb-nd-view-empty .xb-nd-menu-wrap{top:16px;right:16px}
@@ -241,16 +243,16 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-overlay{max-height:min(calc(100% - 16px),calc(100dvh - 32px))}
 .xb-nd-edit-scroll{min-height:0;overflow-y:auto;margin-bottom:8px}
 .xb-nd-edit-scroll::-webkit-scrollbar{width:4px}
-.xb-nd-edit-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px}
+.xb-nd-edit-scroll::-webkit-scrollbar-thumb{background:var(--draw-border);border-radius:2px}
 .xb-nd-edit-group{margin-bottom:8px}
 .xb-nd-edit-group:last-child{margin-bottom:0}
 .xb-nd-edit-group-label{font-size:11px;color:inherit;opacity:.8;margin-bottom:4px}
-.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:clamp(100px,20dvh,240px);background:rgba(127,127,127,0.1);border:1px solid rgba(127,127,127,0.4);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
+.xb-nd-edit-input{box-sizing:border-box;width:100%;min-height:clamp(100px,20dvh,240px);background:var(--draw-bg-input);border:1px solid var(--draw-border);border-radius:6px;color:inherit;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
 .xb-nd-edit-actions{display:flex;flex-shrink:0;flex-wrap:wrap;gap:6px;margin-top:8px}
-.xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
-.xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
+.xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid var(--draw-border);background:var(--draw-accent-soft);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
+.xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:var(--draw-accent-soft)}
 .xb-nd-img button:focus-visible,.xb-nd-img summary:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
-.xb-nd-failed-icon{display:inline-block;color:rgba(248,113,113,0.9);font-size:14px;margin-inline-end:6px}
+.xb-nd-failed-icon{display:inline-block;color:var(--draw-danger);font-size:14px;margin-inline-end:6px}
 .xb-nd-failed-title{display:inline;color:inherit;font-size:13px}
 .xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin:8px 0 12px;overflow-wrap:anywhere}
 .xb-nd-failed-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
@@ -258,24 +260,27 @@ export function ensureDrawImageStyles() {
 .xb-nd-failed-more{min-width:0}
 .xb-nd-failed-more summary{box-sizing:border-box;min-height:44px;padding:8px 12px;display:inline-flex;align-items:center;gap:6px;list-style:none;font-size:12px;cursor:pointer;border-radius:8px}
 .xb-nd-failed-more summary::-webkit-details-marker{display:none}
-.xb-nd-failed-more summary::after{content:'⌄';font-size:14px}
+.xb-nd-failed-more summary .draw-icon{font-size:14px}
 .xb-nd-failed-more[open]{flex-basis:100%}
-.xb-nd-failed-more[open] summary::after{transform:rotate(180deg)}
-.xb-nd-failed-more summary:hover{background:rgba(127,127,127,.1)}
+.xb-nd-failed-more[open] summary .draw-icon{transform:rotate(180deg)}
+.xb-nd-failed-more summary:hover{background:var(--draw-accent-soft)}
 .xb-nd-failed-options{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding-top:8px}
 .xb-nd-tag-actions{display:inline-flex;margin-inline-start:12px;vertical-align:middle}
 .xb-nd-tag-actions button{min-height:44px;min-width:64px}
-.xb-nd-retry-btn{border:1px solid rgba(212,165,116,0.5);background:rgba(212,165,116,0.2);color:inherit}
+.xb-nd-retry-btn{border:1px solid var(--draw-border-focus);background:var(--draw-accent-soft);color:inherit}
 .xb-nd-img button[aria-busy="true"]{cursor:progress;opacity:.8}
 .xb-nd-action-progress{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
 .xb-nd-action-spinner{display:inline-block;width:12px;height:12px;box-sizing:border-box;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:xb-nd-action-spin .8s linear infinite}
 @keyframes xb-nd-action-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.xb-nd-action-spinner{animation:none}}
-.xb-nd-edit-btn{border:1px solid rgba(127,127,127,0.4);background:rgba(127,127,127,0.1);color:inherit}
-.xb-nd-remove-btn{border:1px solid rgba(248,113,113,0.3);background:transparent;color:rgba(248,113,113,0.8)}
+.xb-nd-edit-btn{border:1px solid var(--draw-border);background:var(--draw-bg-input);color:inherit}
+.xb-nd-remove-btn{border:1px solid var(--draw-border);background:transparent;color:var(--draw-danger)}
 @media(prefers-reduced-motion:reduce){.xb-nd-img img,.xb-nd-edit{animation:none;transition:none}}
 @keyframes nd-slide-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeInOut{0%{opacity:0;transform:translateX(-50%) translateY(-10px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1;transform:translateX(-50%) translateY(0)}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}
+
+.xb-nd-img[data-state="pending"] > .xb-nd-indicator{position:static;transform:none;display:inline-flex;align-items:center;gap:8px;background:none;padding:4px;color:var(--draw-text-secondary)}
+.xb-nd-edit-overlay{background:var(--draw-bg-secondary);color:var(--draw-text-primary);border:1px solid var(--draw-border)}
 `;
     document.head.appendChild(style);
 }
@@ -292,18 +297,18 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     const lazyAttr = String(url || '').startsWith('data:') ? '' : 'loading="lazy"';
     const displayVersion = historyCount - currentIndex;
     const navPill = `<div class="xb-nd-nav-pill" data-total="${historyCount}" data-current="${currentIndex}">
-        <button class="xb-nd-nav-arrow" data-action="nav-prev" title="上一版本" ${currentIndex >= historyCount - 1 ? 'disabled' : ''}>‹</button>
+        <button class="xb-nd-nav-arrow" data-action="nav-prev" title="上一版本" ${currentIndex >= historyCount - 1 ? 'disabled' : ''}>${drawIconHtml('chevron-left')}</button>
         <span class="xb-nd-nav-text">${displayVersion} / ${historyCount}</span>
-        <button class="xb-nd-nav-arrow" data-action="nav-next" title="${currentIndex === 0 ? '重新生成' : '下一版本'}">›</button>
+        <button class="xb-nd-nav-arrow" data-action="nav-next" title="${currentIndex === 0 ? '重新生成' : '下一版本'}">${drawIconHtml('chevron-right')}</button>
     </div>`;
     const menuBusy = isBusy ? ' busy' : '';
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
-        <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">⋮</button>
+        <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">${drawIconHtml('ellipsis')}</button>
         <div class="xb-nd-dropdown">
             ${isPreview ? IMAGE_SAVE_BUTTON_HTML : ''}
-            <button data-action="refresh-image" title="重新生成">⟳</button>
-            <button data-action="edit-tags" title="编辑TAG">✐️</button>
-            <button data-action="delete-image" title="删除">✕</button>
+            <button data-action="refresh-image" title="重新生成">${drawIconHtml('rotate')}</button>
+            <button data-action="edit-tags" title="编辑TAG">${drawIconHtml('pen')}</button>
+            <button data-action="delete-image" title="删除">${drawIconHtml('xmark')}</button>
         </div>
     </div>`;
 
@@ -325,7 +330,7 @@ export function showDrawTagEditor(editPanel) {
 }
 
 function buildTagEditor(tags, failed) {
-    return `<div class="xb-nd-edit${failed ? '' : ' xb-nd-edit-overlay'}" style="display:none;${failed ? 'margin-top:12px;' : 'position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,.94);color:#fff;z-index:15;'}border-radius:10px;padding:10px;text-align:left;">
+    return `<div class="xb-nd-edit${failed ? '' : ' xb-nd-edit-overlay'}" style="display:none;${failed ? 'margin-top:12px;' : 'position:absolute;bottom:8px;left:8px;right:8px;z-index:15;'}border-radius:10px;padding:10px;text-align:left;">
     <label data-draw-edit-label style="display:block;font-size:11px;margin-bottom:6px;">${DRAW_SLOT_COPY.editTags}</label>
     <textarea class="xb-nd-edit-input" aria-label="${DRAW_SLOT_COPY.editTags}">${escapeHtml(tags)}</textarea>
     <div class="xb-nd-edit-actions">
@@ -341,8 +346,8 @@ function buildTagEditor(tags, failed) {
 // 状态文案永远是当前运行时和后端状态动态渲染出来的。
 export function buildPendingImageHtml({ slotId, messageId, index = 0, total = 0, label = '等待生成', loading = false }) {
     const progress = total > 0 ? `${Math.max(1, Number(index) || 1)} / ${total}` : '';
-    return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-mesid="${escapeHtml(messageId)}" data-state="pending"${loading ? ' data-xb-draw-loading' : ''} style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(212,165,116,0.4);border-radius:14px;padding:18px;background:rgba(212,165,116,0.06);color:inherit;">
-<div class="xb-nd-indicator" style="position:static;transform:none;display:inline-block;">🎨 ${escapeHtml(label)}${progress ? ` · ${progress}` : ''}</div>
+    return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-mesid="${escapeHtml(messageId)}" data-state="pending"${loading ? ' data-xb-draw-loading' : ''}>
+<div class="xb-nd-indicator">${drawIconHtml('clock')} ${escapeHtml(label)}${progress ? ` · ${progress}` : ''}</div>
 </div>`;
 }
 
@@ -616,15 +621,15 @@ ${buildTagEditor(tags, true)}
 export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags, positive, errorType, errorMessage, historyCount = 0 }) {
     const escapedTags = escapeHtml(tags);
     const escapedPositive = escapeHtml(positive);
-    return `<div class="xb-nd-img" data-slot-id="${slotId}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(248,113,113,0.5);border-radius:14px;padding:20px;background:rgba(248,113,113,0.05);">
-<div class="xb-nd-failed-icon" aria-hidden="true">⚠</div>
+    return `<div class="xb-nd-img" data-slot-id="${slotId}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed">
+<div class="xb-nd-failed-icon" aria-hidden="true">${drawIconHtml('triangle-exclamation')}</div>
 <div class="xb-nd-failed-title">${escapeHtml(errorType || DRAW_SLOT_COPY.generationFailed)}</div>
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '')}</div>
 <div class="xb-nd-failed-btns">
     <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.regenerate}</button>
     ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
     <details class="xb-nd-failed-more">
-        <summary>${DRAW_SLOT_COPY.moreActions}</summary>
+        <summary>${DRAW_SLOT_COPY.moreActions} ${drawIconHtml('chevron-down')}</summary>
         <div class="xb-nd-failed-options">
             <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
             <button class="xb-nd-edit-btn" data-action="retry-floor-failed" title="${DRAW_SLOT_COPY.regenerateFloorHint}">${DRAW_SLOT_COPY.regenerateFloor}</button>

@@ -1,39 +1,21 @@
-/* 绘图设置的共同外壳。后端页面只保留领域专属样式。 */
+@import url("./draw-theme.css");
+
 :root {
-    color-scheme: dark;
-    --bg-primary: #171922;
-    --bg-secondary: #1c1f2a;
-    --bg-tertiary: #242834;
-    --bg-input: #1c1f2a;
-    --text-primary: #d4d0c8;
-    --text-secondary: #aaa79f;
-    --text-muted: #858894;
-    --border: rgba(184,178,166,.15);
-    --border-focus: #8fb4bd;
-    --accent: #b8b2a6;
-    --accent-soft: rgba(184,178,166,.09);
-    --success: #96b8b2;
-    --danger: #d88490;
-    --warning: #c4ad84;
-}
-@media (prefers-color-scheme: light) {
-    :root {
-        color-scheme: light;
-        --bg-primary: #fcfaf6;
-        --bg-secondary: #fffdf9;
-        --bg-tertiary: #f0eee8;
-        --bg-input: #fffdf9;
-        --text-primary: #292723;
-        --text-secondary: #625f59;
-        --text-muted: #79756d;
-        --border: rgba(87,70,48,.16);
-        --border-focus: #3d7c83;
-        --accent: #3a3329;
-        --accent-soft: rgba(87,70,48,.06);
-        --success: #32766d;
-        --danger: #b64d5d;
-        --warning: #86672d;
-    }
+    color-scheme: dark light;
+    --bg-primary: var(--draw-bg-primary);
+    --bg-secondary: var(--draw-bg-secondary);
+    --bg-tertiary: var(--draw-bg-tertiary);
+    --bg-input: var(--draw-bg-input);
+    --text-primary: var(--draw-text-primary);
+    --text-secondary: var(--draw-text-secondary);
+    --text-muted: var(--draw-text-muted);
+    --border: var(--draw-border);
+    --border-focus: var(--draw-border-focus);
+    --accent: var(--draw-accent);
+    --accent-soft: var(--draw-accent-soft);
+    --success: var(--draw-success);
+    --danger: var(--draw-danger);
+    --warning: var(--draw-warning);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }

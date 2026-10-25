@@ -1,0 +1,35 @@
+/* Single palette for drawing settings, controls and chat images. */
+:root {
+    --draw-bg-primary: #171922;
+    --draw-bg-secondary: #1c1f2a;
+    --draw-bg-tertiary: #242834;
+    --draw-bg-input: #1c1f2a;
+    --draw-text-primary: #d4d0c8;
+    --draw-text-secondary: #aaa79f;
+    --draw-text-muted: #858894;
+    --draw-border: rgba(184,178,166,.15);
+    --draw-border-focus: #8fb4bd;
+    --draw-accent: #b8b2a6;
+    --draw-accent-soft: rgba(184,178,166,.09);
+    --draw-success: #96b8b2;
+    --draw-danger: #d88490;
+    --draw-warning: #c4ad84;
+}
+@media (prefers-color-scheme: light) {
+    :root {
+        --draw-bg-primary: #fcfaf6;
+        --draw-bg-secondary: #fffdf9;
+        --draw-bg-tertiary: #f0eee8;
+        --draw-bg-input: #fffdf9;
+        --draw-text-primary: #292723;
+        --draw-text-secondary: #625f59;
+        --draw-text-muted: #79756d;
+        --draw-border: rgba(87,70,48,.16);
+        --draw-border-focus: #3d7c83;
+        --draw-accent: #3a3329;
+        --draw-accent-soft: rgba(87,70,48,.06);
+        --draw-success: #32766d;
+        --draw-danger: #b64d5d;
+        --draw-warning: #86672d;
+    }
+}

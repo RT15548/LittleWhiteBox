@@ -51,7 +51,11 @@ function statusCard(document, html, imageHtml) {
     // Status belongs to the picture, independently of the TAG editor layer.
     surface.append(status);
     card.prepend(surface);
-    if (editor) editor.style.cssText = picture.querySelector('.xb-nd-edit').style.cssText;
+    if (editor) {
+        const pictureEditor = picture.querySelector('.xb-nd-edit');
+        editor.className = pictureEditor.className;
+        editor.style.cssText = pictureEditor.style.cssText;
+    }
     return card;
 }
 
