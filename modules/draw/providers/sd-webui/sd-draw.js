@@ -3321,6 +3321,9 @@ function renderExistingPanels() {
 async function handleImageDelegatedClick(event) {
     const container = event.target?.closest?.('.xb-nd-img');
     if (!container) {
+        if (!event.target?.closest?.('.xb-nd-error-tip')) {
+            document.querySelectorAll('.xb-nd-error-tip.xb-nd-tip-open').forEach(el => el.classList.remove('xb-nd-tip-open'));
+        }
         document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
         return;
     }
@@ -3337,6 +3340,13 @@ async function handleImageDelegatedClick(event) {
             if (w !== wrap) w.classList.remove('open');
         });
         wrap?.classList.toggle('open');
+        return;
+    }
+
+    if (action === 'toggle-error-tip') {
+        const tip = event.target?.closest?.('.xb-nd-error-tip') || container.querySelector('.xb-nd-error-tip');
+        document.querySelectorAll('.xb-nd-error-tip.xb-nd-tip-open').forEach(el => { if (el !== tip) el.classList.remove('xb-nd-tip-open'); });
+        tip?.classList.toggle('xb-nd-tip-open');
         return;
     }
 
