@@ -1345,6 +1345,7 @@ function ensureGalleryStyles() {
 #nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
 .nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
+#nd-gallery-overlay :focus-visible{outline:2px solid #fff;outline-offset:2px}
 .nd-gallery-main{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:75%;flex:1;min-height:0;overflow:hidden}
 .nd-gallery-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:none;background:rgba(0,0,0,0.35);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:24px;cursor:pointer}
 #nd-gallery-prev{left:16px}
