@@ -100,22 +100,25 @@ export function buildCharacterInfoForLLM(presentCharacters) {
     }
 
     let hasDynamicTags = false;
-    const lines = presentCharacters.map((character) => {
-        const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
-        const type = character.type || 'girl';
+    const lines = [];
+    for (const character of presentCharacters) {
+        // 多形态角色（展开后相邻排列）合成一条：角色名只写一次，各形态嵌套在下面；单形态角色保持平铺。
+        const multi = character.formCount > 1;
+        const type = `[${character.type || 'girl'}]`;
         const danbooru = character.danbooruTag ? ` | danbooru: ${character.danbooruTag}` : '';
-        const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
-        const outfits = formatReferenceList(character.outfits, '服装');
         const dynamicStates = formatReferenceList(character.dynamicStates, '动态标签');
         hasDynamicTags ||= Boolean(dynamicStates);
-        // 多形态角色的各个形态相邻排列：在第一个形态前声明一次“同一角色、同一画面只出现其中一个，未提及时用第一个”。
-        const formNote = character.formIndex === 0 && character.formCount > 1
-            ? `（${character.baseName}：${FORM_EXCLUSIVE_NOTE}）\n`
-            : '';
-        return `${formNote}- ${character.name}${aliases} [${type}]${danbooru}${appear}`
-            + (outfits ? `\n  服装参考: ${outfits}` : '')
-            + (dynamicStates ? `\n  动态标签: ${dynamicStates}` : '');
-    });
+        if (!multi || character.formIndex === 0) {
+            const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
+            lines.push(`- ${character.baseName ?? character.name}${aliases}${multi ? FORM_EXCLUSIVE_NOTE : ` ${type}${danbooru}`}`);
+        }
+        if (multi) lines.push(`  形态 ${character.formName} ${type}${danbooru}`);
+        const pad = multi ? '    ' : '  ';
+        const outfits = formatReferenceList(character.outfits, '服装');
+        if (character.appearance) lines.push(`${pad}固定外貌: ${character.appearance}`);
+        if (outfits) lines.push(`${pad}服装参考: ${outfits}`);
+        if (dynamicStates) lines.push(`${pad}动态标签: ${dynamicStates}`);
+    }
 
     return `【已录入角色】\n${hasDynamicTags ? `${DYNAMIC_TAG_LEGEND}\n` : ''}${lines.join('\n')}`;
 }
