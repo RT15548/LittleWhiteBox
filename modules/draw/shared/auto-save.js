@@ -18,7 +18,7 @@ export const AUTO_SAVE_COPY = Object.freeze({
  * @param {function(*): (void|boolean|{ok?: boolean, error?: string}|Promise<*>)} options.save 返回 false / { ok: false, error } / 抛错都算保存失败
  * @param {function(string, string): void} [options.onStatus] (state: 'saved'|'saving'|'invalid'|'error', 状态栏文字)
  * @param {number} [options.delay]
- * @param {function(function(), number): *} [options.setTimer]
+ * @param {Function} [options.setTimer] (callback, 毫秒) → 计时器句柄
  * @param {function(*): void} [options.clearTimer]
  */
 export function createAutoSave({ read, save, onStatus = () => {}, delay = AUTO_SAVE_DELAY_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
