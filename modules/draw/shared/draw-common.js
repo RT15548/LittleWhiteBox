@@ -28,6 +28,7 @@ import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
 import { hasPreviewImage, PreviewStatus, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from './image-record.js';
 import { getSlotActivity } from './slot-activity.js';
+import { buildFailedActionsHtml, buildUngeneratedActionsHtml, installImageCardMenu } from './image-card-menu.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
 import { detectPresentCharacters } from './present-characters.js';
@@ -192,6 +193,7 @@ export function classifyError(error) {
 }
 
 export function ensureDrawImageStyles() {
+    installImageCardMenu(document);
     if (document.getElementById('xiaobaix-draw-image-styles')) return;
     const style = document.createElement('style');
     style.id = 'xiaobaix-draw-image-styles';
@@ -250,20 +252,24 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-actions{display:flex;flex-shrink:0;flex-wrap:wrap;gap:6px;margin-top:8px}
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
-.xb-nd-img button:focus-visible,.xb-nd-img summary:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.xb-nd-img button:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .xb-nd-failed-icon{display:inline-block;color:rgba(248,113,113,0.9);font-size:14px;margin-inline-end:6px}
 .xb-nd-failed-title{display:inline;color:inherit;font-size:13px}
 .xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin:8px 0 12px;overflow-wrap:anywhere}
 .xb-nd-failed-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .xb-nd-failed-btns button{min-height:44px;padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer;transition:all 0.15s}
-.xb-nd-failed-more{min-width:0}
-.xb-nd-failed-more summary{box-sizing:border-box;min-height:44px;padding:8px 12px;display:inline-flex;align-items:center;gap:6px;list-style:none;font-size:12px;cursor:pointer;border-radius:8px}
-.xb-nd-failed-more summary::-webkit-details-marker{display:none}
-.xb-nd-failed-more summary::after{content:'⌄';font-size:14px}
-.xb-nd-failed-more[open]{flex-basis:100%}
-.xb-nd-failed-more[open] summary::after{transform:rotate(180deg)}
-.xb-nd-failed-more summary:hover{background:rgba(127,127,127,.1)}
-.xb-nd-failed-options{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding-top:8px}
+.xb-nd-failed-btns .xb-nd-more-btn{box-sizing:border-box;min-width:44px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);color:inherit}
+.xb-nd-more-btn svg{display:block;width:16px;height:16px;fill:currentColor}
+.xb-nd-more-btn:hover,.xb-nd-more-btn[aria-expanded="true"]{background:rgba(127,127,127,.22)}
+.xb-nd-more{display:inline-flex}
+.xb-nd-more-menu{position:fixed;z-index:1000;display:flex;flex-direction:column;gap:2px;min-width:148px;max-width:calc(100vw - 16px);padding:4px;box-sizing:border-box;overflow-y:auto;text-align:left;background:var(--SmartThemeBlurTintColor,Canvas);color:var(--SmartThemeBodyColor,CanvasText);border:1px solid var(--SmartThemeBorderColor,rgba(127,127,127,.4));border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(12px)}
+.xb-nd-more-menu[hidden]{display:none}
+.xb-nd-more-menu .xb-nd-more-item{display:flex;align-items:center;width:100%;min-height:36px;padding:7px 10px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:inherit;font-size:13px;text-align:left;white-space:nowrap;cursor:pointer}
+.xb-nd-more-menu .xb-nd-more-item:hover,.xb-nd-more-menu .xb-nd-more-item:focus-visible{background:rgba(127,127,127,.2);outline:none}
+.xb-nd-more-menu .xb-nd-more-item:focus-visible{outline:2px solid currentColor;outline-offset:-2px}
+.xb-nd-more-menu .xb-nd-more-item.is-danger{color:#c33;color:color-mix(in srgb,#dc2626 55%,currentColor)}
+.xb-nd-more-sep{height:1px;margin:2px 4px;background:var(--SmartThemeBorderColor,rgba(127,127,127,.4))}
+@media(hover:none),(pointer:coarse){.xb-nd-more-menu .xb-nd-more-item{min-height:44px}}
 .xb-nd-tag-actions{display:inline-flex;margin-inline-start:12px;vertical-align:middle}
 .xb-nd-tag-actions button{min-height:44px;min-width:64px}
 .xb-nd-retry-btn{border:1px solid rgba(212,165,116,0.5);background:rgba(212,165,116,0.2);color:inherit}
@@ -273,7 +279,6 @@ export function ensureDrawImageStyles() {
 @keyframes xb-nd-action-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.xb-nd-action-spinner{animation:none}}
 .xb-nd-edit-btn{border:1px solid rgba(127,127,127,0.4);background:rgba(127,127,127,0.1);color:inherit}
-.xb-nd-remove-btn{border:1px solid rgba(248,113,113,0.3);background:transparent;color:rgba(248,113,113,0.8)}
 @media(prefers-reduced-motion:reduce){.xb-nd-img img,.xb-nd-edit{animation:none;transition:none}}
 @keyframes nd-slide-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeInOut{0%{opacity:0;transform:translateX(-50%) translateY(-10px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1;transform:translateX(-50%) translateY(0)}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}
@@ -628,11 +633,7 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
 function buildUngeneratedImageHtml({ slotId, imgId, messageId, tags, positive }) {
     return `<div class="xb-nd-img" data-slot-id="${escapeHtml(slotId)}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapeHtml(tags)}" data-positive="${escapeHtml(positive)}" data-mesid="${messageId}" data-state="ungenerated" style="margin:0.8em 0;text-align:center;position:relative;padding:12px;">
 <div class="xb-nd-failed-title">${DRAW_SLOT_COPY.unclaimed}</div>
-<div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.generate}</button>
-    <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
-    <button class="xb-nd-remove-btn" data-action="remove-placeholder">${DRAW_SLOT_COPY.remove}</button>
-</div>
+${buildUngeneratedActionsHtml()}
 ${buildTagEditor(tags, true)}
 </div>`;
 }
@@ -644,18 +645,7 @@ export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags
 <div class="xb-nd-failed-icon" aria-hidden="true">⚠</div>
 <div class="xb-nd-failed-title">${escapeHtml(errorType || DRAW_SLOT_COPY.generationFailed)}</div>
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '')}</div>
-<div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">${DRAW_SLOT_COPY.regenerate}</button>
-    ${historyCount > 0 ? `<button class="xb-nd-edit-btn" data-action="restore-image">${DRAW_SLOT_COPY.restoreImage}</button>` : ''}
-    <details class="xb-nd-failed-more">
-        <summary>${DRAW_SLOT_COPY.moreActions}</summary>
-        <div class="xb-nd-failed-options">
-            <button class="xb-nd-edit-btn" data-action="edit-tags">${DRAW_SLOT_COPY.editTagsAction}</button>
-            <button class="xb-nd-edit-btn" data-action="retry-floor-failed" title="${DRAW_SLOT_COPY.regenerateFloorHint}">${DRAW_SLOT_COPY.regenerateFloor}</button>
-            <button class="xb-nd-remove-btn" data-action="remove-placeholder">${DRAW_SLOT_COPY.remove}</button>
-        </div>
-    </details>
-</div>
+${buildFailedActionsHtml({ historyCount })}
 ${buildTagEditor(tags, true)}
 </div>`;
 }
