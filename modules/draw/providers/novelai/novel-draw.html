@@ -341,30 +341,33 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.2s; position: relative;
 }
 .gallery-slot:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+.gallery-slot-media { position: relative; }
 .gallery-slot-img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: var(--bg-input); }
 .gallery-slot-placeholder {
     width: 100%; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
     background: var(--bg-input); color: var(--text-muted); font-size: 24px;
 }
+/* 悬停层只盖在图片上（不再盖住底部的日期 / 徽标）；按钮是固定深底浅字，不随主题变色，浅色主题下也读得清。触屏没有悬停，整张卡片本身就能点开。 */
 .gallery-slot-overlay {
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
     background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.8));
     opacity: 0; transition: opacity 0.2s; display: flex;
     flex-direction: column; justify-content: flex-end; padding: 10px;
 }
-.gallery-slot:hover .gallery-slot-overlay { opacity: 1; }
+.gallery-slot:hover .gallery-slot-overlay, .gallery-slot:focus-within .gallery-slot-overlay { opacity: 1; }
 .gallery-slot-actions { display: flex; gap: 6px; justify-content: center; }
-.gallery-slot-actions .btn { padding: 6px 10px; min-height: 28px; font-size: 11px; background: rgba(0,0,0,0.6); }
+.gallery-slot-actions .btn { padding: 6px 12px; min-height: 34px; font-size: 12px; color: #f2efe8; background: rgba(16,18,24,0.85); border-color: rgba(255,255,255,0.45); }
+.gallery-slot-actions .btn:hover:not(:disabled) { background: rgba(60,64,78,0.95); }
 .gallery-slot-info {
     padding: 10px 12px; font-size: 11px; color: var(--text-secondary);
     display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border);
 }
 .gallery-slot-badge {
     display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
 }
 .gallery-slot-badge.count { background: var(--accent-soft); color: var(--accent); }
-.gallery-slot-badge.saved { background: rgba(63, 185, 80, 0.15); color: var(--success); }
+.gallery-slot-badge.saved { background: var(--bg-secondary); color: var(--success); border: 1px solid var(--success); }
 .gallery-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
 .gallery-empty p { font-size: 13px; margin-top: 8px; }
@@ -377,47 +380,69 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .gallery-load-error { display: grid; justify-items: center; gap: 8px; }
 .gallery-load-hint { font-size: 12px; }
 .gallery-load-error .btn { margin: 0; }
+/* 大图查看器：自带一块固定的深色表面（不随浅色 / 深色主题变化），文字、按钮、焦点环都用下面这组固定色，保证在两种主题下对比度一致（≥ 4.5:1，见 gallery-modal-css.test.js）。 */
 .gallery-modal {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.9); z-index: 1000;
-    display: none; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+    --gm-bg: rgba(6,7,10,0.95); --gm-bar: rgba(16,18,24,0.94); --gm-line: rgba(255,255,255,0.32);
+    --gm-text: #f2efe8; --gm-muted: #b4b1a9; --gm-ring: #fff;
+    --gm-primary: #ece6d8; --gm-primary-ink: #14151b; --gm-danger: #ff9ea9; --gm-ok: #8fdcc8; --gm-off: #a8a59d;
+    position: fixed; inset: 0; z-index: 1000; display: none; flex-direction: column;
+    background: var(--gm-bg); color: var(--gm-text);
 }
 .gallery-modal.visible { display: flex; }
+.gallery-modal :focus-visible { outline: 2px solid var(--gm-ring); outline-offset: 2px; }
+.gallery-modal-top, .gallery-modal-bottom { flex: 0 0 auto; background: var(--gm-bar); backdrop-filter: blur(10px); }
+.gallery-modal-top { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+.gallery-modal-info { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 14px; font-size: 14px; font-weight: 600; color: var(--gm-text); }
+.gallery-modal-info time { font-size: 12px; font-weight: 400; color: var(--gm-muted); }
 .gallery-modal-close {
-    position: absolute; top: 16px; right: 16px; width: 44px; height: 44px;
-    border: none; background: rgba(255,255,255,0.1); border-radius: 50%;
-    color: #fff; font-size: 20px; cursor: pointer; z-index: 10;
+    flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid var(--gm-line); border-radius: 50%;
+    background: rgba(255,255,255,0.08); color: var(--gm-text); font-size: 18px; cursor: pointer;
 }
 .gallery-modal-close:hover { background: rgba(255,255,255,0.2); }
-.gallery-modal-content { max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.gallery-modal-img { max-width: 100%; max-height: 60vh; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-.gallery-modal-stage { position: relative; display: flex; align-items: center; justify-content: center; max-width: 100%; }
+.gallery-modal-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px 68px; }
+.gallery-modal-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
 .gallery-modal-nav {
     position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
-    width: 44px; height: 44px; padding: 0 0 4px; border: none; border-radius: 50%;
-    background: rgba(0,0,0,0.45); color: #fff; font-size: 30px; line-height: 1; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; transition: background 0.15s, opacity 0.15s;
+    width: 48px; height: 48px; padding: 0 0 4px; border: 1px solid var(--gm-line); border-radius: 50%;
+    background: rgba(16,18,24,0.78); color: var(--gm-text); font-size: 30px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background 0.15s;
 }
-.gallery-modal-nav.prev { left: 8px; }
-.gallery-modal-nav.next { right: 8px; }
-.gallery-modal-nav:hover:not(:disabled) { background: rgba(255,255,255,0.35); }
-.gallery-modal-nav:disabled { opacity: 0.25; cursor: default; }
-.gallery-modal-thumbs {
-    display: flex; gap: 8px; padding: 12px; background: rgba(0,0,0,0.5);
-    border-radius: 12px; max-width: 100%; overflow-x: auto;
+.gallery-modal-nav.prev { left: 10px; }
+.gallery-modal-nav.next { right: 10px; }
+.gallery-modal-nav:hover:not(:disabled) { background: rgba(60,64,78,0.92); }
+.gallery-modal-nav:disabled { color: var(--gm-off); border-style: dashed; cursor: default; }
+.gallery-modal-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(255,255,255,0.12); }
+.gallery-modal-thumbs { display: flex; gap: 8px; padding: 4px; max-width: 100%; overflow-x: auto; }
+.gallery-modal-thumbs[hidden], .gallery-modal-load-status[hidden] { display: none; }
+.gallery-modal-thumb { position: relative; flex: 0 0 auto; width: 56px; height: 56px; padding: 0; border: 2px solid transparent; border-radius: 8px; background: none; cursor: pointer; opacity: 0.7; transition: opacity 0.15s; }
+.gallery-modal-thumb img { display: block; width: 100%; height: 100%; border-radius: 6px; object-fit: cover; }
+.gallery-modal-thumb:hover { opacity: 1; }
+.gallery-modal-thumb.active { border-color: var(--gm-ring); opacity: 1; box-shadow: 0 0 0 2px rgba(0,0,0,0.6); }
+.gallery-modal-thumb.saved::after { content: '✓'; position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; border-radius: 50%; background: #2f7d68; color: #fff; font-size: 11px; line-height: 16px; text-align: center; }
+.gallery-modal-load-status { color: var(--gm-text); font-size: 13px; text-align: center; }
+.gallery-modal-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; }
+.gallery-modal .btn { min-height: 44px; padding: 8px 18px; font-size: 14px; color: var(--gm-text); background: rgba(255,255,255,0.06); border-color: var(--gm-line); }
+.gallery-modal .btn:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
+.gallery-modal .btn-primary { color: var(--gm-primary-ink); background: var(--gm-primary); border-color: var(--gm-primary); font-weight: 600; }
+.gallery-modal .btn-primary:hover:not(:disabled) { background: #fff; }
+.gallery-modal .btn-danger { color: var(--gm-danger); background: transparent; border-color: rgba(255,158,169,0.6); }
+.gallery-modal .btn-danger:hover:not(:disabled) { background: rgba(255,158,169,0.16); }
+.gallery-modal .btn:disabled { opacity: 1; color: var(--gm-off); background: transparent; border-style: dashed; border-color: rgba(255,255,255,0.24); }
+.gallery-modal .btn.is-saved:disabled { color: var(--gm-ok); border-color: rgba(143,220,200,0.5); }
+.gallery-modal-load-status .btn { min-height: 36px; margin-left: 8px; padding: 4px 12px; }
+@media (max-width: 600px) {
+    .gallery-modal-stage { padding: 8px; }
+    .gallery-modal-nav.prev { left: 12px; }
+    .gallery-modal-nav.next { right: 12px; }
+    .gallery-modal-actions .btn { flex: 1 1 40%; padding-inline: 10px; }
+    .gallery-modal-actions .btn-primary { flex-basis: 100%; }
 }
-.gallery-modal-thumb {
-    width: 60px; height: 60px; border-radius: 8px; object-fit: cover;
-    cursor: pointer; border: 2px solid transparent; opacity: 0.6;
-    transition: all 0.15s; flex-shrink: 0;
+@media (max-height: 500px) {
+    .gallery-modal-stage { padding: 6px 68px; }
+    .gallery-modal-bottom { gap: 6px; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+    .gallery-modal-thumb { width: 40px; height: 40px; }
+    .gallery-modal .btn { min-height: 40px; }
 }
-.gallery-modal-thumb:hover { opacity: 0.9; }
-.gallery-modal-thumb.active { border-color: var(--accent); opacity: 1; }
-.gallery-modal-thumb.saved { border-color: var(--success); }
-.gallery-modal-actions { display: flex; gap: 12px; }
-.gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
-.gallery-modal-load-status { color: #fff; font-size: 13px; text-align: center; }
-.gallery-modal-load-status .btn { margin-left: 8px; color: #fff; background: rgba(255,255,255,0.15); }
 @media (max-width: 768px) {
     .char-group-body { max-height: none; overflow-y: visible; }
     /* 角色库窄屏：容器允许收缩，角色摘要行换成两行（名字+类型徽标 / 摘要文字+操作按钮），分组头按钮换行，避免页面内横向滚动 */
@@ -436,9 +461,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     /* 手机宽度：编辑摘要行里的 添加形态 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
     .char-edit-add-form span { display: none; }
     .char-edit-add-form { padding-inline: 10px; }
-}
-@media (hover: none) and (pointer: coarse) {
-    .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
 
 /* ── 提示词模板始终可见 ── */
@@ -1333,22 +1355,24 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     <!-- ═══════════════════════════════════════════════════════════════════════
          画廊弹窗
          ═══════════════════════════════════════════════════════════════════════ -->
-    <div id="nd_gallery_modal" class="gallery-modal" role="dialog" aria-modal="true" aria-label="画廊">
-        <button class="gallery-modal-close" id="nd_modal_close" aria-label="关闭">✕</button>
-        <div class="gallery-modal-content">
-            <div class="gallery-modal-stage">
-                <button class="gallery-modal-nav prev" id="nd_modal_prev" type="button" aria-label="上一张" disabled>‹</button>
-                <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
-                <button class="gallery-modal-nav next" id="nd_modal_next" type="button" aria-label="下一张" disabled>›</button>
-            </div>
-            <div class="gallery-modal-thumbs" id="nd_modal_thumbs"></div>
+    <div id="nd_gallery_modal" class="gallery-modal" role="dialog" aria-modal="true" aria-label="画廊大图">
+        <div class="gallery-modal-top">
+            <div class="gallery-modal-info" id="nd_modal_info"><span id="nd_modal_counter"></span><time id="nd_modal_date"></time></div>
+            <button class="gallery-modal-close" id="nd_modal_close" type="button" aria-label="关闭" title="关闭（Esc）">✕</button>
+        </div>
+        <div class="gallery-modal-stage">
+            <button class="gallery-modal-nav prev" id="nd_modal_prev" type="button" aria-label="上一张" title="上一张（←）" disabled>‹</button>
+            <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
+            <button class="gallery-modal-nav next" id="nd_modal_next" type="button" aria-label="下一张" title="下一张（→）" disabled>›</button>
+        </div>
+        <div class="gallery-modal-bottom">
+            <div class="gallery-modal-thumbs" id="nd_modal_thumbs" hidden></div>
             <div class="gallery-modal-load-status" id="nd_modal_load_status" role="status" aria-live="polite" hidden></div>
             <div class="gallery-modal-actions">
-                <button class="btn btn-primary" id="nd_modal_use"><i class="fa-solid fa-check"></i> 使用此图</button>
-                <button class="btn" id="nd_modal_save"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
-                <button class="btn btn-danger" id="nd_modal_delete"><i class="fa-solid fa-trash"></i> 删除</button>
+                <button class="btn btn-primary" id="nd_modal_use" type="button"><i class="fa-solid fa-check"></i> 使用此图</button>
+                <button class="btn" id="nd_modal_save" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
+                <button class="btn btn-danger" id="nd_modal_delete" type="button"><i class="fa-solid fa-trash"></i> 删除</button>
             </div>
-            <div class="gallery-modal-info" id="nd_modal_info"></div>
         </div>
     </div>
 

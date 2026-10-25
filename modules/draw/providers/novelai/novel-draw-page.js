@@ -2590,7 +2590,7 @@ function pruneGalleryObjectUrls() {
 }
 
 function slotBadgesHtml(info) {
-    return `${info.count > 1 ? `<span class="gallery-slot-badge count">${info.count} 版</span>` : ''}${info.hasSaved || info.images.some(img => img.savedUrl) ? '<span class="gallery-slot-badge saved">✓</span>' : ''}`;
+    return `${info.count > 1 ? `<span class="gallery-slot-badge count">${info.count} 版</span>` : ''}${info.hasSaved || info.images.some(img => img.savedUrl) ? '<span class="gallery-slot-badge saved" title="已保存到服务器" aria-label="已保存到服务器">✓</span>' : ''}`;
 }
 
 function slotCardHtml(charName, slotId, info) {
@@ -2598,12 +2598,14 @@ function slotCardHtml(charName, slotId, info) {
     const imgSrc = getGalleryImageUrl(latest);
     return `
         <div class="gallery-slot" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
-            <img class="gallery-slot-img" src="${escapeHtml(imgSrc)}" loading="lazy" decoding="async">
-            <div class="gallery-slot-overlay">
-                <div class="gallery-slot-actions">
-                    <button class="btn btn-sm" data-action="view" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
-                        <i class="fa-solid fa-expand"></i> 查看
-                    </button>
+            <div class="gallery-slot-media">
+                <img class="gallery-slot-img" src="${escapeHtml(imgSrc)}" loading="lazy" decoding="async">
+                <div class="gallery-slot-overlay">
+                    <div class="gallery-slot-actions">
+                        <button class="btn btn-sm" type="button" data-action="view" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
+                            <i class="fa-solid fa-expand"></i> 查看
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="gallery-slot-info">
@@ -3005,13 +3007,18 @@ function openGalleryModalFromCache(charName, slotId) {
     modalData = { slotId, images: info.images, currentIndex: 0, charName };
     renderModalThumbs();
     renderModalContent();
+    if (!$('nd_gallery_modal').classList.contains('visible')) galleryModalOpener = document.activeElement;
     $('nd_gallery_modal').classList.add('visible');
+    $('nd_modal_close').focus({ preventScroll: true });
     requestSlotVersions(charName, slotId);
     prefetchNextWhenAtLoadedEnd();
 }
 
+let galleryModalOpener = null;
 function closeGalleryModal() {
     $('nd_gallery_modal').classList.remove('visible');
+    try { galleryModalOpener?.focus?.({ preventScroll: true }); } catch { /* 触发元素已不在页面里 */ }
+    galleryModalOpener = null;
     $('nd_modal_img').removeAttribute('data-img-id');
     modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 }
@@ -3019,24 +3026,27 @@ function closeGalleryModal() {
 function renderModalThumbs() {
     const { images, currentIndex } = modalData;
     if (!images.length) return;
+    const total = Math.max(images.length, loadedCharPreviews[modalData.charName]?.slots[modalData.slotId]?.count || 0);
+    $('nd_modal_thumbs').hidden = images.length < 2; // 只有一个版本时不需要缩略图条
     $('nd_modal_thumbs').innerHTML = DOMPurify.sanitize(images.map((img, i) => {
         const src = getGalleryImageUrl(img);
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
-        return `<img class="${cls.join(' ')}" src="${escapeHtml(src)}" data-index="${i}">`;
+        return `<button type="button" class="${cls.join(' ')}" data-index="${i}" aria-label="版本 ${i + 1} / ${total}${img.savedUrl ? '，已保存' : ''}"${i === currentIndex ? ' aria-current="true"' : ''}><img src="${escapeHtml(src)}" alt=""></button>`;
     }).join(''), GALLERY_HTML_SANITIZE_OPTIONS);
 
-    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+    $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb').forEach(t => {
         t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); });
     });
 }
 
 function updateModalThumbState() {
-    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+    $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb').forEach(t => {
         const index = parseInt(t.dataset.index);
         const active = index === modalData.currentIndex;
         t.classList.toggle('active', active);
+        if (active) t.setAttribute('aria-current', 'true'); else t.removeAttribute('aria-current');
         t.classList.toggle('saved', !!modalData.images[index]?.savedUrl);
         if (active) t.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     });
@@ -3093,17 +3103,23 @@ function renderModalContent() {
     const saveBtn = $('nd_modal_save');
     if (current.savedUrl) {
         saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已保存';
+        saveBtn.title = '这个版本已经保存在服务器上';
         saveBtn.disabled = true;
     } else {
         saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存到服务器';
+        saveBtn.title = '把这个版本保存成服务器上的图片文件';
         saveBtn.disabled = false;
     }
+    saveBtn.classList.toggle('is-saved', !!current.savedUrl);
 
     const loadingMore = position && position.index >= position.loaded - 1 && galleryPageRequests.has(modalData.charName);
     const slotText = position && position.total > 1 ? `图组 ${position.index + 1} / ${position.total}${loadingMore ? '（加载更多中…）' : ''} · ` : '';
     // 版本总数以图组统计为准：版本列表还没回来时，缩略图条只有最新一张，但总数已知。
     const versionTotal = Math.max(images.length, loadedCharPreviews[modalData.charName]?.slots[modalData.slotId]?.count || 0);
-    $('nd_modal_info').textContent = `${slotText}版本 ${currentIndex + 1} / ${versionTotal} · ${new Date(current.timestamp).toLocaleString()}`;
+    $('nd_modal_counter').textContent = `${slotText}版本 ${currentIndex + 1} / ${versionTotal}`;
+    const when = new Date(current.timestamp);
+    $('nd_modal_date').textContent = when.toLocaleString();
+    if (Number.isFinite(when.getTime())) $('nd_modal_date').dateTime = when.toISOString();
 }
 
 // 删除一张图后的本地处理：移除对应的图组 / 版本，并让随后到的 CACHE_DATA（张数少一）不被当成“数据变了”而整体重载。
@@ -4627,7 +4643,7 @@ function initializePage() {
     });
 
     $('nd_gallery_modal').addEventListener('click', e => {
-        if (e.target.id === 'nd_gallery_modal') closeGalleryModal();
+        if (e.target.id === 'nd_gallery_modal' || e.target.classList.contains('gallery-modal-stage')) closeGalleryModal();
     });
     
     $('nd_modal_use').addEventListener('click', () => {
