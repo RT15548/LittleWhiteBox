@@ -15,6 +15,15 @@ import {
     preloadPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
+import * as galleryCacheModule from "../../shared/gallery-cache.js";
+// 注入 JPEG 策略：生成入庫時按共享設置決定是否轉 JPEG。
+// 用 namespace + 存在性守衛，兼容測試環境對 gallery-cache 的精簡 mock。
+if (typeof galleryCacheModule.setJpegPolicyProvider === 'function') {
+    galleryCacheModule.setJpegPolicyProvider(() => {
+        const s = getSharedDrawSettings();
+        return { saveAsJpeg: s.saveAsJpeg === true, jpegQuality: s.jpegQuality };
+    });
+}
 import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
@@ -1460,6 +1469,45 @@ function bindOverlayEvents() {
             setValue('comfy-gallery-cache-days', nextDays);
         }
     });
+    // 生成後存 JPEG：勾選即保存（品質固定 0.8，與 NovelAI 端一致）
+    querySettings('#comfy-gallery-save-as-jpeg')?.addEventListener('change', async (event) => {
+        const checkbox = event.currentTarget;
+        const nextJpeg = checkbox.checked === true;
+        const ok = await withSaveTimeout(updateSharedDrawSettingsPersistent((settings) => {
+            settings.saveAsJpeg = nextJpeg;
+            settings.jpegQuality = 0.8;
+        }, '已保存', { notify: false, silent: false }));
+        updateStatusText('comfy-gallery-status', ok ? 'success' : 'error',
+            ok ? (nextJpeg ? '已启用 JPEG（品質 0.8）' : '已关闭 JPEG 转换') : '保存失败，请重试');
+    });
+    // 舊圖批量轉 JPEG（只影響仍是 PNG 的缓存記錄；已保存到服務器的文件不動）
+    querySettings('#comfy-gallery-convert-legacy-jpeg')?.addEventListener('click', async (event) => {
+        if (!confirm('把緩存裡仍是 PNG 的舊圖批量轉成 JPEG？此操作不可撤銷（畫質略有損失，透明背景會鋪白底）。')) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 轉換中…';
+        try {
+            const { convertLegacyPreviewsToJpeg } = await import('../../shared/gallery-cache.js');
+            const stats = await convertLegacyPreviewsToJpeg({
+                quality: getSharedDrawSettings().jpegQuality,
+                onProgress: (done, total) => {
+                    if (total > 10 && (done % 10 === 0 || done === total)) {
+                        updateStatusText('comfy-gallery-status', '', `舊圖轉換中… ${done}/${total}`);
+                    }
+                },
+            });
+            const savedMB = (stats.savedBytes / 1024 / 1024).toFixed(1);
+            updateStatusText('comfy-gallery-status', 'success',
+                `已轉換 ${stats.converted} 張，節省 ${savedMB} MB${stats.failed ? `，失敗 ${stats.failed} 張` : ''}`);
+            await renderGalleryManagement();
+        } catch (error) {
+            console.warn('[ComfyDraw] legacy JPEG conversion failed:', error);
+            updateStatusText('comfy-gallery-status', 'error', `轉換失敗：${error?.message || error}`);
+        } finally {
+            button.disabled = false;
+            button.innerHTML = '<i class="fa-solid fa-images"></i> 舊圖轉JPEG';
+        }
+    });
     querySettings('#comfy-gallery-clear-expired')?.addEventListener('click', async () => {
         updateStatusText('comfy-gallery-status', '', '正在清理...');
         try {
@@ -2189,6 +2237,8 @@ function fillForm(settings) {
     setValue('comfy-draw-max-images', preset.maxImages || 0);
     setValue('comfy-draw-max-chars', preset.maxCharactersPerImage || 0);
     setValue('comfy-gallery-cache-days', getSharedDrawSettings().cacheDays);
+    const comfyJpegCheckbox = document.getElementById('comfy-gallery-save-as-jpeg');
+    if (comfyJpegCheckbox) comfyJpegCheckbox.checked = getSharedDrawSettings().saveAsJpeg === true;
 
     // 模型配置页面
     populateModelSelect(settings.modelCache || []);
