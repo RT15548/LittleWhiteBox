@@ -68,7 +68,7 @@ import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
-import { installHostPanelEscape } from "../../shared/panel-escape.js";
+import { installHostPanelEscape, reportEditsSaved } from "../../shared/panel-escape.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
@@ -3429,6 +3429,7 @@ async function persistAllSettings({ notify = false, triggerButton = null, status
     };
 
     const runPostSaveHooks = async () => {
+        reportEditsSaved(getSettingsDocument()); // 角色编辑卡里的改动已随设置保存，不再挡 Esc 关面板
         try {
             const fp = await import('./floating-panel.js');
             const settings = getSettings();

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import {
-    ESCAPE_LAYER_SELECTORS, createEditGuard, hasOpenLayer, installHostPanelEscape, installPanelEscape, isDragging, isHostPopupOpen, shouldClosePanelOnEscape,
+    EDITS_SAVED_EVENT, ESCAPE_LAYER_SELECTORS, createEditGuard, hasOpenLayer, installHostPanelEscape, installPanelEscape, isDragging, isHostPopupOpen, reportEditsSaved, shouldClosePanelOnEscape,
 } from '../panel-escape.js';
 
 // Acceptance contracts (cost: Esc closing the panel while a menu / dialog / drag is the thing the user meant to dismiss, losing a half-typed character card, or stealing Esc from SillyTavern's own popups):
@@ -102,6 +102,26 @@ test('SD / ComfyUI expanded cards are edit roots keyed by character id', () => {
     assert.equal(guard.hasUnsavedEdit(), false);
     fire(document.getElementById('x'), 'input');
     assert.equal(guard.hasUnsavedEdit(), true);
+});
+
+test('edit guard: once the edits are saved the card is no longer unsaved, even while it stays open and focused', () => {
+    const { document, fire } = page('<div class="char-card editing" data-id="c1"><input id="name"></div><details class="sd-char-card" data-character-id="d" open><input id="x"></details>');
+    const guard = createEditGuard({ document });
+    fire(document.getElementById('name'), 'input');
+    fire(document.getElementById('x'), 'change');
+    assert.equal(guard.hasUnsavedEdit(), true);
+    reportEditsSaved(document); // 自动保存到“已保存” / 保存设置成功
+    assert.ok(document.querySelector('.char-card.editing') && document.querySelector('.sd-char-card[open]'), 'the cards are still open');
+    assert.equal(guard.hasUnsavedEdit(), false, 'saved edits do not hold Esc');
+    fire(document.getElementById('name'), 'input');
+    assert.equal(guard.hasUnsavedEdit(), true, 'typing again after a save is unsaved again');
+    document.dispatchEvent(new document.defaultView.CustomEvent(EDITS_SAVED_EVENT));
+    assert.equal(guard.hasUnsavedEdit(), false);
+    guard.destroy();
+    fire(document.getElementById('name'), 'input');
+    reportEditsSaved(document);
+    assert.doesNotThrow(() => reportEditsSaved(null));
+    assert.doesNotThrow(() => reportEditsSaved({}));
 });
 
 // linkedom 不区分捕获 / 冒泡阶段，所以监听接线用一个最小的事件树（body → document → window，带捕获 / 冒泡 / stopPropagation / preventDefault）来验证；
@@ -211,6 +231,21 @@ test('iframe listener: a drag in progress and an edited-but-unsaved card both ke
     assert.deepEqual(closed, ['closed', 'closed']);
 });
 
+test('iframe listener: type, save, Esc — closes with the field still focused; an unsaved or failed edit still holds it', () => {
+    const { document, fire } = page('<div class="char-card editing" data-id="c1"><input id="name"></div>');
+    const guard = createEditGuard({ document });
+    const { closed, esc } = wire({ hasUnsavedEdit: () => guard.hasUnsavedEdit() });
+    fire(document.getElementById('name'), 'input');
+    esc();
+    assert.deepEqual(closed, [], 'typed but not saved yet: the draft is protected');
+    reportEditsSaved(document);
+    esc();
+    assert.deepEqual(closed, ['closed'], 'saved: Esc closes although the card is open');
+    fire(document.getElementById('name'), 'input'); // 保存失败 / 名称为空：没有“已保存”，继续保护
+    esc();
+    assert.deepEqual(closed, ['closed']);
+});
+
 test('iframe listener: dispose removes it', () => {
     const { closed, esc, dispose } = wire();
     dispose();
@@ -302,6 +337,11 @@ test('wiring: the shared page entry installs the iframe listener bound to the he
         assert.ok(source.includes(`installHostPanelEscape({ hostWindow: window, getOverlay: () => ${overlayVar}, getFrame: () => ${frameVar} })`), `${file} registers`);
         assert.equal((source.match(/hostEscapeDispose\?\.\(\);/g) || []).length, 1, `${file} disposes once, in the hide path`);
         assert.ok(source.indexOf('hostEscapeDispose?.();') < source.lastIndexOf('.remove();', source.indexOf('hostEscapeDispose?.();') + 400), `${file}: disposed before the overlay is removed`);
+    }
+    const reports = (file, text) => assert.ok(readFileSync(new URL(file, import.meta.url), 'utf8').includes(text), `${file} reports saved edits`);
+    reports('../../providers/novelai/novel-draw-page.js', "if (status === 'saved') reportEditsSaved(document);");
+    for (const file of ['../../providers/sd-webui/sd-draw.js', '../../providers/comfyui/comfy-draw.js']) {
+        reports(file, 'runPostSaveHooks = async () => {\n        reportEditsSaved(getSettingsDocument());');
     }
     for (const relative of ['../../providers/novelai/novel-draw.html', '../../providers/sd-webui/sd-draw.html', '../../providers/comfyui/comfy-draw.html']) {
         assert.match(readFileSync(new URL(relative, import.meta.url), 'utf8'), /class="header-close"/, `${relative} has the ✕ the Esc handler clicks`);

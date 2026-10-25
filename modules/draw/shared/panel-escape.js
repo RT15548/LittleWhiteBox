@@ -1,7 +1,7 @@
 // Esc 关闭绘图设置面板（NovelAI / SD WebUI / ComfyUI 共用）。面板是酒馆页面上的一个全屏浮层，里面是 iframe；页头的 ✕ 按钮关闭它。
 // 规则（宁可不关，也不丢草稿、不抢别人的 Esc）：
 // - 页面里任何菜单 / 弹出层 / 对话框 / 拖拽正在进行，Esc 只交给它们，不关面板；
-// - 有正在编辑、已经改过的角色编辑卡时，Esc 什么都不做（草稿还没保存），用 ✕ 关；
+// - 有改过、而且还没保存下来的角色编辑卡时，Esc 什么都不做（草稿还没落盘），用 ✕ 关；已经保存的编辑（自动保存完成 / 点过保存）不算；
 // - 其余情况 Esc 等同点 ✕。
 // 两个入口：iframe 内部（焦点在设置页里）用 installPanelEscape；焦点在酒馆宿主页面时用 installHostPanelEscape，
 // 只做宿主侧的检查（面板可见、没有酒馆自己的弹窗、面板在最上层），然后把这次 Esc 转发进 iframe，交给同一套判断，保证两条路径规则一致。
@@ -71,9 +71,19 @@ function editKey(root, index) {
     return root.getAttribute('data-id') || root.getAttribute('data-character-id') || root.id || `#${index}`;
 }
 
+// 页面把编辑存下来之后发这个事件（NovelAI 自动保存到“已保存”时、SD / ComfyUI 保存设置成功后），守卫据此清掉“未保存”的标记。
+export const EDITS_SAVED_EVENT = 'xb-draw-edits-saved';
+
+/** 告诉守卫：到目前为止的编辑都已保存。document 是设置页自己的文档（可以为空）。 */
+export function reportEditsSaved(document) {
+    const View = document?.defaultView;
+    if (View?.CustomEvent) document.dispatchEvent(new View.CustomEvent(EDITS_SAVED_EVENT));
+}
+
 /**
- * 记录“哪些编辑卡被改过”：编辑卡里发生过 input / change 就记一笔（按卡的 id）；
- * 卡片关掉（保存 / 取消 / 重绘成非编辑态）之后，在下一次事件或查询时自动清掉，重新打开同一张卡是干净的。
+ * 记录“哪些编辑卡里有还没保存的改动”：编辑卡里发生过 input / change 就记一笔（按卡的 id），
+ * 收到 EDITS_SAVED_EVENT（已保存）就全部清掉；卡片关掉（保存 / 取消 / 重绘成非编辑态）之后，在下一次事件或查询时也会自动清掉。
+ * 只记“碰过”会在自动保存之后一直挡着 Esc，所以“已保存”必须能清掉标记。
  */
 export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } = {}) {
     const dirty = new Set();
@@ -95,6 +105,9 @@ export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } 
         document.addEventListener(type, mark, true);
         listeners.push(() => document.removeEventListener(type, mark, true));
     }
+    const onSaved = () => dirty.clear();
+    document.addEventListener(EDITS_SAVED_EVENT, onSaved);
+    listeners.push(() => document.removeEventListener(EDITS_SAVED_EVENT, onSaved));
     // 点击（保存 / 取消 / 打开别的卡）之前先对一遍账，避免“关了又开”的同一张卡带着旧标记。
     const settle = () => { prune(); };
     document.addEventListener('click', settle, true);

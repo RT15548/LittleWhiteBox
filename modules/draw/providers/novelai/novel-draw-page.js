@@ -57,6 +57,7 @@ import {
     setCharacterSaveStatus,
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
+import { reportEditsSaved } from '../../shared/panel-escape.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1551,6 +1552,7 @@ function startCharAutoSave(id, { fresh = false } = {}) {
         onStatus: (status, text) => {
             session.status = { state: status, text };
             setCharacterSaveStatus(editingCardOf(id), status, text);
+            if (status === 'saved') reportEditsSaved(document); // 已保存的编辑不再挡 Esc 关面板
         },
     });
     charAutoSave = session;
