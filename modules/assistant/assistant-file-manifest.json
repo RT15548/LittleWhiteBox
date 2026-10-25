@@ -2834,7 +2834,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner-frame.js",
       "relativePath": "modules/draw/shared/scene-planner-frame.js",
       "extension": ".js",
-      "sizeBytes": 6814
+      "sizeBytes": 6799
     },
     {
       "source": "littlewhitebox",
@@ -3212,7 +3212,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "relativePath": "modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "extension": ".json",
-      "sizeBytes": 1237286
+      "sizeBytes": 1235111
     },
     {
       "source": "littlewhitebox",
