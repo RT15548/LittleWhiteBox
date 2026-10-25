@@ -253,7 +253,7 @@ export function ensureDrawImageStyles() {
 .xb-nd-edit-actions button{min-height:36px;padding:6px 12px;border:1px solid rgba(127,127,127,.4);background:rgba(127,127,127,.1);border-radius:6px;color:inherit;cursor:pointer;white-space:nowrap}
 .xb-nd-edit-actions [data-action="save-tags"]{flex:1;background:rgba(212,165,116,.2)}
 .xb-nd-img button:focus-visible,.xb-nd-edit-input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
-.xb-nd-failed-icon{display:inline-block;color:rgba(248,113,113,0.9);font-size:14px;margin-inline-end:6px}
+.xb-nd-failed-icon{display:inline-block;color:#c33;color:color-mix(in srgb,#dc2626 75%,currentColor);font-size:14px;margin-inline-end:6px}
 .xb-nd-failed-title{display:inline;color:inherit;font-size:13px}
 .xb-nd-failed-desc{color:inherit;opacity:.75;font-size:12px;margin:8px 0 12px;overflow-wrap:anywhere}
 .xb-nd-failed-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
