@@ -1,5 +1,5 @@
 {
-  "buildId": "bea25c6065faa4a4ab3e",
+  "buildId": "1d29ae0d0aa7853fba3c",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-CHY66pZ5.js",
@@ -286,7 +286,7 @@
         "shared/settings-repository-C5uZiyAW.js",
         "shared/comfy-draw-7BHHue8D.js",
         "shared/message-toolbar-ChQ8bj0Q.js",
-        "shared/novel-draw-D6Mx48_5.js",
+        "shared/novel-draw-D9-OHf-V.js",
         "shared/sd-draw-BPs2fzcs.js",
         "shared/draw-common-Cmg3CqFl.js",
         "shared/gallery-cache-DT1KHF9E.js",
@@ -1008,6 +1008,18 @@
       "dynamicImports": [],
       "css": []
     },
+    "shared/floating-panel-DOtpPew5.js": {
+      "imports": [
+        "shared/message-toolbar-ChQ8bj0Q.js",
+        "shared/novel-draw-D9-OHf-V.js",
+        "shared/draw-common-Cmg3CqFl.js",
+        "shared/gallery-cache-DT1KHF9E.js",
+        "shared/draw-run-ui-state-CJyszYsT.js",
+        "shared/async-errors-C4kfchr9.js"
+      ],
+      "dynamicImports": [],
+      "css": []
+    },
     "shared/floating-panel-DlpNrdBC.js": {
       "imports": [
         "shared/comfy-draw-7BHHue8D.js",
@@ -1024,18 +1036,6 @@
       "imports": [
         "shared/message-toolbar-ChQ8bj0Q.js",
         "shared/sd-draw-BPs2fzcs.js",
-        "shared/draw-common-Cmg3CqFl.js",
-        "shared/gallery-cache-DT1KHF9E.js",
-        "shared/draw-run-ui-state-CJyszYsT.js",
-        "shared/async-errors-C4kfchr9.js"
-      ],
-      "dynamicImports": [],
-      "css": []
-    },
-    "shared/floating-panel-yk-hc--0.js": {
-      "imports": [
-        "shared/message-toolbar-ChQ8bj0Q.js",
-        "shared/novel-draw-D6Mx48_5.js",
         "shared/draw-common-Cmg3CqFl.js",
         "shared/gallery-cache-DT1KHF9E.js",
         "shared/draw-run-ui-state-CJyszYsT.js",
@@ -1234,7 +1234,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-D6Mx48_5.js": {
+    "shared/novel-draw-D9-OHf-V.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/after-ai-gate-uQov0TZs.js",
@@ -1255,7 +1255,7 @@
         "shared/identity-BQcqMF8H.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-yk-hc--0.js",
+        "shared/floating-panel-DOtpPew5.js",
         "shared/msgpack-EEcozSlQ.js"
       ],
       "css": []

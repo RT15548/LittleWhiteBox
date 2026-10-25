@@ -114,24 +114,24 @@ const FLOATING_WIDTH_IDLE = 74;
 const FLOATING_WIDTH_ACTIVE = 98;
 
 const STYLES = `
-:root {
+.nd-float.nd-novel {
     --nd-h: 34px;
-    --nd-bg: rgba(0, 0, 0, 0.55);
-    --nd-bg-solid: rgba(24, 24, 28, 0.98);
-    --nd-bg-hover: rgba(0, 0, 0, 0.7);
-    --nd-bg-active: rgba(255, 255, 255, 0.1);
-    --nd-border: rgba(255, 255, 255, 0.08);
-    --nd-border-hover: rgba(255, 255, 255, 0.2);
-    --nd-border-subtle: rgba(255, 255, 255, 0.08);
-    --nd-text-primary: rgba(255, 255, 255, 0.85);
-    --nd-text-secondary: rgba(255, 255, 255, 0.65);
-    --nd-text-muted: rgba(255, 255, 255, 0.45);
-    --nd-text-dim: rgba(255, 255, 255, 0.25);
+    --nd-bg: var(--SmartThemeBlurTintColor, #25272c);
+    --nd-bg-solid: var(--nd-bg);
+    --nd-bg-hover: color-mix(in srgb, var(--nd-bg) 94%, var(--nd-text-primary));
+    --nd-bg-active: color-mix(in srgb, var(--nd-text-primary) 8%, transparent);
+    --nd-border: color-mix(in srgb, var(--nd-text-primary) 14%, transparent);
+    --nd-border-hover: color-mix(in srgb, var(--nd-text-primary) 24%, transparent);
+    --nd-border-subtle: var(--nd-border);
+    --nd-text-primary: var(--SmartThemeBodyColor, #e3e5eb);
+    --nd-text-secondary: color-mix(in srgb, var(--nd-text-primary) 80%, transparent);
+    --nd-text-muted: color-mix(in srgb, var(--nd-text-primary) 65%, transparent);
+    --nd-text-dim: var(--nd-text-muted);
     --nd-success: #3ecf8e;
     --nd-warning: #f0b429;
     --nd-error: #f87171;
     --nd-info: #60a5fa;
-    --nd-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+    --nd-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.18);
     --nd-radius-sm: 6px;
     --nd-radius-md: 10px;
     --nd-radius-lg: 14px;
@@ -226,8 +226,14 @@ const STYLES = `
     transition: background 0.15s;
     font-size: 16px;
 }
-.nd-btn-draw:hover { background: rgba(255, 255, 255, 0.12); }
+.nd-novel .nd-btn-draw:hover { background: var(--nd-bg-active); }
 .nd-btn-draw:active { transform: scale(0.92); }
+
+.nd-novel button { margin: 0; padding: 0; box-shadow: none; }
+.nd-novel button:focus-visible { outline: 2px solid var(--nd-text-secondary); outline-offset: -3px; }
+.nd-novel .nd-icon { display: block; width: 16px; height: 16px; flex-shrink: 0; pointer-events: none; }
+.nd-novel .nd-arrow { display: flex; align-items: center; justify-content: center; }
+.nd-novel .nd-arrow .nd-icon { width: 12px; height: 12px; }
 
 .nd-auto-dot {
     position: absolute;
@@ -246,7 +252,7 @@ const STYLES = `
 
 .nd-sep { width: 1px; height: 12px; background: var(--nd-border); }
 
-.nd-btn-menu {
+.nd-novel .nd-btn-menu {
     width: 24px;
     height: 100%;
     border: none;
@@ -255,16 +261,16 @@ const STYLES = `
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--nd-text-dim);
+    color: var(--nd-text-secondary);
     font-size: 8px;
-    opacity: 0.6;
+    opacity: 1;
     transition: opacity 0.25s, transform 0.25s;
 }
 .nd-float:hover .nd-btn-menu { opacity: 1; }
-.nd-btn-menu:hover { background: rgba(255, 255, 255, 0.12); color: var(--nd-text-muted); }
+.nd-novel .nd-btn-menu:hover { background: var(--nd-bg-active); color: var(--nd-text-primary); }
 
 /* 常驻菜单按钮：只在非空闲状态显示（空闲时由 idle 层自己的菜单按钮负责） */
-.nd-btn-menu-persist {
+.nd-novel .nd-btn-menu-persist {
     display: none;
     position: absolute;
     top: 0;
@@ -282,7 +288,7 @@ const STYLES = `
 .nd-arrow { transition: transform 0.2s; }
 .nd-float.expanded .nd-arrow { transform: rotate(180deg); }
 
-.nd-layer-active {
+.nd-novel .nd-layer-active {
     box-sizing: border-box;
     padding: 0 6px;
     opacity: 0;
@@ -291,7 +297,7 @@ const STYLES = `
     gap: 6px;
     font-size: 14px;
     font-weight: 600;
-    color: #fff;
+    color: var(--nd-text-primary);
     cursor: pointer;
     pointer-events: none;
     transition: opacity 0.2s, transform 0.2s, padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -321,11 +327,11 @@ const STYLES = `
 .nd-countdown { font-variant-numeric: tabular-nums; min-width: 36px; text-align: center; }
 
 /* 详情弹窗 - 向下展开（楼层按钮用） */
-.nd-detail {
+.nd-novel .nd-detail {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    background: rgba(18, 18, 22, 0.98);
+    background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 12px 16px;
@@ -359,12 +365,12 @@ const STYLES = `
 .nd-detail-value.error { color: var(--nd-error); }
 
 /* 菜单 - 向下展开（楼层按钮用） */
-.nd-menu {
+.nd-novel .nd-menu {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
     width: 190px;
-    background: rgba(18, 18, 22, 0.96);
+    background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 10px;
@@ -408,10 +414,10 @@ const STYLES = `
     padding: 0;
 }
 
-.nd-select {
+.nd-novel .nd-select {
     flex: 1;
     min-width: 0;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--nd-bg-active);
     border: 1px solid var(--nd-border-subtle);
     color: var(--nd-text-primary);
     font-size: 11px;
@@ -430,11 +436,14 @@ const STYLES = `
     -moz-appearance: none;
     appearance: none;
 }
-.nd-select:hover { border-color: rgba(255, 255, 255, 0.2); }
-.nd-select:focus { border-color: rgba(255, 255, 255, 0.3); }
-.nd-select option { background: #1a1a1e; color: #eee; text-align: left; }
+.nd-novel .nd-select:hover { border-color: var(--nd-border-hover); }
+.nd-novel .nd-select:focus { border-color: var(--nd-text-muted); }
+.nd-novel .nd-select option { background: var(--nd-bg-solid); color: var(--nd-text-primary); text-align: left; }
 .nd-select.size { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
 ${MAX_IMAGES_INPUT_CSS}
+.nd-novel .nd-max-images-input { background: var(--nd-bg-active); color-scheme: normal; }
+.nd-novel .nd-max-images-input:hover { border-color: var(--nd-border-hover); }
+.nd-novel .nd-max-images-input:focus { border-color: var(--nd-text-muted); }
 
 .nd-inner-sep { display: none; }
 
@@ -452,7 +461,7 @@ ${MAX_IMAGES_INPUT_CSS}
     cursor: pointer;
     transition: all 0.15s;
 }
-.nd-auto:hover { background: rgba(255, 255, 255, 0.08); }
+.nd-novel .nd-auto:hover { background: var(--nd-bg-active); }
 .nd-auto.on { background: rgba(62, 207, 142, 0.08); border-color: rgba(62, 207, 142, 0.3); }
 
 .nd-dot {
@@ -482,7 +491,7 @@ ${MAX_IMAGES_INPUT_CSS}
     font-size: 14px;
     transition: all 0.15s;
 }
-.nd-gear:hover { background: rgba(255, 255, 255, 0.08); color: var(--nd-text-secondary); }
+.nd-novel .nd-gear:hover { background: var(--nd-bg-active); color: var(--nd-text-secondary); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    悬浮按钮样式（固定定位，可拖拽）
@@ -498,26 +507,26 @@ ${MAX_IMAGES_INPUT_CSS}
 /* 貼邊半藏：膠囊一半移出螢幕；吸附時隱藏跳圖鈕 */
 .nd-floating-global.nd-docked-left { transform: translateX(-50%); }
 .nd-floating-global.nd-docked-right { transform: translateX(50%); }
-.nd-floating-global[class*="nd-docked"] .nd-img-jump { display: none; }
+.nd-floating-global.nd-novel[class*="nd-docked"] .nd-img-jump { display: none; }
 
-.nd-floating-global .nd-capsule {
+.nd-floating-global.nd-novel .nd-capsule {
     background: var(--nd-bg-solid);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
     touch-action: none;
     cursor: grab;
 }
 
 /* 跳圖上下鈕：絕對定位在膠囊外，不影響膠囊尺寸與拖曳 */
-.nd-floating-global .nd-img-jump {
+.nd-floating-global.nd-novel .nd-img-jump {
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
     width: 34px;
-    height: 22px;
+    height: 26px;
     border: none;
     border-radius: 11px;
     background: transparent;
-    color: inherit;
+    color: var(--nd-text-muted);
     font-size: 12px;
     line-height: 1;
     display: flex;
@@ -527,10 +536,12 @@ ${MAX_IMAGES_INPUT_CSS}
     box-shadow: none;
     z-index: 1;
     padding: 0;
+    transition: color 0.15s, background 0.15s;
 }
 .nd-floating-global .nd-img-jump-prev { bottom: calc(100% + 4px); }
 .nd-floating-global .nd-img-jump-next { top: calc(100% + 4px); }
-.nd-floating-global .nd-img-jump:hover { opacity: 0.65; }
+.nd-floating-global.nd-novel .nd-img-jump:hover { color: var(--nd-text-primary); background: var(--nd-bg-active); }
+.nd-novel .nd-img-jump-prev .nd-icon { transform: rotate(180deg); }
 
 .nd-floating-global .nd-capsule:active { cursor: grabbing; }
 
@@ -546,7 +557,7 @@ ${MAX_IMAGES_INPUT_CSS}
     transform: translateY(0) scale(1);
 }
 
-.nd-floating-global .nd-detail::after {
+.nd-floating-global.nd-novel .nd-detail::after {
     content: '';
     position: absolute;
     top: auto;
@@ -554,7 +565,7 @@ ${MAX_IMAGES_INPUT_CSS}
     left: 50%;
     transform: translateX(-50%);
     border: 6px solid transparent;
-    border-top-color: rgba(18, 18, 22, 0.98);
+    border-top-color: var(--nd-bg-solid);
     border-bottom-color: transparent;
 }
 
@@ -572,6 +583,9 @@ ${MAX_IMAGES_INPUT_CSS}
 /* 悬浮按钮箭头向上 */
 .nd-floating-global .nd-arrow { transform: rotate(180deg); }
 .nd-floating-global.expanded .nd-arrow { transform: rotate(0deg); }
+@media (prefers-reduced-motion: reduce) {
+    .nd-novel, .nd-novel * { transition: none !important; animation: none !important; }
+}
 `;
 
 function injectStyles() {
@@ -595,11 +609,41 @@ function createEl(tag, className, text) {
     return el;
 }
 
+function createCapsuleIcon(name) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('nd-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.7');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const paths = name === 'palette' ? [
+        'M12 3a9 9 0 1 0 0 18h1.2a2.3 2.3 0 0 0 1.6-3.9 1.4 1.4 0 0 1 1-2.4H18a3 3 0 0 0 3-3C21 6.9 17 3 12 3Z',
+        'M7.5 10h.01M10 6.9h.01M14.2 7.1h.01M17.2 10.3h.01',
+    ] : ['m5 9 7 5 7-5'];
+    for (const [index, d] of paths.entries()) {
+        const path = document.createElementNS(svg.namespaceURI, 'path');
+        path.setAttribute('d', d);
+        if (index === 1) path.setAttribute('stroke-width', '2.8');
+        svg.appendChild(path);
+    }
+    return svg;
+}
+
+function createMenuArrow() {
+    const arrow = createEl('span', 'nd-arrow');
+    arrow.appendChild(createCapsuleIcon('chevron'));
+    return arrow;
+}
+
 // 常驻菜单按钮：非空闲状态（生成中/成功/失败等）idle 层被隐藏时，仍可点开菜单与设置
-function createPersistMenuBtn(arrow) {
+function createPersistMenuBtn() {
     const btn = createEl('button', 'nd-btn-menu nd-btn-menu-persist');
     btn.title = '展开菜单';
-    btn.appendChild(createEl('span', 'nd-arrow', arrow));
+    btn.appendChild(createMenuArrow());
     return btn;
 }
 
@@ -668,7 +712,7 @@ function createFloorPanelElement(messageId) {
     const isAuto = settings.mode === 'auto';
 
     const root = document.createElement('div');
-    root.className = `nd-float${isAuto ? ' auto-on' : ''}`;
+    root.className = `nd-float nd-novel${isAuto ? ' auto-on' : ''}`;
     root.dataset.messageId = messageId;
 
     const capsule = createEl('div', 'nd-capsule');
@@ -676,12 +720,12 @@ function createFloorPanelElement(messageId) {
     const layerIdle = createEl('div', 'nd-layer nd-layer-idle');
     const drawBtn = createEl('button', 'nd-btn-draw');
     drawBtn.title = '点击生成配图';
-    drawBtn.appendChild(createEl('span', '', '🎨'));
+    drawBtn.appendChild(createCapsuleIcon('palette'));
     drawBtn.appendChild(createEl('span', 'nd-auto-dot'));
     const sep = createEl('div', 'nd-sep');
     const menuBtn = createEl('button', 'nd-btn-menu');
     menuBtn.title = '展开菜单';
-    menuBtn.appendChild(createEl('span', 'nd-arrow', '▼'));
+    menuBtn.appendChild(createMenuArrow());
     layerIdle.append(drawBtn, sep, menuBtn);
 
     const layerActive = createEl('div', 'nd-layer nd-layer-active');
@@ -691,7 +735,7 @@ function createFloorPanelElement(messageId) {
     );
 
     inner.append(layerIdle, layerActive);
-    capsule.append(inner, createPersistMenuBtn('▼'));
+    capsule.append(inner, createPersistMenuBtn());
 
     const detail = createEl('div', 'nd-detail');
     const detailRowResult = createEl('div', 'nd-detail-row');
@@ -823,7 +867,7 @@ function setFloorState(messageId, state, data = {}) {
             break;
         case FloatState.GEN:
             el.classList.add('working');
-            if (statusIcon) { statusIcon.textContent = '🎨'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusIcon) { statusIcon.replaceChildren(createCapsuleIcon('palette')); statusIcon.className = 'nd-status-icon nd-spin'; }
             if (statusText) statusText.textContent = `${data.current || 0}/${data.total || 0}`;
             panelData.result.total = data.total || 0;
             break;
@@ -1453,7 +1497,7 @@ function setFloatingState(state, data = {}) {
             break;
         case FloatState.GEN:
             floatingEl.classList.add('working');
-            statusIcon.textContent = '🎨';
+            statusIcon.replaceChildren(createCapsuleIcon('palette'));
             statusIcon.className = 'nd-status-icon nd-spin';
             statusText.textContent = `${data.current || 0}/${data.total || 0}`;
             floatingResult.total = data.total || 0;
@@ -1750,7 +1794,7 @@ function createFloatingButton() {
     const isAuto = settings.mode === 'auto';
 
     floatingEl = document.createElement('div');
-    floatingEl.className = `nd-float nd-floating-global${isAuto ? ' auto-on' : ''}`;
+    floatingEl.className = `nd-float nd-novel nd-floating-global${isAuto ? ' auto-on' : ''}`;
     floatingEl.id = 'nd-floating-global';
 
     const detail = createEl('div', 'nd-detail');
@@ -1806,12 +1850,12 @@ function createFloatingButton() {
     const layerIdle = createEl('div', 'nd-layer nd-layer-idle');
     const drawBtn = createEl('button', 'nd-btn-draw');
     drawBtn.title = '点击为最后一条AI消息生成配图';
-    drawBtn.appendChild(createEl('span', '', '🎨'));
+    drawBtn.appendChild(createCapsuleIcon('palette'));
     drawBtn.appendChild(createEl('span', 'nd-auto-dot'));
     const sep = createEl('div', 'nd-sep');
     const menuBtn = createEl('button', 'nd-btn-menu');
     menuBtn.title = '展开菜单';
-    menuBtn.appendChild(createEl('span', 'nd-arrow', '▲'));
+    menuBtn.appendChild(createMenuArrow());
     layerIdle.append(drawBtn, sep, menuBtn);
     const layerActive = createEl('div', 'nd-layer nd-layer-active');
     layerActive.append(
@@ -1819,12 +1863,14 @@ function createFloatingButton() {
         createEl('span', 'nd-status-text', DRAW_CAPSULE_COPY.analysis)
     );
     inner.append(layerIdle, layerActive);
-    capsule.append(inner, createPersistMenuBtn('▲'));
+    capsule.append(inner, createPersistMenuBtn());
 
     // 上下跳圖鈕在膠囊外部，獨立於膠囊拖曳
-    const imgPrevBtn = createEl('button', 'nd-img-jump nd-img-jump-prev', '▲');
+    const imgPrevBtn = createEl('button', 'nd-img-jump nd-img-jump-prev');
+    imgPrevBtn.appendChild(createCapsuleIcon('chevron'));
     imgPrevBtn.title = '跳到上一张图片';
-    const imgNextBtn = createEl('button', 'nd-img-jump nd-img-jump-next', '▼');
+    const imgNextBtn = createEl('button', 'nd-img-jump nd-img-jump-next');
+    imgNextBtn.appendChild(createCapsuleIcon('chevron'));
     imgNextBtn.title = '跳到下一张图片';
     imgPrevBtn.addEventListener('click', (e) => { e.stopPropagation(); jumpToChatImage(-1); });
     imgNextBtn.addEventListener('click', (e) => { e.stopPropagation(); jumpToChatImage(1); });
