@@ -127,6 +127,8 @@ let state = {
     activeApiPresetId: null,
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
+    saveAsJpeg: false,
+    jpegQuality: 0.8,
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -2551,14 +2553,110 @@ function pruneGalleryObjectUrls() {
     syncGalleryImages();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 批量管理：不打開獨立彈窗，在 slot 卡與彈窗縮略圖上疊 checkbox
+// ═══════════════════════════════════════════════════════════════════════════
+let batchMode = false;
+const batchSelectedIds = new Set();
+
+function toggleBatchMode() {
+    batchMode = !batchMode;
+    const bar = $('nd_batch_bar');
+    const btn = $('nd_batch');
+    if (batchMode) {
+        bar.style.display = 'flex';
+        btn.classList.add('btn-primary');
+        btn.querySelector('i').className = 'fa-solid fa-check';
+    } else {
+        bar.style.display = 'none';
+        btn.classList.remove('btn-primary');
+        btn.querySelector('i').className = 'fa-solid fa-list-check';
+        batchSelectedIds.clear();
+    }
+    updateBatchCount();
+    renderGalleryView();
+    if (modalData.charName) renderModalThumbs();
+}
+
+function slotLatestImgId(card) {
+    const entry = loadedCharPreviews[card.dataset.char];
+    const images = entry?.slots[card.dataset.slot];
+    return images?.[0]?.imgId || null;
+}
+
+function toggleSlotSelection(card) {
+    const imgId = slotLatestImgId(card);
+    if (!imgId) return;
+    if (batchSelectedIds.has(imgId)) batchSelectedIds.delete(imgId);
+    else batchSelectedIds.add(imgId);
+    card.classList.toggle('batch-checked', batchSelectedIds.has(imgId));
+    const cb = card.querySelector(':scope > .batch-cb');
+    if (cb) cb.checked = batchSelectedIds.has(imgId);
+    updateBatchCount();
+}
+
+function updateBatchCount() {
+    const count = batchSelectedIds.size;
+    const el = $('nd_batch_count');
+    if (!el) return;
+    el.textContent = batchMode
+        ? (count ? `已選 ${count} 張` : '點選圖片開始挑選（可進入角色彈窗選歷史圖）')
+        : '';
+}
+
+function setBatchCheckedAll(checked) {
+    if (!batchMode) return;
+    if (!checked) {
+        batchSelectedIds.clear();
+    } else {
+        // 全選：只選當前 DOM 已渲染的卡片與彈窗縮略圖（與 fork 版一致，避免誤選未加載的）
+        document.querySelectorAll('.gallery-slot').forEach(slot => {
+            const imgId = slotLatestImgId(slot);
+            if (imgId) batchSelectedIds.add(imgId);
+        });
+        document.querySelectorAll('#nd_modal_thumbs [data-imgid]').forEach(thumb => {
+            batchSelectedIds.add(thumb.dataset.imgid);
+        });
+    }
+    document.querySelectorAll('.gallery-slot').forEach(slot => {
+        const imgId = slotLatestImgId(slot);
+        const selected = !!imgId && batchSelectedIds.has(imgId);
+        slot.classList.toggle('batch-checked', selected);
+        const cb = slot.querySelector(':scope > .batch-cb');
+        if (cb) cb.checked = selected;
+    });
+    document.querySelectorAll('#nd_modal_thumbs [data-imgid]').forEach(thumb => {
+        const selected = batchSelectedIds.has(thumb.dataset.imgid);
+        thumb.classList.toggle('batch-checked', selected);
+    });
+    updateBatchCount();
+}
+
+function batchDeleteSelected() {
+    if (!batchSelectedIds.size) return;
+    if (!confirm(`確定刪除 ${batchSelectedIds.size} 張圖片？此操作不可恢復。`)) return;
+    postToParent({ type: 'BATCH_DELETE', ids: [...batchSelectedIds] });
+}
+
+function batchDownloadSelected() {
+    if (!batchSelectedIds.size) return;
+    updateStatus($('nd_gallery_status'), 'loading', '打包 ZIP 中…');
+    postToParent({ type: 'BATCH_DOWNLOAD', ids: [...batchSelectedIds] });
+}
+
 function slotBadgesHtml(info) {
     return `${info.count > 1 ? `<span class="gallery-slot-badge count">${info.count} 版</span>` : ''}${info.hasSaved || info.images.some(img => img.savedUrl) ? '<span class="gallery-slot-badge saved" title="已保存到服务器" aria-label="已保存到服务器">✓</span>' : ''}`;
 }
 
 function slotCardHtml(charName, slotId, info) {
     const latest = info.images[0];
+    const checkboxHtml = batchMode
+        ? `<input type="checkbox" class="batch-cb" ${latest?.imgId && batchSelectedIds.has(latest.imgId) ? 'checked' : ''}>`
+        : '';
+    const checkedCls = batchMode && latest?.imgId && batchSelectedIds.has(latest.imgId) ? ' batch-checked' : '';
     return `
-        <div class="gallery-slot" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
+        <div class="gallery-slot${checkedCls}" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
+            ${checkboxHtml}
             <div class="gallery-slot-media">
                 <img class="gallery-slot-img" data-gallery-id="${escapeHtml(latest.imgId)}" decoding="async">
                 <div class="gallery-slot-overlay">
@@ -2579,9 +2677,13 @@ function slotCardHtml(charName, slotId, info) {
 function bindSlotCard(card) {
     const open = () => openGalleryModalFromCache(card.dataset.char, card.dataset.slot);
     card.querySelectorAll('[data-action="view"]').forEach(btn => {
-        btn.addEventListener('click', e => { e.stopPropagation(); open(); });
+        btn.addEventListener('click', e => { e.stopPropagation(); if (batchMode) return; open(); });
     });
-    card.addEventListener('click', e => { if (!e.target.closest('[data-action]')) open(); });
+    card.addEventListener('click', e => {
+        if (e.target.closest('.batch-cb')) { e.stopPropagation(); toggleSlotSelection(card); return; }
+        if (batchMode) { toggleSlotSelection(card); return; }
+        if (!e.target.closest('[data-action]')) open();
+    });
 }
 
 function findSlotCard(charName, slotId) {
@@ -3001,12 +3103,31 @@ function renderModalThumbs() {
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
-        return `<button type="button" class="${cls.join(' ')}" data-index="${i}" aria-label="版本 ${i + 1} / ${total}${img.savedUrl ? '，已保存' : ''}"${i === currentIndex ? ' aria-current="true"' : ''}><img data-gallery-id="${escapeHtml(img.imgId)}" alt=""></button>`;
+        const thumb = `<button type="button" class="${cls.join(' ')}" data-index="${i}" aria-label="版本 ${i + 1} / ${total}${img.savedUrl ? '，已保存' : ''}"${i === currentIndex ? ' aria-current="true"' : ''}><img data-gallery-id="${escapeHtml(img.imgId)}" alt=""></button>`;
+        if (!batchMode) return thumb;
+        const checked = batchSelectedIds.has(img.imgId);
+        return `<div class="gallery-modal-thumb-wrap${checked ? ' batch-checked' : ''}" data-imgid="${escapeHtml(img.imgId)}"><input type="checkbox" class="batch-cb" aria-label="选择版本 ${i + 1}" ${checked ? 'checked' : ''}>${thumb}</div>`;
     }).join(''), GALLERY_HTML_SANITIZE_OPTIONS);
 
+    $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb-wrap .batch-cb').forEach(cb => {
+        cb.addEventListener('click', e => { e.stopPropagation(); toggleModalThumbSelection(cb.parentElement); });
+    });
     $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb').forEach(t => {
         t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); });
     });
+}
+
+function toggleModalThumbSelection(wrap) {
+    const imgId = wrap.dataset.imgid;
+    if (!imgId) return;
+    if (batchSelectedIds.has(imgId)) batchSelectedIds.delete(imgId);
+    else batchSelectedIds.add(imgId);
+    wrap.classList.toggle('batch-checked', batchSelectedIds.has(imgId));
+    const cb = wrap.querySelector('.batch-cb');
+    if (cb) cb.checked = batchSelectedIds.has(imgId);
+    const inner = wrap.querySelector('img.gallery-modal-thumb');
+    if (inner) inner.classList.toggle('batch-checked', batchSelectedIds.has(imgId));
+    updateBatchCount();
 }
 
 function updateModalThumbState() {
@@ -3426,6 +3547,7 @@ function applyStateToUI() {
         $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+        if ($('nd_save_as_jpeg')) $('nd_save_as_jpeg').checked = state.saveAsJpeg === true;
 
         renderParamsPresetList();
         applyParamsPreset();
@@ -4142,9 +4264,40 @@ window.addEventListener('message', event => {
             state.cacheStats = data.cacheStats || state.cacheStats;
             if (data.gallerySummary) applyGallerySummary(data.gallerySummary);
             if ($('nd_cache_count')) $('nd_cache_count').textContent = state.cacheStats?.count || 0;
-            if ($('nd_cache_size')) $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+            if ($('nd_cache_size')) $('nd_cache_size').textContent = state.cacheStats?.sizeMB || 0 + ' MB';
             renderGalleryView();
             break;
+
+        case 'BATCH_DELETED': {
+            if (data.ok) {
+                if (batchMode) {
+                    batchSelectedIds.clear();
+                    updateBatchCount();
+                    // 不退出批量模式：就地刷新列表，勾选从零开始
+                    $('nd_batch_count').textContent = `已刪除 ${data.count} 張，可繼續勾選`;
+                }
+                // 宿主刪除後會推送新統計/數據；摘要未及時到時先按現狀重繪
+                renderGalleryView();
+            } else {
+                alert(`批量刪除失敗：${data.message || '未知錯誤'}`);
+            }
+            break;
+        }
+
+        case 'BATCH_DOWNLOADED': {
+            if (data.ok) {
+                updateStatus($('nd_gallery_status'), 'success', `已導出 ZIP（${data.saved} 張${data.failed ? `，失敗 ${data.failed} 張` : ''}）`);
+            } else {
+                updateStatus($('nd_gallery_status'), 'error', `導出失敗：${data.message || '未知錯誤'}`);
+            }
+            break;
+        }
+
+        case 'CONVERT_LEGACY_DONE': {
+            const btn = $('nd_convert_legacy_jpeg');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-images"></i> 舊圖轉JPEG'; }
+            break;
+        }
 
         case 'CHARACTER_PREVIEWS_LOADED':
             handleCharacterPreviewsLoaded(data);
@@ -4602,7 +4755,29 @@ function initializePage() {
         setSavingState($('nd_save_cache_days'));
         postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
     });
-    
+
+    // 生成後存 JPEG：勾選即保存（品質固定 0.8，與 fork 版一致）
+    $('nd_save_as_jpeg')?.addEventListener('change', () => {
+        postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked, jpegQuality: 0.8 });
+    });
+
+    // 舊圖批量轉 JPEG（只影響仍是 PNG 的缓存記錄；已保存到服務器的文件不動）
+    $('nd_convert_legacy_jpeg')?.addEventListener('click', () => {
+        if (!confirm('把緩存裡仍是 PNG 的舊圖批量轉成 JPEG？此操作不可撤銷（畫質略有損失，透明背景會鋪白底）。')) return;
+        const btn = $('nd_convert_legacy_jpeg');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 轉換中…';
+        postToParent({ type: 'CONVERT_LEGACY_JPEG' });
+    });
+
+    // 批量管理
+    $('nd_batch').addEventListener('click', toggleBatchMode);
+    $('nd_batch_select_all').addEventListener('click', () => setBatchCheckedAll(true));
+    $('nd_batch_select_none').addEventListener('click', () => setBatchCheckedAll(false));
+    $('nd_batch_download').addEventListener('click', batchDownloadSelected);
+    $('nd_batch_delete').addEventListener('click', batchDeleteSelected);
+    $('nd_batch_done').addEventListener('click', toggleBatchMode);
+
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
     
     $('nd_clear_all').addEventListener('click', () => { 
