@@ -2040,6 +2040,16 @@ function removeCharacterForm(formKey) {
     renderCharList({ keepDraft: true });
 }
 
+// 编辑卡片里的条目 / 搜索面板放在可折叠的分区里：分区折叠着时里面的新内容看不见，先展开它（记录与 DOM 一起改）。
+function revealEditorSection(section, id, trigger) {
+    if (!section?.classList.contains('is-collapsed')) return;
+    editorSections.setCollapsed(sectionStateId(id, trigger), section.dataset.section, false);
+    setEditorSectionCollapsed(section, false);
+}
+
+// 条目编辑器（character-edit-form.js）不直接写 innerHTML，由页面 sanitize 后插入。
+const insertSanitizedHtml = (target, html, position = 'beforeend') => target.insertAdjacentHTML(position, DOMPurify.sanitize(html));
+
 function handleCharAction(action, id, card, trigger, event) {
     if (action === 'menu') {
         if (trigger) getCardMenu()?.toggle(trigger);
@@ -2104,7 +2114,7 @@ function handleCharAction(action, id, card, trigger, event) {
         const row = trigger?.closest('.named-tag-item');
         const copy = duplicateNamedTagEditorItem(row, namedTagKindOfRow(row), {
             escapeHtml,
-            insertHtml: (target, html, position = 'beforeend') => target.insertAdjacentHTML(position, DOMPurify.sanitize(html)),
+            insertHtml: insertSanitizedHtml,
         });
         copy?.scrollIntoView?.({ block: 'nearest' });
         copy?.querySelector('.named-tag-name')?.focus();
@@ -2114,16 +2124,8 @@ function handleCharAction(action, id, card, trigger, event) {
         // 多形态时按钮属于哪个形态卡片就操作哪个形态的列表。
         const list = (trigger?.closest('.char-form') || card)?.querySelector(`.${meta.classPrefix}-editor-list`);
         if (!list) return;
-        // 分区折叠着时新条目看不见：先展开分区。
-        const section = list.closest('.char-edit-section');
-        if (section?.classList.contains('is-collapsed')) {
-            editorSections.setCollapsed(sectionStateId(id, trigger), section.dataset.section, false);
-            setEditorSectionCollapsed(section, false);
-        }
-        const row = appendNamedTagEditorItem(list, kind, {
-            escapeHtml,
-            insertHtml: (target, html) => target.insertAdjacentHTML('beforeend', DOMPurify.sanitize(html)),
-        });
+        revealEditorSection(list.closest('.char-edit-section'), id, trigger);
+        const row = appendNamedTagEditorItem(list, kind, { escapeHtml, insertHtml: insertSanitizedHtml });
         row?.scrollIntoView?.({ block: 'nearest' });
         row?.querySelector(`.${meta.classPrefix}-name`)?.focus();
     } else if (action === 'remove-outfit' || action === 'remove-dynstate') {
@@ -2132,13 +2134,9 @@ function handleCharAction(action, id, card, trigger, event) {
         removeNamedTagEditorItem(trigger?.closest(`.${meta.classPrefix}-editor-item`), kind);
     } else if (action === 'search-danbooru') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
-        // 搜索面板在“固定外貌”分区正文里：分区折叠着就先展开。
+        // 搜索面板在“固定外貌”分区正文里。
         const formCard = trigger?.closest('.char-form');
-        const appearanceSection = (formCard || card)?.querySelector('.char-edit-section[data-section="appearance"]');
-        if (appearanceSection?.classList.contains('is-collapsed')) {
-            editorSections.setCollapsed(sectionStateId(id, trigger), 'appearance', false);
-            setEditorSectionCollapsed(appearanceSection, false);
-        }
+        revealEditorSection((formCard || card)?.querySelector('.char-edit-section[data-section="appearance"]'), id, trigger);
         showLocalDanbooruFix(formRef(id, formCard?.dataset.formKey || ''));
     } else if (action === 'toggle-form') {
         // 形态头部整行都是触发区；点名称输入框 / 拖动手柄是在操作它们，不切换折叠。
