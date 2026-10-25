@@ -538,7 +538,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/text-tool-protocol.js",
       "relativePath": "modules/agent-core/adapters/text-tool-protocol.js",
       "extension": ".js",
-      "sizeBytes": 21356
+      "sizeBytes": 21586
     },
     {
       "source": "littlewhitebox",
@@ -2274,7 +2274,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-agent-runtime.js",
       "relativePath": "modules/draw/shared/draw-agent-runtime.js",
       "extension": ".js",
-      "sizeBytes": 37627
+      "sizeBytes": 37726
     },
     {
       "source": "littlewhitebox",
@@ -2785,7 +2785,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-plan-contract.js",
       "relativePath": "modules/draw/shared/scene-plan-contract.js",
       "extension": ".js",
-      "sizeBytes": 18030
+      "sizeBytes": 20030
     },
     {
       "source": "littlewhitebox",
@@ -2834,7 +2834,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner-executor.js",
       "relativePath": "modules/draw/shared/scene-planner-executor.js",
       "extension": ".js",
-      "sizeBytes": 16302
+      "sizeBytes": 17471
     },
     {
       "source": "littlewhitebox",
@@ -3346,6 +3346,13 @@
       "relativePath": "modules/draw/shared/tests/planner-regressions.test.js",
       "extension": ".js",
       "sizeBytes": 10550
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/planner-retry-correction.test.js",
+      "relativePath": "modules/draw/shared/tests/planner-retry-correction.test.js",
+      "extension": ".js",
+      "sizeBytes": 7744
     },
     {
       "source": "littlewhitebox",
@@ -17107,14 +17114,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs",
       "extension": ".cjs",
-      "sizeBytes": 968587
+      "sizeBytes": 968631
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/vendor/draw-run-runtime.cjs",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/vendor/draw-run-runtime.cjs",
       "extension": ".cjs",
-      "sizeBytes": 77176
+      "sizeBytes": 79050
     },
     {
       "source": "littlewhitebox",
