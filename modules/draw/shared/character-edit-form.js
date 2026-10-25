@@ -69,6 +69,27 @@ function kindMeta(kind) {
     return NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
 }
 
+/** 条目 / 形态行的折叠状态只改 DOM（行上的标记、折叠样式、正文可见性、箭头按钮的 aria-expanded）。 */
+function setRowFolded(row, expanded, { body, toggle }) {
+    row.dataset.expanded = String(expanded);
+    row.classList.toggle('is-folded', !expanded);
+    row.querySelector(body)?.toggleAttribute('hidden', !expanded);
+    row.querySelector(toggle)?.setAttribute('aria-expanded', String(expanded));
+}
+
+/** 按 ids 的新顺序重排 list 里的 rows（真实移动 DOM 节点，输入框里未保存的内容、折叠与启用状态原样跟着走）；ids 里没有的行保持相对顺序排在最后。 */
+function moveRowsToOrder(list, rows, ids, getId) {
+    const byId = new Map(rows.map(row => [getId(row), row]));
+    const ordered = [];
+    for (const id of Array.isArray(ids) ? ids : []) {
+        const row = byId.get(id);
+        if (row && !ordered.includes(row)) ordered.push(row);
+    }
+    for (const row of rows) if (!ordered.includes(row)) ordered.push(row);
+    const anchor = rows.length ? rows[rows.length - 1].nextSibling : null;
+    ordered.forEach(row => list.insertBefore(row, anchor));
+}
+
 // ── 条目 / 形态头部的操作 ─────────────────────────────────────
 // 头部右侧依次是：“已停用”小标签（停用时才显示）、启用开关（与角色卡外面同款的打勾方块图标按钮，.char-enabled-control）、
 // “…”菜单（复制、删除；删除是危险样式的菜单项，以后要加别的操作直接往菜单里加）。
@@ -228,10 +249,7 @@ export function refreshNamedTagItemHeader(row, kind = 'outfit') {
 
 export function setNamedTagItemExpanded(row, expanded, kind = 'outfit') {
     if (!row) return;
-    row.dataset.expanded = String(expanded);
-    row.classList.toggle('is-folded', !expanded);
-    row.querySelector('.named-tag-body')?.toggleAttribute('hidden', !expanded);
-    row.querySelector('.named-tag-toggle')?.setAttribute('aria-expanded', String(expanded));
+    setRowFolded(row, expanded, { body: '.named-tag-body', toggle: '.named-tag-toggle' });
     if (!expanded) refreshNamedTagItemHeader(row, kind);
 }
 
@@ -335,16 +353,7 @@ export function duplicateNamedTagEditorItem(row, kind = 'outfit', { escapeHtml =
  */
 export function reorderNamedTagEditorRows(list, kind, orderedUids) {
     if (!list) return;
-    const rows = rowsOf(list, kind);
-    const byUid = new Map(rows.map(row => [row.dataset.uid, row]));
-    const ordered = [];
-    for (const uid of Array.isArray(orderedUids) ? orderedUids : []) {
-        const row = byUid.get(uid);
-        if (row && !ordered.includes(row)) ordered.push(row);
-    }
-    for (const row of rows) if (!ordered.includes(row)) ordered.push(row);
-    const anchor = rows.length ? rows[rows.length - 1].nextSibling : null;
-    ordered.forEach(row => list.insertBefore(row, anchor));
+    moveRowsToOrder(list, rowsOf(list, kind), orderedUids, row => row.dataset.uid);
     syncNamedTagEditorList(list, kind);
 }
 
@@ -650,10 +659,7 @@ export function refreshFormTypeBadge(form, typeShort) {
 
 export function setFormExpanded(form, expanded) {
     if (!form) return;
-    form.dataset.expanded = String(expanded);
-    form.classList.toggle('is-folded', !expanded);
-    form.querySelector('.char-form-body')?.toggleAttribute('hidden', !expanded);
-    form.querySelector('.char-form-toggle')?.setAttribute('aria-expanded', String(expanded));
+    setRowFolded(form, expanded, { body: '.char-form-body', toggle: '.char-form-toggle' });
     if (!expanded) refreshFormHeader(form);
 }
 
@@ -722,16 +728,7 @@ export function syncFormList(list) {
 /** 按 key 的新顺序重排形态卡片（真实移动 DOM 节点，输入框里未保存的内容与折叠状态跟着走）。 */
 export function reorderFormCards(list, orderedKeys) {
     if (!list) return;
-    const rows = formRowsOf(list);
-    const byKey = new Map(rows.map(row => [row.dataset.formKey, row]));
-    const ordered = [];
-    for (const key of Array.isArray(orderedKeys) ? orderedKeys : []) {
-        const row = byKey.get(key);
-        if (row && !ordered.includes(row)) ordered.push(row);
-    }
-    for (const row of rows) if (!ordered.includes(row)) ordered.push(row);
-    const anchor = rows.length ? rows[rows.length - 1].nextSibling : null;
-    ordered.forEach(row => list.insertBefore(row, anchor));
+    moveRowsToOrder(list, formRowsOf(list), orderedKeys, row => row.dataset.formKey);
     syncFormList(list);
 }
 

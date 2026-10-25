@@ -2,6 +2,7 @@
 // 什么时候存由 auto-save.js 管；这里只回答“表单现在是什么、合不合法、与上次落盘是否一样”，以及状态栏怎么画。
 // 读写的都是编辑卡片的 DOM（不重绘、不动焦点），所以输入过程中可以随时读。
 
+import { escapeHtml as defaultEscapeHtml } from './html-escape.js';
 import { applyFormModelsToCharacter, collectFormModels, readFormFields } from './character-edit-form.js';
 
 export const CHARACTER_EDITOR_COPY = Object.freeze({
@@ -44,7 +45,7 @@ export function isCharacterRowToggleTarget(target) {
 }
 
 /** 吸顶栏里的保存状态（已保存 / 保存中… / 未保存：原因）；state 同 auto-save.js 的 onStatus。 */
-export function renderCharacterSaveStatus(state = 'saved', text = '已保存', escapeHtml = value => value) {
+export function renderCharacterSaveStatus(state = 'saved', text = '已保存', escapeHtml = defaultEscapeHtml) {
     return `<span class="char-save-status" role="status" aria-live="polite" data-state="${escapeHtml(state)}">${escapeHtml(text)}</span>`;
 }
 
