@@ -353,7 +353,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, title = '', positive,
     // 摺疊標題列寬度由 JS 量得的圖片實寬寫入 --xb-img-w（見 syncCollapseTitleWidths）；
     // 摺疊後主圖被 details 隱藏也能保持與圖片同寬；變量未就緒時回退初始的文字膠囊。
     const imageFrame = (titleMode === 'collapse' && rawTitle)
-        ? `<details class="xb-nd-details" open>
+        ? `<details class="xb-nd-details">
     <summary class="xb-nd-summary"><span>．·°∴ ☆．．·° ${escapeHtml(rawTitle.slice(0, 20))} °·．．☆ ∴°·．</span></summary>
 ${imageWrap}
 </details>`
@@ -707,11 +707,19 @@ ${buildTagEditor(tags, true)}
 export function buildFailedPlaceholderHtml({ slotId, imgId = '', messageId, tags, title = '', positive, errorType, errorMessage, historyCount = 0 }) {
     const escapedTags = escapeHtml(tags);
     const escapedPositive = escapeHtml(positive);
+    // 存量记录里 errorType 可能存的是 code（如 'network'）或 label（如 '网络'），统一解析回
+    // 已知条目拿 label＋desc 放回行内显示；解析不到（如 'deleted'）就保持原样显示。
+    const known = [...Object.values(ErrorType), ...Object.values(DRAW_SLOT_ERRORS)]
+        .find(entry => entry && (entry.code === errorType || entry.label === errorType));
+    const errorLabel = known?.label || errorType || '生成失败';
+    const errorDesc = known?.desc || '';
+    const tips = [errorDesc, errorMessage].filter(Boolean)
+        .filter((part, index, list) => list.indexOf(part) === index);
     return `<div class="xb-nd-img" data-slot-id="${slotId}" data-img-id="${escapeHtml(imgId)}" data-tags="${escapedTags}" data-title="${escapeHtml(String(title || ''))}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;background:#C0392B;border:1px solid rgba(255,255,255,0.85);border-radius:10px;padding:4px 8px;color:#fff;font-size:13px;">
 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-<div style="display:flex;align-items:center;gap:8px;min-width:0;">
+<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;">
 <span style="font-size:14px;flex:none;">⚠️</span>
-<span class="xb-nd-failed-title xb-nd-error-tip" tabindex="0" data-tip="${escapeHtml(errorMessage || '')}" style="font-size:13px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(errorType || '生成失败')}</span>
+<span class="xb-nd-failed-title xb-nd-error-tip" tabindex="0" data-tip="${escapeHtml(tips.join('\n'))}" style="font-size:13px;color:#fff;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(errorDesc ? `${errorLabel}·${errorDesc}` : errorLabel)}</span>
 </div>
 <div class="xb-nd-failed-btns" style="display:flex;gap:4px;flex:none;">
     <button class="xb-nd-retry-btn" data-action="retry-image" style="padding:2px 6px;background:transparent;border:none;color:#fff;font-size:16px;line-height:1;cursor:pointer;opacity:0.9;display:flex;align-items:center;" title="${DRAW_SLOT_COPY.regenerate}">${RELOAD_ICON_SVG}</button>
