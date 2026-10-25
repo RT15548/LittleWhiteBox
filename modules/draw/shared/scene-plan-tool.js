@@ -53,8 +53,11 @@ export function getScenePlanCharacterProperties(profile) {
     const effective = normalizeScenePlannerProfile(profile);
     return {
         name: stringSchema(
-            '角色名。已录入角色用【已录入角色】列出的规范名，原文用别名也归一到规范名。未知角色用原文名字，无名时用简短称呼。',
+            '角色名。已录入角色用【已录入角色】中的名称，原文用别名也归一到该名称。未知角色用原文名字，无名时用简短称呼。',
             { minLength: 1 },
+        ),
+        form: stringSchema(
+            '多形态角色必填：本图出现的形态名，取自该角色的“形态”列表；单形态角色省略。',
         ),
         // type 在 danbooru 之前：与 assembleCharacterPrompts 的拼接顺序一致
         // （type → danbooru → appear → costume → action），也让模型按"先说清是谁、在哪，再给身份 tag"的顺序写。

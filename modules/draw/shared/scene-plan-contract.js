@@ -1,3 +1,4 @@
+import { findEnabledCharacterForm } from './character-selection.js';
 import { repairScenePlanArguments } from './scene-plan-arguments.js';
 
 export const SUBMIT_SCENE_PLAN_TOOL_NAME = 'submit_scene_plan';
@@ -207,22 +208,6 @@ function requirePositiveInteger(value, path) {
     return value;
 }
 
-function normalizeCharacterLookup(presentCharacters = []) {
-    const lookup = new Map();
-    for (const character of Array.isArray(presentCharacters) ? presentCharacters : []) {
-        const canonicalName = String(character?.name || '').trim();
-        if (!canonicalName) continue;
-        // 多形态角色展开后的记录带 baseName（原角色名）：智能体回复原名称时也要对上，并落到第一形态（它排在最前）。
-        const baseName = typeof character.baseName === 'string' ? [character.baseName] : [];
-        const names = [canonicalName, ...baseName, ...(Array.isArray(character.aliases) ? character.aliases : [])];
-        names.forEach((name) => {
-            const key = String(name || '').trim().toLocaleLowerCase();
-            if (key && !lookup.has(key)) lookup.set(key, canonicalName);
-        });
-    }
-    return lookup;
-}
-
 const GRID_COL = Object.freeze({ A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 });
 const GRID_ROW = Object.freeze({ 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 });
 
@@ -249,10 +234,13 @@ function normalizeCenter(value, path, centerMode) {
     return { x: GRID_COL[match[1]], y: GRID_ROW[match[2]] };
 }
 
-function normalizeCharacter(value, path, knownNameLookup, centerMode) {
+function normalizeCharacter(value, path, presentCharacters, centerMode) {
     assertRequiredFields(value, ['name'], path);
     const returnedName = requireString(value.name, `${path}.name`);
-    const canonicalName = knownNameLookup.get(returnedName.toLocaleLowerCase()) || '';
+    // 已录入角色：name 按正式名称 / 别名归一；多形态角色再按 form 选形态（缺省 / 不存在 / 已停用回落第一个启用形态）。
+    // 结果里 name 是正式名称、form 是实际选中的形态名（单形态与未知角色没有 form）。
+    const known = findEnabledCharacterForm(returnedName, optionalString(value, 'form', path), presentCharacters);
+    const canonicalName = known ? known.baseName ?? known.name : '';
     const type = optionalString(value, 'type', path);
     const appear = optionalString(value, 'appear', path);
     if (!canonicalName && !appear) failSchema(`${path}.appear`, '未知角色必须填写外貌', value.appear);
@@ -260,6 +248,7 @@ function normalizeCharacter(value, path, knownNameLookup, centerMode) {
 
     return {
         name: canonicalName || returnedName,
+        form: known?.formName ?? '',
         danbooru: optionalString(value, 'danbooru', path),
         // 已录入角色也保留场景 type：type 承载画面方位等随图变化的信息，组装层
         // （character-prompts.js）让非空场景 type 打头并顶替角色库的 type；为空时回落库 type。
@@ -297,7 +286,7 @@ function normalizeImages(images, options = {}) {
     if (!maxImages && maxPlanImages && images.length > maxPlanImages) {
         failSchema('images', `本次最多包含 ${maxPlanImages} 项`, images.length);
     }
-    const knownNameLookup = normalizeCharacterLookup(options.presentCharacters);
+    const presentCharacters = Array.isArray(options.presentCharacters) ? options.presentCharacters : [];
     const sceneSource = options.sceneSource;
     const sourcePoints = new Map((Array.isArray(sceneSource?.points) ? sceneSource.points : [])
         .map((point) => [point.number, point]));
@@ -324,7 +313,7 @@ function normalizeImages(images, options = {}) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);
         }
         const chars = image.characters.map((character, characterIndex) => (
-            normalizeCharacter(character, `${path}.characters[${characterIndex}]`, knownNameLookup, centerMode)
+            normalizeCharacter(character, `${path}.characters[${characterIndex}]`, presentCharacters, centerMode)
         ));
         // 整图正向提示词的追加位：可选字段，编译器拼在所有角色之后（整条提示词最末尾）。
         // 不进 REQUIRED_IMAGE_FIELDS、不影响 maxCharactersPerImage；未提交时不出键（无感知）。

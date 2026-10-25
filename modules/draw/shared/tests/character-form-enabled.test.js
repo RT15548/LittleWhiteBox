@@ -72,16 +72,17 @@ test('expansion: with the first form off, the next enabled form answers the bare
     assert.deepEqual(entries.map(entry => entry.name), ['司盈昃（龙形）', '司盈昃（兽形）']);
     assert.deepEqual(entries.map(entry => [entry.formIndex, entry.formCount]), [[0, 2], [1, 2]]);
 
-    const prompts = assembleCharacterPrompts([{ name: '司盈昃' }, { name: '小司' }, { name: '司盈昃（人形）' }], [character]);
+    const prompts = assembleCharacterPrompts([{ name: '司盈昃' }, { name: '小司' }, { name: '司盈昃', form: '人形' }], [character]);
     assert.ok(prompts[0].prompt.includes('black dragon'), 'bare name -> first enabled form');
     assert.ok(prompts[1].prompt.includes('black dragon'), 'alias -> first enabled form');
-    assert.ok(!prompts[2].prompt.includes('black hair'), 'the disabled form can no longer be addressed');
+    assert.ok(!prompts[2].prompt.includes('black hair'), 'a disabled form falls back to the first enabled one');
 
     const present = detectPresentCharacters('小司抬起头。', normalizeCharacterLibrary({ characters: [character], groups: [] }));
     assert.deepEqual(present.map(entry => entry.name), ['司盈昃（龙形）', '司盈昃（兽形）']);
     const text = buildCharacterInfoForLLM(present);
     assert.equal(text.split(FORM_EXCLUSIVE_NOTE).length - 1, 1);
-    assert.ok(text.indexOf(FORM_EXCLUSIVE_NOTE) < text.indexOf('司盈昃（龙形）'));
+    assert.ok(text.indexOf(FORM_EXCLUSIVE_NOTE) < text.indexOf('形态 龙形'));
+    assert.ok(!/司盈昃（(人形|龙形|兽形)）/.test(text), 'the list never shows 名称（形态名） as a name');
 });
 
 test('expansion: one enabled form left still resolves the bare name and drops the exclusivity sentence', () => {
