@@ -57,11 +57,10 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-group-body > .char-card { flex-shrink: 0; }
 .char-group-body[hidden] { display: none; }
 .char-group-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
-/* 分组关闭：整组变淡、虚线边框；角色自己的启用开关仍可点，只是组内角色当前不参与出图。 */
+/* 分组关闭：虚线边框，名称变淡（只淡化名称，状态词、计数、类型徽标保持正常对比度）；角色自己的启用开关仍可点，只是组内角色当前不参与出图。 */
 .char-group.group-disabled { border-style: dashed; }
-.char-group.group-disabled .char-group-name, .char-group.group-disabled .char-group-count { opacity: .6; }
-.char-group.group-disabled .char-identity { opacity: .45; }
-.char-group.group-disabled .char-status { color: var(--text-secondary); }
+.char-group.group-disabled .char-group-name { opacity: .75; }
+.char-group.group-disabled .char-name { opacity: .6; }
 .char-batch-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; padding: 8px; border: 1px solid var(--border-focus); border-radius: 8px; background: var(--bg-secondary); }
 .char-batch-bar .input { width: auto; min-width: 100px; max-width: 160px; padding: 4px 8px; font-size: 12px; }
 .char-batch-bar #nd_char_batch_count { font-size: 12px; font-weight: 600; margin-right: 4px; }
@@ -192,7 +191,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 /* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
 .char-lock-label { color: var(--text-primary); font-weight: 600; }
 .char-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
-.char-card.disabled .char-identity, .char-card.disabled .char-status { opacity: .45; }
+.char-card.disabled .char-name { opacity: .6; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
 .char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -754,7 +753,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         </div>
                         <div class="btn-group">
                             <button id="nd_params_add" class="btn" title="以当前选中的预设为底新建一个"><i class="fa-solid fa-plus"></i> 新建</button>
-                            <button id="nd_params_cloud" class="btn" title="云端预设" style="color:#d4a574;"><i class="fa-solid fa-cloud-arrow-down"></i> 云端预设</button>
+                            <button id="nd_params_cloud" class="btn" title="云端预设" style="color:var(--warning);"><i class="fa-solid fa-cloud-arrow-down"></i> 云端预设</button>
                             <button id="nd_params_save" class="btn btn-primary" title="保存当前预设"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                         </div>
                     </div>
