@@ -67,6 +67,7 @@ let state = {
     activeApiPresetId: null,
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
+    imageTitleMode: 'none',
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -3145,6 +3146,9 @@ function applyStateToUI() {
         $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+        const titleModeSel = $('nd_image_title_mode');
+        if (titleModeSel) titleModeSel.value = ['none', 'overlay', 'collapse'].includes(state.imageTitleMode)
+            ? state.imageTitleMode : 'none';
 
         renderParamsPresetList();
         applyParamsPreset();
@@ -4262,7 +4266,14 @@ function initializePage() {
         setSavingState($('nd_save_cache_days'));
         postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
     });
-    
+
+    // 图片标题显示模式：切换即保存（所有 provider 共用）
+    $('nd_image_title_mode')?.addEventListener('change', () => {
+        const mode = $('nd_image_title_mode').value;
+        state.imageTitleMode = mode;
+        postToParent({ type: 'SAVE_IMAGE_TITLE_MODE', imageTitleMode: mode });
+    });
+
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
     
     $('nd_clear_all').addEventListener('click', () => { 

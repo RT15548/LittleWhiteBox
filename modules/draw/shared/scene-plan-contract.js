@@ -327,9 +327,13 @@ function normalizeImages(images, options = {}) {
         // 整图正向提示词的追加位：可选字段，编译器拼在所有角色之后（整条提示词最末尾）。
         // 不进 REQUIRED_IMAGE_FIELDS、不影响 maxCharactersPerImage；未提交时不出键（无感知）。
         const postPrompt = optionalString(image, 'post_prompt', path);
+        // 图片标题：工具 schema 要求模型提供，但校验保持宽容（旧数据/漏填回退空串，
+        // 渲染层对空标题按「不显示」处理），避免旧计划与测试夹具被硬拒。
+        const title = optionalString(image, 'title', path);
         return {
             index: imageIndex + 1,
             scene: requireString(image.scene, `${path}.scene`),
+            ...(title ? { title } : {}),
             chars,
             ...(postPrompt ? { post_prompt: postPrompt } : {}),
             placement: {

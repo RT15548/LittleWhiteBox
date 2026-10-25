@@ -609,6 +609,15 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                             <label class="form-label">请求间隔 (毫秒)</label>
                             <input id="nd_delay" type="text" class="input" value="15000-30000">
                         </div>
+                        <div class="form-group">
+                            <label class="form-label">图片标题</label>
+                            <select id="nd_image_title_mode" class="input">
+                                <option value="none">不显示标题（默认）</option>
+                                <option value="overlay">悬浮标题条（图顶幼细标题，不折叠）</option>
+                                <option value="collapse">可折叠标题（点击标题折叠图片）</option>
+                            </select>
+                            <p class="form-hint">标题由场景分析 AI 为每张图生成；所有绘图 Provider 共用此显示方式。</p>
+                        </div>
                     </div>
                     <div class="btn-group" style="margin-top: 16px;">
                         <button id="nd_save_api" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>

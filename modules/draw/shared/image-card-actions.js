@@ -194,7 +194,7 @@ async function redraw(provider, container) {
         const tags = record?.tags ?? container.dataset.tags;
         if (!tags?.trim()) throw new Error(DRAW_SLOT_COPY.emptyTags);
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
-            tasks: [{ scene: tags, characterPrompts: record?.characterPrompts ?? [],
+            tasks: [{ scene: tags, title: record?.title ?? container.dataset.title ?? '', characterPrompts: record?.characterPrompts ?? [],
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } }] });
     } finally {

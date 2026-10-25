@@ -18,6 +18,7 @@ export function prepareImageInput(provider, tasks, recipe) {
     }));
     const metadata = compiledBatch.artifacts.map(({ task, promptData }) => ({
         tags: task.scene || '',
+        title: task.title || '',
         positive: novel ? promptData.scene : promptData.positive,
         characterPrompts: promptData.characterPrompts,
         negativePrompt: novel ? promptData.negativePrompt : promptData.negative,

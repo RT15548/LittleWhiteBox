@@ -512,6 +512,7 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             chapterTitle: String(preview.chapterTitle || ''),
             base64,
             tags: String(preview.tags || ''),
+            title: String(preview.title || ''),
             positive: String(preview.positive || ''),
             status: preview.status === 'failed' ? 'failed' : 'success',
             errorType: preview.errorType || null,
@@ -609,6 +610,7 @@ export async function storePreview(opts) {
         messageId,
         base64 = null,
         tags,
+        title = '',
         positive,
         savedUrl = null,
         status = PreviewStatus.SUCCESS,
@@ -651,6 +653,7 @@ export async function storePreview(opts) {
                 chapterTitle,
                 base64,
                 tags,
+                title: String(title || ''),
                 positive,
                 savedUrl,
                 status,
@@ -690,6 +693,7 @@ export async function storeFailedPlaceholder(opts) {
         chapterTitle: opts.chapterTitle || '',
         base64: null,
         tags: opts.tags,
+        title: opts.title || '',
         positive: opts.positive,
         status: 'failed',
         errorType: opts.errorType,
@@ -1684,7 +1688,7 @@ async function deleteCurrentGalleryImage() {
         if (previews.length === 0) {
             closeGallery();
             if (callbacks.onBecameEmpty) {
-                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', positive: current.positive || '' });
+                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
             }
             showToast('图片已删除，可点击重试重新生成');
         } else {

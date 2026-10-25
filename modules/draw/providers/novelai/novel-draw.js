@@ -46,6 +46,7 @@ import {
     getSharedDrawSettings,
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
+    normalizeImageTitleMode,
     mergeNovelDrawProviderSettingsIntoStorageRoot,
     updateDrawSettingsRootPersistent,
 } from "../../shared/draw-settings.js";
@@ -160,7 +161,15 @@ import {
     buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    syncImageTitleElements,
+    syncCollapseTitleWidths,
 } from "../../shared/draw-common.js";
+import * as drawCommonModule from "../../shared/draw-common.js";
+// 注入标题模式读取：渲染时按共享设置决定 overlay/collapse/none。
+// namespace + 存在性守卫，兼容测试环境对 draw-common 的精简 mock。
+if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
+    drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
+}
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
@@ -550,6 +559,7 @@ function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
         }
     });
 
+    if (inserted) syncCollapseTitleWidths(mesTextEl);
     return inserted;
 }
 
@@ -2060,9 +2070,11 @@ async function navigateToImage(container, targetIndex) {
     container.dataset.imgId = targetPreview.imgId;
     container.dataset.tags = escapeHtml(targetPreview.tags || '');
     container.dataset.positive = escapeHtml(targetPreview.positive || '');
+    container.dataset.title = escapeHtml(targetPreview.title || '');
     container.dataset.currentIndex = targetIndex;
 
     setImageState(container, targetPreview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
+    syncImageTitleElements(container, targetPreview.title);
     updateNavControls(container, targetIndex, historyCount);
     void warmSlotPreviewNeighbors(slotId, targetIndex).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "navigateToImage" }, caughtError); });
     await setSlotSelection(slotId, targetPreview.imgId);
@@ -2458,9 +2470,11 @@ async function deleteCurrentImage(container) {
             container.dataset.imgId = latest.imgId;
             container.dataset.tags = escapeHtml(latest.tags || '');
             container.dataset.positive = escapeHtml(latest.positive || '');
+            container.dataset.title = escapeHtml(latest.title || '');
             container.dataset.currentIndex = '0';
             container.dataset.historyCount = String(successPreviews.length);
             setImageState(container, latest.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
+            syncImageTitleElements(container, latest.title || '');
             updateNavControls(container, 0, successPreviews.length);
             await syncNovelDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews);
             showToast(`已删除（剩余 ${successPreviews.length} 张）`);
@@ -3174,6 +3188,7 @@ async function sendInitData() {
             apiPresets: settings.apiPresets || [],
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
+            imageTitleMode: getSharedDrawSettings().imageTitleMode,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             useWorldInfo: settings.useWorldInfo,
@@ -3403,6 +3418,14 @@ async function handleFrameMessage(event) {
             }, '已保存', { notify: false, silent: false });
             postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'gallery');
             if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_IMAGE_TITLE_MODE': {
+            const ok = await updateSharedDrawSettingsPersistent((settings) => {
+                settings.imageTitleMode = normalizeImageTitleMode(data.imageTitleMode);
+            }, '已保存', { notify: false, silent: false });
+            postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'api');
             break;
         }
 

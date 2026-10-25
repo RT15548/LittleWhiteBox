@@ -7,10 +7,21 @@ import { API_PRESET_COPY } from './api-presets-copy.js';
 const SERVER_FILE_KEY = 'settings';
 export const DEFAULT_SHARED_GALLERY_CACHE_DAYS = 3;
 
+// 图片标题显示模式：none 不显示 / overlay 图顶幼细悬浮条 / collapse 可点击折叠。
+// 二改默认改为 none：默认界面保持干净，想看的用户手动开启。
+export const IMAGE_TITLE_MODES = Object.freeze(['none', 'overlay', 'collapse']);
+export const DEFAULT_IMAGE_TITLE_MODE = 'none';
+
+export function normalizeImageTitleMode(value, fallback = DEFAULT_IMAGE_TITLE_MODE) {
+    const mode = String(value || '').trim();
+    return IMAGE_TITLE_MODES.includes(mode) ? mode : fallback;
+}
+
 const DEFAULT_SHARED_DRAW_SETTINGS = {
     cacheDays: DEFAULT_SHARED_GALLERY_CACHE_DAYS,
     useWorldInfo: false,
     timeout: 120000,
+    imageTitleMode: DEFAULT_IMAGE_TITLE_MODE,
     plannerMaxRetries: 3,
     characterTags: [],
     characterGroups: [],
@@ -104,6 +115,7 @@ export function normalizeSharedDrawSettings(saved = {}) {
         characterGroupPresetApplied: groupPresetState.applied,
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules,
+        imageTitleMode: normalizeImageTitleMode(source.imageTitleMode),
         worldbooks: {
             enabled: rawWorldbooks.enabled === true,
             uploadedBooks: Array.isArray(rawWorldbooks.uploadedBooks) ? rawWorldbooks.uploadedBooks : [],
