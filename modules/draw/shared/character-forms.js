@@ -191,7 +191,8 @@ export function applyLocalFormsEnabled(incoming = [], local = []) {
     };
     return (Array.isArray(incoming) ? incoming : []).map((form) => {
         const match = pick(form);
-        const { enabled: _enabled, ...rest } = form;
+        const rest = { ...form };
+        delete rest.enabled;
         return {
             ...rest,
             ...(match?.enabled === false ? { enabled: false } : {}),

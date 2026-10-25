@@ -33,6 +33,7 @@ const OUTFITS = [
     { name: '制服', tags: 'school uniform, ribbon' },
 ];
 
+// eslint-disable-next-line no-unsanitized/method -- 测试夹具：只写入本模块渲染出来的标记，没有外部输入。
 const insertHtml = (target, html, position = 'beforeend') => target.insertAdjacentHTML(position, html);
 
 function mount(items, kind = 'outfit') {
@@ -44,6 +45,7 @@ function mount(items, kind = 'outfit') {
 // 与页面一致的整体重绘：用条目数据（可带草稿里的 expanded）重新渲染整个分区。
 function redraw(card, items, kind = 'outfit', { collapsed = false } = {}) {
     const p = kind === 'outfit' ? 'char-outfit' : 'char-dynstate';
+    // eslint-disable-next-line no-unsanitized/property -- 测试夹具：只写入本模块渲染出来的标记，没有外部输入。
     card.innerHTML = renderEditorSection({
         key: kind === 'outfit' ? 'outfits' : 'dynamicStates',
         title: '列表',
@@ -400,6 +402,7 @@ test('keyboard Up / Down on a folded row\'s handle reorders through the shared s
 
 test('outfit and state lists reorder independently', () => {
     const { document, window, card } = mount(OUTFITS);
+    // eslint-disable-next-line no-unsanitized/method -- 测试夹具：只写入本模块渲染出来的标记，没有外部输入。
     card.insertAdjacentHTML('beforeend', `<div class="char-dynstate-editor-list">${renderNamedTagEditorItems([{ name: 'S1', tags: 'a' }, { name: 'S2', tags: 'b' }], 'dynstate')}</div>`);
     const sortables = createNamedTagSortables({ container: card, document });
     const handle = card.querySelectorAll('.char-dynstate-editor-item')[1].querySelector('[data-named-drag]');

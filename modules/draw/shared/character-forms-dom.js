@@ -207,7 +207,9 @@ export function createFormsEditor({ document, forms = [], createField }) {
         if (button.hasAttribute('data-sd-form-copy')) {
             if (list.children.length + 1 >= MAX_CHARACTER_FORMS) return;
             // 副本：当前输入框里的内容（含未保存的修改），名称加“副本”，没有 id（保存后才是独立的形态），展开、启用，紧跟在原形态后面。
-            const { id: _id, enabled: _enabled, ...values } = readFormBlock(block);
+            const values = { ...readFormBlock(block) };
+            delete values.id;
+            delete values.enabled;
             const copy = createFormBlock({
                 document, form: { ...values, name: makeCopyLabel(values.name) }, index: list.children.length + 1, createField, open: true,
             });

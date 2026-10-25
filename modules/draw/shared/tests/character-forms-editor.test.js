@@ -42,6 +42,7 @@ function mount(models, { sectionState = createEditorSectionState() } = {}) {
     const { document, window } = parseHTML('<html><body><div id="card"></div></body></html>');
     const card = document.querySelector('#card');
     const draw = (next) => {
+        // eslint-disable-next-line no-unsanitized/property -- 测试夹具：只写入本模块渲染出来的标记，没有外部输入。
         card.innerHTML = renderFormsSection(next, {
             charId: 'c1',
             renderTypeFields: typeFields,
@@ -240,6 +241,7 @@ test('saving: first card becomes the top-level fields, the rest become forms wit
 test('single layout fields read through the same helper (custom type resolves to its text)', () => {
     const { document } = parseHTML('<html><body><div id="card"></div></body></html>');
     const card = document.querySelector('#card');
+    // eslint-disable-next-line no-unsanitized/property -- 测试夹具：只写入本模块渲染出来的标记，没有外部输入。
     card.innerHTML = `${typeFields({ type: 'custom', typeCustom: 'mature female' })}${renderCharacterFormSections({ appearance: 'x', danbooruTag: 'd' }, { charId: 'c1' })}`;
     const fields = readFormFields(card);
     assert.deepEqual([fields.type, fields.typeCustom, fields.appearance, fields.danbooruTag], ['custom', 'mature female', 'x', 'd']);

@@ -3017,7 +3017,7 @@ function openGalleryModalFromCache(charName, slotId) {
 let galleryModalOpener = null;
 function closeGalleryModal() {
     $('nd_gallery_modal').classList.remove('visible');
-    try { galleryModalOpener?.focus?.({ preventScroll: true }); } catch { /* 触发元素已不在页面里 */ }
+    galleryModalOpener?.focus?.({ preventScroll: true });
     galleryModalOpener = null;
     $('nd_modal_img').removeAttribute('data-img-id');
     modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
