@@ -90,12 +90,16 @@ function formatReferenceList(items, fallbackLabel) {
         .join('； ');
 }
 
+/** 动态标签的使用规则只在角色清单开头写一次，各角色行里只列条目。 */
+const DYNAMIC_TAG_LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条，写进 action）';
+
 /** Registered characters as plain facts; what to do with them is defined by the Tool schema. */
 export function buildCharacterInfoForLLM(presentCharacters) {
     if (!presentCharacters?.length) {
         return '【已录入角色】: 无';
     }
 
+    let hasDynamicTags = false;
     const lines = presentCharacters.map((character) => {
         const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
         const type = character.type || 'girl';
@@ -103,16 +107,17 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
         const outfits = formatReferenceList(character.outfits, '服装');
         const dynamicStates = formatReferenceList(character.dynamicStates, '动态标签');
+        hasDynamicTags ||= Boolean(dynamicStates);
         // 多形态角色的各个形态相邻排列：在第一个形态前声明一次“同一角色、同一画面只出现其中一个，未提及时用第一个”。
         const formNote = character.formIndex === 0 && character.formCount > 1
             ? `（${character.baseName}：${FORM_EXCLUSIVE_NOTE}）\n`
             : '';
         return `${formNote}- ${character.name}${aliases} [${type}]${danbooru}${appear}`
             + (outfits ? `\n  服装参考: ${outfits}` : '')
-            + (dynamicStates ? `\n  动态标签参考（可叠加的额外外观，按画面选用，可并存的可多选，互斥的只取一条，写进 costume 或 action）: ${dynamicStates}` : '');
+            + (dynamicStates ? `\n  动态标签: ${dynamicStates}` : '');
     });
 
-    return `【已录入角色】\n${lines.join('\n')}`;
+    return `【已录入角色】\n${hasDynamicTags ? `${DYNAMIC_TAG_LEGEND}\n` : ''}${lines.join('\n')}`;
 }
 
 function collectWorldInfoSections(result) {
