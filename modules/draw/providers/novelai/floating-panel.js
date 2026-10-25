@@ -110,6 +110,9 @@ let drawRunActivityDispose = null;
 // 样式 - 统一样式（楼层+悬浮共用）
 // ═══════════════════════════════════════════════════════════════════════════
 
+const FLOATING_WIDTH_IDLE = 74;
+const FLOATING_WIDTH_ACTIVE = 98;
+
 const STYLES = `
 :root {
     --nd-h: 34px;
@@ -144,7 +147,8 @@ const STYLES = `
 }
 
 .nd-capsule {
-    width: 74px;
+    box-sizing: border-box;
+    width: ${FLOATING_WIDTH_IDLE}px;
     height: var(--nd-h);
     background: var(--nd-bg);
     border: 1px solid var(--nd-border);
@@ -172,7 +176,7 @@ const STYLES = `
 .nd-float.cooldown .nd-capsule,
 .nd-float.success .nd-capsule,
 .nd-float.partial .nd-capsule,
-.nd-float.error .nd-capsule { width: 98px; }
+.nd-float.error .nd-capsule { width: ${FLOATING_WIDTH_ACTIVE}px; }
 
 .nd-inner {
     display: grid;
@@ -1340,13 +1344,10 @@ function saveFloatingPosition() {
     } catch (caughtError) { console.warn({ source: import.meta.url, operation: "saveFloatingPosition" }, caughtError); }
 }
 
-// 胶囊宽度有 0.35s 过渡，夹取位置要用过渡结束后的目标宽度（空闲 74px / 非空闲 98px，含边框）
-const FLOATING_WIDTH_IDLE = 77;
-const FLOATING_WIDTH_ACTIVE = 101;
-
 function applyFloatingPosition() {
     if (!floatingEl) return;
     const pos = getFloatingPosition();
+    // Width transitions are still running here; clamp using the CSS target width.
     const w = floatingState === FloatState.IDLE ? FLOATING_WIDTH_IDLE : FLOATING_WIDTH_ACTIVE;
     const h = floatingEl.offsetHeight || 34;
     // 預留膠囊外上下跳圖鈕的高度
