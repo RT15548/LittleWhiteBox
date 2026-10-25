@@ -1,5 +1,5 @@
 {
-  "buildId": "6d3934d78e385829d469",
+  "buildId": "fa802d1c547786a85249",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-CZsTHdbi.js",
@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-M5sURG-7.js",
+      "file": "apps/novel-draw-Cnq-Oos6.js",
       "css": []
     },
     "apps/story-outline": {
@@ -46,7 +46,7 @@
       "css": []
     },
     "apps/xiaobai-os": {
-      "file": "apps/xiaobai-os-DLXkkHxr.js",
+      "file": "apps/xiaobai-os-erxXqUWr.js",
       "css": [
         "assets/xiaobai-os-D4R4PS39.css"
       ]
@@ -151,7 +151,7 @@
         "assets/settings-ui-BHYFWe17.css"
       ]
     },
-    "apps/novel-draw-M5sURG-7.js": {
+    "apps/novel-draw-Cnq-Oos6.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/character-action-icons-_jCF5Mv_.js",
@@ -232,7 +232,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "apps/xiaobai-os-DLXkkHxr.js": {
+    "apps/xiaobai-os-erxXqUWr.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/app-launchers-DXg_WLbq.js",
@@ -244,7 +244,7 @@
       "dynamicImports": [
         "shared/AdministratorApp-HbP44VWk.js",
         "shared/DiceApp-BnfvAHI2.js",
-        "shared/AgentApiApp-Cki-xRCq.js",
+        "shared/AgentApiApp-HrcOgamG.js",
         "shared/FourthWallApp-Bsg9--H8.js",
         "shared/WalletApp-UQew00hY.js",
         "shared/ShopApp-D_e4YaAN.js",
@@ -286,7 +286,7 @@
         "shared/settings-repository-C5uZiyAW.js",
         "shared/comfy-draw-BAAKGb5V.js",
         "shared/message-toolbar-DnueMvu4.js",
-        "shared/novel-draw-BkHxd2wy.js",
+        "shared/novel-draw-CKsJg-Sy.js",
         "shared/sd-draw-DT6W3VIc.js",
         "shared/draw-common-CRf7iQ4H.js",
         "shared/gallery-cache-D2MwxGkK.js",
@@ -419,7 +419,7 @@
         "assets/MessageMarkdown-3YhXeTo4.css"
       ]
     },
-    "shared/AgentApiApp-Cki-xRCq.js": {
+    "shared/AgentApiApp-HrcOgamG.js": {
       "imports": [
         "shared/provider-resolution-JgyZmH2Q.js",
         "shared/settings-panel-do0SsuGW.js",
@@ -429,7 +429,7 @@
       ],
       "dynamicImports": [],
       "css": [
-        "assets/AgentApiApp-tBUcGlf3.css"
+        "assets/AgentApiApp-CpxPeIq3.css"
       ]
     },
     "shared/AppDialog-Dadi575h.js": {
@@ -1022,10 +1022,10 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-Cg5HH4lT.js": {
+    "shared/floating-panel-BdP64Cg8.js": {
       "imports": [
         "shared/message-toolbar-DnueMvu4.js",
-        "shared/novel-draw-BkHxd2wy.js",
+        "shared/novel-draw-CKsJg-Sy.js",
         "shared/draw-common-CRf7iQ4H.js",
         "shared/gallery-cache-D2MwxGkK.js",
         "shared/draw-run-ui-state-5e7UvqfC.js",
@@ -1236,7 +1236,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-BkHxd2wy.js": {
+    "shared/novel-draw-CKsJg-Sy.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/after-ai-gate-uQov0TZs.js",
@@ -1257,7 +1257,7 @@
         "shared/identity-BQcqMF8H.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-Cg5HH4lT.js",
+        "shared/floating-panel-BdP64Cg8.js",
         "shared/msgpack-EEcozSlQ.js"
       ],
       "css": []

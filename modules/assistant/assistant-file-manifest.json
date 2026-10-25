@@ -937,7 +937,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/ui/settings-surface.css",
       "relativePath": "modules/agent-core/ui/settings-surface.css",
       "extension": ".css",
-      "sizeBytes": 9727
+      "sizeBytes": 9881
     },
     {
       "source": "littlewhitebox",
@@ -1742,21 +1742,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 242125
+      "sizeBytes": 250124
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 97751
+      "sizeBytes": 98410
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 207386
+      "sizeBytes": 207759
     },
     {
       "source": "littlewhitebox",
@@ -1819,7 +1819,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "extension": ".js",
-      "sizeBytes": 26945
+      "sizeBytes": 34704
     },
     {
       "source": "littlewhitebox",
@@ -1977,6 +1977,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/auto-save.js",
+      "relativePath": "modules/draw/shared/auto-save.js",
+      "extension": ".js",
+      "sizeBytes": 5173
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/backend-image-jobs.js",
       "relativePath": "modules/draw/shared/backend-image-jobs.js",
       "extension": ".js",
@@ -2009,6 +2016,13 @@
       "relativePath": "modules/draw/shared/character-edit-form.js",
       "extension": ".js",
       "sizeBytes": 43867
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-editor-autosave.js",
+      "relativePath": "modules/draw/shared/character-editor-autosave.js",
+      "extension": ".js",
+      "sizeBytes": 3283
     },
     {
       "source": "littlewhitebox",
@@ -2950,6 +2964,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/auto-save.test.js",
+      "relativePath": "modules/draw/shared/tests/auto-save.test.js",
+      "extension": ".js",
+      "sizeBytes": 5944
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/backend-image-jobs.test.js",
       "relativePath": "modules/draw/shared/tests/backend-image-jobs.test.js",
       "extension": ".js",
@@ -2982,6 +3003,13 @@
       "relativePath": "modules/draw/shared/tests/character-edit-form.test.js",
       "extension": ".js",
       "sizeBytes": 27615
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-editor-autosave.test.js",
+      "relativePath": "modules/draw/shared/tests/character-editor-autosave.test.js",
+      "extension": ".js",
+      "sizeBytes": 4715
     },
     {
       "source": "littlewhitebox",
@@ -3205,7 +3233,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/inline-rename.test.js",
       "relativePath": "modules/draw/shared/tests/inline-rename.test.js",
       "extension": ".js",
-      "sizeBytes": 4840
+      "sizeBytes": 5485
     },
     {
       "source": "littlewhitebox",
@@ -16743,7 +16771,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-nocheck.mjs",
       "relativePath": "scripts/build-nocheck.mjs",
       "extension": ".mjs",
-      "sizeBytes": 1867
+      "sizeBytes": 1915
     },
     {
       "source": "littlewhitebox",
