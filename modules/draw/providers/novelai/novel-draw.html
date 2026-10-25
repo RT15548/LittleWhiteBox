@@ -185,7 +185,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .char-type-badge {
     font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
-    background: color-mix(in srgb, var(--text-primary) 9%, transparent); color: var(--text-secondary); white-space: nowrap;
+    background: color-mix(in srgb, var(--text-primary) 9%, transparent); color: var(--text-primary); white-space: nowrap;
 }
 .char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
@@ -209,10 +209,10 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     background: var(--bg-secondary); border-radius: 8px 8px 0 0; border-bottom: 1px solid var(--border);
 }
 .char-group-body .char-card.editing > .char-card-summary { top: -2px; } /* 分组滚动区自带 2px 上内边距：抵消它，滚过去的内容不会从栏上方漏出来 */
-.char-edit-add-form { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; }
+.char-edit-add-form { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; min-height: 34px; min-width: 34px; } /* 与同一行 34px 的图标按钮等高（窄屏下 .btn 的 44px 触控高度会让它突出一截） */
 /* 编辑区自动保存的状态（已保存 / 保存中… / 未保存：原因）：吸顶栏里的一小段文字，没有保存 / 取消按钮；未保存用加粗的危险色，一眼能看出这次没存上。 */
 .char-save-status { flex-shrink: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
-.char-save-status[data-state="invalid"], .char-save-status[data-state="error"] { color: var(--danger); font-weight: 600; }
+.char-save-status[data-state="invalid"], .char-save-status[data-state="error"] { color: color-mix(in srgb, var(--danger) 60%, var(--text-primary)); font-weight: 600; }
 /* 角色行本身可以点（展开 / 收起编辑区）：鼠标指针提示一下；里面的按钮、勾选框、拖动手柄、输入框保持自己的指针样式。 */
 #nd_char_list .char-card-summary { cursor: pointer; }
 #nd_char_list .char-card-summary input { cursor: auto; }
