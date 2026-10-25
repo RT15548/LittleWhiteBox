@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
+import { AUTO_SAVE_DELAY_MS } from '../../../shared/auto-save.js';
 import { FORM_COPY, FORM_MAX_COUNT } from '../../../shared/character-edit-form.js';
 
 // Real-flow contract (cost: the 添加形态 button silently did nothing because the redraw re-read the old DOM over the new draft):
@@ -457,4 +458,120 @@ test('group names, 绘图参数 presets and 提示词模板 presets are renamed 
     promptName.value = '预设一改';
     promptName.dispatchEvent(new window.Event('focusout', { bubbles: true }));
     assert.deepEqual(posted.find(message => message.type === 'RENAME_PROMPT_PRESET'), { source: 'NovelDraw-Frame', type: 'RENAME_PROMPT_PRESET', id: 'p1', name: '预设一改' });
+});
+
+// ── 角色行点击展开 + 编辑区自动保存（真实页面：输入 → 等一会儿 → 已落盘）──────────────────────────
+const saves = () => posted.filter(message => message.type === 'SAVE_CHARACTER_TAGS' && message.requestId);
+const typeInto = (input, value) => {
+    input.value = value;
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+};
+const statusOf = () => document.querySelector('#nd_char_list .char-card.editing .char-save-status');
+const afterDebounce = () => new Promise(resolve => setTimeout(resolve, AUTO_SAVE_DELAY_MS + 150));
+
+test('click the row to open / close the editor (no pen button), and the row controls never toggle it', async () => {
+    const list = document.getElementById('nd_char_list');
+    if (list.querySelector('.char-card.editing')) await closeEditor();
+    assert.equal(list.querySelectorAll('[data-action="edit"]').length, 0, 'the pen 编辑 button is gone');
+    const summary = id => list.querySelector(`.char-card[data-id="${id}"] .char-card-summary`);
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 0);
+
+    // 启用开关 / “…”菜单按钮：各管各的，不展开
+    click(summary('c1').querySelector('[data-action="toggle-enabled"]'));
+    await settle();
+    click(summary('c1').querySelector('[data-action="menu"]'));
+    await settle();
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 0, 'the enable switch and the … button do not open the editor');
+    click(summary('c1').querySelector('[data-action="toggle-enabled"]')); // 还原
+    await settle();
+
+    click(summary('c1'));
+    await settle();
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 1);
+    assert.equal(list.querySelector('.char-card[data-id="c1"] [data-char-toggle]').getAttribute('aria-expanded'), 'true');
+    assert.equal(statusOf().textContent, '已保存');
+
+    click(list.querySelector('.char-card[data-id="c1"] .char-name'));
+    await settle();
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 0, 'clicking the row again closes it');
+    assert.equal(list.querySelector('.char-card[data-id="c1"] [data-char-toggle]').getAttribute('aria-expanded'), 'false');
+});
+
+test('typing then waiting persists the edit without redrawing the form; opening another row saves and switches (one editor at a time)', async () => {
+    const list = document.getElementById('nd_char_list');
+    const before = saves().length;
+    await openEditor('c1');
+    const nameInput = list.querySelector('.char-card.editing .char-edit-name');
+    typeInto(nameInput, '阿璃·自动');
+    await flush();
+    assert.equal(statusOf().textContent, '保存中…', 'the bar says 保存中… while the debounce is running');
+    assert.equal(saves().length, before, 'nothing is sent while the user is still typing');
+    await afterDebounce();
+    assert.equal(saves().length, before + 1, 'saved once after the pause');
+    assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').name, '阿璃·自动');
+    assert.equal(statusOf().textContent, '已保存');
+    assert.equal(list.querySelector('.char-card.editing .char-edit-name'), nameInput, 'the form was not redrawn (focus and caret stay)');
+    assert.equal(list.querySelector('.char-card.editing .char-name').textContent, '阿璃·自动', 'the summary name follows');
+
+    // 又改了一点就切到另一张：切换前立刻保存，编辑区换成另一张
+    typeInto(nameInput, '阿璃·切换');
+    click(document.getElementById('nd_char_add')); // 新建角色会换掉当前编辑区：先存好 c1
+    await settle();
+    assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').name, '阿璃·切换', 'saved right before switching');
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 1);
+    assert.notEqual(list.querySelector('.char-card.editing').dataset.id, 'c1');
+    await closeEditor();
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 0);
+});
+
+test('losing focus saves at once; an invalid form is not saved, says why, and keeps the editor open', async () => {
+    const list = document.getElementById('nd_char_list');
+    await openEditor('c1');
+    const card = () => list.querySelector('.char-card.editing');
+    let before = saves().length;
+    typeInto(card().querySelector('.char-edit-appearance'), 'silver hair, blur saved');
+    card().querySelector('.char-edit-appearance').dispatchEvent(new window.Event('focusout', { bubbles: true }));
+    await flush();
+    assert.equal(saves().length, before + 1, 'blur flushes without waiting for the debounce');
+    assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').appearance, 'silver hair, blur saved');
+
+    before = saves().length;
+    typeInto(card().querySelector('.char-edit-name'), '  ');
+    await afterDebounce();
+    assert.equal(saves().length, before, 'an empty name is never sent');
+    assert.equal(statusOf().textContent, '未保存：请输入角色名称');
+    assert.equal(statusOf().dataset.state, 'invalid');
+    click(card().querySelector('.char-card-summary'));
+    await settle();
+    assert.ok(card(), 'collapsing is refused while the form cannot be saved');
+    typeInto(card().querySelector('.char-edit-name'), '阿璃');
+    await closeEditor();
+    assert.equal(list.querySelectorAll('.char-card.editing').length, 0);
+    assert.equal(saves().at(-1).characterTags.find(char => char.id === 'c1').name, '阿璃', 'once valid again, collapsing saves it');
+});
+
+test('a new draft character: saved on the first valid name, dropped when collapsed while blank', async () => {
+    const list = document.getElementById('nd_char_list');
+    const idsSaved = () => (saves().at(-1)?.characterTags || []).map(char => char.id);
+    click(document.getElementById('nd_char_add'));
+    await settle();
+    const card = () => list.querySelector('.char-card.editing');
+    assert.ok(card(), 'a blank editor opens');
+    assert.equal(statusOf().textContent, '未保存：请输入角色名称');
+    const draftId = card().dataset.id;
+    await closeEditor();
+    assert.equal(list.querySelector(`.char-card[data-id="${draftId}"]`), null, 'a blank draft is dropped when collapsed');
+    assert.ok(!idsSaved().includes(draftId));
+
+    click(document.getElementById('nd_char_add'));
+    await settle();
+    const id = card().dataset.id;
+    const before = saves().length;
+    typeInto(card().querySelector('.char-edit-name'), '新角色甲');
+    await afterDebounce();
+    assert.equal(saves().length, before + 1);
+    assert.ok(idsSaved().includes(id), 'the draft became a real character with the first save');
+    assert.equal(statusOf().textContent, '已保存');
+    await closeEditor();
+    assert.ok(list.querySelector(`.char-card[data-id="${id}"]`), 'it stays in the list');
 });
