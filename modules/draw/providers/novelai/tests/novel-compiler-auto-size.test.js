@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { compileNovelImageRequest } from '../compiler.js';
+import { compile, compileNovelImageRequest } from '../compiler.js';
+import { parseSubmittedScenePlan } from '../../../shared/scene-plan-contract.js';
+
+// Acceptance (paid request correctness): each planned orientation reaches its
+// own request; a fixed size or the preset dimensions remain authoritative
+// unless automatic orientation is explicitly selected.
 
 function buildRecipe(overrides = {}) {
     return {
@@ -84,4 +89,23 @@ test('显式具体尺寸不受 orientation 影响', () => {
         }),
         { width: 1024, height: 1024 },
     );
+});
+
+test('a mixed scene plan preserves each orientation in its paid request', () => {
+    const scenePlan = parseSubmittedScenePlan({ toolCalls: [{
+        name: 'submit_scene_plan',
+        arguments: { images: ['portrait', 'landscape'].map((orientation, i) => ({
+            index: i + 1, insert_after: 1, scene: 'outdoors', orientation, characters: [],
+        })) },
+    }] }, { sceneSource: { sourceHash: 'fixture', points: [{ number: 1, offset: 10 }] } });
+    const batch = compile(scenePlan, buildRecipe({ overrideSize: 'auto', seeds: [123, 456] }));
+    assert.deepEqual(batch.items.map(item => [item.request.payload.parameters.width, item.request.payload.parameters.height]), [
+        [832, 1216], [1216, 832],
+    ]);
+});
+
+test('following the preset does not override its dimensions with orientation', () => {
+    assert.deepEqual(compileSize({
+        requestOverrides: { orientation: 'landscape', params: { ...buildRecipe().params, width: 1024, height: 1024 } },
+    }), { width: 1024, height: 1024 });
 });

@@ -3856,22 +3856,29 @@ window.addEventListener('message', event => {
         case 'TEST_RESULT': {
             const items = data.items || [];
             const strip = $('nd_test_strip');
+            const preview = $('nd_preview_img');
+            const selected = items.find(item => item.imgId === (data.selectedImgId || preview.dataset.imgId)) || items[0];
             strip.innerHTML = '';
+            $('nd_preview').classList.toggle('visible', items.length > 0);
+            $('nd_open_gallery').classList.toggle('visible', items.length > 0);
             if (items.length) {
-                $('nd_preview_img').src = items[0].url;
-                $('nd_preview').classList.add('visible');
-                items.forEach((item, i) => {
+                preview.src = selected.url;
+                preview.dataset.imgId = selected.imgId;
+                items.forEach(item => {
                     const t = document.createElement('img');
                     t.src = item.url;
-                    t.className = 'nd-thumb' + (i === 0 ? ' active' : '');
+                    t.className = 'nd-thumb' + (item.imgId === selected.imgId ? ' active' : '');
                     t.addEventListener('click', () => {
-                        $('nd_preview_img').src = item.url;
+                        preview.src = item.url;
+                        preview.dataset.imgId = item.imgId;
                         strip.querySelectorAll('.nd-thumb').forEach(el => el.classList.remove('active'));
                         t.classList.add('active');
                     });
                     strip.appendChild(t);
                 });
-                $('nd_open_gallery').classList.add('visible');
+            } else {
+                preview.removeAttribute('src');
+                delete preview.dataset.imgId;
             }
             break;
         }
@@ -4004,8 +4011,9 @@ function initializePage() {
     mountServerPluginGuide(document.getElementById('nd_backend_guide'), 'nd-backend');
     shuffleCredits();
     postToParent({ type: 'TEST_HISTORY' });
-    $('nd_open_gallery').addEventListener('click', () => postToParent({ type: 'OPEN_TEST_GALLERY' }));
-    $('nd_preview_img').addEventListener('click', () => postToParent({ type: 'OPEN_TEST_GALLERY' }));
+    const openTestGallery = () => postToParent({ type: 'OPEN_TEST_GALLERY', imgId: $('nd_preview_img').dataset.imgId });
+    $('nd_open_gallery').addEventListener('click', openTestGallery);
+    $('nd_preview_img').addEventListener('click', openTestGallery);
     // ═══════════════════════════════════════════════════════════════════════
     // 导航切换
     // ═══════════════════════════════════════════════════════════════════════

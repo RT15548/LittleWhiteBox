@@ -3230,6 +3230,7 @@ async function sendCacheData() {
     const currentIframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (currentIframe?.contentWindow === iframe.contentWindow) {
         postToIframe(currentIframe, cacheData, 'LittleWhiteBox-NovelDraw');
+        await pushTestHistory();
     }
 }
 
@@ -3292,14 +3293,15 @@ function ensureAgentSettingsSurface() {
 
 const TEST_SLOT_ID = 'novelai-quick-test';
 
-async function pushTestHistory() {
+async function pushTestHistory(selectedImgId) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!iframe) return;
     const previews = await getPreviewsBySlot(TEST_SLOT_ID);
+    if (!iframe.isConnected) return;
     const items = previews
-        .filter(p => p.base64)
+        .filter(hasPreviewImage)
         .map(p => ({ imgId: p.imgId, url: getPreviewDisplayUrl(p) }));
-    postToIframe(iframe, { type: 'TEST_RESULT', items }, 'LittleWhiteBox-NovelDraw');
+    postToIframe(iframe, { type: 'TEST_RESULT', items, selectedImgId }, 'LittleWhiteBox-NovelDraw');
 }
 
 async function handleFrameMessage(event) {
@@ -4089,8 +4091,9 @@ async function handleFrameMessage(event) {
                 const tags = (typeof data.tags === 'string' && data.tags.trim()) ? data.tags.trim() : '1girl, smile';
                 const scene = joinTags(preset?.positivePrefix, tags);
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
+                const imgId = generateImgId();
                 await storePreview({
-                    imgId: `test-${Date.now()}`,
+                    imgId,
                     slotId: TEST_SLOT_ID,
                     base64,
                     tags,
@@ -4098,7 +4101,7 @@ async function handleFrameMessage(event) {
                     negativePrompt: preset?.negativePrefix || '',
                     source: 'quick-test',
                 });
-                await pushTestHistory();
+                await pushTestHistory(imgId);
                 postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {
                 postStatus('error', e?.message);
@@ -4110,9 +4113,11 @@ async function handleFrameMessage(event) {
             await pushTestHistory();
             break;
 
-        case 'OPEN_TEST_GALLERY':
-            await openGallery(TEST_SLOT_ID, null);
+        case 'OPEN_TEST_GALLERY': {
+            const refresh = () => observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: 'refreshTestGallery' });
+            await openGallery(TEST_SLOT_ID, null, { onSave: refresh, onDelete: refresh, onBecameEmpty: refresh }, data.imgId);
             break;
+        }
     }
 }
 

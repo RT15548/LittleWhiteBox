@@ -1341,7 +1341,7 @@ function ensureGalleryStyles() {
     const style = document.createElement('style');
     style.id = 'nd-gallery-styles';
     style.textContent = `
-#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100000;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}
+#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100003;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}
 #nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
 .nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
@@ -1484,13 +1484,13 @@ function createGalleryOverlay() {
     img.addEventListener('lostpointercapture', endPan);
 }
 
-export async function openGallery(slotId, messageId, callbacks = {}) {
+export async function openGallery(slotId, messageId, callbacks = {}, initialImgId = null) {
     // Capture before IndexedDB yields; the host can reuse its chat array when
     // navigating, so neither an index nor a chat filename identifies the source.
     const ctx = getContext();
     const owner = getImageChatIdentity(ctx);
     const chatId = String(ctx.chatId || '');
-    const msgIdx = Number(messageId);
+    const msgIdx = messageId == null ? NaN : Number(messageId);
     const message = Number.isInteger(msgIdx) ? ctx.chat?.[msgIdx] : null;
     const swipeIndex = message?.swipe_id ?? 0;
     const assertCurrent = () => {
@@ -1520,7 +1520,7 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
         return;
     }
 
-    const selectedImgId = await getSlotSelection(slotId);
+    const selectedImgId = initialImgId || await getSlotSelection(slotId);
     assertCurrent();
     let startIndex = 0;
     if (selectedImgId) {
@@ -1536,6 +1536,7 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
     };
     renderGalleryThumbs();
     renderGallery();
+    document.getElementById('nd-gallery-use').hidden = messageId == null;
     document.getElementById('nd-gallery-overlay').classList.add('visible');
 }
 

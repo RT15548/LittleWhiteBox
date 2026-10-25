@@ -1707,21 +1707,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/cloud-presets.js",
       "relativePath": "modules/draw/providers/novelai/cloud-presets.js",
       "extension": ".js",
-      "sizeBytes": 30282
+      "sizeBytes": 30445
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/compiler.js",
       "relativePath": "modules/draw/providers/novelai/compiler.js",
       "extension": ".js",
-      "sizeBytes": 10182
+      "sizeBytes": 10663
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 73442
+      "sizeBytes": 77732
     },
     {
       "source": "littlewhitebox",
@@ -1749,21 +1749,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 234542
+      "sizeBytes": 236568
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 88709
+      "sizeBytes": 89473
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 207227
+      "sizeBytes": 208808
     },
     {
       "source": "littlewhitebox",
@@ -1834,6 +1834,13 @@
       "relativePath": "modules/draw/providers/novelai/tests/novel-backend-job-result.test.js",
       "extension": ".js",
       "sizeBytes": 3282
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/novel-compiler-auto-size.test.js",
+      "relativePath": "modules/draw/providers/novelai/tests/novel-compiler-auto-size.test.js",
+      "extension": ".js",
+      "sizeBytes": 3759
     },
     {
       "source": "littlewhitebox",
@@ -2365,7 +2372,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 76069
+      "sizeBytes": 76206
     },
     {
       "source": "littlewhitebox",
@@ -2603,21 +2610,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prompts/opening-pov.md",
       "relativePath": "modules/draw/shared/prompts/opening-pov.md",
       "extension": ".md",
-      "sizeBytes": 1612
+      "sizeBytes": 1743
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prompts/opening.md",
       "relativePath": "modules/draw/shared/prompts/opening.md",
       "extension": ".md",
-      "sizeBytes": 576
+      "sizeBytes": 707
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prompts/scene-rules.md",
       "relativePath": "modules/draw/shared/prompts/scene-rules.md",
       "extension": ".md",
-      "sizeBytes": 6056
+      "sizeBytes": 6351
     },
     {
       "source": "littlewhitebox",
@@ -2652,7 +2659,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-plan-contract.js",
       "relativePath": "modules/draw/shared/scene-plan-contract.js",
       "extension": ".js",
-      "sizeBytes": 18123
+      "sizeBytes": 18448
     },
     {
       "source": "littlewhitebox",
@@ -2666,7 +2673,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-plan-tool.js",
       "relativePath": "modules/draw/shared/scene-plan-tool.js",
       "extension": ".js",
-      "sizeBytes": 9655
+      "sizeBytes": 10308
     },
     {
       "source": "littlewhitebox",
@@ -2981,7 +2988,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "relativePath": "modules/draw/shared/tests/fixtures/scene-planner-golden.json",
       "extension": ".json",
-      "sizeBytes": 1215700
+      "sizeBytes": 1267732
     },
     {
       "source": "littlewhitebox",
@@ -3094,6 +3101,13 @@
       "relativePath": "modules/draw/shared/tests/provider-compilers.test.js",
       "extension": ".js",
       "sizeBytes": 12028
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/quick-test-gallery.test.js",
+      "relativePath": "modules/draw/shared/tests/quick-test-gallery.test.js",
+      "extension": ".js",
+      "sizeBytes": 1536
     },
     {
       "source": "littlewhitebox",
@@ -16757,7 +16771,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/vendor/draw-run-runtime.cjs",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/vendor/draw-run-runtime.cjs",
       "extension": ".cjs",
-      "sizeBytes": 74978
+      "sizeBytes": 75296
     },
     {
       "source": "littlewhitebox",

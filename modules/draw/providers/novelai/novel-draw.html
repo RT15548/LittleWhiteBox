@@ -1277,3 +1277,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 <!-- ═══════════════════════════════════════════════════════════════════════════
      脚本
      ═══════════════════════════════════════════════════════════════════════════ -->
+<script type="module">
+import { loadBuildEntry, reportBuildFailure } from '../../../../core/build-assets.js';
+loadBuildEntry('apps/novel-draw').catch(reportBuildFailure);
+</script>
+</body>
+</html>

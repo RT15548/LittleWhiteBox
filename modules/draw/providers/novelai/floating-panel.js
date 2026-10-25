@@ -513,7 +513,7 @@ ${MAX_IMAGES_INPUT_CSS}
     border: none;
     border-radius: 11px;
     background: transparent;
-    color: #000;
+    color: inherit;
     font-size: 12px;
     line-height: 1;
     display: flex;
@@ -526,7 +526,7 @@ ${MAX_IMAGES_INPUT_CSS}
 }
 .nd-floating-global .nd-img-jump-prev { bottom: calc(100% + 4px); }
 .nd-floating-global .nd-img-jump-next { top: calc(100% + 4px); }
-.nd-floating-global .nd-img-jump:hover { color: #000; opacity: 0.65; }
+.nd-floating-global .nd-img-jump:hover { opacity: 0.65; }
 
 .nd-floating-global .nd-capsule:active { cursor: grabbing; }
 
@@ -1351,7 +1351,8 @@ function applyFloatingPosition() {
     const h = floatingEl.offsetHeight || 34;
     // 預留膠囊外上下跳圖鈕的高度
     const JUMP_RESERVE = 30;
-    floatingEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
+    const left = pos.docked === 'left' ? 0 : pos.docked === 'right' ? window.innerWidth - w : pos.left;
+    floatingEl.style.left = `${Math.max(0, Math.min(left, window.innerWidth - w))}px`;
     floatingEl.style.top = `${Math.max(JUMP_RESERVE, Math.min(pos.top, window.innerHeight - h - JUMP_RESERVE))}px`;
     setFloatingDock(pos.docked === 'left' || pos.docked === 'right' ? pos.docked : null);
 }
@@ -1597,6 +1598,7 @@ function onFloatingPointerUp(e) {
         let side = null;
         if (finalLeft <= EDGE_SNAP) side = 'left';
         else if (finalLeft >= window.innerWidth - w - EDGE_SNAP) side = 'right';
+        if (side) floatingEl.style.left = `${side === 'left' ? 0 : window.innerWidth - w}px`;
         setFloatingDock(side);
         saveFloatingPosition();
     } else {
