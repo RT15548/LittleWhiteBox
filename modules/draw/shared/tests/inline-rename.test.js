@@ -110,3 +110,11 @@ test('the in-place name look lives in the shared shell stylesheet: bold text tha
     assert.match(shell, /\.inline-name:hover\s*\{[^}]*border-color:\s*var\(--border\)/);
     assert.match(shell, /\.inline-name:focus\s*\{[^}]*border-color:\s*var\(--border-focus\)/);
 });
+
+test('the agent settings surface does not box the in-place name inputs with its generic input styling', () => {
+    // 事故：.xb-agent-settings-surface .xb-assistant-config input:not(...) 的优先级高于 .inline-name，场景 Agent 预设名被画成带边框的输入框。
+    const surface = readFileSync(new URL('../../../agent-core/ui/settings-surface.css', import.meta.url), 'utf8');
+    assert.match(surface, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\.inline-name\),/);
+    assert.match(surface, /input:not\(\.inline-name\):focus,/);
+    assert.doesNotMatch(surface, /\.xb-assistant-config input:focus/);
+});
