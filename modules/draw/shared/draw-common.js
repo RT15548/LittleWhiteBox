@@ -32,6 +32,20 @@ import { getSlotActivity } from './slot-activity.js';
 import { buildFailedActionsHtml, buildUngeneratedActionsHtml, installImageCardMenu } from './image-card-menu.js';
 import { drawMessageViewport } from './draw-message-viewport.js';
 import { classifyScenePlannerErrorForUi } from "./scene-planner-error-ui.js";
+
+// 标题模式注入：draw-common 不直接 import draw-settings（会把宿主依赖链拉进各测试
+// /轻量 bundle），由三个 provider 宿主在启动时注入读取函数；未注入时回退默认「不显示」。
+const IMAGE_TITLE_MODES = ['none', 'overlay', 'collapse'];
+let imageTitleSettingsProvider = null;
+export function setImageTitleSettingsProvider(provider) {
+    imageTitleSettingsProvider = typeof provider === 'function' ? provider : null;
+}
+function resolveImageTitleMode() {
+    try {
+        const mode = imageTitleSettingsProvider?.()?.imageTitleMode;
+        return IMAGE_TITLE_MODES.includes(mode) ? mode : 'none';
+    } catch { return 'none'; }
+}
 import { detectPresentCharacters } from './present-characters.js';
 import { joinTags } from './character-prompts.js';
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
@@ -227,12 +241,23 @@ export function ensureDrawImageStyles() {
 .xb-nd-menu-trigger{width:32px;height:32px;border-radius:50%;border:none;background:var(--draw-bg-secondary);color:var(--draw-text-primary);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;opacity:0.85}
 .xb-nd-menu-trigger:hover,.xb-nd-menu-wrap.open .xb-nd-menu-trigger{background:var(--draw-bg-tertiary);opacity:1}
 .xb-nd-menu-wrap.open .xb-nd-dropdown{display:flex;opacity:1;visibility:visible;transform:translateY(0) scale(1);pointer-events:auto}
-.xb-nd-dropdown{position:absolute;top:calc(100% + 4px);right:0;background:var(--draw-bg-secondary);border:1px solid var(--draw-border);border-radius:16px;padding:4px;display:none;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transform:translateY(-4px) scale(0.96);transform-origin:top right;transition:all 0.15s ease;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
-.xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:var(--draw-text-primary);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
-.xb-nd-dropdown button:hover{background:var(--draw-accent-soft)}
-.xb-nd-dropdown [data-action="delete-image"]{color:var(--draw-danger)}
-.xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--draw-bg-secondary);padding:8px 16px;border-radius:8px;color:var(--draw-text-primary);font-size:12px;z-index:10}
-.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:var(--draw-bg-tertiary);color:var(--draw-text-primary);max-height:calc(100% - 16px);overflow:auto}
+.xb-nd-dropdown{position:absolute;top:calc(100% + 4px);right:0;background:rgba(20,20,24,0.98);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:4px;display:none;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transform:translateY(-4px) scale(0.96);transform-origin:top right;transition:all 0.15s ease;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
+.xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:rgba(255,255,255,0.85);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
+.xb-nd-dropdown button:hover{background:rgba(255,255,255,.15)}
+.xb-nd-dropdown [data-action="delete-image"]{color:rgba(248,113,113,.9)}
+.xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:8px 16px;border-radius:8px;color:#fff;font-size:12px;z-index:10}
+/* 圖片標題（overlay 模式）：懸停或 title-show 時浮現的圖頂細條 */
+.xb-nd-title-bar{position:absolute;top:0;left:0;right:0;z-index:6;pointer-events:none;display:flex;align-items:center;min-height:22px;padding:3px 44px 3px 10px;background:rgba(0,0,0,0.55);font-size:13px;line-height:1.4;letter-spacing:0.02em;color:rgba(255,255,255,0.95);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,0.6);opacity:0;transition:opacity 0.2s ease}
+.xb-nd-img-wrap:hover .xb-nd-title-bar,.xb-nd-img-wrap.title-show .xb-nd-title-bar{opacity:1}
+/* 圖片標題（collapse 模式）：details 收縮到內容寬並置中；摺疊標題列寬度吃 JS 量得的
+   圖片實寬（--xb-img-w），變量未就緒時 auto 回退為貼文字的初始膠囊。 */
+.xb-nd-details{width:fit-content;max-width:100%;margin:0 auto;border-radius:10px;overflow:hidden}
+.xb-nd-summary{list-style:none;cursor:pointer;width:var(--xb-img-w,auto);max-width:100%;box-sizing:border-box;padding:4px 8px;background:#12151c;border:1px solid #fff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1.3;color:#fff;text-shadow:none;user-select:none}
+.xb-nd-summary::-webkit-details-marker{display:none}
+.xb-nd-summary span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:none}
+/* 摺疊時懸浮的編輯彈窗必須隨之隱藏（JS 會把內聯 display 重置為 none，這條兜底防閃現） */
+.xb-nd-details:not([open]) ~ .xb-nd-edit{display:none!important}
+.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:rgba(0,0,0,.9);color:#fff;max-height:calc(100% - 16px);overflow:auto}
 .xb-nd-status-overlay .xb-nd-indicator{position:static;transform:none;background:none;padding:0}
 .xb-nd-view-notice{padding:12px;overflow-wrap:anywhere}
 .xb-nd-view-notice button{margin-inline-start:8px;min-height:44px;padding:6px 12px;border:1px solid var(--draw-border);border-radius:8px;background:var(--draw-accent-soft);color:inherit;cursor:pointer}
@@ -292,7 +317,7 @@ export function ensureDrawImageStyles() {
     document.head.appendChild(style);
 }
 
-export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, state = ImageState.PREVIEW, historyCount = 1, currentIndex = 0 }) {
+export function buildImageHtml({ slotId, imgId, url, tags, title = '', positive, messageId, state = ImageState.PREVIEW, historyCount = 1, currentIndex = 0 }) {
     const escapedTags = escapeHtml(tags);
     const escapedPositive = escapeHtml(positive);
     const isPreview = state === ImageState.PREVIEW;
@@ -302,6 +327,9 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
     else if (state === ImageState.REFRESHING) indicator = '<div class="xb-nd-indicator"><i class="fa-solid fa-rotate" aria-hidden="true"></i> 生成中...</div>';
 
     const lazyAttr = String(url || '').startsWith('data:') ? '' : 'loading="lazy"';
+    // 标题只取 AI 生成的 title；缺省（旧数据/模型漏填）时宁可不显示，也不拿 TAG 充数。
+    const rawTitle = String(title || '').trim();
+    const titleMode = resolveImageTitleMode();
     const displayVersion = historyCount - currentIndex;
     const navPill = `<div class="xb-nd-nav-pill" data-total="${historyCount}" data-current="${currentIndex}">
         <button class="xb-nd-nav-arrow" data-action="nav-prev" title="上一版本" ${currentIndex >= historyCount - 1 ? 'disabled' : ''}>${drawIconHtml('chevron-left')}</button>
@@ -319,38 +347,70 @@ export function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, 
         </div>
     </div>`;
 
-    return `<div class="xb-nd-img ${isBusy ? 'busy' : ''}" data-slot-id="${slotId}" data-img-id="${imgId}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="${state}" data-current-index="${currentIndex}" data-history-count="${historyCount}" style="margin:0.8em auto;position:relative;display:block;width:fit-content;max-width:100%;border-radius:14px;padding:4px;">
-${indicator}
-<div class="xb-nd-img-wrap" data-total="${historyCount}">
+    const imageWrap = `<div class="xb-nd-img-wrap" data-total="${historyCount}">
     <img src="${escapeHtml(url)}" style="max-width:100%;width:auto;height:auto;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);${isBusy ? 'opacity:0.5;' : ''}" data-action="open-gallery" ${lazyAttr}>
+    ${titleMode === 'overlay' && rawTitle ? `<div class="xb-nd-title-bar" title="${escapeHtml(rawTitle)}">${escapeHtml(rawTitle)}</div>` : ''}
+    ${indicator}
     ${navPill}
-</div>
-${menuHtml}
+    ${menuHtml}
+</div>`;
+    // 摺疊標題列寬度由 JS 量得的圖片實寬寫入 --xb-img-w（見 syncCollapseTitleWidths）；
+    // 摺疊後主圖被 details 隱藏也能保持與圖片同寬；變量未就緒時回退初始的文字膠囊。
+    const imageFrame = (titleMode === 'collapse' && rawTitle)
+        ? `<details class="xb-nd-details" open>
+    <summary class="xb-nd-summary"><span>．·°∴ ☆．．·° ${escapeHtml(rawTitle.slice(0, 20))} °·．．☆ ∴°·．</span></summary>
+${imageWrap}
+</details>`
+        : imageWrap;
+
+    return `<div class="xb-nd-img ${isBusy ? 'busy' : ''}" data-slot-id="${slotId}" data-img-id="${imgId}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="${state}" data-current-index="${currentIndex}" data-history-count="${historyCount}" style="margin:0.8em auto;position:relative;display:block;width:fit-content;max-width:100%;border-radius:14px;padding:4px;">
+${imageFrame}
 ${buildTagEditor(tags, false)}
 </div>`;
 }
 
-// 编辑面板里的文本框（场景 / 各角色各一个）随内容长高：一行内容只占一行，最多约 8 行再出现滚动条，手动拉伸手柄保留；
-// 面板此刻才可见，量得出高度（每个面板只装一次，面板里重绘 / 宽度变化后由观察器补量）。
-const tagEditorAutofit = new WeakMap();
+// 版本切换时只换 img 不重建卡片，标题条/折叠摘要里的文字需要就地同步成新版本的 title。
+export function syncImageTitleElements(container, title = '') {
+    if (!container?.querySelector) return;
+    const rawTitle = String(title || '').trim();
+    const bar = container.querySelector('.xb-nd-title-bar');
+    if (bar) {
+        bar.textContent = rawTitle;
+        bar.setAttribute('title', rawTitle);
+    }
+    const summary = container.querySelector('.xb-nd-summary span');
+    if (summary) {
+        summary.textContent = rawTitle
+            ? `．·°∴ ☆．．·° ${rawTitle.slice(0, 20)} °·．．☆ ∴°·．`
+            : '';
+    }
+    // 版本切換換了主圖 src，摺疊標題列寬度需按新圖重測。
+    syncCollapseTitleWidths(container);
+}
 
-/** 往编辑面板的滚动区加一个“标签 + 文本框”字段（三个出图后端共用）。 */
-export function appendTagEditGroup(container, { label, value, type, index = null }) {
-    const group = document.createElement('div');
-    group.className = 'xb-nd-edit-group';
-    const labelEl = document.createElement('div');
-    labelEl.className = 'xb-nd-edit-group-label';
-    labelEl.textContent = label;
-    const textarea = document.createElement('textarea');
-    textarea.className = 'xb-nd-edit-input';
-    textarea.setAttribute('aria-label', label);
-    textarea.setAttribute('data-autofit', '');
-    textarea.rows = 1; // 一行起步，由 data-autofit 按内容长高
-    textarea.dataset.type = type;
-    if (index !== null) textarea.dataset.index = String(index);
-    textarea.value = value || '';
-    group.append(labelEl, textarea);
-    container.appendChild(group);
+// 把摺疊標題列寬度釘成圖片實寬（寫入 details 上的 --xb-img-w）。
+// 摺疊時主圖被 details 隱藏、clientWidth=0：已量過就沿用展開時的實測值（摺疊瞬間若用
+// 父行寬估算會把窄圖的標題列撐成整行寬）；只有從未量過時才用固有寬度兜底估算一次。
+export function syncCollapseTitleWidths(scope = document) {
+    if (!scope?.querySelectorAll) return;
+    const detailsList = typeof scope.matches === 'function' && scope.matches('.xb-nd-details')
+        ? [scope]
+        : Array.from(scope.querySelectorAll('.xb-nd-details'));
+    for (const details of detailsList) {
+        const img = details.querySelector('.xb-nd-img-wrap img');
+        if (!img) continue;
+        const visibleWidth = img.clientWidth || 0;
+        const measured = parseFloat(details.style.getPropertyValue('--xb-img-w')) || 0;
+        if (visibleWidth > 0) {
+            details.style.setProperty('--xb-img-w', `${Math.round(visibleWidth)}px`);
+        } else if (!measured && img.naturalWidth) {
+            const outer = details.parentElement;
+            const available = outer?.clientWidth
+                ? outer.clientWidth - 8 // summary 左右 padding
+                : img.naturalWidth;
+            details.style.setProperty('--xb-img-w', `${Math.max(0, Math.round(Math.min(img.naturalWidth, available)))}px`);
+        }
+    }
 }
 
 export function showDrawTagEditor(editPanel) {
@@ -470,6 +530,7 @@ function normalizeDrawSavedEntry(slotId, data = {}) {
         imgId: data.imgId || '',
         savedUrl: data.savedUrl,
         tags: data.tags || '',
+        title: data.title || '',
         positive: data.positive || '',
         characterPrompts: data.characterPrompts ?? null,
         negativePrompt: data.negativePrompt ?? null,
@@ -538,6 +599,7 @@ export async function setDrawSavedEntry(messageId, slotId, data) {
         previous.imgId === entry.imgId &&
         previous.savedUrl === entry.savedUrl &&
         previous.tags === entry.tags &&
+        previous.title === entry.title &&
         previous.positive === entry.positive &&
         previous.negativePrompt === entry.negativePrompt &&
         previous.postPrompt === entry.postPrompt &&
@@ -762,7 +824,7 @@ async function renderPreviewsForMessageNow(messageId, {
                         ?? versions.find(hasPreviewImage)
                         ?? getDrawSavedPreview(message, slotId, messageId, String(ctx.chatId));
                 if (retained) imageHtml = buildImageHtml({ slotId, imgId: retained.imgId,
-                    url: getPreviewDisplayUrl(retained), tags: retained.tags || '', positive: retained.positive || '',
+                    url: getPreviewDisplayUrl(retained), tags: retained.tags || '', title: retained.title || '', positive: retained.positive || '',
                     messageId, state: retained.savedUrl ? ImageState.SAVED : ImageState.PREVIEW });
             }
             if (activity || pendingSlot) {
@@ -798,6 +860,7 @@ async function renderPreviewsForMessageNow(messageId, {
                     imgId: displayData.preview.imgId,
                     url,
                     tags: displayData.preview.tags || '',
+                    title: displayData.preview.title || '',
                     positive: displayData.preview.positive || '',
                     messageId,
                     state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,

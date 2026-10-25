@@ -138,7 +138,7 @@ export function createSubmitScenePlanTool(options = {}) {
         items: {
             type: 'object',
             additionalProperties: false,
-            required: ['index', 'insert_after', 'scene', 'characters'],
+            required: ['index', 'insert_after', 'scene', 'title', 'characters'],
             properties: {
                 index: { type: 'integer', minimum: 1, description: '本图序号，从 1 起。' },
                 insert_after: {
@@ -151,14 +151,17 @@ export function createSubmitScenePlanTool(options = {}) {
                     '画面整体：人数与关系、构图与视角、背景、光影、氛围，逗号分隔的英文 tag。角色个体的外貌与动作不写在这里。拼在正向提示词最前。',
                     { minLength: 1 },
                 ),
-                orientation: {
-                    type: 'string',
-                    enum: ['portrait', 'landscape'],
-                    description: '本图画幅方向，先定景别与主体排布再决定，人数只作参考。'
-                        + 'portrait（竖幅）：单人、直立站姿、close-up / upper body 等近景、双人贴近构图；'
-                        + 'landscape（横幅）：三人及以上群像、wide shot / 全景远景、开阔环境、左右展开的互动与站位。'
-                        + '两人同框不必然横幅；方向须与景别一致。拿不准时填 portrait。',
-                },
+                title: stringSchema(
+                    '本次绘画的主题标题，简体中文，6～14 字，只输出标题文字本身，不加任何标点。'
+                    + '要求：①像给这一格画面起的小标题，抓最具体的动作、物件或瞬间，有画面感，'
+                    + '不要笼统的主题词；②句式必须多样，禁止每条都套用「XX的XX」这一种结构，'
+                    + '「的」字句式只在确实最贴切时偶尔使用；③可自由变换开头方式：动作切入'
+                    + '（如「那只手终于探了出来」）、台词或声音（如「听到她说晚上好」）、'
+                    + '悬念判断（如「距离正在缩到三米」）、场景白描（如「凌晨两点的便利店」）、'
+                    + '比喻拟人（如「路灯吞掉了影子」）、判断宣告（如「洗手台上的主权宣告」）；'
+                    + '④同一批多张图的标题，开头方式不得重复。',
+                    { minLength: 1 },
+                ),
                 characters: charactersSchema,
                 // 追加位（可选）：拼在所有角色之后、整条正向提示词的最末尾。
                 // 只有 profile.postPrompt === 'append' 的 provider 才暴露，避免教会模型一个编译器会丢的字段。

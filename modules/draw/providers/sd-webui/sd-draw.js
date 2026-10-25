@@ -103,6 +103,12 @@ import {
     toScenePlannerProgress,
     buildFailedPlaceholderHtml,
 } from "../../shared/draw-common.js";
+import * as drawCommonModule from "../../shared/draw-common.js";
+// 注入标题模式读取：渲染时按共享设置决定 overlay/collapse/none。
+// namespace + 存在性守卫，兼容测试环境对 draw-common 的精简 mock。
+if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
+    drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
+}
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import {
     loadLocalDanbooruDB,

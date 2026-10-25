@@ -131,7 +131,7 @@ let state = {
     activeApiPresetId: null,
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
-    saveAsJpeg: false,
+    imageTitleMode: 'none',
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -3579,7 +3579,9 @@ function applyStateToUI() {
         $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
-        if ($('nd_save_as_jpeg')) $('nd_save_as_jpeg').checked = state.saveAsJpeg === true;
+        const titleModeSel = $('nd_image_title_mode');
+        if (titleModeSel) titleModeSel.value = ['none', 'overlay', 'collapse'].includes(state.imageTitleMode)
+            ? state.imageTitleMode : 'none';
 
         renderParamsPresetList();
         applyParamsPreset();
@@ -4797,20 +4799,12 @@ function initializePage() {
         postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
     });
 
-    // JPEG applies to new images only; wait for the host receipt before re-enabling the control.
-    $('nd_save_as_jpeg')?.addEventListener('change', () => {
-        $('nd_save_as_jpeg').disabled = true;
-        postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked });
+    // 图片标题显示模式：切换即保存（所有 provider 共用）
+    $('nd_image_title_mode')?.addEventListener('change', () => {
+        const mode = $('nd_image_title_mode').value;
+        state.imageTitleMode = mode;
+        postToParent({ type: 'SAVE_IMAGE_TITLE_MODE', imageTitleMode: mode });
     });
-
-
-    // 批量管理
-    $('nd_batch').addEventListener('click', toggleBatchMode);
-    $('nd_batch_select_all').addEventListener('click', () => setBatchCheckedAll(true));
-    $('nd_batch_select_none').addEventListener('click', () => setBatchCheckedAll(false));
-    $('nd_batch_download').addEventListener('click', batchDownloadSelected);
-    $('nd_batch_delete').addEventListener('click', batchDeleteSelected);
-    $('nd_batch_done').addEventListener('click', toggleBatchMode);
 
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
     
