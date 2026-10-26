@@ -1,5 +1,5 @@
 import { TASK_SAVE_COPY } from './task-save-copy.js';
-import { runTaskSave } from './task-save-operation.js';
+import { runTaskSave, TASK_SAVE_ERROR } from './task-save-operation.js';
 
 // The popup owns this short-lived state. Persistence remains with the task store.
 export function createTaskEditorSaveHandler(editor, save, affirmative) {
@@ -42,8 +42,11 @@ export function createTaskEditorSaveHandler(editor, save, affirmative) {
             popup.value = affirmative;
             return true;
         } catch (cause) {
-            console.error('[循环任务] 保存失败', cause);
-            error.textContent = `${TASK_SAVE_COPY.failed}：${cause?.message || TASK_SAVE_COPY.retry}`;
+            error.dataset.saveStatus = cause?.code || TASK_SAVE_ERROR.FAILED;
+            const status = cause?.code === TASK_SAVE_ERROR.UNCONFIRMED ? TASK_SAVE_COPY.unconfirmed
+                : cause?.code === TASK_SAVE_ERROR.PARTIAL ? TASK_SAVE_COPY.partiallySaved : TASK_SAVE_COPY.failed;
+            console.error(`[循环任务] ${status}`, cause);
+            error.textContent = `${status}：${cause?.message || TASK_SAVE_COPY.retry}`;
             error.hidden = false;
             return false;
         } finally {

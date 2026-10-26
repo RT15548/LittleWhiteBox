@@ -20,10 +20,11 @@ import { TasksStorage } from "../../core/server-storage.js";
 import { initPresetTaskEvents, consumePresetTaskImport } from './preset-task-events.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../shared/common/async-errors.js';
 import { createTaskEditorSaveHandler } from './task-editor-save.js';
-import { confirmTaskSettingsSave, saveCharacterTasksConfirmed, requestTaskSave } from './task-save-confirmation.js';
-import { runTaskSave, waitTaskSave } from './task-save-operation.js';
+import { confirmTaskSettingsSave, confirmCharacterTaskPermissionSave, saveCharacterTasksConfirmed, requestTaskSave } from './task-save-confirmation.js';
+import { runTaskSave, waitTaskSave, markTaskSaveConfirmed, afterTaskSave } from './task-save-operation.js';
 import { throwIfSignalAborted } from '../../shared/common/abort-utils.js';
 import { TASK_SAVE_COPY } from './task-save-copy.js';
+import { PRESET_START_TIMING, PRESET_START_LABEL, getTaskTriggerTiming, setTaskTriggerTiming } from './task-trigger.js';
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -34,8 +35,6 @@ const TASKS_MODULE_NAME = "xiaobaix-tasks";
 const defaultSettings = { enabled: true, globalTasks: [], processedMessages: [], character_allowed_tasks: [] };
 const CONFIG = { MAX_PROCESSED: 20, MAX_COOLDOWN: 10, CLEANUP_INTERVAL: 30000, TASK_COOLDOWN: 50 };
 const events = createModuleEvents('scheduledTasks');
-const PRESET_START_TIMING = 'preset_enter';
-const PRESET_START_LABEL = '随预设启用';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -61,6 +60,19 @@ let state = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const normalizeTaskKey = (name) => String(name || '').trim();
+// A queued destructive edit stops automatic restarts without publishing draft
+// metadata. Counts keep one pending edit from releasing another edit's hold.
+const pendingTaskMutations = new Map();
+const isTaskMutationPending = key => pendingTaskMutations.has(normalizeTaskKey(key));
+function holdTaskMutation(key) {
+    const taskKey = normalizeTaskKey(key);
+    pendingTaskMutations.set(taskKey, (pendingTaskMutations.get(taskKey) || 0) + 1);
+    return () => {
+        const count = pendingTaskMutations.get(taskKey) || 0;
+        if (count <= 1) pendingTaskMutations.delete(taskKey);
+        else pendingTaskMutations.set(taskKey, count - 1);
+    };
+}
 // Host work and cleanup keep their own receipts until they actually settle.
 const isRetainedExecution = entry => entry?.source === 'host' || entry?.source === 'cleanup';
 const refreshExecutionState = () => {
@@ -134,8 +146,7 @@ const logExecutionLockSkip = (location, context = {}) => {
     try { xbLog.warn('scheduledTasks', { event: 'execution_lock_skip', ...detail }); } catch (error) { console.warn({ source: import.meta.url, operation: 'log' }, error); }
 };
 
-const normalizeTiming = (t) => (String(t || '').toLowerCase() === 'initialization' ? 'character_init' : t);
-const mapTiming = (task) => ({ ...task, triggerTiming: normalizeTiming(task.triggerTiming) });
+const mapTiming = (task, scope) => ({ ...task, triggerTiming: getTaskTriggerTiming(task, scope) });
 
 async function readGlobalTaskCommands(task) {
     if (task?.id) {
@@ -160,7 +171,7 @@ async function readGlobalTaskCommands(task) {
 const allTasksMeta = () => [
     ...getSettings().globalTasks.map(mapTiming),
     ...getCharacterTasks().map(mapTiming),
-    ...getPresetTasks().map(mapTiming)
+    ...getPresetTasks().map(task => mapTiming(task, 'preset'))
 ];
 
 const allTasks = allTasksMeta;
@@ -178,7 +189,7 @@ async function allTasksFull() {
     }))).filter(Boolean);
     // Keep the visit identity across I/O, not a stale snapshot of its tasks.
     const presetTasks = isTaskRuntimeActive({ preset })
-        ? getPresetTasks().map(task => ({ ...mapTiming(task), __runtime: captureTaskRuntime(task, 'preset') }))
+        ? getPresetTasks().map(task => ({ ...mapTiming(task, 'preset'), __runtime: captureTaskRuntime(task, 'preset') }))
         : [];
     return [
         ...globalTasks.map(mapTiming),
@@ -285,19 +296,21 @@ async function saveCharacterTasks(tasks, { confirm = false, signal, target } = {
     character.data.extensions[TASKS_MODULE_NAME] = { tasks };
     const settings = getSettings();
     const avatar = character.avatar;
-    const previousAllowed = settings.character_allowed_tasks;
-    if (avatar && !previousAllowed?.includes(avatar)) {
-        settings.character_allowed_tasks = [...(previousAllowed || []), avatar];
-        if (!confirm) saveSettingsDebounced();
+    if (!avatar || settings.character_allowed_tasks?.includes(avatar)) return;
+    settings.character_allowed_tasks = [...(settings.character_allowed_tasks || []), avatar];
+    if (!confirm) {
+        saveSettingsDebounced();
+        return;
     }
-    if (confirm) {
-        const allowed = settings.character_allowed_tasks;
-        try { await confirmTaskSettingsSave({ character_allowed_tasks: allowed }, signal); }
-        catch (error) {
-            if (settings.character_allowed_tasks === allowed) settings.character_allowed_tasks = previousAllowed;
-            throw error;
-        }
-    }
+    // The confirmed card write is the save result. Remembering permission is an
+    // independent preference: it must not fail this editor or roll back its data.
+    afterTaskSave(signal, () => {
+        observeBackgroundTask(runTaskSave(permissionSignal => confirmCharacterTaskPermissionSave(avatar, permissionSignal))
+            .catch(error => {
+                console.warn({ source: import.meta.url, operation: 'rememberCharacterTaskPermission', avatar }, error);
+                toastr.warning(TASK_SAVE_COPY.characterPermissionUnconfirmed);
+            }), { source: import.meta.url, operation: 'rememberCharacterTaskPermission', avatar });
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -528,7 +541,8 @@ function getPresetTasks() {
 async function savePresetTasks(tasks, { signal, target } = {}) {
     const name = target?.name || PresetTasksStore.currentName();
     if (!name) throw new Error(TASK_SAVE_COPY.presetRequired);
-    const list = Array.isArray(tasks) ? tasks : [];
+    const list = Array.isArray(tasks) ? tasks.map(task => getTaskTriggerTiming(task, 'preset') === PRESET_START_TIMING
+        ? setTaskTriggerTiming(task, PRESET_START_TIMING, 'preset') : task) : [];
     ensurePresetTaskIds(list);
     if (PresetTasksStore.currentName() === name) {
         presetTasksState.name = name;
@@ -538,7 +552,10 @@ async function savePresetTasks(tasks, { signal, target } = {}) {
         const applied = await PresetTasksStore.write(name, list, signal);
         if (applied === false) throw new Error(TASK_SAVE_COPY.presetChanged);
     } catch (error) {
-        if (presetTasksState.name === name && presetTasksState.tasks === list) resetPresetTasksCache();
+        // Host refresh/reentry can cache a clone of the pending list. Invalidate
+        // by preset, then read the store's latest pending or committed definition;
+        // an older failure must not restore its snapshot over a newer save.
+        if (presetTasksState.name === name) resetPresetTasksCache();
         throw error;
     }
     state.lastTasksHash = '';
@@ -556,15 +573,30 @@ const getTaskListByScope = (scope, target) => {
     return getSettings().globalTasks;
 };
 
-async function persistTaskListByScope(scope, tasks, { confirm = false, signal, target } = {}) {
+// Keep the complete global save (including compensation/deletion) in order.
+// Serializing only uploads would let an older rollback undo a newer same-value
+// write. An editor timeout releases its UI, not this queue's storage ownership.
+let globalTaskWriteTail = Promise.resolve();
+async function persistTaskListByScope(scope, tasks, { confirm = false, signal, target, removeGlobalScriptId } = {}) {
     throwIfSignalAborted(signal);
     if (scope === 'character') return await saveCharacterTasks(tasks, { confirm, signal, target });
     if (scope === 'preset') return await savePresetTasks(tasks, { signal, target });
 
+    const snapshot = tasks.map(task => {
+        if (!task) return task;
+        if (!task.id) task.id = uuidv4();
+        return { ...task };
+    });
+    const work = globalTaskWriteTail.then(() => persistGlobalTaskList(snapshot, { confirm, signal, removeGlobalScriptId }));
+    globalTaskWriteTail = work.then(() => {}, () => {});
+    return await waitTaskSave(() => work, signal);
+}
+
+async function persistGlobalTaskList(tasks, { confirm, signal, removeGlobalScriptId }) {
+    throwIfSignalAborted(signal);
     const metaOnly = [];
     for (const task of tasks) {
         if (!task) continue;
-        if (!task.id) task.id = uuidv4();
 
         if (!confirm && Object.prototype.hasOwnProperty.call(task, 'commands')) {
             await TasksStorage.set(task.id, String(task.commands ?? ''));
@@ -575,11 +607,21 @@ async function persistTaskListByScope(scope, tasks, { confirm = false, signal, t
         metaOnly.push(meta);
     }
 
+    const scriptChanges = new Map();
     if (confirm) {
         await waitTaskSave(() => TasksStorage.updateAndSave(draft => {
             throwIfSignalAborted(signal);
             for (const task of tasks) {
-                if (task && Object.prototype.hasOwnProperty.call(task, 'commands')) draft[task.id] = String(task.commands ?? '');
+                if (!task || !Object.prototype.hasOwnProperty.call(task, 'commands')) continue;
+                const commands = String(task.commands ?? '');
+                // Snapshot inside the storage queue, immediately before the write.
+                // Keep absence distinct from an empty script for new-task rollback.
+                if (!scriptChanges.has(task.id)) scriptChanges.set(task.id, {
+                    existed: Object.prototype.hasOwnProperty.call(draft, task.id),
+                    previous: draft[task.id], commands,
+                });
+                else scriptChanges.get(task.id).commands = commands;
+                draft[task.id] = commands;
             }
         }, { silent: false, signal }), signal);
     }
@@ -589,9 +631,37 @@ async function persistTaskListByScope(scope, tasks, { confirm = false, signal, t
         try { await confirmTaskSettingsSave({ globalTasks: metaOnly }, signal); }
         catch (error) {
             if (getSettings().globalTasks === metaOnly) getSettings().globalTasks = previous;
+            if (scriptChanges.size) {
+                try {
+                    // Compensation needs its own deadline: the editor's signal may
+                    // already be aborted. Patch only our values, not the whole file,
+                    // so unrelated or newer script writes survive the rollback.
+                    await runTaskSave(rollbackSignal => waitTaskSave(() => TasksStorage.updateAndSave(draft => {
+                        throwIfSignalAborted(rollbackSignal);
+                        for (const [id, change] of scriptChanges) {
+                            if (draft[id] !== change.commands) continue;
+                            if (change.existed) draft[id] = change.previous;
+                            else delete draft[id];
+                        }
+                    }, { silent: false, signal: rollbackSignal }), rollbackSignal));
+                } catch (rollbackError) {
+                    // The editor deadline may already have returned control. Its
+                    // Promise.race cannot surface a later compensation failure.
+                    if (signal?.aborted) toastr.error(TASK_SAVE_COPY.scriptRollbackFailed);
+                    throw new AggregateError([error, rollbackError], TASK_SAVE_COPY.scriptRollbackFailed);
+                }
+            }
             throw error;
         }
     } else saveSettingsDebounced();
+    if (removeGlobalScriptId) {
+        if (confirm) {
+            await waitTaskSave(() => TasksStorage.updateAndSave(draft => {
+                throwIfSignalAborted(signal);
+                delete draft[removeGlobalScriptId];
+            }, { silent: false, signal }), signal);
+        } else await TasksStorage.delete(removeGlobalScriptId);
+    }
 }
 
 async function removeTaskByScope(scope, taskId, fallbackIndex = -1, { confirm = false, signal, target } = {}) {
@@ -601,18 +671,11 @@ async function removeTaskByScope(scope, taskId, fallbackIndex = -1, { confirm = 
     if (!confirm && (idx < 0 || idx >= list.length)) return;
     
     const task = list[idx];
-    if (!confirm && scope === 'global' && task?.id) {
-        await TasksStorage.delete(task.id);
-    }
-    
     if (idx >= 0 && idx < list.length) list.splice(idx, 1);
-    await persistTaskListByScope(scope, list, { confirm, signal, target });
-    if (confirm && scope === 'global' && taskId) {
-        await waitTaskSave(() => TasksStorage.updateAndSave(draft => {
-            throwIfSignalAborted(signal);
-            delete draft[taskId];
-        }, { silent: false, signal }), signal);
-    }
+    await persistTaskListByScope(scope, list, {
+        confirm, signal, target,
+        removeGlobalScriptId: scope === 'global' ? task?.id || taskId : undefined,
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1244,6 +1307,7 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
 
     const tasksToExecute = combined.filter(task => {
         if (task.disabled) return false;
+        if (isTaskMutationPending(task.__runtime?.key || task.name)) return false;
         if (!isTaskRuntimeActive(task.__runtime)) return false;
         if (isTaskInCooldown(task.__runtime?.key || task.name, n)) return false;
         const tt = task.triggerTiming || 'after_ai';
@@ -1265,6 +1329,7 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
     try {
         for (const task of tasksToExecute) {
             if (!isTaskRuntimeActive(task.__runtime)) continue;
+            if (isTaskMutationPending(task.__runtime?.key || task.name)) continue;
             state.taskLastExecutionTime.set(task.__runtime?.key || task.name, n);
             if (task.__dynamic) {
                 const callbackEntry = state.dynamicCallbacks.get(task.name);
@@ -1402,11 +1467,11 @@ function requestPresetTaskStartup() {
         activation.pending = false;
         presetTaskStartupRunning = true;
         try {
-            const names = getPresetTasks().filter(task => task.triggerTiming === PRESET_START_TIMING).map(task => task.name);
+            const names = getPresetTasks().filter(task => getTaskTriggerTiming(task, 'preset') === PRESET_START_TIMING).map(task => task.name);
             for (const name of names) {
                 if (!isTaskRuntimeActive({ preset: activation.preset })) break;
                 // An earlier startup may await. Read the next task only when it can run.
-                const task = getPresetTasks().find(item => item.name === name && item.triggerTiming === PRESET_START_TIMING && !item.disabled);
+                const task = getPresetTasks().find(item => item.name === name && getTaskTriggerTiming(item, 'preset') === PRESET_START_TIMING && !item.disabled);
                 if (!task) continue;
                 const runtime = captureTaskRuntime(task, 'preset');
                 if (__taskRunMap.get(runtime.key) && !__taskRunMap.get(runtime.key).cleaned) continue;
@@ -1469,7 +1534,7 @@ function createTaskItemSimple(task, scope = 'global') {
     }[task.triggerTiming] || 'AI后';
 
     let displayName;
-    if (taskType === 'preset' && task.triggerTiming === PRESET_START_TIMING) {
+    if (taskType === 'preset' && getTaskTriggerTiming(task, 'preset') === PRESET_START_TIMING) {
         displayName = `${task.name} (${PRESET_START_LABEL})`;
     } else if (task.interval === 0) {
         displayName = `${task.name} (手动触发)`;
@@ -1722,7 +1787,8 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
     presetStartOption.value = PRESET_START_TIMING;
     presetStartOption.textContent = PRESET_START_LABEL;
     editorTemplate.find('.task_trigger_timing_edit').append(presetStartOption);
-    editorTemplate.find('.task_trigger_timing_edit').val(task?.triggerTiming === 'character_init' ? 'initialization' : (task?.triggerTiming || 'after_ai'));
+    const initialTiming = getTaskTriggerTiming(task, initialScope) || 'after_ai';
+    editorTemplate.find('.task_trigger_timing_edit').val(initialTiming === 'character_init' ? 'initialization' : initialTiming);
     editorTemplate.find('.task_type_edit').val(initialScope);
     editorTemplate.find('.task_enabled_edit').prop('checked', !task?.disabled);
     editorTemplate.find('.task_button_activated_edit').prop('checked', task?.buttonActivated || false);
@@ -1749,13 +1815,14 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
         presetStartOption.hidden = !isPreset;
         presetStartOption.disabled = !isPreset;
         if (!isPreset && editorTemplate.find('.task_trigger_timing_edit').val() === PRESET_START_TIMING) {
-            editorTemplate.find('.task_trigger_timing_edit').val('after_ai');
+            editorTemplate.find('.task_trigger_timing_edit').val('chat_changed');
         }
         const interval = parseInt(editorTemplate.find('.task_interval_edit').val()) || 0;
         const triggerTiming = editorTemplate.find('.task_trigger_timing_edit').val();
         const intervalControl = editorTemplate.find('.task_interval_edit');
         const floorTypeControl = editorTemplate.find('.task_floor_type_edit');
         const triggerTimingControl = editorTemplate.find('.task_trigger_timing_edit');
+        editorTemplate.find('.task_preset_start_help').prop('hidden', !isPreset || triggerTiming !== PRESET_START_TIMING);
         editorTemplate.find('.task_interval_edit + small, .task_floor_type_edit + small')
             .css('display', isPreset && triggerTiming === PRESET_START_TIMING ? 'none' : '');
 
@@ -1800,6 +1867,7 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
     // Only this open editor owns its migration receipts. Include attempted writes:
     // a failed confirmation can still mean the server accepted the destination.
     const edit = { task, isEdit, scope: initialScope,
+        runtime: task ? captureTaskRuntime(task, initialScope) : null,
         locations: new Map(isEdit ? [[initialScope, initialTarget]] : []),
     };
     const onClosing = createTaskEditorSaveHandler(editorTemplate[0], async signal => {
@@ -1831,7 +1899,7 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
             createdAt: base.createdAt || new Date().toISOString(),
         };
         const targetScope = String(editorTemplate.find('.task_type_edit').val() || initialScope);
-        await saveTaskFromEditor(newTask, targetScope, edit, signal);
+        await saveTaskFromEditor(setTaskTriggerTiming(newTask, newTask.triggerTiming, targetScope), targetScope, edit, signal);
     }, POPUP_RESULT.AFFIRMATIVE);
     observeBackgroundTask(callGenericPopup(editorTemplate, POPUP_TYPE.CONFIRM, '', {
         okButton: TASK_SAVE_COPY.save, onClosing,
@@ -1860,7 +1928,7 @@ async function saveTaskFromEditor(task, scope, edit, signal) {
 
     const previousTask = isEditingExistingTask ? edit.task : null;
     const previousName = previousTask?.name;
-    const previousRuntime = previousTask ? captureTaskRuntime(previousTask, edit.scope) : null;
+    const previousRuntime = edit.runtime;
     const shouldResetPreviousRun = !!previousName && (
         normalizeTaskKey(previousName) !== normalizeTaskKey(task.name)
         || String(previousTask?.commands ?? '') !== String(task.commands ?? '')
@@ -1887,6 +1955,7 @@ async function saveTaskFromEditor(task, scope, edit, signal) {
 
     edit.locations.set(targetScope, target);
     await persistTaskListByScope(targetScope, list, { confirm: true, signal, target });
+    markTaskSaveConfirmed(signal);
     // Keep the source until the destination has acknowledged the new definition.
     // Retry every recorded old location, even if its local list is already empty.
     for (const [oldScope, oldTarget] of edit.locations) {
@@ -1912,6 +1981,7 @@ async function deleteTask(index, scope) {
     const task = list[index];
     if (!task) return;
     const runtime = captureTaskRuntime(task, scope);
+    const target = scope === 'preset' ? captureTaskSaveTarget(scope) : undefined;
 
     try {
         const styleId = 'temp-dialog-style';
@@ -1925,7 +1995,7 @@ async function deleteTask(index, scope) {
         document.getElementById(styleId)?.remove();
         if (result) {
             resetTaskRun(runtime.key);
-            await removeTaskByScope(scope, task.id, index);
+            await removeTaskByScope(scope, task.id, index, { target });
             if (state.currentEditingId === task.id || (state.currentEditingScope === scope && state.currentEditingIndex === index)) {
                 resetTaskEditorState();
             }
@@ -2129,8 +2199,7 @@ async function importGlobalTasks(file) {
         }
 
         const VALID_FLOOR = ['all', 'user', 'llm'];
-        const VALID_TIMING = ['after_ai', 'before_user', 'any_message', 'initialization', 'character_init', 'plugin_init', 'only_this_floor', 'chat_changed',
-            ...(fileType === 'preset' ? [PRESET_START_TIMING] : [])];
+        const VALID_TIMING = ['after_ai', 'before_user', 'any_message', 'initialization', 'character_init', 'plugin_init', 'only_this_floor', 'chat_changed'];
         const deepClone = (o) => JSON.parse(JSON.stringify(o || {}));
         
         const tasksToImport = incomingTasks
@@ -2292,10 +2361,12 @@ function cleanup() {
             id: t.id, name: t.name, interval: t.interval,
             floorType: t.floorType, timing: t.triggerTiming, disabled: !!t.disabled
         });
+        const mapPreset = task => ({ ...map(task), timing: getTaskTriggerTiming(task, 'preset') === PRESET_START_TIMING
+            ? PRESET_START_TIMING : task.triggerTiming });
         if (scope === 'global') return g.map(map);
         if (scope === 'character') return c.map(map);
-        if (scope === 'preset') return p.map(map);
-        return { global: g.map(map), character: c.map(map), preset: p.map(map) };
+        if (scope === 'preset') return p.map(mapPreset);
+        return { global: g.map(map), character: c.map(map), preset: p.map(mapPreset) };
     }
 
     function find(name, scope = 'all') {
@@ -2320,28 +2391,43 @@ function cleanup() {
 
     async function setCommands(name, commands, opts = {}) {
         const { mode = 'replace', scope = 'all' } = opts;
-        const hit = find(name, scope);
-        if (!hit) throw new Error(`找不到任务: ${name}`);
+        // Do not build an API edit from an editor's unconfirmed metadata. Resolve
+        // the task again after its global transaction has committed or rolled back.
+        const initialHit = find(name, scope);
+        const initialKey = initialHit?.scope === 'global' ? captureTaskRuntime(initialHit.task, initialHit.scope).key : null;
+        const releaseMutation = initialKey ? holdTaskMutation(initialKey) : null;
+        try {
+            if (initialKey) {
+                // Revocation is synchronous even while an unrelated save owns the
+                // persistence queue. Recheck below in case another run starts meanwhile.
+                resetTaskRun(initialKey);
+                await globalTaskWriteTail;
+            }
+            const hit = find(name, scope);
+            if (!hit) throw new Error(`找不到任务: ${name}`);
 
-        const body = String(commands ?? '');
-        let newCommands;
-        if (mode === 'append' || mode === 'prepend') {
-            const old = hit.scope === 'global'
-                ? await readGlobalTaskCommands(hit.task)
-                : String(hit.task.commands || '');
-            newCommands = mode === 'append'
-                ? (old ? `${old}\n${body}` : body)
-                : (old ? `${body}\n${old}` : body);
-        } else {
-            newCommands = body;
+            const body = String(commands ?? '');
+            let newCommands;
+            if (mode === 'append' || mode === 'prepend') {
+                const old = hit.scope === 'global'
+                    ? await readGlobalTaskCommands(hit.task)
+                    : String(hit.task.commands || '');
+                newCommands = mode === 'append'
+                    ? (old ? `${old}\n${body}` : body)
+                    : (old ? `${body}\n${old}` : body);
+            } else {
+                newCommands = body;
+            }
+
+            const previousKey = captureTaskRuntime(hit.task, hit.scope).key;
+            hit.task.commands = newCommands;
+            resetTaskRun(previousKey);
+            await persistTaskListByScope(hit.scope, hit.list);
+            refreshTaskLists();
+            return { ok: true, scope: hit.scope, name: hit.task.name };
+        } finally {
+            releaseMutation?.();
         }
-
-        const previousKey = captureTaskRuntime(hit.task, hit.scope).key;
-        hit.task.commands = newCommands;
-        resetTaskRun(previousKey);
-        await persistTaskListByScope(hit.scope, hit.list);
-        refreshTaskLists();
-        return { ok: true, scope: hit.scope, name: hit.task.name };
     }
 
     async function setJS(name, jsCode, opts = {}) {
@@ -2350,25 +2436,42 @@ function cleanup() {
     }
 
     async function setProps(name, props, scope = 'all') {
-        const hit = find(name, scope);
-        if (!hit) throw new Error(`找不到任务: ${name}`);
         const patch = props || {};
-        const previousName = hit.task.name;
-        const previousKey = captureTaskRuntime(hit.task, hit.scope).key;
-        const wasDisabled = !!hit.task.disabled;
-        const shouldResetPreviousRun = (
+        const shouldReset = task => (
             (Object.prototype.hasOwnProperty.call(patch, 'name')
-                && normalizeTaskKey(previousName) !== normalizeTaskKey(patch.name))
+                && normalizeTaskKey(task.name) !== normalizeTaskKey(patch.name))
             || Object.prototype.hasOwnProperty.call(patch, 'commands')
-            || (!wasDisabled
+            || (!task.disabled
                 && Object.prototype.hasOwnProperty.call(patch, 'disabled')
                 && !!patch.disabled)
         );
-        Object.assign(hit.task, patch);
-        if (shouldResetPreviousRun) resetTaskRun(previousKey);
-        await persistTaskListByScope(hit.scope, hit.list);
-        refreshTaskLists();
-        return { ok: true, scope: hit.scope, name: hit.task.name };
+        const initialHit = find(name, scope);
+        const initialKey = initialHit?.scope === 'global' && shouldReset(initialHit.task)
+            ? captureTaskRuntime(initialHit.task, initialHit.scope).key : null;
+        const releaseMutations = initialKey ? [holdTaskMutation(initialKey)] : [];
+        try {
+            if (initialHit?.scope === 'global') {
+                if (initialKey) resetTaskRun(initialKey);
+                await globalTaskWriteTail;
+            }
+            const hit = find(name, scope);
+            if (!hit) throw new Error(`找不到任务: ${name}`);
+            const previousKey = captureTaskRuntime(hit.task, hit.scope).key;
+            const shouldResetPreviousRun = shouldReset(hit.task);
+            if (hit.scope === 'global' && shouldResetPreviousRun) {
+                const nextKey = captureTaskRuntime({ ...hit.task, ...patch }, hit.scope).key;
+                if (nextKey !== initialKey) releaseMutations.push(holdTaskMutation(nextKey));
+            }
+            const updated = { ...hit.task, ...patch };
+            Object.assign(hit.task, Object.prototype.hasOwnProperty.call(patch, 'triggerTiming')
+                ? setTaskTriggerTiming(updated, patch.triggerTiming, hit.scope) : updated);
+            if (shouldResetPreviousRun) resetTaskRun(previousKey);
+            await persistTaskListByScope(hit.scope, hit.list);
+            refreshTaskLists();
+            return { ok: true, scope: hit.scope, name: hit.task.name };
+        } finally {
+            for (const release of releaseMutations) release();
+        }
     }
 
     async function exec(name) {
