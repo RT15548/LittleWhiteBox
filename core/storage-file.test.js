@@ -55,6 +55,54 @@ function createHarness(initial, onUpload = async () => response(200)) {
     return { storage, uploads, debounceController };
 }
 
+// Acceptance: cancelling an explicit task save must cancel its upload and never
+// publish a late response into the shared cache (lost scripts / stale retry).
+test('cancelled atomic upload cannot publish a late result and a later edit still saves', async () => {
+    const gate = deferred(), started = deferred();
+    const controller = new AbortController();
+    let uploadSignal;
+    let uploads = 0;
+    const storage = new StorageFile('cancelled-task.json', {
+        fetch: async (url, options) => {
+            if (url.startsWith('/user/files/')) return response(200, '{"script":"original"}');
+            if (++uploads === 1) {
+                uploadSignal = options.signal;
+                started.resolve();
+                return gate.promise;
+            }
+            return response(200);
+        },
+    });
+    const pending = storage.updateAndSave(draft => { draft.script = 'late'; }, { silent: false, signal: controller.signal });
+    const rejected = assert.rejects(pending);
+    await started.promise;
+    controller.abort();
+    assert.equal(uploadSignal.aborted, true);
+    gate.resolve(response(200));
+    await rejected;
+    assert.equal(await storage.getStrict('script'), 'original');
+    await storage.updateAndSave(draft => { draft.script = 'retry'; }, { silent: false });
+    assert.equal(await storage.getStrict('script'), 'retry');
+});
+
+// Acceptance: a timed-out save queued behind other work must not send later
+// or modify another caller's stored scripts (lost scripts).
+test('an aborted queued update never invokes its updater or uploads', async () => {
+    const gate = deferred(), started = deferred();
+    const { storage, uploads } = createHarness({ first: 0 }, async () => { started.resolve(); await gate.promise; return response(200); });
+    const first = storage.updateAndSave(draft => { draft.first = 1; }, { silent: false });
+    await started.promise;
+    const controller = new AbortController();
+    let updated = false;
+    const queued = storage.updateAndSave(() => { updated = true; }, { silent: false, signal: controller.signal });
+    const rejected = assert.rejects(queued);
+    controller.abort(); gate.resolve();
+    await first; await rejected;
+    assert.equal(updated, false);
+    assert.equal(uploads.length, 1);
+    assert.deepEqual(await storage.load({ strict: true }), { first: 1 });
+});
+
 test('strict load accepts 404 as an empty file', async () => {
     const storage = new StorageFile('missing.json', {
         fetch: async () => response(404),

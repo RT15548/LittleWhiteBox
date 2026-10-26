@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
-import { CHECK_CONSEQUENCE_FIELDS, checkConsequence } from '../apps/dice/domain/check-consequences.ts';
+import { CHECK_CONSEQUENCE_FIELDS } from '../apps/dice/domain/check-consequences.ts';
 import { emptyCoc7Draft } from '../apps/dice/domain/coc7-creation.ts';
 import { DICE_RECORDS_SCHEMA_VERSION, parseDiceRecords } from '../apps/dice/domain/check-records.ts';
 import { rollCoc7 } from '../apps/dice/domain/coc7.ts';
@@ -20,7 +20,7 @@ import { savedV1, savedV3 } from './fixtures/dice-v3.js';
 // - Both executable examples retain separate consequences through adjudication (protocol mismatch).
 // - Active swipe save/reload/continuation and rerolls retain both branches without changing odds (data loss).
 // - Invalid supplied branches stop before rolling; omission never fabricates a consequence (broken chat).
-// - Cards select the actual verdict, hide outcomes while rolling, and update after rerolls (false result).
+// - Cards retain both branches through rolling and rerolls without presenting a pending verdict (misleading result).
 // - Model text stays literal in cards and outgoing data (HTML/macro injection).
 // - Supported saved formats preserve context, results and paid reroll receipts without guessing branches (data/money loss).
 const consequences = { success: '避开守卫进入庭院。', failure: '弄出声响，引来巡查。' };
@@ -82,7 +82,6 @@ for (const rule of ['d20', 'coc7']) {
         const { success, failure, ...rest } = enriched.request;
         assert.deepEqual({ success, failure }, consequences);
         assert.deepEqual({ ...enriched, request: rest }, baseline);
-        assert.equal(checkConsequence(baseline), undefined);
         for (const [key, spec] of Object.entries(CHECK_CONSEQUENCE_FIELDS)) {
             for (const value of [null, '', '  ', 42, false, [], {}, 'x'.repeat(spec.maxLength + 1)]) {
                 let draws = 0;
@@ -120,31 +119,40 @@ for (const rule of ['d20', 'coc7']) {
         assert.throws(() => reload(invalid), TypeError);
     });
 
-    test(`${rule}: card rerolls replace the selected branch only after reveal`, () => withDocument(() => {
+    test(`${rule}: card rerolls retain both branches and reveal only the verdict`, () => withDocument(() => {
         const original = reload(prepare({ ...request, ...consequences }, { rule }).records).checks[0];
         let draw = 0;
         const success = rerollCheck(original, rule === 'd20' ? () => .95 : () => draw++ === 0 ? .1 : 0);
         const failure = rerollCheck(original, () => .8);
         const failed = rule === 'd20' ? { ...failure, ...resolveActionCheck(failure.dc, 1) } : failure;
         const card = createCheckCard(success, true);
-        assert.equal(card.element.querySelector('.xb-dice-consequence'), null);
+        const assertBranches = () => {
+            assert.deepEqual([...card.element.querySelectorAll('.xb-dice-consequence')].map(node => node.textContent),
+                [consequences.success, consequences.failure]);
+            assert.equal(Boolean(card.element.querySelector('.xb-dice-copy').hidden), false);
+        };
+        assertBranches();
+        assert.equal(card.element.dataset.outcome, undefined);
         card.settle();
-        assert.equal(card.element.querySelector('.xb-dice-consequence').textContent, consequences.success);
+        assertBranches();
+        assert.equal(rule === 'coc7' ? card.element.dataset.verdict : card.element.dataset.outcome,
+            rule === 'coc7' ? 'achieved' : 'critical_success');
         card.update(failed, true);
-        assert.equal(card.element.querySelector('.xb-dice-consequence'), null);
+        assertBranches();
+        assert.equal(card.element.dataset.outcome, undefined);
         card.settle();
-        assert.equal(card.element.querySelector('.xb-dice-consequence').textContent, consequences.failure);
-        assert.equal(card.element.textContent.includes(consequences.success), false);
+        assertBranches();
+        assert.equal(rule === 'coc7' ? card.element.dataset.verdict : card.element.dataset.outcome,
+            rule === 'coc7' ? 'not_achieved' : 'critical_failure');
         card.update(success, false);
-        assert.equal(card.element.querySelector('.xb-dice-consequence').textContent, consequences.success);
-        assert.equal(card.element.textContent.includes(consequences.failure), false);
+        assertBranches();
     }));
 
-    test(`${rule}: cards and continuation keep model text literal and omit unavailable consequences`, () => withDocument(() => {
+    test(`${rule}: cards show both available consequences and keep model text literal`, () => withDocument(() => {
         const literal = '<img src=x onerror="alert(1)"> {{getvar::secret}}\n后果。';
         const record = reload(prepare({ ...request, success: literal, failure: literal }, { rule }).records).checks[0];
         const card = createCheckCard(record, false);
-        assert.equal(card.element.querySelector('.xb-dice-consequence').textContent, literal);
+        assert.deepEqual([...card.element.querySelectorAll('.xb-dice-consequence')].map(node => node.textContent), [literal, literal]);
         assert.equal(card.element.querySelector('img'), null);
         const serialized = serializeActionCheckResults([record]);
         assert.equal(serialized.includes('{{'), false);
@@ -152,9 +160,11 @@ for (const rule of ['d20', 'coc7']) {
         assert.equal(JSON.parse(serialized)[0].failure, literal);
         for (const partial of [{}, { success: consequences.success }]) {
             const failed = reload(prepare({ ...request, ...partial }, { rule }).records).checks[0];
-            assert.equal(createCheckCard(failed, false).element.querySelector('.xb-dice-consequence'), null);
+            assert.equal(createCheckCard(failed, false).element.querySelectorAll('.xb-dice-consequence').length,
+                partial.success ? 1 : 0);
         }
     }));
+
 }
 
 test('D100 uses achievement, even when a rolled success degree is below the requested difficulty', () => withDocument(() => {
@@ -171,8 +181,8 @@ test('D100 uses achievement, even when a rolled success degree is below the requ
         const result = rollCoc7(value, difficulty, () => digits[index++]);
         assert.equal(result.level, level); assert.equal(result.verdict, verdict);
         const card = createCheckCard({ ...base, result }, false);
-        assert.equal(card.element.querySelector('.xb-dice-consequence').textContent,
-            verdict === 'achieved' ? consequences.success : consequences.failure);
+        assert.deepEqual([...card.element.querySelectorAll('.xb-dice-consequence')].map(node => node.textContent),
+            [consequences.success, consequences.failure]);
     }
 }));
 
@@ -185,7 +195,6 @@ test('release-produced V3 records preserve background and paid overrides without
         assert.equal(record.context, before.checks[0].request.stakes);
         assert.equal(record.basis, fixture.override.basis);
         assert.equal(Object.hasOwn(record.request, 'stakes'), false);
-        assert.equal(checkConsequence(record), undefined);
         assert.deepEqual(reload(records), records);
         assert.deepEqual(before, fixture.records);
         const overridden = applyResultOverride(record, fixture.override);

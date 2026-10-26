@@ -30,7 +30,11 @@ export const DICE_CARD_CSS = `
 .xb-dice-card .xb-dice-identity { display: block; margin-bottom: .45em; font-size: .85em; font-weight: 650; }
 .xb-dice-card .xb-dice-copy { display: block; margin-top: .65em; padding-top: .7em; border-top: 1px solid color-mix(in srgb, currentColor 11%, transparent); }
 .xb-dice-card .xb-dice-action { display: block; font-size: .92em; font-weight: 600; }
-.xb-dice-card .xb-dice-consequence { display: block; margin-top: .35em; font-size: .88em; white-space: pre-wrap; }
+.xb-dice-card .xb-dice-consequence-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .65em; margin-top: .5em; padding-inline-start: .6em; border-inline-start: 2px solid transparent; font-size: .88em; }
+.xb-dice-card .xb-dice-consequence-label { font-weight: 650; }
+.xb-dice-card .xb-dice-consequence { white-space: pre-wrap; }
+.xb-dice-card:is([data-rule="d20"][data-outcome="success"], [data-rule="d20"][data-outcome="critical_success"], [data-verdict="achieved"]) [data-branch="success"],
+.xb-dice-card:is([data-rule="d20"][data-outcome="failure"], [data-rule="d20"][data-outcome="critical_failure"], [data-verdict="not_achieved"]) [data-branch="failure"] { border-inline-start-color: var(--xb-dice-tone); background: color-mix(in srgb, var(--xb-dice-tone) 8%, transparent); }
 .xb-dice-card details.xb-dice-context { margin: .45em 0 0; padding: 0; border: 0; background: none; font-size: .8em; }
 .xb-dice-card .xb-dice-context summary { cursor: pointer; min-height: 36px; display: list-item; align-content: center; width: fit-content; opacity: .7; }
 .xb-dice-card .xb-dice-context-text { white-space: pre-wrap; }
@@ -76,7 +80,7 @@ export const DICE_CARD_CSS = `
     .xb-dice-pending::before { animation: xb-dice-pending-spin .9s linear infinite; }
     .xb-dice-card .xb-dice-die { transition: transform .28s ease-out; }
     .xb-dice-card[data-state="rolling"] .xb-dice-die { transform: scale(1.12); }
-    .xb-dice-card[data-revealed="true"] :is(.xb-dice-verdict, .xb-dice-copy) { animation: xb-dice-unveil .28s ease-out both; }
+    .xb-dice-card[data-revealed="true"] .xb-dice-verdict { animation: xb-dice-unveil .28s ease-out both; }
 }
 @keyframes xb-dice-pending-spin { to { transform: rotate(360deg); } }
 @keyframes xb-dice-unveil { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

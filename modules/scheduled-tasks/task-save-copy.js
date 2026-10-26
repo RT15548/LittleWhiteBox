@@ -1,0 +1,15 @@
+export const TASK_SAVE_COPY = Object.freeze({
+    save: '保存',
+    saving: '保存中…',
+    failed: '保存失败',
+    retry: '请检查连接后重试，编辑内容已保留。',
+    nameRequired: '请输入任务名称。',
+    commandsRequired: '请输入脚本命令。',
+    characterRequired: '请先打开要保存任务的角色卡。',
+    presetRequired: '请先选择一个 OpenAI 预设。',
+    presetChanged: '预设已更新或删除，本次任务修改未保存。',
+    settingsUnconfirmed: '未确认任务设置已保存到服务器，请重试。',
+    characterUnconfirmed: '未确认角色任务已保存到服务器，请重试。',
+    requestFailed: status => `任务保存请求失败（HTTP ${status}）。`,
+    timeout: seconds => `保存请求超过 ${seconds} 秒未完成，请检查连接后重试。`,
+});

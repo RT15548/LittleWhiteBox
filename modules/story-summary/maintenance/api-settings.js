@@ -3,6 +3,7 @@ import { createAgentSettingsPanel } from '../../agent-core/ui/settings-panel.js'
 import { buildAgentSettingsPanelMarkup, syncAgentSettingsPanelFeedback } from '../../agent-core/ui/settings-markup.js';
 import { createIdentifier } from '../../../shared/common/identifier.js';
 import { WORKSPACE_COPY } from '../workspace-copy.js';
+import { createSaveFeedback } from '../../agent-core/ui/save-feedback.js';
 
 export function createSummaryAgentSettings(root, send, setHtml) {
     const pending = new Map();
@@ -11,6 +12,7 @@ export function createSummaryAgentSettings(root, send, setHtml) {
         pullStateByProvider: {}, modelOptionsByProvider: {}, inlineToastText: '' };
     let mounted = false;
     let loading = false;
+    const saveFeedback = createSaveFeedback(value => { state.configSave = value; render(); });
     const status = document.createElement('p');
     status.setAttribute('role', 'status');
     const retry = document.createElement('button');
@@ -40,7 +42,7 @@ export function createSummaryAgentSettings(root, send, setHtml) {
         showToast: message => { state.inlineToastText = message; render(); },
         pullModels: payload => request('models', payload),
         saveConfig: async ({ requestId, payload }) => {
-            state.configSave = { status: 'saving', requestId }; render();
+            saveFeedback.set({ status: 'saving', requestId });
             try {
                 const result = await request('save', payload);
                 if (!result.ok) throw new Error(result.error);
@@ -48,15 +50,17 @@ export function createSummaryAgentSettings(root, send, setHtml) {
                     state.config = normalizeAgentConfig(result.config); state.configDraft = null;
                     state.configDirty = false; state.configFormSyncPending = true;
                 }
-                state.configSave = { status: 'success', requestId }; render();
+                saveFeedback.set({ status: 'success', requestId });
                 return result;
             } catch (error) {
                 panel.completePresetSave(requestId, { ok: false });
-                state.configSave = { status: 'error', requestId, error: error.message }; render();
+                saveFeedback.set({ status: 'error', requestId, error: error.message });
                 return { ok: false };
             }
         },
     });
+    form.addEventListener('input', () => saveFeedback.resetSuccess());
+    form.addEventListener('change', () => saveFeedback.resetSuccess());
     async function open() {
         if (mounted || loading) return;
         loading = true;

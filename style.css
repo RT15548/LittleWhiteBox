@@ -86,6 +86,16 @@ pre:has(+ .xiaobaix-iframe) {
     font-family: 'Courier New', monospace;
 }
 
+.task-save-error {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--warning, #e9a45c);
+    background: rgb(233 164 92 / 10%);
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+    text-align: left;
+}
+
 input.disable_task {
     display: none !important;
 }

@@ -9,6 +9,8 @@ import { parseHTML } from 'linkedom';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 
 // Use the real supported host controller, not a browser AbortController substitute.
 const controllerUrl = process.env.LWB_HOST_ROOT
@@ -16,6 +18,36 @@ const controllerUrl = process.env.LWB_HOST_ROOT
     : new URL('../../../../../slash-commands/SlashCommandAbortController.js', import.meta.url);
 // eslint-disable-next-line no-unsanitized/method -- test runner selects a trusted local host checkout, not application input.
 const { SlashCommandAbortController } = await import(controllerUrl.href);
+// Exercise the host's awaited import event contract, not Node's synchronous emit.
+const hostEventCode = transformSync(fs.readFileSync(new URL('../../lib/eventemitter.js', controllerUrl), 'utf8'), { format: 'cjs' }).code;
+const hostPresetEndpointUrl = new URL('../../../src/endpoints/presets.js', controllerUrl);
+const hostPresetEndpointCode = transformSync(fs.readFileSync(hostPresetEndpointUrl, 'utf8'), { format: 'cjs' }).code;
+const hostRequire = createRequire(hostPresetEndpointUrl);
+
+function presetFile(t) {
+    const directory = fs.mkdtempSync(path.join(tmpdir(), 'lwb-preset-import-'));
+    const file = path.join(directory, 'A.json');
+    t.after(() => { if (fs.existsSync(file)) fs.unlinkSync(file); fs.rmdirSync(directory); });
+    const routes = new Map();
+    // Run the actual host save handler. Unrelated restore/content routes are not called.
+    vm.runInNewContext(hostPresetEndpointCode, {
+        module: { exports: {} },
+        require(name) {
+            if (name === 'express') return { Router: () => ({ post: (url, handler) => routes.set(url, handler) }) };
+            if (name === './content-manager.js') return {};
+            return hostRequire(name);
+        },
+    });
+    return {
+        write(preset) {
+            return routes.get('/save')({ body: { apiId: 'openai', name: 'A', preset }, user: { directories: { openAI_Settings: directory } } }, {
+                send: value => value,
+                sendStatus: status => { throw new Error(`Preset write failed: ${status}`); },
+            });
+        },
+        read: () => JSON.parse(fs.readFileSync(file, 'utf8')),
+    };
+}
 
 // Acceptance contracts (cost: stale interception / wrong prompts / blocked chat):
 // - Leaving a preset releases its managed script resources, not same-name global work.
@@ -36,11 +68,22 @@ const { SlashCommandAbortController } = await import(controllerUrl.href);
 // - Waiting for script storage or executing empty input does not lock unrelated tasks (blocked chat).
 // - After asynchronous global reads, use current preset task configuration only within the original visit (deleted/disabled or obsolete scripts running).
 // - Saving an existing task preserves the editor text exactly, including empty content and whitespace; reopening/exporting must match and the old instance must stop (lost edits / stale scripts / wrong prompts).
+// - Ordered preset saves publish only task fields; superseded saves cannot restore imported/deleted definitions or revert live prompt switches (lost edits).
+// - Opted-in preset entry runs once after host/module readiness, including import and return; existing timings never gain new triggers (unexpected script execution).
+// - Pending preset entry survives existing work/cleanup but is cancelled by exit/reset; it reads current task definitions when runnable (stale scripts / blocked chat).
+// - Host import waits for earlier queued task writes before writing its file; a failed import does not discard earlier edits (lost preset data).
+// - While a task edit is saving, host apply notifications and preset return read that edit, not the old file (deleted/disabled scripts running).
+// - All three editors wait for acknowledged persistence before closing; errors preserve text and retries do not duplicate tasks (lost edits).
+// - Moving a task saves its destination before removing its source; a failed destination leaves the original intact (lost tasks).
+// - Failed migration retries, including changing the target back, confirm every old location is removed (duplicate/stale tasks).
+// - A five-second deadline restores editor controls; late completions cannot publish or proceed with source deletion (lost edits/tasks).
+// - Ordinary preset edits preserve queued task edits and their own fields; only import/delete supersede a batch (lost edits).
+// - Failed character writes leave data/json_data untouched; successful edits publish the same task field to both (lost edits).
 const compile = (file, extra = '') => transformSync(fs.readFileSync(new URL(file, import.meta.url), 'utf8') + extra, {
     format: 'cjs', target: 'es2022', define: { 'import.meta.url': JSON.stringify(file) },
 }).code;
 // Expose private entry points to the harness without replacing their implementations.
-const runtimeCode = compile('./scheduled-tasks.js', '\nexport { checkAndExecuteTasks, state, __taskRunMap, __taskExecutionMap, deleteTask, showTaskEditor, exportSingleTask, onMessageReceived };');
+const runtimeCode = compile('./scheduled-tasks.js', '\nexport { checkAndExecuteTasks, state, __taskRunMap, __taskExecutionMap, deleteTask, showTaskEditor, exportSingleTask, onMessageReceived, refreshPresetTasks, beginPresetTaskInitialization, finishPresetTaskInitialization, PresetTasksStore };');
 const eventCode = compile('./preset-task-events.js');
 const slashCode = compile('../../core/slash-command.js');
 const deferred = () => {
@@ -56,7 +99,7 @@ function harness(t) {
     const win = new EventTarget();
     Object.assign(win, { document, probes: {}, starts: {}, stops: {}, signals: {}, fetch: () => 'original' });
     const emitter = new EventEmitter();
-    const event_types = Object.fromEntries(['OAI_PRESET_CHANGED_AFTER', 'PRESET_CHANGED', 'MAIN_API_CHANGED'].map(key => [key, key]));
+    const event_types = Object.fromEntries(['OAI_PRESET_CHANGED_AFTER', 'PRESET_CHANGED', 'MAIN_API_CHANGED', 'APP_READY', 'OAI_PRESET_IMPORT_READY', 'PRESET_DELETED'].map(key => [key, key]));
     const context = { mainApi: 'openai', chatId: 'chat' };
     const liveSettings = { prompt_order: [{ character_id: 100000, order: [{ identifier: 'style', enabled: true }] }] };
     let selected = 'A';
@@ -66,16 +109,18 @@ function harness(t) {
     const timers = new Map(), intervals = new Map(), handlers = [];
     let timerId = 0;
     let editorCompletion;
-    const editorResult = deferred();
+    let editorResult = deferred();
+    let editorPopup;
     const editorFields = new Map();
     const editor = {
+        0: document.createElement('div'),
         clone() { return this; }, removeAttr() { return this; }, show() { return this; },
         find(selector) {
             if (!editorFields.has(selector)) {
                 const field = { length: 1, value: '', props: {},
                     val(value) { if (!arguments.length) return this.value; this.value = value; return this; },
                     prop(key, value) { if (arguments.length === 1) return this.props[key]; this.props[key] = value; return this; },
-                    on() { return this; }, css() { return this; }, html() { return this; },
+                    on() { return this; }, css() { return this; }, html() { return this; }, append() { return this; },
                     show() { return this; }, hide() { return this; },
                 };
                 editorFields.set(selector, field);
@@ -86,7 +131,7 @@ function harness(t) {
     const $ = target => {
         if (target === '#task_editor_template') return editor;
         const chain = { 0: document.createElement('div'), length: 0 };
-        for (const method of ['children', 'first', 'clone', 'attr', 'text', 'find', 'prop', 'empty', 'append']) chain[method] = () => chain;
+        for (const method of ['children', 'first', 'clone', 'attr', 'text', 'find', 'prop', 'empty', 'append', 'val']) chain[method] = () => chain;
         chain.sortable = () => null;
         chain.off = event => {
             for (let i = handlers.length - 1; i >= 0; i--) if (handlers[i].target === target && handlers[i].event === event) handlers.splice(i, 1);
@@ -98,21 +143,34 @@ function harness(t) {
     const manager = {
         getSelectedPresetName: () => selected,
         getCompletionPresetByName: name => data.get(name),
-        savePreset: async (name, value) => { data.set(name, structuredClone(value)); },
+        savePreset: async (name, value, { skipUpdate } = {}) => { if (!skipUpdate) data.set(name, structuredClone(value)); },
     };
     const settings = { enabled: true, globalTasks: globals, processedMessages: [], character_allowed_tasks: [] };
     const calls = [];
     const downloads = [];
     const host = {
-        saveSettingsDebounced() {}, characters: [], this_chid: null,
+        saveSettingsDebounced() {}, saveSettings: async () => { savedSettings = JSON.stringify({ extension_settings: extensions.extension_settings }); },
+        getRequestHeaders: () => ({}), characters: [], this_chid: null,
         chat: [{ is_user: true }, { is_user: false }], callPopup: async () => true,
         eventSource: emitter, event_types,
     };
+    let savedSettings;
+    const savedCharacters = new Map();
+    const transport = {
+        character: async (avatar, data) => {
+            const saved = savedCharacters.get(avatar);
+            Object.assign(saved.data.extensions, structuredClone(data.extensions));
+        },
+    };
     const storage = { getStrict: async id => scripts.get(id), set: async (id, value) => scripts.set(id, value),
+        updateAndSave: async update => { const draft = Object.fromEntries(scripts); await update(draft); scripts.clear(); for (const [id, value] of Object.entries(draft)) scripts.set(id, value); },
         delete: async id => scripts.delete(id), clearCache() {}, getCacheSize: () => 0, getCacheBytes: () => 0 };
     const extensions = {
         extension_settings: { test: { tasks: settings } }, getContext: () => context,
-        writeExtensionField: async (id, key, value) => { host.characters[id].data.extensions[key] = value; },
+        writeExtensionField: async (id, key, value) => {
+            host.characters[id].data.extensions[key] = value;
+            savedCharacters.set(host.characters[id].avatar, structuredClone(host.characters[id]));
+        },
     };
     let slash = async command => { calls.push(command); };
     Object.assign(context, {
@@ -122,7 +180,20 @@ function harness(t) {
     const imports = {
         '../../../../../extensions.js': extensions,
         '../../../../../../script.js': host,
-        '../../../../../popup.js': { POPUP_TYPE: { CONFIRM: 1 }, callGenericPopup: () => editorResult.promise },
+        '../../../../../popup.js': { POPUP_TYPE: { CONFIRM: 1 }, POPUP_RESULT: { AFFIRMATIVE: 1 }, callGenericPopup: (_content, _type, _input, options) => {
+            editorResult = deferred();
+            const dlg = document.createElement('div');
+            const okButton = document.createElement('button');
+            okButton.className = 'popup-button'; okButton.textContent = options.okButton;
+            const buttonControls = document.createElement('div'); buttonControls.append(okButton);
+            dlg.append(editor[0], buttonControls);
+            editorPopup = { dlg, okButton, buttonControls, closed: false, async complete(result) {
+                this.result = result; this.value = result;
+                if (!await options.onClosing(this)) { this.result = undefined; this.value = undefined; return; }
+                this.closed = true; editorResult.resolve(this.value);
+            } };
+            return editorResult.promise;
+        } },
         '../../../../../preset-manager.js': { getPresetManager: () => manager },
         '../../../../../openai.js': { oai_settings: liveSettings },
         '../../../../../utils.js': { uuidv4: randomUUID, debounce: fn => fn, download: data => downloads.push(JSON.parse(data)) },
@@ -140,12 +211,28 @@ function harness(t) {
     };
     const box = vm.createContext({
         window: win, document, $, console, AbortController, CustomEvent, structuredClone,
+        localStorage: { getItem: () => null },
         toastr: { error: error => errors.push(error) },
         setTimeout: (fn, delay, ...args) => { const id = ++timerId; timers.set(id, { fn, delay, args }); return id; },
         clearTimeout: id => timers.delete(id),
         setInterval: (fn, delay) => { const id = ++timerId; intervals.set(id, { fn, delay }); return id; },
         clearInterval: id => intervals.delete(id),
         requestAnimationFrame: fn => fn(),
+        fetch: async (url, options) => {
+            if (url === '/api/settings/get') return { ok: true, json: async () => ({ settings: savedSettings }) };
+            if (url === '/api/characters/get') return { ok: true, json: async () => savedCharacters.get(JSON.parse(options.body).avatar_url) };
+            if (url === '/api/characters/merge-attributes') {
+                const { avatar, data } = JSON.parse(options.body);
+                await transport.character(avatar, data);
+                return { ok: true };
+            }
+            if (url === '/api/presets/save') {
+                const { name, preset } = JSON.parse(options.body);
+                await manager.savePreset(name, preset, { skipUpdate: true });
+                return { ok: true, json: async () => ({ name }) };
+            }
+            throw new Error(`Unexpected request: ${url}`);
+        },
         require: name => {
             if (Object.hasOwn(imports, name)) return imports[name];
             if (name.includes('/slash-commands/') || name.endsWith('/popup.js') || name.endsWith('/AccountStorage.js')) return {};
@@ -157,37 +244,81 @@ function harness(t) {
         vm.runInContext(`(function(){${code}\n})();`, box);
         return box.module.exports;
     }
+    const { EventEmitter: HostEventEmitter } = load(hostEventCode);
+    imports['../../shared/common/abort-utils.js'] = load(compile('../../shared/common/abort-utils.js'));
     imports['./preset-task-events.js'] = load(eventCode);
+    imports['./task-save-copy.js'] = load(compile('./task-save-copy.js'));
+    imports['./task-save-operation.js'] = load(compile('./task-save-operation.js'));
+    imports['./task-editor-save.js'] = load(compile('./task-editor-save.js'));
+    imports['./task-save-confirmation.js'] = load(compile('./task-save-confirmation.js'));
     imports['../../core/slash-command.js'] = load(slashCode);
     const api = load(runtimeCode);
     api.initTaskSettings();
     t.after(() => win.xbtaskreset());
     return {
-        win, api, calls, downloads, timers, intervals, storage, emitter, event_types, manager, errors, liveSettings, extensions,
-        storedTasks: name => data.get(name)?.prompt_order[0].xiaobai_ext.scheduledTasks,
+        win, api, calls, downloads, timers, intervals, storage, emitter, event_types, manager, errors, liveSettings, extensions, host, editor, transport,
+        setFetch: fetch => { box.fetch = fetch; },
+        getFetch: () => box.fetch,
+        savedCharacter: avatar => savedCharacters.get(avatar),
+        expireSave() {
+            for (const [id, timer] of [...timers]) if (timer.delay === 5000) { timers.delete(id); timer.fn(...timer.args); }
+        },
+        popup: () => editorPopup,
+        async ready() {
+            win.__XB_TASKS_INITIALIZED__ = true;
+            const initialization = api.beginPresetTaskInitialization();
+            api.refreshPresetTasks({ initialize: true });
+            emitter.emit(event_types.APP_READY);
+            api.finishPresetTaskInitialization(initialization);
+            await settle();
+        },
+        async importPreset(name, tasks, { save = async () => {}, fail = false } = {}) {
+            const imported = { prompt_order: [{ character_id: 100000, order: [], xiaobai_ext: { scheduledTasks: tasks } }] };
+            const importEvents = new HostEventEmitter();
+            for (const listener of emitter.listeners(event_types.OAI_PRESET_IMPORT_READY)) {
+                importEvents.on(event_types.OAI_PRESET_IMPORT_READY, listener);
+            }
+            await importEvents.emit(event_types.OAI_PRESET_IMPORT_READY, { data: imported, presetName: name });
+            await save(name, imported);
+            if (fail) return;
+            if (data.has(name)) Object.assign(data.get(name), imported);
+            else data.set(name, imported);
+            selected = name; context.mainApi = 'openai';
+            for (const handler of handlers) if (handler.selector === '#settings_preset_openai') handler.fn({});
+            emitter.emit(event_types.OAI_PRESET_CHANGED_AFTER);
+            emitter.emit(event_types.PRESET_CHANGED, { apiId: 'openai', name });
+        },
+        storedTasks: name => data.get(name)?.prompt_order[0].xiaobai_ext?.scheduledTasks,
         slash: imports['../../core/slash-command.js'].executeSlashCommand,
         async saveInEditor(task, scope, commands) {
             await api.showTaskEditor(task, true, scope);
             editor.find('.task_commands_edit').val(commands);
-            editorResult.resolve(true);
-            await editorCompletion;
+            await editorPopup.complete(1);
+            if (editorPopup.closed) await editorCompletion;
         },
         flushRecords() {
             for (const [id, timer] of timers) if (timer.delay === 500) { timers.delete(id); timer.fn(...timer.args); }
         },
         setSlash(fn) { slash = fn; },
-        preset(name, tasks) { data.set(name, { prompt_order: [{ character_id: 100000, order: [], xiaobai_ext: { scheduledTasks: tasks } }] }); },
+        preset(name, tasks) {
+            data.set(name, { prompt_order: [{ character_id: 100000, order: [], xiaobai_ext: { scheduledTasks: tasks } }] });
+            if (name === selected) emitter.emit(event_types.PRESET_CHANGED, { apiId: 'openai', name });
+        },
         global(task) { globals.push(task); scripts.set(task.id, task.commands); },
         character(task) {
             host.this_chid = 0;
             host.characters[0] = { avatar: 'test.png', data: { extensions: { 'xiaobaix-tasks': { tasks: [task] } } } };
+            savedCharacters.set('test.png', structuredClone(host.characters[0]));
         },
         change(name, { mainApi = 'openai', dropdown = false } = {}) {
             selected = name;
             context.mainApi = mainApi;
             if (dropdown) {
                 for (const handler of handlers) if (handler.selector === '#settings_preset_openai') handler.fn({});
-            } else emitter.emit(mainApi === 'openai' ? event_types.OAI_PRESET_CHANGED_AFTER : event_types.MAIN_API_CHANGED, { apiId: mainApi });
+            } else {
+                emitter.emit(mainApi === 'openai' ? event_types.OAI_PRESET_CHANGED_AFTER : event_types.MAIN_API_CHANGED, { apiId: mainApi });
+                if (mainApi === 'openai') emitter.emit(event_types.PRESET_CHANGED, { apiId: mainApi, name });
+            }
         },
     };
 }
@@ -207,6 +338,545 @@ const resident = label => `
     setTimeoutSafe(() => {}, 60000); setIntervalSafe(() => {}, 60000);
     addFloorListener(() => {}, { interval: 1, timing: 'after_ai' });
 `;
+
+const entered = (name, code = resident(name)) => ({ ...task(name, code), interval: 0, triggerTiming: 'preset_enter' });
+
+test('preset writes serialize, preserve live switches and finish for the original preset after switching', async t => {
+    const h = harness(t), first = deferred();
+    h.preset('A', [task('panel', 'old')]); h.change('A');
+    const sent = [];
+    h.manager.savePreset = async (_name, value) => { sent.push(structuredClone(value)); if (sent.length === 1) await first.promise; };
+    const one = h.win.XBTasks.setJS('panel', 'first', { scope: 'preset' }); await settle();
+    const two = h.win.XBTasks.setJS('panel', 'second', { scope: 'preset' }); await settle();
+    assert.equal(sent.length, 1);
+    const liveOrder = h.liveSettings.prompt_order;
+    liveOrder[0].order[0].enabled = false;
+    first.resolve(); await Promise.all([one, two]);
+    assert.equal(sent.length, 2);
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>second<</taskjs>>');
+    assert.equal(h.liveSettings.prompt_order, liveOrder);
+    assert.equal(liveOrder[0].order[0].enabled, false);
+    const next = deferred(); h.manager.savePreset = async () => next.promise;
+    const saving = h.win.XBTasks.setJS('panel', 'after-switch', { scope: 'preset' }); await settle();
+    h.change('B'); next.resolve(); await saving;
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>after-switch<</taskjs>>');
+    assert.equal(liveOrder[0].xiaobai_ext.scheduledTasks[0].commands, '<<taskjs>>second<</taskjs>>');
+});
+
+test('imported task definitions win over earlier saves, including identical imports', async t => {
+    for (const replacement of ['removed', 'identical']) await t.test(replacement, async t => {
+        const h = harness(t), gate = deferred();
+        const original = task('panel', 'old');
+        h.preset('A', [original]); h.change('A');
+        h.manager.savePreset = async () => gate.promise;
+        const pending = h.win.XBTasks.setJS('panel', 'stale-edit', { scope: 'preset' }); await settle();
+        const importing = h.importPreset('A', replacement === 'removed' ? [] : [original]);
+        h.change('B'); gate.resolve(); await pending; await importing;
+        h.change('A');
+        const tasks = await h.win.XBTasks.dump('preset');
+        assert.equal(tasks.length, replacement === 'removed' ? 0 : 1);
+        if (tasks.length) assert.equal(tasks[0].commands, original.commands);
+        assert.equal(h.api.__taskRunMap.size, 0);
+    });
+});
+
+test('external replacement cancels queued old saves, but a subsequent new edit still saves', async t => {
+    const h = harness(t), gate = deferred();
+    h.preset('A', [task('panel', 'old')]); h.change('A');
+    const writes = [];
+    h.manager.savePreset = async (_name, value) => { writes.push(structuredClone(value)); if (writes.length === 1) await gate.promise; };
+    const one = h.win.XBTasks.setJS('panel', 'old-first', { scope: 'preset' }); await settle();
+    const two = h.win.XBTasks.setJS('panel', 'old-queued', { scope: 'preset' });
+    h.preset('A', [task('panel', 'imported')]);
+    const latest = h.win.XBTasks.setJS('panel', 'new-edit', { scope: 'preset' });
+    const outcomes = Promise.allSettled([one, two, latest]);
+    gate.resolve();
+    assert.deepEqual((await outcomes).map(result => result.status), ['rejected', 'rejected', 'fulfilled']);
+    assert.equal(writes.length, 2);
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>new-edit<</taskjs>>');
+    assert.equal((await h.win.XBTasks.dump('preset'))[0].commands, '<<taskjs>>new-edit<</taskjs>>');
+});
+
+test('failed preset save rejects without poisoning a later explicit save', async t => {
+    const h = harness(t); h.preset('A', [task('panel', 'old')]); h.change('A');
+    h.manager.savePreset = async () => { throw new Error('offline'); };
+    await assert.rejects(h.win.XBTasks.setJS('panel', 'failed', { scope: 'preset' }), /offline/);
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>old<</taskjs>>');
+    h.manager.savePreset = async () => {};
+    await h.win.XBTasks.setJS('panel', 'success', { scope: 'preset' });
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>success<</taskjs>>');
+});
+
+test('each task editor waits, preserves failed input and retries without duplicating a new task', async t => {
+    for (const scope of ['global', 'character', 'preset']) await t.test(scope, async t => {
+        const h = harness(t), gate = deferred();
+        if (scope === 'preset') { h.preset('A', []); h.change('A'); }
+        if (scope === 'character') h.character(task('existing', 'old'));
+        let attempts = 0;
+        const owner = scope === 'global' ? h.storage : scope === 'character' ? h.transport : h.manager;
+        const method = scope === 'global' ? 'updateAndSave' : scope === 'character' ? 'character' : 'savePreset';
+        const original = owner[method];
+        owner[method] = async (...args) => {
+            if (++attempts === 1) { await gate.promise; throw new Error('offline'); }
+            return original(...args);
+        };
+        await h.api.showTaskEditor(null, false, scope);
+        h.editor.find('.task_name_edit').val('new-task');
+        const text = '\n\t<<taskjs>>window.example = 1;<</taskjs>>\n  ';
+        h.editor.find('.task_commands_edit').val(text);
+        const popup = h.popup();
+        const pending = popup.complete(1);
+        await settle();
+        assert.equal(popup.closed, false);
+        assert.equal(popup.dlg.getAttribute('aria-busy'), 'true');
+        await popup.complete(1); await popup.complete(0);
+        assert.equal(attempts, 1);
+        assert.equal(popup.closed, false);
+        gate.resolve(); await pending;
+        assert.equal(popup.closed, false);
+        assert.equal(popup.dlg.hasAttribute('aria-busy'), false);
+        assert.equal(popup.dlg.querySelector('[role="alert"]').hidden, false);
+        assert.equal(h.editor.find('.task_commands_edit').val(), text);
+        await popup.complete(1);
+        assert.equal(popup.closed, true);
+        const tasks = await h.win.XBTasks.dump(scope);
+        const matches = tasks.filter(item => item.name === 'new-task');
+        assert.equal(matches.length, 1);
+        assert.equal(matches[0].commands, text);
+    });
+});
+
+test('editor does not accept swallowed settings/character failures or failed confirmation reads', async t => {
+    for (const failure of ['settings', 'character', 'readback']) await t.test(failure, async t => {
+        const h = harness(t);
+        const scope = failure === 'character' ? 'character' : 'global';
+        h[scope](task('panel', 'old'));
+        await h.host.saveSettings();
+        if (failure === 'settings') h.host.saveSettings = async () => {};
+        if (failure === 'character') h.transport.character = async () => {};
+        if (failure === 'readback') h.setFetch(async () => ({ ok: false, status: 503 }));
+        const hit = h.win.XBTasks.find('panel', scope);
+        await h.api.showTaskEditor(hit.task, true, scope);
+        h.editor.find('.task_commands_edit').val('new commands');
+        h.editor.find('.task_name_edit').val('changed');
+        await h.popup().complete(1);
+        assert.equal(h.popup().closed, false);
+        assert.equal(h.popup().dlg.querySelector('[role="alert"]').hidden, false);
+        assert.equal(h.editor.find('.task_commands_edit').val(), 'new commands');
+    });
+});
+
+test('a refused preset save keeps its editor open rather than reporting success', async t => {
+    const h = harness(t), gate = deferred();
+    h.preset('A', [task('panel', 'old')]); h.change('A');
+    h.manager.savePreset = () => gate.promise;
+    await h.api.showTaskEditor(h.win.XBTasks.find('panel', 'preset').task, true, 'preset');
+    h.editor.find('.task_commands_edit').val('new');
+    const pending = h.popup().complete(1); await settle();
+    h.preset('A', [task('panel', 'replacement')]);
+    gate.resolve(); await pending;
+    assert.equal(h.popup().closed, false);
+    assert.equal(h.popup().dlg.querySelector('[role="alert"]').hidden, false);
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>replacement<</taskjs>>');
+});
+
+test('moving a task keeps its source when the destination save fails', async t => {
+    const h = harness(t);
+    h.global(task('panel', 'original'));
+    h.preset('A', []); h.change('A');
+    h.manager.savePreset = async () => { throw new Error('offline'); };
+    await h.api.showTaskEditor(h.win.XBTasks.find('panel', 'global').task, true, 'global');
+    h.editor.find('.task_type_edit').val('preset');
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, false);
+    assert.equal((await h.win.XBTasks.dump('global'))[0].commands, '<<taskjs>>original<</taskjs>>');
+    h.manager.savePreset = async () => {};
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, true);
+    assert.equal((await h.win.XBTasks.dump('global')).length, 0);
+    assert.equal((await h.win.XBTasks.dump('preset')).length, 1);
+});
+
+test('ordinary preset edits do not cancel queued task saves or get overwritten', async t => {
+    const h = harness(t), gate = deferred();
+    h.preset('A', [task('panel', 'old')]); h.change('A');
+    const sent = [];
+    h.manager.savePreset = async (_name, value) => { sent.push(structuredClone(value)); if (sent.length === 1) await gate.promise; };
+    const one = h.win.XBTasks.setJS('panel', 'first', { scope: 'preset' }); await settle();
+    const two = h.win.XBTasks.setJS('panel', 'latest', { scope: 'preset' });
+    const source = h.manager.getCompletionPresetByName('A');
+    source.temperature = 0.75;
+    source.prompt_order[0].order = [{ identifier: 'style', enabled: false }];
+    const results = Promise.allSettled([one, two]);
+    gate.resolve();
+    assert.deepEqual((await results).map(result => result.status), ['fulfilled', 'fulfilled']);
+    assert.equal(sent.length, 2);
+    assert.equal(sent[1].temperature, 0.75);
+    assert.equal(sent[1].prompt_order[0].order[0].enabled, false);
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>latest<</taskjs>>');
+});
+
+test('failed source deletion can be retried even after its local list lost the task', async t => {
+    const h = harness(t);
+    h.character(task('panel', 'original'));
+    let attempts = 0;
+    const original = h.transport.character;
+    h.transport.character = async (avatar, data) => {
+        if (!data.extensions['xiaobaix-tasks'].tasks.length && ++attempts === 1) {
+            h.host.characters[0].data.extensions['xiaobaix-tasks'] = { tasks: [] };
+            throw new Error('source delete failed');
+        }
+        return original(avatar, data);
+    };
+    await h.api.showTaskEditor(h.win.XBTasks.find('panel', 'character').task, true, 'character');
+    h.editor.find('.task_type_edit').val('global');
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, false);
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, true);
+    assert.equal(attempts, 2);
+    assert.equal(h.savedCharacter('test.png').data.extensions['xiaobaix-tasks'].tasks.length, 0);
+});
+
+test('changing the target back after partial migration removes the previous destination', async t => {
+    const h = harness(t);
+    h.global(task('panel', 'original')); h.preset('A', []); h.change('A');
+    await h.host.saveSettings();
+    const original = h.host.saveSettings;
+    h.host.saveSettings = async () => {};
+    await h.api.showTaskEditor(h.win.XBTasks.find('panel', 'global').task, true, 'global');
+    h.editor.find('.task_type_edit').val('preset');
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, false);
+    assert.equal(h.storedTasks('A').length, 1);
+    h.host.saveSettings = original;
+    h.editor.find('.task_type_edit').val('global');
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, true);
+    assert.equal((await h.win.XBTasks.dump('preset')).length, 0);
+    assert.equal((await h.win.XBTasks.dump('global')).length, 1);
+});
+
+test('character failures preserve both local representations and retry publishes only task fields', async t => {
+    const h = harness(t);
+    h.character(task('panel', 'original'));
+    const character = h.host.characters[0];
+    character.data.extensions.other = { keep: true };
+    character.json_data = JSON.stringify({ data: structuredClone(character.data), description: 'keep' });
+    const before = JSON.stringify(character);
+    const original = h.transport.character;
+    h.transport.character = async () => { throw new Error('offline'); };
+    await h.api.showTaskEditor(h.win.XBTasks.find('panel', 'character').task, true, 'character');
+    h.editor.find('.task_commands_edit').val('changed');
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, false);
+    assert.equal(JSON.stringify(character), before);
+    h.transport.character = original;
+    await h.popup().complete(1);
+    assert.equal(h.popup().closed, true);
+    assert.equal(character.data.extensions['xiaobaix-tasks'].tasks[0].commands, 'changed');
+    const json = JSON.parse(character.json_data);
+    assert.equal(json.data.extensions['xiaobaix-tasks'].tasks[0].commands, 'changed');
+    assert.equal(json.data.extensions.other.keep, true);
+    assert.equal(json.description, 'keep');
+});
+
+test('five-second timeouts unlock each save stage, preserve input and ignore late completion', async t => {
+    for (const stage of ['script', 'settings', 'settings-body', 'character', 'character-body', 'preset', 'preset-body']) await t.test(stage, async t => {
+        const h = harness(t), gate = deferred();
+        const scope = stage.startsWith('character') ? 'character' : stage.startsWith('preset') ? 'preset' : 'global';
+        if (scope === 'preset') { h.preset('A', [task('panel', 'original')]); h.change('A'); }
+        else h[scope](task('panel', 'original'));
+        const originalFetch = h.getFetch();
+        const originalStorage = h.storage.updateAndSave;
+        const originalSettings = h.host.saveSettings;
+        const originalPreset = h.manager.savePreset;
+        const originalCharacter = h.transport.character;
+        if (stage === 'script') h.storage.updateAndSave = () => gate.promise;
+        if (stage === 'settings') h.host.saveSettings = () => gate.promise;
+        if (stage === 'character') h.transport.character = () => gate.promise;
+        if (stage === 'preset') h.manager.savePreset = () => gate.promise;
+        if (stage.endsWith('-body')) {
+            const url = stage === 'settings-body' ? '/api/settings/get' : stage === 'character-body' ? '/api/characters/get' : '/api/presets/save';
+            h.setFetch(async (...args) => {
+                const response = await originalFetch(...args);
+                return args[0] === url ? { ok: true, json: () => gate.promise } : response;
+            });
+        }
+        await h.api.showTaskEditor(h.win.XBTasks.find('panel', scope).task, true, scope);
+        h.editor.find('.task_commands_edit').val('first attempt');
+        const pending = h.popup().complete(1); await settle();
+        assert.equal(h.popup().dlg.getAttribute('aria-busy'), 'true');
+        h.expireSave(); await pending; await settle();
+        assert.equal(h.popup().closed, false);
+        assert.equal(h.popup().dlg.hasAttribute('aria-busy'), false);
+        assert.equal(h.popup().dlg.querySelector('[role="alert"]').hidden, false);
+        assert.equal(h.editor.find('.task_commands_edit').val(), 'first attempt');
+        h.setFetch(originalFetch);
+        h.storage.updateAndSave = originalStorage; h.host.saveSettings = originalSettings;
+        h.manager.savePreset = originalPreset; h.transport.character = originalCharacter;
+        h.editor.find('.task_commands_edit').val('retry');
+        await h.popup().complete(1);
+        assert.equal(h.popup().closed, true);
+        gate.resolve({}); await settle();
+        const tasks = await h.win.XBTasks.dump(scope);
+        assert.equal(tasks.length, 1);
+        assert.equal(tasks[0].commands, 'retry');
+    });
+});
+
+test('a timed-out migration never deletes its source on a late destination response', async t => {
+    const h = harness(t), gate = deferred();
+    h.global(task('panel', 'original')); h.preset('A', []); h.change('A');
+    h.manager.savePreset = () => gate.promise;
+    await h.api.showTaskEditor(h.win.XBTasks.find('panel', 'global').task, true, 'global');
+    h.editor.find('.task_type_edit').val('preset');
+    const pending = h.popup().complete(1); await settle();
+    h.expireSave(); await pending;
+    await h.popup().complete(0);
+    assert.equal(h.popup().closed, true);
+    gate.resolve(); await settle();
+    assert.equal((await h.win.XBTasks.dump('global')).length, 1);
+    assert.equal(h.storedTasks('A').length, 0);
+});
+
+test('host replacement or deletion cancels a queued task save explicitly', async t => {
+    for (const deleted of [false, true]) await t.test(String(deleted), async t => {
+        const h = harness(t), gate = deferred();
+        h.preset('A', [task('panel', 'original')]); h.change('A');
+        h.manager.savePreset = () => gate.promise;
+        const pending = h.win.XBTasks.setJS('panel', 'new', { scope: 'preset' }); await settle();
+        const replacement = structuredClone(h.manager.getCompletionPresetByName('A'));
+        replacement.temperature = 0.25;
+        h.manager.getCompletionPresetByName = () => replacement;
+        if (deleted) h.emitter.emit(h.event_types.PRESET_DELETED, { apiId: 'openai', name: 'A' });
+        const result = Promise.allSettled([pending]);
+        gate.resolve();
+        assert.equal((await result)[0].status, 'rejected');
+        assert.equal(replacement.prompt_order[0].xiaobai_ext.scheduledTasks[0].commands, '<<taskjs>>original<</taskjs>>');
+        assert.equal(replacement.temperature, 0.25);
+    });
+});
+
+test('a missing preset cannot be recreated from the host current-settings fallback', async t => {
+    const h = harness(t), gate = deferred();
+    h.preset('A', [task('panel', 'original')]); h.change('A');
+    let sends = 0;
+    h.manager.savePreset = async () => { sends++; await gate.promise; };
+    const first = h.win.XBTasks.setJS('panel', 'first', { scope: 'preset' }); await settle();
+    const second = h.win.XBTasks.setJS('panel', 'queued', { scope: 'preset' });
+    // The host removes it from its list before its delete request completes.
+    h.manager.getCompletionPresetByName = () => null;
+    h.manager.getPresetSettings = () => ({ temperature: 0.8 });
+    const results = Promise.allSettled([first, second]);
+    gate.resolve();
+    assert.deepEqual((await results).map(result => result.status), ['rejected', 'rejected']);
+    assert.equal(sends, 1);
+});
+
+test('host import writes last after all earlier queued task saves have settled', async t => {
+    const h = harness(t), first = deferred(), second = deferred();
+    h.preset('A', [task('panel', 'old')]); h.change('A');
+    const disk = presetFile(t);
+    const receipts = [];
+    h.manager.savePreset = async (_name, value) => {
+        disk.write(value); receipts.push('task-save');
+        await (receipts.length === 1 ? first.promise : second.promise);
+    };
+    const one = h.win.XBTasks.setJS('panel', 'edit-one', { scope: 'preset' }); await settle();
+    const two = h.win.XBTasks.setJS('panel', 'edit-two', { scope: 'preset' }); await settle();
+    const importing = h.importPreset('A', [task('panel', 'imported')], { save: async (_name, value) => {
+        disk.write(value); receipts.push('import');
+    } });
+    await settle(); assert.deepEqual(receipts, ['task-save']);
+    first.resolve(); await one; await settle();
+    assert.deepEqual(receipts, ['task-save', 'task-save']);
+    // This edit joined during the import's preflight wait and must also settle first.
+    const three = h.win.XBTasks.setJS('panel', 'edit-three', { scope: 'preset' });
+    second.resolve(); await Promise.all([two, three, importing]);
+    assert.deepEqual(receipts, ['task-save', 'task-save', 'task-save', 'import']);
+    assert.equal(disk.read().prompt_order[0].xiaobai_ext.scheduledTasks[0].commands, '<<taskjs>>imported<</taskjs>>');
+    assert.equal((await h.win.XBTasks.dump('preset'))[0].commands, '<<taskjs>>imported<</taskjs>>');
+});
+
+test('failed import preserves queued edits, while another preset import is not blocked', async t => {
+    const h = harness(t), saved = deferred();
+    h.preset('A', [task('panel', 'old')]); h.preset('B', []); h.change('A');
+    let disk;
+    h.manager.savePreset = async (_name, value) => { disk = structuredClone(value); await saved.promise; };
+    const editing = h.win.XBTasks.setJS('panel', 'edited', { scope: 'preset' }); await settle();
+    await h.importPreset('B', []);
+    const failedImport = h.importPreset('A', [task('panel', 'unwritten')], { fail: true });
+    saved.resolve(); await editing; await failedImport;
+    h.change('A');
+    assert.equal(disk.prompt_order[0].xiaobai_ext.scheduledTasks[0].commands, '<<taskjs>>edited<</taskjs>>');
+    assert.equal((await h.win.XBTasks.dump('preset'))[0].commands, '<<taskjs>>edited<</taskjs>>');
+    h.manager.savePreset = async () => {};
+    await h.win.XBTasks.setJS('panel', 'retry', { scope: 'preset' });
+    assert.equal(h.storedTasks('A')[0].commands, '<<taskjs>>retry<</taskjs>>');
+});
+
+test('opted-in entry waits for readiness, starts once, stops on exit and starts anew on return', async t => {
+    const h = harness(t);
+    h.preset('A', [entered('A'), task('legacy-init', resident('legacy')), { ...task('manual', resident('manual')), interval: 0, triggerTiming: 'after_ai' }]);
+    h.preset('B', [entered('B')]); h.change('A'); await settle();
+    assert.equal(h.win.starts.A, undefined);
+    await h.ready();
+    assert.equal(h.win.starts.A, 1);
+    assert.equal(h.win.starts.legacy, undefined); assert.equal(h.win.starts.manual, undefined);
+    h.change('A'); h.emitter.emit(h.event_types.PRESET_CHANGED, { apiId: 'openai' });
+    await settle(); assert.equal(h.win.starts.A, 1);
+    h.change('B'); h.flushRecords(); await settle();
+    assert.equal(h.win.stops.A, 1); assert.equal(h.win.starts.B, 1);
+    h.change('A'); h.flushRecords(); await settle();
+    assert.equal(h.win.stops.B, 1); assert.equal(h.win.starts.A, 2);
+    h.change('A', { mainApi: 'textgenerationwebui' });
+    assert.equal(h.win.stops.A, 2);
+    h.change('A'); h.flushRecords(); await settle(); assert.equal(h.win.starts.A, 3);
+});
+
+test('same-name completed import replaces the instance once; a failed import does nothing', async t => {
+    const h = harness(t); h.preset('A', [entered('panel', resident('old'))]); h.change('A'); await h.ready(); h.flushRecords();
+    await h.importPreset('A', [entered('panel', resident('new'))], { fail: true });
+    h.change('A'); await settle();
+    assert.equal(h.win.stops.old, undefined); assert.equal(h.win.starts.new, undefined);
+    await h.importPreset('A', [entered('panel', resident('new'))]); h.flushRecords(); await settle();
+    assert.equal(h.win.stops.old, 1); assert.equal(h.win.starts.new, 1);
+    assert.equal(h.api.__taskRunMap.size, 1);
+    h.change('A'); await settle(); assert.equal(h.win.starts.new, 1);
+    await h.importPreset('A', [entered('panel', resident('new'))]); h.flushRecords(); await settle();
+    assert.equal(h.win.stops.new, 1); assert.equal(h.win.starts.new, 2);
+});
+
+test('entry waits for host work and old async cleanup, then loads current task configuration', async t => {
+    const h = harness(t), gate = deferred(), cleanup = deferred();
+    h.win.cleanupGate = cleanup.promise;
+    h.preset('A', [entered('A', resident('A') + 'onCleanup(() => window.cleanupGate);')]);
+    h.preset('B', [entered('B', resident('old-B'))]); h.change('A'); await h.ready(); h.flushRecords();
+    h.setSlash(async () => gate.promise);
+    h.global({ ...task('host', ''), commands: '/wait' });
+    const hostWork = h.win.XBTasks.exec('host'); await settle();
+    h.change('B'); await settle(); assert.equal(h.win.starts['old-B'], undefined);
+    await h.win.XBTasks.setJS('B', resident('new-B'), { scope: 'preset' });
+    gate.resolve(); await hostWork; h.flushRecords(); await settle();
+    assert.equal(h.win.starts['new-B'], undefined);
+    cleanup.resolve(); await settle(); h.flushRecords(); await settle();
+    assert.equal(h.win.starts['old-B'], undefined); assert.equal(h.win.starts['new-B'], 1);
+    assert.equal(h.api.__taskRunMap.size, 1);
+});
+
+test('pending entry cannot start deleted/disabled tasks, or restart after reset/exit', async t => {
+    for (const action of ['delete', 'disable', 'reset', 'exit']) await t.test(action, async t => {
+        const h = harness(t), gate = deferred();
+        h.setSlash(async () => gate.promise);
+        h.global({ ...task('busy', ''), commands: '/wait' });
+        const busy = h.win.XBTasks.exec('busy'); await settle();
+        h.preset('A', [entered('panel')]); h.change('A'); await h.ready();
+        if (action === 'delete') await h.api.deleteTask(0, 'preset');
+        if (action === 'disable') await h.win.XBTasks.setProps('panel', { disabled: true }, 'preset');
+        const resetting = action === 'reset' ? h.win.xbtaskreset() : null;
+        if (action === 'exit') h.change('B');
+        gate.resolve(); await busy; await resetting; h.flushRecords(); await settle();
+        assert.equal(h.win.starts.panel, undefined);
+        if (action === 'reset') { h.change('A'); await settle(); assert.equal(h.win.starts.panel, undefined); }
+    });
+});
+
+test('preset selected after APP_READY starts without requiring a different chat', async t => {
+    const h = harness(t); h.change(''); await h.ready();
+    h.preset('A', [entered('late')]); h.change('A'); await settle();
+    assert.equal(h.win.starts.late, 1);
+});
+
+test('preset entry waits for matching host application and never steals legacy initialization', async t => {
+    const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+    h.global(task('legacy', 'await window.gate; window.starts.legacy = 1;'));
+    h.preset('A', [entered('A')]); h.preset('B', [entered('B')]);
+    h.win.__XB_TASKS_INITIALIZED__ = true;
+    const initialization = h.api.beginPresetTaskInitialization();
+    h.emitter.emit(h.event_types.APP_READY); h.api.refreshPresetTasks({ initialize: true }); await settle();
+    assert.equal(h.win.starts.A, undefined);
+    const legacy = h.api.checkAndExecuteTasks('plugin_initialized'); await settle();
+    gate.resolve(); await legacy; h.api.finishPresetTaskInitialization(initialization); h.flushRecords(); await settle();
+    assert.equal(h.win.starts.legacy, 1); assert.equal(h.win.starts.A, 1);
+    h.change('B', { dropdown: true }); h.flushRecords(); await settle();
+    assert.equal(h.win.stops.A, 1); assert.equal(h.win.starts.B, undefined);
+    h.emitter.emit(h.event_types.PRESET_CHANGED, { apiId: 'openai', name: 'A' }); await settle();
+    assert.equal(h.win.starts.B, undefined);
+    h.emitter.emit(h.event_types.PRESET_CHANGED, { apiId: 'openai', name: 'B' }); await settle();
+    assert.equal(h.win.starts.B, 1);
+});
+
+test('a previous module initialization cannot release entry waiting on the new initialization', async t => {
+    const h = harness(t); h.preset('A', [entered('panel')]);
+    h.win.__XB_TASKS_INITIALIZED__ = true;
+    const old = h.api.beginPresetTaskInitialization();
+    const current = h.api.beginPresetTaskInitialization();
+    h.api.refreshPresetTasks({ initialize: true }); h.emitter.emit(h.event_types.APP_READY);
+    h.api.finishPresetTaskInitialization(old); await settle();
+    assert.equal(h.win.starts.panel, undefined);
+    h.api.finishPresetTaskInitialization(current); await settle();
+    assert.equal(h.win.starts.panel, 1);
+});
+
+test('deleting the final task while entry is waiting takes effect before its save returns', async t => {
+    const h = harness(t), busy = deferred(), saved = deferred();
+    h.setSlash(() => busy.promise); h.global({ ...task('busy', ''), commands: '/wait' });
+    const work = h.win.XBTasks.exec('busy'); await settle();
+    h.preset('A', [entered('panel')]); h.change('A'); await h.ready();
+    h.manager.savePreset = () => saved.promise;
+    const deleting = h.api.deleteTask(0, 'preset'); await settle();
+    busy.resolve(); await work; h.flushRecords(); await settle();
+    const starts = h.win.starts.panel;
+    saved.resolve(); await deleting;
+    assert.equal(starts, undefined);
+});
+
+test('preset apply notifications cannot replace pending deletion, disable or script edits with the stored version', async t => {
+    for (const action of ['delete', 'disable', 'edit']) await t.test(action, async t => {
+        const h = harness(t), saved = deferred();
+        h.preset('A', [entered('panel', resident('old'))]); h.preset('B', []);
+        h.change('B'); await h.ready(); h.change('A', { dropdown: true });
+        h.manager.savePreset = () => saved.promise;
+        const edit = action === 'delete' ? h.api.deleteTask(0, 'preset')
+            : action === 'disable' ? h.win.XBTasks.setProps('panel', { disabled: true }, 'preset')
+                : h.win.XBTasks.setJS('panel', resident('new'), { scope: 'preset' });
+        await settle();
+        h.emitter.emit(h.event_types.OAI_PRESET_CHANGED_AFTER);
+        h.emitter.emit(h.event_types.PRESET_CHANGED, { apiId: 'openai', name: 'A' });
+        await settle();
+        assert.equal(h.win.starts.old, undefined);
+        assert.equal(h.win.starts.new || 0, action === 'edit' ? 1 : 0);
+        saved.resolve(); await edit;
+        const tasks = await h.win.XBTasks.dump('preset');
+        assert.equal(tasks.length, action === 'delete' ? 0 : 1);
+        if (action === 'disable') assert.equal(tasks[0].disabled, true);
+        if (action === 'edit') assert.ok(tasks[0].commands.includes('"new"'));
+        assert.equal(h.api.__taskRunMap.size, action === 'edit' ? 1 : 0);
+    });
+});
+
+test('leaving and returning while deletion saves still reads the pending empty list', async t => {
+    const h = harness(t), saved = deferred();
+    h.preset('A', [entered('panel')]); h.preset('B', []); h.change('B'); await h.ready();
+    h.change('A', { dropdown: true }); h.manager.savePreset = () => saved.promise;
+    const deleting = h.api.deleteTask(0, 'preset'); await settle();
+    h.change('B'); h.change('A'); await settle();
+    assert.equal((await h.win.XBTasks.dump('preset')).length, 0);
+    assert.equal(h.win.starts.panel, undefined);
+    saved.resolve(); await deleting;
+    assert.equal(h.storedTasks('A'), undefined);
+});
+
+
+test('next entry task uses current definition after an earlier startup awaits', async t => {
+    const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+    h.preset('A', [entered('first', 'await window.gate;'), entered('second', resident('old'))]);
+    h.change('A'); await h.ready();
+    await h.win.XBTasks.setJS('second', resident('new'), { scope: 'preset' });
+    gate.resolve(); await settle(); h.flushRecords(); await settle();
+    assert.equal(h.win.starts.old, undefined); assert.equal(h.win.starts.new, 1);
+});
 
 test('detached panel startup and native clicks survive body return without locking unrelated tasks', async t => {
     const h = harness(t), gate = deferred();

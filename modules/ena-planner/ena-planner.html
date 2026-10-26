@@ -52,8 +52,7 @@
         <div class="tip-box">
           <div class="tip-icon">ℹ</div>
           <div class="tip-text">
-            <strong>工作流程：</strong>点击发送 → 拦截 → 收集上下文（角色卡、世界书、摘要、历史 plot、最近 AI 回复）→ 发给规划 LLM → 提取 &lt;plot&gt; 和
-            &lt;note&gt; → 追加到你的输入 → 放行发送
+            <strong>工作流程：</strong>发送消息 → 酒馆准备上下文 → 生成剧情规划 → 生成正文。规划结果会保留在你的消息中。
           </div>
         </div>
 
@@ -80,12 +79,8 @@
 
         <section class="card">
           <div class="card-title">快速测试</div>
-          <div class="form-group">
-            <label class="form-label">测试输入（留空使用默认）</label>
-            <textarea id="ep_test_input" class="input" rows="3" placeholder="输入一段剧情描述，测试规划器输出..."></textarea>
-          </div>
           <div class="btn-group">
-            <button id="ep_run_test" class="btn btn-p">测试规划 API（不含剧情召回）</button>
+            <button id="ep_run_test" class="btn btn-p">测试规划 API</button>
           </div>
           <div id="ep_test_status" class="status-text"></div>
         </section>
@@ -98,7 +93,7 @@
         <div class="tip-box">
           <div class="tip-icon">💡</div>
           <div class="tip-text">
-            系统会自动在提示词之后注入：角色卡、世界书、剧情摘要、聊天历史、向量召回等上下文。你只需专注编写"规划指令"。
+            规划会读取酒馆本轮处理好的完整文字上下文。这里编写规划指令，不需要重复添加世界书或剧情记忆。
           </div>
         </div>
 
@@ -139,26 +134,7 @@
       <div id="view-context" class="view">
         <section class="card">
           <div class="card-title">世界书</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">读取全局世界书</label>
-              <select id="ep_include_global_wb" class="input">
-                <option value="false">否</option>
-                <option value="true">是</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">排除 position=4 的条目</label>
-              <select id="ep_wb_pos4" class="input">
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">排除的条目名称关键词（逗号分隔）</label>
-            <input id="ep_wb_exclude_names" type="text" class="input" placeholder="mvu_update, system, ...">
-          </div>
+          <p class="form-hint">沿用当前聊天的世界书与触发设置；请在酒馆的世界书面板中调整。</p>
         </section>
 
         <section class="card">
@@ -168,15 +144,6 @@
             <input id="ep_keep_tags" type="text" class="input" placeholder="plot, note, plot-log, state">
             <p class="form-hint">仅支持英文标签（如 plot, note, memory）。留空表示不按标签过滤（仅去除 think）。无效标签会自动忽略。</p>
           </div>
-          <div class="form-group">
-            <label class="form-label">清理 AI 回复中的干扰标签（逗号分隔）</label>
-            <input id="ep_exclude_tags" type="text" class="input"
-              placeholder="行动选项, UpdateVariable, StatusPlaceHolderImpl">
-          </div>
-          <div class="form-group">
-            <label class="form-label">携带最近 N 条历史 plot</label>
-            <input id="ep_plot_n" type="number" class="input" min="0" max="10" step="1">
-          </div>
         </section>
       </div>
 
@@ -185,9 +152,9 @@
         <section class="card">
           <div class="card-title">诊断工具</div>
           <div class="btn-group">
-            <button id="ep_debug_worldbook" class="btn">诊断世界书</button>
+            <button id="ep_debug_worldbook" class="btn">查看本轮上下文</button>
             <button id="ep_debug_char" class="btn">诊断角色卡</button>
-            <button id="ep_test_planner" class="btn btn-p">测试规划 API（不含剧情召回）</button>
+            <button id="ep_test_planner" class="btn btn-p">测试规划 API</button>
           </div>
           <pre id="ep_debug_output" class="debug-output"></pre>
         </section>

@@ -4,7 +4,6 @@ import { createCoc7Result } from './coc7-result.js';
 import { diceSpan } from './card-elements.js';
 import { createCardTexture } from './card-texture.js';
 import { DICE_SESSION_COPY as labels } from './session-copy.js';
-import { checkConsequence } from '../domain/check-consequences.js';
 
 /** A saved check's view. It never rolls, saves, or starts generation. */
 export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
@@ -24,9 +23,16 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
     const copy = diceSpan('xb-dice-copy');
     function renderCopy(settled: boolean): void {
         copy.replaceChildren(diceSpan('xb-dice-action', record.request.action));
+        for (const branch of ['success', 'failure'] as const) {
+            const text = record.request[branch];
+            if (!text) { continue; }
+            const row = diceSpan('xb-dice-consequence-row');
+            row.dataset.branch = branch;
+            row.append(diceSpan('xb-dice-consequence-label', labels.consequences[branch]),
+                diceSpan('xb-dice-consequence', text));
+            copy.append(row);
+        }
         if (!settled) { return; }
-        const consequence = checkConsequence(record);
-        if (consequence) { copy.append(diceSpan('xb-dice-consequence', consequence)); }
         if (record.context) {
             const details = document.createElement('details'); details.className = 'xb-dice-context';
             const summary = document.createElement('summary'); summary.textContent = labels.context;
@@ -44,10 +50,10 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
         identity.hidden = record.rule === 'coc7';
         element.setAttribute('aria-label', record.rule === 'coc7' ? result.label : `${name}检定：${result.label}`);
         renderCopy(true);
-        copy.hidden = false; rolling.hidden = true;
+        rolling.hidden = true;
         result.settle();
     }
-    function present(isPending: boolean, retainCopy = false): void {
+    function present(isPending: boolean): void {
         delete element.dataset.state;
         delete element.dataset.revealed;
         delete element.dataset.outcome;
@@ -57,7 +63,6 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
             element.dataset.state = 'rolling';
             element.setAttribute('aria-label', `${name}检定，${labels.rolling}`);
             renderCopy(false);
-            copy.hidden = !retainCopy;
             result.draw(0);
         } else { settle(); }
     }
@@ -67,7 +72,7 @@ export function createCheckCard(record: ActionCheckRecord, pending: boolean) {
         result.element.replaceWith(replacement.element);
         result = replacement;
         result.rollingSlot.append(rolling);
-        present(isPending, true);
+        present(isPending);
     }
     present(pending);
     return { element, status, settle, update, draw: (progress: number) => result.draw(progress) };

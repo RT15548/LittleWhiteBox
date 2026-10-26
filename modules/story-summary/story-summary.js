@@ -26,6 +26,7 @@ import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 import { createMessageButtonOwnership } from "../../core/message-button-ownership.js";
 import { STORY_SUMMARY_TOGGLE_EVENT } from './runtime-events.js';
+import { isXiaobaiMasterEnabled } from './runtime-gate.js';
 import { initChatDeletionLifecycle } from './chat-deletion-lifecycle.js';
 import { createMemoryMaintenanceHost } from './maintenance/host.js';
 import { createSummaryDiagnostics } from './summary-diagnostics.js';
@@ -2740,8 +2741,8 @@ async function importSummaryMemoryPackage(rawText, targetChatId = '') {
     };
 }
 
-// Compatibility export for ena-planner.
-// Returns a compact plain-text snapshot of story-summary memory.
+// Canonical fallback for the recall interceptor's published result.
+// This reads saved summary text only; it never performs vector retrieval.
 export function getStorySummaryForEna() {
     if (!isStorySummaryEnabledForCurrentChat()) return "";
     return getStorySummaryMemoryText();
@@ -3586,6 +3587,7 @@ async function handleFrameMessage(event) {
             const { chatId } = context;
             const chatIdentity = getChatIdentity(context);
             try {
+                cancelActiveSummaryExecution();
                 cancelRecallAndClearPrompt('summary-edited');
                 if (data.section === "events") cancelEmbeddingWriteTasks('Summary events edited');
                 const committed = await runVectorWriteTask({ chatId, kind: 'summary-manual-edit', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, async () => {
@@ -3638,6 +3640,7 @@ async function handleFrameMessage(event) {
         case "UPDATE_CHARACTER_ALIASES": {
             if (!Array.isArray(data.aliases)) break;
             try {
+                cancelActiveSummaryExecution();
                 const { chatId } = getContext();
                 await waitForMemoryCommit();
                 assertMemoryWritable(chatId);
@@ -4970,6 +4973,7 @@ function showBackupManagerModal() {
 
 $(document).on(STORY_SUMMARY_TOGGLE_EVENT, observeAsyncCallback(async (_e, enabled) => {
     if (enabled) {
+        if (!isXiaobaiMasterEnabled()) return;
         try {
             await registerEvents();
             await handleChatChanged();
@@ -4995,6 +4999,7 @@ function reportStartupFailure(error) {
 
 jQuery(() => {
     initChatDeletionLifecycle(handleChatDeleted);
+    if (!isXiaobaiMasterEnabled()) return;
     if (!getSettings().storySummary?.enabled) return;
     (async () => {
         try {

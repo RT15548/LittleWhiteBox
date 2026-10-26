@@ -336,12 +336,7 @@ const PARENT_ORIGIN = (() => {
       $('ep_enabled').value = String(toBool(cfg.enabled, true));
       $('ep_merge_system_msgs').value = String(toBool(cfg.mergeConsecutiveSystemMessages, false));
 
-      $('ep_include_global_wb').value = String(toBool(cfg.includeGlobalWorldbooks, false));
-      $('ep_wb_pos4').value = String(toBool(cfg.excludeWorldbookPosition4, true));
-      $('ep_wb_exclude_names').value = arrToCsv(cfg.worldbookExcludeNames);
-      $('ep_plot_n').value = String(toNum(cfg.plotCount, 2));
       $('ep_keep_tags').value = arrToCsv(cfg.responseKeepTags || ['plot', 'note', 'plot-log', 'state']);
-      $('ep_exclude_tags').value = arrToCsv(cfg.chatExcludeTags);
 
       $('ep_logs_persist').value = String(toBool(cfg.logsPersist, true));
       $('ep_logs_max').value = String(toNum(cfg.logsMax, 20));
@@ -360,12 +355,7 @@ const PARENT_ORIGIN = (() => {
       p.mergeConsecutiveSystemMessages = toBool($('ep_merge_system_msgs').value, false);
 
 
-      p.includeGlobalWorldbooks = toBool($('ep_include_global_wb').value, false);
-      p.excludeWorldbookPosition4 = toBool($('ep_wb_pos4').value, true);
-      p.worldbookExcludeNames = csvToArr($('ep_wb_exclude_names').value);
-      p.plotCount = Math.max(0, Math.floor(toNum($('ep_plot_n').value, 2)));
       p.responseKeepTags = normalizeKeepTagsInput($('ep_keep_tags').value);
-      p.chatExcludeTags = csvToArr($('ep_exclude_tags').value);
 
       p.logsPersist = toBool($('ep_logs_persist').value, true);
       p.logsMax = Math.max(1, Math.min(200, Math.floor(toNum($('ep_logs_max').value, 20))));
@@ -389,8 +379,7 @@ const PARENT_ORIGIN = (() => {
       $('ep_enabled').addEventListener('change', () => setBadge(toBool($('ep_enabled').value, true)));
 
       $('ep_run_test').addEventListener('click', () => {
-        const text = $('ep_test_input').value.trim() || '（测试输入）我想让你帮我规划下一步剧情。';
-        post('xb-ena:run-test', { text });
+        post('xb-ena:run-test');
         setLocalStatus('ep_test_status', '测试中…', 'loading');
       });
 
@@ -471,7 +460,7 @@ const PARENT_ORIGIN = (() => {
         post('xb-ena:debug-char');
       });
       $('ep_test_planner').addEventListener('click', () => {
-        post('xb-ena:run-test', { text: '（测试输入）请规划下一步剧情走向。' });
+        post('xb-ena:run-test');
         $('ep_debug_output').classList.add('visible');
         $('ep_debug_output').textContent = '规划测试中…';
       });
@@ -491,7 +480,6 @@ const PARENT_ORIGIN = (() => {
 
       document.querySelectorAll('.card .input').forEach(el => {
         if (el.closest('.prompt-block')) return;
-        if (el.id === 'ep_test_input') return;
         el.addEventListener('change', scheduleSave);
       });
     }

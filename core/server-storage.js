@@ -8,7 +8,7 @@ const createStorage = (filename, opts = {}) => new StorageFile(filename, {
     debounce,
 });
 
-export const TasksStorage = createStorage('LittleWhiteBox_Tasks.json');
+export const TasksStorage = createStorage('LittleWhiteBox_Tasks.json', { readTimeoutMs: 5000 });
 export const StoryOutlineStorage = createStorage('LittleWhiteBox_StoryOutline.json');
 export const NovelDrawStorage = createStorage('LittleWhiteBox_NovelDraw.json', { debounceMs: 800 });
 export const SdDrawStorage = createStorage('LittleWhiteBox_SdDraw.json', { debounceMs: 800 });

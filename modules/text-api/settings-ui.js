@@ -1,6 +1,7 @@
 import './settings-ui.css';
 import { createIdentifier } from '../../shared/common/identifier.js';
-import { buildPresetActionIcon } from '../agent-core/ui/settings-markup.js';
+import { buildPresetActionIcon, syncConfigSaveButton } from '../agent-core/ui/settings-markup.js';
+import { createSaveFeedback } from '../agent-core/ui/save-feedback.js';
 import { PROVIDER_OPTIONS } from '../agent-core/provider-resolution.js';
 import { samplingParametersFor } from '../agent-core/sampling.js';
 import { resolveReasoningCapability, getReasoningModeOptions, getReasoningEffortOptions } from '../agent-core/reasoning-capabilities.js';
@@ -23,6 +24,13 @@ export function mountTextApiSettings(root, { feature, namespace }) {
     const status = element('div', '', 'text-api-status'); status.setAttribute('role', 'status');
     const retry = element('button', COPY.retry); retry.type = 'button'; retry.hidden = true;
     root.replaceChildren(fields, status, retry);
+    const saveFeedback = createSaveFeedback(syncSaveButton);
+    function syncSaveButton(value = saveFeedback.current) {
+        const button = fields.querySelector('[data-save]');
+        if (button) syncConfigSaveButton(button, value, { className: 'text-api-icon', disabled: !draft });
+    }
+    fields.addEventListener('input', () => saveFeedback.resetSuccess());
+    fields.addEventListener('change', () => saveFeedback.resetSuccess());
     function cancelRequests() {
         for (const [requestId, pending] of requests) {
             if (!['models', 'test'].includes(pending.action)) continue;
@@ -85,12 +93,40 @@ export function mountTextApiSettings(root, { feature, namespace }) {
     }
     async function mutate(mutation, selection = null) {
         if (busy) return;
-        busy = true; fields.disabled = true; feedback(COPY.saving);
-        try { settings = await request('mutate', { mutation }); choose(selection || settings.bindings[feature]); feedback(COPY.saved); }
-        finally { busy = false; fields.disabled = false; }
+        busy = true; fields.disabled = true;
+        saveFeedback.set({ status: 'idle' });
+        feedback(COPY.saving);
+        try {
+            settings = await request('mutate', { mutation });
+            choose(selection || settings.bindings[feature]);
+            feedback(COPY.saved);
+        } finally {
+            busy = false; fields.disabled = false;
+            fields.querySelector('.text-api-presets').disabled = false;
+        }
     }
-    function save() {
-        return mutate(selected === HOST_BINDING ? { type: 'select-host' } : { type: 'save', id: selected, preset: draft });
+    async function save() {
+        if (busy) return;
+        busy = true;
+        const stamp = revision;
+        fields.querySelector('.text-api-presets').disabled = true;
+        saveFeedback.set({ status: 'saving' });
+        feedback(COPY.saving);
+        try {
+            const mutation = selected === HOST_BINDING ? { type: 'select-host' }
+                : { type: 'save', id: selected, preset: structuredClone(draft) };
+            settings = await request('mutate', { mutation });
+            // Keep the live draft and its input bindings, including edits made
+            // while the submitted snapshot was being saved.
+            feedback(stamp === revision ? COPY.saved : '');
+            saveFeedback.set({ status: stamp === revision ? 'success' : 'idle' });
+        } catch (error) {
+            saveFeedback.set({ status: 'error', error: error.message });
+            throw error;
+        } finally {
+            busy = false;
+            fields.querySelector('.text-api-presets').disabled = false;
+        }
     }
     async function add() {
         const name = win.prompt(COPY.name, draft ? `${draft.name} 副本` : COPY.title);
@@ -117,7 +153,8 @@ export function mountTextApiSettings(root, { feature, namespace }) {
     function render() {
         const parametersOpen = fields.querySelector('details')?.open || false;
         fields.replaceChildren();
-        const toolbar = element('div', null, 'text-api-presets');
+        const toolbar = element('fieldset', null, 'text-api-presets');
+        toolbar.disabled = busy;
         const choices = [{ value: '', label: COPY.unset, disabled: true }, { value: HOST_BINDING, label: COPY.host },
             ...settings.presets.map(preset => ({ value: preset.id, label: preset.name }))];
         const selector = select(choices, selected, value => {
@@ -128,9 +165,11 @@ export function mountTextApiSettings(root, { feature, namespace }) {
         for (const [label, run, icon] of [[COPY.add, add, 'add'], [COPY.rename, rename, 'rename'], [COPY.save, save, 'save'], [COPY.remove, remove, 'delete']]) {
             const item = button(label, run, icon);
             item.disabled = icon !== 'add' && (!draft || (selected === HOST_BINDING && icon !== 'save') || (icon === 'delete' && settings.presets.length === 1));
+            if (icon === 'save') item.dataset.save = '';
             actions.append(item);
         }
         toolbar.append(selector, actions); fields.append(toolbar);
+        syncSaveButton();
         if (!draft) return;
         if (selected === HOST_BINDING) {
             fields.append(button(COPY.test, async () => {
@@ -218,5 +257,5 @@ export function mountTextApiSettings(root, { feature, namespace }) {
         finally { fields.disabled = !settings; }
     }
     retry.onclick = refresh;
-    return { refresh() { refresh().catch(error => feedback(error.message, true)); }, destroy() { revision++; cancelRequests(); win.removeEventListener('message', receive); for (const pending of requests.values()) { win.clearTimeout(pending.timer); pending.reject(new Error(COPY.cancelled)); } requests.clear(); } };
+    return { refresh() { refresh().catch(error => feedback(error.message, true)); }, destroy() { revision++; cancelRequests(); saveFeedback.destroy(); win.removeEventListener('message', receive); for (const pending of requests.values()) { win.clearTimeout(pending.timer); pending.reject(new Error(COPY.cancelled)); } requests.clear(); } };
 }

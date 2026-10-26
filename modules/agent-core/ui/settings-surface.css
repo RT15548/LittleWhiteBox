@@ -1,3 +1,5 @@
+@import url('./save-feedback.css');
+
 .xb-agent-settings-surface .xb-assistant-config,
 .xb-agent-settings-surface .xb-assistant-config-fields,
 .xb-agent-settings-surface .xb-assistant-config-page {
@@ -86,25 +88,6 @@
     opacity: .42;
     cursor: not-allowed;
     transform: none;
-}
-
-.xb-agent-settings-surface .xb-assistant-save-button.is-success {
-    color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 55%, var(--border));
-}
-
-.xb-agent-settings-surface .xb-assistant-save-button.is-error {
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
-}
-
-.xb-agent-settings-surface .xb-assistant-save-spinner {
-    transform-origin: 12px 12px;
-    animation: xb-agent-spin .8s linear infinite;
-}
-
-@keyframes xb-agent-spin {
-    to { transform: rotate(360deg); }
 }
 
 .xb-agent-settings-surface .xb-assistant-config label {

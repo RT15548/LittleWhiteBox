@@ -10,7 +10,7 @@ import {
     mergeNewData,
     isSummaryConsumable,
 } from "../data/store.js";
-import { commitSummaryMemory, readSummaryMemory, waitForMemoryCommit } from '../data/memory-commit.js';
+import { commitSummaryMemory, readSummaryMemory, waitForMemoryCommit, getMemoryCommitState } from '../data/memory-commit.js';
 import { memorySaveError } from '../data/memory-copy.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import { summaryFailureReason } from '../summary-failure.js';
@@ -26,6 +26,7 @@ import { memoryPolicy } from '../data/memory-policy.js';
 import { getSummarySourceEnd } from './source-boundary.js';
 import { normalizeSummaryDelayFloors } from '../data/summary-delay.js';
 import { prepareSummaryResult } from './summary-result.js';
+import { rebaseGeneratedEvents } from './rebase-events.js';
 import { formatModelArcProgress } from './arc-progress.js';
 import { notifySummaryCommitted } from '../maintenance/notification.js';
 import { getChatIdentity } from '../data/chat-identity.js';
@@ -127,8 +128,6 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
         return { success: false, error: "summary_invalid" };
     }
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
-    const storeUpdatedAt = store?.updatedAt;
-    const storeJsonAtStart = JSON.stringify(store?.json || {});
     const maxPerRun = config.trigger?.maxPerRun || 100;
     const delayFloors = normalizeSummaryDelayFloors(config.trigger?.delayFloors);
     const filterRules = structuredClone(getTextFilterRules());
@@ -147,7 +146,9 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
 
     const existingSummary = formatExistingSummaryForAI(store);
     const existingFacts = getFacts();
-    const existingEventCount = store?.json?.events?.length || 0;
+    const existingEvents = (store?.json?.events || []).map(({ id }) => ({ id }));
+    const existingEventCount = existingEvents.length;
+    const initialReceipts = new Set((store?.summaryHistory || []).flatMap(batch => batch.maintenance || []).map(receipt => receipt.id));
 
     let raw;
     try {
@@ -165,7 +166,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
         // Wait before revalidating or merging: a maintenance save may still be
         // publishing its receipt, or may restore the previous snapshot on failure.
         onProgress?.({ stage: 'save_confirmation' });
-        await waitForMemoryCommit(signal);
+        do { await waitForMemoryCommit(signal); } while (getMemoryCommitState() === 'saving');
     } catch (err) {
         if (isSummaryGenerationCancelledError(err) || isSummaryRunInactive(signal, targetChatId, targetIdentity)) {
             onStatus?.(SUMMARY_FEEDBACK_COPY.summaryStopped);
@@ -181,12 +182,11 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
     // Revalidate the captured slice without expanding it when new messages make
     // more floors eligible. A shortened chat must still respect the delayed tail.
+    // Maintenance of earlier memory is mergeable, not a change to these floors.
     onProgress?.({ stage: 'source_validation' });
     const currentSlice = buildIncrementalSlice(slice.endMesId, lastSummarized, maxPerRun, delayFloors, filterRules);
     if (
         (store?.lastSummarizedMesId ?? -1) !== lastSummarized
-        || store?.updatedAt !== storeUpdatedAt
-        || JSON.stringify(store?.json || {}) !== storeJsonAtStart
         || currentSlice.endMesId !== slice.endMesId
         || currentSlice.text !== slice.text
     ) {
@@ -212,7 +212,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     let parsed;
     try {
         parsed = prepareSummaryResult(decoded, {
-            existingEvents: store?.json?.events || [],
+            existingEvents,
             // Source markers are one-based; endMesId is zero-based.
             startFloor: slice.endMesId - slice.count + 2,
             endFloor: slice.endMesId + 1,
@@ -226,9 +226,14 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     }
 
     onProgress?.({ stage: 'merge' });
-    const mergeResult = mergeNewData(store?.json || {}, parsed, slice.endMesId, { returnMeta: true });
-    const merged = mergeResult.json;
     const previous = readSummaryMemory();
+    const maintenance = (previous.storySummary.summaryHistory || []).flatMap(batch => batch.maintenance || [])
+        .filter(receipt => !initialReceipts.has(receipt.id)).flatMap(receipt => receipt.operations);
+    parsed.events = rebaseGeneratedEvents(parsed.events, previous.storySummary.json?.events || [], maintenance);
+    // Append to the latest published memory. Incoming facts/arcs take precedence;
+    // untouched maintenance edits and their receipts remain in the same snapshot.
+    const mergeResult = mergeNewData(previous.storySummary.json || {}, parsed, slice.endMesId, { returnMeta: true });
+    const merged = mergeResult.json;
     const next = structuredClone(previous);
     next.storySummary.lastSummarizedMesId = slice.endMesId;
     next.storySummary.json = merged;

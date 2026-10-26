@@ -2,7 +2,7 @@
 // 服务器文件存储工具
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { runWithAbortDeadline, throwIfSignalAborted } from '../shared/common/abort-utils.js';
+import { runWithAbortDeadline, throwIfSignalAborted, mergeAbortSignals } from '../shared/common/abort-utils.js';
 import { STORAGE_COPY } from './storage-copy.js';
 import { observeBackgroundTask } from '../shared/common/async-errors.js';
 
@@ -186,26 +186,31 @@ export class StorageFile {
         return this._enqueueWrite(() => this._replaceAndSave(candidate, silent));
     }
 
-    async updateAndSave(updater, { silent = true } = {}) {
+    async updateAndSave(updater, { silent = true, signal } = {}) {
         if (typeof updater !== 'function') {
             throw new TypeError('存储更新器必须是函数');
         }
 
         return this._enqueueWrite(async () => {
+            throwIfSignalAborted(signal);
             const current = await this._loadInternal();
+            throwIfSignalAborted(signal);
             const draft = canonicalizeRecord(current).data;
             const result = await updater(draft);
+            throwIfSignalAborted(signal);
             const nextData = result === undefined ? draft : result;
-            return this._replaceAndSave(canonicalizeRecord(nextData), silent);
+            return this._replaceAndSave(canonicalizeRecord(nextData), silent, signal);
         });
     }
 
-    async _replaceAndSave(candidate, silent) {
+    async _replaceAndSave(candidate, silent, signal) {
         await this._loadInternal();
+        throwIfSignalAborted(signal);
         const nextVersion = Math.max(this._dirtyVersion, this._savedVersion) + 1;
         this._saving = true;
         try {
-            await this._uploadJson(candidate.json);
+            await this._uploadJson(candidate.json, signal);
+            throwIfSignalAborted(signal);
             this._cache = candidate.data;
             this._dirtyVersion = nextVersion;
             this._savedVersion = nextVersion;
@@ -302,7 +307,7 @@ export class StorageFile {
             : error;
     }
 
-    async _uploadJson(json) {
+    async _uploadJson(json, signal) {
         const base64 = toBase64(json);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), STORAGE_UPLOAD_TIMEOUT_MS);
@@ -312,7 +317,7 @@ export class StorageFile {
                 method: 'POST',
                 headers: this._getRequestHeaders(),
                 body: JSON.stringify({ name: this.filename, data: base64 }),
-                signal: controller.signal,
+                signal: mergeAbortSignals(controller.signal, signal),
             });
         } finally {
             clearTimeout(timeoutId);

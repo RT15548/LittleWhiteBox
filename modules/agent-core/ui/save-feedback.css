@@ -1,0 +1,22 @@
+:is(.xb-agent-settings-surface, .text-api) .xb-assistant-save-button.is-success {
+    color: var(--success, #4caf70);
+    border-color: color-mix(in srgb, var(--success, #4caf70) 55%, var(--border, #8885));
+}
+
+:is(.xb-agent-settings-surface, .text-api) .xb-assistant-save-button.is-error {
+    color: var(--danger, #c65353);
+    border-color: color-mix(in srgb, var(--danger, #c65353) 55%, var(--border, #8885));
+}
+
+:is(.xb-agent-settings-surface, .text-api) .xb-assistant-save-spinner {
+    transform-origin: 12px 12px;
+    animation: xb-agent-spin .8s linear infinite;
+}
+
+@keyframes xb-agent-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :is(.xb-agent-settings-surface, .text-api) .xb-assistant-save-spinner { animation: none; }
+}
