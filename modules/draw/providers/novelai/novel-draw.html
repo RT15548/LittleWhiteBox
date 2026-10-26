@@ -6,11 +6,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Novel Draw</title>
+<script src="../../shared/theme-boot.js"></script>
 <link rel="stylesheet" href="../../shared/settings-shell.css">
 <link rel="stylesheet" href="../../shared/settings-icons.css">
+<link rel="stylesheet" href="../../shared/preset-list-view.css">
 <link rel="stylesheet" href="../../shared/agent-settings-surface.css">
 <link rel="stylesheet" href="../../shared/character-library-dialog.css">
 <link rel="stylesheet" href="../../shared/character-group-presets-ui.css">
+<link rel="stylesheet" href="../../shared/character-group-height.css">
 <link rel="stylesheet" href="../../shared/prompt-layout-editor.css">
 <script type="module">
 import { loadBuildEntry, reportBuildFailure } from '../../../../core/build-assets.js';
@@ -46,55 +49,116 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-group-header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; background: rgba(255,255,255,.03); border-radius: 8px 8px 0 0; }
 .char-group.collapsed .char-group-header { border-radius: 8px; }
 .char-group-collapse { flex-shrink: 0; width: 22px; height: 22px; background: none; border: none; color: var(--text-secondary); cursor: pointer; }
-/* 分组名有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
-.char-group-name { flex: 1 1 6em; min-width: 6em; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 分组名是就地改名输入框（.inline-name，未分组是普通文字），有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
+.char-group-name { flex: 0 1 auto; field-sizing: content; min-width: 6em; max-width: 100%; padding: 3px 6px; border: 1px solid transparent; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .char-group-count { flex-shrink: 0; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 .char-group-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
-.char-group-body { padding: 2px 4px; max-height: max(320px, 60vh); overflow-y: auto; } /* 展开的分组在自己的区域内滚动（分组头留在外面）；不设 overscroll-behavior，滚到头继续带动整页；上下各留 2px 给拖拽落点线 */
+.char-group-body { padding: 2px 4px; max-height: var(--lwb-group-height, max(320px, 60vh)); overflow-y: auto; } /* 展开的分组在自己的区域内滚动（分组头留在外面）；不设 overscroll-behavior，滚到头继续带动整页；上下各留 2px 给拖拽落点线 */
 .char-group-body > .char-card { flex-shrink: 0; }
 .char-group-body[hidden] { display: none; }
 .char-group-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
-.char-group-switch:not(.active) { color: var(--text-muted); }
-/* 分组关闭：整组变淡、虚线边框；角色自己的启用开关仍可点，只是组内角色当前不参与出图。 */
+/* 分组关闭：虚线边框，名称变淡（只淡化名称，状态词、计数、类型徽标保持正常对比度）；角色自己的启用开关仍可点，只是组内角色当前不参与出图。 */
 .char-group.group-disabled { border-style: dashed; }
-.char-group.group-disabled .char-group-name, .char-group.group-disabled .char-group-count { opacity: .6; }
-.char-group.group-disabled .char-identity { opacity: .45; }
-.char-group.group-disabled .char-status { color: var(--text-secondary); }
+.char-group.group-disabled .char-group-name { opacity: .75; }
+.char-group.group-disabled .char-name { opacity: .6; }
 .char-batch-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; padding: 8px; border: 1px solid var(--border-focus); border-radius: 8px; background: var(--bg-secondary); }
 .char-batch-bar .input { width: auto; min-width: 100px; max-width: 160px; padding: 4px 8px; font-size: 12px; }
 .char-batch-bar #nd_char_batch_count { font-size: 12px; font-weight: 600; margin-right: 4px; }
 .char-batch-bar button:disabled { opacity: .4; cursor: not-allowed; }
 .char-undo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12px; }
 #nd_char_select_toggle.active { color: var(--accent); border-color: var(--accent); }
-.char-drag-handle { flex-shrink: 0; width: 18px; text-align: center; color: var(--text-muted); cursor: grab; user-select: none; touch-action: none; letter-spacing: -2px; }
-.char-drag-handle:hover, .char-drag-handle:focus-visible { color: var(--text-primary); }
 .char-select, .char-group-select { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
 .char-card.dragging, .char-group.dragging { opacity: .45; }
-.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
-.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
-.drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
-/* 参数预设列表：每行 = 拖动手柄 + 名称（点选）+ “…”菜单（菜单样式复用 .char-menu*）。列表自己滚动，上下各留 2px 给拖拽落点线。 */
-.preset-list-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
-.preset-list-header .card-title { margin-bottom: 0; }
-.preset-list-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.preset-list-toggle { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; background: none; border: 1px solid transparent; border-radius: 6px; color: var(--text-secondary); cursor: pointer; }
-.preset-list-toggle:hover { color: var(--text-primary); background: rgba(255,255,255,.06); }
-.preset-list-toggle:focus-visible { outline: none; border-color: var(--border-focus); }
-.preset-list-toggle i { transition: transform .15s; }
-.preset-list-toggle.collapsed i { transform: rotate(-90deg); }
-.preset-list.preset-list-collapsed { max-height: none; overflow-y: visible; }
-.preset-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; padding: 2px; }
-.preset-list-card .status-text.inline-status { margin-top: 8px; }
-.preset-row { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 4px 8px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.03); }
-.preset-row:hover { background: rgba(255,255,255,.06); }
-.preset-row.selected { background: var(--accent-soft); border-color: var(--border); }
-.preset-row.dragging { opacity: .45; }
-/* 名称有保底宽度（约 6 个汉字），空间不够时“…”菜单按钮换到下一行，而不是把名称挤没。 */
-.preset-row-name { flex: 1 1 6em; min-width: 6em; padding: 8px 4px; background: none; border: none; border-radius: 6px; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preset-row-name:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--border-focus); }
-.preset-row.selected .preset-row-name { color: var(--accent); }
-.preset-row .char-menu-wrap { margin-left: auto; }
-.preset-list-empty { padding: 10px; font-size: 12px; color: var(--text-muted); }
+/* ── 角色标签页的明暗层次（只作用于 #nd_char_list，别的页面不受影响）──
+   页面本身保持以白为主：外层的分组是一层浅灰的“托盘”，角色卡是托盘里的白卡片；编辑中的卡片顶栏与表单正文是两个色调，
+   形态卡片是比表单正文更灰一档的底，里面的服装 / 动态标签条目和输入框仍是白色；分区标题行有一条很淡的灰色底。
+   颜色都由页面已有的 --bg-* / --text-primary 混合得到（文字色只混很少一点），深色主题是同一套结构的“提亮”版本，没有写死的色值。
+   正文文字（--text-primary / --text-secondary）在这些底色上都保持 AA 对比度；--text-muted 只用在最浅的白卡和托盘上。 */
+#nd_char_list {
+    --ct-group: color-mix(in srgb, var(--bg-tertiary) 40%, var(--bg-primary));
+    --ct-group-head: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+    --ct-card: color-mix(in srgb, var(--text-primary) 2%, var(--bg-secondary));
+    --ct-edit-bar: color-mix(in srgb, var(--text-primary) 6%, var(--bg-tertiary));
+    --ct-edit-body: var(--bg-secondary);
+    --ct-form: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+    --ct-item: color-mix(in srgb, var(--text-primary) 2%, var(--bg-secondary));
+    --ct-band: color-mix(in srgb, var(--text-primary) 8%, var(--bg-tertiary));
+    --ct-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+    --ct-btn: color-mix(in srgb, var(--text-primary) 9%, var(--bg-tertiary));
+    --ct-btn-hover: color-mix(in srgb, var(--text-primary) 15%, var(--bg-tertiary));
+    --ct-btn-border: color-mix(in srgb, var(--text-primary) 28%, transparent);
+}
+/* 浅色：跟随系统（没有 data-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) #nd_char_list {
+        --ct-btn: var(--bg-secondary);
+        --ct-btn-hover: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
+        --ct-btn-border: color-mix(in srgb, var(--text-primary) 26%, transparent);
+        --ct-group: color-mix(in srgb, var(--bg-tertiary) 60%, var(--bg-primary));
+        --ct-group-head: color-mix(in srgb, var(--text-primary) 2%, var(--bg-tertiary));
+        --ct-card: var(--bg-secondary);
+        --ct-edit-bar: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+        --ct-edit-body: color-mix(in srgb, var(--bg-tertiary) 35%, var(--bg-secondary));
+        --ct-form: color-mix(in srgb, var(--bg-tertiary) 70%, var(--bg-secondary));
+        --ct-item: var(--bg-secondary);
+        --ct-band: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+        --ct-shadow: 0 1px 2px rgba(60, 50, 30, .08);
+    }
+}
+:root[data-theme="light"] #nd_char_list {
+    --ct-btn: var(--bg-secondary);
+    --ct-btn-hover: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
+    --ct-btn-border: color-mix(in srgb, var(--text-primary) 26%, transparent);
+    --ct-group: color-mix(in srgb, var(--bg-tertiary) 60%, var(--bg-primary));
+    --ct-group-head: color-mix(in srgb, var(--text-primary) 2%, var(--bg-tertiary));
+    --ct-card: var(--bg-secondary);
+    --ct-edit-bar: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+    --ct-edit-body: color-mix(in srgb, var(--bg-tertiary) 35%, var(--bg-secondary));
+    --ct-form: color-mix(in srgb, var(--bg-tertiary) 70%, var(--bg-secondary));
+    --ct-item: var(--bg-secondary);
+    --ct-band: color-mix(in srgb, var(--text-primary) 3%, var(--bg-tertiary));
+    --ct-shadow: 0 1px 2px rgba(60, 50, 30, .08);
+}
+#nd_char_list .char-group { background: var(--ct-group); box-shadow: var(--ct-shadow); }
+#nd_char_list .char-group-header { background: var(--ct-group-head); border-bottom: 1px solid var(--border); }
+#nd_char_list .char-group.collapsed .char-group-header { border-bottom-color: transparent; }
+#nd_char_list .char-group-body { padding: 6px; }
+#nd_char_list .char-group-body > .char-card, #nd_char_list .char-card:not(.editing) {
+    background: var(--ct-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--ct-shadow);
+}
+#nd_char_list .char-group-body > .char-card + .char-card { margin-top: 4px; }
+#nd_char_list .char-card:not(.editing):hover { background: color-mix(in srgb, var(--text-primary) 4%, var(--ct-card)); }
+#nd_char_list .char-card.editing { background: var(--ct-edit-body); border-color: var(--border-focus); box-shadow: var(--ct-shadow); }
+#nd_char_list .char-card.editing:hover { background: var(--ct-edit-body); }
+#nd_char_list .char-card.editing > .char-card-summary { background: var(--ct-edit-bar); }
+#nd_char_list .char-form { background: var(--ct-form); }
+#nd_char_list .char-outfit-editor-item, #nd_char_list .char-dynstate-editor-item { background: var(--ct-item); }
+#nd_char_list .char-form .char-outfit-editor-item, #nd_char_list .char-form .char-dynstate-editor-item { background: var(--ct-item); }
+#nd_char_list .char-edit-section > .char-section-head { padding: 3px 8px; border-radius: 6px; background: var(--ct-band); }
+#nd_char_list .char-forms > .char-section-head { padding: 3px 8px; border-radius: 6px; background: var(--ct-band); }
+/* 灰底上的按钮：次要按钮和图标按钮用近白（深色主题里是比灰底亮一档）的底加看得见的描边，悬停稍灰一点；主要按钮（保存）保持实心深色。
+   页面上其它位置的按钮不受影响；开关型按钮（启用方块、分组开关）自己有开 / 关两态，不在这里改。 */
+#nd_char_list .btn:not(.btn-primary),
+#nd_char_list .char-group-header .char-action-button:not(.char-enabled-control):not(.char-group-switch),
+#nd_char_list .char-card.editing .char-action-button:not(.char-enabled-control):not(.char-group-switch) {
+    background: var(--ct-btn); border-color: var(--ct-btn-border);
+}
+#nd_char_list .char-group-header .char-action-button:not(.char-enabled-control):not(.char-group-switch),
+#nd_char_list .char-card.editing .char-action-button:not(.char-enabled-control):not(.char-group-switch) { color: var(--text-primary); }
+#nd_char_list .btn:not(.btn-primary):hover:not(:disabled),
+#nd_char_list .char-group-header .char-action-button:not(.char-enabled-control):not(.char-group-switch):hover,
+#nd_char_list .char-card.editing .char-action-button:not(.char-enabled-control):not(.char-group-switch):hover,
+#nd_char_list .char-group-header .char-menu-button[aria-expanded="true"],
+#nd_char_list .char-card.editing .char-menu-button[aria-expanded="true"] { background: var(--ct-btn-hover); border-color: var(--text-secondary); }
+/* 灰底上的小字用 --text-secondary（--text-muted 在这些底色上不到 AA）：分组计数、分区标题与数量、状态、折叠预览与说明文字。 */
+#nd_char_list .char-group-count,
+#nd_char_list .editor-item-state,
+#nd_char_list .char-status,
+#nd_char_list .named-tag-preview, #nd_char_list .char-form-preview,
+#nd_char_list .char-section-toggle, #nd_char_list .char-forms-title { color: var(--text-secondary); }
+#nd_char_list .char-section-toggle:hover { color: var(--text-primary); }
+#nd_char_list .char-section-count, #nd_char_list .char-edit-note, #nd_char_list .char-section-hint { color: var(--text-secondary); }
+/* ── 角色标签页层次结束 ── */
 .planner-retry-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .planner-retry-row .input { width: 72px; padding: 4px 8px; }
 .auto-learn-group-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
@@ -120,74 +184,105 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-identity { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .char-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .char-type-badge {
-    font-size: 10px; padding: 1px 5px; border-radius: 3px;
-    background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
+    font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+    background: color-mix(in srgb, var(--text-primary) 9%, transparent); color: var(--text-primary); white-space: nowrap;
 }
 .char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 角色自己的“已上锁”用主文字色加粗，比其余灰色状态词更醒目；继承的“分组已上锁”保持灰色。 */
 .char-lock-label { color: var(--text-primary); font-weight: 600; }
 .char-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
-.char-action-button {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 34px; height: 34px; padding: 0; box-sizing: border-box;
-    background: transparent; border: 1px solid transparent; border-radius: 7px;
-    color: var(--text-secondary); cursor: pointer;
-}
-.char-action-button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); border-color: var(--border-focus); }
-.char-action-button svg {
-    width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8;
-    stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
-}
-.char-action-button.active { color: var(--text-primary); background: var(--accent-soft); }
-/* 角色卡“更多操作”菜单：position: fixed 浮层（位置由 shared/character-card-menu.js 按按钮矩形算出），不会被分组滚动区裁掉。 */
-.char-menu-wrap { display: inline-flex; flex-shrink: 0; }
-.char-menu-button[aria-expanded="true"] { color: var(--text-primary); border-color: var(--border-focus); background: rgba(255,255,255,.08); }
-.char-menu {
-    position: fixed; z-index: 200; display: flex; flex-direction: column; gap: 2px;
-    min-width: 132px; max-width: calc(100vw - 16px); padding: 4px; overflow-y: auto; box-sizing: border-box;
-    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,.45);
-}
-.char-menu[hidden] { display: none; }
-.char-menu-item {
-    display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; box-sizing: border-box;
-    background: none; border: none; border-radius: 6px; color: var(--text-secondary);
-    font: inherit; font-size: 12px; text-align: left; white-space: nowrap; cursor: pointer;
-}
-.char-menu-item i { width: 14px; text-align: center; flex-shrink: 0; }
-.char-menu-item:hover, .char-menu-item:focus-visible { background: rgba(255,255,255,.08); color: var(--text-primary); outline: none; }
-.char-menu-item:focus-visible { box-shadow: inset 0 0 0 1px var(--border-focus); }
-.char-menu-item.active { color: var(--accent); }
-.char-menu-item.danger { color: var(--danger); }
-.char-menu-item.danger:hover, .char-menu-item.danger:focus-visible { background: rgba(248,81,73,.12); color: var(--danger); }
-.char-card.disabled .char-identity, .char-card.disabled .char-status { opacity: .45; }
+.char-card.disabled .char-name { opacity: .6; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
 .char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 /* ── Inline edit mode ── */
 .char-card.editing { padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
 }
-.char-edit-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.char-card.editing:hover { background: var(--bg-secondary); } /* 吸顶栏是不透明的，卡片悬停时不能只有卡片变色 */
+/* 编辑中的角色卡：顶部摘要行（名字 / 类型 / 状态 / 保存 · 取消 · 添加形态 / 启用 / 编辑 / 更多）在长表单滚动时始终可见。
+   滚动的是最近的可滚动祖先：桌面端展开的分组里是 .char-group-body（max-height 内部滚动），没有分组或窄屏（max-height: none）时是 iframe 文档本身，
+   sticky 对两者都生效；用负外边距把栏铺满卡片内边距，滚过去的表单内容不会从栏的边缘漏出来。
+   “…”菜单是 fixed 浮层（z-index 200，在摘要的层叠上下文里），盖得住表单内容。
+   窄屏摘要行会换行（见下方媒体查询）：状态文字单独占一行，按钮区始终在第一行右侧，不会被挤出可视范围。 */
+.char-card.editing > .char-card-summary {
+    position: sticky; top: 0; z-index: 4; margin: -12px -12px 0; padding: 12px 12px 8px;
+    background: var(--bg-secondary); border-radius: 8px 8px 0 0; border-bottom: 1px solid var(--border);
+}
+.char-group-body .char-card.editing > .char-card-summary { top: -2px; } /* 分组滚动区自带 2px 上内边距：抵消它，滚过去的内容不会从栏上方漏出来 */
+.char-edit-add-form { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; white-space: nowrap; min-height: 34px; min-width: 34px; } /* 与同一行 34px 的图标按钮等高（窄屏下 .btn 的 44px 触控高度会让它突出一截） */
+/* 编辑区自动保存的状态（已保存 / 保存中… / 未保存：原因）：吸顶栏里的一小段文字，没有保存 / 取消按钮；未保存用加粗的危险色，一眼能看出这次没存上。 */
+.char-save-status { flex-shrink: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
+.char-save-status[data-state="invalid"], .char-save-status[data-state="error"] { color: color-mix(in srgb, var(--danger) 60%, var(--text-primary)); font-weight: 600; }
+/* 角色行本身可以点（展开 / 收起编辑区）：鼠标指针提示一下；里面的按钮、勾选框、拖动手柄、输入框保持自己的指针样式。 */
+#nd_char_list .char-card-summary { cursor: pointer; }
+#nd_char_list .char-card-summary input { cursor: auto; }
+.char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item, .char-form { scroll-margin-top: 72px; scroll-margin-bottom: 16px; } /* 聚焦 / 滚入视野时别被吸顶栏盖住 */
+/* ── 可折叠分区（固定外貌〔正向 + 负向〕/ 服装 / 动态标签）── */
+.char-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.char-section-toggle {
+    display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px 2px 0; border: 0; background: none;
+    color: var(--text-secondary); font: inherit; font-size: 11px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.char-section-toggle:hover { color: var(--text-primary); }
+.char-section-chevron, .named-tag-chevron { width: 12px; flex-shrink: 0; font-size: 10px; text-align: center; transition: transform .15s; }
+.char-edit-section.is-collapsed .char-section-chevron, .named-tag-item.is-folded .named-tag-chevron, .char-form.is-folded > .char-form-header .named-tag-chevron { transform: rotate(-90deg); }
+.char-section-count { color: var(--text-muted); font-weight: 400; }
+.char-section-count:not(:empty)::before { content: '· '; }
+.char-section-actions { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.char-edit-section.is-collapsed .char-section-head { margin-bottom: 0; }
+.char-edit-form { margin-top: 0; padding-top: 10px; } /* 摘要行自带下边线 */
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
-.char-edit-form textarea.input { min-height: 60px; }
-.char-outfit-editor-list, .char-dynstate-editor-list { display: flex; flex-direction: column; gap: 10px; }
-.char-outfit-editor-empty, .char-dynstate-editor-empty {
-    padding: 10px 12px; border-radius: 8px; border: 1px dashed var(--border);
-    background: rgba(255,255,255,.02); color: var(--text-muted); font-size: 11px;
-}
+.char-outfit-editor-list, .char-dynstate-editor-list { display: flex; flex-direction: column; gap: 6px; }
+.char-outfit-editor-empty, .char-dynstate-editor-empty { padding: 2px 0; color: var(--text-muted); font-size: 11px; }
+.char-section-hint { margin: 0 0 8px; font-size: 11px; }
+.char-edit-note { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .char-outfit-editor-item, .char-dynstate-editor-item {
-    padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+    padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08));
     background: rgba(255,255,255,.03);
 }
 .char-outfit-editor-header, .char-dynstate-editor-header {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 10px;
 }
-.char-outfit-editor-title, .char-dynstate-editor-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .char-outfit-editor-item .form-group:last-child, .char-dynstate-editor-item .form-group:last-child { margin-bottom: 0; }
-.char-outfit-tags, .char-dynstate-tags { min-height: 72px; }
+/* 条目折叠头：[拖动手柄] [折叠箭头] [名称输入框（平时看上去就是加粗标题，悬停 / 聚焦才显示输入框）] [TAG 预览（折叠时）] [已停用（停用时）] [启用开关] [删除] [“…”菜单：复制]。
+   点箭头、预览或头部空白处展开 / 折叠；点名称输入框是直接编辑。折叠时头部就是整条的高度。 */
+.named-tag-header { cursor: pointer; }
+.named-tag-toggle, .char-form-toggle {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px; border: 0; background: none;
+    color: inherit; font: inherit; cursor: pointer;
+}
+.named-tag-name, .char-form-name { flex: 1 1 auto; font-size: 12px; } /* 其余外观是共用的 .inline-name（settings-shell.css） */
+.named-tag-item.is-folded .named-tag-name, .char-form.is-folded > .char-form-header .char-form-name { flex: 0 1 11em; }
+.named-tag-preview, .char-form-preview { display: none; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
+.named-tag-item.is-folded .named-tag-preview, .char-form.is-folded > .char-form-header .char-form-preview { display: block; }
+.named-tag-item.is-folded .named-tag-header, .char-form.is-folded > .char-form-header { margin-bottom: 0; }
+.named-tag-item.dragging, .char-form.dragging { opacity: .45; }
+.named-tag-drag { align-self: center; }
+.named-tag-item.is-folded, .char-form.is-folded { padding-top: 4px; padding-bottom: 4px; }
+/* 折叠的行就是一行：头部按钮不再撑到 34px 的最小高度（触屏保持原来的点按大小）。 */
+@media (pointer: fine) {
+    .named-tag-item.is-folded .named-tag-header .btn-sm, .char-form.is-folded > .char-form-header .btn-sm { min-height: 26px; padding: 2px 8px; }
+    .named-tag-header .char-action-button, .char-form-header .char-action-button { width: 26px; height: 26px; }
+}
+/* ── 形态（同一角色的不同样子）：形态卡片的头部沿用条目折叠头的样式 ── */
+.char-forms-title { cursor: default; }
+.char-form-list { display: flex; flex-direction: column; gap: 6px; }
+.char-form { padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08)); background: rgba(255,255,255,.03); }
+.char-form-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
+/* 形态头部的类型徽标（外观同摘要栏的 .char-type-badge）：紧跟名称输入框，占住名称与 TAG 预览之间的空位；窄屏时名称先收缩。 */
+.char-form-type { flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+.char-form .char-form-body > .form-group:last-child { margin-bottom: 0; }
+/* 头部的“已停用”小标签：只在停用时出现，淡色小字不抢眼。 */
+.editor-item-state { display: none; flex-shrink: 0; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.named-tag-item.is-disabled .editor-item-state, .char-form.is-disabled .editor-item-state { display: inline; }
+/* 停用的条目 / 形态：整体变淡、标题划线、虚线边框，但输入框仍可编辑；头部的“…”菜单保持原样，方便改回来。 */
+.named-tag-item.is-disabled, .char-form.is-disabled { border-style: dashed; background: rgba(255,255,255,.01); }
+.named-tag-item.is-disabled .named-tag-toggle, .named-tag-item.is-disabled .named-tag-name, .named-tag-item.is-disabled .named-tag-preview, .named-tag-item.is-disabled .named-tag-body > .form-group,
+.char-form.is-disabled > .char-form-header .char-form-toggle, .char-form.is-disabled > .char-form-header .char-form-name, .char-form.is-disabled > .char-form-header .char-form-preview, .char-form.is-disabled > .char-form-header .char-form-type, .char-form.is-disabled .char-form-body { opacity: .5; }
+.named-tag-item.is-disabled .named-tag-name, .char-form.is-disabled > .char-form-header .char-form-name { text-decoration: line-through; }
 /* ── Toggle switch ── */
 .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -258,30 +353,33 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.2s; position: relative;
 }
 .gallery-slot:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+.gallery-slot-media { position: relative; }
 .gallery-slot-img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: var(--bg-input); }
 .gallery-slot-placeholder {
     width: 100%; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
     background: var(--bg-input); color: var(--text-muted); font-size: 24px;
 }
+/* 悬停层只盖在图片上（不再盖住底部的日期 / 徽标）；按钮是固定深底浅字，不随主题变色，浅色主题下也读得清。触屏没有悬停，整张卡片本身就能点开。 */
 .gallery-slot-overlay {
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
     background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.8));
     opacity: 0; transition: opacity 0.2s; display: flex;
     flex-direction: column; justify-content: flex-end; padding: 10px;
 }
-.gallery-slot:hover .gallery-slot-overlay { opacity: 1; }
+.gallery-slot:hover .gallery-slot-overlay, .gallery-slot:focus-within .gallery-slot-overlay { opacity: 1; }
 .gallery-slot-actions { display: flex; gap: 6px; justify-content: center; }
-.gallery-slot-actions .btn { padding: 6px 10px; min-height: 28px; font-size: 11px; background: rgba(0,0,0,0.6); }
+.gallery-slot-actions .btn { padding: 6px 12px; min-height: 34px; font-size: 12px; color: #f2efe8; background: rgba(16,18,24,0.85); border-color: rgba(255,255,255,0.45); }
+.gallery-slot-actions .btn:hover:not(:disabled) { background: rgba(60,64,78,0.95); }
 .gallery-slot-info {
     padding: 10px 12px; font-size: 11px; color: var(--text-secondary);
     display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border);
 }
 .gallery-slot-badge {
     display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
 }
 .gallery-slot-badge.count { background: var(--accent-soft); color: var(--accent); }
-.gallery-slot-badge.saved { background: rgba(63, 185, 80, 0.15); color: var(--success); }
+.gallery-slot-badge.saved { background: var(--bg-secondary); color: var(--success); border: 1px solid var(--success); }
 .gallery-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
 .gallery-empty p { font-size: 13px; margin-top: 8px; }
@@ -294,67 +392,102 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .gallery-load-error { display: grid; justify-items: center; gap: 8px; }
 .gallery-load-hint { font-size: 12px; }
 .gallery-load-error .btn { margin: 0; }
+/* 大图查看器：自带一块固定的深色表面（不随浅色 / 深色主题变化），文字、按钮、焦点环都用下面这组固定色，保证在两种主题下对比度一致（≥ 4.5:1，见 gallery-modal-css.test.js）。 */
 .gallery-modal {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.9); z-index: 1000;
-    display: none; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+    --gm-bg: rgba(6,7,10,0.95); --gm-bar: rgba(16,18,24,0.94); --gm-line: rgba(255,255,255,0.32);
+    --gm-text: #f2efe8; --gm-muted: #b4b1a9; --gm-ring: #fff;
+    --gm-primary: #ece6d8; --gm-primary-ink: #14151b; --gm-danger: #ff9ea9; --gm-ok: #8fdcc8; --gm-off: #a8a59d;
+    position: fixed; inset: 0; z-index: 1000; display: none; flex-direction: column;
+    background: var(--gm-bg); color: var(--gm-text);
 }
 .gallery-modal.visible { display: flex; }
+.gallery-modal :focus-visible { outline: 2px solid var(--gm-ring); outline-offset: 2px; }
+.gallery-modal-top, .gallery-modal-bottom { flex: 0 0 auto; background: var(--gm-bar); backdrop-filter: blur(10px); }
+.gallery-modal-top { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+.gallery-modal-info { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 14px; font-size: 14px; font-weight: 600; color: var(--gm-text); }
+.gallery-modal-info time { font-size: 12px; font-weight: 400; color: var(--gm-muted); }
 .gallery-modal-close {
-    position: absolute; top: 16px; right: 16px; width: 44px; height: 44px;
-    border: none; background: rgba(255,255,255,0.1); border-radius: 50%;
-    color: #fff; font-size: 20px; cursor: pointer; z-index: 10;
+    flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid var(--gm-line); border-radius: 50%;
+    background: rgba(255,255,255,0.08); color: var(--gm-text); font-size: 18px; cursor: pointer;
 }
 .gallery-modal-close:hover { background: rgba(255,255,255,0.2); }
-.gallery-modal-content { max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.gallery-modal-img { max-width: 100%; max-height: 60vh; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-.gallery-modal-stage { position: relative; display: flex; align-items: center; justify-content: center; max-width: 100%; }
+.gallery-modal-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px 68px; }
+.gallery-modal-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
 .gallery-modal-nav {
     position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
-    width: 44px; height: 44px; padding: 0 0 4px; border: none; border-radius: 50%;
-    background: rgba(0,0,0,0.45); color: #fff; font-size: 30px; line-height: 1; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; transition: background 0.15s, opacity 0.15s;
+    width: 48px; height: 48px; padding: 0 0 4px; border: 1px solid var(--gm-line); border-radius: 50%;
+    background: rgba(16,18,24,0.78); color: var(--gm-text); font-size: 30px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: background 0.15s;
 }
-.gallery-modal-nav.prev { left: 8px; }
-.gallery-modal-nav.next { right: 8px; }
-.gallery-modal-nav:hover:not(:disabled) { background: rgba(255,255,255,0.35); }
-.gallery-modal-nav:disabled { opacity: 0.25; cursor: default; }
-.gallery-modal-thumbs {
-    display: flex; gap: 8px; padding: 12px; background: rgba(0,0,0,0.5);
-    border-radius: 12px; max-width: 100%; overflow-x: auto;
+.gallery-modal-nav.prev { left: 10px; }
+.gallery-modal-nav.next { right: 10px; }
+.gallery-modal-nav:hover:not(:disabled) { background: rgba(60,64,78,0.92); }
+.gallery-modal-nav:disabled { color: var(--gm-off); border-style: dashed; cursor: default; }
+.gallery-modal-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(255,255,255,0.12); }
+.gallery-modal-thumbs { display: flex; gap: 8px; padding: 4px; max-width: 100%; overflow-x: auto; }
+.gallery-modal-thumbs[hidden], .gallery-modal-load-status[hidden] { display: none; }
+.gallery-modal-thumb { position: relative; flex: 0 0 auto; width: 56px; height: 56px; padding: 0; border: 2px solid transparent; border-radius: 8px; background: none; cursor: pointer; opacity: 0.7; transition: opacity 0.15s; }
+.gallery-modal-thumb img { display: block; width: 100%; height: 100%; border-radius: 6px; object-fit: cover; }
+.gallery-modal-thumb:hover { opacity: 1; }
+.gallery-modal-thumb.active { border-color: var(--gm-ring); opacity: 1; box-shadow: 0 0 0 2px rgba(0,0,0,0.6); }
+.gallery-modal-thumb.saved::after { content: '✓'; position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; border-radius: 50%; background: #2f7d68; color: #fff; font-size: 11px; line-height: 16px; text-align: center; }
+.gallery-modal-load-status { color: var(--gm-text); font-size: 13px; text-align: center; }
+.gallery-modal-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; }
+.gallery-modal .btn { min-height: 44px; padding: 8px 18px; font-size: 14px; color: var(--gm-text); background: rgba(255,255,255,0.06); border-color: var(--gm-line); }
+.gallery-modal .btn:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
+.gallery-modal .btn-primary { color: var(--gm-primary-ink); background: var(--gm-primary); border-color: var(--gm-primary); font-weight: 600; }
+.gallery-modal .btn-primary:hover:not(:disabled) { background: #fff; }
+.gallery-modal .btn-danger { color: var(--gm-danger); background: transparent; border-color: rgba(255,158,169,0.6); }
+.gallery-modal .btn-danger:hover:not(:disabled) { background: rgba(255,158,169,0.16); }
+.gallery-modal .btn:disabled { opacity: 1; color: var(--gm-off); background: transparent; border-style: dashed; border-color: rgba(255,255,255,0.24); }
+.gallery-modal .btn.is-saved:disabled { color: var(--gm-ok); border-color: rgba(143,220,200,0.5); }
+.gallery-modal-load-status .btn { min-height: 36px; margin-left: 8px; padding: 4px 12px; }
+@media (max-width: 600px) {
+    .gallery-modal-stage { padding: 8px; }
+    .gallery-modal-nav.prev { left: 12px; }
+    .gallery-modal-nav.next { right: 12px; }
+    .gallery-modal-actions .btn { flex: 1 1 40%; padding-inline: 10px; }
+    .gallery-modal-actions .btn-primary { flex-basis: 100%; }
 }
-.gallery-modal-thumb {
-    width: 60px; height: 60px; border-radius: 8px; object-fit: cover;
-    cursor: pointer; border: 2px solid transparent; opacity: 0.6;
-    transition: all 0.15s; flex-shrink: 0;
+@media (max-height: 500px) {
+    .gallery-modal-stage { padding: 6px 68px; }
+    .gallery-modal-bottom { gap: 6px; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+    .gallery-modal-thumb { width: 40px; height: 40px; }
+    .gallery-modal .btn { min-height: 40px; }
 }
-.gallery-modal-thumb:hover { opacity: 0.9; }
-.gallery-modal-thumb.active { border-color: var(--accent); opacity: 1; }
-.gallery-modal-thumb.saved { border-color: var(--success); }
-.gallery-modal-actions { display: flex; gap: 12px; }
-.gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
-.gallery-modal-load-status { color: #fff; font-size: 13px; text-align: center; }
-.gallery-modal-load-status .btn { margin-left: 8px; color: #fff; background: rgba(255,255,255,0.15); }
+/* 批量管理：slot 卡與彈窗縮略圖上的勾選框 */
+.gallery-slot { position: relative; }
+.gallery-slot > .batch-cb {
+    position: absolute; top: 6px; left: 6px; z-index: 3;
+    width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent);
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+}
+.gallery-slot.batch-checked { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 12px; }
+.gallery-modal-thumb-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.gallery-modal-thumb-wrap > .batch-cb {
+    position: absolute; top: 4px; left: 4px; z-index: 2;
+    width: 16px; height: 16px; cursor: pointer; accent-color: var(--gm-primary);
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+}
+.gallery-modal-thumb-wrap.batch-checked .gallery-modal-thumb { border-color: var(--gm-primary); opacity: 1; }
 @media (max-width: 768px) {
     .char-group-body { max-height: none; overflow-y: visible; }
     /* 角色库窄屏：容器允许收缩，角色摘要行换成两行（名字+类型徽标 / 摘要文字+操作按钮），分组头按钮换行，避免页面内横向滚动 */
     .char-grid, .char-group, .char-group-body, .char-card { min-width: 0; max-width: 100%; }
     .char-group-header { min-width: 0; }
     .char-group-actions { flex-wrap: wrap; flex-shrink: 1; max-width: 100%; }
-    /* 参数预设列表窄屏：容器允许收缩，标题与按钮分行，预设行里名称保底宽度、“…”换行，避免页面内横向滚动 */
-    .preset-list-card, .preset-list, .preset-row { min-width: 0; max-width: 100%; }
-    .preset-list-header .btn-group { flex-wrap: wrap; max-width: 100%; }
     .char-card-summary { flex-wrap: wrap; min-width: 0; }
+    /* 窄屏滚动的是文档本身，底部有固定的 .mobile-nav（至少 64px + 安全区）：滚入视野时让出这块 */
+    .char-edit-form input, .char-edit-form textarea, .char-edit-form select, .named-tag-item { scroll-margin-bottom: calc(80px + env(safe-area-inset-bottom)); }
     .char-identity { flex: 1 1 0; min-width: 0; }
     .char-status { order: 3; flex: 1 1 100%; min-width: 0; padding-left: 26px; }
     .char-actions { justify-content: flex-end; min-width: 0; }
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
 }
-@media (hover: none) and (pointer: coarse) {
-    .preset-row-name { min-height: 44px; }
-    .char-action-button { width: 44px; height: 44px; }
-    .char-menu-item { min-height: 44px; font-size: 13px; }
-    .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
+@media (max-width: 480px) {
+    /* 手机宽度：编辑摘要行里的 添加形态 只留图标（title 与 aria-label 仍在），把宽度让给角色名；按钮区始终不会被挤出可视范围 */
+    .char-edit-add-form span { display: none; }
+    .char-edit-add-form { padding-inline: 10px; }
 }
 
 /* ── 提示词模板始终可见 ── */
@@ -580,7 +713,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 
                 </div>
                 <fieldset id="nd_api_form" class="card" style="min-width:0;margin:0;" disabled>
-                    <div id="nd_api_presets" class="preset-bar"></div>
+                    <div id="nd_api_presets" class="api-preset-list"></div>
                     <div class="form-group">
                         <label class="form-label">NovelAI API Key</label>
                         <div class="input-row">
@@ -628,6 +761,15 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                             <label class="form-label">请求间隔 (毫秒)</label>
                             <input id="nd_delay" type="text" class="input" value="15000-30000">
                         </div>
+                        <div class="form-group">
+                            <label class="form-label">图片标题</label>
+                            <select id="nd_image_title_mode" class="input">
+                                <option value="none">不显示标题（默认）</option>
+                                <option value="overlay">悬浮标题条（图顶幼细标题，不折叠）</option>
+                                <option value="collapse">可折叠标题（点击标题折叠图片）</option>
+                            </select>
+                            <p class="form-hint">标题由场景分析 AI 为每张图生成；所有绘图 Provider 共用此显示方式。</p>
+                        </div>
                     </div>
                     <div class="btn-group" style="margin-top: 16px;">
                         <button id="nd_save_api" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
@@ -654,7 +796,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         </div>
                         <div class="btn-group">
                             <button id="nd_params_add" class="btn" title="以当前选中的预设为底新建一个"><i class="fa-solid fa-plus"></i> 新建</button>
-                            <button id="nd_params_cloud" class="btn" title="云端预设" style="color:#d4a574;"><i class="fa-solid fa-cloud-arrow-down"></i> 云端预设</button>
+                            <button id="nd_params_cloud" class="btn" title="云端预设" style="color:var(--warning);"><i class="fa-solid fa-cloud-arrow-down"></i> 云端预设</button>
                             <button id="nd_params_save" class="btn btn-primary" title="保存当前预设"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                         </div>
                     </div>
@@ -1064,9 +1206,28 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                             <button id="nd_save_cache_days" class="btn btn-sm btn-icon" style="min-height:28px;width:28px;padding:0;"><i class="fa-solid fa-check"></i></button>
                         </div>
                         <div id="nd_gallery_status" class="status-text" style="flex:1 1 220px;min-width:180px;margin-top:0;"></div>
+                        <div style="display:flex;align-items:center;gap:6px;align-self:stretch;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);">
+                                <input id="nd_save_as_jpeg" type="checkbox">
+                                <span data-gallery-jpeg-label></span>
+                            </label>
+                        </div>
+                        <button id="nd_batch" class="btn btn-sm"><i class="fa-solid fa-check"></i> 批量</button>
                         <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
                         <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
                         <button id="nd_refresh_stats" class="btn btn-sm btn-icon"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        </div>
+                    </div>
+                    <!-- 批量模式操作欄（點「批量」後展開在這一行下方） -->
+                    <div id="nd_zip_output" class="btn-group" hidden></div>
+                    <div id="nd_batch_bar" style="display:none;margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--bg-secondary);border:1px solid var(--border);gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+                        <span id="nd_batch_count" style="font-size:13px;color:var(--text-secondary);"></span>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                            <button class="btn btn-sm" id="nd_batch_select_all">选中已加载</button>
+                            <button class="btn btn-sm" id="nd_batch_select_none">取消选择</button>
+                            <button class="btn btn-sm btn-primary" id="nd_batch_download"><i class="fa-solid fa-download"></i> 导出 ZIP</button>
+                            <button class="btn btn-sm btn-danger" id="nd_batch_delete"><i class="fa-solid fa-trash"></i> 删除记录</button>
+                            <button class="btn btn-sm" id="nd_batch_done">完成</button>
                         </div>
                     </div>
                 </div>
@@ -1135,14 +1296,6 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 
 
 
-
-                <div class="action-status-row">
-                    <div class="btn-group" style="display:flex;gap:12px;flex-wrap:wrap;">
-                        <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
-                        <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
-                    </div>
-                    <div id="nd_prompts_status" class="status-text"></div>
-                </div>
 
                 <details class="card prompt-advanced-card">
                     <summary class="prompt-card-header">
@@ -1264,22 +1417,24 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     <!-- ═══════════════════════════════════════════════════════════════════════
          画廊弹窗
          ═══════════════════════════════════════════════════════════════════════ -->
-    <div id="nd_gallery_modal" class="gallery-modal" role="dialog" aria-modal="true" aria-label="画廊">
-        <button class="gallery-modal-close" id="nd_modal_close" aria-label="关闭">✕</button>
-        <div class="gallery-modal-content">
-            <div class="gallery-modal-stage">
-                <button class="gallery-modal-nav prev" id="nd_modal_prev" type="button" aria-label="上一张" disabled>‹</button>
-                <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
-                <button class="gallery-modal-nav next" id="nd_modal_next" type="button" aria-label="下一张" disabled>›</button>
-            </div>
-            <div class="gallery-modal-thumbs" id="nd_modal_thumbs"></div>
+    <div id="nd_gallery_modal" class="gallery-modal" role="dialog" aria-modal="true" aria-label="画廊大图">
+        <div class="gallery-modal-top">
+            <div class="gallery-modal-info" id="nd_modal_info"><span id="nd_modal_counter"></span><time id="nd_modal_date"></time></div>
+            <button class="gallery-modal-close" id="nd_modal_close" type="button" aria-label="关闭" title="关闭（Esc）">✕</button>
+        </div>
+        <div class="gallery-modal-stage">
+            <button class="gallery-modal-nav prev" id="nd_modal_prev" type="button" aria-label="上一张" title="上一张（←）" disabled>‹</button>
+            <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
+            <button class="gallery-modal-nav next" id="nd_modal_next" type="button" aria-label="下一张" title="下一张（→）" disabled>›</button>
+        </div>
+        <div class="gallery-modal-bottom">
+            <div class="gallery-modal-thumbs" id="nd_modal_thumbs" hidden></div>
             <div class="gallery-modal-load-status" id="nd_modal_load_status" role="status" aria-live="polite" hidden></div>
             <div class="gallery-modal-actions">
-                <button class="btn btn-primary" id="nd_modal_use"><i class="fa-solid fa-check"></i> 使用此图</button>
-                <button class="btn" id="nd_modal_save"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
-                <button class="btn btn-danger" id="nd_modal_delete"><i class="fa-solid fa-trash"></i> 删除</button>
+                <button class="btn btn-primary" id="nd_modal_use" type="button"><i class="fa-solid fa-check"></i> 使用此图</button>
+                <button class="btn" id="nd_modal_save" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
+                <button class="btn btn-danger" id="nd_modal_delete" type="button"><i class="fa-solid fa-trash"></i> 删除</button>
             </div>
-            <div class="gallery-modal-info" id="nd_modal_info"></div>
         </div>
     </div>
 

@@ -46,10 +46,14 @@
     color: var(--text-secondary, #8b949e);
     cursor: pointer;
 }
-/* 分组名有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
+/* 分组名是就地改名输入框（.inline-name，未分组是普通文字），有保底宽度（约 6 个汉字），空间不够时按钮区整体换到下一行，而不是把名称挤没。 */
 .lwb-cl-group-name {
-    flex: 1 1 6em;
+    flex: 0 1 auto;
+    field-sizing: content;
     min-width: 6em;
+    max-width: 100%;
+    padding: 3px 6px;
+    border: 1px solid transparent;
     font-size: 13px;
     font-weight: 600;
     overflow: hidden;
@@ -71,6 +75,13 @@
 .lwb-cl-icon-btn:hover:not(:disabled) { color: var(--text-primary, #e6edf3); background: rgba(255, 255, 255, 0.06); }
 .lwb-cl-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .lwb-cl-icon-btn.active { color: var(--accent, #d4a574); }
+/* 分组开关：开 = 实心强调色底 + 浅色图标 + “已开启”，关 = 描边 + 淡色图标 + “已关闭”（与 NovelAI 页面同一套语言）。 */
+.lwb-cl-group-switch { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; padding: 0 8px; border-color: var(--text-muted, #8b949e); color: var(--text-muted, #8b949e); }
+.lwb-cl-group-switch:not(.active) i { opacity: 0.7; }
+.lwb-cl-group-switch.active { color: var(--bg-primary, #0d1117); border-color: var(--accent, #d4a574); background: var(--accent, #d4a574); }
+.lwb-cl-group-switch:hover:not(:disabled) { color: var(--text-primary, #e6edf3); border-color: var(--text-secondary, #8b949e); background: var(--accent-soft, rgba(255, 255, 255, 0.06)); }
+.lwb-cl-group-switch.active:hover:not(:disabled) { color: var(--bg-primary, #0d1117); border-color: var(--text-primary, #e6edf3); background: var(--text-primary, #e6edf3); }
+.lwb-cl-switch-text { font-size: 11px; font-weight: 600; white-space: nowrap; }
 /* 分组关闭：整组变淡、虚线边框；角色自己的启用复选框仍可点，只是组内角色当前不参与出图。 */
 .lwb-cl-group-disabled { border-style: dashed; }
 .lwb-cl-group-disabled .lwb-cl-group-name,
@@ -153,7 +164,7 @@
     flex-direction: column;
     gap: 0;
     padding: 4px 8px;
-    max-height: max(320px, 60vh);
+    max-height: var(--lwb-group-height, max(320px, 60vh)); /* 用户可在分组下沿拖动调整，见 character-group-height.js */
     overflow-y: auto;
 }
 .lwb-cl-group-body > * { flex-shrink: 0; }
@@ -174,8 +185,6 @@
 .lwb-cl-group-empty { padding: 10px; font-size: 12px; color: var(--text-muted, #8b949e); }
 
 .lwb-cl-card-tools { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.lwb-cl-card-group-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary, #8b949e); }
-.lwb-cl-card-group-row .input { width: auto; min-width: 120px; max-width: 220px; padding: 4px 8px; font-size: 12px; }
 
 .lwb-cl-handle {
     flex-shrink: 0;
@@ -192,9 +201,6 @@
 
 body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important; user-select: none; }
 .sd-char-card.lwb-cl-dragging, .lwb-cl-group.lwb-cl-dragging { opacity: 0.45; }
-.lwb-cl-drop-before { box-shadow: 0 -2px 0 0 var(--accent, #d4a574); }
-.lwb-cl-drop-after { box-shadow: 0 2px 0 0 var(--accent, #d4a574); }
-.lwb-cl-drop-into { outline: 2px dashed var(--accent, #d4a574); outline-offset: -2px; }
 
 /* 窄屏（宿主页面切换为单栏的断点）：取消分组内滚动，保持整页滚动。 */
 @media (max-width: 768px) {
@@ -205,6 +211,68 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
     .sd-char-card[open] > .sd-char-card-header .sd-char-card-title { grid-column: 1 / 3; }
     .sd-char-card[open] > .sd-char-card-header::after { grid-column: 3; grid-row: 1; }
     .sd-char-card[open] > .sd-char-card-header .btn-group { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; }
-    .lwb-cl-card-group-row { flex-wrap: wrap; }
-    .lwb-cl-card-group-row .input { min-width: 0; max-width: 100%; }
 }
+
+/* ── 角色形态（SD / ComfyUI 卡片里的额外形态编辑区）── */
+.sd-char-forms { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.sd-char-forms-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.sd-char-form-list { display: flex; flex-direction: column; gap: 8px; }
+.sd-char-form { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
+.sd-char-form-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; list-style: none; cursor: pointer; }
+.sd-char-form-summary::-webkit-details-marker { display: none; }
+.sd-char-form-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.sd-char-form-tools { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sd-char-form[open] > .sd-char-form-summary { margin-bottom: 10px; }
+/* 停用的形态：虚线边框、整体变淡，摘要里的“已停用”小标签出现；输入框仍可编辑，工具按钮保持原样方便改回来。 */
+.sd-char-form-state { flex-shrink: 0; margin-right: auto; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.sd-char-form-state[hidden] { display: none; }
+.sd-char-form.is-disabled { border-style: dashed; }
+.sd-char-form.is-disabled > .sd-char-form-summary .sd-char-form-title, .sd-char-form.is-disabled > .sd-char-form-body { opacity: .5; }
+.sd-char-form.is-disabled > .sd-char-form-summary .sd-char-form-title { text-decoration: line-through; }
+
+/* ── 角色编辑区：固定外貌分组（正向 / 负向）与末尾说明 ── */
+.sd-char-fieldgroup > .form-label { font-weight: 600; }
+.sd-char-fieldgroup > .char-section-hint { margin: 0 0 6px; font-size: 11px; }
+.sd-char-fieldgroup > .form-group { margin-bottom: 8px; }
+.sd-char-editor-note { margin-top: 10px; color: var(--text-muted); font-size: 11px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* ── 角色标签页的明暗层次（SD WebUI / ComfyUI；与 NovelAI 页面 #nd_char_list 的同名方案一致，只作用于角色分组内部）──
+   分组是一层浅灰“托盘”，分组头略深，角色卡是托盘里的白卡片，展开的卡片是更柔和的底；形态块是比卡片正文灰一档的底，输入框保持白色。
+   颜色全部由页面已有的 --bg-* / --text-primary 混合得到（缺省值只为单独使用时可读），深色主题是同一套结构的提亮版本。 */
+.lwb-cl-group {
+    --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 40%, var(--bg-primary, #0d1117));
+    --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 3%, var(--bg-tertiary, #21262d));
+    --ct-card: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-secondary, #161b22));
+    --ct-open: var(--bg-secondary, #161b22);
+    --ct-form: color-mix(in srgb, var(--text-primary, #e6edf3) 3%, var(--bg-tertiary, #21262d));
+    --ct-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+/* 浅色：跟随系统（没有 data-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .lwb-cl-group {
+        --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 60%, var(--bg-primary, #0d1117));
+        --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-tertiary, #21262d));
+        --ct-card: var(--bg-secondary, #161b22);
+        --ct-open: color-mix(in srgb, var(--bg-tertiary, #21262d) 35%, var(--bg-secondary, #161b22));
+        --ct-form: color-mix(in srgb, var(--bg-tertiary, #21262d) 70%, var(--bg-secondary, #161b22));
+        --ct-shadow: 0 1px 2px rgba(60, 50, 30, 0.08);
+    }
+}
+:root[data-theme="light"] .lwb-cl-group {
+    --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 60%, var(--bg-primary, #0d1117));
+    --ct-group-head: color-mix(in srgb, var(--text-primary, #e6edf3) 2%, var(--bg-tertiary, #21262d));
+    --ct-card: var(--bg-secondary, #161b22);
+    --ct-open: color-mix(in srgb, var(--bg-tertiary, #21262d) 35%, var(--bg-secondary, #161b22));
+    --ct-form: color-mix(in srgb, var(--bg-tertiary, #21262d) 70%, var(--bg-secondary, #161b22));
+    --ct-shadow: 0 1px 2px rgba(60, 50, 30, 0.08);
+}
+.lwb-cl-group { background: var(--ct-group); box-shadow: var(--ct-shadow); }
+.lwb-cl-group-header { background: var(--ct-group-head); border-bottom: 1px solid var(--border); }
+.lwb-cl-group.collapsed .lwb-cl-group-header { border-bottom-color: transparent; }
+.lwb-cl-group-body { padding: 6px; }
+.lwb-cl-group-body > .sd-char-card {
+    padding: 8px 10px; background: var(--ct-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--ct-shadow);
+}
+.lwb-cl-group-body > .sd-char-card + .sd-char-card { margin-top: 4px; }
+.lwb-cl-group-body > .sd-char-card[open] { background: var(--ct-open); border-color: var(--border-focus, var(--border)); }
+.lwb-cl-group-body > .sd-char-card[open] .sd-char-form { background: var(--ct-form); }

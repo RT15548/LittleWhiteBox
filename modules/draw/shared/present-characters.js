@@ -2,18 +2,11 @@
 // 只有“有效启用”的角色才会被检测到：角色自己 enabled !== false 且所在分组是开的（见 character-library.js 的嵌套启用模型）。
 import { selectEnabledCharacters } from './character-library.js';
 import { isCharacterEnabled } from './character-selection.js';
+import { selectEnabledNamedTags } from './named-tag-items.js';
+import { expandCharacterForms } from './character-forms.js';
 
 function escapeRegexChars(str) {
     return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
 }
 
 /**
@@ -41,16 +34,23 @@ export function detectPresentCharacters(messageText, characterLibrary) {
         });
 
         if (isPresent) {
-            present.push({
-                name: char.name,
-                aliases: char.aliases || [],
-                type: char.type || 'girl',
-                appearance: char.appearance || '',
-                danbooruTag: char.danbooruTag || '',
-                negativeTags: char.negativeTags || '',
-                outfits: normalizeNamedTagList(char.outfits),
-                dynamicStates: normalizeNamedTagList(char.dynamicStates),
-            });
+            // 有多个形态的角色按形态展开成多条（名称 `名称（形态名）`、别名共用）；单形态角色展开后就是它自己，输出与以前一致。
+            for (const entry of expandCharacterForms([char])) {
+                present.push({
+                    name: entry.name,
+                    aliases: entry.aliases || [],
+                    type: entry.type || 'girl',
+                    appearance: entry.appearance || '',
+                    danbooruTag: entry.danbooruTag || '',
+                    negativeTags: entry.negativeTags || '',
+                    // 停用的服装 / 动态标签在这里就被剔除：规划器的输入里根本没有它们。
+                    outfits: selectEnabledNamedTags(entry.outfits),
+                    dynamicStates: selectEnabledNamedTags(entry.dynamicStates),
+                    ...(entry.baseName !== undefined
+                        ? { baseName: entry.baseName, formName: entry.formName, formIndex: entry.formIndex, formCount: entry.formCount }
+                        : {}),
+                });
+            }
         }
     }
     return present;

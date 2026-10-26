@@ -1,3 +1,4 @@
+import { findEnabledCharacterForm } from './character-selection.js';
 import { repairScenePlanArguments } from './scene-plan-arguments.js';
 
 export const SUBMIT_SCENE_PLAN_TOOL_NAME = 'submit_scene_plan';
@@ -122,6 +123,35 @@ function getCorrectionInstruction(code) {
     }
 }
 
+const MAX_HINT_FIELDS = 5;
+const MAX_HINT_FIELD_CHARS = 40;
+
+// 工具协议类错误（这一轮没有交出可执行的调用）在自动重试时附带的纠错消息；其它类别返回 ''。
+// 只带解析器自己的报错（含位置）和固定提示，不回放上一轮的错误输出（省 token）。
+export function buildToolProtocolRetryCorrection(error) {
+    if (getScenePlannerErrorCategory(error) !== ScenePlannerErrorCategory.TOOL_PROTOCOL) return '';
+    const message = String(error.message || '').trim();
+    if (error.code === 'TAGGED_TOOL_CALL_INVALID') {
+        // extraFields 来自解析器对封装的严格解析，这里只负责措辞。
+        const fields = (Array.isArray(error.details?.extraFields) ? error.details.extraFields : [])
+            .slice(0, MAX_HINT_FIELDS)
+            .map(field => JSON.stringify(String(field).slice(0, MAX_HINT_FIELD_CHARS)));
+        return [
+            `上一轮工具调用的 JSON 无效。解析器报错：${message}`,
+            ...(fields.length ? [`${fields.join('、')} 被写到了 arguments 外面（多半是 arguments 提前用 } 闭合了）。`] : []),
+            '请完整重新输出一个 <tool_call>，格式为 {"name":"submit_scene_plan","arguments":{…}}；'
+            + '逐层核对括号配对，所有参数字段（如 images）都必须放在 arguments 里面，不要多写或少写 } ]。',
+        ].join('\n');
+    }
+    if (error.code === 'DSML_TOOL_CALL_INVALID') {
+        // error.message 是给用户看的设置建议；具体原因在两层 cause 里。
+        const reason = String(error.cause?.cause?.message || '').trim();
+        return `上一轮工具调用的 DSML 格式无效${reason ? `。解析器报错：${reason}` : '。'}\n`
+            + '请完整重新输出一次 submit_scene_plan 调用，并检查所有标签与参数都已闭合。';
+    }
+    return `上一轮没有交出有效的工具调用：${message}\n${getCorrectionInstruction(error.code)}`;
+}
+
 function normalizeCorrectionDetails(details) {
     if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
     const normalized = {};
@@ -207,20 +237,6 @@ function requirePositiveInteger(value, path) {
     return value;
 }
 
-function normalizeCharacterLookup(presentCharacters = []) {
-    const lookup = new Map();
-    for (const character of Array.isArray(presentCharacters) ? presentCharacters : []) {
-        const canonicalName = String(character?.name || '').trim();
-        if (!canonicalName) continue;
-        const names = [canonicalName, ...(Array.isArray(character.aliases) ? character.aliases : [])];
-        names.forEach((name) => {
-            const key = String(name || '').trim().toLocaleLowerCase();
-            if (key && !lookup.has(key)) lookup.set(key, canonicalName);
-        });
-    }
-    return lookup;
-}
-
 const GRID_COL = Object.freeze({ A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 });
 const GRID_ROW = Object.freeze({ 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 });
 
@@ -247,10 +263,13 @@ function normalizeCenter(value, path, centerMode) {
     return { x: GRID_COL[match[1]], y: GRID_ROW[match[2]] };
 }
 
-function normalizeCharacter(value, path, knownNameLookup, centerMode) {
+function normalizeCharacter(value, path, presentCharacters, centerMode) {
     assertRequiredFields(value, ['name'], path);
     const returnedName = requireString(value.name, `${path}.name`);
-    const canonicalName = knownNameLookup.get(returnedName.toLocaleLowerCase()) || '';
+    // 已录入角色：name 按正式名称 / 别名归一；多形态角色再按 form 选形态（缺省 / 不存在 / 已停用回落第一个启用形态）。
+    // 结果里 name 是正式名称、form 是实际选中的形态名（单形态与未知角色没有 form）。
+    const known = findEnabledCharacterForm(returnedName, optionalString(value, 'form', path), presentCharacters);
+    const canonicalName = known ? known.baseName ?? known.name : '';
     const type = optionalString(value, 'type', path);
     const appear = optionalString(value, 'appear', path);
     if (!canonicalName && !appear) failSchema(`${path}.appear`, '未知角色必须填写外貌', value.appear);
@@ -258,6 +277,7 @@ function normalizeCharacter(value, path, knownNameLookup, centerMode) {
 
     return {
         name: canonicalName || returnedName,
+        form: known?.formName ?? '',
         danbooru: optionalString(value, 'danbooru', path),
         // 已录入角色也保留场景 type：type 承载画面方位等随图变化的信息，组装层
         // （character-prompts.js）让非空场景 type 打头并顶替角色库的 type；为空时回落库 type。
@@ -300,7 +320,7 @@ function normalizeImages(images, options = {}) {
     if (!maxImages && maxPlanImages && images.length > maxPlanImages) {
         failSchema('images', `本次最多包含 ${maxPlanImages} 项`, images.length);
     }
-    const knownNameLookup = normalizeCharacterLookup(options.presentCharacters);
+    const presentCharacters = Array.isArray(options.presentCharacters) ? options.presentCharacters : [];
     const sceneSource = options.sceneSource;
     const sourcePoints = new Map((Array.isArray(sceneSource?.points) ? sceneSource.points : [])
         .map((point) => [point.number, point]));
@@ -327,15 +347,18 @@ function normalizeImages(images, options = {}) {
             failSchema(`${path}.characters`, `最多包含 ${maxCharactersPerImage} 人`, image.characters.length);
         }
         const chars = image.characters.map((character, characterIndex) => (
-            normalizeCharacter(character, `${path}.characters[${characterIndex}]`, knownNameLookup, centerMode)
+            normalizeCharacter(character, `${path}.characters[${characterIndex}]`, presentCharacters, centerMode)
         ));
         // 整图正向提示词的追加位：可选字段，编译器拼在所有角色之后（整条提示词最末尾）。
         // 不进 REQUIRED_IMAGE_FIELDS、不影响 maxCharactersPerImage；未提交时不出键（无感知）。
         const postPrompt = optionalString(image, 'post_prompt', path);
+        // 图片标题：工具 schema 要求模型提供，但校验保持宽容（旧数据/漏填回退空串，
+        // 渲染层对空标题按「不显示」处理），避免旧计划与测试夹具被硬拒。
+        const title = optionalString(image, 'title', path);
         return {
             index: imageIndex + 1,
             scene: requireString(image.scene, `${path}.scene`),
-            orientation: normalizeOrientation(image.orientation),
+            ...(title ? { title } : {}),
             chars,
             ...(postPrompt ? { post_prompt: postPrompt } : {}),
             placement: {

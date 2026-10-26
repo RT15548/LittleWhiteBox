@@ -50,6 +50,7 @@ function normalizeMetadata(source) {
         : null;
     return {
         tags: text(source?.tags),
+        title: text(source?.title),
         positive: text(source?.positive),
         characterPrompts: source?.characterPrompts ?? null,
         negativePrompt: source?.negativePrompt ?? null,

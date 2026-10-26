@@ -4,6 +4,9 @@
 import { getContext } from "../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../utils.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
+
+import { getSharedDrawSettings } from './draw-settings.js';
+import { convertImageToJpeg, GALLERY_JPEG_COPY } from './gallery-image-codec.js';
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
 import { normalizeMediaUrl } from './media-url.js';
 import { parseBase64Image, base64ToBlob } from './preview-image-url.js';
@@ -503,6 +506,7 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             chapterTitle: String(preview.chapterTitle || ''),
             base64,
             tags: String(preview.tags || ''),
+            title: String(preview.title || ''),
             positive: String(preview.positive || ''),
             status: preview.status === 'failed' ? 'failed' : 'success',
             errorType: preview.errorType || null,
@@ -601,6 +605,7 @@ export async function storePreview(opts) {
         messageId,
         base64 = null,
         tags,
+        title = '',
         positive,
         savedUrl = null,
         status = PreviewStatus.SUCCESS,
@@ -626,6 +631,20 @@ export async function storePreview(opts) {
     const resolvedCharacterName = String(characterName || getChatCharacterName());
     const resolvedSlotId = slotId || imgId;
 
+    // Encode only the incoming result, before opening its write transaction.
+    let workingBase64 = base64;
+    if (workingBase64) {
+        try {
+            const policy = getSharedDrawSettings();
+            if (policy?.saveAsJpeg) {
+                workingBase64 = await convertImageToJpeg(workingBase64);
+            }
+        } catch (e) {
+            console.warn(GALLERY_JPEG_COPY.conversionFailed, e);
+            globalThis.toastr?.warning(GALLERY_JPEG_COPY.conversionFailed);
+        }
+    }
+
     return new Promise((resolve, reject) => {
         try {
             const tx = database.transaction(DB_STORE, 'readwrite');
@@ -642,8 +661,9 @@ export async function storePreview(opts) {
                 bookTitle,
                 chapterPath,
                 chapterTitle,
-                base64,
+                base64: workingBase64,
                 tags,
+                title: String(title || ''),
                 positive,
                 savedUrl,
                 status,
@@ -684,6 +704,7 @@ export async function storeFailedPlaceholder(opts) {
         chapterTitle: opts.chapterTitle || '',
         base64: null,
         tags: opts.tags,
+        title: opts.title || '',
         positive: opts.positive,
         status: 'failed',
         errorType: opts.errorType,
@@ -1175,6 +1196,7 @@ function ensureGalleryStyles() {
 #nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
 .nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
+#nd-gallery-overlay :focus-visible{outline:2px solid #fff;outline-offset:2px}
 .nd-gallery-main{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:75%;flex:1;min-height:0;overflow:hidden}
 .nd-gallery-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:none;background:rgba(0,0,0,0.35);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:24px;cursor:pointer}
 #nd-gallery-prev{left:16px}
@@ -1193,12 +1215,13 @@ function ensureGalleryStyles() {
 .nd-gallery-thumb.active{border-color:#d4a574;opacity:1}
 .nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}
 .nd-gallery-actions{display:flex;flex-shrink:0;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:16px;max-width:100%}
-.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}
+.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.32);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}
 .nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}
-.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}
+.nd-gallery-btn.primary{background:#ece6d8;border-color:#ece6d8;color:#14151b;font-weight:600}
+.nd-gallery-btn.primary:hover{background:#fff}
 .nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}
 .nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}
-.nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:rgba(255,255,255,0.6)}
+.nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:#b4b1a9}
 @media(max-height:500px){.nd-gallery-thumbs{margin-top:8px;padding:6px}.nd-gallery-thumb{width:40px;height:40px}.nd-gallery-actions{margin-top:8px}.nd-gallery-info{margin-top:6px}}`;
     document.head.appendChild(style);
 }
@@ -1535,7 +1558,7 @@ async function deleteCurrentGalleryImage() {
         if (previews.length === 0) {
             if (currentGalleryData === view) closeGallery();
             if (callbacks.onBecameEmpty) {
-                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', positive: current.positive || '' });
+                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
             }
             showToast('图片已删除，可点击重试重新生成');
         } else {

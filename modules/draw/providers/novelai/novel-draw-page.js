@@ -9,6 +9,60 @@ import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/
 import { createSandboxToolHost } from '../../shared/custom-tool-sandbox.js';
 import { collectToolBlocks, normalizeToolDefinition } from '../../shared/custom-tools.js';
 import { createQuickTestView } from './quick-test-view.js';
+import { GALLERY_BATCH_COPY } from '../../shared/gallery-batch.js';
+import { createGalleryZipDownload } from '../../shared/gallery-zip-download.js';
+import { countEnabledNamedTags, normalizeNamedTagList } from '../../shared/named-tag-items.js';
+import { formatFormTypeSummary, getCharacterForms, getEnabledCharacterForms, hasMultipleForms } from '../../shared/character-forms.js';
+import { createGroupHeightController } from '../../shared/character-group-height.js';
+import {
+    FORM_COPY,
+    FORM_MAX_COUNT,
+    NAMED_TAG_EDITOR_KINDS,
+    appendNamedTagEditorItem,
+    collectFormModels,
+    createBlankFormModel,
+    createEditorSectionState,
+    createFormSortable,
+    createNamedTagSortables,
+    draftToMultiForm,
+    draftToSingleForm,
+    duplicateFormModels,
+    duplicateNamedTagEditorItem,
+    formModelsFromCharacter,
+    formRef,
+    isFormHeaderToggleTarget,
+    isNamedTagHeaderToggleTarget,
+    namedTagKindOfRow,
+    parseFormRef,
+    readFormFields,
+    refreshFormHeader,
+    refreshFormTypeBadge,
+    refreshNamedTagItemHeader,
+    removeNamedTagEditorItem,
+    renderCharacterFormSections,
+    renderFormsSection,
+    setEditorSectionCollapsed,
+    syncFormList,
+    syncNamedTagEditorList,
+    toggleFormCard,
+    toggleFormEnabled,
+    toggleNamedTagItem,
+    toggleNamedTagItemEnabled,
+} from '../../shared/character-edit-form.js';
+import { EXTRA_TAGS_COPY, renderCharacterEditorNote } from '../../shared/character-editor-copy.js';
+import { installTextareaAutofit } from '../../shared/textarea-autofit.js';
+import { createAutoSave, AUTO_SAVE_COPY } from '../../shared/auto-save.js';
+import {
+    applyCharacterEdit,
+    isBlankCharacterEditor,
+    isCharacterRowToggleTarget,
+    readCharacterEditor,
+    renderCharacterSaveStatus,
+    setCharacterSaveStatus,
+} from '../../shared/character-editor-autosave.js';
+import { bindInlineRename } from '../../shared/inline-rename.js';
+import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
+import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
 let quickTestView;
 
@@ -59,6 +113,11 @@ const CHARACTER_TYPES = [
     { value: 'custom', label: '自定义...' }
 ];
 
+// 类型的短标签（摘要栏 / 形态头部的小徽标）：预设类型取下拉框文案的第一个词（girl），自定义类型取它自己的第一个词。
+function shortCharType(type) {
+    return (CHARACTER_TYPES.find(t => t.value === type)?.label || type || 'girl').split(' ')[0];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
 // ═══════════════════════════════════════════════════════════════════════════
@@ -71,6 +130,7 @@ let state = {
     activeApiPresetId: null,
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
+    imageTitleMode: 'none',
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -117,9 +177,14 @@ const gallerySentinelObservers = new Map(); // charName -> { observer, sentinel 
 // DOM 里就没有展开状态了，后到的真实摘要只能画出全折叠的列表。
 const expandedGalleryChars = new Set();
 let editingCharId = null;
+// 正在编辑的那张卡片的自动保存（同一时刻最多一张）：{ id, saver, status }，见下方“角色编辑区：展开 / 收起与自动保存”。
+let charAutoSave = null;
 // 正在编辑的卡片的表单内容快照：任何会重绘列表的操作（库操作、INIT_DATA 回包）前读回，重绘后恢复，
 // 避免丢掉尚未点“保存”的输入。
 let editingDraft = null;
+// 编辑卡片里“固定外貌 / 服装 / 动态标签”三个分区的折叠状态：按角色 id 记在页面会话里，
+// 保存 / 取消 / 重绘后再次编辑同一个角色时保持上次的样子（界面状态，不进入保存的数据）。
+const editorSections = createEditorSectionState();
 // 点“添加角色”得到、尚未点“保存”的空白草稿（id → 角色对象）：只存在于本页，不写入持久化，
 // 也不参与撤销快照 / 指纹 / 导出，直到用户保存。
 const draftCharacters = new Map();
@@ -187,7 +252,19 @@ function shuffleCredits() {
 // UI 更新
 // ═══════════════════════════════════════════════════════════════════════════
 
+// 页面刚打开、还没有人点过页签时，才用“打开方指定的（?view=）/ 上次记住的”页签；用户先点了就不再覆盖。
+let viewChosen = false;
+
+function restoreInitialView() {
+    if (viewChosen) return;
+    const tabs = Array.from($$('.nav-item'),item => item.dataset.view);
+    const requested = new URLSearchParams(window.location.search).get('view');
+    switchView(resolveInitialTab({ provider: 'novelai', tabs, requested, fallback: 'test' }));
+}
+
 function switchView(viewId) {
+    viewChosen = true;
+    saveLastTab('novelai', viewId);
     $$('.view').forEach(v => v.classList.remove('active'));
     $$('.nav-item, .mobile-nav-item').forEach(n => n.classList.remove('active'));
     $(`view-${viewId}`)?.classList.add('active');
@@ -459,29 +536,36 @@ function getFilteredCharacters(chars = []) {
     const library = getCharacterLibrary();
 
     return chars.filter(char => {
+        // 多形态角色：搜索覆盖每个形态的名称与内容，类型 / 状态筛选按形态汇总（没有额外形态时就是角色自己的字段）。
+        const forms = getCharacterForms(char);
         if (query) {
             const haystack = [
                 char.name,
                 ...(char.aliases || []),
-                char.type,
-                char.appearance,
-                char.negativeTags,
-                char.danbooruTag,
-                ...((char.outfits || []).flatMap(outfit => [outfit?.name, outfit?.tags])),
-                ...((char.dynamicStates || []).flatMap(item => [item?.name, item?.tags])),
+                ...forms.flatMap(form => [
+                    form.name,
+                    form.type,
+                    form.appearance,
+                    form.negativeTags,
+                    form.danbooruTag,
+                    ...((form.outfits || []).flatMap(outfit => [outfit?.name, outfit?.tags])),
+                    ...((form.dynamicStates || []).flatMap(item => [item?.name, item?.tags])),
+                ]),
             ].filter(Boolean).join(' ').toLowerCase();
 
             if (!haystack.includes(query)) return false;
         }
 
-        if (typeFilter !== 'all' && normalizeCharType(char.type || 'girl') !== typeFilter) {
+        if (typeFilter !== 'all' && !forms.some(form => normalizeCharType(form.type || 'girl') === typeFilter)) {
             return false;
         }
 
-        if (statusFilter === 'complete' && !char.appearance) return false;
-        if (statusFilter === 'incomplete' && !!char.appearance) return false;
-        if (statusFilter === 'danbooru' && !char.danbooruTag) return false;
-        if (statusFilter === 'negative' && !char.negativeTags) return false;
+        // “完整”= 每个形态都有固定外貌；“缺外貌”= 至少一个形态没有。
+        const allHaveAppearance = forms.every(form => !!form.appearance);
+        if (statusFilter === 'complete' && !allHaveAppearance) return false;
+        if (statusFilter === 'incomplete' && allHaveAppearance) return false;
+        if (statusFilter === 'danbooru' && !forms.some(form => !!form.danbooruTag)) return false;
+        if (statusFilter === 'negative' && !forms.some(form => !!form.negativeTags)) return false;
         // “已启用”= 有效启用；“已停用”= 自己关了或所在分组关了。
         if (statusFilter === 'enabled' && !isCharacterEffectivelyEnabled(char, library)) return false;
         if (statusFilter === 'disabled' && isCharacterEffectivelyEnabled(char, library)) return false;
@@ -494,9 +578,9 @@ function updateCharacterPanelMeta(allChars, filteredChars) {
     // 顶部统计 / 500 上限提示 / 结果数只算已保存的角色：未保存的空白草稿（enabled 默认 true）不该被计入。
     allChars = allChars.filter(char => !draftCharacters.has(char.id));
     filteredChars = filteredChars.filter(char => !draftCharacters.has(char.id));
-    const readyCount = allChars.filter(char => !!char.appearance).length;
+    const readyCount = allChars.filter(char => getCharacterForms(char).every(form => !!form.appearance)).length;
     const missingCount = allChars.length - readyCount;
-    const danbooruCount = allChars.filter(char => !!char.danbooruTag).length;
+    const danbooruCount = allChars.filter(char => getCharacterForms(char).some(form => !!form.danbooruTag)).length;
     const filtersActive = !!String(charFilters.query || '').trim() || charFilters.type !== 'all' || charFilters.status !== 'all';
 
     $('nd_char_stat_total').textContent = String(allChars.length);
@@ -524,88 +608,6 @@ function resetCharacterFilters(render = true) {
     if (render) renderCharList();
 }
 
-function normalizeNamedTagListForUI(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
-
-const NAMED_TAG_EDITOR_KINDS = {
-    outfit: {
-        classPrefix: 'char-outfit',
-        title: '服装',
-        nameLabel: '服装名称',
-        namePlaceholder: '如：常服、礼服、战斗服',
-        tagsLabel: '服装 TAG',
-        tagsPlaceholder: 'white shirt, black skirt, ribbon...',
-        removeAction: 'remove-outfit',
-    },
-    dynstate: {
-        classPrefix: 'char-dynstate',
-        title: '状态',
-        nameLabel: '状态名称',
-        namePlaceholder: '如：睡觉、淋雨、害羞',
-        tagsLabel: '状态 TAG',
-        tagsPlaceholder: 'closed eyes, sleeping...',
-        removeAction: 'remove-dynstate',
-    },
-};
-
-function renderNamedTagEditorItem(item = {}, index = 0, kind = 'outfit') {
-    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
-    return `
-    <div class="${meta.classPrefix}-editor-item" data-index="${index}">
-        <div class="${meta.classPrefix}-editor-header">
-            <div class="${meta.classPrefix}-editor-title">${meta.title} ${index + 1}</div>
-            <button class="btn btn-danger btn-sm" type="button" data-action="${meta.removeAction}" data-index="${index}"><i class="fa-solid fa-trash"></i> 删除</button>
-        </div>
-        <div class="form-group">
-            <label class="form-label">${meta.nameLabel}</label>
-            <input type="text" class="input ${meta.classPrefix}-name" value="${escapeHtml(item.name || '')}" placeholder="${meta.namePlaceholder}">
-        </div>
-        <div class="form-group">
-            <label class="form-label">${meta.tagsLabel}</label>
-            <textarea class="input ${meta.classPrefix}-tags" placeholder="${meta.tagsPlaceholder}">${escapeHtml(item.tags || '')}</textarea>
-        </div>
-    </div>`;
-}
-
-function syncNamedTagEditorList(list, kind = 'outfit') {
-    if (!list) return;
-    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
-    const rows = Array.from(list.querySelectorAll(`.${meta.classPrefix}-editor-item`));
-    const empty = list.querySelector(`.${meta.classPrefix}-editor-empty`);
-    if (empty) empty.style.display = rows.length ? 'none' : 'block';
-    rows.forEach((row, index) => {
-        row.dataset.index = String(index);
-        row.querySelector(`.${meta.classPrefix}-editor-title`).textContent = `${meta.title} ${index + 1}`;
-        const removeBtn = row.querySelector(`[data-action="${meta.removeAction}"]`);
-        if (removeBtn) removeBtn.dataset.index = String(index);
-    });
-}
-
-// keepEmpty：草稿保护时保留刚点“添加服装/状态”还没填内容的空行；保存时仍然过滤掉。
-function collectNamedTagEditorValues(card, kind = 'outfit', { keepEmpty = false } = {}) {
-    const meta = NAMED_TAG_EDITOR_KINDS[kind] || NAMED_TAG_EDITOR_KINDS.outfit;
-    return Array.from(card.querySelectorAll(`.${meta.classPrefix}-editor-item`)).map(row => ({
-        name: row.querySelector(`.${meta.classPrefix}-name`)?.value?.trim() || '',
-        tags: row.querySelector(`.${meta.classPrefix}-tags`)?.value?.trim() || '',
-    })).filter(item => keepEmpty || item.name || item.tags);
-}
-
-function renderCharacterActionIcon(name) {
-    const paths = {
-        enabled: '<rect x="3" y="3" width="18" height="18" rx="4" /><path d="m8 12 3 3 5-6" />',
-        disabled: '<rect x="3" y="3" width="18" height="18" rx="4" />',
-        edit: '<path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />',
-        delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />',
-    };
-    return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ''}</svg>`;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 角色分组
 // ═══════════════════════════════════════════════════════════════════════════
@@ -622,6 +624,7 @@ function getCardMenu() {
     if (!cardMenu && CM) cardMenu = CM.createCardMenuController({ document });
     return cardMenu;
 }
+let groupHeights = null; // 分组高度控制器，setupCharacterDragAndSelection 里创建
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
 
@@ -659,9 +662,9 @@ function getPersistedLibrary() {
 
 // 每次保存都带上完整的角色与分组快照：宿主按整表覆盖，不做按 id 的远程操作。
 // 未保存的空白草稿不会被写进去（否则任何库操作都会把空名角色连同存盘，并计入启用数 / 后台配方）。
-function saveCharacterLibrary(restorePresetReferences) {
+function saveCharacterLibrary(restorePresetReferences, requestId = '') {
     postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: persistedCharacters(), characterGroups: state.characterGroups || [],
-        ...(restorePresetReferences ? { restorePresetReferences } : {}) });
+        ...(restorePresetReferences ? { restorePresetReferences } : {}), ...(requestId ? { requestId } : {}) });
 }
 
 function registerDraftCharacter(char) {
@@ -822,8 +825,9 @@ function renderAutoLearnGroupOptions() {
 
 // 分组头的“自己开着数 / 总数”与分组开关（两态）外观；整体渲染与轻量刷新共用，保证两处一致。
 // 分组开关是分组自己的状态，与组内各角色自己的 enabled 互相独立：有效启用 = 分组开 且 角色开。
-const GROUP_SWITCH_TITLE_ON = '关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
-const GROUP_SWITCH_TITLE_OFF = '开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_TITLE_ON = '已开启。点击关闭分组：组内角色不再参与出图，各角色自己的开关保持不变';
+const GROUP_SWITCH_TITLE_OFF = '已关闭。点击开启分组：组内角色按各自的开关参与出图';
+const GROUP_SWITCH_STATE_TEXT = Object.freeze({ on: '已开启', off: '已关闭' });
 
 function describeGroupHeader(library, group) {
     const { own, total, enabled, locked } = CL.getGroupSummary(library, group.id);
@@ -837,6 +841,7 @@ function describeGroupHeader(library, group) {
         countTitle: `组内自己开着的角色 ${own} 个，共 ${total} 个${enabled ? '' : '；分组已关闭，组内角色当前都不参与出图'}`,
         switchTitle: enabled ? GROUP_SWITCH_TITLE_ON : GROUP_SWITCH_TITLE_OFF,
         switchIcon: enabled ? 'fa-toggle-on' : 'fa-toggle-off',
+        switchText: enabled ? GROUP_SWITCH_STATE_TEXT.on : GROUP_SWITCH_STATE_TEXT.off,
     };
 }
 
@@ -876,11 +881,10 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
         const header = describeGroupHeader(library, group);
         // 分组开关只给真实分组：未分组没有开关，始终参与出图。
         const groupSwitch = group.virtual ? '' : `
-                    <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}"></i></button>`;
-        // 分组头只留开关 / 添加 / 重命名；上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一套菜单，同一时间只开一个）。
+                    <button type="button" class="char-action-button char-group-switch${header.enabled ? ' active' : ''}" data-group-action="toggle-enabled" data-group-id="${gid}" title="${header.switchTitle}" aria-label="${header.switchTitle} ${gname}" aria-pressed="${header.enabled}"><i class="fa-solid ${header.switchIcon}" aria-hidden="true"></i><span class="char-switch-text">${header.switchText}</span></button>`;
+        // 分组头只留开关 / 添加（分组名是就地改名输入框）；上锁分组与删除分组收进最右边的“…”菜单（与角色卡同一套菜单，同一时间只开一个）。
         const lockActionLabel = header.locked ? CHARACTER_LOCK_COPY.unlockAction : CHARACTER_LOCK_COPY.lockAction;
         const manage = group.virtual ? '' : `
-                    <button type="button" class="char-action-button" data-group-action="rename" data-group-id="${gid}" title="重命名分组" aria-label="重命名分组 ${gname}"><i class="fa-solid fa-pen"></i></button>
                     <span class="char-menu-wrap" data-card-menu>
                         <button type="button" class="char-action-button char-menu-button" data-group-action="menu" data-group-id="${gid}" title="${CHARACTER_CARD_COPY.more}" aria-label="${CHARACTER_CARD_COPY.more} ${gname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                         <div class="char-menu" role="menu" aria-label="${CHARACTER_CARD_COPY.more} ${gname}" hidden>
@@ -897,7 +901,7 @@ function renderGroupedCharacterSections(filteredChars, renderCard) {
                 <button type="button" class="char-group-collapse" data-group-action="collapse" data-group-id="${gid}" title="${collapsed ? '展开' : '折叠'}" aria-expanded="${!collapsed}" aria-label="${collapsed ? '展开' : '折叠'}分组 ${gname}"><i class="fa-solid ${collapsed ? 'fa-chevron-right' : 'fa-chevron-down'}"></i></button>
                 ${charSelectMode ? `<input type="checkbox" class="char-group-select" aria-label="选择分组 ${gname} 的全部角色">` : ''}
                 ${!group.virtual && !filtering ? `<span class="char-drag-handle" role="button" tabindex="0" data-drag-group="${gid}" title="拖动调整分组顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整分组 ${gname} 的顺序">⋮⋮</span>` : ''}
-                <span class="char-group-name" title="${gname}">${gname}</span>
+                ${group.virtual ? `<span class="char-group-name" title="${gname}">${gname}</span>` : `<input type="text" class="char-group-name inline-name" data-group-id="${gid}" value="${gname}" placeholder="分组名称" title="点一下改名（Enter 确认，Esc 还原）" aria-label="分组名称 ${gname}" autocomplete="off">`}
                 <span class="char-group-count" title="${header.countTitle}">${header.countText}</span>
                 <div class="char-group-actions">
 ${groupSwitch}
@@ -907,6 +911,16 @@ ${groupSwitch}
             <div class="char-group-body"${collapsed ? ' hidden' : ''}>${body}</div>
         </section>`;
     }).join('');
+}
+
+// 分组名就地改名：校验沿用 CL.renameGroup（空名 / 重名 / 过长由它拒绝），被拒绝时返回 false，输入框还原成原名。
+function renameGroupInline(input, name) {
+    let renamed = false;
+    runLibraryAction(() => {
+        applyCharacterLibrary(CL.renameGroup(getCharacterLibrary(), input.dataset.groupId, name));
+        renamed = true;
+    });
+    return renamed;
 }
 
 function handleGroupAction(action, groupId, trigger) {
@@ -927,6 +941,11 @@ function handleGroupAction(action, groupId, trigger) {
         if (icon) icon.className = `fa-solid ${collapsed ? 'fa-chevron-right' : 'fa-chevron-down'}`;
         return;
     }
+    // 新建角色会展开新的编辑区：先把正在编辑的那张保存好（保存不了就留在原处，不新建）。
+    if (action === 'add' && editingCharId) {
+        runEditorTask(leaveCharacterEditor().then((left) => { if (left) handleGroupAction(action, groupId, trigger); }));
+        return;
+    }
     runLibraryAction(() => {
         const library = getCharacterLibrary();
         const members = library.characters.filter(char => (char.groupId || '') === groupId);
@@ -941,19 +960,10 @@ function handleGroupAction(action, groupId, trigger) {
             const { library: next, id } = CL.addCharacter(library, { name: '' }, { groupId });
             state.characterTags = next.characters;
             registerDraftCharacter(next.characters.find(char => char.id === id));
-            editingCharId = id;
-            editingDraft = null;
             charGroupCollapsed[collapseKey(groupId)] = false;
             saveCharGroupCollapsed();
             resetCharacterFilters(false);
-            renderCharList();
-            revealEditingCard();
-            setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
-        } else if (action === 'rename') {
-            const group = library.groups.find(item => item.id === groupId);
-            const name = prompt('分组名称', group?.name || '');
-            if (name === null) return;
-            applyCharacterLibrary(CL.renameGroup(library, groupId, name));
+            runEditorTask(openCharacterEditor(id, { fresh: true }));
         } else if (action === 'delete') {
             const group = library.groups.find(item => item.id === groupId);
             if (!confirm(`确定删除分组“${group?.name || ''}”？`)) return;
@@ -1385,6 +1395,12 @@ function handleDragKeydown(event) {
 
 function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
+    // 编辑卡片里服装 / 动态标签条目的拖拽排序（复用 sortable-list.js，与预设列表同一套指针 + 键盘交互）。
+    createNamedTagSortables({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
+    // 多形态角色的形态卡片：同一套拖拽 + 键盘排序。
+    createFormSortable({ container: list, document, autoScroll: event => presetListKit?.autoScroll(event, list) });
+    // 分组滚动区高度：用户可在分组下沿拖动调整，存本机 localStorage（见 character-group-height.js）。
+    groupHeights = createGroupHeightController({ list, document, groupSelector: '.char-group', bodySelector: '.char-group-body' });
     list.addEventListener('pointerdown', (event) => {
         const charHandle = event.target.closest('[data-drag-char]');
         const groupHandle = event.target.closest('[data-drag-group]');
@@ -1392,6 +1408,8 @@ function setupCharacterDragAndSelection() {
         else if (groupHandle) startDrag(event, 'group', groupHandle.dataset.dragGroup);
     });
     list.addEventListener('keydown', handleDragKeydown);
+    bindCharacterAutoSave(list);
+    bindInlineRename(list, { selector: '.char-group-name.inline-name', onCommit: renameGroupInline });
     list.addEventListener('change', (event) => {
         const box = event.target;
         if (box.classList?.contains('char-select')) {
@@ -1407,6 +1425,15 @@ function setupCharacterDragAndSelection() {
             renderBatchBar();
         }
     });
+    // 编辑卡片里的服装 / 动态标签条目：标签输入时同步折叠头里的预览（名称输入框本身就在头部）。
+    list.addEventListener('input', (event) => {
+        const input = event.target;
+        // 形态的自定义类型：头部的类型徽标跟着输入走。
+        if (input.matches?.('.char-form .char-edit-type-custom')) refreshFormTypeBadge(input.closest('.char-form'), shortCharType);
+        if (!input.matches?.('.char-outfit-tags, .char-dynstate-tags')) return;
+        const row = input.closest('.named-tag-item');
+        refreshNamedTagItemHeader(row, namedTagKindOfRow(row));
+    });
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', event => endDrag(event));
     document.addEventListener('pointercancel', event => endDrag(event, true));
@@ -1418,28 +1445,248 @@ function setupCharacterDragAndSelection() {
     $('nd_char_undo_btn').addEventListener('click', performUndo);
 }
 
-// 读出正在编辑的卡片的表单内容（包括刚点“添加服装/状态”还没填的空行）。
+// ── 角色编辑区：展开 / 收起与自动保存 ──────────────────────────────────
+// 点角色行展开 / 收起编辑区（同一时刻只开一张）；没有手动保存 / 取消：改动停下来等一小会儿后自动落盘，失焦 / 收起 / 切换 / 关页时立刻落盘。
+// 保存只改角色对象并发给宿主，不重绘、不碰表单节点，输入中的焦点和光标不受影响；保存一个接一个（见 auto-save.js）。
+const CHAR_SAVE_ACK_TIMEOUT_MS = 10000;
+let charSavePending = null; // { requestId, resolve, timer }：已发给宿主、等回执的那次保存
+let charEditorBusy = false; // 正在保存后切换，忽略重复点击
+let charTouchQueued = false;
+
+function editingCardOf(id) {
+    return Array.from(document.querySelectorAll('#nd_char_list .char-card.editing')).find(node => node.dataset.id === id) || null;
+}
+
+// 发出保存并等宿主回执（STATUS，target: 'char-tags'）；失败或超时返回 false。
+function saveCharacterLibraryAcked() {
+    return new Promise((resolve) => {
+        const requestId = `char-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timer = setTimeout(() => {
+            if (charSavePending?.requestId !== requestId) return;
+            charSavePending = null;
+            resolve(false);
+        }, CHAR_SAVE_ACK_TIMEOUT_MS);
+        charSavePending = { requestId, resolve, timer };
+        saveCharacterLibrary(undefined, requestId);
+    });
+}
+
+function handleCharSaveStatus(data) {
+    if (!charSavePending || charSavePending.requestId !== data.requestId || !['success', 'error'].includes(data.state)) return;
+    const { resolve, timer } = charSavePending;
+    clearTimeout(timer);
+    charSavePending = null;
+    resolve(data.state === 'success');
+}
+
+// 保存后只轻量刷新摘要行与计数（名字、类型徽标、状态、分组计数）：不重绘，正在输入的表单原样保留。
+function refreshCharSummary(card, char) {
+    if (!card) return;
+    const name = card.querySelector('.char-name');
+    if (name) name.textContent = char.name || '新角色';
+    const identity = card.querySelector('.char-identity');
+    let badge = identity?.querySelector('.char-type-badge');
+    const typeShort = formatFormTypeSummary(char, shortCharType);
+    if (!typeShort) badge?.remove();
+    else if (identity) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'char-type-badge';
+            identity.appendChild(badge);
+        }
+        badge.textContent = typeShort;
+    }
+    const status = card.querySelector('.char-status');
+    if (status) setCharStatus(status, char);
+    refreshEnabledSummary();
+}
+
+// 把读出的表单写回角色并存盘；点过“保存”才算真正的角色，所以第一次保存时把它从未保存草稿里移出（失败再放回去）。
+async function saveEditedCharacter(id, value) {
+    const char = state.characterTags.find(item => item.id === id);
+    if (!char) return { ok: false, error: '角色已不存在' };
+    applyCharacterEdit(char, value);
+    const wasDraft = draftCharacters.delete(id);
+    const ok = await saveCharacterLibraryAcked();
+    if (!ok) {
+        if (wasDraft) registerDraftCharacter(char);
+        return { ok: false, error: '保存失败' };
+    }
+    refreshCharSummary(editingCardOf(id), char);
+    return { ok: true };
+}
+
+function startCharAutoSave(id, { fresh = false } = {}) {
+    discardCharacterAutoSave();
+    const session = { id, saver: null, status: { state: 'saved', text: AUTO_SAVE_COPY.saved } };
+    let lastRead = null;
+    session.saver = createAutoSave({
+        // 卡片暂时不在 DOM 里（例如被筛选条件隐藏）时沿用上一次读到的内容。
+        read: () => {
+            const card = editingCardOf(id);
+            if (card) lastRead = readCharacterEditor(card);
+            return lastRead || { error: '' };
+        },
+        save: value => saveEditedCharacter(id, value),
+        onStatus: (status, text) => {
+            session.status = { state: status, text };
+            setCharacterSaveStatus(editingCardOf(id), status, text);
+        },
+    });
+    charAutoSave = session;
+    // 已有角色：打开时的内容就是“已保存”的基线；新建的角色还没存过，状态栏先提示要填名称。
+    const opened = editingCardOf(id) ? readCharacterEditor(editingCardOf(id)) : null;
+    if (!fresh && opened && !opened.error) session.saver.setBaseline(opened.key);
+    session.saver.touch();
+}
+
+function discardCharacterAutoSave() {
+    charAutoSave?.saver.dispose();
+    charAutoSave = null;
+}
+
+function scheduleCharAutoSaveTouch() {
+    if (!charAutoSave || charTouchQueued) return;
+    charTouchQueued = true;
+    setTimeout(() => { charTouchQueued = false; charAutoSave?.saver.touch(); }, 0);
+}
+
+// 离开当前编辑区之前把改动存好：空白的新建草稿直接丢掉；存不了（名称为空、宿主保存失败）就留在原处，状态栏写明原因。返回是否可以离开。
+async function leaveCharacterEditor() {
+    const id = editingCharId;
+    if (!id) return true;
+    const card = editingCardOf(id);
+    if (charAutoSave?.id === id && !(card && draftCharacters.has(id) && isBlankCharacterEditor(card))) {
+        const result = await charAutoSave.saver.flush();
+        if (!result.ok) {
+            editingCardOf(id)?.querySelector('.char-edit-name')?.focus();
+            return false;
+        }
+    }
+    discardCharacterAutoSave();
+    editingCharId = null;
+    editingDraft = null;
+    return true;
+}
+
+let panelClosing = false;
+async function requestPanelClose() {
+    if (panelClosing) return;
+    panelClosing = true;
+    try {
+        if (await leaveCharacterEditor()) postToParent({ type: 'CLOSE' });
+    } finally {
+        panelClosing = false;
+    }
+}
+
+// 展开某张角色卡的编辑区（先收起并保存别的）；fresh：刚新建的草稿。
+async function openCharacterEditor(id, { fresh = false } = {}) {
+    if (editingCharId === id || charEditorBusy) return;
+    charEditorBusy = true;
+    try {
+        if (!(await leaveCharacterEditor())) return;
+        editingCharId = id;
+        editingDraft = null;
+        renderCharList();
+        startCharAutoSave(id, { fresh });
+        revealEditingCard();
+        if (fresh) setTimeout(() => editingCardOf(id)?.querySelector('.char-edit-name')?.focus(), 50);
+    } finally {
+        charEditorBusy = false;
+    }
+}
+
+async function closeCharacterEditor() {
+    const id = editingCharId;
+    if (!id || charEditorBusy) return;
+    charEditorBusy = true;
+    try {
+        if (!(await leaveCharacterEditor())) return;
+        renderCharList(); // 空白的新建草稿在这里被移除
+        revealCharCard(id);
+    } finally {
+        charEditorBusy = false;
+    }
+}
+
+function toggleCharacterEditor(id) {
+    return editingCharId === id ? closeCharacterEditor() : openCharacterEditor(id);
+}
+
+// 点击 / 键盘触发的展开、收起、新建不关心结果（存不了时状态栏已写明原因），这里只保证不留下未处理的 Promise。
+function runEditorTask(task) {
+    task.catch((caughtError) => { console.warn({ source: import.meta.url, operation: 'character-editor' }, caughtError); });
+}
+
+function bindCharacterAutoSave(list) {
+    // 表单改动（输入、下拉、增删 / 排序 / 启停条目等点击与拖动）之后重新判断要不要保存；内容没变时什么也不做。
+    for (const type of ['input', 'change', 'click', 'pointerup', 'keyup']) {
+        list.addEventListener(type, (event) => { if (event.target.closest?.('.char-card.editing')) scheduleCharAutoSaveTouch(); });
+    }
+    // 焦点离开输入框（换到别的输入框、按钮或页面其它地方）就立刻保存。
+    list.addEventListener('focusout', (event) => {
+        if (event.target.closest?.('.char-card.editing')) charAutoSave?.saver.flush();
+    });
+    // Browser navigation cannot await acknowledgements. Ordinary panel close
+    // uses requestPanelClose; navigation warns while an edit is still unsaved.
+    window.addEventListener('beforeunload', event => {
+        const card = editingCardOf(editingCharId);
+        if (!charAutoSave || !card || (draftCharacters.has(editingCharId) && isBlankCharacterEditor(card))) return;
+        if (!charAutoSave.saver.dirty && !charAutoSave.saver.pending) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
+    window.addEventListener('pagehide', () => charAutoSave?.saver.flush());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') charAutoSave?.saver.flush(); });
+    list.addEventListener('keydown', (event) => {
+        const toggle = event.target.closest?.('[data-char-toggle]');
+        if (!toggle || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        runEditorTask(toggleCharacterEditor(toggle.closest('.char-card')?.dataset.id));
+    });
+}
+
+// 读出正在编辑的卡片的表单内容（包括刚点“添加服装/动态标签”还没填的空行）。
 function readEditingDraft() {
     if (!editingCharId) return null;
     const card = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing'))
         .find(node => node.dataset.id === editingCharId);
     if (!card) return null;
     const value = selector => card.querySelector(selector)?.value ?? '';
-    return {
+    const base = {
         id: editingCharId,
-        // 所属分组下拉框（库里没有分组时不渲染 → undefined）。groupBase 是这张卡片渲染时的已保存分组（data-saved-group）：
-        // 只有用户真的改动了下拉框（≠ groupBase）才算草稿，否则以库里最新的分组为准。
-        groupId: card.querySelector('.char-edit-group')?.value,
-        groupBase: card.querySelector('.char-edit-group')?.getAttribute('data-saved-group') ?? '',
         name: value('.char-edit-name'),
-        type: value('.char-edit-type') || 'girl',
-        typeCustom: value('.char-edit-type-custom'),
         aliases: value('.char-edit-aliases'),
-        appearance: value('.char-edit-appearance'),
-        negativeTags: value('.char-edit-neg'),
-        outfits: collectNamedTagEditorValues(card, 'outfit', { keepEmpty: true }),
-        dynamicStates: collectNamedTagEditorValues(card, 'dynstate', { keepEmpty: true }),
     };
+    // 多形态布局：每个形态卡片读成一个编辑模型（折叠 / 展开状态一并带上，重绘后恢复）。
+    const forms = collectFormModels(card, { keepEmpty: true, withUiState: true });
+    if (forms) return { ...base, multi: true, forms };
+    // withUiState：条目的展开 / 折叠也带进草稿，重绘后恢复。
+    return {
+        ...base,
+        formName: value('.char-edit-form-name'),
+        ...readFormFields(card, { keepEmpty: true, withUiState: true }),
+    };
+}
+
+// 类型下拉框的值 ←→ 保存的类型文本：不在预设列表里的类型显示为“自定义”并把原文放进自定义输入框。
+function splitCharType(savedType) {
+    const selected = normalizeCharType(savedType || 'girl');
+    return { type: selected, typeCustom: selected === 'custom' ? String(savedType || '') : '' };
+}
+
+// 类型下拉框 + 自定义输入框（单形态布局与每张形态卡片共用）。
+function renderCharTypeFields(model) {
+    const typeOptions = CHARACTER_TYPES.map(t =>
+        `<option value="${t.value}"${t.value === model.type ? ' selected' : ''}>${t.label}</option>`
+    ).join('');
+    return `
+                        <div class="form-group">
+                            <label class="form-label">类型</label>
+                            <select class="input char-edit-type">${typeOptions}</select>
+                            <input type="text" class="input char-edit-type-custom${model.type === 'custom' ? '' : ' hidden'}" value="${escapeHtml(model.typeCustom || '')}" placeholder="如: mature female" style="margin-top:4px;">
+                        </div>`;
 }
 
 // 重绘之前调用：把当前表单读回草稿；卡片不在 DOM 里（例如被筛选条件暂时隐藏）时保留已有草稿，
@@ -1453,6 +1700,7 @@ function captureEditingDraft() {
 // 重绘前整理编辑状态：被删除 / 被替换掉的卡片不再处于编辑中；已放弃（切换去编辑别的卡片、取消）的空白草稿移除。
 function reconcileEditingState() {
     const ids = new Set((state.characterTags || []).map(char => char.id));
+    editorSections.prune(ids);
     if (editingCharId && !ids.has(editingCharId)) editingCharId = null;
     for (const id of [...draftCharacters.keys()]) {
         if (!ids.has(id)) { draftCharacters.delete(id); continue; }
@@ -1462,6 +1710,7 @@ function reconcileEditingState() {
         state.characterTags = state.characterTags.filter(char => char.id !== id);
     }
     if (editingDraft && editingDraft.id !== editingCharId) editingDraft = null;
+    if (charAutoSave && charAutoSave.id !== editingCharId) discardCharacterAutoSave(); // 卡片被删除 / 放弃：它的自动保存也随之结束
 }
 
 // 每个展开的分组有自己的滚动区（.char-group-body 的 max-height + overflow-y: auto）。整体重绘会换掉这些节点，
@@ -1510,7 +1759,8 @@ function revealCharCard(id) {
 
 const CHARACTER_STATUS_COPY = Object.freeze({
     groupDisabled: '分组已关闭', disabled: '停用', appearance: '固定外貌', negative: '负向',
-    danbooru: 'DB', outfits: '服装', dynamicStates: '动态外貌',
+    danbooru: 'DB', outfits: '服装', dynamicStates: EXTRA_TAGS_COPY.title,
+    forms: (total, enabled = total) => (enabled === total ? `${total} 个形态` : `${enabled}/${total} 个形态`),
 });
 
 function characterStatusParts(char, library = getCharacterLibrary()) {
@@ -1520,11 +1770,17 @@ function characterStatusParts(char, library = getCharacterLibrary()) {
     else if (char.enabled === false) add('disabled', CHARACTER_STATUS_COPY.disabled);
     const lockLabel = characterLockLabel(char, library);
     if (lockLabel) add(char.locked === true ? 'own-lock' : 'group-lock', lockLabel);
-    if (char.appearance) add('appearance', CHARACTER_STATUS_COPY.appearance);
-    if (char.negativeTags) add('negative', CHARACTER_STATUS_COPY.negative);
-    if (char.danbooruTag) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
-    if (normalizeNamedTagListForUI(char.outfits).length) add('outfits', CHARACTER_STATUS_COPY.outfits);
-    if (normalizeNamedTagListForUI(char.dynamicStates).length) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
+    // 多形态角色：芯片按全部形态汇总（任一形态有就算有），另加“N 个形态”。
+    // 停用的形态不会发给 AI：内容芯片只看启用的形态，形态数在有停用时写成“启用/总数”。
+    const allForms = getCharacterForms(char);
+    const forms = getEnabledCharacterForms(char);
+    if (allForms.length > 1) add('forms', CHARACTER_STATUS_COPY.forms(allForms.length, forms.length));
+    if (forms.some(form => form.appearance)) add('appearance', CHARACTER_STATUS_COPY.appearance);
+    if (forms.some(form => form.negativeTags)) add('negative', CHARACTER_STATUS_COPY.negative);
+    if (forms.some(form => form.danbooruTag)) add('danbooru', CHARACTER_STATUS_COPY.danbooru);
+    // 只数启用的条目：全部停用的服装 / 动态标签不算“有”，因为规划器看不到它们。
+    if (forms.some(form => countEnabledNamedTags(form.outfits))) add('outfits', CHARACTER_STATUS_COPY.outfits);
+    if (forms.some(form => countEnabledNamedTags(form.dynamicStates))) add('dynamic-states', CHARACTER_STATUS_COPY.dynamicStates);
     return parts;
 }
 
@@ -1544,11 +1800,13 @@ function setCharStatus(statusEl, char, library = getCharacterLibrary()) {
     });
 }
 
-function renderCharList() {
+// keepDraft：调用方刚刚改过 editingDraft（添加 / 删除形态、Danbooru 修正），草稿已是权威内容；
+// 此时不能再把旧 DOM 读回草稿，否则会把刚做的改动覆盖掉（重绘出来的还是旧布局）。
+function renderCharList({ keepDraft = false } = {}) {
     const list = $('nd_char_list');
     const empty = $('nd_char_empty');
     cardMenu?.close();
-    captureEditingDraft();
+    if (!keepDraft) captureEditingDraft();
     reconcileEditingState();
     const chars = state.characterTags || [];
     const groups = state.characterGroups || [];
@@ -1596,11 +1854,11 @@ function renderCharList() {
         const groupClosed = isCharacterGroupClosed(c, renderLibrary);
         const charId = escapeHtml(c.id);
         const charName = escapeHtml(c.name || '新角色');
-        const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
-        const typeShort = typeLabel.split(' ')[0];
+        // 多形态角色列出每个形态的类型（按形态顺序，逗号连接）；单形态就是它自己的类型。
+        const typeShort = formatFormTypeSummary(c, shortCharType);
         const appearance = c.appearance || '';
-        const outfits = normalizeNamedTagListForUI(c.outfits);
-        const dynamicStates = normalizeNamedTagListForUI(c.dynamicStates);
+        const outfits = normalizeNamedTagList(c.outfits);
+        const dynamicStates = normalizeNamedTagList(c.dynamicStates);
         const statusParts = characterStatusParts(c, renderLibrary);
         const toggleTitle = isEnabled ? '停用角色' : '启用角色';
         const lockInfo = describeCharacterLock(c, renderLibrary);
@@ -1610,19 +1868,25 @@ function renderCharList() {
             ? `
                         <button type="button" role="menuitem" class="char-menu-item char-lock-control${lockInfo.own ? ' active' : ''}" data-action="toggle-lock" data-id="${charId}" title="${lockInfo.title}" aria-label="${lockActionLabel} ${charName}" aria-pressed="${lockInfo.own}"><i class="fa-solid ${lockInfo.icon}" aria-hidden="true"></i><span class="char-menu-label">${lockActionLabel}</span></button>`
             : '';
+        // 编辑中：自动保存的状态（已保存 / 保存中… / 未保存：原因）和“添加形态”放在吸顶的摘要行里，长表单滚动时始终看得到；没有手动保存 / 取消。
+        const saveStatus = charAutoSave?.id === c.id ? charAutoSave.status : { state: 'saved', text: AUTO_SAVE_COPY.saved };
+        const editButtons = isEditing
+            ? `${renderCharacterSaveStatus(saveStatus.state, saveStatus.text, escapeHtml)}
+                    <button type="button" class="btn btn-sm char-edit-add-form" data-action="add-form" data-id="${charId}" title="${escapeHtml(FORM_COPY.hint)}" aria-label="${FORM_COPY.addAction} ${charName}"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>${FORM_COPY.addAction}</span></button>`
+            : '';
         const canDrag = !!CL && !charFiltersActive() && !isEditing;
         const summary = `
             <div class="char-card-summary">
                 ${canDrag ? `<span class="char-drag-handle" role="button" tabindex="0" data-drag-char="${charId}" title="拖动排序，也可聚焦后按 ↑ / ↓" aria-label="拖动排序 ${charName}">⋮⋮</span>` : ''}
                 ${charSelectMode && !draftCharacters.has(c.id) ? `<input type="checkbox" class="char-select" data-select-char="${charId}" aria-label="选择 ${charName}">` : ''}
-                <div class="char-identity">
+                <div class="char-identity" role="button" tabindex="0" aria-expanded="${isEditing}" aria-label="${isEditing ? '收起' : '展开'}编辑 ${charName}" data-char-toggle>
                     <span class="char-name">${charName}</span>
-                    <span class="char-type-badge">${escapeHtml(typeShort)}</span>
+                    ${typeShort ? `<span class="char-type-badge">${escapeHtml(typeShort)}</span>` : ''}
                 </div>
                 <span class="char-status">${renderCharStatusHtml(statusParts)}</span>
                 <div class="char-actions" aria-label="角色操作">
+                    ${editButtons}
                     <button type="button" class="char-action-button char-enabled-control${isEnabled ? ' active' : ''}" data-action="toggle-enabled" data-id="${charId}" title="${toggleTitle}" aria-label="${toggleTitle} ${charName}" aria-pressed="${isEnabled}">${renderCharacterActionIcon(isEnabled ? 'enabled' : 'disabled')}</button>
-                    <button type="button" class="char-action-button${isEditing ? ' active' : ''}" data-action="edit" data-id="${charId}" title="编辑" aria-label="编辑 ${charName}">${renderCharacterActionIcon('edit')}</button>
                     <span class="char-menu-wrap" data-card-menu>
                         <button type="button" class="char-action-button char-menu-button" data-action="menu" data-id="${charId}" title="${CHARACTER_CARD_COPY.more}" aria-label="${CHARACTER_CARD_COPY.more} ${charName}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                         <div class="char-menu" role="menu" aria-label="${CHARACTER_CARD_COPY.more} ${charName}" hidden>${lockItem}
@@ -1636,88 +1900,58 @@ function renderCharList() {
         if (isEditing) {
             // 重绘前读回的未保存输入（见 captureEditingDraft）优先于已保存的值。
             const draft = editingDraft && editingDraft.id === c.id ? editingDraft : null;
-            // 分组下拉框：用户改动过就沿用草稿里的选择；该分组已被删除则回落为“未分组”。
-            const draftTouchedGroup = !!draft && draft.groupId !== undefined && draft.groupId !== draft.groupBase;
-            const wantedGroupId = draftTouchedGroup ? draft.groupId : (c.groupId || '');
-            const selectedGroupId = (state.characterGroups || []).some(g => g.id === wantedGroupId) ? wantedGroupId : '';
-            const groupSelectHtml = CL && (state.characterGroups || []).length
-                ? `<div class="form-group"><label class="form-label">所属分组</label><select class="input char-edit-group" data-saved-group="${escapeHtml(c.groupId || '')}"><option value=""${selectedGroupId === '' ? ' selected' : ''}>未分组</option>${state.characterGroups.map(g => `<option value="${escapeHtml(g.id)}"${g.id === selectedGroupId ? ' selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}</select></div>`
-                : '';
-            const savedType = c.type || 'girl';
-            const selectedType = draft ? draft.type : normalizeCharType(savedType);
-            const customTypeValue = draft ? draft.typeCustom : (selectedType === 'custom' ? savedType : '');
             const formName = draft ? draft.name : (c.name || '');
             const formAliases = draft ? draft.aliases : (c.aliases || []).join(', ');
-            const formAppearance = draft ? draft.appearance : appearance;
-            const formNegative = draft ? draft.negativeTags : (c.negativeTags || '');
-            const formOutfits = draft ? draft.outfits : outfits;
-            const formDynamicStates = draft ? draft.dynamicStates : dynamicStates;
-            const typeOptions = CHARACTER_TYPES.map(t =>
-                `<option value="${t.value}"${t.value === selectedType ? ' selected' : ''}>${t.label}</option>`
-            ).join('');
+            const isMulti = draft ? draft.multi === true : hasMultipleForms(c);
+            const sectionCtx = { charId: c.id, escapeHtml, danbooruEnabled: !!state.danbooruLocalDB };
+            const nameHtml = `
+                        <div class="form-group">
+                            <label class="form-label">角色名称</label>
+                            <input type="text" class="input char-edit-name" value="${escapeHtml(formName)}" placeholder="角色名称">
+                        </div>`;
+            const aliasesHtml = `
+                    <div class="form-group">
+                        <label class="form-label">别名（逗号分隔）</label>
+                        <input type="text" class="input char-edit-aliases" value="${escapeHtml(formAliases)}" placeholder="小名, 昵称, ...">
+                    </div>`;
+            let formsHtml;
+            let nameRowHtml;
+            if (isMulti) {
+                // ≥2 个形态：类型与三个分区都在各自的形态卡片里。
+                const models = draft ? draft.forms : formModelsFromCharacter(c, splitCharType);
+                nameRowHtml = nameHtml;
+                formsHtml = renderFormsSection(models, {
+                    ...sectionCtx,
+                    renderTypeFields: renderCharTypeFields,
+                    typeShort: shortCharType,
+                    isSectionCollapsed: (formKey, sectionKey) => editorSections.isCollapsed(formRef(c.id, formKey), sectionKey),
+                });
+            } else {
+                // 单形态：与加入形态之前的编辑卡片相同（“添加形态”按钮在吸顶摘要行里）；形态名称（删到只剩一个形态时留下的）放在隐藏输入框里随草稿 / 保存带着走。
+                const single = draft
+                    ? { ...draft }
+                    : { ...splitCharType(c.type), appearance, negativeTags: c.negativeTags || '', danbooruTag: c.danbooruTag || '', outfits, dynamicStates, formName: c.formName || '' };
+                nameRowHtml = `
+                    <div class="char-edit-row">
+                        ${nameHtml}
+                        ${renderCharTypeFields(single)}
+                    </div>`;
+                formsHtml = `
+                    <input type="hidden" class="char-edit-form-name" value="${escapeHtml(single.formName || '')}">
+                    ${renderCharacterFormSections(single, {
+                        ...sectionCtx,
+                        isSectionCollapsed: key => editorSections.isCollapsed(c.id, key),
+                    })}`;
+            }
 
             return `
             <div class="char-card editing${isEnabled ? '' : ' disabled'}${groupClosed ? ' group-closed' : ''}" data-id="${charId}">
                 ${summary}
                 <div class="char-edit-form">
-                    <div class="char-edit-row">
-                        <div class="form-group">
-                            <label class="form-label">角色名称</label>
-                            <input type="text" class="input char-edit-name" value="${escapeHtml(formName)}" placeholder="角色名称">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">类型</label>
-                            <select class="input char-edit-type">${typeOptions}</select>
-                            <input type="text" class="input char-edit-type-custom${selectedType === 'custom' ? '' : ' hidden'}" value="${escapeHtml(customTypeValue)}" placeholder="如: mature female" style="margin-top:4px;">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">别名（逗号分隔）</label>
-                        <input type="text" class="input char-edit-aliases" value="${escapeHtml(formAliases)}" placeholder="小名, 昵称, ...">
-                    </div>
-                    ${groupSelectHtml}
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;gap:8px;">
-                            固定外貌 (appearance)
-                            <button class="btn" data-action="search-danbooru" data-id="${charId}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
-                                <i class="fa-solid fa-magnifying-glass"></i> Danbooru
-                            </button>
-                        </label>
-                        <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(formAppearance)}</textarea>
-                        ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
-                        <div class="danbooru-panel hidden" data-char-id="${charId}"></div>
-                        <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">负向标签（可选）</label>
-                        <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(formNegative)}</textarea>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                            <span>服装列表（可选）</span>
-                            <button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加服装</button>
-                        </label>
-                        <div class="char-outfit-editor-list">
-                            <div class="char-outfit-editor-empty"${formOutfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。</div>
-                            ${formOutfits.map((outfit, index) => renderNamedTagEditorItem(outfit, index, 'outfit')).join('')}
-                        </div>
-                        <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves</p>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                            <span>动态外貌（可选）</span>
-                            <button class="btn btn-sm" type="button" data-action="add-dynstate" data-id="${charId}"><i class="fa-solid fa-plus"></i> 添加状态</button>
-                        </label>
-                        <div class="char-dynstate-editor-list">
-                            <div class="char-dynstate-editor-empty"${formDynamicStates.length ? ' style="display:none;"' : ''}>同服装，会随剧情变化的外观状态（如眼睛颜色——闭眼时不应出现），供 AI 参考按场景选用。</div>
-                            ${formDynamicStates.map((item, index) => renderNamedTagEditorItem(item, index, 'dynstate')).join('')}
-                        </div>
-                        <p class="form-hint">示例：睡觉 / closed eyes, sleeping；害羞 / blush, embarrassed, looking away</p>
-                    </div>
-                    <div class="btn-group" style="margin-top:12px;">
-                        <button class="btn btn-primary" data-action="save" data-id="${charId}"><i class="fa-solid fa-check"></i> 保存</button>
-                        <button class="btn" data-action="cancel" data-id="${charId}">取消</button>
-                    </div>
+                    ${nameRowHtml}
+                    ${aliasesHtml}
+                    ${formsHtml}
+                    ${renderCharacterEditorNote()}
                 </div>
             </div>`;
         }
@@ -1730,20 +1964,92 @@ function renderCharList() {
     const groupScroll = captureGroupScroll(list);
     list.innerHTML = DOMPurify.sanitize(renderGroupedCharacterSections(filteredChars, renderCard));
     restoreGroupScroll(list, groupScroll);
+    groupHeights?.apply({ validGroupIds: groups.map(group => group.id) });
 
     list.querySelectorAll('.char-edit-type').forEach(sel => {
         sel.addEventListener('change', function() {
-            const customInput = this.closest('.char-edit-form').querySelector('.char-edit-type-custom');
+            const customInput = (this.closest('.char-form') || this.closest('.char-edit-form')).querySelector('.char-edit-type-custom');
             if (customInput) customInput.classList.toggle('hidden', this.value !== 'custom');
+            refreshFormTypeBadge(this.closest('.char-form'), shortCharType);
         });
     });
 
     list.querySelectorAll('.char-outfit-editor-list').forEach(item => syncNamedTagEditorList(item, 'outfit'));
     list.querySelectorAll('.char-dynstate-editor-list').forEach(item => syncNamedTagEditorList(item, 'dynstate'));
+    list.querySelectorAll('.char-form-list').forEach(item => syncFormList(item));
     syncSelectionCheckboxes();
 }
 
-function handleCharAction(action, id, card, trigger) {
+// 分区折叠状态按“角色 id”记；形态卡片里的分区按“角色 id#形态 key”记（同一角色的各形态互不影响）。
+function sectionStateId(charId, trigger) {
+    const form = trigger?.closest?.('.char-form');
+    return form ? formRef(charId, form.dataset.formKey) : charId;
+}
+
+// 形态的增删都走草稿：先把表单读回草稿，改草稿里的形态列表，再整体重绘（输入框里未保存的内容不丢）。
+function addCharacterForm(id) {
+    captureEditingDraft();
+    let draft = editingDraft && editingDraft.id === id ? editingDraft : null;
+    if (!draft) return;
+    if (!draft.multi) {
+        draft = draftToMultiForm(draft, splitCharType);
+    } else if (draft.forms.length >= FORM_MAX_COUNT) {
+        alert(FORM_COPY.limit);
+        return;
+    } else {
+        draft = { ...draft, forms: [...draft.forms, createBlankFormModel(splitCharType)] };
+    }
+    editingDraft = draft;
+    renderCharList({ keepDraft: true });
+    const added = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing .char-form')).pop();
+    added?.scrollIntoView?.({ block: 'nearest' });
+    added?.querySelector('.char-form-name')?.focus();
+}
+
+// 复制形态也走草稿：副本紧跟在原形态后面，展开、启用、名称加“副本”。
+function duplicateCharacterForm(formKey) {
+    captureEditingDraft();
+    const draft = editingDraft && editingDraft.id === editingCharId ? editingDraft : null;
+    if (!draft?.multi) return;
+    if (draft.forms.length >= FORM_MAX_COUNT) {
+        alert(FORM_COPY.limit);
+        return;
+    }
+    const { models, copyKey } = duplicateFormModels(draft.forms, formKey);
+    if (!copyKey) return;
+    editingDraft = { ...draft, forms: models };
+    renderCharList({ keepDraft: true });
+    const copy = Array.from(document.querySelectorAll('#nd_char_list .char-card.editing .char-form'))
+        .find(node => node.dataset.formKey === copyKey);
+    copy?.scrollIntoView?.({ block: 'nearest' });
+    copy?.querySelector('.char-form-name')?.focus();
+}
+
+function removeCharacterForm(formKey) {
+    captureEditingDraft();
+    const draft = editingDraft && editingDraft.id === editingCharId ? editingDraft : null;
+    if (!draft?.multi) return;
+    const target = draft.forms.find(form => form.key === formKey);
+    if (!target) return;
+    const hasContent = target.name || target.appearance || target.negativeTags || target.outfits?.length || target.dynamicStates?.length;
+    if (hasContent && !confirm(`确定删除形态“${target.name || '未命名形态'}”？`)) return;
+    const next = { ...draft, forms: draft.forms.filter(form => form.key !== formKey) };
+    // 只剩一个形态：回到普通布局（剩下的形态成为角色自己的字段）。
+    editingDraft = next.forms.length < 2 ? draftToSingleForm(next) : next;
+    renderCharList({ keepDraft: true });
+}
+
+// 编辑卡片里的条目 / 搜索面板放在可折叠的分区里：分区折叠着时里面的新内容看不见，先展开它（记录与 DOM 一起改）。
+function revealEditorSection(section, id, trigger) {
+    if (!section?.classList.contains('is-collapsed')) return;
+    editorSections.setCollapsed(sectionStateId(id, trigger), section.dataset.section, false);
+    setEditorSectionCollapsed(section, false);
+}
+
+// 条目编辑器（character-edit-form.js）不直接写 innerHTML，由页面 sanitize 后插入。
+const insertSanitizedHtml = (target, html, position = 'beforeend') => target.insertAdjacentHTML(position, DOMPurify.sanitize(html));
+
+function handleCharAction(action, id, card, trigger, event) {
     if (action === 'menu') {
         if (trigger) getCardMenu()?.toggle(trigger);
     } else if (action === 'toggle-enabled') {
@@ -1789,67 +2095,60 @@ function handleCharAction(action, id, card, trigger) {
                 if (labelNode) labelNode.textContent = actionLabel;
             }
         });
+    } else if (action === 'toggle-section') {
+        // 只改 DOM 与会话记录，不重绘：其他输入框里尚未保存的内容不受影响。
+        const section = trigger?.closest('.char-edit-section');
+        const key = trigger?.dataset.section;
+        if (!section || !key) return;
+        setEditorSectionCollapsed(section, editorSections.toggle(sectionStateId(id, trigger), key));
+    } else if (action === 'toggle-named-item') {
+        // 折叠头整行都是触发区；点名称输入框 / 开关 / 拖动手柄是在操作它们，不切换折叠。
+        if (!isNamedTagHeaderToggleTarget(event?.target)) return;
+        const row = trigger?.closest('.named-tag-item');
+        toggleNamedTagItem(row, namedTagKindOfRow(row));
+    } else if (action === 'toggle-named-enabled') {
+        // 菜单里的“停用 / 启用”：只改这一条的 DOM，草稿 / 保存时照样按行上的状态读。
+        toggleNamedTagItemEnabled(trigger?.closest('.named-tag-item'));
+    } else if (action === 'duplicate-named-item') {
+        const row = trigger?.closest('.named-tag-item');
+        const copy = duplicateNamedTagEditorItem(row, namedTagKindOfRow(row), {
+            escapeHtml,
+            insertHtml: insertSanitizedHtml,
+        });
+        copy?.scrollIntoView?.({ block: 'nearest' });
+        copy?.querySelector('.named-tag-name')?.focus();
     } else if (action === 'add-outfit' || action === 'add-dynstate') {
         const kind = action === 'add-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
-        const list = card?.querySelector(`.${meta.classPrefix}-editor-list`);
+        // 多形态时按钮属于哪个形态卡片就操作哪个形态的列表。
+        const list = (trigger?.closest('.char-form') || card)?.querySelector(`.${meta.classPrefix}-editor-list`);
         if (!list) return;
-        list.insertAdjacentHTML('beforeend', DOMPurify.sanitize(renderNamedTagEditorItem({}, list.querySelectorAll(`.${meta.classPrefix}-editor-item`).length, kind)));
-        syncNamedTagEditorList(list, kind);
+        revealEditorSection(list.closest('.char-edit-section'), id, trigger);
+        const row = appendNamedTagEditorItem(list, kind, { escapeHtml, insertHtml: insertSanitizedHtml });
+        row?.scrollIntoView?.({ block: 'nearest' });
+        row?.querySelector(`.${meta.classPrefix}-name`)?.focus();
     } else if (action === 'remove-outfit' || action === 'remove-dynstate') {
         const kind = action === 'remove-outfit' ? 'outfit' : 'dynstate';
         const meta = NAMED_TAG_EDITOR_KINDS[kind];
-        const row = trigger?.closest(`.${meta.classPrefix}-editor-item`);
-        const list = row?.closest(`.${meta.classPrefix}-editor-list`);
-        row?.remove();
-        syncNamedTagEditorList(list, kind);
+        removeNamedTagEditorItem(trigger?.closest(`.${meta.classPrefix}-editor-item`), kind);
     } else if (action === 'search-danbooru') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
-        showLocalDanbooruFix(id);
-    } else if (action === 'edit') {
-        if (editingCharId === id) return;
-        editingCharId = id;
-        editingDraft = null;
-        renderCharList();
-        revealEditingCard();
-    } else if (action === 'cancel') {
-        editingCharId = null;
-        editingDraft = null;
-        renderCharList(); // 未保存的空白草稿在这里被移除
-        revealCharCard(id);
-    } else if (action === 'save') {
-        const char = state.characterTags.find(c => c.id === id);
-        if (!char) return;
-        
-        const name = card.querySelector('.char-edit-name')?.value?.trim();
-        if (!name) { alert('请输入角色名称'); return; }
-        
-        const typeSelect = card.querySelector('.char-edit-type');
-        const typeCustom = card.querySelector('.char-edit-type-custom');
-        let type = typeSelect?.value || 'girl';
-        if (type === 'custom' && typeCustom?.value?.trim()) type = typeCustom.value.trim();
-        
-        char.name = name;
-        char.type = type;
-        char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-        char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
-        char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
-        char.outfits = collectNamedTagEditorValues(card, 'outfit');
-        char.dynamicStates = collectNamedTagEditorValues(card, 'dynstate');
-
-        // 点了“保存”才算真正的角色：从未保存草稿里移出，之后才会随库一起存盘。
-        draftCharacters.delete(id);
-        editingDraft = null;
-        editingCharId = null;
-        const nextGroupId = card.querySelector('.char-edit-group')?.value;
-        if (CL && nextGroupId !== undefined && nextGroupId !== (char.groupId || '')) {
-            runLibraryAction(() => applyCharacterLibrary(CL.moveCharacters(getCharacterLibrary(), [id], { groupId: nextGroupId })));
-            revealCharCard(id);
-            return;
-        }
-        saveCharacterLibrary();
-        renderCharList();
-        revealCharCard(id);
+        // 搜索面板在“固定外貌”分区正文里。
+        const formCard = trigger?.closest('.char-form');
+        revealEditorSection((formCard || card)?.querySelector('.char-edit-section[data-section="appearance"]'), id, trigger);
+        showLocalDanbooruFix(formRef(id, formCard?.dataset.formKey || ''));
+    } else if (action === 'toggle-form') {
+        // 形态头部整行都是触发区；点名称输入框 / 拖动手柄是在操作它们，不切换折叠。
+        if (!isFormHeaderToggleTarget(event?.target)) return;
+        toggleFormCard(trigger?.closest('.char-form'));
+    } else if (action === 'toggle-form-enabled') {
+        toggleFormEnabled(trigger?.closest('.char-form'));
+    } else if (action === 'duplicate-form') {
+        duplicateCharacterForm(trigger?.closest('.char-form')?.dataset.formKey);
+    } else if (action === 'add-form') {
+        addCharacterForm(id);
+    } else if (action === 'remove-form') {
+        removeCharacterForm(trigger?.dataset.formKey);
     } else if (action === 'duplicate') {
         if (draftCharacters.has(id)) { alert('请先保存这个新角色，再复制'); return; }
         runLibraryAction(() => {
@@ -1878,12 +2177,15 @@ function handleCharAction(action, id, card, trigger) {
 
 // ── Danbooru 搜索（本地 DB）─────────────────────────────────
 
-function showLocalDanbooruFix(charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
+// ref 是“角色 id”或“角色 id#形态 key”（见 formRef）：多形态时每个形态各有自己的搜索面板和 Danbooru 标签。
+function showLocalDanbooruFix(ref) {
+    const charId = ref;
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${ref}"]`);
     if (!panel) return;
 
-    const char = state.characterTags.find(c => c.id === charId);
-    const defaultQuery = char?.danbooruTag || char?.name || '';
+    const char = state.characterTags.find(c => c.id === parseFormRef(ref).charId);
+    const formDanbooru = panel.closest('.char-form, .char-edit-form')?.querySelector('.char-form-danbooru')?.value;
+    const defaultQuery = formDanbooru || char?.danbooruTag || char?.name || '';
 
     panel.classList.remove('hidden');
     panel.innerHTML = DOMPurify.sanitize(`
@@ -1908,7 +2210,10 @@ function showLocalDanbooruFix(charId) {
     };
 
     searchBtn.addEventListener('click', doSearch);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') doSearch();
+        else if (e.key === 'Escape') { e.preventDefault(); closeBtn.click(); } // Esc 先收起这个搜索面板，不关整个设置页
+    });
     closeBtn.addEventListener('click', () => {
         panel.classList.add('hidden');
         panel.innerHTML = '';
@@ -1917,8 +2222,8 @@ function showLocalDanbooruFix(charId) {
     if (defaultQuery) doSearch();
 }
 
-function renderLocalDanbooruResults(query, results, charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
+function renderLocalDanbooruResults(query, results, ref) {
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${ref}"]`);
     if (!panel) return;
     const container = panel.querySelector('.danbooru-results');
     if (!container) return;
@@ -1951,23 +2256,46 @@ function renderLocalDanbooruResults(query, results, charId) {
             let appearanceTags = [];
             try { appearanceTags = JSON.parse(item.dataset.tags); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "renderLocalDanbooruResults" }, caughtError); }
 
-            const char = state.characterTags.find(c => c.id === charId);
+            const { charId: realCharId, formKey } = parseFormRef(ref);
+            if (formKey) {
+                // 形态卡片：只改这个形态的表单（隐藏的 Danbooru 标签、提示行、外貌），点保存才写入数据；不重绘，其它输入原样保留。
+                const formCard = panel.closest('.char-form');
+                if (!formCard) return;
+                const hidden = formCard.querySelector('.char-form-danbooru');
+                if (hidden) hidden.value = tagName;
+                const hint = formCard.querySelector('.char-danbooru-hint');
+                if (hint) {
+                    hint.textContent = `Danbooru: ${tagName.replace(/_/g, ' ')}`;
+                    hint.removeAttribute('hidden');
+                }
+                if (appearanceTags.length) {
+                    const appearanceInput = formCard.querySelector('.char-edit-appearance');
+                    if (appearanceInput) appearanceInput.value = appearanceTags.map(t => t.replace(/_/g, ' ')).join(', ');
+                }
+                refreshFormHeader(formCard);
+                panel.classList.add('hidden');
+                panel.innerHTML = '';
+                return;
+            }
+            const char = state.characterTags.find(c => c.id === realCharId);
             if (!char) return;
 
             // 先把表单里其它尚未保存的输入读回草稿：选中 Danbooru 角色后编辑器保持打开、其它输入原样保留
             // （新建且未保存的角色关掉编辑器就等于被丢弃）。
             captureEditingDraft();
             char.danbooruTag = tagName;
+            if (editingDraft && editingDraft.id === realCharId) editingDraft.danbooruTag = tagName;
             // 用本地库的 tag 替换角色外貌
             if (appearanceTags.length) {
                 char.appearance = appearanceTags.map(t => t.replace(/_/g, ' ')).join(', ');
-                if (editingDraft && editingDraft.id === charId) editingDraft.appearance = char.appearance;
+                if (editingDraft && editingDraft.id === realCharId) editingDraft.appearance = char.appearance;
             }
 
             saveCharacterLibrary();
             panel.classList.add('hidden');
             panel.innerHTML = '';
-            renderCharList();
+            renderCharList({ keepDraft: true });
+            scheduleCharAutoSaveTouch();
         });
     });
 }
@@ -2247,20 +2575,130 @@ function pruneGalleryObjectUrls() {
     syncGalleryImages();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 批量管理：不打開獨立彈窗，在 slot 卡與彈窗縮略圖上疊 checkbox
+// ═══════════════════════════════════════════════════════════════════════════
+let batchMode = false;
+const batchSelectedIds = new Set();
+let batchDeleteRequestId = null;
+const galleryZipDownload = createGalleryZipDownload({ document, container: $('nd_zip_output'), send: postToParent,
+    status: (kind, text) => updateStatus($('nd_gallery_status'), kind, text) });
+
+function toggleBatchMode() {
+    batchMode = !batchMode;
+    const bar = $('nd_batch_bar');
+    const btn = $('nd_batch');
+    if (batchMode) {
+        bar.style.display = 'flex';
+        btn.classList.add('btn-primary');
+        btn.querySelector('i').className = 'fa-solid fa-check';
+    } else {
+        bar.style.display = 'none';
+        btn.classList.remove('btn-primary');
+        btn.querySelector('i').className = 'fa-solid fa-check';
+        batchSelectedIds.clear();
+        galleryZipDownload.dispose();
+    }
+    updateBatchCount();
+    renderGalleryView();
+    for (const charName of Object.keys(loadedCharPreviews)) renderCharacterSlots(charName);
+    if (modalData.charName) renderModalThumbs();
+    syncGalleryImages();
+}
+
+function slotLatestImgId(card) {
+    const entry = loadedCharPreviews[card.dataset.char];
+    const images = entry?.slots?.[card.dataset.slot]?.images;
+    return images?.[0]?.imgId || null;
+}
+
+function toggleSlotSelection(card) {
+    const imgId = slotLatestImgId(card);
+    if (!imgId) return;
+    if (batchSelectedIds.has(imgId)) batchSelectedIds.delete(imgId);
+    else batchSelectedIds.add(imgId);
+    syncBatchSelection();
+    updateBatchCount();
+}
+
+function updateBatchCount() {
+    const count = batchSelectedIds.size;
+    const el = $('nd_batch_count');
+    if (!el) return;
+    el.textContent = batchMode
+        ? GALLERY_BATCH_COPY.selected(count)
+        : '';
+}
+
+function setBatchCheckedAll(checked) {
+    if (!batchMode) return;
+    if (!checked) {
+        batchSelectedIds.clear();
+    } else {
+        // 全選：只選當前 DOM 已渲染的卡片與彈窗縮略圖（與 fork 版一致，避免誤選未加載的）
+        document.querySelectorAll('.gallery-slot').forEach(slot => {
+            const imgId = slotLatestImgId(slot);
+            if (imgId) batchSelectedIds.add(imgId);
+        });
+        document.querySelectorAll('#nd_modal_thumbs [data-imgid]').forEach(thumb => {
+            batchSelectedIds.add(thumb.dataset.imgid);
+        });
+    }
+    syncBatchSelection();
+    updateBatchCount();
+}
+
+function syncBatchSelection() {
+    document.querySelectorAll('.gallery-slot').forEach(slot => {
+        const imgId = slotLatestImgId(slot);
+        const selected = !!imgId && batchSelectedIds.has(imgId);
+        slot.classList.toggle('batch-checked', selected);
+        const cb = slot.querySelector(':scope > .batch-cb');
+        if (cb) cb.checked = selected;
+    });
+    document.querySelectorAll('#nd_modal_thumbs [data-imgid]').forEach(thumb => {
+        const selected = batchSelectedIds.has(thumb.dataset.imgid);
+        thumb.classList.toggle('batch-checked', selected);
+        const cb = thumb.querySelector('.batch-cb');
+        if (cb) cb.checked = selected;
+    });
+    updateBatchCount();
+}
+
+function batchDeleteSelected() {
+    if (!batchSelectedIds.size || batchDeleteRequestId) return;
+    if (!confirm(GALLERY_BATCH_COPY.deleteConfirm(batchSelectedIds.size))) return;
+    batchDeleteRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    $('nd_batch_delete').disabled = true;
+    postToParent({ type: 'BATCH_DELETE', ids: [...batchSelectedIds], requestId: batchDeleteRequestId });
+}
+
+function batchDownloadSelected() {
+    if (!batchSelectedIds.size) return;
+    galleryZipDownload.start([...batchSelectedIds]);
+}
+
 function slotBadgesHtml(info) {
-    return `${info.count > 1 ? `<span class="gallery-slot-badge count">${info.count} 版</span>` : ''}${info.hasSaved || info.images.some(img => img.savedUrl) ? '<span class="gallery-slot-badge saved">✓</span>' : ''}`;
+    return `${info.count > 1 ? `<span class="gallery-slot-badge count">${info.count} 版</span>` : ''}${info.hasSaved || info.images.some(img => img.savedUrl) ? '<span class="gallery-slot-badge saved" title="已保存到服务器" aria-label="已保存到服务器">✓</span>' : ''}`;
 }
 
 function slotCardHtml(charName, slotId, info) {
     const latest = info.images[0];
+    const checkboxHtml = batchMode
+        ? `<input type="checkbox" class="batch-cb" aria-label="选择最新版本" ${latest?.imgId && batchSelectedIds.has(latest.imgId) ? 'checked' : ''}>`
+        : '';
+    const checkedCls = batchMode && latest?.imgId && batchSelectedIds.has(latest.imgId) ? ' batch-checked' : '';
     return `
-        <div class="gallery-slot" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
-            <img class="gallery-slot-img" data-gallery-id="${escapeHtml(latest.imgId)}" decoding="async">
-            <div class="gallery-slot-overlay">
-                <div class="gallery-slot-actions">
-                    <button class="btn btn-sm" data-action="view" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
-                        <i class="fa-solid fa-expand"></i> 查看
-                    </button>
+        <div class="gallery-slot${checkedCls}" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
+            ${checkboxHtml}
+            <div class="gallery-slot-media">
+                <img class="gallery-slot-img" data-gallery-id="${escapeHtml(latest.imgId)}" decoding="async">
+                <div class="gallery-slot-overlay">
+                    <div class="gallery-slot-actions">
+                        <button class="btn btn-sm" type="button" data-action="view" data-slot="${escapeHtml(slotId)}" data-char="${escapeHtml(charName)}">
+                            <i class="fa-solid fa-expand"></i> 查看
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="gallery-slot-info">
@@ -2275,7 +2713,11 @@ function bindSlotCard(card) {
     card.querySelectorAll('[data-action="view"]').forEach(btn => {
         btn.addEventListener('click', e => { e.stopPropagation(); open(); });
     });
-    card.addEventListener('click', e => { if (!e.target.closest('[data-action]')) open(); });
+    card.addEventListener('click', e => {
+        if (e.target.closest('.batch-cb')) { e.stopPropagation(); toggleSlotSelection(card); return; }
+        if (batchMode) { toggleSlotSelection(card); return; }
+        if (!e.target.closest('[data-action]')) open();
+    });
 }
 
 function findSlotCard(charName, slotId) {
@@ -2665,14 +3107,19 @@ function openGalleryModalFromCache(charName, slotId) {
     modalData = { slotId, images: info.images, currentIndex: 0, charName };
     renderModalThumbs();
     renderModalContent();
+    if (!$('nd_gallery_modal').classList.contains('visible')) galleryModalOpener = document.activeElement;
     $('nd_gallery_modal').classList.add('visible');
     syncGalleryImages();
+    $('nd_modal_close').focus({ preventScroll: true });
     requestSlotVersions(charName, slotId);
     prefetchNextWhenAtLoadedEnd();
 }
 
+let galleryModalOpener = null;
 function closeGalleryModal() {
     $('nd_gallery_modal').classList.remove('visible');
+    galleryModalOpener?.focus?.({ preventScroll: true });
+    galleryModalOpener = null;
     $('nd_modal_img').removeAttribute('data-img-id');
     $('nd_modal_img').removeAttribute('data-gallery-id');
     $('nd_modal_img').removeAttribute('src');
@@ -2684,23 +3131,41 @@ function closeGalleryModal() {
 function renderModalThumbs() {
     const { images, currentIndex } = modalData;
     if (!images.length) return;
+    const total = Math.max(images.length, loadedCharPreviews[modalData.charName]?.slots[modalData.slotId]?.count || 0);
+    $('nd_modal_thumbs').hidden = images.length < 2 && !batchMode;
     $('nd_modal_thumbs').innerHTML = DOMPurify.sanitize(images.map((img, i) => {
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
-        return `<img class="${cls.join(' ')}" data-gallery-id="${escapeHtml(img.imgId)}" data-index="${i}">`;
+        const thumb = `<button type="button" class="${cls.join(' ')}" data-index="${i}" aria-label="版本 ${i + 1} / ${total}${img.savedUrl ? '，已保存' : ''}"${i === currentIndex ? ' aria-current="true"' : ''}><img data-gallery-id="${escapeHtml(img.imgId)}" alt=""></button>`;
+        if (!batchMode) return thumb;
+        const checked = batchSelectedIds.has(img.imgId);
+        return `<div class="gallery-modal-thumb-wrap${checked ? ' batch-checked' : ''}" data-imgid="${escapeHtml(img.imgId)}"><input type="checkbox" class="batch-cb" aria-label="选择版本 ${i + 1}" ${checked ? 'checked' : ''}>${thumb}</div>`;
     }).join(''), GALLERY_HTML_SANITIZE_OPTIONS);
 
-    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+    $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb-wrap .batch-cb').forEach(cb => {
+        cb.addEventListener('click', e => { e.stopPropagation(); toggleModalThumbSelection(cb.parentElement); });
+    });
+    $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb').forEach(t => {
         t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); });
     });
 }
 
+function toggleModalThumbSelection(wrap) {
+    const imgId = wrap.dataset.imgid;
+    if (!imgId) return;
+    if (batchSelectedIds.has(imgId)) batchSelectedIds.delete(imgId);
+    else batchSelectedIds.add(imgId);
+    syncBatchSelection();
+    updateBatchCount();
+}
+
 function updateModalThumbState() {
-    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+    $('nd_modal_thumbs').querySelectorAll('.gallery-modal-thumb').forEach(t => {
         const index = parseInt(t.dataset.index);
         const active = index === modalData.currentIndex;
         t.classList.toggle('active', active);
+        if (active) t.setAttribute('aria-current', 'true'); else t.removeAttribute('aria-current');
         t.classList.toggle('saved', !!modalData.images[index]?.savedUrl);
         if (active) t.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     });
@@ -2758,22 +3223,29 @@ function renderModalContent() {
     const saveBtn = $('nd_modal_save');
     if (current.savedUrl) {
         saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已保存';
+        saveBtn.title = '这个版本已经保存在服务器上';
         saveBtn.disabled = true;
     } else {
         saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存到服务器';
+        saveBtn.title = '把这个版本保存成服务器上的图片文件';
         saveBtn.disabled = false;
     }
+    saveBtn.classList.toggle('is-saved', !!current.savedUrl);
 
     const loadingMore = position && position.index >= position.loaded - 1 && galleryPageRequests.has(modalData.charName);
     const slotText = position && position.total > 1 ? `图组 ${position.index + 1} / ${position.total}${loadingMore ? '（加载更多中…）' : ''} · ` : '';
     // 版本总数以图组统计为准：版本列表还没回来时，缩略图条只有最新一张，但总数已知。
     const versionTotal = Math.max(images.length, loadedCharPreviews[modalData.charName]?.slots[modalData.slotId]?.count || 0);
-    $('nd_modal_info').textContent = `${slotText}版本 ${currentIndex + 1} / ${versionTotal} · ${new Date(current.timestamp).toLocaleString()}`;
+    $('nd_modal_counter').textContent = `${slotText}版本 ${currentIndex + 1} / ${versionTotal}`;
+    const when = new Date(current.timestamp);
+    $('nd_modal_date').textContent = when.toLocaleString();
+    if (Number.isFinite(when.getTime())) $('nd_modal_date').dateTime = when.toISOString();
 }
 
 // 删除一张图后的本地处理：移除对应的图组 / 版本，并让随后到的 CACHE_DATA（张数少一）不被当成“数据变了”而整体重载。
 function applyGalleryImageDeleted(imgId) {
-    const charName = modalData.charName;
+    const charName = Object.keys(loadedCharPreviews).find(name =>
+        Object.values(loadedCharPreviews[name].slots).some(info => info.images.some(img => img.imgId === imgId)));
     const entry = charName ? loadedCharPreviews[charName] : null;
     if (!entry) return;
     const slotId = entry.order.find(id => entry.slots[id].images.some(img => img.imgId === imgId));
@@ -2850,7 +3322,7 @@ function parseWorldbookJson(jsonText, fileName) {
         entries.push({
             uid: Number(uid),
             comment: e.comment || '',
-            key: Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []),
+                key: Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []),
             keysecondary: Array.isArray(e.keysecondary) ? e.keysecondary : [],
             constant: !!e.constant,
             disable: !!e.disable,
@@ -3031,7 +3503,7 @@ function fillApiConfigForm(config) {
 }
 
 function renderApiPresetBar() {
-    if (!AP_UI || !apiSettingsReady) return;
+    if (!AP_UI || !presetListKit || !apiSettingsReady) return;
     if (apiPresetBar) {
         apiPresetBar.render();
         return;
@@ -3048,6 +3520,7 @@ function renderApiPresetBar() {
         onCommit: change => requestApiSave('SAVE_API_PRESETS', change, Boolean(change.config)),
         confirm: message => confirm(message),
         prompt: (message, fallback) => prompt(message, fallback),
+        createListView: createPresetListView, // 与参数 / 提示词预设列表共用同一份接线（函数声明，已提升）
     });
 }
 
@@ -3088,8 +3561,7 @@ function handleApiSaveStatus(data) {
     pending.resolve(ok);
 }
 let PO = null; // preset-order.js（预设排序的纯函数），与角色库模块一同动态引入
-let SL = null; // sortable-list.js（列表拖拽 / 键盘排序控制器），与角色库模块一同动态引入
-let PLV = null; // preset-list-view.js（预设列表的行标记与点击委托，参数 / 提示词预设共用），与角色库模块一同动态引入
+let presetListKit = null; // preset-list-kit.js 建出的接线（预设列表视图 + 排序 / 菜单 / 键盘移动 / 边缘滚动），参数 / 提示词 / API 配置预设共用，与角色库模块一同动态引入
 let PLE = null; // prompt-layout-editor.js（请求结构编辑器，另外转出布局契约的纯函数），与角色库模块一同动态引入
 
 function applyStateToUI() {
@@ -3106,6 +3578,9 @@ function applyStateToUI() {
         $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+        const titleModeSel = $('nd_image_title_mode');
+        if (titleModeSel) titleModeSel.value = ['none', 'overlay', 'collapse'].includes(state.imageTitleMode)
+            ? state.imageTitleMode : 'none';
 
         renderParamsPresetList();
         applyParamsPreset();
@@ -3150,36 +3625,16 @@ function currentParamsPresetId() {
     return (presets.find(p => p.id === state.selectedParamsPresetId) || presets[0])?.id ?? null;
 }
 
-// 行标记、点击委托、拖拽排序挂接都在 shared/preset-list-view.js，参数 / 提示词两个列表各建一份视图，
-// 只有数据来源和动作处理不同。视图在第一次用到时才创建（模块是动态引入的，晚于页面脚本）。
-function autoScrollPresetList(event, list) {
-    // 靠近列表上 / 下缘时先滚列表自己，滚到头再带动外层 / 整页。
-    CS?.autoScrollForPointer({
-        start: document.elementFromPoint(event.clientX, event.clientY) || list,
-        pointerY: event.clientY,
-        getStyle: element => getComputedStyle(element),
-        getRect: element => element.getBoundingClientRect(),
-        viewport: { top: 0, bottom: window.innerHeight },
-        pageScroller: document.scrollingElement || document.documentElement,
-    });
-}
-
+// 行标记、点击委托、拖拽排序、折叠都在 shared/preset-list-view.js，接线（排序 / 菜单 / 键盘移动 / 边缘滚动）在 shared/preset-list-kit.js；
+// 参数 / 提示词 / API 配置三个列表各建一份视图，只有数据来源和动作处理不同。菜单控制器与角色卡共用同一个（同一时间只开一个菜单）。
+// 视图在第一次用到时才创建（模块是动态引入的，晚于页面脚本）。
 function createPresetListView(options) {
-    return PLV.createPresetListView({
-        document,
-        escapeHtml,
-        closeMenu: closeOptions => cardMenu?.close(closeOptions),
-        toggleMenu: button => getCardMenu()?.toggle(button),
-        createSortable: sortableOptions => (SL ? SL.createSortableList(sortableOptions) : null),
-        moveStep: (ids, id, direction) => (PO ? PO.movePresetId(ids, id, direction) : ids),
-        autoScroll: autoScrollPresetList,
-        ...options,
-    });
+    return presetListKit.createPresetListView({ document, ...options });
 }
 
 let paramsListView = null;
 function getParamsListView() {
-    if (!paramsListView && PLV) {
+    if (!paramsListView && presetListKit) {
         paramsListView = createPresetListView({
             listId: 'novel-params',
             getToggle: () => $('nd_params_collapse'),
@@ -3189,6 +3644,7 @@ function getParamsListView() {
             noun: '参数预设',
             onSelect: id => selectParamsPreset(id),
             onAction: handleParamsPresetAction,
+            onRename: renameParamsPreset,
             onReorder: reorderParamsPresets,
         });
     }
@@ -3219,16 +3675,15 @@ function reorderParamsPresets(orderedIds) {
     postToParent({ type: 'REORDER_PARAMS_PRESETS', order: orderedIds });
 }
 
-// 菜单项的动作：点选与“…”按钮由视图处理，这里只收 rename / duplicate / export / delete。
+// 名称输入框提交（已 trim、非空、确实改了）：改本地再整份保存。
+function renameParamsPreset(id, name, preset) {
+    preset.name = name;
+    postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+}
+
+// 菜单项的动作：点选、改名与“…”按钮由视图处理，这里只收 duplicate / export / delete。
 function handleParamsPresetAction(action, id, preset) {
-    if (action === 'rename') {
-        const name = prompt('输入新名称：', preset.name || '');
-        if (name && name.trim()) {
-            preset.name = name.trim();
-            renderParamsPresetList();
-            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
-        }
-    } else if (action === 'duplicate') {
+    if (action === 'duplicate') {
         postToParent({ type: 'ADD_PARAMS_PRESET', baseId: id, name: `${preset.name || preset.id} 副本` });
     } else if (action === 'export') {
         postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: id });
@@ -3305,9 +3760,49 @@ function currentPromptPresetId() {
     return (presets.find(p => p.id === state.selectedPromptPresetId) || presets[0])?.id ?? null;
 }
 
+// 预设行的“…”菜单：通用的复制 / 导出 / 删除，外加“全部恢复默认”（原先在页面底部的独立按钮）。
+const PROMPT_PRESET_MENU_ITEMS = Object.freeze([
+    { action: 'duplicate', label: '复制', icon: 'fa-clone' },
+    { action: 'export', label: '导出', icon: 'fa-share-from-square' },
+    { action: 'reset-defaults', label: '全部恢复默认', icon: 'fa-rotate-left' },
+    { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
+]);
+
+/**
+ * 把当前正在编辑的提示词预设的全部文本（开场、场景规则、各模型指南）与请求结构恢复为默认值。
+ * 只改表单与草稿，点保存才落盘。
+ */
+function resetActivePromptPresetToDefaults() {
+    const defaults = state._defaultPrompts || {};
+    const activePreset = getActivePromptPresetForForm();
+    if (!activePreset) {
+        alert('没有可恢复的提示词预设');
+        return;
+    }
+    const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset.name);
+    const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
+    const sceneRulesVal = defaults.sceneRules || '';
+    $('nd_prompt_system').value = topSystemVal;
+    $('nd_prompt_format').value = sceneRulesVal;
+    promptTextDraftsByPreset.set(activePreset.id, new Map([
+        ['topSystem', topSystemVal],
+        ['sceneRules', sceneRulesVal],
+    ]));
+    modelGuideDraftsByPreset.set(activePreset.id, new Map(
+        Object.entries(state.modelGuideDefaults || {})
+            .filter(([, content]) => typeof content === 'string'),
+    ));
+    applyModelGuideForCurrentModel();
+    // 布局草稿一并回到默认（与已保存的默认布局一致时 setPromptLayoutDraft 会直接丢草稿）。
+    if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
+    renderLayoutEditor({ collapse: true });
+    refreshLayoutSummaries();
+    if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
+}
+
 let promptListView = null;
 function getPromptListView() {
-    if (!promptListView && PLV) {
+    if (!promptListView && presetListKit) {
         promptListView = createPresetListView({
             listId: 'novel-prompts',
             defaultCollapsed: true,
@@ -3318,7 +3813,12 @@ function getPromptListView() {
             noun: '提示词预设',
             onSelect: id => selectPromptPreset(id),
             onAction: handlePromptPresetAction,
+            onRename: (id, name, preset) => {
+                preset.name = name; // 先在本页显示新名字；宿主保存后回传的 INIT_DATA 是最终结果
+                postToParent({ type: 'RENAME_PROMPT_PRESET', id, name });
+            },
             onReorder: reorderPromptPresets,
+            menuItems: PROMPT_PRESET_MENU_ITEMS,
         });
     }
     return promptListView;
@@ -3346,13 +3846,15 @@ function reorderPromptPresets(orderedIds) {
 
 function handlePromptPresetAction(action, id, preset) {
     const label = preset.name || preset.id;
-    if (action === 'rename') {
-        const name = prompt('输入新名称：', preset.name || '');
-        if (name && name.trim()) postToParent({ type: 'RENAME_PROMPT_PRESET', id, name: name.trim() });
-    } else if (action === 'duplicate') {
+    if (action === 'duplicate') {
         postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
     } else if (action === 'export') {
         exportPromptPreset(preset);
+    } else if (action === 'reset-defaults') {
+        if (!confirm(`确认将提示词预设“${label}”的全部提示词（含请求结构）恢复为默认值？（需点击保存才会生效）`)) return;
+        // 恢复的是正在编辑的表单：不是当前预设时先切过去（与点选这一行一样）。
+        if (id !== currentPromptPresetId()) selectPromptPreset(id);
+        resetActivePromptPresetToDefaults();
     } else if (action === 'delete') {
         if (confirm(`确定删除提示词预设“${label}”？`)) postToParent({ type: 'DEL_PROMPT_PRESET', id });
     }
@@ -3571,9 +4073,10 @@ function getLayoutEditor() {
             builtinEditors: Object.fromEntries(Array.from(document.querySelectorAll('[data-prompt-editor]'), node => [node.dataset.promptEditor, node])),
             editorParking: $('nd_prompt_editors'),
             confirm: message => confirm(message),
-            autoScroll: autoScrollPresetList,
+            autoScroll: (event, list) => presetListKit?.autoScroll(event, list),
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
             onTestTool: testBlockTool,
+            collapseId: 'prompt-layout',
         });
     }
     return layoutEditor;
@@ -3780,6 +4283,7 @@ window.addEventListener('message', event => {
             applyStateToUI();
             clearUndoIfStale();
             shuffleCredits();
+            restoreInitialView();
             break;
         }
 
@@ -3794,8 +4298,38 @@ window.addEventListener('message', event => {
             state.cacheStats = data.cacheStats || state.cacheStats;
             if (data.gallerySummary) applyGallerySummary(data.gallerySummary);
             if ($('nd_cache_count')) $('nd_cache_count').textContent = state.cacheStats?.count || 0;
-            if ($('nd_cache_size')) $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+            if ($('nd_cache_size')) $('nd_cache_size').textContent = state.cacheStats?.sizeMB || 0 + ' MB';
             renderGalleryView();
+            break;
+
+        case 'BATCH_DELETED': {
+            if (data.requestId !== batchDeleteRequestId) break;
+            batchDeleteRequestId = null;
+            $('nd_batch_delete').disabled = false;
+            const ids = data.deletedIds || [];
+            for (const id of ids) {
+                applyGalleryImageDeleted(id);
+                batchSelectedIds.delete(id);
+            }
+            if (modalData.slotId) {
+                modalData.images = modalData.images.filter(img => !ids.includes(img.imgId));
+                if (!modalData.images.length) closeGalleryModal();
+                else {
+                    modalData.currentIndex = Math.min(modalData.currentIndex, modalData.images.length - 1);
+                    renderModalThumbs();
+                    renderModalContent();
+                }
+            }
+            updateBatchCount();
+            syncBatchSelection();
+            pruneGalleryObjectUrls();
+            updateStatus($('nd_gallery_status'), data.failures?.length ? 'error' : 'success',
+                GALLERY_BATCH_COPY.deleted(ids.length, data.failures?.length || 0));
+            break;
+        }
+
+        case 'BATCH_DOWNLOADED':
+            galleryZipDownload.handle(data);
             break;
 
         case 'CHARACTER_PREVIEWS_LOADED':
@@ -3834,8 +4368,19 @@ window.addEventListener('message', event => {
 
             
         case 'STATUS':
+            if (data.target === 'jpeg') {
+                state.saveAsJpeg = data.saveAsJpeg === true;
+                $('nd_save_as_jpeg').checked = state.saveAsJpeg;
+                $('nd_save_as_jpeg').disabled = false;
+                updateStatus($('nd_gallery_status'), data.state, data.text);
+                break;
+            }
             if (data.target === 'group-presets') {
                 handleGroupPresetStatus(data);
+                break;
+            }
+            if (data.target === 'char-tags') {
+                handleCharSaveStatus(data);
                 break;
             }
             if (data.target === 'api-presets' || (data.target === 'api' && data.requestId)) {
@@ -3851,10 +4396,9 @@ window.addEventListener('message', event => {
                 updateStatus($('nd_api_status'), data.state, data.text);
             } else if (data.target === 'params') {
                 updateStatus($('nd_params_status'), data.state, data.text);
-            } else if (data.target === 'prompt-preset') {
+            } else if (data.target === 'prompt-preset' || data.target === 'prompts') {
+                // 保存按钮只剩预设栏里的一个；宿主对旧目标名 prompts 的回执也落在同一行状态上。
                 updateStatus($('nd_prompt_preset_status'), data.state, data.text);
-            } else if (data.target === 'prompts') {
-                updateStatus($('nd_prompts_status'), data.state, data.text);
             } else if (data.target === 'filter') {
                 updateStatus($('nd_filter_status'), data.state, data.text);
             } else if (data.target === 'gallery') {
@@ -3863,6 +4407,10 @@ window.addEventListener('message', event => {
                 updateStatus($('nd_status'), data.state, data.text);
             }
             if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
+            break;
+
+        case 'REQUEST_CLOSE':
+            runEditorTask(requestPanelClose());
             break;
             
         case 'GALLERY_IMAGE_DELETED':
@@ -3936,7 +4484,9 @@ window.addEventListener('message', event => {
     }
 });
 
-window.addEventListener('pagehide', event => { if (!event.persisted) quickTestView?.dispose(); });
+window.addEventListener('pagehide', event => {
+    if (!event.persisted) { quickTestView?.dispose(); galleryZipDownload.dispose(); }
+});
 window.addEventListener('beforeunload', () => {
     cardMenu?.destroy();
     cardMenu = null;
@@ -3990,7 +4540,7 @@ function initializePage() {
     // ═══════════════════════════════════════════════════════════════════════
     // 关闭按钮
     // ═══════════════════════════════════════════════════════════════════════
-    $('nd_close').addEventListener('click', () => postToParent({ type: 'CLOSE' }));
+    $('nd_close').addEventListener('click', () => runEditorTask(requestPanelClose()));
     
     // ═══════════════════════════════════════════════════════════════════════
     // API 配置
@@ -4116,19 +4666,19 @@ function initializePage() {
         resetCharacterFilters();
     });
     
-    $('nd_char_add').addEventListener('click', () => {
+    $('nd_char_add').addEventListener('click', () => runEditorTask(addCharacterDraft()));
+    async function addCharacterDraft() {
+        if (editingCharId && !(await leaveCharacterEditor())) return; // 先保存正在编辑的那张；保存不了就留在原处
         const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, enabled: true, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', outfits: [], dynamicStates: [] };
         state.characterTags.push(nc);
         registerDraftCharacter(nc);
-        editingCharId = nc.id;
-        editingDraft = null;
         resetCharacterFilters(false);
-        renderCharList();
         switchView('characters');
-        revealEditingCard();
-        setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
-    });
+        await openCharacterEditor(nc.id, { fresh: true });
+    }
     
+    // 角色编辑卡里的文本框（外貌 / 条目标签）随内容长高；折叠 / 展开、重绘、宽度变化后自动补量。
+    installTextareaAutofit($('nd_char_list'));
     $('nd_char_list').addEventListener('click', e => {
         const groupBtn = e.target.closest('[data-group-action]');
         if (groupBtn) {
@@ -4137,11 +4687,15 @@ function initializePage() {
             return;
         }
         const btn = e.target.closest('[data-action]');
-        if (!btn) return;
+        if (!btn) {
+            // 点角色行（摘要）本身：展开 / 收起编辑区；启用开关、“…”菜单、勾选框、拖动手柄各管各的，不触发。
+            if (isCharacterRowToggleTarget(e.target)) runEditorTask(toggleCharacterEditor(e.target.closest('.char-card')?.dataset.id));
+            return;
+        }
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
         if (btn.closest('[role="menu"]')) cardMenu?.close({ restoreFocus: true });
-        if (id) handleCharAction(btn.dataset.action, id, card, btn);
+        if (id) handleCharAction(btn.dataset.action, id, card, btn, e);
     });
 
     // auto-learn (toggle + subordinate checkbox)
@@ -4243,7 +4797,28 @@ function initializePage() {
         setSavingState($('nd_save_cache_days'));
         postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
     });
-    
+
+    // 图片标题显示模式：切换即保存（所有 provider 共用）
+    $('nd_image_title_mode')?.addEventListener('change', () => {
+        const mode = $('nd_image_title_mode').value;
+        state.imageTitleMode = mode;
+        postToParent({ type: 'SAVE_IMAGE_TITLE_MODE', imageTitleMode: mode });
+    });
+
+    // JPEG applies to new images only; wait for the host receipt before re-enabling the control.
+    $('nd_save_as_jpeg')?.addEventListener('change', () => {
+        $('nd_save_as_jpeg').disabled = true;
+        postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked });
+    });
+
+    // 批量管理
+    $('nd_batch').addEventListener('click', toggleBatchMode);
+    $('nd_batch_select_all').addEventListener('click', () => setBatchCheckedAll(true));
+    $('nd_batch_select_none').addEventListener('click', () => setBatchCheckedAll(false));
+    $('nd_batch_download').addEventListener('click', batchDownloadSelected);
+    $('nd_batch_delete').addEventListener('click', batchDeleteSelected);
+    $('nd_batch_done').addEventListener('click', toggleBatchMode);
+
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
     
     $('nd_clear_all').addEventListener('click', () => { 
@@ -4277,7 +4852,7 @@ function initializePage() {
     });
 
     $('nd_gallery_modal').addEventListener('click', e => {
-        if (e.target.id === 'nd_gallery_modal') closeGalleryModal();
+        if (e.target.id === 'nd_gallery_modal' || e.target.classList.contains('gallery-modal-stage')) closeGalleryModal();
     });
     
     $('nd_modal_use').addEventListener('click', () => {
@@ -4313,11 +4888,6 @@ function initializePage() {
         sourcePresetId: state.selectedPromptPresetId,
     }));
 
-    // 提示词模板保存（底部按钮，等同于预设栏保存）
-    $('nd_prompts_save').addEventListener('click', () => {
-        savePromptPreset('nd_prompts_save', 'prompts', 'nd_prompts_status');
-    });
-
     // 恢复默认只改表单；点保存才落盘
     const refreshChainIfOpen = () => { if ($('nd_prompt_chain_details').open) requestPromptChainPreview(); };
     $('nd_prompt_reset_system').addEventListener('click', () => {
@@ -4343,35 +4913,6 @@ function initializePage() {
         refreshLayoutSummaries();
         refreshChainIfOpen();
     });
-    $('nd_prompts_reset_all').addEventListener('click', () => {
-        if (!confirm('确认将当前预设的全部提示词（含请求结构）恢复为默认值？（需点击保存才会生效）')) return;
-        const defaults = state._defaultPrompts || {};
-        const activePreset = getActivePromptPresetForForm();
-        if (!activePreset) {
-            alert('没有可恢复的提示词预设');
-            return;
-        }
-        const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset.name);
-        const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
-        const sceneRulesVal = defaults.sceneRules || '';
-        $('nd_prompt_system').value = topSystemVal;
-        $('nd_prompt_format').value = sceneRulesVal;
-        promptTextDraftsByPreset.set(activePreset.id, new Map([
-            ['topSystem', topSystemVal],
-            ['sceneRules', sceneRulesVal],
-        ]));
-        modelGuideDraftsByPreset.set(activePreset.id, new Map(
-            Object.entries(state.modelGuideDefaults || {})
-                .filter(([, content]) => typeof content === 'string'),
-        ));
-        applyModelGuideForCurrentModel();
-        // 布局草稿一并回到默认（与已保存的默认布局一致时 setPromptLayoutDraft 会直接丢草稿）。
-        if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
-        renderLayoutEditor({ collapse: true });
-        refreshLayoutSummaries();
-        refreshChainIfOpen();
-    });
-
     $('nd_prompt_preset_import').addEventListener('change', observeAsyncCallback(async (e) => {
         const input = e.target; // await 之后事件对象可能已被重置，先留住输入框
         const file = input.files?.[0];
@@ -4466,12 +5007,12 @@ function initializePage() {
         import('../../shared/preset-order.js')
             .then((module) => { PO = module; })
             .catch((error) => { console.error('[ND-UI] 预设排序模块加载失败，参数预设无法排序:', error); }),
-        import('../../shared/sortable-list.js')
-            .then((module) => { SL = module; paramsListView?.ensureSortable(); promptListView?.ensureSortable(); })
-            .catch((error) => { console.error('[ND-UI] 列表排序模块加载失败，预设列表无法拖拽排序:', error); }),
-        import('../../shared/preset-list-view.js')
-            .then((module) => { PLV = module; })
-            .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，参数 / 提示词预设列表无法显示:', error); }),
+        import('../../shared/preset-list-kit.js')
+            .then((module) => {
+                presetListKit = module.createPresetListKit({ escapeHtml, shareMenu: { get: () => getCardMenu(), peek: () => cardMenu } });
+                renderApiPresetBar();
+            })
+            .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，预设列表无法显示或排序:', error); }),
         import('../../shared/prompt-layout-editor.js')
             .then((module) => { PLE = module; })
             .catch((error) => { console.error('[ND-UI] 请求结构编辑器加载失败，请求结构不可用:', error); }),

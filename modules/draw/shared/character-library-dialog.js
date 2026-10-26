@@ -17,7 +17,7 @@ const SAME_ID_POLICIES = Object.freeze([
     { value: 'keep-both', label: '保留两者', hint: '导入的角色使用新 id 并加“副本”后缀，本地角色不变。' },
     { value: 'skip', label: '跳过', hint: '不导入这些角色，本地保持不变。' },
 ]);
-const AUTO_POLICY_HINT = '替换，保留本地的启用状态、分组和位置。';
+const AUTO_POLICY_HINT = '替换，保留本地的启用状态（角色、服装 / 动态标签条目、分组开关）、分组和位置。';
 const FILE_NAME_FALLBACK = '导入的角色';
 const EXPORT_NAME_MAX_CHARS = 64;
 

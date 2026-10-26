@@ -27,6 +27,8 @@ import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker
 import { resolveCustomToolDefinitions } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
+import { isNamedTagEnabled } from './named-tag-items.js';
+import { FORM_EXCLUSIVE_NOTE } from './character-forms.js';
 import {
     applyPromptSlots,
     createPromptSlots,
@@ -82,10 +84,14 @@ export function getEffectiveTagGuide(customGuide) {
 
 function formatReferenceList(items, fallbackLabel) {
     return (Array.isArray(items) ? items : [])
-        .filter((item) => item?.name || item?.tags)
+        // 停用的条目不给 AI 看（detectPresentCharacters 已剔除；这里兜底，直接传库里条目进来的路径同样不会泄漏）。
+        .filter((item) => isNamedTagEnabled(item) && (item?.name || item?.tags))
         .map((item) => `${item.name || fallbackLabel}=${item.tags || '未填写tag'}`)
         .join('； ');
 }
+
+/** 动态标签的使用规则只在角色清单开头写一次，各角色行里只列条目。 */
+const DYNAMIC_TAG_LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条，写进 action）';
 
 /** Registered characters as plain facts; what to do with them is defined by the Tool schema. */
 export function buildCharacterInfoForLLM(presentCharacters) {
@@ -93,19 +99,28 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         return '【已录入角色】: 无';
     }
 
-    const lines = presentCharacters.map((character) => {
-        const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
-        const type = character.type || 'girl';
+    let hasDynamicTags = false;
+    const lines = [];
+    for (const character of presentCharacters) {
+        // 多形态角色（展开后相邻排列）合成一条：角色名只写一次，各形态嵌套在下面；单形态角色保持平铺。
+        const multi = character.formCount > 1;
+        const type = `[${character.type || 'girl'}]`;
         const danbooru = character.danbooruTag ? ` | danbooru: ${character.danbooruTag}` : '';
-        const appear = character.appearance ? `\n  外貌参考: ${character.appearance}` : '';
+        const dynamicStates = formatReferenceList(character.dynamicStates, '动态标签');
+        hasDynamicTags ||= Boolean(dynamicStates);
+        if (!multi || character.formIndex === 0) {
+            const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
+            lines.push(`- ${character.baseName ?? character.name}${aliases}${multi ? FORM_EXCLUSIVE_NOTE : ` ${type}${danbooru}`}`);
+        }
+        if (multi) lines.push(`  形态 ${character.formName} ${type}${danbooru}`);
+        const pad = multi ? '    ' : '  ';
         const outfits = formatReferenceList(character.outfits, '服装');
-        const dynamicStates = formatReferenceList(character.dynamicStates, '状态');
-        return `- ${character.name}${aliases} [${type}]${danbooru}${appear}`
-            + (outfits ? `\n  服装参考: ${outfits}` : '')
-            + (dynamicStates ? `\n  状态参考（随剧情变化的外观，选贴合当前画面的一条融入 action）: ${dynamicStates}` : '');
-    });
+        if (character.appearance) lines.push(`${pad}固定外貌: ${character.appearance}`);
+        if (outfits) lines.push(`${pad}服装参考: ${outfits}`);
+        if (dynamicStates) lines.push(`${pad}动态标签: ${dynamicStates}`);
+    }
 
-    return `【已录入角色】\n${lines.join('\n')}`;
+    return `【已录入角色】\n${hasDynamicTags ? `${DYNAMIC_TAG_LEGEND}\n` : ''}${lines.join('\n')}`;
 }
 
 function collectWorldInfoSections(result) {

@@ -5,6 +5,7 @@ import {
 import {
     ScenePlannerError,
     assertSubmitScenePlanTool,
+    buildToolProtocolRetryCorrection,
     parseSubmittedScenePlan,
 } from './scene-plan-contract.js';
 import {
@@ -155,9 +156,19 @@ function createAttemptPreservingDiagnostic(diagnostic) {
             succeed: patch => diagnostic.succeed(withHistory(patch)),
             fail: (error, patch) => diagnostic.fail(error, withHistory(patch)),
         },
-        beginRetry(progress = null) {
+        // correction：这次重试带给模型的纠错说明，记进 corrections（和运行时自己的纠错记录同一份列表，条数计入 correctionCount）。
+        beginRetry(progress = null, correction = null) {
             retryProgress = progress;
             refreshVisible();
+            if (correction) {
+                const attempt = visible.attempts.at(-1)?.attempt;
+                visible.corrections = [...visible.corrections, {
+                    ...(Number.isInteger(attempt) ? { attempt } : {}),
+                    ...(callIndex ? { retry: callIndex } : {}),
+                    ...correction,
+                    feedbackSent: true,
+                }];
+            }
             sources = {};
             history = Object.fromEntries(HISTORY_FIELDS.map(field => [field, visible[field]]));
             priorCustomToolCount += currentCustomToolCount;
@@ -215,11 +226,15 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
     const sleep = options.sleep || sleepWithAbort;
     const attemptTracker = createAttemptPreservingDiagnostic(diagnostic);
     let retryNumber = 0;
+    // 只针对上一次失败：每次重试都从原始 task 重新拼，纠错消息不会逐轮累积。
+    let retryCorrection = '';
     let response;
     for (;;) {
         try {
             response = await agentCaller({
-                task,
+                task: retryCorrection
+                    ? { ...task, messages: [...task.messages, { role: 'user', content: retryCorrection }] }
+                    : task,
                 timeout: options.timeout,
                 signal: options.signal,
                 diagnostic: attemptTracker.diagnostic,
@@ -241,7 +256,11 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
             if (canRetry) {
                 retryNumber += 1;
                 const failedAttempt = diagnostic.snapshot?.()?.attemptCount;
-                attemptTracker.beginRetry({ phase: 'retry', current: retryNumber, total: retry.maxRetries });
+                retryCorrection = buildToolProtocolRetryCorrection(error);
+                attemptTracker.beginRetry(
+                    { phase: 'retry', current: retryNumber, total: retry.maxRetries },
+                    retryCorrection ? { errorCode: error.code, errorMessage: error.message, feedback: retryCorrection } : null,
+                );
                 const delayMs = computePlannerRetryDelay(retryNumber, retry, options.random);
                 (logger?.warn || logger?.info)?.call(logger, 'novelDrawLlm',
                     `Scene Planner 请求失败，${delayMs}ms 后进行第 ${retryNumber}/${retry.maxRetries} 次重试: ${error?.message || error}`,

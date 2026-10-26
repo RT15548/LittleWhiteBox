@@ -17,13 +17,6 @@
     gap: 4px;
 }
 
-.draw-agent-settings-surface .xb-assistant-preset-field,
-.draw-agent-settings-surface .xb-assistant-config select.xb-assistant-preset-field {
-    height: 40px;
-    min-height: 40px;
-    font-weight: 400;
-}
-
 .draw-agent-settings-surface .xb-assistant-preset-tools .xb-assistant-icon-button {
     width: 40px;
     min-width: 40px;
@@ -47,9 +40,6 @@
     .draw-agent-settings-surface .xb-assistant-preset-tools .xb-assistant-icon-button {
         width: 44px;
         min-width: 44px;
-        height: 44px;
-    }
-    .draw-agent-settings-surface .xb-assistant-config select.xb-assistant-preset-field {
         height: 44px;
     }
 }

@@ -515,8 +515,8 @@
 }
 
 .xb-tavern-markdown .xb-tavern-image-edit-input {
+    display: block;
     width: 100%;
-    min-height: 60px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.1);
@@ -571,7 +571,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    min-height: 34px;
+    min-height: 40px;
     padding: 8px 16px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;

@@ -19,6 +19,7 @@ import {
  *  readConfig(), fillConfig(config)   表单里现在的 API 配置 / 只把 API 配置字段填进表单
  *  persist(mutator)                   → Promise<boolean>，把 mutator 对设置草稿的修改落盘
  *  confirm / prompt                   可选，缺省用全局同名函数
+ *  createListView(options)            可选，创建预设列表视图（见 api-presets-ui.js）；缺省用共享的 preset-list-kit
  */
 export function createApiPresetPage({
     presetOptions,
@@ -33,6 +34,7 @@ export function createApiPresetPage({
     persist,
     confirm = message => globalThis.confirm(message),
     prompt = (message, fallback) => globalThis.prompt(message, fallback),
+    createListView,
 }) {
     const { fields, normalizeConfig } = presetOptions;
     let bar = null;
@@ -79,6 +81,7 @@ export function createApiPresetPage({
             onCommit: commit,
             confirm,
             prompt,
+            createListView,
         });
         return bar;
     }

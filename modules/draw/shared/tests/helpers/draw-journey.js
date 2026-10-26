@@ -26,6 +26,7 @@ export async function fixture(sources, options = {}) {
  window.HTMLImageElement.prototype.decode=async()=>{};
  window.xiaobaixDraw={getStatus:()=>({ready:true,enabled:true}),getProvider:()=> 'review-provider'};
  const stubs={
+ 'server-storage.js':'export const NovelDrawStorage={};',
  'user.js':'export const getCurrentUserHandle=()=>globalThis.__drawJourneyReview.user??"review-user";',
  'extensions.js':'export const getContext=()=>globalThis.__drawJourneyReview.ctx;',
  'utils.js':'export const uuidv4=()=>globalThis.__drawJourneyReview.uuid();export const saveBase64AsFile=async()=>"";',

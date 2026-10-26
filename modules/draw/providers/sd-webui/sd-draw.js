@@ -16,6 +16,7 @@ import {
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
 import { getContext } from "../../../../../../../extensions.js";
+import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
@@ -56,6 +57,12 @@ import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
 import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
+import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
+import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
+import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
+import { installHostPanelEscape } from "../../shared/panel-escape.js";
+import { resolveInitialTab, saveLastTab } from "../../shared/last-tab.js";
+import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
@@ -85,6 +92,7 @@ import {
     joinTags,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    appendTagEditGroup,
     classifyError,
     ErrorType,
     syncDrawSavedFromPreview,
@@ -95,6 +103,12 @@ import {
     toScenePlannerProgress,
     buildFailedPlaceholderHtml,
 } from "../../shared/draw-common.js";
+import * as drawCommonModule from "../../shared/draw-common.js";
+// 注入标题模式读取：渲染时按共享设置决定 overlay/collapse/none。
+// namespace + 存在性守卫，兼容测试环境对 draw-common 的精简 mock。
+if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
+    drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
+}
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import {
     loadLocalDanbooruDB,
@@ -186,11 +200,13 @@ let overlayFrame = null;
 let frameReadyPromise = null;
 let pendingController = null;
 let resizeHandler = null;
+let hostEscapeDispose = null; // 宿主页面里的 Esc 监听（shared/panel-escape.js），随面板创建 / 关闭
 let eventsBound = false;
 let agentSettingsSurface = null;
 let llmRecordsView = null;
 let llmRecordsViewContainer = null;
 let characterLibraryUi = null;
+let characterListAutofit = null;
 let groupPresetBinding = null;
 let promptChainPreviewFrame = 0;
 let ensureSdDrawPanelRef = null;
@@ -914,6 +930,7 @@ async function createOverlay() {
     frameWrap.appendChild(overlayFrame);
     overlayElement.append(backdrop, frameWrap);
     document.body.appendChild(overlayElement);
+    hostEscapeDispose = installHostPanelEscape({ hostWindow: window, getOverlay: () => overlayElement, getFrame: () => overlayFrame });
 
     resizeHandler = () => {
         if (overlayElement?.style.display !== 'none') {
@@ -993,6 +1010,19 @@ function bindOverlayEvents() {
         if (ok) {
             setValue('sd-gallery-cache-days', nextDays);
         }
+    });
+    // JPEG applies to new images only.
+    querySettings('#sd-gallery-save-as-jpeg')?.addEventListener('change', async (event) => {
+        const checkbox = event.currentTarget;
+        const nextJpeg = checkbox.checked === true;
+        checkbox.disabled = true;
+        const ok = await withSaveTimeout(updateSharedDrawSettingsPersistent((settings) => {
+            settings.saveAsJpeg = nextJpeg;
+        }, '已保存', { notify: false, silent: false }));
+        updateStatusText('sd-gallery-status', ok ? 'success' : 'error',
+            ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed);
+        checkbox.checked = getSharedDrawSettings().saveAsJpeg === true;
+        checkbox.disabled = false;
     });
     querySettings('#sd-gallery-clear-expired')?.addEventListener('click', async () => {
         updateStatusText('sd-gallery-status', '', '正在清理...');
@@ -1435,6 +1465,8 @@ function fillForm(settings) {
     setValue('sd-draw-max-images', preset.maxImages || 0);
     setValue('sd-draw-max-chars', preset.maxCharactersPerImage || 0);
     setValue('sd-gallery-cache-days', getSharedDrawSettings().cacheDays);
+    const jpegCheckbox = querySettings('#sd-gallery-save-as-jpeg');
+    if (jpegCheckbox) jpegCheckbox.checked = getSharedDrawSettings().saveAsJpeg === true;
     setSelectValue('sd-draw-model', preset.model || '');
     setSelectValue('sd-draw-sampler', preset.sampler_name || '');
     applyPromptPresetToForm(settings);
@@ -1617,6 +1649,7 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
 function switchSettingsView(viewName = 'test') {
     const requested = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
     const normalized = requested;
+    saveLastTab('sd', normalized);
     querySettingsAll('[data-sd-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdView === normalized);
     });
@@ -1742,7 +1775,7 @@ function readCharacterCardsFromForm({ keepEmpty = false } = {}) {
         // 已保存记录里的 groupId 可能已过期（草稿里可能刚换过分组），一律丢弃，以卡片所在位置为准。
         const saved = { ...(existingById.get(String(card.dataset.characterId || '')) || {}) };
         delete saved.groupId;
-        return {
+        const record = {
             ...saved,
             id: card.dataset.characterId || `sd-char-${Date.now()}-${index}`,
             enabled: getCharacterEnabledFromCard(card),
@@ -1758,7 +1791,9 @@ function readCharacterCardsFromForm({ keepEmpty = false } = {}) {
             outfits: parseNamedTagLines(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
             dynamicStates: parseNamedTagLines(card.querySelector('[data-sd-char-field="dynamicStates"]')?.value || ''),
         };
-    }).filter((item) => keepEmpty || item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length);
+        // 形态：第一形态名称与额外形态并入记录（清空时显式删除，因为上面先展开了已保存的记录）。
+        return applyFormFieldsFromCard(record, card, { keepEmpty });
+    }).filter((item) => keepEmpty || item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length || item.dynamicStates?.length || item.forms?.length);
 }
 
 // 当前草稿里的角色（含未保存的编辑与所属分组，已丢弃全空的新卡片），保存与导出用。
@@ -1777,6 +1812,8 @@ function ensureCharacterLibraryUi() {
     if (!doc || !list || !toolbar) return null;
     if (characterLibraryUi?.document === doc) return characterLibraryUi;
     characterLibraryUi?.destroy();
+    characterListAutofit?.dispose();
+    characterListAutofit = installTextareaAutofit(list);
     characterLibraryUi = createCharacterLibraryUi({
         document: doc,
         listElement: list,
@@ -1799,6 +1836,8 @@ function destroyCharacterLibraryUi() {
     destroyGroupPresetBinding();
     characterLibraryUi?.destroy();
     characterLibraryUi = null;
+    characterListAutofit?.dispose();
+    characterListAutofit = null;
 }
 
 // 分组预设卡片：预设不属于角色草稿，修改立即持久化；展示用的分组 / 角色取自角色库草稿（用户所见）。
@@ -1919,21 +1958,24 @@ function renderCharacterCard({ character: tag, ordinal }) {
         createCharacterField('角色名', 'name', tag.name || '', '例如 芙蕾雅'),
         createCharacterField('类型', 'type', tag.type || 'girl', '例如 girl / boy'),
     );
+    const formNameField = createCharacterField('形态名称（可选）', 'formName', tag.formName || '', '形态名称');
 
     card.append(
         top,
         grid,
         createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
-        createCharacterField('固定外貌', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
-        createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
+        formNameField,
+        createFixedAppearanceGroup({ document, createField: createCharacterField, values: tag }),
         createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
-        createCharacterField('服装参考（每行一套）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
-        createCharacterField('动态外貌（每行一条）', 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '害羞 = blush, embarrassed', { multiline: true }),
+        createCharacterField('服装参考（每行一套，行首加 # 停用）', 'outfits', serializeNamedTagLines(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
+        createCharacterField(`${EXTRA_TAGS_COPY.title}（每行一条，行首加 # 停用）`, 'dynamicStates', serializeNamedTagLines(tag.dynamicStates || []), '脸红 = blush, looking away', { multiline: true }),
+        createFormsEditor({ document, forms: tag.forms || [], createField: createCharacterField }),
     );
     const panel = document.createElement('div');
     panel.className = 'danbooru-panel hidden';
     panel.dataset.charId = card.dataset.characterId;
     card.appendChild(panel);
+    card.appendChild(createCharacterEditorNote(document));
     card.addEventListener('input', event => {
         if (event.target.dataset.sdCharField === 'name') titleText.textContent = event.target.value || `角色 ${index + 1}`;
     });
@@ -1951,10 +1993,11 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
 
     const input = document.createElement(options.multiline ? 'textarea' : 'input');
     input.className = 'input';
-    input.dataset.sdCharField = fieldName;
+    input.dataset[options.dataKey || 'sdCharField'] = fieldName;
     input.placeholder = placeholder;
     if (options.multiline) {
-        input.rows = 3;
+        input.rows = 1;
+        input.setAttribute("data-autofit", "");
         input.textContent = String(value || '');
     } else {
         input.type = 'text';
@@ -1962,39 +2005,6 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
     }
     field.appendChild(input);
     return field;
-}
-
-function serializeNamedTagLines(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map((outfit) => {
-            const name = String(outfit?.name || '').trim();
-            const tags = String(outfit?.tags || '').trim();
-            if (!name && !tags) return '';
-            return name ? `${name} = ${tags}` : tags;
-        })
-        .filter(Boolean)
-        .join('\n');
-}
-
-function parseNamedTagLines(value = '') {
-    return String(value || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-            const matched = line.split('=');
-            if (matched.length >= 2) {
-                return {
-                    name: matched.shift().trim(),
-                    tags: matched.join('=').trim(),
-                };
-            }
-            return {
-                name: '',
-                tags: line,
-            };
-        })
-        .filter((outfit) => outfit.name || outfit.tags);
 }
 
 function renderFilterRuleRow(rule = { start: '', end: '' }) {
@@ -2709,7 +2719,7 @@ async function refreshSdOptions({ notify = false } = {}) {
     }
 }
 
-export async function openSettings() {
+export async function openSettings({ view } = {}) {
     try {
         await loadSettings();
         await settingsUpdateQueue;
@@ -2719,7 +2729,7 @@ export async function openSettings() {
     }
     const overlay = await createOverlay();
     fillForm(getSettings());
-    switchSettingsView('test');
+    switchSettingsView(resolveInitialTab({ provider: 'sd', tabs: SD_DRAW_VIEWS, requested: view, fallback: 'test' }));
     syncOverlayHeight();
     overlay.style.display = 'block';
     observeBackgroundTask(refreshSdOptions(), { source: "modules/draw/providers/sd-webui/sd-draw.js", operation: "openSettings" });
@@ -2744,6 +2754,8 @@ function hideSettings() {
         resizeHandler = null;
     }
 
+    hostEscapeDispose?.();
+    hostEscapeDispose = null;
     overlayElement?.remove();
     overlayElement = null;
     overlayFrame = null;
@@ -3201,26 +3213,6 @@ function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEff
     };
 }
 
-function appendEditGroup(container, { label, value, type, index = null }) {
-    const group = document.createElement('div');
-    group.className = 'xb-nd-edit-group';
-
-    const labelEl = document.createElement('div');
-    labelEl.className = 'xb-nd-edit-group-label';
-    labelEl.textContent = label;
-    group.appendChild(labelEl);
-
-    const textarea = document.createElement('textarea');
-    textarea.className = 'xb-nd-edit-input';
-    textarea.setAttribute('aria-label', label);
-    textarea.dataset.type = type;
-    if (index !== null) textarea.dataset.index = String(index);
-    textarea.value = value || '';
-    group.appendChild(textarea);
-
-    container.appendChild(group);
-}
-
 async function navigateToImage(container, targetIndex) {
     const slotId = container.dataset.slotId;
     const historyCount = parseInt(container.dataset.historyCount) || 1;
@@ -3462,10 +3454,10 @@ async function toggleEditPanel(container, show) {
         }
 
         scrollWrap.replaceChildren();
-        appendEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
+        appendTagEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
 
         for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
-            appendEditGroup(scrollWrap, group);
+            appendTagEditGroup(scrollWrap, group);
         }
 
         if (btnsPanel) {

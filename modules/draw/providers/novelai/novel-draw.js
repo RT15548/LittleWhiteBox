@@ -8,6 +8,8 @@ import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
+import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
+import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
 import { DRAW_BACKEND_COPY, createDrawBackendStatusCopy } from '../../shared/draw-backend-copy.js';
@@ -46,6 +48,7 @@ import {
     getSharedDrawSettings,
     updateSharedDrawSettingsPersistent,
     normalizeSharedCacheDays,
+    normalizeImageTitleMode,
     mergeNovelDrawProviderSettingsIntoStorageRoot,
     updateDrawSettingsRootPersistent,
 } from "../../shared/draw-settings.js";
@@ -74,6 +77,8 @@ import { createQuickTestSession, QUICK_TEST_SLOT_ID as TEST_SLOT_ID, QUICK_TEST_
 import { getSlotPreviewPage } from '../../shared/gallery-cache.js';
 import { resolveImageTaskOrientations } from '../../shared/image-orientation.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
+import { normalizeNamedTagList } from "../../shared/named-tag-items.js";
+import { normalizeForms } from "../../shared/character-forms.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
 import {
@@ -163,7 +168,15 @@ import {
     buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    syncImageTitleElements,
+    syncCollapseTitleWidths,
 } from "../../shared/draw-common.js";
+import * as drawCommonModule from "../../shared/draw-common.js";
+// 注入标题模式读取：渲染时按共享设置决定 overlay/collapse/none。
+// namespace + 存在性守卫，兼容测试环境对 draw-common 的精简 mock。
+if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
+    drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
+}
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
@@ -181,6 +194,7 @@ import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
 import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
+import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
 const handleDelegatedClickEvent = observeAsyncCallback(handleDelegatedClick, { source: import.meta.url, operation: "handleDelegatedClick" });
@@ -398,6 +412,7 @@ const DEFAULT_SETTINGS = {
 let autoBusy = false;
 let overlayCreated = false;
 let frameReady = false;
+let galleryExportAbort = null;
 let jsZipLoaded = false;
 let messagePackDecoderPromise = null;
 let moduleInitialized = false;
@@ -415,6 +430,7 @@ const novelImageRequestQueue = createSerialImageRequestQueue({
 const imageBackendJobsClient = createImageBackendJobsClient({ getHeaders: getRequestHeaders, getOwner: getCurrentUserHandle });
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
+let hostEscapeDispose = null; // 宿主页面里的 Esc 监听（shared/panel-escape.js），随面板创建 / 关闭
 let afterAiGateDispose = null;
 let agentSettingsSurface = null;
 
@@ -553,6 +569,7 @@ function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
         }
     });
 
+    if (inserted) syncCollapseTitleWidths(mesTextEl);
     return inserted;
 }
 
@@ -838,6 +855,11 @@ function normalizeSettings(saved = {}) {
         danbooruTag: char.danbooruTag || '',
         outfits: normalizeNamedTagList(char.outfits || char.costumes || char.clothes || []),
         dynamicStates: normalizeNamedTagList(char.dynamicStates || []),
+        // 形态（见 character-forms.js）：不丢弃，也不给没有形态的角色添加这两个键。
+        ...(String(char.formName || '').trim() ? { formName: String(char.formName).trim() } : {}),
+        ...(normalizeForms(char.forms).length ? { forms: normalizeForms(char.forms) } : {}),
+        // 第一形态的停用标记（本机状态）：只在有额外形态时保留。
+        ...(char.formDisabled === true && normalizeForms(char.forms).length ? { formDisabled: true } : {}),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
@@ -1275,15 +1297,6 @@ async function ensureJSZip() {
 // ═══════════════════════════════════════════════════════════════════════════
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
-
-function normalizeNamedTagList(list = []) {
-    return (Array.isArray(list) ? list : [])
-        .map(item => ({
-            name: String(item?.name || '').trim(),
-            tags: String(item?.tags || '').trim(),
-        }))
-        .filter(item => item.name || item.tags);
-}
 
 // ── 角色自动学习 ─────────────────────────────────────────────
 
@@ -2070,9 +2083,11 @@ async function navigateToImage(container, targetIndex) {
     container.dataset.imgId = targetPreview.imgId;
     container.dataset.tags = escapeHtml(targetPreview.tags || '');
     container.dataset.positive = escapeHtml(targetPreview.positive || '');
+    container.dataset.title = escapeHtml(targetPreview.title || '');
     container.dataset.currentIndex = targetIndex;
 
     setImageState(container, targetPreview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
+    syncImageTitleElements(container, targetPreview.title);
     updateNavControls(container, targetIndex, historyCount);
     void warmSlotPreviewNeighbors(slotId, targetIndex).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "navigateToImage" }, caughtError); });
     await setSlotSelection(slotId, targetPreview.imgId);
@@ -2356,22 +2371,9 @@ async function toggleEditPanel(container, show) {
             editPanel.insertBefore(scrollWrap, editPanel.firstChild);
         }
 
-        let html = `
-            <div class="xb-nd-edit-group">
-                <div class="xb-nd-edit-group-label">场景</div>
-                <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
-            </div>`;
-
-        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) {
-            html += `
-                <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">${escapeHtml(group.label)}</div>
-                    <textarea class="xb-nd-edit-input" aria-label="${escapeHtml(group.label)}" data-type="${group.type}" data-index="${group.index}">${escapeHtml(group.value)}</textarea>
-                </div>`;
-        }
-
-        // eslint-disable-next-line no-unsanitized/property -- Escaped data used in template.
-        scrollWrap.innerHTML = html;
+        scrollWrap.replaceChildren();
+        appendTagEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
+        for (const group of getCharacterTagEditGroups(preview?.characterPrompts)) appendTagEditGroup(scrollWrap, group);
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
             btnsPanel.style.pointerEvents = 'none';
@@ -2468,9 +2470,11 @@ async function deleteCurrentImage(container) {
             container.dataset.imgId = latest.imgId;
             container.dataset.tags = escapeHtml(latest.tags || '');
             container.dataset.positive = escapeHtml(latest.positive || '');
+            container.dataset.title = escapeHtml(latest.title || '');
             container.dataset.currentIndex = '0';
             container.dataset.historyCount = String(successPreviews.length);
             setImageState(container, latest.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
+            syncImageTitleElements(container, latest.title || '');
             updateNavControls(container, 0, successPreviews.length);
             await syncNovelDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews);
             showToast(`已删除（剩余 ${successPreviews.length} 张）`);
@@ -3086,7 +3090,7 @@ async function autoGenerateForLastAI() {
 // Overlay 设置面板
 // ═══════════════════════════════════════════════════════════════════════════
 
-function createOverlay() {
+function createOverlay(view = '') {
     if (overlayCreated) return;
     overlayCreated = true;
     ensureStyles();
@@ -3109,7 +3113,7 @@ function createOverlay() {
 
     const backdrop = document.createElement('div');
     backdrop.className = 'nd-backdrop';
-    backdrop.addEventListener('click', hideOverlay);
+    backdrop.addEventListener('click', requestOverlayClose);
 
     const frameWrap = document.createElement('div');
     frameWrap.className = 'nd-frame-wrap';
@@ -3117,21 +3121,22 @@ function createOverlay() {
 
     const iframe = document.createElement('iframe');
     iframe.id = 'xiaobaix-novel-draw-iframe';
-    iframe.src = `${HTML_PATH}?v=${Date.now()}`;
+    iframe.src = `${HTML_PATH}?v=${Date.now()}${view ? `&view=${encodeURIComponent(view)}` : ''}`; // view：打开方指定的页签，优先于上次记住的
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d1117;display:block;';
 
     frameWrap.appendChild(iframe);
     overlay.appendChild(backdrop);
     overlay.appendChild(frameWrap);
     document.body.appendChild(overlay);
+    hostEscapeDispose = installHostPanelEscape({ hostWindow: window, getOverlay: () => overlay, getFrame: () => iframe });
     syncOverlayFrameLayout();
     // eslint-disable-next-line no-restricted-syntax -- Guarded by isTrustedMessage (origin + source).
     window.addEventListener('message', handleFrameMessageEvent);
     subscribeGroupPresetRefresh();
 }
 
-function showOverlay() {
-    if (!overlayCreated) createOverlay();
+function showOverlay(view = '') {
+    if (!overlayCreated) createOverlay(view);
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) {
         overlay.style.display = 'block';
@@ -3142,8 +3147,12 @@ function showOverlay() {
 }
 
 function hideOverlay() {
+    galleryExportAbort?.abort();
+    galleryExportAbort = null;
     agentSettingsSurface?.destroy();
     agentSettingsSurface = null;
+    hostEscapeDispose?.();
+    hostEscapeDispose = null;
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) overlay.remove();
     overlayCreated = false;
@@ -3157,6 +3166,15 @@ function hideOverlay() {
 
     window.removeEventListener('message', handleFrameMessageEvent);
     unsubscribeGroupPresetRefresh();
+}
+
+function requestOverlayClose() {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe?.contentWindow || !frameReady) {
+        hideOverlay();
+        return;
+    }
+    postToIframe(iframe, { type: 'REQUEST_CLOSE' }, 'LittleWhiteBox-NovelDraw');
 }
 
 async function sendInitData() {
@@ -3187,6 +3205,7 @@ async function sendInitData() {
             apiPresets: settings.apiPresets || [],
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
+            imageTitleMode: getSharedDrawSettings().imageTitleMode,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             useWorldInfo: settings.useWorldInfo,
@@ -3470,6 +3489,14 @@ async function handleFrameMessage(event) {
             }, '已保存', { notify: false, silent: false });
             postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'gallery');
             if (ok) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_IMAGE_TITLE_MODE': {
+            const ok = await updateSharedDrawSettingsPersistent((settings) => {
+                settings.imageTitleMode = normalizeImageTitleMode(data.imageTitleMode);
+            }, '已保存', { notify: false, silent: false });
+            postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'api');
             break;
         }
 
@@ -3836,9 +3863,11 @@ async function handleFrameMessage(event) {
                 }
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
                 if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
-            }, '角色标签已保存');
+            }, '角色标签已保存', data.requestId ? { notify: false } : undefined);
+            // 带 requestId 的是编辑区的自动保存：只回一条带 requestId 的回执（页面据此串行保存、更新状态栏），不占用全局状态栏。
+            if (data.requestId) postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'char-tags', { requestId: data.requestId });
             // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。
-            if (!ok) await sendInitData();
+            if (!ok && !data.requestId) await sendInitData();
             break;
         }
 
@@ -4191,14 +4220,14 @@ async function handleFrameMessage(event) {
 // 初始化与清理
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function openNovelDrawSettings() {
+export async function openNovelDrawSettings({ view } = {}) {
     try {
         await loadSettings();
         await loadSharedDrawSettings();
     } catch {
         return false;
     }
-    showOverlay();
+    showOverlay(view);
     return true;
 }
 
