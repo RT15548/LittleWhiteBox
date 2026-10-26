@@ -61,7 +61,6 @@ import {
     setCharacterSaveStatus,
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
-import { reportEditsSaved } from '../../shared/panel-escape.js';
 import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 

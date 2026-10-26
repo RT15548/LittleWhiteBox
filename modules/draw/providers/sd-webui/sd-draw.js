@@ -60,7 +60,7 @@ import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
 import { parseNamedTagLines, serializeNamedTagLines } from "../../shared/named-tag-items.js";
 import { applyFormFieldsFromCard, createFixedAppearanceGroup, createFormsEditor } from "../../shared/character-forms-dom.js";
 import { installTextareaAutofit } from "../../shared/textarea-autofit.js";
-import { installHostPanelEscape, reportEditsSaved } from "../../shared/panel-escape.js";
+import { installHostPanelEscape } from "../../shared/panel-escape.js";
 import { resolveInitialTab, saveLastTab } from "../../shared/last-tab.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
