@@ -4805,6 +4805,20 @@ function initializePage() {
         postToParent({ type: 'SAVE_IMAGE_TITLE_MODE', imageTitleMode: mode });
     });
 
+    // JPEG applies to new images only; wait for the host receipt before re-enabling the control.
+    $('nd_save_as_jpeg')?.addEventListener('change', () => {
+        $('nd_save_as_jpeg').disabled = true;
+        postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked });
+    });
+
+    // 批量管理
+    $('nd_batch').addEventListener('click', toggleBatchMode);
+    $('nd_batch_select_all').addEventListener('click', () => setBatchCheckedAll(true));
+    $('nd_batch_select_none').addEventListener('click', () => setBatchCheckedAll(false));
+    $('nd_batch_download').addEventListener('click', batchDownloadSelected);
+    $('nd_batch_delete').addEventListener('click', batchDeleteSelected);
+    $('nd_batch_done').addEventListener('click', toggleBatchMode);
+
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
     
     $('nd_clear_all').addEventListener('click', () => { 
