@@ -131,6 +131,7 @@ let state = {
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
     imageTitleMode: 'none',
+    saveAsJpeg: false,
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -3579,6 +3580,7 @@ function applyStateToUI() {
         $('nd_cache_count').textContent = state.cacheStats?.count || 0;
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
         const titleModeSel = $('nd_image_title_mode');
+        $('nd_save_as_jpeg').checked = state.saveAsJpeg === true;
         if (titleModeSel) titleModeSel.value = ['none', 'overlay', 'collapse'].includes(state.imageTitleMode)
             ? state.imageTitleMode : 'none';
 

@@ -17,8 +17,8 @@ const stubs = {
     'utils.js': 'exports.uuidv4=()=>"fixture-id";',
     'user.js': 'exports.getCurrentUserHandle=()=>"fixture-user";',
     'event-manager.js': 'exports.createModuleEvents=()=>({});exports.event_types={};',
-    'server-storage.js': 'exports.NovelDrawStorage={};',
-    'gallery-cache.js': 'exports.storePreview=record=>globalThis.__quickTestHandler.store(record);exports.getSlotPreviewPage=(...args)=>globalThis.__quickTestHandler.page(...args);',
+    'server-storage.js': 'exports.NovelDrawStorage={getStrict:(...args)=>globalThis.__quickTestHandler.storage.getStrict(...args),updateAndSave:(...args)=>globalThis.__quickTestHandler.storage.updateAndSave(...args)};',
+    'gallery-cache.js': 'exports.storePreview=record=>globalThis.__quickTestHandler.store(record);exports.getSlotPreviewPage=(...args)=>globalThis.__quickTestHandler.page(...args);exports.deletePreview=id=>globalThis.__quickTestHandler.remove(id);exports.getPreview=id=>globalThis.__quickTestHandler.read(id);exports.getGalleryOverview=async()=>({stats:{count:1},summary:{}});',
     'scene-planner.js': 'module.exports={};',
     'worldbook-processor.js': 'module.exports={};',
     'draw-agent.js': 'module.exports={};',
@@ -36,7 +36,7 @@ const bundle = await build({
         });
         builder.onLoad({ filter: /.*/, namespace: 'host' }, ({ path }) => ({ contents: stubs[path] }));
         builder.onLoad({ filter: /[\\/]novel-draw\.js$/ }, async ({ path }) => ({
-            contents: `${await readFile(path, 'utf8')}\ngenerateNovelImage = (...args) => globalThis.__quickTestHandler.generate(...args); export { handleFrameMessage, pushTestHistory };`,
+            contents: `${await readFile(path, 'utf8')}\ngenerateNovelImage = (...args) => globalThis.__quickTestHandler.generate(...args); export { handleFrameMessage, pushTestHistory }; export {loadSharedDrawSettings, getSharedDrawSettings, mergeNovelDrawProviderSettingsIntoStorageRoot} from '../../shared/draw-settings.js';`,
         }));
     } }],
 });
@@ -88,4 +88,68 @@ test('handler restores an unsaved result after iframe close and retries storage 
     await oldPage;
     assert.equal(host.messages.at(-1).items[0].imgId, 'page-two');
     assert.equal(host.messages.at(-1).offset, 24);
+});
+
+// Acceptance: iframe commands must reach storage/export and settle with a receipt.
+// Cost: lost image records, an unusable export, or a silently discarded save policy.
+test('gallery host handles JPEG persistence, partial deletion, ZIP export and cancellation', async () => {
+    const { document, window } = parseHTML('<html><body><iframe id="xiaobaix-novel-draw-iframe"></iframe></body></html>');
+    Object.assign(globalThis, { document, window });
+    host.messages = [];
+    let root = { settings: { imageTitleMode: 'collapse', saveAsJpeg: false } };
+    let failSave = false;
+    host.storage = {
+        getStrict: async key => structuredClone(root[key]),
+        updateAndSave: async mutate => {
+            const draft = structuredClone(root);
+            await mutate(draft);
+            if (failSave) return false;
+            root = draft;
+            return true;
+        },
+    };
+    // eslint-disable-next-line no-unsanitized/method -- Local source and offline I/O stubs only.
+    const api = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text + '\n//# sourceURL=gallery-handler-fixture.mjs').toString('base64'));
+    await api.loadSharedDrawSettings();
+    const send = data => api.handleFrameMessage({ data });
+    await send({ type: 'SAVE_JPEG', saveAsJpeg: true });
+    assert.equal(root.settings.saveAsJpeg, true);
+    assert.equal(root.settings.imageTitleMode, 'collapse');
+    assert.equal(api.getSharedDrawSettings().saveAsJpeg, true);
+    assert.equal(api.mergeNovelDrawProviderSettingsIntoStorageRoot(root.settings, { mode: 'nai' }).saveAsJpeg, true);
+    assert.equal(host.messages.at(-1).target, 'jpeg');
+    assert.equal(host.messages.at(-1).state, 'success');
+    failSave = true;
+    await send({ type: 'SAVE_JPEG', saveAsJpeg: false });
+    assert.equal(root.settings.saveAsJpeg, true);
+    assert.equal(host.messages.at(-1).saveAsJpeg, true);
+    assert.equal(host.messages.at(-1).state, 'error');
+    failSave = false;
+    await send({ type: 'SAVE_JPEG', saveAsJpeg: false });
+    assert.equal(root.settings.saveAsJpeg, false);
+
+    const removed = [];
+    host.remove = async id => { if (id === 'blocked') throw new Error('write failed'); removed.push(id); };
+    await send({ type: 'BATCH_DELETE', ids: ['one', 'blocked', 'one'], requestId: 'delete-1' });
+    const receipt = host.messages.find(event => event.type === 'BATCH_DELETED');
+    assert.deepEqual(removed, ['one']);
+    assert.equal(receipt.requestId, 'delete-1');
+    assert.deepEqual(receipt.deletedIds, ['one']);
+    assert.deepEqual(receipt.failures.map(item => item.id), ['blocked']);
+
+    host.read = async id => ({ imgId: id, base64: 'data:image/png;base64,aGVsbG8=' });
+    await send({ type: 'BATCH_DOWNLOAD', ids: ['one'], requestId: 'zip-1' });
+    const zip = host.messages.find(event => event.type === 'BATCH_DOWNLOADED');
+    assert.equal(zip.requestId, 'zip-1');
+    assert.deepEqual(zip.exportedIds, ['one']);
+    assert.equal(zip.blob.type, 'application/zip');
+    assert.ok(zip.blob.size > 0);
+    const reading = Promise.withResolvers(), release = Promise.withResolvers();
+    host.read = async () => { reading.resolve(); await release.promise; return { base64: 'aGVsbG8=' }; };
+    const pending = send({ type: 'BATCH_DOWNLOAD', ids: ['one'], requestId: 'zip-cancelled' });
+    await reading.promise;
+    await send({ type: 'BATCH_CANCEL_EXPORT' });
+    release.resolve();
+    await pending;
+    assert.equal(host.messages.some(event => event.requestId === 'zip-cancelled'), false);
 });

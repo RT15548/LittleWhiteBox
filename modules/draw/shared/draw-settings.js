@@ -117,6 +117,7 @@ export function normalizeSharedDrawSettings(saved = {}) {
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules,
         imageTitleMode: normalizeImageTitleMode(source.imageTitleMode),
+        saveAsJpeg: source.saveAsJpeg === true,
         worldbooks: {
             enabled: rawWorldbooks.enabled === true,
             uploadedBooks: Array.isArray(rawWorldbooks.uploadedBooks) ? rawWorldbooks.uploadedBooks : [],

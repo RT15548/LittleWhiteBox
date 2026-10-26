@@ -14,7 +14,7 @@ const recipe = { overrideSize: 'auto', seeds: [1], timeout: 30000, requestDelay:
 test('landscape survives cache, saved chat, export/import and the actual redraw action', async t => {
     const h = await fixture(['[image:slot-landscape]']);
     t.after(h.stop);
-    const prepared = prepareImageInput('novelai', [{ scene: 'scene', orientation: 'landscape' }], recipe);
+    const prepared = prepareImageInput('novelai', [{ scene: 'scene', title: '雨后的山谷', orientation: 'landscape' }], recipe);
     await h.api.storePreview({ ...prepared.metadata[0], imgId: 'landscape', slotId: 'slot-landscape', base64, messageId: 0 });
     await h.api.setSlotSelection('slot-landscape', 'landscape');
     const portable = await h.api.exportPortablePreviewsForSlots(['slot-landscape']);
@@ -26,6 +26,7 @@ test('landscape survives cache, saved chat, export/import and the actual redraw 
     await h.api.deletePreview('landscape');
     const saved = h.api.getDrawSavedPreview(h.messages[0], 'slot-landscape', 0, h.ctx.chatId);
     assert.equal(saved.orientation, 'landscape');
+    assert.equal(saved.title, '雨后的山谷');
     await h.api.materializeDrawSavedPreview(h.messages[0], 'slot-landscape', { messageId: 0, chatId: h.ctx.chatId });
     let requests = 0;
     h.api.registerPreparedImageProvider('novelai', async input => {
@@ -33,6 +34,7 @@ test('landscape survives cache, saved chat, export/import and the actual redraw 
         const tasks = await resolveImageTaskOrientations(input.tasks, recipe.overrideSize);
         assert.equal(Object.hasOwn(tasks[0], 'sourceImage'), false);
         const batch = prepareImageInput('novelai', tasks, recipe);
+        assert.equal(batch.metadata[0].title, '雨后的山谷');
         const params = batch.compiledBatch.items[0].request.payload.parameters;
         assert.deepEqual([params.width, params.height], [1216, 832]);
     });

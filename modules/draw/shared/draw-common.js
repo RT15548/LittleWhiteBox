@@ -241,11 +241,11 @@ export function ensureDrawImageStyles() {
 .xb-nd-menu-trigger{width:32px;height:32px;border-radius:50%;border:none;background:var(--draw-bg-secondary);color:var(--draw-text-primary);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;opacity:0.85}
 .xb-nd-menu-trigger:hover,.xb-nd-menu-wrap.open .xb-nd-menu-trigger{background:var(--draw-bg-tertiary);opacity:1}
 .xb-nd-menu-wrap.open .xb-nd-dropdown{display:flex;opacity:1;visibility:visible;transform:translateY(0) scale(1);pointer-events:auto}
-.xb-nd-dropdown{position:absolute;top:calc(100% + 4px);right:0;background:rgba(20,20,24,0.98);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:4px;display:none;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transform:translateY(-4px) scale(0.96);transform-origin:top right;transition:all 0.15s ease;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
-.xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:rgba(255,255,255,0.85);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
-.xb-nd-dropdown button:hover{background:rgba(255,255,255,.15)}
-.xb-nd-dropdown [data-action="delete-image"]{color:rgba(248,113,113,.9)}
-.xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:8px 16px;border-radius:8px;color:#fff;font-size:12px;z-index:10}
+.xb-nd-dropdown{position:absolute;top:calc(100% + 4px);right:0;background:var(--draw-bg-secondary);border:1px solid var(--draw-border);border-radius:16px;padding:4px;display:none;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transform:translateY(-4px) scale(0.96);transform-origin:top right;transition:all 0.15s ease;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none}
+.xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:var(--draw-text-primary);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
+.xb-nd-dropdown button:hover{background:var(--draw-accent-soft)}
+.xb-nd-dropdown [data-action="delete-image"]{color:var(--draw-danger)}
+.xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--draw-bg-secondary);padding:8px 16px;border-radius:8px;color:var(--draw-text-primary);font-size:12px;z-index:10}
 /* 圖片標題（overlay 模式）：懸停或 title-show 時浮現的圖頂細條 */
 .xb-nd-title-bar{position:absolute;top:0;left:0;right:0;z-index:6;pointer-events:none;display:flex;align-items:center;min-height:22px;padding:3px 44px 3px 10px;background:rgba(0,0,0,0.55);font-size:13px;line-height:1.4;letter-spacing:0.02em;color:rgba(255,255,255,0.95);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,0.6);opacity:0;transition:opacity 0.2s ease}
 .xb-nd-img-wrap:hover .xb-nd-title-bar,.xb-nd-img-wrap.title-show .xb-nd-title-bar{opacity:1}
@@ -257,7 +257,7 @@ export function ensureDrawImageStyles() {
 .xb-nd-summary span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:none}
 /* 摺疊時懸浮的編輯彈窗必須隨之隱藏（JS 會把內聯 display 重置為 none，這條兜底防閃現） */
 .xb-nd-details:not([open]) ~ .xb-nd-edit{display:none!important}
-.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:rgba(0,0,0,.9);color:#fff;max-height:calc(100% - 16px);overflow:auto}
+.xb-nd-status-overlay{position:absolute;inset:auto 8px 8px;z-index:11;padding:12px;border-radius:10px;background:var(--draw-bg-tertiary);color:var(--draw-text-primary);max-height:calc(100% - 16px);overflow:auto}
 .xb-nd-status-overlay .xb-nd-indicator{position:static;transform:none;background:none;padding:0}
 .xb-nd-view-notice{padding:12px;overflow-wrap:anywhere}
 .xb-nd-view-notice button{margin-inline-start:8px;min-height:44px;padding:6px 12px;border:1px solid var(--draw-border);border-radius:8px;background:var(--draw-accent-soft);color:inherit;cursor:pointer}
@@ -409,6 +409,27 @@ export function syncCollapseTitleWidths(scope = document) {
             details.style.setProperty('--xb-img-w', `${Math.max(0, Math.round(Math.min(img.naturalWidth, available)))}px`);
         }
     }
+}
+
+const tagEditorAutofit = new WeakMap();
+
+/** Add a labelled tag field shared by the three drawing providers. */
+export function appendTagEditGroup(container, { label, value, type, index = null }) {
+    const group = document.createElement('div');
+    group.className = 'xb-nd-edit-group';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'xb-nd-edit-group-label';
+    labelEl.textContent = label;
+    const textarea = document.createElement('textarea');
+    textarea.className = 'xb-nd-edit-input';
+    textarea.setAttribute('aria-label', label);
+    textarea.setAttribute('data-autofit', '');
+    textarea.rows = 1;
+    textarea.dataset.type = type;
+    if (index !== null) textarea.dataset.index = String(index);
+    textarea.value = value || '';
+    group.append(labelEl, textarea);
+    container.appendChild(group);
 }
 
 export function showDrawTagEditor(editPanel) {

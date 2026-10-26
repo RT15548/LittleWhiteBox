@@ -644,3 +644,52 @@ test('failed close keeps the draft, and retry waits for its own acknowledgement'
     assert.equal(count(), before + 1);
     deferAck = false;
 });
+
+// Acceptance: real page controls dispatch the host protocol and settle receipts.
+// Cost: inaccessible image deletion/export and silently unsaved JPEG preferences.
+test('gallery controls dispatch commands and restore controls from host receipts', async () => {
+    const receive = data => window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: { source: 'LittleWhiteBox-NovelDraw', ...data },
+    }));
+    receive({ type: 'INIT_DATA', settings: { characterTags: [], characterGroups: [], saveAsJpeg: true, imageTitleMode: 'none' } });
+    const jpeg = document.getElementById('nd_save_as_jpeg');
+    assert.equal(jpeg.checked, true);
+    jpeg.checked = false;
+    jpeg.dispatchEvent(new window.Event('change'));
+    assert.equal(jpeg.disabled, true);
+    assert.equal(posted.at(-1).type, 'SAVE_JPEG');
+    assert.equal(posted.at(-1).saveAsJpeg, false);
+    receive({ type: 'STATUS', target: 'jpeg', state: 'error', text: '', saveAsJpeg: true });
+    assert.equal(jpeg.disabled, false);
+    assert.equal(jpeg.checked, true);
+
+    click(document.getElementById('nd_batch'));
+    assert.equal(document.getElementById('nd_batch_bar').style.display, 'flex');
+    const thumb = document.createElement('div');
+    thumb.dataset.imgid = 'selected-image';
+    document.getElementById('nd_modal_thumbs').append(thumb);
+    click(document.getElementById('nd_batch_select_all'));
+    globalThis.confirm = () => true;
+    click(document.getElementById('nd_batch_delete'));
+    const deletion = posted.at(-1);
+    assert.equal(deletion.type, 'BATCH_DELETE');
+    assert.deepEqual(deletion.ids, ['selected-image']);
+    assert.equal(document.getElementById('nd_batch_delete').disabled, true);
+    receive({ type: 'BATCH_DELETED', requestId: deletion.requestId, deletedIds: [], failures: [{ id: 'selected-image', message: 'failure' }] });
+    assert.equal(document.getElementById('nd_batch_delete').disabled, false);
+    click(document.getElementById('nd_batch_download'));
+    const download = posted.at(-1);
+    assert.equal(download.type, 'BATCH_DOWNLOAD');
+    assert.deepEqual(download.ids, ['selected-image']);
+    receive({ type: 'BATCH_DOWNLOADED', requestId: download.requestId, blob: new Blob(['zip']), exportedIds: ['selected-image'], failures: [], remainingIds: [] });
+    assert.ok(document.querySelector('#nd_zip_output a[download]'));
+    click(document.getElementById('nd_batch_select_none'));
+    const count = posted.length;
+    click(document.getElementById('nd_batch_delete'));
+    assert.equal(posted.length, count);
+    click(document.getElementById('nd_batch_done'));
+    assert.equal(document.getElementById('nd_batch_bar').style.display, 'none');
+    assert.equal(posted.at(-1).type, 'BATCH_CANCEL_EXPORT');
+    assert.equal(document.getElementById('nd_zip_output').childElementCount, 0);
+});

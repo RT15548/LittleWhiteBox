@@ -14,6 +14,7 @@ export function createGalleryZipDownload({ document, container, send, status }) 
         container.hidden = true;
     };
     const cancel = () => {
+        if (requestId !== null) status('', '');
         requestId = null;
         remaining = [];
         clear();

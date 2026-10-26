@@ -168,6 +168,7 @@ import {
     buildFailedPlaceholderHtml,
     ensureDrawImageStyles,
     showDrawTagEditor,
+    appendTagEditGroup,
     syncImageTitleElements,
     syncCollapseTitleWidths,
 } from "../../shared/draw-common.js";
@@ -3206,6 +3207,7 @@ async function sendInitData() {
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
             imageTitleMode: getSharedDrawSettings().imageTitleMode,
+            saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             useWorldInfo: settings.useWorldInfo,
@@ -3499,6 +3501,52 @@ async function handleFrameMessage(event) {
             postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'api');
             break;
         }
+
+        case 'SAVE_JPEG': {
+            const nextJpeg = data.saveAsJpeg === true;
+            const ok = await updateSharedDrawSettingsPersistent((settings) => {
+                settings.saveAsJpeg = nextJpeg;
+            }, '已保存', { notify: false, silent: false });
+            if (iframe.isConnected) postToIframe(iframe, {
+                type: 'STATUS', state: ok ? 'success' : 'error', target: 'jpeg',
+                text: ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed,
+                saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
+            }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
+        case 'BATCH_DELETE': {
+            const result = await deleteGalleryImages(data.ids, deletePreview);
+            if (iframe.isConnected) {
+                postToIframe(iframe, { type: 'BATCH_DELETED', requestId: data.requestId, ...result }, 'LittleWhiteBox-NovelDraw');
+                const overview = await getGalleryOverview();
+                if (iframe.isConnected) postToIframe(iframe, { type: 'CACHE_DATA', cacheStats: overview.stats, gallerySummary: overview.summary }, 'LittleWhiteBox-NovelDraw');
+            }
+            break;
+        }
+
+        case 'BATCH_DOWNLOAD': {
+            galleryExportAbort?.abort();
+            const controller = new AbortController();
+            galleryExportAbort = controller;
+            try {
+                const result = await exportGalleryZipPart(data.ids, { readPreview: getPreview, signal: controller.signal });
+                if (iframe.isConnected && !controller.signal.aborted) {
+                    postToIframe(iframe, { type: 'BATCH_DOWNLOADED', requestId: data.requestId, ...result }, 'LittleWhiteBox-NovelDraw');
+                }
+            } catch (error) {
+                if (!controller.signal.aborted && iframe.isConnected) {
+                    postToIframe(iframe, { type: 'BATCH_DOWNLOADED', requestId: data.requestId, error: error.message }, 'LittleWhiteBox-NovelDraw');
+                }
+            } finally {
+                if (galleryExportAbort === controller) galleryExportAbort = null;
+            }
+            break;
+        }
+
+        case 'BATCH_CANCEL_EXPORT':
+            galleryExportAbort?.abort();
+            break;
 
         case 'TEST_API': {
             try {

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { compile, compileNovelImageRequest } from '../compiler.js';
 import { parseSubmittedScenePlan } from '../../../shared/scene-plan-contract.js';
+import { prepareImageInput } from '../../../shared/prepared-image-input.js';
 
 // Acceptance (paid request correctness): each planned orientation reaches its
 // own request; a fixed size or the preset dimensions remain authoritative
@@ -95,13 +96,16 @@ test('a mixed scene plan preserves each orientation in its paid request', () => 
     const scenePlan = parseSubmittedScenePlan({ toolCalls: [{
         name: 'submit_scene_plan',
         arguments: { images: ['portrait', 'landscape'].map((orientation, i) => ({
-            index: i + 1, insert_after: 1, scene: 'outdoors', orientation, characters: [],
+            index: i + 1, insert_after: 1, scene: 'outdoors', orientation, characters: [], title: '雨停后的街道',
         })) },
     }] }, { sceneSource: { sourceHash: 'fixture', points: [{ number: 1, offset: 10 }] } });
     const batch = compile(scenePlan, buildRecipe({ overrideSize: 'auto', seeds: [123, 456] }));
     assert.deepEqual(batch.items.map(item => [item.request.payload.parameters.width, item.request.payload.parameters.height]), [
         [832, 1216], [1216, 832],
     ]);
+    const prepared = prepareImageInput('novelai', scenePlan, buildRecipe({ overrideSize: 'auto', seeds: [123, 456] }));
+    assert.deepEqual(prepared.metadata.map(item => item.orientation), ['portrait', 'landscape']);
+    assert.deepEqual(prepared.metadata.map(item => item.title), ['雨停后的街道', '雨停后的街道']);
 });
 
 test('following the preset does not override its dimensions with orientation', () => {

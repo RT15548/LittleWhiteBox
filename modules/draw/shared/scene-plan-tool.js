@@ -163,6 +163,14 @@ export function createSubmitScenePlanTool(options = {}) {
                     { minLength: 1 },
                 ),
                 characters: charactersSchema,
+                orientation: {
+                    type: 'string',
+                    enum: ['portrait', 'landscape'],
+                    description: '本图画幅方向，先定景别与主体排布再决定，人数只作参考。'
+                        + 'portrait（竖幅）：单人、直立站姿、close-up / upper body 等近景、双人贴近构图；'
+                        + 'landscape（横幅）：三人及以上群像、wide shot / 全景远景、开阔环境、左右展开的互动与站位。'
+                        + '两人同框不必然横幅；方向须与景别一致。拿不准时填 portrait。',
+                },
                 // 追加位（可选）：拼在所有角色之后、整条正向提示词的最末尾。
                 // 只有 profile.postPrompt === 'append' 的 provider 才暴露，避免教会模型一个编译器会丢的字段。
                 ...(profile.postPrompt === 'append' ? {
