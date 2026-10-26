@@ -1,12 +1,12 @@
 {
-    "display_name": "LittleWhiteBox",
+    "display_name": "Daan 二改｜小白X",
     "loading_order": 10,
     "requires": [],
     "optional": [],
-    "js": "dist/host/plugin.js",
+    "js": "index.js",
     "css": "style.css",
     "author": "biex",
-    "version": "3.1.10",
+    "version": "3.1.19",
     "homePage": "https://github.com/RT15548/LittleWhiteBox",
     "generate_interceptor": "xiaobaixGenerateInterceptor",
     "hooks": {

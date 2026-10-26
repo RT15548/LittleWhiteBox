@@ -3,25 +3,8 @@
 
 import { getContext } from "../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../utils.js";
+import { getSharedDrawSettings } from './draw-settings.js';
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
-
-// JPEG 策略注入：gallery-cache 不直接 import draw-settings（避免把宿主依賴鏈拉進
-// 各測試/輕量 bundle），由三個 provider 宿主在啟動時注入讀取函數。
-let jpegPolicyProvider = null;
-export function setJpegPolicyProvider(provider) { jpegPolicyProvider = typeof provider === 'function' ? provider : null; }
-function getJpegPolicy() {
-    try { return jpegPolicyProvider?.() || null; } catch { return null; }
-}
-import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
-import { normalizeMediaUrl } from './media-url.js';
-import { getSafeViewportStyles, observeViewport } from '../../../shared/common/viewport.js';
-import { getImageChatIdentity } from './chat-image-persistence.js';
-import { observeAsyncCallback } from '../../../shared/common/async-errors.js';
-
-const useCurrentGalleryImageEvent = observeAsyncCallback(useCurrentGalleryImage, { source: import.meta.url, operation: "useCurrentGalleryImage" });
-const saveCurrentGalleryImageEvent = observeAsyncCallback(saveCurrentGalleryImage, { source: import.meta.url, operation: "saveCurrentGalleryImage" });
-const deleteCurrentGalleryImageEvent = observeAsyncCallback(deleteCurrentGalleryImage, { source: import.meta.url, operation: "deleteCurrentGalleryImage" });
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -36,10 +19,6 @@ const PREVIEW_CACHE_LIMIT = 64;
 const PREVIEW_OBJECT_URL_LIMIT = 128;
 const PREVIEW_PRELOAD_LIMIT = 128;
 const CACHE_SYNC_CHANNEL_NAME = 'xb_novel_draw_preview_changes';
-// 图片管理分页：每页默认 24 个图组，单次最多 500 个（数据变化后“重新加载到先前数量”一次请求的上限）。
-export const GALLERY_PAGE_DEFAULT_LIMIT = 24;
-export const GALLERY_PAGE_MAX_LIMIT = 500;
-const SLOT_ORDER_CACHE_TTL = 30 * 1000;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -53,13 +32,238 @@ let currentGalleryData = null;
 const previewCache = new Map();
 const previewObjectUrlCache = new Map();
 const previewPreloadCache = new Map();
-// 角色 → 图组完整排序（只含元数据，不含 base64）；任何写入 / 删除 / 跨标签页变更都会清空。
-const slotOrderCache = new Map();
-let slotOrderGeneration = 0;
 const cacheChangeListeners = new Set();
 let cacheSyncChannel = null;
 
+// Tauritavern 等客戶端的 <img> 無法直連根相對 /user 路徑（自定義 origin），
+// 但其 fetch 可能走原生 HTTP 棧可達。監聽捕獲階段的圖片 error，僅對 /user/ 開頭的
+// 來源嘗試 fetch → blob 自救，救活存量已保存圖；不可達則快速失敗，不影響其他圖。
+const savedUrlFallbackInflight = new Set();
+if (typeof document !== 'undefined') {
+    document.addEventListener('error', (event) => {
+        const img = event.target;
+        if (!(img instanceof HTMLImageElement)) return;
+        const src = String(img.currentSrc || img.src || '');
+        if (!src.includes('/user/')) return;
+        if (img.dataset.xbSavedRetried === '1') return;
+        img.dataset.xbSavedRetried = '1';
+        if (savedUrlFallbackInflight.has(src)) return;
+        savedUrlFallbackInflight.add(src);
+        fetch(toAbsoluteMediaUrl(src))
+            .then((resp) => {
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                return resp.blob();
+            })
+            .then((blob) => {
+                img.src = URL.createObjectURL(blob);
+            })
+            .catch(() => {
+                img.classList.add('xb-saved-img-broken');
+            })
+            .finally(() => savedUrlFallbackInflight.delete(src));
+    }, true);
+}
+
 function storageWriteError(tx) { return tx.error || new Error(DRAW_SLOT_COPY.storageWriteFailed); }
+
+// 相對路徑補全為絕對 URL。Tauritavern 把手機 UI 裝在 about:srcdoc 跨域 iframe 內：
+// <img src="/user/..."> 會以 srcdoc 為基準解析成無效地址而裂圖；document.baseURI
+// 在 srcdoc 中繼承父文檔真實 URL，不受跨域限制，故以它為基準；parent.location 僅兜底。
+export function toAbsoluteMediaUrl(path) {
+    let raw = String(path || '').trim();
+    if (!raw || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
+    // 舊數據可能存成無前導斜杠的 user/images/...，在 iframe 內會被解析成
+    // 相對於擴展目錄的錯誤地址；統一補成站點絕對路徑。
+    raw = raw.replace(/^(?:\.\.[\\/])*(user[\\/])/i, '/$1');
+    let base = '';
+    try {
+        if (typeof document !== 'undefined' && document.baseURI) base = document.baseURI;
+    } catch { /* srcdoc 跨域時 baseURI 仍可讀，極端情況下退化到 parent */ }
+    if (!base) {
+        try { base = String(window.parent?.location?.href || ''); } catch { /* 跨域封鎖 */ }
+    }
+    try {
+        return base ? new URL(raw, base).href : raw;
+    } catch {
+        return raw;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 持久化缩略图
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 画廊分组封面只用 256px 缩略图（对齐 chatu8）：避免把整角色的原图 base64 经
+// postMessage 克隆进 iframe 造成内存峰值。缩略图随记录持久化，旧记录首次被
+// 索引时懒补建。任何失败都返回 null，绝不阻断主流程。
+const THUMB_MAX_DIM = 256;
+
+function normalizeImageDataUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+}
+
+export function createThumbnailDataUrl(base64) {
+    if (typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(null);
+    const dataUrl = normalizeImageDataUrl(base64);
+    if (!dataUrl) return Promise.resolve(null);
+    return new Promise((resolve) => {
+        const img = new Image();
+        let settled = false;
+        const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+        img.onload = () => {
+            try {
+                const w0 = img.naturalWidth || img.width;
+                const h0 = img.naturalHeight || img.height;
+                if (!w0 || !h0) return finish(null);
+                const scale = Math.min(1, THUMB_MAX_DIM / Math.max(w0, h0));
+                const w = Math.max(1, Math.round(w0 * scale));
+                const h = Math.max(1, Math.round(h0 * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                // JPEG 无 alpha 通道，先铺白底防止透明 PNG 变黑
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                finish(canvas.toDataURL('image/jpeg', 0.7));
+            } catch {
+                finish(null);
+            }
+        };
+        img.onerror = () => finish(null);
+        img.src = dataUrl;
+    });
+}
+
+// JPEG 的 base64 魔數以 /9j/ 開頭。輸入可能帶 data: 前綴，也可能是純 base64
+// （後台任務路徑回傳的 PNG 不帶前綴），因此不能靠前綴判斷格式，直接嗅探內容。
+export function isJpegBase64(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    const body = raw.startsWith('data:') ? raw.slice(raw.indexOf(',') + 1) : raw;
+    return body.startsWith('/9j/');
+}
+
+function convertWithDomImage(dataUrl, original, quality) {
+    if (typeof Image === 'undefined') return Promise.resolve(original);
+    return new Promise((resolve) => {
+        const img = new Image();
+        let settled = false;
+        const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+        img.onload = () => {
+            try {
+                if (!img.naturalWidth && !img.width) return finish(original);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || img.width;
+                canvas.height = img.naturalHeight || img.height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return finish(original);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+                canvas.toBlob((blob) => {
+                    if (!blob) return finish(original);
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const out = String(reader.result || '');
+                        // 必須校驗真實 JPEG 前綴：iOS WebView 異常時可能回傳「data:,」空串
+                        finish(out.startsWith('data:image/jpeg') ? out : original);
+                    };
+                    reader.onerror = () => finish(original);
+                    reader.readAsDataURL(blob);
+                }, 'image/jpeg', Math.max(0.1, Math.min(1, Number(quality) || 0.8)));
+            } catch { finish(original); }
+        };
+        img.onerror = () => finish(original);
+        img.src = dataUrl;
+    });
+}
+
+// 主路徑用 createImageBitmap → 常規 canvas 2D → canvas.toBlob → FileReader：
+// TT 的 iOS WKWebView 對 OffscreenCanvas.convertToBlob 支持不全，會靜默失敗，
+// ImageBitmap 管線不解碼進 DOM，兼容性更好。
+async function convertViaImageBitmap(rawBase64, quality) {
+    if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
+        console.warn('[gallery-cache] ImageBitmap 管線不可用（API 缺失）');
+        return null;
+    }
+    try {
+        const blob = base64ToBlob(rawBase64, 'image/png');
+        console.warn('[gallery-cache] ImageBitmap 管線：blob', blob.size, 'bytes，開始解碼');
+        const bitmap = await createImageBitmap(blob);
+        console.warn('[gallery-cache] ImageBitmap 解碼成功', bitmap.width, 'x', bitmap.height);
+        let out = null;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(bitmap, 0, 0);
+            out = await new Promise((resolve) => {
+                canvas.toBlob((jpegBlob) => {
+                    console.warn('[gallery-cache] toBlob 回調：', jpegBlob ? `${jpegBlob.size} bytes ${jpegBlob.type}` : 'null');
+                    if (!jpegBlob) return resolve(null);
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const dataUrl = String(reader.result || '');
+                        resolve(dataUrl.startsWith('data:image/jpeg') ? dataUrl : null);
+                    };
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(jpegBlob);
+                }, 'image/jpeg', Math.max(0.1, Math.min(1, Number(quality) || 0.8)));
+            });
+        } finally {
+            bitmap.close?.();
+        }
+        return out;
+    } catch (e) {
+        console.warn('[gallery-cache] JPEG 轉換 ImageBitmap 管線失敗：', e?.message);
+        return null;
+    }
+}
+
+/** 將 data URL 重編碼成 JPEG，節省快取與伺服器空間；透明 PNG 先鋪白底。
+ *  已是 JPEG、或轉換失敗時回傳原值。永不 reject、永不掛起（iOS WebView 的
+ *  createImageBitmap/toBlob 回調可能永不觸發，必須加超時兜底）。 */
+export async function convertImageToJpeg(base64, quality = 0.8) {
+    if (typeof document === 'undefined') return base64;
+    const raw = String(base64 || '').trim();
+    // 不能沿用 normalizeImageDataUrl 包裝：它把無前綴數據一律標成 image/jpeg，
+    // 會讓純 base64 的 PNG 被誤判為「已轉換」而靜默跳過；mime 標註不影響解碼（瀏覽器按內容嗅探）。
+    if (!raw || isJpegBase64(raw)) return base64;
+    const CONVERT_TIMEOUT_MS = 10000;
+    try {
+        // 主路徑：createImageBitmap（TT/桌面都可用，且不進 DOM）
+        // 後台回傳的 base64 可能混入引號、URL 前綴、換行等雜質，atob 會拋
+        // InvalidCharacterError，統一剝離 base64 字符集以外的所有字符。
+        const pureBase64 = (raw.startsWith('data:') ? raw.slice(raw.indexOf(',') + 1) : raw)
+            .replace(/[^A-Za-z0-9+/=]/g, '');
+        if (!pureBase64) return base64;
+        const viaBitmap = await Promise.race([
+            convertViaImageBitmap(pureBase64, quality),
+            new Promise(resolve => setTimeout(() => resolve(null), CONVERT_TIMEOUT_MS)),
+        ]);
+        if (viaBitmap) return viaBitmap;
+        // 備援：DOM Image + 2D canvas + toBlob（用清洗後的 base64 重組 data URL）
+        const dataUrl = `data:image/png;base64,${pureBase64}`;
+        const viaDom = await Promise.race([
+            convertWithDomImage(dataUrl, base64, quality),
+            new Promise(resolve => setTimeout(() => resolve(base64), CONVERT_TIMEOUT_MS)),
+        ]);
+        if (viaDom !== base64) return viaDom;
+        console.warn('[gallery-cache] JPEG 轉換兩條管線均失敗，保留 PNG 原圖');
+        return base64;
+    } catch (e) {
+        console.warn('[gallery-cache] JPEG 轉換異常，保留 PNG 原圖：', e?.message);
+        return base64;
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 图片显示 URL
@@ -87,7 +291,9 @@ export function getBase64ImagePayload(value) {
 }
 
 function base64ToBlob(base64, mime) {
-    const binary = atob(base64);
+    // 剝離 base64 字符集以外的所有雜質（換行、引號、URL 前綴等），atob 遇到即拋錯
+    const clean = String(base64 || '').replace(/[^A-Za-z0-9+/=]/g, '');
+    const binary = atob(clean);
     const chunkSize = 8192;
     const chunks = [];
     for (let offset = 0; offset < binary.length; offset += chunkSize) {
@@ -111,7 +317,7 @@ function blobToDataUrl(blob) {
 }
 
 async function savedUrlToDataUrl(savedUrl = '') {
-    const url = normalizeMediaUrl(savedUrl);
+    const url = toAbsoluteMediaUrl(savedUrl);
     if (!url) return '';
     if (/^data:[^;]+;base64,/i.test(url)) return url;
     if (/^blob:/i.test(url)) {
@@ -125,95 +331,6 @@ async function savedUrlToDataUrl(savedUrl = '') {
         return blobToDataUrl(await response.blob());
     }
     return '';
-}
-
-// JPEG 的 base64 魔數以 /9j/ 開頭。輸入可能帶 data: 前綴，也可能是純 base64
-// （後台任務路徑回傳的 PNG 不帶前綴），因此不能靠前綴判斷格式，直接嗅探內容。
-export function isJpegBase64(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return false;
-    const body = raw.startsWith('data:') ? raw.slice(raw.indexOf(',') + 1) : raw;
-    return body.startsWith('/9j/');
-}
-
-/** 將 data URL 重編碼成 JPEG，節省快取與伺服器空間；透明 PNG 先鋪白底。
- *  已是 JPEG、或轉換失敗時回傳原值。 */
-export function convertImageToJpeg(base64, quality = 0.8) {
-    if (typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(base64);
-    const raw = String(base64 || '').trim();
-    // 不能沿用 parseBase64Image 包裝：它把無前綴數據一律標成 image/png，
-    // 但 mime 標註不影響解碼（瀏覽器按內容嗅探），故直接嗅探魔數判斷是否已轉換。
-    if (!raw || isJpegBase64(raw)) return Promise.resolve(base64);
-    const dataUrl = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
-    return new Promise((resolve) => {
-        const img = new Image();
-        let settled = false;
-        const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
-        img.onload = () => {
-            try {
-                if (!img.naturalWidth && !img.width) return finish(base64);
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth || img.width;
-                canvas.height = img.naturalHeight || img.height;
-                const ctx = canvas.getContext('2d');
-                // JPEG 无 alpha 通道，先铺白底防止透明 PNG 变黑
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0);
-                finish(canvas.toDataURL('image/jpeg', Math.max(0.1, Math.min(1, Number(quality) || 0.8))));
-            } catch { finish(base64); }
-        };
-        img.onerror = () => finish(base64);
-        img.src = dataUrl;
-    });
-}
-
-/** 把缓存里仍是 PNG 的旧图批量转成 JPEG。「生成後存 JPEG」开关只管新图，旧图需手动触发。
- *  每张独立事务逐个写回，失败的保留原图继续下一张；onProgress(done, total) 用于进度提示。 */
-export async function convertLegacyPreviewsToJpeg({ quality = 0.8, onProgress } = {}) {
-    const database = await openDB();
-    const stats = { total: 0, converted: 0, failed: 0, savedBytes: 0 };
-    const allRaw = await new Promise((resolve, reject) => {
-        try {
-            const tx = database.transaction(DB_STORE, 'readonly');
-            const request = tx.objectStore(DB_STORE).getAll();
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        } catch (e) { reject(e); }
-    });
-    const targets = allRaw.filter((r) => r?.imgId && r.base64 && !isJpegBase64(r.base64));
-    stats.total = targets.length;
-    let done = 0;
-    for (const record of targets) {
-        try {
-            const originalBody = record.base64.startsWith('data:') ? record.base64.split(',')[1] : record.base64;
-            const originalBytes = atob(originalBody).length;
-            const converted = await convertImageToJpeg(record.base64, quality);
-            if (converted && converted !== record.base64) {
-                const convertedBytes = atob(converted.split(',')[1]).length;
-                record.base64 = converted;
-                await new Promise((resolve, reject) => {
-                    try {
-                        const tx = database.transaction(DB_STORE, 'readwrite');
-                        tx.objectStore(DB_STORE).put(record);
-                        tx.oncomplete = () => {
-                            invalidateCache(record.slotId);
-                            resolve();
-                        };
-                        tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
-                    } catch (e) { reject(e); }
-                });
-                stats.converted++;
-                stats.savedBytes += Math.max(0, originalBytes - convertedBytes);
-            }
-        } catch {
-            stats.failed++;
-        }
-        done++;
-        try { onProgress?.(done, stats.total); } catch { /* 进度回调失败不影响转换 */ }
-    }
-    publishCacheChange([...new Set(targets.map((r) => r.slotId).filter(Boolean))]);
-    return stats;
 }
 
 function getObjectUrlCacheKey(imgId, base64) {
@@ -230,7 +347,7 @@ function prunePreviewObjectUrls() {
     for (const [key, url] of previewObjectUrlCache.entries()) {
         if (previewObjectUrlCache.size <= PREVIEW_OBJECT_URL_LIMIT) break;
         if (isObjectUrlInUse(url)) continue;
-        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "prunePreviewObjectUrls" }, caughtError); }
+        try { URL.revokeObjectURL(url); } catch {}
         previewObjectUrlCache.delete(key);
     }
 }
@@ -241,7 +358,7 @@ function prunePreviewPreloads() {
         if (oldestKey === undefined) break;
         const cached = previewPreloadCache.get(oldestKey);
         if (cached?.img) {
-            try { cached.img.src = ''; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "prunePreviewPreloads" }, caughtError); }
+            try { cached.img.src = ''; } catch {}
         }
         previewPreloadCache.delete(oldestKey);
     }
@@ -252,34 +369,34 @@ export function revokePreviewObjectUrl(imgId) {
     if (!key) return;
     const url = previewObjectUrlCache.get(key);
     if (url) {
-        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "revokePreviewObjectUrl" }, caughtError); }
+        try { URL.revokeObjectURL(url); } catch {}
         previewObjectUrlCache.delete(key);
     }
     const preload = previewPreloadCache.get(key);
     if (preload?.img) {
-        try { preload.img.src = ''; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "revokePreviewObjectUrl" }, caughtError); }
+        try { preload.img.src = ''; } catch {}
     }
     previewPreloadCache.delete(key);
 }
 
 export function clearPreviewObjectUrls() {
     for (const url of previewObjectUrlCache.values()) {
-        try { URL.revokeObjectURL(url); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearPreviewObjectUrls" }, caughtError); }
+        try { URL.revokeObjectURL(url); } catch {}
     }
     previewObjectUrlCache.clear();
     for (const cached of previewPreloadCache.values()) {
         if (cached?.img) {
-            try { cached.img.src = ''; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearPreviewObjectUrls" }, caughtError); }
+            try { cached.img.src = ''; } catch {}
         }
     }
     previewPreloadCache.clear();
 }
 
 export function getPreviewDisplayUrl(preview = {}) {
-    const savedUrl = normalizeMediaUrl(preview?.savedUrl);
-    if (savedUrl) return savedUrl;
+    // 本地快取是完整原圖，優先使用：blob URL 同源且不受客戶端（如 Tauritavern
+    // 自定義 origin）對 /user 路徑可達性的影響；savedUrl 僅在本地數據缺失時兜底。
     const parsed = parseBase64Image(preview?.base64);
-    if (!parsed?.data) return '';
+    if (!parsed?.data) return toAbsoluteMediaUrl(preview?.savedUrl || '');
 
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
         return `data:${parsed.mime};base64,${parsed.data}`;
@@ -317,7 +434,7 @@ export async function preloadPreviewDisplayUrl(preview = {}) {
         const done = (ok) => resolve(ok);
         img.onload = async () => {
             if (typeof img.decode === 'function') {
-                try { await img.decode(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "promise" }, caughtError); }
+                try { await img.decode(); } catch {}
             }
             done(true);
         };
@@ -342,7 +459,7 @@ export async function warmSlotPreviewNeighbors(slotId, currentIndex = 0, range =
     for (let index = start; index <= end; index++) {
         if (index === currentIndex) continue;
         const preload = () => {
-            void preloadPreviewDisplayUrl(successPreviews[index]).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "preload" }, caughtError); });
+            void preloadPreviewDisplayUrl(successPreviews[index]).catch(() => {});
         };
         if (typeof requestIdleCallback === 'function') {
             requestIdleCallback(preload, { timeout: 500 });
@@ -386,8 +503,6 @@ function setCachedPreviews(slotId, data) {
 }
 
 function invalidateCache(slotId) {
-    slotOrderCache.clear();
-    slotOrderGeneration++;
     if (slotId) {
         previewCache.delete(slotId);
     } else {
@@ -438,7 +553,7 @@ function publishCacheChange(slotIds) {
     if (normalized !== null && normalized.length === 0) return;
     try {
         ensureCacheSyncChannel()?.postMessage({ type: 'invalidate', slotIds: normalized });
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "publishCacheChange" }, caughtError); }
+    } catch {}
 }
 
 export function subscribeGalleryCacheChanges(listener) {
@@ -494,7 +609,7 @@ export async function openDB() {
     }
 
     if (db) {
-        try { db.close(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openDB" }, caughtError); }
+        try { db.close(); } catch {}
         db = null;
     }
 
@@ -609,13 +724,13 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             chapterTitle: String(preview.chapterTitle || ''),
             base64,
             tags: String(preview.tags || ''),
+            title: String(preview.title || ''),
             positive: String(preview.positive || ''),
             status: preview.status === 'failed' ? 'failed' : 'success',
             errorType: preview.errorType || null,
             errorMessage: preview.errorMessage || null,
             characterPrompts: preview.characterPrompts || null,
             negativePrompt: preview.negativePrompt || null,
-            postPrompt: preview.postPrompt ?? null,
             timestamp: Number(preview.timestamp) || Date.now(),
         });
         selections.push({ slotId, selectedImgId: imgId });
@@ -706,6 +821,7 @@ export async function storePreview(opts) {
         messageId,
         base64 = null,
         tags,
+        title = '',
         positive,
         savedUrl = null,
         status = PreviewStatus.SUCCESS,
@@ -713,9 +829,6 @@ export async function storePreview(opts) {
         errorMessage = null,
         characterPrompts = null,
         negativePrompt = null,
-        // 整图正向提示词追加位（ComfyUI 编译器拼在最后），落盘以便画廊编辑重生成时重建
-        postPrompt = null,
-        placement,
         source = '',
         chatId = '',
         characterName = '',
@@ -723,6 +836,9 @@ export async function storePreview(opts) {
         bookTitle = '',
         chapterPath = '',
         chapterTitle = '',
+        presetId = '',
+        presetName = '',
+        vibeNames = '',
     } = opts;
     const database = await openDB();
     const ctx = getContext();
@@ -734,50 +850,79 @@ export async function storePreview(opts) {
     let workingBase64 = base64;
     if (workingBase64) {
         try {
-            const policy = getJpegPolicy();
-            if (policy?.saveAsJpeg) {
-                workingBase64 = await convertImageToJpeg(workingBase64, policy.jpegQuality) || workingBase64;
+            const settings = getSharedDrawSettings();
+            if (settings?.saveAsJpeg) {
+                const converted = await convertImageToJpeg(workingBase64, settings.jpegQuality);
+                if (converted && converted !== workingBase64) {
+                    const convertedBody = converted.startsWith('data:') ? converted.split(',')[1] : converted;
+                    const originalBody = workingBase64.startsWith('data:') ? workingBase64.split(',')[1] : workingBase64;
+                    const ratio = Math.round((atob(convertedBody.replace(/[^A-Za-z0-9+/=]/g, '')).length
+                        / atob(originalBody.replace(/[^A-Za-z0-9+/=]/g, '')).length) * 100);
+                    console.debug('[gallery-cache] storePreview JPEG 轉換成功，', ratio, '%');
+                    workingBase64 = converted;
+                } else {
+                    // 解碼失敗／畫布異常時 convertImageToJpeg 會原樣退回，這裡必須顯式提示，
+                    // 否則用戶勾了開關卻靜默拿到 PNG，無從排查。
+                    console.warn('[gallery-cache] storePreview JPEG 轉換未生效，保留 PNG 原圖');
+                    window.dispatchEvent(new CustomEvent('xb-draw-toast', {
+                        detail: { message: 'JPEG 转换失败（两条管线都没出图），本图保留 PNG 原图', type: 'warning' },
+                    }));
+                }
             }
         } catch (e) {
             console.warn('[gallery-cache] JPEG 轉換失敗，保留原圖：', e?.message);
+            window.dispatchEvent(new CustomEvent('xb-draw-toast', {
+                detail: { message: `JPEG 转换异常：${e?.message || e}`, type: 'warning' },
+            }));
         }
     }
+
+    // 有新原图时顺手生成持久化缩略图；无原图的状态更新保留旧缩略图
+    let thumbBase64 = workingBase64 ? await createThumbnailDataUrl(workingBase64) : null;
 
     return new Promise((resolve, reject) => {
         try {
             const tx = database.transaction(DB_STORE, 'readwrite');
             const store = tx.objectStore(DB_STORE);
-            const previous = store.get(imgId);
-            previous.onsuccess = () => store.put({
-                imgId,
-                slotId: resolvedSlotId,
-                messageId,
-                chatId: resolvedChatId,
-                characterName: resolvedCharacterName,
-                source,
-                bookId,
-                bookTitle,
-                chapterPath,
-                chapterTitle,
-                base64: workingBase64,
-                tags,
-                positive,
-                savedUrl,
-                status,
-                errorType,
-                errorMessage,
-                characterPrompts,
-                negativePrompt,
-                postPrompt,
-                // Only creation grants attachment authority. Progress/late paid
-                // results cannot restore authority withdrawn by save or editing.
-                placement: previous.result ? previous.result.placement ?? null : placement ?? null,
-                timestamp: Date.now()
-            });
+            const getReq = store.get(imgId);
+            getReq.onsuccess = () => {
+                const previous = getReq.result;
+                if (!thumbBase64 && previous?.thumbBase64) thumbBase64 = previous.thumbBase64;
+                store.put({
+                    imgId,
+                    slotId: resolvedSlotId,
+                    messageId,
+                    chatId: resolvedChatId,
+                    characterName: resolvedCharacterName,
+                    source,
+                    bookId,
+                    bookTitle,
+                    chapterPath,
+                    chapterTitle,
+                    base64: workingBase64,
+                    thumbBase64,
+                    tags,
+                    title: String(title || ''),
+                    positive,
+                    savedUrl,
+                    status,
+                    errorType,
+                    errorMessage,
+                    characterPrompts,
+                    negativePrompt,
+                    presetId: String(presetId || ''),
+                    presetName: String(presetName || ''),
+                    vibeNames: String(vibeNames || ''),
+                    timestamp: Date.now()
+                });
+            };
+            getReq.onerror = () => reject(getReq.error);
             tx.oncomplete = () => {
                 invalidateCache(resolvedSlotId);
                 publishCacheChange([resolvedSlotId]);
-                resolve();
+                // 回傳最終存儲的 base64（含 JPEG 轉換結果），讓聊天卡的 displayUrl 與快取一致，
+                // 避免消息內嵌原圖 PNG 而快取是 JPEG 的「格式分裂」。
+                resolve(workingBase64);
             };
             tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
         } catch (e) {
@@ -800,13 +945,16 @@ export async function storeFailedPlaceholder(opts) {
         chapterTitle: opts.chapterTitle || '',
         base64: null,
         tags: opts.tags,
+        title: opts.title || '',
         positive: opts.positive,
         status: 'failed',
         errorType: opts.errorType,
         errorMessage: opts.errorMessage,
         characterPrompts: opts.characterPrompts ?? null,
         negativePrompt: opts.negativePrompt ?? null,
-        postPrompt: opts.postPrompt ?? null,
+        presetId: opts.presetId || '',
+        presetName: opts.presetName || '',
+        vibeNames: opts.vibeNames || '',
     });
 }
 
@@ -824,28 +972,92 @@ export async function getPreview(imgId) {
     });
 }
 
-// Bounded by the floor, never by the size of the chat or image archive.
-export async function getPreviewsForMessage(chatId, messageId) {
+/** 取所有預覽的輕量版本，用於批量管理網格；對缺 thumbBase64 的舊記錄懶補建 */
+export async function getAllPreviewsLight() {
     const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const tx = database.transaction(DB_STORE, 'readonly');
-        const store = tx.objectStore(DB_STORE);
-        // Intersect existing indexes before loading records. This also works
-        // with released databases, without another blocking schema upgrade.
-        const requests = [store.index('chatId').getAllKeys(String(chatId)),
-            store.index('messageId').getAllKeys(Number(messageId)), store.index('messageId').getAllKeys(String(messageId))];
-        const records = [];
-        let remaining = requests.length;
-        for (const request of requests) request.onsuccess = () => {
-            if (--remaining) return;
-            const chatKeys = new Set(requests[0].result);
-            for (const key of new Set(requests.slice(1).flatMap(item => item.result))) {
-                if (chatKeys.has(key)) store.get(key).onsuccess = event => records.push(event.target.result);
-            }
-        };
-        tx.oncomplete = () => resolve(records);
-        tx.onerror = tx.onabort = () => reject(tx.error || new Error(DRAW_SLOT_COPY.storageReadFailed));
+    const allRaw = await new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        } catch (e) { reject(e); }
     });
+    // 懶補建：舊記錄可能有 base64 但缺 thumbBase64（256px 縮略圖首次訪問時生成）
+    for (const r of allRaw) {
+        if (r && r.imgId && !r.thumbBase64 && r.base64) {
+            const thumb = await createThumbnailDataUrl(r.base64);
+            if (thumb) {
+                await persistThumbnailQuiet(r.imgId, thumb);
+                r.thumbBase64 = thumb;
+            }
+        }
+    }
+    return allRaw
+        .filter((r) => r && r.imgId)
+        .map((r) => ({
+            imgId: String(r.imgId),
+            thumbBase64: r.thumbBase64 || null,
+            savedUrl: r.savedUrl || '',
+            characterName: String(r.characterName || ''),
+            slotId: String(r.slotId || ''),
+            timestamp: Number(r.timestamp) || 0,
+        }))
+        .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+/** 把缓存里仍是 PNG 的旧图批量转成 JPEG。「生成後存 JPEG」开关只管新图，旧图需手动触发。
+ *  每张独立事务逐个写回，失败的保留原图继续下一张；onProgress(done, total) 用于进度提示。 */
+export async function convertLegacyPreviewsToJpeg({ quality = 0.8, onProgress } = {}) {
+    const database = await openDB();
+    const stats = { total: 0, converted: 0, failed: 0, savedBytes: 0 };
+    const allRaw = await new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const request = tx.objectStore(DB_STORE).getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        } catch (e) { reject(e); }
+    });
+    const targets = allRaw.filter((r) => r?.imgId && r.base64 && !isJpegBase64(r.base64));
+    stats.total = targets.length;
+    let done = 0;
+    for (const record of targets) {
+        try {
+            const originalBody = (record.base64.startsWith('data:') ? record.base64.split(',')[1] : record.base64)
+                .replace(/[^A-Za-z0-9+/=]/g, '');
+            const originalBytes = atob(originalBody).length;
+            const converted = await convertImageToJpeg(record.base64, quality);
+            if (converted && converted !== record.base64) {
+                const convertedBody = (converted.startsWith('data:') ? converted.split(',')[1] : converted)
+                    .replace(/[^A-Za-z0-9+/=]/g, '');
+                const convertedBytes = atob(convertedBody).length;
+                record.base64 = converted;
+                const thumb = await createThumbnailDataUrl(converted);
+                if (thumb) record.thumbBase64 = thumb;
+                await new Promise((resolve, reject) => {
+                    try {
+                        const tx = database.transaction(DB_STORE, 'readwrite');
+                        tx.objectStore(DB_STORE).put(record);
+                        tx.oncomplete = () => {
+                            invalidateCache(record.slotId);
+                            resolve();
+                        };
+                        tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
+                    } catch (e) { reject(e); }
+                });
+                stats.converted++;
+                stats.savedBytes += Math.max(0, originalBytes - convertedBytes);
+            }
+        } catch {
+            stats.failed++;
+        }
+        done++;
+        try { onProgress?.(done, stats.total); } catch { /* 进度回调失败不影响转换 */ }
+    }
+    if (stats.converted) publishCacheChange([]);
+    return stats;
 }
 
 export async function getPreviewsBySlot(slotId) {
@@ -916,8 +1128,7 @@ export async function getDisplayPreviewForSlot(slotId) {
         selectedImgId,
         historyCount: successPreviews.length,
         hasData: false,
-        isFailed: preview?.status !== PreviewStatus.UNGENERATED,
-        isUngenerated: preview?.status === PreviewStatus.UNGENERATED,
+        isFailed: true,
         isPending: preview?.status === PreviewStatus.PENDING || preview?.status === PreviewStatus.UNKNOWN,
         failedInfo: {
             tags: preview?.tags || '',
@@ -928,6 +1139,12 @@ export async function getDisplayPreviewForSlot(slotId) {
     });
 
     if (successPreviews.length === 0) {
+        const manual = previews.find(p => p?.status === PreviewStatus.MANUAL);
+        if (manual) {
+            return { preview: manual, selectedImgId, historyCount: 0, hasData: false,
+                isFailed: false, isManual: true,
+                failedInfo: { tags: manual.tags || '', positive: manual.positive || '' } };
+        }
         return asFailure(failedPreviews[0]);
     }
 
@@ -972,37 +1189,10 @@ export async function updatePreviewRecord(imgId, changes) {
     });
 }
 
-// Revoke attachment only; never remove the paid image or its reusable input.
-// The transaction also serializes against late full-record transport writes.
-export async function clearPreviewPlacements(owner, slotIds) {
-    const database = await openDB();
-    const ids = [...new Set(slotIds)];
-    if (!owner || !ids.length) return;
-    return new Promise((resolve, reject) => {
-        const tx = database.transaction(DB_STORE, 'readwrite');
-        const store = tx.objectStore(DB_STORE);
-        for (const slotId of ids) {
-            const request = store.index('slotId').openCursor(slotId);
-            request.onsuccess = () => {
-                const cursor = request.result;
-                if (!cursor) return;
-                if (cursor.value.placement?.owner === owner) cursor.update({ ...cursor.value, placement: null });
-                cursor.continue();
-            };
-        }
-        tx.oncomplete = () => {
-            ids.forEach(invalidateCache);
-            publishCacheChange(ids);
-            resolve();
-        };
-        tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
-    });
-}
-
 export async function getCardPreview({ imgId, slotId }) {
-    if (!imgId) return null;
-    const record = await getPreview(imgId);
-    return record?.slotId === slotId ? record : null;
+    const record = imgId ? await getPreview(imgId) : null;
+    if (record?.slotId === slotId) return record;
+    return (await getDisplayPreviewForSlot(slotId)).preview;
 }
 
 export async function getLatestPreviewForSlot(slotId) {
@@ -1053,15 +1243,15 @@ export async function updatePreviewSavedUrl(imgId, savedUrl) {
     if (!preview) return;
 
     preview.savedUrl = savedUrl;
-    preview.base64 = null;
+    // 保留本地原圖：Tauritavern 等自定義 origin 客戶端無法用 <img> 直連 /user 路徑，
+    // 清掉 base64 後已存圖在畫廊必裂；空間由快取過期清理負責，不在保存時主動剝離。
 
     return new Promise((resolve, reject) => {
         try {
             const tx = database.transaction(DB_STORE, 'readwrite');
             tx.objectStore(DB_STORE).put(preview);
             tx.oncomplete = () => {
-                // 不在这里作废 blob URL：聊天里的图片卡（或尚未加载的懒加载图片）可能还在用它，
-                // 提前作废会让它加载失败；闲置的 blob 由 prunePreviewObjectUrls 回收。
+                revokePreviewObjectUrl(imgId);
                 invalidateCache(preview.slotId);
                 publishCacheChange([preview.slotId]);
                 resolve();
@@ -1136,12 +1326,7 @@ export async function clearExpiredCache(cacheDays = 3) {
                     const isFailed = record.status === 'failed' || (!record.base64 && !record.savedUrl);
                     const shouldTrimSavedBase64 = !!record.savedUrl && !!record.base64;
 
-                    // Chat image rows are durable user inputs/results, not a
-                    // disposable request cache. Only explicit gallery/slot
-                    // deletion may remove the last copy of their TAG or image.
-                    const chatImage = record.chatId && record.messageId !== undefined
-                        && record.messageId !== null && record.messageId !== '' && !record.source;
-                    if (!chatImage && (isExpiredUnsaved || (isFailed && record.timestamp < cutoff))) {
+                    if (isExpiredUnsaved || (isFailed && record.timestamp < cutoff)) { 
                         revokePreviewObjectUrl(record.imgId);
                         cursor.delete(); 
                         cleaned++; 
@@ -1245,201 +1430,124 @@ export async function getGallerySummary() {
     });
 }
 
-export async function getCharacterPreviews(charName) {
+// 预设缩略图候选：一次扫描分出「用该预设生成过的图」与其他成功图，
+// 均按时间倒序。旧记录没有 presetId，只能在 others 里手动认。
+export async function getThumbnailCandidates(presetId = '') {
     const database = await openDB();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+        const matched = [];
+        const others = [];
         try {
             const tx = database.transaction(DB_STORE, 'readonly');
             const store = tx.objectStore(DB_STORE);
-            const slots = {};
-            const pushItem = (item) => {
-                if ((item.characterName || 'Unknown') !== charName) return;
-                if (item.status === 'failed' || (!item.base64 && !item.savedUrl)) return;
-
-                const slotId = item.slotId || item.imgId;
-                if (!slots[slotId]) slots[slotId] = [];
-                slots[slotId].push(item);
-            };
-            const finish = () => {
-                for (const sid in slots) {
-                    slots[sid].sort((a, b) => b.timestamp - a.timestamp);
-                }
-                resolve(slots);
-            };
-
-            if (store.indexNames.contains('characterName') && charName !== 'Unknown') {
-                const request = store.index('characterName').getAll(charName);
-                request.onsuccess = () => {
-                    (request.result || []).forEach(pushItem);
-                    finish();
-                };
-                request.onerror = () => resolve({});
-                return;
-            }
-
-            store.openCursor().onsuccess = (event) => {
+            const request = store.openCursor();
+            request.onsuccess = (event) => {
                 const cursor = event.target.result;
                 if (!cursor) {
-                    finish();
+                    matched.sort((a, b) => b.timestamp - a.timestamp);
+                    others.sort((a, b) => b.timestamp - a.timestamp);
+                    resolve({ matched, others });
                     return;
                 }
-                const item = cursor.value;
-                pushItem(item);
+                const record = cursor.value;
+                if (record && hasPreviewImage(record)) {
+                    (record.presetId === String(presetId || '') && presetId
+                        ? matched
+                        : others).push(record);
+                }
                 cursor.continue();
             };
-            tx.onerror = () => resolve({});
-        } catch {
-            resolve({});
+            request.onerror = () => reject(request.error);
+        } catch (e) {
+            reject(e);
         }
     });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 图片管理：按图组分页读取（只把本页图组的“最新一张”带出去，版本按需另取）
-// ═══════════════════════════════════════════════════════════════════════════
-
-function isDisplayableRecord(item) {
-    return !!item && typeof item === 'object' && item.status !== 'failed' && !!(item.base64 || item.savedUrl);
+// 畫廊分組輕量索引：圖多時不能把某角色全部原圖 base64 物化進內存（幾百張即數百 MB，
+// 移動端 WebView 會直接 OOM 重載）。統一走 cursor 逐條到達，每個 slot 只保留最新一張
+// 做封面，返回時剝離原圖只帶 256px 縮略圖；slot 的完整歷史在打開燈箱時按需取。
+// 安静地把补建好的缩略图写回记录（不走 updatePreviewRecord，避免逐张触发缓存变更事件）
+async function persistThumbnailQuiet(imgId, thumbBase64) {
+    const database = await openDB();
+    return new Promise((resolve) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readwrite');
+            const store = tx.objectStore(DB_STORE);
+            const req = store.get(imgId);
+            req.onsuccess = () => {
+                const record = req.result;
+                if (!record) { resolve(false); return; }
+                record.thumbBase64 = thumbBase64;
+                store.put(record);
+            };
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = tx.onabort = () => resolve(false);
+        } catch {
+            resolve(false);
+        }
+    });
 }
 
-function compareText(a, b) {
-    return a < b ? -1 : (a > b ? 1 : 0);
-}
-
-// 页面只需要这几个字段；已保存的记录只带 savedUrl，不带 base64。
-function toGalleryImage(item) {
-    return {
-        imgId: item.imgId,
-        slotId: item.slotId || item.imgId,
-        timestamp: Number(item.timestamp) || 0,
-        savedUrl: item.savedUrl || null,
-        base64: item.savedUrl ? null : (item.base64 || null),
-    };
-}
-
-// 逐条读取该角色的记录，只保留每个图组的元数据，读完一条就丢掉它的 base64，整个角色的图片不会同时驻留内存。
-function scanCharacterSlotOrder(charName) {
-    return openDB().then((database) => new Promise((resolve, reject) => {
+// 只返回分组封面所需的轻量索引：256px 缩略图或已保存路径，绝不带原图 base64。
+// 旧记录缺缩略图时在此串行补建并持久化（每个 slot 只处理最新一张）。
+export async function getCharacterGalleryIndex(charName) {
+    const database = await openDB();
+    const latestBySlot = await new Promise((resolve) => {
         try {
             const tx = database.transaction(DB_STORE, 'readonly');
             const store = tx.objectStore(DB_STORE);
             const slots = new Map();
-            const visit = (item) => {
-                try {
-                    if (!isDisplayableRecord(item) || (item.characterName || 'Unknown') !== charName) return;
-                    const slotId = item.slotId || item.imgId;
-                    if (!slotId) return;
-                    let slot = slots.get(slotId);
-                    if (!slot) {
-                        slot = { slotId, count: 0, hasSaved: false, latestTimestamp: -1, latestImgId: null };
-                        slots.set(slotId, slot);
-                    }
-                    slot.count++;
-                    if (item.savedUrl) slot.hasSaved = true;
-                    const timestamp = Number(item.timestamp) || 0;
-                    // 游标按主键升序给出记录：时间相同保留先到的（imgId 较小），与版本排序的平手规则一致。
-                    if (timestamp > slot.latestTimestamp) {
-                        slot.latestTimestamp = timestamp;
-                        slot.latestImgId = item.imgId;
-                    }
-                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "visit" }, caughtError); }
-            };
-            const source = store.indexNames.contains('characterName') && charName !== 'Unknown'
-                ? store.index('characterName').openCursor(charName)
-                : store.openCursor();
-            source.onsuccess = (event) => {
+            store.openCursor().onsuccess = (event) => {
                 const cursor = event.target.result;
-                if (!cursor) return;
-                visit(cursor.value);
+                if (!cursor) { resolve(slots); return; }
+                const item = cursor.value;
+                if ((item.characterName || 'Unknown') === charName
+                    && item.status !== 'failed' && item.status !== PreviewStatus.MANUAL
+                    && (item.base64 || item.savedUrl)) {
+                    const slotId = item.slotId || item.imgId;
+                    const entry = slots.get(slotId);
+                    if (!entry) slots.set(slotId, { latest: item, count: 1 });
+                    else {
+                        entry.count += 1;
+                        if (Number(item.timestamp) > Number(entry.latest.timestamp)) entry.latest = item;
+                    }
+                }
                 cursor.continue();
             };
-            source.onerror = () => reject(source.error);
-            tx.oncomplete = () => resolve(Array.from(slots.values())
-                .sort((a, b) => (b.latestTimestamp - a.latestTimestamp) || compareText(a.slotId, b.slotId)));
-            tx.onabort = () => reject(tx.error || new Error('scan aborted'));
-        } catch (error) {
-            reject(error);
+            tx.onerror = () => resolve(new Map());
+        } catch {
+            resolve(new Map());
         }
-    }));
-}
+    });
 
-function getCharacterSlotOrder(charName) {
-    const cached = slotOrderCache.get(charName);
-    if (cached && Date.now() - cached.at < SLOT_ORDER_CACHE_TTL) return cached.promise;
-    const generation = slotOrderGeneration;
-    const promise = scanCharacterSlotOrder(charName);
-    const entry = { at: Date.now(), promise };
-    slotOrderCache.set(charName, entry);
-    // 失败、或扫描期间发生过写入（结果可能已过期）：不留缓存，本次调用仍可用这份结果作答。
-    const drop = () => { if (slotOrderCache.get(charName) === entry) slotOrderCache.delete(charName); };
-    promise.then(() => { if (generation !== slotOrderGeneration) drop(); }, drop);
-    return promise;
-}
+    // 旧记录懒补建缩略图（串行，单角色 slot 量级，256px 单次约 10ms）
+    for (const entry of latestBySlot.values()) {
+        const record = entry.latest;
+        if (record.base64 && !record.thumbBase64) {
+            const thumb = await createThumbnailDataUrl(record.base64);
+            if (thumb) {
+                await persistThumbnailQuiet(record.imgId, thumb);
+                record.thumbBase64 = thumb;
+            }
+        }
+    }
 
-function readRecordsByKeys(keys) {
-    return openDB().then((database) => new Promise((resolve, reject) => {
-        const results = new Array(keys.length).fill(null);
-        if (!keys.length) { resolve(results); return; }
-        const tx = database.transaction(DB_STORE, 'readonly');
-        const store = tx.objectStore(DB_STORE);
-        tx.oncomplete = () => resolve(results);
-        tx.onabort = tx.onerror = () => reject(tx.error || new Error(DRAW_SLOT_COPY.storageReadFailed));
-        keys.forEach((key, index) => {
-            const request = store.get(key);
-            request.onsuccess = () => { results[index] = request.result || null; };
-            request.onerror = () => reject(request.error);
-        });
-    }));
-}
-
-/**
- * 某角色的第 offset 起 limit 个图组（按每组最新图时间倒序），每组只带最新一张。
- * 返回 { slots: {slotId: [最新一张]}, order, slotMeta: {slotId: {count, hasSaved}}, offset, limit, total, hasMore, nextOffset }。
- * 记录缺失 / 损坏的图组被跳过（order 里没有它，nextOffset 仍然前进），不让整页失败。
- */
-export async function getCharacterSlotsPage(charName, { offset = 0, limit = GALLERY_PAGE_DEFAULT_LIMIT } = {}) {
-    const start = Math.max(0, Math.floor(Number(offset)) || 0);
-    const size = Math.min(GALLERY_PAGE_MAX_LIMIT, Math.max(1, Math.floor(Number(limit)) || GALLERY_PAGE_DEFAULT_LIMIT));
-    const all = await getCharacterSlotOrder(charName);
-    const pageSlots = all.slice(start, start + size);
-    const records = await readRecordsByKeys(pageSlots.map(slot => slot.latestImgId));
+    // 剥离原图，封面只带缩略图/服务器路径
     const slots = {};
-    const order = [];
-    const slotMeta = {};
-    pageSlots.forEach((slot, index) => {
-        const record = records[index];
-        if (!isDisplayableRecord(record)) return;
-        slots[slot.slotId] = [toGalleryImage(record)];
-        slotMeta[slot.slotId] = { count: slot.count, hasSaved: slot.hasSaved };
-        order.push(slot.slotId);
-    });
-    const nextOffset = start + pageSlots.length;
-    return { slots, order, slotMeta, offset: start, limit: size, total: all.length, hasMore: nextOffset < all.length, nextOffset };
-}
-
-/** 一个图组的全部版本（按时间倒序，时间相同按 imgId），已保存的只带 savedUrl。 */
-export async function getSlotVersions(charName, slotId) {
-    if (!slotId) return [];
-    const database = await openDB();
-    const rows = await new Promise((resolve, reject) => {
-        try {
-            const tx = database.transaction(DB_STORE, 'readonly');
-            const store = tx.objectStore(DB_STORE);
-            const found = [];
-            const byIndex = store.indexNames.contains('slotId') ? store.index('slotId').getAll(slotId) : null;
-            const byKey = store.get(slotId); // 没有 slotId 字段的记录以自身 imgId 作图组
-            if (byIndex) byIndex.onsuccess = () => found.push(...(byIndex.result || []));
-            byKey.onsuccess = () => { if (byKey.result && !byKey.result.slotId) found.push(byKey.result); };
-            tx.oncomplete = () => resolve(found);
-            tx.onabort = tx.onerror = () => reject(tx.error || new Error('read aborted'));
-        } catch (error) {
-            reject(error);
-        }
-    });
-    return rows
-        .filter(item => isDisplayableRecord(item) && (item.characterName || 'Unknown') === (charName || 'Unknown'))
-        .sort((a, b) => ((Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)) || compareText(String(a.imgId), String(b.imgId)))
-        .map(toGalleryImage);
+    for (const [slotId, entry] of latestBySlot) {
+        const record = entry.latest;
+        slots[slotId] = {
+            count: entry.count,
+            latest: {
+                imgId: record.imgId,
+                timestamp: record.timestamp,
+                savedUrl: record.savedUrl || null,
+                thumbBase64: record.thumbBase64 || null,
+            },
+        };
+    }
+    return slots;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1450,61 +1558,8 @@ function ensureGalleryStyles() {
     if (document.getElementById('nd-gallery-styles')) return;
     const style = document.createElement('style');
     style.id = 'nd-gallery-styles';
-    style.textContent = `
-#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100000;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}
-#nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
-.nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
-.nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
-.nd-gallery-main{position:relative;display:flex;align-items:center;justify-content:center;width:100%;max-height:75%;flex:1;min-height:0;overflow:hidden}
-.nd-gallery-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:none;background:rgba(0,0,0,0.35);backdrop-filter:blur(4px);border-radius:50%;color:#fff;font-size:24px;cursor:pointer}
-#nd-gallery-prev{left:16px}
-#nd-gallery-next{right:16px}
-.nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}
-.nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}
-/* 图片与角标共享居中的图片网格区域，不以撑满高度的外壳作为角标边界。 */
-.nd-gallery-img-wrap{position:relative;max-width:90%;height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,max-content);align-content:center;justify-content:center;touch-action:none}
-.nd-gallery-img,.nd-gallery-saved-badge{grid-area:1/1}
-.nd-gallery-img{min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);user-select:none;-webkit-user-drag:none;will-change:transform}
-.nd-gallery-saved-badge{position:absolute;top:min(12px,10%);left:min(12px,10%);z-index:10;background:rgba(62,207,142,0.9);padding:min(4px,5%) min(10px,5%);white-space:nowrap;border-radius:6px;font-size:11px;color:#fff;font-weight:600}
-.nd-gallery-thumbs{flex-shrink:0;display:flex;gap:8px;margin-top:20px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;box-sizing:border-box;max-width:90%;overflow-x:auto;transition:opacity 0.15s ease,visibility 0.15s ease}
-#nd-gallery-overlay.zoomed .nd-gallery-thumbs{opacity:0;pointer-events:none;visibility:hidden}
-.nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}
-.nd-gallery-thumb:hover{opacity:0.9}
-.nd-gallery-thumb.active{border-color:#d4a574;opacity:1}
-.nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}
-.nd-gallery-actions{display:flex;flex-shrink:0;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:16px;max-width:100%}
-.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}
-.nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}
-.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}
-.nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}
-.nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}
-.nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:rgba(255,255,255,0.6)}
-@media(max-height:500px){.nd-gallery-thumbs{margin-top:8px;padding:6px}.nd-gallery-thumb{width:40px;height:40px}.nd-gallery-actions{margin-top:8px}.nd-gallery-info{margin-top:6px}}`;
+    style.textContent = `#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100003;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);flex-direction:column}.nd-gallery-overlay.visible{display:flex}.nd-gallery-close{position:absolute;top:calc(env(safe-area-inset-top, 0px) + 16px);right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}.nd-gallery-close:hover{background:rgba(255,255,255,0.2)}.nd-gallery-main{display:flex;align-items:center;gap:16px;max-width:90vw;max-height:60vh}.nd-gallery-nav{width:48px;height:48px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:24px;cursor:pointer;flex-shrink:0}.nd-gallery-nav:hover{background:rgba(255,255,255,0.2)}.nd-gallery-nav:disabled{opacity:0.3;cursor:not-allowed}.nd-gallery-img-wrap{position:relative;max-width:calc(90vw - 140px);max-height:60vh}.nd-gallery-img{max-width:100%;max-height:60vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5)}.nd-gallery-saved-badge{position:absolute;top:12px;left:12px;background:rgba(62,207,142,0.9);padding:4px 10px;border-radius:6px;font-size:11px;color:#fff;font-weight:600}.nd-gallery-thumbs{display:flex;gap:8px;margin-top:16px;padding:12px;background:rgba(0,0,0,0.3);border-radius:12px;max-width:90vw;overflow-x:auto}.nd-gallery-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;cursor:pointer;border:2px solid transparent;opacity:0.6;transition:all 0.15s;flex-shrink:0}.nd-gallery-thumb:hover{opacity:0.9}.nd-gallery-thumb.active{border-color:#d4a574;opacity:1}.nd-gallery-thumb.saved{border-color:rgba(62,207,142,0.8)}.nd-gallery-actions{display:flex;gap:12px;margin-top:12px;align-items:center}.nd-gallery-btn{padding:10px 20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:13px;cursor:pointer;transition:all 0.15s}.nd-gallery-btn:hover{background:rgba(255,255,255,0.2)}.nd-gallery-btn.primary{background:rgba(212,165,116,0.3);border-color:rgba(212,165,116,0.5)}.nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}.nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}.nd-gallery-info{text-align:center;margin-top:8px;font-size:12px;color:rgba(255,255,255,0.6)}.nd-gallery-prompt-wrap{max-width:90vw;margin-top:12px;border-radius:8px;background:rgba(0,0,0,0.4);overflow:hidden}.nd-gallery-prompt-head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;cursor:pointer;color:rgba(255,255,255,0.85);font-size:12px;user-select:none}.nd-gallery-prompt-head:hover{background:rgba(255,255,255,0.08)}.nd-gallery-prompt-head .arrow{transition:transform 0.15s}.nd-gallery-prompt-wrap.open .nd-gallery-prompt-head .arrow{transform:rotate(180deg)}.nd-gallery-prompt-body{display:none;padding:12px;font-size:12px;color:rgba(255,255,255,0.85);line-height:1.5;max-height:28vh;overflow-y:auto}.nd-gallery-prompt-wrap.open .nd-gallery-prompt-body{display:block}.nd-gallery-prompt-section{margin-bottom:10px}.nd-gallery-prompt-section:last-child{margin-bottom:0}.nd-gallery-prompt-section h4{margin:0 0 4px 0;font-size:11px;color:rgba(212,165,116,0.8);font-weight:600;text-transform:uppercase;letter-spacing:0.05em}.nd-gallery-prompt-section pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:inherit;color:inherit;background:rgba(0,0,0,0.25);padding:6px 10px;border-radius:4px;max-height:120px;overflow-y:auto}.nd-batch-overlay{position:fixed;inset:0;z-index:100004;background:rgba(0,0,0,0.92);display:none;flex-direction:column;padding:24px}.nd-batch-overlay.visible{display:flex}.nd-batch-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;color:#fff}.nd-batch-head h3{margin:0;font-size:16px;font-weight:600}.nd-batch-actions{display:flex;gap:8px}.nd-batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;overflow-y:auto;flex:1;padding-right:8px}.nd-batch-item{position:relative;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid transparent;transition:border-color 0.15s;background:#111}.nd-batch-item.checked{border-color:#d4a574}.nd-batch-item img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block}.nd-batch-checkbox{position:absolute;top:6px;left:6px;width:22px;height:22px;background:rgba(0,0,0,0.7);border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;opacity:0.6;transition:opacity 0.15s}.nd-batch-item.checked .nd-batch-checkbox{opacity:1;background:rgba(212,165,116,0.9)}.nd-batch-count{color:rgba(255,255,255,0.7);font-size:12px;margin-left:12px}`;
     document.head.appendChild(style);
-}
-
-let galleryZoomScale = 1;
-let galleryZoomX = 0;
-let galleryZoomY = 0;
-let galleryPanning = false;
-const galleryPointers = new Map();
-
-function applyGalleryZoom(smooth = false) {
-    const img = document.getElementById('nd-gallery-img');
-    if (!img) return;
-    img.style.transition = smooth ? 'transform 0.15s ease-out' : 'none';
-    img.style.transform = galleryZoomScale > 1 ? `translate3d(${galleryZoomX}px, ${galleryZoomY}px, 0) scale(${galleryZoomScale})` : '';
-    img.style.cursor = galleryZoomScale > 1 ? (galleryPanning ? 'grabbing' : 'grab') : '';
-    document.getElementById('nd-gallery-overlay')?.classList.toggle('zoomed', galleryZoomScale > 1);
-}
-
-function resetGalleryZoom(smooth = false) {
-    galleryZoomScale = 1;
-    galleryZoomX = 0;
-    galleryZoomY = 0;
-    galleryPanning = false;
-    galleryPointers.clear();
-    applyGalleryZoom(smooth);
 }
 
 function createGalleryOverlay() {
@@ -1514,116 +1569,28 @@ function createGalleryOverlay() {
 
     const overlay = document.createElement('div');
     overlay.id = 'nd-gallery-overlay';
-    // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup.
-    overlay.innerHTML = `<button class="nd-gallery-close" id="nd-gallery-close">✕</button><div class="nd-gallery-main"><button class="nd-gallery-nav" id="nd-gallery-prev">‹</button><div class="nd-gallery-img-wrap"><img class="nd-gallery-img" id="nd-gallery-img" src="" alt=""><div class="nd-gallery-saved-badge" id="nd-gallery-saved-badge" style="display:none">已保存</div></div><button class="nd-gallery-nav" id="nd-gallery-next">›</button></div><div class="nd-gallery-thumbs" id="nd-gallery-thumbs"></div><div class="nd-gallery-actions" id="nd-gallery-actions"><button class="nd-gallery-btn primary" id="nd-gallery-use">使用此图</button><button class="nd-gallery-btn" id="nd-gallery-save">${IMAGE_SAVE_LABEL_HTML}</button><button class="nd-gallery-btn danger" id="nd-gallery-delete">🗑️ 删除</button></div><div class="nd-gallery-info" id="nd-gallery-info"></div>`;
+    // Template-only UI markup.
+    // eslint-disable-next-line no-unsanitized/property
+    overlay.innerHTML = `<button class="nd-gallery-close" id="nd-gallery-close">✕</button><div class="nd-gallery-main"><button class="nd-gallery-nav" id="nd-gallery-prev">‹</button><div class="nd-gallery-img-wrap"><img class="nd-gallery-img" id="nd-gallery-img" src="" alt=""><div class="nd-gallery-saved-badge" id="nd-gallery-saved-badge" style="display:none">已保存</div></div><button class="nd-gallery-nav" id="nd-gallery-next">›</button></div><div class="nd-gallery-thumbs" id="nd-gallery-thumbs"></div><div class="nd-gallery-actions" id="nd-gallery-actions"><button class="nd-gallery-btn primary" id="nd-gallery-use">使用此图</button><button class="nd-gallery-btn" id="nd-gallery-save">💾 保存到服务器</button><button class="nd-gallery-btn danger" id="nd-gallery-delete">🗑️ 删除</button></div><div class="nd-gallery-info" id="nd-gallery-info"></div><div class="nd-gallery-prompt-wrap" id="nd-gallery-prompt-wrap" hidden><div class="nd-gallery-prompt-head" id="nd-gallery-prompt-head"><span>完整提示词</span><span class="arrow">▾</span></div><div class="nd-gallery-prompt-body" id="nd-gallery-prompt-body"><div class="nd-gallery-prompt-section"><h4>Tags</h4><pre id="nd-gallery-prompt-tags"></pre></div><div class="nd-gallery-prompt-section"><h4>正向 (Positive)</h4><pre id="nd-gallery-prompt-positive"></pre></div><div class="nd-gallery-prompt-section"><h4>角色 (Character)</h4><pre id="nd-gallery-prompt-char"></pre></div><div class="nd-gallery-prompt-section"><h4>負向 (Negative)</h4><pre id="nd-gallery-prompt-negative"></pre></div></div></div>`;
     document.body.appendChild(overlay);
 
     document.getElementById('nd-gallery-close').addEventListener('click', closeGallery);
     document.getElementById('nd-gallery-prev').addEventListener('click', () => navigateGallery(-1));
     document.getElementById('nd-gallery-next').addEventListener('click', () => navigateGallery(1));
-    document.getElementById('nd-gallery-use').addEventListener('click', useCurrentGalleryImageEvent);
-    document.getElementById('nd-gallery-save').addEventListener('click', saveCurrentGalleryImageEvent);
-    document.getElementById('nd-gallery-delete').addEventListener('click', deleteCurrentGalleryImageEvent);
+    document.getElementById('nd-gallery-use').addEventListener('click', useCurrentGalleryImage);
+    document.getElementById('nd-gallery-save').addEventListener('click', saveCurrentGalleryImage);
+    document.getElementById('nd-gallery-delete').addEventListener('click', deleteCurrentGalleryImage);
+    document.getElementById('nd-gallery-prompt-head').addEventListener('click', () => {
+        document.getElementById('nd-gallery-prompt-wrap').classList.toggle('open');
+    });
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeGallery(); });
-
-    const img = document.getElementById('nd-gallery-img');
-
-    img.addEventListener('wheel', (e) => {
-        if (!img.src) return;
-        e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.2 : 0.833;
-        const newScale = Math.max(1, Math.min(6, galleryZoomScale * factor));
-        if (newScale === galleryZoomScale) return;
-        if (newScale <= 1.01) {
-            galleryZoomScale = 1;
-            galleryZoomX = 0;
-            galleryZoomY = 0;
-        } else {
-            const rect = img.getBoundingClientRect();
-            const cx = e.clientX - (rect.left + rect.width / 2);
-            const cy = e.clientY - (rect.top + rect.height / 2);
-            const ratio = newScale / galleryZoomScale;
-            galleryZoomX += cx * (1 - ratio);
-            galleryZoomY += cy * (1 - ratio);
-            galleryZoomScale = newScale;
-        }
-        applyGalleryZoom(false);
-    }, { passive: false });
-
-    img.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0 || !img.src) return;
-        galleryPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        galleryPanning = galleryZoomScale > 1;
-        applyGalleryZoom(false);
-        img.setPointerCapture(e.pointerId);
-    });
-
-    img.addEventListener('pointermove', (e) => {
-        const previous = galleryPointers.get(e.pointerId);
-        if (!previous) return;
-        const next = { x: e.clientX, y: e.clientY };
-        const other = [...galleryPointers.entries()].find(([id]) => id !== e.pointerId)?.[1];
-        if (other) {
-            const oldDistance = Math.hypot(previous.x - other.x, previous.y - other.y);
-            const distance = Math.hypot(next.x - other.x, next.y - other.y);
-            const scale = Math.max(1, Math.min(6, galleryZoomScale * (oldDistance ? distance / oldDistance : 1)));
-            const rect = img.getBoundingClientRect();
-            const cx = (previous.x + other.x) / 2 - (rect.left + rect.width / 2);
-            const cy = (previous.y + other.y) / 2 - (rect.top + rect.height / 2);
-            const ratio = scale / galleryZoomScale;
-            galleryZoomX += cx * (1 - ratio) + (next.x - previous.x) / 2;
-            galleryZoomY += cy * (1 - ratio) + (next.y - previous.y) / 2;
-            galleryZoomScale = scale;
-        } else if (galleryZoomScale > 1) {
-            galleryZoomX += next.x - previous.x;
-            galleryZoomY += next.y - previous.y;
-        }
-        galleryPointers.set(e.pointerId, next);
-        if (galleryZoomScale === 1) { galleryZoomX = 0; galleryZoomY = 0; }
-        galleryPanning = galleryZoomScale > 1;
-        applyGalleryZoom(false);
-    });
-
-    const endPan = (e) => {
-        galleryPointers.delete(e.pointerId);
-        galleryPanning = galleryPointers.size > 0 && galleryZoomScale > 1;
-        applyGalleryZoom(false);
-    };
-    img.addEventListener('pointerup', endPan);
-    img.addEventListener('pointercancel', endPan);
-    img.addEventListener('lostpointercapture', endPan);
 }
 
 export async function openGallery(slotId, messageId, callbacks = {}) {
-    // Capture before IndexedDB yields; the host can reuse its chat array when
-    // navigating, so neither an index nor a chat filename identifies the source.
-    const ctx = getContext();
-    const owner = getImageChatIdentity(ctx);
-    const chatId = String(ctx.chatId || '');
-    const msgIdx = Number(messageId);
-    const message = Number.isInteger(msgIdx) ? ctx.chat?.[msgIdx] : null;
-    const swipeIndex = message?.swipe_id ?? 0;
-    const assertCurrent = () => {
-        const current = getContext();
-        if (current.chat !== ctx.chat || getImageChatIdentity(current) !== owner
-            || (Number.isInteger(msgIdx) && current.chat?.[msgIdx] !== message)
-            || (message?.swipe_id ?? 0) !== swipeIndex) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-    };
     createGalleryOverlay();
 
-    let previews = await getPreviewsBySlot(slotId);
-    assertCurrent();
-    let validPreviews = previews.filter(hasPreviewImage);
-
-    if (!validPreviews.length && message && owner) {
-        const { materializeDrawSavedPreview } = await import('./draw-common.js');
-        assertCurrent();
-        await materializeDrawSavedPreview(message, slotId, { messageId: msgIdx, chatId });
-        assertCurrent();
-        previews = await getPreviewsBySlot(slotId);
-        assertCurrent();
-        validPreviews = previews.filter(hasPreviewImage);
-    }
+    const previews = await getPreviewsBySlot(slotId);
+    const validPreviews = previews.filter(hasPreviewImage);
 
     if (!validPreviews.length) {
         showToast('没有找到图片历史', 'error');
@@ -1631,27 +1598,19 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
     }
 
     const selectedImgId = await getSlotSelection(slotId);
-    assertCurrent();
     let startIndex = 0;
     if (selectedImgId) {
         const idx = validPreviews.findIndex(p => p.imgId === selectedImgId);
         if (idx >= 0) startIndex = idx;
     }
 
-    currentGalleryData?.stopViewport();
-    currentGalleryData = { slotId, messageId, previews: validPreviews, currentIndex: startIndex, callbacks,
-        stopViewport: observeViewport(() => {
-            Object.assign(document.getElementById('nd-gallery-overlay').style, getSafeViewportStyles());
-        }),
-    };
+    currentGalleryData = { slotId, messageId, previews: validPreviews, currentIndex: startIndex, callbacks };
     renderGalleryThumbs();
     renderGallery();
     document.getElementById('nd-gallery-overlay').classList.add('visible');
 }
 
 export function closeGallery() {
-    resetGalleryZoom(false);
-    currentGalleryData?.stopViewport();
     const el = document.getElementById('nd-gallery-overlay');
     if (el) el.classList.remove('visible');
     currentGalleryData = null;
@@ -1663,7 +1622,8 @@ function renderGalleryThumbs() {
     const reversedPreviews = previews.slice().reverse();
     const thumbsContainer = document.getElementById('nd-gallery-thumbs');
 
-    // eslint-disable-next-line no-unsanitized/property -- Generated from local preview data only.
+    // Generated from local preview data only.
+    // eslint-disable-next-line no-unsanitized/property
     thumbsContainer.innerHTML = reversedPreviews.map((p, i) => {
         const src = getPreviewDisplayUrl(p);
         const originalIndex = previews.length - 1 - i;
@@ -1700,10 +1660,7 @@ function renderGallery() {
     const current = previews[currentIndex];
     if (!current) return;
 
-    const image = document.getElementById('nd-gallery-img');
-    if (image.dataset.imgId !== current.imgId) resetGalleryZoom(false);
-    image.dataset.imgId = current.imgId;
-    image.src = getPreviewDisplayUrl(current);
+    document.getElementById('nd-gallery-img').src = getPreviewDisplayUrl(current);
     document.getElementById('nd-gallery-saved-badge').style.display = current.savedUrl ? 'block' : 'none';
     updateGalleryThumbState();
 
@@ -1715,14 +1672,30 @@ function renderGallery() {
         saveBtn.textContent = '✓ 已保存';
         saveBtn.disabled = true;
     } else {
-        // eslint-disable-next-line no-unsanitized/property -- Static draw-owned markup, without user input.
-        saveBtn.innerHTML = IMAGE_SAVE_LABEL_HTML;
+        saveBtn.textContent = '💾 保存到服务器';
         saveBtn.disabled = false;
     }
 
     const displayVersion = previews.length - currentIndex;
     const date = new Date(current.timestamp).toLocaleString();
     document.getElementById('nd-gallery-info').textContent = `版本 ${displayVersion} / ${previews.length} · ${date}`;
+
+    // 填入提示詞
+    const promptWrap = document.getElementById('nd-gallery-prompt-wrap');
+    const hasPrompt = current.tags || current.positive || current.negativePrompt || current.characterPrompts;
+    if (promptWrap) promptWrap.hidden = !hasPrompt;
+    const setPre = (id, value) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const text = (typeof value === 'string' && value.trim()) ? value : '（無）';
+        // 已被 escapeText 過的資料直接顯示即可；未 escape 的這裡也不需處理，因為是用戶自己看的 prompt 原文
+        // eslint-disable-next-line no-unsanitized/property
+        el.textContent = text;
+    };
+    setPre('nd-gallery-prompt-tags', current.tags);
+    setPre('nd-gallery-prompt-positive', current.positive);
+    setPre('nd-gallery-prompt-char', current.characterPrompts);
+    setPre('nd-gallery-prompt-negative', current.negativePrompt);
 }
 
 function navigateGallery(delta) {
@@ -1794,7 +1767,7 @@ async function deleteCurrentGalleryImage() {
         if (previews.length === 0) {
             closeGallery();
             if (callbacks.onBecameEmpty) {
-                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', positive: current.positive || '' });
+                callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
             }
             showToast('图片已删除，可点击重试重新生成');
         } else {
@@ -1826,8 +1799,133 @@ export function destroyGalleryCache() {
     galleryOverlayCreated = false;
 
     if (db) {
-        try { db.close(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "destroyGalleryCache" }, caughtError); }
+        try { db.close(); } catch {}
         db = null;
     }
     dbOpening = null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 批量管理 UI
+// ═══════════════════════════════════════════════════════════════════════════
+
+let batchOverlayCreated = false;
+let batchState = null;
+
+function createBatchOverlay() {
+    if (batchOverlayCreated) return;
+    batchOverlayCreated = true;
+    ensureGalleryStyles();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'nd-batch-overlay';
+    // eslint-disable-next-line no-unsanitized/property
+    overlay.innerHTML = `<div class="nd-batch-head"><h3 id="nd-batch-title">批量管理</h3><div class="nd-batch-actions"><button class="nd-gallery-btn" id="nd-batch-select-all">全選</button><button class="nd-gallery-btn" id="nd-batch-select-none">取消全選</button><button class="nd-gallery-btn" id="nd-batch-download">⬇️ 下載</button><button class="nd-gallery-btn danger" id="nd-batch-delete">🗑️ 批量刪除</button><button class="nd-gallery-btn" id="nd-batch-close">完成</button></div></div><div class="nd-batch-grid" id="nd-batch-grid"></div><div class="nd-batch-count" id="nd-batch-count"></div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById('nd-batch-close').addEventListener('click', closeBatchManage);
+    document.getElementById('nd-batch-select-all').addEventListener('click', () => setBatchChecked(true));
+    document.getElementById('nd-batch-select-none').addEventListener('click', () => setBatchChecked(false));
+    document.getElementById('nd-batch-delete').addEventListener('click', async () => {
+        const ids = getBatchSelectedIds();
+        if (!ids.length) return showToast('未選圖片', 'error');
+        if (!confirm(`確認刪除 ${ids.length} 張圖片？此操作不可撤銷。`)) return;
+        try {
+            for (const id of ids) await deletePreview(id);
+            showToast(`已刪除 ${ids.length} 張`);
+            await openGalleryBatchManage(batchState.slotId); // 刷新
+            publishCacheChange([batchState.slotId]);
+        } catch (e) {
+            showToast(`刪除失敗：${e?.message || e}`, 'error');
+        }
+    });
+    document.getElementById('nd-batch-download').addEventListener('click', async () => {
+        const ids = getBatchSelectedIds();
+        if (!ids.length) return showToast('未選圖片', 'error');
+        try {
+            let saved = 0, failed = 0;
+            for (const id of ids) {
+                const p = batchState.previews.find((x) => x.imgId === id);
+                const url = p ? getPreviewDisplayUrl(p) : null;
+                if (!url) { failed++; continue; }
+                const ts = new Date(p.timestamp || Date.now()).toISOString().replace(/[:.]/g, '-');
+                const isJpeg = isJpegBase64(p.base64);
+                await saveBase64AsFile(url, `image-${p.imgId}-${ts}.${isJpeg ? 'jpg' : 'png'}`);
+                saved++;
+            }
+            showToast(`已下載 ${saved} 張${failed ? `，${failed} 張失敗` : ''}`);
+        } catch (e) {
+            showToast(`下載失敗：${e?.message || e}`, 'error');
+        }
+    });
+}
+
+function setBatchChecked(checked) {
+    const grid = document.getElementById('nd-batch-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.nd-batch-item').forEach((el) => el.classList.toggle('checked', checked));
+    updateBatchCount();
+}
+
+function getBatchSelectedIds() {
+    const grid = document.getElementById('nd-batch-grid');
+    if (!grid) return [];
+    return [...grid.querySelectorAll('.nd-batch-item.checked')]
+        .map((el) => el.dataset.imgid)
+        .filter(Boolean);
+}
+
+function updateBatchCount() {
+    const count = getBatchSelectedIds().length;
+    const el = document.getElementById('nd-batch-count');
+    if (el) el.textContent = count ? `已選 ${count} 張` : '點選圖片開始挑選';
+}
+
+export async function openGalleryBatchManage(slotId) {
+    createBatchOverlay();
+    let previews;
+    if (slotId) {
+        previews = (await getPreviewsBySlot(slotId)).filter(hasPreviewImage);
+    } else {
+        // 全體批量管理：抓所有 slot 的最新圖
+        previews = [];
+        const summary = await getGallerySummary();
+        for (const [sid, entry] of Object.entries(summary)) {
+            if (entry?.latest) {
+                const full = await getPreview(entry.latest.imgId);
+                if (hasPreviewImage(full)) previews.push(full);
+            }
+        }
+        // 再補上有歷史的 slot 的所有圖
+        const allPreviews = await Object.keys(summary).reduce(async (acc, sid) => {
+            const list = await getPreviewsBySlot(sid);
+            return [...(await acc), ...list.filter(hasPreviewImage)];
+        }, Promise.resolve([]));
+        // 去重
+        const seen = new Set();
+        previews = allPreviews.filter((p) => { if (seen.has(p.imgId)) return false; seen.add(p.imgId); return true; });
+    }
+    const reversed = previews.slice().reverse();
+    batchState = { slotId, previews };
+
+    const grid = document.getElementById('nd-batch-grid');
+    grid.innerHTML = reversed.map((p) => {
+        const src = getPreviewDisplayUrl(p);
+        return `<div class="nd-batch-item" data-imgid="${p.imgId}"><div class="nd-batch-checkbox">✓</div><img src="${src}" alt="" loading="lazy"></div>`;
+    }).join('');
+    grid.querySelectorAll('.nd-batch-item').forEach((el) => {
+        el.addEventListener('click', () => {
+            el.classList.toggle('checked');
+            updateBatchCount();
+        });
+    });
+
+    document.getElementById('nd-batch-title').textContent = `批量管理（共 ${previews.length} 張）`;
+    updateBatchCount();
+    document.getElementById('nd-batch-overlay').classList.add('visible');
+}
+
+export function closeBatchManage() {
+    const el = document.getElementById('nd-batch-overlay');
+    if (el) el.classList.remove('visible');
 }
