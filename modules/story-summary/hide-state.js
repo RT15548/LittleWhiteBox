@@ -1,4 +1,7 @@
-// Automatic hiding owns the host's message visibility while enabled, as before.
+// Automatic hiding owns the host's message visibility while managed, as before.
+// managed=false releases control without changing flags; enabled=false restores
+// visibility only while the module still manages this chat. Explicit clear() is
+// reserved for active repairs or the one-time disable transition.
 // Host flags are a projection, not a second boundary. All bookkeeping below is
 // session-local; loading/deleting a chat audits its saved flags from scratch.
 export function getHiddenThrough({ enabled, summaryBoundary, vectorBoundary = -1,
@@ -50,7 +53,7 @@ export function createHideStateController({
     function isCurrent(state, version) {
         if (version !== revision) return false;
         const current = getState();
-        return ownsCurrentChat(state, current)
+        return current.managed && ownsCurrentChat(state, current)
             && state.length === (current.chat?.length || 0)
             && state.enabled === current.enabled
             && state.summaryBoundary === current.summaryBoundary
@@ -112,6 +115,9 @@ export function createHideStateController({
         const version = invalidate();
         const owner = getState();
         while (version === revision && ownsCurrentChat(owner)) {
+            // Stopping management is not a request to make the chat visible.
+            // Only the explicit disable transition may restore flags once.
+            if (!getState().managed) return;
             // A pending commit temporarily blocks consumption; it does not mean
             // hiding was disabled. Capture the projection only after settlement.
             const pending = getPendingSave();

@@ -20,6 +20,19 @@ export function entry(names, dependencies) {
     return context;
 }
 
+// Run the DOM-ready and summary-toggle wiring without evaluating unrelated UI setup.
+export function startupEntry(names, dependencies) {
+    const context = entry(names, dependencies);
+    const startup = declarations.filter(node => node.type === 'ExpressionStatement'
+        && node.expression.type === 'CallExpression'
+        && (node.expression.callee.name === 'jQuery'
+            || (node.expression.callee.property?.name === 'on'
+                && node.expression.arguments[0]?.name === 'STORY_SUMMARY_TOGGLE_EVENT')));
+    vm.runInContext(startup.map(node => source.slice(node.start, node.end)).join('\n')
+        .replaceAll('import.meta.url', JSON.stringify(sourceUrl.href)), context);
+    return context;
+}
+
 const uiSource = readFileSync(new URL('../../story-summary-ui.js', import.meta.url), 'utf8');
 const uiDeclarations = parse(uiSource, { sourceType: 'module', ecmaVersion: 'latest' }).body
     .find(node => node.type === 'ExpressionStatement' && node.expression.type === 'CallExpression'

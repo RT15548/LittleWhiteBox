@@ -11,7 +11,7 @@ function deferred() {
 
 function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vectorBoundary = 60 } = {}) {
     const chat = Array.from({ length }, (_, id) => ({ is_system: id <= hiddenThrough }));
-    const state = { chatId: 'test', chat, enabled: true, summaryBoundary, useVectorBoundary: true, keepVisibleCount: 4 };
+    const state = { chatId: 'test', chat, managed: true, enabled: true, summaryBoundary, useVectorBoundary: true, keepVisibleCount: 4 };
     const rendered = new Map(chat.map((message, id) => [id, message.is_system]));
     const saves = [];
     const errors = [];
@@ -396,7 +396,7 @@ test('late results cannot overwrite a newer range or another chat', async () => 
 });
 
 test('changing the chat or hide settings during a read discards that result even without a newer request', async () => {
-    for (const change of [f => { f.chat.length = 56; }, f => { f.state.enabled = false; }, f => { f.state.chatId = 'another'; }]) {
+    for (const change of [f => { f.chat.length = 56; }, f => { f.state.enabled = false; }, f => { f.state.managed = false; }, f => { f.state.chatId = 'another'; }]) {
         const f = fixture();
         const read = deferred();
         f.readWith(() => read.promise);
