@@ -12,6 +12,15 @@ export function createPlannerMarker() {
         .map(hex => DIGITS[Number.parseInt(hex, 16)]).join('') + '\ufeff';
 }
 
+/** Keep restoration state alive only while the native message itself is alive. */
+function createRelease(reference, snapshots) {
+    return () => {
+        const message = reference.deref();
+        const snapshot = message && snapshots.get(message);
+        if (snapshot && message.mes === snapshot.tagged) message.mes = snapshot.original;
+    };
+}
+
 /** Own the native interceptor's copy, never the persistent user message. */
 export function reservePlannerSlot(chat, source, marker) {
     const message = chat.at(-1);
@@ -21,7 +30,5 @@ export function reservePlannerSlot(chat, source, marker) {
     const original = message.mes;
     const tagged = `${original}\n\n${marker}`;
     message.mes = tagged;
-    return () => {
-        if (message.mes === tagged) message.mes = original;
-    };
+    return createRelease(new WeakRef(message), new WeakMap([[message, { original, tagged }]]));
 }

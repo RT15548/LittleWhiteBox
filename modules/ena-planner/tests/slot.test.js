@@ -1,7 +1,34 @@
 import test from 'node:test';
+import { setImmediate } from 'node:timers';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import process from 'node:process';
 import { createPlannerMarker, reservePlannerSlot } from '../ena-planner-slot.js';
 import { createPlannerGeneration } from '../ena-planner-generation.js';
+
+test('a retained release callback does not retain the native message after host return', () => {
+    const moduleUrl = new URL('../ena-planner-slot.js', import.meta.url).href;
+    const child = spawnSync(process.execPath, ['--expose-gc', '--input-type=module', '-e', `
+        import assert from 'node:assert/strict';
+        import { setImmediate } from 'node:timers/promises';
+        import { reservePlannerSlot } from ${JSON.stringify(moduleUrl)};
+        const { reference, release } = (() => {
+            const source = {is_user:true,mes:'original'};
+            const native = [{...source}];
+            const release = reservePlannerSlot(native,source,'<identity>');
+            return {reference:new WeakRef(native[0]),release};
+        })();
+        for(let i=0;i<20;i++) {
+            await setImmediate();
+            global.gc();
+            if(!reference.deref()) break;
+        }
+        assert.equal(reference.deref(),undefined,'release callback retained the native message');
+        assert.doesNotThrow(release);
+        assert.doesNotThrow(release);
+    `], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(child.status, 0, child.stderr || String(child.error || 'GC fixture failed'));
+});
 
 // Contract: background generations cannot inherit the foreground's slot; WI
 // sees the same text and names, and neither stored chat nor model requests keep
@@ -45,11 +72,14 @@ for (const before of [true, false]) test(`quiet native copy ${before ? 'before' 
     await runtime.prepare(foreground, 1000, () => {}, 'normal');
     background ||= structuredClone(actual);
     await runtime.prepare(background, 1000, () => {}, 'quiet');
-    const quiet = { prompt: background[0].mes }, normal = { prompt: foreground[0].mes };
+    const quiet = { type: 'quiet', prompt: background[0].mes }, normal = { prompt: foreground[0].mes };
     assert.equal(runtime.bindRequest(quiet, 'prompt'), false);
     await runtime.consume(quiet);
     assert.equal(runtime.bindRequest(normal, 'prompt'), true);
-    await runtime.consume(normal);
+    const pending = runtime.consume(normal);
+    await new Promise(resolve => setImmediate(resolve));
+    await runtime.send();
+    await pending;
     assert.equal(calls, 1); assert.equal(stops, 0);
     assert.equal(quiet.prompt, 'input');
     assert.equal(normal.prompt, 'input\n\n<plot>plan</plot>');

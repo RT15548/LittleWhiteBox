@@ -26,11 +26,14 @@ export async function checkPlannerBudget(data, { field, companionFields = [], co
         return;
     }
     if (!Array.isArray(data.messages)) throw new Error(PLANNER_COPY.budgetUnknown);
-    const messages = [];
+    let messageTokens = 0;
     let mediaTokens = 0;
     for (const original of data.messages) {
+        if (!original || typeof original !== 'object') throw new Error(PLANNER_COPY.budgetUnknown);
         const message = { role: original.role };
-        for (const key of ['name', 'tool_call_id', 'reasoning', 'signature']) {
+        // Message.setName/setToolCalls count these fields. Transport metadata
+        // (tool_call_id and signature) is attached later, without a token cost.
+        for (const key of ['name', 'reasoning']) {
             if (typeof original[key] === 'string') message[key] = original[key];
         }
         if (original.tool_calls != null) message.tool_calls = JSON.stringify(original.tool_calls);
@@ -43,7 +46,12 @@ export async function checkPlannerBudget(data, { field, companionFields = [], co
             }
             message.content = text.join('\n');
         } else if (original.content != null) throw new Error(PLANNER_COPY.budgetUnknown);
-        messages.push(message);
+        // The host counts each Message separately with full=false. Its tokenizer
+        // subtracts per-call padding, so counting the whole array duplicates it.
+        // Empty media-only messages start at zero; media costs are added above.
+        if (message.content || message.name || message.tool_calls || message.reasoning) {
+            messageTokens += measured(await io.messages([message]));
+        }
     }
     // Match the host's separate tool-schema reserve; never execute/register
     // tools a second time just to count them.
@@ -54,6 +62,6 @@ export async function checkPlannerBudget(data, { field, companionFields = [], co
     const toolTokens = Object.keys(tools).length
         ? measured(await io.messages([{ role: 'user', content: JSON.stringify(tools) }])) : 0;
     // The host reserves three tokens for the assistant reply prefix.
-    const total = measured(await io.messages(messages)) + mediaTokens + toolTokens + 3;
+    const total = messageTokens + mediaTokens + toolTokens + 3;
     if (total > limit) throw new Error(PLANNER_COPY.budget);
 }

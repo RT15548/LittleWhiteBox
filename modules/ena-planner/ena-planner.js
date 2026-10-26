@@ -7,7 +7,7 @@ import {
 } from '../../../../../../script.js';
 import { extensionFolderPath } from '../../core/constants.js';
 import { EnaPlannerStorage } from '../../core/server-storage.js';
-import { executeSlashCommand } from '../../core/slash-command.js';
+import { filterPlannerResponse } from './ena-planner-filter.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
 import { migratePlannerPromptConfig } from './ena-planner-prompt-migration.js';
@@ -20,7 +20,6 @@ import { assertPlannerPresetReady } from './ena-planner-api-config.js';
 import {
     throwIfSignalAborted,
 } from '../../shared/common/abort-utils.js';
-import { scheduleDelayedNotice } from '../../shared/common/delayed-notice.js';
 import jsyaml from '../../libs/js-yaml.mjs';
 import { observeAsyncCallback } from '../../shared/common/async-errors.js';
 
@@ -31,7 +30,6 @@ const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
 const HTML_PATH = `${extensionFolderPath}/modules/ena-planner/ena-planner.html`;
 const PLANNER_REQUEST_TIMEOUT_MS = 180000;
-const SLOW_PLANNING_NOTICE_DELAY_MS = 3000;
 
 /**
  * -------------------------
@@ -391,34 +389,6 @@ async function renderTemplateAll(text, signal, messageVars) {
  * Planner response filtering
  * --------------------------
  */
-function stripThinkBlocks(text) {
-    let out = String(text ?? '');
-    out = out.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '');
-    out = out.replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '');
-    return out.trim();
-}
-
-function extractSelectedBlocksInOrder(text, tagNames) {
-    const names = normalizeResponseKeepTags(tagNames);
-    if (!Array.isArray(names) || names.length === 0) return '';
-    const src = String(text ?? '');
-    const blocks = [];
-    const escapedNames = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const re = new RegExp(`<(${escapedNames.join('|')})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, 'gi');
-    let m;
-    while ((m = re.exec(src)) !== null) {
-        blocks.push(m[0]);
-    }
-    return blocks.join('\n\n').trim();
-}
-
-function filterPlannerForInput(rawFull) {
-    const noThink = stripThinkBlocks(rawFull);
-    const tags = ensureSettings().responseKeepTags;
-    const selected = extractSelectedBlocksInOrder(noThink, tags);
-    if (selected) return selected;
-    return noThink;
-}
 
 /**
  * -------------------------
@@ -426,8 +396,8 @@ function filterPlannerForInput(rawFull) {
  * --------------------------
  */
 async function callPlanner(messages, options, snapshot) {
-    return (await generateFeatureText('planner', { ...options, onDelta: snapshot.stream ? options.onDelta : undefined,
-        messages, timeoutMs: PLANNER_REQUEST_TIMEOUT_MS }, snapshot)).text;
+    return (await generateFeatureText('planner', { ...options,
+        messages, timeoutMs: PLANNER_REQUEST_TIMEOUT_MS }, { ...snapshot, stream: true })).text;
 }
 
 function debugWorldbookForUi() {
@@ -522,21 +492,26 @@ async function runPlanningOnce(context, silent = false, options = {}) {
         const messages = await buildPlannerMessages(context, { signal: options.signal });
         log.requestMessages = messages;
 
-        const rawReply = await callPlanner(messages, options, snapshot);
+        const tags = [...ensureSettings().responseKeepTags];
+        const rawReply = await callPlanner(messages, { ...options,
+            onDelta(_delta, full) {
+                options.onPreview?.(filterPlannerResponse(full, tags, { partial: true }));
+            },
+        }, snapshot);
         log.rawReply = rawReply;
 
-        const filtered = filterPlannerForInput(rawReply);
+        const filtered = filterPlannerResponse(rawReply, tags);
         log.filteredReply = filtered;
         log.ok = true;
 
         if (!isCurrentLifecycle(operationEpoch)) throw createLifecycleAbortError();
-        appendLog(log);
+        if (!options.transient) appendLog(log);
         return { rawReply, filtered };
     } catch (e) {
         if (options.signal?.aborted || e?.name === 'AbortError') throw e;
         if (!isCurrentLifecycle(operationEpoch)) throw createLifecycleAbortError();
         log.error = String(e?.message ?? e);
-        appendLog(log);
+        if (!options.transient) appendLog(log);
         if (!silent) toastErr(log.error);
         throw e;
     }
@@ -562,12 +537,7 @@ const enaPlannerSend = createPlannerHost({
         assertPlannerPresetReady(api);
         return api;
     },
-    plan: (context, options) => runPlanningOnce(context, true, options),
-    notice: () => scheduleDelayedNotice(
-        () => executeSlashCommand(`/echo severity=info ${PLANNER_COPY.pending}`),
-        SLOW_PLANNING_NOTICE_DELAY_MS,
-        error => console.warn('[EnaPlanner] Failed to show planning status:', error),
-    ),
+    plan: (context, options) => runPlanningOnce(context, true, { ...options, transient: true }),
     onError(error) {
         console.warn('[EnaPlanner] Planning failed:', error);
         toastErr(String(error?.message ?? error));
