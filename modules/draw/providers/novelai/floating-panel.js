@@ -1,3 +1,4 @@
+import { mountThemeSwitch } from '../../shared/theme-switch.js';
 // floating-panel.js
 /**
  * NovelDraw 画图按钮面板 - 支持楼层按钮和悬浮按钮双模式
@@ -115,28 +116,6 @@ const FLOATING_WIDTH_IDLE = 74;
 const FLOATING_WIDTH_ACTIVE = 98;
 
 const STYLES = `
-.nd-float.nd-novel {
-    --nd-h: 34px;
-    --nd-bg: var(--draw-bg-secondary);
-    --nd-bg-solid: var(--draw-bg-secondary);
-    --nd-bg-hover: var(--draw-bg-tertiary);
-    --nd-bg-active: var(--draw-accent-soft);
-    --nd-border: var(--draw-border);
-    --nd-border-hover: var(--draw-border-focus);
-    --nd-border-subtle: var(--draw-border);
-    --nd-text-primary: var(--draw-text-primary);
-    --nd-text-secondary: var(--draw-text-secondary);
-    --nd-text-muted: var(--draw-text-muted);
-    --nd-text-dim: var(--draw-text-muted);
-    --nd-success: var(--draw-success);
-    --nd-warning: var(--draw-warning);
-    --nd-error: var(--draw-danger);
-    --nd-info: var(--draw-border-focus);
-    --nd-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.18);
-    --nd-radius-sm: 6px;
-    --nd-radius-md: 10px;
-    --nd-radius-lg: 14px;
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    楼层按钮样式
@@ -154,8 +133,6 @@ const STYLES = `
     background: var(--nd-bg);
     border: 1px solid var(--nd-border);
     border-radius: 17px;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
     position: relative;
     overflow: hidden;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -345,20 +322,16 @@ const STYLES = `
     color: var(--nd-text-secondary);
     white-space: nowrap;
     box-shadow: var(--nd-shadow-lg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     opacity: 0;
     visibility: hidden;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity 0.15s ease, visibility 0.15s;
     z-index: 100;
-    transform: translateY(-6px) scale(0.96);
-    transform-origin: top right;
 }
 
 .nd-float.nd-novel.show-detail .nd-detail {
     opacity: 1;
     visibility: visible;
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 
 .nd-novel .nd-detail-row{ display: flex; align-items: center; gap: 10px; padding: 3px 0; }
@@ -375,26 +348,22 @@ const STYLES = `
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 190px;
+    width: 220px;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 10px;
     box-shadow: var(--nd-shadow-lg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     opacity: 0;
     visibility: hidden;
-    transform: translateY(-6px) scale(0.96);
-    transform-origin: top right;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity 0.15s ease, visibility 0.15s;
     z-index: 100;
 }
 
 .nd-float.nd-novel.expanded .nd-menu {
     opacity: 1;
     visibility: visible;
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 
 .nd-novel .nd-card{
@@ -447,7 +416,7 @@ const STYLES = `
 .nd-novel .nd-select option { background: var(--nd-bg-solid); color: var(--nd-text-primary); text-align: left; }
 .nd-novel .nd-select.size{ font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
 ${MAX_IMAGES_INPUT_CSS}
-.nd-novel .nd-max-images-input { background: var(--nd-bg-active); color-scheme: normal; }
+.nd-novel .nd-max-images-input { background: var(--nd-bg-active); }
 .nd-novel .nd-max-images-input:hover { border-color: var(--nd-border-hover); }
 .nd-novel .nd-max-images-input:focus { border-color: var(--nd-text-muted); }
 
@@ -506,7 +475,6 @@ ${MAX_IMAGES_INPUT_CSS}
     position: fixed;
     z-index: 10000;
     user-select: none;
-    will-change: transform;
     transition: transform 0.25s ease;
 }
 
@@ -556,12 +524,10 @@ ${MAX_IMAGES_INPUT_CSS}
 .nd-floating-global.nd-novel .nd-detail {
     top: auto;
     bottom: calc(100% + 10px);
-    transform: translateY(4px) scale(0.96);
-    transform-origin: bottom right;
 }
 
 .nd-floating-global.nd-novel.show-detail .nd-detail {
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 
 .nd-floating-global.nd-novel .nd-detail::after {
@@ -579,12 +545,10 @@ ${MAX_IMAGES_INPUT_CSS}
 .nd-floating-global.nd-novel .nd-menu {
     top: auto;
     bottom: calc(100% + 10px);
-    transform: translateY(6px) scale(0.98);
-    transform-origin: bottom right;
 }
 
 .nd-floating-global.nd-novel.expanded .nd-menu {
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 
 /* 悬浮按钮箭头向上 */
@@ -1150,7 +1114,9 @@ function bindFloorPanelEvents(panelData) {
     };
     document.addEventListener('click', closeMenu, { passive: true });
 
+    const themeSwitch = mountThemeSwitch({ document, container: el.querySelector('.nd-controls') });
     panelData._cleanup = () => {
+        themeSwitch?.destroy();
         maxImagesBinding.destroy();
         document.removeEventListener('click', closeMenu);
         if (panelData.autoResetTimer) clearTimeout(panelData.autoResetTimer);
@@ -1910,6 +1876,7 @@ function createFloatingButton() {
     });
 
     $floatingCache.maxImagesBinding = maxImages.bind($floatingCache.maxImagesInput);
+    $floatingCache.themeSwitch = mountThemeSwitch({ document, container: floatingEl.querySelector('.nd-controls') });
 
     $floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
@@ -1927,6 +1894,7 @@ function createFloatingButton() {
 }
 
 function destroyFloatingButton() {
+    $floatingCache.themeSwitch?.destroy();
     $floatingCache.maxImagesBinding?.destroy();
     clearFloatingCooldownTimer();
 

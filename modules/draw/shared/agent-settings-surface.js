@@ -10,7 +10,6 @@ import {
     syncAgentSettingsPanelFeedback,
 } from '../../agent-core/ui/settings-markup.js';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
-import { createPresetListKit } from './preset-list-kit.js';
 
 const SAVE_STATE_RESET_MS = 1800;
 let hostModulePromise = null;
@@ -62,8 +61,7 @@ export function buildDrawAgentSettingsSurfaceMarkup(state = {}) {
             activePage: 'main',
             isBusy: state.configSave?.status === 'saving',
             canDeletePreset: Object.keys(state.config?.presets || {}).length > 1,
-            // 预设用可拖动排序、可折叠的列表（与绘图参数页同一套共享列表视图），不是下拉框。
-            presetLayout: 'list',
+            // 与仓库其他 Agent API 面板一致：预设下拉框 + 操作按钮。
         });
 }
 
@@ -97,13 +95,10 @@ export function createDrawAgentSettingsSurface(options = {}) {
     let renderedMode = '';
     let refreshSequence = 0;
 
-    const presetListKit = createPresetListKit({ escapeHtml });
     const settingsPanel = createAgentSettingsPanel({
         state,
         render,
         showToast: options.showToast,
-        presetLayout: 'list',
-        presetListKit,
         saveConfig: async ({ requestId, payload }) => {
             beginSave(requestId);
             state.configDirty = true;
@@ -287,7 +282,6 @@ export function createDrawAgentSettingsSurface(options = {}) {
         destroyed = true;
         clearResetTimer();
         settingsPanel.destroy();
-        presetListKit.destroy();
         boundRoot?.removeEventListener?.('click', handleRootClick);
         boundRoot?.removeEventListener?.('input', markConfigDirty, true);
         boundRoot?.removeEventListener?.('change', markConfigDirty, true);

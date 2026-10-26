@@ -88,9 +88,9 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     --ct-btn-hover: color-mix(in srgb, var(--text-primary) 15%, var(--bg-tertiary));
     --ct-btn-border: color-mix(in srgb, var(--text-primary) 28%, transparent);
 }
-/* 浅色：跟随系统（没有 data-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
+/* 浅色：跟随系统（没有 data-draw-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-draw-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
 @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) #nd_char_list {
+    :root:not([data-draw-theme="dark"]) #nd_char_list {
         --ct-btn: var(--bg-secondary);
         --ct-btn-hover: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
         --ct-btn-border: color-mix(in srgb, var(--text-primary) 26%, transparent);
@@ -105,7 +105,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
         --ct-shadow: 0 1px 2px rgba(60, 50, 30, .08);
     }
 }
-:root[data-theme="light"] #nd_char_list {
+:root[data-draw-theme="light"] #nd_char_list {
     --ct-btn: var(--bg-secondary);
     --ct-btn-hover: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
     --ct-btn-border: color-mix(in srgb, var(--text-primary) 26%, transparent);
@@ -1206,17 +1206,18 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                             <button id="nd_save_cache_days" class="btn btn-sm btn-icon" style="min-height:28px;width:28px;padding:0;"><i class="fa-solid fa-check"></i></button>
                         </div>
                         <div id="nd_gallery_status" class="status-text" style="flex:1 1 220px;min-width:180px;margin-top:0;"></div>
-                        <div style="display:flex;align-items:center;gap:6px;align-self:stretch;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
-                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);">
-                                <input id="nd_save_as_jpeg" type="checkbox">
-                                <span data-gallery-jpeg-label></span>
-                            </label>
-                        </div>
                         <button id="nd_batch" class="btn btn-sm"><i class="fa-solid fa-check"></i> 批量</button>
                         <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
                         <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
                         <button id="nd_refresh_stats" class="btn btn-sm btn-icon"><i class="fa-solid fa-arrows-rotate"></i></button>
                         </div>
+                    </div>
+                    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:12px;font-size:12px;color:var(--text-secondary);">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input id="nd_save_as_jpeg" type="checkbox" aria-describedby="nd_gallery_jpeg_hint">
+                            <span data-gallery-jpeg-label></span>
+                        </label>
+                        <span id="nd_gallery_jpeg_hint" data-gallery-jpeg-hint></span>
                     </div>
                     <!-- 批量模式操作欄（點「批量」後展開在這一行下方） -->
                     <div id="nd_zip_output" class="btn-group" hidden></div>

@@ -1,6 +1,8 @@
 export const GALLERY_JPEG_QUALITY = 0.8;
 export const GALLERY_JPEG_COPY = Object.freeze({
-    label: '新图保存为 JPEG（有损，透明底变白）',
+    label: '压缩新生成的图库图片',
+    hint: '存入浏览器图库时转为 JPEG，节省空间；已有图片不变。',
+    warning: '有损压缩，透明背景变白。',
     saved: '已保存',
     saveFailed: '保存失败，请重试',
     conversionFailed: 'JPEG 转换失败，已保留原图',

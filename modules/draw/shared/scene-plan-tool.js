@@ -1,4 +1,4 @@
-import { SUBMIT_SCENE_PLAN_TOOL_NAME } from './scene-plan-contract.js';
+import { SCENE_TITLE_MAX_LENGTH, SUBMIT_SCENE_PLAN_TOOL_NAME } from './scene-plan-contract.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 
 // Model-facing instructions are prepared in the browser, not bundled into the executor.
@@ -7,10 +7,11 @@ function normalizeLimit(value) {
     return Number.isInteger(number) && number > 0 ? number : 0;
 }
 
-function stringSchema(description, { minLength = 0 } = {}) {
+function stringSchema(description, { minLength = 0, maxLength = 0 } = {}) {
     return {
         type: 'string',
         ...(minLength > 0 ? { minLength } : {}),
+        ...(maxLength > 0 ? { maxLength } : {}),
         description,
     };
 }
@@ -147,22 +148,13 @@ export function createSubmitScenePlanTool(options = {}) {
                     ...(insertPointCount ? { maximum: insertPointCount } : {}),
                     description: 'The number N of an existing `【插图点 N】` marker in <content>. Choose the nearest marker after the moment depicted. Images at the same marker appear in array order.',
                 },
-                scene: stringSchema(
-                    '画面整体：人数与关系、构图与视角、背景、光影、氛围，逗号分隔的英文 tag。角色个体的外貌与动作不写在这里。拼在正向提示词最前。',
-                    { minLength: 1 },
-                ),
+                // 先命名和确定画幅，再展开绘图 tag；title 仅用于展示，不参与提示词拼接。
                 title: stringSchema(
-                    '本次绘画的主题标题，简体中文，6～14 字，只输出标题文字本身，不加任何标点。'
-                    + '要求：①像给这一格画面起的小标题，抓最具体的动作、物件或瞬间，有画面感，'
-                    + '不要笼统的主题词；②句式必须多样，禁止每条都套用「XX的XX」这一种结构，'
-                    + '「的」字句式只在确实最贴切时偶尔使用；③可自由变换开头方式：动作切入'
-                    + '（如「那只手终于探了出来」）、台词或声音（如「听到她说晚上好」）、'
-                    + '悬念判断（如「距离正在缩到三米」）、场景白描（如「凌晨两点的便利店」）、'
-                    + '比喻拟人（如「路灯吞掉了影子」）、判断宣告（如「洗手台上的主权宣告」）；'
-                    + '④同一批多张图的标题，开头方式不得重复。',
-                    { minLength: 1 },
+                    `本图的场景名称，简体中文，${SCENE_TITLE_MAX_LENGTH} 字以内，不设最少字数；抓住具体的动作、物件或瞬间，不写剧情摘要。`
+                    + '例如：雨停、门口的回眸、凌晨两点的便利店。'
+                    + '只输出名称正文，不加引号、书名号或句末标点。仅用于图片展示，不写入绘图 tag。',
+                    { minLength: 1, maxLength: SCENE_TITLE_MAX_LENGTH },
                 ),
-                characters: charactersSchema,
                 orientation: {
                     type: 'string',
                     enum: ['portrait', 'landscape'],
@@ -171,6 +163,11 @@ export function createSubmitScenePlanTool(options = {}) {
                         + 'landscape（横幅）：三人及以上群像、wide shot / 全景远景、开阔环境、左右展开的互动与站位。'
                         + '两人同框不必然横幅；方向须与景别一致。拿不准时填 portrait。',
                 },
+                scene: stringSchema(
+                    '画面整体：人数与关系、构图与视角、背景、光影、氛围，逗号分隔的英文 tag。角色个体的外貌与动作不写在这里。拼在正向提示词最前。',
+                    { minLength: 1 },
+                ),
+                characters: charactersSchema,
                 // 追加位（可选）：拼在所有角色之后、整条正向提示词的最末尾。
                 // 只有 profile.postPrompt === 'append' 的 provider 才暴露，避免教会模型一个编译器会丢的字段。
                 ...(profile.postPrompt === 'append' ? {

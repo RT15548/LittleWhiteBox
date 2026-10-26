@@ -691,16 +691,17 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                                 <button id="sd-gallery-save-cache-days" class="btn btn-sm btn-icon" style="min-height:28px;width:28px;padding:0;"><i class="fa-solid fa-check"></i></button>
                             </div>
                             <div id="sd-gallery-status" class="status-text" style="flex:1 1 220px;min-width:180px;margin-top:0;"></div>
-                            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
-                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary);">
-                                    <input id="sd-gallery-save-as-jpeg" type="checkbox">
-                                    <span data-gallery-jpeg-label></span>
-                                </label>
-                            </div>
                             <button id="sd-gallery-clear-expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
                             <button id="sd-gallery-clear-all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
                             <button id="sd-gallery-refresh" class="btn btn-sm"><i class="fa-solid fa-arrows-rotate"></i> 刷新</button>
                         </div>
+                    </div>
+                    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:12px;font-size:12px;color:var(--text-secondary);">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input id="sd-gallery-save-as-jpeg" type="checkbox" aria-describedby="sd-gallery-jpeg-hint">
+                            <span data-gallery-jpeg-label></span>
+                        </label>
+                        <span id="sd-gallery-jpeg-hint" data-gallery-jpeg-hint></span>
                     </div>
                 </div>
 

@@ -41,10 +41,10 @@ test('NovelAI: the grey hierarchy only touches #nd_char_list', () => {
     const selectors = selectorsOf(own).filter(selector => !/^(color-scheme|--)/.test(selector));
     assert.ok(selectors.length > 10);
     for (const selector of selectors) {
-        assert.match(selector, /^(:root(:not\(\[data-theme="dark"\]\)|\[data-theme="light"\]) )?#nd_char_list\b/, `unscoped selector: ${selector}`);
+        assert.match(selector, /^(:root(:not\(\[data-draw-theme="dark"\]\)|\[data-draw-theme="light"\]) )?#nd_char_list\b/, `unscoped selector: ${selector}`);
     }
-    assert.match(own, /@media \(prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-theme="dark"\]\) #nd_char_list\s*\{/);
-    assert.match(own, /\n:root\[data-theme="light"\] #nd_char_list\s*\{/);
+    assert.match(own, /@media \(prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-draw-theme="dark"\]\) #nd_char_list\s*\{/);
+    assert.match(own, /\n:root\[data-draw-theme="light"\] #nd_char_list\s*\{/);
     for (const token of ['--ct-group', '--ct-group-head', '--ct-card', '--ct-edit-bar', '--ct-edit-body', '--ct-form', '--ct-item', '--ct-band']) {
         // 深色缺省一次；浅色两处（跟随系统的媒体查询、强制浅色）各一次，内容一致由 theme-tokens-css.test.js 校验。
         assert.equal((own.match(new RegExp(`${token}:`, 'g')) || []).length, 3, `${token} has a dark value and the light value (system + forced)`);
@@ -56,10 +56,10 @@ test('SD / ComfyUI: the same hierarchy is scoped to the library groups', () => {
     const block = blockAfter(library, '/* ── 角色标签页的明暗层次（SD WebUI / ComfyUI');
     const selectors = selectorsOf(block.slice(block.indexOf('.lwb-cl-group {')));
     for (const selector of selectors) {
-        assert.match(selector, /^(:root(:not\(\[data-theme="dark"\]\)|\[data-theme="light"\]) )?\.lwb-cl-group\b/, `unscoped selector: ${selector}`);
+        assert.match(selector, /^(:root(:not\(\[data-draw-theme="dark"\]\)|\[data-draw-theme="light"\]) )?\.lwb-cl-group\b/, `unscoped selector: ${selector}`);
     }
     assert.match(block, /@media \(prefers-color-scheme: light\)/);
-    assert.match(block, /:root\[data-theme="light"\] \.lwb-cl-group \{/);
+    assert.match(block, /:root\[data-draw-theme="light"\] \.lwb-cl-group \{/);
     assert.match(block, /\.lwb-cl-group-body > \.sd-char-card\[open\]/);
 });
 

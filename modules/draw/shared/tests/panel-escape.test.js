@@ -42,7 +42,7 @@ test('layer and drag detection reads the page state', () => {
     assert.equal(hasOpenLayer(document), true);
     document.querySelector('.char-menu').remove();
     for (const markup of [
-        '<div class="theme-switch-menu"></div>', '<div id="g" class="gallery-modal visible"></div>', '<div data-role="dialog"></div>',
+        '<div id="g" class="gallery-modal visible"></div>', '<div data-role="dialog"></div>',
         '<div class="danbooru-panel"></div>', '<div class="lwb-gp-saveform"></div>', '<div class="lwb-gp-confirm"></div>',
     ]) {
         const holder = document.createElement('div');

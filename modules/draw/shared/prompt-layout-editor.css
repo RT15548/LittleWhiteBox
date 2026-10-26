@@ -93,9 +93,9 @@
 @supports (background: color-mix(in srgb, red, blue)) {
     .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #171922) 82%, #000); }
     @media (prefers-color-scheme: light) {
-        :root:not([data-theme="dark"]) .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 97%, #000); }
+        :root:not([data-draw-theme="dark"]) .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 97%, #000); }
     }
-    :root[data-theme="light"] .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 97%, #000); }
+    :root[data-draw-theme="light"] .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 97%, #000); }
 }
 .lwb-ple-row.lwb-ple-builtin {
     background: var(--lwb-ple-builtin-bg);
@@ -146,7 +146,7 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
 }
 /* 角色徽标按角色上色（文字标签照常保留，不靠颜色单独传达）：system 紫、user 绿、assistant 蓝。
    深色主题是“带色调的深底 + 同色相的亮字”，浅色主题是“浅色底 + 同色相的深字 + 一圈淡边”（文字对比度均 ≥ 4.5:1）。
-   浅色 = 跟随系统时的媒体查询 + 主题菜单强制浅色的 :root[data-theme="light"]，两处内容一致（见 theme-tokens-css.test.js）。
+   浅色 = 跟随系统时的媒体查询 + 主题菜单强制浅色的 :root[data-draw-theme="light"]，两处内容一致（见 theme-tokens-css.test.js）。
    三种颜色只在这一组变量里定义；内置块行与自定义消息行用的是同一个 .lwb-ple-role。 */
 .lwb-ple {
     --role-system-bg: rgba(167, 139, 250, 0.16); --role-system-fg: #c4b5fd; --role-system-line: rgba(167, 139, 250, 0.34);
@@ -154,13 +154,13 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
     --role-assistant-bg: rgba(96, 165, 250, 0.16); --role-assistant-fg: #93c5fd; --role-assistant-line: rgba(96, 165, 250, 0.34);
 }
 @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) .lwb-ple {
+    :root:not([data-draw-theme="dark"]) .lwb-ple {
         --role-system-bg: #efe9fb; --role-system-fg: #5b3fa6; --role-system-line: #d6c9f2;
         --role-user-bg: #e6f4ea; --role-user-fg: #1e6b3a; --role-user-line: #c3e3cd;
         --role-assistant-bg: #e5eefb; --role-assistant-fg: #1f4f9c; --role-assistant-line: #c3d6f2;
     }
 }
-:root[data-theme="light"] .lwb-ple {
+:root[data-draw-theme="light"] .lwb-ple {
     --role-system-bg: #efe9fb; --role-system-fg: #5b3fa6; --role-system-line: #d6c9f2;
     --role-user-bg: #e6f4ea; --role-user-fg: #1e6b3a; --role-user-line: #c3e3cd;
     --role-assistant-bg: #e5eefb; --role-assistant-fg: #1f4f9c; --role-assistant-line: #c3d6f2;

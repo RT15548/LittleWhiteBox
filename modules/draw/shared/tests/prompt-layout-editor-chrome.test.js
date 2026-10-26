@@ -176,8 +176,8 @@ test('built-in rows carry the fixed-structure class and custom messages never do
     assert.match(css, /\.lwb-ple-row\.lwb-ple-builtin\s*\{[^}]*background:\s*var\(--lwb-ple-builtin-bg\)/);
     // 深色（缺省）与浅色主题各有一档：都由页面的 --bg-primary 混入黑色得到，不写死颜色。
     const darkMix = css.match(/color-mix\(in srgb, var\(--bg-primary, #171922\) (\d+)%, #000\)/);
-    const lightMix = css.match(/prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-theme="dark"\]\) \.lwb-ple\s*\{[^}]*color-mix\(in srgb, var\(--bg-primary, #fcfaf6\) (\d+)%, #000\)/);
-    const forcedLightMix = css.match(/:root\[data-theme="light"\] \.lwb-ple\s*\{[^}]*color-mix\(in srgb, var\(--bg-primary, #fcfaf6\) (\d+)%, #000\)/);
+    const lightMix = css.match(/prefers-color-scheme: light\)\s*\{\s*:root:not\(\[data-draw-theme="dark"\]\) \.lwb-ple\s*\{[^}]*color-mix\(in srgb, var\(--bg-primary, #fcfaf6\) (\d+)%, #000\)/);
+    const forcedLightMix = css.match(/:root\[data-draw-theme="light"\] \.lwb-ple\s*\{[^}]*color-mix\(in srgb, var\(--bg-primary, #fcfaf6\) (\d+)%, #000\)/);
     assert.ok(darkMix && lightMix && forcedLightMix, 'both themes define the builtin background, and a forced light theme gets one too');
     assert.equal(forcedLightMix[1], lightMix[1], 'forced light = system light');
     assert.ok(Number(darkMix[1]) < 100 && Number(lightMix[1]) < 100, 'each mixes in black, so both are darker than the page');
@@ -236,9 +236,9 @@ test('role pills: system / user / assistant are three distinct classes on built-
         assert.ok(rule, `${role} rule`);
         for (const part of ['bg', 'fg', 'line']) assert.ok(rule[1].includes(`var(--role-${role}-${part})`), `${role} uses its own ${part} token`);
     }
-    const lightStart = css.indexOf('@media (prefers-color-scheme: light) {\n    :root:not([data-theme="dark"]) .lwb-ple {\n        --role-system-bg');
+    const lightStart = css.indexOf('@media (prefers-color-scheme: light) {\n    :root:not([data-draw-theme="dark"]) .lwb-ple {\n        --role-system-bg');
     const darkStart = css.indexOf('.lwb-ple {\n    --role-system-bg');
-    const forcedStart = css.indexOf(':root[data-theme="light"] .lwb-ple {\n    --role-system-bg');
+    const forcedStart = css.indexOf(':root[data-draw-theme="light"] .lwb-ple {\n    --role-system-bg');
     assert.ok(lightStart > darkStart && darkStart > 0 && forcedStart > lightStart, 'dark defaults first, then the system light override, then the forced light block');
     const dark = css.slice(darkStart, lightStart);
     const light = css.slice(lightStart, forcedStart);

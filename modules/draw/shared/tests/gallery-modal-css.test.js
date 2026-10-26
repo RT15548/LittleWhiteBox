@@ -121,7 +121,7 @@ test('gallery cards: the hover layer stays inside the picture, the saved badge e
 
     const defaults = theme.match(/:root\s*\{([^}]*)\}/)[1];
     const aliases = shell.match(/:root\s*\{([^}]*)\}/)[1];
-    const themes = { dark: defaults, light: theme.match(/:root\[data-theme="light"\]\s*\{([^}]*)\}/)[1] };
+    const themes = { dark: defaults, light: theme.match(/:root\[data-draw-theme="light"\]\s*\{([^}]*)\}/)[1] };
     for (const [name, body] of Object.entries(themes)) {
         const resolve = value => value.replace(/var\((--[a-z-]+)\)/g, (_, key) => resolve(prop(body, key) || prop(defaults, key)));
         const token = key => parseColor(resolve(prop(aliases, `--${key}`)));

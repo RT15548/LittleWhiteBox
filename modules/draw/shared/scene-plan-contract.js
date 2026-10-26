@@ -2,6 +2,7 @@ import { findEnabledCharacterForm } from './character-selection.js';
 import { repairScenePlanArguments } from './scene-plan-arguments.js';
 
 export const SUBMIT_SCENE_PLAN_TOOL_NAME = 'submit_scene_plan';
+export const SCENE_TITLE_MAX_LENGTH = 20;
 
 const REQUIRED_IMAGE_FIELDS = Object.freeze(['insert_after', 'scene', 'characters']);
 
@@ -352,8 +353,8 @@ function normalizeImages(images, options = {}) {
         // 整图正向提示词的追加位：可选字段，编译器拼在所有角色之后（整条提示词最末尾）。
         // 不进 REQUIRED_IMAGE_FIELDS、不影响 maxCharactersPerImage；未提交时不出键（无感知）。
         const postPrompt = optionalString(image, 'post_prompt', path);
-        // Titles are optional display metadata; they do not affect image execution.
-        const title = optionalString(image, 'title', path);
+        // Optional display metadata: bound runaway output without retrying an otherwise valid image plan.
+        const title = Array.from(optionalString(image, 'title', path)).slice(0, SCENE_TITLE_MAX_LENGTH).join('');
         return {
             index: imageIndex + 1,
             scene: requireString(image.scene, `${path}.scene`),

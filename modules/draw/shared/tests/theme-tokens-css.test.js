@@ -5,13 +5,13 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 // Acceptance contracts (cost: choosing 浅色 / 深色 in the theme menu but half the page still following the system theme):
-// - Every light-theme override in the draw pages' sources is written as a pair: the system one (`@media (prefers-color-scheme: light)` + `:root:not([data-theme="dark"])`)
-//   and the forced one (`:root[data-theme="light"]`) with the same declarations. Forced dark needs nothing extra: the dark defaults apply whenever the media block is excluded.
+// - Every light-theme override in the draw pages' sources is written as a pair: the system one (`@media (prefers-color-scheme: light)` + `:root:not([data-draw-theme="dark"])`)
+//   and the forced one (`:root[data-draw-theme="light"]`) with the same declarations. Forced dark needs nothing extra: the dark defaults apply whenever the media block is excluded.
 // - settings-shell.css sets color-scheme for each branch; no draw page source still has a bare (un-gated) light media block.
 
 const drawRoot = fileURLToPath(new URL('../../', import.meta.url));
-const SYSTEM_PREFIX = ':root:not([data-theme="dark"])';
-const FORCED_PREFIX = ':root[data-theme="light"]';
+const SYSTEM_PREFIX = ':root:not([data-draw-theme="dark"])';
+const FORCED_PREFIX = ':root[data-draw-theme="light"]';
 
 function sources(directory = drawRoot) {
     const found = [];
@@ -92,7 +92,7 @@ test('draw-theme.css: dark defaults, system light, forced light all set color-sc
     assert.deepEqual(names(system.body), names(dark.body), 'every token has a light value');
     assert.deepEqual(names(forced.body), names(dark.body));
     assert.equal(forced.body, system.body);
-    // 强制深色不需要额外一块：只要没有 data-theme="dark" 以外的覆盖，缺省的深色就是强制深色的值。
+    // 强制深色不需要额外一块：只要没有 data-draw-theme="dark" 以外的覆盖，缺省的深色就是强制深色的值。
     assert.ok(css.includes(`${SYSTEM_PREFIX} {`), 'the system light block is excluded when the dark choice is set');
-    assert.equal(css.includes(':root[data-theme="dark"] {'), false, 'no duplicated dark block to drift out of sync');
+    assert.equal(css.includes(':root[data-draw-theme="dark"] {'), false, 'no duplicated dark block to drift out of sync');
 });

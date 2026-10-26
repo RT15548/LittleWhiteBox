@@ -1,7 +1,9 @@
 import { extensionFolderPath } from '../../../core/constants.js';
+import { ensureDrawTheme } from './theme-switch.js';
 
 // Settings and chat controls load the same draw-owned palette and SVG catalog.
 export function ensureDrawVisuals() {
+    ensureDrawTheme({ document });
     for (const file of ['draw-theme', 'settings-icons']) {
         const id = `xb-${file}`;
         if (document.getElementById(id)) continue;

@@ -10,7 +10,6 @@
 // 页面内“Esc 应先交给它”的层。只写有状态的选择器（关闭时元素不存在或带 hidden / 无 visible 类）。
 export const ESCAPE_LAYER_SELECTORS = Object.freeze([
     '.char-menu:not([hidden])', // 角色卡 / 预设行的“…”菜单
-    '.theme-switch-menu:not([hidden])', // 主题菜单
     '.gallery-modal.visible', // NovelAI 画廊大图
     '[data-role="dialog"]', // 角色库导入 / 导出等对话框
     'dialog[open]',

@@ -1,3 +1,5 @@
+import { ensureDrawVisuals } from '../../shared/draw-visuals.js';
+import { mountThemeSwitch } from '../../shared/theme-switch.js';
 import { getContext } from '../../../../../../../extensions.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
@@ -89,25 +91,6 @@ let stylesInjected = false;
 let drawRunActivityDispose = null;
 
 const STYLES = `
-:root {
-    --nd-h: 34px;
-    --nd-bg: rgba(0, 0, 0, 0.55);
-    --nd-bg-solid: rgba(24, 24, 28, 0.98);
-    --nd-bg-hover: rgba(0, 0, 0, 0.7);
-    --nd-border: rgba(255, 255, 255, 0.08);
-    --nd-border-hover: rgba(255, 255, 255, 0.2);
-    --nd-border-subtle: rgba(255, 255, 255, 0.08);
-    --nd-text-primary: rgba(255, 255, 255, 0.85);
-    --nd-text-secondary: rgba(255, 255, 255, 0.65);
-    --nd-text-muted: rgba(255, 255, 255, 0.45);
-    --nd-text-dim: rgba(255, 255, 255, 0.25);
-    --nd-success: #3ecf8e;
-    --nd-warning: #f0b429;
-    --nd-error: #f87171;
-    --nd-info: #60a5fa;
-    --nd-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-    --nd-radius-sm: 6px;
-}
 .nd-float {
     position: relative;
     user-select: none;
@@ -119,8 +102,6 @@ const STYLES = `
     background: var(--nd-bg);
     border: 1px solid var(--nd-border);
     border-radius: 17px;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
     position: relative;
     overflow: hidden;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -129,11 +110,11 @@ const STYLES = `
     background: var(--nd-bg-hover);
     border-color: var(--nd-border-hover);
 }
-.nd-float.working .nd-capsule { border-color: rgba(240, 180, 41, 0.5); }
-.nd-float.cooldown .nd-capsule { border-color: rgba(96, 165, 250, 0.6); background: rgba(96, 165, 250, 0.1); }
-.nd-float.success .nd-capsule { border-color: rgba(62, 207, 142, 0.6); background: rgba(62, 207, 142, 0.1); }
-.nd-float.partial .nd-capsule { border-color: rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.1); }
-.nd-float.error .nd-capsule { border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.1); }
+.nd-float.working .nd-capsule { border-color: var(--nd-warning); }
+.nd-float.cooldown .nd-capsule { border-color: var(--nd-info); background: color-mix(in srgb, var(--nd-info) 10%, var(--nd-bg)); }
+.nd-float.success .nd-capsule { border-color: var(--nd-success); background: color-mix(in srgb, var(--nd-success) 10%, var(--nd-bg)); }
+.nd-float.partial .nd-capsule { border-color: var(--nd-warning); background: color-mix(in srgb, var(--nd-warning) 10%, var(--nd-bg)); }
+.nd-float.error .nd-capsule { border-color: var(--nd-error); background: color-mix(in srgb, var(--nd-error) 10%, var(--nd-bg)); }
 
 /* 非空闲状态：胶囊右侧多出 24px，放常驻菜单按钮（生成中也能打开菜单/设置） */
 .nd-float.working .nd-capsule,
@@ -185,7 +166,7 @@ const STYLES = `
     transition: background 0.15s;
     font-size: 16px;
 }
-.nd-btn-draw:hover { background: rgba(255, 255, 255, 0.12); }
+.nd-btn-draw:hover { background: var(--nd-bg-active); }
 .nd-btn-draw:active { transform: scale(0.92); }
 .nd-auto-dot {
     position: absolute;
@@ -195,7 +176,7 @@ const STYLES = `
     height: 6px;
     background: var(--nd-success);
     border-radius: 50%;
-    box-shadow: 0 0 6px rgba(62, 207, 142, 0.6);
+    box-shadow: 0 0 6px var(--nd-success);
     opacity: 0;
     transform: scale(0);
     transition: all 0.2s;
@@ -217,7 +198,7 @@ const STYLES = `
     transition: opacity 0.25s, transform 0.25s;
 }
 .nd-float:hover .nd-btn-menu { opacity: 1; }
-.nd-btn-menu:hover { background: rgba(255, 255, 255, 0.12); color: var(--nd-text-muted); }
+.nd-btn-menu:hover { background: var(--nd-bg-active); color: var(--nd-text-muted); }
 
 /* 常驻菜单按钮：只在非空闲状态显示（空闲时由 idle 层自己的菜单按钮负责） */
 .nd-btn-menu-persist {
@@ -245,7 +226,7 @@ const STYLES = `
     gap: 6px;
     font-size: 14px;
     font-weight: 600;
-    color: #fff;
+    color: var(--nd-text-primary);
     cursor: pointer;
     pointer-events: none;
     transition: opacity 0.2s, transform 0.2s, padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -273,7 +254,7 @@ const STYLES = `
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    background: rgba(18, 18, 22, 0.98);
+    background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 12px 16px;
@@ -281,19 +262,15 @@ const STYLES = `
     color: var(--nd-text-secondary);
     white-space: nowrap;
     box-shadow: var(--nd-shadow-lg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     opacity: 0;
     visibility: hidden;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity 0.15s ease, visibility 0.15s;
     z-index: 100;
-    transform: translateY(-6px) scale(0.96);
-    transform-origin: top right;
 }
 .nd-float.show-detail .nd-detail {
     opacity: 1;
     visibility: visible;
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 .nd-detail-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .nd-detail-row + .nd-detail-row { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--nd-border-subtle); }
@@ -307,25 +284,21 @@ const STYLES = `
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 190px;
-    background: rgba(18, 18, 22, 0.96);
+    width: 220px;
+    background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 10px;
     box-shadow: var(--nd-shadow-lg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     opacity: 0;
     visibility: hidden;
-    transform: translateY(-6px) scale(0.96);
-    transform-origin: top right;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity 0.15s ease, visibility 0.15s;
     z-index: 100;
 }
 .nd-float.expanded .nd-menu {
     opacity: 1;
     visibility: visible;
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 .nd-card { background: transparent; border: none; border-radius: 0; overflow: visible; }
 .nd-row {
@@ -344,7 +317,7 @@ const STYLES = `
 .nd-select {
     flex: 1;
     min-width: 0;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--nd-bg-active);
     border: 1px solid var(--nd-border-subtle);
     color: var(--nd-text-primary);
     font-size: 11px;
@@ -359,9 +332,9 @@ const STYLES = `
     transition: border-color 0.2s;
     appearance: none;
 }
-.nd-select:hover { border-color: rgba(255, 255, 255, 0.2); }
-.nd-select:focus { border-color: rgba(255, 255, 255, 0.3); }
-.nd-select option { background: #1a1a1e; color: #eee; text-align: left; }
+.nd-select:hover { border-color: var(--nd-border-hover); }
+.nd-select:focus { border-color: var(--nd-border-hover); }
+.nd-select option { background: var(--nd-bg-solid); color: var(--nd-text-primary); text-align: left; }
 .nd-select.size { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
 ${MAX_IMAGES_INPUT_CSS}
 .nd-inner-sep { display: none; }
@@ -372,31 +345,31 @@ ${MAX_IMAGES_INPUT_CSS}
     align-items: center;
     gap: 8px;
     padding: 9px 12px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--nd-bg-active);
     border: 1px solid var(--nd-border-subtle);
     border-radius: var(--nd-radius-sm);
     cursor: pointer;
     transition: all 0.15s;
 }
-.nd-auto:hover { background: rgba(255, 255, 255, 0.08); }
-.nd-auto.on { background: rgba(62, 207, 142, 0.08); border-color: rgba(62, 207, 142, 0.3); }
+.nd-auto:hover { background: var(--nd-bg-active); }
+.nd-auto.on { background: color-mix(in srgb, var(--nd-success) 8%, var(--nd-bg)); border-color: var(--nd-success); }
 .nd-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--nd-border-hover);
     transition: all 0.2s;
 }
-.nd-auto.on .nd-dot { background: var(--nd-success); box-shadow: 0 0 8px rgba(62, 207, 142, 0.5); }
+.nd-auto.on .nd-dot { background: var(--nd-success); box-shadow: 0 0 8px var(--nd-success); }
 .nd-auto-text { font-size: 12px; color: var(--nd-text-muted); }
 .nd-auto:hover .nd-auto-text { color: var(--nd-text-secondary); }
-.nd-auto.on .nd-auto-text { color: rgba(62, 207, 142, 0.95); }
+.nd-auto.on .nd-auto-text { color: var(--nd-success); }
 .nd-gear {
     width: 36px;
     height: 36px;
     border: 1px solid var(--nd-border-subtle);
     border-radius: var(--nd-radius-sm);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--nd-bg-active);
     color: var(--nd-text-muted);
     cursor: pointer;
     display: flex;
@@ -405,12 +378,11 @@ ${MAX_IMAGES_INPUT_CSS}
     font-size: 14px;
     transition: all 0.15s;
 }
-.nd-gear:hover { background: rgba(255, 255, 255, 0.08); color: var(--nd-text-secondary); }
+.nd-gear:hover { background: var(--nd-bg-active); color: var(--nd-text-secondary); }
 .nd-floating-global {
     position: fixed;
     z-index: 10000;
     user-select: none;
-    will-change: transform;
 }
 .nd-floating-global .nd-capsule {
     background: var(--nd-bg-solid);
@@ -423,27 +395,24 @@ ${MAX_IMAGES_INPUT_CSS}
     top: auto;
     bottom: calc(100% + 8px);
     right: 0;
-    transform: translateY(6px) scale(0.96);
-    transform-origin: bottom right;
 }
 .nd-floating-global.show-detail .nd-detail {
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 .nd-floating-global .nd-menu {
     top: auto;
     bottom: calc(100% + 8px);
     right: 0;
-    transform: translateY(6px) scale(0.96);
-    transform-origin: bottom right;
 }
 .nd-floating-global.expanded .nd-menu {
-    transform: translateY(0) scale(1);
+    transform: none;
 }
 .nd-floating-global .nd-arrow { transform: rotate(180deg); }
 .nd-floating-global.expanded .nd-arrow { transform: rotate(0deg); }
 `;
 
 function injectStyles() {
+    ensureDrawVisuals();
     if (stylesInjected) return;
     stylesInjected = true;
     const el = document.createElement('style');
@@ -972,7 +941,9 @@ function bindFloorPanelEvents(panelData) {
         }
     };
     document.addEventListener('click', closeMenu, { passive: true });
+    const themeSwitch = mountThemeSwitch({ document, container: el.querySelector('.nd-controls') });
     panelData._cleanup = () => {
+        themeSwitch?.destroy();
         maxImagesBinding.destroy();
         document.removeEventListener('click', closeMenu);
     };
@@ -1509,6 +1480,7 @@ function createFloatingButton() {
         await setQuickSize(e.target.value);
     });
     floatingCache.maxImagesBinding = maxImages.bind(floatingCache.maxImagesInput);
+    floatingCache.themeSwitch = mountThemeSwitch({ document, container: floatingEl.querySelector('.nd-controls') });
     floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
     });
@@ -1523,6 +1495,7 @@ function createFloatingButton() {
 }
 
 function destroyFloatingButton() {
+    floatingCache.themeSwitch?.destroy();
     floatingCache.maxImagesBinding?.destroy();
     clearFloatingCooldownTimer();
     if (floatingAutoResetTimer) {

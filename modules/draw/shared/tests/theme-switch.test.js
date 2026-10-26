@@ -3,213 +3,160 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
-import {
-    THEME_CHOICES, THEME_STORAGE_KEY, applyTheme, describeTheme, mountThemeSwitch, normalizeTheme, readStoredTheme, writeStoredTheme,
-} from '../theme-switch.js';
-
-// Acceptance contracts (cost: a chosen theme not sticking across the three draw pages, a flash of the wrong theme on open, the logo losing its place in the header):
-// - 跟随系统 (default) / 浅色 / 深色 are stored under one localStorage key shared by the NovelAI, SD WebUI and ComfyUI pages; 跟随系统 stores nothing.
-// - Light / dark land on <html data-theme>; system removes the attribute. Blocked storage never throws and the choice still applies for this page.
-// - The header logo icon is the control: same place, tooltip / aria-label 主题：<当前>, a three-item radio menu with a check on the current one; Esc / outside click close only the menu.
-// - theme-boot.js applies the saved choice before first paint and uses the same key and values.
+import { THEME_ATTRIBUTE, THEME_STORAGE_KEY, applyTheme, ensureDrawTheme, mountThemeSwitch,
+    normalizeTheme, readStoredTheme, writeStoredTheme } from '../theme-switch.js';
 
 const shared = name => new URL(`../${name}`, import.meta.url);
 const pages = ['../../providers/novelai/novel-draw.html', '../../providers/sd-webui/sd-draw.html', '../../providers/comfyui/comfy-draw.html'];
-
-function memoryStorage(initial = {}) {
-    const data = new Map(Object.entries(initial));
-    return {
-        getItem: key => (data.has(key) ? data.get(key) : null),
-        setItem: (key, value) => { data.set(key, String(value)); },
-        removeItem: key => { data.delete(key); },
-        data,
-    };
+function memoryStorage() {
+    const data = new Map();
+    return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
+}
+function page(storage = memoryStorage(), light = true) {
+    const { window, document } = parseHTML('<html data-theme="host-theme"><body><header class="app-header"><div class="header-logo"><i class="fa-palette"></i></div><button class="header-close">x</button></header><div class="nd-controls"><button class="nd-settings-btn">settings</button></div></body></html>');
+    const events = document.createElement('div');
+    const mediaEvents = document.createElement('div');
+    const media = { matches: light, addEventListener: (...args) => mediaEvents.addEventListener(...args) };
+    const view = { document, localStorage: storage, CustomEvent: window.CustomEvent,
+        matchMedia: () => media, addEventListener: (...args) => events.addEventListener(...args) };
+    view.parent = view;
+    Object.defineProperty(document, 'defaultView', { value: view });
+    const control = mountThemeSwitch({ document });
+    return { document, view, control, storage,
+        changeSystem(value) { media.matches = value; mediaEvents.dispatchEvent(new window.Event('change')); },
+        storageEvent(key, storageArea = storage) {
+            events.dispatchEvent(Object.assign(new window.Event('storage'), { key, storageArea }));
+        } };
+}
+function attachFrame(parent, child) {
+    const frame = parent.document.createElement('iframe');
+    Object.defineProperties(frame, { contentDocument: { value: child.document }, contentWindow: { value: child.view } });
+    parent.document.body.appendChild(frame);
+    child.view.parent = parent.view;
 }
 
-function mount(storage = memoryStorage()) {
-    const { window, document } = parseHTML('<html><body><header class="app-header"><div class="header-logo"><i class="fa-solid fa-palette"></i><span>Novel Draw</span></div></header></body></html>');
-    const control = mountThemeSwitch({ document, storage });
-    const fire = (target, type, extra = {}) => {
-        const event = Object.assign(new window.Event(type, { bubbles: true, cancelable: true }), extra);
-        target.dispatchEvent(event);
-        return event;
-    };
-    return { window, document, storage, control, fire, root: document.documentElement };
-}
-
-test('choices, normalisation and persistence: system stores nothing, light / dark store their name, junk and blocked storage fall back to system', () => {
-    assert.deepEqual(THEME_CHOICES.map(choice => choice.value), ['system', 'light', 'dark']);
-    assert.deepEqual(THEME_CHOICES.map(choice => choice.label), ['跟随系统', '浅色', '深色']);
-    assert.equal(normalizeTheme('light'), 'light');
-    assert.equal(normalizeTheme('dark'), 'dark');
-    for (const junk of [undefined, null, '', 'auto', 'LIGHT', 3]) assert.equal(normalizeTheme(junk), 'system');
-    assert.equal(describeTheme('system'), '主题：跟随系统');
-    assert.equal(describeTheme('light'), '主题：浅色');
-    assert.equal(describeTheme('dark'), '主题：深色');
-
+test('persistence retains explicit light/dark choices; absent, invalid and blocked storage are safe', () => {
     const storage = memoryStorage();
-    assert.equal(readStoredTheme(storage), 'system');
-    assert.equal(writeStoredTheme(storage, 'light'), true);
-    assert.equal(storage.data.get(THEME_STORAGE_KEY), 'light');
-    assert.equal(readStoredTheme(storage), 'light');
-    writeStoredTheme(storage, 'dark');
-    assert.equal(readStoredTheme(storage), 'dark');
+    for (const value of [undefined, null, '', 'auto', 'LIGHT', 3]) assert.equal(normalizeTheme(value), 'system');
+    for (const value of ['light', 'dark']) {
+        assert.equal(writeStoredTheme(storage, value), true);
+        assert.equal(readStoredTheme(storage), value);
+    }
     writeStoredTheme(storage, 'system');
-    assert.equal(storage.data.has(THEME_STORAGE_KEY), false);
-    storage.setItem(THEME_STORAGE_KEY, 'neon');
-    assert.equal(readStoredTheme(storage), 'system');
-
-    const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } };
+    assert.equal(storage.getItem(THEME_STORAGE_KEY), null);
+    const blocked = { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } };
     assert.equal(readStoredTheme(blocked), 'system');
     assert.equal(writeStoredTheme(blocked, 'dark'), false);
-    assert.equal(readStoredTheme(null), 'system');
-    assert.equal(writeStoredTheme(null, 'dark'), true, 'no storage at all is not an error');
 });
 
-test('applyTheme writes data-theme for light / dark and removes it for system', () => {
-    const { document } = parseHTML('<html><body></body></html>');
-    const root = document.documentElement;
-    assert.equal(applyTheme(root, 'dark'), 'dark');
-    assert.equal(root.getAttribute('data-theme'), 'dark');
-    applyTheme(root, 'light');
-    assert.equal(root.getAttribute('data-theme'), 'light');
-    applyTheme(root, 'system');
-    assert.equal(root.hasAttribute('data-theme'), false);
-    applyTheme(root, 'nonsense');
-    assert.equal(root.hasAttribute('data-theme'), false);
-    assert.equal(applyTheme(null, 'dark'), 'dark', 'no root is harmless');
+test('draw theme attributes never overwrite the host theme', () => {
+    const { document } = page();
+    for (const value of ['dark', 'light', 'system']) {
+        applyTheme(document.documentElement, value);
+        assert.equal(document.documentElement.getAttribute(THEME_ATTRIBUTE), value === 'system' ? null : value);
+        assert.equal(document.documentElement.getAttribute('data-theme'), 'host-theme');
+    }
 });
 
-test('mounting applies the saved choice and turns the logo icon into the control without moving it', () => {
-    const { document, root, control } = mount(memoryStorage({ [THEME_STORAGE_KEY]: 'dark' }));
-    assert.equal(root.getAttribute('data-theme'), 'dark');
-    const logo = document.querySelector('.header-logo');
-    assert.equal(logo.firstElementChild, control.element, 'still the first thing in the header logo');
-    assert.equal(logo.children.length, 2);
-    assert.equal(logo.lastElementChild.textContent, 'Novel Draw');
-    const button = control.element.querySelector('button.theme-switch-button');
-    assert.ok(button.querySelector('i.fa-palette'), 'the original logo icon is inside the button');
-    assert.equal(button.getAttribute('title'), '主题：深色');
-    assert.equal(button.getAttribute('aria-label'), '主题：深色');
-    assert.equal(button.getAttribute('aria-haspopup'), 'menu');
-    assert.equal(button.getAttribute('aria-expanded'), 'false');
-    assert.ok(control.element.querySelector('.theme-switch-menu').hasAttribute('hidden'));
-    assert.ok(button.querySelector('.theme-switch-mark i.fa-moon'), 'the hover mark shows the current mode');
-    assert.equal(mountThemeSwitch({ document: mount().document, logoSelector: '.nope' }), null);
+test('visible moon/sun beside close directly toggles theme and keeps the logo', () => {
+    const { document, control, storage } = page();
+    const button = control.element;
+    assert.ok(document.querySelector('.header-logo > i.fa-palette'));
+    assert.equal(button.nextElementSibling, document.querySelector('.header-close'));
+    assert.ok(button.querySelector('.fa-moon'));
+    assert.equal(button.getAttribute('aria-label'), '切换绘图深色主题');
+    button.click();
+    assert.equal(document.documentElement.getAttribute(THEME_ATTRIBUTE), 'dark');
+    assert.equal(storage.getItem(THEME_STORAGE_KEY), 'dark');
+    assert.ok(button.querySelector('.fa-sun'));
+    button.click();
+    assert.equal(control.getTheme(), 'light');
+    assert.ok(button.querySelector('.fa-moon'));
+    assert.equal(document.querySelector('.theme-switch-menu'), null);
 });
 
-test('the menu offers 跟随系统 / 浅色 / 深色 with a check on the current one, and picking applies, stores and closes', () => {
-    const { control, fire, root, storage } = mount();
-    const button = control.element.querySelector('.theme-switch-button');
-    const items = () => Array.from(control.element.querySelectorAll('[role="menuitemradio"]'));
-    assert.equal(button.getAttribute('title'), '主题：跟随系统');
-    assert.equal(root.hasAttribute('data-theme'), false);
-
-    fire(button, 'click');
-    assert.equal(control.isOpen(), true);
-    assert.equal(button.getAttribute('aria-expanded'), 'true');
-    assert.deepEqual(items().map(item => item.querySelector('.theme-switch-label').textContent), ['跟随系统', '浅色', '深色']);
-    assert.deepEqual(items().map(item => item.getAttribute('aria-checked')), ['true', 'false', 'false']);
-
-    fire(items()[1], 'click');
-    assert.equal(control.isOpen(), false);
-    assert.equal(root.getAttribute('data-theme'), 'light');
-    assert.equal(storage.data.get(THEME_STORAGE_KEY), 'light');
-    assert.equal(button.getAttribute('title'), '主题：浅色');
-    assert.equal(button.getAttribute('aria-label'), '主题：浅色');
-    assert.ok(button.querySelector('.theme-switch-mark i.fa-sun'));
-    fire(button, 'click');
-    assert.deepEqual(items().map(item => item.getAttribute('aria-checked')), ['false', 'true', 'false']);
-
-    fire(items()[2], 'click');
-    assert.equal(root.getAttribute('data-theme'), 'dark');
-    assert.equal(storage.data.get(THEME_STORAGE_KEY), 'dark');
-    fire(button, 'click');
-    fire(items()[0], 'click');
-    assert.equal(root.hasAttribute('data-theme'), false);
-    assert.equal(storage.data.has(THEME_STORAGE_KEY), false, '跟随系统 clears the stored choice');
-    assert.equal(button.getAttribute('title'), '主题：跟随系统');
-});
-
-test('Esc closes only the menu (and is swallowed so the panel stays), outside clicks and Tab close it', () => {
-    const { control, fire, window, document } = mount();
-    const button = control.element.querySelector('.theme-switch-button');
-    const seenByPanel = [];
-    window.addEventListener('keydown', event => { if (event.key === 'Escape') seenByPanel.push(event.key); });
-
-    fire(button, 'click');
-    const esc = fire(document.body, 'keydown', { key: 'Escape' });
-    assert.equal(control.isOpen(), false);
-    assert.equal(esc.defaultPrevented, true);
-    assert.deepEqual(seenByPanel, [], 'the panel-level Esc handler never sees it');
-
-    fire(button, 'click');
-    assert.equal(control.isOpen(), true);
-    fire(document.body, 'pointerdown');
-    assert.equal(control.isOpen(), false);
-    fire(button, 'click');
-    fire(button, 'pointerdown');
-    assert.equal(control.isOpen(), true, 'pressing the control itself is not "outside"');
-    fire(document.body, 'keydown', { key: 'Tab' });
-    assert.equal(control.isOpen(), false);
-
-    // 菜单收起时 Esc 不被拦截（交给面板的 Esc 处理）
-    fire(document.body, 'keydown', { key: 'Escape' });
-    assert.deepEqual(seenByPanel, ['Escape']);
-
-    fire(button, 'click');
-    assert.equal(control.isOpen(), true);
-    control.destroy();
-    const after = fire(document.body, 'keydown', { key: 'Escape' });
-    assert.equal(control.isOpen(), true, 'destroy() removes the menu key handling');
-    assert.equal(after.defaultPrevented, false);
-});
-
-test('blocked storage: the choice still applies for this page without throwing', () => {
-    const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } };
-    const { control, root } = mount(blocked);
-    assert.equal(root.hasAttribute('data-theme'), false);
-    control.setTheme('dark');
-    assert.equal(root.getAttribute('data-theme'), 'dark');
+test('floor and floating controls share one live choice and detach cleanly', () => {
+    const { document, control } = page();
+    const other = mountThemeSwitch({ document, container: document.querySelector('.nd-controls') });
+    other.element.click();
     assert.equal(control.getTheme(), 'dark');
+    assert.ok(control.element.querySelector('.fa-sun'));
+    assert.equal(other.element.nextElementSibling, document.querySelector('.nd-settings-btn'));
+    const oldButton = other.element;
+    other.destroy();
+    assert.equal(oldButton.isConnected, false);
+    oldButton.click();
+    assert.equal(control.getTheme(), 'dark');
+    control.element.click();
+    assert.equal(control.getTheme(), 'light');
+    assert.ok(oldButton.querySelector('.fa-sun'), 'removed controls no longer subscribe');
 });
 
-function runBoot(saved, { throws = false } = {}) {
-    const attributes = new Map();
-    const context = {
-        window: { localStorage: { getItem(key) { if (throws) throw new Error('blocked'); return key === THEME_STORAGE_KEY ? saved : null; } } },
-        document: { documentElement: { setAttribute: (name, value) => attributes.set(name, value) } },
-    };
-    vm.runInNewContext(readFileSync(shared('theme-boot.js'), 'utf8'), context);
-    return attributes;
-}
-
-test('theme-boot.js applies a saved light / dark choice before paint, with the same key as the switch; system, junk and blocked storage change nothing', () => {
-    const source = readFileSync(shared('theme-boot.js'), 'utf8');
-    assert.ok(source.includes(`'${THEME_STORAGE_KEY}'`), 'same storage key');
-    assert.equal(runBoot('light').get('data-theme'), 'light');
-    assert.equal(runBoot('dark').get('data-theme'), 'dark');
-    for (const saved of [null, 'system', 'neon', '']) assert.equal(runBoot(saved).size, 0, String(saved));
-    assert.equal(runBoot('dark', { throws: true }).size, 0);
+test('settings iframe and host synchronize both ways, even with unavailable storage', () => {
+    const blocked = { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } };
+    const host = page(blocked);
+    const settings = page(blocked);
+    const sibling = page(blocked);
+    attachFrame(host, settings);
+    attachFrame(host, sibling);
+    settings.control.element.click();
+    for (const env of [host, settings, sibling]) {
+        assert.equal(env.control.getTheme(), 'dark');
+        assert.equal(env.document.documentElement.getAttribute('data-theme'), 'host-theme');
+    }
+    host.control.element.click();
+    for (const env of [host, settings, sibling]) assert.equal(env.control.getTheme(), 'light');
 });
 
-test('all three pages load theme-boot.js synchronously before their stylesheets and have a header logo icon for the switch to take over', () => {
+test('a newly opened iframe inherits the current host choice before mounting', () => {
+    const host = page();
+    host.control.setTheme('dark');
+    const { document } = parseHTML('<html><body></body></html>');
+    Object.defineProperty(document, 'defaultView', { value: { parent: host.view, addEventListener() {} } });
+    const runtime = ensureDrawTheme({ document, storage: null });
+    assert.equal(runtime.getTheme(), 'dark');
+    assert.equal(document.documentElement.getAttribute(THEME_ATTRIBUTE), 'dark');
+});
+
+test('system changes update the action icon, but explicit choices stay fixed; other tabs sync', () => {
+    const env = page();
+    env.changeSystem(false);
+    assert.ok(env.control.element.querySelector('.fa-sun'));
+    env.control.element.click();
+    assert.equal(env.control.getTheme(), 'light');
+    env.changeSystem(false);
+    assert.ok(env.control.element.querySelector('.fa-moon'));
+    env.storage.setItem(THEME_STORAGE_KEY, 'dark');
+    env.storageEvent('unrelated');
+    assert.equal(env.control.getTheme(), 'light');
+    env.storageEvent(THEME_STORAGE_KEY, memoryStorage());
+    assert.equal(env.control.getTheme(), 'light');
+    env.storageEvent(THEME_STORAGE_KEY);
+    assert.equal(env.control.getTheme(), 'dark');
+    env.storage.removeItem(THEME_STORAGE_KEY);
+    env.storageEvent(null);
+    assert.equal(env.control.getTheme(), 'system');
+});
+
+test('theme boot uses the same draw-owned attribute and runs before all settings styles', () => {
+    for (const value of ['light', 'dark', null, 'invalid']) {
+        const attributes = new Map();
+        vm.runInNewContext(readFileSync(shared('theme-boot.js'), 'utf8'), {
+            window: { localStorage: { getItem: () => value } },
+            document: { documentElement: { setAttribute: (key, val) => attributes.set(key, val) } },
+        });
+        assert.equal(attributes.get(THEME_ATTRIBUTE), value === 'light' || value === 'dark' ? value : undefined);
+        assert.equal(attributes.has('data-theme'), false);
+    }
     for (const relative of pages) {
-        const html = readFileSync(new URL(relative, import.meta.url), 'utf8');
-        const head = html.slice(0, html.indexOf('</head>'));
-        const boot = head.indexOf('<script src="../../shared/theme-boot.js"></script>');
-        assert.ok(boot > 0, `${relative} loads the boot script`);
-        assert.ok(boot < head.indexOf('settings-shell.css'), `${relative}: before the stylesheet`);
-        assert.match(html, /<div class="header-logo"><i class="fa-solid [a-z-]+"><\/i><span>/, `${relative}: the logo icon is the first child of the header logo`);
+        const source = readFileSync(new URL(relative, import.meta.url), 'utf8');
+        assert.ok(source.indexOf('theme-boot.js') < source.indexOf('settings-shell.css'));
+        const { document } = parseHTML(source);
+        assert.ok(document.querySelector('.app-header .header-close'));
+        assert.ok(document.querySelector('.header-logo > i'));
     }
-});
-
-test('the shared page entry mounts the switch, and the sun / moon / half / check icons exist in the local icon sheet', () => {
-    const entry = readFileSync(shared('settings-page.js'), 'utf8');
-    assert.match(entry, /from '\.\/theme-switch\.js'/);
-    assert.match(entry, /mountThemeSwitch\(\{ document \}\)/);
+    assert.match(readFileSync(shared('settings-page.js'), 'utf8'), /mountThemeSwitch\(\{ document \}\)/);
+    assert.match(readFileSync(shared('draw-visuals.js'), 'utf8'), /ensureDrawTheme\(\{ document \}\)/);
     const icons = readFileSync(shared('settings-icons.css'), 'utf8');
-    for (const name of ['fa-sun', 'fa-moon', 'fa-circle-half-stroke', 'fa-check']) {
-        assert.match(icons, new RegExp(`\\.${name}\\b[^{]*\\{[^}]*--draw-icon`), `${name} is defined`);
-    }
+    for (const name of ['fa-sun', 'fa-moon']) assert.match(icons, new RegExp(`\\.${name}\\b[^{}]*\\{[^}]*--draw-icon`));
 });

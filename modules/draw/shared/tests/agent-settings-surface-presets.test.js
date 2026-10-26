@@ -2,7 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { parseHTML } from 'linkedom';
-import { createDrawAgentSettingsSurface } from '../agent-settings-surface.js';
+import { buildDrawAgentSettingsSurfaceMarkup, createDrawAgentSettingsSurface } from '../agent-settings-surface.js';
+import { buildAgentSettingsPanelMarkup } from '../../../agent-core/ui/settings-markup.js';
+
+// Product contract from 4bec3cc5: drawing uses the repository-wide Agent API
+// dropdown and actions, not the drawable parameter presets' sortable list.
+test('drawing Agent API uses the same preset dropdown and actions as the shared panel', () => {
+    const { document } = parseHTML(`<html><body>${buildDrawAgentSettingsSurfaceMarkup({})}</body></html>`);
+    const shared = parseHTML(`<html><body>${buildAgentSettingsPanelMarkup({ showAssistantPermissions: false, showDelegateSettings: false, canDeletePreset: false })}</body></html>`).document;
+    assert.equal(document.querySelector('.xb-assistant-preset-row').outerHTML,
+        shared.querySelector('.xb-assistant-preset-row').outerHTML);
+    assert.equal(document.querySelector('#xb-assistant-preset-select').tagName, 'SELECT');
+    assert.equal(document.querySelector('#xb-assistant-preset-list'), null);
+    assert.equal(document.querySelector('#xb-assistant-preset-collapse'), null);
+    for (const action of ['new-preset', 'rename-preset', 'save', 'delete-preset']) {
+        assert.ok(document.querySelector(`#xb-assistant-${action}`));
+    }
+});
 
 // Acceptance (lost configuration / edits): a completed preset operation with no
 // remaining edits resumes shared-config refresh, so the next save keeps presets
@@ -57,18 +73,14 @@ for (const [operation, editing] of [
         };
         await surface.refresh();
         if (editing === 'before') edit('unsaved');
-        if (operation === 'rename') {
-            // 在 A 行的名称输入框里改名（值取自 window.prompt 桩）
-            const input = root.querySelector('.preset-row[data-preset-id="A"] .preset-row-name');
-            input.dispatchEvent(new window.Event('focusin', { bubbles: true }));
-            input.value = window.prompt();
-            input.dispatchEvent(new window.Event('focusout', { bubbles: true }));
-        } else {
-            click({
-                create: '#xb-assistant-new-preset',
-                delete: '[data-preset-action="delete"][data-preset-id="A"]',
-            }[operation]);
-        }
+        assert.equal(root.querySelector('#xb-assistant-preset-select').tagName, 'SELECT');
+        assert.deepEqual(Array.from(root.querySelectorAll('#xb-assistant-preset-select option')).map(option => option.value), ['A', 'B']);
+        assert.equal(root.querySelector('#xb-assistant-preset-list'), null);
+        click({
+            rename: '#xb-assistant-rename-preset',
+            create: '#xb-assistant-new-preset',
+            delete: '#xb-assistant-delete-preset',
+        }[operation]);
         if (editing === 'during' || editing === 'reverted') edit('unsaved');
         if (editing === 'reverted') edit('saved');
         if (editing.startsWith('sampling')) {

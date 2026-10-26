@@ -12,11 +12,11 @@ test('settings-shell.css owns the drop markers: a line before / after the row in
     assert.match(shell, /\.drop-before\s*\{[^}]*box-shadow:[^;}]*var\(--border-focus\)[^;}]*!important/);
     assert.match(shell, /\.drop-after\s*\{[^}]*box-shadow:[^;}]*var\(--border-focus\)[^;}]*!important/);
     assert.match(shell, /\.drop-into\s*\{[^}]*outline:[^;}]*dashed[^;}]*var\(--border-focus\)/);
-    // --border-focus 在深色 / 浅色（含强制 data-theme）里都有定义
+    // --border-focus 在深色 / 浅色（含强制 data-draw-theme）里都有定义
     assert.match(shell, /:root\s*\{[^}]*--border-focus:/);
     assert.match(shell, /--border-focus:\s*var\(--draw-border-focus\)/);
     const theme = read('../draw-theme.css');
-    assert.match(theme, /:root\[data-theme="light"\]\s*\{[^}]*--draw-border-focus:/);
+    assert.match(theme, /:root\[data-draw-theme="light"\]\s*\{[^}]*--draw-border-focus:/);
 });
 
 test('no other stylesheet or page redefines the markers, and every settings page loads settings-shell.css', () => {

@@ -38,7 +38,7 @@ test('floating gesture admission never turns drag/cancel into a paid action', as
         DRAW_SLOT_COPY: '{}',
     };
     for (const item of imports.reverse()) {
-        if (/max-images|draw-capsule-copy|async-errors|draw-visuals/.test(item.source.value)) continue;
+        if (/max-images|draw-capsule-copy|async-errors|draw-visuals|theme-switch/.test(item.source.value)) continue;
         const replacement = item.specifiers.map(spec => `const ${spec.local.name}=${stubs[spec.local.name] ?? '()=>null'};`).join('\n');
         source = source.slice(0, item.start) + replacement + source.slice(item.end);
     }
@@ -86,4 +86,10 @@ test('floating gesture admission never turns drag/cancel into a paid action', as
     emit(draw, 'pointerdown'); emit(root, 'pointermove', { clientX: -1000 }); emit(root, 'pointerup');
     emit(draw, 'pointerdown'); emit(root, 'pointerup'); emit(draw, 'click');
     assert.equal(counters.draws, 2);
+    const theme = root.querySelector('[data-role="theme-switch"]');
+    assert.ok(theme, 'the actual floating controller mounts its theme button');
+    const oldTheme = document.documentElement.getAttribute('data-draw-theme');
+    emit(theme, 'pointerdown'); emit(root, 'pointerup'); emit(theme, 'click');
+    assert.notEqual(document.documentElement.getAttribute('data-draw-theme'), oldTheme);
+    assert.equal(counters.draws, 2, 'changing the theme never requests an image');
 });
