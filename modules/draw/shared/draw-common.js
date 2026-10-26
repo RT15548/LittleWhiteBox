@@ -357,8 +357,8 @@ export function buildImageHtml({ slotId, imgId, url, tags, title = '', positive,
     // 摺疊標題列寬度由 JS 量得的圖片實寬寫入 --xb-img-w（見 syncCollapseTitleWidths）；
     // 摺疊後主圖被 details 隱藏也能保持與圖片同寬；變量未就緒時回退初始的文字膠囊。
     const imageFrame = (titleMode === 'collapse' && rawTitle)
-        ? `<details class="xb-nd-details" open>
-    <summary class="xb-nd-summary"><span>．·°∴ ☆．．·° ${escapeHtml(rawTitle.slice(0, 20))} °·．．☆ ∴°·．</span></summary>
+        ? `<details class="xb-nd-details">
+    <summary class="xb-nd-summary"><span>${escapeHtml(rawTitle.slice(0, 20))}</span></summary>
 ${imageWrap}
 </details>`
         : imageWrap;
@@ -380,9 +380,7 @@ export function syncImageTitleElements(container, title = '') {
     }
     const summary = container.querySelector('.xb-nd-summary span');
     if (summary) {
-        summary.textContent = rawTitle
-            ? `．·°∴ ☆．．·° ${rawTitle.slice(0, 20)} °·．．☆ ∴°·．`
-            : '';
+        summary.textContent = rawTitle ? rawTitle.slice(0, 20) : '';
     }
     // 版本切換換了主圖 src，摺疊標題列寬度需按新圖重測。
     syncCollapseTitleWidths(container);
