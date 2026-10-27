@@ -1,33 +1,15 @@
 import {
-    eventSource, event_types, stopGeneration, main_api, updateMessageBlock,
+    eventSource, event_types, stopGeneration, main_api, updateMessageBlock, is_send_press,
 } from '../../../../../../script.js';
-import { countTokensOpenAIAsync, getTokenCountAsync } from '../../../../../tokenizers.js';
 import { registerGenerateInterceptor, unregisterGenerateInterceptor,
     GENERATE_INTERCEPTOR_ORDER } from '../../shared/common/generate-interceptor.js';
 import { createPlannerGeneration } from './ena-planner-generation.js';
 import { createPlannerMarker, reservePlannerSlot } from './ena-planner-slot.js';
 import { createPlannerBypassRequests } from './ena-planner-requests.js';
-import { PLANNER_COPY } from './ena-planner-copy.js';
-import { checkPlannerBudget } from './ena-planner-budget.js';
-import { savePlannerResult } from './ena-planner-save.js';
-import { saveChatAndConfirm } from '../draw/shared/confirmable-chat-save.js';
 import { createPlannerPreview } from './ena-planner-preview.js';
-import { createAbortError, throwIfSignalAborted } from '../../shared/common/abort-utils.js';
+import { throwIfSignalAborted } from '../../shared/common/abort-utils.js';
 
 const ID = 'ena-planner';
-
-async function countMedia(part) {
-    const { Message } = await import('../../../../../openai.js');
-    const message = await Message.createAsync('user', '', 'ena-planner-budget');
-    if (part.type === 'image_url') {
-        return message.getImageTokenCost(part.image_url.url, part.image_url.detail || 'auto');
-    }
-    const method = { audio_url: 'addAudio', video_url: 'addVideo' }[part.type];
-    if (!method || typeof message[method] !== 'function') throw new Error(PLANNER_COPY.budgetUnknown);
-    await message[method](part[part.type].url);
-    if (!(message.getTokens() > 0)) throw new Error(PLANNER_COPY.budgetUnknown);
-    return message.getTokens();
-}
 
 export function createPlannerHost(options) {
     let installed = false;
@@ -39,30 +21,22 @@ export function createPlannerHost(options) {
         ...options,
         preview: (run, actions) => preview?.render(run, actions),
         clearPreview: () => preview?.clear(),
-        async saveSource(run) {
-            const context = options.getContext();
-            await saveChatAndConfirm({ ctx: { ...context, async saveChat() {
-                throwIfSignalAborted(run.controller.signal);
-                if (options.identity() !== run.chatId || options.getContext()?.chat?.[run.index] !== run.source
-                    || run.source.mes !== run.sourceText) throw createAbortError(PLANNER_COPY.changed);
-                await context.saveChat();
-            } }, verify(chat) {
-                const offset = Object.hasOwn(chat[0] || {}, 'chat_metadata') ? 1 : 0;
-                const saved = chat[run.index + offset];
-                return saved?.is_user === true && saved.mes === run.sourceText;
-            } });
-        },
         chat: () => options.getContext()?.chat || [],
         createMarker: createPlannerMarker,
         reserveSlot: reservePlannerSlot,
         orderHooks,
         stop: stopGeneration,
-        checkBudget: (data, run) => checkPlannerBudget(data, run, {
-            text: text => getTokenCountAsync(text, 0),
-            messages: messages => countTokensOpenAIAsync(messages),
-            media: countMedia,
-        }),
-        commit: (run, plan) => savePlannerResult(run, plan, { ...options, update: updateMessageBlock }),
+        update: updateMessageBlock,
+        async waitForIdle(signal) {
+            // The cancelled payload must unwind before ST starts a new Generate;
+            // otherwise its cleanup could stop the replacement request.
+            while (is_send_press) {
+                throwIfSignalAborted(signal);
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            throwIfSignalAborted(signal);
+        },
+        generate: (...args) => options.getContext().generate(...args),
     });
 
     function orderHooks() {
@@ -146,7 +120,7 @@ export function createPlannerHost(options) {
         detachIfIdle();
     }
     const restoreAliases = () => { for (const data of inputAliases.keys()) restoreInputAlias(data); };
-    const stopped = () => { restoreAliases(); runtime.cancel(false); };
+    const stopped = () => { restoreAliases(); runtime.hostStopped(); };
     const changed = () => { restoreAliases(); runtime.cancel(true, true); };
     const edited = index => runtime.sourceEdited(index);
     const deleted = () => runtime.sourceDeleted();

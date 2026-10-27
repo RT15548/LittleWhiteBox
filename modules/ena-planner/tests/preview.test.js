@@ -13,11 +13,12 @@ function fixture(t) {
     const state = { chatId: 'chat-a' };
     const run = { chatId: 'chat-a', index: 0, source, sourceText: 'input', phase: 'preview', previewText: 'plan\nline two' };
     const calls = [];
-    const actions = Object.fromEntries(['stop', 'replan', 'send'].map(name => [name, async () => { calls.push(name); }]));
+    const actions = Object.fromEntries(['stop', 'replan', 'send', 'discard'].map(name => [name, async () => { calls.push(name); }]));
     const preview = createPlannerPreview({ getContext: () => context, identity: () => state.chatId, document });
     t.after(() => preview.cleanup());
     const root = () => document.querySelector('.ena-planner-preview');
     const button = name => root().querySelector(`[data-action="${name}"]`);
+    actions.edit = value => { run.previewText = value; preview.render(run, actions); };
     const render = () => preview.render(run, actions);
     return { document, source, context, state, run, calls, actions, preview, root, button, render };
 }
@@ -41,14 +42,12 @@ test('safe streaming text is a sibling of USER body and never changes message or
     assert.equal(body.nextElementSibling, f.root());
     assert.equal(body.parentNode, f.root().parentNode);
     assert.equal(body.textContent, 'input');
-    assert.equal(f.root().querySelector('.ena-planner-preview__text').textContent, f.run.previewText);
+    assert.equal(f.root().querySelector('.ena-planner-preview__text').value, f.run.previewText);
     assert.equal(f.root().querySelector('.ena-planner-preview__error').textContent, f.run.error);
     assert.equal(f.root().querySelector('img, script, svg'), null);
-    assert.match(f.document.head.textContent, /white-space: pre-wrap/);
-    assert.match(f.document.head.textContent, /max-width: 600px/);
     f.run.previewText += '\nchunk two';
     f.render();
-    assert.equal(f.root().querySelector('.ena-planner-preview__text').textContent, f.run.previewText);
+    assert.equal(f.root().querySelector('.ena-planner-preview__text').value, f.run.previewText);
     assert.deepEqual(f.source, original);
 });
 
@@ -92,13 +91,13 @@ test('editing detaches preview and finishing editing remounts it', async t => {
 });
 
 for (const [phase, expected] of [
-    ['preparing', []], ['planning', ['stop']], ['preview', ['replan', 'send']],
-    ['stopped', ['replan', 'send']], ['error', ['replan', 'send']], ['saving', []], ['invalid', []],
+    ['preparing', ['discard']], ['planning', ['stop', 'discard']], ['preview', ['replan', 'send', 'discard']],
+    ['stopped', ['replan', 'send', 'discard']], ['error', ['replan', 'send', 'discard']], ['sending', []],
 ]) test(`${phase} exposes only valid actions`, async t => {
     const f = fixture(t);
     f.run.phase = phase;
     f.render();
-    for (const name of ['stop', 'replan', 'send']) {
+    for (const name of ['stop', 'replan', 'send', 'discard']) {
         assert.equal(f.button(name).disabled, !expected.includes(name));
         if (!expected.includes(name)) f.button(name).click();
     }
@@ -118,25 +117,6 @@ for (const phase of ['preview', 'stopped', 'error']) test(`${phase} cannot send 
     f.render();
     assert.equal(f.button('send').disabled, true);
     assert.equal(f.button('replan').disabled, false);
-});
-
-test('saveState forbids replanning and keeps read-back recovery available', async t => {
-    const f = fixture(t);
-    for (const phase of ['preview', 'stopped', 'error', 'saving']) {
-        f.run.phase = phase;
-        f.run.saveState = { attempted: false, applied: true, text: 'input\n\nplan' };
-        f.source.mes = f.run.saveState.text;
-        f.render();
-        assert.equal(f.button('replan').disabled, true);
-        assert.equal(f.button('send').textContent, '重试发送');
-        assert.equal(f.button('send').disabled, phase === 'saving');
-        f.button('replan').click();
-    }
-    f.run.phase = 'error';
-    f.render();
-    f.button('send').click();
-    await flush();
-    assert.deepEqual(f.calls, ['send']);
 });
 
 test('async action disables repeat clicks and rejection is safely rendered', async t => {
@@ -233,23 +213,6 @@ test('switching chats then host redraw never moves old preview onto new USER', a
     assert.ok(f.root());
 });
 
-test('changed source text disables actions; invalid retains the visible preview', t => {
-    const f = fixture(t);
-    f.render();
-    const displayed = f.root().querySelector('.ena-planner-preview__text').textContent;
-    f.source.mes = 'user edited';
-    f.button('send').click();
-    assert.deepEqual(f.calls, []);
-    assert.equal(f.button('send').disabled, true);
-    f.run.phase = 'invalid';
-    f.run.previewText = '';
-    f.render();
-    assert.equal(f.root().querySelector('.ena-planner-preview__text').textContent, displayed);
-    assert.equal(f.button('send').disabled, true);
-    assert.equal(f.button('replan').disabled, true);
-    assert.equal(f.button('stop').disabled, true);
-});
-
 test('clear cancels queued refresh and removes styles; cleanup prevents future rendering', async t => {
     const f = fixture(t);
     f.render();
@@ -275,4 +238,22 @@ test('clear cancels queued refresh and removes styles; cleanup prevents future r
     await flush();
     assert.equal(f.root(), null);
     assert.equal(f.document.querySelector('style[data-ena-planner-preview]'), null);
+});
+test('editor input changes only the transient draft and survives redraw', async t => {
+    const f = fixture(t);
+    f.render();
+    const editor = f.root().querySelector('textarea');
+    editor.value = '<plot>user edit</plot>';
+    editor.dispatchEvent(new f.document.defaultView.Event('input', {bubbles:true}));
+    replaceChat(f);
+    await flush();
+    assert.equal(f.run.previewText, '<plot>user edit</plot>');
+    assert.equal(f.root().querySelector('textarea').value, f.run.previewText);
+    assert.deepEqual(f.source, {is_user:true,mes:'input',extra:{untouched:true}});
+    editor.value = '';
+    editor.dispatchEvent(new f.document.defaultView.Event('input', {bubbles:true}));
+    assert.equal(f.button('send').disabled, true);
+    editor.value = 'manual plan';
+    editor.dispatchEvent(new f.document.defaultView.Event('input', {bubbles:true}));
+    assert.equal(f.button('send').disabled, false);
 });

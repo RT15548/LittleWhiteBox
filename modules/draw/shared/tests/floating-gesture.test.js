@@ -15,6 +15,7 @@ test('floating gesture admission never turns drag/cancel into a paid action', as
     const prior = { document: globalThis.document, window: globalThis.window, localStorage: globalThis.localStorage };
     Object.assign(globalThis, { document, window, localStorage: { getItem: k => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, v) } });
     Object.assign(window, { innerWidth: 800, innerHeight: 800 });
+    window.ResizeObserver = class { observe() {} disconnect() {} };
     window.HTMLElement.prototype.getBoundingClientRect = function () { return { left: parseFloat(this.style.left) || 100, top: parseFloat(this.style.top) || 100 }; };
     window.HTMLElement.prototype.setPointerCapture = function (id) { this.captured = id; };
     window.HTMLElement.prototype.hasPointerCapture = function (id) { return this.captured === id; };
@@ -38,7 +39,7 @@ test('floating gesture admission never turns drag/cancel into a paid action', as
         DRAW_SLOT_COPY: '{}',
     };
     for (const item of imports.reverse()) {
-        if (/max-images|draw-capsule-copy|async-errors|draw-visuals|theme-switch/.test(item.source.value)) continue;
+        if (/max-images|draw-capsule-copy|async-errors|draw-visuals|theme-switch|floating-popovers/.test(item.source.value)) continue;
         const replacement = item.specifiers.map(spec => `const ${spec.local.name}=${stubs[spec.local.name] ?? '()=>null'};`).join('\n');
         source = source.slice(0, item.start) + replacement + source.slice(item.end);
     }

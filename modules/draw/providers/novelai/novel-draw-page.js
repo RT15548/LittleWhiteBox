@@ -1,6 +1,7 @@
 import { DOMPurify } from '../../../../../../../../lib.js';
 import { createGalleryImageWindow } from '../../shared/gallery-image-window.js';
 import { createGalleryImageRequests } from './gallery-image-requests.js';
+import { createGalleryFeedback } from './gallery-feedback.js';
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
 import { NOVEL_API_DEFAULTS, NOVEL_API_FIELDS, normalizeNovelApiConfig } from './novel-api-config.js';
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
@@ -217,6 +218,7 @@ function escapeHtml(str) {
 }
 
 const galleryImageRequests = createGalleryImageRequests(postToParent);
+const galleryFeedback = createGalleryFeedback(document, postToParent);
 const galleryImageWindow = createGalleryImageWindow({ load: galleryImageRequests.load });
 function syncGalleryImages() {
     const root = modalData.slotId ? $('nd_gallery_modal') : $('view-gallery');
@@ -276,6 +278,7 @@ function switchView(viewId) {
         if (charList) restoreGroupScroll(charList);
     }
     if (viewId !== 'gallery' && modalData.slotId) closeGalleryModal();
+    if (viewId !== 'gallery') galleryFeedback.clear();
     syncGalleryImages();
     quickTestView?.setActive(viewId === 'test');
     if (viewId === 'gallery') postToParent({ type: 'REFRESH_CACHE_STATS' });
@@ -2583,7 +2586,7 @@ let batchMode = false;
 const batchSelectedIds = new Set();
 let batchDeleteRequestId = null;
 const galleryZipDownload = createGalleryZipDownload({ document, container: $('nd_zip_output'), send: postToParent,
-    status: (kind, text) => updateStatus($('nd_gallery_status'), kind, text) });
+    status: galleryFeedback.show });
 
 function toggleBatchMode() {
     batchMode = !batchMode;
@@ -4297,6 +4300,7 @@ window.addEventListener('message', event => {
             break;
 
         case 'CACHE_DATA':
+            galleryFeedback.receive(data);
             state.cacheStats = data.cacheStats || state.cacheStats;
             if (data.gallerySummary) applyGallerySummary(data.gallerySummary);
             if ($('nd_cache_count')) $('nd_cache_count').textContent = state.cacheStats?.count || 0;
@@ -4325,7 +4329,7 @@ window.addEventListener('message', event => {
             updateBatchCount();
             syncBatchSelection();
             pruneGalleryObjectUrls();
-            updateStatus($('nd_gallery_status'), data.failures?.length ? 'error' : 'success',
+            galleryFeedback.show(data.failures?.length ? 'error' : 'success',
                 GALLERY_BATCH_COPY.deleted(ids.length, data.failures?.length || 0));
             break;
         }
@@ -4374,7 +4378,7 @@ window.addEventListener('message', event => {
                 state.saveAsJpeg = data.saveAsJpeg === true;
                 $('nd_save_as_jpeg').checked = state.saveAsJpeg;
                 $('nd_save_as_jpeg').disabled = false;
-                updateStatus($('nd_gallery_status'), data.state, data.text);
+                galleryFeedback.show(data.state, data.text);
                 break;
             }
             if (data.target === 'group-presets') {
@@ -4404,7 +4408,7 @@ window.addEventListener('message', event => {
             } else if (data.target === 'filter') {
                 updateStatus($('nd_filter_status'), data.state, data.text);
             } else if (data.target === 'gallery') {
-                updateStatus($('nd_gallery_status'), data.state, data.text);
+                galleryFeedback.show(data.state, data.text);
             } else {
                 updateStatus($('nd_status'), data.state, data.text);
             }
@@ -4487,7 +4491,7 @@ window.addEventListener('message', event => {
 });
 
 window.addEventListener('pagehide', event => {
-    if (!event.persisted) { quickTestView?.dispose(); galleryZipDownload.dispose(); }
+    if (!event.persisted) { quickTestView?.dispose(); galleryZipDownload.dispose(); galleryFeedback.destroy(); }
 });
 window.addEventListener('beforeunload', () => {
     cardMenu?.destroy();
@@ -4827,7 +4831,6 @@ function initializePage() {
         if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' }); 
     });
     
-    $('nd_refresh_stats').addEventListener('click', () => postToParent({ type: 'REFRESH_CACHE_STATS' }));
     
     // ═══════════════════════════════════════════════════════════════════════
     // 画廊弹窗

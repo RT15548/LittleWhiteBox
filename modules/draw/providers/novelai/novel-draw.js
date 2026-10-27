@@ -3247,15 +3247,16 @@ async function sendInitData() {
 
 // 只发图片缓存统计（CACHE_DATA），不重发整份设置：画廊的保存 / 删除 / 刷新统计只改缓存，
 // 整份 INIT_DATA 会让页面所有控件重新赋值、图片管理整页重绘。
-async function sendCacheData() {
+async function sendCacheData({ requestId } = {}) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!iframe?.contentWindow) return;
     // 统计失败时对应字段干脆不带：页面收到缺省字段会保持原状，不会被占位的空值冲掉。
-    const cacheData = { type: 'CACHE_DATA' };
+    const cacheData = { type: 'CACHE_DATA', requestId, ok: false };
     try {
         const overview = await getGalleryOverview();
         cacheData.cacheStats = overview.stats;
         cacheData.gallerySummary = overview.summary;
+        cacheData.ok = true;
     } catch (e) { console.error('[NovelDraw] Gallery overview failed:', e); }
     const currentIframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (currentIframe?.contentWindow === iframe.contentWindow) {
@@ -4085,7 +4086,7 @@ async function handleFrameMessage(event) {
         }
 
         case 'REFRESH_CACHE_STATS':
-            observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
+            await sendCacheData({ requestId: data.requestId });
             break;
 
         case 'USE_GALLERY_IMAGE':

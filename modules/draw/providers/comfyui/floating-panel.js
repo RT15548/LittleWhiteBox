@@ -4,6 +4,7 @@ import { getContext } from '../../../../../../../extensions.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 import { DRAW_CAPSULE_COPY } from '../../shared/draw-capsule-copy.js';
+import { FLOATING_POPOVER_STYLES, getFloatingViewport, mountFloatingPopovers } from '../../shared/floating-popovers.js';
 import { pickPresetMaxImages } from '../../shared/max-images-override.js';
 import {
     MAX_IMAGES_INPUT_CLASS,
@@ -391,24 +392,7 @@ ${MAX_IMAGES_INPUT_CSS}
     cursor: grab;
 }
 .nd-floating-global .nd-capsule:active { cursor: grabbing; }
-.nd-floating-global .nd-detail {
-    top: auto;
-    bottom: calc(100% + 8px);
-    right: 0;
-}
-.nd-floating-global.show-detail .nd-detail {
-    transform: none;
-}
-.nd-floating-global .nd-menu {
-    top: auto;
-    bottom: calc(100% + 8px);
-    right: 0;
-}
-.nd-floating-global.expanded .nd-menu {
-    transform: none;
-}
-.nd-floating-global .nd-arrow { transform: rotate(180deg); }
-.nd-floating-global.expanded .nd-arrow { transform: rotate(0deg); }
+${FLOATING_POPOVER_STYLES}
 `;
 
 function injectStyles() {
@@ -1117,10 +1101,11 @@ const FLOATING_WIDTH_ACTIVE = 101;
 function applyFloatingPosition() {
     if (!floatingEl) return;
     const pos = getFloatingPosition();
+    const view = getFloatingViewport();
     const w = floatingState === FloatState.IDLE ? FLOATING_WIDTH_IDLE : FLOATING_WIDTH_ACTIVE;
     const h = floatingEl.offsetHeight || 34;
-    floatingEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
-    floatingEl.style.top = `${Math.max(0, Math.min(pos.top, window.innerHeight - h))}px`;
+    floatingEl.style.left = `${Math.max(view.left, Math.min(pos.left, view.right - w))}px`;
+    floatingEl.style.top = `${Math.max(view.top, Math.min(pos.top, view.bottom - h))}px`;
 }
 
 function clearFloatingCooldownTimer() {
@@ -1303,10 +1288,11 @@ function onFloatingPointerMove(e) {
         floatingDragState.moved = true;
     }
     if (floatingDragState.moved) {
+        const view = getFloatingViewport();
         const w = floatingEl.offsetWidth || 88;
         const h = floatingEl.offsetHeight || 36;
-        floatingEl.style.left = `${Math.max(0, Math.min(floatingDragState.startLeft + dx, window.innerWidth - w))}px`;
-        floatingEl.style.top = `${Math.max(0, Math.min(floatingDragState.startTop + dy, window.innerHeight - h))}px`;
+        floatingEl.style.left = `${Math.max(view.left, Math.min(floatingDragState.startLeft + dx, view.right - w))}px`;
+        floatingEl.style.top = `${Math.max(view.top, Math.min(floatingDragState.startTop + dy, view.bottom - h))}px`;
     }
     e.preventDefault();
 }
@@ -1450,7 +1436,7 @@ function createFloatingButton() {
     const sep = createEl('div', 'nd-sep');
     const menuBtn = createEl('button', 'nd-btn-menu');
     menuBtn.title = '展开菜单';
-    menuBtn.append(createEl('span', 'nd-arrow', '▲'));
+    menuBtn.append(createEl('span', 'nd-arrow', '▼'));
     layerIdle.append(drawBtn, sep, menuBtn);
     const layerActive = createEl('div', 'nd-layer nd-layer-active');
     layerActive.append(
@@ -1458,7 +1444,7 @@ function createFloatingButton() {
         createEl('span', 'nd-status-text', DRAW_CAPSULE_COPY.analysis),
     );
     inner.append(layerIdle, layerActive);
-    capsule.append(inner, createPersistMenuBtn('▲'));
+    capsule.append(inner, createPersistMenuBtn('▼'));
 
     floatingEl.append(detail, menu, capsule);
     document.body.appendChild(floatingEl);
@@ -1481,6 +1467,7 @@ function createFloatingButton() {
     });
     floatingCache.maxImagesBinding = maxImages.bind(floatingCache.maxImagesInput);
     floatingCache.themeSwitch = mountThemeSwitch({ document, container: floatingEl.querySelector('.nd-controls') });
+    floatingCache.popovers = mountFloatingPopovers(floatingEl, applyFloatingPosition);
     floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
     });
@@ -1489,12 +1476,12 @@ function createFloatingButton() {
         observeBackgroundTask(openSettings(), { source: import.meta.url, operation: "callback" });
     });
     document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
-    window.addEventListener('resize', applyFloatingPosition);
     const messageId = findLastAIMessageId();
     if (messageId >= 0) observeBackgroundTask(syncDrawRunPanelState(messageId), { source: import.meta.url, operation: "createFloatingButton" });
 }
 
 function destroyFloatingButton() {
+    floatingCache.popovers?.destroy();
     floatingCache.themeSwitch?.destroy();
     floatingCache.maxImagesBinding?.destroy();
     clearFloatingCooldownTimer();
@@ -1502,7 +1489,6 @@ function destroyFloatingButton() {
         clearTimeout(floatingAutoResetTimer);
         floatingAutoResetTimer = null;
     }
-    window.removeEventListener('resize', applyFloatingPosition);
     document.removeEventListener('click', handleFloatingOutsideClick);
     floatingEl?.remove();
     floatingEl = null;

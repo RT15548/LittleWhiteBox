@@ -664,6 +664,27 @@ test('gallery controls dispatch commands and restore controls from host receipts
     assert.equal(jpeg.disabled, false);
     assert.equal(jpeg.checked, true);
 
+    // Explicit refresh must settle only its own receipt; old/background replies
+    // cannot report success for a failing refresh (cost: hidden cache-read failure).
+    const refresh = document.getElementById('nd_refresh_stats');
+    click(refresh);
+    const firstRefresh = posted.at(-1);
+    assert.equal(firstRefresh.type, 'REFRESH_CACHE_STATS');
+    assert.equal(refresh.disabled, true);
+    receive({ type: 'CACHE_DATA', ok: true });
+    assert.equal(refresh.disabled, true);
+    receive({ type: 'CACHE_DATA', requestId: firstRefresh.requestId, ok: false });
+    assert.equal(refresh.disabled, false);
+    assert.equal(document.getElementById('nd_gallery_notice').dataset.state, 'error');
+    click(refresh);
+    const secondRefresh = posted.at(-1);
+    receive({ type: 'CACHE_DATA', requestId: firstRefresh.requestId, ok: true });
+    assert.equal(refresh.disabled, true);
+    receive({ type: 'CACHE_DATA', requestId: secondRefresh.requestId, ok: true });
+    assert.equal(refresh.disabled, false);
+    assert.equal(document.getElementById('nd_gallery_notice').dataset.state, 'success');
+    click(document.getElementById('nd_gallery_notice_close'));
+
     click(document.getElementById('nd_batch'));
     assert.equal(document.getElementById('nd_batch_bar').style.display, 'flex');
     const thumb = document.createElement('div');

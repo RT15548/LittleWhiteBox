@@ -43,26 +43,14 @@ const types = Object.fromEntries(['GENERATE_AFTER_DATA', 'CHAT_COMPLETION_SETTIN
     .map(name => [name, name]));
 const stubs = {
     'script.js': `export const eventSource=__fixture.events, event_types=__fixture.types,
-        main_api=__fixture.api, updateMessageBlock=()=>{};
+        main_api=__fixture.api, is_send_press=false, updateMessageBlock=()=>{ __fixture.commits++; };
         export function stopGeneration(){ __fixture.stops++; void eventSource.emit(event_types.GENERATION_STOPPED); }`,
-    'tokenizers.js': 'export const countTokensOpenAIAsync=async()=>1, getTokenCountAsync=async()=>1;',
-    'openai.js': 'export const Message={};',
     'generate-interceptor.js': `export const GENERATE_INTERCEPTOR_ORDER={ENA_PLANNER:300};
         export function registerGenerateInterceptor(id, handler){ __fixture.registrations++; __fixture.handlers.set(id,handler); }
         export function unregisterGenerateInterceptor(id){ __fixture.unregistrations++; __fixture.handlers.delete(id); }`,
     'ena-planner-preview.js': `export function createPlannerPreview(){ return {
         render(run,actions){ __fixture.run=run; __fixture.actions=actions; }, clear(){}, cleanup(){} }; }`,
-    'ena-planner-budget.js': 'export async function checkPlannerBudget(){ __fixture.budgets++; }',
-    'ena-planner-save.js': `export async function savePlannerResult(run,plan){
-        __fixture.commits++;
-        const text=run.sourceText+'\\n\\n'+plan;
-        run.source.mes=text;
-        run.saveState={applied:true,text,plan,status:'confirmed'};
-    }`,
-    'confirmable-chat-save.js': `export async function saveChatAndConfirm({ctx,verify}){
-        await ctx.saveChat();
-        if(!verify(ctx.chat)) throw new Error('Source save verification failed');
-    }`,
+
 };
 const built = await build({
     entryPoints: [fileURLToPath(new URL('../ena-planner-host.js', import.meta.url))],
@@ -78,13 +66,13 @@ const built = await build({
 
 function fixture(t, api = 'textgenerationwebui') {
     const f = { api, types, events: new HostEvents(), handlers: new Map(), registrations: 0, unregistrations: 0,
-        stops: 0, saves: 0, commits: 0, budgets: 0, errors: [], plans: [], ejsCalls: new WeakMap(),
+        stops: 0, saves: 0, commits: 0, generations: [], errors: [], plans: [], ejsCalls: new WeakMap(),
         chat: [{ is_user: true, mes: 'user {{EJS}}' }], run: null, actions: null };
     const box = { __fixture: f, module: { exports: {} }, AbortController, DOMException, crypto: webcrypto, console };
     // Locally bundled production code with explicit IO boundaries.
     runInNewContext(built.outputFiles[0].text, box);
     f.host = box.module.exports.createPlannerHost({
-        getContext: () => ({ chat: f.chat, saveChat: async () => { f.saves++; } }),
+        getContext: () => ({ chat: f.chat, saveChat: async () => { f.saves++; }, generate: async type => { f.generations.push(type); } }),
         identity: () => 'chat', enabled: () => true, resolveApi: async () => ({ model: 'test' }),
         onError: error => f.errors.push(error),
         plan: async context => { f.plans.push(context); return { filtered: '<plot>approved</plot>' }; },
@@ -183,7 +171,7 @@ for (const field of ['prompt', 'input']) for (const order of ['quiet-first', 'fo
         await f.adopt(pending);
         assert.match(JSON.stringify(fg), /<plot>approved<\/plot>/);
         assert.equal(f.commits, 1);
-        assert.equal(f.saves, 1);
+        assert.equal(f.saves, 0);
         assert.equal(f.chat.length, 1);
         assert.equal(f.ejsCalls.get(fg), 1);
         assert.equal(f.events.errors.length, 0);
@@ -251,7 +239,7 @@ test('new foreground supersedes an unbound preparation; late old payload stays d
     // Simulates a host return before AFTER_DATA, as with Horde adjust failure.
     const fresh = await f.prepare('regenerate');
     assert.equal(fresh.aborted, false);
-    assert.equal(oldRun.phase, 'invalid');
+    assert.equal(oldRun.controller.signal.aborted, true);
     const current = f.run;
     const late = { prompt: old.text };
     await f.emit(late);
@@ -294,4 +282,23 @@ test('reinstall with retained guard does not duplicate interceptor or event list
     await f.adopt(f.emit({ prompt: fresh.text }));
     assert.equal(f.plans.length, 1);
     assert.equal(f.commits, 1);
+});
+for (const api of ['openai', 'textgenerationwebui', 'novel']) test(`${api}: host Stop retains editable draft and sends without any planner save`, async t => {
+    const f = fixture(t, api);
+    const front = await f.prepare();
+    const field = api === 'openai' ? 'messages' : api === 'novel' ? 'input' : 'prompt';
+    const data = { [field]: field === 'messages' ? [{role:'user',content:front.text}] : front.text };
+    const event = api === 'openai' ? types.CHAT_COMPLETION_SETTINGS_READY : types.GENERATE_AFTER_DATA;
+    const pending = f.emit(data, event);
+    await nextTurn();
+    await f.events.emit(types.GENERATION_STOPPED);
+    await pending;
+    f.actions.edit('revised by user');
+    await f.actions.send();
+    assert.equal(f.saves, 0);
+    assert.deepEqual(f.generations, ['regenerate']);
+    assert.equal(f.chat.length, 1);
+    assert.equal(f.chat[0].mes, 'user {{EJS}}\n\nrevised by user');
+    assert.throws(() => JSON.stringify(data), {name:'AbortError'});
+    assert.equal(f.events.errors.length, 0);
 });

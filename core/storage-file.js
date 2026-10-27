@@ -309,20 +309,21 @@ export class StorageFile {
 
     async _uploadJson(json, signal) {
         const base64 = toBase64(json);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), STORAGE_UPLOAD_TIMEOUT_MS);
-        let res;
-        try {
-            res = await this._fetch('/api/files/upload', {
+        await runWithAbortDeadline(async deadline => {
+            const requestSignal = mergeAbortSignals(deadline, signal);
+            const res = await this._fetch('/api/files/upload', {
                 method: 'POST',
                 headers: this._getRequestHeaders(),
                 body: JSON.stringify({ name: this.filename, data: base64 }),
-                signal: mergeAbortSignals(controller.signal, signal),
+                signal: requestSignal,
             });
-        } finally {
-            clearTimeout(timeoutId);
-        }
-        if (!res.ok) throw new Error(`服务器返回 ${res.status}`);
+            throwIfSignalAborted(requestSignal);
+            if (!res.ok) {
+                const error = new Error(`服务器返回 ${res.status}`);
+                error.code = 'STORAGE_HTTP_FAILURE';
+                throw error;
+            }
+        }, { timeoutMs: STORAGE_UPLOAD_TIMEOUT_MS });
     }
 
     clearCache() {

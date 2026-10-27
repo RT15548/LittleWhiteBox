@@ -67,7 +67,7 @@ for (const before of [true, false]) test(`quiet native copy ${before ? 'before' 
         resolveApi: async () => ({}), orderHooks() {}, notice: () => () => {},
         stop: () => stops++, onError: error => { throw error; }, checkBudget: async () => {},
         plan: async context => { calls++; assert.equal(context[0].content, 'input\n\n'); return { filtered: '<plot>plan</plot>' }; },
-        commit: async (_run, plan) => { source.mes += `\n\n${plan}`; },
+        update() {},
     });
     await runtime.prepare(foreground, 1000, () => {}, 'normal');
     background ||= structuredClone(actual);

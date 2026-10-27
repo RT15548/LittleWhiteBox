@@ -7,7 +7,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(overrides = {}) {
     const chat = [{ is_user: true, mes: 'input' }];
     const state = { chatId: 'a', chat, slot: null, calls: [], errors: [], stops: 0, aborts: 0,
-        commits: 0, sourceSaves: 0, run: null, actions: null };
+        commits: 0, sourceSaves: 0, generations: [], run: null, actions: null };
     let marker = 0;
     const host = {
         identity: () => state.chatId, chat: () => state.chat, enabled: () => true,
@@ -18,11 +18,9 @@ function fixture(overrides = {}) {
         preview(run, actions) { state.run = run; state.actions = actions; },
         clearPreview() {}, onError: error => state.errors.push(error), checkBudget: async () => {},
         plan: async (context, options) => { state.calls.push({ context, options }); return { filtered: '<plot>plan</plot>' }; },
-        commit: async (run, plan) => {
-            run.source.mes = `${run.sourceText}\n\n${plan}`;
-            run.saveState = { applied: true, text: run.source.mes, plan, status: 'confirmed' };
-            state.commits++;
-        },
+        update: () => { state.commits++; },
+        waitForIdle: async () => {},
+        generate: async type => { state.generations.push(type); },
         ...overrides,
     };
     const runtime = createPlannerGeneration(host);
@@ -43,13 +41,13 @@ function fixture(overrides = {}) {
     return { state, host, runtime, prepare, payload, start };
 }
 
-test('preview keeps native turn suspended and source saved; only Send commits and releases it', async () => {
+test('preview is transient; Send adopts without saving or budget IO and releases the same native request', async () => {
     const f = fixture();
     const { data, pending } = await f.start();
     let finished = false;
     pending.then(() => { finished = true; }, assert.fail);
     await tick();
-    assert.equal(f.state.sourceSaves, 1);
+    assert.equal(f.state.sourceSaves, 0);
     assert.equal(f.state.commits, 0);
     assert.equal(f.state.chat[0].mes, 'input');
     assert.equal(finished, false);
@@ -91,12 +89,12 @@ test('stream Stop preserves partial preview and ignores a late provider result; 
 test('replanning uses the captured context without a second user message or unconfirmed plan', async () => {
     const f = fixture();
     const { pending } = await f.start();
-    await f.state.actions.replan();
+    await f.runtime.replan();
     assert.equal(f.state.calls.length, 2);
     assert.deepEqual(f.state.calls[0].context, f.state.calls[1].context);
     assert.equal(f.state.chat[0].mes, 'input');
     assert.equal(f.state.chat.length, 1);
-    assert.equal(f.state.sourceSaves, 1);
+    assert.equal(f.state.sourceSaves, 0);
     assert.equal(f.state.commits, 0);
     await f.state.actions.send();
     await pending;
@@ -125,60 +123,17 @@ test('slot removed after binding fails before the planner and blocks transport e
     assert.throws(() => JSON.stringify(data), { name: 'AbortError' });
 });
 
-for (const kind of ['empty', 'api', 'budget', 'save']) test(`${kind} error never releases native request or discards original`, async () => {
+for (const kind of ['empty', 'api']) test(`${kind} error never releases native request or discards original`, async () => {
     const f = fixture({
         ...(kind === 'empty' ? { plan: async () => ({ filtered: '' }) } : {}),
         ...(kind === 'api' ? { plan: async () => { throw new Error('api'); } } : {}),
-        ...(kind === 'budget' ? { checkBudget: async () => { throw new Error('budget'); } } : {}),
-        ...(kind === 'save' ? { commit: async () => { throw new Error('save'); } } : {}),
     });
     const { data, pending } = await f.start();
-    if (['budget', 'save'].includes(kind)) await f.state.actions.send();
     assert.equal(f.state.run.phase, 'error');
     assert.equal(f.state.errors.length, 1);
     assert.equal(f.state.chat[0].mes, 'input');
     assert.throws(() => JSON.stringify(data), { name: 'AbortError' });
     f.runtime.cancel();
-    await pending;
-});
-
-test('uncertain save retry retains the same run and plan without repeating the model', async () => {
-    let attempts = 0;
-    const f = fixture({ commit: async (run, plan) => {
-        attempts++;
-        run.saveState = { applied: true, text: `input\n\n${plan}`, plan, status: attempts === 1 ? 'uncertain' : 'confirmed' };
-        run.source.mes = run.saveState.text;
-        if (attempts === 1) throw new Error('readback failed');
-    } });
-    const { data, pending } = await f.start();
-    const run = f.state.run;
-    await f.state.actions.send();
-    assert.equal(f.state.run.phase, 'error');
-    await f.state.actions.replan();
-    assert.equal(f.state.calls.length, 1);
-    await f.state.actions.send();
-    await pending;
-    assert.equal(f.state.run, run);
-    assert.equal(attempts, 2);
-    assert.equal(f.state.calls.length, 1);
-    assert.equal(JSON.parse(JSON.stringify(data)).messages[1].content, '<plot>plan</plot>');
-});
-
-test('double Send while saving cannot double commit', async () => {
-    let finish;
-    const f = fixture({ commit: async (run, plan) => {
-        f.state.commits++;
-        await new Promise(resolve => { finish = resolve; });
-        run.source.mes = `input\n\n${plan}`;
-        run.saveState = { applied: true, text: run.source.mes, plan };
-    } });
-    const { pending } = await f.start();
-    const send = f.state.actions.send();
-    await tick();
-    await f.state.actions.send();
-    assert.equal(f.state.commits, 1);
-    finish();
-    await send;
     await pending;
 });
 
@@ -270,10 +225,10 @@ test('a cancelled unbound request with a lost marker also fails closed', async (
     assert.equal(f.state.slot, null);
 });
 
-test('preflight failure preserves saved source and stops before native preparation', async () => {
+test('preflight failure preserves original source and stops before native preparation', async () => {
     const f = fixture({ resolveApi: async () => { throw new Error('no preset'); } });
     await f.prepare();
-    assert.equal(f.state.sourceSaves, 1);
+    assert.equal(f.state.sourceSaves, 0);
     assert.equal(f.state.stops, 1);
     assert.equal(f.state.aborts, 1);
     assert.equal(f.state.slot, null);
@@ -337,123 +292,87 @@ test('new generation cannot silently discard a pending preview', async () => {
     await pending;
 });
 
-async function failedSave({ applied = true, recovery } = {}) {
-    let attempts = 0;
-    const f = fixture({ commit: async (run, plan) => {
-        attempts++;
-        if (attempts === 1) {
-            run.saveState = { attempted: true, applied, text: `input\n\n${plan}`, plan,
-                status: applied ? 'uncertain' : 'failed', writePending: false };
-            if (applied) run.source.mes = run.saveState.text;
-            throw new Error('save unresolved');
-        }
-        if (recovery) await recovery(run);
-        run.saveState.status = 'confirmed';
-        run.saveState.applied = true;
-        run.source.mes = run.saveState.text;
+
+ // Acceptance contracts: drafts/edits must never leak before Send (unwanted
+ // model calls / persistent chat pollution); stop/discard must preserve USER;
+ // cancelled payloads must never revive (duplicate billable requests).
+test('typing during streaming stops it; late deltas cannot replace edits', async () => {
+    let deliver, finish;
+    const f = fixture({ plan: async (_context, options) => {
+        deliver = options.onPreview;
+        deliver('partial');
+        return new Promise(resolve => { finish = resolve; });
     } });
-    const start = await f.start();
-    await f.state.actions.send();
-    return { ...f, ...start, attempts: () => attempts };
-}
-
-test('an active uncertain save blocks every foreground type before the plot skip rule', async () => {
-    const f = await failedSave();
-    for (const type of ['normal', 'regenerate', 'continue', 'swipe']) await f.prepare(type);
-    assert.equal(f.state.aborts, 4);
-    assert.equal(f.attempts(), 1);
-    f.runtime.cancel();
-    await f.pending;
-});
-
-test('host Stop retains uncertain transaction; subsequent generation confirms without another model', async () => {
-    const f = await failedSave();
-    f.runtime.cancel(false);
-    await f.pending;
-    await f.prepare('regenerate');
-    assert.equal(f.attempts(), 2);
-    assert.equal(f.state.calls.length, 1);
-    assert.equal(f.state.aborts, 0);
-    assert.equal(f.state.slot, null);
-    assert.throws(() => JSON.stringify(f.data), { name: 'AbortError' });
-});
-
-test('definite failure recovery aborts the stale native snapshot and adopts it on the next generation', async () => {
-    const f = await failedSave({ applied: false });
-    f.runtime.cancel(false);
-    await f.pending;
-    const staleCopy = structuredClone(f.state.chat);
-    await f.runtime.prepare(staleCopy, 100, () => f.state.aborts++, 'regenerate');
-    assert.equal(f.state.aborts, 1);
-    assert.equal(f.state.chat[0].mes, 'input\n\n<plot>plan</plot>');
-    assert.equal(staleCopy[0].mes, 'input');
-    await f.prepare('regenerate');
-    assert.equal(f.state.aborts, 1);
-    assert.equal(f.state.calls.length, 1);
-    assert.equal(f.attempts(), 2);
-});
-
-test('cancel during recovery aborts the host interceptor even if read-back finishes successfully', async () => {
-    let finish;
-    const f = await failedSave({ recovery: () => new Promise(resolve => { finish = resolve; }) });
-    f.runtime.cancel(false);
-    await f.pending;
-    const recovery = f.prepare('regenerate');
+    const { data, pending } = await f.start();
+    f.state.actions.edit('my revised plan');
+    assert.equal(f.state.calls.length, 0);
+    assert.equal(f.state.run.phase, 'stopped');
+    assert.equal(f.state.run.plannerController.signal.aborted, true);
+    deliver('late delta');
+    finish({ filtered: 'late final' });
     await tick();
-    f.runtime.cancel(false);
-    finish();
-    await recovery;
-    assert.equal(f.state.aborts, 1);
-    assert.equal(f.state.calls.length, 1);
-    assert.equal(f.state.slot, null);
-});
-
-test('concurrent recovery cannot replace the first controller or authorize two requests', async () => {
-    let finish;
-    const f = await failedSave({ recovery: () => new Promise(resolve => { finish = resolve; }) });
-    f.runtime.cancel(false);
-    await f.pending;
-    const first = f.prepare('regenerate');
-    await tick();
-    const controller = f.state.run.controller;
-    await f.prepare('normal');
-    assert.equal(f.state.run.controller, controller);
-    assert.equal(f.attempts(), 2);
-    assert.equal(f.state.aborts, 1);
-    finish();
-    await first;
-});
-
-for (const kind of ['edit', 'move']) test(`${kind} supersedes a settled cancelled transaction instead of blocking the chat forever`, async () => {
-    const f = await failedSave();
-    f.runtime.cancel(false);
-    await f.pending;
-    if (kind === 'edit') {
-        f.state.chat[0].mes = 'edited user text';
-        f.runtime.sourceEdited(0);
-    } else {
-        f.state.chat.unshift({ is_user: false, mes: 'inserted history' });
-        f.runtime.sourceDeleted();
-    }
-    await f.prepare();
-    assert.equal(f.attempts(), 1);
-    assert.equal(f.state.aborts, 0);
-    f.runtime.cancel();
-});
-
-test('confirmed plain-text plan cancelled before continuation remains adopted', async () => {
-    const f = fixture({
-        plan: async () => ({ filtered: 'plain plan' }),
-        commit: async (run, plan) => {
-            run.source.mes = `input\n\n${plan}`;
-            run.saveState = { attempted: true, applied: true, text: run.source.mes, plan, status: 'confirmed' };
-            f.runtime.cancel(false);
-        },
-    });
-    const { pending } = await f.start();
+    assert.equal(f.state.run.previewText, 'my revised plan');
+    assert.equal(f.state.chat[0].mes, 'input');
     await f.state.actions.send();
     await pending;
+    assert.equal(data.messages[1].content, 'my revised plan');
+    assert.equal(f.state.chat[0].mes, 'input\n\nmy revised plan');
+});
+
+test('host Stop preserves draft; edit, replan and send resume once without reviving old transport', async () => {
+    const f = fixture();
+    const { data, pending } = await f.start();
+    f.runtime.hostStopped();
+    await pending;
+    assert.equal(f.state.run.phase, 'stopped');
+    assert.equal(f.state.chat[0].mes, 'input');
+    await f.runtime.replan();
+    f.state.actions.edit('edited after stop');
+    await Promise.all([f.state.actions.send(), f.state.actions.send()]);
+    assert.deepEqual(f.state.generations, ['regenerate']);
+    assert.equal(f.state.chat.length, 1);
+    assert.equal(f.state.chat[0].mes, 'input\n\nedited after stop');
+    assert.throws(() => JSON.stringify(data), { name: 'AbortError' });
     await f.prepare('regenerate');
-    assert.equal(f.state.slot, null);
-    assert.equal(f.state.sourceSaves, 1);
+    assert.equal(f.state.calls.length, 2);
+    assert.equal(f.state.sourceSaves, 0);
+});
+
+for (const stopped of [false, true]) test(`discard ${stopped ? 'after host Stop' : 'during preview'} leaves USER intact and sends nothing`, async () => {
+    const f = fixture();
+    const { data, pending } = await f.start();
+    if (stopped) f.runtime.hostStopped();
+    f.state.actions.discard();
+    await pending;
+    assert.equal(f.state.chat[0].mes, 'input');
+    assert.equal(f.state.chat.length, 1);
+    assert.equal(f.state.commits, 0);
+    assert.deepEqual(f.state.generations, []);
+    assert.throws(() => JSON.stringify(data), { name: 'AbortError' });
+});
+
+test('no planner IO or budget check even for a large edited plan', async () => {
+    const forbidden = () => { throw new Error('planner must not save or check budget'); };
+    const f = fixture({ saveSource: forbidden, checkBudget: forbidden, commit: forbidden });
+    const { data, pending } = await f.start();
+    f.state.actions.edit('edited '.repeat(10000));
+    await f.state.actions.send();
+    await pending;
+    assert.equal(data.messages[1].content, f.state.run.previewText.trim());
+    assert.equal(f.state.errors.length, 0);
+});
+
+test('chat switch while cancelled request unwinds never adopts into another chat', async () => {
+    let finish;
+    const f = fixture({ waitForIdle: () => new Promise(resolve => { finish = resolve; }) });
+    const { pending } = await f.start();
+    f.runtime.hostStopped();
+    await pending;
+    const sending = f.state.actions.send();
+    f.state.chatId = 'other';
+    f.runtime.cancel(false);
+    finish();
+    await sending;
+    assert.equal(f.state.chat[0].mes, 'input');
+    assert.deepEqual(f.state.generations, []);
 });

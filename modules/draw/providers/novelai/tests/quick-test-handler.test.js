@@ -8,7 +8,7 @@ import { parseHTML } from 'linkedom';
 
 // Acceptance: the actual iframe handler must retain paid output across write /
 // history-read failures, reopen, retry and concurrent messages, without resubmit.
-const host = {};
+const host = { overview: async () => ({ stats: { count: 1 }, summary: {} }) };
 globalThis.__quickTestHandler = host;
 const stubs = {
     'novel-prompts.js': 'exports.DEFAULT_PROMPT_CONFIG={topSystem:"fixture",topSystemPov:"fixture",sceneRules:"fixture"};exports.PROMPT_TEMPLATE_VERSION=1;exports.normalizeNovelPromptGuideOverrides=()=>({});',
@@ -18,7 +18,7 @@ const stubs = {
     'user.js': 'exports.getCurrentUserHandle=()=>"fixture-user";',
     'event-manager.js': 'exports.createModuleEvents=()=>({});exports.event_types={};',
     'server-storage.js': 'exports.NovelDrawStorage={getStrict:(...args)=>globalThis.__quickTestHandler.storage.getStrict(...args),updateAndSave:(...args)=>globalThis.__quickTestHandler.storage.updateAndSave(...args)};',
-    'gallery-cache.js': 'exports.storePreview=record=>globalThis.__quickTestHandler.store(record);exports.getSlotPreviewPage=(...args)=>globalThis.__quickTestHandler.page(...args);exports.deletePreview=id=>globalThis.__quickTestHandler.remove(id);exports.getPreview=id=>globalThis.__quickTestHandler.read(id);exports.getGalleryOverview=async()=>({stats:{count:1},summary:{}});',
+    'gallery-cache.js': 'exports.storePreview=record=>globalThis.__quickTestHandler.store(record);exports.getSlotPreviewPage=(...args)=>globalThis.__quickTestHandler.page(...args);exports.deletePreview=id=>globalThis.__quickTestHandler.remove(id);exports.getPreview=id=>globalThis.__quickTestHandler.read(id);exports.getGalleryOverview=()=>globalThis.__quickTestHandler.overview();',
     'scene-planner.js': 'module.exports={};',
     'worldbook-processor.js': 'module.exports={};',
     'draw-agent.js': 'module.exports={};',
@@ -127,6 +127,23 @@ test('gallery host handles JPEG persistence, partial deletion, ZIP export and ca
     failSave = false;
     await send({ type: 'SAVE_JPEG', saveAsJpeg: false });
     assert.equal(root.settings.saveAsJpeg, false);
+
+    // A failed refresh must acknowledge failure, never replace the gallery with
+    // an empty success. The receipt belongs to the explicit refresh request.
+    Object.defineProperty(document.getElementById('xiaobaix-novel-draw-iframe'), 'contentWindow', { value: {} });
+    host.page = async () => ({ items: [], hasMore: false });
+    await send({ type: 'REFRESH_CACHE_STATS', requestId: 'refresh-ok' });
+    const refreshed = host.messages.find(event => event.requestId === 'refresh-ok');
+    assert.equal(refreshed.ok, true);
+    assert.equal(refreshed.cacheStats.count, 1);
+    const overview = host.overview;
+    host.overview = async () => { throw new Error('cache unavailable'); };
+    await send({ type: 'REFRESH_CACHE_STATS', requestId: 'refresh-failed' });
+    const failedRefresh = host.messages.find(event => event.requestId === 'refresh-failed');
+    assert.equal(failedRefresh.ok, false);
+    assert.equal(Object.hasOwn(failedRefresh, 'gallerySummary'), false);
+    assert.equal(Object.hasOwn(failedRefresh, 'cacheStats'), false);
+    host.overview = overview;
 
     const removed = [];
     host.remove = async id => { if (id === 'blocked') throw new Error('write failed'); removed.push(id); };

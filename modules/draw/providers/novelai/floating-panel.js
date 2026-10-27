@@ -18,6 +18,7 @@ import {
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 import { formatScenePlannerProgress } from '../../shared/draw-common.js';
 import { DRAW_CAPSULE_COPY } from '../../shared/draw-capsule-copy.js';
+import { FLOATING_POPOVER_STYLES, getFloatingViewport, mountFloatingPopovers } from '../../shared/floating-popovers.js';
 import { pickPresetMaxImages } from '../../shared/max-images-override.js';
 import {
     MAX_IMAGES_INPUT_CLASS,
@@ -520,40 +521,7 @@ ${MAX_IMAGES_INPUT_CSS}
 
 .nd-floating-global.nd-novel .nd-capsule:active { cursor: grabbing; }
 
-/* 悬浮按钮的详情和菜单向上展开 */
-.nd-floating-global.nd-novel .nd-detail {
-    top: auto;
-    bottom: calc(100% + 10px);
-}
-
-.nd-floating-global.nd-novel.show-detail .nd-detail {
-    transform: none;
-}
-
-.nd-floating-global.nd-novel .nd-detail::after {
-    content: '';
-    position: absolute;
-    top: auto;
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: var(--nd-bg-solid);
-    border-bottom-color: transparent;
-}
-
-.nd-floating-global.nd-novel .nd-menu {
-    top: auto;
-    bottom: calc(100% + 10px);
-}
-
-.nd-floating-global.nd-novel.expanded .nd-menu {
-    transform: none;
-}
-
-/* 悬浮按钮箭头向上 */
-.nd-floating-global.nd-novel .nd-arrow { transform: rotate(180deg); }
-.nd-floating-global.nd-novel.expanded .nd-arrow { transform: rotate(0deg); }
+${FLOATING_POPOVER_STYLES}
 @media (prefers-reduced-motion: reduce) {
     .nd-novel, .nd-novel * { transition: none !important; animation: none !important; }
 }
@@ -1346,14 +1314,15 @@ function saveFloatingPosition() {
 function applyFloatingPosition() {
     if (!floatingEl) return;
     const pos = getFloatingPosition();
+    const view = getFloatingViewport();
     // Width transitions are still running here; clamp using the CSS target width.
     const w = floatingState === FloatState.IDLE ? FLOATING_WIDTH_IDLE : FLOATING_WIDTH_ACTIVE;
     const h = floatingEl.offsetHeight || 34;
     // 預留膠囊外上下跳圖鈕的高度
     const JUMP_RESERVE = 30;
-    const left = pos.docked === 'left' ? 0 : pos.docked === 'right' ? window.innerWidth - w : pos.left;
-    floatingEl.style.left = `${Math.max(0, Math.min(left, window.innerWidth - w))}px`;
-    floatingEl.style.top = `${Math.max(JUMP_RESERVE, Math.min(pos.top, window.innerHeight - h - JUMP_RESERVE))}px`;
+    const left = pos.docked === 'left' ? view.left : pos.docked === 'right' ? view.right - w : pos.left;
+    floatingEl.style.left = `${Math.max(view.left, Math.min(left, view.right - w))}px`;
+    floatingEl.style.top = `${Math.max(view.top + JUMP_RESERVE, Math.min(pos.top, view.bottom - h - JUMP_RESERVE))}px`;
     setFloatingDock(pos.docked === 'left' || pos.docked === 'right' ? pos.docked : null);
 }
 
@@ -1571,12 +1540,13 @@ function onFloatingPointerMove(e) {
     }
 
     if (floatingDragState.moved) {
+        const view = getFloatingViewport();
         const w = floatingEl.offsetWidth || 88;
         const h = floatingEl.offsetHeight || 36;
         // 預留膠囊外上下跳圖鈕的高度
         const JUMP_RESERVE = 30;
-        floatingEl.style.left = `${Math.max(0, Math.min(floatingDragState.startLeft + dx, window.innerWidth - w))}px`;
-        floatingEl.style.top = `${Math.max(JUMP_RESERVE, Math.min(floatingDragState.startTop + dy, window.innerHeight - h - JUMP_RESERVE))}px`;
+        floatingEl.style.left = `${Math.max(view.left, Math.min(floatingDragState.startLeft + dx, view.right - w))}px`;
+        floatingEl.style.top = `${Math.max(view.top + JUMP_RESERVE, Math.min(floatingDragState.startTop + dy, view.bottom - h - JUMP_RESERVE))}px`;
     }
 
     e.preventDefault();
@@ -1595,10 +1565,11 @@ function onFloatingPointerUp(e) {
         const finalLeft = parseFloat(floatingEl.style.left) || 0;
         const w = floatingEl.offsetWidth || 88;
         const EDGE_SNAP = 28;
+        const view = getFloatingViewport();
         let side = null;
-        if (finalLeft <= EDGE_SNAP) side = 'left';
-        else if (finalLeft >= window.innerWidth - w - EDGE_SNAP) side = 'right';
-        if (side) floatingEl.style.left = `${side === 'left' ? 0 : window.innerWidth - w}px`;
+        if (finalLeft <= view.left + EDGE_SNAP) side = 'left';
+        else if (finalLeft >= view.right - w - EDGE_SNAP) side = 'right';
+        if (side) floatingEl.style.left = `${side === 'left' ? view.left : view.right - w}px`;
         setFloatingDock(side);
         saveFloatingPosition();
     } else {
@@ -1877,6 +1848,7 @@ function createFloatingButton() {
 
     $floatingCache.maxImagesBinding = maxImages.bind($floatingCache.maxImagesInput);
     $floatingCache.themeSwitch = mountThemeSwitch({ document, container: floatingEl.querySelector('.nd-controls') });
+    $floatingCache.popovers = mountFloatingPopovers(floatingEl, applyFloatingPosition);
 
     $floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
@@ -1888,12 +1860,12 @@ function createFloatingButton() {
     });
 
     document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
-    window.addEventListener('resize', applyFloatingPosition);
     const messageId = findLastAIMessageId();
     if (messageId >= 0) observeBackgroundTask(syncDrawRunPanelState(messageId), { source: import.meta.url, operation: "createFloatingButton" });
 }
 
 function destroyFloatingButton() {
+    $floatingCache.popovers?.destroy();
     $floatingCache.themeSwitch?.destroy();
     $floatingCache.maxImagesBinding?.destroy();
     clearFloatingCooldownTimer();
@@ -1903,7 +1875,6 @@ function destroyFloatingButton() {
         floatingAutoResetTimer = null;
     }
 
-    window.removeEventListener('resize', applyFloatingPosition);
     document.removeEventListener('click', handleFloatingOutsideClick);
 
     floatingEl?.remove();
