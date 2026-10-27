@@ -493,6 +493,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/gemini-tool-schema.js",
+      "relativePath": "modules/agent-core/adapters/gemini-tool-schema.js",
+      "extension": ".js",
+      "sizeBytes": 1645
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/google.js",
       "relativePath": "modules/agent-core/adapters/google.js",
       "extension": ".js",
@@ -510,7 +517,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/openai-compatible.js",
       "relativePath": "modules/agent-core/adapters/openai-compatible.js",
       "extension": ".js",
-      "sizeBytes": 53607
+      "sizeBytes": 54001
     },
     {
       "source": "littlewhitebox",
@@ -791,6 +798,13 @@
       "relativePath": "modules/agent-core/tests/fixtures/text-tool-boundaries.js",
       "extension": ".js",
       "sizeBytes": 7860
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/gemini-tool-schema.test.js",
+      "relativePath": "modules/agent-core/tests/gemini-tool-schema.test.js",
+      "extension": ".js",
+      "sizeBytes": 2932
     },
     {
       "source": "littlewhitebox",
@@ -16915,6 +16929,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-gemini-tools.test.js",
+      "relativePath": "modules/xiaobai-os/tests/administrator-gemini-tools.test.js",
+      "extension": ".js",
+      "sizeBytes": 5156
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-harness.js",
       "relativePath": "modules/xiaobai-os/tests/administrator-harness.js",
       "extension": ".js",
@@ -17576,7 +17597,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs",
       "extension": ".cjs",
-      "sizeBytes": 968631
+      "sizeBytes": 969462
     },
     {
       "source": "littlewhitebox",

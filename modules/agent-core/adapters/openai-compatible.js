@@ -17,6 +17,7 @@ import {
     shouldOmitTemperatureForReasoning,
 } from '../reasoning-capabilities.js';
 import { isReasoningOutputVisible } from '../reasoning-config.js';
+import { normalizeGeminiToolSchema } from './gemini-tool-schema.js';
 import {
     scanAssistantText,
     decodeTextToolCalls,
@@ -1006,7 +1007,11 @@ export class OpenAICompatibleAdapter {
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
-            ? task.tools
+            ? (resolveModelFamily(this.config.model) === 'gemini'
+                ? task.tools.map(tool => tool.type === 'function' && tool.function?.parameters
+                    ? { ...tool, function: { ...tool.function, parameters: normalizeGeminiToolSchema(tool.function.parameters) } }
+                    : tool)
+                : task.tools)
             : null;
         const deepSeekThinkingWithTools = shouldPreserveHistoricalReasoning(
             { ...this.config, provider: 'openai-compatible' }, nativeTools, reasoning,
