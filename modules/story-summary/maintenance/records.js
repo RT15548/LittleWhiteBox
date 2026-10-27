@@ -1,6 +1,5 @@
 export { memoryDigest, memoryPolicy } from '../data/memory-policy.js';
 import { ARC_PROGRESS_MAX } from '../generate/arc-progress.js';
-import { SUMMARY_STANDARD } from '../data/memory-policy.js';
 
 export const recordHandle = record => `${record.collection}:${record.key}`;
 
@@ -26,9 +25,8 @@ export function projectMemoryRecord(record, history = [], ownership) {
         }
     }
     const batch = ownership?.batch || (record.collection !== 'anchors' && history.find(item => item.kind === 'batch' && item.endMesId === record.value?._addedAt));
-    const generatedBy = batch ? { from: batch.previousEndMesId + 2, to: batch.endMesId + 1,
-        standard: batch.policy?.standard === SUMMARY_STANDARD ? 'current' : 'unknown' } : { standard: 'unknown' };
-    return { collection: record.collection, key: record.key, value, generatedBy,
+    return { collection: record.collection, key: record.key, value,
+        ...(batch ? { generatedBy: { from: batch.previousEndMesId + 2, to: batch.endMesId + 1 } } : {}),
         ...(ownership ? { maintenanceRange: ownership.range } : {}) };
 }
 

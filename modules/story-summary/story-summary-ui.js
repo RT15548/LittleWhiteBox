@@ -16,6 +16,7 @@ import { MEMORY_CHAT_COPY } from './maintenance/chat-copy.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from './maintenance/settings.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
 import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY } from './data/config-local-cache.js';
+import { SUMMARY_EVENT_STYLE_RULES, resolveSummaryStyle, buildSummaryAssistantDocPrompt } from './data/generation-rules.js';
 
 const UNANNOTATED_LABEL = '未标注';
 
@@ -309,6 +310,7 @@ const UNANNOTATED_LABEL = '未标注';
         ui: { hideSummarized: true, keepVisibleCount: 6, useVectorBoundary: true },
         prompts: {
             memoryTemplate: '',
+            summaryStyle: '',
         },
         textFilterRules: [...DEFAULT_FILTER_RULES],
         vector: {
@@ -595,6 +597,7 @@ const UNANNOTATED_LABEL = '未标注';
                 Object.assign(config.ui, p.ui || {});
                 config.ui.useVectorBoundary = p.ui?.useVectorBoundary !== false;
                 config.prompts.memoryTemplate = String(p.prompts?.memoryTemplate || config.prompts.memoryTemplate || '').trim();
+                config.prompts.summaryStyle = String(p.prompts?.summaryStyle || '').trim();
                 config.textFilterRules = Array.isArray(p.textFilterRules)
                     ? p.textFilterRules
                     : (Array.isArray(p.vector?.textFilterRules) ? p.vector.textFilterRules : [...DEFAULT_FILTER_RULES]);
@@ -613,6 +616,7 @@ const UNANNOTATED_LABEL = '未标注';
         config.ui.useVectorBoundary = cfg.ui?.useVectorBoundary !== false;
         if (!settingsDirty) $('use-vector-boundary').checked = config.ui.useVectorBoundary;
         config.prompts.memoryTemplate = String(cfg.prompts?.memoryTemplate || config.prompts.memoryTemplate || '').trim();
+        config.prompts.summaryStyle = String(cfg.prompts?.summaryStyle || '').trim();
         config.textFilterRules = Array.isArray(cfg.textFilterRules)
             ? cfg.textFilterRules
             : (Array.isArray(cfg.vector?.textFilterRules)
@@ -1262,6 +1266,7 @@ const UNANNOTATED_LABEL = '未标注';
         $('trigger-insert-at-end').checked = !!config.trigger.forceInsertAtEnd;
         fillBuiltInSummaryPromptFields();
         $('memory-prompt-template').value = config.prompts.memoryTemplate || '';
+        $('summary-style').value = resolveSummaryStyle(config.prompts.summaryStyle);
         $('api-connect-status').textContent = '';
         $('hide-summarized').checked = config.ui.hideSummarized;
         $('keep-visible-count').value = config.ui.keepVisibleCount;
@@ -1315,13 +1320,15 @@ const UNANNOTATED_LABEL = '未标注';
         config.trigger.wrapperTail = $('trigger-wrapper-tail').value;
         config.trigger.forceInsertAtEnd = $('trigger-insert-at-end').checked;
         config.prompts.memoryTemplate = $('memory-prompt-template').value;
+        const summaryStyle = $('summary-style').value.trim();
+        config.prompts.summaryStyle = summaryStyle === SUMMARY_EVENT_STYLE_RULES ? '' : summaryStyle;
         config.textFilterRules = collectFilterRules();
         config.vector = getVectorConfig();
     }
 
     function fillBuiltInSummaryPromptFields() {
         $('summary-system-prompt').value = builtInSummaryPrompts.summarySystemPrompt;
-        $('summary-assistant-doc-prompt').value = builtInSummaryPrompts.summaryAssistantDocPrompt;
+        $('summary-assistant-doc-prompt').value = buildSummaryAssistantDocPrompt(config.prompts.summaryStyle);
         $('summary-assistant-ask-summary-prompt').value = builtInSummaryPrompts.summaryAssistantAskSummaryPrompt;
         $('summary-assistant-ask-content-prompt').value = builtInSummaryPrompts.summaryAssistantAskContentPrompt;
         $('summary-meta-protocol-start-prompt').value = builtInSummaryPrompts.summaryMetaProtocolStartPrompt;
@@ -2656,6 +2663,15 @@ const UNANNOTATED_LABEL = '未标注';
 
         $('btn-reset-memory-prompt-template').onclick = () => {
             $('memory-prompt-template').value = DEFAULT_MEMORY_PROMPT_TEMPLATE;
+            markSettingsDirty();
+        };
+
+        $('summary-style').addEventListener('input', () => {
+            $('summary-assistant-doc-prompt').value = buildSummaryAssistantDocPrompt($('summary-style').value);
+        });
+        $('btn-reset-summary-style').onclick = () => {
+            $('summary-style').value = SUMMARY_EVENT_STYLE_RULES;
+            $('summary-assistant-doc-prompt').value = buildSummaryAssistantDocPrompt();
             markSettingsDirty();
         };
 

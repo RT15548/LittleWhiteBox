@@ -57,7 +57,7 @@ import {
 
 // config/store
 import {
-    BUILTIN_SUMMARY_PROMPTS,
+    getSummaryPrompts,
     getSettings,
     getSummaryPanelConfig,
     getVectorConfig,
@@ -2304,7 +2304,7 @@ async function sendSavedConfigToFrame() {
         postToFrame({
             type: "LOAD_PANEL_CONFIG",
             config: savedConfig,
-            builtInSummaryPrompts: BUILTIN_SUMMARY_PROMPTS,
+            builtInSummaryPrompts: getSummaryPrompts(savedConfig),
         });
     } catch (e) {
         xbLog.warn(MODULE_ID, SUMMARY_FEEDBACK_COPY.configLoad.failed, e);

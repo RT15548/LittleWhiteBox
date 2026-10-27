@@ -1,6 +1,6 @@
 import { estimateConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
-import { MEMORY_CHAT_PROMPT, MEMORY_REGENERATION_PROMPT } from './prompt.js';
+import { getMemoryChatPrompt, MEMORY_REGENERATION_PROMPT } from './prompt.js';
 import { MEMORY_TOOLS, READ_MAINTENANCE_TOOL } from './tools.js';
 import { REVIEW_LIMITS } from './limits.js';
 
@@ -26,14 +26,15 @@ export function buildMemoryChatMessages(question, history = []) {
 }
 
 /** Local preview only. Send-time measurement remains the execution authority. */
-export function estimateMemoryChatContext({ question = '', history = [], task = null, config = {} } = {}) {
+export function estimateMemoryChatContext({ question = '', history = [], task = null, config = {}, summaryStyle } = {}) {
+    const prompt = getMemoryChatPrompt(summaryStyle);
     const messages = [...memoryChatHistory(history), { role: 'user', content: question }];
     const tools = [...(task ? MEMORY_TOOLS : []), READ_MAINTENANCE_TOOL];
     const material = memoryChatMaterial(task, REVIEW_LIMITS.turns);
     const count = (items, definitions = []) => estimateConversationTokens({ messages: items, tools: definitions, providerConfig: config });
-    const rules = count([{ role: 'system', content: MEMORY_CHAT_PROMPT }], tools);
-    const past = Math.max(0, count([{ role: 'system', content: MEMORY_CHAT_PROMPT }, ...messages.slice(0, -1)], tools) - rules);
-    const used = count([{ role: 'system', content: `${MEMORY_CHAT_PROMPT}\n\n${material}` }, ...messages], tools);
+    const rules = count([{ role: 'system', content: prompt }], tools);
+    const past = Math.max(0, count([{ role: 'system', content: prompt }, ...messages.slice(0, -1)], tools) - rules);
+    const used = count([{ role: 'system', content: `${prompt}\n\n${material}` }, ...messages], tools);
     return { used, limit: REVIEW_LIMITS.inputTokens, trigger: REVIEW_LIMITS.compactTokens, source: 'estimated',
         sections: { rules, history: past, material: Math.max(0, used - rules - past) } };
 }
@@ -44,12 +45,13 @@ export function estimateMemoryChatContext({ question = '', history = [], task = 
  * the complete provider request before sending it. No history payload is retained.
  */
 export function createMemoryChatContextEstimator() {
-    let previousHistory, previousTask, previousConfig, base;
-    return ({ question = '', history = [], task = null, config = {} } = {}) => {
+    let previousHistory, previousTask, previousConfig, previousStyle, base;
+    return ({ question = '', history = [], task = null, config = {}, summaryStyle } = {}) => {
         const taskKey = JSON.stringify(task), configKey = JSON.stringify(config);
-        if (!base || previousHistory !== history || previousTask !== taskKey || previousConfig !== configKey) {
-            base = estimateMemoryChatContext({ history, task, config });
+        if (!base || previousHistory !== history || previousTask !== taskKey || previousConfig !== configKey || previousStyle !== summaryStyle) {
+            base = estimateMemoryChatContext({ history, task, config, summaryStyle });
             previousHistory = history; previousTask = taskKey; previousConfig = configKey;
+            previousStyle = summaryStyle;
         }
         const questionTokens = question ? Math.max(0, estimateConversationTokens({ messages: [{ role: 'user', content: question }] })
             - estimateConversationTokens()) : 0;

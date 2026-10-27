@@ -2,7 +2,7 @@
 
 import {
     DEFAULT_SUMMARY_SYSTEM_PROMPT,
-    DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT,
+    getSummaryAssistantDocPrompt,
     DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT,
     DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT,
     DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT,
@@ -48,7 +48,7 @@ function formatFactsForLLM(facts) {
 
 function buildSummaryMessages(existingSummary, existingFacts, newHistoryText, historyRange, existingEventCount) {
     const summarySystemPrompt = DEFAULT_SUMMARY_SYSTEM_PROMPT;
-    const assistantDocPrompt = DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT;
+    const assistantDocPrompt = getSummaryAssistantDocPrompt();
     const assistantAskSummaryPrompt = DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT;
     const assistantAskContentPrompt = DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT;
     const metaProtocolStartPrompt = DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT;

@@ -1,4 +1,5 @@
 export const RELATION_TRENDS = Object.freeze(['破裂', '厌恶', '反感', '陌生', '投缘', '亲密', '交融']);
+export const FACTS_LIMIT_PER_SUBJECT = 10;
 
 export const factKey = fact => `${fact.s}::${fact.p}`;
 

@@ -9,7 +9,7 @@ export const MEMORY_CHAT_CONTEXT_DELAY_MS = 250;
 const contextPending = status => ({ status, used: null, limit: REVIEW_LIMITS.inputTokens, trigger: REVIEW_LIMITS.compactTokens });
 
 /** Page-lifetime conversation. Stored memory, automatic runs and UI mounting are not its history. */
-export function createMemoryChatController({ identity, chatId, scheduler, execute, status, previewTask, changed }) {
+export function createMemoryChatController({ identity, chatId, scheduler, execute, status, previewTask, summaryStyle = () => '', changed }) {
     let binding = null, generation = 0, serial = 0;
     let turns = [], history = [], beforeLast = [], draft = '', activeId = null, failure = '';
     let pendingRun = null, pageOffset = 0;
@@ -28,7 +28,7 @@ export function createMemoryChatController({ identity, chatId, scheduler, execut
         contextTimer = setTimeout(() => {
             contextTimer = null;
             if (epoch !== generation || binding !== identity() || activeId) return;
-            try { context = { ...estimateContext({ question: draft, history, task: previewTask() }), status: 'ready' }; }
+            try { context = { ...estimateContext({ question: draft, history, task: previewTask(), summaryStyle: summaryStyle() }), status: 'ready' }; }
             catch (error) { context = { ...contextPending('unavailable'), error: memoryRunError(error) }; }
             notify();
         }, MEMORY_CHAT_CONTEXT_DELAY_MS);

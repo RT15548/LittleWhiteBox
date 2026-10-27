@@ -69,7 +69,7 @@ const deferred = () => {
 
 beforeEach(() => {
     const fixture = maintenanceFixture();
-    Object.assign(host, { fixture, enabled: true, config: { memoryMaintenanceEnabled: true, textFilterRules: [] },
+    Object.assign(host, { fixture, enabled: true, config: { memoryMaintenanceEnabled: true, textFilterRules: [], prompts: { summaryStyle: '' } },
         requests: [], writes: 0, files: [], confirmations: [], listeners: new Set(), afterSave: null, beforeReadback: null, onRunFinished: null,
         respond: async () => ({ text: 'Review finished.' }),
         metadata: { extensions: { LittleWhiteBox: {

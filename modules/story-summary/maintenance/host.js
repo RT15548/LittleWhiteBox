@@ -20,6 +20,7 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
     let unregister = null, chat = null, executing = 0, refreshAfterRun = false, publishedRevision = 0;
     const readStatus = createMaintenanceStatusReader();
     const enabled = () => isEnabled() && getSummaryPanelConfig().memoryMaintenanceEnabled;
+    const summaryStyle = () => getSummaryPanelConfig().prompts.summaryStyle;
     const read = () => {
         const context = getContext();
         const store = getSummaryStore();
@@ -32,6 +33,7 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
             return await executeMemoryTask(task, {
                 read, enabled: isEnabled, automaticEnabled: enabled,
                 filterRules: () => getSummaryPanelConfig().textFilterRules,
+                summaryStyle,
                 invalidateRecall, refreshSummary, readMaintenance: diagnostics, ...options,
             });
         } finally {
@@ -71,7 +73,7 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
     }
     chat = createMemoryChatController({
         identity: () => getChatIdentity(getContext()), chatId: () => getContext().chatId,
-        scheduler, execute, status: () => readStatus(publishedState()),
+        scheduler, execute, summaryStyle, status: () => readStatus(publishedState()),
         previewTask: () => {
             const current = read();
             return isEnabled() && hasMaintenanceBoundary(current) && getMemoryCommitState() !== 'unconfirmed'

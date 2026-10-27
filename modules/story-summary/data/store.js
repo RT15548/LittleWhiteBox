@@ -15,7 +15,7 @@ import {
     applyExactSummaryHistoryUndo,
     buildSummaryUndo,
 } from "./summary-undo.js";
-import { isRelationFact, parseRelationTarget, factKey } from "./fact-predicates.js";
+import { isRelationFact, parseRelationTarget, factKey, FACTS_LIMIT_PER_SUBJECT } from "./fact-predicates.js";
 import { createFactIdAllocator } from './fact-identity.js';
 import { projectSummaryEvent, normalizeEventStringArray } from "./events.js";
 import { upgradeStoredEventMemoryRoles } from "./migrations/event-memory-role.js";
@@ -30,7 +30,6 @@ import { readSummaryMemory, getPublishedSummaryMemory, commitSummaryMemory, getM
 import { invalidateMemoryAnchors, updateMaintainedAnchorIndex } from './anchor-invalidation.js';
 
 const MODULE_ID = 'summaryStore';
-const FACTS_LIMIT_PER_SUBJECT = 10;
 const loadedEventStores = new WeakSet();
 
 function isPlainObject(value) {

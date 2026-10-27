@@ -1,10 +1,44 @@
-import { RELATION_TRENDS } from './fact-predicates.js';
+import { RELATION_TRENDS, FACTS_LIMIT_PER_SUBJECT } from './fact-predicates.js';
 import { ARC_PROGRESS_MAX } from '../generate/arc-progress.js';
 
-// Generation embeds these passages verbatim, and SUMMARY_STANDARD fingerprints
-// the assembled summary rules. Maintenance selects the writing-content passages
-// at the end; update protocol, output counts and field-schema notes stay out.
+// Generation embeds these passages verbatim. Maintenance selects the content
+// passages at the end; update protocol, output counts and field-schema notes stay out.
 
+// 一、总结写作要求：生成与维护共用。调整时间、详略、文风时看这里。
+export const SUMMARY_EVENT_STYLE_RULES = `### 卡片要求
+- 每张卡片记一件有叙事价值的事。以后玩家随口提起它时，比如"上次在酒馆拍欠条那回"，系统靠卡片里的词把这张卡片找回来。所以卡片要留下玩家会用来指代这件事的东西：人名和原文称呼、地点、关键物件、具体动作、关系或态度的变化、约定或交换条件、被揭开的秘密；原文有关键原话时，再留一句 15 字以内的。
+- "两人发生冲突""关系恶化"这类话放在哪件事上都成立，找不回具体那一次。要写清是谁、在哪、拿着什么、对谁做了什么、结果怎样。
+
+### 时间写法
+- 卡片以后会在别的时间被读到，timeLabel 和 summary 里的时间要让人知道说的是哪一天，而不是只写“今天、昨天、明晚”。
+- 原文给了日期，就用原文日期；有年份就保留，原文和已有总结都没有交代年份时不补年份。
+- 原文没有日期时，可以写“搬入新家的第二晚”这类能找到对应事件的说法。已有总结按“第3天”记时，就接着用同一套记法；日期和间隔都要有原文或已有总结的依据，不凭空推算。
+- 时间标签示例：原文写“2026年6月12日”，就写“2026年6月12日”；原文只写“6月12日”且已有总结也未交代年份，就写“6月12日”。
+- 原文明确当前为2026年6月12日，追问“昨晚”的去向并约定“明晚”见面时，分别写为2026年6月11日晚和2026年6月13日晚。
+
+### 详略与篇幅
+- 每张卡片写 1 句，事情确实多时写 2 句。两句都要有具体内容，第一句不用来铺垫。
+- 写不下时，先舍弃气氛描写，其次是次要人物的反应，再次是心理描写；连续的动作可以压成结果。人名、地点、物件、关键动作和原话最后才删。
+- 只写和这件事有关的名词。
+
+### 文风和示例
+- 用朴实、白描、有烟火气的笔触记录事实，避免比喻和意象
+- 示例只示范写到多具体，不要求模仿题材、语气或句式
+- 不合格：
+  1. 二人在酒馆发生冲突，关系恶化。
+  2. 两人有暧昧互动，并约定再次见面。
+  3. 她揭示了一个秘密，对方受到打击。
+- 合格：
+  1. 苏晚在黑鹭酒馆当众把欠条拍到顾衡胸口，骂他拿她母亲的旧宅做赌注，顾衡想抓她手腕被她甩开，周围赌客起哄，两人彻底撕破脸。 (#120-123)
+  2. 2026年6月12日，周柠在旅馆浴室门口盯着林雨锁骨上的咬痕，追问2026年6月11日晚和谁在一起，林雨一边整理湿透的白衬衫一边嘴硬否认，最后答应2026年6月13日晚还去旧码头见她。 (#88-91)`;
+
+export function resolveSummaryStyle(summaryStyle) {
+    return String(summaryStyle || '').trim() || SUMMARY_EVENT_STYLE_RULES;
+}
+
+const summaryStyleBlock = summaryStyle => `[Event Summary Style]\n${resolveSummaryStyle(summaryStyle)}`;
+
+// 二、总结数据规则：分类、字段含义与增量更新协议。
 export const SUMMARY_MEMORY_ROLE_RULES = `[Memory Role]
 memoryRole describes what an event leaves for later context. Choose one role based on its main evidenced result:
 - 状态变化: A status is established, changed or ended: identity, relationship, residence, ownership or ongoing circumstances.
@@ -14,92 +48,66 @@ memoryRole describes what an event leaves for later context. Choose one role bas
 - 具体经历: A recognizable interaction or experience, including daily life, conflict, comfort or adventure, whose main contribution is the episode itself.
 These roles are different uses of memory, not importance levels. Choose the main result; keep other relevant details in the summary. Continuous actions and reactions about the same occurrence stay together rather than being split to fill roles.`;
 
-export const SUMMARY_EVENT_STYLE_RULES = `[Event Summary Style]
-- summary 不是剧情概括，而是高召回的回忆卡片
-- timeLabel 和 summary 的时间优先用原文日期或明确事件定位，原文日期包含年份时保留年份，沿用已有时间基准；不单独写“今天、昨天、明晚”等相对时间，不编造日期或间隔。
-- 必须优先保留原词：正式人名、原文称呼/昵称/别称、地点、关键物件、动作、情绪态度、关系变化、约定/承诺/交换条件、秘密或羞辱/暧昧/冲突钩子
-- 信息无法全部容纳时，严格按此顺序压缩或删除：气氛描写 → 次要反应 → 心理描写 → 动作过程；必须先删完前一类，才可压缩后一类
-- 与本事件直接相关的具名实体（人名、地点、具名物件）、辨识性特征和15字以内的关键原话属于最后保留层；仅在上述四类都已不足以继续压缩时才考虑舍弃；无关名词不要强行塞入
-- 不要写“两人发生冲突”“关系恶化”“有暧昧互动”“揭示了一个秘密”这种空话，必须写清是谁在什么地方拿着什么、对谁做了什么、结果怎样
-- 优先写成 1 句；信息确实过多且确有必要时可写 2 句，但不要拆成空泛铺垫 + 具体补充
-- 允许 summary 略密实，但必须让未来一句口语提法也能认出这段
-- 示例只展示具体度，不要求模仿题材、语气或句式
-- 不合格：
-  1. 二人在酒馆发生冲突，关系恶化。
-  2. 两人有暧昧互动，并约定再次见面。
-  3. 她揭示了一个秘密，对方受到打击。
-- 合格：
-  1. 苏晚在黑鹭酒馆当众把欠条拍到顾衡胸口，骂他拿她母亲的旧宅做赌注，顾衡想抓她手腕被她甩开，周围赌客起哄，两人彻底撕破脸。 (#120-123)
-  2. 原文明确当前为6月12日，追问“昨晚”的去向并约定“明晚”见面：
-     6月12日，周柠在旅馆浴室门口盯着林雨锁骨上的咬痕，追问6月11日晚和谁在一起，林雨一边整理湿透的白衬衫一边嘴硬否认，最后答应6月13日晚还去旧码头见她。 (#88-91)`;
-
-export const SUMMARY_RELATION_TREND_RULES = `[Relationship Trend Scale]
-${RELATION_TRENDS.slice(0, 4).join(' ← ')} → ${RELATION_TRENDS.slice(4).join(' → ')}`;
-
-const ARC_CONTENT_RULES = `├─ trajectory: 当前阶段描述(15字内)
-├─ progress: an integer from 0 to ${ARC_PROGRESS_MAX}, used for both existing and updated arcs`;
 export const SUMMARY_ARC_RULES = `[Arc Progress Tracking]
-${ARC_CONTENT_RULES}
-└─ newMoment: 仅记录本次新增的关键时刻
-Each arc update contains name, trajectory and numeric progress. newMoment is optional. Omit arcUpdates when no arc changes.`;
+角色弧光记录一个角色在经历中逐渐发生的变化。本次新对话让某个角色的变化有了推进时，才输出这个角色的 arcUpdates。
+- name：角色的正式名。
+- trajectory：这个角色当前所处的阶段，15 字以内。
+- progress：0～${ARC_PROGRESS_MAX} 的整数，和已有总结里显示的进度是同一刻度。
+- newMoment：本次推动变化的那段经历；没有可写的就省略。`;
 
-const FACT_IDENTITY_RULE = '1) Keyed by (s + p). If a new update has the same (s+p), it overwrites the previous value.';
-const FACT_STATE_RULES = `3) isState meaning:
-   - isState: true  -> core constraints that must stay stable and should NEVER be auto-deleted
-                    (identity, location, life/death, ownership, relationship status,
-                      stable distinctive physical traits, binding rules)
-   - isState: false -> non-core facts / soft memories that may be pruned by capacity limits later`;
-const FACT_RELATION_RULES = `4) Relationship facts:
-   - Use predicate format: "对X的看法" (X is the target person)
-   - trend is required for relationship facts, one of:
-     ${RELATION_TRENDS.join(' | ')}`;
-const FACT_PREDICATE_RULE = `6) Predicate normalization:
-   - Reuse existing predicates whenever possible, avoid inventing synonyms.`;
+const FACT_CONTENT_RULES = `### 事实记录什么
+- 事实记录剧情已经确认、之后会持续成立的情况，比如身份、生死、住在哪里、东西归谁、两人是什么关系、稳定的身体特征。角色扮演时，这些事实让角色前后一致。某一次发生了什么，记在事件卡片里。
+- s 是主体，p 是记录哪一方面，o 是这一方面现在的完整情况。同一 s+p 只保存一条，新内容替换旧内容；同一方面沿用已有谓词，不另起同义的名称。
 
-export const SUMMARY_FACT_TRACKING_RULES = `[Fact Tracking - SPO / World Facts]
-We maintain a small "world state" as SPO triples.
-Each update is a JSON object: {s, p, o, isState, trend?, retracted?}
+### 核心事实与普通事实
+- 核心事实（isState: true）不按当前相关人物筛选，也不受普通事实的数量上限影响。普通事实（isState: false）会结合当前相关人物选择；每个主体最多保留 ${FACTS_LIMIT_PER_SUBJECT} 条，超出时先清理最早记录的。
+- 按遗漏的后果分类：缺了它会让剧情出错的，记为核心事实，比如身份、生死、居住地、归属、关系状态、稳定的身体特征和约束后续行动的规则。持续时间长短不决定分类，影响行动能力的伤势、有明确期限的债务，遗漏同样会出错。其他已确认的事实记为普通事实。
 
-Core rules:
-${FACT_IDENTITY_RULE}
-2) Only output facts that are NEW or CHANGED in the new dialogue. Do NOT repeat unchanged facts.
-${FACT_STATE_RULES}
-${FACT_RELATION_RULES}
-5) Retraction (deletion):
-   - To delete a fact, output: {s, p, retracted: true}
-${FACT_PREDICATE_RULE}`;
+### 身体特征
+- 外貌统一用谓词 p="身体特征"，只记录稳定、有辨识度的特征。衣着、姿势、表情和普通伤势随时会变，不记在这里。
+- 新发现的特征与已有特征并存时，o 要把两者写全。
+- 例：已有 {"s":"鹿椿若","p":"身体特征","o":"头顶白色分叉鹿角","isState":true}，后续发现鹿耳时，o 写作"头顶白色分叉鹿角，鹿耳"。
 
-const FACT_PURPOSE_RULE = '- 目的: 纠错 & 世界一致性约束，只记录硬性事实';
-const FACT_CONTENT_RULES = `- isState: true=核心约束(位置/身份/生死/关系/稳定辨识性身体特征)，false=有容量上限会被清理
-- 外貌类统一使用谓词 p="身体特征"；只记录稳定、有辨识度的特征，不记录临时衣着、姿势、表情和普通伤势
-- "身体特征" 的 o 必须写当前完整值。由于相同 s+p 会覆盖旧值，新增特征时必须把已有特征一并写全，不能只写新增部分
-- 例：已有 {"s":"鹿椿若","p":"身体特征","o":"头顶白色分叉鹿角","isState":true}，后续发现鹿耳时应输出 {"s":"鹿椿若","p":"身体特征","o":"头顶白色分叉鹿角，鹿耳","isState":true}，不能只写"鹿耳"`;
+### 关系事实
+- p 写作“对X的看法”，X 是对方的主名；o 写主体对这个人的具体看法和缘由。
+- trend 用一个词概括这份看法，只代表主体一方的态度，对方可能看法不同。以“${RELATION_TRENDS[3]}”为中点，向左越来越疏远、敌对，向右越来越投契、亲近：
+  ${RELATION_TRENDS.slice(0, 4).join(' ← ')} → ${RELATION_TRENDS.slice(4).join(' → ')}`;
 
 export const SUMMARY_FACT_UPDATE_RULES = `## factUpdates 规则
-${FACT_PURPOSE_RULE}
-- s+p 为键，相同键会覆盖旧值
 ${FACT_CONTENT_RULES}
-- 关系类: 按 doc 中的“Fact Tracking”填写谓词和 trend
-- 删除: {s, p, retracted: true}，不需要 o 字段
-- 更新: {s, p, o, isState, trend?}
-- 谓词规范化: 复用已有谓词，不要发明同义词
-- 只输出有变化的条目，确保少、硬、稳定`;
 
-const ALIAS_PURPOSE_RULE = '- 目的: 维护同一角色的不同写法，让称号、昵称、缩写、不同语言或译名都能指向同一人';
-const ALIAS_EVIDENCE_RULE = '明确揭示身份、稳定称号或昵称、唯一缩写、不同语言/译名/书写形式都可以作为依据';
-const ALIAS_IDENTITY_RULE = '- 称号、昵称、缩写必须在当前剧情和既有资料中只指向这一位角色。亲昵称呼、亲属称呼、泛称、普通职位、代词、仅因读音/字形相近的名称不构成同一人依据';
+### 本次输出什么
+- factUpdates 只包含新对话中新出现或有变化的事实；没有变化时省略。
+- 新建或更新写 {s, p, o, isState, trend?}，isState 填布尔值。核心与普通的分类在首次记录时决定，之后更新同一 s+p 时沿用原分类。
+- 删除写 {s, p, retracted: true}。`;
 
-export const SUMMARY_ALIAS_RULES = `## characterAliasUpdates 规则（可选）
+const ALIAS_PURPOSE_RULE = '- 同一个角色在剧情里可能有多种写法：称号、昵称、缩写、其他语言的名字或译名。别名把这些写法指向同一个主名。';
+const ALIAS_EVIDENCE_RULE = '可以作为依据的有：明确揭示的身份、稳定使用的称号或昵称、只可能指这个人的缩写、同一名字在其他语言里的写法或译名。';
+const ALIAS_IDENTITY_RULE = '- 称号、昵称或缩写在当前剧情和已有资料里只指这一位角色时，才算别名。亲昵称呼、亲属称呼、泛称、普通职位和代词可以指很多人；读音或字形相近也说明不了是同一人。';
+
+export const SUMMARY_ALIAS_RULES = `## characterAliasUpdates（可选）
 ${ALIAS_PURPOSE_RULE}
-- 当前对话与既有总结能确认两种名称是同一角色时输出。${ALIAS_EVIDENCE_RULE}
+- 当前对话和已有总结能确认两种名称是同一角色时输出。${ALIAS_EVIDENCE_RULE}
 ${ALIAS_IDENTITY_RULE}
-- to: 已有总结中稳定使用的主名；from: 其他写法数组；evidence: 简短说明确认依据
+- to 是已有总结中稳定使用的主名，from 是其他写法，evidence 简短说明依据。
 - 例: {"to":"五条悟","from":["悟","Gojo Satoru"],"evidence":"当前中文称呼“悟”与既有日文名五条悟均指同一角色"}
-- 不要列出要修改哪些事件/事实/弧光，系统会自动合并`;
+- 保存时，系统会把角色列表、事件参与者、事实的主体和关系对象、弧光的角色名统一改成主名；卡片正文和引语里的称呼保持原样。这里只给出映射。`;
 
-export const SUMMARY_PLAIN_STYLE_RULES = `- 用朴实、白描、有烟火气的笔触记录事实，避免比喻和意象
-- 严谨、注重细节，避免使用模糊的概括性语言，应用具体的动词描述动作，例:谁,在什么时间/地点,通过什么方式,对谁,做了什么事,出现了什么道具,结果如何。`;
+export function buildSummaryAssistantDocPrompt(summaryStyle) {
+    return `
+Summary Specialist:
+Acknowledged. Now reviewing the incremental summarization specifications:
 
+${SUMMARY_MEMORY_ROLE_RULES}
+
+${summaryStyleBlock(summaryStyle)}
+
+${SUMMARY_ARC_RULES}
+
+Ready to process incremental summary requests with strict deduplication.`;
+}
+
+// 三、逐楼场景提取：另一条提取流程，不属于上面的事件总结写作要求。
 const ANCHOR_LANGUAGE_RULE = '- scene、where 和 edges.r 使用当前 <round> 正文的主要语言；混合语言时跟随主要叙事语言，并保留原文人名、专名和引语；JSON 键保持协议规定，不翻译';
 const anchorSceneRules = field => `### 这张卡片用来做什么
 ${field} 记录本轮对话中的一个具体场景，用于找回对应原文，也会作为记忆提供给后续对话。
@@ -124,18 +132,14 @@ ${field} 记录本轮对话中的一个具体场景，用于找回对应原文�
 - 每张通常写60–180字；原文信息少时可以更短，不为达到字数补写内容。
 - 缩短时先合并重复表达、压缩修辞和气氛描写，保留具体事实及其相互关系。
 - 每张围绕一个场景展开，不把不同场景堆成一段。`;
-const ANCHOR_EDGE_RULES = `- s=施事方 t=受事方 r=互动行为（建议 6-12 字，最多 20 字）
-- s/t 必须是参与互动的角色正式名称，不用代词或别称
-- 只从正文内容中识别角色名，不要把标签名（如 user、assistant）当作角色
-- r 使用动作模板短语：“动作+对象/结果”（例：“提出交易条件”、“拒绝对方请求”、“当众揭露秘密”、“安抚对方情绪”）
-- r 不要写人名，不要复述整句，不要写心理描写或评价词
-- r 正例（合格）：提出交易条件、拒绝对方请求、当众揭露秘密、安抚对方情绪、强行打断发言、转移谈话焦点
-- r 反例（不合格）：我觉得她现在很害怕、他突然非常生气地大喊起来、user开始说话、assistant解释了很多细节
-- 每个锚点 1-3 条`;
+const ANCHOR_EDGE_RULES = `- edges 用于寻找行为相近或人物组合相关的其他卡片。
+- s 是做这件事的角色，t 是承受的角色。结合正文和消息的 name 确认角色身份，能确认时写名字；只能确认称呼时写称呼，仍认不出是谁时不写这一条。user、assistant 是消息标签，不是角色名。
+- r 写“动作 + 对象或结果”，建议 6～12 字，最多 20 字。人物已经在 s、t 里，r 只写做了什么，不写人名、心理和评价，不同场景里相似的行为才能对上。
+- 合格：提出交易条件、拒绝对方请求、当众揭露秘密、安抚对方情绪、强行打断发言、转移谈话焦点
+- 不合格：我觉得她现在很害怕、他突然非常生气地大喊起来、user开始说话、assistant解释了很多细节
+- 每张卡片最多 3 条。`;
 const ANCHOR_WHERE_RULE = '- 场景地点，无明确地点时空字符串';
-const ANCHOR_COUNT_RULES = `- 最多2个。1个够时不凑2个
-- 明显场景切换（地点/时间/对象变化）时才2个
-- 同一场景不拆分`;
+const ANCHOR_COUNT_RULES = '- 一轮通常是一个场景，写一张。地点、时间或在场人物明显切换时分成两张，最多两张。';
 
 // Executable Chinese scene examples shared by the prompt and extraction contract test.
 export const ANCHOR_GENERATION_EXAMPLES = [
@@ -166,6 +170,10 @@ export const ANCHOR_GENERATION_EXAMPLES = [
 
 export const ANCHOR_GENERATION_RULES = `${ANCHOR_LANGUAGE_RULE}
 
+## 一轮写几张
+${ANCHOR_COUNT_RULES}
+- 无角色互动时返回 {"anchors":[]}
+
 ## scene 写法
 ${anchorSceneRules('scene')}
 
@@ -175,33 +183,21 @@ ${ANCHOR_GENERATION_EXAMPLES.map(({ weakScene, anchor }) => `Insufficient scene:
 Complete response, when these facts are present in the source:
 ${JSON.stringify({ anchors: [anchor] })}`).join('\n\n')}
 
-## edges（关系三元组）
+## edges：谁对谁做了什么
 ${ANCHOR_EDGE_RULES}
 
 ## where
-${ANCHOR_WHERE_RULE}
+${ANCHOR_WHERE_RULE}`;
 
-## 数量规则
-${ANCHOR_COUNT_RULES}
-- 无角色互动时返回 {"anchors":[]}`;
-
-export const SUMMARY_GENERATION_RULES = [
-    SUMMARY_MEMORY_ROLE_RULES, SUMMARY_EVENT_STYLE_RULES, SUMMARY_RELATION_TREND_RULES, SUMMARY_ARC_RULES,
-    SUMMARY_FACT_TRACKING_RULES, SUMMARY_FACT_UPDATE_RULES, SUMMARY_ALIAS_RULES, SUMMARY_PLAIN_STYLE_RULES,
-];
-
-export const SUMMARY_CONTENT_RULES = [
-    SUMMARY_MEMORY_ROLE_RULES, SUMMARY_EVENT_STYLE_RULES, SUMMARY_RELATION_TREND_RULES,
+// 四、维护入口：引用上面的内容规则，不另写一份。
+export const getSummaryContentRules = summaryStyle => [
+    SUMMARY_MEMORY_ROLE_RULES, summaryStyleBlock(summaryStyle),
     `[Facts]
-${FACT_PURPOSE_RULE}
-${FACT_CONTENT_RULES}
-- 关系类: 谓词写作 "对X的看法"，X 是关系对象的主名；关系事实必须带 trend，取值见 Relationship Trend Scale`,
+${FACT_CONTENT_RULES}`,
     `[Character Aliases]
 ${ALIAS_PURPOSE_RULE}
 - 对话与既有记忆能确认两种名称是同一角色时，别名才成立。${ALIAS_EVIDENCE_RULE}
 ${ALIAS_IDENTITY_RULE}`,
-    `[Plain Style]
-${SUMMARY_PLAIN_STYLE_RULES}`,
 ];
 
 export const ANCHOR_CONTENT_RULES = [

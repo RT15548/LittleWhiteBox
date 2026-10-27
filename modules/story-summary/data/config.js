@@ -10,8 +10,7 @@ import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './sum
 import { normalizeRecallTimeoutSec } from './recall-settings.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from '../maintenance/settings.js';
 import {
-    SUMMARY_ALIAS_RULES, SUMMARY_ARC_RULES, SUMMARY_EVENT_STYLE_RULES, SUMMARY_FACT_TRACKING_RULES,
-    SUMMARY_FACT_UPDATE_RULES, SUMMARY_MEMORY_ROLE_RULES, SUMMARY_PLAIN_STYLE_RULES, SUMMARY_RELATION_TREND_RULES,
+    SUMMARY_ALIAS_RULES, SUMMARY_FACT_UPDATE_RULES, buildSummaryAssistantDocPrompt,
 } from './generation-rules.js';
 
 const MODULE_ID = "summaryConfig";
@@ -29,16 +28,13 @@ export const DEFAULT_SUMMARY_SYSTEM_PROMPT = `Story Analyst: This task involves 
 [Read the settings for this task]
 <task_settings>
 Incremental_Summary_Requirements:
-  - Incremental_Only: 只提取新对话中的新增要素，绝不重复已有总结
+  - Incremental_Only: 对照已有总结处理新对话，各字段的更新方式见输出要求
   - Output_Language: 所有自由文本总结字段使用本批新对话的主要语言；混合语言时跟随主要叙事语言，并保留原文人名、专名和引语。JSON 键、事件 memoryRole、关键词 weight、关系 trend 及其他协议固定值保持规定值，不翻译
-  - Event_Granularity: 记录有叙事价值的事件，而非剧情梗概
-  - Memory_Album_Style: 形成有细节、有温度、有记忆点的回忆册
-  - Retrieval_Readiness: event.summary 必须面向未来召回，不得写成泛化剧情概括
   - Event_Memory_Role: Identify what each event leaves for later context, using the Memory Role definitions below.
   - Causal_Chain: causedBy links an event to its direct causes or explicit motives. Reference syntax is defined in Event References below.
   - Character_Dynamics: 识别新角色，追踪关系趋势
   - Arc_Tracking: 更新角色弧光轨迹与成长进度
-  - Fact_Tracking: 维护 SPO 三元组知识图谱。追踪生死、物品归属、位置、关系、稳定辨识性身体特征等硬性事实。采用 KV 覆盖模型（s+p 为键）。
+  - Fact_Tracking: 记录已确认的事实及其变化，写法见输出要求中的 factUpdates 规则。
 </task_settings>
 ---
 Story Analyst:
@@ -76,7 +72,6 @@ interaction_mode:
 execution_context:
   summary_active: true
   incremental_only: true
-  memory_album_style: true
   fact_tracking: true
 \`\`\`
 ---
@@ -93,21 +88,9 @@ export const DEFAULT_MEMORY_PROMPT_TEMPLATE = `以上是还留在眼前的对话
 {$剧情记忆}
 这些记忆是真实的，请自然地记住它们，并结合当前剧情理解事件距今多久。`;
 
-export const DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT = `
-Summary Specialist:
-Acknowledged. Now reviewing the incremental summarization specifications:
-
-${SUMMARY_MEMORY_ROLE_RULES}
-
-${SUMMARY_EVENT_STYLE_RULES}
-
-${SUMMARY_RELATION_TREND_RULES}
-
-${SUMMARY_ARC_RULES}
-
-${SUMMARY_FACT_TRACKING_RULES}
-
-Ready to process incremental summary requests with strict deduplication.`;
+export function getSummaryAssistantDocPrompt(config = getSummaryPanelConfig()) {
+    return buildSummaryAssistantDocPrompt(config.prompts?.summaryStyle);
+}
 
 export const DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT = `
 Summary Specialist:
@@ -137,8 +120,9 @@ ACKNOWLEDGED. Beginning structured JSON generation:
 
 export const DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT = `
 ## Output Rule
-Generate a single valid JSON object with INCREMENTAL updates only.
+Generate a single valid JSON object. Add new events and update changed records as described below.
 events is an array, including [] when this batch has no new events. Other update arrays may be omitted when unchanged.
+整份输出3000字以内。
 
 ## Event References
 The application assigns permanent event IDs in events array order when saving.
@@ -149,19 +133,25 @@ Each reference points to a different event, never the event containing it.
 Each summary ends with one source marker (#X-Y), or (#X) for one floor. X and Y are floor numbers from the supplied new dialogue, with X <= Y.
 
 ## Mindful Approach
-Before generating, observe the USER and analyze carefully:
-- What NEW plot turns, relationship changes, or fact changes happened in this round?
-- Where is the boundary between existing events and the new content?
-- Which concrete details are worth preserving for future recall?
-- What NEW events occurred (not in existing summary)?
-- What NEW characters appeared for the first time?
-- What relationship CHANGES happened?
-- What arc PROGRESS was made?
-- What facts changed? (status/position/ownership/relationships/stable distinctive physical traits)
+生成前，对照新对话和已有总结，确认：
+- 哪些事件已经记过，哪些是本次新发生的？
+- 新事件中，哪些人物、地点、物件、动作和原话值得留下？
+- 哪些角色首次出现，哪些已有角色发生了变化？
+- 哪些事实或人物关系有了新的情况？
 
-${SUMMARY_FACT_UPDATE_RULES}
+## keywords：全局剧情标签
+keywords 用于面板展示，也会作为已有总结提供给下一次生成总结的模型。
+综合已有总结和新对话，给出 3～8 个标签，每个 2～5 字，表达贯穿剧情的主题、冲突、关系或核心设定。
+有调整时输出完整一组标签，它会替换旧的一组，所以不是只补新词。没有调整时省略 keywords。
+weight 表示标签在整个剧情中的分量，填“核心”“重要”或“一般”。
+
+## events.title：事件标题
+标题会和时间一起显示在卡片正文前，并随记忆提供给后续角色扮演。
+可以用地点加事件名做标题，例如“黑鹭酒馆·拍欠条”；没有明确地点时只写事件名。
 
 ${SUMMARY_ALIAS_RULES}
+
+${SUMMARY_FACT_UPDATE_RULES}
 
 ## Output Format
 \`\`\`json
@@ -172,13 +162,13 @@ ${SUMMARY_ALIAS_RULES}
     "fact_changes": "识别到的事实变化概述"
   },
   "keywords": [
-    {"text": "综合历史与新内容，提取3–8个全局剧情标签，每个2–5字，表达贯穿剧情的主题、冲突、关系或核心设定", "weight": "核心|重要|一般"}
+    {"text": "剧情标签", "weight": "核心|重要|一般"}
   ],
   "events": [
     {
-      "title": "地点·事件标题",
-      "timeLabel": "事件发生时间（如：6月12日、搬入新家的第二晚）",
-      "summary": "回忆卡片。优先写成1句；信息确实过多时可写2句。必须保留正式人名、原文称呼/昵称、地点、物件、具体动作和可召回钩子，末尾标注楼层(#X-Y)",
+      "title": "事件标题",
+      "timeLabel": "事件发生时间，写法见 Event Summary Style",
+      "summary": "事件回忆卡片，写法见 Event Summary Style；来源楼层标记见 Event References",
       "participants": ["参与角色名，不要使用人称代词或别名，只用正式人名"],
       "memoryRole": "${EVENT_MEMORY_ROLES.join('|')}",
       "causedBy": []
@@ -197,14 +187,7 @@ ${SUMMARY_ALIAS_RULES}
   ]
 }
 \`\`\`
-
-## CRITICAL NOTES
-- 仅输出【增量】内容，已有事件绝不重复
-- summary 按 doc 中的“Event Summary Style”执行，不要写成泛化概括
-- factUpdates 可为空数组
-- characterAliasUpdates 是可选字段；没有可靠的同一人依据时不要输出这个 key
-- 合法JSON，字符串值内部避免英文双引号
-${SUMMARY_PLAIN_STYLE_RULES}
+字符串值内部的引号用中文引号“”。
 </meta_protocol>`;
 
 export const DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT = `Content review initiated...
@@ -226,13 +209,13 @@ All checks passed. Beginning incremental extraction...
 {
   "mindful_prelude":`;
 
-export const DEFAULT_SUMMARY_USER_CONFIRM_PROMPT = `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容，3000字以内
+export const DEFAULT_SUMMARY_USER_CONFIRM_PROMPT = `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容
 </Chat_History>`;
 
 export const DEFAULT_SUMMARY_USER_GENERATE_PROMPT = '下面重新生成完整JSON。';
-export const BUILTIN_SUMMARY_PROMPTS = Object.freeze({
+export const getSummaryPrompts = (config = getSummaryPanelConfig()) => ({
     summarySystemPrompt: DEFAULT_SUMMARY_SYSTEM_PROMPT,
-    summaryAssistantDocPrompt: DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT,
+    summaryAssistantDocPrompt: getSummaryAssistantDocPrompt(config),
     summaryAssistantAskSummaryPrompt: DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT,
     summaryAssistantAskContentPrompt: DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT,
     summaryMetaProtocolStartPrompt: DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT,
@@ -373,6 +356,7 @@ function createDefaultSummaryPanelConfig() {
         textFilterRules: [...DEFAULT_FILTER_RULES],
         prompts: {
             memoryTemplate: DEFAULT_MEMORY_PROMPT_TEMPLATE,
+            summaryStyle: '',
         },
         vector: normalizeVectorConfig(),
     };
@@ -392,6 +376,9 @@ function assertSummaryConfigPersisted(expected, actual) {
     }
     if (actual.memoryMaintenanceEnabled !== expected.memoryMaintenanceEnabled) {
         throw new Error('memory_maintenance_setting_not_saved');
+    }
+    if (actual.prompts.summaryStyle !== expected.prompts.summaryStyle) {
+        throw new Error('写作要求未保存，请重试');
     }
 
 }
@@ -426,6 +413,7 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
         prompts: {
             memoryTemplate: String(rawPrompts.memoryTemplate || defaults.prompts.memoryTemplate || "").trim()
                 || DEFAULT_MEMORY_PROMPT_TEMPLATE,
+            summaryStyle: String(rawPrompts.summaryStyle || '').trim(),
         },
         vector: normalizeVectorConfig(rawConfig.vector || null),
     };

@@ -2,7 +2,7 @@ import { resolveConversationTokens } from '../../agent-core/runtime/context-toke
 import { dropInvalidatedThinkingFromMessage } from '../../agent-core/runtime/protocol.js';
 import { recentTurnArchiveCounts, hasChatAnswer } from '../../agent-core/runtime/recent-turns.js';
 import { DEFAULT_MAX_TOKENS } from '../../agent-core/config.js';
-import { MEMORY_COMPACTION_PROMPT, MEMORY_MAINTENANCE_PROMPT } from './prompt.js';
+import { MEMORY_COMPACTION_PROMPT, getMemoryMaintenancePrompt } from './prompt.js';
 import { MEMORY_TOOLS } from './tools.js';
 import { requireMemory } from './errors.js';
 
@@ -16,7 +16,7 @@ function splitAtRole(messages, role) {
 }
 
 export function createMemoryContext({ config, signal, limits, countTokens = resolveConversationTokens, summarize,
-    systemPrompt = MEMORY_MAINTENANCE_PROMPT, tools = MEMORY_TOOLS }) {
+    systemPrompt = getMemoryMaintenancePrompt(), tools = MEMORY_TOOLS }) {
     const count = (messages, prompt = typeof systemPrompt === 'function' ? systemPrompt() : systemPrompt, definitions = tools) => countTokens({
         messages: [{ role: 'system', content: prompt }, ...messages], tools: definitions, providerConfig: config, signal,
     });

@@ -19,7 +19,7 @@ export function hasMaintenanceBoundary(current) {
 
 /** The host task owns the draft and final save, independently of the iframe. */
 export async function executeMemoryTask(task, {
-    read, enabled, automaticEnabled, filterRules: currentFilterRules, invalidateRecall, refreshSummary,
+    read, enabled, automaticEnabled, filterRules: currentFilterRules, summaryStyle, invalidateRecall, refreshSummary,
     signal, phase = () => {}, mode = 'auto', question, history, readMaintenance,
     onCall, onStream, onContext, onProgress,
 }) {
@@ -176,6 +176,7 @@ export async function executeMemoryTask(task, {
     }
     assertIdentity();
     const result = await runMemoryAgent(session, { ...agent, signal, mode, question, history, runId,
+        summaryStyle: summaryStyle(),
         readMaintenance: async args => {
             assertIdentity();
             let saveState;

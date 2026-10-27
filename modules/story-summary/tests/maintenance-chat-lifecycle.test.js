@@ -12,6 +12,7 @@ import { MEMORY_CHAT_MESSAGES as routes } from '../maintenance/chat-contract.js'
 import { createSummaryDiagnostics } from '../summary-diagnostics.js';
 import { getChatIdentity } from '../data/chat-identity.js';
 import { isTrustedMessage, postToIframe } from '../../../core/iframe-messaging.js';
+import { getMemoryChatPrompt } from '../maintenance/prompt.js';
 
 // This boundary test joins the real host/save path, frame entrypoints and chat UI.
 // Only the host API, confirmed metadata readback and derived-index storage are
@@ -61,7 +62,7 @@ const deferred = () => {
 
 function harness(t) {
     const fixture = maintenanceFixture();
-    Object.assign(host, { config: { memoryMaintenanceEnabled: false, textFilterRules: [] }, requests: [], writes: 0,
+    Object.assign(host, { config: { memoryMaintenanceEnabled: false, textFilterRules: [], prompts: { summaryStyle: '' } }, requests: [], writes: 0,
         afterSave: null, notifications: [], respond: async () => ({ text: 'fixture-answer' }),
         metadata: { extensions: { LittleWhiteBox: {
             storySummary: { json: fixture.json, lastSummarizedMesId: fixture.cutoff,
@@ -160,6 +161,22 @@ function harness(t) {
     return { maintenance, diagnostics, mount, closePanel, settle: () => Promise.all(pending),
         memory: () => host.metadata.extensions.LittleWhiteBox };
 }
+
+// Contract: a settings change reaches the next real host/runner turn without
+// rewriting stored memories or resetting completed work. Cost: silent data loss.
+test('changing writing preferences reaches later turns without modifying stored memory', async t => {
+    const h = harness(t);
+    const before = structuredClone(h.memory());
+    host.respond = async () => ({ text: 'No changes requested.' });
+    for (const summaryStyle of ['Use concrete actions.', 'Conservez les dates complètes.', '']) {
+        host.config.prompts.summaryStyle = summaryStyle;
+        await h.maintenance.chat.send({ identity: h.maintenance.chat.identity, text: '当前有什么任务？' });
+        const expected = getMemoryChatPrompt(summaryStyle);
+        assert.equal(host.requests.at(-1).systemPrompt.slice(0, expected.length), expected);
+        assert.equal(host.writes, 0);
+        assert.deepEqual(h.memory(), before);
+    }
+});
 
 // Acceptance: even before the first valid summary, a diagnostic question sends
 // actual generation evidence to the model without saves. Cost: invisible failure / paid replay.

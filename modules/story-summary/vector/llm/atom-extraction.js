@@ -31,13 +31,12 @@ const DEBUG_RAW_PREVIEW_LEN = 800;
 // L0 提取 Prompt
 // ============================================================================
 
-const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场景锚点，用于语义检索和关系追踪。
-
-输入格式：
+const SYSTEM_PROMPT = `你为一段角色扮演对话逐轮写场景卡片。每次收到一轮对话：
 <round>
-  <user name="用户名">...</user>
-  <assistant>...</assistant>
+  <user name="玩家角色名">玩家这一轮的发言</user>
+  <assistant name="回复所属的角色">角色一方的回复</assistant>
 </round>
+assistant 的 name 是这条回复所属的角色卡；回复正文里也可能出现其他角色。
 
 ${ANCHOR_GENERATION_RULES}`;
 
@@ -146,6 +145,15 @@ function anchorToAtom(anchor, aiFloor, idx) {
 // 单轮提取（带重试）
 // ============================================================================
 
+function escapeNameAttribute(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+}
+
 export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, options = {}) {
     const { timeout = DEFAULT_TIMEOUT, signal = null, shouldCancel = null } = options;
     const isCancelled = () => (
@@ -160,11 +168,12 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
 
     if (userMessage?.mes?.trim()) {
         const userText = filterText(userMessage.mes);
-        parts.push(`<user name="${userName}">\n${userText}\n</user>`);
+        parts.push(`<user name="${escapeNameAttribute(userName)}">\n${userText}\n</user>`);
     }
 
     const aiText = filterText(aiMessage.mes);
-    parts.push(`<assistant>\n${aiText}\n</assistant>`);
+    const aiName = String(aiMessage.name || '').trim();
+    parts.push(`<assistant${aiName ? ` name="${escapeNameAttribute(aiName)}"` : ''}>\n${aiText}\n</assistant>`);
 
     const input = `<round>\n${parts.join('\n')}\n</round>\n\n${OUTPUT_FORMAT}`;
 

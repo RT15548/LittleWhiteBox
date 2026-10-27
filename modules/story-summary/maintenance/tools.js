@@ -68,7 +68,7 @@ export const RECOVER_MAINTENANCE_SAVE_TOOL = tool('RecoverMaintenanceSave', 'Ins
 }, ['action']);
 
 export const MEMORY_TOOLS = [
-    tool('ReadMemory', 'Read current memories. Returns items, total (matching record count) and next (complete arguments for continuation, or null). Items contain collection, key, value, maintenanceRange and generatedBy. One page holds up to '
+    tool('ReadMemory', 'Read current memories. Returns items, total (matching record count) and next (complete arguments for continuation, or null). Items contain collection, key, value and maintenanceRange. When a source summary batch is known, generatedBy contains its one-based floor range {from, to}. One page holds up to '
         + MEMORY_PAGE_SIZE + ' records and ' + MEMORY_PAGE_CHARS + ' characters; a longer item returns a serialized-item excerpt and nextTextOffset. Concatenate excerpts to recover the complete item. If a record changes between excerpts, memory_updated identifies it in records and the incomplete excerpts are not a complete current record.', {
         collection: { ...collection, description: 'Memory section to read; omit to search all sections.' },
         key: { ...string, description: 'One record in collection; with textOffset, continues from nextTextOffset.' },

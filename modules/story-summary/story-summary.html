@@ -416,6 +416,18 @@
                 <div class="tab-pane" id="tab-prompts">
                     <div class="settings-section">
                         <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
+                            <label class="settings-section-title" for="summary-style" style="margin: 0;">写作要求</label>
+                            <button class="btn btn-sm" id="btn-reset-summary-style" style="margin-left:auto;">恢复默认</button>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-style" rows="18" placeholder="留空使用内置写作要求"></textarea>
+                                <div class="settings-hint">留空使用内置要求，随插件更新；自定义后保留你的版本，不再随插件更新。修改不会要求重写旧记忆。</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
                             <div class="settings-section-title" style="margin: 0;">记忆注入提示词</div>
                             <button class="btn btn-sm" id="btn-reset-memory-prompt-template" style="margin-left:auto;">恢复默认</button>
                         </div>
@@ -426,7 +438,7 @@
                             </div>
                         </div>
                     </div>
-                    <details class="workspace-disclosure"><summary>内置总结提示词 · 只读</summary><div class="settings-section">
+                    <details class="workspace-disclosure"><summary>完整总结提示词预览 · 只读</summary><div class="settings-section">
 
 
                         <div class="settings-row">
