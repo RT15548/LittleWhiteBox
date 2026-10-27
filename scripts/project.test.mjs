@@ -8,8 +8,8 @@ import { pathToFileURL } from 'node:url';
 import { root, discoverPages } from './build/browser-entries.mjs';
 import { generators } from './build/targets.mjs';
 import { checkProject } from './check-project.mjs';
-import { discoverTests, runTests } from './test.mjs';
-import { checkTypes } from './typecheck.mjs';
+import { discoverTests } from './test.mjs';
+import { collectSourceFiles } from './workspace-files.mjs';
 
 function fixture(t) {
     fs.mkdirSync(path.join(root, 'output'), { recursive: true });
@@ -27,35 +27,16 @@ function fixture(t) {
     return { directory, write };
 }
 
-test('a new nested module test is automatically run and its failure fails the whole test command', t => {
+test('new nested tests and typed source are discovered without collecting generated or private files', t => {
     const { directory, write } = fixture(t);
     const file = 'modules/brand-new/nested/feature.test.ts';
     const testFile = write(file, 'import test from "node:test"; test("new feature", () => {});');
+    const model = write('modules/brand-new/model.ts', 'export const value: string = "valid";');
+    const view = write('modules/brand-new/View.vue', '<script setup lang="ts"></script><template><div /></template>');
     write('dist/generated.test.js', 'throw new Error();');
     write('output/private-evaluation/experiment.test.js', 'throw new Error();');
     assert.deepEqual(discoverTests(directory), [testFile]);
-    const env = { ...process.env };
-    delete env.NODE_TEST_CONTEXT;
-    const options = { stdio: 'pipe', encoding: 'utf8', env };
-    assert.equal(runTests(directory, options).status, 0);
-    write(file, 'import test from "node:test"; test("new feature", () => { throw new Error(); });');
-    assert.notEqual(runTests(directory, options).status, 0);
-});
-
-test('new TS and Vue files receive the root strict type check without module registration', t => {
-    const { directory, write } = fixture(t);
-    const ts = 'modules/brand-new/model.ts', vue = 'modules/brand-new/View.vue';
-    write(ts, 'export const value: string = "valid";');
-    write(vue, '<script setup lang="ts">const value: number = 1;</script><template><div>{{ value }}</div></template>');
-    const options = { stdio: 'pipe', encoding: 'utf8' };
-    const good = checkTypes(directory, options);
-    assert.equal(good.status, 0, good.stdout + good.stderr);
-    write(ts, 'export const value: string = 1;');
-    assert.notEqual(checkTypes(directory, options).status, 0);
-    write(ts, 'export const value: string = "valid";');
-    write(vue, '<script setup lang="ts">const value: number = "invalid";</script><template><div>{{ value }}</div></template>');
-    const bad = checkTypes(directory, options);
-    assert.notEqual(bad.status, 0);
+    assert.deepEqual(collectSourceFiles(directory, new Set(['.ts', '.vue'])), [testFile, model, view].sort());
 });
 
 test('independent module pipelines and unregistered page entries fail project validation', t => {

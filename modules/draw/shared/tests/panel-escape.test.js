@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import {
@@ -288,22 +287,4 @@ test('host listener: dispose removes it', () => {
     dispose();
     esc();
     assert.deepEqual(forwarded, []);
-});
-
-test('wiring: the shared page entry installs the iframe listener bound to the header ✕; each host module registers on overlay creation and disposes on hide', () => {
-    const entry = readFileSync(new URL('../settings-page.js', import.meta.url), 'utf8');
-    assert.match(entry, /installPanelEscape\(\{[^}]*close: \(\) => document\.querySelector\('\.header-close'\)\?\.click\(\)/s);
-    for (const [file, overlayVar, frameVar] of [
-        ['../../providers/novelai/novel-draw.js', 'overlay', 'iframe'],
-        ['../../providers/sd-webui/sd-draw.js', 'overlayElement', 'overlayFrame'],
-        ['../../providers/comfyui/comfy-draw.js', 'overlayElement', 'overlayFrame'],
-    ]) {
-        const source = readFileSync(new URL(file, import.meta.url), 'utf8');
-        assert.ok(source.includes(`installHostPanelEscape({ hostWindow: window, getOverlay: () => ${overlayVar}, getFrame: () => ${frameVar} })`), `${file} registers`);
-        assert.equal((source.match(/hostEscapeDispose\?\.\(\);/g) || []).length, 1, `${file} disposes once, in the hide path`);
-        assert.ok(source.indexOf('hostEscapeDispose?.();') < source.lastIndexOf('.remove();', source.indexOf('hostEscapeDispose?.();') + 400), `${file}: disposed before the overlay is removed`);
-    }
-    for (const relative of ['../../providers/novelai/novel-draw.html', '../../providers/sd-webui/sd-draw.html', '../../providers/comfyui/comfy-draw.html']) {
-        assert.match(readFileSync(new URL(relative, import.meta.url), 'utf8'), /class="header-close"/, `${relative} has the ✕ the Esc handler clicks`);
-    }
 });

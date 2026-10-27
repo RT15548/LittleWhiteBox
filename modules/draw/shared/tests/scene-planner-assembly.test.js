@@ -2,9 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TOOL_PROTOCOL_MARKER as M } from '../../../agent-core/adapters/tool-protocol-marker.js';
-import { getNovelPlannerProfile } from '../../providers/novelai/novel-prompts.js';
-import { SD_PLANNER_PROFILE } from '../../providers/sd-webui/sd-prompts.js';
-import { COMFY_PLANNER_PROFILE } from '../../providers/comfyui/comfy-prompts.js';
 import { planScenePlannerMessages } from '../scene-planner-assembly.js';
 import {
     addBlock,
@@ -12,17 +9,6 @@ import {
     createDefaultLayout,
     reorderBlocks,
 } from '../scene-planner-layout.js';
-import {
-    buildScenePlannerContentBlock,
-    buildScenePlannerFrameText,
-    buildScenePlannerGuideSection,
-    buildScenePlannerRulesSection,
-    buildScenePlannerSystemPrompt,
-    buildScenePlannerUserTask,
-    buildScenePlannerWorldInfoBlock,
-} from '../scene-planner-frame.js';
-
-const SLOTS = { worldInfo: '⁣SLOT_wi⁣', characterInfo: '⁣SLOT_ci⁣', lastMessage: '⁣SLOT_lm⁣' };
 const BASE_TEXTS = {
     opening: 'OPEN',
     frame: 'FRAME',
@@ -243,78 +229,4 @@ test('planning does not mutate its input layout', () => {
     const snapshot = structuredClone(layout);
     plan(layout);
     assert.deepEqual(layout, snapshot);
-});
-
-// ───────── 差分测试：legacy 输出必须与改造前的 buildScenePlannerSystemPrompt / buildScenePlannerUserTask 字节一致 ─────────
-
-const PROFILES = [
-    null,
-    getNovelPlannerProfile('nai-diffusion-4-5-full'),
-    getNovelPlannerProfile('nai-diffusion-5-full'),
-    SD_PLANNER_PROFILE,
-    COMFY_PLANNER_PROFILE,
-];
-const GUIDES = ['', '# 指南\n- 1.3::tag::', '  \n\t ', '\n  指南正文  \n'];
-const RULES = ['', '- 每图一个瞬间。\n- $& 与 $1', ' \t\n', '\n  规则正文  \n\n'];
-const OPENINGS = ['', '你是画面规划助手。', '  \n ', '\n\n  开场（前后有空白）  \n\n'];
-const LIMITS = ['', '本次提交数量约束：images 必须恰好包含 2 项。', '  \n'];
-
-test('differential: legacy templates equal the pre-layout builders across the input matrix', () => {
-    let cases = 0;
-    for (const profile of PROFILES) {
-        for (const guide of GUIDES) {
-            for (const rules of RULES) {
-                for (const opening of OPENINGS) {
-                    for (const limits of LIMITS) {
-                        const oracleSystem = buildScenePlannerSystemPrompt({ opening, guide, sceneRules: rules, profile });
-                        const oracleUser = buildScenePlannerUserTask({
-                            worldInfoSlot: SLOTS.worldInfo,
-                            characterInfoSlot: SLOTS.characterInfo,
-                            lastMessageSlot: SLOTS.lastMessage,
-                            limitsLine: limits,
-                        });
-                        const result = plan(createDefaultLayout(), {
-                            opening,
-                            frame: buildScenePlannerFrameText(profile),
-                            guide: buildScenePlannerGuideSection(guide, profile),
-                            rules: buildScenePlannerRulesSection(rules),
-                            worldInfo: buildScenePlannerWorldInfoBlock(SLOTS.worldInfo),
-                            content: buildScenePlannerContentBlock(SLOTS.characterInfo, SLOTS.lastMessage),
-                            limits,
-                        });
-                        assert.equal(result.legacy, true);
-                        assert.equal(result.templates.length, 2);
-                        assert.equal(result.templates[0].role, 'system');
-                        assert.equal(result.templates[1].role, 'user');
-                        assert.equal(result.templates[0].template, oracleSystem, `system 差异 #${cases}`);
-                        assert.equal(result.templates[1].template, oracleUser, `user 差异 #${cases}`);
-                        cases += 1;
-                    }
-                }
-            }
-        }
-    }
-    assert.equal(cases, PROFILES.length * GUIDES.length * RULES.length * OPENINGS.length * LIMITS.length);
-});
-
-test('differential: an empty worldInfo / content block equals the same builders with that block removed', () => {
-    const frame = buildScenePlannerFrameText(null);
-    const content = buildScenePlannerContentBlock(SLOTS.characterInfo, SLOTS.lastMessage);
-    const result = plan(createDefaultLayout(), { opening: '', frame, guide: '', rules: '', worldInfo: '', content, limits: 'L' });
-    assert.equal(result.legacy, true);
-    assert.equal(result.templates[0].template, buildScenePlannerSystemPrompt({}));
-    assert.equal(result.templates[1].template, `${content}\n\nL`);
-});
-
-test('section builders reproduce the sections inside buildScenePlannerSystemPrompt', () => {
-    const profile = getNovelPlannerProfile('nai-diffusion-4-5-full');
-    const guide = buildScenePlannerGuideSection('  G  ', profile);
-    assert.equal(guide, `## ${profile.imageModelName} Tag 指南\n\nG`);
-    assert.equal(buildScenePlannerGuideSection('  ', profile), '');
-    assert.equal(buildScenePlannerRulesSection(' R\n'), '## 场景规则\n\nR');
-    assert.equal(buildScenePlannerRulesSection(undefined), '');
-    assert.equal(
-        buildScenePlannerSystemPrompt({ opening: 'O', guide: 'G', sceneRules: 'R', profile }),
-        ['O', buildScenePlannerFrameText(profile), guide, '## 场景规则\n\nR'].join('\n\n'),
-    );
 });

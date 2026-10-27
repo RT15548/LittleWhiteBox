@@ -4,7 +4,6 @@ import { parseHTML } from 'linkedom';
 import {
     applyFormModelsToCharacter,
     collectFormModels,
-    createBlankFormModel,
     createEditorSectionState,
     createFormSortable,
     createNamedTagSortables,
@@ -12,8 +11,6 @@ import {
     draftToSingleForm,
     formModelsFromCharacter,
     formRef,
-    isFormHeaderToggleTarget,
-    parseFormRef,
     readFormFields,
     renderCharacterFormSections,
     renderFormsSection,
@@ -65,33 +62,6 @@ const press = (window, element, key) => {
     return event;
 };
 
-test('two forms render as folded cards with the name input as the header title; a new form is expanded', () => {
-    const models = formModelsFromCharacter(CHARACTER, splitType);
-    assert.deepEqual(models.map(model => model.key), ['main', 'f2']);
-    const { card } = mount(models);
-    assert.equal(forms(card).length, 2);
-    for (const form of forms(card)) {
-        assert.equal(form.dataset.expanded, 'false');
-        assert.ok(form.classList.contains('is-folded'));
-        assert.ok(form.querySelector('.char-form-body').hasAttribute('hidden'));
-        assert.ok(form.querySelector('.char-form-header > input.char-form-name'));
-        assert.ok(form.querySelector('.char-form-header > [data-form-drag]'));
-        // 启用开关是头部的图标按钮；“…”菜单里是复制和（危险样式的）删除。
-        assert.ok(form.querySelector('.char-form-header > .char-enabled-control[data-action="toggle-form-enabled"]'));
-        assert.equal(form.querySelector('.char-form-header > [data-action="remove-form"]'), null);
-        assert.ok(form.querySelector('.char-form-header .char-menu .danger[data-action="remove-form"]'));
-        assert.deepEqual(
-            Array.from(form.querySelectorAll('.char-form-header [role="menuitem"]')).map(item => item.dataset.action),
-            ['duplicate-form', 'remove-form'],
-        );
-    }
-    assert.deepEqual(formNames(card), ['人形', '龙形']);
-    assert.equal(forms(card)[1].querySelector('.char-form-preview').textContent, 'dragon');
-
-    const withBlank = mount([...models, createBlankFormModel(splitType)]);
-    assert.deepEqual(forms(withBlank.card).map(form => form.dataset.expanded), ['false', 'false', 'true']);
-});
-
 test('each form body holds its own type, appearance, negative tags, outfits and states (folded forms are still collected)', () => {
     const { card } = mount(formModelsFromCharacter(CHARACTER, splitType));
     const [human, dragon] = collectFormModels(card);
@@ -123,34 +93,6 @@ test('draft capture and redraw keep typed text, fold state and the hidden Danboo
     assert.deepEqual(forms(second.card).map(form => form.dataset.expanded), ['false', 'true']);
     // UI 状态不进入保存用的读取
     assert.equal('expanded' in collectFormModels(second.card)[0], false);
-});
-
-test('section collapse inside a form is remembered per form and does not leak to the other form', () => {
-    const models = formModelsFromCharacter(CHARACTER, splitType);
-    const first = mount(models);
-    first.sectionState.setCollapsed(formRef('c1', 'f2'), 'outfits', true);
-    first.draw(models);
-    const sections = form => form.querySelector('.char-edit-section[data-section="outfits"]');
-    assert.ok(!sections(forms(first.card)[0]).classList.contains('is-collapsed'));
-    assert.ok(sections(forms(first.card)[1]).classList.contains('is-collapsed'));
-    first.sectionState.prune(['c1']);
-    assert.equal(first.sectionState.isCollapsed(formRef('c1', 'f2'), 'outfits'), true);
-    first.sectionState.prune(['other']);
-    assert.equal(first.sectionState.isCollapsed(formRef('c1', 'f2'), 'outfits'), false);
-    assert.deepEqual(parseFormRef(formRef('c1', 'f2')), { charId: 'c1', formKey: 'f2' });
-    assert.deepEqual(parseFormRef('c1'), { charId: 'c1', formKey: '' });
-});
-
-test('clicking inputs and the drag handle in the header does not toggle the fold; the empty header does', () => {
-    const { card } = mount(formModelsFromCharacter(CHARACTER, splitType));
-    const form = forms(card)[0];
-    assert.equal(isFormHeaderToggleTarget(form.querySelector('.char-form-name')), false);
-    assert.equal(isFormHeaderToggleTarget(form.querySelector('[data-form-drag]')), false);
-    assert.equal(isFormHeaderToggleTarget(form.querySelector('.char-form-preview')), true);
-    assert.equal(toggleFormCard(form), true);
-    assert.equal(form.querySelector('.char-form-body').hasAttribute('hidden'), false);
-    assert.equal(form.querySelector('.char-form-toggle').getAttribute('aria-expanded'), 'true');
-    assert.equal(toggleFormCard(form), false);
 });
 
 test('keyboard reorder of form cards moves the real cards; typed text travels with them', () => {

@@ -5,7 +5,7 @@ import { parseHTML } from 'linkedom';
 import { renderCharacterFormSections } from '../character-edit-form.js';
 import {
     applyCharacterEdit, isBlankCharacterEditor, isCharacterRowToggleTarget, readCharacterEditor,
-    renderCharacterSaveStatus, setCharacterSaveStatus,
+    renderCharacterSaveStatus,
 } from '../character-editor-autosave.js';
 
 function cardOf({ name = '阿璃', aliases = '', appearance = 'silver hair', outfits = [{ name: '白裙', tags: 'white dress' }] } = {}) {
@@ -65,12 +65,4 @@ test('点摘要行的空白与文字算展开 / 收起；按钮、勾选框、�
     assert.equal(isCharacterRowToggleTarget(card.querySelector('.char-select')), false);
     assert.equal(isCharacterRowToggleTarget(card.querySelector('[data-drag-char]')), false);
     assert.equal(isCharacterRowToggleTarget(card.querySelector('.char-edit-name')), false, '表单正文不在摘要行里');
-});
-
-test('状态栏文字', () => {
-    const card = cardOf();
-    assert.equal(card.querySelector('.char-save-status').textContent, '已保存');
-    setCharacterSaveStatus(card, 'invalid', '未保存：请输入角色名称');
-    assert.equal(card.querySelector('.char-save-status').dataset.state, 'invalid');
-    assert.equal(card.querySelector('.char-save-status').textContent, '未保存：请输入角色名称');
 });

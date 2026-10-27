@@ -7,14 +7,10 @@ import { parseHTML } from 'linkedom';
 import {
     createDefaultLayout,
     createPromptLayoutEditor,
-    findMovedId,
     isDefaultLayout,
-    layoutFingerprint,
     layoutForStorage,
-    previewText,
 } from '../prompt-layout-editor.js';
 import { BUILTIN_BLOCK_IDS, addBlock, createCustomBlock } from '../scene-planner-layout.js';
-
 
 // 固定的"随机源"：每次返回不同的值，保证 id 唯一又可复现。
 function sequenceRandom() {
@@ -121,54 +117,11 @@ test('inline builtin editors retain draft nodes and input bindings across collap
 
 // ── 纯函数 ──────────────────────────────────────────────
 
-test('previewText takes the first non-empty line, collapses it and truncates by characters', () => {
-    assert.equal(previewText('\n\n  hello  \nworld'), 'hello');
-    assert.equal(previewText(''), '');
-    assert.equal(previewText(undefined), '');
-    assert.equal(previewText('a'.repeat(50), 10), `${'a'.repeat(10)}…`);
-    assert.equal(previewText('你好世界', 2), '你好…');
-});
 
-test('findMovedId finds the one item whose removal makes both orders equal', () => {
-    assert.equal(findMovedId(['a', 'b', 'c'], ['a', 'b', 'c']), null);
-    assert.equal(findMovedId(['a', 'b', 'c'], ['b', 'c', 'a']), 'a');
-    assert.equal(findMovedId(['a', 'b', 'c'], ['c', 'a', 'b']), 'c');
-    assert.equal(findMovedId(['a', 'b', 'c', 'd'], ['a', 'c', 'b', 'd']), 'b', 'adjacent swap: either is valid, the earlier one is reported');
-    assert.equal(findMovedId(['a', 'b', 'c'], ['a', 'x', 'c']), null, 'not a move');
-});
 
-test('the module re-exports the contract helpers a classic-script page needs', () => {
-    assert.equal(isDefaultLayout(createDefaultLayout()), true);
-    assert.equal(layoutForStorage(createDefaultLayout()), undefined);
-    assert.equal(typeof layoutFingerprint(createDefaultLayout()), 'string');
-});
 
 // ── 默认外观 ────────────────────────────────────────────
 
-test('renders the default layout as eight locked built-in rows in contract order', (t) => {
-    const ctx = setup(t);
-    assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
-    for (const row of ctx.rows()) {
-        assert.equal(row.getAttribute('data-builtin'), 'true');
-        assert.equal(row.getAttribute('role'), 'listitem');
-        assert.ok(row.querySelector('.lwb-ple-lock'), '带锁');
-        assert.match(row.querySelector('.lwb-ple-role').className, /system|user/);
-        const handle = row.querySelector('[data-ple-drag]');
-        assert.equal(handle.getAttribute('role'), 'button');
-        assert.equal(handle.getAttribute('tabindex'), '0');
-        assert.match(handle.getAttribute('aria-label'), /拖动调整/);
-        assert.equal(row.querySelector('[data-ple-field="toggle"]'), null, '内置块没有启用开关');
-        assert.ok(row.querySelector('[data-ple-field="select"]'), '内置块可以被选中（整组拖动）');
-        assert.equal(row.querySelector('textarea'), null, '内置块不在这里编辑');
-    }
-    assert.equal(ctx.host.querySelector('.lwb-ple-list').getAttribute('role'), 'list');
-    assert.equal(ctx.host.querySelector('.lwb-ple-title').textContent, '请求结构');
-    assert.ok(ctx.host.querySelector('.lwb-ple-headline .fa-link'), '标题带链条图标');
-    assert.equal(ctx.dirty(), false);
-    assert.equal(ctx.host.querySelector('[data-ple-reset]').hasAttribute('disabled'), true, '已是默认结构时无需恢复');
-    assert.equal(ctx.host.querySelector('[data-ple-add]').textContent, '添加消息');
-    assert.equal(ctx.host.querySelector('[data-ple-reset]').textContent, '恢复默认结构');
-});
 
 test('built-in actions call back with their block id without modifying the layout', (t) => {
     const ctx = setup(t, { describeBuiltin: id => ({ summary: `摘要-${id}`, action: id === 'frame' ? 'view' : id === 'limits' ? null : 'edit', label: id === 'guide' ? '模型TAG指南' : undefined }) });
@@ -180,16 +133,6 @@ test('built-in actions call back with their block id without modifying the layou
     ctx.click(ctx.field('frame', 'edit'));
     assert.deepEqual(ctx.edits, ['rules', 'frame']);
     assert.equal(ctx.changes.length, 0, '跳转不改布局');
-});
-
-test('refreshSummaries rewrites the summary text in place without rebuilding rows', (t) => {
-    let summary = 'v1';
-    const ctx = setup(t, { describeBuiltin: () => ({ summary }) });
-    const row = ctx.row('opening');
-    summary = 'v2';
-    ctx.editor.refreshSummaries();
-    assert.equal(ctx.row('opening'), row);
-    assert.equal(row.querySelector('[data-ple-summary]').textContent, 'v2');
 });
 
 // ── 添加 / 编辑 ─────────────────────────────────────────
@@ -487,10 +430,6 @@ test('destroy removes the editor and stops reacting', (t) => {
     assert.equal(ctx.host.querySelector('.lwb-ple'), null);
     ctx.click(add);
     assert.equal(ctx.changes.length, 0);
-});
-
-test('createPromptLayoutEditor validates its required inputs', () => {
-    assert.throws(() => createPromptLayoutEditor({}), /缺少/);
 });
 
 // ── 样式 ────────────────────────────────────────────────

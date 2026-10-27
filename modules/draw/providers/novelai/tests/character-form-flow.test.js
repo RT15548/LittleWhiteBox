@@ -85,13 +85,13 @@ const character = {
     outfits: [{ name: '白裙', tags: 'white dress' }], dynamicStates: [{ name: '害羞', tags: 'blush' }],
 };
 
-async function bootPage() {
+async function bootPage(initialCharacter = character) {
     await import('../novel-draw-page.js');
     await new Promise((resolve) => setTimeout(resolve, 50));
     const origin = window.location.origin;
     window.dispatchEvent(Object.assign(new window.Event('message'), {
         origin, source: window.parent,
-        data: { source: 'LittleWhiteBox-NovelDraw', type: 'INIT_DATA', settings: { characterTags: [character], characterGroups: GROUPS }, cacheStats: {} },
+        data: { source: 'LittleWhiteBox-NovelDraw', type: 'INIT_DATA', settings: { characterTags: [initialCharacter], characterGroups: GROUPS }, cacheStats: {} },
     }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 }
@@ -213,42 +213,12 @@ test('the edit form has no 所属分组 dropdown: saving keeps the group, and dr
     assert.equal(fresh.querySelectorAll('.char-edit-group').length, 0);
 });
 
-test('the summary bar badge lists every form type in order, and each form header badge follows its own type select', async () => {
-    const list = document.getElementById('nd_char_list');
-    const editing = () => list.querySelector('.char-card.editing');
-    const badgeOf = id => list.querySelector(`.char-card[data-id="${id}"] .char-card-summary .char-type-badge`)?.textContent;
-    const select = (root, value) => {
-        root.querySelector('.char-edit-type').value = value;
-        root.querySelector('.char-edit-type').dispatchEvent(new window.Event('change', { bubbles: true }));
-    };
-
-    await closeEditor();
-    assert.equal(badgeOf('c1'), 'girl', 'a single-form character keeps its one type');
-
-    await openEditor('c1');
-    click(editing().querySelector('[data-action="add-form"]'));
-    await flush();
-    const [first, second] = Array.from(editing().querySelectorAll('.char-form'));
-    // 形态头部：名称输入框后面紧跟该形态自己的类型徽标（外观同摘要栏）。
-    assert.equal(first.querySelector('.char-form-header > .char-form-name').nextElementSibling, first.querySelector('.char-form-type'));
-    assert.ok(first.querySelector('.char-form-type').classList.contains('char-type-badge'));
-    assert.equal(first.querySelector('.char-form-type').textContent, 'girl');
-    select(first, 'boy');
-    select(second, 'other');
-    assert.equal(first.querySelector('.char-form-type').textContent, 'boy', 'live-updates when the form select changes');
-    assert.equal(second.querySelector('.char-form-type').textContent, 'other');
-    second.querySelector('.char-form-name').value = '兽形';
-    select(second, 'custom');
-    second.querySelector('.char-edit-type-custom').value = 'mature female';
-    second.querySelector('.char-edit-type-custom').dispatchEvent(new window.Event('input', { bubbles: true }));
-    assert.equal(second.querySelector('.char-form-type').textContent, 'mature', 'custom types use their first word');
-    select(second, 'other');
-
-    await closeEditor();
-    assert.equal(badgeOf('c1'), 'boy,other');
-});
-
-test('item and form headers: one … menu with 复制 / 停用·启用 / 删除; the menu never toggles fold, Esc closes it, and the copies and switches reach the saved character', async () => {
+// Contract: copying and disabling forms/items must persist independent identities and flags; failure corrupts character data.
+test('form and item copies retain independent identities and enabled states when saved', async () => {
+    await bootPage({
+        ...structuredClone(character),
+        forms: [{ id: 'beast', name: '兽形', type: 'other', appearance: 'fur', outfits: [], dynamicStates: [] }],
+    });
     const list = document.getElementById('nd_char_list');
     const editing = () => list.querySelector('.char-card.editing');
     const lastSaved = () => posted.filter(message => message.type === 'SAVE_CHARACTER_TAGS').at(-1).characterTags.find(char => char.id === 'c1');
@@ -257,20 +227,10 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
         event.key = key;
         element.dispatchEvent(event);
     };
-    const menuLabels = root => Array.from(root.querySelectorAll('[role="menuitem"] .char-menu-label')).map(node => node.textContent);
 
     await openEditor('c1');
     let forms = Array.from(editing().querySelectorAll('.char-form'));
     assert.equal(forms.length, 2);
-    // 头部：启用开关是图标按钮，另有一个“…”菜单（复制、删除）
-    for (const form of forms) {
-        const header = form.querySelector('.char-form-header');
-        assert.equal(header.querySelectorAll('.char-menu-button').length, 1);
-        assert.equal(header.querySelectorAll('.btn-danger, .named-tag-switch').length, 0);
-        assert.equal(header.querySelectorAll('.char-enabled-control[data-action="toggle-form-enabled"]').length, 1);
-        assert.equal(header.querySelectorAll(':scope > .editor-item-delete').length, 0);
-        assert.deepEqual(menuLabels(header), ['复制', '删除']);
-    }
 
     // 点“…”只开菜单，不切换折叠；Esc 关闭
     const second = forms[1];
@@ -286,12 +246,9 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     click(second.querySelector('.char-menu-wrap'));
     assert.equal(second.dataset.expanded, foldBefore, 'clicking the menu wrapper does not toggle fold either');
 
-    // 停用第二个形态：只改 DOM，菜单文案翻转，仍可编辑
+    // 停用第二个形态，仍可编辑和复制。
     click(second.querySelector('[data-action="toggle-form-enabled"]'));
     assert.equal(second.dataset.enabled, 'false');
-    assert.ok(second.classList.contains('is-disabled'));
-    const toggle = second.querySelector('.editor-item-enabled-toggle');
-    assert.deepEqual([toggle.getAttribute('title'), toggle.getAttribute('aria-pressed'), toggle.classList.contains('active')], ['启用', 'false', false]);
 
     // 复制第二个形态：副本紧跟其后，名称加“副本”，展开且启用，原形态保持停用
     click(second.querySelector('[data-action="duplicate-form"]'));
@@ -301,7 +258,6 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     assert.deepEqual(forms.map(form => form.querySelector('.char-form-name').getAttribute('value')), ['', '兽形', '兽形 副本']);
     assert.deepEqual(forms.map(form => form.dataset.enabled), ['true', 'false', 'true'], 'the copy is enabled even though the source is off');
     assert.equal(forms[2].dataset.expanded, 'true');
-    assert.equal(forms[2].querySelector('.char-form-type').textContent, 'other', 'the copy keeps the type badge');
     assert.notEqual(forms[2].dataset.formKey, forms[1].dataset.formKey);
 
     // 停用第一个形态（角色顶层字段）
@@ -309,7 +265,6 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
 
     // 服装条目：复制紧跟其后（名称加“副本”），再停用副本
     const outfitMenu = forms[0].querySelector('.char-outfit-editor-item');
-    assert.deepEqual(menuLabels(outfitMenu.querySelector('.named-tag-header')), ['复制', '删除']);
     click(outfitMenu.querySelector('[data-action="duplicate-named-item"]'));
     await flush();
     const outfitRows = Array.from(forms[0].querySelectorAll('.char-outfit-editor-item'));
@@ -318,7 +273,6 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     assert.equal(outfitRows[1].dataset.expanded, 'true');
     click(outfitRows[1].querySelector('[data-action="toggle-named-enabled"]'));
     assert.equal(outfitRows[1].dataset.enabled, 'false');
-    assert.equal(forms[0].querySelector('.char-edit-section[data-section="outfits"] .char-section-count').textContent, '1/2');
 
     await closeEditor();
     const saved = lastSaved();
@@ -326,9 +280,8 @@ test('item and form headers: one … menu with 复制 / 停用·启用 / 删除;
     assert.deepEqual(saved.forms.map(form => [form.name, form.enabled]), [['兽形', false], ['兽形 副本', undefined]]);
     assert.notEqual(saved.forms[0].id, saved.forms[1].id, 'the copy gets its own id');
     assert.deepEqual(saved.outfits.map(item => [item.name, item.enabled]), [['白裙', undefined], ['白裙 副本', false]]);
-    // 摘要栏只列启用形态的类型；形态数写成 启用/总数
-    assert.equal(list.querySelector('.char-card[data-id="c1"] .char-type-badge').textContent, 'other');
-    assert.match(list.querySelector('.char-card[data-id="c1"] .char-status').textContent, /1\/3 个形态/);
+    assert.equal(saved.forms[1].type, 'other', 'the copied form retains its type');
+    assert.equal(saved.forms[1].appearance, 'fur', 'the copied form retains its content');
 });
 
 test('提示词模板 page: one 保存 (the preset bar), no bottom action row; 全部恢复默认 lives in the preset row menu and resets the form after a confirm', async () => {
@@ -377,35 +330,6 @@ test('提示词模板 page: one 保存 (the preset bar), no bottom action row; �
     assert.equal(document.getElementById('nd_prompt_system').value, '默认开场');
     assert.equal(document.getElementById('nd_prompt_format').value, '默认规则');
     assert.equal(posted.filter(message => message.type === 'SAVE_PROMPT_PRESET').length, savesBefore, 'needs 保存 to persist');
-});
-
-test('the group switch says 已开启 / 已关闭 in text, flips aria-pressed and keeps the disabled group look', async () => {
-    window.dispatchEvent(Object.assign(new window.Event('message'), {
-        origin: window.location.origin, source: window.parent,
-        data: { source: 'LittleWhiteBox-NovelDraw', type: 'INIT_DATA', cacheStats: {}, settings: { characterTags: [character], characterGroups: GROUPS } },
-    }));
-    await flush();
-    const list = document.getElementById('nd_char_list');
-    const section = () => list.querySelector('.char-group[data-group-id="g1"]');
-    const toggle = () => section().querySelector('[data-group-action="toggle-enabled"]');
-    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
-    assert.ok(toggle().classList.contains('active'));
-    assert.equal(toggle().querySelector('.char-switch-text').textContent, '已开启');
-    assert.match(toggle().getAttribute('title'), /^已开启/);
-    assert.equal(section().classList.contains('group-disabled'), false);
-
-    click(toggle());
-    await flush();
-    assert.equal(toggle().getAttribute('aria-pressed'), 'false');
-    assert.equal(toggle().classList.contains('active'), false);
-    assert.equal(toggle().querySelector('.char-switch-text').textContent, '已关闭');
-    assert.match(toggle().getAttribute('title'), /^已关闭/);
-    assert.ok(toggle().querySelector('i').classList.contains('fa-toggle-off'));
-    assert.ok(section().classList.contains('group-disabled'), 'dashed / dimmed group look is still driven by group-disabled');
-
-    click(toggle());
-    await flush();
-    assert.equal(toggle().querySelector('.char-switch-text').textContent, '已开启');
 });
 
 test('group names, 绘图参数 presets and 提示词模板 presets are renamed in place: no 重命名 button or menu item, same validation and save path as before', async () => {

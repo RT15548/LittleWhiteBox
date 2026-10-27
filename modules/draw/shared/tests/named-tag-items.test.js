@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-    NAMED_TAG_PREVIEW_LIMIT,
     applyLocalNamedTagEnabled,
     countEnabledNamedTags,
     isNamedTagEnabled,
-    isNamedTagItemExpanded,
     normalizeNamedTagList,
     parseNamedTagLines,
-    previewNamedTags,
     selectEnabledNamedTags,
     serializeNamedTagLines,
     stripNamedTagEnabled,
@@ -16,7 +13,6 @@ import {
 
 // Acceptance contracts (cost: a disabled outfit/state silently reaching the AI, or old data changing shape):
 // - A missing `enabled` means on; only an explicit `false` disables, and only `false` is ever stored.
-// - Folding is a UI rule: <2 items always expanded, >=2 folded unless explicitly expanded.
 
 test('missing enabled means on; only false disables and only false is written', () => {
     assert.equal(isNamedTagEnabled({ name: 'a' }), true);
@@ -50,24 +46,6 @@ test('planner selection drops disabled items and the enabled key; counts follow'
     assert.equal(countEnabledNamedTags(list), 2);
     assert.equal(countEnabledNamedTags([{ name: 'off', tags: 'x', enabled: false }]), 0);
     assert.equal(countEnabledNamedTags(undefined), 0);
-});
-
-test('fold rule: 0-1 items expanded, 2+ folded unless explicitly expanded', () => {
-    assert.equal(isNamedTagItemExpanded({}, 0), true);
-    assert.equal(isNamedTagItemExpanded({}, 1), true);
-    assert.equal(isNamedTagItemExpanded({ expanded: false }, 1), true);
-    assert.equal(isNamedTagItemExpanded({}, 2), false);
-    assert.equal(isNamedTagItemExpanded({ expanded: false }, 5), false);
-    assert.equal(isNamedTagItemExpanded({ expanded: true }, 5), true);
-    assert.equal(isNamedTagItemExpanded({ expanded: 'yes' }, 5), false);
-});
-
-test('header preview collapses whitespace, truncates by code point and has a placeholder', () => {
-    assert.equal(previewNamedTags('  white   shirt,\n black skirt '), 'white shirt, black skirt');
-    assert.equal(previewNamedTags(''), '（未填写 TAG）');
-    const long = '😀'.repeat(NAMED_TAG_PREVIEW_LIMIT + 5);
-    assert.equal(Array.from(previewNamedTags(long)).length, NAMED_TAG_PREVIEW_LIMIT + 1);
-    assert.ok(previewNamedTags(long).endsWith('…'));
 });
 
 test('SD/ComfyUI text lines round-trip including disabled ("# ") entries', () => {

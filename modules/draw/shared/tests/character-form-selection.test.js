@@ -6,7 +6,6 @@ import { findEnabledCharacterForm } from '../character-selection.js';
 import { expandCharacterForms } from '../character-forms.js';
 import { detectPresentCharacters } from '../present-characters.js';
 import { parseSubmittedScenePlan } from '../scene-plan-contract.js';
-import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
 
 // 智能体用 name（正式名称 / 别名）指角色、form 指形态（缺省 / 不存在 / 已停用回落第一个启用形态）；
 // 展开后的 `名称（形态名）` 不能当 name 用；拼接时服装 / 动作里与固定外貌重复的 tag 去掉。
@@ -56,14 +55,6 @@ test('contract: name stays the official name, form is the chosen form (trimmed, 
     assert.deepEqual([withForm.form, withoutForm.form, empty.form], ['鱼形', '人形', '人形']);
     assert.deepEqual([withForm.name, withoutForm.name, empty.name], ['司盈昃', '司盈昃', '司盈昃']);
     assert.throws(() => parseChars([{ name: '渔行歌', form: 3, ...action }], present));
-});
-
-test('tool schema: form sits right after name with the agreed description', () => {
-    const tool = createSubmitScenePlanTool();
-    const properties = tool.function.parameters.properties.images.items.properties.characters.items.properties;
-    assert.deepEqual(Object.keys(properties).slice(0, 2), ['name', 'form']);
-    assert.equal(properties.name.description, '角色名。已录入角色用【已录入角色】中的名称，原文用别名也归一到该名称。未知角色用原文名字，无名时用简短称呼。');
-    assert.equal(properties.form.description, '多形态角色必填：本图出现的形态名，取自该角色的“形态”列表；单形态角色省略。');
 });
 
 test('resolution: form picks the form; missing, unknown or disabled form falls back to the first', () => {

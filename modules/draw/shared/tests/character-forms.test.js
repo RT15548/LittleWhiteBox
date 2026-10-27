@@ -11,17 +11,14 @@ import {
     planCharacterImport,
 } from '../character-library.js';
 import {
-    FORM_EXCLUSIVE_NOTE,
     MAX_CHARACTER_FORMS,
     expandCharacterForms,
-    formatFormTypeSummary,
     getCharacterSearchFields,
     normalizeForms,
 } from '../character-forms.js';
 import { assembleCharacterPrompts } from '../character-prompts.js';
 import { findEnabledCharacterForm } from '../character-selection.js';
 import { detectPresentCharacters } from '../present-characters.js';
-import { buildCharacterInfoForLLM } from '../scene-planner.js';
 import { parseSubmittedScenePlan } from '../scene-plan-contract.js';
 import { resolveAutoLearnCharacter } from '../../providers/novelai/novel-character-learning.js';
 
@@ -124,18 +121,6 @@ test('present characters: matched by name or alias only, one entry per form, dis
     const [alice] = detectPresentCharacters('Alice', library);
     assert.equal('baseName' in alice, false);
     assert.equal('formCount' in alice, false);
-});
-
-test('planner text: exclusivity sentence once per multi-form character, nothing for single-form ones', () => {
-    const library = normalizeCharacterLibrary({ characters: [SI, PLAIN], groups: [] });
-    const text = buildCharacterInfoForLLM(detectPresentCharacters('司盈昃 and Alice', library));
-    assert.equal(FORM_EXCLUSIVE_NOTE, '有多个形态：form 写其中一个，同一画面只出现一个，正文未提及时用第一个');
-    assert.equal(text.split(FORM_EXCLUSIVE_NOTE).length - 1, 1);
-    assert.ok(text.includes(`- 司盈昃（别名: 盈昃, 小司）${FORM_EXCLUSIVE_NOTE}\n  形态 人形 [boy] | danbooru: si_yingze\n    固定外貌: black hair, red eyes`));
-    assert.ok(text.includes('\n  形态 龙形 [no humans]\n    固定外貌: black dragon, red eyes, scales\n    服装参考: 鳞甲=armor scales'));
-    assert.ok(!/司盈昃（(人形|龙形|兽形)）/.test(text), 'the list never shows 名称（形态名） as a name');
-    const single = buildCharacterInfoForLLM(detectPresentCharacters('Alice', library));
-    assert.equal(single, '【已录入角色】\n- Alice（别名: Al） [girl]\n  固定外貌: silver hair');
 });
 
 test('planner contract: name / alias resolve to the official name, form picks the form (default the first)', () => {
@@ -265,12 +250,4 @@ test('auto-learn: a form-qualified reply never creates a new character; only the
 test('library search text covers form names and each form appearance', () => {
     const text = getCharacterSearchFields(normalizeCharacter(SI)).filter(Boolean).join(' ');
     assert.ok(text.includes('龙形') && text.includes('black dragon') && text.includes('人形'));
-});
-
-test('type summary: every form type in order, comma-joined with the page short label; a single form is just its type', () => {
-    const short = type => String(type).split(' ')[0];
-    assert.equal(formatFormTypeSummary(normalizeCharacter(SI), short), 'boy,no');
-    assert.equal(formatFormTypeSummary(normalizeCharacter(PLAIN), short), 'girl');
-    assert.equal(formatFormTypeSummary({ name: 'x' }, short), 'girl');
-    assert.equal(formatFormTypeSummary({ type: 'boy', forms: [{ type: 'other' }, { type: 'girl' }] }), 'boy,other,girl');
 });

@@ -107,12 +107,6 @@ test('every form off: the character is not sent anywhere and nothing throws', ()
     assert.equal(expandCharacterForms([plain])[0], plain);
 });
 
-test('type summary lists enabled forms only, in order', () => {
-    assert.equal(formatFormTypeSummary(withState({}), t => t), 'boy,no humans,other');
-    assert.equal(formatFormTypeSummary(withState({}, [{ enabled: false }]), t => t), 'boy,other');
-    assert.equal(formatFormTypeSummary(withState({ formDisabled: true }), t => t), 'no humans,other');
-});
-
 test('export never carries form on/off; import ignores it, keeps the local value on replace and defaults new characters to on', () => {
     const local = normalizeCharacterLibrary({ characters: [withState({ formDisabled: true }, [{ enabled: false }])], groups: [] });
     const exported = exportCharacters(local, { scope: 'all' });

@@ -247,7 +247,7 @@ body.lwb-cl-is-dragging, body.lwb-cl-is-dragging * { cursor: grabbing !important
     --ct-form: color-mix(in srgb, var(--text-primary, #e6edf3) 3%, var(--bg-tertiary, #21262d));
     --ct-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
-/* 浅色：跟随系统（没有 data-draw-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-draw-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
+/* 浅色：跟随系统（没有 data-draw-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-draw-theme="light"] 给出；两处内容保持一致。 */
 @media (prefers-color-scheme: light) {
     :root:not([data-draw-theme="dark"]) .lwb-cl-group {
         --ct-group: color-mix(in srgb, var(--bg-tertiary, #21262d) 60%, var(--bg-primary, #0d1117));

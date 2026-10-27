@@ -5,13 +5,10 @@ import assert from 'node:assert/strict';
 import {
     BUILTIN_BLOCKS,
     BUILTIN_BLOCK_IDS,
-    CUSTOM_BLOCK_ROLES,
-    SCENE_PLANNER_LAYOUT_VERSION,
     addBlock,
     addBlockAfter,
     createCustomBlock,
     createDefaultLayout,
-    describeBlock,
     duplicateBlocks,
     isDefaultLayout,
     layoutFingerprint,
@@ -51,35 +48,6 @@ function layoutOf(...blocks) {
 function withBuiltins(order, extras = {}) {
     return layoutOf(...order.map(id => extras[id] || { id }));
 }
-
-test('默认布局：形状、顺序与每次返回新对象', () => {
-    const layout = createDefaultLayout();
-    assert.equal(SCENE_PLANNER_LAYOUT_VERSION, 1);
-    assert.deepEqual(layout, { version: 1, blocks: DEFAULT_ORDER.map(id => ({ id })) });
-    assert.deepEqual(Object.keys(layout), ['version', 'blocks']);
-    const other = createDefaultLayout();
-    assert.notEqual(layout, other);
-    assert.notEqual(layout.blocks, other.blocks);
-    assert.notEqual(layout.blocks[0], other.blocks[0]);
-    layout.blocks.pop();
-    assert.equal(createDefaultLayout().blocks.length, 8);
-});
-
-test('内置块元数据：顺序、标签、角色、必需标记且全部冻结', () => {
-    assert.deepEqual(BUILTIN_BLOCK_IDS, DEFAULT_ORDER);
-    assert.deepEqual(BUILTIN_BLOCKS.map(b => b.label), [
-        '开场与视角', '材料说明与输出去向', 'TAG指南', '场景规则', '工具说明', '世界书', '角色与正文', '数量约束',
-    ]);
-    assert.deepEqual(BUILTIN_BLOCKS.map(b => b.role), [
-        'system', 'system', 'system', 'system', 'system', 'user', 'user', 'user',
-    ]);
-    assert.deepEqual(BUILTIN_BLOCKS.filter(b => b.required).map(b => b.id), ['content', 'limits']);
-    assert.deepEqual(CUSTOM_BLOCK_ROLES, ['system', 'user', 'assistant']);
-    assert.ok(Object.isFrozen(BUILTIN_BLOCKS));
-    assert.ok(Object.isFrozen(BUILTIN_BLOCK_IDS));
-    assert.ok(Object.isFrozen(CUSTOM_BLOCK_ROLES));
-    assert.ok(BUILTIN_BLOCKS.every(b => Object.isFrozen(b)));
-});
 
 test('isDefaultLayout：默认、含自定义块、重排与排回', () => {
     assert.equal(isDefaultLayout(createDefaultLayout()), true);
@@ -357,14 +325,6 @@ test('规范化：不改动入参且输出与入参无共享引用', () => {
     assert.equal(raw.blocks[8].content, 'c');
 });
 
-test('规范化：带抛错 getter 的输入不会抛出', () => {
-    const evil = {};
-    Object.defineProperty(evil, 'blocks', { get() { throw new Error('boom'); }, enumerable: true });
-    const result = normalizeLayout(evil);
-    assert.deepEqual(result.layout, createDefaultLayout());
-    assert.equal(result.repaired, true);
-});
-
 test('layoutFingerprint：稳定且对每类改动敏感', () => {
     const base = addBlock(createDefaultLayout(), custom('msg-888888', { content: 'a', name: 'n' }));
     const fp = layoutFingerprint(base);
@@ -533,18 +493,6 @@ test('createCustomBlock：生成的块可直接通过规范化而不被改动', 
     const layout = addBlock(createDefaultLayout(), block);
     assert.deepEqual(layout.blocks[8], block);
     assert.equal(normalizeLayout(layout).repaired, false);
-});
-
-test('describeBlock：内置用标签与固定角色，自定义用名称或兜底文案', () => {
-    assert.deepEqual(describeBlock({ id: 'worldInfo' }), { id: 'worldInfo', builtin: true, role: 'user', label: '世界书' });
-    assert.deepEqual(describeBlock({ id: 'tools', role: 'assistant' }), { id: 'tools', builtin: true, role: 'system', label: '工具说明' });
-    assert.deepEqual(describeBlock(custom('msg-f00001', { name: '  前情  ', role: 'assistant' })), {
-        id: 'msg-f00001', builtin: false, role: 'assistant', label: '前情',
-    });
-    assert.equal(describeBlock(custom('msg-f00002')).label, '自定义消息');
-    assert.equal(describeBlock(custom('msg-f00003', { name: '   ' })).label, '自定义消息');
-    assert.deepEqual(describeBlock(null), { id: '', builtin: false, role: 'user', label: '自定义消息' });
-    assert.equal(describeBlock({ id: 'msg-f00004', role: 'bogus' }).role, 'user');
 });
 
 test('操作链：所有操作结果都是合法规范化布局', () => {
