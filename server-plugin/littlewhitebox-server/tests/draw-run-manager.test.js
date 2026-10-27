@@ -240,12 +240,12 @@ test('NovelAI V5 character limits are enforced at the Draw Run envelope boundary
         },
     });
 
-    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 22;
+    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 10;
     assert.doesNotThrow(() => validate(envelope));
-    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 23;
-    assert.throws(() => validate(envelope), /must be between 1 and 22/);
+    envelope.planner.validationContext.effectiveMaxCharactersPerImage = 11;
+    assert.throws(() => validate(envelope), /must be between 1 and 10/);
     envelope.planner.validationContext.effectiveMaxCharactersPerImage = 0;
-    assert.throws(() => validate(envelope), /must be between 1 and 22/);
+    assert.throws(() => validate(envelope), /must be between 1 and 10/);
 });
 
 function createManager({
