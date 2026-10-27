@@ -496,7 +496,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/adapters/gemini-tool-schema.js",
       "relativePath": "modules/agent-core/adapters/gemini-tool-schema.js",
       "extension": ".js",
-      "sizeBytes": 1645
+      "sizeBytes": 2506
     },
     {
       "source": "littlewhitebox",
@@ -804,7 +804,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/agent-core/tests/gemini-tool-schema.test.js",
       "relativePath": "modules/agent-core/tests/gemini-tool-schema.test.js",
       "extension": ".js",
-      "sizeBytes": 2932
+      "sizeBytes": 4326
     },
     {
       "source": "littlewhitebox",
@@ -8966,7 +8966,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/application/runtime.ts",
       "relativePath": "modules/xiaobai-os/apps/administrator/application/runtime.ts",
       "extension": ".ts",
-      "sizeBytes": 19735
+      "sizeBytes": 19769
     },
     {
       "source": "littlewhitebox",
@@ -9113,7 +9113,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/ui/AdministratorMessage.vue",
       "relativePath": "modules/xiaobai-os/apps/administrator/ui/AdministratorMessage.vue",
       "extension": ".vue",
-      "sizeBytes": 9922
+      "sizeBytes": 10000
     },
     {
       "source": "littlewhitebox",
@@ -9134,7 +9134,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/apps/administrator/ui/administrator.css",
       "relativePath": "modules/xiaobai-os/apps/administrator/ui/administrator.css",
       "extension": ".css",
-      "sizeBytes": 9728
+      "sizeBytes": 9804
     },
     {
       "source": "littlewhitebox",
@@ -16817,10 +16817,17 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-errors.test.js",
+      "relativePath": "modules/xiaobai-os/tests/administrator-errors.test.js",
+      "extension": ".js",
+      "sizeBytes": 2292
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/xiaobai-os/tests/administrator-gemini-tools.test.js",
       "relativePath": "modules/xiaobai-os/tests/administrator-gemini-tools.test.js",
       "extension": ".js",
-      "sizeBytes": 5156
+      "sizeBytes": 5709
     },
     {
       "source": "littlewhitebox",
@@ -17485,7 +17492,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs",
       "relativePath": "server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs",
       "extension": ".cjs",
-      "sizeBytes": 969462
+      "sizeBytes": 970081
     },
     {
       "source": "littlewhitebox",

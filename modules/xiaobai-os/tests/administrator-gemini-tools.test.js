@@ -49,6 +49,10 @@ test('administrator map tools survive loading and history restoration in Gemini 
             const inspect = schema => {
                 if (!schema || typeof schema !== 'object') return;
                 assert.equal(Array.isArray(schema.type), false, 'Gemini Schema.type cannot be a list');
+                if (Object.hasOwn(schema, 'items')) assert.equal(schema.type, 'array', 'items requires ARRAY before any SDK rewriting');
+                if (Object.hasOwn(schema, 'properties')) assert.equal(schema.type, 'object', 'properties requires OBJECT before any SDK rewriting');
+                if (Object.hasOwn(schema, 'maxLength')) assert.equal(schema.type, 'string', 'maxLength requires STRING');
+                if (Object.hasOwn(schema, 'minimum')) assert.ok(['number', 'integer'].includes(schema.type), 'minimum requires a numeric type');
                 for (const value of Object.values(schema)) if (typeof value === 'object') {
                     if (Array.isArray(value)) value.forEach(inspect);
                     else inspect(value);

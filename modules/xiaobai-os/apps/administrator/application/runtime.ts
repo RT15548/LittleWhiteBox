@@ -117,7 +117,7 @@ export function createAdministratorRuntime(deps: {
             if (agentErrorGuidance(cause)) { console.error('[LittleWhiteBox][Administrator] Tool protocol rejected', (cause as Error).cause); }
             active.failed = true;
             const reason = active.abort.signal.aborted ? ADMINISTRATOR_COPY.stopped : administratorError(cause);
-            if (run === active) { error = reason; }
+            // Generation failures belong to the turn; page errors are for separate recovery actions.
             if (sameChat(active)) {
                 active.turn.status = active.abort.signal.aborted ? 'interrupted' : 'failed';
                 active.turn.error = reason;
@@ -125,7 +125,7 @@ export function createAdministratorRuntime(deps: {
                 active.turn.assistant = active.text || null;
                 if (!conversation.unsaved()) {
                     try { await persistTurn(active); }
-                    catch (saveError) { if (run === active) { error = `${reason}\n${administratorError(saveError)}`; } }
+                    catch (saveError) { if (run === active) { error = administratorError(saveError); } }
                 }
             }
         } finally {

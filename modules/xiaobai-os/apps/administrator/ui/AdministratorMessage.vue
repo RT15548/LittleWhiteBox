@@ -110,10 +110,11 @@ async function loadThrough(end: number, refresh = false) {
                 <button type="submit" data-action="save-edit" :disabled="disabled || saving || !editing.text.trim() && !row.image">{{ saving ? C.saving : C.save }}</button>
             </div>
         </form>
-        <div v-else-if="displayedText || row.image || !live && !processCount" class="admin-bubble" tabindex="0" role="group" :aria-label="C.messageActions" @click="toggleMenu" @keydown.enter="toggleMenu" @keydown.space="toggleMenu" @keydown.esc.stop="menu = false">
+        <div v-else-if="displayedText || row.image || !live && (row.error || !processCount)" class="admin-bubble" tabindex="0" role="group" :aria-label="C.messageActions" @click="toggleMenu" @keydown.enter="toggleMenu" @keydown.space="toggleMenu" @keydown.esc.stop="menu = false">
             <img v-if="row.image" :src="row.image.path" :alt="row.image.name" loading="lazy" class="admin-message-image">
             <MessageMarkdown v-if="displayedText" class="admin-markdown" :text="displayedText" />
-            <span v-if="!displayedText && !row.image" class="admin-muted">{{ row.error || C.noReply }}</span>
+            <p v-if="!live && row.error" class="admin-failure" role="status">{{ row.error }}</p>
+            <span v-else-if="!displayedText && !row.image" class="admin-muted">{{ C.noReply }}</span>
         </div>
         <template v-if="live">
             <div v-for="op in live.preview" :key="op.id" class="admin-operation-line"><i class="admin-operation-dot" :class="`is-${op.status}`" /><span>{{ op.name }}</span><small>{{ C.operations[op.status] }}</small></div>
@@ -123,7 +124,7 @@ async function loadThrough(end: number, refresh = false) {
         <nav v-if="!live && !editing && row.totalChars > content.length" class="admin-pager" :aria-label="C.messagePages">
             <button type="button" :disabled="loading" @click="loadThrough(content.length + POLICY.textBlock)">{{ C.moreText }}</button>
         </nav>
-        <p v-if="row.error || error" class="admin-error" role="status">{{ error || row.error }}</p>
+        <p v-if="error" class="admin-error" role="status">{{ error }}</p>
         <p v-if="actionError" class="admin-error" role="status">{{ actionError }}<button v-if="fullText === null && !preparing" type="button" @click="prepareActions">{{ C.retry }}</button></p>
         <nav v-if="!editing && (menu || !live && processCount && !displayedText)" class="admin-message-actions" :aria-label="C.messageActions">
             <button v-if="!live && row.totalChars" type="button" data-action="copy" :disabled="fullText === null || copying" @click="copy">{{ copied ? C.copied : C.copy }}</button>
