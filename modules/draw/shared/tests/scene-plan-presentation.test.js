@@ -21,7 +21,8 @@ test('all provider schemas and field previews put title and orientation before d
             ...(profile?.postPrompt === 'append' ? ['post_prompt'] : []),
         ]);
         assert.deepEqual(item.properties.orientation.enum, ['portrait', 'landscape']);
-        assert.ok(!item.required.includes('title'));
+        assert.ok(item.required.includes('title'));
+        assert.ok(item.required.includes('orientation'));
         const fields = listScenePlanFieldDescriptions(profile).map(field => field.path);
         assert.ok(fields.indexOf('images[].title') < fields.indexOf('images[].orientation'));
         assert.ok(fields.indexOf('images[].orientation') < fields.indexOf('images[].scene'));

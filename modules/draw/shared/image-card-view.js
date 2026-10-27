@@ -67,19 +67,32 @@ function commitCard(card, next, { replaceImage = false } = {}) {
     card.querySelector('[data-xb-image-view-error]')?.remove();
     const surface = card.querySelector('.xb-nd-img-wrap');
     const nextSurface = next.querySelector('.xb-nd-img-wrap');
+    const details = card.querySelector('.xb-nd-details');
+    const nextDetails = next.querySelector('.xb-nd-details');
     if (surface && nextSurface) {
         const img = surface.querySelector('img'), nextImg = nextSurface.querySelector('img');
         syncAttributes(surface, nextSurface);
         if (replaceImage) img.replaceWith(nextImg);
         else syncAttributes(img, nextImg);
-        syncPart(surface, '.xb-nd-nav-pill', nextSurface.querySelector('.xb-nd-nav-pill'));
-        syncPart(surface, '.xb-nd-status', nextSurface.querySelector('.xb-nd-status'));
-    } else syncPart(card, '.xb-nd-img-wrap', nextSurface);
-
-    const menu = card.querySelector('.xb-nd-menu-wrap');
-    const nextMenu = next.querySelector('.xb-nd-menu-wrap');
-    if (menu?.classList.contains('open') && nextMenu) nextMenu.classList.add('open');
-    syncPart(card, '.xb-nd-menu-wrap', nextMenu);
+        const nextMenu = nextSurface.querySelector('.xb-nd-menu-wrap');
+        if (surface.querySelector('.xb-nd-menu-wrap.open') && nextMenu) nextMenu.classList.add('open');
+        for (const selector of ['.xb-nd-nav-pill', '.xb-nd-status', '.xb-nd-menu-wrap',
+            '.xb-nd-title-bar', '.xb-nd-indicator']) {
+            const childSelector = `:scope > ${selector}`;
+            syncPart(surface, childSelector, nextSurface.querySelector(childSelector));
+        }
+        // The image node and an open title stay live across projections. Only
+        // change the frame when switching between plain and collapsible images.
+        if (details && nextDetails) {
+            syncPart(details, '.xb-nd-summary', nextDetails.querySelector('.xb-nd-summary'));
+        } else if (nextDetails) {
+            nextSurface.replaceWith(surface);
+            card.prepend(nextDetails);
+        } else if (details) details.replaceWith(surface);
+    } else {
+        (details || surface)?.remove();
+        if (nextSurface) card.prepend(nextDetails || nextSurface);
+    }
     for (const selector of ['.xb-nd-indicator', '.xb-nd-status', '.xb-nd-failed-icon',
         '.xb-nd-failed-title', '.xb-nd-failed-desc', '.xb-nd-failed-btns']) {
         // Only top-level parts: failed controls can also belong to the status overlay.

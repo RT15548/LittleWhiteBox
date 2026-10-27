@@ -171,6 +171,7 @@ import {
     appendTagEditGroup,
     syncImageTitleElements,
     syncCollapseTitleWidths,
+    invalidateDrawPreviews,
 } from "../../shared/draw-common.js";
 import * as drawCommonModule from "../../shared/draw-common.js";
 // 注入标题模式读取：渲染时按共享设置决定 overlay/collapse/none。
@@ -2805,6 +2806,7 @@ async function generateImagesFromText(options = {}) {
                     tags: item.tagsForStore,
                     positive: item.scene,
                     orientation: item.task.orientation ?? null,
+                    title: item.task.title,
                     characterPrompts: item.characterPrompts,
                     negativePrompt: item.negativePrompt,
                 });
@@ -2836,6 +2838,7 @@ async function generateImagesFromText(options = {}) {
                     errorMessage: errorType.desc,
                     characterPrompts: item.characterPrompts,
                     orientation: item.task.orientation ?? null,
+                    title: item.task.title,
                     negativePrompt: item.negativePrompt,
                 });
                 images[index] = {
@@ -3499,7 +3502,8 @@ async function handleFrameMessage(event) {
             const ok = await updateSharedDrawSettingsPersistent((settings) => {
                 settings.imageTitleMode = normalizeImageTitleMode(data.imageTitleMode);
             }, '已保存', { notify: false, silent: false });
-            postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'api');
+            postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'params');
+            if (ok) invalidateDrawPreviews();
             break;
         }
 

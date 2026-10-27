@@ -88,7 +88,7 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
     --ct-btn-hover: color-mix(in srgb, var(--text-primary) 15%, var(--bg-tertiary));
     --ct-btn-border: color-mix(in srgb, var(--text-primary) 28%, transparent);
 }
-/* 浅色：跟随系统（没有 data-draw-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-draw-theme="light"] 给出；两处内容保持一致（见 theme-tokens-css.test.js）。 */
+/* 浅色：跟随系统（没有 data-draw-theme）时由媒体查询给出，主题菜单强制浅色时由 :root[data-draw-theme="light"] 给出；两处内容保持一致。 */
 @media (prefers-color-scheme: light) {
     :root:not([data-draw-theme="dark"]) #nd_char_list {
         --ct-btn: var(--bg-secondary);
@@ -808,15 +808,6 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                             <label class="form-label">请求间隔 (毫秒)</label>
                             <input id="nd_delay" type="text" class="input" value="15000-30000">
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">图片标题</label>
-                            <select id="nd_image_title_mode" class="input">
-                                <option value="none">不显示标题（默认）</option>
-                                <option value="overlay">悬浮标题条（图顶幼细标题，不折叠）</option>
-                                <option value="collapse">可折叠标题（点击标题折叠图片）</option>
-                            </select>
-                            <p class="form-hint">标题由场景分析 AI 为每张图生成；所有绘图 Provider 共用此显示方式。</p>
-                        </div>
                     </div>
                     <div class="btn-group" style="margin-top: 16px;">
                         <button id="nd_save_api" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
@@ -934,6 +925,19 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                                 <input id="nd_seed" type="number" class="input" placeholder="-1" title="Seed">
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">图片显示</div>
+                    <div class="form-group">
+                        <label class="form-label" for="nd_image_title_mode">图片标题</label>
+                        <select id="nd_image_title_mode" class="input">
+                            <option value="none">不显示</option>
+                            <option value="overlay">图上标题</option>
+                            <option value="collapse">可折叠标题</option>
+                        </select>
+                        <p class="form-hint">切换即保存，适用于所有绘图方式。</p>
                     </div>
                 </div>
 

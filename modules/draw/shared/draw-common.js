@@ -249,6 +249,7 @@ export function ensureDrawImageStyles() {
 /* 圖片標題（overlay 模式）：懸停或 title-show 時浮現的圖頂細條 */
 .xb-nd-title-bar{position:absolute;top:0;left:0;right:0;z-index:6;pointer-events:none;display:flex;align-items:center;min-height:22px;padding:3px 44px 3px 10px;background:rgba(0,0,0,0.55);font-size:13px;line-height:1.4;letter-spacing:0.02em;color:rgba(255,255,255,0.95);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,0.6);opacity:0;transition:opacity 0.2s ease}
 .xb-nd-img-wrap:hover .xb-nd-title-bar,.xb-nd-img-wrap.title-show .xb-nd-title-bar{opacity:1}
+@media(hover:none),(pointer:coarse){.xb-nd-title-bar{opacity:1}}
 /* 圖片標題（collapse 模式）：details 收縮到內容寬並置中；摺疊標題列寬度吃 JS 量得的
    圖片實寬（--xb-img-w），變量未就緒時 auto 回退為貼文字的初始膠囊。 */
 .xb-nd-details{width:fit-content;max-width:100%;margin:0 auto;border-radius:10px;overflow:hidden}
@@ -870,7 +871,7 @@ async function renderPreviewsForMessageNow(messageId, {
                     tags: displayData.failedInfo?.tags || '',
                     positive: displayData.failedInfo?.positive || '',
                     errorType: interrupted?.label || displayData.failedInfo?.errorType || DRAW_SLOT_ERRORS.unavailable.label,
-                    errorMessage: interrupted?.desc || displayData.failedInfo?.errorMessage || DRAW_SLOT_ERRORS.unavailable.desc,
+                    errorMessage: displayData.failedInfo?.errorMessage || interrupted?.desc || DRAW_SLOT_ERRORS.unavailable.desc,
                 });
             } else if (displayData.hasData && displayData.preview) {
                 const url = getPreviewDisplayUrl(displayData.preview);
@@ -1033,7 +1034,7 @@ function indexPreviewSlots(content, slots) {
     }
 }
 
-function handleGalleryCacheChanged({ slotIds } = {}) {
+export function invalidateDrawPreviews({ slotIds = null } = {}) {
     // Only previously admitted views have an index. Unvisited history reads the
     // current cache when it enters the viewport, not on every image write.
     for (const slotId of slotIds === null ? previewSlotContents.keys() : slotIds || []) {
@@ -1069,7 +1070,7 @@ export function startSharedDrawPreviewRuntime() {
     drawPreviewRuntimeEvents.on(event_types.MESSAGE_EDITED, handleDrawPreviewMessageModified);
     drawPreviewRuntimeEvents.on(event_types.MESSAGE_UPDATED, handleDrawPreviewMessageModified);
     drawPreviewRuntimeEvents.on(event_types.MESSAGE_SWIPED, handleDrawPreviewMessageModified);
-    drawPreviewCacheSyncCleanup = subscribeGalleryCacheChanges(handleGalleryCacheChanged);
+    drawPreviewCacheSyncCleanup = subscribeGalleryCacheChanges(invalidateDrawPreviews);
 }
 
 export function stopSharedDrawPreviewRuntime() {

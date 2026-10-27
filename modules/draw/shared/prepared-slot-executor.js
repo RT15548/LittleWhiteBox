@@ -64,7 +64,8 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             && ![ImageRequestOutcome.NOT_SUBMITTED, ImageRequestOutcome.REJECTED].includes(error?.imageRequestOutcome);
         const problem = unknown ? DRAW_SLOT_ERRORS.unknown : kind;
         await deliver(index, { status: unknown ? PreviewStatus.UNKNOWN : PreviewStatus.FAILED,
-            errorType: problem.label, errorMessage: unknown ? problem.desc : error?.message || problem.desc }, guard, commitDelivery);
+            errorType: problem.label, errorMessage: unknown && error?.message
+                ? `${error.message}\n${problem.desc}` : error?.message || problem.desc }, guard, commitDelivery);
     };
     try {
         for (const [index, item] of items.entries()) {
@@ -97,7 +98,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                     gallery: { chatId: items[0].chatId, messageId: String(items[0].messageId),
                         characterName: items[0].characterName },
                     items: items.map((item, index) => ({ index, slotId: item.slotId, imgId: item.imgId, discarded: item.discarded,
-                        previewMetadata: { tags: item.tags, positive: item.positive, postPrompt: item.postPrompt,
+                        previewMetadata: { tags: item.tags, title: item.title, positive: item.positive, postPrompt: item.postPrompt,
                             orientation: item.orientation ?? null,
                             characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt } })),
                 },

@@ -52,7 +52,7 @@ export function installImageCardMenu(document) {
     const win = document?.defaultView;
     if (!win || installed.has(document)) return null;
     installed.add(document);
-    const controller = createCardMenuController({ document });
+    const controller = createCardMenuController({ document, portal: true });
     win.addEventListener('click', (event) => {
         const target = event.target;
         const trigger = target?.closest?.('.xb-nd-more-btn');

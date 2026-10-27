@@ -139,7 +139,7 @@ export function createSubmitScenePlanTool(options = {}) {
         items: {
             type: 'object',
             additionalProperties: false,
-            required: ['index', 'insert_after', 'scene', 'characters'],
+            required: ['index', 'insert_after', 'title', 'orientation', 'scene', 'characters'],
             properties: {
                 index: { type: 'integer', minimum: 1, description: '本图序号，从 1 起。' },
                 insert_after: {

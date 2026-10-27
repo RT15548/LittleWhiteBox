@@ -139,3 +139,19 @@ test('installImageCardMenu is idempotent per document', () => {
     t.click(t.triggerA);
     assert.equal(t.menuA.hasAttribute('hidden'), true, '只装过一次：连点两下 = 开再关');
 });
+
+// Action routing must survive the portal; otherwise edit/remove can silently
+// fail or act on the wrong image. Removing a card must revoke its open actions.
+test('portal actions retain their source card and detached cards lose their menu', async () => {
+    const t = mount();
+    t.click(t.triggerA);
+    assert.ok(t.menuA.parentNode === t.document.body);
+    t.click(t.menuA.querySelector('[data-action="edit-tags"]'));
+    assert.ok(t.menuA.closest('.xb-nd-img') === t.q('#a'));
+    assert.deepEqual(t.seen, ['edit-tags']);
+    t.click(t.triggerA);
+    t.q('#a').remove();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(t.controller.isOpen(), false);
+    assert.equal(t.document.body.contains(t.menuA), false);
+});
