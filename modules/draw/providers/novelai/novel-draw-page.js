@@ -4218,6 +4218,7 @@ function updateModelOptions() {
     $('nd_variety_boost_group').classList.toggle('hidden', isV5);
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
+    $('nd_max_chars').value = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
     applyModelGuideForCurrentModel();
     requestPromptChainPreview();
     renderBackendPluginStatus();

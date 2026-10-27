@@ -8,7 +8,9 @@ export const NOVEL_PROMPT_GUIDES = Object.freeze({
     V5: 'v5',
 });
 
-export const NOVEL_V5_MAX_CHARACTERS = 22;
+// Product limit shared by the planner, settings and image request validation.
+// This size was verified with the drawing schema on Gemini native tools.
+export const NOVEL_V5_MAX_CHARACTERS = 10;
 
 const LEGACY_CAPABILITY = Object.freeze({
     family: 'legacy',

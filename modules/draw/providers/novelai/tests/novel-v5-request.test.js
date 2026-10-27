@@ -112,17 +112,19 @@ test('falls back invalid V5 preset IDs to official defaults', () => {
     assert.equal(body.input, V5_QUALITY_PRESETS.standard);
 });
 
-test('rejects a direct or refresh request that exceeds the V5 character limit', () => {
+test('accepts ten V5 characters and rejects an eleventh before sending a paid request', () => {
+    const characterPrompts = Array.from({ length: 10 }, (_, index) => ({ prompt: `character ${index + 1}` }));
+    assert.doesNotThrow(() => buildNovelV5RequestBody({
+        scene: 'group', characterPrompts, params: { model: NOVEL_MODEL_IDS.V5_FULL }, seed: 4,
+    }));
     assert.throws(
         () => buildNovelV5RequestBody({
             scene: 'group',
-            characterPrompts: Array.from({ length: 23 }, (_, index) => ({
-                prompt: `character ${index + 1}`,
-            })),
+            characterPrompts: [...characterPrompts, { prompt: 'eleventh character' }],
             params: { model: NOVEL_MODEL_IDS.V5_FULL },
             seed: 4,
         }),
-        /最多支持 22 个角色提示词/,
+        { code: 'V5_CHARACTER_LIMIT_EXCEEDED' },
     );
 });
 
