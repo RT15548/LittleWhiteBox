@@ -1,5 +1,8 @@
 export const NOVEL_MODEL_IDS = Object.freeze({
     V5_FULL: 'nai-diffusion-5-full',
+    // V5 Full Medium Effort：蒸馏模型，独立 model id，
+    // 协议与 V5 Full 一致，但步数锁定 14、采样器锁定 Euler Ancestral。
+    V5_FULL_MEDIUM: 'nai-diffusion-5-full-medium',
     V5_CURATED: 'nai-diffusion-5-curated',
 });
 

@@ -1,5 +1,5 @@
 {
-  "buildId": "206779fd224f5038d7b9",
+  "buildId": "552c381cbe08d5ca4337",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-D7kfBluL.js",
@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-DNh7_lCa.js",
+      "file": "apps/novel-draw-BQrM4kZN.js",
       "css": []
     },
     "apps/story-outline": {
@@ -152,7 +152,7 @@
         "assets/settings-ui-3BrbRAIN.css"
       ]
     },
-    "apps/novel-draw-DNh7_lCa.js": {
+    "apps/novel-draw-BQrM4kZN.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/custom-tool-sandbox-DRHy979J.js",
@@ -289,10 +289,10 @@
         "shared/protocol-CNWQIPGc.js",
         "shared/workspace-repository-RCSsbA29.js",
         "shared/settings-repository-KNx9b1Of.js",
-        "shared/comfy-draw-BD_C_WO-.js",
-        "shared/message-toolbar-DMOhF22x.js",
-        "shared/novel-draw-Dt_kh9Vi.js",
-        "shared/sd-draw-BrEruDZ1.js",
+        "shared/comfy-draw-Dx84zk9g.js",
+        "shared/message-toolbar-CKJlKk72.js",
+        "shared/novel-draw-CQtS3zQA.js",
+        "shared/sd-draw-BkwnbtIw.js",
         "shared/draw-common-Cvv3QCuF.js",
         "shared/gallery-cache-tcHMj_TQ.js",
         "shared/chat-message-image-markup-Cqn-Ihag.js",
@@ -868,13 +868,13 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/comfy-draw-BD_C_WO-.js": {
+    "shared/comfy-draw-Dx84zk9g.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/constants-RJ4jNr01.js",
         "shared/event-manager-Dya5I6Up.js",
         "shared/server-storage-dJHkaO6-.js",
-        "shared/message-toolbar-DMOhF22x.js",
+        "shared/message-toolbar-CKJlKk72.js",
         "shared/scene-planner-chain-view-DgQO4q_6.js",
         "shared/html-escape-Bm34VZkh.js",
         "shared/character-library-Bhpi6FXI.js",
@@ -887,7 +887,7 @@
         "shared/async-errors-C4kfchr9.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-Dgogokei.js"
+        "shared/floating-panel-CGJuSN7M.js"
       ],
       "css": []
     },
@@ -1010,9 +1010,9 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/draw-run-ui-state-DKlaZzdk.js": {
+    "shared/draw-run-ui-state-Cda0FXM7.js": {
       "imports": [
-        "shared/message-toolbar-DMOhF22x.js",
+        "shared/message-toolbar-CKJlKk72.js",
         "shared/draw-common-Cvv3QCuF.js"
       ],
       "dynamicImports": [],
@@ -1038,39 +1038,39 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-Bo6QR4Gg.js": {
+    "shared/floating-panel-CCwtkqll.js": {
       "imports": [
-        "shared/message-toolbar-DMOhF22x.js",
-        "shared/sd-draw-BrEruDZ1.js",
+        "shared/message-toolbar-CKJlKk72.js",
+        "shared/sd-draw-BkwnbtIw.js",
         "shared/draw-common-Cvv3QCuF.js",
         "shared/gallery-cache-tcHMj_TQ.js",
-        "shared/draw-run-ui-state-DKlaZzdk.js",
+        "shared/draw-run-ui-state-Cda0FXM7.js",
         "shared/panel-escape-ymarUWxh.js",
         "shared/async-errors-C4kfchr9.js"
       ],
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-Bqmb3Uy-.js": {
+    "shared/floating-panel-CGJuSN7M.js": {
       "imports": [
-        "shared/message-toolbar-DMOhF22x.js",
-        "shared/novel-draw-Dt_kh9Vi.js",
+        "shared/comfy-draw-Dx84zk9g.js",
+        "shared/message-toolbar-CKJlKk72.js",
         "shared/draw-common-Cvv3QCuF.js",
         "shared/gallery-cache-tcHMj_TQ.js",
-        "shared/draw-run-ui-state-DKlaZzdk.js",
+        "shared/draw-run-ui-state-Cda0FXM7.js",
         "shared/panel-escape-ymarUWxh.js",
         "shared/async-errors-C4kfchr9.js"
       ],
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-Dgogokei.js": {
+    "shared/floating-panel-JoXTHbKC.js": {
       "imports": [
-        "shared/comfy-draw-BD_C_WO-.js",
-        "shared/message-toolbar-DMOhF22x.js",
+        "shared/message-toolbar-CKJlKk72.js",
+        "shared/novel-draw-CQtS3zQA.js",
         "shared/draw-common-Cvv3QCuF.js",
         "shared/gallery-cache-tcHMj_TQ.js",
-        "shared/draw-run-ui-state-DKlaZzdk.js",
+        "shared/draw-run-ui-state-Cda0FXM7.js",
         "shared/panel-escape-ymarUWxh.js",
         "shared/async-errors-C4kfchr9.js"
       ],
@@ -1223,7 +1223,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/message-toolbar-DMOhF22x.js": {
+    "shared/message-toolbar-CKJlKk72.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/constants-RJ4jNr01.js",
@@ -1274,7 +1274,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-Dt_kh9Vi.js": {
+    "shared/novel-draw-CQtS3zQA.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/after-ai-gate-BTdpruz4.js",
@@ -1282,7 +1282,7 @@
         "shared/event-manager-Dya5I6Up.js",
         "shared/js-yaml-EJVjtdzw.js",
         "shared/server-storage-dJHkaO6-.js",
-        "shared/message-toolbar-DMOhF22x.js",
+        "shared/message-toolbar-CKJlKk72.js",
         "shared/custom-tool-sandbox-DRHy979J.js",
         "shared/html-escape-Bm34VZkh.js",
         "shared/character-group-presets-BxU3Xsma.js",
@@ -1297,7 +1297,7 @@
         "shared/identity-BQcqMF8H.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-Bqmb3Uy-.js",
+        "shared/floating-panel-JoXTHbKC.js",
         "shared/msgpack-EEcozSlQ.js"
       ],
       "css": []
@@ -1478,13 +1478,13 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/sd-draw-BrEruDZ1.js": {
+    "shared/sd-draw-BkwnbtIw.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/constants-RJ4jNr01.js",
         "shared/event-manager-Dya5I6Up.js",
         "shared/server-storage-dJHkaO6-.js",
-        "shared/message-toolbar-DMOhF22x.js",
+        "shared/message-toolbar-CKJlKk72.js",
         "shared/scene-planner-chain-view-DgQO4q_6.js",
         "shared/html-escape-Bm34VZkh.js",
         "shared/character-library-Bhpi6FXI.js",
@@ -1497,7 +1497,7 @@
         "shared/async-errors-C4kfchr9.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-Bo6QR4Gg.js"
+        "shared/floating-panel-CCwtkqll.js"
       ],
       "css": []
     },

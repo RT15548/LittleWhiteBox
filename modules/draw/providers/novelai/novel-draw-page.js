@@ -4219,6 +4219,20 @@ function updateModelOptions() {
     );
     $('nd_auto_smea_group').classList.toggle('hidden', isV5);
     $('nd_variety_boost_group').classList.toggle('hidden', isV5);
+
+    // V5 Full Medium Effort 锁参：14 步 / Euler Ancestral / CFG 重缩放 0 / Heavy 负面预设
+    const isMedium = model === 'nai-diffusion-5-full-medium';
+    const mediumHint = 'Medium Effort 固定参数：14 步、Euler Ancestral、重缩放 0、Heavy 负面';
+    const lockControl = (el, locked, lockedValue) => {
+        el.disabled = locked;
+        el.title = locked ? mediumHint : '';
+        if (locked && lockedValue !== undefined) el.value = lockedValue;
+    };
+    lockControl($('nd_steps'), isMedium, isMedium ? 14 : undefined);
+    lockControl($('nd_sampler_sel'), isMedium, isMedium ? 'k_euler_ancestral' : undefined);
+    lockControl($('nd_cfg_rescale'), isMedium, isMedium ? 0 : undefined);
+    lockControl($('nd_v5_uc'), isMedium, isMedium ? 'heavy' : undefined);
+
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
     $('nd_max_chars').value = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
