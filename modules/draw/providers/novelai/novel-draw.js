@@ -2974,7 +2974,11 @@ async function generateAndInsertImages({
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
 
-        if (isNovelImageBackendJobEnabled(settings)) {
+        // 手动生图：即使开了后端任务模式，规划也走浏览器侧，只落槽位不提交；
+        // 后端 Draw Run 无法只规划不执行。
+        const manualSlots = getSharedDrawSettings().autoGenerateImages === false;
+
+        if (!manualSlots && isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
             return await submitProviderDrawRun({
                 ctx,
@@ -3255,6 +3259,7 @@ async function sendInitData() {
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
             imageTitleMode: getSharedDrawSettings().imageTitleMode,
+            autoGenerateImages: getSharedDrawSettings().autoGenerateImages !== false,
             saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
@@ -4050,6 +4055,15 @@ async function handleFrameMessage(event) {
                     settings.danbooruLocalDB = false;
                 }, 'Danbooru 本地库已关闭');
             }
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_AUTO_GENERATE_IMAGES': {
+            const nextAuto = data.autoGenerateImages === true;
+            await updateSharedSettingsPersistent((settings) => {
+                settings.autoGenerateImages = nextAuto;
+            }, nextAuto ? '已开启自动排队' : '已关闭自动排队，需逐张手动生成');
             observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }

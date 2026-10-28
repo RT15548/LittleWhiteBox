@@ -142,6 +142,7 @@ let state = {
     autoLearnMode: 'new_only',
     autoLearnGroupId: '',
     danbooruLocalDB: false,
+    autoGenerateImages: true,
     showFloorButton: true,
     showFloatingButton: false,
     promptPresets: [],
@@ -3609,6 +3610,7 @@ function applyStateToUI() {
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
         $('nd_continuity_enabled').checked = state.continuityEnabled !== false;
+        $('nd_auto_generate_images').checked = state.autoGenerateImages !== false;
         renderFilterRules(state.messageFilterRules);
     } catch (e) {
         console.error('[ND-UI] applyStateToUI 部分失败:', e);
@@ -4753,6 +4755,11 @@ function initializePage() {
     $('nd_continuity_enabled').addEventListener('change', () => {
         state.continuityEnabled = $('nd_continuity_enabled').checked;
         postToParent({ type: 'SAVE_CONTINUITY_ENABLED', enabled: state.continuityEnabled });
+    });
+
+    $('nd_auto_generate_images').addEventListener('change', () => {
+        state.autoGenerateImages = $('nd_auto_generate_images').checked;
+        postToParent({ type: 'SAVE_AUTO_GENERATE_IMAGES', autoGenerateImages: state.autoGenerateImages });
     });
 
     // clear all characters

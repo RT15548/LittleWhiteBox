@@ -8,7 +8,7 @@ const MAIN_TYPES = new Set(['', 'normal', 'regenerate', 'swipe', 'continue']);
 // One observation belongs to one actual host call. Rendering cannot create it.
 // Claims live only on the message object; durable ownership is the existing
 // preview input and (for backend transport) the existing image job journal.
-export function createChatImageSession({ context, provider, changed, report }) {
+export function createChatImageSession({ context, provider, changed, report, autoGenerate = () => true }) {
     let observation = null;
     let targetRevision = 0;
     const claims = new WeakMap();
@@ -161,7 +161,8 @@ export function createChatImageSession({ context, provider, changed, report }) {
             if (!source.startsWith(initialBody)) return;
             // DICE's makeFirst listener has already applied its current body.
             const candidates = parseChatImageTags(source).filter(tag => tag.end > initialBody.length);
-            if (candidates.length) await claim(ctx, index, candidates, true);
+            // 手动生图模式：新标签不自动接管，留在「待手动生成」状态，由用户逐张点击提交。
+            if (candidates.length && autoGenerate()) await claim(ctx, index, candidates, true);
         },
         view(message, index, candidate) {
             const own = claims.get(message)?.get(message.swipe_id ?? 0)?.findLast(item => !item.invalid
@@ -172,6 +173,7 @@ export function createChatImageSession({ context, provider, changed, report }) {
             }
             if (observation && validTarget(context(), observation, index)
                 && candidate.end > observation.initialBody.length) return { phase: 'streaming', label: DRAW_SLOT_COPY.waiting };
+            if (autoGenerate() === false) return { phase: 'unclaimed', label: DRAW_SLOT_COPY.manualWaiting, action: DRAW_SLOT_COPY.generate };
             return { phase: 'unclaimed', label: DRAW_SLOT_COPY.unclaimed, action: DRAW_SLOT_COPY.generate };
         },
         async retry({ ctx, message, messageId, source, swipeIndex, candidate }) {
