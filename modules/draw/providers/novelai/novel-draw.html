@@ -799,6 +799,16 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                         </div>
                         <p class="form-hint">前端直连：浏览器直接请求（需对方支持 CORS + 有效证书）。后端发送：由酒馆后端代发，可绕过 CORS 与自签证书。</p>
                     </div>
+                    <div class="form-group">
+                        <div class="auto-learn-toggle-row">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="nd_auto_generate_images">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span>自动排队生图</span>
+                        </div>
+                        <p class="form-hint" style="margin-left:44px;margin-top:4px;">关闭后 TAG 仍照常生成，每张图需手动点「生成」才扣点数，不合适的画面可跳过；与「后台任务」互斥，关闭时后台任务自动让路</p>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">超时时间 (秒)</label>
@@ -1177,16 +1187,6 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                                     <span>上镜锚点</span>
                                 </div>
                                 <p class="form-hint" style="margin-left:44px;margin-top:4px;">记住每个角色最近一次入画的外貌与着装，后续楼层规划时自动沿用；正文明确写出变化时才会改写</p>
-                            </div>
-                            <div class="auto-learn-section" style="margin-bottom:12px;">
-                                <div class="auto-learn-toggle-row">
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="nd_auto_generate_images">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                    <span>自动排队生图</span>
-                                </div>
-                                <p class="form-hint" style="margin-left:44px;margin-top:4px;">关闭后 TAG 仍照常生成，每张图需手动点「生成」才扣点数，不合适的画面可跳过</p>
                             </div>
                             <div class="auto-learn-section">
                                 <div class="auto-learn-toggle-row">
