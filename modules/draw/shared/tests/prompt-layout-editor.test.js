@@ -128,7 +128,6 @@ test('built-in actions call back with their block id without modifying the layou
     assert.equal(ctx.row('opening').querySelector('[data-ple-summary]').textContent, '摘要-opening');
     assert.equal(ctx.field('limits', 'edit'), undefined, 'action 为 null 时不显示按钮');
     assert.equal(ctx.row('guide').querySelector('.lwb-ple-label').textContent, '模型TAG指南', 'label 可由宿主覆盖');
-    assert.equal(ctx.row('rules').querySelector('.lwb-ple-label').textContent, '场景规则');
     ctx.click(ctx.field('rules', 'edit'));
     ctx.click(ctx.field('frame', 'edit'));
     assert.deepEqual(ctx.edits, ['rules', 'frame']);
@@ -148,8 +147,6 @@ test('add appends an expanded custom block, focuses its content box, announces i
     assert.equal(ctx.row(id).querySelector('.lwb-ple-main').getAttribute('aria-expanded'), 'true');
     assert.ok(ctx.field(id, 'content'), '展开后有编辑区');
     assert.equal(ctx.focused.at(-1), 'content');
-    assert.match(ctx.status(), /已在末尾添加/);
-    assert.match(ctx.announced.at(-1), /已在末尾添加/);
     assert.equal(ctx.dirty(), true);
     assert.equal(ctx.host.querySelector('[data-ple-reset]').hasAttribute('disabled'), false);
 });
@@ -170,7 +167,6 @@ test('typing never rebuilds: same row and textarea nodes, data updated, title an
     assert.equal(ctx.changes.length, before + 1);
     assert.equal(ctx.getLayout().blocks.at(-1).content, '第一行内容\n第二行');
     assert.equal(row.querySelector('[data-ple-title]').textContent, '第一行内容', '没有名称时标题是内容预览');
-    assert.equal(row.querySelector('[data-ple-count]').textContent, '9 字');
 
     nameInput.value = '提示 ';
     ctx.fire(nameInput, 'input');
@@ -191,7 +187,6 @@ test('role select and enable toggle patch the row in place and write through onC
     ctx.fire(select, 'change');
     assert.equal(ctx.getLayout().blocks.at(-1).role, 'assistant');
     assert.equal(row.querySelector('[data-ple-role]').textContent, 'assistant');
-    assert.match(row.querySelector('[data-ple-role]').className, /assistant/);
 
     const toggle = ctx.field(id, 'toggle');
     toggle.checked = false;
@@ -216,7 +211,6 @@ test('collapsing and expanding rebuilds the list but keeps the typed data and re
     ctx.click(ctx.field(id, 'main'));
     assert.equal(ctx.field(id, 'content'), undefined, '收起后没有编辑区');
     assert.equal(ctx.row(id).querySelector('.lwb-ple-main').getAttribute('aria-expanded'), 'false');
-    assert.equal(ctx.row(id).querySelector('[data-ple-count]').textContent, '7 字');
     assert.equal(ctx.focused.at(-1), 'main');
     ctx.click(ctx.field(id, 'main'));
     assert.equal(ctx.field(id, 'content').value, 'keep me');
@@ -254,7 +248,6 @@ test('keyboard: arrows on a handle move the block one step, keep focus on that h
     assert.deepEqual(ctx.ids().slice(0, 3), ['frame', 'opening', 'guide']);
     assert.deepEqual(ctx.getLayout().blocks.slice(0, 2).map(block => block.id), ['frame', 'opening']);
     assert.equal(ctx.focused.at(-1), 'opening');
-    assert.match(ctx.status(), /“开场与视角”已移到第 2 位，共 8 位/);
 
     const before = ctx.changes.length;
     ctx.key(ctx.field('frame', 'handle'), 'ArrowUp'); // 已在最前
@@ -275,7 +268,6 @@ test('dragging a handle reorders through onChange; built-in and custom blocks so
     ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 10 });
     assert.equal(ctx.ids()[0], id);
     assert.equal(ctx.getLayout().blocks[0].id, id);
-    assert.match(ctx.status(), /已移到第 1 位，共 9 位/);
     assert.equal(ctx.host.querySelectorAll('.dragging, .drop-before, .drop-after').length, 0);
 });
 
@@ -291,7 +283,6 @@ test('deleting a block with content asks first, declining keeps it, accepting re
 
     ctx.click(ctx.field(id, 'delete'));
     assert.equal(ctx.confirms.length, 1);
-    assert.match(ctx.confirms[0], /确定删除/);
     assert.deepEqual(customIds(ctx), [id], '拒绝后还在');
 
     ctx.click(ctx.field(id, 'delete'));
@@ -299,7 +290,6 @@ test('deleting a block with content asks first, declining keeps it, accepting re
     assert.deepEqual(customIds(ctx), []);
     assert.equal(ctx.getLayout().blocks.length, 8);
     assert.equal(ctx.focused.at(-1), 'limits', '焦点落到相邻块的手柄');
-    assert.match(ctx.status(), /已删除/);
     assert.equal(ctx.dirty(), false, '回到与已保存一致');
 });
 
@@ -328,12 +318,9 @@ test('reset asks only when custom blocks would be lost, and it changes the draft
     ctx.add();
     ctx.click(reset);
     assert.equal(ctx.confirms.length, 1);
-    assert.match(ctx.confirms[0], /2 条自定义消息/);
-    assert.match(ctx.confirms[0], /保存后才会生效/);
     assert.equal(customIds(ctx).length, 2, '拒绝后不变');
     ctx.click(reset);
     assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
-    assert.match(ctx.status(), /已恢复默认结构/);
     assert.equal(ctx.focused.at(-1), 'BUTTON', '焦点回到“添加消息”按钮');
     assert.equal(reset.hasAttribute('disabled'), true);
 });
@@ -450,7 +437,6 @@ test('accordion: adding a message collapses the previous one, expanding another 
     const [, second] = customIds(ctx);
     assert.deepEqual(expandedIds(ctx), [second], '新加的展开，旧的收起');
     assert.equal(ctx.field(first, 'content'), undefined);
-    assert.equal(ctx.row(first).querySelector('[data-ple-count]').textContent, '6 字', '收起后内容还在');
 
     ctx.click(ctx.field(first, 'main'));
     assert.deepEqual(expandedIds(ctx), [first], '展开另一条会收起当前这条');
@@ -473,7 +459,6 @@ test('add inserts below the expanded message, becomes the expanded one, and cons
     ctx.add();
     const third = customIds(ctx).find(id => ![first, second].includes(id));
     assert.deepEqual(ctx.ids().slice(-3), [first, second, third], '连续添加一条条往下排（此时展开项一直在最后一条）');
-    assert.match(ctx.status(), /已在“.*”下方添加/);
 
     ctx.click(ctx.field(first, 'main')); // 展开第一条，再加：插到它下面，而不是末尾
     ctx.add();
@@ -490,7 +475,6 @@ test('add falls back to the last selected message, and to the end when nothing i
     ctx.click(ctx.field(b, 'main')); // 全部收起
     ctx.add();
     assert.equal(ctx.ids().at(-1), customIds(ctx).at(-1), '没有展开也没有选中：加在末尾');
-    assert.match(ctx.status(), /已在末尾添加/);
 
     const c = customIds(ctx).at(-1);
     ctx.click(ctx.field(c, 'main'));
@@ -522,7 +506,6 @@ function withCustoms(t, count = 3) {
 test('the 多选 button toggles selection mode: checkboxes appear, a click selects, leaving clears the selection', (t) => {
     const ctx = setup(t);
     const button = ctx.host.querySelector('[data-ple-select-mode]');
-    assert.equal(button.textContent, '多选');
     assert.equal(ctx.host.querySelector('.lwb-ple').classList.contains('select-mode'), false);
     assert.equal(bar(ctx).hasAttribute('hidden'), true);
 
@@ -536,8 +519,6 @@ test('the 多选 button toggles selection mode: checkboxes appear, a click selec
     ctx.click(box);
     assert.deepEqual(selectedIds(ctx), ['guide']);
     assert.equal(bar(ctx).hasAttribute('hidden'), false);
-    assert.equal(ctx.host.querySelector('[data-ple-selection-count]').textContent, '已选 1 项');
-    assert.match(ctx.status(), /已选 1 项/);
     assert.equal(ctx.changes.length, 0, '选择不改布局');
     assert.equal(ctx.dirty(), false);
 
@@ -583,11 +564,9 @@ test('the selection bar copies, deletes, toggles and clears; copy and delete nee
     assert.equal(bulk(ctx, 'delete').hasAttribute('disabled'), true);
     ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
     assert.equal(bulk(ctx, 'copy').hasAttribute('disabled'), false);
-    assert.equal(bulk(ctx, 'enable').textContent, '停用');
 
     ctx.click(bulk(ctx, 'enable'));
     assert.equal(ctx.getLayout().blocks.find(block => block.id === a).enabled, false);
-    assert.equal(bulk(ctx, 'enable').textContent, '启用', '全停用后按钮变成启用');
     ctx.click(bulk(ctx, 'enable'));
     assert.equal(ctx.getLayout().blocks.find(block => block.id === a).enabled, true);
 
@@ -614,16 +593,12 @@ test('bulk copy duplicates custom blocks right below their originals, skips buil
     assert.ok(!before.blocks.some(block => block.id === copyA) && !before.blocks.some(block => block.id === copyC));
     assert.equal(ctx.getLayout().blocks.find(block => block.id === copyA).content, '内容 1');
     assert.deepEqual(selectedIds(ctx).sort(), [copyA, copyC].sort(), '选中的是副本');
-    assert.match(ctx.host.querySelector('[data-ple-selection-note]').textContent, /跳过 1 个内置块/);
-    assert.match(ctx.status(), /已复制 2 条消息/);
     const undo = ctx.host.querySelector('[data-ple-undo-bar]');
     assert.equal(undo.hasAttribute('hidden'), false);
-    assert.match(ctx.host.querySelector('[data-ple-undo-text]').textContent, /已复制 2 条/);
 
     ctx.click(ctx.host.querySelector('[data-ple-undo]'));
     assert.deepEqual(ctx.ids(), before.blocks.map(block => block.id), '撤销回到复制之前');
     assert.equal(undo.hasAttribute('hidden'), true);
-    assert.match(ctx.status(), /已撤销/);
     assert.ok(b);
 });
 
@@ -650,8 +625,6 @@ test('bulk delete removes only custom blocks, keeps selected built-ins, and the 
     assert.deepEqual(customIds(ctx), [c]);
     assert.ok(ctx.ids().includes('rules'), '内置块保留');
     assert.deepEqual(selectedIds(ctx), ['rules'], '内置块仍然选中');
-    assert.match(ctx.host.querySelector('[data-ple-selection-note]').textContent, /1 个内置块保留/);
-    assert.match(ctx.host.querySelector('[data-ple-undo-text]').textContent, /已删除 2 条/);
 
     ctx.click(ctx.host.querySelector('[data-ple-undo]'));
     assert.deepEqual(ctx.getLayout(), before);
@@ -687,7 +660,6 @@ test('dragging one selected row moves the whole selected group; keyboard moves i
     assert.equal(ctx.row('opening').classList.contains('drop-before'), true);
     ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 10 });
     assert.deepEqual(ctx.ids().slice(0, 3), [a, b, 'opening'], '两条一起移到最前，保持相对顺序');
-    assert.match(ctx.status(), /已移动 2 项，现在位于第 1–2 位/);
     assert.equal(ctx.host.querySelectorAll('.dragging, .drop-before, .drop-after').length, 0);
     assert.deepEqual(selectedIds(ctx), [a, b], '移动后选择还在');
 

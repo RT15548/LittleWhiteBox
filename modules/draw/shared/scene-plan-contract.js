@@ -2,7 +2,7 @@ import { findEnabledCharacterForm } from './character-selection.js';
 import { repairScenePlanArguments } from './scene-plan-arguments.js';
 
 export const SUBMIT_SCENE_PLAN_TOOL_NAME = 'submit_scene_plan';
-export const SCENE_TITLE_MAX_LENGTH = 20;
+export const SCENE_TITLE_MAX_LENGTH = 14;
 
 const REQUIRED_IMAGE_FIELDS = Object.freeze(['insert_after', 'scene', 'characters']);
 

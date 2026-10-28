@@ -150,9 +150,10 @@ export function createSubmitScenePlanTool(options = {}) {
                 },
                 // 先命名和确定画幅，再展开绘图 tag；title 仅用于展示，不参与提示词拼接。
                 title: stringSchema(
-                    `本图的场景名称，简体中文，${SCENE_TITLE_MAX_LENGTH} 字以内，不设最少字数；抓住具体的动作、物件或瞬间，不写剧情摘要。`
-                    + '例如：雨停、门口的回眸、凌晨两点的便利店。'
-                    + '只输出名称正文，不加引号、书名号或句末标点。仅用于图片展示，不写入绘图 tag。',
+                    `本次绘画的标题：简体中文，${SCENE_TITLE_MAX_LENGTH} 字内，只输出标题本身，不加标点。\n`
+                    + '把它当成这一格画面的小标题，只写画里最具体的那个动作、物件或瞬间，不要概括主题。\n'
+                    + '同一批的几张图，句式和开头都要各不相同，少用「XX的XX」。可参考：\n'
+                    + '那只手终于探了出来 / 听到她说晚上好 / 距离正在缩到三米 / 凌晨两点的便利店 / 路灯吞掉了影子',
                     { minLength: 1, maxLength: SCENE_TITLE_MAX_LENGTH },
                 ),
                 orientation: {

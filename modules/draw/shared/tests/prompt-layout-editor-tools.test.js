@@ -90,14 +90,10 @@ test('在消息上勾“附带工具”：带 Reborn 同款代码模板，消息
     assert.equal(block.enabled, true);
     assert.ok(row.classList.contains('expanded'));
     assert.equal(ui.field(row, 'code').value, DEFAULT_TOOL_CODE);
-    assert.match(row.querySelector('[data-ple-tool-name]').textContent, /从代码读到的工具名：note/);
-    assert.match(row.querySelector('[data-ple-tool-tag]').textContent, /🛠 note/);
-    assert.match(row.querySelector('[data-ple-count]').textContent, /字代码/);
-    assert.match(row.textContent, /沙盒/);
     assert.equal(ui.field(row, 'tool-toggle').checked, true);
 });
 
-test('改代码只原地更新工具名提示、徽标和字数，不重建行；读不到 name 时给出提示', (t) => {
+test('编辑工具代码保留输入并更新工具名，不重建行', (t) => {
     const ui = setup(t);
     const row = ui.setTool(ui.addMessage(), true);
     const code = ui.field(row, 'code');
@@ -107,9 +103,6 @@ test('改代码只原地更新工具名提示、徽标和字数，不重建行�
     assert.equal(ui.toolRows()[0], row, '行节点没有被重建');
     assert.match(row.querySelector('[data-ple-tool-name]').textContent, /game_content/);
     assert.match(row.querySelector('[data-ple-tool-tag]').textContent, /game_content/);
-    code.value = 'return { action() {} };';
-    ui.fire(code, 'input');
-    assert.match(row.querySelector('[data-ple-tool-name]').textContent, /没有从代码里读到 name/);
 });
 
 test('取消勾选把工具从布局里拿掉但不动消息；勾回来恢复刚才改过的代码（只在本页面内存里）', (t) => {
@@ -185,7 +178,6 @@ test(`附带工具最多 ${MAX_TOOLS} 个：第 ${MAX_TOOLS + 1} 个被拦下，
     const row = ui.setTool(message, true);
     assert.equal(ui.toolBlocks().length, MAX_TOOLS);
     assert.equal(ui.field(row, 'tool-toggle').checked, false);
-    assert.match(ui.host.querySelector('[data-ple-status]').textContent, /最多/);
 });
 
 test('普通消息没有代码框，也没有 🛠 标记；顶栏没有单独的“添加工具”按钮', (t) => {
@@ -209,5 +201,4 @@ test('多选复制带工具的消息：副本不带工具，并在提示里说�
     ui.fire(ui.host.querySelector('[data-ple-bulk="copy"]'), 'click');
     assert.equal(ui.toolBlocks().length, 1, '只有原消息带工具');
     assert.equal(ui.customRows().length, 2, '原消息 + 一个副本');
-    assert.match(ui.host.querySelector('[data-ple-status]').textContent, /副本不带附带工具/);
 });

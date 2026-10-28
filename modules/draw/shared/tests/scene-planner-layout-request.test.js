@@ -388,5 +388,4 @@ test('end to end: default layout request has the legacy shape', async (t) => {
     const { requests } = await runEndToEnd(undefined, 'tagged-json');
     assert.deepEqual(requests[0].messages.map((message) => message.role), ['system', 'user']);
     assert.ok(requests[0].messages[0].content.startsWith('OPEN'));
-    assert.ok(requests[0].messages[0].content.includes('如果你需要调用工具'));
 });

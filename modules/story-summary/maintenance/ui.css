@@ -144,7 +144,10 @@ body:has(#settings-modal.assistant-page.active) { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
     #tab-agent { animation: none; }
 }
-.memory-ranges { display: grid; grid-template-columns: auto 1fr; gap: .45rem 1rem; margin: .75rem 0; font-size: .9em; }
+.memory-ranges { min-width: 0; margin: .75rem 0; font-size: .9em; }
 .memory-ranges[hidden] { display: none; }
-.memory-ranges dt { opacity: .72; }
-.memory-ranges dd { margin: 0; overflow-wrap: anywhere; }
+.memory-ranges > summary { cursor: pointer; padding-block: 6px; font-variant-numeric: tabular-nums; }
+.memory-ranges > summary:focus-visible, .memory-range-list:focus-visible { outline: 2px solid var(--archive-accent); outline-offset: 2px; }
+.memory-range-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .45rem 1rem; max-height: min(160px, 25vh); overflow-y: auto; margin: 6px 0 0; padding-right: 8px; scrollbar-width: thin; }
+.memory-range-list dt { color: var(--txt2); }
+.memory-range-list dd { margin: 0; overflow-wrap: anywhere; }

@@ -5,6 +5,7 @@ import { createOperationList } from './operation-list.js';
 import { reportMarkdown } from './report-markdown.js';
 import { createMemoryChatDialog } from './chat-ui.js';
 import { memoryChatErrorText } from './chat-copy.js';
+import { createMaintenanceRangeView } from './range-view.js';
 
 export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     let chatId = null;
@@ -30,7 +31,8 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     const state = element('p', 'memory-state');
     state.setAttribute('role', 'status');
     state.setAttribute('aria-live', 'polite');
-    const ranges = element('dl', 'memory-ranges');
+    const rangeView = createMaintenanceRangeView();
+    const ranges = rangeView.element;
     ranges.hidden = true;
     const index = element('div', 'memory-index-state');
     const repair = button(copy.repair, () => { repair.disabled = true; send('MEMORY_MAINTENANCE_REPAIR'); });
@@ -80,6 +82,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
         cancel.hidden = index.hidden = empty.hidden = true;
         state.textContent = copy.loading;
         ranges.hidden = true;
+        ranges.open = false;
         if (reader.open) reader.close();
     }
 
@@ -162,7 +165,8 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
         details.dataset.receiptId = receipt.id;
         const summary = element('summary');
         const content = element('div', 'memory-receipt-body');
-        const completed = element('p', 'memory-hint');
+        const completedView = createMaintenanceRangeView({ showPending: false });
+        const completed = completedView.element;
         const report = element('section', 'memory-report');
         const reportViewport = element('div', 'memory-report-viewport');
         const reportContent = element('div', 'memory-outcome');
@@ -215,7 +219,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
                 message: receipt.outcome?.error?.message || copy.errors[failureCode], stage: receipt.outcome?.stage || receipt.outcome?.error?.stage });
             failure.hidden = !failure.textContent;
             completed.hidden = !receipt.completed?.length;
-            completed.textContent = receipt.completed?.length ? `${copy.completedRanges}：${copy.ranges(receipt.completed)}` : '';
+            completedView.update({ completed: receipt.completed });
             report.hidden = !receipt.summary;
             if (previousReport !== receipt.summary) {
                 previousReport = receipt.summary;
@@ -287,8 +291,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
             if (data.chatId != null) setChat(data.chatId);
             if (data.ranges) {
                 ranges.hidden = data.ranges.cutoff < 1;
-                ranges.replaceChildren(element('dt', '', copy.completedRanges), element('dd', '', copy.ranges(data.ranges.completed)),
-                    element('dt', '', copy.pendingRanges), element('dd', '', copy.ranges(data.ranges.pending)));
+                rangeView.update(data.ranges);
             }
             const running = ['running', 'queued', 'saving', 'indexing'].includes(data.state?.status);
             const code = data.state?.code;

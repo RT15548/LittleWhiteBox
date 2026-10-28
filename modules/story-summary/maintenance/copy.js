@@ -35,6 +35,7 @@ export const MEMORY_COPY = Object.freeze({
         staged ? MEMORY_COPY.staged(staged) : ''].filter(Boolean).join(' · '),
     actions: { thinking: '正在梳理记忆', reading: '正在查阅', editing: '正在整理修改', saving: '正在保存', checking_save: '正在核对保存结果', compacting: '正在整理上下文' },
     completedRanges: '已完成', pendingRanges: '待维护', noRanges: '无',
+    rangeCount: (label, count) => `${label} ${count} 楼`, rangeDetails: '楼层范围',
     ranges: ranges => ranges.map(range => MEMORY_COPY.sourceRange(range.from, range.to)).join('、') || MEMORY_COPY.noRanges,
     boundary: floor => `截至第 ${floor} 楼`, floor: floor => `第 ${floor} 楼`,
     count: (label, count) => `${label} ${count}`,

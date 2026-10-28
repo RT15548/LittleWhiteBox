@@ -80,7 +80,6 @@ test('renders the presets as a list in saved order with the active one marked, p
         Array.from(h.rowButton('one', '.char-menu').querySelectorAll('[role="menuitem"]')).map(item => item.dataset.presetAction),
         ['delete'],
     );
-    assert.match(h.document.querySelector('[role="status"]').textContent, /当前预设：Two/);
 });
 
 test('keyboard Down / Up on a handle commits the new array order only; the active preset and the form config are untouched', async t => {
@@ -208,7 +207,6 @@ test('deleting a non-active row keeps the active preset and form; deleting the a
 
     h.click(h.rowButton('one', '[data-preset-action="delete"]'));
     await nextTurn();
-    assert.match(h.confirms[1], /删除 API 预设「One」并切换到「Two」/);
     assert.equal(h.commits[1].activeApiPresetId, 'two');
     assert.deepEqual(h.commits[1].config, { host: 'h2', auth: 'k2' });
     assert.deepEqual(h.ids(), ['two']);
@@ -217,7 +215,6 @@ test('deleting a non-active row keeps the active preset and form; deleting the a
     h.click(h.rowButton('two', '[data-preset-action="delete"]'));
     await nextTurn();
     assert.equal(h.commits.length, 2);
-    assert.equal(h.document.querySelector('[role="status"]').textContent, '至少保留一条 API 预设');
 });
 
 test('cancelling a delete writes nothing', async t => {

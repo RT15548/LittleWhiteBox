@@ -3,9 +3,9 @@ import { MEMORY_CHAT_MESSAGES as messages } from './chat-contract.js';
 import { MEMORY_CHAT_COPY as copy, memoryChatErrorText } from './chat-copy.js';
 import { createMemoryChatTurn } from './chat-turn-view.js';
 import { observeViewport } from '../../../shared/common/viewport.js';
+import { createMaintenanceRangeView } from './range-view.js';
 
 const formatTokens = value => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
-const formatRanges = ranges => ranges.map(range => copy.floorRange(range.from, range.to)).join('、') || copy.none;
 
 /** UI only: the host owns conversation, work and identity; closing is not cancellation. */
 export function createMemoryChatDialog({ send, root = document.body }) {
@@ -53,10 +53,8 @@ export function createMemoryChatDialog({ send, root = document.body }) {
     context.append(element('strong', '', copy.context), contextTotal, contextRows, contextHint);
     const boundary = element('div', 'memory-chat-boundary');
     const boundaryTitle = element('span');
-    const rangeDetails = element('details');
-    const rangeSummary = element('summary');
-    const rangeText = element('p');
-    rangeDetails.append(rangeSummary, rangeText);
+    const rangeView = createMaintenanceRangeView();
+    const rangeDetails = rangeView.element;
     boundary.append(boundaryTitle, rangeDetails);
     const notice = element('section', 'memory-chat-notice');
     const automatic = element('span');
@@ -301,8 +299,7 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         const ranges = state.ranges;
         boundaryTitle.textContent = ranges?.cutoff > 0 ? copy.summaryBoundary(ranges.cutoff) : copy.noBoundary;
         rangeDetails.hidden = !(ranges?.cutoff > 0);
-        rangeSummary.textContent = copy.maintained(formatRanges(ranges?.completed || []));
-        rangeText.textContent = copy.pending(formatRanges(ranges?.pending || []));
+        rangeView.update(ranges || {});
         const auto = state.automatic;
         const autoRunning = automaticRunning();
         automatic.textContent = queued() ? autoRunning ? copy.queue : copy.waiting
@@ -334,6 +331,7 @@ export function createMemoryChatDialog({ send, root = document.body }) {
         contextHint.textContent = ready && usage.trigger ? copy.contextTrigger(formatTokens(usage.trigger)) : '';
     }
     function reset(nextChatId) {
+        rangeDetails.open = false;
         cancelDraftTimer();
         ownsDraft = false;
         input.value = '';

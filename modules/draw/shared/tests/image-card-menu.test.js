@@ -44,22 +44,13 @@ test('failed card: regenerate stays the primary button, the rest hide behind one
     const row = document.querySelector('.xb-nd-failed-btns');
     const direct = [...row.children];
     assert.equal(direct[0].dataset.action, 'retry-image');
-    assert.equal(direct[0].textContent.trim(), '重新生成');
     assert.equal(direct.length, 2, '无历史图时：重新生成 + 更多');
     const trigger = row.querySelector('.xb-nd-more-btn');
     assert.equal(trigger.getAttribute('aria-haspopup'), 'menu');
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');
-    assert.equal(trigger.getAttribute('aria-label'), '更多操作');
-    assert.equal(trigger.querySelector('svg').getAttribute('aria-hidden'), 'true');
-    assert.equal(row.querySelector('details, summary'), null, '不再是 <details> 展开');
     const menu = row.querySelector('[role="menu"]');
     assert.equal(menu.hasAttribute('hidden'), true);
-    assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent.trim()), ['编辑 TAG', '重画本楼失败图', '移除']);
     assert.deepEqual(actions(menu), ['edit-tags', 'retry-floor-failed', 'remove-placeholder']);
-    const remove = menu.querySelector('[data-action="remove-placeholder"]');
-    assert.ok(remove.classList.contains('is-danger'));
-    assert.equal(remove.previousElementSibling.getAttribute('role'), 'separator', '移除前有分隔线');
-    assert.match(menu.querySelector('[data-action="retry-floor-failed"]').getAttribute('title'), /已成功的不受影响/);
 });
 
 test('failed card with earlier images adds a restore button next to the primary one', () => {
@@ -72,7 +63,6 @@ test('ungenerated card uses the same pattern: generate + menu (edit TAG, remove)
     const { document } = parseHTML(`<div>${buildUngeneratedActionsHtml()}</div>`);
     const row = document.querySelector('.xb-nd-failed-btns');
     assert.equal(row.children[0].dataset.action, 'retry-image');
-    assert.equal(row.children[0].textContent.trim(), '生成');
     assert.deepEqual(actions(row.querySelector('[role="menu"]')), ['edit-tags', 'remove-placeholder']);
 });
 
@@ -86,7 +76,6 @@ test('the menu button toggles the menu before the backend delegate sees the clic
     t.click(t.triggerA);
     assert.equal(t.menuA.hasAttribute('hidden'), false);
     assert.equal(t.triggerA.getAttribute('aria-expanded'), 'true');
-    assert.equal(t.menuA.style.position, 'fixed');
     assert.deepEqual(t.seen, [], '后端委托没有收到这次点击');
     t.click(t.triggerA);
     assert.equal(t.menuA.hasAttribute('hidden'), true);

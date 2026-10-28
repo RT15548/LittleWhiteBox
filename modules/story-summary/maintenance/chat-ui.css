@@ -25,10 +25,8 @@ body:has(.memory-chat-dialog[open]) { overflow: hidden; }
 .memory-chat-context-popover dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 14px; margin-bottom: 10px; font-size: 12px; }
 .memory-chat-context-popover dt, .memory-chat-context-popover small { color: var(--txt2); }
 .memory-chat-context-popover dd { margin: 0; font-variant-numeric: tabular-nums; }
-.memory-chat-boundary { grid-area: boundary; display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 12px; padding: 7px 18px; border-bottom: 1px solid var(--bdr); font-size: 11px; color: var(--txt2); max-height: 100px; overflow: auto; }
-.memory-chat-boundary details { min-width: 0; }
-.memory-chat-boundary summary { cursor: pointer; }
-.memory-chat-boundary p { padding: 4px 0; overflow-wrap: anywhere; }
+.memory-chat-boundary { grid-area: boundary; display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 12px; padding: 7px 18px; border-bottom: 1px solid var(--bdr); font-size: 11px; color: var(--txt2); }
+.memory-chat-boundary .memory-ranges { flex: 1; min-width: min(100%, 230px); margin: 0; font-size: inherit; }
 .memory-chat-notice { grid-area: notice; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 8px 18px; background: var(--bg2); border-bottom: 1px solid var(--bdr); font-size: 12px; }
 .memory-chat-takeover { padding: 5px 9px; min-height: 36px; color: var(--chat-accent) !important; background: transparent; border: 1px solid var(--bdr); border-radius: 7px; text-align: left; }
 .memory-chat-error { grid-area: error; padding: 8px 18px; margin: 0; font-size: 12px; max-height: 100px; overflow: auto; border-bottom: 1px solid var(--bdr); color: var(--chat-accent); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -91,5 +89,5 @@ body:has(.memory-chat-dialog[open]) { overflow: hidden; }
     .memory-chat-header { min-height: 50px; padding-block: 4px; }
     .memory-chat-composer { padding-block: 6px; }
     .memory-chat-composer textarea { max-height: 88px; }
-    .memory-chat-boundary { max-height: 40px; }
+    .memory-chat-boundary .memory-range-list { max-height: 60px; }
 }

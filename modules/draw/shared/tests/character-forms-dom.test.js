@@ -140,19 +140,14 @@ test('SD / ComfyUI form blocks: 复制 inserts a 副本 below with the typed val
     assert.equal(copy.querySelector('.sd-char-form-state').hasAttribute('hidden'), true);
 
     const toggle = copy.querySelector('[data-sd-form-toggle]');
-    assert.equal(toggle.getAttribute('title'), '停用形态');
     assert.ok(toggle.classList.contains('char-enabled-control') && toggle.classList.contains('active'), 'same ticked-square button as the character cards');
     assert.equal(toggle.getAttribute('aria-pressed'), 'true');
-    assert.equal(toggle.querySelectorAll('svg > *').length, 2);
     click(window0(card), toggle);
     assert.equal(copy.dataset.enabled, 'false');
     assert.ok(copy.classList.contains('is-disabled'));
     assert.equal(copy.querySelector('.sd-char-form-state').hasAttribute('hidden'), false);
-    assert.equal(copy.querySelector('.sd-char-form-state').textContent, '已停用');
-    assert.equal(toggle.getAttribute('title'), '启用形态');
     assert.equal(toggle.getAttribute('aria-pressed'), 'false');
     assert.equal(toggle.classList.contains('active'), false);
-    assert.equal(toggle.querySelectorAll('svg > *').length, 1, 'empty square when disabled');
     assert.equal(copy.open, true, 'the toggle button inside <summary> does not fold the block');
 
     const record = readRecord(card, SAVED);

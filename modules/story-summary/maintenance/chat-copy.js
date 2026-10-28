@@ -29,8 +29,6 @@ export const MEMORY_CHAT_COPY = Object.freeze({
     contextTrigger: tokens => `达到 ${tokens} 时自动整理上下文。`,
     contextTotal: (used, limit, estimated) => `${estimated ? '约 ' : ''}${used} / ${limit}`,
     summaryBoundary: floor => `已总结至 ${floor} 楼`, noBoundary: '当前尚无可维护的总结',
-    maintained: ranges => `已维护：${ranges}`, pending: ranges => `待维护：${ranges}`, none: '无',
-    floorRange: (from, to) => from === to ? `${from}` : `${from}–${to}`,
 });
 
 export function memoryChatErrorText(error) {

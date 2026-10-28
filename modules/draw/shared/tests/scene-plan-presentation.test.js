@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSubmitScenePlanTool } from '../scene-plan-tool.js';
-import { parseSubmittedScenePlan } from '../scene-plan-contract.js';
+import { parseSubmittedScenePlan, SCENE_TITLE_MAX_LENGTH } from '../scene-plan-contract.js';
 import { listScenePlanFieldDescriptions } from '../scene-planner-frame.js';
 import { getNovelPlannerProfile } from '../../providers/novelai/novel-prompts.js';
 import { SD_PLANNER_PROFILE } from '../../providers/sd-webui/sd-prompts.js';
@@ -29,20 +29,16 @@ test('all provider schemas and field previews put title and orientation before d
     }
 });
 
-test('title asks for a natural scene name, not a character-count exercise', () => {
+test('title schema and parser share the same length limit without a wording pattern', () => {
     const { title } = createSubmitScenePlanTool().function.parameters.properties.images.items.properties;
     assert.equal(title.minLength, 1);
-    assert.equal(title.maxLength, 20);
+    assert.equal(title.maxLength, SCENE_TITLE_MAX_LENGTH);
     assert.equal(title.pattern, undefined);
-    assert.match(title.description, /20 字以内/);
-    assert.match(title.description, /不设最少字数/);
-    assert.match(title.description, /雨停、门口的回眸、凌晨两点的便利店/);
-    assert.match(title.description, /仅用于图片展示/);
-    assert.doesNotMatch(title.description, /\d+\s*[～~–—-]\s*\d+\s*字/);
 });
 
-test('short and longer names survive parsing unchanged, and omitted titles remain optional', () => {
-    for (const title of [undefined, '雨停', '凌晨两点她终于推开那家便利店的玻璃门', '雨后 Café']) {
+test('example titles survive parsing unchanged, and omitted titles remain optional', () => {
+    for (const title of [undefined, '雨停', '雨后 Café', '那只手终于探了出来', '听到她说晚上好',
+        '距离正在缩到三米', '凌晨两点的便利店', '路灯吞掉了影子']) {
         const image = { index: 1, insert_after: 1, scene: 'rain, street', characters: [], orientation: 'landscape',
             ...(title === undefined ? {} : { title }) };
         const { tasks: [task] } = parseSubmittedScenePlan({ toolCalls: [
@@ -61,8 +57,8 @@ test('overlong optional titles are bounded by Unicode character without rejectin
             { insert_after: 1, scene: 'night sky', characters: [], title },
         ] } },
     ] }, { sceneSource });
-    assert.equal(task.title, '🌙雨'.repeat(10));
-    assert.equal(Array.from(task.title).length, 20);
+    assert.equal(task.title, Array.from(title).slice(0, SCENE_TITLE_MAX_LENGTH).join(''));
+    assert.equal(Array.from(task.title).length, SCENE_TITLE_MAX_LENGTH);
     assert.equal(task.scene, 'night sky');
 });
 
