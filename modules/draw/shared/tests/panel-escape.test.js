@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseHTML } from 'linkedom';
 import {
-    ESCAPE_LAYER_SELECTORS, createEditGuard, hasOpenLayer, installHostPanelEscape, installPanelEscape, isDragging, isHostPopupOpen, shouldClosePanelOnEscape,
+    ESCAPE_LAYER_SELECTORS, captureEditSave, createEditGuard, hasOpenLayer, installHostPanelEscape, installPanelEscape, isDragging, isHostPopupOpen, shouldClosePanelOnEscape,
 } from '../panel-escape.js';
 
 // Acceptance contracts (cost: Esc closing the panel while a menu / dialog / drag is the thing the user meant to dismiss, losing a half-typed character card, or stealing Esc from SillyTavern's own popups):
 // - Esc closes the panel only when nothing else wants it: no open menu / dialog / popover, no drag, no edited-but-unsaved character card, not a key repeat, not IME composition, no modifiers.
 // - The same decision applies whether focus is inside the settings iframe or in the SillyTavern page behind it; in the host page it additionally needs the panel visible, topmost and no ST popup open.
 // - The listeners are registered with the panel and removed with it.
+// - Successful saves release only the edits they persisted; failed saves and edits made while saving remain protected (cost: lost drafts).
 
 const pure = overrides => shouldClosePanelOnEscape({ key: 'Escape', ...overrides });
 
@@ -92,6 +93,32 @@ test('edit guard: input inside an editing card marks it, closing the card clears
     assert.equal(guard.hasUnsavedEdit(), false);
     fire(document.getElementById('t'), 'input');
     assert.equal(guard.hasUnsavedEdit(), false, 'destroyed guards stop listening');
+});
+
+test('save acknowledgement releases saved edits without discarding newer or failed drafts', () => {
+    const { document, fire } = page('<details class="sd-char-card" data-character-id="a" open><input id="x"></details>');
+    const guard = createEditGuard({ document });
+    const edit = () => fire(document.getElementById('x'), 'input');
+    edit();
+    const savedA = captureEditSave(document);
+    assert.equal(guard.hasUnsavedEdit(), true, 'a pending or failed save cannot release the draft');
+    edit();
+    savedA();
+    assert.equal(guard.hasUnsavedEdit(), true, 'saving A must not release edits made afterward');
+    const savedB = captureEditSave(document);
+    savedB();
+    assert.equal(guard.hasUnsavedEdit(), false, 'successful save allows Esc without collapsing the card');
+    edit();
+    savedA();
+    savedB();
+    assert.equal(guard.hasUnsavedEdit(), true, 'late or duplicate acknowledgements cannot release newer edits');
+    const pending = captureEditSave(document);
+    guard.destroy();
+    const reopened = createEditGuard({ document });
+    edit();
+    pending();
+    assert.equal(reopened.hasUnsavedEdit(), true, 'an old panel save cannot acknowledge a new panel');
+    reopened.destroy();
 });
 
 test('SD / ComfyUI expanded cards are edit roots keyed by character id', () => {

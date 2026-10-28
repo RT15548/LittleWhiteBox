@@ -70,25 +70,37 @@ function editKey(root, index) {
     return root.getAttribute('data-id') || root.getAttribute('data-character-id') || root.id || `#${index}`;
 }
 
+const CAPTURE_EDIT_SAVE = 'lwb:draw-capture-edit-save';
+
+/**
+ * Capture the edits included in a save; call the returned acknowledgement only after persistence succeeds.
+ * The provider runs in the host while the guard runs in the iframe, so communicate through its document.
+ */
+export function captureEditSave(document) {
+    const acknowledgements = [];
+    if (document) document.dispatchEvent(new document.defaultView.CustomEvent(CAPTURE_EDIT_SAVE, { detail: acknowledgements }));
+    return () => { for (const acknowledge of acknowledgements) acknowledge(); };
+}
+
 /**
  * 记录“哪些编辑卡被改过”：编辑卡里发生过 input / change 就记一笔（按卡的 id）；
  * 卡片关掉（保存 / 取消 / 重绘成非编辑态）之后，在下一次事件或查询时自动清掉，重新打开同一张卡是干净的。
  */
 export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } = {}) {
-    const dirty = new Set();
+    const dirty = new Map();
     const listeners = [];
 
     const openKeys = () => new Map(Array.from(document.querySelectorAll(rootSelector), (root, index) => [editKey(root, index), root]));
     const prune = () => {
         const open = openKeys();
-        for (const key of [...dirty]) if (!open.has(key)) dirty.delete(key);
+        for (const key of dirty.keys()) if (!open.has(key)) dirty.delete(key);
         return open;
     };
     const mark = (event) => {
         const open = prune();
         const root = event.target?.closest?.(rootSelector);
         if (!root) return;
-        for (const [key, node] of open) if (node === root) dirty.add(key);
+        for (const [key, node] of open) if (node === root) dirty.set(key, Symbol());
     };
     for (const type of ['input', 'change']) {
         document.addEventListener(type, mark, true);
@@ -98,6 +110,18 @@ export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } 
     const settle = () => { prune(); };
     document.addEventListener('click', settle, true);
     listeners.push(() => document.removeEventListener('click', settle, true));
+
+    const captureSave = (event) => {
+        prune();
+        const saved = new Map(dirty);
+        event.detail.push(() => {
+            for (const [key, revision] of saved) {
+                if (dirty.get(key) === revision) dirty.delete(key);
+            }
+        });
+    };
+    document.addEventListener(CAPTURE_EDIT_SAVE, captureSave);
+    listeners.push(() => document.removeEventListener(CAPTURE_EDIT_SAVE, captureSave));
 
     return {
         hasUnsavedEdit() {

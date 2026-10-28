@@ -1700,7 +1700,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
       "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
       "extension": ".js",
-      "sizeBytes": 216758
+      "sizeBytes": 216895
     },
     {
       "source": "littlewhitebox",
@@ -2008,7 +2008,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
       "extension": ".js",
-      "sizeBytes": 176396
+      "sizeBytes": 176533
     },
     {
       "source": "littlewhitebox",
@@ -2778,7 +2778,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/panel-escape.js",
       "relativePath": "modules/draw/shared/panel-escape.js",
       "extension": ".js",
-      "sizeBytes": 10565
+      "sizeBytes": 11576
     },
     {
       "source": "littlewhitebox",
@@ -3478,7 +3478,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/panel-escape.test.js",
       "relativePath": "modules/draw/shared/tests/panel-escape.test.js",
       "extension": ".js",
-      "sizeBytes": 14975
+      "sizeBytes": 16353
     },
     {
       "source": "littlewhitebox",
