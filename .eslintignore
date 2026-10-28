@@ -9,3 +9,7 @@ libs/**
 
 # Local verification artifacts and previews
 /output/**
+
+# Local reference material (not part of the project)
+/ST-BaiBai-Image-main/**
+/st-chatu8/**
