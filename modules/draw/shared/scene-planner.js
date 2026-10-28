@@ -216,6 +216,7 @@ async function buildScenePlannerRequest(options = {}) {
         absoluteMaxCharactersPerImage = 0,
         modelGuide = null,
         plannerProfile = null,
+        continuityText = '',
     } = options;
     const profile = normalizeScenePlannerProfile(plannerProfile);
     const centerMode = profile.centerMode === 'normalized' ? 'normalized' : 'grid';
@@ -243,7 +244,7 @@ async function buildScenePlannerRequest(options = {}) {
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const fieldDescriptions = parseFieldDescriptions(promptConfig.fieldDescriptions);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
-    const slots = createPromptSlots(['worldInfo', 'characterInfo', 'lastMessage']);
+    const slots = createPromptSlots(['worldInfo', 'characterInfo', 'continuity', 'lastMessage']);
 
     try {
         // Every dynamic value is expanded exactly once, then spliced literally into the
@@ -267,6 +268,10 @@ async function buildScenePlannerRequest(options = {}) {
             buildCharacterInfoForLLM(presentCharacters),
             runtime,
         );
+        const continuityBlock = String(continuityText || '').trim();
+        const expandedContinuity = continuityBlock
+            ? await expandScenePromptText(continuityBlock, runtime)
+            : '';
         const tagGuide = typeof modelGuide === 'string'
             ? modelGuide
             : getEffectiveTagGuide(promptConfig.tagGuideContent);
@@ -283,7 +288,8 @@ async function buildScenePlannerRequest(options = {}) {
                 guide: buildScenePlannerGuideSection(tagGuide, profile),
                 rules: buildScenePlannerRulesSection(promptConfig.sceneRules),
                 worldInfo: buildScenePlannerWorldInfoBlock(slots.worldInfo),
-                content: buildScenePlannerContentBlock(slots.characterInfo, slots.lastMessage),
+                // 无锚点时槽位传空串，{{continuity}} 行整体移除，请求结构与上游完全一致。
+                content: buildScenePlannerContentBlock(slots.characterInfo, slots.lastMessage, continuityBlock ? slots.continuity : ''),
                 limits: buildSessionLimitsLine(
                     effectiveMaxImages,
                     effectiveMaxCharactersPerImage,
@@ -298,6 +304,7 @@ async function buildScenePlannerRequest(options = {}) {
         const slotValues = {
             [slots.worldInfo]: withoutMarker(expandedWorldInfo),
             [slots.characterInfo]: withoutMarker(expandedCharacterInfo),
+            [slots.continuity]: withoutMarker(expandedContinuity),
             [slots.lastMessage]: withoutMarker(expandedMessageText),
         };
         // 模板按顺序各展开一次、再替换槽位：自定义块只在模板里，永远用不到动态槽位。

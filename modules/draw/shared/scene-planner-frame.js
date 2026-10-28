@@ -21,6 +21,7 @@ export const WORLD_INFO_TEMPLATE = `<worldInfo>
 
 export const CONTENT_TEMPLATE = `<content>
 {{characterInfo}}
+{{continuity}}
 ---
 {{lastMessage}}
 </content>`;
@@ -33,8 +34,16 @@ export function buildScenePlannerFrameText(profile) {
     const { imageModelName } = normalizeScenePlannerProfile(profile);
     return `## 你收到的材料
 - <worldInfo>：世界书。其中的 tag 组合、同人角色资料、姿势库是写提示词时的参考来源；未知角色的外貌优先参考其中的数据。
-- <content>：本次唯一的叙事来源。开头是【已录入角色】列表；固定外貌由角色库自动写入，你只写本图中的状态，不要重复固定外貌里已有的 tag；正文里每个可插图的位置已标为【插图点 N】。
+- <content>：本次唯一的叙事来源。开头是【已录入角色】列表，这些角色的身份与外貌由角色库注入，你只写他们在本图中的状态；列表之后可能紧跟【上镜锚点】（系统维护的跨楼层画面记忆，仅在历史中出现过该角色时存在）；正文里每个可插图的位置已标为【插图点 N】。
 - 消息末尾的数量约束：可用插图点数、images 数量、每图人数上限。
+
+## 跨楼层画面连续性
+当 <content> 中出现【上镜锚点】时，它记录的是这些角色最近一次实际入画时下发给生图模型的英文 tag。把它当作仍然成立的画面事实：
+- 未录入角色的「上镜外貌」必须逐字复用进 appear；只有正文明确写出不可逆的外貌变更（发色或发型改变、永久伤痕、明显的成长或老化、不可逆变身）时才允许改写，不得因措辞或画风自由重写。
+- 「当前着装」对所有角色生效：正文没有明确的穿上、脱下、换装、衣物损坏/湿透等事实，也没有明显的时间或场景切换（如回家、次日、转入浴室）时，costume 必须逐字复用锚点的同一串描述。确有变化时才改写，按「款式、面料、颜色、可辨识细节」写全，缺了就无法复现同一件衣服。
+- 被遮挡或超出取景的服装部件暂不描述；这不构成更换，其后重新入镜且正文未写变化时，恢复锚点原描述。
+- 锚点只管身份与着装。动作、表情、视线、互动每楼都要依据本楼正文重新判断，绝不沿用上一次的写法。
+- 锚点未覆盖的角色照常自由描述；正文事实与锚点冲突时，一律以正文为准。
 
 ## 你的输出去哪
 The app uses each image's scene and character fields, together with the character library and the user's generation settings, to build a request for ${imageModelName}. Field meanings and model-specific controls are described in submit_scene_plan.`;
@@ -67,9 +76,12 @@ export function buildScenePlannerWorldInfoBlock(worldInfoSlot) {
     return spliceLiteral(WORLD_INFO_TEMPLATE, '{$worldInfo}', worldInfoSlot);
 }
 
-export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot) {
+export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot, continuitySlot = '') {
+    const withContinuity = continuitySlot
+        ? spliceLiteral(CONTENT_TEMPLATE, '{{continuity}}', continuitySlot)
+        : CONTENT_TEMPLATE.replace('{{continuity}}\n', '');
     return spliceLiteral(
-        spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', characterInfoSlot),
+        spliceLiteral(withContinuity, '{{characterInfo}}', characterInfoSlot),
         '{{lastMessage}}',
         lastMessageSlot,
     );
@@ -140,7 +152,7 @@ export function buildScenePlannerChainPreview({ profile, hasTagGuide = true, des
                     key: 'content',
                     summary: '已录入角色 + 正文（含【插图点 N】）',
                     content: CONTENT_TEMPLATE,
-                    variables: ['{{characterInfo}} — 已录入角色列表', '{{lastMessage}} — 正文'],
+                    variables: ['{{characterInfo}} — 已录入角色列表', '{{continuity}} — 上镜锚点（跨楼层外貌/服装记忆，无锚点时省略）', '{{lastMessage}} — 正文'],
                 },
                 { key: 'limits', summary: '本次数量约束：可用插图点数、images 数量、每图人数上限' },
             ],

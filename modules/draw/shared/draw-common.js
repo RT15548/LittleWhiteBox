@@ -236,6 +236,12 @@ export function ensureDrawImageStyles() {
 .xb-nd-nav-arrow:disabled{opacity:0.3;cursor:not-allowed}
 .xb-nd-nav-text{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;padding:0 2px}
 @media(hover:none),(pointer:coarse){.xb-nd-nav-pill{opacity:0.78;padding:5px 8px}}
+/* 點擊才顯示控制鈕（僅由 NovelAI 端在 body 上掛 .xb-nd-tap-controls 時生效）：
+   張數翻動列與「⋮」選單鈕默認隱藏，點圖片叫出、再點圖片收起。 */
+.xb-nd-tap-controls .xb-nd-img .xb-nd-nav-pill,
+.xb-nd-tap-controls .xb-nd-img .xb-nd-menu-trigger{opacity:0;pointer-events:none}
+.xb-nd-tap-controls .xb-nd-img.controls-visible .xb-nd-nav-pill{opacity:0.82;pointer-events:auto}
+.xb-nd-tap-controls .xb-nd-img.controls-visible .xb-nd-menu-trigger{opacity:0.9;pointer-events:auto}
 .xb-nd-menu-wrap{position:absolute;top:8px;right:8px;z-index:10}
 .xb-nd-menu-wrap.busy{pointer-events:none;opacity:0.3}
 .xb-nd-menu-trigger{width:32px;height:32px;border-radius:50%;border:none;background:var(--draw-bg-secondary);color:var(--draw-text-primary);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;opacity:0.85}
@@ -341,6 +347,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, title = '', positive,
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
         <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">${drawIconHtml('ellipsis')}</button>
         <div class="xb-nd-dropdown">
+            <button data-action="view-image" title="放大">⤢</button>
             ${isPreview ? IMAGE_SAVE_BUTTON_HTML : ''}
             <button data-action="refresh-image" title="重新生成">${drawIconHtml('rotate')}</button>
             <button data-action="edit-tags" title="编辑TAG">${drawIconHtml('pen')}</button>

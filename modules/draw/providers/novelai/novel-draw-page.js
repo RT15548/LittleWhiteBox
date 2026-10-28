@@ -142,6 +142,7 @@ let state = {
     autoLearnMode: 'new_only',
     autoLearnGroupId: '',
     danbooruLocalDB: false,
+    autoGenerateImages: true,
     showFloorButton: true,
     showFloatingButton: false,
     promptPresets: [],
@@ -3608,6 +3609,8 @@ function applyStateToUI() {
         $('nd_danbooru_local').checked = !!state.danbooruLocalDB;
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
+        $('nd_continuity_enabled').checked = state.continuityEnabled !== false;
+        $('nd_auto_generate_images').checked = state.autoGenerateImages !== false;
         renderFilterRules(state.messageFilterRules);
     } catch (e) {
         console.error('[ND-UI] applyStateToUI 部分失败:', e);
@@ -4216,6 +4219,20 @@ function updateModelOptions() {
     );
     $('nd_auto_smea_group').classList.toggle('hidden', isV5);
     $('nd_variety_boost_group').classList.toggle('hidden', isV5);
+
+    // V5 Full Medium Effort 锁参：14 步 / Euler Ancestral / CFG 重缩放 0 / Heavy 负面预设
+    const isMedium = model === 'nai-diffusion-5-full-medium';
+    const mediumHint = 'Medium Effort 固定参数：14 步、Euler Ancestral、重缩放 0、Heavy 负面';
+    const lockControl = (el, locked, lockedValue) => {
+        el.disabled = locked;
+        el.title = locked ? mediumHint : '';
+        if (locked && lockedValue !== undefined) el.value = lockedValue;
+    };
+    lockControl($('nd_steps'), isMedium, isMedium ? 14 : undefined);
+    lockControl($('nd_sampler_sel'), isMedium, isMedium ? 'k_euler_ancestral' : undefined);
+    lockControl($('nd_cfg_rescale'), isMedium, isMedium ? 0 : undefined);
+    lockControl($('nd_v5_uc'), isMedium, isMedium ? 'heavy' : undefined);
+
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
     $('nd_max_chars').value = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
@@ -4747,6 +4764,16 @@ function initializePage() {
         if (enabled) $('nd_danbooru_local_status').textContent = '加载中...';
         renderCharList(); // 立即刷新修正按钮状态
         postToParent({ type: 'SAVE_DANBOORU_LOCAL_DB', enabled });
+    });
+
+    $('nd_continuity_enabled').addEventListener('change', () => {
+        state.continuityEnabled = $('nd_continuity_enabled').checked;
+        postToParent({ type: 'SAVE_CONTINUITY_ENABLED', enabled: state.continuityEnabled });
+    });
+
+    $('nd_auto_generate_images').addEventListener('change', () => {
+        state.autoGenerateImages = $('nd_auto_generate_images').checked;
+        postToParent({ type: 'SAVE_AUTO_GENERATE_IMAGES', autoGenerateImages: state.autoGenerateImages });
     });
 
     // clear all characters
