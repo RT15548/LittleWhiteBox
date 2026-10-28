@@ -1168,6 +1168,16 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                                 </div>
                                 <p class="form-hint" style="margin-left:44px;margin-top:4px;">生成图片时自动记住 LLM 识别的新角色</p>
                             </div>
+                            <div class="auto-learn-section" style="margin-bottom:12px;">
+                                <div class="auto-learn-toggle-row">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="nd_continuity_enabled">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>上镜锚点</span>
+                                </div>
+                                <p class="form-hint" style="margin-left:44px;margin-top:4px;">记住每个角色最近一次入画的外貌与着装，后续楼层规划时自动沿用；正文明确写出变化时才会改写</p>
+                            </div>
                             <div class="auto-learn-section">
                                 <div class="auto-learn-toggle-row">
                                     <label class="toggle-switch">

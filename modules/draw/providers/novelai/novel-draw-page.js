@@ -3608,6 +3608,7 @@ function applyStateToUI() {
         $('nd_danbooru_local').checked = !!state.danbooruLocalDB;
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
+        $('nd_continuity_enabled').checked = state.continuityEnabled !== false;
         renderFilterRules(state.messageFilterRules);
     } catch (e) {
         console.error('[ND-UI] applyStateToUI 部分失败:', e);
@@ -4747,6 +4748,11 @@ function initializePage() {
         if (enabled) $('nd_danbooru_local_status').textContent = '加载中...';
         renderCharList(); // 立即刷新修正按钮状态
         postToParent({ type: 'SAVE_DANBOORU_LOCAL_DB', enabled });
+    });
+
+    $('nd_continuity_enabled').addEventListener('change', () => {
+        state.continuityEnabled = $('nd_continuity_enabled').checked;
+        postToParent({ type: 'SAVE_CONTINUITY_ENABLED', enabled: state.continuityEnabled });
     });
 
     // clear all characters

@@ -10,6 +10,7 @@ import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../scrip
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
+import { buildContinuityBlockForRequest, recordPlanContinuity } from '../../shared/character-continuity.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
 import { DRAW_BACKEND_COPY, createDrawBackendStatusCopy } from '../../shared/draw-backend-copy.js';
@@ -405,6 +406,7 @@ const DEFAULT_SETTINGS = {
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     danbooruLocalDB: false,
     messageFilterRules: [],
+    continuityEnabled: true,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -832,6 +834,7 @@ function normalizeSettings(saved = {}) {
         },
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules: Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [],
+        continuityEnabled: source.continuityEnabled !== false,
     };
 
     if (!merged.paramsPresets?.length) {
@@ -2209,8 +2212,28 @@ async function handleDelegatedClick(e) {
             break;
         }
         case 'open-gallery':
+            if (document.body.classList.contains('xb-nd-tap-controls')) {
+                // 觸控裝置：點圖只切換控制列（張數列＋「⋮」），不開彈窗放大。
+                const willShow = !container.classList.contains('controls-visible');
+                container.classList.toggle('controls-visible', willShow);
+                if (!willShow) {
+                    document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
+                }
+                break;
+            }
+            // 滑鼠端維持原樣：點圖開畫廊放大
             await handleImageClick(container);
             break;
+        case 'view-image': {
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+            try {
+                await handleImageClick(container);
+            } catch (err) {
+                showToast(`開啟畫廊失敗 — ${err?.message || err}`, 'error', 6000);
+                throw err;
+            }
+            break;
+        }
         case 'refresh-image':
             container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
             await refreshSingleImage(container);
@@ -2266,6 +2289,11 @@ async function handleDelegatedClick(e) {
 function setupEventDelegation() {
     if (window._xbNovelEventsBound) return;
     window._xbNovelEventsBound = true;
+
+    // 僅觸控裝置啟用「點圖才顯示控制列」；滑鼠端維持原樣（點圖即開畫廊放大）。
+    if (window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches) {
+        document.body.classList.add('xb-nd-tap-controls');
+    }
 
     document.addEventListener('click', handleDelegatedClickEvent, { capture: true });
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
@@ -2686,6 +2714,13 @@ async function buildNovelScenePlannerOptions({
         modelGuide: getEffectiveNovelModelGuide(model, customPrompts),
         plannerProfile: getNovelPlannerProfile(model),
         plannerRetry: { maxRetries: settings.plannerMaxRetries },
+        // 上镜锚点：跨楼层画面记忆，可在设置中关闭；读取失败时为空串，请求结构与无锚点一致。
+        continuityText: settings.continuityEnabled === false
+            ? ''
+            : await buildContinuityBlockForRequest({
+                presentCharacters,
+                bodyText: sceneSource.content,
+            }),
         // 请求结构里有启用且附带工具的消息时，由浏览器沙盒执行工具代码；没有就不创建宿主。
         ...(typeof document !== 'undefined' && collectToolBlocks(normalizeLayout(customPrompts?.layout).layout).length
             ? { customToolHost: createSandboxToolHost({ document }) }
@@ -2755,6 +2790,11 @@ async function generateImagesFromText(options = {}) {
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
         await maybeAutoLearnFromTasks(tasks, settings);
+        if (settings.continuityEnabled !== false) {
+            await recordPlanContinuity(tasks, {
+                knownNames: presentCharacters.map(character => character.name),
+            });
+        }
 
         const images = new Array(tasks.length);
         let successCount = 0;
@@ -3000,6 +3040,11 @@ async function generateAndInsertImages({
                 }));
                 if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
                 await maybeAutoLearnFromTasks(planned, settings);
+                if (settings.continuityEnabled !== false) {
+                    await recordPlanContinuity(planned, {
+                        knownNames: source.presentCharacters.map(character => character.name),
+                    });
+                }
                 assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), source.sceneSource.sourceHash);
                 return planned;
             }, { maxRetries: settings.plannerMaxRetries, signal, onStateChange });
@@ -3226,6 +3271,7 @@ async function sendInitData() {
             autoLearnMode: settings.autoLearnMode || 'new_only',
             autoLearnGroupId: settings.autoLearnGroupId || '',
             danbooruLocalDB: !!settings.danbooruLocalDB,
+            continuityEnabled: settings.continuityEnabled !== false,
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
@@ -4004,6 +4050,15 @@ async function handleFrameMessage(event) {
                     settings.danbooruLocalDB = false;
                 }, 'Danbooru 本地库已关闭');
             }
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_CONTINUITY_ENABLED': {
+            const enabled = !!data.enabled;
+            await updateSettingsPersistent((settings) => {
+                settings.continuityEnabled = enabled;
+            }, enabled ? '上镜锚点已开启' : '上镜锚点已关闭');
             observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }

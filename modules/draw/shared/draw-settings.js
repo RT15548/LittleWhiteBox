@@ -50,6 +50,7 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'autoLearnCharacters',
     'autoLearnMode',
     'autoLearnGroupId',
+    'continuityEnabled',
     'overrideSize',
     'overrideMaxImages',
     'showFloorButton',
