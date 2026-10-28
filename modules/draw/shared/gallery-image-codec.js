@@ -79,7 +79,7 @@ async function convertAttempt(body, mime, useBitmap) {
 // legal in base64, but arbitrary quotes/URL fragments must not be silently removed.
 export function convertImageToJpeg(base64) {
     const raw = String(base64 || '').trim();
-    const header = raw.match(/^data:([^;,]+);base64,/i);
+    const header = raw.match(/^data:([^,]*);base64,/i);
     const body = (header ? raw.slice(header[0].length) : raw).replace(/\s+/g, '');
     if (!raw || isJpegBody(body)) return Promise.resolve(base64);
     const mime = header?.[1] || 'image/png';

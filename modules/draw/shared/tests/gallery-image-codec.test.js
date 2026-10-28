@@ -4,7 +4,7 @@ import { setImmediate } from 'node:timers/promises';
 import { convertImageToJpeg } from '../gallery-image-codec.js';
 
 // Contracts (cost: lost paid images / blocked image saves / retained decoded originals):
-// - Conversion produces JPEG or rejects, never reports an empty/non-JPEG result as success; an unavailable bitmap decoder uses the DOM decoder.
+// - Conversion accepts base64 Data URLs with MIME parameters and produces JPEG or rejects, never reports an empty/non-JPEG result as success; an unavailable bitmap decoder uses the DOM decoder.
 // - A hung conversion releases resources and the queue; late native callbacks cannot resume encoding or affect the next image.
 const PNG = 'data:image/png;base64,AQID';
 const JPEG = 'data:image/jpeg;base64,/9j/AA==';
@@ -69,7 +69,12 @@ function browser(t) {
 test('JPEG conversion uses bitmap or DOM decoding and rejects invalid output', async t => {
     const state = browser(t);
     state.mode = 'bitmap-only';
-    assert.equal(await convertImageToJpeg('data:image/png;base64,AQ\nID'), JPEG);
+    for (const input of [
+        'data:image/png;base64,AQ\nID',
+        'data:image/png;charset=utf-8;base64,AQID',
+        'data:image/png;name=generated.png;base64,AQID',
+        'data:image/png;charset=utf-8;name=generated.png;base64,AQID',
+    ]) assert.equal(await convertImageToJpeg(input), JPEG);
     assert.ok(state.bitmaps.every(value => value.closed));
     state.mode = 'bitmap-error';
     assert.equal(await convertImageToJpeg(PNG), JPEG);

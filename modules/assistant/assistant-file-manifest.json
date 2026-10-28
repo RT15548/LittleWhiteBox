@@ -2561,7 +2561,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-image-codec.js",
       "relativePath": "modules/draw/shared/gallery-image-codec.js",
       "extension": ".js",
-      "sizeBytes": 4265
+      "sizeBytes": 4264
     },
     {
       "source": "littlewhitebox",
@@ -3359,7 +3359,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/gallery-image-codec.test.js",
       "relativePath": "modules/draw/shared/tests/gallery-image-codec.test.js",
       "extension": ".js",
-      "sizeBytes": 5853
+      "sizeBytes": 6127
     },
     {
       "source": "littlewhitebox",
