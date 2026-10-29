@@ -4269,14 +4269,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/archive-view.js",
       "relativePath": "modules/story-summary/archive-view.js",
       "extension": ".js",
-      "sizeBytes": 13067
+      "sizeBytes": 13320
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/archive.css",
       "relativePath": "modules/story-summary/archive.css",
       "extension": ".css",
-      "sizeBytes": 16634
+      "sizeBytes": 16655
     },
     {
       "source": "littlewhitebox",
@@ -5039,7 +5039,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary-ui.js",
       "relativePath": "modules/story-summary/story-summary-ui.js",
       "extension": ".js",
-      "sizeBytes": 142064
+      "sizeBytes": 140545
     },
     {
       "source": "littlewhitebox",
@@ -5053,14 +5053,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.html",
       "relativePath": "modules/story-summary/story-summary.html",
       "extension": ".html",
-      "sizeBytes": 69202
+      "sizeBytes": 68863
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.js",
       "relativePath": "modules/story-summary/story-summary.js",
       "extension": ".js",
-      "sizeBytes": 224932
+      "sizeBytes": 226746
     },
     {
       "source": "littlewhitebox",
@@ -5089,6 +5089,13 @@
       "relativePath": "modules/story-summary/tests/abort-utils.test.js",
       "extension": ".js",
       "sizeBytes": 3101
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/archive-search.test.js",
+      "relativePath": "modules/story-summary/tests/archive-search.test.js",
+      "extension": ".js",
+      "sizeBytes": 4891
     },
     {
       "source": "littlewhitebox",
@@ -5158,7 +5165,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/disabled-visibility.test.js",
       "relativePath": "modules/story-summary/tests/disabled-visibility.test.js",
       "extension": ".js",
-      "sizeBytes": 8467
+      "sizeBytes": 8552
     },
     {
       "source": "littlewhitebox",
@@ -5235,7 +5242,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/helpers/story-summary-entry.js",
       "relativePath": "modules/story-summary/tests/helpers/story-summary-entry.js",
       "extension": ".js",
-      "sizeBytes": 2727
+      "sizeBytes": 2814
     },
     {
       "source": "littlewhitebox",
@@ -5526,6 +5533,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/summary-transfer.test.js",
+      "relativePath": "modules/story-summary/tests/summary-transfer.test.js",
+      "extension": ".js",
+      "sizeBytes": 8689
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/summary-undo.test.js",
       "relativePath": "modules/story-summary/tests/summary-undo.test.js",
       "extension": ".js",
@@ -5586,6 +5600,13 @@
       "relativePath": "modules/story-summary/tests/vector-validation.test.js",
       "extension": ".js",
       "sizeBytes": 834
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/transfer-copy.js",
+      "relativePath": "modules/story-summary/transfer-copy.js",
+      "extension": ".js",
+      "sizeBytes": 1129
     },
     {
       "source": "littlewhitebox",
@@ -6173,7 +6194,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/workspace.css",
       "relativePath": "modules/story-summary/workspace.css",
       "extension": ".css",
-      "sizeBytes": 9859
+      "sizeBytes": 9925
     },
     {
       "source": "littlewhitebox",

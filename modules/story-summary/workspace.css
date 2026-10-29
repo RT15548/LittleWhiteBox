@@ -76,6 +76,7 @@ body:has(.summary-workspace.active) { overflow: hidden; }
 .summary-workspace .tab-pane > .btn { margin: 8px 12px 8px 0; }
 .summary-workspace :focus-visible { outline: 2px solid var(--archive-accent); outline-offset: 3px; }
 .summary-workspace .tab-pane.active { animation: none; }
+#summary-io-status, #confirm-message { overflow-wrap: anywhere; }
 .memory-chat-dialog { left: 0; top: var(--memory-chat-view-top); transform: none; width: 100%; height: var(--memory-chat-view-height); border: 0; border-radius: 0; box-shadow: none; }
 .memory-chat-layout { max-width: 1184px; margin: auto; }
 .memory-chat-transcript:has(.memory-chat-empty:not([hidden])) { display: grid; align-items: center; }

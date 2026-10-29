@@ -4,6 +4,7 @@ import { entry, startupEntry } from './helpers/story-summary-entry.js';
 import { createHideStateController } from '../hide-state.js';
 import { isXiaobaiMasterEnabled } from '../runtime-gate.js';
 import { getChatStorySummaryEnabled, setChatStorySummaryEnabled, resolveStorySummaryEnabled } from '../data/chat-toggle.js';
+import { getChatIdentity } from '../data/chat-identity.js';
 
 function fixture() {
     const chat = [false, true, true, false].map(is_system => ({ is_system }));
@@ -15,6 +16,7 @@ function fixture() {
         'getStorySummaryChatState', 'setStorySummaryEnabledForCurrentChat'], {
         createHideStateController,
         getContext: () => context,
+        getChatIdentity,
         getSettings: () => ({ storySummary: { enabled: state.enabled } }),
         isXiaobaiMasterEnabled: () => state.master,
         getChatStorySummaryEnabled, setChatStorySummaryEnabled, resolveStorySummaryEnabled,

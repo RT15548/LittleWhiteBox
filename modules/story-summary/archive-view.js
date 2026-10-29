@@ -32,14 +32,23 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
     const $ = id => document.getElementById(id);
     const detail = $('archive-detail');
     const profile = $('archive-profile');
+    const search = $('archive-search');
     let view = 'story';
+    let searchQuery = '';
     let role = '';
     let subject = '';
     let descending = true;
     let detailEventId = null;
     let profileInDialog = false;
     let restoreFocus = null;
-    const matches = (...values) => values.join(' ').toLocaleLowerCase().includes($('archive-search').value.trim().toLocaleLowerCase());
+    const matches = (...values) => values.join(' ').toLocaleLowerCase().includes(searchQuery);
+
+    function setSearchQuery(value) {
+        searchQuery = value.trim().toLocaleLowerCase();
+        search.value = value;
+    }
+    // Only search input changes the filter; a later render must not adopt restored/autofilled DOM values.
+    setSearchQuery('');
 
     function closeDialogs() {
         for (const dialog of [detail]) {
@@ -135,8 +144,8 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
     function switchView(next) {
         closeDialogs();
         view = next;
-        $('archive-search').value = '';
-        $('archive-search').placeholder = ARCHIVE_COPY.search[view];
+        setSearchQuery('');
+        search.placeholder = ARCHIVE_COPY.search[view];
         document.querySelectorAll('.archive-tab').forEach(tab => {
             const selected = tab.dataset.view === view;
             tab.setAttribute('aria-selected', String(selected));
@@ -154,7 +163,7 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
         role = '';
         subject = '';
         descending = true;
-        $('archive-search').value = '';
+        setSearchQuery('');
     }
 
     document.querySelectorAll('.archive-tab').forEach(tab => {
@@ -169,7 +178,8 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
             tabs[target].focus();
         });
     });
-    $('archive-search').addEventListener('input', () => {
+    search.addEventListener('input', () => {
+        setSearchQuery(search.value);
         if (view === 'story') onTimelineChange({ page: 0 });
         if (view === 'people') refreshRoster();
         if (view === 'world') onFactsChange();
@@ -215,7 +225,7 @@ export function createSummaryArchive({ getData, getSelectedCharacter, onSelectCh
 
     return {
         closeDialogs, reset, timelineEvents, timelineItem, refreshIndexes, refreshRoster, showPerson,
-        hasTimelineFilter: () => !!role || (view === 'story' && !!$('archive-search').value.trim()),
+        hasTimelineFilter: () => !!role || (view === 'story' && !!searchQuery),
         isPeopleVisible: () => view === 'people',
         isStoryVisible: () => view === 'story',
         filteredFacts: () => getArchiveStateFacts(getData()).filter(f => (!subject || f.s === subject) && (view !== 'world' || matches(f.s, f.p, f.o))),
