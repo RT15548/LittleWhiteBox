@@ -4787,7 +4787,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/maintenance/copy.js",
       "relativePath": "modules/story-summary/maintenance/copy.js",
       "extension": ".js",
-      "sizeBytes": 7451
+      "sizeBytes": 7417
     },
     {
       "source": "littlewhitebox",
@@ -4983,14 +4983,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/maintenance/ui.css",
       "relativePath": "modules/story-summary/maintenance/ui.css",
       "extension": ".css",
-      "sizeBytes": 13200
+      "sizeBytes": 13328
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/maintenance/ui.js",
       "relativePath": "modules/story-summary/maintenance/ui.js",
       "extension": ".js",
-      "sizeBytes": 19577
+      "sizeBytes": 19930
     },
     {
       "source": "littlewhitebox",

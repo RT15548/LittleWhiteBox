@@ -252,6 +252,12 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
         return details;
     }
 
+    // Known causes keep their own copy; anything else shows the recorded reason instead of a generic guess.
+    function failureState({ code, error, progress }) {
+        const cause = copy.errors[code] && code !== 'agent_failed' ? copy.errors[code] : memoryChatErrorText({ ...error, code });
+        return [cause, progress?.saved > 0 && copy.saved(progress.saved), error && copy.resume].filter(Boolean).join('\n');
+    }
+
     function clearReceipts(keep = new Set()) {
         for (const node of [...list.children]) if (!keep.has(node.dataset.receiptId)) {
             node.dispose();
@@ -294,10 +300,8 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
                 rangeView.update(data.ranges);
             }
             const running = ['running', 'queued', 'saving', 'indexing'].includes(data.state?.status);
-            const code = data.state?.code;
             const blocked = ['unconfirmed', 'source_invalid', 'history_invalid'].includes(data.state?.status);
-            state.textContent = blocked ? copy.states[data.state.status]
-                : code ? copy.errors[code] || copy.errors.agent_failed : copy.states[data.state?.status] || '';
+            state.textContent = !blocked && data.state?.status === 'failed' ? failureState(data.state) : copy.states[data.state?.status] || '';
             if (running && data.state?.progress) {
                 const ownsAction = data.state.status === 'running' || data.state.status === 'saving' && copy.actions[data.state.progress.action];
                 const progress = copy.progress({ ...data.state.progress, ...(ownsAction ? {} : { action: null }) });
@@ -327,7 +331,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
                 const node = loaded.get(id);
                 if (list.children[position] !== node) list.insertBefore(node, list.children[position] || null);
             });
-            empty.hidden = list.children.length > 0 || running || blocked || !!code;
+            empty.hidden = list.children.length > 0 || running || blocked || !!data.state?.code;
             // New runs may arrive while older pages are open. Query the first gap,
             // not the number of mounted cards, so an unseen middle page is not skipped.
             const missing = runIds.findIndex(id => !loaded.has(id));

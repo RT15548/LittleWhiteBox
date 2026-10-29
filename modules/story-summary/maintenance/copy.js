@@ -16,6 +16,8 @@ export const MEMORY_SAVE_ERRORS = Object.freeze({
     metadata_target_unavailable: '当前聊天文件尚未就绪，暂时无法保存。',
 });
 
+const RESUME_NEXT_SUMMARY = '剩余范围将在下次总结后继续。';
+
 export const MEMORY_COPY = Object.freeze({
     tab: '助手', toggle: '自动维护记忆', scope: '所有聊天',
     behavior: '保存后，从下一次总结开始自动检查与修正记忆。',
@@ -34,7 +36,7 @@ export const MEMORY_COPY = Object.freeze({
     progress: ({ action, saved, staged }) => [MEMORY_COPY.actions[action], saved ? MEMORY_COPY.saved(saved) : '',
         staged ? MEMORY_COPY.staged(staged) : ''].filter(Boolean).join(' · '),
     actions: { thinking: '正在梳理记忆', reading: '正在查阅', editing: '正在整理修改', saving: '正在保存', checking_save: '正在核对保存结果', compacting: '正在整理上下文' },
-    completedRanges: '已完成', pendingRanges: '待维护', noRanges: '无',
+    completedRanges: '已完成', pendingRanges: '待维护', noRanges: '无', resume: RESUME_NEXT_SUMMARY,
     rangeCount: (label, count) => `${label} ${count} 楼`, rangeDetails: '楼层范围',
     ranges: ranges => ranges.map(range => MEMORY_COPY.sourceRange(range.from, range.to)).join('、') || MEMORY_COPY.noRanges,
     boundary: floor => `截至第 ${floor} 楼`, floor: floor => `第 ${floor} 楼`,
@@ -62,19 +64,20 @@ export const MEMORY_COPY = Object.freeze({
     anchorStates: { missing: '未生成', fail: '提取失败' },
     states: { idle: '', queued: '等待前一轮结束', running: '正在检查记忆…', saving: '正在保存修改…', indexing: '修改已保存，正在更新记忆检索…',
         ...MEMORY_RESULT_COPY,
-        completed: '维护已结束', partial: '部分完成，剩余范围将在下次总结后继续。', interrupted: '本次维护未收尾，已保存的修改保留。',
-        turn_limit: '本次维护已达到调用上限，已保存的修改保留。', input_limit: '本次维护已达到上下文上限，已保存的修改保留。',
-        cancelled: '维护已停止，已保存的修改保留。', failed: '本次维护未完成，已保存的修改保留。', unconfirmed: MEMORY_SAVE_ERRORS.metadata_save_unconfirmed,
+        completed: '维护已结束', partial: `部分完成，${RESUME_NEXT_SUMMARY}`, interrupted: `本次维护中途中断，${RESUME_NEXT_SUMMARY}`,
+        turn_limit: `本次维护已达到调用次数上限，${RESUME_NEXT_SUMMARY}`, input_limit: `本次维护已达到上下文上限，${RESUME_NEXT_SUMMARY}`,
+        cancelled: `维护已停止，${RESUME_NEXT_SUMMARY}`, failed: `本次维护失败，${RESUME_NEXT_SUMMARY}`, unconfirmed: MEMORY_SAVE_ERRORS.metadata_save_unconfirmed,
         source_invalid: MEMORY_DATA_COPY.sourceInvalid, history_invalid: MEMORY_DATA_COPY.historyInvalid },
     indexPending: '修改已保存，部分内容还不能用于记忆检索。重试只更新检索，不会重新维护。',
     errors: { not_configured: '请先在 Agent API 中设置模型和服务地址。', no_boundary: '当前聊天还没有可维护的总结。',
         agent_auth: '共享 Agent API 的凭据不可用，请在 Agent API 设置中更新。',
         agent_balance: '共享 Agent API 余额不足。', agent_rate: '共享 Agent API 暂时限流。',
         agent_model: '共享 Agent API 当前不提供所选模型。',
-        conflict: '聊天已切换，或总结已被替换、回退；维护已停止，此前保存的部分保留。',
-        compaction_failed: '工作上下文整理失败，已完成的范围和修改保留。',
-        input_limit: '近期对话和本轮材料超出上下文容量，无法继续压缩。请缩小本轮请求或查阅范围后重试，已保存的修改保留。',
-        agent_failed: '服务暂时不可用，已保存的修改保留。', empty_response: '模型没有返回内容，已保存的修改保留。',
+        conflict: '聊天已切换，或总结已被替换、回退，维护已停止。',
+        compaction_failed: '工作上下文整理失败。',
+        input_limit: '近期对话和本轮材料超出上下文容量，无法继续压缩。请缩小本轮请求或查阅范围后重试。',
+        agent_failed: '调用 Agent API 失败，请检查 Agent API 设置和网络。',
+        empty_response: '模型没有返回内容。',
         ...MEMORY_SAVE_ERRORS,
         index_failed: '记忆检索未能更新。', index_read_failed: '暂时无法检查记忆检索是否可用。', load_failed: '维护记录暂时无法读取。' },
 });
