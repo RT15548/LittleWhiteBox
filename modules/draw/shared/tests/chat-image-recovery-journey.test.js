@@ -6,14 +6,14 @@ import { hashSceneSource } from '../scene-source.js';
 
 // Acceptance contracts (cost: lost paid results / duplicate charges / unusable chat):
 // - Opening historical tags restores paid images but never submits generation.
-// - One click uses that TAG once, acknowledges immediately, and survives save failure.
+// - One click uses that TAG once, acknowledges immediately, and survives a page close before the host saves.
 // - Removal withdraws recovery authority before a slow/failed chat save.
 // - Upgrade contention exposes controls and a recoverable error, not an endless wait.
 // - Lazy recovery reads only admitted floors and loads only their image bodies.
 // - Navigation and edits cannot redirect results or mark unread text as recovered.
 // - Same filenames in different roles/groups/accounts never borrow attachment authority.
-// - Confirmed or explicitly deleted slots stay deleted, including after late results.
-// - A waiting save cannot swallow another chat's save or write after navigation.
+// - Explicitly deleted slots stay deleted, including after late results.
+// - Drawing never saves the chat itself; the host's autosave owns persistence.
 // - Recovered multi-image scene insertions retain their original batch order.
 
 async function setup(t, sources, options) {
@@ -112,8 +112,8 @@ test('legacy non-attempt becomes usable input and recovery stops refreshing', as
     assert.deepEqual(h.counters.requests, [{ messageId: 0, tags: 'never generated' }]);
 });
 
-test('double click submits once, failed persistence preserves the result and reload attaches without repurchase', async t => {
-    const h = await setup(t, ['[img: untouched]', '[img: chosen]'], { save: 'read-fail', holdRequest: true });
+test('double click submits once, and reload before the host saves attaches without repurchase', async t => {
+    const h = await setup(t, ['[img: untouched]', '[img: chosen]'], { holdRequest: true });
     h.start(); await h.pump(5);
     const button = h.body(1).querySelector('[data-xb-draw-tag-action]');
     button.click();
@@ -126,47 +126,38 @@ test('double click submits once, failed persistence preserves the result and rel
     assert.equal(record.status, 'success'); assert.ok(record.base64);
     h.ctx.chat[1] = structuredClone(h.persisted()[1]);
     h.body(1).textContent = h.ctx.chat[1].mes;
-    h.setMode('ok'); await h.emit('CHAT_CHANGED'); await h.pump(10);
+    await h.emit('CHAT_CHANGED'); await h.pump(10);
     assert.equal(h.ctx.chat[1].mes, `[image:${record.slotId}]`);
     assert.ok(h.body(1).querySelector('img'));
     assert.equal(h.counters.requests.length, 1);
     assert.equal(h.ctx.chat[0].mes, '[img: untouched]');
-    assert.equal(h.persisted()[1].mes, h.ctx.chat[1].mes);
+    assert.equal(h.counters.saves, 0);
 });
 
-test('reopening the same message retries attachment save, not generation; reroll skips chat save', async t => {
-    const h = await setup(t, ['[img: chosen]'], { save: 'read-fail' });
+test('placing, reopening and rerolling never save the chat; reopening never regenerates', async t => {
+    const h = await setup(t, ['[img: chosen]']);
     h.start(); await h.pump(5);
     h.body(0).querySelector('[data-xb-draw-tag-action]').click(); await h.pump(10);
-    const source = h.ctx.chat[0].mes;
-    assert.notEqual(h.persisted()[0].mes, source);
-    h.setMode('ok'); await h.emit('CHAT_CHANGED'); await h.pump(8);
-    assert.equal(h.persisted()[0].mes, source);
-    const saves = h.counters.saves;
-    h.setMode('read-fail');
+    await h.emit('CHAT_CHANGED'); await h.pump(8);
+    assert.equal(h.counters.requests.length, 1);
     await h.api.redrawImageCard('review-provider', h.body(0).querySelector('.xb-nd-img'));
-    assert.equal(h.counters.saves, saves);
+    assert.equal(h.counters.saves, 0);
     assert.equal((await h.api.getPreviewsForMessage(h.ctx.chatId, 0)).filter(h.api.hasPreviewImage).length, 2);
 });
 
-for (const outcome of ['ok', 'read-fail']) test(`removal cannot be recovered during or after ${outcome} save`, async t => {
+test('removal cannot be recovered after reload', async t => {
     const h = await setup(t, ['body\n[image:delete-slot]']);
     await h.api.storePreview({ imgId: 'paid', slotId: 'delete-slot', messageId: 0, chatId: h.ctx.chatId,
         tags: 'paid', status: 'success', base64: 'UEFJRA==',
         placement: h.api.captureImagePlacement(h.api.getImageChatIdentity(h.ctx), 'body\n', 0, { mode: 'tail' }, 0) });
-    h.start(); await h.pump(5); h.setMode('hold');
-    const removal = h.api.removeChatImageSlot(h.body(0).querySelector('.xb-nd-img')).then(() => null, error => error);
-    await h.settle(); await h.pump(6);
+    h.start(); await h.pump(5);
+    await h.api.removeChatImageSlot(h.body(0).querySelector('.xb-nd-img'));
     assert.equal(h.ctx.chat[0].mes, 'body\n');
-    assert.equal((await h.api.getPreview('paid')).placement, null);
-    h.setMode(outcome); h.releaseSave(); const error = await removal;
-    assert.equal(Boolean(error), outcome !== 'ok');
+    assert.equal(await h.api.getPreview('paid'), undefined);
     await h.emit('CHAT_CHANGED'); await h.pump(5);
     assert.equal(h.ctx.chat[0].mes, 'body\n');
     assert.deepEqual(h.counters.requests, []);
-    const remaining = await h.api.getPreview('paid');
-    if (outcome === 'ok') assert.equal(remaining, undefined);
-    else assert.ok(remaining.base64);
+    assert.equal(h.counters.saves, 0);
 });
 
 test('old open tab cannot hide controls; closing it and reopening recovers the paid image', async t => {
@@ -282,11 +273,10 @@ for (const scope of ['character', 'group', 'account']) test(`same filename and s
     await h.settle();
 });
 
-test('confirmed placement expires before native deletion, without deleting the paid image', async t => {
+test('native deletion withdraws the placement without deleting the paid image', async t => {
     const h = await setup(t, ['body']); h.start(); await h.pump(3);
     await generate(h); await h.pump(6);
     const [record] = await h.api.getPreviewsForMessage(h.ctx.chatId, 0);
-    assert.equal(record.placement, null);
     h.ctx.chat[0].mes = 'body'; h.ctx.chat[0].swipes[0] = 'body';
     await h.emit('MESSAGE_EDITED', 0); await h.ctx.saveChat();
     h.ctx.chat[0] = structuredClone(h.persisted()[0]); h.body(0).textContent = 'body';
@@ -296,13 +286,12 @@ test('confirmed placement expires before native deletion, without deleting the p
     assert.equal(h.counters.requests.length, 1);
 });
 
-for (const save of ['ok', 'read-fail']) test(`native deletion during ${save} save withdraws authority before a late paid result`, async t => {
-    const h = await setup(t, ['body'], { save, holdRequest: true }); h.start(); await h.pump(3);
+test('native deletion withdraws authority before a late paid result', async t => {
+    const h = await setup(t, ['body'], { holdRequest: true }); h.start(); await h.pump(3);
     const completion = generate(h); await h.pump(5);
     const [pending] = await h.api.getPreviewsForMessage(h.ctx.chatId, 0);
     assert.equal(h.counters.requests.length, 1);
-    if (save === 'read-fail') assert.ok(pending.placement);
-    else assert.equal(pending.placement, null);
+    assert.ok(pending.placement);
     h.ctx.chat[0].mes = 'body'; h.ctx.chat[0].swipes[0] = 'body';
     // An in-flight recovery must not outlive the explicit native edit either.
     h.api.releaseChatImageAdmission(h.ctx.chat[0]);
@@ -317,75 +306,17 @@ for (const save of ['ok', 'read-fail']) test(`native deletion during ${save} sav
     assert.equal(h.ctx.chat[0].mes, 'body'); assert.equal(h.counters.requests.length, 1);
 });
 
-for (const sameFilename of [false, true]) test(`waiting readback cannot swallow B save with a reused array (same filename: ${sameFilename})`, async t => {
-    const h = await setup(t, ['[image:a]']);
-    Object.assign(h.ctx, { chatId: 'a-chat', groupId: null, characterId: 0,
-        characters: [{ name: 'same', avatar: 'a.png' }, { name: 'same', avatar: 'b.png' }] });
-    let releaseRead;
-    const held = new Promise(resolve => { releaseRead = resolve; });
-    const persisted = new Map(), saves = [];
-    const save = async () => {
-        const live = globalThis.__drawJourneyReview.ctx, avatar = live.characters[live.characterId].avatar;
-        saves.push(avatar); persisted.set(avatar, structuredClone(live.chat));
-    };
-    h.ctx.saveChat = save;
-    globalThis.fetch = async (_url, options) => {
-        const { avatar_url: avatar } = JSON.parse(options.body);
-        if (avatar === 'a.png') await held;
-        return { ok: true, json: async () => structuredClone(persisted.get(avatar)) };
-    };
-    const a = h.api.saveChatImagePlacements(h.ctx, ['a']); await h.settle();
-    assert.deepEqual(saves, ['a.png']);
-    h.ctx.chat.splice(0, 1, { mes: '[image:b]', swipe_id: 0 });
-    const bCtx = { ...h.ctx, characterId: 1, chatId: sameFilename ? 'a-chat' : 'b-chat' };
-    globalThis.__drawJourneyReview.ctx = bCtx;
-    const b = h.api.saveChatImagePlacements(bCtx, ['b']); await h.settle();
-    assert.notEqual(a, b); assert.deepEqual(saves, ['a.png', 'b.png']);
-    releaseRead(); assert.deepEqual(await Promise.all([a, b]), [true, true]);
-    assert.equal(persisted.get('b.png')[0].mes, '[image:b]');
-    assert.equal(h.counters.warnings.length, 0);
-});
-
-test('navigation while awaiting a save lock never calls the host save on the new chat', async t => {
-    const h = await setup(t, ['[image:a]']);
-    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-    let locked;
-    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
-        request: (_name, _options, task) => new Promise((resolve, reject) => { locked = () => Promise.resolve(task()).then(resolve, reject); }),
-    } } });
-    t.after(() => { if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else delete globalThis.navigator; });
-    const saving = h.api.saveChatImagePlacements(h.ctx, ['a']); await h.settle();
-    h.ctx.chat.splice(0, 1, { mes: 'B unchanged' });
-    globalThis.__drawJourneyReview.ctx = { ...h.ctx, chatId: 'b-chat' };
-    await locked(); await saving;
-    assert.equal(h.counters.saves, 0); assert.equal(h.ctx.chat[0].mes, 'B unchanged');
-});
-
 test('source insertion recovers original multi-image order, not random imgId order', async t => {
     const source = 'scene\nnext';
-    const h = await setup(t, [source], { save: 'read-fail' });
+    const h = await setup(t, [source]);
     const ids = ['z-first', 'a-second']; globalThis.__drawJourneyReview.uuid = () => ids.shift();
     const placement = { mode: 'source', sourceHash: hashSceneSource(source), offset: 5 };
     await generate(h, [placement, placement]); await h.settle();
     const original = h.ctx.chat[0].mes;
     assert.equal(original, 'scene\n[image:slot-z-first]\n[image:slot-a-second]\nnext');
     h.ctx.chat[0] = { mes: source, swipe_id: 0, swipes: [source] }; h.body(0).textContent = source;
-    h.setMode('ok'); assert.equal(await h.api.adoptChatImageMessage(h.ctx, 0), true); await h.settle();
-    assert.equal(h.ctx.chat[0].mes, original); assert.equal(h.persisted()[0].mes, original);
+    assert.equal(await h.api.adoptChatImageMessage(h.ctx, 0), true); await h.settle();
+    assert.equal(h.ctx.chat[0].mes, original);
     assert.equal(h.counters.requests.length, 2);
-    assert.ok((await h.api.getPreviewsForMessage(h.ctx.chatId, 0)).every(record => record.placement === null && record.base64));
-});
-
-test('native receive leaves no perpetual attachment permission after its visible slot is saved', async t => {
-    const h = await setup(t, ['body'], { holdRequest: true }); h.start(); await h.pump(3);
-    await h.emit('GENERATION_AFTER_COMMANDS', 'continue'); await h.emit('GENERATE_AFTER_DATA', {}, false);
-    h.ctx.chat[0].mes += '\n[img: native]'; h.body(0).textContent = h.ctx.chat[0].mes;
-    await h.emit('MESSAGE_RECEIVED', 0, 'continue');
-    await h.ctx.saveChat(); // Host native save after MESSAGE_RECEIVED.
-    await h.pump(6);
-    const [record] = await h.api.getPreviewsForMessage(h.ctx.chatId, 0);
-    assert.equal(record.placement, null);
-    h.releaseRequest(); await h.pump(6);
-    assert.equal((await h.api.getPreview(record.imgId)).placement, null);
-    assert.equal(h.counters.requests.length, 1);
+    assert.ok((await h.api.getPreviewsForMessage(h.ctx.chatId, 0)).every(record => record.base64));
 });

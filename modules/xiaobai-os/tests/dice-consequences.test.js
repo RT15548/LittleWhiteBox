@@ -5,7 +5,8 @@ import { CHECK_CONSEQUENCE_FIELDS } from '../apps/dice/domain/check-consequences
 import { emptyCoc7Draft } from '../apps/dice/domain/coc7-creation.ts';
 import { DICE_RECORDS_SCHEMA_VERSION, parseDiceRecords } from '../apps/dice/domain/check-records.ts';
 import { rollCoc7 } from '../apps/dice/domain/coc7.ts';
-import { resolveActionCheck } from '../apps/dice/domain/action-check.ts';
+import { ACTION_CHECK_REQUEST_FIELDS, resolveActionCheck } from '../apps/dice/domain/action-check.ts';
+import { COC7_REQUEST_FIELDS } from '../apps/dice/domain/coc7-request.ts';
 import { rerollCheck } from '../apps/dice/domain/reroll.ts';
 import { applyResultOverride, createResultOverride } from '../apps/dice/domain/result-override.ts';
 import { prepareActionCheck } from '../apps/dice/application/prepare-action-check.ts';
@@ -15,15 +16,18 @@ import { ACTION_CHECK_EXAMPLE, parseActionCheck } from '../apps/dice/protocol/re
 import { buildActionCheckContinuation, serializeActionCheckResults } from '../apps/dice/protocol/prompt.ts';
 import { createCheckCard } from '../apps/dice/ui/check-card.ts';
 import { savedV1, savedV3 } from './fixtures/dice-v3.js';
+import { savedV4 } from './fixtures/dice-v4.js';
+import { checkMarker } from '../apps/dice/domain/check-marker.ts';
 
 // Acceptance contracts (cost):
-// - Both executable examples retain separate consequences through adjudication (protocol mismatch).
+// - Both executable examples follow the complete required-first field contract and retain consequences through adjudication (protocol mismatch).
 // - Active swipe save/reload/continuation and rerolls retain both branches without changing odds (data loss).
-// - Invalid supplied branches stop before rolling; omission never fabricates a consequence (broken chat).
+// - Every new check supplies action, stat, difficulty and both consequences before any roll; only D20 character may be omitted (protocol mismatch).
 // - Cards retain both branches through rolling and rerolls without presenting a pending verdict (misleading result).
 // - Model text stays literal in cards and outgoing data (HTML/macro injection).
 // - Supported saved formats preserve context, results and paid reroll receipts without guessing branches (data/money loss).
 const consequences = { success: '避开守卫进入庭院。', failure: '弄出声响，引来巡查。' };
+const requiredFields = ['action', 'stat', 'difficulty', 'success', 'failure'];
 const request = { action: '翻过湿滑的围墙', stat: 'athletics', difficulty: 'hard' };
 const wrap = value => `你抓住墙沿。\n\n<xb_action_check>${JSON.stringify(value)}</xb_action_check>`;
 const prepare = (value, options = {}) => prepareActionCheck({ body: wrap(value), generatedFrom: 0,
@@ -40,8 +44,12 @@ function withDocument(run) {
 
 test('both model examples execute and retain their separate consequences', () => {
     for (const [rule, body] of [['coc7', COC7_EXAMPLE], ['d20', ACTION_CHECK_EXAMPLE]]) {
+        const fields = rule === 'd20' ? ACTION_CHECK_REQUEST_FIELDS : COC7_REQUEST_FIELDS;
+        assert.deepEqual(Object.keys(fields), [...requiredFields, ...(rule === 'd20' ? ['character'] : [])]);
+        assert.deepEqual(Object.entries(fields).filter(([, spec]) => spec.required).map(([name]) => name), requiredFields);
         const parsed = parseActionCheck(body, 0, rule);
         assert.equal(parsed.kind, 'request');
+        assert.deepEqual(Object.keys(parsed.request), Object.keys(fields));
         for (const key of Object.keys(consequences)) { assert.ok(parsed.request[key].trim()); }
         const candidate = prepareActionCheck({ body, generatedFrom: 0, rule,
             id: `example-${rule}`, coc7Sheet: emptyCoc7Draft(), random: () => .4 });
@@ -76,20 +84,33 @@ for (const rule of ['d20', 'coc7']) {
         assert.equal(saved.extra.note, 'keep');
     });
 
-    test(`${rule}: optional branches do not change adjudication and invalid branches never roll`, () => {
-        const baseline = reload(prepare(request, { rule }).records).checks[0];
-        const enriched = reload(prepare({ ...request, ...consequences }, { rule }).records).checks[0];
-        const { success, failure, ...rest } = enriched.request;
-        assert.deepEqual({ success, failure }, consequences);
-        assert.deepEqual({ ...enriched, request: rest }, baseline);
+    test(`${rule}: missing required fields and invalid consequences never roll`, () => {
+        const complete = { ...request, ...consequences };
+        for (const keys of [['action'], ['stat'], ['difficulty'], ['success'], ['failure'], ['success', 'failure']]) {
+            const missing = { ...complete };
+            for (const key of keys) { delete missing[key]; }
+            let draws = 0;
+            assert.equal(prepare(missing, { rule, random: () => { draws++; return .4; } }).kind, 'invalid');
+            assert.equal(draws, 0);
+        }
         for (const [key, spec] of Object.entries(CHECK_CONSEQUENCE_FIELDS)) {
             for (const value of [null, '', '  ', 42, false, [], {}, 'x'.repeat(spec.maxLength + 1)]) {
                 let draws = 0;
-                const result = prepare({ ...request, [key]: value }, { rule, random: () => { draws++; return .4; } });
+                const result = prepare({ ...complete, [key]: value }, { rule, random: () => { draws++; return .4; } });
                 assert.equal(result.kind, 'invalid');
                 assert.equal(draws, 0);
             }
-            assert.equal(prepare({ ...request, [key]: 'x'.repeat(spec.maxLength) }, { rule }).kind, 'candidate');
+            assert.equal(prepare({ ...complete, [key]: 'x'.repeat(spec.maxLength) }, { rule }).kind, 'candidate');
+        }
+        const baseline = reload(prepare(complete, { rule }).records).checks[0];
+        const reordered = prepare(Object.fromEntries(Object.entries(complete).reverse()), { rule });
+        assert.deepEqual(reload(reordered.records).checks[0], baseline);
+        const changed = reload(prepare({ ...complete, success: 'Another benefit.', failure: 'Another setback.' }, { rule }).records).checks[0];
+        assert.deepEqual({ ...changed, request: baseline.request }, baseline);
+        if (rule === 'd20') {
+            const named = reload(prepare({ ...complete, character: 'Mira' }, { rule }).records).checks[0];
+            assert.equal(named.request.character, 'Mira');
+            assert.deepEqual({ ...named, request: baseline.request }, baseline);
         }
     });
 
@@ -158,14 +179,30 @@ for (const rule of ['d20', 'coc7']) {
         assert.equal(serialized.includes('{{'), false);
         assert.equal(JSON.parse(serialized)[0].success, literal);
         assert.equal(JSON.parse(serialized)[0].failure, literal);
-        for (const partial of [{}, { success: consequences.success }]) {
-            const failed = reload(prepare({ ...request, ...partial }, { rule }).records).checks[0];
-            assert.equal(createCheckCard(failed, false).element.querySelectorAll('.xb-dice-consequence').length,
-                partial.success ? 1 : 0);
-        }
     }));
 
 }
+
+test('published V4 omissions survive reload, cards, continuation and paid rerolls without becoming new requests', () => withDocument(() => {
+    for (const fixture of savedV4) {
+        const records = reload(fixture.records);
+        assert.deepEqual(records, fixture.records);
+        const record = records.checks[0];
+        const overridden = applyResultOverride(record, fixture.override);
+        assert.equal(overridden.rule === 'd20' ? overridden.roll : overridden.result.roll, fixture.override.result.roll);
+        assert.deepEqual(reload({ ...records, checks: [overridden] }).checks[0], overridden);
+        for (const partial of [{}, { success: consequences.success }, { failure: consequences.failure }]) {
+            const saved = { ...records, checks: [{ ...record, request: { ...record.request, ...partial } }] };
+            const restored = reload(saved).checks[0];
+            assert.deepEqual(restored.request, saved.checks[0].request);
+            assert.equal(createCheckCard(restored, false).element.querySelectorAll('.xb-dice-consequence').length, Object.keys(partial).length);
+            const continuation = buildActionCheckContinuation(checkMarker(restored.id), [restored], true);
+            const [data] = JSON.parse(continuation.match(/```json\n([\s\S]*?)\n```/)[1]);
+            for (const key of ['success', 'failure']) { assert.equal(data[key], partial[key]); }
+            assert.equal(prepare(restored.request, { rule: record.rule }).kind, 'invalid');
+        }
+    }
+}));
 
 test('D100 uses achievement, even when a rolled success degree is below the requested difficulty', () => withDocument(() => {
     const base = reload(prepare({ ...request, ...consequences }).records).checks[0];

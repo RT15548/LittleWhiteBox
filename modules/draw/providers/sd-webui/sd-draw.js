@@ -694,7 +694,6 @@ async function fetchSdProxy(path, body = {}, { signal, generationConfig, attempt
     if (!response.ok) {
         const text = await response.text().catch(() => '');
         const error = classifySdError(text || response.statusText || `HTTP ${response.status}`);
-        error.status = response.status;
         throw imageHttpFailure(error, response.status);
     }
 

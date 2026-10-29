@@ -1,7 +1,7 @@
 import { createAbortError } from '../../../shared/common/abort-utils.js';
 import { applySummaryPanelConfigSnapshot, getSummaryPanelConfig, getVectorConfig, readSummaryPanelConfigFromServer } from './config.js';
 import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
-import { recallConfigKey } from '../generate/recall-reuse.js';
+import { getRecallConfigChange } from '../generate/recall-reuse.js';
 import {
     VECTOR_WRITE_SCOPES, cancelEmbeddingWriteTasks, isVectorWriteSessionCurrent, runVectorWriteTask, runVectorConfigTransition,
 } from '../vector/runtime/maintenance-coordinator.js';
@@ -14,7 +14,8 @@ export async function changeSummaryConfig({ chatId, reason, vectorChanged = true
         const nextVectorConfig = getVectorConfig();
         const appliedVectorChanged = JSON.stringify(previousVectorConfig) !== JSON.stringify(nextVectorConfig);
         if (appliedVectorChanged && !vectorChanged) cancelEmbeddingWriteTasks('summary-config-changed');
-        if (recallConfigKey(previousConfig) !== recallConfigKey(getSummaryPanelConfig())) invalidateRecall();
+        const recallChange = getRecallConfigChange(previousConfig, getSummaryPanelConfig());
+        if (recallChange) invalidateRecall(recallChange);
         const changed = await afterVectorChange(previousVectorConfig, nextVectorConfig, session);
         return { previousConfig, previousVectorConfig, nextVectorConfig, result, changed };
     };

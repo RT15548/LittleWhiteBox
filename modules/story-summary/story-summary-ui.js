@@ -8,7 +8,7 @@ import { createSummaryAgentSettings } from './maintenance/api-settings.js';
 import { ARCHIVE_COPY, createSummaryArchive, getArchiveCharacters, getArchiveStateFacts } from './archive-view.js';
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './data/summary-delay.js';
-import { DEFAULT_RECALL_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec } from './data/recall-settings.js';
+import { DEFAULT_RECALL_TIMEOUT_SEC, DEFAULT_RERANK_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec, normalizeRerankTimeoutSec } from './data/recall-settings.js';
 import { RELATION_TRENDS } from './data/fact-predicates.js';
 import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
@@ -336,6 +336,7 @@ const UNANNOTATED_LABEL = '未标注';
             },
             rerankApi: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [],
+                timeoutSec: DEFAULT_RERANK_TIMEOUT_SEC,
                 providers: {
                     siliconflow: createDefaultProviderProfile('siliconflow', 'BAAI/bge-reranker-v2-m3'),
                     custom: createDefaultProviderProfile('custom', 'BAAI/bge-reranker-v2-m3'),
@@ -456,6 +457,7 @@ const UNANNOTATED_LABEL = '未标注';
                 providers: normalizeProviderProfiles('embedding', raw.embeddingApi || {}),
             });
             Object.assign(base.rerankApi, {
+                timeoutSec: normalizeRerankTimeoutSec(raw.rerankApi?.timeoutSec),
                 provider: raw.rerankApi?.provider || base.rerankApi.provider,
                 url: raw.rerankApi?.url || sharedUrl || base.rerankApi.url,
                 key: raw.rerankApi?.key || sharedKey || base.rerankApi.key,
@@ -708,6 +710,7 @@ const UNANNOTATED_LABEL = '未标注';
             model: providers[provider]?.model || '',
             modelCache: Array.isArray(providers[provider]?.modelCache) ? [...providers[provider].modelCache] : [],
             providers,
+            ...(prefix === 'rerank' ? { timeoutSec: normalizeRerankTimeoutSec($('rerank-api-timeout').value) } : {}),
         };
     }
 
@@ -720,6 +723,11 @@ const UNANNOTATED_LABEL = '未标注';
         $(`${prefix}-api-url`).value = profile.url || '';
         $(`${prefix}-api-key`).value = profile.key || '';
         $(`${prefix}-api-model-text`).value = profile.model || '';
+
+        if (prefix === 'rerank') {
+            $('rerank-api-timeout').max = String(MAX_RECALL_TIMEOUT_SEC);
+            $('rerank-api-timeout').value = String(normalizeRerankTimeoutSec(next.timeoutSec));
+        }
 
         const cache = Array.isArray(profile.modelCache) ? profile.modelCache : [];
         setSelectOptions($(`${prefix}-api-model-select`), cache, '请选择');
@@ -1066,6 +1074,8 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function initVectorUI() {
+        $('rerank-api-timeout-label').textContent = SUMMARY_FEEDBACK_COPY.rerankTimeout.label;
+        $('rerank-api-timeout-hint').textContent = SUMMARY_FEEDBACK_COPY.rerankTimeout.hint;
         $('vector-enabled').onchange = e => {
             $('vector-config-area').classList.toggle('hidden', !e.target.checked);
             syncVectorBoundaryControl(e.target.checked, config.ui.hideSummarized);
@@ -1097,7 +1107,7 @@ const UNANNOTATED_LABEL = '未标注';
             };
 
             $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
-            for (const field of ['provider', 'url', 'key', 'model-text', 'model-select']) {
+            for (const field of ['provider', 'url', 'key', 'model-text', 'model-select', ...(prefix === 'rerank' ? ['timeout'] : [])]) {
                 $(`${prefix}-api-${field}`).addEventListener(field === 'provider' || field === 'model-select' ? 'change' : 'input', () => {
                     postMsg('VECTOR_CANCEL_TEST', { target: prefix });
                     updateVectorOnlineStatus(prefix, 'idle', '');

@@ -1,3 +1,5 @@
+import { normalizeRerankTimeoutSec } from '../data/recall-settings.js';
+
 // One completed, adopted memory per runtime. No chat snapshots or retrieval
 // sessions belong here. Tickets live only for the pending prepare/commit call.
 export function createRecallReuse() {
@@ -96,4 +98,11 @@ export function recallConfigKey(config) {
         config?.ui?.keepVisibleCount,
         config?.ui?.hideSummarized, config?.ui?.useVectorBoundary,
     ]);
+}
+
+export function getRecallConfigChange(previous, next) {
+    if (recallConfigKey(previous) !== recallConfigKey(next)) return 'content';
+    if (normalizeRerankTimeoutSec(previous?.vector?.rerankApi?.timeoutSec)
+        !== normalizeRerankTimeoutSec(next?.vector?.rerankApi?.timeoutSec)) return 'reuse-only';
+    return null;
 }

@@ -9,8 +9,6 @@ import { isMessageBeingEdited, renderPreviewsForMessage, removeDrawSavedEntry, c
 import { withdrawEditedImagePlacements } from './chat-image-tag-migration.js';
 import { getImageChatIdentity } from './chat-image-persistence.js';
 import { isSceneSlotAlive } from './scene-placement.js';
-import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
-import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { DRAW_SLOT_COPY, hasPreviewImage } from './image-record.js';
 import { withDrawActionFeedback } from './draw-action-feedback.js';
 
@@ -227,31 +225,9 @@ export async function removeChatImageSlot(container) {
     const withdrawal = withdrawEditedImagePlacements(ctx, messageId);
     container.remove();
 
+    // 正文里的图位由酒馆自动保存带走；这里只清本地记录。保存前刷新最多留一张找不到图的卡，可以再移除一次。
     try {
         await Promise.all([withdrawal, discardPendingImageSlot(slotId)]);
-    } catch (cause) {
-        throw new Error(DRAW_SLOT_COPY.removeLocalSaveFailed, { cause });
-    }
-    try {
-        await withConfirmableChatMutation(ctx, async () => {
-            const assertSaveTarget = () => {
-                if (!isCurrentTarget() || findImageJobDeliverySlot(ctx.chat, slotId)) {
-                    throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
-                }
-            };
-            assertSaveTarget();
-            await saveChatAndConfirm({ ctx: { ...ctx, saveChat: () => {
-                // Web Locks may wait too: never let a late deletion save B's chat.
-                assertSaveTarget();
-                return ctx.saveChat();
-            } }, verify: persisted => !findImageJobDeliverySlot(persisted, slotId) });
-        });
-    } catch (cause) {
-        // Keep local removal and all image records. Never silently roll back the
-        // visible action or delete paid data when only the chat save is uncertain.
-        throw new Error(DRAW_SLOT_COPY.removeSaveFailed, { cause });
-    }
-    try {
         for (const record of await getPreviewsBySlot(slotId)) await deletePreview(record.imgId);
         await clearSlotSelection(slotId);
     } catch (cause) {

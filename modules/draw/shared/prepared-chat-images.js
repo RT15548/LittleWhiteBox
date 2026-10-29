@@ -4,7 +4,7 @@ import { createPlaceholder, renderPreviewsForMessage, syncRenderedMessageFromSta
     isMessageBeingEdited, classifyError, clearDrawSavedEntry, materializeDrawSavedPreview } from './draw-common.js';
 import { setActiveMessageText, isSceneSlotAlive } from './scene-placement.js';
 import { createImageIdentifiers, placePreparedImageSlots } from './prepared-image-placement.js';
-import { captureImagePlacement, saveChatImagePlacements, getImageChatIdentity } from './chat-image-persistence.js';
+import { captureImagePlacement, getImageChatIdentity } from './chat-image-persistence.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { executePreparedSlots } from './prepared-slot-executor.js';
 import { setSlotActivity, clearSlotActivity } from './slot-activity.js';
@@ -138,13 +138,9 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
                 return true;
             }
             // Manual tags use the same synchronous text/card handoff as native
-            // tags. Persistence is a follow-up, not a prerequisite for paid
-            // transport; a busy/failed host save must never suppress the call.
+            // tags. The host's own autosave persists this edit.
             if (replacesTags) placeTags();
             else setActiveMessageText(message, plannedText);
-            // Save follows placement independently. Neither slow host I/O nor
-            // readback uncertainty may hold the provider queue or undo this edit.
-            void saveChatImagePlacements(ctx, ids.map(item => item.slotId));
             const liveId = getContext().chat.indexOf(message);
             void syncRenderedMessageFromState(liveId, { chatId, expectedMessage: message,
                 insertedSlotIds: ids.map(item => item.slotId) }).catch(error => console.error(DRAW_SLOT_COPY.renderFailed, error));

@@ -1,6 +1,6 @@
-import { ACTION_CHECK_DC_RANGES, type ActionCheckDifficulty } from '../domain/action-check.js';
+import { ACTION_CHECK_DC_RANGES, ACTION_CHECK_REQUEST_FIELDS, type ActionCheckDifficulty } from '../domain/action-check.js';
 import { MAX_ACTION_CHECKS, referencedActionChecks, isCheckContinuationPoint, type ActionCheckRecord } from '../domain/check-records.js';
-import { ACTION_CHECK_EXAMPLE, ACTION_CHECK_FIELDS } from './request.js';
+import { ACTION_CHECK_EXAMPLE } from './request.js';
 import { ACTION_CHECK_CLOSE, ACTION_CHECK_OPEN } from './markup.js';
 import type { ActionCheckFrequency, ActionCheckRule } from '../types.js';
 import { COC7_DOMAIN, COC7_RESULT_GUIDANCE, coc7RequestContract } from './coc7-contract.js';
@@ -58,9 +58,12 @@ export function buildActionCheckRules(frequency: ActionCheckFrequency, rule: Act
         + 'Requesting a check pauses the current chat message before the outcome; it does not finish the message.\n'
         + 'Stop after the request and omit end-of-message formats such as status panels at this pause.\n'
         + (rule === 'coc7' ? coc7RequestContract() : 'Fields: nonempty strings; omit unused optional fields.\n'
-        + Object.entries(ACTION_CHECK_FIELDS).map(([name, spec]) => `${name} (${spec.required ? 'required' : 'optional'}, max ${spec.maxLength} chars): ${spec.description}`).join('\n')
-        + '\ndifficulty (required): '
-        + Object.entries(ACTION_CHECK_DC_RANGES).map(([name, { min, max }]) => `${name} (DC ${min === max ? min : `${min}–${max}`}, ${D20_DIFFICULTY_GUIDANCE[name as ActionCheckDifficulty]})`).join('; ') + '.\n'
+        + Object.entries(ACTION_CHECK_REQUEST_FIELDS).map(([name, spec]) => `${name} (${spec.required ? 'required' : 'optional'}${spec.type === 'string' ? `, max ${spec.maxLength} chars` : ''}): ${spec.description}`
+            + (spec.type === 'enum' ? ' ' + spec.values.map(value => {
+                const difficulty = value as ActionCheckDifficulty;
+                const { min, max } = ACTION_CHECK_DC_RANGES[difficulty];
+                return `${value} (DC ${min === max ? min : `${min}–${max}`}, ${D20_DIFFICULTY_GUIDANCE[difficulty]})`;
+            }).join('; ') + '.' : '')).join('\n') + '\n'
         + `Example:\n${ACTION_CHECK_EXAMPLE}\n`);
     return `<dice_context>\n${domain + contract}</dice_context>`;
 }

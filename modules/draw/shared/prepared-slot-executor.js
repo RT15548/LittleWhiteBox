@@ -62,10 +62,10 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         const kind = signal?.aborted ? DRAW_SLOT_ERRORS.interrupted : classifyError(error);
         const unknown = !backend && started.has(index)
             && ![ImageRequestOutcome.NOT_SUBMITTED, ImageRequestOutcome.REJECTED].includes(error?.imageRequestOutcome);
-        const problem = unknown ? DRAW_SLOT_ERRORS.unknown : kind;
+        // 结果拿不准时状态记 UNKNOWN；给用户看的只是实际原因（超时、服务不可用……）。
+        const problem = unknown && !error?.message ? DRAW_SLOT_ERRORS.unknown : kind;
         await deliver(index, { status: unknown ? PreviewStatus.UNKNOWN : PreviewStatus.FAILED,
-            errorType: problem.label, errorMessage: unknown && error?.message
-                ? `${error.message}\n${problem.desc}` : error?.message || problem.desc }, guard, commitDelivery);
+            errorType: problem.label, errorMessage: error?.message || problem.desc }, guard, commitDelivery);
     };
     try {
         for (const [index, item] of items.entries()) {

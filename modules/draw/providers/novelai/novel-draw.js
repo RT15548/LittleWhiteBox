@@ -190,6 +190,7 @@ import { submitPreparedChatImages, registerPreparedImageProvider } from "../../s
 import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
+import { requestNovelImageWithRetry } from './novel-request-retry.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
@@ -1961,10 +1962,12 @@ async function runNovelImageBatch({
         }
         try {
             const base64 = await enqueueImageRequest(
-                async () => {
-                    if (await onItemStarting?.({ index }) === false) return null;
-                    return executePreparedNovelRequest(prepared[index], requestConfig, signal);
-                },
+                () => requestNovelImageWithRetry({
+                    request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
+                    sendMode: requestConfig.sendMode,
+                    signal,
+                    beforeRequest: () => onItemStarting?.({ index }),
+                }),
                 {
                     signal,
                     batchKey: queueBatch,

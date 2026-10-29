@@ -4,7 +4,7 @@ import { readGeneratedImageForAdoption } from './generated-image-runtime.js';
 import { getPreview, getPreviewsBySlot, getPreviewsForMessage, storePreview, updatePreviewRecord, clearPreviewPlacements,
     getSlotSelection, setSlotSelection } from './gallery-cache.js';
 import { placePreparedImageSlots } from './prepared-image-placement.js';
-import { captureImagePlacement, saveChatImagePlacements, getImageChatIdentity } from './chat-image-persistence.js';
+import { captureImagePlacement, getImageChatIdentity } from './chat-image-persistence.js';
 import { hashSceneSource } from './scene-source.js';
 import { hashStableValue } from './generation-fingerprint.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
@@ -160,11 +160,6 @@ async function recoverMessage(ctx, messageId, message, initialSource, swipeIndex
         edits.forEach(edit => restoredSlots.add(edit.slotId));
         changed = true;
     }
-    // Re-entering a floor also retries attachment persistence, even if its
-    // in-memory text already contains the slot from an earlier failed save.
-    const attached = new Set([...source.matchAll(createDrawImageSlotRegex())].map(match => match[1]));
-    const saveSlots = new Set([...restoredSlots, ...records.filter(record => record.placement && attached.has(record.slotId)).map(record => record.slotId)]);
-    if (saveSlots.size) void saveChatImagePlacements(ctx, [...saveSlots]);
     if (restoredSlots.size) {
         await syncRenderedMessageFromState(messageId, { chatId, expectedMessage: message,
             insertedSlotIds: [...restoredSlots] });

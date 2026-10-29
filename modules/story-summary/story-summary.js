@@ -112,7 +112,7 @@ import {
     getRecallPrefetchStartAction,
 } from "./generate/recall-prefetch.js";
 import { selectBestStoryMemoryResult } from "./generate/story-memory-result.js";
-import { createRecallReuse, recallConfigKey } from './generate/recall-reuse.js';
+import { createRecallReuse, recallConfigKey, getRecallConfigChange } from './generate/recall-reuse.js';
 import { createRecallDiagnostics, formatRecallDiagnostics, formatRecallReuseDiagnostics, recordRecallFallback } from './recall-diagnostics.js';
 import { RECALL_TIMEOUT_REASONS, recallFailureNotice, recallCancellationNotice } from './generate/recall-failure.js';
 import { runRequiredRecall } from './generate/required-recall.js';
@@ -1624,16 +1624,23 @@ async function finishVectorConfigTransition(previousConfig, nextConfig, reason, 
     return true;
 }
 
+function invalidateRecallForConfigChange(change, reason) {
+    if (change === 'reuse-only') {
+        // A new deadline applies to future requests, not this generation's prompt or work.
+        recallReuse.invalidate();
+    } else if (change) {
+        serviceTests.cancel();
+        cancelRecallAndClearPrompt(reason);
+    }
+}
+
 async function changePanelConfig(reason, applyChange, vectorChanged = true) {
     return changeSummaryConfig({
         chatId: getContext()?.chatId || '',
         reason: `summary-config:${reason}`,
         vectorChanged,
         applyChange,
-        invalidateRecall: () => {
-            serviceTests.cancel();
-            cancelRecallAndClearPrompt('vector-config-changed');
-        },
+        invalidateRecall: change => invalidateRecallForConfigChange(change, 'vector-config-changed'),
         afterVectorChange: (previous, next, session) => finishVectorConfigTransition(previous, next, reason, session),
     });
 }
@@ -2294,7 +2301,7 @@ async function synchronizeSavedSummaryConfig(assertCurrent = () => {}) {
         assertCurrent,
         beforeApply: (previous, next) => {
             if (JSON.stringify(previous.vector) !== JSON.stringify(next.vector)) serviceTests.cancel();
-            if (recallConfigKey(previous) !== recallConfigKey(next)) cancelRecallAndClearPrompt('recall-config-reloaded');
+            invalidateRecallForConfigChange(getRecallConfigChange(previous, next), 'recall-config-reloaded');
         },
         afterVectorChange: (previous, next, session) => finishVectorConfigTransition(previous, next, 'server-reload', session),
     });

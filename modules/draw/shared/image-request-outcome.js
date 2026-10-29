@@ -9,6 +9,7 @@ export function withImageRequestOutcome(error, outcome) {
 
 // Transport semantics, deliberately independent of UI error classifications.
 export function imageHttpFailure(error, status) {
+    error.status = status;
     return withImageRequestOutcome(error, [400, 401, 402, 403, 404, 405, 413, 415, 422, 429].includes(status)
         ? ImageRequestOutcome.REJECTED : ImageRequestOutcome.UNKNOWN);
 }

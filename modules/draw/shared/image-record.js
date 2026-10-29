@@ -41,7 +41,6 @@ export const DRAW_SLOT_COPY = Object.freeze({
     editTargetChanged: '图片版本已变化，草稿已保留，请重新打开编辑后保存。',
     tagSaved: 'TAG 已保存',
     tagSaveFailed: 'TAG 保存失败',
-    attachmentSaveFailed: '聊天尚未保存成功，TAG 和图片已保留在图片管理中；重新打开本楼会接回，不会重新绘图。',
     tagReadFailed: 'TAG 读取失败',
     tagAdoptionFailed: '图片标签接管失败',
     redrawFailed: '图片重绘失败',
@@ -51,9 +50,8 @@ export const DRAW_SLOT_COPY = Object.freeze({
     removeConfirm: '确定移除此图位及所属图片记录？',
     removeFailed: '图位移除失败',
     removeTargetChanged: '原消息已变化，请在当前消息上重新操作。',
-    removeSaveFailed: '已从本页移除，但聊天保存未完成。请检查连接后重新编辑并保存原消息，保存前请勿刷新。',
-    removeLocalSaveFailed: '已从本页移除，但这次修改未能保存。请勿刷新，重新编辑并保存原消息以重试。',
-    removeCleanupFailed: '移除已保存，但图片管理中的记录未清理完成，可在图片管理中删除。',
+    removeCleanupFailed: '图位已移除，但图片管理里的记录没删掉，可以去图片管理删除。',
+
     editTags: '编辑 TAG（场景描述）',
     saveTags: '保存 TAG',
     saveAndRetry: '保存并重试',
@@ -67,7 +65,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
 export const DRAW_SLOT_ERRORS = Object.freeze({
     placement: { code: 'image_placement_unconfirmed', label: '图位保存未确认', desc: '聊天保存未确认，本次未提交绘图。TAG 已保留，请稍后重试。' },
     interrupted: { code: 'image_interrupted', label: '绘图已中断', desc: '未找到可接回的任务，可编辑 TAG 后重新生成。' },
-    unknown: { code: 'image_submission_unknown', label: '绘图结果未知', desc: '重新生成可能再次计费，请先核对供应商记录。' },
+    unknown: { code: 'image_submission_unknown', label: '绘图未完成', desc: '没拿到图，可以重新生成。' },
     unavailable: { code: 'image_unavailable', label: '图片不可用', desc: '未找到可显示的图片记录。' },
     legacy: { code: 'legacy_image_unresolved', label: '旧图无法恢复', desc: '未找到可确认的旧图片，保留了原 TAG；重新生成将发起绘图请求。' },
 });
