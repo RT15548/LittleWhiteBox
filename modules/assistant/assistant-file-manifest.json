@@ -6,7 +6,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/README.md",
       "relativePath": "README.md",
       "extension": ".md",
-      "sizeBytes": 781
+      "sizeBytes": 870
     },
     {
       "source": "littlewhitebox",
@@ -4522,6 +4522,13 @@
       "relativePath": "modules/story-summary/docs/recall-reuse.md",
       "extension": ".md",
       "sizeBytes": 12540
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/docs/summary-memory-packages.md",
+      "relativePath": "modules/story-summary/docs/summary-memory-packages.md",
+      "extension": ".md",
+      "sizeBytes": 1615
     },
     {
       "source": "littlewhitebox",
