@@ -188,7 +188,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/media-api.html",
       "relativePath": "docs/media-api.html",
       "extension": ".html",
-      "sizeBytes": 24597
+      "sizeBytes": 25622
     },
     {
       "source": "littlewhitebox",
@@ -3682,6 +3682,13 @@
       "relativePath": "modules/draw/shared/tests/max-images-provider-order.test.js",
       "extension": ".js",
       "sizeBytes": 6321
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/media-api-examples.test.js",
+      "relativePath": "modules/draw/shared/tests/media-api-examples.test.js",
+      "extension": ".js",
+      "sizeBytes": 5663
     },
     {
       "source": "littlewhitebox",

@@ -45,6 +45,7 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
   const cancel = document.querySelector('#draw-cancel');
   const submit = form.querySelector('[type="submit"]');
   let controller = null;
+  let pageActive = true;
   const urls = [];
 
   function clearImages() {
@@ -67,38 +68,51 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
 
   form.onsubmit = async event =&gt; {
     event.preventDefault();
-    if (controller) return;
-    controller = new AbortController();
+    if (!pageActive || controller) return;
+    const current = new AbortController();
+    controller = current;
+    const isCurrent = () =&gt; pageActive &amp;&amp; controller === current;
     submit.disabled = true;
     cancel.disabled = false;
     status.textContent = '生成中…';
     try {
       const request = {
         prompt: form.elements.prompt.value,
-        signal: controller.signal,
+        signal: current.signal,
         onProgress: ({ state }) =&gt; {
+          if (!isCurrent()) return;
           status.textContent = state === 'queued' ? '排队中…' : '生成中…';
         },
       };
       const { images } = await window.parent.xiaobaixDraw.generate(request);
+      if (!isCurrent()) return;
       showImages(images);
       status.textContent = '完成，共 ' + images.length + ' 张图片';
     } catch (error) {
+      if (!isCurrent()) return;
       if (error.partialResult?.images?.length) {
         showImages(error.partialResult.images);
       }
       status.textContent = error.code === 'aborted'
         ? '已取消' : error.message;
     } finally {
-      controller = null;
-      submit.disabled = false;
-      cancel.disabled = true;
+      if (isCurrent()) {
+        controller = null;
+        submit.disabled = false;
+        cancel.disabled = true;
+      }
     }
   };
   cancel.onclick = () =&gt; controller?.abort();
+  window.addEventListener('pageshow', () =&gt; { pageActive = true; });
   window.addEventListener('pagehide', () =&gt; {
+    pageActive = false;
     controller?.abort();
+    controller = null;
     clearImages();
+    submit.disabled = false;
+    cancel.disabled = true;
+    status.textContent = '';
   });
 })();
 &lt;/script&gt;</code></pre>
@@ -224,6 +238,7 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
     ));
   }
   let controller = null;
+  let pageActive = true;
   let audioUrl = null;
 
   function clearAudio() {
@@ -236,8 +251,10 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
 
   form.onsubmit = async event =&gt; {
     event.preventDefault();
-    if (controller) return;
-    controller = new AbortController();
+    if (!pageActive || controller) return;
+    const current = new AbortController();
+    controller = current;
+    const isCurrent = () =&gt; pageActive &amp;&amp; controller === current;
     submit.disabled = true;
     cancel.disabled = false;
     status.textContent = '合成中…';
@@ -246,36 +263,47 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
       const options = {
         speaker: form.elements.speaker.value,
         speed: 1,
-        signal: controller.signal,
+        signal: current.signal,
         onProgress: ({ receivedBytes }) =&gt; {
+          if (!isCurrent()) return;
           if (receivedBytes !== undefined) {
             status.textContent = '已接收 ' + receivedBytes + ' 字节';
           }
         },
       };
       const audio = await tts.synthesize(text, options);
+      if (!isCurrent()) return;
       clearAudio();
       audioUrl = URL.createObjectURL(audio);
       player.src = audioUrl;
       status.textContent = '合成完成，点击播放器播放';
     } catch (error) {
+      if (!isCurrent()) return;
       status.textContent = error.code === 'aborted'
         ? '已取消' : error.message;
     } finally {
-      controller = null;
-      submit.disabled = false;
-      cancel.disabled = true;
+      if (isCurrent()) {
+        controller = null;
+        submit.disabled = false;
+        cancel.disabled = true;
+      }
     }
   };
   cancel.onclick = () =&gt; controller?.abort();
+  window.addEventListener('pageshow', () =&gt; { pageActive = true; });
   window.addEventListener('pagehide', () =&gt; {
+    pageActive = false;
     controller?.abort();
+    controller = null;
     clearAudio();
+    submit.disabled = false;
+    cancel.disabled = true;
+    status.textContent = '';
   });
 })();
 &lt;/script&gt;</code></pre>
 <p><code>getVoices()</code> 返回 <code>{ voices, defaultVoice }</code>。每个音色有 id、name、source（free 试用音色／auth 鉴权音色）和 available（当前是否可用）。把音色 id 填入 options.speaker 即可。</p>
-<p>两份示例都用 <code>URL.createObjectURL(blob)</code> 生成可供 img／audio 使用的临时地址，在替换结果或离开页面时用 <code>URL.revokeObjectURL(url)</code> 释放。不要刚显示就释放，否则图片或音频可能还没加载完。</p>
+<p>两份示例都用 <code>URL.createObjectURL(blob)</code> 生成可供 img／audio 使用的临时地址，在替换结果或离开页面时用 <code>URL.revokeObjectURL(url)</code> 释放。离开页面后，晚到的结果不会再显示。不要刚显示就释放，否则图片或音频可能还没加载完。</p>
 
 <h3 id="tts-fields">语音参数</h3>
 <p>试用音色只支持 <code>speaker、emotion、speed、signal、onProgress</code>。鉴权音色支持下面全部选项；能否使用某个情绪、语言或格式，还取决于选用的音色和模型。</p>
