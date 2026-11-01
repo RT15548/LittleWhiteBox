@@ -1715,15 +1715,6 @@ async function rollbackToPreviousOfAsync(messageId) {
     const id = Number(messageId);
     if (Number.isNaN(id)) return;
 
-    // Notify L0 rollback hook for floor >= id
-    if (typeof globalThis.LWB_StateRollbackHook === 'function') {
-        try {
-            await globalThis.LWB_StateRollbackHook(id);
-        } catch (e) {
-            console.error('[variablesCore] LWB_StateRollbackHook failed:', e);
-        }
-    }
-
     const prevId = id - 1;
     const mode = getVariablesMode();
 

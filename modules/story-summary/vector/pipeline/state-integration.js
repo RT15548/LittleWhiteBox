@@ -17,12 +17,9 @@ import {
 import { L0_FLOOR_MAX_ATTEMPTS, summarizeL0Floors } from './l0-floor-status.js';
 import { trackVectorActivity } from '../runtime/vector-activity.js';
 import { createAnchorExtractionDraft } from '../../data/anchor-extraction.js';
-import { assertMemoryWritable, waitForMemoryCommit, retireSummaryMemorySources } from '../../data/memory-commit.js';
-import { getChatIdentity } from '../../data/chat-identity.js';
-import { runVectorWriteTask, VECTOR_WRITE_SCOPES } from '../runtime/maintenance-coordinator.js';
+import { assertMemoryWritable, waitForMemoryCommit } from '../../data/memory-commit.js';
 import { sameMemory } from '../../maintenance/domain.js';
-import { invalidateSummaryAnchors, getSummaryStore, rollbackSummaryIfNeeded } from '../../data/store.js';
-import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+import { invalidateSummaryAnchors, getSummaryStore } from '../../data/store.js';
 import { embed } from '../llm/siliconflow.js';
 import { extractAtomsForRound } from '../llm/atom-extraction.js';
 import { getL0FailureDetails } from '../llm/l0-retry-policy.js';
@@ -56,7 +53,6 @@ let initialized = false;
 export function initStateIntegration() {
     if (initialized) return;
     initialized = true;
-    globalThis.LWB_StateRollbackHook = handleStateRollback;
     xbLog.info(MODULE_ID, 'L0 状态层集成已初始化');
 }
 
@@ -567,16 +563,4 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
 export async function clearAllAtomsAndVectors(chatId) {
     await invalidateSummaryAnchors(chatId, 0, 'anchors_cleared');
     xbLog.info(MODULE_ID, '已清空所有记忆锚点');
-}
-
-function handleStateRollback(floor) {
-    const context = getContext(), owner = getSummaryStore(), identity = getChatIdentity(context);
-    retireSummaryMemorySources(context.chatId, { fromFloor: floor });
-    // Retire before returning to the host; only cache IO joins the existing writer.
-    observeBackgroundTask(runVectorWriteTask({ chatId: context.chatId, kind: 'variable-source-sync', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, () => {
-        if (getChatIdentity(getContext()) !== identity || getSummaryStore() !== owner) return { status: 'stale' };
-        return rollbackSummaryIfNeeded({ invalidateFromFloor: floor });
-    }), {
-        source: import.meta.url, operation: 'handleStateRollback',
-    });
 }

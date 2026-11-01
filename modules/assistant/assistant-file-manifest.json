@@ -5564,7 +5564,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/memory-storage.test.js",
       "relativePath": "modules/story-summary/tests/memory-storage.test.js",
       "extension": ".js",
-      "sizeBytes": 152192
+      "sizeBytes": 150489
     },
     {
       "source": "littlewhitebox",
@@ -5963,7 +5963,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/pipeline/state-integration.js",
       "relativePath": "modules/story-summary/vector/pipeline/state-integration.js",
       "extension": ".js",
-      "sizeBytes": 22963
+      "sizeBytes": 21890
     },
     {
       "source": "littlewhitebox",
@@ -9085,7 +9085,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/variables-core.js",
       "relativePath": "modules/variables/variables-core.js",
       "extension": ".js",
-      "sizeBytes": 98145
+      "sizeBytes": 97844
     },
     {
       "source": "littlewhitebox",

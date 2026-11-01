@@ -4,6 +4,9 @@ import { createTestModuleUrl } from './helpers/bundle-module.js';
 import assert from 'node:assert/strict';
 import { beforeEach, after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { parse } from 'acorn';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { setImmediate } from 'node:timers';
 import path from 'node:path';
@@ -949,27 +952,39 @@ test('same-chat reload preserves every persisted L0/L1 row and extraction receip
     assert.equal(writes(), 0);
 });
 
-// Acceptance: variable-driven edit/swipe/delete hooks retire anchors before returning,
-// never wait for cache IO or save, and retain failed cleanup ranges. Cost: stale memory or blocked chat.
-for (const failure of [false, true]) test(`variable rollback notification is live-only and nonblocking (cache failure: ${failure})`, async t => {
+// Acceptance: variable rollback cannot retire summary sources; the source owner
+// handles real edits and preserves later floors. Cost: unrelated memory loss.
+test('variable rollback leaves summary sources to their own change tracker', async () => {
     await seedAnchors();
+    await seedCacheRange(host.context.chatId, [0, 1, 2, 3]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(host.context);
+    const before = mod.readSummaryMemory();
+    const beforeTables = await Promise.all(mod.db.tables.map(table => table.toArray()));
     const io = { writes: host.writes, reads: host.reads };
-    let finish;
-    const cleaning = new Promise((resolve, reject) => { finish = failure ? reject : resolve; });
-    t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () => cleaning }) }));
+    // Execute the real shared rollback entry without unrelated variable parsing.
+    const source = readFileSync(new URL('../../variables/variables-core.js', import.meta.url), 'utf8');
+    const declaration = parse(source, { sourceType: 'module', ecmaVersion: 'latest' }).body
+        .find(node => node.type === 'FunctionDeclaration' && node.id.name === 'rollbackToPreviousOfAsync');
+    const rolledBack = [];
+    const rollback = runInNewContext(`(${source.slice(declaration.start, declaration.end)})`, {
+        globalThis, console, stateApi: null, getVariablesMode: () => '1.0',
+        rollbackToPreviousOf: floor => rolledBack.push(floor),
+    });
     mod.initStateIntegration();
-    assert.equal(globalThis.LWB_StateRollbackHook(1), undefined);
-    assert.equal(ext().stateAtoms.some(atom => atom.floor >= 1), false);
-    assert.equal(ext().l0Index.byFloor[1], undefined);
-    assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
-    await nextTurn();
-    finish(failure ? new Error('cache offline') : 0);
+    await rollback(1);
     await Promise.all(host.background);
+    assert.deepEqual(rolledBack, [1]);
+    assert.deepEqual(mod.readSummaryMemory(), before);
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), beforeTables);
+    assert.equal(globalThis.LWB_StateRollbackHook, undefined);
+    assert.equal((await mod.synchronizeSourceCaches(tracker, host.context, { kind: 'edit', floor: 1 })).status, 'unchanged');
     assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
-    if (failure) {
-        assert.equal(mod.getRuntimeInvalidSourceFloor(), 1);
-        assert.equal(host.backgroundErrors[0].code, 'memory_cache_invalidation_failed');
-    } else assert.deepEqual(host.backgroundErrors, []);
+
+    host.context.chat[1].mes += ' corrected';
+    assert.equal((await mod.synchronizeSourceCaches(tracker, host.context, { kind: 'edit', floor: 1 })).status, 'synced');
+    assert.deepEqual(ext().stateAtoms, before.stateAtoms.filter(atom => atom.floor !== 1));
+    assert.deepEqual((await mod.chunksTable.where('chatId').equals(host.context.chatId).toArray()).map(row => row.floor), [0, 2, 3]);
+    assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
 });
 
 for (const failure of ['cache', 'save']) test(`source safety depends on cache cleanup, not an extra ${failure} save`, async t => {
@@ -2397,39 +2412,6 @@ for (const mixed of [false, true]) test(`Agent reports the post-swipe receipt, p
     assert.equal(mod.getMemoryCommitState(), 'ready');
 });
 
-// Acceptance: a later suffix cleanup cannot acknowledge an earlier failed range;
-// variable notifications share the writer and preserve failed work across retries.
-// Cost: stale source chunks become consumable with no pending cleanup marker.
-test('overlapping variable cleanup is serialized, and failed earlier work remains retryable', async t => {
-    await importFixture(); await seedAnchors();
-    await seedCacheRange(host.context.chatId, [1, 3, 20]);
-    const io = { writes: host.writes, reads: host.reads };
-    let release, calls = 0;
-    const cleaning = new Promise(resolve => { release = resolve; });
-    const mock = t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () =>
-        ++calls === 1 ? cleaning : Promise.reject(new Error('cache offline')) }) }));
-    mod.initStateIntegration();
-    globalThis.LWB_StateRollbackHook(20);
-    await nextTurn();
-    globalThis.LWB_StateRollbackHook(1);
-    await nextTurn();
-    assert.equal(calls, 1);
-    assert.equal(ext().stateAtoms.length, 0);
-    release(0);
-    await Promise.all(host.background);
-    assert.equal(calls, 2);
-    assert.equal(mod.getRuntimeInvalidSourceFloor(), 1);
-    assert.equal(ext().storySummary.sourceInvalidFromFloor, 1);
-    assert.deepEqual((await mod.chunksTable.where('chatId').equals(host.context.chatId).toArray()).map(row => row.floor), [1, 3]);
-    mock.mock.restore();
-    globalThis.LWB_StateRollbackHook(20); // A later request must include the retained earlier gap.
-    await Promise.all(host.background);
-    assert.equal(await mod.chunksTable.where('chatId').equals(host.context.chatId).count(), 0);
-    assert.equal(mod.getRuntimeInvalidSourceFloor(), undefined);
-    assert.equal(ext().storySummary.sourceInvalidFromFloor, undefined);
-    assert.deepEqual({ writes: host.writes, reads: host.reads }, io);
-});
-
 test('cleanup releases only the source boundary it actually handled', async t => {
     await importFixture(); await seedAnchors();
     let release;
@@ -2442,24 +2424,6 @@ test('cleanup releases only the source boundary it actually handled', async t =>
     assert.equal((await cleanup).status, 'deferred');
     assert.equal(mod.getRuntimeInvalidSourceFloor(), 1);
     mock.mock.restore();
-});
-
-test('queued variable cleanup never retires a different loaded chat', async t => {
-    await seedAnchors();
-    let release, calls = 0;
-    const cleaning = new Promise(resolve => { release = resolve; });
-    t.mock.method(mod.stateVectorsTable, 'where', () => ({ between: () => ({ delete: () => { calls++; return cleaning; } }) }));
-    mod.initStateIntegration();
-    globalThis.LWB_StateRollbackHook(20);
-    await nextTurn();
-    globalThis.LWB_StateRollbackHook(1);
-    const other = { storySummary: { lastSummarizedMesId: -1 }, stateAtoms: [{ atomId: 'other', floor: 1 }], l0Index: { version: 1, byFloor: {} } };
-    host.context = { ...host.context, chatId: 'other-chat' };
-    host.metadata = { extensions: { LittleWhiteBox: structuredClone(other) } };
-    mod.reload();
-    release(0); await Promise.all(host.background);
-    assert.equal(calls, 1);
-    assert.deepEqual(ext(), other);
 });
 
 test('automatic preparation waits for an active save but never recovers an uncertain one', async () => {
