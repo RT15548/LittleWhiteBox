@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { createTestModuleUrl } from './helpers/bundle-module.js';
 import { entry, uiEntry } from './helpers/story-summary-entry.js';
-import { normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, MAX_RECALL_TIMEOUT_SEC } from '../data/recall-settings.js';
+import { normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, normalizeQueryEmbeddingTimeoutSec, MAX_RECALL_TIMEOUT_SEC } from '../data/recall-settings.js';
 import { createRecallPrefetchCoordinator } from '../generate/recall-prefetch.js';
 import { recallCancellationNotice } from '../generate/recall-failure.js';
 
@@ -88,7 +88,7 @@ test('saved request budgets survive server readback and panel normalization with
         assert.deepEqual(saved.embeddingApi, before.vector.embeddingApi);
         const ui = uiEntry(['normalizeVectorConfigUI'], {
             config: { vector: saved }, normalizeProviderProfiles: () => ({}),
-            normalizeRecallTimeoutSec, normalizeRerankTimeoutSec,
+            normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, normalizeQueryEmbeddingTimeoutSec,
         });
         assert.equal(ui.normalizeVectorConfigUI(saved).rerankApi.timeoutSec, expected);
     }

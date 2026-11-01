@@ -48,7 +48,7 @@ for (const [provider, file, config] of [
             },
         };
         const result = await build({
-            stdin: { resolveDir: fileURLToPath(new URL(`../../providers/${provider}/`, import.meta.url)), contents: `export {loadSettings} from './${file}.js';` },
+            stdin: { resolveDir: fileURLToPath(new URL(`../../providers/${provider}/`, import.meta.url)), contents: `export {loadSettings, ${provider === 'novelai' ? 'novel' : provider === 'sd-webui' ? 'sd' : 'comfy'}PublicGeneration as publicGeneration} from './${file}.js';` },
             bundle: true, write: false, format: 'esm', platform: 'node',
             plugins: [{ name: 'offline-api-migration', setup(builder) {
                 builder.onResolve({ filter: /\.js$/ }, ({ path }) => {
@@ -69,6 +69,11 @@ for (const [provider, file, config] of [
         const original = structuredClone(stored);
         writes = 0;
         const api = await reopen();
+        // Public cold reads must not invoke initialization/migration writes (configuration pollution).
+        const publicSnapshot = await api.publicGeneration.snapshot();
+        assert.equal(writes, 0);
+        assert.deepEqual(stored, original);
+        for (const [key, value] of Object.entries(config)) assert.deepEqual(publicSnapshot[key], value, key);
         fail = true;
         await assert.rejects(api.loadSettings());
         assert.deepEqual(stored, original);

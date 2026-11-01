@@ -126,6 +126,10 @@ import {
 import { NovelV5RequestError, V5_QUALITY_IDS, V5_UC_IDS } from "./novel-v5-request.js";
 import { compile as compileNovelScenePlan, compileNovelImageRequest } from "./compiler.js";
 import { readNovelV5ErrorText, readNovelV5FinalImage, NovelV5StreamError } from "./novel-v5-stream.js";
+import { validateDrawInput } from '../../shared/public-api.js';
+import { imageBlob } from '../../shared/image-collection.js';
+import { runPublicImageJob } from '../../shared/public-image-job.js';
+import { MediaApiError } from '../../../../shared/media-api.js';
 import { decodeNovelBackendJobResult } from "./novel-backend-job-result.js";
 import {
     createImageBackendJobMonitorRegistry,
@@ -695,9 +699,9 @@ function describeApiError(status, text, fallbackType) {
         case 408:
         case 504: return new NovelDrawError('请求超时', ErrorType.TIMEOUT);
         case 429: return new NovelDrawError('当前并发繁忙，请稍后重试', ErrorType.BUSY);
-        case 500:
-        case 502:
-        case 503: return new NovelDrawError('服务不可用', ErrorType.NETWORK);
+        case 500: return new NovelDrawError('图片请求失败（HTTP 500）：服务器处理请求时发生内部错误。', ErrorType.UNKNOWN);
+        case 502: return new NovelDrawError('图片请求失败（HTTP 502）：负责转发请求的网关或代理，从上游服务器收到无效响应。', ErrorType.UNKNOWN);
+        case 503: return new NovelDrawError('图片请求失败（HTTP 503）：服务器暂时无法处理请求，可能正在维护或负载过高。', ErrorType.UNKNOWN);
         default: return new NovelDrawError(`失败: ${text || status}`, fallbackType);
     }
 }
@@ -2010,6 +2014,65 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
     if (image) return image;
     throw failure || new NovelDrawError('NovelAI 未返回图片', ErrorType.UNKNOWN);
 }
+
+export const novelPublicGeneration = {
+    presetsKey: 'paramsPresets', selectedKey: 'selectedParamsPresetId',
+    snapshot() {
+        return settingsLoaded && settingsCache ? structuredClone(getRuntimeSettings())
+            : NovelDrawStorage.getStrict(SERVER_FILE_KEY, null).then(saved => ({ ...normalizeSettings(saved || {}), timeout: getSharedDrawSettings().timeout }));
+    },
+    async generate(request, settings, { signal, onProgress }) {
+        const preset = settings.paramsPresets.find(item => item.id === settings.selectedParamsPresetId) || settings.paramsPresets[0];
+        if (!preset || !settings.apiKey) throw new MediaApiError('not_configured');
+        const defaults = normalizeParamsPreset(DEFAULT_PARAMS_PRESET, 0).params;
+        validateDrawInput(request, defaults);
+        const params = { ...DEFAULT_PARAMS_PRESET.params, ...preset.params, ...request.params };
+        const model = String(params.model);
+        const isV5 = isNovelV5Model(model);
+        for (const [field, allowedIds] of [['v5QualityPresetId', V5_QUALITY_IDS], ['v5UcPresetId', V5_UC_IDS]]) {
+            if (request.params?.[field] !== undefined && !allowedIds.includes(request.params[field])) throw new MediaApiError('invalid_request', { field: `params.${field}` });
+        }
+        const isV3 = model.includes('nai-diffusion-3') || model.includes('furry-3');
+        const common = ['model', 'sampler', 'scheduler', 'steps', 'scale', 'width', 'height', 'seed'];
+        const allowed = isV5 ? [...common, 'cfg_rescale', 'v5QualityPresetId', 'v5UcPresetId', 'transparentBackground']
+            : isV3 ? [...common, 'ucPreset', 'sm', 'sm_dyn', 'decrisper']
+                : [...common, 'ucPreset', 'qualityToggle', 'autoSmea', 'cfg_rescale', ...(model.includes('4-5') ? ['variety_boost'] : [])];
+        for (const field of Object.keys(request.params || {})) {
+            if (!allowed.includes(field)) throw new MediaApiError('unsupported_field', { field: `params.${field}` });
+        }
+        const requestConfig = snapshotNovelRequestConfig(settings, settings, DEFAULT_SETTINGS.timeout);
+        const config = { ...requestConfig,
+            overrideSize: request.params?.width !== undefined || request.params?.height !== undefined ? 'default' : requestConfig.overrideSize };
+        let prepared;
+        try {
+            // An explicit size belongs to this call, not the floating-panel size override.
+            if (request.params?.width !== undefined || request.params?.height !== undefined) {
+                const sized = prepareNovelImageRequest({ params }, requestConfig);
+                params.width = request.params?.width ?? sized.payload.parameters.width;
+                params.height = request.params?.height ?? sized.payload.parameters.height;
+            }
+            prepared = prepareNovelImageRequest({
+                scene: joinTags(request.positivePrefix ?? preset.positivePrefix, request.prompt),
+                negativePrompt: request.negativePrompt ?? preset.negativePrefix ?? '',
+                characterPrompts: request.characterPrompts || [], params,
+            }, config);
+        } catch (cause) { throw new MediaApiError('invalid_request', { cause }); }
+        const cooldownMs = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
+        const result = await novelImageRequestQueue.enqueue(() => isNovelImageBackendJobEnabled(config)
+            ? runPublicImageJob(imageBackendJobsClient, {
+                provider: 'novelai', context: { key: config.apiKey, insecure: config.insecureTLS },
+                delay: settings.requestDelay,
+                items: [{ request: { transport: prepared.transport, url: prepared.apiUrl, payload: prepared.payload }, timeout: config.timeout }],
+            }, { signal, onProgress })
+            : executePreparedNovelRequest(prepared, config, signal), {
+            signal, scope: 'public',
+            cooldownMs,
+            onQueued: data => onProgress?.({ state: 'queued', ...data }),
+            onStart: () => onProgress?.({ state: 'generating' }),
+        });
+        return Array.isArray(result) ? result : [imageBlob(result)];
+    },
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 图片渲染
@@ -4472,7 +4535,7 @@ export async function cleanupNovelDraw() {
     backendJobMonitors.deactivate();
     observeBackgroundTask(abortGeneration(null, { reason: 'teardown' }), { source: import.meta.url, operation: 'cleanupNovelDraw' });
     clearFloorImageJobs(generationJobs);
-    novelImageRequestQueue.clear();
+    novelImageRequestQueue.clear({ scope: 'default' });
 
     window.removeEventListener('message', handleFrameMessageEvent);
     // 移除事件委托监听器（防止累积泄漏）

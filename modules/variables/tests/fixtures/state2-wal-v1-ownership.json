@@ -1,0 +1,131 @@
+{
+  "sourceRevision": "08a52c341f3e5b0c180cb5edc5204bef809597bc",
+  "failedOnly": {
+    "chat": [
+      {
+        "mes": "<state>\nX: +\"bad\"\n</state>",
+        "swipe_id": 0
+      }
+    ],
+    "metadata": {
+      "variables": {
+        "X": "keep",
+        "independent": "safe",
+        "LWB_STATE_ERRORS": "- [X] 失败: not-array"
+      },
+      "extensions": {
+        "LittleWhiteBox": {
+          "stateLogV2": {
+            "version": 1,
+            "floors": {
+              "0": {
+                "signature": "<state>\nX: +\"bad\"\n</state>",
+                "rules": [],
+                "ops": [
+                  {
+                    "path": "X",
+                    "op": "push",
+                    "value": "bad"
+                  }
+                ],
+                "roots": [],
+                "ts": 1793533967415
+              }
+            }
+          },
+          "stateCkptV2": {
+            "version": 1,
+            "every": 50,
+            "points": {
+              "0": {
+                "vars": {
+                  "X": "keep",
+                  "independent": "safe"
+                },
+                "rules": {},
+                "ts": 1793533967415
+              }
+            }
+          }
+        }
+      },
+      "LWB_STATE_APPLIED_KEY": {
+        "0": "<state>\nX: +\"bad\"\n</state>"
+      }
+    }
+  },
+  "laterOwned": {
+    "chat": [
+      {
+        "mes": "<state>\nX: +\"bad\"\n</state>",
+        "swipe_id": 0
+      },
+      {
+        "mes": "<state>\nX[1]: \"later\"\n</state>",
+        "swipe_id": 0
+      }
+    ],
+    "metadata": {
+      "variables": {
+        "X": "[null,\"later\"]",
+        "independent": "safe",
+        "LWB_STATE_ERRORS": ""
+      },
+      "extensions": {
+        "LittleWhiteBox": {
+          "stateLogV2": {
+            "version": 1,
+            "floors": {
+              "0": {
+                "signature": "<state>\nX: +\"bad\"\n</state>",
+                "rules": [],
+                "ops": [
+                  {
+                    "path": "X",
+                    "op": "push",
+                    "value": "bad"
+                  }
+                ],
+                "roots": [],
+                "ts": 1793533967415
+              },
+              "1": {
+                "signature": "<state>\nX[1]: \"later\"\n</state>",
+                "rules": [],
+                "ops": [
+                  {
+                    "path": "X[1]",
+                    "op": "set",
+                    "value": "later"
+                  }
+                ],
+                "roots": [
+                  "X"
+                ],
+                "ts": 1793533967417
+              }
+            }
+          },
+          "stateCkptV2": {
+            "version": 1,
+            "every": 50,
+            "points": {
+              "0": {
+                "vars": {
+                  "X": "keep",
+                  "independent": "safe"
+                },
+                "rules": {},
+                "ts": 1793533967415
+              }
+            }
+          }
+        }
+      },
+      "LWB_STATE_APPLIED_KEY": {
+        "0": "<state>\nX: +\"bad\"\n</state>",
+        "1": "<state>\nX[1]: \"later\"\n</state>"
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 export const DEFAULT_RECALL_TIMEOUT_SEC = 30;
+export const DEFAULT_QUERY_EMBEDDING_TIMEOUT_SEC = 6;
 export const DEFAULT_RERANK_TIMEOUT_SEC = 15;
 
 // Browser timers use a signed 32-bit millisecond delay.
@@ -17,4 +18,8 @@ export function normalizeRecallTimeoutSec(value) {
 
 export function normalizeRerankTimeoutSec(value) {
     return normalizeTimeoutSec(value, DEFAULT_RERANK_TIMEOUT_SEC);
+}
+
+export function normalizeQueryEmbeddingTimeoutSec(value) {
+    return normalizeTimeoutSec(value, DEFAULT_QUERY_EMBEDDING_TIMEOUT_SEC);
 }

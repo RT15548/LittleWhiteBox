@@ -42,6 +42,10 @@ import { characterLibraryFromSettings, selectEnabledCharacters } from "../../sha
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { buildSdImageRequest, compile as compileSdScenePlan, SD_REQUEST_DELAY_MS } from "./compiler.js";
+import { validateDrawInput } from '../../shared/public-api.js';
+import { decodeImageList } from '../../shared/image-collection.js';
+import { runPublicImageJob } from '../../shared/public-image-job.js';
+import { MediaApiError } from '../../../../shared/media-api.js';
 import {
     createBackendItemError,
     createImageBackendJobMonitorRegistry,
@@ -712,7 +716,7 @@ export async function fetchSdSamplers({ signal } = {}) {
     return Array.isArray(data) ? data : [];
 }
 
-async function requestSdImage({ prompt, negativePrompt = '', params = {}, payload, generationConfig, signal } = {}) {
+async function requestSdImage({ prompt, negativePrompt = '', params = {}, payload, generationConfig, signal, allResults = false } = {}) {
     const attempt = createImageRequestAttempt();
     try {
         signal?.throwIfAborted();
@@ -721,6 +725,7 @@ async function requestSdImage({ prompt, negativePrompt = '', params = {}, payloa
         const body = payload || buildSdImageRequest({ prompt, negativePrompt, params: effective });
         const response = await fetchSdProxy('generate', body, { signal, generationConfig, attempt });
         const data = await response.json();
+        if (allResults) return decodeImageList(data?.images);
         const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
         if (!firstImage) {
             throw new Error('SD WebUI 没有返回图片');
@@ -878,6 +883,41 @@ export async function generateSdImage({
         },
     );
 }
+
+export const sdPublicGeneration = {
+    presetsKey: 'presets', selectedKey: 'selectedPresetId',
+    snapshot() {
+        return settingsLoaded && settingsCache ? structuredClone(settingsCache)
+            : SdDrawStorage.getStrict(SERVER_FILE_KEY, null).then(saved => normalizeSettings(saved || {}));
+    },
+    generate(request, settings, { signal, onProgress }) {
+        const defaults = getEffectiveParams(settings);
+        validateDrawInput(request, defaults);
+        if (!settings.host) throw new MediaApiError('not_configured');
+        const params = getEffectiveParams(settings, request.params || {});
+        const characters = request.characterPrompts || [];
+        const prompt = joinTags(request.positivePrefix ?? params.positivePrefix, request.prompt, ...characters.map(item => item.prompt));
+        const negativePrompt = request.negativePrompt ?? joinTags(params.negativePrefix, ...characters.map(item => item.uc));
+        let payload;
+        try { payload = buildSdImageRequest({ prompt, negativePrompt, params }); }
+        catch (cause) { throw new MediaApiError('invalid_request', { cause }); }
+        for (const [field, value] of Object.entries(request.params || {})) {
+            const compiled = field === 'clip_skip' ? payload.override_settings?.CLIP_stop_at_last_layers : payload[field];
+            if (typeof value === 'number' && compiled !== undefined && value !== compiled) throw new MediaApiError('invalid_request', { field: `params.${field}` });
+        }
+        return sdImageRequestQueue.enqueue(() => settings.useImageBackendJobs
+            ? runPublicImageJob(sdBackendJobsClient, {
+                provider: 'sd-webui', context: { url: settings.host, auth: settings.auth },
+                delay: { min: SD_REQUEST_DELAY_MS, max: SD_REQUEST_DELAY_MS },
+                items: [{ request: { payload, resultMode: 'all' }, timeout: settings.timeout }],
+            }, { signal, onProgress })
+            : requestSdImage({ payload, generationConfig: settings, signal, allResults: true }), {
+            signal, scope: 'public',
+            onQueued: data => onProgress?.({ state: 'queued', ...data }),
+            onStart: () => onProgress?.({ state: 'generating' }),
+        });
+    },
+};
 
 function classifySdError(message) {
     const text = String(message || '');
@@ -4039,7 +4079,7 @@ export function cleanupSdDraw() {
     abortPendingRequest();
     observeBackgroundTask(abortGeneration(null, { reason: 'teardown' }), { source: "modules/draw/providers/sd-webui/sd-draw.js", operation: "cleanupSdDraw" });
     clearFloorImageJobs(generationJobs);
-    sdImageRequestQueue.clear();
+    sdImageRequestQueue.clear({ scope: 'default' });
     hideSettings();
     destroySdDrawPanelsRef?.();
     ensureSdDrawPanelRef = null;

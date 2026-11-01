@@ -36,7 +36,7 @@ export function getParentPath(absPath) {
  * 例如：data.背包.0.名称 可以匹配 data.背包.[*].名称
  */
 function matchRuleWithWildcard(absPath) {
-    if (rulesTable[absPath]) return rulesTable[absPath];
+    if (Object.hasOwn(rulesTable, absPath)) return rulesTable[absPath];
 
     const segs = String(absPath).split('.').filter(Boolean);
     const candidates = [];
@@ -62,7 +62,7 @@ function matchRuleWithWildcard(absPath) {
 
     for (const candidate of candidates) {
         if (candidate.path === absPath) continue;
-        if (rulesTable[candidate.path]) return rulesTable[candidate.path];
+        if (Object.hasOwn(rulesTable, candidate.path)) return rulesTable[candidate.path];
     }
 
     return null;
@@ -84,7 +84,7 @@ function normalizeChildPath(parentPath, childKey) {
 
 function valueAt(value, key) {
     if (!value || typeof value !== 'object') return undefined;
-    return value[key];
+    return Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
 function coerceType(node, payload) {

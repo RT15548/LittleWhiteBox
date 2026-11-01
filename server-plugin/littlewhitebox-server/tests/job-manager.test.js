@@ -45,6 +45,24 @@ function createManager(executeItem, options = {}) {
     return manager;
 }
 
+// A cancellation must not discard images already downloaded by the opt-in collection API (paid result loss).
+test('collection cancellation preserves the downloaded buffer without changing single-image cancellation', async t => {
+    for (const resultMode of ['all', undefined]) {
+        let started = false;
+        const manager = createManager(async ({ signal }) => {
+            started = true;
+            await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+            return { buffer: Buffer.from('collected'), mime: 'application/zip' };
+        });
+        t.after(() => manager.close());
+        const job = manager.createJob({ owner: 'alice', delay: { min: 0, max: 0 }, items: [createItem('image', { request: { resultMode } })] });
+        await waitFor(() => started);
+        manager.cancelJob('alice', job.id);
+        await waitFor(() => manager.getJob('alice', job.id)?.state === 'cancelled');
+        assert.equal(manager.getJob('alice', job.id).ready, resultMode === 'all' ? 1 : 0);
+    }
+});
+
 test('runs one request per owner and rotates jobs after the owning job cooldown', async (t) => {
     const starts = [];
     let active = 0;

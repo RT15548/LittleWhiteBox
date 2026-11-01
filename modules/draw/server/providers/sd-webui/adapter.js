@@ -22,6 +22,23 @@ async function execute({ context, item, signal }) {
     });
     if (!response.ok) throw createUpstreamError(response, await readErrorText(response));
     const data = await readJsonResponse(response);
+    if (item.request.resultMode === 'all') {
+        const { packImageCollection, imageMime, IMAGE_COLLECTION_MIME } = await import('../../../shared/image-collection.js');
+        const images = [];
+        let incomplete = false;
+        if (!Array.isArray(data?.images) || !data.images.length) throw new Error('SD WebUI did not return an image');
+        for (const encodedImage of data.images) {
+            try {
+                const bytes = Buffer.from(String(encodedImage).replace(/^data:[^,]*,/, ''), 'base64');
+                imageMime(bytes);
+                images.push(bytes);
+            } catch (error) {
+                incomplete = true;
+            }
+        }
+        if (!images.length) throw new Error('SD WebUI did not return a valid image');
+        return { buffer: Buffer.from(packImageCollection(images, incomplete)), mime: IMAGE_COLLECTION_MIME };
+    }
     const encoded = Array.isArray(data?.images) ? data.images[0] : null;
     if (!encoded) throw new Error('SD WebUI did not return an image');
     const buffer = Buffer.from(String(encoded).replace(/^data:image\/\w+;base64,/, ''), 'base64');
@@ -41,7 +58,9 @@ function normalize(context, items, { parseTimeout, parseUrl }) {
         }
         const timeout = parseTimeout(source.timeout);
         if (timeout === null) return { error: `items[${index}].timeout must be a positive number` };
-        normalized.push({ kind: 'image', request: { payload: source.request.payload }, timeout });
+        normalized.push({ kind: 'image', request: { payload: source.request.payload,
+            ...(source.request.resultMode === 'all' ? { resultMode: 'all' } : {}),
+        }, timeout });
     }
     return { context: { url, auth: String(context?.auth || '') }, items: normalized };
 }

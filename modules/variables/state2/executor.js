@@ -1,15 +1,17 @@
-import { getContext } from '../../../../../../extensions.js';
-import { getLocalVariable, setLocalVariable } from '../../../../../../variables.js';
-import { extractStateBlocks, computeStateSignature, parseStateBlock } from './parser.js';
 import { generateSemantic } from './semantic.js';
-import { validate, setRule, loadRulesFromMeta, saveRulesToMeta } from './guard.js';
+import { validate, setRule, replaceRules, getRulesSnapshot } from './guard-core.js';
 
-/**
- * =========================
- * Path / JSON helpers
- * =========================
- */
-function splitPath(path) {
+export const EXECUTION_ERROR = Object.freeze({
+    UNMANAGED_ROOT: 'unmanaged_root',
+    RULE_REJECTED: 'rule_rejected',
+    OPERATION_FAILED: 'operation_failed',
+});
+const EXECUTION_MESSAGES = {
+    unmanaged: '根变量尚未纳入变量 2.0 管理',
+    rejected: '被规则拒绝',
+};
+
+export function splitPath(path) {
     const s = String(path || '');
     const segs = [];
     let buf = '';
@@ -47,7 +49,7 @@ function splitPath(path) {
     return segs;
 }
 
-function normalizePath(path) {
+export function normalizePath(path) {
     return splitPath(path).map(String).join('.');
 }
 
@@ -70,9 +72,27 @@ function safeParse(s) {
 }
 
 function deepClone(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
     try { return structuredClone(obj); } catch {
-        try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
+        return JSON.parse(JSON.stringify(obj));
     }
+}
+
+// Normalize only newly owned payloads and touched array slots, never an existing root.
+function jsonValue(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? (value === 0 ? 0 : value) : null;
+    if (typeof value === 'function' || typeof value === 'symbol') return undefined;
+    if (!value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index++) value[index] = jsonValue(value[index]) ?? null;
+    } else {
+        for (const key of Object.keys(value)) {
+            const item = jsonValue(value[key]);
+            if (item === undefined) delete value[key];
+            else value[key] = item;
+        }
+    }
+    return value;
 }
 
 /**
@@ -80,358 +100,177 @@ function deepClone(obj) {
  * Variable getters/setters (local vars)
  * =========================
  */
-function getVar(path) {
-    const segs = splitPath(path);
-    if (!segs.length) return undefined;
 
-    const rootRaw = getLocalVariable(String(segs[0]));
-    if (segs.length === 1) return safeParse(rootRaw);
-
-    let obj = safeParse(rootRaw);
-    if (!obj || typeof obj !== 'object') return undefined;
-
-    for (let i = 1; i < segs.length; i++) {
-        obj = obj?.[segs[i]];
-        if (obj === undefined) return undefined;
-    }
-    return obj;
+export function getRootFromPath(path) {
+    return String(splitPath(path)[0] ?? '').trim();
 }
 
-function setVar(path, value) {
-    const segs = splitPath(path);
-    if (!segs.length) return;
-
-    const rootName = String(segs[0]);
-
-    if (segs.length === 1) {
-        const toStore = (value && typeof value === 'object') ? safeJSON(value) : String(value ?? '');
-        setLocalVariable(rootName, toStore);
-        return;
-    }
-
-    let root = safeParse(getLocalVariable(rootName));
-    if (!root || typeof root !== 'object') {
-        root = typeof segs[1] === 'number' ? [] : {};
-    }
-
-    let cur = root;
-    for (let i = 1; i < segs.length - 1; i++) {
-        const key = segs[i];
-        const nextKey = segs[i + 1];
-        if (cur[key] == null || typeof cur[key] !== 'object') {
-            cur[key] = typeof nextKey === 'number' ? [] : {};
-        }
-        cur = cur[key];
-    }
-    cur[segs[segs.length - 1]] = value;
-
-    setLocalVariable(rootName, safeJSON(root));
+function sameValue(left, right) {
+    if (left === right) return true;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object'
+        || Array.isArray(left) !== Array.isArray(right)) return false;
+    const keys = Object.keys(left);
+    const otherKeys = Object.keys(right);
+    return keys.length === otherKeys.length && (!Array.isArray(left) || left.length === right.length)
+        && keys.every((key, index) => key === otherKeys[index] && sameValue(left[key], right[key]));
 }
 
-function delVar(path) {
-    const segs = splitPath(path);
-    if (!segs.length) return;
-
-    const rootName = String(segs[0]);
-
-    if (segs.length === 1) {
-        setLocalVariable(rootName, '');
-        return;
-    }
-
-    let root = safeParse(getLocalVariable(rootName));
-    if (!root || typeof root !== 'object') return;
-
-    let cur = root;
-    for (let i = 1; i < segs.length - 1; i++) {
-        cur = cur?.[segs[i]];
-        if (!cur || typeof cur !== 'object') return;
-    }
-
-    const lastKey = segs[segs.length - 1];
-    if (Array.isArray(cur) && typeof lastKey === 'number') {
-        cur.splice(lastKey, 1);
-    } else {
-        delete cur[lastKey];
-    }
-
-    setLocalVariable(rootName, safeJSON(root));
+export function decodeStoredVariable(value) {
+    const local = value?.trim?.() === '' || isNaN(Number(value)) ? (value || '') : Number(value);
+    return safeParse(local);
 }
 
-function pushVar(path, value) {
-    const segs = splitPath(path);
-    if (!segs.length) return { ok: false, reason: 'invalid-path' };
-
-    const rootName = String(segs[0]);
-
-    if (segs.length === 1) {
-        let arr = safeParse(getLocalVariable(rootName));
-        // ✅ 类型检查：必须是数组或不存在
-        if (arr !== undefined && !Array.isArray(arr)) {
-            return { ok: false, reason: 'not-array' };
-        }
-        if (!Array.isArray(arr)) arr = [];
-        const items = Array.isArray(value) ? value : [value];
-        arr.push(...items);
-        setLocalVariable(rootName, safeJSON(arr));
-        return { ok: true };
-    }
-
-    let root = safeParse(getLocalVariable(rootName));
-    if (!root || typeof root !== 'object') {
-        root = typeof segs[1] === 'number' ? [] : {};
-    }
-
-    let cur = root;
-    for (let i = 1; i < segs.length - 1; i++) {
-        const key = segs[i];
-        const nextKey = segs[i + 1];
-        if (cur[key] == null || typeof cur[key] !== 'object') {
-            cur[key] = typeof nextKey === 'number' ? [] : {};
-        }
-        cur = cur[key];
-    }
-
-    const lastKey = segs[segs.length - 1];
-    let arr = cur[lastKey];
-
-    // ✅ 类型检查：必须是数组或不存在
-    if (arr !== undefined && !Array.isArray(arr)) {
-        return { ok: false, reason: 'not-array' };
-    }
-    if (!Array.isArray(arr)) arr = [];
-
-    const items = Array.isArray(value) ? value : [value];
-    arr.push(...items);
-    cur[lastKey] = arr;
-
-    setLocalVariable(rootName, safeJSON(root));
-    return { ok: true };
+export function encodeStoredVariable(value) {
+    return value && typeof value === 'object' ? safeJSON(value) : String(value ?? '');
 }
 
-function popVar(path, value) {
-    const segs = splitPath(path);
-    if (!segs.length) return { ok: false, reason: 'invalid-path' };
-
-    const rootName = String(segs[0]);
-    let root = safeParse(getLocalVariable(rootName));
-
-    if (segs.length === 1) {
-        if (!Array.isArray(root)) {
-            return { ok: false, reason: 'not-array' };
-        }
-        const toRemove = Array.isArray(value) ? value : [value];
-        for (const v of toRemove) {
-            const vStr = safeJSON(v);
-            const idx = root.findIndex(x => safeJSON(x) === vStr);
-            if (idx !== -1) root.splice(idx, 1);
-        }
-        setLocalVariable(rootName, safeJSON(root));
-        return { ok: true };
-    }
-
-    if (!root || typeof root !== 'object') {
-        return { ok: false, reason: 'not-array' };
-    }
-
-    let cur = root;
-    for (let i = 1; i < segs.length - 1; i++) {
-        cur = cur?.[segs[i]];
-        if (!cur || typeof cur !== 'object') {
-            return { ok: false, reason: 'path-not-found' };
-        }
-    }
-
-    const lastKey = segs[segs.length - 1];
-    let arr = cur[lastKey];
-
-    if (!Array.isArray(arr)) {
-        return { ok: false, reason: 'not-array' };
-    }
-
-    const toRemove = Array.isArray(value) ? value : [value];
-    for (const v of toRemove) {
-        const vStr = safeJSON(v);
-        const idx = arr.findIndex(x => safeJSON(x) === vStr);
-        if (idx !== -1) arr.splice(idx, 1);
-    }
-
-    setLocalVariable(rootName, safeJSON(root));
-    return { ok: true };
+function ownValue(object, key) {
+    return object != null && Object.hasOwn(object, key) ? object[key] : undefined;
 }
 
-/**
- * =========================
- * Storage (chat_metadata.extensions.LittleWhiteBox)
- * =========================
- */
-const EXT_ID = 'LittleWhiteBox';
-const ERR_VAR_NAME = 'LWB_STATE_ERRORS';
-const LOG_KEY = 'stateLogV2';
-const CKPT_KEY = 'stateCkptV2';
-
-
-/**
- * 写入状态错误到本地变量（覆盖写入）
- */
-function writeStateErrorsToLocalVar(lines) {
-    try {
-        const text = Array.isArray(lines) && lines.length
-            ? lines.map(s => `- ${String(s)}`).join('\n')
-            : '';
-        setLocalVariable(ERR_VAR_NAME, text);
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "writeStateErrorsToLocalVar" }, caughtError); }
-}
-
-function getLwbExtMeta() {
-    const ctx = getContext();
-    const meta = ctx?.chatMetadata || (ctx.chatMetadata = {});
-    meta.extensions ||= {};
-    meta.extensions[EXT_ID] ||= {};
-    return meta.extensions[EXT_ID];
-}
-
-function getStateLog() {
-    const ext = getLwbExtMeta();
-    ext[LOG_KEY] ||= { version: 1, floors: {} };
-    return ext[LOG_KEY];
-}
-
-function getCheckpointStore() {
-    const ext = getLwbExtMeta();
-    ext[CKPT_KEY] ||= { version: 1, every: 50, points: {} };
-    return ext[CKPT_KEY];
-}
-
-function getRootFromPath(path) {
-    const segs = splitPath(path);
-    if (!segs.length) return null;
-    const root = String(segs[0] ?? '').trim();
-    return root || null;
-}
-
-function collectRootsFromRulesOps(rules = [], ops = []) {
-    const roots = new Set();
-    for (const item of rules || []) {
-        const root = getRootFromPath(item?.path);
-        if (root) roots.add(root);
-    }
-    for (const item of ops || []) {
-        const root = getRootFromPath(item?.path);
-        if (root) roots.add(root);
-    }
-    return roots;
-}
-
-function syncOwnedRootsFromLog() {
-    const log = getStateLog();
-    const roots = new Set();
-    for (const rec of Object.values(log.floors || {})) {
-        const hasStoredRoots = rec && Object.prototype.hasOwnProperty.call(rec, 'roots') && Array.isArray(rec.roots);
-        if (hasStoredRoots) {
-            const stored = rec.roots.map(String).filter(Boolean);
-            stored.forEach(root => roots.add(root));
-            continue;
-        }
-        collectRootsFromRulesOps(rec?.rules || [], rec?.ops || []).forEach(root => roots.add(root));
-    }
-    return roots;
-}
-
-function getEffectiveOwnedRoots() {
-    // The WAL is authoritative, so rollback follows edits/deletes/trims exactly.
-    return syncOwnedRootsFromLog();
-}
-
-function scopedMergeRootObject(current, restored, roots) {
-    const next = deepClone(current || {});
-    const source = restored || {};
-    for (const root of roots || []) {
-        if (Object.prototype.hasOwnProperty.call(source, root)) {
-            next[root] = deepClone(source[root]);
-        } else {
-            delete next[root];
-        }
-    }
-    return next;
-}
-
-function scopedMergeRules(currentRules, restoredRules, roots) {
-    const owned = roots || new Set();
-    const next = {};
-    for (const [path, rule] of Object.entries(currentRules || {})) {
-        const root = getRootFromPath(path);
-        if (!root || !owned.has(root)) next[path] = deepClone(rule);
-    }
-    for (const [path, rule] of Object.entries(restoredRules || {})) {
-        const root = getRootFromPath(path);
-        if (root && owned.has(root)) next[path] = deepClone(rule);
-    }
-    return next;
-}
-
-function saveWalRecord(floor, signature, rules, ops, roots = []) {
-    const log = getStateLog();
-    log.floors[String(floor)] = {
-        signature: String(signature || ''),
-        rules: Array.isArray(rules) ? deepClone(rules) : [],
-        ops: Array.isArray(ops) ? deepClone(ops) : [],
-        roots: [...(roots || [])].map(String).filter(Boolean).sort(),
-        ts: Date.now(),
+function createVariableAccess(variables, memory, trackChanges) {
+    // The replay store owns decoded roots. Only host writes serialize the whole root.
+    const readRoot = name => memory ? ownValue(variables, name) : decodeStoredVariable(ownValue(variables, name));
+    const writeRoot = (name, value) => {
+        variables[name] = memory
+            ? (value && typeof value === 'object' ? value : decodeStoredVariable(encodeStoredVariable(value)))
+            : encodeStoredVariable(value);
     };
-    getContext()?.saveMetadataDebounced?.();
-}
-
-/**
- * checkpoint = 执行完 floor 后的全量变量+规则
- */
-function saveCheckpointIfNeeded(floor) {
-    const ckpt = getCheckpointStore();
-    const every = Number(ckpt.every) || 50;
-
-    // floor=0 也可以存，但一般没意义；你可按需调整
-    if (floor < 0) return;
-    if (every <= 0) return;
-    if (floor % every !== 0) return;
-
-    const ctx = getContext();
-    const meta = ctx?.chatMetadata || {};
-    const vars = deepClone(meta.variables || {});
-    // 2.0 rules 存在 chatMetadata 里（guard.js 写入的位置）
-    const rules = deepClone(meta.LWB_RULES_V2 || {});
-
-    ckpt.points[String(floor)] = { vars, rules, ts: Date.now() };
-    ctx?.saveMetadataDebounced?.();
-}
-
-/**
- * =========================
- * Applied signature map (idempotent)
- * =========================
- */
-const LWB_STATE_APPLIED_KEY = 'LWB_STATE_APPLIED_KEY';
-
-function getAppliedMap() {
-    const meta = getContext()?.chatMetadata || {};
-    meta[LWB_STATE_APPLIED_KEY] ||= {};
-    return meta[LWB_STATE_APPLIED_KEY];
-}
-
-export function clearStateAppliedFor(floor) {
-    try {
-        delete getAppliedMap()[floor];
-        getContext()?.saveMetadataDebounced?.();
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearStateAppliedFor" }, caughtError); }
-}
-
-export function clearStateAppliedFrom(floorInclusive) {
-    try {
-        const map = getAppliedMap();
-        for (const k of Object.keys(map)) {
-            if (Number(k) >= floorInclusive) delete map[k];
+    function writeMember(parent, key, value) {
+        if (!memory) { parent[key] = value; return true; }
+        if (Array.isArray(parent)) {
+            if (key === 'length') {
+                const length = parent.length;
+                parent.length = value;
+                for (let index = length; index < parent.length; index++) parent[index] = null;
+                return true;
+            }
+            if (!/^(0|[1-9]\d*)$/.test(String(key)) || Number(key) >= 4294967295) return false;
+            for (let index = parent.length; index < Number(key); index++) parent[index] = null;
+            parent[key] = value === undefined ? null : value;
+        } else if (value === undefined) {
+            delete parent[key];
+        } else {
+            parent[key] = value;
         }
-        getContext()?.saveMetadataDebounced?.();
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "clearStateAppliedFrom" }, caughtError); }
+        return true;
+    }
+    function getVar(path) {
+        const segs = splitPath(path);
+        if (!segs.length) return undefined;
+        let value = readRoot(String(segs[0]));
+        if (segs.length > 1 && (!value || typeof value !== 'object')) return undefined;
+        for (let i = 1; i < segs.length; i++) value = ownValue(value, segs[i]);
+        return value;
+    }
+
+    function parentAt(segs, create) {
+        const name = String(segs[0]);
+        let root = readRoot(name);
+        let changed = false;
+        if (!root || typeof root !== 'object') {
+            if (!create) return null;
+            root = typeof segs[1] === 'number' ? [] : {};
+            changed = true;
+        }
+        let parent = root;
+        let attached = true;
+        for (let i = 1; i < segs.length - 1; i++) {
+            const key = segs[i];
+            let child = ownValue(parent, key);
+            if (!child || typeof child !== 'object') {
+                if (!create) return null;
+                child = typeof segs[i + 1] === 'number' ? [] : {};
+                const written = writeMember(parent, key, child);
+                changed ||= attached && written;
+                attached &&= written;
+            }
+            parent = child;
+        }
+        return { name, root, parent, key: segs[segs.length - 1], changed, attached };
+    }
+
+    function setVar(path, value) {
+        const segs = splitPath(path);
+        if (!segs.length) return { ok: true, changed: false };
+        if (segs.length === 1) {
+            const name = String(segs[0]);
+            const existed = Object.hasOwn(variables, name);
+            const previous = trackChanges ? readRoot(name) : undefined;
+            writeRoot(name, memory && value && typeof value === 'object' ? jsonValue(value) : value);
+            return { ok: true, changed: trackChanges && (!existed || !sameValue(previous, readRoot(name))) };
+        }
+        const target = parentAt(segs, true);
+        const next = memory ? jsonValue(value) : value;
+        const previous = ownValue(target.parent, target.key);
+        const written = writeMember(target.parent, target.key, next);
+        const changed = trackChanges && (target.changed || (target.attached && written && !sameValue(previous, ownValue(target.parent, target.key))));
+        writeRoot(target.name, target.root);
+        return { ok: true, changed };
+    }
+
+    function delVar(path) {
+        const segs = splitPath(path);
+        if (!segs.length) return { ok: true, changed: false };
+        if (segs.length === 1) return setVar(path, undefined);
+        const target = parentAt(segs, false);
+        if (!target) return { ok: true, changed: false };
+        let changed;
+        if (Array.isArray(target.parent) && typeof target.key === 'number') {
+            changed = target.key < target.parent.length;
+            target.parent.splice(target.key, 1);
+        } else {
+            changed = Object.hasOwn(target.parent, target.key);
+            delete target.parent[target.key];
+        }
+        writeRoot(target.name, target.root);
+        return { ok: true, changed };
+    }
+
+    function pushVar(path, value) {
+        const segs = splitPath(path);
+        if (!segs.length) return { ok: false, reason: 'invalid-path' };
+        const target = segs.length === 1 ? null : parentAt(segs, true);
+        const name = String(segs[0]);
+        let array = target ? ownValue(target.parent, target.key) : readRoot(name);
+        if (array !== undefined && !Array.isArray(array)) return { ok: false, reason: 'not-array' };
+        const created = !Array.isArray(array);
+        if (created) array = [];
+        const items = Array.isArray(value) ? value : [value];
+        if (memory) jsonValue(items);
+        array.push(...items);
+        const written = !target || writeMember(target.parent, target.key, array);
+        writeRoot(name, target ? target.root : array);
+        return { ok: true, changed: !!target?.changed || ((!target || target.attached) && written && (created || items.length > 0)) };
+    }
+
+    function popVar(path, value) {
+        const segs = splitPath(path);
+        if (!segs.length) return { ok: false, reason: 'invalid-path' };
+        const name = String(segs[0]);
+        if (segs.length > 1) {
+            const root = readRoot(name);
+            if (!root || typeof root !== 'object') return { ok: false, reason: 'not-array' };
+        }
+        const target = segs.length === 1 ? null : parentAt(segs, false);
+        if (segs.length > 1 && !target) return { ok: false, reason: 'path-not-found' };
+        const array = target ? ownValue(target.parent, target.key) : readRoot(name);
+        if (!Array.isArray(array)) return { ok: false, reason: 'not-array' };
+        let changed = false;
+        const items = Array.isArray(value) ? value : [value];
+        for (const item of items) {
+            const serialized = safeJSON(item);
+            const index = array.findIndex(candidate => safeJSON(candidate) === serialized);
+            if (index !== -1) {
+                array.splice(index, 1);
+                changed = true;
+            }
+        }
+        writeRoot(name, target ? target.root : array);
+        return { ok: true, changed };
+    }
+
+    return { getVar, setVar, delVar, pushVar, popVar };
 }
 
 function isIndexDeleteOp(opItem) {
@@ -486,342 +325,105 @@ function buildExecOpsWithIndexDeleteReorder(ops) {
     return [...reorderedIndexDeletes, ...normalOps];
 }
 
-/**
- * =========================
- * Core: apply one message text (<state>...) => update vars + rules + wal + checkpoint
- * =========================
- */
-export function applyStateForMessage(messageId, messageContent) {
-    const ctx = getContext();
-    const chatId = ctx?.chatId || '';
 
-    loadRulesFromMeta();
-
-    const text = String(messageContent ?? '');
-    const signature = computeStateSignature(text);
-    const blocks = extractStateBlocks(text);
-    // ✅ 统一：只要没有可执行 blocks，就视为本层 state 被移除
-    if (!signature || blocks.length === 0) {
-        clearStateAppliedFor(messageId);
-        writeStateErrorsToLocalVar([]);
-        // delete WAL record
-        try {
-            const ext = getLwbExtMeta();
-            const log = ext[LOG_KEY];
-            if (log?.floors) delete log.floors[String(messageId)];
-            getContext()?.saveMetadataDebounced?.();
-        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "applyStateForMessage" }, caughtError); }
-        return { atoms: [], errors: [], skipped: false };
+function applyOperation(access, op, path, value) {
+    switch (op) {
+        case 'set':
+        case 'inc': return access.setVar(path, value);
+        case 'del': return access.delVar(path);
+        case 'push': return access.pushVar(path, value);
+        case 'pop': return access.popVar(path, value);
+        default: return { ok: false, reason: 'unknown-operation' };
     }
+}
 
-    const appliedMap = getAppliedMap();
-    if (appliedMap[messageId] === signature) {
-        return { atoms: [], errors: [], skipped: true };
-    }
-    const atoms = [];
-    const errors = [];
-    let idx = 0;
-
-    const mergedRules = [];
-    const mergedOps = [];
-
-    for (const block of blocks) {
-        const parsed = parseStateBlock(block);
-        mergedRules.push(...(parsed?.rules || []));
-        mergedOps.push(...(parsed?.ops || []));
-    }
-
-    if (blocks.length) {
-        const floorRoots = new Set();
-
-        // ✅ rules 一次性注册
-        let rulesTouched = false;
-        for (const { path, rule } of mergedRules) {
-            if (path && rule && Object.keys(rule).length) {
-                setRule(normalizePath(path), rule);
-                const root = getRootFromPath(path);
-                if (root) floorRoots.add(root);
-                rulesTouched = true;
-            }
-        }
-        if (rulesTouched) saveRulesToMeta();
-
-        const execOps = buildExecOpsWithIndexDeleteReorder(mergedOps);
-
-        // 执行操作（用 execOps）
-        for (const opItem of execOps) {
-            const { path, op, value, delta, warning } = opItem;
-            if (!path) continue;
-            if (warning) errors.push(`[${path}] ${warning}`);
-
-            const absPath = normalizePath(path);
-            const oldValue = getVar(path);
-
-            const guard = validate(op, absPath, op === 'inc' ? delta : value, oldValue);
-            if (!guard.allow) {
-                errors.push(`${path}: ${guard.reason || '\u88ab\u89c4\u5219\u62d2\u7edd'}`);
-                continue;
-            }
-
-            // 记录修正信息
-            if (guard.note) {
-                if (op === 'inc') {
-                    const raw = Number(delta);
-                    const rawTxt = Number.isFinite(raw) ? `${raw >= 0 ? '+' : ''}${raw}` : String(delta ?? '');
-                    errors.push(`${path}: ${rawTxt} ${guard.note}`);
-                } else {
-                    errors.push(`${path}: ${guard.note}`);
-                }
-            }
-
-            let execOk = true;
-            let execReason = '';
-
-            try {
-                switch (op) {
-                    case 'set':
-                        setVar(path, guard.value);
-                        break;
-                    case 'inc':
-                        // guard.value 对 inc 是最终 nextValue
-                        setVar(path, guard.value);
-                        break;
-                    case 'push': {
-                        const result = pushVar(path, guard.value);
-                        if (!result.ok) { execOk = false; execReason = result.reason; }
-                        break;
-                    }
-                    case 'pop': {
-                        const result = popVar(path, guard.value);
-                        if (!result.ok) { execOk = false; execReason = result.reason; }
-                        break;
-                    }
-                    case 'del':
-                        delVar(path);
-                        break;
-                    default:
-                        execOk = false;
-                        execReason = `未知 op=${op}`;
-                }
-            } catch (e) {
-                execOk = false;
-                execReason = e?.message || String(e);
-            }
-
-            if (!execOk) {
-                errors.push(`[${path}] 失败: ${execReason}`);
-                continue;
-            }
-
+/** Synchronous request execution. The caller owns history, persistence and notifications. */
+export function executeStateOperations(meta, rules, ops, {
+    ownedRoots = new Set(), claimRoots = null, floor = 0, chatId = '', atomPrefix = 'sa',
+    memory = false, report = true,
+} = {}) {
+    const variables = meta.variables ||= {};
+    const access = createVariableAccess(variables, memory, memory && report);
+    replaceRules(meta.LWB_RULES_V2 || {});
+    const roots = new Set();
+    for (const { path, rule } of rules) {
+        if (path && rule && Object.keys(rule).length) {
+            setRule(normalizePath(path), rule);
             const root = getRootFromPath(path);
-            if (root) floorRoots.add(root);
-
-            const newValue = getVar(path);
-
-            atoms.push({
-                atomId: `sa-${messageId}-${idx}`,
-                chatId,
-                floor: messageId,
-                idx,
-                path,
-                op,
-                oldValue,
-                newValue,
-                delta: op === 'inc' ? delta : undefined,
-                semantic: generateSemantic(path, op, oldValue, newValue, delta, value),
-                timestamp: Date.now(),
-            });
-
-            idx++;
+            roots.add(root);
+            if (!claimRoots || claimRoots.has(root)) ownedRoots.add(root);
         }
-
-        // ✅ WAL：一次写入完整 rules/ops/roots，避免留下无 roots 的中间记录
-        saveWalRecord(messageId, signature, mergedRules, mergedOps, floorRoots);
     }
+    if (rules.length) meta.LWB_RULES_V2 = getRulesSnapshot();
 
-    appliedMap[messageId] = signature;
-    getContext()?.saveMetadataDebounced?.();
-
-    // ✅ checkpoint：执行完该楼后，可选存一次全量
-    saveCheckpointIfNeeded(messageId);
-
-    // Write error list to local variable
-    writeStateErrorsToLocalVar(errors);
-
-    return { atoms, errors, skipped: false };
-}
-
-/**
- * =========================
- * Restore / Replay (for rollback & rebuild)
- * =========================
- */
-
-/**
- * 恢复到 targetFloor 执行完成后的变量状态（含规则）
- * - 使用最近 checkpoint，然后 replay WAL
- * - 不依赖消息文本 <state>（避免被正则清掉）
- */
-export async function restoreStateV2ToFloor(targetFloor) {
-    const ctx = getContext();
-    const meta = ctx?.chatMetadata || {};
-    const floor = Number(targetFloor);
-    const ownedRoots = getEffectiveOwnedRoots();
-
-    if (!Number.isFinite(floor) || floor < 0) {
-        // floor < 0 => only clear roots owned by State 2.0.
-        meta.variables = scopedMergeRootObject(meta.variables || {}, {}, ownedRoots);
-        meta.LWB_RULES_V2 = scopedMergeRules(meta.LWB_RULES_V2 || {}, {}, ownedRoots);
-        ctx?.saveMetadataDebounced?.();
-        return { ok: true, usedCheckpoint: null };
-    }
-
-    const log = getStateLog();
-    const ckpt = getCheckpointStore();
-    const points = ckpt.points || {};
-    const available = Object.keys(points)
-        .map(Number)
-        .filter(n => Number.isFinite(n) && n <= floor)
-        .sort((a, b) => b - a);
-
-    const ck = available.length ? available[0] : null;
-
-    // 1) 恢复 checkpoint 或清空基线
-    if (ck != null) {
-        const snap = points[String(ck)];
-        meta.variables = scopedMergeRootObject(meta.variables || {}, snap?.vars || {}, ownedRoots);
-        meta.LWB_RULES_V2 = scopedMergeRules(meta.LWB_RULES_V2 || {}, snap?.rules || {}, ownedRoots);
-    } else {
-        meta.variables = scopedMergeRootObject(meta.variables || {}, {}, ownedRoots);
-        meta.LWB_RULES_V2 = scopedMergeRules(meta.LWB_RULES_V2 || {}, {}, ownedRoots);
-    }
-
-    ctx?.saveMetadataDebounced?.();
-
-    // 2) 从 meta 载入规则到内存（guard.js 的内存表）
-    loadRulesFromMeta();
-
-    let rulesTouchedAny = false;
-
-    // 3) replay WAL: (ck+1 .. floor)
-    const start = ck == null ? 0 : (ck + 1);
-    for (let f = start; f <= floor; f++) {
-        const rec = log.floors?.[String(f)];
-        if (!rec) continue;
-
-        // 先应用 rules
-        const rules = Array.isArray(rec.rules) ? rec.rules : [];
-        let touched = false;
-        for (const r of rules) {
-            const p = r?.path;
-            const rule = r?.rule;
-            if (p && rule && typeof rule === 'object') {
-                setRule(normalizePath(p), rule);
-                touched = true;
+    const atoms = [];
+    const changes = [];
+    const errors = [];
+    const corrections = [];
+    const messages = [];
+    const unmanaged = new Set();
+    const indexedOps = ops.map((item, index) => ({ ...item, index }));
+    for (const item of buildExecOpsWithIndexDeleteReorder(indexedOps)) {
+        const { path, op, value, delta, warning, index } = item;
+        if (!path) continue;
+        const root = getRootFromPath(path);
+        const failure = (code, message) => {
+            if (!report) return;
+            errors.push({ code, index, path, message });
+            messages.push(message);
+        };
+        if (item.source === 'json' && !ownedRoots.has(root)) {
+            unmanaged.add(index);
+            if (report) failure(EXECUTION_ERROR.UNMANAGED_ROOT, `${path}: ${EXECUTION_MESSAGES.unmanaged}`);
+            continue;
+        }
+        if (report && warning) messages.push(`[${path}] ${warning}`);
+        const currentValue = access.getVar(path);
+        const oldValue = report ? deepClone(currentValue) : currentValue;
+        const oldRoot = report && !memory ? variables[root] : undefined;
+        // Records are immutable requests; neither guard coercion nor a later push may mutate them.
+        const guarded = validate(op, normalizePath(path), deepClone(op === 'inc' ? delta : value), currentValue);
+        if (!guarded.allow) {
+            if (report) failure(EXECUTION_ERROR.RULE_REJECTED, `${path}: ${guarded.reason || EXECUTION_MESSAGES.rejected}`);
+            continue;
+        }
+        if (report && (guarded.note || (op !== 'inc' && safeJSON(value) !== safeJSON(guarded.value)))) {
+            corrections.push({ index, path, requested: deepClone(op === 'inc' ? delta : value), value: deepClone(guarded.value), note: guarded.note || '' });
+        }
+        if (report && guarded.note) {
+            const raw = Number(delta);
+            const deltaText = Number.isFinite(raw) ? `${raw >= 0 ? '+' : ''}${raw}` : String(delta ?? '');
+            messages.push(`${path}: ${op === 'inc' ? deltaText + ' ' : ''}${guarded.note}`);
+        }
+        let outcome;
+        try {
+            outcome = applyOperation(access, op, path, guarded.value);
+            if (!outcome.ok) {
+                if (report) failure(EXECUTION_ERROR.OPERATION_FAILED, `[${path}] 失败: ${outcome.reason}`);
+                continue;
             }
+        } catch (error) {
+            if (report) failure(EXECUTION_ERROR.OPERATION_FAILED, `[${path}] 失败: ${error.message}`);
+            continue;
         }
-        if (touched) rulesTouchedAny = true;
-
-        // 再应用 ops（不产出 atoms、不写 wal）
-        const ops = Array.isArray(rec.ops) ? rec.ops : [];
-        const execOps = buildExecOpsWithIndexDeleteReorder(ops);
-        for (const opItem of execOps) {
-            const path = opItem?.path;
-            const op = opItem?.op;
-            if (!path || !op) continue;
-
-            const absPath = normalizePath(path);
-            const oldValue = getVar(path);
-
-            const payload = (op === 'inc') ? opItem.delta : opItem.value;
-            const guard = validate(op, absPath, payload, oldValue);
-            if (!guard.allow) continue;
-
-            try {
-                switch (op) {
-                    case 'set':
-                        setVar(path, guard.value);
-                        break;
-                    case 'inc':
-                        setVar(path, guard.value);
-                        break;
-                    case 'push': {
-                        const result = pushVar(path, guard.value);
-                        if (!result.ok) {/* ignore */}
-                        break;
-                    }
-                    case 'pop': {
-                        const result = popVar(path, guard.value);
-                        if (!result.ok) {/* ignore */}
-                        break;
-                    }
-                    case 'del':
-                        delVar(path);
-                        break;
-                }
-            } catch (caughtError) {
-                console.warn({ source: import.meta.url, operation: "restoreStateV2ToFloor" }, caughtError);
-            }
+        roots.add(root);
+        if (!claimRoots || claimRoots.has(root)) ownedRoots.add(root);
+        if (!report) continue;
+        const newValue = deepClone(access.getVar(path));
+        const atom = {
+            atomId: `${atomPrefix}-${floor}-${atoms.length}`, chatId, floor, idx: atoms.length,
+            path, op, oldValue, newValue, delta: op === 'inc' ? delta : undefined,
+            semantic: generateSemantic(path, op, oldValue, newValue, delta, value),
+            timestamp: Date.now(),
+        };
+        atoms.push(atom);
+        if (memory ? outcome.changed : oldRoot !== variables[root]) {
+            const actualDelta = op === 'inc' ? Number(newValue) - (Number(oldValue) || 0) : undefined;
+            changes.push({ ...atom, index, delta: actualDelta,
+                semantic: generateSemantic(path, op, oldValue, newValue, actualDelta, guarded.value) });
         }
     }
-
-    if (rulesTouchedAny) {
-        saveRulesToMeta();
-    }
-
-    // 4) 清理 applied signature：floor 之后都要重新计算
-    clearStateAppliedFrom(floor + 1);
-
-    ctx?.saveMetadataDebounced?.();
-    return { ok: true, usedCheckpoint: ck };
-}
-
-/**
- * 删除 floor >= fromFloor 的 2.0 持久化数据：
- * - WAL: stateLogV2.floors
- * - checkpoint: stateCkptV2.points
- * - applied signature: LWB_STATE_APPLIED_KEY
- *
- * 用于 MESSAGE_DELETED 等“物理删除消息”场景，避免 WAL/ckpt 无限膨胀。
- */
-export async function trimStateV2FromFloor(fromFloor) {
-    const start = Number(fromFloor);
-    if (!Number.isFinite(start)) return { ok: false };
-
-    const ctx = getContext();
-    const meta = ctx?.chatMetadata || {};
-    meta.extensions ||= {};
-    meta.extensions[EXT_ID] ||= {};
-
-    const ext = meta.extensions[EXT_ID];
-
-    // 1) WAL
-    const log = ext[LOG_KEY];
-    if (log?.floors && typeof log.floors === 'object') {
-        for (const k of Object.keys(log.floors)) {
-            const f = Number(k);
-            if (Number.isFinite(f) && f >= start) {
-                delete log.floors[k];
-            }
-        }
-    }
-
-    // 2) Checkpoints
-    const ckpt = ext[CKPT_KEY];
-    if (ckpt?.points && typeof ckpt.points === 'object') {
-        for (const k of Object.keys(ckpt.points)) {
-            const f = Number(k);
-            if (Number.isFinite(f) && f >= start) {
-                delete ckpt.points[k];
-            }
-        }
-    }
-
-    // 3) Applied signatures（floor>=start 都要重新算）
-    try {
-        clearStateAppliedFrom(start);
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "trimStateV2FromFloor" }, caughtError); }
-
-    ctx?.saveMetadataDebounced?.();
-    return { ok: true };
+    // Preserve request order, including rule refusals and operation failures, not derived effects.
+    const acceptedOps = ops.filter((_, index) => !unmanaged.has(index));
+    return { atoms, changes, errors, corrections, messages, roots, acceptedOps };
 }

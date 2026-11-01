@@ -703,7 +703,10 @@ export function createImageBackendJobsClient({
             } catch (error) {
                 if (!(error instanceof ImageBackendJobsError) || !error.retriable) throw error;
                 // 提交请求已发出但结果未知，后端可能已经建好任务，之后只能按 requestId 查证。
+                if (options.retryCreate === false && !cancelSignal?.aborted) throw error;
                 createUncertain = true;
+                // Cancellation is not another generation attempt: fence the submitted ID even with zero retries.
+                if (cancelSignal?.aborted) continue;
                 consecutiveFailures++;
                 if (consecutiveFailures > retryLimit) {
                     const exhausted = markDetached(createRetryExhaustedError(error), true);

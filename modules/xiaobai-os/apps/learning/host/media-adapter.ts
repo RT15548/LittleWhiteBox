@@ -13,7 +13,7 @@ export interface LearningTtsFacade {
     isEnabled(): boolean;
     getVoices(): { voices: LearningVoice[]; defaultVoice: string };
     createPlayer(): LearningPlayer;
-    synthesize(text: string, options: { speaker: string; language: string; speed: number; signal: AbortSignal }): Promise<Blob>;
+    synthesize(text: string, options: { speaker: string; language?: string; speed: number; signal: AbortSignal }): Promise<Blob>;
     openSettings(): void;
 }
 export interface LearningSpeech {
@@ -92,7 +92,7 @@ export function createLearningMedia(options: {
         try {
             if (!entry.player.activate()) { stop(); return; }
             notify({ status: 'loading', key: request.key });
-            const blob = await facade.synthesize(request.text, { speaker: request.voiceId, language: request.language,
+            const blob = await facade.synthesize(request.text, { speaker: request.voiceId, ...(voice.source === 'auth' ? { language: request.language } : {}),
                 speed: request.speed, signal: entry.abort.signal });
             if (!current(entry)) { if (active === entry) { stop(); } return; }
             entry.blob = blob;

@@ -56,9 +56,12 @@ function getSaveImageNodeIds(workflow) {
         .map(entry => entry.id);
 }
 
-function selectOutput(item, preferredSaveImageNodeId, saveImageNodeIds) {
+function selectOutput(item, preferredSaveImageNodeId, saveImageNodeIds, all = false) {
     const outputs = item?.outputs || {};
-    const pick = (output) => output?.images?.[0] || output?.gifs?.[0] || null;
+    const pick = (output) => {
+        const images = output?.images?.length ? output.images : output?.gifs;
+        return images?.length ? (all ? images : images[0]) : null;
+    };
     if (preferredSaveImageNodeId && saveImageNodeIds.includes(String(preferredSaveImageNodeId))) {
         const preferred = pick(outputs[String(preferredSaveImageNodeId)]);
         if (preferred) return preferred;
@@ -160,6 +163,28 @@ async function execute({ context, item, signal }) {
         if (signal.aborted) throw createAbortError();
         if (!output) throw new Error('ComfyUI did not return an image');
 
+        if (item.request.resultMode === 'all') {
+            const { packImageCollection, imageMime, IMAGE_COLLECTION_MIME } = await import('../../../shared/image-collection.js');
+            const images = [];
+            let incomplete = false;
+            for (const asset of selectOutput(historyItem, item.request.preferredSaveImageNodeId, saveImageNodeIds, true)) {
+                try {
+                    const url = endpoint(context.url, '/view', endpointOptions);
+                    for (const key of ['filename', 'subfolder', 'type']) url.searchParams.set(key, String(asset[key] || (key === 'type' ? 'output' : '')));
+                    const response = await fetch(url, { headers, signal });
+                    if (!response.ok) throw createUpstreamError(response, await readErrorText(response));
+                    const bytes = await readResponseBuffer(response);
+                    imageMime(bytes);
+                    images.push(bytes);
+                } catch (error) {
+                    incomplete = true;
+                    if (signal.aborted) break;
+                }
+            }
+            if (!images.length) throw new Error('ComfyUI did not return a valid image');
+            return { buffer: Buffer.from(packImageCollection(images, incomplete)), mime: IMAGE_COLLECTION_MIME };
+        }
+
         const viewUrl = endpoint(context.url, '/view', endpointOptions);
         viewUrl.searchParams.set('filename', String(output.filename || ''));
         viewUrl.searchParams.set('subfolder', String(output.subfolder || ''));
@@ -198,6 +223,7 @@ function normalize(context, items, { parseTimeout, parseUrl }) {
             request: {
                 workflow: request.workflow,
                 preferredSaveImageNodeId,
+                ...(request.resultMode === 'all' ? { resultMode: 'all' } : {}),
             },
             timeout,
         });

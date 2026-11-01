@@ -9,7 +9,10 @@ import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../.
 import { extractSpeakText, parseTtsSegments, DEFAULT_SKIP_TAGS, normalizeEmotion, splitTtsSegmentsForFree } from "./tts-text.js";
 import { TtsPlayer } from "./tts-player.js";
 import { createTtsPlaybackOwnership } from './tts-playback-ownership.js';
-import { createTtsExternalSynthesis, readTtsVoices, ttsRequestSettings } from './tts-external.js';
+import { createTtsExternalSynthesis, readTtsVoices } from './tts-external.js';
+import { prepareTtsRequest } from './tts-request.js';
+import { buildTtsV3Body } from './tts-request-body.js';
+import { MediaApiError } from '../../shared/media-api.js';
 import { playTransientVoice } from "./tts-playback-runtime.js";
 import {
     cleanupMessageVoiceUi,
@@ -354,24 +357,10 @@ function resolveSpeakerWithSource(speakerName, mySpeakers, defaultSpeaker) {
 function buildCacheKey(params) {
     const payload = {
         providerMode: params.providerMode || 'auth',
-        text: params.text || '',
-        speaker: params.speaker || '',
-        resourceId: params.resourceId || '',
-        format: params.format || 'mp3',
-        sampleRate: params.sampleRate || 24000,
-        speechRate: params.speechRate || 0,
-        loudnessRate: params.loudnessRate || 0,
-        emotion: params.emotion || '',
-        emotionScale: params.emotionScale || 0,
-        explicitLanguage: params.explicitLanguage || '',
-        disableMarkdownFilter: params.disableMarkdownFilter !== false,
-        disableEmojiFilter: params.disableEmojiFilter === true,
-        enableLanguageDetector: params.enableLanguageDetector === true,
-        model: params.model || '',
-        maxLengthToFilterParenthesis: params.maxLengthToFilterParenthesis ?? null,
-        postProcessPitch: params.postProcessPitch ?? 0,
-        contextTexts: Array.isArray(params.contextTexts) ? params.contextTexts : [],
+        body: buildTtsV3Body(params),
+        resourceId: params.resourceId ?? '',
         freeSpeed: params.freeSpeed ?? null,
+        appId: params.appId ?? '',
     };
     return `tts:${hashString(JSON.stringify(payload))}`;
 }
@@ -1530,12 +1519,11 @@ export async function initTts() {
     window.registerModuleCleanup?.('tts', cleanupTts);
 
     window.xiaobaixTts = {
+        ...publicTtsApi,
         isEnabled: isModuleEnabled,
         openSettings,
         closeSettings,
         player,
-        synthesize: externalSpeech.synthesize,
-        getVoices: () => readTtsVoices(config),
         createPlayer: () => {
             if (!isCurrentLifecycle(initEpoch) || !isModuleEnabled()) throw new Error('TTS 模块未启用');
             return new TtsPlayer({ ownership });
@@ -1594,39 +1582,34 @@ export async function initTts() {
 
 // ============ External synthesis API (no enqueue) ============
 
+const publicTtsApi = {
+    isEnabled: isModuleEnabled,
+    getVoices: () => readTtsVoices(config),
+    async synthesize(text, options) {
+        if (!externalSpeech || !isModuleEnabled()) throw new MediaApiError('disabled');
+        return externalSpeech.synthesize(text, options);
+    },
+};
+
+export function installTtsPublicApi() {
+    window.xiaobaixTts = publicTtsApi;
+}
+
 async function synthesizeForExternal(text, options = {}) {
     if (!isModuleEnabled()) {
         throw new Error('TTS 模块未启用');
     }
 
-    const trimmed = String(text || '').trim();
-    if (!trimmed) {
-        throw new Error('合成文本为空');
+    const snapshot = structuredClone(config);
+    const request = prepareTtsRequest(snapshot, text, options);
+    const signal = options.signal;
+    if (request.providerMode === 'free') {
+        return await synthesizeFreeBlob(request.text, request.speaker, request.emotion, signal, request.speed, options.onProgress);
     }
-
-    const { emotion, speaker, signal, resourceId } = options;
-    const request = ttsRequestSettings(config, options);
-
-    const mySpeakers = config.volc?.mySpeakers || [];
-    const defaultSpeaker = config.volc?.defaultSpeaker || FREE_DEFAULT_VOICE;
-    const resolved = speaker
-        ? resolveSpeakerWithSource(speaker, mySpeakers, defaultSpeaker)
-        : resolveSpeakerWithSource('', mySpeakers, defaultSpeaker);
-
-    const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
-
-    if (resolved.source === 'free') {
-        return await synthesizeFreeBlob(trimmed, resolved.value, normalizedEmotion, signal, request.speed);
-    }
-
-    if (!isAuthConfigured()) {
-        throw new Error('鉴权音色需要配置 API');
-    }
-
-    return await synthesizeAuthBlob(trimmed, resolved, normalizedEmotion, signal, resourceId, request);
+    return await synthesizeAuthBlob({ ...request, signal, onProgress: options.onProgress }, snapshot);
 }
 
-async function synthesizeFreeBlob(text, voiceKey, emotion, signal, speed) {
+async function synthesizeFreeBlob(text, voiceKey, emotion, signal, speed, onProgress) {
     const freeSpeed = normalizeSpeed(speed);
 
     const cacheParams = {
@@ -1639,9 +1622,13 @@ async function synthesizeFreeBlob(text, voiceKey, emotion, signal, speed) {
 
     const cacheHit = await tryLoadLocalCache(cacheParams);
     signal?.throwIfAborted();
-    if (cacheHit?.entry?.blob) return cacheHit.entry.blob;
+    if (cacheHit?.entry?.blob) {
+        onProgress?.({ state: 'cached' });
+        return cacheHit.entry.blob;
+    }
 
     const { synthesizeFreeV1 } = await import('./tts-api.js');
+    onProgress?.({ state: 'generating' });
     const { audioBase64 } = await synthesizeFreeV1({ text, voiceKey, speed: freeSpeed, emotion: emotion || null }, { signal });
     signal?.throwIfAborted();
 
@@ -1649,6 +1636,7 @@ async function synthesizeFreeBlob(text, voiceKey, emotion, signal, speed) {
     const bytes = new Uint8Array(byteString.length);
     for (let j = 0; j < byteString.length; j++) bytes[j] = byteString.charCodeAt(j);
     const blob = new Blob([bytes], { type: 'audio/mpeg' });
+    onProgress?.({ state: 'complete', receivedBytes: blob.size });
 
     const cacheKey = buildCacheKey(cacheParams);
     storeLocalCache(cacheKey, blob, { text: text.slice(0, 200), textLength: text.length, speaker: voiceKey, resourceId: 'free' }).catch(reportCacheWriteFailure);
@@ -1656,43 +1644,21 @@ async function synthesizeFreeBlob(text, voiceKey, emotion, signal, speed) {
     return blob;
 }
 
-async function synthesizeAuthBlob(text, resolved, emotion, signal, explicitResourceId, request) {
-    const resourceId = inferResourceIdBySpeaker(resolved.value, explicitResourceId || resolved.resourceId);
-    const params = {
-        providerMode: 'auth',
-        appId: config.volc.appId,
-        accessKey: config.volc.accessKey,
-        resourceId,
-        speaker: resolved.value,
-        text,
-        format: 'mp3',
-        sampleRate: 24000,
-        speechRate: speedToV3SpeechRate(request.speed),
-        loudnessRate: 0,
-        emotionScale: config.volc.emotionScale,
-        explicitLanguage: request.language,
-        disableMarkdownFilter: config.volc.disableMarkdownFilter,
-        disableEmojiFilter: config.volc.disableEmojiFilter,
-        enableLanguageDetector: config.volc.enableLanguageDetector,
-        maxLengthToFilterParenthesis: config.volc.maxLengthToFilterParenthesis,
-        postProcessPitch: config.volc.postProcessPitch,
-        signal,
-    };
-
-    if (emotion) { params.emotion = emotion; }
-    if (resourceId === 'seed-tts-1.0' && config.volc.useTts11 !== false) { params.model = 'seed-tts-1.1'; }
-    if (config.volc.serverCacheEnabled) { params.cacheConfig = { text_type: 1, use_cache: true }; }
-
-    const headers = buildV3Headers(resourceId, config);
+async function synthesizeAuthBlob(params, snapshot) {
+    const { signal, resourceId, text, speaker } = params;
+    const headers = buildV3Headers(resourceId, snapshot);
     const cacheHit = await tryLoadLocalCache(params);
     signal?.throwIfAborted();
-    if (cacheHit?.entry?.blob) return cacheHit.entry.blob;
+    if (cacheHit?.entry?.blob) {
+        params.onProgress?.({ state: 'cached' });
+        return cacheHit.entry.blob;
+    }
 
     const result = await synthesizeV3(params, headers);
     signal?.throwIfAborted();
 
     const cacheKey = buildCacheKey(params);
-    storeLocalCache(cacheKey, result.audioBlob, { text: text.slice(0, 200), textLength: text.length, speaker: resolved.value, resourceId, usage: result.usage || null }).catch(reportCacheWriteFailure);
+    storeLocalCache(cacheKey, result.audioBlob, { text: text.slice(0, 200), textLength: text.length, speaker, resourceId, usage: result.usage || null }).catch(reportCacheWriteFailure);
 
     return result.audioBlob;
 }
@@ -1729,5 +1695,5 @@ export function cleanupTts() {
     messageStateMap.clear();
     cacheCounters.hits = 0;
     cacheCounters.misses = 0;
-    delete window.xiaobaixTts;
+    installTtsPublicApi();
 }

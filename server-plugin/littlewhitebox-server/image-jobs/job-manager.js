@@ -324,9 +324,12 @@ class AsyncImageJobManager {
 
         try {
             const result = await job.adapter.execute(execution);
-            if (job.cancelRequested) {
+            // Only the opt-in collection API retains already downloaded results after cancellation.
+            // Released single-image callers keep their original cancellation contract.
+            const retainCollection = item.request?.resultMode === 'all' && Buffer.isBuffer(result?.buffer) && result.buffer.length > 0;
+            if (job.cancelRequested && !retainCollection) {
                 item.state = 'cancelled';
-            } else if (timedOut) {
+            } else if (timedOut && !retainCollection) {
                 item.state = 'failed';
                 item.error = { code: 'timeout', message: 'Image request timed out' };
             } else if (!result || !Buffer.isBuffer(result.buffer) || !String(result.mime || '')) {

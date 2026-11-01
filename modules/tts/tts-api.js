@@ -1,4 +1,7 @@
 import { createIdentifier } from '../../shared/common/identifier.js';
+import { ttsAudioMime } from './tts-audio-format.js';
+import { buildTtsV3Body } from './tts-request-body.js';
+import { MediaApiError } from '../../shared/media-api.js';
 /**
  * 火山引擎 TTS API 封装
  * V3 单向流式 + V1试用
@@ -54,24 +57,11 @@ export async function synthesizeV3(params, authHeaders = {}) {
         appId,
         accessKey,
         resourceId = 'seed-tts-2.0',
-        uid = 'st_user',
         text,
         speaker,
-        model,
         format = 'mp3',
-        sampleRate = 24000,
-        speechRate = 0,
-        loudnessRate = 0,
         emotion,
-        emotionScale,
         contextTexts,
-        explicitLanguage,
-        disableMarkdownFilter = true,
-        disableEmojiFilter,
-        enableLanguageDetector,
-        maxLengthToFilterParenthesis,
-        postProcessPitch,
-        cacheConfig,
     } = params;
 
     if (!appId || !accessKey || !text || !speaker) {
@@ -88,45 +78,9 @@ export async function synthesizeV3(params, authHeaders = {}) {
         hasEmotion: !!emotion,
     });
 
-    const additions = {};
-    if (contextTexts?.length) additions.context_texts = contextTexts;
-    if (explicitLanguage) additions.explicit_language = explicitLanguage;
-    if (disableMarkdownFilter) additions.disable_markdown_filter = true;
-    if (disableEmojiFilter) additions.disable_emoji_filter = true;
-    if (enableLanguageDetector) additions.enable_language_detector = true;
-    if (Number.isFinite(maxLengthToFilterParenthesis)) {
-        additions.max_length_to_filter_parenthesis = maxLengthToFilterParenthesis;
-    }
-    if (Number.isFinite(postProcessPitch) && postProcessPitch !== 0) {
-        additions.post_process = { pitch: postProcessPitch };
-    }
-    if (cacheConfig && typeof cacheConfig === 'object') {
-        additions.cache_config = cacheConfig;
-    }
+    const body = buildTtsV3Body(params);
 
-    const body = {
-        user: { uid },
-        req_params: {
-            text,
-            speaker,
-            audio_params: {
-                format,
-                sample_rate: sampleRate,
-                speech_rate: speechRate,
-                loudness_rate: loudnessRate,
-            },
-        },
-    };
-    
-    if (model) body.req_params.model = model;
-    if (emotion) {
-        body.req_params.audio_params.emotion = emotion;
-        body.req_params.audio_params.emotion_scale = emotionScale || 4;
-    }
-    if (Object.keys(additions).length > 0) {
-        body.req_params.additions = JSON.stringify(additions);
-    }
-
+    params.onProgress?.({ state: 'generating' });
     const resp = await proxyFetch(V3_URL, {
         method: 'POST',
         headers: authHeaders,
@@ -145,21 +99,27 @@ export async function synthesizeV3(params, authHeaders = {}) {
     const audioChunks = [];
     let usage = null;
     let buffer = '';
+    let receivedBytes = 0;
+    let completed = false;
 
     const readLine = (line) => {
         if (!line.trim()) return;
-        try {
-            const json = JSON.parse(line);
-            if (json.data) {
-                const binary = atob(json.data);
-                const bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i);
-                }
-                audioChunks.push(bytes);
+        const json = JSON.parse(line);
+        if (json.code !== undefined && json.code !== 20000000 && json.code !== 0) throw new MediaApiError('provider_error');
+        if (json.data) {
+            const binary = atob(json.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
             }
-            if (json.code === 20000000 && json.usage) usage = json.usage;
-        } catch (caughtError) { console.debug({ source: import.meta.url, operation: "readLine" }, caughtError); }
+            audioChunks.push(bytes);
+            receivedBytes += bytes.byteLength;
+            params.onProgress?.({ state: 'receiving', receivedBytes });
+        }
+        if (json.code === 20000000) {
+            completed = true;
+            if (json.usage) usage = json.usage;
+        }
     };
     try {
         while (true) {
@@ -179,12 +139,14 @@ export async function synthesizeV3(params, authHeaders = {}) {
         reader.releaseLock();
     }
 
+    if (!completed) throw new MediaApiError('invalid_result');
     if (audioChunks.length === 0) {
         throw new Error(`未收到音频数据${logid ? ` (logid: ${logid})` : ''}`);
     }
 
+    params.onProgress?.({ state: 'complete', receivedBytes });
     return {
-        audioBlob: new Blob(audioChunks, { type: 'audio/mpeg' }),
+        audioBlob: new Blob(audioChunks, { type: ttsAudioMime(format) }),
         usage,
         logid,
     };
@@ -197,68 +159,15 @@ export async function synthesizeV3Stream(params, authHeaders = {}, options = {})
     const {
         appId,
         accessKey,
-        uid = 'st_user',
         text,
         speaker,
-        model,
-        format = 'mp3',
-        sampleRate = 24000,
-        speechRate = 0,
-        loudnessRate = 0,
-        emotion,
-        emotionScale,
-        contextTexts,
-        explicitLanguage,
-        disableMarkdownFilter = true,
-        disableEmojiFilter,
-        enableLanguageDetector,
-        maxLengthToFilterParenthesis,
-        postProcessPitch,
-        cacheConfig,
     } = params;
 
     if (!appId || !accessKey || !text || !speaker) {
         throw new Error('缺少必要参数: appId/accessKey/text/speaker');
     }
 
-    const additions = {};
-    if (contextTexts?.length) additions.context_texts = contextTexts;
-    if (explicitLanguage) additions.explicit_language = explicitLanguage;
-    if (disableMarkdownFilter) additions.disable_markdown_filter = true;
-    if (disableEmojiFilter) additions.disable_emoji_filter = true;
-    if (enableLanguageDetector) additions.enable_language_detector = true;
-    if (Number.isFinite(maxLengthToFilterParenthesis)) {
-        additions.max_length_to_filter_parenthesis = maxLengthToFilterParenthesis;
-    }
-    if (Number.isFinite(postProcessPitch) && postProcessPitch !== 0) {
-        additions.post_process = { pitch: postProcessPitch };
-    }
-    if (cacheConfig && typeof cacheConfig === 'object') {
-        additions.cache_config = cacheConfig;
-    }
-
-    const body = {
-        user: { uid },
-        req_params: {
-            text,
-            speaker,
-            audio_params: {
-                format,
-                sample_rate: sampleRate,
-                speech_rate: speechRate,
-                loudness_rate: loudnessRate,
-            },
-        },
-    };
-    
-    if (model) body.req_params.model = model;
-    if (emotion) {
-        body.req_params.audio_params.emotion = emotion;
-        body.req_params.audio_params.emotion_scale = emotionScale || 4;
-    }
-    if (Object.keys(additions).length > 0) {
-        body.req_params.additions = JSON.stringify(additions);
-    }
+    const body = buildTtsV3Body(params);
 
     const resp = await proxyFetch(V3_URL, {
         method: 'POST',

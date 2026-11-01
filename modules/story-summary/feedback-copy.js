@@ -33,6 +33,10 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     embeddingTitle: 'Embedding 异常',
     connectionChecking: '连接中…',
     connectionReady: dims => `连接成功 (${dims}维)`,
+    queryEmbeddingTimeout: Object.freeze({
+        label: '请求超时重试（秒）',
+        hint: '查询向量超过此时间未完成时重试。',
+    }),
     rerankTimeout: Object.freeze({
         label: '请求超时（秒）',
         hint: '实际召回仍受上一级“召回超时”限制。',
