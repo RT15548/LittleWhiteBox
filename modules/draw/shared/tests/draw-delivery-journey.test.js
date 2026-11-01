@@ -16,6 +16,7 @@ globalThis.indexedDB = indexedDB;
 globalThis.window = new EventTarget();
 globalThis.document = new EventTarget();
 const stubs = {
+    'image-autosave.js': 'export const autoSaveDeliveredImage=async()=>false; export const imageFilePrefix=()=>"draw";',
     'extensions.js': 'export const getContext=()=>globalThis.__drawDeliveryJourney.ctx;',
     'user.js': 'export const getCurrentUserHandle=()=>globalThis.__drawDeliveryJourney.owner;',
     'script.js': `export const getRequestHeaders=()=>({}); export const syncMesToSwipe=()=>true;

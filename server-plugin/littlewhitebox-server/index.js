@@ -8,6 +8,7 @@ const { registerLoopbackProbeRoutes } = require('./draw-runs/loopback-probe.js')
 const { registerDrawRunRoutes } = require('./draw-runs/routes.js');
 const pluginManifest = require('./manifest.json');
 const { registerWebRoutes, EXA_BACKEND_CAPABILITY } = require('./web/routes.js');
+const { IMAGE_SAVE_CAPABILITY, OPEN_FOLDER_CAPABILITY, registerImageFileRoutes } = require('./image-files/routes.js');
 const { CANCELLATION_CAPABILITY, createCancellationRegistry, registerCancellationRoutes } = require('./cancellation.js');
 const { RUNTIME_HOST_ABI, createRuntimeLoader } = require('./runtime-loader.js');
 
@@ -31,7 +32,7 @@ const drawRunManager = createDrawRunManager({
 const capabilities = [
     'v5-msgpack-stream', 'image-batch-jobs-v1', 'novelai-v5-final-image-v1',
     'draw-runs-v1', 'draw-run-runtime-v4', 'draw-run-planner-retry-v1', 'draw-run-planner-layout-v1',
-    CANCELLATION_CAPABILITY, EXA_BACKEND_CAPABILITY,
+    CANCELLATION_CAPABILITY, EXA_BACKEND_CAPABILITY, IMAGE_SAVE_CAPABILITY, OPEN_FOLDER_CAPABILITY,
 ];
 const transportRoutes = new WeakMap();
 
@@ -82,6 +83,7 @@ async function init(router) {
     registerLoopbackProbeRoutes(router);
     registerCancellationRoutes(router, { registry: cancellations, jobManager, drawRunManager });
     registerWebRoutes(router);
+    registerImageFileRoutes(router);
     for (const path of ['/v1/generate-image', '/v2/generate-image', '/v1/generate-image-stream', '/v1/test', '/v2/test']) {
         router.post(path, route(async (req, res) => {
             const runtime = await requestRuntime(req);

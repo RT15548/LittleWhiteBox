@@ -703,6 +703,23 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         </label>
                         <span id="sd-gallery-jpeg-hint" data-gallery-jpeg-hint></span>
                     </div>
+                    <div style="display:grid;gap:8px;margin-top:8px;font-size:12px;color:var(--text-secondary);">
+                        <div>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                <input id="sd-gallery-auto-save" type="checkbox" aria-describedby="sd-gallery-auto-save-hint">
+                                <span data-image-save-auto-label></span>
+                            </label>
+                            <span id="sd-gallery-auto-save-hint" data-image-save-auto-hint style="display:block;margin-left:22px;"></span>
+                        </div>
+                        <div>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                <input id="sd-gallery-save-by-folder" type="checkbox" aria-describedby="sd-gallery-save-by-folder-hint">
+                                <span data-image-save-folder-label></span>
+                            </label>
+                            <span id="sd-gallery-save-by-folder-hint" data-image-save-folder-hint style="display:block;margin-left:22px;"></span>
+                        </div>
+                        <div><button id="sd-gallery-open-folder" class="btn btn-sm" type="button">打开文件夹</button></div>
+                    </div>
                 </div>
 
                 <div id="sd-gallery-container" class="gallery-grid"></div>

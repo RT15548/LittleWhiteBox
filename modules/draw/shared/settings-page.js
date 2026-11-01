@@ -2,9 +2,15 @@ import './draw-usage.js';
 import { createEditGuard, installPanelEscape } from './panel-escape.js';
 import { mountThemeSwitch } from './theme-switch.js';
 import { GALLERY_JPEG_COPY } from './gallery-image-codec.js';
+import { IMAGE_SAVE_COPY } from './image-save-core.js';
 
 document.querySelectorAll('[data-gallery-jpeg-label]').forEach(element => { element.textContent = GALLERY_JPEG_COPY.label; });
 document.querySelectorAll('[data-gallery-jpeg-hint]').forEach(element => { element.textContent = `${GALLERY_JPEG_COPY.hint} ${GALLERY_JPEG_COPY.warning}`; });
+
+for (const [attribute, text] of [['auto-label', IMAGE_SAVE_COPY.autoLabel], ['auto-hint', IMAGE_SAVE_COPY.autoHint],
+    ['folder-label', IMAGE_SAVE_COPY.folderLabel], ['folder-hint', IMAGE_SAVE_COPY.folderHint]]) {
+    document.querySelectorAll(`[data-image-save-${attribute}]`).forEach(element => { element.textContent = text; });
+}
 
 const PLANNER_RETRY_HINT = '场景分析失败时自动重试，填 0 关闭。不重试出图。重试会增加 API 消耗。';
 document.querySelectorAll('[data-planner-retry-hint]').forEach(element => {

@@ -43,6 +43,20 @@ Scene Planner 支持免密反代，Agent API Key 可以留空；图片生成供�
 
 联网协议与 HTTP 处理的源码在 `modules/agent-core/web/`，本包 `web/web-runtime.cjs` 由同一源码生成，随插件统一构建与验收，见[构建规则](../../docs/plugin-build.md)。删除联网功能时删除 `web/`、入口注册、对应前端路由与生成任务即可，不影响绘图任务。
 
+## 图片保存与打开文件夹
+
+绘图的“图片按日期保存”与“打开文件夹”需要本插件：酒馆自带的 `/api/images/upload` 会去掉文件夹名里的 `/`，只能保存一级目录，浏览器本身也无法打开资源管理器。没有安装时，前端不调用这两个接口：开了“按日期保存”的图片照常保存到默认的角色名文件夹并提示“按日期保存未生效”，“打开文件夹”提示需要安装插件；其余功能不受影响。
+
+| 方法 | 路径 | capability | 说明 |
+|---|---|---|---|
+| POST | `/v1/images/save` | `image-save-v1` | 请求体 `{ image(base64), format, filename, folder: [一级, 二级?] }`；写入当前用户的 `user/images/<folder>/`，返回 `{ ok, path }`，`path` 与上传接口同形（如 `/user/images/角色/2026_10_31/a.png`） |
+| POST | `/v1/images/open-folder` | `open-folder-v1` | 在酒馆所在机器的文件管理器中打开用户图片根目录（`user/images`，不存在则先创建）；前端只用这种方式。请求体可选带 `folder: [一级, 二级?]` 打开其中的子文件夹（不存在则打开最近的上级），规则同上；返回 `{ ok, path, exact }` |
+
+- 文件夹名逐级按酒馆 `sanitize-filename` 的规则清理（删除 `/  ? < > : * | "`、控制字符、结尾的点和空格，拒绝 Windows 保留名）；空、`.`、`..` 或超过两级一律 400，解析结果必须仍在用户图片目录内。文件名同样逐段清理，格式只接受 png / jpg / jpeg / webp / gif。
+- 两条路由都要求登录的用户身份（`req.user`），受酒馆 CSRF 保护，不接收任意路径。打开文件夹只在请求来自本机（环回地址或本机网卡地址，且没有 `X-Forwarded-For` 等代理头）时执行，否则返回 403 `not_local`；页面提示无法直接打开。
+- 打开文件夹用 `child_process.spawn` 传参数数组、不经 shell：Windows `explorer.exe`、macOS `open`、Linux `xdg-open`；系统找不到对应程序时返回 500 `open_failed`。
+- 这两项随本目录的新版后台一起提供，前端按 capability 检查是否可用。安装或升级方法见前文，覆盖整个后台目录后重启酒馆；只更新扩展不会给已安装的后台增加文件系统能力。
+
 ## Provider 边界
 
 - NovelAI：保留 `/v1/generate-image`、`/v2/generate-image`、`/v1/generate-image-stream`、`/v1/test`、`/v2/test` 的现有行为；异步任务在服务器读取 V5 MessagePack 流，只保留并交付最终 PNG。前台逐张后端发送仍由 `/v1/generate-image-stream` 原样转发流。
@@ -63,6 +77,8 @@ draw-run-runtime-v4
 draw-run-planner-retry-v1
 draw-run-planner-layout-v1
 exa-web-v1
+image-save-v1
+open-folder-v1
 ```
 
 这些 capability 保留给正式发布过的客户端。新客户端读取 `runtimeHostAbi`，在保存提交标记前调用 `POST /v1/runtime/prepare`，传入 `{ extensionId, runtimeId }`。新任务使用 `X-LWB-Extension` 与 `X-LWB-Runtime` 指定执行包，查询、取消和结果接回不依赖当前安装版本。包不完整、摘要或签名错误只拒绝新任务，不影响存量任务。

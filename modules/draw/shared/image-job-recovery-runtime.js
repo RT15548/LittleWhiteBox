@@ -24,6 +24,7 @@ import {
     storePreview,
 } from './gallery-cache.js';
 import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from './image-autosave.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
 import { readPageFarewells } from './page-farewell.js';
 import { getPendingImageJob, listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
@@ -119,6 +120,16 @@ function requireAvailableTarget(record, item = null) {
     });
 }
 
+// 接回的图片送达后同样走“自动保存”，但以任务提交时刻为准：开关打开前提交的任务不算新图，不保存。
+// 楼层目标在保存完成后再取，聊天已切走则只保存文件。
+function autoSaveRecoveredImage(record, item) {
+    observeBackgroundTask(autoSaveDeliveredImage({ imgId: item.imgId, slotId: item.slotId, filePrefix: imageFilePrefix(record.provider), generatedAt: record.createdAt,
+        chatTarget: () => {
+            const target = record.delivery?.mode === 'slots' ? recordTarget(record, item) : null;
+            return target?.state === ImageJobDeliveryTargetState.ALIVE && target.isActiveSwipe ? target : null;
+        } }), { source: import.meta.url, operation: 'autoSaveRecoveredImage' });
+}
+
 function previewOptions(record, item, target) {
     return {
         ...record.gallery,
@@ -188,6 +199,7 @@ function createDeliveryAdapter() {
             await guard();
             if (record.delivery?.mode === 'gallery') {
                 await storePreview({ ...previewOptions(record, item, null), base64 });
+                autoSaveRecoveredImage(record, item);
                 return;
             }
             const committed = await deliverPreparedImage({
@@ -206,6 +218,7 @@ function createDeliveryAdapter() {
             });
             if (committed) {
                 await renderRecord(record);
+                autoSaveRecoveredImage(record, item);
             } else {
                 // The slot was removed while delivery was in flight. Do not
                 // recreate records that the slot's deletion already cleaned up.
