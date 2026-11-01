@@ -37,6 +37,7 @@ const comfyui = require('./providers/comfyui/adapter.js');
 const pluginManifest = require('./manifest.json');
 const { createRequestAbortScope } = require('./request-abort.js');
 const { registerWebRoutes, EXA_BACKEND_CAPABILITY } = require('./web/routes.js');
+const { IMAGE_SAVE_CAPABILITY, OPEN_FOLDER_CAPABILITY, registerImageFileRoutes } = require('./image-files/routes.js');
 const { CANCELLATION_CAPABILITY, createCancellationRegistry, registerCancellationRoutes } = require('./cancellation.js');
 
 const providerAdapters = Object.freeze({
@@ -56,6 +57,8 @@ const PLUGIN_CAPABILITIES = Object.freeze([
     'draw-run-planner-layout-v1',
     CANCELLATION_CAPABILITY,
     EXA_BACKEND_CAPABILITY,
+    IMAGE_SAVE_CAPABILITY,
+    OPEN_FOLDER_CAPABILITY,
 ]);
 const LOG_PREFIX = `[${pluginManifest.id}]`;
 
@@ -201,6 +204,7 @@ async function init(router) {
     registerDrawRunRoutes(router, { manager: drawRunManager });
     registerCancellationRoutes(router, { registry: cancellations, jobManager, drawRunManager });
     registerWebRoutes(router);
+    registerImageFileRoutes(router);
 
     // v1 is the frozen upstream 1.0.1 contract; URL resolution deliberately
     // stays inside the client so input validation runs in its original order.

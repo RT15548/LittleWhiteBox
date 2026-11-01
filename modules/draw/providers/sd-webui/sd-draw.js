@@ -17,7 +17,7 @@ import {
 } from "../../shared/gallery-cache.js";
 import { getContext } from "../../../../../../../extensions.js";
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
-import { saveBase64AsFile } from "../../../../../../../utils.js";
+import { bindImageSaveControls } from '../../shared/image-save-controls.js';
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
@@ -110,6 +110,8 @@ if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
     drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
 }
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
+import { openImageFolder, saveImageToServer } from '../../shared/image-save.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from '../../shared/image-autosave.js';
 import {
     loadLocalDanbooruDB,
     unloadLocalDanbooruDB,
@@ -1023,6 +1025,15 @@ function bindOverlayEvents() {
         checkbox.checked = getSharedDrawSettings().saveAsJpeg === true;
         checkbox.disabled = false;
     });
+    bindImageSaveControls({
+        autoSave: querySettings('#sd-gallery-auto-save'),
+        folder: querySettings('#sd-gallery-save-by-folder'),
+        openButton: querySettings('#sd-gallery-open-folder'),
+        getSettings: getSharedDrawSettings,
+        saveSettings: mutate => withSaveTimeout(updateSharedDrawSettingsPersistent(mutate, '已保存', { notify: false, silent: false })),
+        report: (state, text) => updateStatusText('sd-gallery-status', state === 'info' ? '' : state, text),
+        openFolder: openImageFolder,
+    });
     querySettings('#sd-gallery-clear-expired')?.addEventListener('click', async () => {
         updateStatusText('sd-gallery-status', '', '正在清理...');
         try {
@@ -1466,6 +1477,8 @@ function fillForm(settings) {
     setValue('sd-gallery-cache-days', getSharedDrawSettings().cacheDays);
     const jpegCheckbox = querySettings('#sd-gallery-save-as-jpeg');
     if (jpegCheckbox) jpegCheckbox.checked = getSharedDrawSettings().saveAsJpeg === true;
+    setChecked('sd-gallery-auto-save', getSharedDrawSettings().autoSaveImages);
+    setChecked('sd-gallery-save-by-folder', getSharedDrawSettings().saveImagesByFolder);
     setSelectValue('sd-draw-model', preset.model || '');
     setSelectValue('sd-draw-sampler', preset.sampler_name || '');
     applyPromptPresetToForm(settings);
@@ -3572,7 +3585,7 @@ async function saveCurrentImage(container) {
         const charName = ctx.groupId
             ? String(ctx.groups?.[ctx.groupId]?.id ?? 'group')
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
-        const url = await saveBase64AsFile(preview.base64, charName, `sd_${imgId}`, 'png');
+        const url = await saveImageToServer({ base64: preview.base64, charName, fileName: `sd_${imgId}`, format: 'png' });
         await updatePreviewSavedUrl(imgId, url);
         preview.savedUrl = url;
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "saveCurrentImage" }, caughtError); });
@@ -3711,6 +3724,7 @@ export async function generateImagesFromText(options = {}) {
                 negativePrompt: promptData.negative,
             });
             await setSlotSelection(slotId, imgId);
+            observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId, filePrefix: imageFilePrefix("sd-webui") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
             successCount++;
             images.push({
                 slotId,
@@ -3783,7 +3797,7 @@ async function runPreparedSdSlots(input) {
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
-            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("sd-webui"),
             backend: settings.useImageBackendJobs === true,
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runSdImageBatch({

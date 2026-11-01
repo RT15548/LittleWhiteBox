@@ -11,6 +11,7 @@ import { setSlotActivity, clearSlotActivity } from './slot-activity.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
 import { commitChatImagePlacement, restoreChatImagePlacements } from './chat-image-placement.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+import { autoSaveDeliveredImage } from './image-autosave.js';
 
 
 const providers = new Map();
@@ -41,7 +42,7 @@ export function prepareNativeChatImages(provider, input) {
 // The two input adapters supply already compiled metadata and the same provider
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
-    tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource,
+    tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource, filePrefix,
     swipeIndex = message.swipe_id ?? 0 }) {
     const chatId = String(ctx.chatId);
     const chatIdentity = getImageChatIdentity(ctx);
@@ -109,6 +110,11 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         validateSource();
     }
     return executePreparedSlots({ items, backend, nativeMessage, onPrepared,
+        afterDelivered: item => autoSaveDeliveredImage({ imgId: item.imgId, slotId: item.slotId, filePrefix,
+            chatTarget: () => {
+                const target = getImageChatIdentity(getContext()) === chatIdentity ? resolveTarget(item.slotId) : null;
+                return target?.isActiveSwipe ? target : null;
+            } }),
         store: storePreview, remove: deletePreview, clearSelection: clearSlotSelection,
         select: async (slotId, imgId) => {
             await setSlotSelection(slotId, imgId);

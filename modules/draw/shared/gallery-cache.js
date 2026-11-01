@@ -2,12 +2,12 @@
 // 画廊和缓存管理模块
 
 import { getContext } from "../../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../../utils.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
 
 import { getSharedDrawSettings } from './draw-settings.js';
 import { convertImageToJpeg, GALLERY_JPEG_COPY } from './gallery-image-codec.js';
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
+import { saveImageToServer, getImageFolderName as getChatCharacterName } from './image-save.js';
 import { normalizeMediaUrl } from './media-url.js';
 import { parseBase64Image, base64ToBlob } from './preview-image-url.js';
 import { GALLERY_METADATA_INDEX, withGalleryMetadata, galleryMetadataFromKey } from './gallery-metadata.js';
@@ -342,12 +342,6 @@ function normalizePreviewBase64(value = '') {
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
-
-function getChatCharacterName() {
-    const ctx = getContext();
-    if (ctx.groupId) return String(ctx.groups?.[ctx.groupId]?.id ?? 'group');
-    return String(ctx.characters?.[ctx.characterId]?.name || 'character');
-}
 
 function showToast(message, type = 'success', duration = 2500) {
     const colors = { success: 'rgba(62,207,142,0.95)', error: 'rgba(248,113,113,0.95)', info: 'rgba(212,165,116,0.95)' };
@@ -993,7 +987,7 @@ export async function savePreviewImage(imgId, filePrefix = 'draw') {
     if (!preview.base64) throw new Error('图片缓存不存在');
     const charName = preview.characterName || getChatCharacterName();
     const image = getBase64ImagePayload(preview.base64);
-    const url = await saveBase64AsFile(image.base64, charName, `${filePrefix}_${imgId}`, image.format);
+    const url = await saveImageToServer({ base64: image.base64, charName, fileName: `${filePrefix}_${imgId}`, format: image.format });
     await updatePreviewSavedUrl(imgId, url);
     return url;
 }
@@ -1521,7 +1515,7 @@ async function saveCurrentGalleryImage() {
         if (!current || currentGalleryData !== view) return;
         const charName = current.characterName || getChatCharacterName();
         const image = getBase64ImagePayload(current.base64);
-        const url = await saveBase64AsFile(image.base64, charName, `novel_${current.imgId}`, image.format);
+        const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${current.imgId}`, format: image.format });
         await updatePreviewSavedUrl(current.imgId, url);
         metadata.savedUrl = url;
         await setSlotSelection(slotId, current.imgId);

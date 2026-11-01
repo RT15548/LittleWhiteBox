@@ -5,7 +5,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
@@ -180,6 +179,9 @@ if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
     drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
 }
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
+import { openImageFolder, saveImageToServer } from '../../shared/image-save.js';
+import { IMAGE_SAVE_COPY, setAutoSaveImages } from '../../shared/image-save-core.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from '../../shared/image-autosave.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { createDrawImageSlotRegex, stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
@@ -2438,7 +2440,7 @@ async function saveSingleImage(container) {
     try {
         const charName = preview.characterName || getChatCharacterName();
         const image = getBase64ImagePayload(preview.base64);
-        const url = await saveBase64AsFile(image.base64, charName, `novel_${imgId}`, image.format);
+        const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${imgId}`, format: image.format });
         preview.savedUrl = url;
         await updatePreviewSavedUrl(imgId, url);
         await setSlotSelection(slotId, imgId);
@@ -2814,6 +2816,7 @@ async function generateImagesFromText(options = {}) {
                     negativePrompt: item.negativePrompt,
                 });
                 await setSlotSelection(item.slotId, imgId);
+                observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId: item.slotId, filePrefix: imageFilePrefix("novelai") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
                 successCount++;
                 images[index] = {
                     slotId: item.slotId,
@@ -2893,7 +2896,7 @@ async function runPreparedNovelSlots(input) {
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
-            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("novelai"),
             backend: resolveNovelImageTransport(settings) === 'backend-job',
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runNovelImageBatch({
@@ -3214,6 +3217,8 @@ async function sendInitData() {
             cacheDays: getSharedDrawSettings().cacheDays,
             imageTitleMode: getSharedDrawSettings().imageTitleMode,
             saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
+            autoSaveImages: getSharedDrawSettings().autoSaveImages === true,
+            saveImagesByFolder: getSharedDrawSettings().saveImagesByFolder === true,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             useWorldInfo: settings.useWorldInfo,
@@ -3520,6 +3525,29 @@ async function handleFrameMessage(event) {
                 text: ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed,
                 saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
             }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
+        // 自动保存与按日期保存两个开关一起提交，宿主回执后页面才恢复控件。
+        case 'SAVE_IMAGE_SAVE_OPTIONS': {
+            const autoSaveImages = data.autoSaveImages === true;
+            const saveImagesByFolder = data.saveImagesByFolder === true;
+            const ok = await updateSharedDrawSettingsPersistent((settings) => {
+                setAutoSaveImages(settings, autoSaveImages);
+                settings.saveImagesByFolder = saveImagesByFolder;
+            }, '已保存', { notify: false, silent: false });
+            if (iframe.isConnected) postToIframe(iframe, {
+                type: 'STATUS', state: ok ? 'success' : 'error', target: 'image-save',
+                text: ok ? IMAGE_SAVE_COPY.saved : IMAGE_SAVE_COPY.saveFailed,
+                autoSaveImages: getSharedDrawSettings().autoSaveImages === true,
+                saveImagesByFolder: getSharedDrawSettings().saveImagesByFolder === true,
+            }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
+        case 'OPEN_IMAGE_FOLDER': {
+            const { state, text } = await openImageFolder();
+            if (iframe.isConnected) postToIframe(iframe, { type: 'STATUS', state, text, target: 'image-folder' }, 'LittleWhiteBox-NovelDraw');
             break;
         }
 
@@ -4111,7 +4139,7 @@ async function handleFrameMessage(event) {
                 }
                 const charName = preview.characterName || getChatCharacterName();
                 const image = getBase64ImagePayload(preview.base64);
-                const url = await saveBase64AsFile(image.base64, charName, `novel_${data.imgId}`, image.format);
+                const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${data.imgId}`, format: image.format });
                 preview.savedUrl = url;
                 await updatePreviewSavedUrl(data.imgId, url);
                 if (Number.isFinite(preview.messageId)) {

@@ -1264,6 +1264,21 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                             </label>
                             <small id="nd_gallery_jpeg_hint" class="gallery-jpeg-hint" data-gallery-jpeg-hint></small>
                         </div>
+                        <div>
+                            <label class="gallery-setting-check">
+                                <input id="nd_auto_save_images" type="checkbox" aria-describedby="nd_auto_save_images_hint">
+                                <span><strong data-image-save-auto-label></strong></span>
+                            </label>
+                            <small id="nd_auto_save_images_hint" class="gallery-jpeg-hint" data-image-save-auto-hint></small>
+                        </div>
+                        <div>
+                            <label class="gallery-setting-check">
+                                <input id="nd_save_by_folder" type="checkbox" aria-describedby="nd_save_by_folder_hint">
+                                <span><strong data-image-save-folder-label></strong></span>
+                            </label>
+                            <small id="nd_save_by_folder_hint" class="gallery-jpeg-hint" data-image-save-folder-hint></small>
+                        </div>
+                        <div><button id="nd_open_image_folder" class="btn btn-sm" type="button">打开文件夹</button></div>
                         <div class="gallery-settings-danger">
                             <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
                             <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>

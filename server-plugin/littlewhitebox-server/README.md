@@ -43,6 +43,20 @@ Scene Planner 支持免密反代，Agent API Key 可以留空；图片生成供�
 
 联网协议与 HTTP 处理的源码在 `modules/agent-core/web/`，本包 `web/web-runtime.cjs` 由同一源码生成，随插件统一构建与验收，见[构建规则](../../docs/plugin-build.md)。删除联网功能时删除 `web/`、入口注册、对应前端路由与生成任务即可，不影响绘图任务。
 
+## 图片保存与打开文件夹
+
+绘图的“图片按日期保存”与“打开文件夹”需要本插件：酒馆自带的 `/api/images/upload` 会去掉文件夹名里的 `/`，只能保存一级目录，浏览器本身也无法打开资源管理器。没有安装时，前端不调用这两个接口：开了“按日期保存”的图片照常保存到默认的角色名文件夹并提示“按日期保存未生效”，“打开文件夹”提示需要安装插件；其余功能不受影响。
+
+| 方法 | 路径 | capability | 说明 |
+|---|---|---|---|
+| POST | `/v1/images/save` | `image-save-v1` | 请求体 `{ image(base64), format, filename, folder: [一级, 二级?] }`；写入当前用户的 `user/images/<folder>/`，返回 `{ ok, path }`，`path` 与上传接口同形（如 `/user/images/角色/2026_10_31/a.png`） |
+| POST | `/v1/images/open-folder` | `open-folder-v1` | 在酒馆所在机器的文件管理器中打开用户图片根目录（`user/images`，不存在则先创建）；前端只用这种方式。请求体可选带 `folder: [一级, 二级?]` 打开其中的子文件夹（不存在则打开最近的上级），规则同上；返回 `{ ok, path, exact }` |
+
+- 文件夹名逐级按酒馆 `sanitize-filename` 的规则清理（删除 `/  ? < > : * | "`、控制字符、结尾的点和空格，拒绝 Windows 保留名）；空、`.`、`..` 或超过两级一律 400，解析结果必须仍在用户图片目录内。文件名同样逐段清理，格式只接受 png / jpg / jpeg / webp / gif。
+- 两条路由都要求登录的用户身份（`req.user`），受酒馆 CSRF 保护，不接收任意路径。打开文件夹只在请求来自本机（环回地址或本机网卡地址，且没有 `X-Forwarded-For` 等代理头）时执行，否则返回 403 `not_local`；通过反向代理或局域网从别的设备访问酒馆时，前端改为显示并复制相对路径。
+- 打开文件夹用 `child_process.spawn` 传参数数组、不经 shell：Windows `explorer.exe`、macOS `open`、Linux `xdg-open`；系统找不到对应程序时返回 500 `open_failed`。
+- 这两项是纯增量能力，**不改变插件版本号**：前端只按 capability 决定是否调用，旧版 3.0.0 插件仍可用于后台任务，只是没有这两项。升级方法同上节，覆盖整个目录后重启酒馆。
+
 ## Provider 边界
 
 - NovelAI：保留 `/v1/generate-image`、`/v2/generate-image`、`/v1/generate-image-stream`、`/v1/test`、`/v2/test` 的现有行为；异步任务在服务器读取 V5 MessagePack 流，只保留并交付最终 PNG。前台逐张后端发送仍由 `/v1/generate-image-stream` 原样转发流。
@@ -63,6 +77,8 @@ draw-run-runtime-v4
 draw-run-planner-retry-v1
 draw-run-planner-layout-v1
 exa-web-v1
+image-save-v1
+open-folder-v1
 ```
 
 `draw-run-planner-layout-v1` 表示后台规划请求接受多条消息，并允许 `system` / `assistant` 角色（自定义请求块），但至少需要一条 `user` 消息。未更新的旧插件不会声明该能力，仍只接受“单条 user 消息”的默认请求结构，默认设置下照常可用；需要自定义请求结构时，扩展会提示更新插件，或关闭“后台任务”改用浏览器流程。
