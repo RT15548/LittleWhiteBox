@@ -631,4 +631,3 @@ test('image save switches and open-folder button follow the host protocol', asyn
     assert.equal(open.disabled, false);
     assert.equal(document.getElementById('nd_gallery_status').textContent, '已打开图片目录');
 });
-

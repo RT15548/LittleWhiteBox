@@ -13,7 +13,7 @@ globalThis.__autoSaveTest = host;
 const stubs = {
     'gallery-cache.js': `
         const host = globalThis.__autoSaveTest;
-        export const getPreview = async id => host.previews.get(id);
+        export const getPreview = async id => { host.beforePreview?.(); return host.previews.get(id); };
         export const getSlotSelection = async slot => host.selections.get(slot) ?? null;
         export const savePreviewImage = async (id, prefix) => {
             if (host.failSave) throw new Error('upload failed');
@@ -48,7 +48,7 @@ const bundle = await build({
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text + '\n//# sourceURL=image-autosave-test.mjs').toString('base64')}`);
 
 function reset(t, settings = { autoSaveImages: true, autoSaveImagesSince: 0 }) {
-    Object.assign(host, { settings, saved: [], synced: [], rendered: [], warnings: [], failSave: false });
+    Object.assign(host, { settings, saved: [], synced: [], rendered: [], warnings: [], failSave: false, beforePreview: null });
     host.previews = new Map([['img-1', { imgId: 'img-1', base64: 'data', savedUrl: null }]]);
     host.selections = new Map([['slot-1', 'img-1']]);
     t.mock.method(console, 'warn', () => {});
@@ -121,4 +121,28 @@ test('a failed upload is swallowed, warns gently and leaves the preview for manu
     // 短时间内连续失败只提示一次，避免整批失败时刷屏。
     await api.autoSaveDeliveredImage(options());
     assert.equal(host.warnings.length, 1);
+});
+
+// Cost: writing saved-image metadata into another chat or replacing a newly selected image.
+test('navigation or a new selection during gallery reads cannot receive the saved entry', async t => {
+    for (const change of ['chat', 'selection']) {
+        reset(t);
+        let reads = 0;
+        let target = { messageId: 3 };
+        host.beforePreview = () => {
+            if (++reads !== 2) return;
+            if (change === 'chat') target = null;
+            else host.selections.set('slot-1', 'img-2');
+        };
+        assert.equal(await api.autoSaveDeliveredImage(options({ chatTarget: () => target })), true);
+        assert.deepEqual([host.synced, host.rendered], [[], []]);
+    }
+});
+
+// Cost: saving after the user has disabled automatic saving but before upload has begun.
+test('turning automatic saving off during the preview read prevents the upload', async t => {
+    reset(t);
+    host.beforePreview = () => { host.settings.autoSaveImages = false; };
+    assert.equal(await api.autoSaveDeliveredImage(options()), false);
+    assert.deepEqual(host.saved, []);
 });

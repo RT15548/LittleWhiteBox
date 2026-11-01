@@ -1,4 +1,4 @@
-import{r as f}from"./constants-RJ4jNr01.js";import{I as S,M as $,N as m,P as p,j as v,k as q}from"./provider-resolution-NIr0A5Jq.js";import{t as b}from"./installation-LbhnefDi.js";function A(){return`<link rel="stylesheet" href="/${encodeURI(f)}/modules/agent-core/ui/web-settings.css">
+import{r as f}from"./constants-RJ4jNr01.js";import{t as b}from"./installation-LbhnefDi.js";import{I as S,M as $,N as m,P as p,j as v,k as q}from"./provider-resolution-NIr0A5Jq.js";function A(){return`<link rel="stylesheet" href="/${encodeURI(f)}/modules/agent-core/ui/web-settings.css">
     <div class="xb-assistant-web-settings"><label><span>${p.provider}</span>
         <select id="xb-assistant-web-provider">${m.map(({id:t,label:a})=>`<option value="${t}">${a}</option>`).join("")}</select>
     </label>${m.map(({id:t,label:a})=>`<label id="xb-assistant-${t}-key-wrap">

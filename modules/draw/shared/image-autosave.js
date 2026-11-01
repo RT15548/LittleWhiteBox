@@ -21,12 +21,16 @@ function warnOnce() {
 
 // 保存成功后，让楼层里的这张图改用已保存的文件，并把“已保存”写回聊天（与手动保存相同）。
 // 仅当这张图仍是该槽位正在显示的那张、且仍在原来的聊天里才写；失败只记日志，不算保存失败。
-async function syncChatSavedEntry({ imgId, slotId, savedUrl, target }) {
+async function syncChatSavedEntry({ imgId, slotId, savedUrl, chatTarget }) {
     try {
-        if (!target || await getSlotSelection(slotId) !== imgId) return;
         const saved = await getPreview(imgId);
+        if (await getSlotSelection(slotId) !== imgId) return;
+        const target = chatTarget();
+        if (!target) return;
         await syncDrawSavedFromPreview(target.messageId, saved, { slotId, savedUrl });
-        await renderPreviewsForMessage(target.messageId, { refreshSlotIds: [slotId] });
+        if (chatTarget()?.messageId === target.messageId) {
+            await renderPreviewsForMessage(target.messageId, { refreshSlotIds: [slotId] });
+        }
     } catch (error) {
         console.warn('[ImageAutoSave] 同步楼层的已保存状态失败:', error);
     }
@@ -47,8 +51,10 @@ export async function autoSaveDeliveredImage({ imgId, slotId, filePrefix, genera
     try {
         const preview = await getPreview(imgId);
         if (!preview?.base64 || preview.savedUrl) return false;
+        const current = getSharedDrawSettings();
+        if (current.autoSaveImages !== true || generatedAt < current.autoSaveImagesSince) return false;
         const savedUrl = await savePreviewImage(imgId, filePrefix);
-        await syncChatSavedEntry({ imgId, slotId, savedUrl, target: chatTarget() });
+        await syncChatSavedEntry({ imgId, slotId, savedUrl, chatTarget });
         return true;
     } catch (error) {
         console.warn('[ImageAutoSave] 自动保存失败:', error);
