@@ -133,6 +133,8 @@ let state = {
     cacheStats: { count: 0, sizeMB: '0' },
     imageTitleMode: 'none',
     saveAsJpeg: false,
+    autoSaveImages: false,
+    saveImagesByFolder: false,
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -3584,6 +3586,8 @@ function applyStateToUI() {
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
         const titleModeSel = $('nd_image_title_mode');
         $('nd_save_as_jpeg').checked = state.saveAsJpeg === true;
+        $('nd_auto_save_images').checked = state.autoSaveImages === true;
+        $('nd_save_by_folder').checked = state.saveImagesByFolder === true;
         if (titleModeSel) titleModeSel.value = ['none', 'overlay', 'collapse'].includes(state.imageTitleMode)
             ? state.imageTitleMode : 'none';
 
@@ -4382,6 +4386,20 @@ window.addEventListener('message', event => {
                 galleryFeedback.show(data.state, data.text);
                 break;
             }
+            if (data.target === 'image-save') {
+                state.autoSaveImages = data.autoSaveImages === true;
+                state.saveImagesByFolder = data.saveImagesByFolder === true;
+                $('nd_auto_save_images').checked = state.autoSaveImages;
+                $('nd_save_by_folder').checked = state.saveImagesByFolder;
+                $('nd_auto_save_images').disabled = $('nd_save_by_folder').disabled = false;
+                galleryFeedback.show(data.state, data.text);
+                break;
+            }
+            if (data.target === 'image-folder') {
+                $('nd_open_image_folder').disabled = false;
+                galleryFeedback.show(data.state, data.text);
+                break;
+            }
             if (data.target === 'group-presets') {
                 handleGroupPresetStatus(data);
                 break;
@@ -4816,6 +4834,19 @@ function initializePage() {
     $('nd_save_as_jpeg')?.addEventListener('change', () => {
         $('nd_save_as_jpeg').disabled = true;
         postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked });
+    });
+
+    // 自动保存 / 按日期保存：两个开关一起提交，等宿主回执后再恢复控件；打开文件夹由宿主执行。
+    for (const id of ['nd_auto_save_images', 'nd_save_by_folder']) {
+        $(id)?.addEventListener('change', () => {
+            $('nd_auto_save_images').disabled = $('nd_save_by_folder').disabled = true;
+            postToParent({ type: 'SAVE_IMAGE_SAVE_OPTIONS', autoSaveImages: $('nd_auto_save_images').checked,
+                saveImagesByFolder: $('nd_save_by_folder').checked });
+        });
+    }
+    $('nd_open_image_folder')?.addEventListener('click', () => {
+        $('nd_open_image_folder').disabled = true;
+        postToParent({ type: 'OPEN_IMAGE_FOLDER' });
     });
 
     // 批量管理

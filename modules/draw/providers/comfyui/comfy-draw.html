@@ -875,6 +875,23 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
                         </label>
                         <span id="comfy-gallery-jpeg-hint" data-gallery-jpeg-hint></span>
                     </div>
+                    <div style="display:grid;gap:8px;margin-top:8px;font-size:12px;color:var(--text-secondary);">
+                        <div>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                <input id="comfy-gallery-auto-save" type="checkbox" aria-describedby="comfy-gallery-auto-save-hint">
+                                <span data-image-save-auto-label></span>
+                            </label>
+                            <span id="comfy-gallery-auto-save-hint" data-image-save-auto-hint style="display:block;margin-left:22px;"></span>
+                        </div>
+                        <div>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                <input id="comfy-gallery-save-by-folder" type="checkbox" aria-describedby="comfy-gallery-save-by-folder-hint">
+                                <span data-image-save-folder-label></span>
+                            </label>
+                            <span id="comfy-gallery-save-by-folder-hint" data-image-save-folder-hint style="display:block;margin-left:22px;"></span>
+                        </div>
+                        <div><button id="comfy-gallery-open-folder" class="btn btn-sm" type="button">打开文件夹</button></div>
+                    </div>
                 </div>
 
                 <div id="comfy-gallery-container" class="gallery-grid"></div>

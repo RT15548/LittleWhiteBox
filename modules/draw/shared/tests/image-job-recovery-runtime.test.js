@@ -11,7 +11,7 @@ import { isSceneSlotAlive, removeSceneSlotPlaceholders, setActiveMessageText } f
 
 // 测真正的 adoption → IndexedDB → 页面接回 → 结算；仅替换宿主/画廊 IO 和 DOM 投影。
 // 不发起付费生成，也不以源码字符串断言代替旧图是否仍在正文中的行为验证。
-const host = { ctx: null, previews: new Map(), selections: new Map() };
+const host = { ctx: null, previews: new Map(), selections: new Map(), autoSaved: [] };
 globalThis.__drawRecoveryTest = host;
 globalThis.indexedDB = indexedDB;
 globalThis.window = new EventTarget();
@@ -25,6 +25,7 @@ const stubs = {
         export const event_types = { CHAT_CHANGED: 'chat_changed' };
         export const createModuleEvents = () => ({ on() {}, cleanup() {} });
     `,
+    'image-autosave.js': 'export const autoSaveDeliveredImage = async options => { globalThis.__drawRecoveryTest.autoSaved.push(options); return false; }; export const imageFilePrefix = () => "draw";',
     'draw-run-recovery-runtime.js': 'export const runDrawRunRecoveryPass = async options => { globalThis.__drawRecoveryTest.drawRecovery = options; };',
     'draw-common.js': `
         export const isMessageBeingEdited = () => false;
@@ -125,6 +126,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
             items: [{ index: 0, slotId: id + '-slot', imgId: id + '-image', previewMetadata: { orientation: 'landscape' } }] });
         await api.markPendingImageJobActive(id, record.leaseId);
         await api.renewPendingImageJobLease(id, record.leaseId, { now: 0 });
+        return record.createdAt;
     }
     await recordJob('long-job');
     await api.drawCancellationJournal.record({ owner: 'fixture', jobIds: ['cancel-job'], runIds: [] });
@@ -146,7 +148,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     window.dispatchEvent(new Event('online'));
     await acknowledged.promise;
     assert.equal(finished, false);
-    await recordJob('new-job'); backendJobs.push({ id: 'new-job' });
+    const submittedAt = await recordJob('new-job'); backendJobs.push({ id: 'new-job' });
     passes.push(api.reconcilePendingImageJobs(), api.reconcilePendingImageJobs());
     for (let attempt = 0; attempt < 100 && await api.getPendingImageJob('new-job'); attempt++) {
         await new Promise(resolve => setTimeout(resolve, 10));
@@ -154,6 +156,8 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     assert.equal(await api.getPendingImageJob('new-job'), null);
     assert.equal(host.previews.get('new-job-image')?.base64, 'delivered');
     assert.equal(host.previews.get('new-job-image')?.orientation, 'landscape');
+    // 接回的图以任务提交时刻交给自动保存，开关打开前提交的任务因此不会被当成新图。
+    assert.equal(host.autoSaved.find(call => call.imgId === 'new-job-image')?.generatedAt, submittedAt);
     assert.deepEqual(await api.drawCancellationJournal.list(), []);
     assert.deepEqual(attachments, ['long-job', 'new-job']);
     assert.equal(finished, false);
