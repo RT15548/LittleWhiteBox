@@ -164,14 +164,13 @@ test('a rule-refused request remains recorded and can succeed after its earlier 
     assert.equal(read().金钱, 80);
 });
 
-test('identical calls execute immediately once each without a queue or lifecycle API', () => {
+test('ordinary identical calls execute immediately once each without a queue', () => {
     const first = api.apply(inc(-20));
     assert.equal(read().金钱, 80);
     const second = api.apply(inc(-20));
     assert.equal(read().金钱, 60);
     assert.equal(first.status, 'success');
     assert.equal(second.status, 'success');
-    assert.deepEqual(Object.keys(api).sort(), ['apply', 'applyText']);
     assert.equal(record(1).entries.length, 2);
     rebuild();
     assert.equal(read().金钱, 60);

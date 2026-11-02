@@ -2631,6 +2631,8 @@ export function initVariablesCore() {
     globalThis.LWB_StateV2 = {
         applyText: async (text, options = {}) => applyText(text, options),
         apply: stateApi.apply,
+        getInputSchema: stateApi.getInputSchema,
+        beginTurn: stateApi.beginTurn,
     };
     openStateChat();
 }

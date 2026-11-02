@@ -64,7 +64,7 @@ export function setLocalVariable(name, value) {
 
     copySourceFile(tempDir, 'parser.js', source => source
         .replace("import jsyaml from '../../../libs/js-yaml.mjs';", `import jsyaml from '${yamlModuleUrl}';`));
-    for (const name of ['semantic.js', 'executor.js', 'json-input.js', 'records.js', 'checkpoints.js', 'rebuild.js', 'legacy-log.js', 'index.js']) copySourceFile(tempDir, name);
+    for (const name of ['semantic.js', 'executor.js', 'json-input.js', 'records.js', 'checkpoints.js', 'rebuild.js', 'legacy-log.js', 'turn-state.js', 'index.js']) copySourceFile(tempDir, name);
     copySourceFile(tempDir, 'guard-core.js');
     copySourceFile(tempDir, 'guard.js', source => source
         .replace("import { getContext } from '../../../../../../extensions.js';", "import { getContext } from './mock-extensions.js';"));

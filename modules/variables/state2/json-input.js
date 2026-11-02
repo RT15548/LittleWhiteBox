@@ -30,6 +30,34 @@ const OPERATIONS = Object.freeze({
 });
 const PUBLIC_NAMES = Object.freeze(Object.fromEntries(Object.entries(OPERATIONS).map(([name, { op }]) => [op, name])));
 
+/** The public command schema is derived from the same operation table as validation. */
+export function getStateInputSchema() {
+    return {
+        type: 'object',
+        properties: {
+            ops: {
+                type: 'array',
+                description: 'Changes for this passage. An empty array means no changes.',
+                items: {
+                    type: 'object',
+                    properties: {
+                        op: { type: 'string', enum: Object.keys(OPERATIONS) },
+                        path: { type: 'string', description: 'Existing managed variable path, using dots or brackets.' },
+                        value: { description: 'JSON value for set, push or remove.' },
+                        delta: { type: 'number', description: 'Signed change for inc.' },
+                    },
+                    required: ['op', 'path'],
+                    additionalProperties: false,
+                    description: Object.entries(OPERATIONS).map(([name, definition]) =>
+                        `${name}: ${['op', 'path', ...definition.fields].join(', ')}`).join('; '),
+                },
+            },
+        },
+        required: ['ops'],
+        additionalProperties: false,
+    };
+}
+
 export function publicOperationName(op) {
     return PUBLIC_NAMES[op] ?? op;
 }

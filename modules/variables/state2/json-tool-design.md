@@ -2,9 +2,25 @@
 
 使用方式与返回字段见 [写入契约](<README.md>)。
 
+## 请求组装与只读宏
+
+宏的格式选择和参数示例统一见 README 的“先读取当前变量”。`var-commands.js` 负责读取与格式化，`varevent-editor.js` 在宿主提示词组装事件中应用替换。
+
+`CHAT_COMPLETION_PROMPT_READY` 的文本 `content`、多模态文本段、`mes`，以及 `GENERATE_AFTER_COMBINE_PROMPTS` 的 `prompt`，共用同一替换入口。`dryRun` 也展开只读变量宏，读取当时的真实变量；它不负责回滚，重写适配器应先完成 `beginTurn`，再组装提示词。
+
+`dryRun` 不处理 `<varevent>` 事件块，不入队、不执行脚本、不因这次读取保存元数据。正式生成仍按原流程收集事件并在回合结束后执行。不能把整个提示词处理器在 `dryRun` 时提前退出，也不能为了展开宏而放开事件副作用。
+
+## 可替换的本楼提交
+
+`beginTurn` 的外部流程见 README。领域所有者是变量模块；预设只负责请求组装与触发，核心层不识别任何预设模式。
+
+本接口的唯一持久事实是在目标 swipe 的调用条目上标记 `scope: "turn"`。每个 swipe 最多一个这样的条目；普通调用、正文、初始化不使用该标记。撤销时保留原位置的空条目，随后 `commit` 替换同一位置，保持与同楼其他调用的先后关系。空条目必须持久化，否则刷新后无法知道重写应放回哪个位置。删除该 swipe/楼层时随既有记录一起删除，不新增表、快照或迁移分支。
+
+请求句柄、目标身份及基线签名仅存于内存。真实撤销和替换都复用已有重建器；提交先在内存重建，全部操作通过后才发布。无本楼条目时不重建、不回滚。运行期检查保护异步结果不落到已变化的聊天、正文、swipe 或变量上。
+
 ## 1. 目标
 
-- 三个写入入口：正文 `<state>`（文本格式或 JSON）、`LWB_StateV2.apply()`、`LWB_StateV2.applyText()`，共用同一套操作与守卫。
+- 写入入口：正文 `<state>`（文本格式或 JSON）、`LWB_StateV2.apply()`、`LWB_StateV2.applyText()`、`beginTurn()` 句柄的 `commit()`，共用同一套操作与守卫。
 - 每个 swipe 在自己的 `message.extra` 中保存它的变量**请求**。换 swipe、编辑、删除时，变量由这些请求重建。
 - 正文只是输入的载体。状态块执行后被正则或手动删除，记录仍在。
 - 所有修改同步完成，任何时刻对外只有完整状态。
@@ -220,6 +236,7 @@ JSON 来源请求在处理时检查受管根，未受管的请求报错并不进
 | [rebuild.js](<rebuild.js>) | 临时存储重放、检查点生成与发布 |
 | [legacy-log.js](<legacy-log.js>) | 旧数据转换 |
 | [service.js](<service.js>) | 各入口流程、宿主事件处理、保存与通知 |
+| [turn-state.js](<turn-state.js>) | 末楼当前 swipe 提交的撤销、句柄有效性检查与替换提交 |
 | [variables-core.js](<../variables-core.js>) | API 注册与启停；2.0 模式下把宿主事件交给 service |
 
 ## 7. 依赖的宿主行为

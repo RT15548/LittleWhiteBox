@@ -1,5 +1,6 @@
 import { getContext } from '../../../../../../extensions.js';
-import { parseJsonInput, publicOperationName, StateInputError } from './json-input.js';
+import { parseJsonInput, publicOperationName, StateInputError, getStateInputSchema } from './json-input.js';
+import { createTurnStateApi } from './turn-state.js';
 import { executeStateOperations } from './executor.js';
 import { replaceRules } from './guard-core.js';
 import { bodyBlocks, readRecord, readRecords, writeRecord, ownedRoots, bodyUpdate, parseEntry, withEntry } from './records.js';
@@ -261,5 +262,9 @@ export function createStateApi({ context = getContext, notify = () => {} } = {})
             return { atoms: [], errors: [error.message], skipped: false };
         }
     }
-    return { apply, applyText };
+    return {
+        apply, applyText,
+        getInputSchema: getStateInputSchema,
+        beginTurn: createTurnStateApi({ context, prepare, save: scheduleSave, receipt: jsonResult, notify: sendNotification }),
+    };
 }

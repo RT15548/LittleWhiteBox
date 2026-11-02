@@ -225,25 +225,27 @@ function formatYamlWithIndex(obj, indent) {
                     lines.push(`${pad}- {}  # [${idx}]`);
                 } else {
                     const firstKey = keys[0];
+                    const firstKeyFormatted = formatScalar(firstKey);
                     const firstVal = item[firstKey];
                     const firstFormatted = formatValue(firstVal, indent + 2);
 
                     if (typeof firstVal === 'object' && firstVal !== null) {
-                        lines.push(`${pad}- ${firstKey}:  # [${idx}]`);
+                        lines.push(`${pad}- ${firstKeyFormatted}:  # [${idx}]`);
                         lines.push(firstFormatted);
                     } else {
-                        lines.push(`${pad}- ${firstKey}: ${firstFormatted}  # [${idx}]`);
+                        lines.push(`${pad}- ${firstKeyFormatted}: ${firstFormatted}  # [${idx}]`);
                     }
 
                     for (let i = 1; i < keys.length; i++) {
                         const k = keys[i];
+                        const keyFormatted = formatScalar(k);
                         const v = item[k];
                         const vFormatted = formatValue(v, indent + 2);
                         if (typeof v === 'object' && v !== null) {
-                            lines.push(`${pad}  ${k}:`);
+                            lines.push(`${pad}  ${keyFormatted}:`);
                             lines.push(vFormatted);
                         } else {
-                            lines.push(`${pad}  ${k}: ${vFormatted}`);
+                            lines.push(`${pad}  ${keyFormatted}: ${vFormatted}`);
                         }
                     }
                 }
@@ -262,12 +264,13 @@ function formatYamlWithIndex(obj, indent) {
 
         const lines = [];
         for (const [key, val] of Object.entries(obj)) {
+            const keyFormatted = formatScalar(key);
             const vFormatted = formatValue(val, indent + 1);
             if (typeof val === 'object' && val !== null) {
-                lines.push(`${pad}${key}:`);
+                lines.push(`${pad}${keyFormatted}:`);
                 lines.push(vFormatted);
             } else {
-                lines.push(`${pad}${key}: ${vFormatted}`);
+                lines.push(`${pad}${keyFormatted}: ${vFormatted}`);
             }
         }
         return lines.join('\n');
@@ -283,23 +286,13 @@ function formatValue(val, indent) {
 }
 
 function formatScalar(v) {
-    if (v === null) return 'null';
-    if (v === undefined) return '';
-    if (typeof v === 'boolean') return String(v);
-    if (typeof v === 'number') return String(v);
-    if (typeof v === 'string') {
-        const needsQuote =
-            v === '' ||
-            /^\s|\s$/.test(v) ||                       // 首尾空格
-            /[:[]\]{}&*!|>'"%@`#,]/.test(v) ||         // YAML 易歧义字符
-            /^(?:true|false|null)$/i.test(v) ||        // YAML 关键字
-            /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(v);     // 纯数字字符串
-        if (needsQuote) {
-            return `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-        }
-        return v;
-    }
-    return String(v);
+    // Keep each scalar on one physical line so array index comments stay outside
+    // the value. The YAML dumper owns escaping and ambiguous string quoting.
+    return jsYaml.dump(v, {
+        flowLevel: 0,
+        lineWidth: -1,
+        quotingType: '"',
+    }).trimEnd();
 }
 
 export function replaceXbGetVarInChat(chat) {
