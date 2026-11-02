@@ -71,6 +71,51 @@ test('same-chat deserialization rebinds unchanged sources without confirming a s
     assert.equal(tracker.observeCompletion(context, 2), false);
 });
 
+// Acceptance: a same-chat reload's temporary empty array must never become a
+// deletion obligation, including repeated probes and previously queued edits.
+// Cost: irreversible summary rollback and previously hidden text sent to the AI.
+test('empty reload windows defer synchronization without retaining a floor-zero rollback', async () => {
+    const { tracker, context } = fixture();
+    for (let reload = 0; reload < 2; reload++) {
+        const saved = structuredClone(context.chat);
+        context.chat.length = 0;
+        for (let probe = 0; probe < 3; probe++) {
+            tracker.retain(context);
+            assert.equal(tracker.inspect(context), null);
+            const result = await tracker.synchronize(context, () => assert.fail('loading started a source write'));
+            assert.equal(result.status, 'deferred');
+        }
+        context.chat.push(...saved);
+        tracker.switchChat(context);
+        assert.equal(tracker.inspect(context), null);
+        assert.equal((await tracker.synchronize(context, assert.fail)).status, 'unchanged');
+    }
+});
+
+test('reload preserves a real pending deletion boundary without extending it to floor zero', async () => {
+    const { tracker, context } = fixture();
+    context.chat.pop();
+    tracker.retain(context, { kind: 'delete' });
+    const saved = structuredClone(context.chat);
+    context.chat.length = 0;
+    assert.equal((await tracker.synchronize(context, assert.fail)).status, 'deferred');
+    context.chat.push(...saved);
+    tracker.switchChat(context);
+    assert.equal(tracker.inspect(context).rollbackFromFloor, 3);
+});
+
+// Acceptance: an explicit deletion or a completed load of an empty chat still
+// retires its original sources. Cost: obsolete memory used for a different story.
+for (const confirmation of ['delete', 'loaded']) test(`a truly empty chat is synchronized after ${confirmation}`, async () => {
+    const { tracker, context } = fixture();
+    context.chat.length = 0;
+    if (confirmation === 'delete') tracker.retain(context, { kind: 'delete' });
+    else tracker.switchChat(context);
+    assert.equal(tracker.inspect(context).rollbackFromFloor, 0);
+    assert.equal((await tracker.synchronize(context, async () => ({ status: 'rolled_back' }))).status, 'synced');
+    assert.equal(tracker.inspect(context), null);
+});
+
 test('reload preserves an unfinished local edit without invalidating the healthy prefix or suffix', async () => {
     const { tracker, context } = fixture();
     context.chat[2].mes += ' edited';

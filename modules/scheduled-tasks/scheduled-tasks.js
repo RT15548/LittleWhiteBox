@@ -36,6 +36,7 @@ import { PRESET_TASK_FIELD, PRESET_PROMPT_ORDER_CHARACTER_ID } from './task-stor
 const TASKS_MODULE_NAME = "xiaobaix-tasks";
 const defaultSettings = { enabled: true, globalTasks: [], processedMessages: [] };
 const CONFIG = { MAX_PROCESSED: 20, MAX_COOLDOWN: 10, CLEANUP_INTERVAL: 30000, TASK_COOLDOWN: 50 };
+const CHARACTER_EXIT_ERROR = { code: 'task_character_left', message: '角色已切换，旧任务的清理命令未执行。' };
 const events = createModuleEvents('scheduledTasks');
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -76,7 +77,8 @@ function holdTaskMutation(key) {
         requestPresetTaskStartup();
     };
 }
-// Host work and cleanup keep their own receipts until they actually settle.
+// Active tasks retain host/cleanup locks until completion. Character exit
+// retires only that visit's records, independently of when its work settles.
 const isRetainedExecution = entry => entry?.source === 'host' || entry?.source === 'cleanup';
 const refreshExecutionState = () => {
     const records = state.executingRecords instanceof Map ? state.executingRecords : new Map();
@@ -84,10 +86,11 @@ const refreshExecutionState = () => {
     state.executingCount = records.size;
     state.isCommandGenerated = Array.from(records.values()).some(entry => entry?.source === 'command' || isRetainedExecution(entry));
 };
-const startExecutionRecord = (taskName, source = 'command', signal = null) => {
+const startExecutionRecord = (taskName, source = 'command', signal = null, runtime = null) => {
+    if (runtime?.character?.abort.signal.aborted) return null;
     const token = uuidv4();
     const onAbort = () => finishExecutionRecord(token);
-    state.executingRecords.set(token, { taskName: normalizeTaskKey(taskName), source, startedAt: Date.now(),
+    state.executingRecords.set(token, { taskName: normalizeTaskKey(taskName), source, runtime, startedAt: Date.now(),
         release: () => signal?.removeEventListener('abort', onAbort) });
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) finishExecutionRecord(token);
@@ -96,10 +99,11 @@ const startExecutionRecord = (taskName, source = 'command', signal = null) => {
 };
 const finishExecutionRecord = (token) => {
     if (!token) return;
-    state.executingRecords.get(token)?.release();
+    const entry = state.executingRecords.get(token);
+    entry?.release();
     if (state.executingRecords.delete(token)) {
         refreshExecutionState();
-        if (!state.executingRecords.size) requestPresetTaskStartup();
+        if (!entry.runtime?.character?.abort.signal.aborted && !isAnyTaskExecuting()) requestPresetTaskStartup();
     }
 };
 const clearExecutionRecordsByTask = (taskName) => {
@@ -181,6 +185,7 @@ const allTasks = allTasksMeta;
 
 async function allTasksFull() {
     const preset = syncPresetTaskBinding();
+    const character = syncCharacterTaskBinding();
     const globalMeta = getSettings().globalTasks || [];
     const globalTasks = (await Promise.all(globalMeta.map(async (task) => {
         try {
@@ -196,7 +201,9 @@ async function allTasksFull() {
         : [];
     return [
         ...globalTasks.map(mapTiming),
-        ...getCharacterTasks().map(mapTiming),
+        ...(isTaskRuntimeActive({ character })
+            ? getCharacterTasks().map(task => ({ ...mapTiming(task), __runtime: captureTaskRuntime(task, 'character') }))
+            : []),
         ...presetTasks
     ];
 }
@@ -496,7 +503,53 @@ function syncPresetTaskBinding() {
     return presetTaskBinding;
 }
 
+let characterTaskBinding = null;
+let chatTaskAbort = null;
+let chatChangeVersion = 0;
+
+function retireCharacterTaskBinding(binding) {
+    if (!binding) return;
+    binding.abort.abort();
+    // Cleanup can remain pending, but no longer owns a live instance or lock.
+    for (const [key, entry] of __taskRunMap) {
+        if (entry.runtime?.character !== binding) continue;
+        __taskRunMap.delete(key);
+        clearTaskCooldown(key);
+    }
+    for (const [key, executions] of __taskExecutionMap) {
+        for (const execution of executions) {
+            if (execution.character !== binding) continue;
+            execution.abort.abort();
+            executions.delete(execution);
+            clearTaskCooldown(key);
+        }
+        if (!executions.size) __taskExecutionMap.delete(key);
+    }
+    for (const [token, entry] of state.executingRecords) {
+        if (entry.runtime?.character !== binding) continue;
+        entry.release();
+        state.executingRecords.delete(token);
+        clearTaskCooldown(entry.taskName);
+    }
+    refreshExecutionState();
+    if (!isAnyTaskExecuting()) requestPresetTaskStartup();
+}
+
+function syncCharacterTaskBinding() {
+    const avatar = getContext().groupId ? null : characters[this_chid]?.avatar || null;
+    if (!characterTaskBinding || characterTaskBinding.avatar !== avatar) {
+        const previous = characterTaskBinding;
+        characterTaskBinding = { avatar, id: uuidv4(), abort: new AbortController() };
+        retireCharacterTaskBinding(previous);
+    }
+    return characterTaskBinding;
+}
+
 function captureTaskRuntime(task, scope) {
+    if (scope === 'character') {
+        const character = syncCharacterTaskBinding();
+        return { key: JSON.stringify(['character', character.id, normalizeTaskKey(task.name)]), character };
+    }
     if (scope !== 'preset') return { key: normalizeTaskKey(task.name), preset: null };
     const preset = syncPresetTaskBinding();
     // Names already identify task execution; preset scope prevents cross-preset
@@ -506,6 +559,9 @@ function captureTaskRuntime(task, scope) {
 
 function isTaskRuntimeActive(runtime) {
     if (runtime?.abort?.signal.aborted) return false;
+    if (runtime?.character) {
+        return !runtime.character.abort.signal.aborted && syncCharacterTaskBinding() === runtime.character && !!runtime.character.avatar;
+    }
     if (!runtime?.preset) return true;
     return syncPresetTaskBinding() === runtime.preset && !!runtime.preset.name && !runtime.preset.abort.signal.aborted;
 }
@@ -701,7 +757,7 @@ const __taskDynamicCallbackPrefix = (taskName) => `${normalizeTaskKey(taskName)}
 function cleanupTaskRunOwner(taskKey, entry) {
     if (!entry || entry.cleaned) return false;
     entry.cleaned = true;
-    entry.releasePreset?.();
+    entry.releaseBinding?.();
 
     // Publish the completion before dispatching abort: an abort callback can
     // synchronously request a replacement which must wait for this cleanup too.
@@ -741,7 +797,7 @@ function cleanupTaskRunOwner(taskKey, entry) {
         if (__taskRunMap.get(taskKey) === entry) __taskRunMap.delete(taskKey);
     };
     if (entry.cleanupWork.length) {
-        const token = startExecutionRecord(taskKey, 'cleanup');
+        const token = startExecutionRecord(taskKey, 'cleanup', null, entry.runtime);
         Promise.allSettled(entry.cleanupWork).then(results => {
             const errors = results.filter(result => result.status === 'rejected').map(result => result.reason);
             finishExecutionRecord(token);
@@ -806,6 +862,8 @@ function resetAllTaskRuns() {
     }
     presetTaskBinding?.abort.abort();
     presetTaskBinding = null;
+    // Stopping tasks does not leave the character. Same-visit cleanup commands
+    // remain valid; only a real character exit revokes that capability.
     for (const entry of Array.from(__taskRunMap.values())) abortTaskRunEntry(entry);
 
     for (const [id, entry] of state.dynamicCallbacks.entries()) {
@@ -815,6 +873,8 @@ function resetAllTaskRuns() {
 
     clearTaskCooldown();
     clearAllExecutionRecords();
+    // Abort handlers above can synchronously emit a new chat event.
+    chatTaskAbort?.abort();
     return { ok: true };
 }
 
@@ -912,6 +972,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
     const listeners = new Set();
     const entry = {
         taskKey: taskName,
+        runtime,
         abort,
         timers,
         intervals,
@@ -926,14 +987,15 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
         cleanupCompletion: null,
     };
     __taskRunMap.set(taskName, entry);
-    if (runtime?.preset) {
-        const signal = runtime.preset.abort.signal;
-        const onPresetExit = () => {
+    const binding = runtime?.character || runtime?.preset;
+    if (binding) {
+        const signal = binding.abort.signal;
+        const onBindingExit = () => {
             cleanupTaskRunOwner(taskName, entry);
             clearTaskCooldown(taskName);
         };
-        signal.addEventListener('abort', onPresetExit, { once: true });
-        entry.releasePreset = () => signal.removeEventListener('abort', onPresetExit);
+        signal.addEventListener('abort', onBindingExit, { once: true });
+        entry.releaseBinding = () => signal.removeEventListener('abort', onBindingExit);
     }
 
     const reportCallbackError = (kind, error) => {
@@ -1034,7 +1096,9 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null, run
             succeeded = true;
         } finally {
             if (!succeeded) cleanupTaskRunOwner(taskName, entry);
-            try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
+            if (!runtime?.character?.abort.signal.aborted) {
+                try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "__runTaskSingleInstance" }, caughtError); }
+            }
         }
         return jsRunnerResult;
     })();
@@ -1054,38 +1118,48 @@ async function executeCommands(commands, taskName, runtime = null) {
     let executions = __taskExecutionMap.get(key);
     if (!executions) __taskExecutionMap.set(key, executions = new Set());
     executions.add(execution);
-    const onPresetExit = () => execution.abort.abort();
-    const presetSignal = execution.preset?.abort.signal;
-    presetSignal?.addEventListener('abort', onPresetExit, { once: true });
-    if (presetSignal?.aborted) onPresetExit();
+    const onBindingExit = () => execution.abort.abort();
+    const bindingSignal = (execution.character || execution.preset)?.abort.signal;
+    bindingSignal?.addEventListener('abort', onBindingExit, { once: true });
+    if (bindingSignal?.aborted) onBindingExit();
     let execToken;
     try {
         if (typeof commands === 'function') commands = await waitForTaskSignal(commands(), execution.abort.signal);
         if (!String(commands || '').trim() || !isTaskRuntimeActive(execution)) return null;
-        execToken = startExecutionRecord(key, 'command', execution.abort.signal);
+        execToken = startExecutionRecord(key, 'command', execution.abort.signal, execution);
         return await waitForTaskSignal(processTaskCommands(commands, taskName, execution), execution.abort.signal);
     } finally {
-        presetSignal?.removeEventListener('abort', onPresetExit);
+        bindingSignal?.removeEventListener('abort', onBindingExit);
         executions.delete(execution);
         if (!executions.size && __taskExecutionMap.get(key) === executions) __taskExecutionMap.delete(key);
         if (execToken) setTimeout(() => finishExecutionRecord(execToken), 500);
     }
 }
 
-async function executeTaskSlashCommand(command, taskKey, signal) {
+async function executeTaskSlashCommand(command, taskKey, signal, runtime = null) {
     if (signal?.aborted) return;
-    const token = startExecutionRecord(taskKey, 'host');
+    const token = startExecutionRecord(taskKey, 'host', null, runtime);
     try {
-        return await executeSlashCommand(command, { signal });
+        const result = await executeSlashCommand(command, { signal });
+        if (runtime?.character?.abort.signal.aborted) return;
+        return result;
     } finally {
         setTimeout(() => finishExecutionRecord(token), 500);
     }
 }
 
+async function executeTaskCleanupCommand(command, taskKey, runtime) {
+    const character = runtime?.character;
+    if (character && !isTaskRuntimeActive({ character })) {
+        throw Object.assign(new Error(CHARACTER_EXIT_ERROR.message), { code: CHARACTER_EXIT_ERROR.code });
+    }
+    return await executeTaskSlashCommand(command, taskKey, character?.abort.signal, runtime);
+}
+
 async function processTaskCommands(commands, taskName, runtime = null) {
     const jsTagRegex = /<<taskjs>>([\s\S]*?)<<\/taskjs>>/g;
     let lastIndex = 0, result = null, match;
-    const slash = command => executeTaskSlashCommand(command, runtime?.key || taskName, runtime?.abort.signal);
+    const slash = command => executeTaskSlashCommand(command, runtime?.key || taskName, runtime?.abort.signal, runtime);
 
     while ((match = jsTagRegex.exec(commands)) !== null) {
         if (!isTaskRuntimeActive(runtime)) return result;
@@ -1131,12 +1205,12 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask', runtime = null)
     let runOwner;
     const STscript = (command) => {
         if (runOwner?.dispatchingAbort) {
-            const work = executeTaskSlashCommand(command, stableKey);
+            const work = executeTaskCleanupCommand(command, stableKey, runtime);
             runOwner.cleanupWork.push(work);
             return work;
         }
         if (runOwner?.abort.signal.aborted || !isTaskRuntimeActive(runtime)) return Promise.resolve();
-        return executeTaskSlashCommand(command, stableKey, runOwner?.abort.signal);
+        return executeTaskSlashCommand(command, stableKey, runOwner?.abort.signal, runtime);
     };
 
     const taskContext = {
@@ -1166,7 +1240,7 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask', runtime = null)
         const onCleanup = callback => {
             if (typeof callback !== 'function') throw new TypeError('onCleanup callback must be a function');
             if (owner.cleaned) return () => {};
-            const cleanup = () => callback({ STscript: command => executeTaskSlashCommand(command, stableKey) });
+            const cleanup = () => callback({ STscript: command => executeTaskCleanupCommand(command, stableKey, runtime) });
             owner.cleanupCallbacks.add(cleanup);
             return () => {
                 owner.cleanupCallbacks.delete(cleanup);
@@ -1278,8 +1352,9 @@ function matchInterval(task, counts, triggerContext) {
     return currentFloor % task.interval === 0;
 }
 
-async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatChanged = null, overrideNewChat = null) {
+async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatChanged = null, overrideNewChat = null, signal = null) {
     if (!isGloballyEnabled()) return;
+    if (signal?.aborted) return;
     syncPresetTaskBinding();
     if (isAnyTaskExecuting()) {
         logExecutionLockSkip('checkAndExecuteTasks', { triggerContext, commandGenerated: state.isCommandGenerated });
@@ -1287,6 +1362,7 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
     }
 
     const tasks = await allTasksFull();
+    if (signal?.aborted) return;
     const n = nowMs();
     const counts = getFloorCounts();
 
@@ -1335,9 +1411,10 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
 
     if (tasksToExecute.length === 0) return;
 
-    const execToken = startExecutionRecord(`__trigger__${triggerContext}`, 'system');
+    const execToken = startExecutionRecord(`__trigger__${triggerContext}`, 'system', signal);
     try {
         for (const task of tasksToExecute) {
+            if (signal?.aborted) break;
             if (!isTaskRuntimeActive(task.__runtime)) continue;
             if (isTaskMutationPending(task.__runtime?.key || task.name)) continue;
             state.taskLastExecutionTime.set(task.__runtime?.key || task.name, n);
@@ -1418,6 +1495,12 @@ function onMessageDeleted() {
 }
 
 async function onChatChanged(chatId) {
+    const changeVersion = ++chatChangeVersion;
+    chatTaskAbort?.abort();
+    const visit = new AbortController();
+    chatTaskAbort = visit;
+    const character = syncCharacterTaskBinding();
+    if (visit.signal.aborted) return;
     Object.assign(state, {
         chatJustChanged: true,
         isNewChat: state.lastChatId !== chatId && chat.length <= 1,
@@ -1429,20 +1512,26 @@ async function onChatChanged(chatId) {
     TasksStorage.clearCache();
 
     requestAnimationFrame(() => {
+        // The host can select another character before its CHAT_CHANGED arrives.
+        if (visit.signal.aborted || syncCharacterTaskBinding() !== character) return;
         state.processedMessagesSet.clear();
         const settings = getSettings();
         settings.processedMessages = [];
         refreshUI();
-        observeBackgroundTask(checkAndExecuteTasks('chat_changed', false, false), { source: import.meta.url, operation: "callback" });
+        observeBackgroundTask(checkAndExecuteTasks('chat_changed', false, false, visit.signal), { source: import.meta.url, operation: 'onChatChanged' });
         requestAnimationFrame(() => requestAnimationFrame(() => { try { updateTaskBar(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "onChatChanged" }, caughtError); } }));
     });
 
-    setTimeout(() => { state.chatJustChanged = state.isNewChat = false; }, 2000);
+    setTimeout(() => {
+        // Task reset cancels scheduling, not the chat's original settling window.
+        if (changeVersion === chatChangeVersion) state.chatJustChanged = state.isNewChat = false;
+    }, 2000);
 }
 
 async function onChatCreated() {
     Object.assign(state, { isNewChat: true, chatJustChanged: true });
-    await checkAndExecuteTasks('chat_created', false, false);
+    const signal = chatTaskAbort?.signal;
+    await waitForTaskSignal(checkAndExecuteTasks('chat_created', false, false, signal), signal);
 }
 
 // This entry point is opt-in and separate from legacy message/init scheduling.
@@ -2311,6 +2400,11 @@ function cleanup() {
     }
     state.initTimers.forEach(timer => clearTimeout(timer));
     state.initTimers.clear();
+    // No CHAT_CHANGED subscription survives module shutdown. End the visit now,
+    // so a later A -> B -> A cannot restore an old cleanup capability.
+    const character = characterTaskBinding;
+    characterTaskBinding = null;
+    retireCharacterTaskBinding(character);
     resetAllTaskRuns();
     TasksStorage.clearCache();
 
@@ -2493,7 +2587,7 @@ window.xbqte = async (name) => {
             || getPresetTasks().find(item => item.name.toLowerCase() === expected);
         if (!task) throw new Error(`找不到名为 "${name}" 的任务`);
         if (task.disabled) throw new Error(`任务 "${name}" 已被禁用`);
-        const runtime = captureTaskRuntime(task, globalTask || characterTask ? 'global' : 'preset');
+        const runtime = captureTaskRuntime(task, globalTask ? 'global' : characterTask ? 'character' : 'preset');
         const commands = task === globalTask
             ? () => readGlobalTaskCommands(task)
             : String(task.commands || '');

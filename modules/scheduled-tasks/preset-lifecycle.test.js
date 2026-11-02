@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { transformSync } from 'esbuild';
+import { parse } from 'acorn';
 import { parseHTML } from 'linkedom';
 import path from 'node:path';
 import process from 'node:process';
@@ -26,6 +27,19 @@ const hostEventCode = transformSync(fs.readFileSync(new URL('../../lib/eventemit
 const hostPresetEndpointUrl = new URL('../../../src/endpoints/presets.js', controllerUrl);
 const hostPresetEndpointCode = transformSync(fs.readFileSync(hostPresetEndpointUrl, 'utf8'), { format: 'cjs' }).code;
 const hostRequire = createRequire(hostPresetEndpointUrl);
+
+// Keep the host's event ordering and chat-local mutations in the regression
+// checks. Only unrelated rendering/storage dependencies are replaced.
+function hostFunctions(file, names) {
+    const source = fs.readFileSync(new URL(file, controllerUrl), 'utf8');
+    return parse(source, { ecmaVersion: 'latest', sourceType: 'module' }).body
+        .map(node => node.declaration || node)
+        .filter(node => node.type === 'FunctionDeclaration' && names.includes(node.id.name))
+        .map(node => source.slice(node.start, node.end)).join('\n');
+}
+const hostChatResultCode = hostFunctions('../../script.js', ['getChatResult']);
+const hostVariableCode = hostFunctions('../variables.js', ['existsLocalVariable', 'deleteLocalVariable']);
+const hostInjectCode = hostFunctions('../slash-commands.js', ['flushInjectsCallback']);
 
 function presetFile(t) {
     const directory = fs.mkdtempSync(path.join(tmpdir(), 'lwb-preset-import-'));
@@ -89,7 +103,7 @@ const compile = (file, extra = '') => transformSync(fs.readFileSync(new URL(file
     format: 'cjs', target: 'es2022', define: { 'import.meta.url': JSON.stringify(file) },
 }).code;
 // Expose private entry points to the harness without replacing their implementations.
-const runtimeCode = compile('./scheduled-tasks.js', '\nexport { checkAndExecuteTasks, state, __taskRunMap, __taskExecutionMap, deleteTask, showTaskEditor, exportSingleTask, importGlobalTasks, onMessageReceived, onGenerationEnded, onMessageSwiped, onMessageDeleted, refreshPresetTasks, beginPresetTaskInitialization, finishPresetTaskInitialization, PresetTasksStore, taskListToggleHandler, saveCharacterTasks };');
+const runtimeCode = compile('./scheduled-tasks.js', '\nexport { checkAndExecuteTasks, state, __taskRunMap, __taskExecutionMap, deleteTask, showTaskEditor, exportSingleTask, importGlobalTasks, onMessageReceived, onGenerationEnded, onMessageSwiped, onMessageDeleted, refreshPresetTasks, beginPresetTaskInitialization, finishPresetTaskInitialization, PresetTasksStore, taskListToggleHandler, saveCharacterTasks, onChatChanged, onChatCreated, handleTaskBarClick, registerSlashCommands, cleanup };');
 const eventCode = compile('./preset-task-events.js');
 const slashCode = compile('../../core/slash-command.js');
 const deferred = () => {
@@ -99,7 +113,7 @@ const deferred = () => {
 };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
-function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date = Date } = {}) {
+function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date = Date, queuedFrames = false } = {}) {
     const { document } = parseHTML('<html><head></head><body></body></html>');
     const errors = [], warnings = [];
     const accountRecords = { ...accountState };
@@ -115,6 +129,7 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
     const globals = [];
     const scripts = new Map();
     const timers = new Map(), intervals = new Map(), handlers = [];
+    const frames = [], slashCommands = new Map();
     let timerId = 0;
     let editorCompletion;
     let editorResult = deferred();
@@ -197,6 +212,9 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
         executeSlashCommands: (command, _parser, _scope, _execution, _flags, controller) => slash(command, controller),
     });
     const imports = {
+        '../../../../../slash-commands/SlashCommandParser.js': { SlashCommandParser: { addCommandObject: command => slashCommands.set(command.name, command) } },
+        '../../../../../slash-commands/SlashCommand.js': { SlashCommand: { fromProps: props => props } },
+        '../../../../../slash-commands/SlashCommandArgument.js': { ARGUMENT_TYPE: { STRING: 'string', NUMBER: 'number', BOOLEAN: 'boolean' }, SlashCommandArgument: { fromProps: props => props }, SlashCommandNamedArgument: { fromProps: props => props } },
         '../../../../../extensions.js': extensions,
         '../../../../../../script.js': host,
         '../../../../../popup.js': { POPUP_TYPE: { CONFIRM: 1 }, POPUP_RESULT: { AFFIRMATIVE: 1 }, callGenericPopup: (_content, _type, _input, options) => {
@@ -240,7 +258,7 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
         clearTimeout: id => timers.delete(id),
         setInterval: (fn, delay) => { const id = ++timerId; intervals.set(id, { fn, delay }); return id; },
         clearInterval: id => intervals.delete(id),
-        requestAnimationFrame: fn => fn(),
+        requestAnimationFrame: fn => queuedFrames ? frames.push(fn) : fn(),
         fetch: async (url, options) => {
             requests.push(url);
             if (url === '/api/settings/save') {
@@ -290,9 +308,14 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
     imports['../../core/slash-command.js'] = load(slashCode);
     const api = load(runtimeCode);
     api.initTaskSettings();
+    const chatEvents = new HostEventEmitter();
+    chatEvents.on('CHAT_CHANGED', api.onChatChanged);
+    chatEvents.on('CHAT_CREATED', api.onChatCreated);
     t.after(() => win.xbtaskreset());
     return {
         win, api, calls, downloads, timers, intervals, storage, emitter, event_types, manager, errors, warnings, liveSettings, extensions, host, get editor() { return editor; }, transport, requests,
+        context, chatEvents, slashCommands,
+        flushFrames() { for (const frame of frames.splice(0)) frame(); },
         savedSettings: () => JSON.parse(savedSettings),
         accountRecords, settingsSaves: () => settingsSaves,
         toggle(scope, taskId, checked) {
@@ -383,6 +406,508 @@ const resident = label => `
 `;
 
 const entered = (name, code = resident(name)) => ({ ...task(name, code), interval: 0, triggerTiming: 'chat_changed', x: { presetStart: true } });
+
+// Character exit contracts (cost: cross-card writes, missed initialization, blocked chat):
+// - All entry points stop only the departing character; same-character visits retain manual instances.
+// - Exit cleanup cannot issue chat commands, including after A -> B -> A (lost chat data).
+// - Same-visit stop/replacement retains cleanup commands; another callback's failure cannot stop resource disposal.
+// - The host awaits the new chat's initialization, never old cleanup, even for identical task names (missed greeting).
+// - Superseded visits cannot restart after frame/startup/storage waits; nested host events cannot deadlock.
+// - Departed commands/cleanup release ownership immediately; late completion cannot change the new visit (blocked chat).
+// - Closing, groups and reset retire character work without changing ordinary global/preset triggers.
+// - Existing global/preset chat-change work cannot add a wait to CHAT_CREATED or greeting emission (deadlock).
+// - Module shutdown revokes the visit even while its cleanup is still pending (cross-chat writes).
+// - Retiring a character lock preserves already-pending preset activation, without waiting for late results (missing startup).
+// - Reset stops tasks, not the current chat's settling timer; old timers cannot clear a newer visit (missed message tasks).
+async function flushTaskTurn(h) {
+    for (let i = 0; i < 8; i++) { await settle(); h.flushRecords(); }
+    await settle();
+}
+
+async function emitChatEvents(h, chatId, created = false) {
+    const work = (async () => {
+        await h.chatEvents.emit('CHAT_CHANGED', chatId);
+        if (created) await h.chatEvents.emit('CHAT_CREATED');
+    })();
+    await flushTaskTurn(h);
+    await work;
+}
+
+async function loadHostChat(h) {
+    const context = vm.createContext({
+        name2: '', characters: h.host.characters, this_chid: h.host.this_chid, chat: h.host.chat,
+        getFirstMessage: () => ({ mes: 'greeting', is_user: false }),
+        saveChatConditional: async () => {}, loadItemizedPrompts: async () => {},
+        getCurrentChatId: () => h.context.chatId, printMessages: async () => {}, select_selected_character() {},
+        eventSource: h.chatEvents,
+        event_types: Object.fromEntries(['CHAT_CHANGED', 'CHAT_CREATED', 'MESSAGE_RECEIVED', 'CHARACTER_MESSAGE_RENDERED'].map(key => [key, key])),
+    });
+    vm.runInContext(hostChatResultCode, context);
+    h.host.chat.length = 0;
+    const work = context.getChatResult();
+    await flushTaskTurn(h);
+    await work;
+}
+
+test('character exit stops automatic, button, slash and API residents exactly once', async t => {
+    for (const entry of ['automatic', 'button', 'slash', 'api']) await t.test(entry, async t => {
+        const h = harness(t);
+        h.character(task('panel', resident('panel') + 'onCleanup(() => { window.cleaned = (window.cleaned || 0) + 1; });'));
+        if (entry === 'automatic') await h.api.checkAndExecuteTasks('plugin_initialized');
+        if (entry === 'api') await h.win.XBTasks.exec('panel');
+        if (entry === 'slash') {
+            h.api.registerSlashCommands();
+            await h.slashCommands.get('xbqte').callback({}, 'panel');
+        }
+        if (entry === 'button') {
+            const button = h.win.document.createElement('button');
+            button.className = 'xiaobaix-task-button'; button.dataset.taskName = 'panel';
+            h.api.handleTaskBarClick({ target: button });
+            await settle();
+        }
+        assert.equal(h.win.starts.panel, 1);
+        h.flushRecords();
+        h.character(task('other', ''), 'other.png', 1);
+        await h.chatEvents.emit('CHAT_CHANGED', 'other-chat');
+        await flushTaskTurn(h);
+        await h.chatEvents.emit('CHAT_CHANGED', 'other-chat');
+        assert.equal(h.win.signals.panel.aborted, true);
+        assert.equal(h.win.stops.panel, 1);
+        assert.equal(h.win.cleaned, 1);
+        h.win.dispatchEvent(new Event('probe'));
+        assert.equal(h.win.probes.panel, undefined);
+    });
+});
+
+test('same-character chats keep manual residents and replace ordinary chat-change residents', async t => {
+    const h = harness(t);
+    h.character({ ...task('automatic', resident('automatic')), triggerTiming: 'chat_changed' });
+    h.host.characters[0].data.extensions['xiaobaix-tasks'].tasks.push(task('manual', resident('manual')));
+    await h.win.xbqte('manual'); h.flushRecords();
+    await h.chatEvents.emit('CHAT_CHANGED', 'first'); await flushTaskTurn(h);
+    await h.chatEvents.emit('CHAT_CHANGED', 'second'); await flushTaskTurn(h);
+    assert.equal(h.win.starts.manual, 1);
+    assert.equal(h.win.signals.manual.aborted, false);
+    assert.equal(h.win.starts.automatic, 2);
+    assert.equal(h.win.stops.automatic, 1);
+});
+
+test('synchronous character exit keeps the original awaited CHAT_CREATED path', async t => {
+    const h = harness(t, { queuedFrames: true }), gate = deferred(); h.win.gate = gate.promise;
+    h.character(task('old', 'window.old = true;'));
+    await h.win.XBTasks.exec('old'); h.flushRecords();
+    h.character({ ...task('init', 'window.initializing = true; await window.gate;'), triggerTiming: 'character_init' }, 'new.png', 1);
+    await h.chatEvents.emit('CHAT_CHANGED', 'new');
+    let finished = false;
+    const created = h.chatEvents.emit('CHAT_CREATED').then(() => { finished = true; });
+    await settle();
+    assert.equal(h.win.initializing, true);
+    assert.equal(finished, false);
+    gate.resolve(); await created;
+});
+
+test('same-name character and global residents keep independent ownership', async t => {
+    const h = harness(t);
+    h.character(task('shared', resident('character')));
+    await h.win.XBTasks.exec('shared'); h.flushRecords();
+    h.global(task('shared', resident('global')));
+    await h.win.XBTasks.exec('shared'); h.flushRecords();
+    assert.equal(h.win.stops.character, undefined);
+    h.host.this_chid = undefined;
+    await emitChatEvents(h, undefined);
+    assert.equal(h.win.stops.character, 1);
+    assert.equal(h.win.signals.global.aborted, false);
+});
+
+test('character exit never mutates destination variables or injections through either cleanup API', async t => {
+    for (const kind of ['abort', 'cleanup', 'async']) await t.test(kind, async t => {
+        const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+        const chats = {
+            A: { variables: { score: 'A' }, script_injects: { panel: { value: 'A' } } },
+            B: { variables: { score: 'B' }, script_injects: { panel: { value: 'B' } } },
+        };
+        const writes = [];
+        const host = vm.createContext({
+            chat_metadata: chats.A, console, SCRIPT_PROMPT_KEY: 'script_',
+            saveMetadataDebounced: () => writes.push(h.context.chatId), setExtensionPrompt: () => writes.push('prompt'),
+        });
+        vm.runInContext(hostVariableCode + '\n' + hostInjectCode, host);
+        h.setSlash(async command => {
+            if (command === '/flushvar score') host.deleteLocalVariable('score');
+            if (command === '/flushinject panel') host.flushInjectsCallback({}, 'panel');
+        });
+        const body = kind === 'abort'
+            ? 'abortSignal.addEventListener("abort", () => { STscript("/flushvar score"); STscript("/flushinject panel"); });'
+            : 'onCleanup(async ({ STscript }) => { ' + (kind === 'async' ? 'await window.gate;' : '') + ' await STscript("/flushvar score"); }); onCleanup(({ STscript }) => STscript("/flushinject panel"));';
+        h.character(task('old', body + 'onCleanup(() => { window.disposed = true; });'), 'A.png', 0);
+        h.context.chatId = 'A';
+        await h.win.XBTasks.exec('old'); h.flushRecords();
+        h.character(task('new', ''), 'B.png', 1); h.context.chatId = 'B'; host.chat_metadata = chats.B;
+        try {
+            await emitChatEvents(h, 'B');
+            assert.equal(h.win.disposed, true);
+        } finally { gate.resolve(); }
+        await flushTaskTurn(h);
+        assert.deepEqual(chats, {
+            A: { variables: { score: 'A' }, script_injects: { panel: { value: 'A' } } },
+            B: { variables: { score: 'B' }, script_injects: { panel: { value: 'B' } } },
+        });
+        assert.deepEqual(writes, []);
+        assert.ok(h.errors.some(error => error.errors?.some(inner => inner.code === 'task_character_left')));
+    });
+});
+
+test('same-character stop, restart and reset still permit cleanup commands', async t => {
+    for (const action of ['disable', 'restart', 'reset']) await t.test(action, async t => {
+        const h = harness(t);
+        h.character(task('panel', 'onCleanup(({ STscript }) => STscript("/cleanup"));'));
+        await h.win.XBTasks.exec('panel'); h.flushRecords();
+        if (action === 'disable') await h.win.XBTasks.setProps('panel', { disabled: true }, 'character');
+        if (action === 'restart') await h.win.XBTasks.exec('panel');
+        if (action === 'reset') await h.win.xbtaskreset();
+        await flushTaskTurn(h);
+        assert.deepEqual(h.calls, ['/cleanup']);
+        assert.deepEqual(h.errors, []);
+    });
+});
+
+test('host greeting follows initialization without waiting for same-name departed cleanup', async t => {
+    const h = harness(t, { queuedFrames: true }), gate = deferred(); h.win.gate = gate.promise;
+    h.character(task('shared', 'onCleanup(() => window.gate);'), 'A.png', 0);
+    await h.win.XBTasks.exec('shared'); h.flushRecords();
+    h.win.listenForGreeting = () => h.chatEvents.on('CHARACTER_MESSAGE_RENDERED', () => { h.win.greetingHandled = true; });
+    h.character({ ...task('shared', 'window.initialized = true; window.listenForGreeting();'), triggerTiming: 'character_init' }, 'B.png', 1);
+    h.context.chatId = 'B';
+    const loading = loadHostChat(h);
+    try {
+        await flushTaskTurn(h);
+        assert.equal(h.win.initialized, true);
+        assert.equal(h.win.greetingHandled, true);
+        assert.equal(h.api.state.executingRecords.size, 0);
+        assert.equal(h.api.__taskRunMap.size, 1);
+    } finally { gate.resolve(); }
+    await loading; await flushTaskTurn(h);
+});
+
+test('returning to A creates a new instance without reviving its old cleanup capability', async t => {
+    const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+    h.character({ ...task('panel', 'window.starts.panel = (window.starts.panel || 0) + 1; onCleanup(async ({ STscript }) => { await window.gate; await STscript("/old-cleanup"); });'), triggerTiming: 'chat_changed' }, 'A.png', 0);
+    await emitChatEvents(h, 'A');
+    h.character(task('other', ''), 'B.png', 1);
+    try {
+        await emitChatEvents(h, 'B');
+        h.host.this_chid = 0;
+        await emitChatEvents(h, 'A');
+        assert.equal(h.win.starts.panel, 2);
+    } finally { gate.resolve(); }
+    await flushTaskTurn(h);
+    assert.deepEqual(h.calls, []);
+    assert.ok(h.errors.some(error => error.errors?.some(inner => inner.code === 'task_character_left')));
+});
+
+test('switching to C releases the host wait for B and cancels its pending command continuation', async t => {
+    const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+    h.character({ ...task('init', 'window.startedB = true; await window.gate; await STscript("/stale-B");'), triggerTiming: 'character_init' }, 'B.png', 0);
+    await h.chatEvents.emit('CHAT_CHANGED', 'B');
+    let completedB = false;
+    const b = h.chatEvents.emit('CHAT_CREATED').then(() => { completedB = true; });
+    await flushTaskTurn(h);
+    assert.equal(h.win.startedB, true);
+    assert.equal(completedB, false);
+    h.character({ ...task('init', 'window.startedC = true;'), triggerTiming: 'character_init' }, 'C.png', 1);
+    try {
+        await emitChatEvents(h, 'C', true);
+        assert.equal(completedB, true);
+        assert.equal(h.win.startedC, true);
+    } finally { gate.resolve(); }
+    await b; await flushTaskTurn(h);
+    assert.deepEqual(h.calls, []);
+});
+
+test('module shutdown permanently retires pending character cleanup across A to B to A', async t => {
+    const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+    const saved = { variables: { score: 'keep' } };
+    let saves = 0;
+    const host = vm.createContext({ chat_metadata: saved, console, saveMetadataDebounced: () => saves++ });
+    vm.runInContext(hostVariableCode, host);
+    h.setSlash(async () => host.deleteLocalVariable('score'));
+    h.character(task('panel', 'onCleanup(async ({ STscript }) => { await window.gate; await STscript("/flushvar score"); });'), 'A.png', 0);
+    await h.win.XBTasks.exec('panel'); h.flushRecords();
+    h.api.cleanup(); await flushTaskTurn(h);
+    assert.equal(h.api.__taskRunMap.size, 0);
+    assert.equal(h.api.state.executingRecords.size, 0);
+    // The disabled module no longer receives chat events.
+    h.character(task('other', ''), 'B.png', 1);
+    h.host.this_chid = 0; h.context.chatId = 'another-A-chat';
+    gate.resolve(); await flushTaskTurn(h);
+    assert.equal(saved.variables.score, 'keep');
+    assert.equal(saves, 0);
+    assert.ok(h.errors.some(error => error.errors?.some(inner => inner.code === 'task_character_left')));
+});
+
+test('legacy global and preset chat-change tasks can await later host events without blocking chat creation', async t => {
+    for (const scope of ['global', 'preset']) await t.test(scope, async t => {
+        const h = harness(t, { queuedFrames: true }), ready = deferred();
+        h.win.ready = ready.promise;
+        const listener = { ...task('listener', 'window.started = true; await window.ready; window.finished = true;'), triggerTiming: 'chat_changed' };
+        if (scope === 'global') h.global(listener);
+        else { h.preset('A', [listener]); h.change('A'); }
+        h.character(task('unused', ''));
+        h.chatEvents.on('CHAT_CREATED', () => { h.win.created = true; ready.resolve(); });
+        let loaded = false;
+        const loading = loadHostChat(h).then(() => { loaded = true; });
+        try {
+            await flushTaskTurn(h);
+            h.flushFrames(); await flushTaskTurn(h);
+            assert.equal(loaded, true);
+            assert.equal(h.win.created, true);
+            assert.equal(h.win.finished, true);
+        } finally { ready.resolve(); }
+        await flushTaskTurn(h); await loading;
+    });
+});
+
+test('existing floor callbacks keep the original skip-on-lock rule without holding host creation', async t => {
+    for (const scope of ['global', 'preset']) await t.test(scope, async t => {
+        const h = harness(t), callback = deferred(), command = deferred();
+        h.win.callback = callback.promise;
+        const listener = task('listener', 'window.listenerSignal = abortSignal; addFloorListener(async () => { await window.callback; await STscript("/listener"); }, { timing: "chat_changed" });');
+        if (scope === 'global') h.global(listener);
+        else { h.preset('A', [listener]); h.change('A'); }
+        await h.win.XBTasks.exec('listener'); h.flushRecords();
+        h.setSlash(async text => { h.calls.push(text); await command.promise; });
+        h.character({ ...task('init', 'window.initializations = (window.initializations || 0) + 1;'), triggerTiming: 'character_init' });
+        await h.chatEvents.emit('CHAT_CHANGED', 'new');
+        await settle();
+        const created = h.chatEvents.emit('CHAT_CREATED');
+        await settle();
+        callback.resolve(); await settle();
+        assert.deepEqual(h.calls, ['/listener']);
+        command.resolve();
+        for (let i = 0; i < 8; i++) await settle();
+        assert.equal(h.win.initializations, undefined);
+        await flushTaskTurn(h); await created;
+        assert.equal(h.win.initializations, undefined);
+        assert.equal(h.win.listenerSignal.aborted, false);
+    });
+});
+
+test('departed host command cannot block a new greeting or ordinary replies, and its result is discarded', async t => {
+    const h = harness(t), gate = deferred();
+    let controller;
+    h.setSlash(async (_command, abort) => { controller = abort; await gate.promise; return 'old result'; });
+    h.character({ ...task('old', ''), commands: '/pending' }, 'A.png', 0);
+    const old = h.win.XBTasks.exec('old'); await settle();
+    h.character({ ...task('init', 'window.initialized = true;'), triggerTiming: 'character_init' }, 'B.png', 1);
+    h.host.characters[1].data.extensions['xiaobaix-tasks'].tasks.push({ ...task('reply', 'window.replies = (window.replies || 0) + 1;'), triggerTiming: 'after_ai' });
+    try {
+        await emitChatEvents(h, 'B', true);
+        assert.equal(h.win.initialized, true);
+        assert.equal(controller.signal.aborted, true);
+        assert.equal(h.api.state.isCommandGenerated, false);
+        assert.equal(h.api.state.executingRecords.size, 0);
+        assert.equal(h.api.__taskExecutionMap.size, 0);
+        h.api.state.chatJustChanged = h.api.state.isNewChat = false;
+        await h.api.onMessageReceived(1); await flushTaskTurn(h);
+        assert.equal(h.win.replies, 1);
+        assert.equal(await old, undefined);
+    } finally { gate.resolve(); }
+    await flushTaskTurn(h);
+    assert.equal(h.win.replies, 1);
+    assert.equal(h.api.state.executingRecords.size, 0);
+});
+
+test('character retirement releases an existing pending preset activation before the old command settles', async t => {
+    const h = harness(t), gate = deferred();
+    h.character({ ...task('old', ''), commands: '/pending' }, 'A.png', 0);
+    await h.ready();
+    h.setSlash(() => gate.promise);
+    const old = h.win.XBTasks.exec('old'); await settle();
+    h.preset('B', [entered('preset', 'window.presetStarts = (window.presetStarts || 0) + 1;')]);
+    h.change('B'); await settle();
+    assert.equal(h.win.presetStarts, undefined);
+    h.character(task('unused', ''), 'B.png', 1);
+    try {
+        await emitChatEvents(h, 'B');
+        assert.equal(h.win.presetStarts, 1);
+    } finally { gate.resolve(); }
+    await old; await flushTaskTurn(h);
+    assert.equal(h.win.presetStarts, 1);
+});
+
+test('reset preserves chat settling and the next global and preset message tasks', async t => {
+    const h = harness(t);
+    h.global({ ...task('global', 'window.globalRuns = (window.globalRuns || 0) + 1;'), triggerTiming: 'after_ai' });
+    h.preset('A', [{ ...task('preset', 'window.presetRuns = (window.presetRuns || 0) + 1;'), triggerTiming: 'after_ai' }]); h.change('A');
+    await h.chatEvents.emit('CHAT_CHANGED', 'chat'); await flushTaskTurn(h);
+    await h.win.xbtaskreset(); await h.win.xbtaskreset();
+    assert.equal(h.api.state.chatJustChanged, true); // Reset must not end the original settling window early.
+    for (const [id, timer] of [...h.timers]) if (timer.delay === 2000) { h.timers.delete(id); timer.fn(...timer.args); }
+    await h.api.onMessageReceived(1); await flushTaskTurn(h);
+    assert.equal(h.win.globalRuns, 1);
+    assert.equal(h.win.presetRuns, 1);
+});
+
+test('a settling timer from before reset cannot clear a newer chat visit', async t => {
+    const h = harness(t);
+    await h.chatEvents.emit('CHAT_CHANGED', 'same-id'); await flushTaskTurn(h);
+    const earlier = [...h.timers.values()].find(timer => timer.delay === 2000);
+    await h.win.xbtaskreset();
+    await h.chatEvents.emit('CHAT_CHANGED', 'same-id'); await flushTaskTurn(h);
+    const current = [...h.timers.values()].filter(timer => timer.delay === 2000).at(-1);
+    earlier.fn(...earlier.args);
+    assert.equal(h.api.state.chatJustChanged, true);
+    current.fn(...current.args);
+    assert.equal(h.api.state.chatJustChanged, false);
+});
+
+test('character snapshot does not migrate to another card during global script I/O', async t => {
+    const gate = deferred();
+    const h = harness(t, { taskStorage: { getStrict: () => gate.promise, clearCache() {} } });
+    h.global({ ...task('global', ''), triggerTiming: 'after_ai' });
+    h.character({ ...task('A', 'window.starts.A = 1;'), triggerTiming: 'character_init' }, 'A.png', 0);
+    const old = h.api.checkAndExecuteTasks('chat_created');
+    h.character({ ...task('B', 'window.starts.B = 1;'), triggerTiming: 'character_init' }, 'B.png', 1);
+    gate.resolve(''); await old;
+    assert.deepEqual(h.win.starts, {});
+});
+
+test('a chat event superseded during script I/O cannot execute its global or character tasks', async t => {
+    const cleanup = deferred(), read = deferred();
+    let holdRead = true;
+    const h = harness(t, { taskStorage: { getStrict: () => holdRead ? read.promise : Promise.resolve('<<taskjs>>window.visits.push("global");<</taskjs>>'), clearCache() {} } });
+    h.win.gate = cleanup.promise; h.win.visits = [];
+    h.character(task('old', 'onCleanup(() => window.gate);'));
+    await h.win.XBTasks.exec('old'); h.flushRecords();
+    h.global({ ...task('global', ''), triggerTiming: 'chat_changed' });
+    h.character({ ...task('B', 'window.visits.push("B");'), triggerTiming: 'chat_changed' }, 'B.png', 1);
+    await h.chatEvents.emit('CHAT_CHANGED', 'B');
+    cleanup.resolve(); await settle();
+    holdRead = false;
+    h.character({ ...task('C', 'window.visits.push("C");'), triggerTiming: 'chat_changed' }, 'C.png', 2);
+    await h.chatEvents.emit('CHAT_CHANGED', 'C'); await flushTaskTurn(h);
+    read.resolve('<<taskjs>>window.visits.push("stale-global");<</taskjs>>');
+    await flushTaskTurn(h);
+    assert.deepEqual(h.win.visits, ['global', 'C']);
+});
+
+test('a queued chat frame cannot adopt the destination character before its host event arrives', async t => {
+    const h = harness(t, { queuedFrames: true });
+    h.character(task('unused', ''), 'C.png', 0);
+    await h.chatEvents.emit('CHAT_CHANGED', 'C');
+    // The host selects A before loading its chat and emitting CHAT_CHANGED.
+    h.character({ ...task('panel', 'window.starts.A = (window.starts.A || 0) + 1;'), triggerTiming: 'chat_changed' }, 'A.png', 1);
+    h.flushFrames(); await flushTaskTurn(h);
+    assert.equal(h.win.starts.A, undefined);
+    await h.chatEvents.emit('CHAT_CHANGED', 'A');
+    h.flushFrames(); await flushTaskTurn(h);
+    assert.equal(h.win.starts.A, 1);
+});
+
+test('departing character cancels pure slash pipelines and pending JS replacement', async t => {
+    for (const kind of ['slash', 'replacement']) await t.test(kind, async t => {
+        const h = harness(t), gate = deferred(); h.win.gate = gate.promise;
+        let controller;
+        if (kind === 'slash') {
+            h.character({ ...task('old', ''), commands: '/pending\n<<taskjs>>window.stale = true;<</taskjs>>' });
+            h.setSlash(async (_command, signal) => { controller = signal; await gate.promise; });
+        } else {
+            h.character(task('old', 'window.count = (window.count || 0) + 1; onCleanup(() => window.gate);'));
+            await h.win.XBTasks.exec('old'); h.flushRecords();
+        }
+        const running = h.win.XBTasks.exec('old'); await settle();
+        h.host.this_chid = undefined;
+        await h.chatEvents.emit('CHAT_CHANGED', undefined);
+        await running;
+        if (kind === 'slash') assert.equal(controller.signal.aborted, true);
+        gate.resolve(); await flushTaskTurn(h);
+        assert.equal(h.win.stale, undefined);
+        if (kind === 'replacement') assert.equal(h.win.count, 1);
+    });
+});
+
+test('closed chat and group speakers cannot keep or start character work', async t => {
+    const h = harness(t);
+    h.character(task('panel', resident('panel')));
+    await h.win.XBTasks.exec('panel'); h.flushRecords();
+    h.host.this_chid = undefined;
+    await h.chatEvents.emit('CHAT_CHANGED', undefined);
+    await h.chatEvents.emit('CHAT_CHANGED', undefined);
+    assert.equal(h.win.stops.panel, 1);
+    h.host.this_chid = 0;
+    await h.win.XBTasks.exec('panel'); h.flushRecords();
+    h.context.groupId = 'group';
+    await h.chatEvents.emit('CHAT_CHANGED', 'group-chat');
+    await h.api.checkAndExecuteTasks('plugin_initialized');
+    await h.win.XBTasks.exec('panel');
+    await h.win.xbqte('panel');
+    assert.equal(h.win.starts.panel, 2);
+    assert.equal(h.win.stops.panel, 2);
+});
+
+test('an initializing character can enter another chat without deadlocking either host event', async t => {
+    const h = harness(t);
+    h.character({ ...task('B', 'await STscript("/nested"); await STscript("/stale");'), triggerTiming: 'character_init' }, 'B.png', 0);
+    h.setSlash(async command => {
+        h.calls.push(command);
+        h.character({ ...task('C', 'window.starts.C = 1;'), triggerTiming: 'character_init' }, 'C.png', 1);
+        await h.chatEvents.emit('CHAT_CHANGED', 'C');
+        await h.chatEvents.emit('CHAT_CREATED');
+    });
+    await emitChatEvents(h, 'B', true);
+    await flushTaskTurn(h);
+    assert.equal(h.win.starts.C, 1);
+    assert.deepEqual(h.calls, ['/nested']);
+});
+
+test('reset retains current host work while module shutdown retires its character visit', async t => {
+    for (const stop of ['reset', 'module']) await t.test(stop, async t => {
+        const h = harness(t), gate = deferred();
+        h.setSlash(() => gate.promise);
+        h.character({ ...task('new', 'await STscript("/pending"); window.started = true;'), triggerTiming: 'character_init' });
+        await h.chatEvents.emit('CHAT_CHANGED', 'new');
+        const created = h.chatEvents.emit('CHAT_CREATED');
+        await flushTaskTurn(h);
+        const reset = stop === 'module' ? h.api.cleanup() : h.win.xbtaskreset();
+        assert.equal([...h.api.state.executingRecords.values()].some(record => record.source === 'host'), stop === 'reset');
+        await created;
+        gate.resolve(); await reset; await flushTaskTurn(h);
+        // The VM cannot stop arbitrary JS, but it must not restart the task.
+        assert.equal(h.api.__taskRunMap.size, 0);
+        assert.deepEqual(h.errors, []);
+    });
+});
+
+test('reset and module stop cancel chat dispatch created synchronously by abort cleanup', async t => {
+    for (const stop of ['reset', 'module']) await t.test(stop, async t => {
+        const h = harness(t);
+        h.character(task('old', 'abortSignal.addEventListener("abort", () => { STscript("/nested"); }, { once: true });'));
+        await h.win.XBTasks.exec('old'); h.flushRecords();
+        h.setSlash(async () => {
+            h.character({ ...task('new', 'window.starts.new = 1;'), triggerTiming: 'chat_changed' }, 'new.png', 1);
+            await h.chatEvents.emit('CHAT_CHANGED', 'new');
+            await h.chatEvents.emit('CHAT_CREATED');
+        });
+        await (stop === 'module' ? h.api.cleanup() : h.win.xbtaskreset());
+        await flushTaskTurn(h);
+        assert.equal(h.win.starts.new, undefined);
+        assert.equal(h.api.__taskRunMap.size, 0);
+    });
+});
+
+test('character handoff does not wait for or replay triggers skipped by unrelated work', async t => {
+    const h = harness(t), cleanup = deferred(), globalWork = deferred(); h.win.cleanup = cleanup.promise;
+    h.character(task('old', 'onCleanup(() => window.cleanup);'));
+    await h.win.XBTasks.exec('old'); h.flushRecords();
+    h.global({ ...task('busy', ''), commands: '/global-pending' });
+    h.setSlash(() => globalWork.promise);
+    const busy = h.win.XBTasks.exec('busy'); await settle();
+    h.character({ ...task('new', 'window.starts.new = 1;'), triggerTiming: 'chat_changed' }, 'new.png', 1);
+    await h.chatEvents.emit('CHAT_CHANGED', 'new');
+    cleanup.resolve(); await settle();
+    globalWork.resolve(); await busy; await flushTaskTurn(h);
+    assert.equal(h.win.starts.new, undefined);
+});
 
 test('preset writes serialize, preserve live switches and finish for the original preset after switching', async t => {
     const h = harness(t), first = deferred();
@@ -809,14 +1334,14 @@ test('concurrent character toggles preserve independent edits without blocking o
         h.character(other, 'other.png', 1);
         await h.toggle('character', other.id, true).completion;
         assert.equal(h.savedCharacter('other.png').data.extensions['xiaobaix-tasks'].tasks[0].disabled, true);
-        assert.equal(h.win.signals.resident.aborted, false);
+        assert.equal(h.win.signals.resident.aborted, true);
         h.host.this_chid = 0;
         gate.resolve(); await firstOutcome; await second.completion;
         const expected = originals.map(task => ({ ...task, disabled: task.id === 'second' || (task.id === 'first' && firstSucceeds) }));
         assert.deepEqual(await h.win.XBTasks.dump('character'), expected);
         assert.deepEqual(h.savedCharacter('first.png').data.extensions['xiaobaix-tasks'].tasks, expected);
-        assert.equal(h.win.signals.resident.aborted, false);
-        assert.equal(h.win.stops.resident, undefined);
+        assert.equal(h.win.signals.resident.aborted, true);
+        assert.equal(h.win.stops.resident, 1);
     });
 });
 

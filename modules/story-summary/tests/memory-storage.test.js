@@ -608,7 +608,7 @@ function summaryExecutionHarness(overrides = {}) {
         getContext: () => host.context, document: { getElementById: noop }, isTrustedMessage: () => true,
         isStorySummaryEnabledForCurrentChat: () => true,
         isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
-        isChatStale: id => id !== host.context.chatId, messageSources: { inspect: () => null },
+        isChatStale: id => id !== host.context.chatId, messageSources: { inspect: () => null, isLoaded: () => true },
         synchronizeCurrentSources: async () => {},
         guard: { isRunning: () => running, acquire: () => {
             if (running) return null;
@@ -950,6 +950,209 @@ test('same-chat reload preserves every persisted L0/L1 row and extraction receip
     assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), beforeTables);
     assert.equal(host.writes, saves);
     assert.equal(writes(), 0);
+});
+
+// Acceptance: background synchronization during the host's clear -> fetch ->
+// CHAT_CHANGED window must preserve memory, hidden flags and all persisted rows.
+// Cost: lost summaries, a locked imported baseline, and runaway prompt tokens.
+for (const history of ['generated', 'imported', 'invalid']) test(`empty reload window preserves ${history} memory without any writes`, async t => {
+    if (history === 'generated') {
+        host.generate = async () => JSON.stringify({ events: [], factUpdates: [
+            { s: '旅人', p: '行程', o: '共同出发', isState: false },
+        ] });
+        await mod.runSummaryGeneration(23, { trigger: { delayFloors: 0 } });
+    } else await importFixture();
+    await seedAnchors();
+    if (history === 'invalid') {
+        ext().storySummary.summaryInvalid = true;
+        await host.context.saveMetadata();
+    }
+    const context = host.context;
+    context.chat.forEach((message, floor) => { message.is_system = floor < 20; });
+    await seedCacheRange(context.chatId, [0, 1, 3, 23]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const before = mod.readSummaryMemory(), stored = structuredClone(disk());
+    const tables = await Promise.all(mod.db.tables.map(table => table.toArray()));
+    const saves = host.writes, writes = observeCacheWrites(t);
+    const savedChat = structuredClone(context.chat);
+    context.chat.length = 0;
+    for (let probe = 0; probe < 3; probe++) {
+        assert.equal((await mod.synchronizeSourceCaches(tracker, context)).status, 'deferred');
+        assert.deepEqual(mod.readSummaryMemory(), before);
+        assert.deepEqual(disk(), stored);
+    }
+    context.chat.push(...savedChat);
+    host.metadata = structuredClone(host.files.get(context.chatId));
+    mod.reload(); tracker.switchChat(context);
+    assert.equal((await mod.synchronizeSourceCaches(tracker, context)).status, 'unchanged');
+    assert.equal(tracker.inspect(context), null);
+    assert.deepEqual(mod.readSummaryMemory(), before);
+    assert.deepEqual(disk(), stored);
+    assert.deepEqual(context.chat, savedChat);
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), tables);
+    assert.equal(host.writes, saves);
+    assert.equal(writes(), 0);
+});
+
+function sourceReloadEntry(tracker, overrides = {}) {
+    const noop = () => {};
+    return entry(['handleChatChanged', 'synchronizeCurrentSources', 'ensureCurrentSources', 'waitForSummaryPreparation',
+        'reconcileVectorFloorsOnLoad', 'runContentChangeSync', 'handleMessageDeleted'], {
+        ...mod, ...vectorWrites, createAbortError, throwIfSignalAborted, memorySaveError, SUMMARY_FEEDBACK_COPY,
+        getContext: () => host.context, messageSources: tracker, isChatStale: () => false,
+        isStorySummaryEnabledForCurrentChat: () => true, events: {}, frameReady: false,
+        MODULE_ID: 'summary', lastRecallLogText: '', activeChatId: host.context.chatId,
+        runVectorWriteTask: async (_options, work) => work(),
+        clearDeferredBackgroundTasks: noop, postToFrame: noop, notifySummaryState: noop,
+        notifyStorySummaryChatState: noop, initButtonsForAll: noop, logRecallRuntimeCheckpoint: noop,
+        retainRecallRuntimeOnly: noop, applyHideState: noop, refreshEntityLexiconAndWarmup: noop,
+        replaceEventDocuments: noop, invalidateLexicalIndex: noop, scheduleLexicalWarmup: noop,
+        CHAT_CHANGE_LEXICAL_WARMUP_MS: 0, embeddingConnection: { warmup: noop },
+        scheduleVectorIntegrityCheck: noop, getMeta: chatId => mod.metaTable.get(chatId),
+        truncateVectorDataFromFloor: () => assert.fail('reload truncated source data'),
+        reportMemorySaveFailure: assert.fail, xbLog: { error: assert.fail },
+        rememberVectorMaintenance: noop, recallReuse: { invalidate: noop, historyChanged: noop },
+        removeDocumentsFromFloor: noop, removeDocumentsByFloor: noop,
+        scheduleAutoL0Backfill: noop, AUTO_L0_BACKFILL_DELAY_MS: 0,
+        clearHideState: () => assert.fail('reload cleared hidden flags'),
+        ...overrides,
+    });
+}
+
+// Acceptance: a queued CHAT_CHANGED check must use a loaded source snapshot at
+// execution, not the earlier event's length. Cost: summaries/caches erased on reload.
+for (const timing of ['queued-empty', 'restored-before-write', 'reload-during-check']) test(`load rollback respects a second reload: ${timing}`, async () => {
+    await importFixture(); await seedAnchors();
+    const context = host.context, savedChat = structuredClone(context.chat);
+    await seedCacheRange(context.chatId, [0, 1, 3, 23]);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const before = mod.readSummaryMemory(), stored = structuredClone(disk()), saves = host.writes;
+    const tables = await Promise.all(mod.db.tables.map(table => table.toArray()));
+    const ui = sourceReloadEntry(tracker, {
+        retainRecallRuntimeOnly: () => { if (timing === 'restored-before-write') context.chat.length = 0; },
+        runVectorWriteTask: async (_options, work) => {
+            if (timing === 'queued-empty') context.chat.length = 0;
+            if (timing === 'restored-before-write') {
+                context.chat.push(...structuredClone(savedChat));
+                tracker.switchChat(context);
+            }
+            return work();
+        },
+        rollbackSummaryIfNeeded: async () => {
+            const result = await mod.rollbackSummaryIfNeeded();
+            if (timing === 'reload-during-check') context.chat.length = 0;
+            return result;
+        },
+    });
+    await ui.handleChatChanged(context.chatId, { reload: true });
+    assert.deepEqual(mod.readSummaryMemory(), before);
+    assert.deepEqual(disk(), stored);
+    assert.equal(host.writes, saves);
+    assert.deepEqual(await Promise.all(mod.db.tables.map(table => table.toArray())), tables);
+    context.chat.splice(0, context.chat.length, ...structuredClone(savedChat));
+    tracker.switchChat(context);
+    assert.equal(tracker.inspect(context), null);
+    await sourceReloadEntry(tracker).handleChatChanged(context.chatId, { reload: true });
+    assert.deepEqual(mod.readSummaryMemory(), before);
+    assert.equal(host.writes, saves);
+});
+
+// Acceptance: loaded-chat edits during the rollback check only invalidate its
+// vector-length snapshot; committed rollback, hiding and initialization still
+// publish current state. Cost: hidden text sent to AI or stale saved-memory UI.
+for (const rollback of [false, true]) for (const change of ['append', 'edit']) {
+    test(`loaded ${change} during ${rollback ? 'committed rollback' : 'load check'} completes initialization`, async () => {
+        if (rollback) await generatedSourceRecoveryFixture();
+        else { await importFixture(); await seedAnchors(); }
+        const context = host.context, tracker = mod.createMessageSourceTracker();
+        const visibility = memoryVisibility();
+        await visibility.applyHideState();
+        // The saved summary reaches 25, but the loaded file only has floors 0..23.
+        if (rollback) context.chat.splice(24);
+        tracker.reset(context);
+        const initialized = new Set(), panel = [];
+        let result;
+        const ui = sourceReloadEntry(tracker, {
+            frameReady: true,
+            rollbackSummaryIfNeeded: async () => {
+                result = await mod.rollbackSummaryIfNeeded();
+                if (change === 'append') context.chat.push({ mes: 'sent immediately after loading', is_user: true });
+                else context.chat[1].mes += ' edited immediately after loading';
+                return result;
+            },
+            reconcileVectorFloorsOnLoad: () => assert.fail('changed source used the obsolete load snapshot'),
+            applyHideState: async () => { initialized.add('hide'); await visibility.applyHideState(); },
+            sendFrameBaseData: async (store, length) => { panel.push({ boundary: store.lastSummarizedMesId, length }); },
+            sendFrameFullData: (store, length) => { panel.push({ boundary: store.lastSummarizedMesId, length }); },
+            sendAnchorStatsToFrame: async () => { initialized.add('anchor-stats'); },
+            sendVectorStatsToFrame: async () => { initialized.add('vector-stats'); },
+            refreshEntityLexiconAndWarmup: () => { initialized.add('lexicon'); },
+            replaceEventDocuments: () => { initialized.add('index'); },
+            scheduleLexicalWarmup: () => { initialized.add('index-warmup'); },
+            embeddingConnection: { warmup: async () => { initialized.add('connection'); } },
+            scheduleVectorIntegrityCheck: () => { initialized.add('integrity'); },
+            notifyStorySummaryChatState: () => { if (initialized.has('integrity')) initialized.add('state'); },
+        });
+        await ui.handleChatChanged(context.chatId, { reload: true });
+        assert.equal(result.status, rollback ? 'rolled_back' : 'not_needed');
+        assert.deepEqual(initialized, new Set(['hide', 'anchor-stats', 'vector-stats', 'lexicon', 'index',
+            'index-warmup', 'connection', 'integrity', 'state']));
+        assert.deepEqual(panel, Array.from({ length: 2 }, () => ({ boundary: 23, length: context.chat.length })));
+        assert.deepEqual(context.chat.map(message => !!message.is_system), context.chat.map((_, floor) => floor <= 19));
+        assert.equal(mod.getSummaryStore().lastSummarizedMesId, 23);
+        assert.equal(disk().storySummary.lastSummarizedMesId, 23);
+    });
+}
+
+test('a queued native deletion is not replayed as a new deletion during reload', async () => {
+    await importFixture();
+    const context = host.context;
+    context.chat.push({ mes: 'new question', is_user: true }, { mes: 'new reply', is_user: false });
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    context.chat.pop();
+    const saved = structuredClone(context.chat), before = mod.readSummaryMemory(), saves = host.writes;
+    const ui = sourceReloadEntry(tracker, {
+        runVectorWriteTask: async (_options, work) => { context.chat.length = 0; return work(); },
+    });
+    assert.equal((await ui.synchronizeCurrentSources(context.chatId, 'delete')).status, 'deferred');
+    context.chat.push(...saved); tracker.switchChat(context);
+    assert.equal(tracker.inspect(context).rollbackFromFloor, 25);
+    assert.equal((await mod.synchronizeSourceCaches(tracker, context)).status, 'synced');
+    assert.deepEqual(mod.readSummaryMemory().storySummary, before.storySummary);
+    assert.equal(host.writes, saves);
+});
+
+test('an explicit delete-all event still rolls back generated memory through the native entry', async () => {
+    host.generate = async () => JSON.stringify({ events: [], factUpdates: [
+        { s: '旅人', p: '行程', o: '共同出发', isState: false },
+    ] });
+    await mod.runSummaryGeneration(23, { trigger: { delayFloors: 0 } });
+    const context = host.context, tracker = mod.createMessageSourceTracker();
+    tracker.reset(context);
+    let writing;
+    const ui = sourceReloadEntry(tracker, {
+        handleMessageUpdated() {}, cancelPendingHide() {},
+        runVectorWriteTask: (_options, work) => (writing = work()),
+    });
+    context.chat.length = 0;
+    ui.runContentChangeSync(ui.handleMessageDeleted);
+    assert.equal((await writing).status, 'synced');
+    assert.equal(mod.getSummaryStore().lastSummarizedMesId, -1);
+    assert.equal(mod.getSummaryStore().json, null);
+    assert.equal(disk().storySummary.lastSummarizedMesId, -1);
+    assert.equal(tracker.inspect(context), null);
+});
+
+test('preparation stops cleanly while reloading and resumes after CHAT_CHANGED', async () => {
+    await importFixture();
+    const context = host.context, saved = structuredClone(context.chat);
+    const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
+    const ui = sourceReloadEntry(tracker);
+    context.chat.length = 0;
+    await assert.rejects(ui.ensureCurrentSources(null, { requireSummary: false }), { name: 'AbortError' });
+    context.chat.push(...saved); tracker.switchChat(context);
+    await ui.ensureCurrentSources(null, { requireSummary: false });
+    assert.equal(tracker.inspect(context), null);
 });
 
 // Acceptance: variable rollback cannot retire summary sources; the source owner
@@ -1349,7 +1552,7 @@ for (const change of ['append', 'edit']) test(`content-sync entry keeps maintena
     const gate = entry(['runContentChangeSync'], {
         getContext: () => host.context, isStorySummaryEnabledForCurrentChat: () => true,
         messageSources: tracker, memoryMaintenance: { cancel: () => assert.fail('source-only change cancelled maintenance') },
-        handleMessageUpdated: sync, recallReuse: { invalidate() {}, historyChanged() {} },
+        handleMessageUpdated: sync, handleMessageDeleted() {}, recallReuse: { invalidate() {}, historyChanged() {} },
         cancelPendingHide() {}, cancelEmbeddingWriteTasks: vectorWrites.cancelEmbeddingWriteTasks,
         isChatStale: () => false, clearHideState: async () => {}, reportMemorySaveFailure: assert.fail,
         xbLog: { error: assert.fail },

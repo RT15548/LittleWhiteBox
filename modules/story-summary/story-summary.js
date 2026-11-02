@@ -3856,8 +3856,6 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
     logRecallRuntimeCheckpoint("chatChanged:before-retain", `chat=${activeChatId || "-"} length=${Array.isArray(chat) ? chat.length : 0}`);
     await retainRecallRuntimeOnly(activeChatId);
     if (isChatStale(scheduledChatId)) return;
-    const newLength = Array.isArray(chat) ? chat.length : 0;
-
     const rollback = await runVectorWriteTask(
         {
             chatId: scheduledChatId,
@@ -3867,10 +3865,15 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
         async () => {
             if (!await waitForMemoryCommit(undefined, { recover: false })) return { status: 'deferred' };
             if (isChatStale(scheduledChatId)) return { status: 'stale' };
+            if (!messageSources.isLoaded(getContext())) return { status: 'deferred' };
+            const source = messageSources.capture(getContext());
             const result = await rollbackSummaryIfNeeded();
-            if (result.status !== 'failed' && !isChatStale(scheduledChatId)) {
+            if (result.status === 'deferred' || !messageSources.isLoaded(getContext())) return { status: 'deferred' };
+            // Loaded-chat edits invalidate only this length-based reconciliation,
+            // not a completed rollback or the remaining chat initialization.
+            if (result.status !== 'failed' && !isChatStale(scheduledChatId) && messageSources.isCurrent(source, getContext())) {
                 try {
-                    await reconcileVectorFloorsOnLoad(scheduledChatId, newLength);
+                    await reconcileVectorFloorsOnLoad(scheduledChatId, source.sources.length);
                 } catch (error) {
                     await clearHideState();
                     throw error;
@@ -3898,6 +3901,7 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
     if (isChatStale(scheduledChatId) || getSummaryStore() !== store) return;
 
     if (frameReady) {
+        const newLength = getContext().chat.length;
         await sendFrameBaseData(store, newLength);
         sendFrameFullData(store, newLength);
 
@@ -3938,8 +3942,8 @@ async function truncateVectorDataFromFloor(chatId, newLength) {
  * 加载时对账，覆盖尚未完成的删除同步，以及
  * 宿主崩溃、功能关闭期间被清空、第三方直接 emit 等遗留的越界派生数据。
  *
- * chatLength 为 0 同样要处理：ST 的四个 CHAT_CHANGED 都在 getChat()/printMessages()
- * 之后 emit，此刻长度 0 就是"聊天真的空了"，不存在"尚未载入"的中间态。
+ * 调用方通过原文追踪器确认加载状态后取长度；排队期间可能再次重载，
+ * 不能仅凭任务来自 CHAT_CHANGED，就把临时空数组当成真实删除。
  * 先用 lastChunkFloor 与内存中的 atom 楼层做廉价判定，没有越界就不碰 DB。
  */
 async function reconcileVectorFloorsOnLoad(chatId, chatLength) {
@@ -3967,6 +3971,7 @@ function handleMessageUpdated(chatId, floor) { return synchronizeCurrentSources(
 async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null) {
     if (isChatStale(chatId) || !isStorySummaryEnabledForCurrentChat()) return { status: 'stale' };
     const change = retainSourceChange(messageSources, getContext(), { kind, floor });
+    if (!messageSources.isLoaded(getContext())) return { status: 'deferred' };
     if (!change) return { status: 'unchanged' };
     for (const changedFloor of change.anchorFloors) rememberVectorMaintenance(chatId, changedFloor, 'source_changed');
     // retainSourceChange already retired live anchors; only background cache work queues.
@@ -3976,7 +3981,9 @@ async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null
     const outcome = await runVectorWriteTask(
         { chatId, kind: 'source-sync', scope: VECTOR_WRITE_SCOPES.CONSISTENCY },
         () => synchronizeSourceCaches(messageSources, getContext(), {
-            kind, floor, getCurrentContext: getContext,
+            // The native event was retained above. Replaying it after a queue
+            // wait could mistake a later reload's empty array for that deletion.
+            getCurrentContext: getContext,
             isCurrent: () => !isChatStale(chatId) && isStorySummaryEnabledForCurrentChat(),
         }),
     );
@@ -4037,10 +4044,11 @@ async function ensureCurrentSources(signal, { requireSummary = true, recover = t
     if (messageSources.inspect(getContext())) cancelEmbeddingWriteTasks('Source synchronization');
     if (!await waitForMemoryCommit(signal, { recover })) throw createAbortError();
     if (isChatStale(chatId)) throw createAbortError();
-    await waitForSummaryPreparation(() => synchronizeCurrentSources(chatId), signal);
+    const outcome = await waitForSummaryPreparation(() => synchronizeCurrentSources(chatId), signal);
+    if (outcome?.status === 'deferred') throw createAbortError();
     await waitForSummaryPreparation(() => waitForVectorWrites(), signal);
     throwIfSignalAborted(signal);
-    if (isChatStale(chatId) || messageSources.inspect(getContext())) {
+    if (isChatStale(chatId) || !messageSources.isLoaded(getContext()) || messageSources.inspect(getContext())) {
         throw createAbortError();
     }
     assertMemoryWritable(chatId);
@@ -4484,7 +4492,7 @@ function runContentChangeSync(handler, ...args) {
     const context = getContext();
     const chatId = context?.chatId || null;
     if (!chatId || !isStorySummaryEnabledForCurrentChat()) return undefined;
-    const change = messageSources.inspect(context);
+    const change = messageSources.inspect(context, { kind: handler === handleMessageDeleted ? 'delete' : 'observed' });
     // A save-without-edit does not schedule maintenance. A real local edit
     // invalidates future reuse, not this generation's already running recall.
     if (!change) return undefined;

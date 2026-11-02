@@ -4430,7 +4430,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/README.md",
       "relativePath": "modules/scheduled-tasks/README.md",
       "extension": ".md",
-      "sizeBytes": 29827
+      "sizeBytes": 31580
     },
     {
       "source": "littlewhitebox",
@@ -4451,7 +4451,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/preset-lifecycle.test.js",
       "relativePath": "modules/scheduled-tasks/preset-lifecycle.test.js",
       "extension": ".js",
-      "sizeBytes": 134300
+      "sizeBytes": 163470
     },
     {
       "source": "littlewhitebox",
@@ -4465,7 +4465,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/scheduled-tasks.js",
       "relativePath": "modules/scheduled-tasks/scheduled-tasks.js",
       "extension": ".js",
-      "sizeBytes": 139967
+      "sizeBytes": 144502
     },
     {
       "source": "littlewhitebox",
@@ -4717,7 +4717,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/message-sources.js",
       "relativePath": "modules/story-summary/data/message-sources.js",
       "extension": ".js",
-      "sizeBytes": 11916
+      "sizeBytes": 12694
     },
     {
       "source": "littlewhitebox",
@@ -5368,7 +5368,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.js",
       "relativePath": "modules/story-summary/story-summary.js",
       "extension": ".js",
-      "sizeBytes": 227042
+      "sizeBytes": 227934
     },
     {
       "source": "littlewhitebox",
@@ -5676,7 +5676,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/memory-storage.test.js",
       "relativePath": "modules/story-summary/tests/memory-storage.test.js",
       "extension": ".js",
-      "sizeBytes": 150489
+      "sizeBytes": 162727
     },
     {
       "source": "littlewhitebox",
@@ -5690,7 +5690,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/message-sources.test.js",
       "relativePath": "modules/story-summary/tests/message-sources.test.js",
       "extension": ".js",
-      "sizeBytes": 17654
+      "sizeBytes": 19974
     },
     {
       "source": "littlewhitebox",
