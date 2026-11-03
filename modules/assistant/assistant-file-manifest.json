@@ -1840,7 +1840,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 227742
+      "sizeBytes": 227521
     },
     {
       "source": "littlewhitebox",
@@ -2477,7 +2477,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/chat-message-images.js",
       "relativePath": "modules/draw/shared/chat-message-images.js",
       "extension": ".js",
-      "sizeBytes": 12224
+      "sizeBytes": 12283
     },
     {
       "source": "littlewhitebox",
@@ -2568,7 +2568,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 62609
+      "sizeBytes": 62611
     },
     {
       "source": "littlewhitebox",
@@ -2680,7 +2680,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-settings.js",
       "relativePath": "modules/draw/shared/draw-settings.js",
       "extension": ".js",
-      "sizeBytes": 9420
+      "sizeBytes": 9428
     },
     {
       "source": "littlewhitebox",
@@ -3660,7 +3660,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/helpers/draw-journey.js",
       "relativePath": "modules/draw/shared/tests/helpers/draw-journey.js",
       "extension": ".js",
-      "sizeBytes": 7106
+      "sizeBytes": 7125
     },
     {
       "source": "littlewhitebox",
@@ -3752,6 +3752,13 @@
       "relativePath": "modules/draw/shared/tests/llm-records-view.test.js",
       "extension": ".js",
       "sizeBytes": 7554
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/manual-provider-scope.test.js",
+      "relativePath": "modules/draw/shared/tests/manual-provider-scope.test.js",
+      "extension": ".js",
+      "sizeBytes": 1890
     },
     {
       "source": "littlewhitebox",
@@ -18248,7 +18255,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/tests/draw-run-manager.test.js",
       "relativePath": "server-plugin/littlewhitebox-server/tests/draw-run-manager.test.js",
       "extension": ".js",
-      "sizeBytes": 56165
+      "sizeBytes": 56167
     },
     {
       "source": "littlewhitebox",

@@ -2247,7 +2247,7 @@ async function handleDelegatedClick(e) {
             break;
         }
         case 'open-gallery':
-            if (document.body.classList.contains('xb-nd-tap-controls')) {
+            if (actionEl.tagName === 'IMG' && document.body.classList.contains('xb-nd-tap-controls')) {
                 // 觸控裝置：點圖只切換控制列（張數列＋「⋮」），不開彈窗放大。
                 const willShow = !container.classList.contains('controls-visible');
                 container.classList.toggle('controls-visible', willShow);
@@ -2256,19 +2256,10 @@ async function handleDelegatedClick(e) {
                 }
                 break;
             }
-            // 滑鼠端維持原樣：點圖開畫廊放大
+            // 菜单放大与鼠标点图共用画廊入口；触屏点图仅切换控制列。
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
             await handleImageClick(container);
             break;
-        case 'view-image': {
-            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-            try {
-                await handleImageClick(container);
-            } catch (err) {
-                showToast(`開啟畫廊失敗 — ${err?.message || err}`, 'error', 6000);
-                throw err;
-            }
-            break;
-        }
         case 'refresh-image':
             container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
             await refreshSingleImage(container);

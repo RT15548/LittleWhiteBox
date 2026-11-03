@@ -27,7 +27,8 @@ function report(error) {
 }
 const session = createChatImageSession({ context: getContext,
     provider: () => available() ? window.xiaobaixDraw.getProvider() : null,
-    autoGenerate: () => getSharedDrawSettings().autoGenerateImages !== false,
+    autoGenerate: () => window.xiaobaixDraw.getProvider() !== 'novelai'
+        || getSharedDrawSettings().autoGenerateImages !== false,
     changed: requestRefresh, report });
 
 function releaseProvisional(lease) {

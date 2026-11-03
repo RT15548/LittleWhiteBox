@@ -28,7 +28,7 @@ const DEFAULT_SHARED_DRAW_SETTINGS = {
     characterGroupPresets: [],
     characterGroupPresetApplied: null,
     danbooruLocalDB: false,
-    // 回复中的绘图标签是否自动排队生图；关闭后改为楼层内手动点「生成」
+    // NovelAI 回复中的绘图标签是否自动排队生图；关闭后改为楼层内手动点「生成」
     autoGenerateImages: true,
     messageFilterRules: [],
     saveAsJpeg: false,

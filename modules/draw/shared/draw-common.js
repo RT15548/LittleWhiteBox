@@ -347,7 +347,7 @@ export function buildImageHtml({ slotId, imgId, url, tags, title = '', positive,
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
         <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">${drawIconHtml('ellipsis')}</button>
         <div class="xb-nd-dropdown">
-            <button data-action="view-image" title="放大">⤢</button>
+            <button data-action="open-gallery" title="放大">⤢</button>
             ${isPreview ? IMAGE_SAVE_BUTTON_HTML : ''}
             <button data-action="refresh-image" title="重新生成">${drawIconHtml('rotate')}</button>
             <button data-action="edit-tags" title="编辑TAG">${drawIconHtml('pen')}</button>
