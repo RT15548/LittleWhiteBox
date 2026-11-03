@@ -4138,7 +4138,7 @@ async function handleFrameMessage(event) {
             const enabled = !!data.enabled;
             await updateSettingsPersistent((settings) => {
                 settings.continuityEnabled = enabled;
-            }, enabled ? '上镜锚点已开启' : '上镜锚点已关闭');
+            }, enabled ? '沿用角色着装已开启' : '沿用角色着装已关闭');
             observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }

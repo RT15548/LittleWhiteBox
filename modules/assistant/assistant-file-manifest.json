@@ -1833,14 +1833,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 113314
+      "sizeBytes": 113296
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 227521
+      "sizeBytes": 227533
     },
     {
       "source": "littlewhitebox",
@@ -2260,7 +2260,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-continuity.js",
       "relativePath": "modules/draw/shared/character-continuity.js",
       "extension": ".js",
-      "sizeBytes": 8255
+      "sizeBytes": 8465
     },
     {
       "source": "littlewhitebox",

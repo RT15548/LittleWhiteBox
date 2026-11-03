@@ -1,5 +1,5 @@
 /**
- * 上镜锚点（On-screen Continuity）
+ * 沿用角色着装（On-screen Continuity）
  *
  * 与角色库（characterTags）的分工：
  * - 角色库是用户维护的权威身份资料，本模块不修改它；
@@ -14,6 +14,11 @@
  */
 import { isGenericCharacterName } from './generic-char-name.js';
 
+// 只有 NovelAI 规划会注入这块，所以说明随数据走，不写进三家共用的材料说明和字段说明。
+const CONTINUITY_BLOCK_HEADER = [
+    '【前文画面中的角色】',
+    '本聊天前面楼层已经画出的图里，每个角色当时画成的样子。本图画到同一个角色时照这里画，长相和衣服保持一致；这里列出的衣服优先于该角色的服装参考。正文写了换衣服、受伤、弄湿等变化，才按正文改。已录入角色的长相由角色库提供，这里只列衣服。',
+].join('\n');
 const CONTINUITY_VERSION = 1;
 const MAX_ENTRIES = 40;
 const MAX_TAG_LENGTH = 600;
@@ -73,7 +78,7 @@ export function selectContinuityEntries(entries, { knownNames = [], bodyText = '
     });
 }
 
-/** 渲染给规划 LLM 的【上镜锚点】区块；无可用锚点时返回空串。 */
+/** 渲染给规划 LLM 的【前文画面中的角色】区块；无可用条目时返回空串。 */
 export function buildContinuityBlock(entries, { knownNames = [] } = {}) {
     const known = toNameSet(knownNames);
     const lines = [];
@@ -81,19 +86,14 @@ export function buildContinuityBlock(entries, { knownNames = [] } = {}) {
         if (!entry || (!entry.appear && !entry.costume)) continue;
         const isKnown = known.has(String(entry.name || '').toLocaleLowerCase());
         const parts = [];
-        // 已录入角色的身份外貌来自角色库，锚点不重复，避免两处描述漂移后互相打架。
-        if (!isKnown && entry.appear) parts.push(`上镜外貌: ${entry.appear}`);
-        if (entry.costume) parts.push(`当前着装: ${entry.costume}`);
+        // 已录入角色的身份外貌来自角色库，这里不重复，避免两处描述漂移后互相打架。
+        if (!isKnown && entry.appear) parts.push(`appear: ${entry.appear}`);
+        if (entry.costume) parts.push(`costume: ${entry.costume}`);
         if (!parts.length) continue;
-        const suffix = isKnown ? '（角色库已录入，身份外貌以【已录入角色】为准）' : '';
-        lines.push(`- ${entry.name}${suffix}｜${parts.join('｜')}`);
+        lines.push(`- ${entry.name}｜${parts.join('｜')}`);
     }
     if (!lines.length) return '';
-    return [
-        '【上镜锚点】',
-        'These tags describe the characters in earlier visible images. Reuse their appearance and costume unless the current narrative establishes a change. Registered appearance comes from the character library.',
-        lines.join('\n'),
-    ].join('\n');
+    return [CONTINUITY_BLOCK_HEADER, ...lines].join('\n');
 }
 
 /**
