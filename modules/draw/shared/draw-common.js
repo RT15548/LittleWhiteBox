@@ -737,15 +737,20 @@ export async function getContinuityImageRecords({ chat, beforeMessageId }) {
     const target = chat[beforeMessageId];
     const sources = chat.slice(0, beforeMessageId).flatMap(message =>
         [...extractSlotIds(message.mes)].map(slotId => ({ message, text: message.mes, slotId })));
-    const records = await Promise.all(sources.map(async ({ message, slotId }) =>
-        (await resolveRenderPreviewForSlot(message, chat.indexOf(message), slotId)).preview));
+    const records = [];
+    // Retain snapshots only; loading every image payload in parallel would pin
+    // the entire chat gallery in memory until the last lookup finishes.
+    for (const { message, slotId } of sources) {
+        const { preview } = await resolveRenderPreviewForSlot(message, chat.indexOf(message), slotId);
+        records.push(preview?.status === PreviewStatus.SUCCESS ? preview.continuityChars : null);
+    }
     const targetIndex = chat.indexOf(target);
-    return records.flatMap((record, index) => {
+    return records.flatMap((continuityChars, index) => {
         const { message, text } = sources[index];
         const messageId = chat.indexOf(message);
         if (messageId < 0 || messageId >= targetIndex || message.mes !== text
-            || record?.status !== PreviewStatus.SUCCESS || !record.continuityChars?.length) return [];
-        return [{ messageId, timestamp: index, continuityChars: record.continuityChars }];
+            || !continuityChars?.length) return [];
+        return [{ messageId, timestamp: index, continuityChars }];
     });
 }
 
