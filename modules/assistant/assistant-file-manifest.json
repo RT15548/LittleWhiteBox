@@ -2925,7 +2925,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-save-core.js",
       "relativePath": "modules/draw/shared/image-save-core.js",
       "extension": ".js",
-      "sizeBytes": 5563
+      "sizeBytes": 5587
     },
     {
       "source": "littlewhitebox",
@@ -18108,7 +18108,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/README.md",
       "relativePath": "server-plugin/littlewhitebox-server/README.md",
       "extension": ".md",
-      "sizeBytes": 14059
+      "sizeBytes": 14095
     },
     {
       "source": "littlewhitebox",
