@@ -1,0 +1,77 @@
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ignore from 'ignore';
+import test from 'node:test';
+
+const manifestUrl = new URL('../assistant-file-manifest.json', import.meta.url);
+const pluginRoot = fileURLToPath(new URL('../../../', import.meta.url));
+const stRoot = path.resolve(pluginRoot, '../../../../..');
+
+function readIgnoreMatcher(root) {
+    return ignore().add(readFileSync(path.join(root, '.gitignore'), 'utf8'));
+}
+
+test('assistant manifest excludes developer-local files', () => {
+    const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'));
+    const pluginPaths = (manifest.files || [])
+        .filter(item => item?.source === 'littlewhitebox')
+        .map(item => String(item?.relativePath || '').replace(/\\/g, '/'));
+    const publicPaths = (manifest.files || [])
+        .filter(item => item?.source === 'sillytavern-public')
+        .map(item => `public/${String(item?.relativePath || '').replace(/\\/g, '/')}`);
+    const pluginMatcher = readIgnoreMatcher(pluginRoot);
+    const publicMatcher = readIgnoreMatcher(stRoot);
+    const pluginOverlap = pluginPaths.filter(value => pluginMatcher.ignores(value));
+    const publicOverlap = publicPaths.filter(value => publicMatcher.ignores(value));
+
+    assert.deepEqual(pluginOverlap, []);
+    assert.deepEqual(publicOverlap, []);
+    // Check the generated catalogue, not source text: local verification output
+    // must never be advertised as plugin source, even when it is not gitignored.
+    assert.deepEqual(pluginPaths.filter(value => value.startsWith('output/')), []);
+});
+
+test('assistant manifest excludes generated dists and includes draw scene planner sources', () => {
+    const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'));
+    const pluginPaths = (manifest.files || [])
+        .filter(item => item?.source === 'littlewhitebox')
+        .map(item => String(item?.relativePath || '').replace(/\\/g, '/'));
+
+    assert.deepEqual(pluginPaths.filter(value => value.startsWith('modules/assistant/dist/')), []);
+    assert.deepEqual(pluginPaths.filter(value => value.startsWith('modules/agent-core/dist/')), []);
+
+    for (const expected of [
+        'modules/draw/shared/scene-planner.js',
+        'modules/draw/shared/scene-plan-contract.js',
+        'modules/draw/shared/scene-prompt-expansion.js',
+        'modules/draw/shared/scene-planner-error-ui.js',
+        'modules/draw/shared/draw-agent.js',
+        'modules/agent-core/browser-entry.js',
+        'modules/agent-core/provider-resolution.js',
+    ]) {
+        assert.ok(pluginPaths.includes(expected), `${expected} 必须在 manifest 中`);
+    }
+});
+
+test('assistant manifest reports the current sizes of indexed plugin files', () => {
+    const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'));
+    const mismatches = [];
+
+    for (const item of manifest.files || []) {
+        if (item?.source !== 'littlewhitebox') continue;
+        const relativePath = String(item.relativePath || '').replace(/\\/g, '/');
+        const fullPath = path.resolve(pluginRoot, relativePath);
+        if (!existsSync(fullPath)) {
+            mismatches.push(`${relativePath}: missing`);
+            continue;
+        }
+        const actualSize = statSync(fullPath).size;
+        if (actualSize !== item.sizeBytes) {
+            mismatches.push(`${relativePath}: manifest=${item.sizeBytes}, actual=${actualSize}`);
+        }
+    }
+
+    assert.deepEqual(mismatches, []);
+});

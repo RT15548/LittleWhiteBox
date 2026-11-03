@@ -1,0 +1,154 @@
+{
+  "formatVersion": 1,
+  "revision": 17,
+  "commitId": "commit-17-1791078811398",
+  "partitions": {
+    "economy": {
+      "schemaVersion": 3,
+      "transactions": [
+        {
+          "id": "tx-6993b707-01ab-45ef-a30b-df24b06c137e",
+          "sequence": 1,
+          "idempotencyKey": "economy:opening-grant:v1",
+          "actionId": "economy:opening-grant:v1",
+          "fromAccountId": "system:mint",
+          "toAccountId": "player",
+          "amount": 100,
+          "kind": "opening_grant",
+          "title": "开户赠礼",
+          "note": "欢迎来到小白 OS",
+          "sourceDomain": "economy",
+          "sourceScope": "user",
+          "sourceId": "opening-grant:v1",
+          "createdAt": 1791077911555
+        },
+        {
+          "id": "tx-430bcfae-0654-4db8-9632-ecae4de22ad4",
+          "sequence": 2,
+          "createdAt": 1791078024585,
+          "sourceScope": "user",
+          "idempotencyKey": "building:516ad4ec854d1d75fbc50cee7f168cee:fee",
+          "actionId": "27beb9fe7e7266e3fc078040d191d99c",
+          "fromAccountId": "player",
+          "toAccountId": "counterparty:game:building",
+          "amount": 50,
+          "kind": "building_fee",
+          "title": "小白筑家 · 开工",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "516ad4ec854d1d75fbc50cee7f168cee"
+        },
+        {
+          "id": "tx-19d3467e-9584-4aa3-a63e-c8b3ef818131",
+          "sequence": 3,
+          "createdAt": 1791078076546,
+          "sourceScope": "user",
+          "idempotencyKey": "building:516ad4ec854d1d75fbc50cee7f168cee:ready",
+          "actionId": "05a4ea95e51caeea7ae56479684a5f1f",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 50,
+          "kind": "building_ready",
+          "title": "小白筑家 · 基础房屋",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "516ad4ec854d1d75fbc50cee7f168cee"
+        },
+        {
+          "id": "tx-e7406e51-0636-44ed-9902-654a37d2d33e",
+          "sequence": 4,
+          "createdAt": 1791078174149,
+          "sourceScope": "user",
+          "idempotencyKey": "building:516ad4ec854d1d75fbc50cee7f168cee:finished",
+          "actionId": "d7fcdb7be8df27b4f2cf40996c508f48",
+          "fromAccountId": "counterparty:game:building",
+          "toAccountId": "player",
+          "amount": 90,
+          "kind": "building_finished",
+          "title": "小白筑家 · 心愿交付",
+          "note": "",
+          "sourceDomain": "game",
+          "sourceId": "516ad4ec854d1d75fbc50cee7f168cee"
+        }
+      ]
+    },
+    "dice": {
+      "sheet": null,
+      "resultOverrides": {}
+    },
+    "learning-rewards": {
+      "retiredUnitIds": []
+    },
+    "building": {
+      "format": 3,
+      "revision": 16,
+      "last": {
+        "id": "496ac2c1359da981236cedade2c34dcf",
+        "fingerprint": "{\"type\":\"collect\",\"runId\":\"516ad4ec854d1d75fbc50cee7f168cee\",\"save\":false}"
+      },
+      "activeId": "516ad4ec854d1d75fbc50cee7f168cee",
+      "projects": [
+        {
+          "id": "516ad4ec854d1d75fbc50cee7f168cee",
+          "seed": 1013904245,
+          "tier": "sunroom",
+          "site": {
+            "width": 4,
+            "floors": 2,
+            "entrance": 2,
+            "living": 3,
+            "gardenSide": -1,
+            "terraces": 1,
+            "materials": 5,
+            "sunSide": 1,
+            "heights": [
+              1,
+              2,
+              2,
+              1
+            ]
+          },
+          "rooms": [
+            {
+              "kind": "hall",
+              "x": 2,
+              "y": 0
+            },
+            {
+              "kind": "room",
+              "x": 1,
+              "y": 0
+            },
+            {
+              "kind": "study",
+              "x": 1,
+              "y": 1
+            },
+            {
+              "kind": "terrace",
+              "x": 2,
+              "y": 1
+            },
+            {
+              "kind": "garden",
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "end": "complete",
+          "saved": false
+        }
+      ],
+      "receipts": [
+        {
+          "runId": "516ad4ec854d1d75fbc50cee7f168cee",
+          "tier": "sunroom",
+          "admission": "27beb9fe7e7266e3fc078040d191d99c",
+          "ready": "05a4ea95e51caeea7ae56479684a5f1f",
+          "finished": "d7fcdb7be8df27b4f2cf40996c508f48"
+        }
+      ]
+    }
+  },
+  "stories": {}
+}

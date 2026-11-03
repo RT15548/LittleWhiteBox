@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "nextSeq": 13,
+  "contacts": [
+    {
+      "id": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "name": "Seraphina",
+      "note": "",
+      "createdAt": 1788599603943,
+      "summary": null
+    }
+  ],
+  "messages": [
+    {
+      "id": "input:ecea67ac-7e5c-4191-9232-34e9f17a80be",
+      "seq": 1,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "user",
+      "from": "Messages验收",
+      "to": "Seraphina",
+      "replyTo": null,
+      "createdAt": 1788599628115,
+      "payload": {
+        "type": "text",
+        "text": "群聊档案里的私人消息。"
+      }
+    },
+    {
+      "id": "cf07a56d-7471-4d44-8ffe-ad649ebfda10",
+      "seq": 2,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:ecea67ac-7e5c-4191-9232-34e9f17a80be",
+      "createdAt": 1788599628276,
+      "payload": {
+        "type": "text",
+        "text": "我在林间的小屋，等你过来。"
+      }
+    },
+    {
+      "id": "323ec4aa-a7fe-43c8-81d3-e32c79729a2e",
+      "seq": 3,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:ecea67ac-7e5c-4191-9232-34e9f17a80be",
+      "createdAt": 1788599628276,
+      "payload": {
+        "type": "image",
+        "description": "窗边的一杯热茶，映着森林的绿光。"
+      }
+    },
+    {
+      "id": "e498106a-601a-4700-8905-1fdce7cab9de",
+      "seq": 4,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:ecea67ac-7e5c-4191-9232-34e9f17a80be",
+      "createdAt": 1788599628276,
+      "payload": {
+        "type": "voice",
+        "transcript": "路上慢一点，别淋到雨。"
+      }
+    },
+    {
+      "id": "input:a23647c9-d836-43c1-9bad-d94d1b58e304",
+      "seq": 5,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "user",
+      "from": "Messages验收",
+      "to": "Seraphina",
+      "replyTo": null,
+      "createdAt": 1788599708176,
+      "payload": {
+        "type": "text",
+        "text": "编辑之后继续联系。"
+      }
+    },
+    {
+      "id": "6bc703cd-618a-4297-8b50-db526ede5486",
+      "seq": 6,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:a23647c9-d836-43c1-9bad-d94d1b58e304",
+      "createdAt": 1788599708354,
+      "payload": {
+        "type": "text",
+        "text": "我在林间的小屋，等你过来。"
+      }
+    },
+    {
+      "id": "07605695-6929-4c84-8203-f2bd71100655",
+      "seq": 7,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:a23647c9-d836-43c1-9bad-d94d1b58e304",
+      "createdAt": 1788599708354,
+      "payload": {
+        "type": "image",
+        "description": "窗边的一杯热茶，映着森林的绿光。"
+      }
+    },
+    {
+      "id": "06b0cdb5-7879-4685-99e8-ae34612fd8ec",
+      "seq": 8,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:a23647c9-d836-43c1-9bad-d94d1b58e304",
+      "createdAt": 1788599708354,
+      "payload": {
+        "type": "voice",
+        "transcript": "路上慢一点，别淋到雨。"
+      }
+    },
+    {
+      "id": "input:a8114dfc2cf4c106aac90fbff45fe1f6",
+      "seq": 9,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "user",
+      "from": "Messages验收",
+      "to": "Seraphina",
+      "replyTo": null,
+      "createdAt": 1788600050299,
+      "payload": {
+        "type": "text",
+        "text": "最后一条验收消息。"
+      }
+    },
+    {
+      "id": "855f852005ff8d3efd976b13ffbe0d9c",
+      "seq": 10,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:a8114dfc2cf4c106aac90fbff45fe1f6",
+      "createdAt": 1788600050528,
+      "payload": {
+        "type": "text",
+        "text": "我在林间的小屋，等你过来。"
+      }
+    },
+    {
+      "id": "4093aa93cc05b07ee8eeafab08fdf416",
+      "seq": 11,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:a8114dfc2cf4c106aac90fbff45fe1f6",
+      "createdAt": 1788600050528,
+      "payload": {
+        "type": "image",
+        "description": "窗边的一杯热茶，映着森林的绿光。"
+      }
+    },
+    {
+      "id": "984fb6f80ced54fc76b23db471bd3bde",
+      "seq": 12,
+      "contactId": "contact:b38c02ed-27a8-4c9a-ab5a-3515e6faa0b8",
+      "sender": "contact",
+      "from": "Seraphina",
+      "to": "Messages验收",
+      "replyTo": "input:a8114dfc2cf4c106aac90fbff45fe1f6",
+      "createdAt": 1788600050528,
+      "payload": {
+        "type": "voice",
+        "transcript": "路上慢一点，别淋到雨。"
+      }
+    }
+  ],
+  "segments": [
+    {
+      "id": "1a523fd6-725f-4a5a-8e18-d6e237f29c25",
+      "messageIds": [
+        "input:ecea67ac-7e5c-4191-9232-34e9f17a80be",
+        "cf07a56d-7471-4d44-8ffe-ad649ebfda10",
+        "323ec4aa-a7fe-43c8-81d3-e32c79729a2e",
+        "e498106a-601a-4700-8905-1fdce7cab9de"
+      ],
+      "sealed": true,
+      "recovered": false,
+      "receipt": {
+        "throughSeq": 4,
+        "digest": "454686ca8db9841794fcc1b76ef146daaa18e2306b62365fb5f1b31c832b4437"
+      }
+    },
+    {
+      "id": "497971cc-f244-49e7-8759-5b0a281fa9c8",
+      "messageIds": [
+        "input:a23647c9-d836-43c1-9bad-d94d1b58e304",
+        "6bc703cd-618a-4297-8b50-db526ede5486",
+        "07605695-6929-4c84-8203-f2bd71100655",
+        "06b0cdb5-7879-4685-99e8-ae34612fd8ec"
+      ],
+      "sealed": true,
+      "recovered": false,
+      "receipt": {
+        "throughSeq": 8,
+        "digest": "ea1e78719abe80333457d3944406a526a3eb356b950fb2511a92487ba02cb392"
+      }
+    },
+    {
+      "id": "df0b651cb592488b9377c547906bae22",
+      "messageIds": [
+        "input:a8114dfc2cf4c106aac90fbff45fe1f6",
+        "855f852005ff8d3efd976b13ffbe0d9c",
+        "4093aa93cc05b07ee8eeafab08fdf416",
+        "984fb6f80ced54fc76b23db471bd3bde"
+      ],
+      "sealed": true,
+      "recovered": false,
+      "receipt": {
+        "throughSeq": 12,
+        "digest": "e928496eca4ac896221c0a78026cb67203c1b36d02dde7d40096e0eb7885b3d0"
+      }
+    }
+  ]
+}

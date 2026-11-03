@@ -1,10 +1,11 @@
 import { ACTION_CHECK_REQUEST_FIELDS } from './action-check.js';
 import { COC7_REQUEST_FIELDS, type Coc7Difficulty } from './coc7-request.js';
-import type { CheckConsequences } from './check-consequences.js';
+import { RECORDED_CHECK_CONSEQUENCE_FIELDS, type CheckConsequences } from './check-consequences.js';
 
 // A result keeps the capability name used at the time, independently of today's
 // request catalog. This is a historical fact, never a request to look up a sheet.
-export interface Coc7RecordedRequest extends CheckConsequences { action: string; stat: string; difficulty: Coc7Difficulty }
+export interface Coc7RecordedRequest extends Partial<CheckConsequences> { action: string; stat: string; difficulty: Coc7Difficulty }
+const RECORDED_FIELDS = { ...COC7_REQUEST_FIELDS, ...RECORDED_CHECK_CONSEQUENCE_FIELDS };
 // Canonical checks need no annotation. Other checks retain the input mapping or
 // untrained source as a historical fact, without consulting the current catalog.
 export type Coc7Resolution = { kind: 'mapped'; input: string }
@@ -29,8 +30,8 @@ export function parseCoc7RecordedRequest(value: unknown): Coc7RecordedRequest {
     const invalid = (): never => { throw new TypeError('dice_record_invalid'); };
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return invalid(); }
     const input = value as Coc7RecordedRequest;
-    if (Object.keys(input).some(key => !Object.hasOwn(COC7_REQUEST_FIELDS, key))) { return invalid(); }
-    for (const [key, spec] of Object.entries(COC7_REQUEST_FIELDS)) {
+    if (Object.keys(input).some(key => !Object.hasOwn(RECORDED_FIELDS, key))) { return invalid(); }
+    for (const [key, spec] of Object.entries(RECORDED_FIELDS)) {
         if (!Object.hasOwn(input, key)) {
             if (spec.required) { return invalid(); }
             continue;

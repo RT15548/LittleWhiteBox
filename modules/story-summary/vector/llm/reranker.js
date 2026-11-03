@@ -5,6 +5,8 @@
 
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
+import { normalizeRerankTimeoutSec } from '../../data/recall-settings.js';
+import { SUMMARY_FEEDBACK_COPY } from '../../feedback-copy.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
 import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
 import { buildBoundedRerankQuery, RERANK_QUERY_MAX_CHARS } from '../retrieval/rerank-query.js';
@@ -12,7 +14,6 @@ import { buildBoundedRerankQuery, RERANK_QUERY_MAX_CHARS } from '../retrieval/re
 const MODULE_ID = 'reranker';
 const DEFAULT_RERANK_URL = 'https://api.siliconflow.cn/v1';
 const RERANK_MODEL = 'BAAI/bge-reranker-v2-m3';
-const DEFAULT_TIMEOUT = 15000;
 const MAX_DOCUMENTS = 100;  // API 限制
 const RERANK_BATCH_SIZE = 20;
 const RERANK_MAX_CONCURRENCY = 5;
@@ -75,12 +76,12 @@ function getNextRerankKey(rawKey) {
  * @param {Array<string>} documents - 文档文本列表
  * @param {object} options - 选项
  * @param {number} options.topN - 返回前 N 个结果，默认 40
- * @param {number} options.timeout - 超时时间，默认 15000ms
+ * @param {number} options.timeout - 内部调用的毫秒预算；未指定时使用已配置的重排超时
  * @param {AbortSignal} options.signal - 取消信号
  * @returns {Promise<Array<{index: number, relevance_score: number}>>} 排序后的结果
  */
 export async function rerank(query, documents, options = {}) {
-    const { topN = 40, timeout = DEFAULT_TIMEOUT, signal } = options;
+    const { topN = 40, signal } = options;
 
     if (!query?.trim()) {
         xbLog.warn(MODULE_ID, 'query 为空，跳过 rerank');
@@ -96,6 +97,7 @@ export async function rerank(query, documents, options = {}) {
     }
 
     const apiCfg = getRerankApiConfig();
+    const timeout = options.timeout ?? normalizeRerankTimeoutSec(apiCfg.timeoutSec) * 1000;
     const key = getNextRerankKey(apiCfg.key);
     if (!key) {
         xbLog.warn(MODULE_ID, '未配置 API Key，跳过 rerank');
@@ -369,6 +371,7 @@ export async function testRerankService(apiConfig = {}, { signal } = {}) {
         url: String(apiConfig.url || DEFAULT_RERANK_URL).trim(),
         key: String(apiConfig.key || '').trim(),
         model: String(apiConfig.model || RERANK_MODEL).trim(),
+        timeoutSec: normalizeRerankTimeoutSec(apiConfig.timeoutSec),
     };
     if (!next.key) {
         throw new Error('请配置 Rerank API Key');
@@ -379,7 +382,7 @@ export async function testRerankService(apiConfig = {}, { signal } = {}) {
     const onAbort = () => controller.abort();
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), next.timeoutSec * 1000);
     try {
         const baseUrl = resolveApiBaseUrl(
             String(next.url || DEFAULT_RERANK_URL),
@@ -412,6 +415,9 @@ export async function testRerankService(apiConfig = {}, { signal } = {}) {
         };
     } catch (e) {
         if (signal?.aborted) throw e;
+        if (controller.signal.aborted) {
+            throw new Error(SUMMARY_FEEDBACK_COPY.rerankTimeout.failed(next.timeoutSec), { cause: e });
+        }
         throw new Error(`连接失败: ${e.message}`, { cause: e });
     } finally {
         clearTimeout(timeoutId);

@@ -33,6 +33,11 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     embeddingTitle: 'Embedding 异常',
     connectionChecking: '连接中…',
     connectionReady: dims => `连接成功 (${dims}维)`,
+    rerankTimeout: Object.freeze({
+        label: '请求超时（秒）',
+        hint: '实际召回仍受上一级“召回超时”限制。',
+        failed: seconds => `连接失败：请求超时（${seconds} 秒）`,
+    }),
     vectorInitialization: Object.freeze({
         configuration: '无法读取已保存的配置，请重新读取配置后重试。',
         runtime: '本地向量运行态准备失败，请刷新后重试；仍失败时请查看日志。',

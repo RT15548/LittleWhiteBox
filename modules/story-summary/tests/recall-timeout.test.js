@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRecallPrefetchCoordinator } from '../generate/recall-prefetch.js';
-import { normalizeRecallTimeoutSec, MAX_RECALL_TIMEOUT_SEC } from '../data/recall-settings.js';
+import { normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, MAX_RECALL_TIMEOUT_SEC } from '../data/recall-settings.js';
 import { uiEntry } from './helpers/story-summary-entry.js';
 
 // Acceptance: reloading settings preserves the chosen budget, invalid imported
@@ -10,7 +10,7 @@ import { uiEntry } from './helpers/story-summary-entry.js';
 test('timeout settings normalize consistently and survive the panel reload path', () => {
     const ui = uiEntry(['normalizeVectorConfigUI'], {
         config: { vector: { recallTimeoutSec: 30, l0Api: {}, embeddingApi: {}, rerankApi: {} } },
-        normalizeProviderProfiles: () => ({}), normalizeRecallTimeoutSec,
+        normalizeProviderProfiles: () => ({}), normalizeRecallTimeoutSec, normalizeRerankTimeoutSec,
     });
     for (const [input, expected] of [[90, 90], ['60', 60], [undefined, 30], ['', 30],
         [1.9, 1], [0.5, 1], [-1, 30], [Infinity, 30], [3_000_000, MAX_RECALL_TIMEOUT_SEC]]) {

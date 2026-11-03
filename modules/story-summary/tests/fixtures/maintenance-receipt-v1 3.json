@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "id": "cb455e84d03e04bc1a56891f0b5de724",
+  "runId": "captured-batched-run",
+  "part": 1,
+  "createdAt": 1790419412826,
+  "mode": "manual",
+  "policy": {
+    "standard": "c38678e33bf385a523b61c900de8a752926ebec689b0bac78b9756c855396513",
+    "filterRules": []
+  },
+  "start": 1,
+  "cutoff": 2,
+  "operations": [
+    {
+      "kind": "edit",
+      "collection": "facts",
+      "key": "f-1",
+      "changes": [
+        {
+          "collection": "facts",
+          "key": "f-1",
+          "index": 0,
+          "before": {
+            "id": "f-1",
+            "s": "旅人",
+            "p": "现居城市",
+            "o": "长沙",
+            "since": 1,
+            "_addedAt": 1
+          },
+          "after": {
+            "id": "f-1",
+            "s": "旅人",
+            "p": "现居城市",
+            "o": "北京",
+            "since": 1,
+            "_addedAt": 1
+          }
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "scope": [
+      {
+        "floor": 1,
+        "start": 0,
+        "end": 6
+      },
+      {
+        "floor": 2,
+        "start": 0,
+        "end": 7
+      }
+    ],
+    "targets": [
+      "facts:f-1"
+    ],
+    "supplied": [
+      {
+        "floor": 1,
+        "start": 0,
+        "end": 6,
+        "view": "story"
+      },
+      {
+        "floor": 2,
+        "start": 0,
+        "end": 7,
+        "view": "story"
+      }
+    ],
+    "unfinished": [],
+    "missingAnchors": [
+      {
+        "floor": 2,
+        "status": "missing"
+      }
+    ]
+  },
+  "completion": {
+    "source": [
+      {
+        "floor": 1,
+        "digest": "65b1d9d7dcbc3f07f7bb7ad2af13402561a9b466e511465f92c5e44e1100d248"
+      },
+      {
+        "floor": 2,
+        "digest": "ab8650b1fed1419a7c3901aa2561c574620aa489d2fb6c8f98e0b3864bb45c01"
+      }
+    ],
+    "memory": [
+      {
+        "handle": "facts:f-1",
+        "digest": "0705474acd6541aae18263272330a250699aab0967663664399905245fbc50ba"
+      }
+    ],
+    "selected": [
+      "facts:f-1"
+    ]
+  },
+  "summary": "",
+  "calls": [
+    {
+      "turn": 1,
+      "package": 1,
+      "inputCharacters": 21102,
+      "startedAt": 1790419412819,
+      "durationMs": 0,
+      "usage": null
+    }
+  ]
+}

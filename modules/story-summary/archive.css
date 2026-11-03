@@ -146,11 +146,10 @@
     .archive-generate .btn { padding: 8px 10px; min-height: 40px; font-size: 12px; }
     .archive-tabs { gap: 22px; }
     .archive-tab { font-size: 14px; }
-    .archive-nav { gap: 12px; }
+    .archive-nav { gap: 0 12px; flex-wrap: wrap; }
     .archive-search input { width: 0; padding: 8px 0; }
-    .archive-search:focus-within input { width: 92px; }
-    .archive-nav:has(.archive-search:focus-within) .archive-tab span { display: none; }
-    .archive-nav:has(.archive-search:focus-within) .archive-tabs { gap: 12px; }
+    .archive-search:focus-within, .archive-search:has(input:not(:placeholder-shown)) { width: 100%; padding-bottom: 8px; }
+    .archive-search:focus-within input, .archive-search input:not(:placeholder-shown) { width: 100%; }
     .archive-content { padding-top: 10px; }
     .archive-story, .archive-people-layout, .archive-world-layout { display: block; }
     .archive-index > .archive-label { display: none; }

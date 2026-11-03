@@ -92,7 +92,7 @@
                 <button class="archive-tab" id="archive-tab-people" role="tab" data-view="people" aria-selected="false" aria-controls="archive-people" tabindex="-1">人物 <span id="archive-people-count">0</span></button>
                 <button class="archive-tab" id="archive-tab-world" role="tab" data-view="world" aria-selected="false" aria-controls="archive-world" tabindex="-1">世界 <span id="archive-world-count">0</span></button>
             </nav>
-            <label class="archive-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input id="archive-search" type="search" aria-label="搜索当前视图" placeholder="搜索剧情"></label>
+            <label class="archive-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg><input id="archive-search" type="search" aria-label="搜索当前视图" placeholder="搜索剧情" autocomplete="off"></label>
         </div>
         <div id="summary-notice" class="summary-notice" hidden>
             <div id="summary-status" class="summary-status" role="status" aria-live="polite"></div>
@@ -717,12 +717,12 @@
                             </div>
                         </div>
                     </div></section><section id="tab-transfer" class="tab-pane"><div class="settings-section" style="padding: 0; margin-top: 16px;">
-                            <div class="settings-section-title">导出与导入</div>
+                            <h3 class="settings-section-title">记忆包<small class="workspace-scope">此聊天</small></h3>
                             <div class="settings-btn-row" style="margin-top: 8px;">
-                                <button class="btn btn-sm" id="btn-copy-summary" style="flex:1">复制记忆包</button>
-                                <button class="btn btn-sm" id="btn-import-summary" style="flex:1">粘贴导入记忆包</button>
+                                <button class="btn btn-sm" id="btn-export-summary" style="flex:1"></button>
+                                <button class="btn btn-sm" id="btn-import-summary" style="flex:1"></button>
                             </div>
-                            <div class="settings-hint" id="summary-io-status">复制会把记忆包放进剪贴板；导入会覆盖当前聊天的总结资料，并自动清空向量与总结边界。</div>
+                            <div class="settings-hint" id="summary-io-status" role="status"></div>
                         </div><section class="settings-section"><h3 class="settings-section-title">向量文件<small class="workspace-scope">此聊天</small></h3><button class="btn btn-sm" id="btn-export-vectors" style="flex:1">导出向量数据</button><button class="btn btn-sm" id="btn-import-vectors" style="flex:1">导入向量数据</button><div class="settings-hint" id="vector-io-status"></div></section></section><section id="tab-backups" class="tab-pane"><section class="settings-section"><h3 class="settings-section-title">服务器备份<small class="workspace-scope">此聊天</small></h3><button class="btn btn-sm" id="btn-backup-server" style="flex:1">☁️ 备份向量到服务器</button><button class="btn btn-sm" id="btn-restore-server" style="flex:1">☁️ 从服务器恢复向量</button><button class="btn btn-sm" id="btn-manage-backups" style="width:100%">
                                                 ☁️ 管理服务器向量备份
                                             </button><div class="settings-hint" id="server-io-status"></div></section></section><section id="tab-clear" class="tab-pane"><section class="settings-section"><h3 class="settings-section-title">回退上一次总结<small class="workspace-scope">此聊天</small></h3><p class="settings-hint">撤销最近一次总结；保留聊天记录，人工修改存在冲突时不回退。</p><button type="button" id="workspace-rollback" class="btn">回退上一次总结</button></section><section class="settings-section"><h3 class="settings-section-title">清空总结资料<small class="workspace-scope">此聊天</small></h3><p class="settings-hint">删除此聊天的总结、关键词和人物关系，不删除聊天记录。</p><button type="button" id="workspace-clear" class="btn">清空总结资料</button></section></section><section data-title="锚点提取" data-parent="tab-vector" class="tab-pane" id="tab-l0-api"><div class="settings-collapse-content">
@@ -850,6 +850,13 @@
                                                         <select id="rerank-api-model-select"><option value="">请选择</option></select>
                                                     </div>
                                                 </div>
+                                                <div class="settings-row">
+                                                    <div class="settings-field full">
+                                                        <label id="rerank-api-timeout-label" for="rerank-api-timeout"></label>
+                                                        <input type="number" id="rerank-api-timeout" min="1" step="1" aria-describedby="rerank-api-timeout-hint">
+                                                        <div class="settings-hint" id="rerank-api-timeout-hint"></div>
+                                                    </div>
+                                                </div>
                                                 <div class="settings-btn-row" id="rerank-api-connect-row" style="margin-bottom:8px;">
                                                     <button class="btn btn-sm" id="rerank-btn-connect" style="flex:1">拉取</button>
                                                     <button class="btn btn-sm" id="rerank-btn-test" style="flex:1">测试</button>
@@ -914,9 +921,6 @@ loadBuildEntry('apps/story-summary').catch(reportBuildFailure);
             <div class="modal-body">
                 <div id="confirm-message" style="margin: 10px 0; line-height: 1.6; color: var(--fg);">内容</div>
                 <div id="confirm-action-list" class="confirm-action-list hidden"></div>
-                <div id="confirm-input-wrap" class="hidden" style="margin-top: 12px;">
-                    <textarea class="editor-ta" id="confirm-input" style="min-height: 220px;" placeholder="在这里粘贴记忆包"></textarea>
-                </div>
             </div>
             <div class="modal-foot">
                 <button class="btn" id="confirm-cancel">退出</button>

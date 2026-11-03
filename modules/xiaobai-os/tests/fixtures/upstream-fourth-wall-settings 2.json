@@ -1,0 +1,29 @@
+{
+    "enabled": true,
+    "fourthWall": {
+        "enabled": true
+    },
+    "fourthWallImage": {
+        "enablePrompt": true
+    },
+    "fourthWallVoice": {
+        "enabled": true
+    },
+    "fourthWallCommentary": {
+        "enabled": true,
+        "probability": 73
+    },
+    "fourthWallPromptTemplates": {
+        "topuser": "custom top user",
+        "confirm": "custom confirm",
+        "metaProtocol": "custom meta protocol",
+        "bottom": "custom bottom {{USER_INPUT}}",
+        "imgGuideline": "unused historical image guide"
+    },
+    "dynamicPrompt": {
+        "enabled": false
+    },
+    "unrelatedSetting": {
+        "keep": true
+    }
+}

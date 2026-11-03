@@ -1,5 +1,6 @@
 import { mountTextApiSettings } from '../text-api/settings-ui.js';
 import { WORKSPACE_COPY } from './workspace-copy.js';
+import { SUMMARY_TRANSFER_COPY } from './transfer-copy.js';
 import { createSummaryAgentSettings } from './maintenance/api-settings.js';
 // story-summary-ui.js
 // iframe 内 UI 逻辑
@@ -7,7 +8,7 @@ import { createSummaryAgentSettings } from './maintenance/api-settings.js';
 import { ARCHIVE_COPY, createSummaryArchive, getArchiveCharacters, getArchiveStateFacts } from './archive-view.js';
 import { EVENT_MEMORY_ROLES, projectEditedSummaryEvents } from './data/events.js';
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './data/summary-delay.js';
-import { DEFAULT_RECALL_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec } from './data/recall-settings.js';
+import { DEFAULT_RECALL_TIMEOUT_SEC, DEFAULT_RERANK_TIMEOUT_SEC, MAX_RECALL_TIMEOUT_SEC, normalizeRecallTimeoutSec, normalizeRerankTimeoutSec } from './data/recall-settings.js';
 import { RELATION_TRENDS } from './data/fact-predicates.js';
 import { createMemoryMaintenancePage } from './maintenance/ui.js';
 import { MEMORY_COPY } from './maintenance/copy.js';
@@ -335,6 +336,7 @@ const UNANNOTATED_LABEL = '未标注';
             },
             rerankApi: {
                 provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [],
+                timeoutSec: DEFAULT_RERANK_TIMEOUT_SEC,
                 providers: {
                     siliconflow: createDefaultProviderProfile('siliconflow', 'BAAI/bge-reranker-v2-m3'),
                     custom: createDefaultProviderProfile('custom', 'BAAI/bge-reranker-v2-m3'),
@@ -455,6 +457,7 @@ const UNANNOTATED_LABEL = '未标注';
                 providers: normalizeProviderProfiles('embedding', raw.embeddingApi || {}),
             });
             Object.assign(base.rerankApi, {
+                timeoutSec: normalizeRerankTimeoutSec(raw.rerankApi?.timeoutSec),
                 provider: raw.rerankApi?.provider || base.rerankApi.provider,
                 url: raw.rerankApi?.url || sharedUrl || base.rerankApi.url,
                 key: raw.rerankApi?.key || sharedKey || base.rerankApi.key,
@@ -707,6 +710,7 @@ const UNANNOTATED_LABEL = '未标注';
             model: providers[provider]?.model || '',
             modelCache: Array.isArray(providers[provider]?.modelCache) ? [...providers[provider].modelCache] : [],
             providers,
+            ...(prefix === 'rerank' ? { timeoutSec: normalizeRerankTimeoutSec($('rerank-api-timeout').value) } : {}),
         };
     }
 
@@ -719,6 +723,11 @@ const UNANNOTATED_LABEL = '未标注';
         $(`${prefix}-api-url`).value = profile.url || '';
         $(`${prefix}-api-key`).value = profile.key || '';
         $(`${prefix}-api-model-text`).value = profile.model || '';
+
+        if (prefix === 'rerank') {
+            $('rerank-api-timeout').max = String(MAX_RECALL_TIMEOUT_SEC);
+            $('rerank-api-timeout').value = String(normalizeRerankTimeoutSec(next.timeoutSec));
+        }
 
         const cache = Array.isArray(profile.modelCache) ? profile.modelCache : [];
         setSelectOptions($(`${prefix}-api-model-select`), cache, '请选择');
@@ -1065,6 +1074,8 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function initVectorUI() {
+        $('rerank-api-timeout-label').textContent = SUMMARY_FEEDBACK_COPY.rerankTimeout.label;
+        $('rerank-api-timeout-hint').textContent = SUMMARY_FEEDBACK_COPY.rerankTimeout.hint;
         $('vector-enabled').onchange = e => {
             $('vector-config-area').classList.toggle('hidden', !e.target.checked);
             syncVectorBoundaryControl(e.target.checked, config.ui.hideSummarized);
@@ -1096,7 +1107,7 @@ const UNANNOTATED_LABEL = '未标注';
             };
 
             $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
-            for (const field of ['provider', 'url', 'key', 'model-text', 'model-select']) {
+            for (const field of ['provider', 'url', 'key', 'model-text', 'model-select', ...(prefix === 'rerank' ? ['timeout'] : [])]) {
                 $(`${prefix}-api-${field}`).addEventListener(field === 'provider' || field === 'model-select' ? 'change' : 'input', () => {
                     postMsg('VECTOR_CANCEL_TEST', { target: prefix });
                     updateVectorOnlineStatus(prefix, 'idle', '');
@@ -1182,28 +1193,37 @@ const UNANNOTATED_LABEL = '未标注';
     }
 
     function initSummaryIOUI() {
-        $('btn-copy-summary').onclick = () => {
-            $('btn-copy-summary').disabled = true;
-            $('summary-io-status').textContent = '复制中...';
-            postMsg('SUMMARY_COPY');
+        $('btn-export-summary').textContent = SUMMARY_TRANSFER_COPY.export;
+        $('btn-import-summary').textContent = SUMMARY_TRANSFER_COPY.import;
+        $('btn-export-summary').onclick = () => {
+            $('btn-export-summary').disabled = true;
+            $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.exporting;
+            postMsg('SUMMARY_EXPORT');
         };
 
-        $('btn-import-summary').onclick = async () => {
-            const text = await showConfirmInput(
-                '覆盖导入记忆包',
-                '导入会覆盖当前聊天已有的总结资料，并立即清空向量、锚点、总结边界。请把记忆包粘贴到下面。',
-                '继续导入',
-                '取消',
-                '在这里粘贴记忆包 JSON'
-            );
-            if (text == null) return;
-            if (!String(text).trim()) {
-                $('summary-io-status').textContent = '导入失败: 记忆包内容为空';
+        $('btn-import-summary').onclick = () => {
+            const chatId = currentChatSummaryState.chatId;
+            const chatIdentity = currentChatSummaryState.chatIdentity;
+            if (!chatId || !chatIdentity) {
+                $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.noChat;
                 return;
             }
-            $('btn-import-summary').disabled = true;
-            $('summary-io-status').textContent = '导入中...';
-            postMsg('SUMMARY_IMPORT_TEXT', { text });
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,application/json';
+            input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                $('btn-import-summary').disabled = true;
+                if (!await showConfirm(SUMMARY_TRANSFER_COPY.confirmTitle, SUMMARY_TRANSFER_COPY.confirm(file.name),
+                    SUMMARY_TRANSFER_COPY.confirmImport, SUMMARY_TRANSFER_COPY.cancel)) {
+                    $('btn-import-summary').disabled = false;
+                    return;
+                }
+                $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.importing;
+                postMsg('SUMMARY_IMPORT_FILE', { file, chatId, chatIdentity });
+            };
+            input.click();
         };
     }
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1868,8 +1888,6 @@ const UNANNOTATED_LABEL = '未标注';
             const modal = $('confirm-modal');
             const titleEl = $('confirm-title');
             const msgEl = $('confirm-message');
-            const inputWrap = $('confirm-input-wrap');
-            const inputEl = $('confirm-input');
             const actionList = $('confirm-action-list');
             const okBtn = $('confirm-ok');
             const cancelBtn = $('confirm-cancel');
@@ -1878,9 +1896,7 @@ const UNANNOTATED_LABEL = '未标注';
 
             titleEl.textContent = title;
             msgEl.textContent = message;
-            inputWrap.classList.add('hidden');
             actionList.classList.add('hidden');
-            inputEl.value = '';
             okBtn.classList.remove('hidden');
             okBtn.textContent = okText;
             cancelBtn.textContent = cancelText;
@@ -1904,53 +1920,6 @@ const UNANNOTATED_LABEL = '未标注';
             postMsg('CONFIRM_OPENED');
         });
     }
-
-    function showConfirmInput(title, message, okText = '执行', cancelText = '取消', placeholder = '') {
-        return new Promise(resolve => {
-            const modal = $('confirm-modal');
-            const titleEl = $('confirm-title');
-            const msgEl = $('confirm-message');
-            const inputWrap = $('confirm-input-wrap');
-            const inputEl = $('confirm-input');
-            const actionList = $('confirm-action-list');
-            const okBtn = $('confirm-ok');
-            const cancelBtn = $('confirm-cancel');
-            const closeBtn = $('confirm-close');
-            const backdrop = $('confirm-backdrop');
-
-            titleEl.textContent = title;
-            msgEl.textContent = message;
-            inputWrap.classList.remove('hidden');
-            actionList.classList.add('hidden');
-            inputEl.placeholder = placeholder || '';
-            inputEl.value = '';
-            okBtn.classList.remove('hidden');
-            okBtn.textContent = okText;
-            cancelBtn.textContent = cancelText;
-
-            const close = (result) => {
-                modal.classList.remove('active');
-                postMsg('CONFIRM_CLOSED');
-                inputWrap.classList.add('hidden');
-                inputEl.value = '';
-                okBtn.onclick = null;
-                cancelBtn.onclick = null;
-                if (closeBtn) closeBtn.onclick = null;
-                backdrop.onclick = null;
-                resolve(result);
-            };
-
-            okBtn.onclick = () => close(inputEl.value);
-            cancelBtn.onclick = () => close(null);
-            if (closeBtn) closeBtn.onclick = () => close(null);
-            backdrop.onclick = () => close(null);
-
-            modal.classList.add('active');
-            postMsg('CONFIRM_OPENED');
-            setTimeout(() => inputEl.focus(), 0);
-        });
-    }
-
 
     function renderArcsEditor(arcs) {
         const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }];
@@ -2553,24 +2522,23 @@ const UNANNOTATED_LABEL = '未标注';
                 }
                 break;
 
-            case 'SUMMARY_COPY_RESULT':
-                $('btn-copy-summary').disabled = false;
+            case 'SUMMARY_EXPORT_RESULT':
+                $('btn-export-summary').disabled = false;
                 if (d.success) {
-                    $('summary-io-status').textContent = `复制成功: ${d.events || 0} 条事件, ${d.facts || 0} 条世界状态`;
+                    $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.exported(d.filename);
                 } else {
-                    $('summary-io-status').textContent = '复制失败: ' + (d.error || '未知错误');
+                    $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.exportFailed(d.error || SUMMARY_TRANSFER_COPY.unknownError);
                 }
                 break;
 
             case 'SUMMARY_IMPORT_RESULT':
                 $('btn-import-summary').disabled = false;
                 if (d.success) {
-                    const c = d.counts || {};
-                    $('summary-io-status').textContent = `导入成功: ${c.events || 0} 条事件, ${c.facts || 0} 条世界状态。向量与锚点已清空，请先生成锚点，再补齐向量。`;
+                    $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.imported(d.counts || {});
                     postMsg('REQUEST_VECTOR_STATS');
                     postMsg('REQUEST_ANCHOR_STATS');
                 } else {
-                    $('summary-io-status').textContent = '导入失败: ' + (d.error || '未知错误');
+                    $('summary-io-status').textContent = SUMMARY_TRANSFER_COPY.importFailed(d.error || SUMMARY_TRANSFER_COPY.unknownError);
                 }
                 break;
 

@@ -32,6 +32,7 @@ import { createMemoryMaintenanceHost } from './maintenance/host.js';
 import { createSummaryDiagnostics } from './summary-diagnostics.js';
 import { MEMORY_CHAT_MESSAGES } from './maintenance/chat-contract.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
+import { SUMMARY_TRANSFER_COPY } from './transfer-copy.js';
 import { summaryFailureReason } from './summary-failure.js';
 import {
     clearEmbeddingFailureNotice,
@@ -111,7 +112,7 @@ import {
     getRecallPrefetchStartAction,
 } from "./generate/recall-prefetch.js";
 import { selectBestStoryMemoryResult } from "./generate/story-memory-result.js";
-import { createRecallReuse, recallConfigKey } from './generate/recall-reuse.js';
+import { createRecallReuse, recallConfigKey, getRecallConfigChange } from './generate/recall-reuse.js';
 import { createRecallDiagnostics, formatRecallDiagnostics, formatRecallReuseDiagnostics, recordRecallFallback } from './recall-diagnostics.js';
 import { RECALL_TIMEOUT_REASONS, recallFailureNotice, recallCancellationNotice } from './generate/recall-failure.js';
 import { runRequiredRecall } from './generate/required-recall.js';
@@ -294,6 +295,7 @@ export function getStorySummaryChatState() {
     return {
         hasChat,
         chatId: context?.chatId || null,
+        chatIdentity: getChatIdentity(context),
         globalEnabled,
         chatEnabled,
         effectiveEnabled,
@@ -1622,16 +1624,23 @@ async function finishVectorConfigTransition(previousConfig, nextConfig, reason, 
     return true;
 }
 
+function invalidateRecallForConfigChange(change, reason) {
+    if (change === 'reuse-only') {
+        // A new deadline applies to future requests, not this generation's prompt or work.
+        recallReuse.invalidate();
+    } else if (change) {
+        serviceTests.cancel();
+        cancelRecallAndClearPrompt(reason);
+    }
+}
+
 async function changePanelConfig(reason, applyChange, vectorChanged = true) {
     return changeSummaryConfig({
         chatId: getContext()?.chatId || '',
         reason: `summary-config:${reason}`,
         vectorChanged,
         applyChange,
-        invalidateRecall: () => {
-            serviceTests.cancel();
-            cancelRecallAndClearPrompt('vector-config-changed');
-        },
+        invalidateRecall: change => invalidateRecallForConfigChange(change, 'vector-config-changed'),
         afterVectorChange: (previous, next, session) => finishVectorConfigTransition(previous, next, reason, session),
     });
 }
@@ -2292,7 +2301,7 @@ async function synchronizeSavedSummaryConfig(assertCurrent = () => {}) {
         assertCurrent,
         beforeApply: (previous, next) => {
             if (JSON.stringify(previous.vector) !== JSON.stringify(next.vector)) serviceTests.cancel();
-            if (recallConfigKey(previous) !== recallConfigKey(next)) cancelRecallAndClearPrompt('recall-config-reloaded');
+            invalidateRecallForConfigChange(getRecallConfigChange(previous, next), 'recall-config-reloaded');
         },
         afterVectorChange: (previous, next, session) => finishVectorConfigTransition(previous, next, 'server-reload', session),
     });
@@ -2404,30 +2413,25 @@ function buildFramePayload(store) {
     };
 }
 
-async function copyTextToClipboard(text) {
-    const value = String(text ?? "");
-    if (!value) {
-        throw new Error("没有可复制的内容");
+function downloadSummaryMemoryPackage() {
+    const { chatId } = getContext();
+    if (!chatId) throw new Error(SUMMARY_TRANSFER_COPY.noChat);
+    const payload = buildSummaryExportPackage(getSummaryStore());
+    const name = String(chatId).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 80);
+    const timestamp = payload.exportedAt.replace(/[:.]/g, '-');
+    const filename = `memory_${name}_${timestamp}.json`;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    try {
+        link.click();
+    } finally {
+        link.remove();
+        URL.revokeObjectURL(url);
     }
-
-    if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-        return;
-    }
-
-    const ta = document.createElement("textarea");
-    ta.value = value;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.left = "-9999px";
-    document.body.appendChild(ta);
-    ta.select();
-    ta.setSelectionRange(0, ta.value.length);
-    const ok = document.execCommand?.("copy");
-    ta.remove();
-    if (!ok) {
-        throw new Error("浏览器不支持自动复制");
-    }
+    return { filename };
 }
 
 function stripFloorMarker(summary) {
@@ -2681,25 +2685,27 @@ function formatStorySummaryMemoryText(store) {
 }
 
 
-async function importSummaryMemoryPackage(rawText, targetChatId = '') {
+async function importSummaryMemoryPackage(rawText, targetChatId = '', targetChatIdentity = '') {
     if (!String(rawText || "").trim()) {
-        throw new Error("记忆包内容为空");
+        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.emptyFile), { code: 'summary_import_empty' });
     }
     let parsed;
     try {
         parsed = JSON.parse(String(rawText));
     } catch {
-        throw new Error("JSON 解析失败");
+        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.invalidJson), { code: 'summary_import_json' });
     }
 
     const importedJson = extractSummaryImportJson(parsed);
     const { chatId, chat } = getContext();
-    if (!chatId || (targetChatId && chatId !== targetChatId)) {
-        throw new Error("当前没有打开聊天");
+    if (!chatId || (targetChatId && chatId !== targetChatId)
+        || (targetChatIdentity && getChatIdentity(getContext()) !== targetChatIdentity)) {
+        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
     }
     const assertImportActive = () => {
-        if (getContext()?.chatId !== chatId) {
-            throw new Error("聊天已切换，已取消导入");
+        if (getContext()?.chatId !== chatId
+            || (targetChatIdentity && getChatIdentity(getContext()) !== targetChatIdentity)) {
+            throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
         }
     };
 
@@ -3298,32 +3304,34 @@ async function handleFrameMessage(event) {
             })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
-        case "SUMMARY_COPY":
+        case "SUMMARY_EXPORT":
             observeBackgroundTask((async () => {
                 try {
-                    const store = getSummaryStore();
-                    const payload = buildSummaryExportPackage(store);
-                    await copyTextToClipboard(JSON.stringify(payload, null, 2));
+                    const result = downloadSummaryMemoryPackage();
                     postToFrame({
-                        type: "SUMMARY_COPY_RESULT",
+                        type: "SUMMARY_EXPORT_RESULT",
                         success: true,
-                        events: payload.counts.events,
-                        facts: payload.counts.facts,
+                        filename: result.filename,
                     });
                 } catch (e) {
-                    postToFrame({ type: "SUMMARY_COPY_RESULT", success: false, error: e.message });
+                    postToFrame({ type: "SUMMARY_EXPORT_RESULT", success: false, error: e.message });
                 }
             })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
-        case "SUMMARY_IMPORT_TEXT":
+        case "SUMMARY_IMPORT_FILE":
             if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
-                postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "请等待当前总结/向量任务结束" });
+                postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: SUMMARY_TRANSFER_COPY.busy });
                 break;
             }
             observeBackgroundTask((async () => {
                 try {
-                    const targetChatId = getContext()?.chatId || '';
+                    const targetChatId = data.chatId;
+                    const targetChatIdentity = data.chatIdentity;
+                    if (!targetChatId || !targetChatIdentity || getContext()?.chatId !== targetChatId
+                        || getChatIdentity(getContext()) !== targetChatIdentity) {
+                        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
+                    }
                     const result = await runVectorWriteTask(
                         {
                             chatId: targetChatId,
@@ -3331,14 +3339,25 @@ async function handleFrameMessage(event) {
                             scope: VECTOR_WRITE_SCOPES.IO,
                         },
                         async () => {
-                            if (getContext()?.chatId !== targetChatId) {
-                                throw new Error('聊天已切换，已取消导入');
+                            if (getContext()?.chatId !== targetChatId
+                                || getChatIdentity(getContext()) !== targetChatIdentity) {
+                                throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
                             }
-                            return changeRecallData(targetChatId, () => importSummaryMemoryPackage(data.text || "", targetChatId));
+                            let text;
+                            try {
+                                text = await data.file.text();
+                            } catch (cause) {
+                                throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.readFailed, { cause }), { code: 'summary_import_file_read' });
+                            }
+                            if (getContext()?.chatId !== targetChatId
+                                || getChatIdentity(getContext()) !== targetChatIdentity) {
+                                throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
+                            }
+                            return changeRecallData(targetChatId, () => importSummaryMemoryPackage(text, targetChatId, targetChatIdentity));
                         },
                     );
                     if (!result) {
-                        postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "导入已取消" });
+                        postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: SUMMARY_TRANSFER_COPY.cancelled });
                         return;
                     }
                     notifyStorySummaryChatState();
@@ -3348,7 +3367,8 @@ async function handleFrameMessage(event) {
                         counts: result.counts,
                     });
                 } catch (e) {
-                    postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: memorySaveError(e) });
+                    postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false,
+                        error: typeof e.code === 'string' && e.code.startsWith('summary_import_') ? e.message : memorySaveError(e) });
                     notifyStorySummaryChatState();
                 }
             })(), { source: import.meta.url, operation: 'handleFrameMessage' });

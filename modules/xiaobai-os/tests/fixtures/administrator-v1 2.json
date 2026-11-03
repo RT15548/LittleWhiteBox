@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "revision": 2,
+  "turns": [
+    {
+      "id": "230ed55fecadda9c218922246d9e3d12",
+      "createdAt": 1790003713880,
+      "user": { "text": "历史问题" },
+      "assistant": "已核实。",
+      "operations": [],
+      "status": "finished",
+      "error": ""
+    }
+  ],
+  "summary": null
+}

@@ -1,4 +1,5 @@
 import { CHECK_CONSEQUENCE_FIELDS, type CheckConsequences } from './check-consequences.js';
+import { parseCheckRequestFields } from './request-fields.js';
 
 export const ACTION_CHECK_DC_RANGES = Object.freeze({
     easy: { min: 2, max: 5 }, ordinary: { min: 6, max: 10 }, hard: { min: 11, max: 15 },
@@ -21,33 +22,15 @@ export interface ActionCheckResult {
 }
 
 export const ACTION_CHECK_REQUEST_FIELDS = Object.freeze({
-    action: { required: true, maxLength: 240 }, stat: { required: true, maxLength: 120 },
-    character: { required: false, maxLength: 120 },
+    action: { type: 'string', required: true, maxLength: 240, description: 'The attempt and objective.' },
+    stat: { type: 'string', required: true, maxLength: 120, description: 'The ability used.' },
+    difficulty: { type: 'enum', required: true, values: Object.keys(ACTION_CHECK_DC_RANGES), description: 'Difficulty of this specific objective.' },
     ...CHECK_CONSEQUENCE_FIELDS,
-});
+    character: { type: 'string', required: false, maxLength: 120, description: 'Acting character, if ambiguous.' },
+} as const);
 
 export function parseActionCheckRequest(value: unknown): ActionCheckRequest {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) { throw new TypeError('dice_request_object_required'); }
-    const input = value as Record<string, unknown>;
-    if (Object.keys(input).some(key => key !== 'difficulty' && !Object.hasOwn(ACTION_CHECK_REQUEST_FIELDS, key))) {
-        throw new TypeError('dice_request_unknown_field');
-    }
-    if (typeof input.difficulty !== 'string' || !Object.hasOwn(ACTION_CHECK_DC_RANGES, input.difficulty)) {
-        throw new TypeError('dice_request_difficulty_invalid');
-    }
-    const fields: Record<string, string> = {};
-    for (const [key, spec] of Object.entries(ACTION_CHECK_REQUEST_FIELDS)) {
-        if (!Object.hasOwn(input, key) && !spec.required) { continue; }
-        const raw = input[key];
-        if (typeof raw !== 'string' || !raw.trim() || raw.trim().length > spec.maxLength) {
-            throw new TypeError(`dice_request_${key}_invalid`);
-        }
-        fields[key] = raw.trim();
-    }
-    return { action: fields.action, stat: fields.stat, difficulty: input.difficulty as ActionCheckDifficulty,
-        ...(fields.character === undefined ? {} : { character: fields.character }),
-        ...(fields.success === undefined ? {} : { success: fields.success }),
-        ...(fields.failure === undefined ? {} : { failure: fields.failure }) };
+    return parseCheckRequestFields(value, ACTION_CHECK_REQUEST_FIELDS) as unknown as ActionCheckRequest;
 }
 
 export function resolveActionCheck(dc: number, roll: number): ActionCheckResult {

@@ -1,0 +1,83 @@
+{
+  "name": "Mira",
+  "mes": "Mira reaches for the ledge.\n\n[dice:wall]\nShe slips, then tries the side door.\n\n[dice:door]",
+  "extra": {
+    "keep": "foreign",
+    "xiaobaiOsDice": {
+      "schemaVersion": 1,
+      "checks": [
+        {
+          "id": "wall",
+          "request": {
+            "action": "Climb the wet wall",
+            "stat": "Agility",
+            "difficulty": "hard",
+            "character": "Mira",
+            "stakes": "Reach the balcony unseen"
+          },
+          "roll": 7,
+          "dc": 12,
+          "outcome": "failure",
+          "offset": 29,
+          "prefixDigest": "8efae930b5733f3cf1b868a05197b228fb12f8242231f221c5c94e792a1451ba"
+        },
+        {
+          "id": "door",
+          "request": {
+            "action": "Open the side door",
+            "stat": "Dexterity",
+            "difficulty": "easy"
+          },
+          "roll": 20,
+          "dc": 5,
+          "outcome": "critical_success",
+          "offset": 79,
+          "prefixDigest": "a43236466a32ce7b84965096dfbdba8a630607c1c4cb7d1c0c15998754f86de3"
+        }
+      ]
+    }
+  },
+  "swipe_id": 0,
+  "swipes": [
+    "Mira reaches for the ledge.\n\n[dice:wall]\nShe slips, then tries the side door.\n\n[dice:door]"
+  ],
+  "swipe_info": [
+    {
+      "extra": {
+        "xiaobaiOsDice": {
+          "schemaVersion": 1,
+          "checks": [
+            {
+              "id": "wall",
+              "request": {
+                "action": "Climb the wet wall",
+                "stat": "Agility",
+                "difficulty": "hard",
+                "character": "Mira",
+                "stakes": "Reach the balcony unseen"
+              },
+              "roll": 7,
+              "dc": 12,
+              "outcome": "failure",
+              "offset": 29,
+              "prefixDigest": "8efae930b5733f3cf1b868a05197b228fb12f8242231f221c5c94e792a1451ba"
+            },
+            {
+              "id": "door",
+              "request": {
+                "action": "Open the side door",
+                "stat": "Dexterity",
+                "difficulty": "easy"
+              },
+              "roll": 20,
+              "dc": 5,
+              "outcome": "critical_success",
+              "offset": 79,
+              "prefixDigest": "a43236466a32ce7b84965096dfbdba8a630607c1c4cb7d1c0c15998754f86de3"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

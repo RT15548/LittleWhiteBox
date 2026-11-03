@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "revision": 3,
+  "board": null,
+  "events": [
+    {
+      "kind": "published",
+      "eventId": "task-event-a",
+      "actionId": "task-action-a",
+      "taskId": "task-a",
+      "taskRevision": 1,
+      "observedAssistantCount": 5,
+      "createdAt": 1000,
+      "issuer": { "kind": "player", "displayName": "玩家" },
+      "title": "替人送信",
+      "objective": "将信送到钟楼",
+      "location": "钟楼",
+      "risk": "",
+      "reward": 50
+    },
+    {
+      "kind": "candidates-replaced",
+      "eventId": "task-event-b",
+      "actionId": "task-action-b",
+      "taskId": "task-a",
+      "taskRevision": 2,
+      "observedAssistantCount": 6,
+      "createdAt": 1100,
+      "candidates": [{ "candidateId": "courier", "name": "信使", "description": "可靠", "pitch": "能送到", "capability": "熟悉钟楼", "risk": "可能延误" }]
+    },
+    {
+      "kind": "assigned",
+      "eventId": "task-event-c",
+      "actionId": "task-action-c",
+      "taskId": "task-a",
+      "taskRevision": 3,
+      "observedAssistantCount": 8,
+      "createdAt": 1200,
+      "assignee": { "kind": "world", "partyId": "courier", "displayName": "信使", "description": "可靠", "pitch": "能送到", "capability": "熟悉钟楼", "risk": "可能延误" }
+    }
+  ]
+}

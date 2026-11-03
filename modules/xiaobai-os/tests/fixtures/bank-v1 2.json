@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "revision": 1,
+      "eventId": "bank-event-a",
+      "actionId": "bank-action-a",
+      "command": { "kind": "deposit-open", "productId": "short-term", "positionId": "bank-position-a", "amount": 100, "settledPositionIds": [] },
+      "result": {
+        "changes": [{ "kind": "deposit-opened", "position": { "id": "bank-position-a", "productId": "short-term", "principal": 100, "startTurn": 0, "maturityTurn": 10, "maturityAmount": 106, "earlyWithdrawalAmount": 97 } }],
+        "activities": []
+      },
+      "assistantTurn": 0,
+      "createdAt": 1000
+    }
+  ]
+}
