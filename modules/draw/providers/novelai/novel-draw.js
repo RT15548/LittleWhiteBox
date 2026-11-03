@@ -751,8 +751,6 @@ function normalizeV5UcPresetId(value, legacyPreset) {
     return ({ 0: 'heavy', 1: 'light', 2: 'humanFocus', 3: 'none' })[Number(legacyPreset)] || 'heavy';
 }
 
-const VIBE_MODEL_KEYS = ['v4curated', 'v4full', 'v4-5curated', 'v4-5full'];
-
 export function getVibeModelKey(model) {
     const name = String(model || '');
     if (name.includes('4-5-curated')) return 'v4-5curated';
@@ -768,25 +766,45 @@ function clampVibeInfoExtracted(value) {
     return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
 }
 
+// 编码缓存键 = 模型@信息提取值（量化两位小数）：同一张图可在多个信息提取值下各存一份编码，
+// 改值只是指向另一个键，改回原值直接命中旧编码，无需重花点数。裸键（无 @）为旧数据。
+const VIBE_ENCODING_KEY_RE = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
+
+function vibeEncodingKey(modelKey, infoExtracted) {
+    return `${modelKey}@${clampVibeInfoExtracted(infoExtracted).toFixed(2)}`;
+}
+
+function parseVibeEncodingKey(key) {
+    if (!VIBE_ENCODING_KEY_RE.test(String(key || ''))) return null;
+    const at = String(key).indexOf('@');
+    return {
+        modelKey: at < 0 ? String(key) : String(key).slice(0, at),
+        info: at < 0 ? null : clampVibeInfoExtracted(Number(String(key).slice(at + 1))),
+    };
+}
+
 // ── Vibe 库条目：编码是花点数的昂贵资源，统一存全局库，供多个画师串预设引用 ──
 function normalizeVibeLibItem(raw, index) {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const infoExtracted = clampVibeInfoExtracted(source.infoExtracted);
     const rawEncodings = source.encodings && typeof source.encodings === 'object' && !Array.isArray(source.encodings)
         ? source.encodings
         : {};
     const encodings = {};
     Object.entries(rawEncodings).forEach(([key, value]) => {
-        if (VIBE_MODEL_KEYS.includes(key) && typeof value === 'string' && value) {
-            encodings[key] = value;
-        }
+        if (typeof value !== 'string' || !value) return;
+        const parsed = parseVibeEncodingKey(key);
+        if (!parsed) return;
+        // 旧数据裸键必然对应当前信息提取值（旧逻辑改值即清空编码），迁移为组合键
+        encodings[vibeEncodingKey(parsed.modelKey, parsed.info == null ? infoExtracted : parsed.info)] = value;
     });
     return {
         id: String(source.id || `vibe-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`),
         name: String(source.name || '').slice(0, 60),
         image: String(source.image || ''),
         thumbnail: String(source.thumbnail || source.image || ''),
-        // information_extracted（0~1）烘焙进编码，改了必须重新编码
-        infoExtracted: clampVibeInfoExtracted(source.infoExtracted),
+        // information_extracted（0~1）烘焙进编码，未编码过的数值需手动重新编码（已有该数值的编码则直接复用）
+        infoExtracted,
         encodings,
     };
 }
@@ -937,14 +955,16 @@ async function ensurePresetVibeReady(settings, preset, { signal } = {}) {
         if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
         const item = byId.get(sel.id);
         if (!item) continue;
-        if (!item.encodings[modelKey]) {
-            // 未编码（含改了信息提取导致旧编码失效）：跳过，不扣编码费
+        // 按当前模型+当前信息提取值的组合键取编码；裸键兜底未经迁移的旧数据
+        const encoding = item.encodings[vibeEncodingKey(modelKey, item.infoExtracted)] || item.encodings[modelKey];
+        if (!encoding) {
+            // 该数值下未编码：跳过，不扣编码费
             unencoded.push(item.name || '未命名');
             continue;
         }
         const strength = Number(sel.strength);
         result.push({
-            encoding: item.encodings[modelKey],
+            encoding,
             strength: Number.isFinite(strength) && strength >= 0 && strength <= 1 ? strength : 0.6,
             name: String(item.name || '').trim(),
         });

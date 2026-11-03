@@ -131,15 +131,20 @@ function normalizeImportedParams(rawParams, version, warnings) {
 //   散装  vibe.references = [{ id, enabled, strength, item: single }]
 //   组引用 vibe.group = { name, members: [{ enabled, strength, item: single }] }
 // 导入方一律重新生成本地 id，single 合入自己的库，组则重建并让预设引用新组 id。
-const VIBE_MODEL_KEYS = Object.freeze(['v4curated', 'v4full', 'v4-5curated', 'v4-5full']);
+// Vibe 编码按「模型@信息提取值」组合键分别缓存（量化两位小数）；裸键为旧数据，迁移到当前值
+const VIBE_ENCODING_KEY_RE = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
 
-function sanitizeSharedEncodings(rawEncodings) {
+function sanitizeSharedEncodings(rawEncodings, infoExtracted) {
     const encodings = {};
     if (rawEncodings && typeof rawEncodings === 'object' && !Array.isArray(rawEncodings)) {
-        for (const key of VIBE_MODEL_KEYS) {
-            if (typeof rawEncodings[key] === 'string' && rawEncodings[key].trim()) {
-                encodings[key] = rawEncodings[key];
-            }
+        for (const [key, value] of Object.entries(rawEncodings)) {
+            if (typeof value !== 'string' || !value.trim() || !VIBE_ENCODING_KEY_RE.test(key)) continue;
+            const at = key.indexOf('@');
+            const modelKey = at < 0 ? key : key.slice(0, at);
+            const info = at < 0
+                ? clampSharedInfoExtracted(infoExtracted)
+                : clampSharedInfoExtracted(Number(key.slice(at + 1)));
+            encodings[`${modelKey}@${info.toFixed(2)}`] = value;
         }
     }
     return encodings;
@@ -161,7 +166,7 @@ function clampSharedInfoExtracted(value) {
 function importInlineSingle(srcItem, generateVibeId) {
     if (!srcItem || typeof srcItem !== 'object' || Array.isArray(srcItem)) return null;
     const image = String(srcItem.image || '');
-    const encodings = sanitizeSharedEncodings(srcItem.encodings);
+    const encodings = sanitizeSharedEncodings(srcItem.encodings, srcItem.infoExtracted);
     if (!image && Object.keys(encodings).length === 0) return null;
     return {
         single: {
@@ -321,7 +326,7 @@ function buildSharedSingle(item) {
         image: item.image,
         thumbnail: String(item.thumbnail || ''),
         infoExtracted: clampSharedInfoExtracted(item.infoExtracted),
-        encodings: sanitizeSharedEncodings(item.encodings),
+        encodings: sanitizeSharedEncodings(item.encodings, item.infoExtracted),
     };
 }
 

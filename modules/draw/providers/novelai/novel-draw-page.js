@@ -3865,7 +3865,8 @@ function persistVibeBinding() {
     persistVibeTimer = setTimeout(flushVibeBinding, 300);
 }
 
-const VIBE_ENCODING_KEYS_LOCAL = ['v4curated', 'v4full', 'v4-5curated', 'v4-5full'];
+// 编码缓存键 = 模型@信息提取值（量化两位小数）：改数值只切换键，改回原值直接复用旧编码
+const VIBE_ENCODING_KEY_RE_LOCAL = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
 
 function clampVibeStrength(value) {
     const n = Number(value);
@@ -3879,14 +3880,25 @@ function clampVibeInfoLocal(value) {
     return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
 }
 
-function sanitizeVibeEncodings(raw) {
+function vibeEncodingKeyLocal(modelKey, infoExtracted) {
+    return `${modelKey}@${clampVibeInfoLocal(infoExtracted).toFixed(2)}`;
+}
+
+// 归一化编码键：裸键（旧数据，必然对应当前信息提取值）迁移为组合键，组合键保留
+function normalizeVibeEncodingsKeys(raw, infoExtracted) {
     const out = {};
-    if (raw && typeof raw === 'object') {
-        for (const key of VIBE_ENCODING_KEYS_LOCAL) {
-            if (typeof raw[key] === 'string' && raw[key]) out[key] = raw[key];
-        }
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [key, value] of Object.entries(raw)) {
+        if (typeof value !== 'string' || !value || !VIBE_ENCODING_KEY_RE_LOCAL.test(key)) continue;
+        const at = key.indexOf('@');
+        const info = at < 0 ? infoExtracted : clampVibeInfoLocal(Number(key.slice(at + 1)));
+        out[vibeEncodingKeyLocal(key.slice(0, at), info)] = value;
     }
     return out;
+}
+
+function sanitizeVibeEncodings(raw, infoExtracted) {
+    return normalizeVibeEncodingsKeys(raw, clampVibeInfoLocal(infoExtracted));
 }
 
 function getVibeModelKeyLocal(model) {
@@ -3921,6 +3933,17 @@ function getVibeLibrary() {
     }
     if (!Array.isArray(state.vibeLibrary.singles)) state.vibeLibrary.singles = [];
     if (!Array.isArray(state.vibeLibrary.groups)) state.vibeLibrary.groups = [];
+    // 旧数据裸键迁移为组合键（幂等）：保证本会话内改信息提取后徽章状态与生成判定一致
+    state.vibeLibrary.singles.forEach((item) => {
+        const enc = item.encodings;
+        if (!enc || typeof enc !== 'object') { item.encodings = {}; return; }
+        for (const key of Object.keys(enc)) {
+            if (!key.includes('@') && VIBE_ENCODING_KEY_RE_LOCAL.test(key)) {
+                enc[vibeEncodingKeyLocal(key, item.infoExtracted)] = enc[key];
+                delete enc[key];
+            }
+        }
+    });
     return state.vibeLibrary;
 }
 
@@ -3995,7 +4018,8 @@ async function encodeLibItemById(id) {
         const fresh = getLibItem(id);
         if (fresh) {
             fresh.encodings = fresh.encodings || {};
-            fresh.encodings[modelKey] = encoding;
+            // 写入「模型@信息提取值」组合键：同图不同数值的编码各自保留，改回即复用
+            fresh.encodings[vibeEncodingKeyLocal(modelKey, fresh.infoExtracted)] = encoding;
             saveVibeLibrary();
         }
     } finally {
@@ -4149,7 +4173,8 @@ function renderVibeList(modelKey) {
         strengthRow.title = '强度在生成时生效，随时调整都不需要重新编码';
         main.appendChild(strengthRow);
 
-        // 信息提取（对齐官方：0~1 连续值）烘焙进编码，改值只作废旧编码，绝不自动花钱重编
+        // 信息提取（对齐官方：0~1 连续值）烘焙进编码：每个数值各存一份编码，
+        // 改值只切换缓存键（已有该数值编码则直接用），改回原值即复用，绝不自动花钱重编
         const infoValue = clampVibeInfoLocal(item.infoExtracted);
         const infoRow = buildSliderRow('信息提取', infoValue, {
             onInput: () => {},
@@ -4157,17 +4182,18 @@ function renderVibeList(modelKey) {
                 const next = clampVibeInfoLocal(v);
                 if (next === clampVibeInfoLocal(item.infoExtracted)) return;
                 item.infoExtracted = next;
-                item.encodings = {};
                 saveVibeLibrary();
                 renderVibeAll();
-                if (modelKey) {
-                    setVibeStatus('信息提取已变更：旧编码已失效，点「点击编码」重新编码（消耗点数）', 'error');
-                } else {
+                if (!modelKey) {
                     setVibeStatus('信息提取已变更；当前模型不支持编码，切到 V4 / V4.5 后点「点击编码」生效', 'error');
+                } else if (getLibItem(item.id)?.encodings?.[vibeEncodingKeyLocal(modelKey, next)]) {
+                    setVibeStatus('信息提取已变更：该数值已有编码，生成时直接使用', 'success');
+                } else {
+                    setVibeStatus('信息提取已变更：新数值尚未编码，点「点击编码」编码（消耗点数）；改回原数值可复用旧编码', 'error');
                 }
             },
         });
-        infoRow.title = '信息提取度烘焙在编码中，修改后需要手动重新编码（消耗点数）';
+        infoRow.title = '信息提取度烘焙在编码中：每个数值各存一份，切换到已编码过的数值直接复用，新数值需手动编码（消耗点数）';
         infoRow.querySelector('.nd-vibe-num').disabled = !!item.busy;
         infoRow.querySelector('input[type="range"]').disabled = !!item.busy;
         main.appendChild(infoRow);
@@ -4183,10 +4209,10 @@ function renderVibeList(modelKey) {
             encBtn.className = 'nd-vibe-badge pending';
             encBtn.textContent = '编码中…';
             encBtn.disabled = true;
-        } else if (item.encodings && item.encodings[modelKey]) {
+        } else if (item.encodings && item.encodings[vibeEncodingKeyLocal(modelKey, item.infoExtracted)]) {
             encBtn.className = 'nd-vibe-badge ok';
             encBtn.textContent = '✓ 已编码';
-            encBtn.title = '当前模型已编码，生成不会重复扣费；点击可重新编码（会再次消耗点数）';
+            encBtn.title = '当前模型+当前信息提取值已有编码，生成不会重复扣费；点击可重新编码（会再次消耗点数）';
             encBtn.addEventListener('click', () => {
                 if (!confirm('重新编码会再次消耗 Anlas 点数，确认继续？')) return;
                 encodeLibItemById(item.id);
@@ -4450,7 +4476,7 @@ function buildVibeSinglePayload(item) {
         image: String(item.image || ''),
         thumbnail: String(item.thumbnail || ''),
         infoExtracted: clampVibeInfoLocal(item.infoExtracted),
-        encodings: sanitizeVibeEncodings(item.encodings),
+        encodings: sanitizeVibeEncodings(item.encodings, item.infoExtracted),
     };
 }
 
@@ -4508,7 +4534,7 @@ async function handleVibeImportFiles(fileList) {
                     image: String(data.item.image || ''),
                     thumbnail: String(data.item.thumbnail || data.item.image || ''),
                     infoExtracted: clampVibeInfoLocal(data.item.infoExtracted),
-                    encodings: sanitizeVibeEncodings(data.item.encodings),
+                    encodings: sanitizeVibeEncodings(data.item.encodings, data.item.infoExtracted),
                 });
                 importedSingles++;
             } else if (data.kind === 'group') {
@@ -4523,7 +4549,7 @@ async function handleVibeImportFiles(fileList) {
                         image: String(raw.item.image || ''),
                         thumbnail: String(raw.item.thumbnail || raw.item.image || ''),
                         infoExtracted: clampVibeInfoLocal(raw.item.infoExtracted),
-                        encodings: sanitizeVibeEncodings(raw.item.encodings),
+                        encodings: sanitizeVibeEncodings(raw.item.encodings, raw.item.infoExtracted),
                     });
                     members.push({
                         id: newId,
