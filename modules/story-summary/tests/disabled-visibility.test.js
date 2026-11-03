@@ -7,11 +7,12 @@ import { getChatStorySummaryEnabled, setChatStorySummaryEnabled, resolveStorySum
 import { getChatIdentity } from '../data/chat-identity.js';
 
 function fixture() {
-    const chat = [false, true, true, false].map(is_system => ({ is_system }));
+    // Floors 1-2 were hidden by Story Summary itself before this session.
+    const chat = [false, true, true, false].map(is_system => ({ is_system, ...(is_system ? { xb_summary_hidden: true } : {}) }));
     const state = { master: false, enabled: true };
     const saves = [];
     const context = { chatId: 'issue-121', chat, saveChat: async () => saves.push(chat.map(message => message.is_system)) };
-    const mod = entry(['hideState', 'getStorySummaryEnablement', 'isStorySummaryEnabledForCurrentChat',
+    const mod = entry(['hideState', 'hideOwnershipPreparation', 'getStorySummaryEnablement', 'isStorySummaryEnabledForCurrentChat',
         'applyHideState', 'applyHideStateDebounced', 'cancelPendingHide', 'clearHideState', 'unregisterEvents', 'runStorySummaryTeardown',
         'getStorySummaryChatState', 'setStorySummaryEnabledForCurrentChat'], {
         createHideStateController,

@@ -30,6 +30,7 @@ import { rebaseGeneratedEvents } from './rebase-events.js';
 import { formatModelArcProgress } from './arc-progress.js';
 import { notifySummaryCommitted } from '../maintenance/notification.js';
 import { getChatIdentity } from '../data/chat-identity.js';
+import { isUserHidden } from '../data/message-visibility.js';
 
 const MODULE_ID = 'summaryGenerator';
 
@@ -71,26 +72,37 @@ export function formatExistingSummaryForAI(store) {
     return parts.join("\n") || "（空白，这是首次总结）";
 }
 
-export function buildIncrementalSlice(targetMesId, lastSummarizedMesId, maxPerRun = 100, delayFloors = 0, filterRules = getTextFilterRules()) {
+export function buildIncrementalSlice(targetMesId, lastSummarizedMesId, maxPerRun = 100, delayFloors = 0, filterRules = getTextFilterRules(), sourceFloors = null) {
     const { chat, name1, name2 } = getContext();
 
     const start = Math.max(0, (lastSummarizedMesId ?? -1) + 1);
     const rawEnd = getSummarySourceEnd(chat, targetMesId, delayFloors);
-    const end = Math.min(rawEnd, start + maxPerRun - 1);
+    // A run revalidates its original input floors, not subsequent hide/unhide changes.
+    const selected = sourceFloors === null ? null : new Set(sourceFloors);
+    const includesFloor = floor => selected ? selected.has(floor) : !isUserHidden(chat[floor]);
+    let end = start - 1;
+    let included = 0;
+    while (end < rawEnd && included < maxPerRun) {
+        end++;
+        if (includesFloor(end)) included++;
+    }
 
-    if (start > end) return { text: "", count: 0, range: "", endMesId: -1 };
+    if (start > end) return { text: "", count: 0, range: "", endMesId: -1, sourceFloors: [] };
 
     const userLabel = name1 || '用户';
     const charLabel = name2 || '角色';
     const slice = chat.slice(start, end + 1);
+    const floors = [];
 
-    const text = slice.map((m, i) => {
+    const text = slice.flatMap((m, i) => {
+        if (!includesFloor(start + i)) return [];
+        floors.push(start + i);
         const speaker = m.name || (m.is_user ? userLabel : charLabel);
         const filteredMessage = applyTextFilterRules(m.mes || '', filterRules);
-        return `#${start + i + 1} 【${speaker}】\n${filteredMessage}`;
+        return [`#${start + i + 1} 【${speaker}】\n${filteredMessage}`];
     }).join('\n\n');
 
-    return { text, count: slice.length, range: `${start + 1}-${end + 1}楼`, endMesId: end };
+    return { text, count: slice.length, range: `${start + 1}-${end + 1}楼`, endMesId: end, sourceFloors: floors };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -133,7 +145,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     const filterRules = structuredClone(getTextFilterRules());
     const slice = buildIncrementalSlice(mesId, lastSummarized, maxPerRun, delayFloors, filterRules);
 
-    if (slice.count === 0) {
+    if (slice.count === 0 || !slice.text) {
         const { chat } = getContext();
         onStatus?.(getSummarySourceEnd(chat, mesId) < Math.min(mesId, chat.length - 1)
             ? "末尾对话仍在更新，将在后续剧情开始后纳入总结" : "没有新的对话需要总结");
@@ -184,7 +196,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     // more floors eligible. A shortened chat must still respect the delayed tail.
     // Maintenance of earlier memory is mergeable, not a change to these floors.
     onProgress?.({ stage: 'source_validation' });
-    const currentSlice = buildIncrementalSlice(slice.endMesId, lastSummarized, maxPerRun, delayFloors, filterRules);
+    const currentSlice = buildIncrementalSlice(slice.endMesId, lastSummarized, maxPerRun, delayFloors, filterRules, slice.sourceFloors);
     if (
         (store?.lastSummarizedMesId ?? -1) !== lastSummarized
         || currentSlice.endMesId !== slice.endMesId
@@ -244,7 +256,7 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}, runtim
     onProgress?.({ stage: 'saving' });
     try {
         await commitSummaryMemory(targetChatId, next, { previous, validate: () => {
-            const latest = buildIncrementalSlice(slice.endMesId, lastSummarized, maxPerRun, delayFloors, filterRules);
+            const latest = buildIncrementalSlice(slice.endMesId, lastSummarized, maxPerRun, delayFloors, filterRules, slice.sourceFloors);
             if (isSummaryRunInactive(signal, targetChatId, targetIdentity) || latest.endMesId !== slice.endMesId || latest.text !== slice.text) {
                 throw Object.assign(new Error('metadata_draft_conflict'), { code: 'metadata_draft_conflict' });
             }

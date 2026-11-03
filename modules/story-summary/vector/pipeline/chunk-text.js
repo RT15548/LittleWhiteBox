@@ -1,5 +1,6 @@
 import { makeChunkId, hashText, CHUNK_MAX_TOKENS } from '../storage/chunk-store.js';
 import { cleanRecallMessageText } from '../utils/text-filter.js';
+import { isUserHidden } from '../../data/message-visibility.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Token 估算
@@ -23,6 +24,7 @@ function splitSentences(text) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function chunkMessage(floor, message, maxTokens = CHUNK_MAX_TOKENS) {
+    if (isUserHidden(message)) return [];
     const text = message.mes || '';
     const speaker = message.name || (message.is_user ? '用户' : '角色');
     const isUser = !!message.is_user;

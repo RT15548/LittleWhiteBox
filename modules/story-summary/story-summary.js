@@ -100,7 +100,7 @@ import { formatStorySummaryL2Events } from "./prompt-events.js";
 import { projectStoryCharacters } from "./prompt-characters.js";
 import { getAutoSummaryPlan } from './generate/summary-trigger.js';
 import { buildEventVectorText, selectMissingEventVectorPairs } from './vector/pipeline/event-vector-input.js';
-import { createHideStateController } from './hide-state.js';
+import { createHideStateController, countOwnedHidden, HIDE_OWNERSHIP_CLAIMED_KEY } from './hide-state.js';
 
 // prompt text builder
 import {
@@ -238,6 +238,7 @@ const serviceTests = createServiceTests({
 });
 const summaryDiagnostics = createSummaryDiagnostics();
 const memoryMaintenance = createMemoryMaintenanceHost({
+    prepareInput: ensureHideOwnership,
     readSummaryDiagnostics: args => summaryDiagnostics.read(getChatIdentity(getContext()), args),
     isEnabled: () => isStorySummaryEnabledForCurrentChat(),
     invalidateRecall: () => {
@@ -2360,7 +2361,7 @@ function setHideUiSettings(patch = {}) {
 
 async function sendFrameBaseData(store, totalFloors) {
     const ui = getHideUiSettings();
-    const hiddenCount = (getContext().chat || []).reduce((count, message) => count + Number(!!message?.is_system), 0);
+    const hiddenCount = countOwnedHidden(getContext().chat);
 
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
     const rollbackTargetEndMesId = getRollbackOnceTargetEndMesId(store);
@@ -2874,6 +2875,7 @@ const hideState = createHideStateController({
             saveChat: context.saveChat,
             managed: !!events && isStorySummaryEnabledForCurrentChat(),
             enabled: isSummarySourceValid(store, context.chat?.length || 0) && ui.hideSummarized,
+            claimed: chat_metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true,
             summaryBoundary: store?.lastSummarizedMesId ?? -1,
             useVectorBoundary: !!getVectorConfig()?.enabled && ui.useVectorBoundary,
             keepVisibleCount: ui.keepVisibleCount,
@@ -2889,6 +2891,13 @@ const hideState = createHideStateController({
         assertMemoryWritable(state.chatId);
         return state.saveChat();
     },
+    // Saved with the chat header on the next host save; until then this session
+    // already treats the chat as adopted.
+    markClaimed: state => {
+        if (getContext().chatId !== state.chatId) return;
+        chat_metadata.extensions ||= {};
+        (chat_metadata.extensions[EXT_ID] ||= {})[HIDE_OWNERSHIP_CLAIMED_KEY] = true;
+    },
     onError: (error, stage) => {
         const message = stage === 'boundary'
             ? '读取向量隐藏边界失败，已按有效总结边界恢复原文'
@@ -2898,12 +2907,49 @@ const hideState = createHideStateController({
     },
 });
 
+// Initial ownership restoration is shared by load and new-input consumers.
+// Once the existing chat marker is set, ordinary reconciliation is unchanged.
+let hideOwnershipPreparation = null;
 function applyHideState(options) {
-    return hideState.reconcile(options);
+    const metadata = chat_metadata;
+    if (metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true) {
+        return hideState.reconcile(options);
+    }
+    const { chatId, chat } = getContext();
+    const pending = hideOwnershipPreparation;
+    if (pending?.chatId === chatId && pending.chat === chat && pending.metadata === metadata) return pending.promise;
+    const preparation = { chatId, chat, metadata };
+    hideOwnershipPreparation = preparation;
+    preparation.promise = (async () => {
+        // A message/settings change can supersede the boundary read. Keep the
+        // initial wait alive, but never retry a read failure or another chat.
+        while (await hideState.reconcile(options) === false) {
+            if (hideOwnershipPreparation !== preparation || getContext().chatId !== chatId
+                || getContext().chat !== chat || chat_metadata !== metadata
+                || metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true) return;
+        }
+    })().finally(() => {
+        if (hideOwnershipPreparation === preparation) hideOwnershipPreparation = null;
+    });
+    return preparation.promise;
+}
+
+async function ensureHideOwnership(signal) {
+    throwIfSignalAborted(signal);
+    const metadata = chat_metadata;
+    if (metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true) return;
+    const context = getContext();
+    const { chatId, chat } = context;
+    if (!messageSources.isLoaded(context)) throw createAbortError();
+    await waitForSummaryPreparation(() => applyHideState(), signal);
+    throwIfSignalAborted(signal);
+    if (getContext().chatId !== chatId || getContext().chat !== chat || chat_metadata !== metadata
+        || metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] !== true) throw createAbortError();
 }
 
 function cancelPendingHide(options) {
     hideState.cancel(options);
+    hideOwnershipPreparation = null;
 }
 
 function applyHideStateDebounced() {
@@ -4056,6 +4102,7 @@ async function ensureCurrentSources(signal, { requireSummary = true, recover = t
         const error = { code: getSummaryStore()?.summaryInvalid ? 'summary_history_invalid' : 'source_boundary_invalid' };
         throw Object.assign(new Error(memorySaveError(error)), error);
     }
+    await ensureHideOwnership(signal);
 }
 
 async function handleMessageReceived(scheduledChatId, targetMesId = null) {
@@ -4229,6 +4276,7 @@ async function prepareMemoryPrompt(type, signal, diagnostics = createRecallDiagn
     // Single-chat regenerate has already removed the old answer in the host.
     const excludeLastAi = type === 'swipe';
     const vectorCfg = getVectorConfig();
+    if (vectorCfg?.enabled) await ensureHideOwnership(signal);
 
     // ★ 最后一道关卡：向量启用时，同步等待分词器就绪
     if (vectorCfg?.enabled && !isTokenizerReady()) {

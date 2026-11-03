@@ -16,7 +16,7 @@ import { maintenanceFixture, joinedEventPatch } from './fixtures/memory-maintena
 import { memoryPolicy } from '../data/memory-policy.js';
 import { entry } from './helpers/story-summary-entry.js';
 import { hostSaveEntry } from './helpers/host-save-entry.js';
-import { createHideStateController } from '../hide-state.js';
+import { createHideStateController, HIDE_OWNERSHIP_CLAIMED_KEY } from '../hide-state.js';
 import { memorySaveError } from '../data/memory-copy.js';
 import { shouldNotifyMemoryFailure } from '../user-feedback.js';
 import * as vectorWrites from '../vector/runtime/maintenance-coordinator.js';
@@ -28,20 +28,22 @@ import { createSummaryDiagnostics } from '../summary-diagnostics.js';
 import { getChatIdentity } from '../data/chat-identity.js';
 import { applySummarySectionEdit } from '../data/section-edits.js';
 import { mergeEditedFactsWithTimestamps } from '../data/fact-edits.js';
+import { createMetrics } from '../vector/retrieval/metrics.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const host = globalThis.__memoryStorageTest = { metadata: {}, context: {} };
 const shims = {
     'extensions.js': 'export const getContext=()=>globalThis.__memoryStorageTest.context;',
     'script.js': 'export let chat_metadata=globalThis.__memoryStorageTest.metadata; export function reload(){chat_metadata=globalThis.__memoryStorageTest.metadata;} export const getRequestHeaders=()=>({});',
-    'debug-core.js': 'export const xbLog={info(){},warn(){},error(){},debug(){}};',
-    'runtime.js': 'export const applyRecallRuntimeMutationBestEffort=(chatId,change)=>globalThis.__memoryStorageTest.mutations.push({chatId,...change}); export const clearRecallRuntime=async()=>{};',
+    'debug-core.js': 'export const xbLog={isEnabled:()=>true,info(){},warn(){},error(){},debug(){}};',
+    'runtime.js': 'export const applyRecallRuntimeMutationBestEffort=(chatId,change)=>globalThis.__memoryStorageTest.mutations.push({chatId,...change}); export const clearRecallRuntime=async()=>{}; export const refreshRecallRuntime=async()=>{};',
+    'lexical-index.js': 'export const invalidateLexicalIndex=()=>{};',
     'modules/story-summary/data/config.js': 'export const getTextFilterRules=()=>[]; export const getVectorConfig=()=>globalThis.__memoryStorageTest.vectorConfig; export const getSummaryPanelConfig=()=>({memoryMaintenanceEnabled:false,trigger:{},ui:{hideSummarized:true,keepVisibleCount:0}}); export const getSettings=()=>({storySummary:{enabled:true}}); export const DEFAULT_MEMORY_PROMPT_TEMPLATE="{$剧情记忆}";',
     'modules/story-summary/generate/llm.js': 'export const generateSummary=(...args)=>globalThis.__memoryStorageTest.generate(...args); export function parseSummaryJson(raw){try{return JSON.parse(raw);}catch{return null;}} export const isSummaryGenerationCancelledError=()=>false;',
     'modules/story-summary/maintenance/runner.js': 'export const createSharedMemoryAgent=()=>{throw Error("unexpected Agent request");}; export const runMemoryAgent=createSharedMemoryAgent; let sequence=0; export const memoryRunId=()=>"memory-storage-test-"+(++sequence);',
-    'modules/story-summary/vector/utils/embedder.js': 'export const getEngineFingerprint=()=>"test-engine";',
+    'modules/story-summary/vector/utils/embedder.js': 'export const getEngineFingerprint=()=>"test-engine"; export const embed=(texts)=>globalThis.__memoryStorageTest.embed(texts);',
     'modules/story-summary/vector/llm/siliconflow.js': 'export const embed=(texts)=>globalThis.__memoryStorageTest.embed(texts);',
-    'modules/story-summary/vector/llm/atom-extraction.js': 'export const extractAtomsForRound=()=>{throw Error("unexpected anchor request");};',
+    'modules/story-summary/vector/llm/atom-extraction.js': 'export const extractAtomsForRound=(...args)=>globalThis.__memoryStorageTest.extract(...args);',
     'shared/common/async-errors.js': 'export const observeBackgroundTask=task=>globalThis.__memoryStorageTest.background.push(Promise.resolve(task).catch(error=>{globalThis.__memoryStorageTest.backgroundErrors.push(error);}));',
     'modules/story-summary/vector/retrieval/recall.js': 'export const recallMemory=(...args)=>globalThis.__memoryStorageTest.recall(...args); export const hydrateDirectEvidence=()=>{throw Error("unexpected hydration");}; export const releaseDirectEvidenceContext=async()=>{};',
 };
@@ -63,11 +65,17 @@ const bundled = await build({
         "export * from './modules/story-summary/maintenance/commit.js';",
         "export * from './modules/story-summary/maintenance/host.js';",
         "export * from './modules/story-summary/generate/generator.js';",
-        "export { buildVectorPromptText } from './modules/story-summary/generate/prompt.js';",
+        "export { buildVectorPromptText, buildVectorPromptForReplay } from './modules/story-summary/generate/prompt.js';",
+        "export { chunkMessage } from './modules/story-summary/vector/pipeline/chunk-text.js';",
+        "export { collectChunkMaterials } from './modules/story-summary/vector/pipeline/chunk-materials.js';",
+        "export { repairMissingChunks } from './modules/story-summary/vector/pipeline/chunk-repair.js';",
+        "export { checkVectorCacheConsistency, createVectorPackage, restoreVectorPackage } from './modules/story-summary/vector/storage/package/service.js';",
+        "export { inputDigest } from './modules/story-summary/vector/utils/vector-input-digest.js';",
+        "export { incrementalExtractAtoms } from './modules/story-summary/vector/pipeline/state-integration.js';",
         "export * from './modules/story-summary/vector/storage/state-store.js';",
         "export { initStateIntegration } from './modules/story-summary/vector/pipeline/state-integration.js';",
         "export { db, stateVectorsTable, chunksTable, chunkVectorsTable, metaTable } from './modules/story-summary/data/db.js';",
-        "export { deleteChunksFromFloor, deleteChunksAtFloor, updateMeta, clearAllChunks, clearEventVectors } from './modules/story-summary/vector/storage/chunk-store.js';",
+        "export { deleteChunksFromFloor, deleteChunksAtFloor, updateMeta, clearAllChunks, clearEventVectors, saveChunks, saveChunkVectors } from './modules/story-summary/vector/storage/chunk-store.js';",
         "export { reload } from 'script.js';",
     ].join('\n') },
     bundle: true, write: false, format: 'esm', platform: 'node',
@@ -99,6 +107,7 @@ beforeEach(async t => {
     Object.assign(host, { fixture, mode: 'save', expireReadback: false, reads: 0, writes: 0, mutations: [], background: [], backgroundErrors: [], afterSave: null, files: new Map(), metadata: { extensions: { LittleWhiteBox: {} } } });
     host.vectorConfig = { enabled: false, embeddingApi: {} };
     host.generate = () => assert.fail('unexpected summary request');
+    host.extract = () => assert.fail('unexpected anchor request');
     host.embed = () => assert.fail('unexpected embedding request');
     host.recall = () => assert.fail('unexpected recall request');
     host.context = { ...fixture, characterId: 0, characters: [{ name: '角色', chat: fixture.chatId, avatar: 'fixture.png' }],
@@ -126,6 +135,235 @@ async function importFixture() {
     await mod.commitSummaryMemory(host.context.chatId, next);
     return structuredClone(ext().storySummary.json);
 }
+
+// Acceptance: hidden variants occupy their original floors but supply no new
+// source. Unhide is observed at the next read, without rewriting past memory.
+// Cost: unwanted text silently reaches a model, or stored memories are lost.
+test('L2 skips floors 37/39, preserves numbering, and keeps past memory intact', async () => {
+    host.context.chat = Array.from({ length: 62 }, (_, floor) => ({ mes: `floor-${floor + 1}-text`, is_user: floor % 2 === 0 }));
+    await mod.commitSummaryMemory(host.context.chatId,
+        mod.prepareImportedSummary(mod.readSummaryMemory(), host.fixture.json, 29));
+    for (let floor = 0; floor < 30; floor++) Object.assign(host.context.chat[floor], { is_system: true, xb_summary_hidden: true });
+    for (const floor of [36, 38]) host.context.chat[floor].is_system = true;
+    const before = structuredClone(disk());
+    const slice = mod.buildIncrementalSlice(59, 29, 100, 0);
+    assert.deepEqual([...slice.text.matchAll(/^#(\d+) /gm)].map(match => Number(match[1])),
+        Array.from({ length: 30 }, (_, i) => i + 31).filter(floor => ![37, 39].includes(floor)));
+    assert.equal(slice.endMesId, 59);
+    assert.equal(slice.count, 30);
+    assert.ok(mod.buildIncrementalSlice(29, -1, 100, 0).text.includes(host.context.chat[0].mes));
+    assert.deepEqual(disk(), before);
+
+    let sent;
+    host.generate = async request => { sent = request.newHistoryText; return JSON.stringify({ events: [], factUpdates: [] }); };
+    const result = await mod.runSummaryGeneration(59, { trigger: { delayFloors: 0 } });
+    assert.equal(result.success, true);
+    assert.deepEqual([...sent.matchAll(/^#(\d+) /gm)].map(match => Number(match[1])),
+        Array.from({ length: 30 }, (_, i) => i + 31).filter(floor => ![37, 39].includes(floor)));
+    assert.deepEqual(disk().storySummary.json.events, before.storySummary.json.events);
+    host.context.chat[36].is_system = false;
+    assert.ok(mod.buildIncrementalSlice(59, 29, 100, 0).text.includes(host.context.chat[36].mes));
+});
+
+test('hidden runs neither consume the summary batch limit nor issue empty model calls', async () => {
+    host.context.chat = Array.from({ length: 150 }, (_, floor) => ({ mes: `source-${floor}`, is_system: floor < 145, is_user: false }));
+    const slice = mod.buildIncrementalSlice(149, -1, 2, 0);
+    assert.equal(slice.endMesId, 146);
+    assert.deepEqual([...slice.text.matchAll(/^#(\d+) /gm)].map(match => Number(match[1])), [146, 147]);
+    host.context.chat.forEach(message => { message.is_system = true; });
+    const before = structuredClone(disk());
+    const result = await mod.runSummaryGeneration(149, { trigger: { delayFloors: 0 } });
+    assert.equal(result.noContent, true);
+    assert.deepEqual(disk(), before);
+});
+
+for (const change of ['hide', 'unhide']) test(`L2 preserves its captured input when a floor changes visibility in flight: ${change}`, async () => {
+    await importFixture();
+    host.context.chat.push({ mes: 'captured raw source', is_user: false, is_system: change === 'unhide' },
+        { mes: 'another captured source', is_user: false });
+    const before = structuredClone(disk());
+    let sent, respond, entered;
+    const requested = new Promise(resolve => { entered = resolve; });
+    host.generate = request => {
+        sent = request.newHistoryText;
+        entered();
+        return new Promise(resolve => { respond = resolve; });
+    };
+    const running = mod.runSummaryGeneration(25, { trigger: { delayFloors: 0 } });
+    await requested;
+    assert.equal(sent.includes(host.context.chat[24].mes), change === 'hide');
+    host.context.chat[24].is_system = change === 'hide';
+    respond(JSON.stringify({ events: [], factUpdates: [] }));
+    const result = await running;
+    assert.equal(result.success, true);
+    assert.equal(result.committed, true);
+    assert.equal(result.stale, undefined);
+    assert.equal(disk().storySummary.lastSummarizedMesId, 25);
+    assert.deepEqual(disk().storySummary.json.events, before.storySummary.json.events);
+});
+
+test('L1 material reads preserve saved manual hides and unhide admits absent raw input', () => {
+    const chat = [
+        { mes: 'auto-hidden story', is_system: true, xb_summary_hidden: true },
+        { mes: 'manual backup', is_system: true },
+        { mes: 'visible story' },
+    ];
+    const saved = [{ chunkId: 'c-1-0', floor: 1, text: 'old backup source' }];
+    const before = structuredClone(saved);
+    assert.deepEqual(mod.chunkMessage(1, chat[1]), []);
+    assert.deepEqual(mod.collectChunkMaterials(chat, [], []).map(chunk => chunk.floor), [0, 2]);
+    assert.deepEqual(mod.collectChunkMaterials(chat, saved, []).map(chunk => chunk.floor).sort((a, b) => a - b), [0, 1, 2]);
+    chat[1].is_system = false;
+    assert.ok(mod.collectChunkMaterials(chat, [], []).some(chunk => chunk.floor === 1 && chunk.text === chat[1].mes));
+    assert.ok(mod.collectChunkMaterials(chat, saved, []).some(chunk => chunk.text === saved[0].text));
+    assert.deepEqual(saved, before);
+});
+
+// The scanner and repair share real storage inputs: a skipped manual floor is
+// not an unrepairable gap; saved material stays authoritative through toggles.
+test('L1 check -> repair -> recheck skips absent manual hides, includes auto hides, and reopens absent floors', async () => {
+    host.context.chat = [
+        { mes: 'visible raw input' },
+        { mes: 'manual absent raw input', is_system: true },
+        { mes: 'automatic hidden raw input', is_system: true, xb_summary_hidden: true },
+        { mes: 'changed hidden raw input', is_system: true },
+    ];
+    const chatId = host.context.chatId;
+    const saved = mod.chunkMessage(3, { mes: 'previously saved material' });
+    await mod.saveChunks(chatId, saved);
+    await mod.saveChunkVectors(chatId, saved.map(chunk => ({
+        chunkId: chunk.chunkId, vector: [1, 0], sourceHash: mod.inputDigest('chunk', chunk.text),
+    })), 'test-engine');
+    await mod.updateMeta(chatId, { fingerprint: 'test-engine', lastChunkFloor: 3 });
+    const savedVector = await mod.chunkVectorsTable.get([chatId, saved[0].chunkId]);
+    const inputs = [];
+    host.embed = async texts => { inputs.push(...texts); return texts.map(() => [1, 0]); };
+    const check = await mod.checkVectorCacheConsistency();
+    assert.equal(check.status, 'incomplete');
+    assert.deepEqual(check.missingChunkFloors, [0, 2]);
+    const repair = () => mod.repairMissingChunks({ chatId, chat: host.context.chat, vectorConfig: host.vectorConfig });
+    assert.equal((await repair()).repaired, 2);
+    assert.deepEqual(inputs, [host.context.chat[0].mes, host.context.chat[2].mes]);
+    assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
+    assert.equal(await mod.chunksTable.get([chatId, 'c-1-0']), undefined);
+    assert.deepEqual(await mod.chunkVectorsTable.get([chatId, saved[0].chunkId]), savedVector);
+    assert.equal((await mod.chunksTable.get([chatId, saved[0].chunkId])).text, saved[0].text);
+    host.context.chat[1].is_system = false;
+    const reopened = await mod.checkVectorCacheConsistency();
+    assert.equal(reopened.status, 'incomplete');
+    assert.deepEqual(reopened.missingChunkFloors, [1]);
+    assert.equal((await repair()).repaired, 1);
+    assert.equal(inputs.at(-1), host.context.chat[1].mes);
+    assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
+    const before = await Promise.all([mod.chunksTable.toArray(), mod.chunkVectorsTable.toArray(), mod.metaTable.toArray()]);
+    host.context.chat.forEach(message => { message.is_system = true; delete message.xb_summary_hidden; });
+    assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
+    assert.equal((await repair()).repaired, 0);
+    assert.deepEqual(await Promise.all([mod.chunksTable.toArray(), mod.chunkVectorsTable.toArray(), mod.metaTable.toArray()]), before);
+    assert.equal(inputs.length, 3);
+});
+
+test('L1 repairs a saved hidden material from its saved input, not current hidden prose', async () => {
+    host.context.chat = [{ mes: 'current hidden prose', is_system: true }];
+    const chatId = host.context.chatId;
+    const saved = mod.chunkMessage(0, { mes: 'saved embedding input' });
+    await mod.saveChunks(chatId, saved);
+    const check = await mod.checkVectorCacheConsistency();
+    assert.equal(check.status, 'incomplete');
+    assert.deepEqual(check.missingChunkFloors, [0]);
+    const inputs = [];
+    host.embed = async texts => { inputs.push(...texts); return texts.map(() => [1, 0]); };
+    const result = await mod.repairMissingChunks({ chatId, chat: host.context.chat, vectorConfig: host.vectorConfig });
+    assert.equal(result.success, true);
+    assert.equal(result.repaired, 1);
+    assert.deepEqual(inputs, [saved[0].text]);
+    assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
+});
+
+test('L1 package source identity survives visibility toggles of already saved input', async () => {
+    host.context.chat = [{ mes: 'portable saved source' }];
+    const chatId = host.context.chatId;
+    const chunks = mod.chunkMessage(0, host.context.chat[0]);
+    await mod.saveChunks(chatId, chunks);
+    await mod.saveChunkVectors(chatId, chunks.map(chunk => ({
+        chunkId: chunk.chunkId, vector: [1, 0], sourceHash: mod.inputDigest('chunk', chunk.text),
+    })), 'test-engine');
+    const before = await mod.createVectorPackage();
+    host.context.chat[0].is_system = true;
+    const hidden = await mod.createVectorPackage();
+    assert.equal(hidden.chunkCount, before.chunkCount);
+    await mod.chunksTable.clear();
+    await mod.chunkVectorsTable.clear();
+    await mod.restoreVectorPackage(hidden.bytes);
+    assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
+    assert.equal((await mod.chunksTable.get([chatId, chunks[0].chunkId])).text, chunks[0].text);
+});
+
+test('L0 skips hidden floors without recording empty status, and processes them after unhide', async t => {
+    t.mock.timers.reset();
+    host.vectorConfig.enabled = true;
+    host.context.chat = [{ mes: 'hidden reply', is_system: true }, { mes: 'next turn', is_user: true }];
+    const requested = [];
+    host.extract = async (_user, _ai, floor) => { requested.push(floor); return []; };
+    await mod.incrementalExtractAtoms(host.context.chatId, host.context.chat);
+    assert.deepEqual(requested, []);
+    assert.equal(mod.readSummaryMemory().l0Index.byFloor[0], undefined);
+    host.context.chat[0].is_system = false;
+    await mod.incrementalExtractAtoms(host.context.chatId, host.context.chat);
+    assert.deepEqual(requested, [0]);
+    assert.equal(disk().l0Index.byFloor[0].status, 'empty');
+});
+
+for (const target of ['user', 'assistant']) test(`L0 commits an already requested result after in-flight ${target} hiding without retrying it`, async t => {
+    t.mock.timers.reset();
+    host.vectorConfig.enabled = true;
+    host.context.chat = [{ mes: 'captured user input', is_user: true }, { mes: 'captured assistant input', is_user: false }];
+    let entered, respond, calls = 0;
+    const requested = new Promise(resolve => { entered = resolve; });
+    host.extract = (_user, _ai, floor) => {
+        calls++;
+        assert.equal(floor, 1);
+        entered();
+        return new Promise(resolve => { respond = resolve; });
+    };
+    const running = mod.incrementalExtractAtoms(host.context.chatId, host.context.chat);
+    await requested;
+    host.context.chat[target === 'user' ? 0 : 1].is_system = true;
+    respond([{ ...host.fixture.atoms[0], semantic: 'captured extraction result' }]);
+    const result = await running;
+    assert.equal(result.built, 1);
+    assert.equal(result.cancelled, false);
+    assert.equal(disk().l0Index.byFloor[1].status, 'ok');
+    assert.equal(disk().stateAtoms[0].semantic, 'captured extraction result');
+    host.context.chat.forEach(message => { message.is_system = false; });
+    await mod.incrementalExtractAtoms(host.context.chatId, host.context.chat);
+    assert.equal(calls, 1);
+    assert.equal(disk().stateAtoms.length, 1);
+});
+
+test('final prompt preserves saved L0/L1 and old L2 regardless of current manual or automatic hiding', async () => {
+    await importFixture();
+    const store = mod.getSummaryStore();
+    const before = structuredClone(disk());
+    host.context.chat[17].is_system = true;
+    Object.assign(host.context.chat[19], { is_system: true, xb_summary_hidden: true });
+    const chunks = [17, 19].map(floor => ({ floor, chunkIdx: 0, chunkId: `c-${floor}-0`, text: `raw-evidence-${floor}`, queryScore: 1 }));
+    const recall = {
+        events: [{ event: store.json.events[0], similarity: 1, rerankScore: 1 }],
+        l0Selected: chunks.map(chunk => ({ floor: chunk.floor, atomId: `atom-${chunk.floor}-0`,
+            text: `anchor-evidence-${chunk.floor}`, atom: { semantic: `anchor-evidence-${chunk.floor}`, edges: [], quality: 1 }, rerankScore: 1 })),
+        directEvidenceL1: chunks, directEvidenceStatus: 'applied',
+    };
+    const read = async () => (await mod.buildVectorPromptForReplay(store, recall, [], { lastChunkFloor: 23 }, createMetrics())).promptText;
+    const hidden = await read();
+    assert.ok(hidden.includes('raw-evidence-17'));
+    assert.ok(hidden.includes('anchor-evidence-17'));
+    assert.ok(hidden.includes('raw-evidence-19'));
+    assert.ok(hidden.includes(store.json.events[0].title));
+    host.context.chat[17].is_system = false;
+    assert.ok((await read()).includes('raw-evidence-17'));
+    assert.deepEqual(disk(), before);
+});
 
 // Acceptance: queued panel edits must preserve preceding source retirement and
 // unrelated panel edits. Cost: silently unsaved changes or resurrected stale anchors.
@@ -387,6 +625,7 @@ for (const edited of [false, true]) test(`invalid L2 history does not block raw-
     const gate = entry(['ensureCurrentSources', 'waitForSummaryPreparation'], {
         ...mod, ...vectorWrites, createAbortError, throwIfSignalAborted, memorySaveError,
         getContext: () => host.context, messageSources: tracker, isChatStale: () => false,
+        ensureHideOwnership: async () => {},
         isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
         synchronizeCurrentSources: () => mod.synchronizeSourceCaches(tracker, host.context),
     });
@@ -541,7 +780,7 @@ function memoryVisibility() {
     const errors = [], rendered = [], saves = [];
     let warnings = 0;
     host.context.saveChat = async () => saves.push(host.context.chat.map(message => message.is_system));
-    const ui = entry(['hideState', 'applyHideState', 'clearHideState', 'isStorySummaryEnabledForCurrentChat'], {
+    const ui = entry(['hideState', 'hideOwnershipPreparation', 'applyHideState', 'clearHideState', 'isStorySummaryEnabledForCurrentChat'], {
         ...mod, createHideStateController, memorySaveError, shouldNotifyMemoryFailure,
         getContext: () => host.context,
         getStorySummaryEnablement: () => ({ context: host.context, effectiveEnabled: true }),
@@ -551,7 +790,10 @@ function memoryVisibility() {
         document: { querySelector: selector => ({ setAttribute: (_key, value) => rendered.push({ selector, value }) }) },
         window: { toastr: { warning: () => { warnings++; } } },
         xbLog: { error: (_module, _message, error) => errors.push(error.code) },
+        EXT_ID: 'LittleWhiteBox',
     });
+    // The host replaces chat_metadata on reload; read the live object.
+    Object.defineProperty(ui, 'chat_metadata', { get: () => host.metadata });
     return { ...ui, errors, rendered, saves, warnings: () => warnings };
 }
 
@@ -563,7 +805,11 @@ for (const unavailable of [false, true]) test(`first swipe during initial visibi
     memory.l0Index.byFloor[25] = { floor: 25, status: 'empty', atoms: 0 };
     await mod.commitSummaryMemory(context.chatId, memory);
     // Loaded persisted flags/cache, with no edit or generation in this session.
-    context.chat.forEach((message, floor) => { message.is_system = floor <= 19; });
+    context.chat.forEach((message, floor) => {
+        message.is_system = floor <= 19;
+        if (message.is_system) message.xb_summary_hidden = true;
+    });
+    ext()[HIDE_OWNERSHIP_CLAIMED_KEY] = true;
     const initial = context.chat.map(message => message.is_system);
     const tracker = mod.createMessageSourceTracker(); tracker.reset(context);
     const ui = memoryVisibility();
@@ -609,6 +855,7 @@ function summaryExecutionHarness(overrides = {}) {
         isStorySummaryEnabledForCurrentChat: () => true,
         isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
         isChatStale: id => id !== host.context.chatId, messageSources: { inspect: () => null, isLoaded: () => true },
+        ensureHideOwnership: async () => {},
         synchronizeCurrentSources: async () => {},
         guard: { isRunning: () => running, acquire: () => {
             if (running) return null;
@@ -1000,6 +1247,7 @@ function sourceReloadEntry(tracker, overrides = {}) {
         'reconcileVectorFloorsOnLoad', 'runContentChangeSync', 'handleMessageDeleted'], {
         ...mod, ...vectorWrites, createAbortError, throwIfSignalAborted, memorySaveError, SUMMARY_FEEDBACK_COPY,
         getContext: () => host.context, messageSources: tracker, isChatStale: () => false,
+        ensureHideOwnership: async () => {},
         isStorySummaryEnabledForCurrentChat: () => true, events: {}, frameReady: false,
         MODULE_ID: 'summary', lastRecallLogText: '', activeChatId: host.context.chatId,
         runVectorWriteTask: async (_options, work) => work(),
@@ -2227,7 +2475,7 @@ for (const cancel of [false, true]) test(`manual summary owns cancellation while
         getContext: () => host.context, document: { getElementById: noop }, isTrustedMessage: () => true,
         isStorySummaryEnabledForCurrentChat: () => true,
         isStorySummaryConsumableForCurrentChat: () => mod.isSummaryConsumable(mod.getSummaryStore(), host.context.chat.length),
-        isChatStale: () => false, synchronizeCurrentSources: async () => {},
+        isChatStale: () => false, synchronizeCurrentSources: async () => {}, ensureHideOwnership: async () => {},
         guard: { isRunning: () => running, acquire: () => {
             if (running) return null;
             running = true;

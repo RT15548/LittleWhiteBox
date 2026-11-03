@@ -5,6 +5,7 @@
 
 import { buildRAggregateText } from './state-vector-input.js';
 import { isL0FloorDeferred } from './l0-eligibility.js';
+import { isUserHidden } from '../../data/message-visibility.js';
 import { inputDigest } from '../utils/vector-input-digest.js';
 import { getContext } from '../../../../../../../extensions.js';
 import { xbLog } from '../../../../core/debug-core.js';
@@ -74,10 +75,10 @@ function buildL0InputText(userMessage, aiMessage) {
     const userName = userMessage?.name || '用户';
     const aiName = aiMessage?.name || '角色';
 
-    if (userMessage?.mes?.trim()) {
+    if (!isUserHidden(userMessage) && userMessage?.mes?.trim()) {
         parts.push(`【用户：${userName}】\n${filterText(userMessage.mes).trim()}`);
     }
-    if (aiMessage?.mes?.trim()) {
+    if (!isUserHidden(aiMessage) && aiMessage?.mes?.trim()) {
         parts.push(`【角色：${aiName}】\n${filterText(aiMessage.mes).trim()}`);
     }
 
@@ -141,7 +142,7 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options, d
 
     const tryQueueFloor = (i) => {
         const msg = chat[i];
-        if (!msg || msg.is_user || queuedFloors.has(i) || isL0FloorDeferred(chat, i)) return;
+        if (!msg || msg.is_user || isUserHidden(msg) || queuedFloors.has(i) || isL0FloorDeferred(chat, i)) return;
 
         const st = getL0FloorStatus(i);
         // ★ 只跳过 ok 和 empty，fail 的可以重试
@@ -210,6 +211,7 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options, d
     // ★ 通用处理单个 pair 的逻辑（复用于正常模式和降速模式）
     const processPair = async (pair, idx, workerId) => {
         const floor = pair.aiFloor;
+        if (isUserHidden(pair.aiMsg)) return;
         const prev = getL0FloorStatus(floor);
 
         activeFloors.add(floor);

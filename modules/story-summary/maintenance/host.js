@@ -16,7 +16,7 @@ import { executeMemoryTask, hasMaintenanceBoundary } from './execution.js';
 import { readMaintenanceDiagnostics, createMaintenanceStatusReader } from './diagnostics.js';
 import { createMemoryChatController } from './chat-controller.js';
 
-export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed, readSummaryDiagnostics, chatChanged = () => {} }) {
+export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refreshSummary, changed, readSummaryDiagnostics, prepareInput, chatChanged = () => {} }) {
     let unregister = null, chat = null, executing = 0, refreshAfterRun = false, publishedRevision = 0;
     const readStatus = createMaintenanceStatusReader();
     const enabled = () => isEnabled() && getSummaryPanelConfig().memoryMaintenanceEnabled;
@@ -30,6 +30,7 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
     const execute = async (task, options) => {
         executing++;
         try {
+            if (isEnabled()) await prepareInput?.(options.signal);
             return await executeMemoryTask(task, {
                 read, enabled: isEnabled, automaticEnabled: enabled,
                 filterRules: () => getSummaryPanelConfig().textFilterRules,

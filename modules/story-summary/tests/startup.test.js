@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { entry, startupEntry } from './helpers/story-summary-entry.js';
-import { createHideStateController } from '../hide-state.js';
+import { createHideStateController, HIDE_OWNERSHIP_CLAIMED_KEY } from '../hide-state.js';
+import { isUserHidden } from '../data/message-visibility.js';
+import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 
 function deferred() {
     let resolve;
@@ -19,7 +21,7 @@ function fixture({ master = true, enabled = true, localHide = false } = {}) {
     const config = deferred();
     const chat = Array.from({ length: 5 }, () => ({ is_system: false }));
     const hide = createHideStateController({
-        getState: () => ({ chatId: 'startup', chat, managed: state.master && state.enabled, enabled: state.hide, summaryBoundary: 2, useVectorBoundary: false, keepVisibleCount: 0 }),
+        getState: () => ({ chatId: 'startup', chat, managed: state.master && state.enabled, enabled: state.hide, claimed: true, summaryBoundary: 2, useVectorBoundary: false, keepVisibleCount: 0 }),
         getPendingSave: () => null,
         readVectorBoundary: async () => -1,
         renderMessage: () => {},
@@ -150,4 +152,223 @@ test('a previously initialized module uses complete initialization again after d
     assert.deepEqual(f.calls, ['load', 'loaded', 'register', 'state', 'tokenizer', 'chat']);
     assert.equal(f.chat[0].is_system, true);
     assert.deepEqual(f.failures, []);
+});
+
+// Only initial ownership restoration blocks new raw input. Use the real gate
+// and hide controller together so concurrent waiters cannot cancel adoption.
+function ownershipFixture({ mode = 'vector', pendingSave = false } = {}) {
+    const chat = Array.from({ length: 100 }, (_, floor) => ({ mes: `floor-${floor + 1}`, is_system: floor < 80 || floor === 94 }));
+    const state = {
+        context: { chatId: 'ownership', chat }, metadata: { extensions: { LittleWhiteBox: {} } },
+        loaded: true, boundary: deferred(), pending: null,
+    };
+    const metadataSave = deferred();
+    if (pendingSave) state.pending = metadataSave.promise;
+    const errors = [];
+    const inputs = [];
+    let boundaryReads = 0;
+    const settings = mode === 'summary'
+        ? { summaryBoundary: 85, useVectorBoundary: false, keepVisibleCount: 6 }
+        : { summaryBoundary: 69, useVectorBoundary: true, keepVisibleCount: 10 };
+    const hideState = createHideStateController({
+        getState: () => ({ ...state.context, ...settings, managed: true, enabled: true,
+            claimed: state.metadata.extensions.LittleWhiteBox[HIDE_OWNERSHIP_CLAIMED_KEY] === true }),
+        getPendingSave: () => state.pending,
+        readVectorBoundary: () => { boundaryReads++; return state.boundary.promise; },
+        renderMessage() {}, refresh() {}, save: async () => {},
+        markClaimed: () => { state.metadata.extensions.LittleWhiteBox[HIDE_OWNERSHIP_CLAIMED_KEY] = true; },
+        onError: (error, stage) => errors.push({ error, stage }),
+    });
+    const runtime = entry(['hideOwnershipPreparation', 'applyHideState', 'ensureHideOwnership',
+        'applyHideStateDebounced', 'cancelPendingHide', 'waitForSummaryPreparation'], {
+        hideState, getContext: () => state.context, chat_metadata: state.metadata,
+        messageSources: { isLoaded: () => state.loaded }, EXT_ID: 'LittleWhiteBox',
+        createAbortError, throwIfSignalAborted, MODULE_ID: 'startup-test', xbLog: { error() {} },
+    });
+    const consume = async signal => {
+        await runtime.ensureHideOwnership(signal);
+        const floors = state.context.chat.flatMap((message, floor) => isUserHidden(message) ? [] : [floor + 1]);
+        inputs.push(floors);
+        return floors;
+    };
+    return { state, settings, runtime, errors, inputs, consume, metadataSave, reads: () => boundaryReads,
+        releaseMetadata: () => { state.pending = null; metadataSave.resolve(); } };
+}
+
+const eligibleInitialFloors = Array.from({ length: 100 }, (_, floor) => floor + 1).filter(floor => floor !== 95);
+
+for (const mode of ['summary', 'vector']) {
+    test(`${mode} ownership restoration shares load and two consumers across pending metadata`, async () => {
+        const f = ownershipFixture({ mode, pendingSave: true });
+        const loading = f.runtime.applyHideState();
+        const consumers = [f.consume(), f.consume()];
+        await nextTurn();
+        assert.equal(f.reads(), 0);
+        assert.deepEqual(f.inputs, []);
+        f.releaseMetadata();
+        await nextTurn();
+        if (mode === 'vector') {
+            assert.equal(f.reads(), 1);
+            assert.deepEqual(f.inputs, []);
+            f.state.boundary.resolve(89);
+        }
+        await loading;
+        for (const floors of await Promise.all(consumers)) assert.deepEqual(floors, eligibleInitialFloors);
+        assert.equal(f.reads(), mode === 'vector' ? 1 : 0);
+        assert.equal(f.state.metadata.extensions.LittleWhiteBox[HIDE_OWNERSHIP_CLAIMED_KEY], true);
+        assert.equal(f.state.context.chat.slice(0, 80).every(message => message.xb_summary_hidden === true), true);
+        assert.equal(f.state.context.chat[94].xb_summary_hidden, undefined);
+        const reads = f.reads();
+        await Promise.all([f.runtime.ensureHideOwnership(), f.runtime.ensureHideOwnership()]);
+        assert.equal(f.reads(), reads);
+        const stopped = new AbortController();
+        stopped.abort();
+        await assert.rejects(f.consume(stopped.signal), { name: 'AbortError' });
+        assert.equal(f.inputs.length, 2);
+        assert.deepEqual(f.errors, []);
+    });
+
+    test(`${mode} ownership restoration does not admit raw reads after metadata failure`, async () => {
+        const f = ownershipFixture({ mode, pendingSave: true });
+        const results = Promise.allSettled([f.runtime.applyHideState(), f.consume(), f.consume()]);
+        const error = new Error('metadata unavailable');
+        f.metadataSave.reject(error);
+        for (const result of await results) {
+            assert.equal(result.status, 'rejected');
+            assert.equal(result.reason, error);
+        }
+        assert.deepEqual(f.inputs, []);
+        assert.equal(f.reads(), 0);
+        assert.notEqual(f.state.metadata.extensions.LittleWhiteBox[HIDE_OWNERSHIP_CLAIMED_KEY], true);
+    });
+}
+
+test('a failed initial vector boundary leaves all raw consumers blocked', async () => {
+    const f = ownershipFixture();
+    const results = Promise.allSettled([f.runtime.applyHideState(), f.consume(), f.consume()]);
+    await nextTurn();
+    const error = new Error('boundary unavailable');
+    f.state.boundary.reject(error);
+    const [load, ...consumers] = await results;
+    assert.equal(load.status, 'fulfilled');
+    for (const consumer of consumers) {
+        assert.equal(consumer.status, 'rejected');
+        assert.equal(consumer.reason.name, 'AbortError');
+    }
+    assert.deepEqual(f.inputs, []);
+    assert.deepEqual(f.errors, [{ error, stage: 'boundary' }]);
+    assert.notEqual(f.state.metadata.extensions.LittleWhiteBox[HIDE_OWNERSHIP_CLAIMED_KEY], true);
+});
+
+for (const replacement of ['chat', 'metadata']) {
+    test(`replacing ${replacement} during adoption rejects old consumers and waits for the new owner`, async () => {
+        const f = ownershipFixture();
+        const oldBoundary = f.state.boundary;
+        const old = Promise.allSettled([f.runtime.applyHideState(), f.consume(), f.consume()]);
+        await nextTurn();
+        if (replacement === 'chat') {
+            f.runtime.cancelPendingHide();
+            f.state.context = { chatId: 'next-chat', chat: structuredClone(f.state.context.chat) };
+        }
+        f.state.metadata = { extensions: { LittleWhiteBox: {} } };
+        f.runtime.chat_metadata = f.state.metadata;
+        f.state.boundary = deferred();
+        const next = Promise.all([f.runtime.applyHideState(), f.consume(), f.consume()]);
+        await nextTurn();
+        assert.equal(f.reads(), 2);
+        oldBoundary.resolve(89);
+        const [oldLoad, ...oldConsumers] = await old;
+        assert.equal(oldLoad.status, 'fulfilled');
+        for (const consumer of oldConsumers) {
+            assert.equal(consumer.status, 'rejected');
+            assert.equal(consumer.reason.name, 'AbortError');
+        }
+        assert.deepEqual(f.inputs, []);
+        f.state.boundary.resolve(89);
+        const [, ...newInputs] = await next;
+        for (const floors of newInputs) assert.deepEqual(floors, eligibleInitialFloors);
+        assert.deepEqual(f.errors, []);
+    });
+}
+
+test('aborting one ownership waiter never admits it or cancels the shared restoration', async () => {
+    const f = ownershipFixture();
+    const controller = new AbortController();
+    const loading = f.runtime.applyHideState();
+    const cancelled = assert.rejects(f.consume(controller.signal), { name: 'AbortError' });
+    const continuing = f.consume();
+    await nextTurn();
+    controller.abort();
+    await cancelled;
+    assert.deepEqual(f.inputs, []);
+    assert.equal(f.reads(), 1);
+    f.state.boundary.resolve(89);
+    await loading;
+    assert.deepEqual(await continuing, eligibleInitialFloors);
+    assert.equal(f.inputs.length, 1);
+    assert.deepEqual(f.errors, []);
+});
+
+test('a debounced visibility update retries initial adoption without releasing its waiters', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = ownershipFixture();
+    t.after(() => f.runtime.cancelPendingHide());
+    const staleBoundary = f.state.boundary;
+    let settled = false;
+    const result = Promise.allSettled([f.runtime.applyHideState(), f.consume(), f.consume()])
+        .then(outcomes => { settled = true; return outcomes; });
+    await nextTurn();
+    assert.equal(f.reads(), 1);
+    f.runtime.applyHideStateDebounced();
+    f.state.boundary = deferred();
+    staleBoundary.resolve(89);
+    await nextTurn();
+    assert.equal(f.reads(), 2);
+    assert.equal(settled, false);
+    assert.deepEqual(f.inputs, []);
+    f.state.boundary.resolve(89);
+    const [load, ...consumers] = await result;
+    assert.equal(load.status, 'fulfilled');
+    for (const consumer of consumers) {
+        assert.equal(consumer.status, 'fulfilled');
+        assert.deepEqual(consumer.value, eligibleInitialFloors);
+    }
+    assert.deepEqual(f.errors, []);
+});
+
+test('settings and appended chat changes share a fresh ownership read before supplying input', async () => {
+    const f = ownershipFixture();
+    const staleBoundary = f.state.boundary;
+    const firstLoad = f.runtime.applyHideState();
+    const firstConsumer = f.consume();
+    await nextTurn();
+    f.settings.keepVisibleCount = 20;
+    f.state.context.chat.push({ mes: 'floor-101', is_system: false });
+    f.state.boundary = deferred();
+    let settled = false;
+    const result = Promise.allSettled([firstLoad, firstConsumer, f.runtime.applyHideState(), f.consume()])
+        .then(outcomes => { settled = true; return outcomes; });
+    assert.equal(f.reads(), 1);
+    staleBoundary.resolve(89);
+    await nextTurn();
+    assert.equal(f.reads(), 2);
+    assert.equal(settled, false);
+    assert.deepEqual(f.inputs, []);
+    f.state.boundary.resolve(99);
+    const outcomes = await result;
+    assert.equal(outcomes.every(outcome => outcome.status === 'fulfilled'), true);
+    for (const floors of f.inputs) assert.deepEqual(floors, [...eligibleInitialFloors, 101]);
+    assert.equal(f.inputs.length, 2);
+    assert.equal(f.state.context.chat.filter(message => message.is_system).length, 81);
+    assert.equal(f.state.context.chat.slice(0, 80).every(message => message.xb_summary_hidden === true), true);
+    assert.equal(f.state.context.chat[94].xb_summary_hidden, undefined);
+    assert.deepEqual(f.errors, []);
+});
+
+test('unloaded chat sources cannot start ownership adoption or supply new input', async () => {
+    const f = ownershipFixture();
+    f.state.loaded = false;
+    await assert.rejects(f.consume(), { name: 'AbortError' });
+    assert.equal(f.reads(), 0);
+    assert.deepEqual(f.inputs, []);
 });

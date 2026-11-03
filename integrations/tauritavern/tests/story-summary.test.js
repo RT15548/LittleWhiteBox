@@ -92,7 +92,8 @@ test('TT saves restored message flags together with summary metadata in either r
     for (const managed of [false, true]) {
         const context = {
             chatId: 'summary-save-test',
-            chat: [{ mes: 'kept text', is_system: true }, { mes: 'tail', is_system: false }],
+            chat: [{ mes: 'kept text', is_system: true, xb_summary_hidden: true },
+                { mes: 'tail', is_system: false }, { mes: 'manual hide', is_system: true }],
             chatMetadata: { extensions: { LittleWhiteBox: { storySummary: { retained: true } } } },
             async saveMetadata() { throw new Error('Metadata-only save cannot persist message flags'); },
             async saveChat() {
@@ -115,8 +116,8 @@ test('TT saves restored message flags together with summary metadata in either r
         assert.equal(options.ownsMessageButtons, !managed);
         await options.saveChatState(context);
         assert.equal(saves, 1);
-        assert.deepEqual(persisted.chat.map(message => message.is_system), [false, false]);
-        assert.deepEqual(persisted.chat.map(message => message.mes), ['kept text', 'tail']);
+        assert.deepEqual(persisted.chat.map(message => message.is_system), [false, false, true]);
+        assert.deepEqual(persisted.chat.map(message => message.mes), ['kept text', 'tail', 'manual hide']);
         assert.equal(persisted.metadata.extensions.LittleWhiteBox.storySummaryEnabled, false);
         assert.deepEqual(persisted.metadata.extensions.LittleWhiteBox.storySummary, { retained: true });
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createHideStateController } from '../hide-state.js';
+import { createHideStateController, countOwnedHidden } from '../hide-state.js';
 
 function deferred() {
     let resolve;
@@ -9,9 +9,10 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vectorBoundary = 60 } = {}) {
-    const chat = Array.from({ length }, (_, id) => ({ is_system: id <= hiddenThrough }));
-    const state = { chatId: 'test', chat, managed: true, enabled: true, summaryBoundary, useVectorBoundary: true, keepVisibleCount: 4 };
+// Starts as an adopted chat whose hidden floors were hidden by this module.
+function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vectorBoundary = 60, claimed = true, owned = true } = {}) {
+    const chat = Array.from({ length }, (_, id) => ({ is_system: id <= hiddenThrough, ...(owned && id <= hiddenThrough ? { xb_summary_hidden: true } : {}) }));
+    const state = { chatId: 'test', chat, managed: true, enabled: true, claimed, summaryBoundary, useVectorBoundary: true, keepVisibleCount: 4 };
     const rendered = new Map(chat.map((message, id) => [id, message.is_system]));
     const saves = [];
     const errors = [];
@@ -19,6 +20,7 @@ function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vector
     let pendingSave = null;
     let save = async captured => saves.push(captured.chat.map(message => message.is_system));
     let refreshes = 0;
+    let claims = 0;
     const controller = createHideStateController({
         getState: () => state,
         getPendingSave: () => pendingSave,
@@ -26,11 +28,14 @@ function fixture({ length = 61, hiddenThrough = 56, summaryBoundary = 49, vector
         renderMessage: (id, hidden) => rendered.set(id, hidden),
         refresh: () => { refreshes++; },
         save: captured => save(captured),
+        markClaimed: () => { claims++; state.claimed = true; },
         onError: (error, stage) => errors.push({ error, stage }),
         debounceMs: 10,
     });
     return {
         state, chat, controller, rendered, saves, errors,
+        claims: () => claims,
+        hideManually: (...ids) => { for (const id of ids) { state.chat[id].is_system = true; rendered.set(id, true); } },
         move: (sourceId, targetId) => {
             // The host swaps adjacent message objects and moves their DOM nodes;
             // is_system travels with the object, without replacing the chat array.
@@ -145,12 +150,15 @@ test('ordinary tail edits inspect only edited visibility flags, including after 
         const savedBeforeEditing = f.saves.length;
         const inspected = new Set();
         for (const [id, message] of f.chat.entries()) {
-            let hidden = message.is_system;
-            Object.defineProperty(message, 'is_system', {
-                enumerable: true,
-                get() { inspected.add(id); return hidden; },
-                set(value) { hidden = value; },
-            });
+            for (const key of ['is_system', 'xb_summary_hidden']) {
+                const present = key in message;
+                let value = message[key];
+                Object.defineProperty(message, key, {
+                    enumerable: present, configurable: true,
+                    get() { inspected.add(id); return value; },
+                    set(next) { value = next; },
+                });
+            }
         }
         for (const messageId of [998, 999]) {
             f.chat[messageId].mes = `edited ${messageId}`;
@@ -169,6 +177,7 @@ test('an edit repairs its visibility and moving boundary, saving the resulting s
     const f = fixture();
     await f.controller.reconcile();
     f.chat[59].is_system = true;
+    f.chat[59].xb_summary_hidden = true;
     f.rendered.set(59, true);
     f.chat[59].mes = 'edited second-to-last message';
     f.readWith(async () => 58);
@@ -265,11 +274,11 @@ test('edit cancellation revokes old projections while chat changes and error rec
     assert.deepEqual(f.visible(), [55, 56, 57, 58, 59, 60]);
 
     f.state.chatId = 'new-chat';
-    f.state.chat = Array.from({ length: 61 }, () => ({ is_system: true }));
+    f.state.chat = Array.from({ length: 61 }, () => ({ is_system: true, xb_summary_hidden: true }));
     f.controller.cancel();
     await f.controller.reconcile({ full: false, messageId: 59 });
     assert.deepEqual(f.visible(), [55, 56, 57, 58, 59, 60]);
-    f.state.chat[60].is_system = true;
+    f.state.chat[60].is_system = f.state.chat[60].xb_summary_hidden = true;
     await f.controller.clear();
     assert.equal(f.visible().length, 61);
 });
@@ -334,7 +343,7 @@ test('ordinary boundary changes can shrink as well as grow without leaving hidde
     f.readWith(async () => 52);
     await f.controller.reconcile({ full: false });
     assert.equal(f.visible()[0], 49);
-    f.chat.push({ is_system: true }, { is_system: true });
+    f.chat.push({ is_system: true, xb_summary_hidden: true }, { is_system: true, xb_summary_hidden: true });
     f.readWith(async () => 62);
     await f.controller.reconcile({ full: false });
     assert.deepEqual(f.visible(), [59, 60, 61, 62]);
@@ -420,13 +429,88 @@ test('save failure is reported without reverting restored visibility', async () 
 test('chat-disable can include immediate restoration in its own metadata save without a duplicate write', async () => {
     const f = fixture();
     await f.controller.reconcile();
-    // Clear means ALL hidden floors, including a host-hidden message outside
-    // the automatic range established by the preceding reconciliation.
-    f.chat[60].is_system = true;
-    f.rendered.set(60, true);
     const clearing = f.controller.clear({ persist: false });
     assert.equal(f.visible().length, 61);
     assert.equal([...f.rendered.values()].some(Boolean), false);
     await clearing;
     assert.equal(f.saves.length, 0);
+});
+
+// User-hidden floors (eye button, /hide, chat-management scripts) share is_system
+// with automatic hiding; only floors this module hid may ever be revealed by it.
+test('manual hides survive full audits, boundary retreats, clear and disabled hiding', async () => {
+    for (const reveal of ['audit', 'retreat', 'clear', 'disabled']) {
+        const f = fixture();
+        await f.controller.reconcile();
+        f.hideManually(58, 60); // Outside the boundary (hidden through 56).
+        if (reveal === 'audit') await f.controller.reconcile();
+        if (reveal === 'retreat') {
+            f.readWith(async () => 20);
+            await f.controller.reconcile({ full: false });
+        }
+        if (reveal === 'clear') await f.controller.clear();
+        if (reveal === 'disabled') {
+            f.state.enabled = false;
+            await f.controller.reconcile();
+        }
+        const ownedEnd = reveal === 'audit' ? 56 : reveal === 'retreat' ? 16 : -1;
+        const expected = f.chat.map((_, id) => id <= ownedEnd || id === 58 || id === 60);
+        assert.deepEqual(f.chat.map(message => message.is_system), expected, reveal);
+        assert.deepEqual([...f.rendered.values()], expected, reveal);
+        assert.equal(countOwnedHidden(f.chat), ownedEnd + 1, reveal);
+    }
+});
+
+test('a manual hide inside the boundary stays the user\'s when the boundary later retreats', async () => {
+    const f = fixture({ hiddenThrough: -1 });
+    f.hideManually(10);
+    await f.controller.reconcile();
+    assert.equal(f.chat[10].xb_summary_hidden, undefined);
+    assert.equal(countOwnedHidden(f.chat), 56);
+    f.readWith(async () => 8);
+    await f.controller.reconcile();
+    assert.deepEqual(f.chat.flatMap((message, id) => message.is_system ? [id] : []), [0, 1, 2, 3, 4, 10]);
+});
+
+test('a legacy chat adopts unmarked hiding inside the old boundary once, then later manual hides stay the user\'s', async () => {
+    const f = fixture({ claimed: false, owned: false, hiddenThrough: 54 });
+    f.hideManually(58);
+    await f.controller.reconcile();
+    assert.equal(f.claims(), 1);
+    assert.equal(f.saves.length, 1, 'newly hidden floors 55-56 are saved with the adoption');
+    assert.equal(countOwnedHidden(f.chat), 57);
+    assert.equal(f.chat[58].xb_summary_hidden, undefined);
+
+    f.state.keepVisibleCount = 0; // The boundary now covers the manual hide.
+    await f.controller.reconcile();
+    assert.equal(f.claims(), 1);
+    assert.equal(f.chat[58].xb_summary_hidden, undefined);
+    f.readWith(async () => 20);
+    await f.controller.reconcile();
+    assert.deepEqual(f.chat.flatMap((message, id) => message.is_system ? [id] : []), [...Array.from({ length: 21 }, (_, id) => id), 58]);
+});
+
+// The reported failure: the old version revealed every floor of a locked
+// summary, the user re-hid them with /hide 0-n, and must keep them hidden.
+test('a legacy chat whose summary is unusable or hiding is off adopts nothing', async () => {
+    for (const patch of [{ enabled: false }, { summaryBoundary: -1 }]) {
+        const f = fixture({ claimed: false, owned: false, hiddenThrough: 54 });
+        Object.assign(f.state, patch);
+        await f.controller.reconcile();
+        assert.equal(f.claims(), 1);
+        assert.equal(countOwnedHidden(f.chat), 0);
+        assert.deepEqual(f.visible(), [55, 56, 57, 58, 59, 60]);
+        assert.equal(f.refreshes(), 0);
+        assert.equal(f.saves.length, 0, 'adoption alone never rewrites the chat');
+    }
+});
+
+test('legacy adoption waits for loaded floors and a readable vector boundary', async () => {
+    for (const blocker of ['empty', 'read-failure']) {
+        const f = fixture({ claimed: false, owned: false, hiddenThrough: 54 });
+        if (blocker === 'empty') f.state.chat = [];
+        else f.readWith(async () => { throw new Error('read failed'); });
+        await f.controller.reconcile();
+        assert.equal(f.claims(), 0, blocker);
+    }
 });

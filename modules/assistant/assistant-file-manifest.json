@@ -342,7 +342,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/integrations/tauritavern/tests/story-summary.test.js",
       "relativePath": "integrations/tauritavern/tests/story-summary.test.js",
       "extension": ".js",
-      "sizeBytes": 5931
+      "sizeBytes": 6034
     },
     {
       "source": "littlewhitebox",
@@ -4430,7 +4430,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/README.md",
       "relativePath": "modules/scheduled-tasks/README.md",
       "extension": ".md",
-      "sizeBytes": 31580
+      "sizeBytes": 29990
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/design.md",
+      "relativePath": "modules/scheduled-tasks/design.md",
+      "extension": ".md",
+      "sizeBytes": 6028
     },
     {
       "source": "littlewhitebox",
@@ -4451,7 +4458,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/preset-lifecycle.test.js",
       "relativePath": "modules/scheduled-tasks/preset-lifecycle.test.js",
       "extension": ".js",
-      "sizeBytes": 163470
+      "sizeBytes": 166891
     },
     {
       "source": "littlewhitebox",
@@ -4721,6 +4728,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/message-visibility.js",
+      "relativePath": "modules/story-summary/data/message-visibility.js",
+      "extension": ".js",
+      "sizeBytes": 328
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/metadata-confirmation.js",
       "relativePath": "modules/story-summary/data/metadata-confirmation.js",
       "extension": ".js",
@@ -4885,7 +4899,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/generator.js",
       "relativePath": "modules/story-summary/generate/generator.js",
       "extension": ".js",
-      "sizeBytes": 13942
+      "sizeBytes": 14596
     },
     {
       "source": "littlewhitebox",
@@ -4997,7 +5011,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/hide-state.js",
       "relativePath": "modules/story-summary/hide-state.js",
       "extension": ".js",
-      "sizeBytes": 7388
+      "sizeBytes": 10259
     },
     {
       "source": "littlewhitebox",
@@ -5109,7 +5123,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/maintenance/evidence.js",
       "relativePath": "modules/story-summary/maintenance/evidence.js",
       "extension": ".js",
-      "sizeBytes": 4150
+      "sizeBytes": 4336
     },
     {
       "source": "littlewhitebox",
@@ -5130,7 +5144,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/maintenance/host.js",
       "relativePath": "modules/story-summary/maintenance/host.js",
       "extension": ".js",
-      "sizeBytes": 7369
+      "sizeBytes": 7450
     },
     {
       "source": "littlewhitebox",
@@ -5242,7 +5256,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/maintenance/session.js",
       "relativePath": "modules/story-summary/maintenance/session.js",
       "extension": ".js",
-      "sizeBytes": 24114
+      "sizeBytes": 24205
     },
     {
       "source": "littlewhitebox",
@@ -5368,7 +5382,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.js",
       "relativePath": "modules/story-summary/story-summary.js",
       "extension": ".js",
-      "sizeBytes": 227934
+      "sizeBytes": 230503
     },
     {
       "source": "littlewhitebox",
@@ -5410,7 +5424,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/atom-extraction.test.js",
       "relativePath": "modules/story-summary/tests/atom-extraction.test.js",
       "extension": ".js",
-      "sizeBytes": 4144
+      "sizeBytes": 6189
     },
     {
       "source": "littlewhitebox",
@@ -5473,7 +5487,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/disabled-visibility.test.js",
       "relativePath": "modules/story-summary/tests/disabled-visibility.test.js",
       "extension": ".js",
-      "sizeBytes": 8552
+      "sizeBytes": 8706
     },
     {
       "source": "littlewhitebox",
@@ -5550,14 +5564,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/helpers/story-summary-entry.js",
       "relativePath": "modules/story-summary/tests/helpers/story-summary-entry.js",
       "extension": ".js",
-      "sizeBytes": 2814
+      "sizeBytes": 2952
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/hide-state.test.js",
       "relativePath": "modules/story-summary/tests/hide-state.test.js",
       "extension": ".js",
-      "sizeBytes": 18530
+      "sizeBytes": 22989
     },
     {
       "source": "littlewhitebox",
@@ -5648,7 +5662,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/maintenance-source.test.js",
       "relativePath": "modules/story-summary/tests/maintenance-source.test.js",
       "extension": ".js",
-      "sizeBytes": 9232
+      "sizeBytes": 11627
     },
     {
       "source": "littlewhitebox",
@@ -5676,7 +5690,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/memory-storage.test.js",
       "relativePath": "modules/story-summary/tests/memory-storage.test.js",
       "extension": ".js",
-      "sizeBytes": 162727
+      "sizeBytes": 177834
     },
     {
       "source": "littlewhitebox",
@@ -5691,6 +5705,13 @@
       "relativePath": "modules/story-summary/tests/message-sources.test.js",
       "extension": ".js",
       "sizeBytes": 19974
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/message-visibility.test.js",
+      "relativePath": "modules/story-summary/tests/message-visibility.test.js",
+      "extension": ".js",
+      "sizeBytes": 8873
     },
     {
       "source": "littlewhitebox",
@@ -5753,7 +5774,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/recall-reuse.test.js",
       "relativePath": "modules/story-summary/tests/recall-reuse.test.js",
       "extension": ".js",
-      "sizeBytes": 8029
+      "sizeBytes": 9187
     },
     {
       "source": "littlewhitebox",
@@ -5802,7 +5823,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/tests/startup.test.js",
       "relativePath": "modules/story-summary/tests/startup.test.js",
       "extension": ".js",
-      "sizeBytes": 6761
+      "sizeBytes": 17504
     },
     {
       "source": "littlewhitebox",
@@ -5956,7 +5977,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/llm/atom-extraction.js",
       "relativePath": "modules/story-summary/vector/llm/atom-extraction.js",
       "extension": ".js",
-      "sizeBytes": 9659
+      "sizeBytes": 9781
     },
     {
       "source": "littlewhitebox",
@@ -6047,7 +6068,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/pipeline/chunk-text.js",
       "relativePath": "modules/story-summary/vector/pipeline/chunk-text.js",
       "extension": ".js",
-      "sizeBytes": 4437
+      "sizeBytes": 4544
     },
     {
       "source": "littlewhitebox",
@@ -6068,7 +6089,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/pipeline/l0-floor-status.js",
       "relativePath": "modules/story-summary/vector/pipeline/l0-floor-status.js",
       "extension": ".js",
-      "sizeBytes": 1041
+      "sizeBytes": 1131
     },
     {
       "source": "littlewhitebox",
@@ -6082,7 +6103,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/pipeline/state-integration.js",
       "relativePath": "modules/story-summary/vector/pipeline/state-integration.js",
       "extension": ".js",
-      "sizeBytes": 21890
+      "sizeBytes": 22080
     },
     {
       "source": "littlewhitebox",
@@ -6236,7 +6257,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/recall.js",
       "relativePath": "modules/story-summary/vector/retrieval/recall.js",
       "extension": ".js",
-      "sizeBytes": 84055
+      "sizeBytes": 84162
     },
     {
       "source": "littlewhitebox",
@@ -6264,7 +6285,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/temporal-turn-carrier.js",
       "relativePath": "modules/story-summary/vector/retrieval/temporal-turn-carrier.js",
       "extension": ".js",
-      "sizeBytes": 5567
+      "sizeBytes": 5682
     },
     {
       "source": "littlewhitebox",
@@ -6376,7 +6397,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/package/service.js",
       "relativePath": "modules/story-summary/vector/storage/package/service.js",
       "extension": ".js",
-      "sizeBytes": 8433
+      "sizeBytes": 8819
     },
     {
       "source": "littlewhitebox",
@@ -9141,14 +9162,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/README.md",
       "relativePath": "modules/variables/state2/README.md",
       "extension": ".md",
-      "sizeBytes": 16640
+      "sizeBytes": 25525
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/branch-state.md",
       "relativePath": "modules/variables/state2/branch-state.md",
       "extension": ".md",
-      "sizeBytes": 7264
+      "sizeBytes": 7350
     },
     {
       "source": "littlewhitebox",
@@ -9197,7 +9218,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/json-tool-design.md",
       "relativePath": "modules/variables/state2/json-tool-design.md",
       "extension": ".md",
-      "sizeBytes": 23901
+      "sizeBytes": 24149
     },
     {
       "source": "littlewhitebox",
@@ -9303,6 +9324,13 @@
       "relativePath": "modules/variables/tests/state2-guard.test.js",
       "extension": ".js",
       "sizeBytes": 17858
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/state2-guide-examples.test.js",
+      "relativePath": "modules/variables/tests/state2-guide-examples.test.js",
+      "extension": ".js",
+      "sizeBytes": 3963
     },
     {
       "source": "littlewhitebox",

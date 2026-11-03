@@ -6,6 +6,32 @@ const ai = mes => ({ is_user: false, mes });
 const user = mes => ({ is_user: true, mes });
 const result = { text: 'adopted memory', boundary: 0, role: 0, report: 'original report' };
 
+// Hiding affects future raw input, not adopted memory or input already captured
+// by an in-flight prepare. Recomputing either would revoke the current round.
+test('manual hide and unhide preserve adopted memory and pending recall', () => {
+    const { cache, context, recall } = fixture();
+    recall();
+    const adopted = cache.prepare(context).memory;
+    for (const hidden of [true, false, true]) {
+        context.chat[0].is_system = hidden;
+        context.chat[1].is_system = hidden;
+        cache.historyChanged(context);
+        assert.equal(cache.prepare(context).memory, adopted);
+    }
+
+    cache.invalidate();
+    context.chat[0].is_system = false;
+    context.chat[1].is_system = false;
+    const pending = cache.prepare(context).ticket;
+    context.chat[0].is_system = true;
+    context.chat[1].is_system = true;
+    assert.equal(cache.isCurrent(pending, context), true);
+    assert.equal(cache.adopt(pending, context, result), true);
+    context.chat[0].is_system = false;
+    context.chat[1].is_system = false;
+    assert.equal(cache.prepare(context).memory.text, result.text);
+});
+
 function fixture(chat = [ai('history'), user('query')]) {
     const cache = createRecallReuse();
     const context = { chatId: 'a', chat };
@@ -142,10 +168,11 @@ test('late completions and prepared reuse cannot publish after invalidation or a
     assert.equal(cache.isCurrent(pending.ticket, context), false);
 });
 
-test('hiding and background data changes preserve the adopted text and original boundary', () => {
+test('automatic hiding and background data changes preserve the adopted text and original boundary', () => {
     const { context, recall } = fixture();
     recall();
     context.chat[0].is_system = true;
+    context.chat[0].xb_summary_hidden = true;
     context.summary = { text: 'new background summary', boundary: 5 };
     assert.equal(recall().text, result.text);
     assert.equal(recall().boundary, 0);

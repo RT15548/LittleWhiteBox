@@ -13,25 +13,30 @@ import { summarizeL0Floors } from '../../pipeline/l0-floor-status.js';
 import { getVectorWriteState, captureMaintenanceSnapshot, isMaintenanceSnapshotCurrent } from '../../runtime/maintenance-coordinator.js';
 import { xbLog } from '../../../../../core/debug-core.js';
 
-function readSources() {
+function readSources(includeVisibility) {
     const memory = chat_metadata.extensions?.[EXT_ID];
     return {
-        chat: (getContext()?.chat || []).map(message => ({ mes: message.mes, name: message.name, is_user: message.is_user })),
+        chat: (getContext()?.chat || []).map(message => ({
+            mes: message.mes, name: message.name, is_user: message.is_user,
+            ...(includeVisibility ? { is_system: message.is_system, xb_summary_hidden: message.xb_summary_hidden } : {}),
+        })),
         atoms: memory?.stateAtoms || [],
         events: memory?.storySummary?.json?.events || [],
         filters: getTextFilterRules(),
     };
 }
 
-function captureOperation(options) {
+// Packages reconstruct source identities independently of visibility. Only the
+// daily scan needs visibility to decide which absent floors supply new input.
+function captureOperation(options, includeVisibility = false) {
     const chatId = options.targetChatId || getContext()?.chatId;
     if (!chatId) throw packageError('no_chat');
-    const snapshot = structuredClone(readSources());
+    const snapshot = structuredClone(readSources(includeVisibility));
     const stamp = JSON.stringify(snapshot);
     const assertCurrent = () => {
         if (getContext()?.chatId !== chatId) throw packageError('chat_changed');
         if (options.signal?.aborted || options.isCurrent?.() === false) throw packageError('cancelled');
-        if (JSON.stringify(readSources()) !== stamp) throw packageError('source_changed');
+        if (JSON.stringify(readSources(includeVisibility)) !== stamp) throw packageError('source_changed');
     };
     assertCurrent();
     return {
@@ -97,7 +102,7 @@ export async function checkVectorCacheConsistency(options = {}) {
         const operation = captureOperation({
             ...options,
             isCurrent: () => isMaintenanceSnapshotCurrent(snapshot) && options.isCurrent?.() !== false,
-        });
+        }, true);
         const cache = await readVectorCacheSources(chatId);
         operation.assertCurrent();
         const result = inspectCache(cache, operation, 'automatic', inspectCacheSourceCoverage);
