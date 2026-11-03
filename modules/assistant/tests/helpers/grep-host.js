@@ -1,5 +1,5 @@
 import { createIdentifier } from '../../../../shared/common/identifier.js';
-/* eslint-env node */
+import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

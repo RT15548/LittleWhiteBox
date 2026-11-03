@@ -1,4 +1,3 @@
-/* eslint-env node */
 import fs from 'fs';
 import path from 'path';
 import { collectWorkspaceFiles } from './workspace-files.mjs';

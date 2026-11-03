@@ -11,7 +11,7 @@ npm run check
 
 `build` 先通过统一 lint 和类型检查，再生成并验证全部目标后替换产物；`check` 执行同一套检查，在暂存区重建并逐字节比较已安装产物，再运行全部测试、离线运行时验收与 Node 18 兼容验证，不修改已安装产物。构建工具使用依赖要求的现代 Node；服务端安装包保持 Node 18 / CommonJS 契约。根 `lint`、`test` 仅用于定位问题，不存在模块专属命令。
 
-统一 lint 检查所有自有 JS、MJS、CJS、TS、MTS、CTS、Vue 及 HTML 内脚本，以零警告为通过条件。Node 环境和各语言解析规则集中在根 ESLint 配置，严格类型选项只在根 `tsconfig.json` 定义。自有源码与第三方库、生成物的区分由 `.eslintignore` 定义，类型检查、测试及页面发现复用它和 `.gitignore`，不维护模块名单。新目录的 TS/Vue 与 `*.test.js/mjs/cjs/ts/mts/cts` 自动纳入检查；生成物由总检查重建验证。对已核实的规则误报仅允许在具体位置说明安全依据，不能按文件关闭安全规则。
+统一 lint 检查所有自有 JS、MJS、CJS、TS、MTS、CTS、Vue 及 HTML 内脚本，以零警告为通过条件。Node 环境和各语言解析规则集中在根 `eslint.config.mjs`，严格类型选项只在根 `tsconfig.json` 定义。自有源码与第三方库、生成物的区分由 `.sourceignore` 定义，lint、类型检查、测试及页面发现复用它和 `.gitignore`，不维护模块名单。新目录的 TS/Vue 与 `*.test.js/mjs/cjs/ts/mts/cts` 自动纳入检查；生成物由总检查重建验证。对已核实的规则误报仅允许在具体位置说明安全依据，不能按文件关闭安全规则。
 
 ESLint 豁免必须是指定规则的 `disable-next-line` 或 `disable-line`，并使用 `--` 写明具体安全依据；整文件开关、无理由豁免及已失效的豁免均失败。`@ts-ignore`、`@ts-nocheck` 禁用，`@ts-expect-error` 必须附理由。仅冻结的官方宿主 VM 样本保留上游原指令，退役对应宿主版本时同时删除样本例外。JS、MJS、CJS、TS、MTS、CTS、Vue 共用根 `tsconfig.json` 的类型策略；lint 仅派生当次自有源码清单，不将 vendor 和生成物纳入类型程序。`no-floating-promises` 禁止悬空 Promise，`void` 不能绕过；`no-misused-promises` 阻止将异步函数交给只接受同步返回的接口。空 `catch`、空拒绝回调和只有注释的空处理器同样阻止通过。Node 测试注册返回值由 `node:test` 所有，普通测试内部的异步调用不豁免。
 

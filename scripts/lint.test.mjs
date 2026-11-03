@@ -20,6 +20,21 @@ const eslint = new ESLint();
 const unsafe = 'const view = {}; view.innerHTML = JSON.parse(\'"input"\');';
 const safe = 'const view = {}; view.textContent = JSON.parse(\'"input"\');';
 
+// Contract: generated/private files stay outside lint, while new authored source
+// is checked (cost: private data exposure or a missing safety check).
+test('lint shares the generated and private source boundary with project discovery', async () => {
+    for (const file of [
+        'dist/generated.js',
+        'modules/example/libs/vendor.js',
+        'modules/example/packed.min.js',
+        'output/private-evaluation/probe.js',
+        'scripts/gold-eval/private.js',
+    ]) {
+        assert.equal(await eslint.isPathIgnored(file), true, file);
+    }
+    assert.equal(await eslint.isPathIgnored(jsFixture), false);
+});
+
 for (const [file, wrap] of [
     [jsFixture, text => text],
     [mjsFixture, text => text],

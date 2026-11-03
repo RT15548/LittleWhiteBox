@@ -1,0 +1,13 @@
+# Shared authored-source boundary for lint, tests, types and page discovery.
+libs/**
+**/libs/**
+**/*.min.js
+/dist/**
+
+# Generated Node bundles are rebuilt and compared by the total check.
+/server-plugin/**/vendor/**
+/modules/draw/server/**/vendor/**
+/server-plugin/littlewhitebox-server/web/web-runtime.cjs
+
+# Local verification artifacts and previews
+/output/**

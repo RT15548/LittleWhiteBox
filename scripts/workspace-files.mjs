@@ -1,4 +1,3 @@
-/* eslint-env node */
 import fs from 'node:fs';
 import path from 'node:path';
 import ignore from 'ignore';
@@ -24,10 +23,9 @@ export function collectWorkspaceFiles(root, extensions, ignoredDirectories = new
     return files;
 }
 
-// ESLint owns the distinction between authored source and generated/vendor files.
-// Tests, type checking and page discovery reuse it instead of listing modules.
+// The source boundary is shared by lint, tests, type checking and page discovery.
 export function collectSourceFiles(root, extensions) {
-    const matcher = ignore().add(fs.readFileSync(path.join(root, '.eslintignore'), 'utf8'));
+    const matcher = ignore().add(fs.readFileSync(path.join(root, '.sourceignore'), 'utf8'));
     return collectWorkspaceFiles(root, extensions)
         .filter(file => !matcher.ignores(path.relative(root, file).split(path.sep).join('/')))
         .sort();

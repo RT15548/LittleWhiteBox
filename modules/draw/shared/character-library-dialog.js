@@ -80,13 +80,13 @@ function describeWarning(warning) {
  * 打开导入对话框。
  * @param {object} params
  * @param {Document} params.document 宿主页面 document（所有 DOM 操作都经由它）
- * @param {object|function} params.library 当前角色库，或返回当前角色库的函数（每次重算预览时读取，避免对话框打开期间库已变化）
+ * @param {object|Function} params.library 当前角色库，或返回当前角色库的函数（每次重算预览时读取，避免对话框打开期间库已变化）
  * @param {object} params.parsed parseCharacterImport 的返回值
  * @param {string} params.fileName 文件名（仅用于展示与默认分组名）
- * @param {function} params.onConfirm 点击“导入”时以 { plan, options } 调用；抛错则对话框保持打开并显示错误
- * @param {function} [params.onClose] 对话框关闭（含取消、Esc、导入完成）时调用
- * @param {function} [params.makeId] 透传给 planCharacterImport（测试用）
- * @returns {{ element: Element, close: function, getPlan: function }}
+ * @param {Function} params.onConfirm 点击“导入”时以 { plan, options } 调用；抛错则对话框保持打开并显示错误
+ * @param {Function} [params.onClose] 对话框关闭（含取消、Esc、导入完成）时调用
+ * @param {Function} [params.makeId] 透传给 planCharacterImport（测试用）
+ * @returns {{ element: Element, close: Function, getPlan: Function }}
  */
 export function openCharacterImportDialog({ document, library, parsed, fileName = '', onConfirm, onClose, makeId } = {}) {
     if (!document?.body) throw new TypeError('缺少 document');
@@ -483,12 +483,12 @@ export function describeExportScopes(library, selectedIds = []) {
  * 默认范围：有已选角色时为“当前已选”，否则“全部”。取消、Esc、点遮罩都不会导出。
  * @param {object} params
  * @param {Document} params.document 宿主页面 document
- * @param {object|function} params.library 当前角色库，或返回它的函数（打开时读取）
- * @param {string[]|function} [params.selectedIds] 当前已选的角色 id，或返回它们的函数（打开时读取）
- * @param {function} params.onConfirm 点击“导出”时以 { scope, groupId, groupName, ids, count, request } 调用；
+ * @param {object|Function} params.library 当前角色库，或返回它的函数（打开时读取）
+ * @param {string[]|Function} [params.selectedIds] 当前已选的角色 id，或返回它们的函数（打开时读取）
+ * @param {Function} params.onConfirm 点击“导出”时以 { scope, groupId, groupName, ids, count, request } 调用；
  *        request 可直接传给 exportCharacters；抛错则对话框保持打开并显示错误
- * @param {function} [params.onClose] 对话框关闭（含取消、Esc、点遮罩、导出完成）时调用
- * @returns {{ element: Element, close: function, getChoice: function }}
+ * @param {Function} [params.onClose] 对话框关闭（含取消、Esc、点遮罩、导出完成）时调用
+ * @returns {{ element: Element, close: Function, getChoice: Function }}
  */
 export function openCharacterExportDialog({ document, library, selectedIds, onConfirm, onClose } = {}) {
     if (!document?.body) throw new TypeError('缺少 document');

@@ -6,7 +6,7 @@ import { parse } from 'acorn';
 import { collectSourceFiles } from './workspace-files.mjs';
 import { root, entries, discoverPages } from './build/browser-entries.mjs';
 
-const rootConfigurations = new Set(['.eslintrc.cjs', '.eslintignore', 'vite.plugin.config.mjs', 'tsconfig.json']);
+const rootConfigurations = new Set(['eslint.config.mjs', '.sourceignore', 'vite.plugin.config.mjs', 'tsconfig.json']);
 const qualityCommands = new Set(['build', 'check', 'lint', 'lint:fix', 'test']);
 
 export function checkProject(directory = root, browserEntries = entries) {
@@ -14,7 +14,7 @@ export function checkProject(directory = root, browserEntries = entries) {
     for (const file of files) {
         const relative = path.relative(directory, file).split(path.sep).join('/');
         const name = path.basename(file);
-        const configuration = /^(?:\.eslint(?:rc.*|ignore)|eslint\.config\..+|tsconfig(?:\..+)?\.json|(?:vite|rollup|webpack)(?:\..+)?\.config\..+)$/.test(name);
+        const configuration = /^(?:\.sourceignore|\.eslint(?:rc.*|ignore)|eslint\.config\..+|tsconfig(?:\..+)?\.json|(?:vite|rollup|webpack)(?:\..+)?\.config\..+)$/.test(name);
         if (configuration && !rootConfigurations.has(relative)) throw new Error(`Independent project configuration: ${relative}`);
         if (relative.split('/').slice(0, -1).includes('dist')) throw new Error(`Module-owned build output: ${relative}`);
         if (name === 'package.json') {

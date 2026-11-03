@@ -1,5 +1,5 @@
-/* eslint-env node */
 import { readFile } from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';

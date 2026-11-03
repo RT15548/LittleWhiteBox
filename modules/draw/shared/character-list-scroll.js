@@ -56,11 +56,11 @@ function scrollElementBy(element, delta) {
  * @param {object} options
  * @param {Element|null} options.start 指针下的元素（elementFromPoint 的结果）；拿不到时传列表容器
  * @param {number} options.pointerY
- * @param {function} options.getStyle (element) => CSSStyleDeclaration（只读 overflowY）
- * @param {function} options.getRect (element) => { top, bottom }，每次调用都实时读取
+ * @param {Function} options.getStyle (element) => CSSStyleDeclaration（只读 overflowY）
+ * @param {Function} options.getRect (element) => { top, bottom }，每次调用都实时读取
  * @param {{top: number, bottom: number}} options.viewport 整页的可视范围
  * @param {Element|null} [options.pageScroller] 整页滚动元素（通常是 document.scrollingElement）
- * @param {function} [options.skipContainer] (element) => boolean，返回 true 的容器不参与组内滚动
+ * @param {Function} [options.skipContainer] (element) => boolean，返回 true 的容器不参与组内滚动
  *        （例如拖动“分组”时落点不依赖组内容，没必要去滚分组内部）
  * @param {number} [options.zone]
  * @param {number} [options.step]

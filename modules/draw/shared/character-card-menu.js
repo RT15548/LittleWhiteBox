@@ -39,7 +39,7 @@ export function computeMenuPosition(anchor, menu, viewport, { margin = VIEWPORT_
 /**
  * @param {object} options
  * @param {Document} options.document
- * @param {function} [options.getViewport] () => { width, height }，默认取 document 的视口（测试用）
+ * @param {Function} [options.getViewport] () => { width, height }，默认取 document 的视口（测试用）
  * @param {boolean} [options.portal] Render outside transformed/scrolling chat containers.
  */
 export function createCardMenuController({ document, getViewport, portal = false } = {}) {

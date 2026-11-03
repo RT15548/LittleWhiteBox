@@ -22,7 +22,7 @@ function fixture(t) {
         return file;
     };
     write('.gitignore', 'output/\nnode_modules/\n');
-    write('.eslintignore', '/dist/**\nlibs/**\n');
+    write('.sourceignore', '/dist/**\nlibs/**\n');
     write('package.json', '{"type":"module"}');
     return { directory, write };
 }
@@ -48,6 +48,8 @@ test('independent module pipelines and unregistered page entries fail project va
         ['modules/new/vite.config.ts', 'export default {};'],
         ['modules/new/tsconfig.json', '{}'],
         ['modules/new/.eslintrc.cjs', 'module.exports = {};'],
+        ['modules/new/eslint.config.mjs', 'export default [];'],
+        ['modules/new/.sourceignore', '*.js'],
         ['modules/new/package.json', '{"scripts":{"build":"vite build"}}'],
         ['modules/new/dist/app.css', 'body {}'],
     ]) {

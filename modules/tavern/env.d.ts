@@ -24,8 +24,6 @@ interface TavernAgentAdapterChatResult {
     providerPayload?: unknown;
 }
 
-declare module 'showdown';
-
 declare module '*.mjs' {
     const value: {
         dump(value: unknown, options?: Record<string, unknown>): string;
