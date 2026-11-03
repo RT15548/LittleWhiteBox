@@ -113,7 +113,7 @@ const deferred = () => {
 };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
-function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date = Date, queuedFrames = false } = {}) {
+function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date = Date, queuedFrames = false, runtimeConsole = console } = {}) {
     const { document } = parseHTML('<html><head></head><body></body></html>');
     const errors = [], warnings = [];
     const accountRecords = { ...accountState };
@@ -240,7 +240,7 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
         '../../../../../utils.js': { uuidv4: randomUUID, debounce: fn => fn, download: data => downloads.push(JSON.parse(data)), getFileText: async file => file },
         '../../core/constants.js': { EXT_ID: 'test' },
         '../../core/event-manager.js': { createModuleEvents: () => ({ cleanup() {} }), event_types },
-        '../../core/debug-core.js': { CacheRegistry: { register() {} }, xbLog: console },
+        '../../core/debug-core.js': { CacheRegistry: { register() {} }, xbLog: runtimeConsole },
         '../../core/server-storage.js': { TasksStorage: storage },
         '../../../../extensions.js': { getContext: () => context },
         '../../../../slash-commands/SlashCommandAbortController.js': { SlashCommandAbortController },
@@ -251,7 +251,8 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
         } },
     };
     const box = vm.createContext({
-        window: win, document, $, console, Date: date, AbortController, AbortSignal, CustomEvent, structuredClone, Headers, Request, Response, URL, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer,
+        window: win, document, $, console: runtimeConsole, Date: date, AbortController, AbortSignal, CustomEvent, structuredClone, Headers, Request, Response, URL, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer,
+        SillyTavern: { getContext: () => context },
         localStorage: { getItem: () => null },
         toastr: { error: error => errors.push(error), warning: warning => warnings.push(warning), success() {}, info() {} },
         setTimeout: (fn, delay, ...args) => { const id = ++timerId; timers.set(id, { fn, delay, args }); return id; },
@@ -388,6 +389,63 @@ function harness(t, { taskStorage, initialSettings = {}, accountState = {}, date
         },
     };
 }
+
+// The guide's examples are executed through the real task runner/importer, so
+// protocol and lifecycle drift fails on behaviour, not on document wording.
+test('guide scripts can start, respond, and clean up using the documented injected APIs', async t => {
+    const errors = [];
+    const h = harness(t, { runtimeConsole: { ...console, error: (...args) => errors.push(args) } });
+    Object.assign(h.context, { chat: h.host.chat, eventSource: h.chatEvents, eventTypes: { CHAT_CHANGED: 'CHAT_CHANGED' } });
+    h.host.chat.push({ is_user: false }, { is_user: true }, { is_user: false });
+    const baselineSubscriptions = h.chatEvents.events.CHAT_CHANGED.length;
+    const guide = fs.readFileSync(new URL('./README.md', import.meta.url), 'utf8');
+    const examples = [...guide.matchAll(/^```text\r?\n(<<taskjs>>[\s\S]*?<<\/taskjs>>)\r?\n```/gm)];
+    for (const [index, [, commands]] of examples.entries()) {
+        const name = `guide-${index}`;
+        h.global({ id: name, name, commands, interval: 0, triggerTiming: 'after_ai', disabled: false });
+        await h.win.xbqte(name);
+        h.flushRecords();
+    }
+    assert.equal(h.calls.length, 1, 'the first-run example displays one echo');
+    assert.equal(h.api.state.dynamicCallbacks.size, 1);
+    assert.equal(h.chatEvents.events.CHAT_CHANGED.length, baselineSubscriptions + 1);
+    const buttons = [...h.win.document.querySelectorAll('button')];
+    assert.equal(buttons.length, 1);
+    buttons[0].click();
+    await settle(); h.flushRecords();
+    assert.equal(h.calls.length, 2, 'the example button runs its command');
+    await h.api.checkAndExecuteTasks('after_ai', false, false);
+    h.flushRecords();
+    assert.equal(h.calls.length, 3, 'the one-shot floor subscription runs once');
+    assert.equal(h.api.state.dynamicCallbacks.size, 0);
+    await h.win.xbtaskreset();
+    assert.equal(h.calls.length, 5, 'cleanup runs its two commands');
+    assert.equal(h.win.document.querySelectorAll('button').length, 0);
+    assert.equal(h.chatEvents.events.CHAT_CHANGED.length, baselineSubscriptions);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(h.errors, []);
+});
+
+test('guide import JSON and preset-entry field fragment preserve their intended timings', async t => {
+    const h = harness(t);
+    h.preset('A', []);
+    const guide = fs.readFileSync(new URL('./README.md', import.meta.url), 'utf8');
+    const objects = [...guide.matchAll(/^```json\r?\n([\s\S]*?)^```/gm)].map(([, json]) => JSON.parse(json));
+    const file = objects.find(value => Array.isArray(value.tasks));
+    await h.api.importGlobalTasks(JSON.stringify(file));
+    const tasks = h.win.XBTasks.list('global');
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].timing, 'after_ai');
+    assert.equal(tasks[0].interval, 0);
+    assert.equal(h.calls.length, 0, 'import is not execution');
+    await h.win.xbqte(tasks[0].name);
+    assert.equal(h.calls.length, 1);
+    const entryFields = objects.find(value => !Array.isArray(value.tasks));
+    await h.api.importGlobalTasks(JSON.stringify({ type: 'preset', tasks: [{ ...file.tasks[0], ...entryFields }] }));
+    assert.equal(h.win.XBTasks.list('preset')[0].timing, 'preset_enter');
+    assert.equal(h.calls.length, 1, 'importing the preset task also waits for activation');
+    assert.deepEqual(h.errors, []);
+});
 
 const task = (name, code, id = name) => ({ id, name, commands: `<<taskjs>>${code}<</taskjs>>`, interval: 1, triggerTiming: 'plugin_init' });
 const resident = label => `
