@@ -195,6 +195,7 @@ function normalizeItem(source) {
             title: normalizeText(metadata.title),
             positive: normalizeText(metadata.positive),
             characterPrompts: metadata.characterPrompts ?? null,
+            continuityChars: Array.isArray(metadata.continuityChars) ? structuredClone(metadata.continuityChars) : null,
             negativePrompt: metadata.negativePrompt ?? null,
             postPrompt: metadata.postPrompt ?? null,
             orientation: metadata.orientation ?? null,

@@ -21,6 +21,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     remove: '移除',
     generationFailed: '生成失败',
     unclaimed: '尚未绘图',
+    manualWaiting: '待手动生成',
     saving: '保存图位',
     queued: '等待绘图',
     generating: '生成中',

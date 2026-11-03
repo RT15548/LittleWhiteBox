@@ -9,6 +9,8 @@ import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../scrip
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
+import { buildContinuityBlockForRequest } from '../../shared/character-continuity.js';
+import { isGenericCharacterName as isGenericCharName } from '../../shared/generic-char-name.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { drawingRuntimeHeaders, DRAWING_RUNTIME_ABI } from '../../shared/drawing-runtime-client.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
@@ -41,6 +43,7 @@ import {
     preloadPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
+import { getContinuityImageRecords } from '../../shared/draw-common.js';
 import { ScenePlannerError, generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { classifyScenePlannerErrorForUi } from "../../shared/scene-planner-error-ui.js";
 import {
@@ -412,6 +415,7 @@ const DEFAULT_SETTINGS = {
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     danbooruLocalDB: false,
     messageFilterRules: [],
+    continuityEnabled: true,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -839,6 +843,7 @@ function normalizeSettings(saved = {}) {
         },
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules: Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [],
+        continuityEnabled: source.continuityEnabled !== false,
     };
 
     if (!merged.paramsPresets?.length) {
@@ -1308,34 +1313,6 @@ async function ensureJSZip() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── 角色自动学习 ─────────────────────────────────────────────
-
-/** 通用/匿名角色名过滤：预编译为单一正则，避免每次调用迭代 30+ 个 pattern */
-const GENERIC_NAME_REGEX = new RegExp([
-    // 中文通用/匿名
-    '(?:^未知)', '(?:^路人)', '(?:^路边)', '(?:^陌生)', '(?:^无名)', '(?:^某[个位])',
-    '(?:^女[人性孩][A-Za-z0-9]?$)', '(?:^男[人性孩][A-Za-z0-9]?$)',
-    '(?:^少[女男年][A-Za-z0-9]?$)', '(?:^大[叔妈姐哥][A-Za-z0-9]?$)',
-    '(?:^老[人头大妇][A-Za-z0-9]?$)',
-    '(?:^[女男人]$)',
-    '(?:^角色[0-9A-Za-z]*$)', '(?:^人物[0-9A-Za-z]*$)',
-    '(?:^配角)', '(?:^(?:NPC|mob))',
-    '(?:^[男女][0-9]+$)',
-    // 中文关系/职业称呼
-    '(?:^[哥姐弟妹]$)',
-    '(?:^(?:哥哥|姐姐|弟弟|妹妹|老师|学长|学姐|前辈|老板|店员|医生|护士|主人|奴隶|仆人)$)',
-    // 日语称呼
-    '(?:^(?:お[兄姉]ちゃん|先輩|先生|マスター|お嬢様|ご主人様)$)',
-    // 英文通用
-    '(?:^(?:faceless|unnamed|unknown|random|stranger|passerby|bystander))',
-    '(?:^(?:girl|boy|woman|man|person|male|female)\\s*[A-Za-z0-9]?$)',
-    // 英文关系/职业称呼
-    '(?:^(?:teacher|master|boss|doctor|nurse|brother|sister|senpai|sensei)$)',
-].join('|'), 'i');
-
-function isGenericCharName(name) {
-    if (!name || name.trim().length <= 1) return true;
-    return GENERIC_NAME_REGEX.test(name.trim());
-}
 
 // 已有角色补字段的学习规则（auto_update 模式）：原样从 autoLearnFromTasks 抽出，
 // 供学习阶段和“写回时合并到最新角色库”共用。对传入角色就地修改，返回是否有改动。
@@ -2270,8 +2247,28 @@ async function handleDelegatedClick(e) {
             break;
         }
         case 'open-gallery':
+            if (document.body.classList.contains('xb-nd-tap-controls')) {
+                // 觸控裝置：點圖只切換控制列（張數列＋「⋮」），不開彈窗放大。
+                const willShow = !container.classList.contains('controls-visible');
+                container.classList.toggle('controls-visible', willShow);
+                if (!willShow) {
+                    document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
+                }
+                break;
+            }
+            // 滑鼠端維持原樣：點圖開畫廊放大
             await handleImageClick(container);
             break;
+        case 'view-image': {
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+            try {
+                await handleImageClick(container);
+            } catch (err) {
+                showToast(`開啟畫廊失敗 — ${err?.message || err}`, 'error', 6000);
+                throw err;
+            }
+            break;
+        }
         case 'refresh-image':
             container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
             await refreshSingleImage(container);
@@ -2327,6 +2324,11 @@ async function handleDelegatedClick(e) {
 function setupEventDelegation() {
     if (window._xbNovelEventsBound) return;
     window._xbNovelEventsBound = true;
+
+    // 僅觸控裝置啟用「點圖才顯示控制列」；滑鼠端維持原樣（點圖即開畫廊放大）。
+    if (window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches) {
+        document.body.classList.add('xb-nd-tap-controls');
+    }
 
     document.addEventListener('click', handleDelegatedClickEvent, { capture: true });
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
@@ -2717,6 +2719,7 @@ async function buildNovelScenePlannerOptions({
     signal,
     useWorldbook = true,
     onStateChange,
+    continuityText = '',
 }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset(settings) || DEFAULT_PROMPT_CONFIG;
@@ -2736,6 +2739,7 @@ async function buildNovelScenePlannerOptions({
     return {
         sceneSource,
         presentCharacters,
+        continuityText,
         useWorldInfo: useWorldbook && settings.useWorldInfo,
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
@@ -2793,6 +2797,8 @@ async function generateImagesFromText(options = {}) {
         if (!sceneSource.content) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
+        // 文本配图（书库/小白X 等入口）没有聊天归属，不读写酒馆聊天的上镜锚点，避免多来源记忆互相污染
+        const continuityText = '';
         job.phase = 'llm';
         options.onStateChange?.('llm', toScenePlannerProgress());
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
@@ -2807,6 +2813,7 @@ async function generateImagesFromText(options = {}) {
                 signal,
                 useWorldbook: !!options.useWorldbook,
                 onStateChange: options.onStateChange,
+                continuityText,
             });
         } catch (e) {
             console.error('[NovelDraw] 文本配图场景分析失败:', e);
@@ -2947,11 +2954,17 @@ async function runPreparedNovelSlots(input) {
             resolveForBackend: resolveNovelImageTransport(settings) !== 'frontend',
         });
         const tasks = await resolveImageTaskOrientations(input.tasks, recipe.overrideSize, job.controller.signal);
-        const { compiledBatch, requests, metadata } = prepareImageInput('novelai', tasks, recipe);
+        const prepared = prepareImageInput('novelai', tasks, recipe);
+        const compiledBatch = prepared.compiledBatch;
+        const requests = prepared.requests;
+        // 原始角色快照随每张图入库：锚点只在图片实际生成成功后生效（含手动槽位逐张生成），
+        // 失败/被丢弃的计划不进锚点
+        const metadata = prepared.metadata;
         job.phase = 'gen';
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
+            manual: input.manual === true,
             nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("novelai"),
             backend: resolveNovelImageTransport(settings) === 'backend-job',
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
@@ -2996,7 +3009,24 @@ async function generateAndInsertImages({
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
 
-        if (isNovelImageBackendJobEnabled(settings)) {
+        // 上镜锚点：从图片记录重建——只取本聊天、目标楼层之前、当前分支上成功生成的图，
+        // 删楼/切分支/删图后锚点自然失效，不再单独维护历史账本。
+        const continuityText = settings.continuityEnabled === false
+            ? ''
+            : buildContinuityBlockForRequest({
+                records: await getContinuityImageRecords({
+                    chat: ctx.chat,
+                    beforeMessageId: messageId,
+                }),
+                presentCharacters,
+                bodyText: sceneSource.content,
+            });
+
+        // 手动生图：即使开了后端任务模式，规划也走浏览器侧，只落槽位不提交；
+        // 后端 Draw Run 无法只规划不执行。
+        const manualSlots = getSharedDrawSettings().autoGenerateImages === false;
+
+        if (!manualSlots && isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
             return await submitProviderDrawRun({
                 ctx,
@@ -3015,6 +3045,7 @@ async function generateAndInsertImages({
                             preset,
                             signal,
                             onStateChange,
+                            continuityText,
                         }),
                         maxPlanImages,
                     });
@@ -3060,6 +3091,7 @@ async function generateAndInsertImages({
                     preset,
                     signal,
                     onStateChange,
+                    continuityText,
                 }));
                 if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
                 await maybeAutoLearnFromTasks(planned, settings);
@@ -3074,6 +3106,11 @@ async function generateAndInsertImages({
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
+        if (manualSlots) {
+            // 只把规划好的槽位和 TAG 落入正文与图库，不提交 NAI；每张由用户点击生成
+            return await runPreparedNovelSlots({ ctx, message, messageId, sourceText: message.mes,
+                tasks, settings, preset, job, onStateChange, manual: true });
+        }
         return await runPreparedNovelSlots({ ctx, message, messageId, sourceText: message.mes,
             tasks, settings, preset, job, onStateChange });
     } catch (error) {
@@ -3272,6 +3309,7 @@ async function sendInitData() {
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
             imageTitleMode: getSharedDrawSettings().imageTitleMode,
+            autoGenerateImages: getSharedDrawSettings().autoGenerateImages !== false,
             saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
             autoSaveImages: getSharedDrawSettings().autoSaveImages === true,
             saveImagesByFolder: getSharedDrawSettings().saveImagesByFolder === true,
@@ -3290,6 +3328,7 @@ async function sendInitData() {
             autoLearnMode: settings.autoLearnMode || 'new_only',
             autoLearnGroupId: settings.autoLearnGroupId || '',
             danbooruLocalDB: !!settings.danbooruLocalDB,
+            continuityEnabled: settings.continuityEnabled !== false,
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
@@ -4095,6 +4134,24 @@ async function handleFrameMessage(event) {
             break;
         }
 
+        case 'SAVE_AUTO_GENERATE_IMAGES': {
+            const nextAuto = data.autoGenerateImages === true;
+            await updateSharedSettingsPersistent((settings) => {
+                settings.autoGenerateImages = nextAuto;
+            }, nextAuto ? '已开启自动排队' : '已关闭自动排队，需逐张手动生成');
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_CONTINUITY_ENABLED': {
+            const enabled = !!data.enabled;
+            await updateSettingsPersistent((settings) => {
+                settings.continuityEnabled = enabled;
+            }, enabled ? '上镜锚点已开启' : '上镜锚点已关闭');
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
         case 'DANBOORU_LOCAL_SEARCH': {
             const results = searchLocalDanbooru(data.query || '', 10);
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
@@ -4303,6 +4360,8 @@ async function handleFrameMessage(event) {
                     postStatus('success', '提交后台完成，可关闭页面');
                 } else if (result?.status === 'uncertain') {
                     postStatus('loading', '后台任务确认中，请勿重复提交');
+                } else if (result?.manual) {
+                    postStatus('success', `已规划 ${result.total} 张，逐张点击「生成」出图`);
                 } else {
                     postStatus('success', `完成! ${result.success} 张`);
                 }
@@ -4580,6 +4639,8 @@ export async function cleanupNovelDraw() {
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
     delete window.xiaobaixNovelDraw;
     delete window._xbNovelEventsBound;
+    // 触控样式只属于 NovelAI 生图；不清掉会连带隐藏其他供应商的图片操作按钮
+    document.body.classList.remove('xb-nd-tap-controls');
 
     // 动态导入并清理
     try {

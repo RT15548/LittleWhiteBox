@@ -43,7 +43,7 @@ export function prepareNativeChatImages(provider, input) {
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
     tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource, filePrefix,
-    swipeIndex = message.swipe_id ?? 0 }) {
+    swipeIndex = message.swipe_id ?? 0, manual = false }) {
     const chatId = String(ctx.chatId);
     const chatIdentity = getImageChatIdentity(ctx);
     const ids = tasks.map(task => ({ ...createImageIdentifiers(),
@@ -109,7 +109,7 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         await materializeDrawSavedPreview(message, task.placement.slotId, { messageId, chatId });
         validateSource();
     }
-    return executePreparedSlots({ items, backend, nativeMessage, onPrepared,
+    return executePreparedSlots({ items, backend, nativeMessage, onPrepared, manual,
         afterDelivered: item => autoSaveDeliveredImage({ imgId: item.imgId, slotId: item.slotId, filePrefix,
             chatTarget: () => {
                 const target = getImageChatIdentity(getContext()) === chatIdentity ? resolveTarget(item.slotId) : null;

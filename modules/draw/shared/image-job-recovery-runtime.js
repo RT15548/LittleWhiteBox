@@ -145,6 +145,8 @@ function previewOptions(record, item, target) {
         negativePrompt: item.previewMetadata?.negativePrompt ?? null,
         postPrompt: item.previewMetadata?.postPrompt ?? null,
         orientation: item.previewMetadata?.orientation ?? null,
+        // Recovery retains the same compiled snapshot as live delivery.
+        continuityChars: Array.isArray(item.previewMetadata?.continuityChars) ? item.previewMetadata.continuityChars : null,
     };
 }
 

@@ -3,6 +3,7 @@ import { materializeDrawSavedPreview, syncDrawSavedFromPreview } from './draw-co
 import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
 import { createImageIdentifiers } from './prepared-image-placement.js';
 import { DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, PreviewStatus } from './image-record.js';
+import { continuityAfterTagEdit } from './character-continuity.js';
 
 export function getCharacterTagEditGroups(characterPrompts = []) {
     return (characterPrompts || []).flatMap((character, index) => {
@@ -67,6 +68,7 @@ export async function persistCardTagEdits(container, compile) {
         characterPrompts,
         ...(postPromptField ? { postPrompt } : {}),
         ...compile(tags, characterPrompts, record, postPrompt),
+        continuityChars: continuityAfterTagEdit(record, characterPrompts),
     };
     let createdImgId;
     if (!record) {

@@ -55,9 +55,9 @@ export function buildScenePlannerWorldInfoBlock(worldInfoSlot) {
     return spliceLiteral(WORLD_INFO_TEMPLATE, '{$worldInfo}', worldInfoSlot);
 }
 
-export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot) {
+export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot, continuitySlot = '') {
     return spliceLiteral(
-        spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', characterInfoSlot),
+        spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', [characterInfoSlot, continuitySlot].filter(Boolean).join('\n\n')),
         '{{lastMessage}}',
         lastMessageSlot,
     );

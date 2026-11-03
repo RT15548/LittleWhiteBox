@@ -6,6 +6,7 @@ function buildDisplayMetadata(artifact = {}) {
         tags: String(artifact.tags || artifact.task?.scene || ''),
         positive: String(promptData.positive || promptData.scene || ''),
         characterPrompts: cloneJson(promptData.characterPrompts || []),
+        continuityChars: cloneJson(artifact.continuityChars ?? null),
         postPrompt: String(artifact.task?.post_prompt || ''),
         orientation: artifact.task?.orientation ?? null,
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),

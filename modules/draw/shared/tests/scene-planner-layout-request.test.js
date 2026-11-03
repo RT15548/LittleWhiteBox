@@ -36,6 +36,14 @@ async function build(layout, options = {}) {
 }
 const receipts = task => task.messages.filter(message => message.role === 'tool');
 const documents = task => receipts(task).map(message => JSON.parse(message.content));
+// Cost: dropping continuity here silently changes a later paid image request.
+test('continuity reaches planner materials once and an empty snapshot leaves the request unchanged', async () => {
+    const baseline = await build();
+    assert.deepEqual((await build(undefined, { continuityText: '' })).task, baseline.task);
+    const continuityText = 'Alice: blue coat, silver hair';
+    const { task } = await build(undefined, { continuityText });
+    assert.equal(documents(task).map(value => value.content).join('\n').split(continuityText).length - 1, 1);
+});
 function adapterBody(task, toolMode) {
     return new OpenAICompatibleAdapter({ provider: 'openai-compatible', model: 'gpt-4o', toolMode,
         apiKey: 'fixture', baseUrl: 'http://127.0.0.1:1/v1' }).buildRequestBody(task);

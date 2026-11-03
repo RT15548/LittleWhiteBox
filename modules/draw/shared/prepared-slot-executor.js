@@ -10,7 +10,7 @@ import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 // placement; providers own transport; neither may acknowledge an unstored image.
 export async function executePreparedSlots({ items, backend, store, remove, select, commit,
     run, resolveTarget, render, activity, signal, classifyError, onStateChange,
-    nativeMessage = false, onPrepared, clearSelection, afterDelivered,
+    nativeMessage = false, onPrepared, clearSelection, afterDelivered, manual = false,
     onRenderError = error => console.error(DRAW_SLOT_COPY.renderFailed, error) }) {
     const results = new Map();
     const deliveryErrors = new Set();
@@ -48,11 +48,11 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             select: () => select(item.slotId, item.imgId),
         });
         if (!delivered) {
-            results.set(index, { slotId: item.slotId, imgId: item.imgId, success: false, discarded: true });
+            results.set(index, { index, slotId: item.slotId, imgId: item.imgId, success: false, discarded: true });
             activity(item.slotId, null);
             return;
         }
-        results.set(index, { slotId: item.slotId, imgId: item.imgId, tags: item.tags,
+        results.set(index, { index, slotId: item.slotId, imgId: item.imgId, tags: item.tags,
             success: patch.status === PreviewStatus.SUCCESS, status: patch.status });
         activity(item.slotId, null);
         // 图片已落库并选中：交给“自动保存”等后续处理，不等待它，也不让它的失败影响本批。
@@ -70,6 +70,12 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             errorType: problem.label, errorMessage: error?.message || problem.desc }, guard, commitDelivery);
     };
     try {
+        // Manual planning shares persistence cleanup but never enters transport.
+        if (manual) {
+            for (const item of items) await store({ ...item, status: PreviewStatus.UNGENERATED });
+            await commitOnce();
+            return { success: 0, total: items.length, manual: true, results: [] };
+        }
         for (const [index, item] of items.entries()) {
             setActivity(item, index, 'preparing');
             await store({ ...item, status: PreviewStatus.PENDING });
@@ -102,7 +108,8 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                     items: items.map((item, index) => ({ index, slotId: item.slotId, imgId: item.imgId, discarded: item.discarded,
                         previewMetadata: { tags: item.tags, title: item.title, positive: item.positive, postPrompt: item.postPrompt,
                             orientation: item.orientation ?? null,
-                            characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt } })),
+                            characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt,
+                            continuityChars: Array.isArray(item.continuityChars) ? item.continuityChars : null } })),
                 },
                 commitPlacements: async () => {
                     // Deletion may precede journal creation while this batch waits

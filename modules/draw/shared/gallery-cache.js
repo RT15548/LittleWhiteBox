@@ -618,6 +618,7 @@ export async function storePreview(opts) {
         bookTitle = '',
         chapterPath = '',
         chapterTitle = '',
+        continuityChars = null,
     } = opts;
     const database = await openDB();
     const ctx = getContext();
@@ -667,6 +668,7 @@ export async function storePreview(opts) {
                 negativePrompt,
                 postPrompt,
                 orientation,
+                continuityChars: Array.isArray(continuityChars) ? continuityChars : null,
                 // Only creation grants attachment authority. Progress/late paid
                 // results cannot restore authority withdrawn by save or editing.
                 placement: previous.result ? previous.result.placement ?? null : placement ?? null,

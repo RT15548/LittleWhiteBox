@@ -58,6 +58,8 @@ function normalizeMetadata(source) {
         negativePrompt: source?.negativePrompt ?? null,
         postPrompt: source?.postPrompt ?? null,
         orientation: source?.orientation ?? null,
+        // 后台 Draw Run 接管的图也要带原始角色快照，成功入库后才进上镜锚点
+        continuityChars: Array.isArray(source?.continuityChars) ? source.continuityChars : null,
         providerMetadata,
     };
 }

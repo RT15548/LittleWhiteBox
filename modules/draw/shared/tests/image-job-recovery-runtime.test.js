@@ -123,7 +123,9 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     const attachments = [], passes = [];
     async function recordJob(id) {
         const record = await api.recordPendingImageJob({ jobId: id, provider: 'sd-webui', delivery: { mode: 'gallery' },
-            items: [{ index: 0, slotId: id + '-slot', imgId: id + '-image', previewMetadata: { orientation: 'landscape' } }] });
+            items: [{ index: 0, slotId: id + '-slot', imgId: id + '-image', previewMetadata: {
+                orientation: 'landscape', continuityChars: [{ name: 'Alice', costume: 'blue coat' }],
+            } }] });
         await api.markPendingImageJobActive(id, record.leaseId);
         await api.renewPendingImageJobLease(id, record.leaseId, { now: 0 });
         return record.createdAt;
@@ -156,6 +158,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     assert.equal(await api.getPendingImageJob('new-job'), null);
     assert.equal(host.previews.get('new-job-image')?.base64, 'delivered');
     assert.equal(host.previews.get('new-job-image')?.orientation, 'landscape');
+    assert.deepEqual(host.previews.get('new-job-image')?.continuityChars, [{ name: 'Alice', costume: 'blue coat' }]);
     // 接回的图以任务提交时刻交给自动保存，开关打开前提交的任务因此不会被当成新图。
     assert.equal(host.autoSaved.find(call => call.imgId === 'new-job-image')?.generatedAt, submittedAt);
     assert.deepEqual(await api.drawCancellationJournal.list(), []);
@@ -278,7 +281,8 @@ for (const mode of ['complete', 'fail', 'discard']) {
             const marker = { version: 1, provider: 'sd-webui', sourceHash, targetHash: hashSceneSource(original), createdAt: 100 };
             const items = [0, 1].map(index => ({
                 index, ...deriveDrawRunItemIds(runId, index), insertOffset: sourceText.length,
-                displayMetadata: { tags: 'scene', postPrompt: `tail-${index}`, orientation: 'landscape' },
+                displayMetadata: { tags: 'scene', postPrompt: `tail-${index}`, orientation: 'landscape',
+                    continuityChars: [{ name: 'Alice', costume: `coat-${index}` }] },
             }));
             const run = {
                 id: runId, provider: marker.provider, state: 'dispatched', sourceHash,
@@ -296,6 +300,8 @@ for (const mode of ['complete', 'fail', 'discard']) {
             await host.ctx.saveChat(); // Simulate the host autosave, not drawing's adoption gate.
             assert.deepEqual(adopted.record.items.map(item => item.previewMetadata.postPrompt), ['tail-0', 'tail-1']);
             assert.deepEqual(adopted.record.items.map(item => item.previewMetadata.orientation), ['landscape', 'landscape']);
+            assert.deepEqual(adopted.record.items.map(item => item.previewMetadata.continuityChars),
+                [[{ name: 'Alice', costume: 'coat-0' }], [{ name: 'Alice', costume: 'coat-1' }]]);
             const { jobId, leaseId } = adopted.record;
             await api.markPendingImageJobOriginRunAckReady(jobId, leaseId, runId);
             await api.activateAdoptingPendingImageJob(jobId, leaseId);

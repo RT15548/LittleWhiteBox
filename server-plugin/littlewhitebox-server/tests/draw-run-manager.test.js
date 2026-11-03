@@ -800,6 +800,7 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
             postPrompt: '',
             orientation: null,
             negativePrompt: 'bad',
+            continuityChars: [],
         },
     });
     assert.doesNotMatch(JSON.stringify(dispatched), /agent-secret|image-secret/);

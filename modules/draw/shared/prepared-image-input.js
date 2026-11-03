@@ -16,12 +16,13 @@ export function prepareImageInput(provider, tasks, recipe) {
         negativePrompt: novel ? promptData.negativePrompt : promptData.negative,
         params: recipe.params,
     }));
-    const metadata = compiledBatch.artifacts.map(({ task, promptData }) => ({
+    const metadata = compiledBatch.artifacts.map(({ task, promptData, continuityChars }) => ({
         tags: task.scene || '',
         title: task.title || '',
         orientation: task.orientation ?? null,
         positive: novel ? promptData.scene : promptData.positive,
         characterPrompts: promptData.characterPrompts,
+        continuityChars: continuityChars ?? null,
         negativePrompt: novel ? promptData.negativePrompt : promptData.negative,
         // ComfyUI 的整图追加位（post_prompt 已被编译器拼进 positive，这里单独带上供编辑重建）
         postPrompt: task.post_prompt || '',
