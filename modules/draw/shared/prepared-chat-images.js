@@ -42,7 +42,7 @@ export function prepareNativeChatImages(provider, input) {
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
     tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource,
-    swipeIndex = message.swipe_id ?? 0 }) {
+    swipeIndex = message.swipe_id ?? 0, manual = false }) {
     const chatId = String(ctx.chatId);
     const chatIdentity = getImageChatIdentity(ctx);
     const ids = tasks.map(task => ({ ...createImageIdentifiers(),
@@ -57,6 +57,8 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
     const owner = {};
     const items = metadata.map((data, index) => ({ ...data, ...ids[index], messageId,
         chatId, characterName: message.name || '',
+        // 顶层分支号随图入库，供画面记忆按「当前有效分支」过滤
+        swipeIndex: Number.isFinite(Number(swipeIndex)) ? Number(swipeIndex) : null,
         placement: existingSlots ? null : captureImagePlacement(chatIdentity, sourceText, swipeIndex, tasks[index].placement, index),
         delivery: { mode: 'slots', chatId, messageId: String(messageId), swipeIndex,
             // A provider result is already paid work. If chat persistence or
@@ -108,7 +110,7 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         await materializeDrawSavedPreview(message, task.placement.slotId, { messageId, chatId });
         validateSource();
     }
-    return executePreparedSlots({ items, backend, nativeMessage, onPrepared,
+    return executePreparedSlots({ items, backend, nativeMessage, onPrepared, manual,
         store: storePreview, remove: deletePreview, clearSelection: clearSlotSelection,
         select: async (slotId, imgId) => {
             await setSlotSelection(slotId, imgId);

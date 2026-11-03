@@ -139,6 +139,9 @@ function previewOptions(record, item, target) {
         negativePrompt: item.previewMetadata?.negativePrompt ?? null,
         postPrompt: item.previewMetadata?.postPrompt ?? null,
         orientation: item.previewMetadata?.orientation ?? null,
+        // 后台恢复的图也要带原始角色快照与分支号，才能进上镜锚点
+        continuityChars: Array.isArray(item.previewMetadata?.continuityChars) ? item.previewMetadata.continuityChars : null,
+        swipeIndex: item.previewMetadata?.swipeIndex ?? record.gallery?.swipeIndex ?? null,
     };
 }
 

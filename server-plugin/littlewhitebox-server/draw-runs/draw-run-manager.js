@@ -105,6 +105,8 @@ function buildDisplayMetadata(artifact = {}) {
         postPrompt: String(artifact.task?.post_prompt || ''),
         orientation: artifact.task?.orientation ?? null,
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
+        // 规划时的原始角色快照随任务下发，接管入库后供上镜锚点使用
+        continuityChars: Array.isArray(artifact.task?.chars) ? cloneJson(artifact.task.chars) : null,
     };
     if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {
         metadata.providerMetadata = cloneJson(artifact.providerMetadata);

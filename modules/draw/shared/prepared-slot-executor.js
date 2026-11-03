@@ -10,7 +10,7 @@ import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 // placement; providers own transport; neither may acknowledge an unstored image.
 export async function executePreparedSlots({ items, backend, store, remove, select, commit,
     run, resolveTarget, render, activity, signal, classifyError, onStateChange,
-    nativeMessage = false, onPrepared, clearSelection,
+    nativeMessage = false, onPrepared, clearSelection, manual = false,
     onRenderError = error => console.error(DRAW_SLOT_COPY.renderFailed, error) }) {
     const results = new Map();
     const deliveryErrors = new Set();
@@ -36,6 +36,13 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
         if (!nativeMessage) await refresh();
         return true;
     };
+    // 手动生图：只把槽位写进正文、把规划好的 TAG 落库成待生成记录，不提交任何绘图请求。
+    // 用户点卡片上的「生成」时走 redrawImageCard 单槽提交。
+    if (manual) {
+        for (const item of items) await store({ ...item, status: PreviewStatus.UNGENERATED });
+        await commitOnce();
+        return { success: 0, total: items.length, manual: true, results: [] };
+    }
     const deliver = async (index, patch, guard = async () => {}, commitDelivery) => {
         const item = items[index];
         const delivered = await deliverPreparedImage({
@@ -48,11 +55,11 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
             select: () => select(item.slotId, item.imgId),
         });
         if (!delivered) {
-            results.set(index, { slotId: item.slotId, imgId: item.imgId, success: false, discarded: true });
+            results.set(index, { index, slotId: item.slotId, imgId: item.imgId, success: false, discarded: true });
             activity(item.slotId, null);
             return;
         }
-        results.set(index, { slotId: item.slotId, imgId: item.imgId, tags: item.tags,
+        results.set(index, { index, slotId: item.slotId, imgId: item.imgId, tags: item.tags,
             success: patch.status === PreviewStatus.SUCCESS, status: patch.status });
         activity(item.slotId, null);
         await refresh([item.slotId]);
@@ -96,11 +103,13 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                 plan: {
                     delivery: { ...items[0].delivery, preserveSlotsOnCancel: true },
                     gallery: { chatId: items[0].chatId, messageId: String(items[0].messageId),
+                        swipeIndex: items[0].swipeIndex ?? items[0].delivery?.swipeIndex ?? null,
                         characterName: items[0].characterName },
                     items: items.map((item, index) => ({ index, slotId: item.slotId, imgId: item.imgId, discarded: item.discarded,
                         previewMetadata: { tags: item.tags, title: item.title, positive: item.positive, postPrompt: item.postPrompt,
                             orientation: item.orientation ?? null,
-                            characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt } })),
+                            characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt,
+                            continuityChars: Array.isArray(item.continuityChars) ? item.continuityChars : null } })),
                 },
                 commitPlacements: async () => {
                     // Deletion may precede journal creation while this batch waits

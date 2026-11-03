@@ -198,6 +198,8 @@ async function redraw(provider, container) {
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
             tasks: [{ scene: tags, title: record?.title ?? container.dataset.title ?? '', characterPrompts: record?.characterPrompts ?? [],
                 orientation: record?.orientation ?? null,
+                // 供应商侧成功后回写画面记忆（上镜锚点）需要规划时的原始角色快照
+                chars: Array.isArray(record?.continuityChars) ? record.continuityChars : [],
                 ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } }] });

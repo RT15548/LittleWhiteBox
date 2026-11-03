@@ -1,19 +1,19 @@
 /**
- * 上镜锚点（On-screen Continuity Ledger）
+ * 上镜锚点（On-screen Continuity）
  *
  * 与角色库（characterTags）的分工：
  * - 角色库是用户维护的权威身份资料，本模块不修改它；
- * - 这里只缓存「每个角色最近一次实际入画时，下发给生图模型的身份/着装英文 tag」。
+ * - 这里只汇总「每个角色最近一次实际入画时，下发给生图模型的身份/着装英文 tag」。
  *   下次规划时作为跨楼层画面事实喂给 LLM：默认逐字复用，仅在正文出现明确变化事实时改写。
  *
- * 设计取舍（刻意保持简单）：
- * - last-snapshot 覆盖更新，不做事件流、不按楼层重放；
- * - 已录入角色只记当前着装（身份外貌以角色库为唯一权威）；
- * - 纯数据 + 纯函数，宿主 IO 全部走可注入的 context，便于单测与后台任务复用。
+ * 数据源（刻意保持简单，不单独维护历史系统）：
+ * - 直接复用图库图片记录：每张成功图片入库时随存 continuityChars（规划时的原始角色快照）；
+ * - 读取时按「当前聊天、目标楼层之前、当前 swipe 分支」过滤图片记录后合并，
+ *   删楼/切分支/图片删除后锚点自然失效；
+ * - 纯数据 + 纯函数，图片记录由宿主查询后注入，便于单测与后台任务复用。
  */
 import { isGenericCharacterName } from './generic-char-name.js';
 
-export const CONTINUITY_META_KEY = 'xbDrawContinuity';
 const CONTINUITY_VERSION = 1;
 const MAX_ENTRIES = 40;
 const MAX_TAG_LENGTH = 600;
@@ -97,7 +97,7 @@ export function buildContinuityBlock(entries, { knownNames = [] } = {}) {
 }
 
 /**
- * 用本次已解析的计划更新锚点。
+ * 用一批角色快照更新锚点（时间序调用即按图片顺序生效）。
  * - 已录入角色：只更新「当前着装」，appear 永不写入；
  * - 未录入角色：appear/costume 各自仅在本次非空时覆盖（模型漏写不清空记忆）；
  * - 通用称呼跳过；超过上限淘汰最久未出现的角色。
@@ -142,68 +142,43 @@ export function mergePlanIntoContinuity(entries, tasks, { knownNames = [], now =
     });
 }
 
-export function readContinuityContext(context) {
-    const metadata = context?.chatMetadata;
-    if (!metadata || typeof metadata !== 'object') {
-        return { version: CONTINUITY_VERSION, entries: [] };
+/**
+ * 从图片记录重建锚点状态：记录需按（楼层、时间）升序传入，
+ * 每条记录的 continuityChars 视作该图入画时的角色快照。
+ */
+export function buildContinuityFromImageRecords(records, { knownNames = [] } = {}) {
+    let state = normalizeContinuity(null);
+    for (const record of Array.isArray(records) ? records : []) {
+        const chars = Array.isArray(record?.continuityChars) ? record.continuityChars : [];
+        if (!chars.length) continue;
+        state = mergePlanIntoContinuity(state.entries, [{ chars }], {
+            knownNames,
+            now: Number(record?.timestamp) || 0,
+        });
     }
-    return normalizeContinuity(metadata[CONTINUITY_META_KEY]);
+    return state;
 }
 
-export function writeContinuityContext(context, state) {
-    if (!context?.chatMetadata || typeof context.chatMetadata !== 'object') return false;
-    context.chatMetadata[CONTINUITY_META_KEY] = {
-        version: CONTINUITY_VERSION,
-        entries: Array.isArray(state?.entries) ? state.entries : [],
-    };
-    return true;
-}
-
-async function resolveHostContext(injected) {
-    if (injected) return injected;
-    // 动态加载保持本模块对纯 node 测试环境零宿主依赖。
-    const { getContext } = await import('../../../../../../extensions.js');
-    return getContext();
-}
-
-/** 规划前调用：选出本楼相关锚点并渲染成区块。任何宿主异常都退化为「无锚点」。 */
-export async function buildContinuityBlockForRequest({
+/**
+ * 规划前调用：由宿主注入过滤后的图片记录，选出本楼相关锚点并渲染成区块。
+ * 任何异常都退化为「无锚点」。
+ */
+export function buildContinuityBlockForRequest({
+    records = [],
     presentCharacters = [],
     bodyText = '',
-    context = null,
 } = {}) {
     try {
-        const ctx = await resolveHostContext(context);
-        const state = readContinuityContext(ctx);
         const knownNames = (Array.isArray(presentCharacters) ? presentCharacters : [])
             .map(character => character?.name);
+        const state = buildContinuityFromImageRecords(records, { knownNames });
         const selected = selectContinuityEntries(state.entries, {
             knownNames,
             bodyText: String(bodyText || ''),
         });
         return buildContinuityBlock(selected, { knownNames });
     } catch (error) {
-        console.warn('[Draw Continuity] 读取上镜锚点失败:', error);
+        console.warn('[Draw Continuity] 构建上镜锚点失败:', error);
         return '';
-    }
-}
-
-/** 规划成功后调用：把本次实际入画的身份/着装快照写回聊天元数据。best-effort。 */
-export async function recordPlanContinuity(tasks, {
-    knownNames = [],
-    context = null,
-    now = Date.now(),
-} = {}) {
-    try {
-        const ctx = await resolveHostContext(context);
-        if (!ctx?.chatMetadata) return false;
-        const state = readContinuityContext(ctx);
-        const next = mergePlanIntoContinuity(state.entries, tasks, { knownNames, now });
-        if (!writeContinuityContext(ctx, next)) return false;
-        ctx.saveMetadataDebounced?.();
-        return true;
-    } catch (error) {
-        console.warn('[Draw Continuity] 写入上镜锚点失败:', error);
-        return false;
     }
 }

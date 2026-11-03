@@ -624,6 +624,8 @@ export async function storePreview(opts) {
         bookTitle = '',
         chapterPath = '',
         chapterTitle = '',
+        continuityChars = null,
+        swipeIndex = null,
     } = opts;
     const database = await openDB();
     const ctx = getContext();
@@ -673,6 +675,8 @@ export async function storePreview(opts) {
                 negativePrompt,
                 postPrompt,
                 orientation,
+                continuityChars: Array.isArray(continuityChars) ? continuityChars : null,
+                swipeIndex: Number.isFinite(Number(swipeIndex)) ? Number(swipeIndex) : null,
                 // Only creation grants attachment authority. Progress/late paid
                 // results cannot restore authority withdrawn by save or editing.
                 placement: previous.result ? previous.result.placement ?? null : placement ?? null,
@@ -909,6 +913,46 @@ export async function clearPreviewPlacements(owner, slotIds) {
             resolve();
         };
         tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
+    });
+}
+
+/**
+ * 画面记忆（上镜锚点）数据源：当前聊天、目标楼层之前、当前分支上成功生成的图片记录。
+ * 删楼/切分支后锚点自然失效——记录随图删、跨分支不读取，不再单独维护历史系统。
+ */
+export async function getContinuityImageRecords({ chatId, beforeMessageId, swipeIndex }) {
+    const database = await openDB();
+    const wantedChatId = String(chatId ?? '');
+    const before = Number(beforeMessageId);
+    const wantedSwipe = Number(swipeIndex);
+    return new Promise((resolve, reject) => {
+        try {
+            const records = [];
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const request = tx.objectStore(DB_STORE).openCursor();
+            request.onsuccess = () => {
+                const cursor = request.result;
+                if (!cursor) return;
+                const record = cursor.value;
+                cursor.continue();
+                if (!record || record.status !== 'success') return;
+                if (String(record.chatId || '') !== wantedChatId) return;
+                const messageId = Number(record.messageId);
+                if (!Number.isFinite(messageId) || !Number.isFinite(before) || messageId >= before) return;
+                if (Number.isFinite(wantedSwipe) && Number(record.swipeIndex) !== wantedSwipe) return;
+                if (!Array.isArray(record.continuityChars) || record.continuityChars.length === 0) return;
+                records.push({
+                    messageId,
+                    timestamp: Number(record.timestamp) || 0,
+                    continuityChars: record.continuityChars,
+                });
+            };
+            request.onerror = () => reject(request.error);
+            tx.oncomplete = () => resolve(records.sort((a, b) =>
+                a.messageId - b.messageId || a.timestamp - b.timestamp));
+        } catch (e) {
+            reject(e);
+        }
     });
 }
 
