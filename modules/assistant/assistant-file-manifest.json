@@ -4822,7 +4822,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/docs/recall-reuse.md",
       "relativePath": "modules/story-summary/docs/recall-reuse.md",
       "extension": ".md",
-      "sizeBytes": 12540
+      "sizeBytes": 13927
     },
     {
       "source": "littlewhitebox",
@@ -4843,7 +4843,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/docs/vector-cache-packages.md",
       "relativePath": "modules/story-summary/docs/vector-cache-packages.md",
       "extension": ".md",
-      "sizeBytes": 9834
+      "sizeBytes": 10023
     },
     {
       "source": "littlewhitebox",
@@ -9169,7 +9169,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/branch-state.md",
       "relativePath": "modules/variables/state2/branch-state.md",
       "extension": ".md",
-      "sizeBytes": 7350
+      "sizeBytes": 6965
     },
     {
       "source": "littlewhitebox",
