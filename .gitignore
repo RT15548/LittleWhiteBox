@@ -20,3 +20,4 @@ scripts/.story-summary-replay-cache/
 # Local verification artifacts and previews
 .playwright-cli/
 /output/
+.lwb-runtime-key.pem
