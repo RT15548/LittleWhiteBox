@@ -352,7 +352,10 @@ const STYLES = `
     width: 242px;
     display: flex;
     flex-direction: column;
-    max-height: min(55vh, 400px);
+    /* 限高＝屏幕的 1/2~1/3。双声明：TT 的 WebView 会丢弃带 min()/vh 的声明，
+       必须先给纯 px 回退（永远生效），现代浏览器再被 min() 覆盖取更小值 */
+    max-height: 400px;
+    max-height: min(50vh, 400px);
     overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
@@ -2100,11 +2103,12 @@ function placeMenuToViewport(rootEl) {
     const margin = 8;
     const below = win.innerHeight - rect.bottom - margin;
     const above = rect.top - margin;
-    const cap = Math.min(win.innerHeight * 0.55, 400);
+    const cap = Math.min((win.innerHeight || 800) * 0.5, 400);
     const need = Math.min(menu.offsetHeight || cap, cap);
     const flip = below < need && above > below;
     rootEl.classList.toggle('menu-flip', flip);
-    menu.style.maxHeight = `${Math.round(Math.max(180, Math.min(cap, flip ? above : below)))}px`;
+    // 内联 px 是 TT 上的真正兜底（CSS min()/vh 可能被丢弃），取「半屏/400px/可用空间」最小值，保底 240
+    menu.style.maxHeight = `${Math.round(Math.max(240, Math.min(cap, flip ? above : below)))}px`;
 }
 
 export function updateAutoModeUI() {
