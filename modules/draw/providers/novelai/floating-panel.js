@@ -525,12 +525,15 @@ ${MAX_IMAGES_INPUT_CSS}
 }
 
 /* 缩略图固定像素高度：绝不依赖 aspect-ratio 或百分比 padding，
-   否则该 WebView 会把高度算成 0，导致卡片被压成细线、全部挤在一起不滚动 */
+   否则该 WebView 会把高度算成 0，导致卡片被压成细线、全部挤在一起不滚动。
+   高度带 !important：楼层/悬浮两种挂载位置命中的宿主页样式不同（聊天消息里的
+   img 规则可能更高优先级），不加会被宿主样式拉伸成“随位置填满高度” */
 .nd-preset-thumb {
-    width: 100%;
-    height: 75px;
+    width: 100% !important;
+    height: 75px !important;
+    max-height: 75px !important;
     object-fit: cover;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(128, 128, 128, 0.28);
     display: block;
     pointer-events: none;
 }
@@ -722,10 +725,10 @@ function renderPresetGrid(gridEl) {
         // 内联 align-self 防止 grid 把卡片在纵向拉伸/压缩
         card.style.alignSelf = 'start';
 
-        // 空缩略图占位：内联固定高度（不依赖 stylesheet，杜绝被外部样式压成 0），纯文字
+        // 空缩略图占位：内联固定高度＋!important（不依赖 stylesheet、不被宿主样式改写），纯灰底
         const makeEmpty = () => {
             const empty = createEl('div', 'nd-preset-thumb empty', '无预览');
-            empty.style.cssText = 'width:100%;height:75px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.35);font-size:10px;line-height:1.2;text-align:center;padding:2px;box-sizing:border-box;';
+            empty.style.cssText = 'width:100% !important;height:75px !important;max-height:75px !important;display:flex;align-items:center;justify-content:center;background:rgba(128,128,128,0.28);color:rgba(255,255,255,0.45);font-size:10px;line-height:1.2;text-align:center;padding:2px;box-sizing:border-box;';
             return empty;
         };
 
@@ -735,8 +738,8 @@ function renderPresetGrid(gridEl) {
             img.alt = '';
             img.loading = 'lazy';
             img.decoding = 'async';
-            // 内联固定尺寸：最高优先级，避免任何外部/残留 CSS 把高度算成 0
-            img.style.cssText = 'width:100%;height:75px;object-fit:cover;display:block;background:rgba(255,255,255,0.05);box-sizing:border-box;';
+            // 内联固定尺寸＋!important：最高优先级，宿主样式（不同挂载位置规则不同）与外部残留 CSS 都改不了
+            img.style.cssText = 'width:100% !important;height:75px !important;max-height:75px !important;object-fit:cover;display:block;background:rgba(128,128,128,0.28);box-sizing:border-box;';
             img.src = p.thumbnail;
             img.addEventListener('error', () => img.replaceWith(makeEmpty()), { once: true });
             card.appendChild(img);
