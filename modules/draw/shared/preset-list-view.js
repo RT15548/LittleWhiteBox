@@ -97,6 +97,7 @@ export function createPresetListView({
     let sortableList = null; // 排序控制器挂着的容器
     let bound = null; // 已挂上点击委托的容器
     let boundToggle = null;
+    let boundDoc = null; // portal 菜单的动作委托挂在 document 上（菜单被 portal 出列表容器后，列表委托够不着）
     let unbindRename = null;
     let collapsed = null; // 首次用到时才读存储
 
@@ -139,7 +140,7 @@ export function createPresetListView({
     }
 
     // 行里除名称输入框、拖动手柄、菜单浮层之外的地方点一下 = 选中；带 data-preset-action 的按钮（“…”与菜单项）各走各的。
-    function handleClick(event) {
+    function handleClick(event) { console.log("[LIST] fired, target:", event.target?.className);
         const list = getList();
         const target = event.target;
         const button = target?.closest?.('[data-preset-action]');
@@ -168,6 +169,24 @@ export function createPresetListView({
         handleClick(event);
     }
 
+    // portal 到内容树的“…”菜单不在列表容器里，列表上的 handleClick 够不着；菜单项自带 data-preset-action，
+    // 在 document 上补一路委托。归属判定：行内（或已收回 wrap 的）菜单交给 handleClick；portal 打开时，
+    // 只有「自己的列表里存在展开中的菜单按钮」的视图才认领这次点击，多个预设视图不会互相串。
+    function handleDocumentClick(event) {
+        const button = event.target?.closest?.('[data-preset-action]');
+        const menu = button?.closest('[role="menu"]');
+        if (!button || !menu || !menu.isConnected) return;
+        const list = getList();
+        if (list?.contains(menu)) return; // 行内菜单：handleClick 已处理
+        const openButton = list?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]');
+        if (!openButton || openButton.dataset.presetId !== button.dataset.presetId) return; // 别的视图的菜单
+        const id = button.dataset.presetId ?? '';
+        const preset = getPresets().find(item => String(item.id) === String(id));
+        closeMenu?.({ restoreFocus: true });
+        if (!preset) return;
+        onAction?.(button.dataset.presetAction, id, preset);
+    }
+
     function handleRename(input, name) {
         const id = input.closest('.preset-row')?.dataset.presetId ?? '';
         const preset = getPresets().find(item => item.id === id);
@@ -186,6 +205,10 @@ export function createPresetListView({
         list.addEventListener('keydown', handleKeydown);
         unbindRename = bindInlineRename(list, { onCommit: handleRename });
         bound = list;
+        if (!boundDoc) {
+            boundDoc = list.ownerDocument;
+            boundDoc.addEventListener('click', handleDocumentClick);
+        }
     }
 
     function destroyBindings() {
@@ -194,6 +217,8 @@ export function createPresetListView({
         unbindRename?.();
         unbindRename = null;
         bound = null;
+        boundDoc?.removeEventListener('click', handleDocumentClick);
+        boundDoc = null;
     }
 
     function ensureSortable() {

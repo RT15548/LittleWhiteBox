@@ -37,7 +37,7 @@ export function createPresetListKit({ escapeHtml = defaultEscapeHtml, shareMenu 
     let ownMenu = null;
     const menu = shareMenu || {
         get(document) {
-            ownMenu ||= createCardMenuController({ document });
+            ownMenu ||= createCardMenuController({ document, portal: true });
             return ownMenu;
         },
         peek: () => ownMenu,

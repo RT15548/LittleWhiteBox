@@ -30,6 +30,18 @@ function mount() {
     };
 }
 
+test('portal mounts the open menu into the page content tree and restores it on close', () => {
+    const { document, window } = parseHTML(MARKUP.replace('<body>', '<body><div class="app-container"></div>'));
+    const controller = createCardMenuController({ document, getViewport: () => ({ width: 800, height: 600 }), portal: true });
+    const buttonA = document.querySelector('#a button[aria-haspopup]');
+    const menuA = document.querySelector('#a [role="menu"]');
+    const container = document.querySelector('.app-container');
+    controller.open(buttonA);
+    assert.equal(container.contains(menuA), true, '打开时菜单挂在 .app-container');
+    controller.close();
+    assert.equal(document.querySelector('#a[data-card-menu]').contains(menuA), true, '关闭后菜单收回原 wrap');
+});
+
 test('computeMenuPosition aligns to the button, flips upward near the bottom and clamps to the viewport', () => {
     const menu = { width: 140, height: 120 };
     const viewport = { width: 400, height: 600 };
@@ -50,7 +62,7 @@ test('opening shows the menu, marks the button expanded and focuses the first it
     assert.equal(t.controller.toggle(t.buttonA), true);
     assert.equal(t.menuA.hasAttribute('hidden'), false);
     assert.equal(t.buttonA.getAttribute('aria-expanded'), 'true');
-    assert.equal(t.menuA.style.position, 'fixed');
+    assert.equal(t.menuA.style.position, 'absolute');
     assert.equal(t.controller.isOpen(), true);
     assert.equal(t.controller.getOpenButton(), t.buttonA);
     t.controller.toggle(t.buttonA);

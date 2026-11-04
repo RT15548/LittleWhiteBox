@@ -628,6 +628,11 @@ function getCardMenu() {
     if (!cardMenu && CM) cardMenu = CM.createCardMenuController({ document });
     return cardMenu;
 }
+let presetMenu = null; // 预设“…”菜单专用控制器：portal 到内容树（TT 的 WKWebView 渲染不出行内浮层），与角色卡行内菜单分开
+function getPresetMenu() {
+    if (!presetMenu && CM) presetMenu = CM.createCardMenuController({ document, portal: true });
+    return presetMenu;
+}
 let groupHeights = null; // 分组高度控制器，setupCharacterDragAndSelection 里创建
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
@@ -5460,6 +5465,8 @@ window.addEventListener('pagehide', event => {
 window.addEventListener('beforeunload', () => {
     cardMenu?.destroy();
     cardMenu = null;
+    presetMenu?.destroy();
+    presetMenu = null;
     galleryImageWindow.dispose();
 
 
@@ -6010,7 +6017,7 @@ function initializePage() {
             .catch((error) => { console.error('[ND-UI] 预设排序模块加载失败，参数预设无法排序:', error); }),
         import('../../shared/preset-list-kit.js')
             .then((module) => {
-                presetListKit = module.createPresetListKit({ escapeHtml, shareMenu: { get: () => getCardMenu(), peek: () => cardMenu } });
+                presetListKit = module.createPresetListKit({ escapeHtml, shareMenu: { get: () => getPresetMenu(), peek: () => presetMenu } });
                 renderApiPresetBar();
             })
             .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，预设列表无法显示或排序:', error); }),

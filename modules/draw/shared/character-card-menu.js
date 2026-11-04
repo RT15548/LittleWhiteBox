@@ -40,7 +40,8 @@ export function computeMenuPosition(anchor, menu, viewport, { margin = VIEWPORT_
  * @param {object} options
  * @param {Document} options.document
  * @param {function} [options.getViewport] () => { width, height }，默认取 document 的视口（测试用）
- * @param {boolean} [options.portal] Render outside transformed/scrolling chat containers.
+ * @param {boolean} [options.portal] 打开时把菜单挂进页面真实内容树（.app-container，缺省回退 body）而不是卡片行内：
+ *                                   TT 的 WKWebView 渲染不出卡片行内浮层，挂进内容树才可见（与缩略图弹层同修法）。
  */
 export function createCardMenuController({ document, getViewport, portal = false } = {}) {
     if (!document) throw new TypeError('缺少 document');
@@ -50,6 +51,7 @@ export function createCardMenuController({ document, getViewport, portal = false
         height: win?.innerHeight || document.documentElement?.clientHeight || 0,
     }));
     let current = null; // { button, menu, wrap }
+    let openedAt = 0; // 打开时刻：开菜单后立即可能有一次聚焦引发的微滚动，宽限期内不当作“用户滚动了”来关菜单
     const ownerObserver = portal ? new win.MutationObserver(() => {
         if (current && !current.button.isConnected) close();
     }) : null;
@@ -103,10 +105,11 @@ export function createCardMenuController({ document, getViewport, portal = false
         current = { button, menu, wrap };
         button.setAttribute('aria-expanded', 'true');
         if (portal) {
-            document.body.append(menu);
+            (document.querySelector('.app-container') || document.body).append(menu);
             ownerObserver.observe(document.body, { childList: true, subtree: true });
         }
         place(current);
+        openedAt = Date.now();
         itemsOf(menu)[0]?.focus?.({ preventScroll: true });
         return true;
     }
@@ -137,9 +140,10 @@ export function createCardMenuController({ document, getViewport, portal = false
     on(document, 'focusin', (event) => {
         if (current && !current.wrap.contains(event.target) && !current.menu.contains(event.target)) close();
     });
-    // 浮层不跟随滚动 / 缩放：直接关闭（菜单自己的滚动除外）。
+    // 浮层不跟随滚动 / 缩放：直接关闭（菜单自己的滚动除外）。刚打开后的头 250ms 例外——
+    // 聚焦首个菜单项可能在部分 WebView（TT 的 WKWebView）里触发一次对焦滚动，把刚开的菜单秒关。
     on(document, 'scroll', (event) => {
-        if (current && !current.menu.contains(event.target)) close();
+        if (current && !current.menu.contains(event.target) && Date.now() - openedAt > 250) close();
     }, true);
     if (win) on(win, 'resize', () => close());
 
