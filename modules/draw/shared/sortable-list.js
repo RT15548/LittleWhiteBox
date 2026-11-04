@@ -103,6 +103,42 @@ export function moveGroupToIndex(ids, groupIds, insertAt) {
 }
 
 /**
+ * 网格布局的插入定位：找与指针距离最近的“其他行”，落在它右半 = 插它后面，左半 = 插它前面。
+ * 纵向列表的 Y 中线算法在多列网格下会错乱（同一行的卡片中线相同），网格必须看 X + Y。
+ * @param {number} pointerX
+ * @param {number} pointerY
+ * @param {Array<{top: number, bottom: number, left: number, right: number}>} rects 全部行的矩形，按当前顺序
+ * @param {number} fromIndex 被拖项当前的位置
+ * @returns {{toIndex: number, markIndex: number, markSide: 'before'|'after'}|null}
+ *          toIndex 与 computeInsertIndex 同语义（在“其余行”序列里的插入位置）；mark 是落点高亮行（其余行序列的原始下标）。
+ *          只有一行或输入不合法时返回 null
+ */
+export function computeGridInsertIndex(pointerX, pointerY, rects, fromIndex) {
+    if (!Array.isArray(rects) || fromIndex < 0 || fromIndex >= rects.length
+        || !Number.isFinite(pointerX) || !Number.isFinite(pointerY)) return null;
+    const others = [];
+    rects.forEach((rect, index) => {
+        if (index === fromIndex) return;
+        others.push({ rect, index });
+    });
+    if (!others.length) return null;
+    let best = null;
+    for (const { rect, index } of others) {
+        const dx = pointerX - (rect.left + rect.right) / 2;
+        const dy = pointerY - (rect.top + rect.bottom) / 2;
+        const dist = dx * dx + dy * dy;
+        if (!best || dist < best.dist) best = { dist, index, rect };
+    }
+    const after = pointerX > (best.rect.left + best.rect.right) / 2;
+    const othersIndex = others.findIndex(item => item.index === best.index);
+    return {
+        toIndex: after ? othersIndex + 1 : othersIndex,
+        markIndex: best.index,
+        markSide: after ? 'after' : 'before',
+    };
+}
+
+/**
  * 创建一个可排序列表控制器。事件委托在 container 上，所以行被整体重绘（innerHTML）后无需重新绑定。
  * @param {object} options
  * @param {Element} options.container 列表容器（通常同时是滚动容器）
@@ -125,6 +161,7 @@ export function moveGroupToIndex(ids, groupIds, insertAt) {
  * @param {string} [options.bodyClass] 拖拽期间加在 body 上的类名（用来统一光标、禁止选中文字）
  * @param {string} [options.scopeSelector] 一个 container 里有多个互相独立的列表时（如多个形态各有自己的服装列表）：
  *        被拖行最近的、匹配它的祖先就是排序范围，只在这个范围内的行之间定位与排序；不传则 container 里的全部行是同一个列表
+ * @param {boolean} [options.gridMode] 网格布局的列表（多列卡片）：用最近邻二维定位代替 Y 中线定位
  * @returns {{destroy: function(): void, isDragging: function(): boolean, cancel: function(): void}}
  */
 export function createSortableList({
@@ -143,9 +180,10 @@ export function createSortableList({
     afterClass = 'drop-after',
     bodyClass = 'sortable-dragging',
     scopeSelector = null,
+    gridMode = false,
 } = {}) {
     if (!container || !document) throw new TypeError('缺少 container / document');
-    let drag = null; // { pointerId, id, startY, lastY, moved, handle, group, scope }
+    let drag = null; // { pointerId, id, startX, startY, lastX, lastY, moved, handle, group, scope }
     const removers = [];
 
     const rowsOf = scope => Array.from((scope || container).querySelectorAll(rowSelector));
@@ -162,12 +200,17 @@ export function createSortableList({
     }
 
     /** 按指针当前位置实时读一遍行矩形，得出被拖项的当前下标与目标下标；被拖行已不在列表里时返回 null。 */
-    function locate(pointerY) {
+    function locate(pointerX, pointerY) {
         const rows = rowsOf(drag.scope);
         const ids = idsOf(rows);
         const fromIndex = ids.indexOf(drag.id);
         if (fromIndex < 0) return null;
         const rects = rows.map(row => row.getBoundingClientRect());
+        if (gridMode && !drag.group) {
+            const grid = computeGridInsertIndex(pointerX, pointerY, rects, fromIndex);
+            if (!grid) return null;
+            return { rows, ids, fromIndex, toIndex: grid.toIndex, mark: { index: grid.markIndex, side: grid.markSide } };
+        }
         if (drag.group) {
             const groupIndexes = ids.map((id, index) => (drag.group.includes(id) ? index : -1)).filter(index => index >= 0);
             return { rows, ids, fromIndex, groupIndexes, insertAt: computeGroupInsertIndex(pointerY, rects, groupIndexes), toIndex: -1 };
@@ -182,8 +225,8 @@ export function createSortableList({
 
     function finish({ cancelled }) {
         if (!drag) return;
-        const { moved, lastY, scope } = drag;
-        const found = cancelled || !moved ? null : locate(lastY);
+        const { moved, lastX, lastY, scope } = drag;
+        const found = cancelled || !moved ? null : locate(lastX, lastY);
         drag = null;
         removers.splice(0).forEach(off => off());
         document.body?.classList.remove(bodyClass);
@@ -201,14 +244,19 @@ export function createSortableList({
 
     function onPointerMove(event) {
         if (!drag || event.pointerId !== drag.pointerId) return;
+        drag.lastX = event.clientX;
         drag.lastY = event.clientY;
         if (Math.abs(event.clientY - drag.startY) > DRAG_THRESHOLD_PX) drag.moved = true;
         if (!drag.moved) return;
         autoScroll?.(event);
         // 自动滚动之后再量：落点要按滚动后的实时位置算。
-        const found = locate(event.clientY);
+        const found = locate(drag.lastX, drag.lastY);
         if (!found) { finish({ cancelled: true }); return; }
         for (const row of found.rows) row.classList.remove(beforeClass, afterClass);
+        if (found.mark) {
+            found.rows[found.mark.index]?.classList.add(found.mark.side === 'before' ? beforeClass : afterClass);
+            return;
+        }
         const mark = found.groupIndexes
             ? dropMarkForGroup(found.rows.length, found.groupIndexes, found.insertAt)
             : dropMarkFor(found.rows.length, found.fromIndex, found.toIndex);
@@ -223,7 +271,7 @@ export function createSortableList({
         if (!handle || !row || !container.contains(row)) return;
         event.preventDefault?.();
         const id = String(getId(row));
-        drag = { pointerId: event.pointerId, id, startY: event.clientY, lastY: event.clientY, moved: false, handle, group: groupOf(id), scope: scopeOf(row) };
+        drag = { pointerId: event.pointerId, id, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, moved: false, handle, group: groupOf(id), scope: scopeOf(row) };
         try { handle.setPointerCapture?.(event.pointerId); } catch (error) {
             console.warn({ source: import.meta.url, operation: 'setPointerCapture' }, error);
         }

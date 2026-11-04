@@ -42,6 +42,7 @@ import {
     getBase64ImagePayload,
     preloadPreviewDisplayUrl,
     warmSlotPreviewNeighbors,
+    getThumbnailCandidates,
 } from "../../shared/gallery-cache.js";
 import { getContinuityImageRecords } from '../../shared/draw-common.js';
 import { ScenePlannerError, generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
@@ -102,6 +103,7 @@ import {
     isNovelImageBackendJobEnabled,
     resolveNovelImageTransport,
     resolveNovelAIBackendImageApi,
+    resolveNovelAIEncodeVibeApi,
     snapshotNovelRequestConfig,
 } from "./novel-request-config.js";
 import {
@@ -152,8 +154,15 @@ import {
     downloadPresetAsFile,
     parsePresetData,
     destroyCloudPresets,
+    setVibeLibraryProvider,
 } from "./cloud-presets.js";
 import { postToIframe, isTrustedMessage } from "../../../../core/iframe-messaging.js";
+
+// 导出云端预设时从宿主取全局 Vibe 库（被勾选项/整组会内联进分享文件）
+setVibeLibraryProvider(() => {
+    const settings = getRuntimeSettings();
+    return settings.vibeLibrary || null;
+});
 import {
     loadLocalDanbooruDB,
     unloadLocalDanbooruDB,
@@ -221,7 +230,7 @@ const handleFrameMessageEvent = observeAsyncCallback(handleFrameMessage, { sourc
 const MODULE_KEY = 'novelDraw';
 const DRAW_RUN_PROVIDER = 'novelai';
 const SERVER_FILE_KEY = 'settings';
-const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
+const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw2.html`;
 // Provider requests share the unified server plugin installation.
 const NAI_BACKEND_BASE = SERVER_PLUGIN_BASE;
 const NAI_BACKEND_GENERATE = `${NAI_BACKEND_BASE}/v1/generate-image`;
@@ -401,6 +410,7 @@ const DEFAULT_SETTINGS = {
     activeApiPresetId: null,
     selectedParamsPresetId: null,
     paramsPresets: [],
+    vibeLibrary: { singles: [], groups: [] },
     useWorldInfo: false,    
     characterTags: [],
     autoLearnCharacters: false,
@@ -753,6 +763,234 @@ function normalizeV5UcPresetId(value, legacyPreset) {
     return ({ 0: 'heavy', 1: 'light', 2: 'humanFocus', 3: 'none' })[Number(legacyPreset)] || 'heavy';
 }
 
+export function getVibeModelKey(model) {
+    const name = String(model || '');
+    if (name.includes('4-5-curated')) return 'v4-5curated';
+    if (name.includes('4-5-full')) return 'v4-5full';
+    if (name.includes('4-curated')) return 'v4curated';
+    if (name.includes('4-full')) return 'v4full';
+    return null;
+}
+
+// information_extracted 为 0~1 连续值（官方 UI 即滑杆），默认 1
+function clampVibeInfoExtracted(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+}
+
+// 编码缓存键 = 模型@信息提取值（量化两位小数）：同一张图可在多个信息提取值下各存一份编码，
+// 改值只是指向另一个键，改回原值直接命中旧编码，无需重花点数。裸键（无 @）为旧数据。
+const VIBE_ENCODING_KEY_RE = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
+
+function vibeEncodingKey(modelKey, infoExtracted) {
+    return `${modelKey}@${clampVibeInfoExtracted(infoExtracted).toFixed(2)}`;
+}
+
+function parseVibeEncodingKey(key) {
+    if (!VIBE_ENCODING_KEY_RE.test(String(key || ''))) return null;
+    const at = String(key).indexOf('@');
+    return {
+        modelKey: at < 0 ? String(key) : String(key).slice(0, at),
+        info: at < 0 ? null : clampVibeInfoExtracted(Number(String(key).slice(at + 1))),
+    };
+}
+
+// ── Vibe 库条目：编码是花点数的昂贵资源，统一存全局库，供多个画师串预设引用 ──
+function normalizeVibeLibItem(raw, index) {
+    const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const infoExtracted = clampVibeInfoExtracted(source.infoExtracted);
+    const rawEncodings = source.encodings && typeof source.encodings === 'object' && !Array.isArray(source.encodings)
+        ? source.encodings
+        : {};
+    const encodings = {};
+    Object.entries(rawEncodings).forEach(([key, value]) => {
+        if (typeof value !== 'string' || !value) return;
+        const parsed = parseVibeEncodingKey(key);
+        if (!parsed) return;
+        // 旧数据裸键必然对应当前信息提取值（旧逻辑改值即清空编码），迁移为组合键
+        encodings[vibeEncodingKey(parsed.modelKey, parsed.info == null ? infoExtracted : parsed.info)] = value;
+    });
+    return {
+        id: String(source.id || `vibe-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`),
+        name: String(source.name || '').slice(0, 60),
+        image: String(source.image || ''),
+        thumbnail: String(source.thumbnail || source.image || ''),
+        // information_extracted（0~1）烘焙进编码，未编码过的数值需手动重新编码（已有该数值的编码则直接复用）
+        infoExtracted,
+        encodings,
+    };
+}
+
+function normalizeVibeLibrary(raw) {
+    const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const singles = (Array.isArray(source.singles) ? source.singles : [])
+        .map((item, index) => normalizeVibeLibItem(item, index))
+        .filter(item => item.image || Object.keys(item.encodings).length > 0);
+    const validIds = new Set(singles.map(item => item.id));
+    const groups = (Array.isArray(source.groups) ? source.groups : [])
+        .map((group, index) => {
+            const src = group && typeof group === 'object' && !Array.isArray(group) ? group : {};
+            // 组是一份「勾选 + 强度」快照：members 只引用库里仍然存在的 single
+            const seen = new Set();
+            const members = (Array.isArray(src.members) ? src.members : [])
+                .map((entry) => {
+                    const m = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+                    const id = String(m.id || '');
+                    if (!id || !validIds.has(id) || seen.has(id)) return null;
+                    seen.add(id);
+                    const strength = Number(m.strength);
+                    return {
+                        id,
+                        enabled: m.enabled !== false,
+                        strength: Number.isFinite(strength) && strength >= 0 && strength <= 1 ? strength : 0.6,
+                    };
+                })
+                .filter(Boolean);
+            return {
+                id: String(src.id || `vibegroup-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`),
+                name: String(src.name || '').slice(0, 60),
+                members,
+            };
+        })
+        .filter(group => group.members.length > 0);
+    return { singles, groups };
+}
+
+// ── 画师串预设的 Vibe 配置有两种模式 ──
+// groupId 非空＝引用某个已保存的 Vibe 组（组更新后预设自动跟随）；
+// groupId 为空＝散装 selections（本预设自己的勾选 + 强度快照）。
+function normalizePresetVibe(raw) {
+    const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const seen = new Set();
+    const selections = (Array.isArray(source.selections) ? source.selections : [])
+        .map((entry) => {
+            const src = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+            const id = String(src.id || '');
+            if (!id || seen.has(id)) return null;
+            seen.add(id);
+            const strength = Number(src.strength);
+            return {
+                id,
+                enabled: src.enabled !== false,
+                strength: Number.isFinite(strength) && strength >= 0 && strength <= 1 ? strength : 0.6,
+            };
+        })
+        .filter(Boolean);
+    return { groupId: String(source.groupId || ''), selections };
+}
+
+function stripDataUrlPrefix(value) {
+    const raw = String(value || '').trim();
+    const comma = raw.indexOf(',');
+    return raw.startsWith('data:') && comma >= 0 ? raw.slice(comma + 1) : raw;
+}
+
+function uint8ToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function createVibeCacheKey() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    return 'vibe-xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+        const random = Math.random() * 16 | 0;
+        const value = char === 'x' ? random : (random & 0x3) | 0x8;
+        return value.toString(16);
+    });
+}
+
+// 调用 NovelAI /ai/encode-vibe，返回 base64 编码（浏览器直连，与生成同样的端点与 Key）
+async function encodeVibeReference({ apiKey, apiBaseUrl, imageBase64, model, informationExtracted, signal = undefined }) {
+    if (!apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
+    const url = resolveNovelAIEncodeVibeApi(apiBaseUrl);
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            image: stripDataUrlPrefix(imageBase64),
+            information_extracted: clampVibeInfoExtracted(informationExtracted),
+            model,
+        }),
+        signal,
+    });
+    if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        throw parseApiError(response.status, errorText, ErrorType.PROVIDER);
+    }
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length < 100) {
+        throw new NovelDrawError(
+            'Vibe 编码返回数据异常（内容过短），该端点可能不支持 /ai/encode-vibe',
+            ErrorType.PROVIDER,
+        );
+    }
+    return uint8ToBase64(bytes);
+}
+
+// 生成前：以 preset.vibe.selections 的实际勾选为准（勾选即带、不勾即不带，即时生效）。
+// groupId 仅作旧数据兼容：selections 为空且组仍存在时回退组成员快照。
+// 编码只允许用户在设置页手动发起（花点数），这里绝不自动补编：
+// 缺当前模型编码的项直接跳过并提示，保证不会在生成时偷偷扣编码费。
+// 返回本次实际注入用的 [{ encoding, strength }]（库中已删除 / 未启用 / 未编码的项自动跳过）。
+async function ensurePresetVibeReady(settings, preset, { signal } = {}) {
+    const model = String(preset?.params?.model || '');
+    const modelKey = getVibeModelKey(model);
+    const library = settings.vibeLibrary || (settings.vibeLibrary = { singles: [], groups: [] });
+    if (!Array.isArray(library.singles)) library.singles = [];
+    if (!Array.isArray(library.groups)) library.groups = [];
+
+    const groupId = String(preset?.vibe?.groupId || '');
+    const selections = Array.isArray(preset?.vibe?.selections) ? preset.vibe.selections : [];
+    let activeSelections = selections.filter(sel => sel && sel.id && sel.enabled !== false);
+    // 旧数据兼容：组引用模式下历史版本 selections 恒为空数组，此时才回退组成员。
+    // 新数据取消全部勾选后 selections 仍保留 enabled:false 条目（非空），不再回退，确保不勾即不带。
+    if (selections.length === 0 && groupId) {
+        const group = library.groups.find(g => g.id === groupId);
+        const members = Array.isArray(group?.members) ? group.members : [];
+        activeSelections = members.filter(sel => sel && sel.id && sel.enabled !== false);
+    }
+    if (!modelKey || activeSelections.length === 0) return [];
+
+    const byId = new Map(library.singles.map(item => [item.id, item]));
+
+    const result = [];
+    const unencoded = [];
+    for (const sel of activeSelections) {
+        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
+        const item = byId.get(sel.id);
+        if (!item) continue;
+        // 按当前模型+当前信息提取值的组合键取编码；裸键兜底未经迁移的旧数据
+        const encoding = item.encodings[vibeEncodingKey(modelKey, item.infoExtracted)] || item.encodings[modelKey];
+        if (!encoding) {
+            // 该数值下未编码：跳过，不扣编码费
+            unencoded.push(item.name || '未命名');
+            continue;
+        }
+        const strength = Number(sel.strength);
+        result.push({
+            encoding,
+            strength: Number.isFinite(strength) && strength >= 0 && strength <= 1 ? strength : 0.6,
+            name: String(item.name || '').trim(),
+        });
+    }
+    if (unencoded.length) {
+        showToast(
+            `以下 Vibe 尚未编码，本次未应用（不扣编码费）：${unencoded.join('、')}。请在画图设置中点「点击编码」后再生成`,
+            'warning',
+            6000,
+        );
+    }
+    return result;
+}
+
 function normalizeParamsPreset(preset, index) {
     const source = preset && typeof preset === 'object' && !Array.isArray(preset) ? preset : {};
     const params = source.params && typeof source.params === 'object' && !Array.isArray(source.params)
@@ -767,6 +1005,8 @@ function normalizeParamsPreset(preset, index) {
         name: String(source.name || `配置-${index + 1}`),
         positivePrefix: String(source.positivePrefix || ''),
         negativePrefix: String(source.negativePrefix || ''),
+        thumbnail: String(source.thumbnail || ''),
+        vibe: normalizePresetVibe(source.vibe),
         maxImages: source.maxImages == null
             ? 2
             : Math.max(0, Number(source.maxImages) || 0),
@@ -819,6 +1059,7 @@ function normalizeSettings(saved = {}) {
         paramsPresets: Array.isArray(source.paramsPresets)
             ? source.paramsPresets.map(normalizeParamsPreset)
             : [],
+        vibeLibrary: normalizeVibeLibrary(source.vibeLibrary),
         cacheDays: normalizeSharedCacheDays(source.cacheDays),
         useWorldInfo: source.useWorldInfo === true,
         characterTags: Array.isArray(source.characterTags) ? source.characterTags : [],
@@ -1610,6 +1851,7 @@ export function createNovelGenerationRecipe({
     settings = getRuntimeSettings(),
     preset = getActiveParamsPreset(),
     itemCount = 0,
+    vibeReferences = [],
     resolveForBackend,
 } = {}) {
     if (typeof resolveForBackend !== 'boolean') {
@@ -1636,6 +1878,7 @@ export function createNovelGenerationRecipe({
         params: cloneSettingsObject(params),
         positivePrefix: preset?.positivePrefix || '',
         negativePrefix: preset?.negativePrefix || '',
+        vibeReferences: Array.isArray(vibeReferences) ? cloneSettingsObject(vibeReferences) : [],
         // 只携带有效启用的角色（分组开着且角色自己开着），后台 500 条上限也按这个数计。
         knownCharacters: cloneSettingsObject(selectEnabledCharacters(characterLibraryFromSettings(settings))),
         autoLearnEnabled: settings.autoLearnCharacters === true,
@@ -2050,6 +2293,61 @@ export const novelPublicGeneration = {
         return Array.isArray(result) ? result : [imageBlob(result)];
     },
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 画师串预设缩略图候选
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 把画廊记录压成小体积 JPEG dataURL，作为画师串预设缩略图候选项。
+// 远程 savedUrl 跨域会污染画布导致导出失败，失败时返回空串由调用方跳过。
+function createThumbnailDataUrlFromPreview(record, maxDim = 160) {
+    return new Promise((resolve) => {
+        const url = getPreviewDisplayUrl(record);
+        if (!url || typeof Image === 'undefined') { resolve(''); return; }
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const w = Math.max(1, Math.round(img.width * scale));
+                const h = Math.max(1, Math.round(img.height * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', 0.82));
+            } catch {
+                resolve('');
+            }
+        };
+        img.onerror = () => resolve('');
+        img.src = url;
+    });
+}
+
+async function pushPresetThumbCandidates(iframe, { requestId, presetId, all }) {
+    const { matched, others } = await getThumbnailCandidates(presetId);
+    const limit = 60;
+    const pool = (all ? [...matched, ...others] : matched).slice(0, limit);
+    const images = [];
+    for (const record of pool) {
+        const thumb = await createThumbnailDataUrlFromPreview(record);
+        if (!thumb) continue;
+        images.push({
+            imgId: record.imgId,
+            thumb,
+            matched: Boolean(presetId) && record.presetId === String(presetId),
+            timestamp: record.timestamp || 0,
+            title: String(record.title || '').slice(0, 60),
+            tags: String(record.tags || record.positive || '').slice(0, 120),
+        });
+    }
+    postToIframe(iframe, {
+        type: 'PRESET_THUMB_CANDIDATES_DATA',
+        requestId,
+        presetId: String(presetId || ''),
+        images,
+    }, 'LittleWhiteBox-NovelDraw');
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 图片渲染
@@ -2818,6 +3116,7 @@ async function generateImagesFromText(options = {}) {
         job.phase = 'gen';
         options.onStateChange?.('gen', { current: 0, total: tasks.length });
 
+        const vibeReferences = await ensurePresetVibeReady(settings, preset, { signal });
         const compiledBatch = compileNovelScenePlan(
             tasks,
             createNovelGenerationRecipe({
@@ -2825,6 +3124,7 @@ async function generateImagesFromText(options = {}) {
                 preset,
                 itemCount: tasks.length,
                 resolveForBackend: settings.sendMode === 'backend',
+                vibeReferences,
             }),
         );
         const batchItems = compiledBatch.artifacts.map(({ task, promptData }) => {
@@ -2936,10 +3236,14 @@ async function runPreparedNovelSlots(input) {
     try {
         const settings = input.settings || cloneSettingsObject(getRuntimeSettings());
         const preset = input.preset || cloneSettingsObject(getActiveParamsPreset());
+        const vibeReferences = await ensurePresetVibeReady(settings, preset, {
+            signal: job.controller.signal,
+        });
         const recipe = createNovelGenerationRecipe({
             settings,
             preset,
             itemCount: input.tasks.length,
+            vibeReferences,
             resolveForBackend: resolveNovelImageTransport(settings) !== 'frontend',
         });
         const tasks = await resolveImageTaskOrientations(input.tasks, recipe.overrideSize, job.controller.signal);
@@ -3017,6 +3321,8 @@ async function generateAndInsertImages({
 
         if (!manualSlots && isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
+            // Vibe 编码在浏览器侧完成（/ai/encode-vibe 直连），编码结果随 recipe 一起提交给后端
+            const vibeReferences = await ensurePresetVibeReady(settings, preset, { signal });
             return await submitProviderDrawRun({
                 ctx,
                 message,
@@ -3043,6 +3349,7 @@ async function generateAndInsertImages({
                     settings,
                     preset,
                     itemCount: prepared.planner.validationContext.maxPlanImages,
+                    vibeReferences,
                     resolveForBackend: true,
                 }),
                 automatic,
@@ -3304,6 +3611,7 @@ async function sendInitData() {
             saveImagesByFolder: getSharedDrawSettings().saveImagesByFolder === true,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
+            vibeLibrary: settings.vibeLibrary || { singles: [], groups: [] },
             useWorldInfo: settings.useWorldInfo,
             plannerMaxRetries: settings.plannerMaxRetries,
             characterTags: settings.characterTags,
@@ -3694,6 +4002,34 @@ async function handleFrameMessage(event) {
         }
 
 
+        case 'ENCODE_VIBE': {
+            try {
+                const s = getSettings();
+                const encoding = await encodeVibeReference({
+                    apiKey: String(s.apiKey || '').trim(),
+                    apiBaseUrl: String(s.apiBaseUrl || '').trim(),
+                    imageBase64: String(data.image || ''),
+                    model: String(data.model || ''),
+                    informationExtracted: Number(data.informationExtracted),
+                });
+                if (iframe) postToIframe(iframe, {
+                    type: 'ENCODE_VIBE_RESULT',
+                    requestId: data.requestId,
+                    ok: true,
+                    encoding,
+                }, 'LittleWhiteBox-NovelDraw');
+            } catch (error) {
+                console.error('[NovelDraw] ENCODE_VIBE 失败:', error);
+                if (iframe) postToIframe(iframe, {
+                    type: 'ENCODE_VIBE_RESULT',
+                    requestId: data.requestId,
+                    ok: false,
+                    message: error?.message || 'Vibe 编码失败',
+                }, 'LittleWhiteBox-NovelDraw');
+            }
+            break;
+        }
+
         case 'SAVE_PARAMS_PRESET': {
             const ok = await updateSettingsPersistent((settings) => {
                 if (data.selectedParamsPresetId) settings.selectedParamsPresetId = data.selectedParamsPresetId;
@@ -3708,6 +4044,17 @@ async function handleFrameMessage(event) {
                     refreshPresetSelect?.();
                 } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
             }
+            break;
+        }
+
+        // Vibe 库是全局资源（编码花点数），UI 端在上传/编码完成/删除/导入/存组后整体回存。
+        // 静默保存且不回推 INIT_DATA：编码是异步多步流程，回推会替换 UI 持有的对象引用导致丢编码。
+        case 'SAVE_VIBE_LIBRARY': {
+            await updateSettingsPersistent((settings) => {
+                if (data.vibeLibrary && typeof data.vibeLibrary === 'object') {
+                    settings.vibeLibrary = normalizeVibeLibrary(data.vibeLibrary);
+                }
+            }, '', { notify: false, silent: true });
             break;
         }
 
@@ -3788,8 +4135,56 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
         case 'OPEN_CLOUD_PRESETS': {
             observeBackgroundTask(openCloudPresetsModal(async (presetData) => {
-                const { preset: newPreset, warnings: importWarnings } = parsePresetData(presetData, generateSlotId);
+                const generateVibeLibId = () => `vibe-${createVibeCacheKey()}`;
+                const {
+                    preset: newPreset,
+                    warnings: importWarnings,
+                    vibeImports = [],
+                    vibeGroup = null,
+                } = parsePresetData(presetData, generateSlotId, generateVibeLibId);
                 const ok = await updateSettingsPersistent((settings) => {
+                    // 随云端预设内联的 Vibe 单项合入全局库：
+                    // 同原图去重复用已有项并补齐其缺失的模型编码，引用 id 重写到合库结果
+                    const library = settings.vibeLibrary || (settings.vibeLibrary = { singles: [], groups: [] });
+                    if (!Array.isArray(library.singles)) library.singles = [];
+                    if (!Array.isArray(library.groups)) library.groups = [];
+                    const resolvedIdMap = new Map();
+                    vibeImports.forEach((imported) => {
+                        const existing = imported.image
+                            ? library.singles.find(s => s.image === imported.image)
+                            : null;
+                        if (existing) {
+                            if (!existing.encodings || typeof existing.encodings !== 'object') {
+                                existing.encodings = {};
+                            }
+                            Object.entries(imported.encodings || {}).forEach(([key, value]) => {
+                                if (!existing.encodings[key]) existing.encodings[key] = value;
+                            });
+                            resolvedIdMap.set(imported.id, existing.id);
+                        } else {
+                            library.singles.push(imported);
+                            resolvedIdMap.set(imported.id, imported.id);
+                        }
+                    });
+
+                    if (vibeGroup) {
+                        // 组模式：成员 id 按去重结果重写，组随预设一起重建入库
+                        vibeGroup.members = vibeGroup.members
+                            .map(m => resolvedIdMap.has(m.id) ? { ...m, id: resolvedIdMap.get(m.id) } : m)
+                            .filter(m => library.singles.some(s => s.id === m.id));
+                        if (vibeGroup.members.length) {
+                            library.groups.push(vibeGroup);
+                        } else {
+                            // 成员全部失效时退回无 Vibe（newPreset.vibe.groupId 指向的组不存在，
+                            // ensurePresetVibeReady 会静默回退空 selections）
+                            newPreset.vibe = { groupId: '', selections: [] };
+                        }
+                    } else if (Array.isArray(newPreset.vibe?.selections) && resolvedIdMap.size) {
+                        newPreset.vibe.selections = newPreset.vibe.selections
+                            .map(sel => resolvedIdMap.has(sel.id) ? { ...sel, id: resolvedIdMap.get(sel.id) } : sel)
+                            .filter(sel => library.singles.some(s => s.id === sel.id));
+                    }
+
                     settings.paramsPresets.push(newPreset);
                     settings.selectedParamsPresetId = newPreset.id;
                 }, `已导入: ${newPreset.name}`, { target: 'params' });
@@ -3811,6 +4206,26 @@ async function handleFrameMessage(event) {
             }
             downloadPresetAsFile(preset);
             postStatus('success', '已导出', 'params');
+            break;
+        }
+        case 'PRESET_THUMB_CANDIDATES': {
+            if (!iframe?.isConnected) break;
+            try {
+                await pushPresetThumbCandidates(iframe, {
+                    requestId: data.requestId,
+                    presetId: String(data.presetId || ''),
+                    all: data.all === true,
+                });
+            } catch (e) {
+                console.error('[NovelDraw] 读取缩略图候选失败:', e);
+                postToIframe(iframe, {
+                    type: 'PRESET_THUMB_CANDIDATES_DATA',
+                    requestId: data.requestId,
+                    presetId: String(data.presetId || ''),
+                    images: [],
+                    error: e?.message || '读取画廊失败',
+                }, 'LittleWhiteBox-NovelDraw');
+            }
             break;
         }
 
@@ -4195,6 +4610,31 @@ async function handleFrameMessage(event) {
             observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
             postStatus('success', '已清空', 'gallery');
             break;
+
+        case 'CONVERT_LEGACY_JPEG': {
+            const { convertLegacyPreviewsToJpeg } = await import('../../shared/gallery-cache.js');
+            try {
+                const stats = await convertLegacyPreviewsToJpeg({
+                    onProgress: (done, total) => {
+                        if (total > 10 && (done % 10 === 0 || done === total)) {
+                            postStatus('info', `舊圖轉換中… ${done}/${total}`, 'gallery');
+                        }
+                    },
+                });
+                const savedMB = (stats.savedBytes / 1024 / 1024).toFixed(1);
+                postStatus('success',
+                    `已轉換 ${stats.converted} 張，節省 ${savedMB} MB${stats.failed ? `，失敗 ${stats.failed} 張` : ''}`,
+                    'gallery');
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            } catch (e) {
+                console.error('[NovelDraw] legacy JPEG conversion failed:', e);
+                postStatus('error', `轉換失敗：${e?.message || e}`, 'gallery');
+            } finally {
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, { type: 'CONVERT_LEGACY_DONE' }, 'LittleWhiteBox-NovelDraw');
+            }
+            break;
+        }
 
         case 'GET_PROMPT_CHAIN': {
             const currentPrompts = getActivePromptPreset() || {};

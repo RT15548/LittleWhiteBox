@@ -63,6 +63,8 @@ const DEFAULT_MENU_ITEMS = [
  * @param {string} [options.listId] 折叠状态的存储名（如 'novel-params'）；缺省则不记忆
  * @param {function(): (Element|null)} [options.getToggle] 折叠 / 展开按钮；点击切换，状态同步到 aria-expanded 和 .collapsed
  * @param {boolean} [options.defaultCollapsed] 尚无折叠偏好时的初始状态
+ * @param {string} [options.variant] 'grid' = 网格卡片（缩略图在上、名称在下、“…”浮在右上、缩略图即拖拽把手）；缺省 = 纵向行
+ * @param {string} [options.thumbnailKey] 网格卡片取缩略图数据的字段名（缺省 'thumbnail'；值应为 dataURL 或 URL）
  * @returns {{render: function(): void, syncSelection: function(): void, refresh: function(): void, ensureSortable: function(): void, bind: function(): void, destroy: function(): void, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, toggle: function(): void}}
  */
 export function createPresetListView({
@@ -85,6 +87,8 @@ export function createPresetListView({
     listId = '',
     getToggle = null,
     defaultCollapsed = false,
+    variant = 'rows',
+    thumbnailKey = 'thumbnail',
 } = {}) {
     if (!document || typeof getList !== 'function' || typeof getPresets !== 'function' || typeof escapeHtml !== 'function') {
         throw new TypeError('缺少 document / getList / getPresets / escapeHtml');
@@ -93,6 +97,7 @@ export function createPresetListView({
     let sortableList = null; // 排序控制器挂着的容器
     let bound = null; // 已挂上点击委托的容器
     let boundToggle = null;
+    let boundDoc = null; // portal 菜单的动作委托挂在 document 上（菜单被 portal 出列表容器后，列表委托够不着）
     let unbindRename = null;
     let collapsed = null; // 首次用到时才读存储
 
@@ -107,6 +112,21 @@ export function createPresetListView({
         const selected = preset.id === current;
         const items = menuItems.map(item => `
                     <button type="button" role="menuitem" class="char-menu-item${item.danger ? ' danger' : ''}" data-preset-action="${escapeHtml(item.action)}" data-preset-id="${pid}" title="${escapeHtml(item.label)}"><i class="fa-solid ${escapeHtml(item.icon)}" aria-hidden="true"></i><span class="char-menu-label">${escapeHtml(item.label)}</span></button>`).join('');
+        if (variant === 'grid') {
+            const thumb = String(preset[thumbnailKey] || '').trim();
+            return `
+        <div class="preset-row preset-card-grid${selected ? ' selected' : ''}" role="listitem" tabindex="0" data-preset-id="${pid}"${selected ? ' aria-current="true"' : ''}>
+            <span class="preset-thumb" role="button" tabindex="0" data-preset-drag="${pid}" title="按住拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${escapeHtml(noun)} ${pname} 的顺序">${thumb
+                ? `<img src="${thumb}" alt="" draggable="false">`
+                : ''}</span>
+            <input type="text" class="preset-row-name inline-name" value="${pname}" placeholder="${escapeHtml(noun)}名称" title="点一下改名（Enter 确认，Esc 还原）" aria-label="${escapeHtml(noun)}名称" autocomplete="off">
+            <span class="char-menu-wrap" data-card-menu>
+                <button type="button" class="char-action-button char-menu-button" data-preset-action="menu" data-preset-id="${pid}" title="更多操作" aria-label="更多操作 ${pname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+                <div class="char-menu" role="menu" aria-label="更多操作 ${pname}" hidden>${items}
+                </div>
+            </span>
+        </div>`;
+        }
         return `
         <div class="preset-row${selected ? ' selected' : ''}" role="listitem" tabindex="0" data-preset-id="${pid}"${selected ? ' aria-current="true"' : ''}>
             ${withHandle ? `<span class="char-drag-handle" role="button" tabindex="0" data-preset-drag="${pid}" title="拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${escapeHtml(noun)} ${pname} 的顺序">⋮⋮</span>` : ''}
@@ -120,13 +140,14 @@ export function createPresetListView({
     }
 
     // 行里除名称输入框、拖动手柄、菜单浮层之外的地方点一下 = 选中；带 data-preset-action 的按钮（“…”与菜单项）各走各的。
-    function handleClick(event) {
+    function handleClick(event) { console.log("[LIST] fired, target:", event.target?.className);
         const list = getList();
         const target = event.target;
         const button = target?.closest?.('[data-preset-action]');
         const row = target?.closest?.('.preset-row');
         if (!list || !row || !list.contains(row)) return;
-        if (!button && target.closest(`${INLINE_NAME_SELECTOR}, [data-preset-drag], .char-menu`)) return;
+        if (!button && target.closest(`${INLINE_NAME_SELECTOR}, .char-menu`)) return;
+        if (!button && variant !== 'grid' && target.closest('[data-preset-drag]')) return;
         // 选中菜单项：先关菜单（焦点回到“…”按钮），再走与点选一致的处理。
         if (button?.closest('[role="menu"]')) closeMenu?.({ restoreFocus: true });
         const action = button ? button.dataset.presetAction : 'select';
@@ -148,6 +169,24 @@ export function createPresetListView({
         handleClick(event);
     }
 
+    // portal 到内容树的“…”菜单不在列表容器里，列表上的 handleClick 够不着；菜单项自带 data-preset-action，
+    // 在 document 上补一路委托。归属判定：行内（或已收回 wrap 的）菜单交给 handleClick；portal 打开时，
+    // 只有「自己的列表里存在展开中的菜单按钮」的视图才认领这次点击，多个预设视图不会互相串。
+    function handleDocumentClick(event) {
+        const button = event.target?.closest?.('[data-preset-action]');
+        const menu = button?.closest('[role="menu"]');
+        if (!button || !menu || !menu.isConnected) return;
+        const list = getList();
+        if (list?.contains(menu)) return; // 行内菜单：handleClick 已处理
+        const openButton = list?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]');
+        if (!openButton || openButton.dataset.presetId !== button.dataset.presetId) return; // 别的视图的菜单
+        const id = button.dataset.presetId ?? '';
+        const preset = getPresets().find(item => String(item.id) === String(id));
+        closeMenu?.({ restoreFocus: true });
+        if (!preset) return;
+        onAction?.(button.dataset.presetAction, id, preset);
+    }
+
     function handleRename(input, name) {
         const id = input.closest('.preset-row')?.dataset.presetId ?? '';
         const preset = getPresets().find(item => item.id === id);
@@ -166,6 +205,10 @@ export function createPresetListView({
         list.addEventListener('keydown', handleKeydown);
         unbindRename = bindInlineRename(list, { onCommit: handleRename });
         bound = list;
+        if (!boundDoc) {
+            boundDoc = list.ownerDocument;
+            boundDoc.addEventListener('click', handleDocumentClick);
+        }
     }
 
     function destroyBindings() {
@@ -174,6 +217,8 @@ export function createPresetListView({
         unbindRename?.();
         unbindRename = null;
         bound = null;
+        boundDoc?.removeEventListener('click', handleDocumentClick);
+        boundDoc = null;
     }
 
     function ensureSortable() {
@@ -192,6 +237,7 @@ export function createPresetListView({
             moveStep,
             autoScroll: autoScroll ? event => autoScroll(event, list) : null,
             document,
+            gridMode: variant === 'grid',
         }) || null;
     }
 
@@ -226,6 +272,7 @@ export function createPresetListView({
         const current = getCurrentId();
         const folded = isCollapsed();
         list.classList.toggle('preset-list-collapsed', folded);
+        list.classList.toggle('is-grid', variant === 'grid');
         const shown = visiblePresets(presets, current, folded);
         // eslint-disable-next-line no-unsanitized/property -- 名称与 id 都经注入的 escapeHtml 转义，其余是固定标记
         list.innerHTML = shown.length
@@ -272,7 +319,8 @@ export function createPresetListView({
             && list.classList.contains('preset-list-collapsed') === folded
             && rows.length === shown.length
             && rows.every((row, index) => row.dataset.presetId === String(shown[index].id)
-                && row.querySelector('.preset-row-name')?.value === String(shown[index].name || shown[index].id));
+                && row.querySelector('.preset-row-name')?.value === String(shown[index].name || shown[index].id)
+                && (variant !== 'grid' || row.querySelector('.preset-thumb img')?.getAttribute('src') === String(shown[index][thumbnailKey] || '').trim()));
         if (same) syncSelection();
         else render();
     }

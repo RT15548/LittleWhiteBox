@@ -1115,6 +1115,143 @@ export async function clearAllCache() {
     });
 }
 
+const THUMB_MAX_DIM = 256;
+
+function normalizeImageDataUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return raw.startsWith('data:') ? raw : `data:image/jpeg;base64,${raw}`;
+}
+
+export function createThumbnailDataUrl(base64) {
+    if (typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(null);
+    const dataUrl = normalizeImageDataUrl(base64);
+    if (!dataUrl) return Promise.resolve(null);
+    return new Promise((resolve) => {
+        const img = new Image();
+        let settled = false;
+        const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+        img.onload = () => {
+            try {
+                const w0 = img.naturalWidth || img.width;
+                const h0 = img.naturalHeight || img.height;
+                if (!w0 || !h0) return finish(null);
+                const scale = Math.min(1, THUMB_MAX_DIM / Math.max(w0, h0));
+                const w = Math.max(1, Math.round(w0 * scale));
+                const h = Math.max(1, Math.round(h0 * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                // JPEG 无 alpha 通道，先铺白底防止透明 PNG 变黑
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                finish(canvas.toDataURL('image/jpeg', 0.7));
+            } catch {
+                finish(null);
+            }
+        };
+        img.onerror = () => finish(null);
+        img.src = dataUrl;
+    });
+}
+
+// JPEG 的 base64 魔数以 /9j/ 开头。输入可能带 data: 前缀，也可能是纯 base64
+// （后台任务路径回传的 PNG 不带前缀），因此不能靠前缀判断格式，直接嗅探内容。
+export function isJpegBase64(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    const body = raw.startsWith('data:') ? raw.slice(raw.indexOf(',') + 1) : raw;
+    return body.startsWith('/9j/');
+}
+
+/** 把缓存里仍是 PNG 的旧记录批量转成 JPEG，腾出 IndexedDB 空间。 */
+export async function convertLegacyPreviewsToJpeg({ onProgress } = {}) {
+    const database = await openDB();
+    const stats = { total: 0, converted: 0, failed: 0, savedBytes: 0 };
+    const allRaw = await new Promise((resolve, reject) => {
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const request = tx.objectStore(DB_STORE).getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        } catch (e) { reject(e); }
+    });
+    const targets = allRaw.filter((r) => r?.imgId && r.base64 && !isJpegBase64(r.base64));
+    stats.total = targets.length;
+    let done = 0;
+    for (const record of targets) {
+        try {
+            const originalBody = (record.base64.startsWith('data:') ? record.base64.split(',')[1] : record.base64)
+                .replace(/[^A-Za-z0-9+/=]/g, '');
+            const originalBytes = atob(originalBody).length;
+            const converted = await convertImageToJpeg(record.base64);
+            if (converted && converted !== record.base64) {
+                const convertedBody = (converted.startsWith('data:') ? converted.split(',')[1] : converted)
+                    .replace(/[^A-Za-z0-9+/=]/g, '');
+                const convertedBytes = atob(convertedBody).length;
+                record.base64 = converted;
+                const thumb = await createThumbnailDataUrl(converted);
+                if (thumb) record.thumbBase64 = thumb;
+                await new Promise((resolve, reject) => {
+                    try {
+                        const tx = database.transaction(DB_STORE, 'readwrite');
+                        tx.objectStore(DB_STORE).put(record);
+                        tx.oncomplete = () => {
+                            invalidateCache(record.slotId);
+                            resolve();
+                        };
+                        tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
+                    } catch (e) { reject(e); }
+                });
+                stats.converted++;
+                stats.savedBytes += Math.max(0, originalBytes - convertedBytes);
+            }
+        } catch {
+            stats.failed++;
+        }
+        done++;
+        try { onProgress?.(done, stats.total); } catch { /* 进度回调失败不影响转换 */ }
+    }
+    if (stats.converted) publishCacheChange([]);
+    return stats;
+}
+
+// 预设缩略图候选：一次扫描分出「用该预设生成过的图」与其他成功图，
+// 均按时间倒序。旧记录没有 presetId，只能在 others 里手动认。
+export async function getThumbnailCandidates(presetId = '') {
+    const database = await openDB();
+    return new Promise((resolve, reject) => {
+        const matched = [];
+        const others = [];
+        try {
+            const tx = database.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const request = store.openCursor();
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) {
+                    matched.sort((a, b) => b.timestamp - a.timestamp);
+                    others.sort((a, b) => b.timestamp - a.timestamp);
+                    resolve({ matched, others });
+                    return;
+                }
+                const record = cursor.value;
+                if (record && hasPreviewImage(record)) {
+                    (record.presetId === String(presetId || '') && presetId
+                        ? matched
+                        : others).push(record);
+                }
+                cursor.continue();
+            };
+            request.onerror = () => reject(request.error);
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
 export async function getGallerySummary() {
     return (await getGalleryOverview()).summary;
 }

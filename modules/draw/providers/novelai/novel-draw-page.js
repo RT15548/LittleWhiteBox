@@ -641,6 +641,11 @@ function getCardMenu() {
     if (!cardMenu && CM) cardMenu = CM.createCardMenuController({ document });
     return cardMenu;
 }
+let presetMenu = null; // 预设“…”菜单专用控制器：portal 到内容树（TT 的 WKWebView 渲染不出行内浮层），与角色卡行内菜单分开
+function getPresetMenu() {
+    if (!presetMenu && CM) presetMenu = CM.createCardMenuController({ document, portal: true });
+    return presetMenu;
+}
 let groupHeights = null; // 分组高度控制器，setupCharacterDragAndSelection 里创建
 const GROUP_COLLAPSE_KEY = 'lwb.draw.charGroupCollapsed';
 let charGroupCollapsed = loadCharGroupCollapsed();
@@ -3575,7 +3580,7 @@ function applyStateToUI() {
 }
 
 // ── 参数预设列表 ─────────────────────────────────────────────
-// 每个预设一行：拖动手柄 + 名称（点选）+ “…”菜单。点选只在页面里切换（和保存前的下拉框一样不通知宿主），
+// 网格卡片：缩略图在上（按住拖动排序）、名称在下、“…”浮在右上；预设选择仍只在页面里切换（不通知宿主）。
 // 新建 / 删除 / 导出等操作都带上被点的那一行的 id，不依赖宿主记的选中项。
 
 // 当前真正显示的预设 id：选中项找不到时 applyParamsPreset 会退回第一个，列表高亮跟它保持一致。
@@ -3601,6 +3606,13 @@ function getParamsListView() {
             getPresets: () => state.paramsPresets || [],
             getCurrentId: currentParamsPresetId,
             noun: '参数预设',
+            variant: 'grid',
+            menuItems: [
+                { action: 'thumbnail', label: '更换缩略图', icon: 'fa-image' },
+                { action: 'duplicate', label: '复制', icon: 'fa-copy' },
+                { action: 'export', label: '导出', icon: 'fa-download' },
+                { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
+            ],
             onSelect: id => selectParamsPreset(id),
             onAction: handleParamsPresetAction,
             onRename: renameParamsPreset,
@@ -3621,9 +3633,13 @@ function syncParamsPresetSelection() {
 
 function selectParamsPreset(id) {
     if (!id || id === state.selectedParamsPresetId) return; // 再点已选中的一行不重填表单，免得冲掉未保存的编辑
+    // 切换前先把悬而未发的 Vibe 绑定写回旧预设，避免写到新预设上；此处只写不发——
+    // 保存要带新选中的 id 发出，否则宿主存下旧选中并回推 INIT_DATA，几秒后高亮会跳回旧预设
+    flushVibeBinding(false);
     state.selectedParamsPresetId = id;
     applyParamsPreset();
     syncParamsPresetSelection();
+    postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: id, paramsPresets: state.paramsPresets, silent: true });
 }
 
 // 排序：本地先重排并重绘列表（不重填表单，未保存的编辑保留），宿主只收到新的 id 顺序。
@@ -3640,14 +3656,919 @@ function renameParamsPreset(id, name, preset) {
     postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
 }
 
-// 菜单项的动作：点选、改名与“…”按钮由视图处理，这里只收 duplicate / export / delete。
+// 菜单项的动作：点选、改名与“…”按钮由视图处理，这里只收 thumbnail / duplicate / export / delete。
 function handleParamsPresetAction(action, id, preset) {
-    if (action === 'duplicate') {
+    if (action === 'thumbnail') {
+        openThumbnailPicker(id);
+    } else if (action === 'duplicate') {
         postToParent({ type: 'ADD_PARAMS_PRESET', baseId: id, name: `${preset.name || preset.id} 副本` });
     } else if (action === 'export') {
         postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: id });
     } else if (action === 'delete') {
         if (confirm(`确定删除参数预设“${preset.name || preset.id}”？`)) postToParent({ type: 'DEL_PARAMS_PRESET', presetId: id });
+    }
+}
+
+// 缩略图直接写进指定预设（不再经表单）：写本地 → 整份保存 → 重绘网格卡片。
+function applyPresetThumbnail(presetId, thumb) {
+    const preset = (state.paramsPresets || []).find(p => p.id === presetId);
+    if (!preset) return;
+    preset.thumbnail = String(thumb || '').trim();
+    postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+    renderParamsPresetList();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 从画廊选缩略图：默认只列用当前预设生成过的成功图，可切换显示全部
+// ═══════════════════════════════════════════════════════════════════════════
+let thumbPickSeq = 0;
+const thumbPickState = { presetId: '', all: false, requestId: 0 };
+
+function makeThumbPickHint(text) {
+    const hint = document.createElement('div');
+    hint.className = 'nd-thumbpick-hint';
+    hint.textContent = text;
+    return hint;
+}
+
+function ensureThumbPickOverlay() {
+    let overlay = $('nd_thumb_pick_overlay');
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.id = 'nd_thumb_pick_overlay';
+    overlay.className = 'nd-thumbpick-overlay';
+    overlay.innerHTML = `
+        <div class="nd-thumbpick-dialog">
+            <div class="nd-thumbpick-head">
+                <span class="nd-thumbpick-title">从画廊选择缩略图</span>
+                <button type="button" id="nd_thumb_pick_upload" class="nd-thumbpick-toggle">上传本地图片</button>
+                <button type="button" id="nd_thumb_pick_toggle" class="nd-thumbpick-toggle">显示全部图片</button>
+                <button type="button" id="nd_thumb_pick_close" class="nd-thumbpick-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="nd_thumb_pick_grid" class="nd-thumbpick-grid"></div>
+            <input type="file" id="nd_thumb_pick_file" accept="image/*" class="hidden">
+        </div>`;
+    // 不挂 body：TT 的 WKWebView 里 iframe 内 body 直挂的浮层不可见，要挂进页面的真实内容树
+    (document.querySelector('.app-container') || document.body).appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('visible'); });
+    $('nd_thumb_pick_close').addEventListener('click', () => overlay.classList.remove('visible'));
+    $('nd_thumb_pick_upload').addEventListener('click', () => $('nd_thumb_pick_file')?.click());
+    $('nd_thumb_pick_file').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file || !thumbPickState.presetId) return;
+        try {
+            // 与导入参数预设的缩略图规格一致：256px JPEG，避免 dataURL 过大撑爆存档
+            const thumb = await downscaleFileToDataUrl(file, 256, 'image/jpeg', 0.8);
+            applyPresetThumbnail(thumbPickState.presetId, thumb);
+            overlay.classList.remove('visible');
+        } catch (err) {
+            console.error('[ND-UI] 缩略图本地图片处理失败:', err);
+            alert('图片处理失败，请换一张试试');
+        }
+    });
+    $('nd_thumb_pick_toggle').addEventListener('click', () => {
+        thumbPickState.all = !thumbPickState.all;
+        requestThumbCandidates(thumbPickState.all);
+    });
+    $('nd_thumb_pick_grid').addEventListener('click', (e) => {
+        const card = e.target.closest('.nd-thumbpick-item');
+        const thumb = card?.dataset?.thumb;
+        if (!thumb) return;
+        applyPresetThumbnail(thumbPickState.presetId, thumb);
+        overlay.classList.remove('visible');
+    });
+    return overlay;
+}
+
+function requestThumbCandidates(all) {
+    const grid = $('nd_thumb_pick_grid');
+    grid.replaceChildren(makeThumbPickHint('加载中…'));
+    const toggle = $('nd_thumb_pick_toggle');
+    if (toggle) toggle.textContent = all ? '只看本预设' : '显示全部图片';
+    thumbPickState.requestId = ++thumbPickSeq;
+    postToParent({
+        type: 'PRESET_THUMB_CANDIDATES',
+        requestId: thumbPickState.requestId,
+        presetId: thumbPickState.presetId,
+        all,
+    });
+}
+
+function openThumbnailPicker(presetId = state.selectedParamsPresetId) {
+    thumbPickState.presetId = String(presetId || '');
+    thumbPickState.all = false;
+    const overlay = ensureThumbPickOverlay();
+    // 遮罩是 absolute（相对文档），打开时对齐当前滚动位置盖住视口
+    overlay.style.top = `${window.scrollY || document.documentElement?.scrollTop || 0}px`;
+    overlay.classList.add('visible');
+    requestThumbCandidates(false);
+}
+
+function renderThumbCandidates(data) {
+    if (Number(data.requestId) !== thumbPickState.requestId) return;
+    if (String(data.presetId || '') !== thumbPickState.presetId) return;
+    const grid = $('nd_thumb_pick_grid');
+    const images = Array.isArray(data.images) ? data.images : [];
+    if (data.error) {
+        grid.replaceChildren(makeThumbPickHint(data.error));
+        return;
+    }
+    if (!images.length) {
+        grid.replaceChildren(makeThumbPickHint(
+            thumbPickState.all ? '画廊中暂无成功图片' : '本预设还没有生成记录，可切换「显示全部图片」手动挑选',
+        ));
+        return;
+    }
+    const cards = images.map((image) => {
+        const card = document.createElement('div');
+        card.className = 'nd-thumbpick-item' + (image.matched ? '' : ' is-other');
+        card.dataset.thumb = image.thumb;
+        card.title = image.tags || image.title || '';
+        const imgEl = document.createElement('img');
+        imgEl.alt = '';
+        imgEl.src = image.thumb;
+        imgEl.loading = 'lazy';
+        // 内联固定高度：部分移动 WebView 会无视样式表把 grid 内图片压成细线
+        imgEl.style.width = '100%';
+        imgEl.style.height = '140px';
+        imgEl.style.minHeight = '140px';
+        imgEl.style.objectFit = 'cover';
+        imgEl.style.display = 'block';
+        card.appendChild(imgEl);
+        if (!image.matched) {
+            const badge = document.createElement('span');
+            badge.className = 'nd-thumbpick-badge';
+            badge.textContent = '其他预设';
+            card.appendChild(badge);
+        }
+        const label = document.createElement('span');
+        label.className = 'nd-thumbpick-tags';
+        label.textContent = image.title || image.tags || '';
+        card.appendChild(label);
+        return card;
+    });
+    grid.replaceChildren(...cards);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vibe 氛围转移
+// 编码花点数 → 参考图统一存全局 vibeLibrary（state.vibeLibrary）。
+// 列表展示库里全部 single；vibeDraftSelections = 当前画师串预设的勾选工作副本
+// [{ id, enabled, strength }]。Vibe 组是这份勾选+强度的命名快照，选组即整体套用。
+// ═══════════════════════════════════════════════════════════════════════════
+let vibeDraftSelections = [];
+let vibeSelectedGroupId = '';
+let vibeEncodeSeq = 0;
+const vibePendingEncodes = new Map();
+
+// 勾选/选组/存组后即时写回当前画师串预设（静默持久化，不刷提示、不重推 UI），
+// 这样用户不必再点参数预设「保存」，生成时也能跟上当前 Vibe 选择。
+let persistVibeTimer = null;
+function flushVibeBinding(post = true) {
+    if (persistVibeTimer) {
+        clearTimeout(persistVibeTimer);
+        persistVibeTimer = null;
+    }
+    const preset = state.paramsPresets.find(p => p.id === state.selectedParamsPresetId);
+    if (!preset) return;
+    // 组只是「快速套用模板」：套用时把组成员拷贝为当前勾选，之后勾选/强度改动即时生效。
+    // groupId 仅保留用于标记来源与 💾 覆盖组快照；生成时以 selections 的实际勾选为准。
+    preset.vibe = {
+        groupId: vibeSelectedGroupId || '',
+        selections: JSON.parse(JSON.stringify(vibeDraftSelections || [])),
+    };
+    if (post) postToParent({
+        type: 'SAVE_PARAMS_PRESET',
+        selectedParamsPresetId: state.selectedParamsPresetId,
+        paramsPresets: state.paramsPresets,
+        silent: true,
+    });
+}
+function persistVibeBinding() {
+    if (persistVibeTimer) clearTimeout(persistVibeTimer);
+    persistVibeTimer = setTimeout(flushVibeBinding, 300);
+}
+
+// 编码缓存键 = 模型@信息提取值（量化两位小数）：改数值只切换键，改回原值直接复用旧编码
+const VIBE_ENCODING_KEY_RE_LOCAL = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
+
+function clampVibeStrength(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0.6;
+    return Math.min(1, Math.max(0, n));
+}
+
+// 信息提取为 0~1 连续值（对齐官方滑杆），默认 1
+function clampVibeInfoLocal(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+}
+
+function vibeEncodingKeyLocal(modelKey, infoExtracted) {
+    return `${modelKey}@${clampVibeInfoLocal(infoExtracted).toFixed(2)}`;
+}
+
+// 归一化编码键：裸键（旧数据，必然对应当前信息提取值）迁移为组合键，组合键保留
+function normalizeVibeEncodingsKeys(raw, infoExtracted) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [key, value] of Object.entries(raw)) {
+        if (typeof value !== 'string' || !value || !VIBE_ENCODING_KEY_RE_LOCAL.test(key)) continue;
+        const at = key.indexOf('@');
+        const info = at < 0 ? infoExtracted : clampVibeInfoLocal(Number(key.slice(at + 1)));
+        out[vibeEncodingKeyLocal(key.slice(0, at), info)] = value;
+    }
+    return out;
+}
+
+function sanitizeVibeEncodings(raw, infoExtracted) {
+    return normalizeVibeEncodingsKeys(raw, clampVibeInfoLocal(infoExtracted));
+}
+
+function getVibeModelKeyLocal(model) {
+    const name = String(model || '');
+    if (name.includes('4-5-curated')) return 'v4-5curated';
+    if (name.includes('4-5-full')) return 'v4-5full';
+    if (name.includes('4-curated')) return 'v4curated';
+    if (name.includes('4-full')) return 'v4full';
+    return null;
+}
+
+function currentFormModel() {
+    const sel = $('nd_model_sel');
+    if (!sel) return '';
+    return sel.value === 'custom' ? (($('nd_model')?.value) || '') : sel.value;
+}
+
+function setVibeStatus(text, state) {
+    const el = $('nd_vibe_status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'status-text' + (state ? ' ' + state : '');
+}
+
+function makeVibeId() {
+    return `vibe-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getVibeLibrary() {
+    if (!state.vibeLibrary || typeof state.vibeLibrary !== 'object') {
+        state.vibeLibrary = { singles: [], groups: [] };
+    }
+    if (!Array.isArray(state.vibeLibrary.singles)) state.vibeLibrary.singles = [];
+    if (!Array.isArray(state.vibeLibrary.groups)) state.vibeLibrary.groups = [];
+    // 旧数据裸键迁移为组合键（幂等）：保证本会话内改信息提取后徽章状态与生成判定一致
+    state.vibeLibrary.singles.forEach((item) => {
+        const enc = item.encodings;
+        if (!enc || typeof enc !== 'object') { item.encodings = {}; return; }
+        for (const key of Object.keys(enc)) {
+            if (!key.includes('@') && VIBE_ENCODING_KEY_RE_LOCAL.test(key)) {
+                enc[vibeEncodingKeyLocal(key, item.infoExtracted)] = enc[key];
+                delete enc[key];
+            }
+        }
+    });
+    return state.vibeLibrary;
+}
+
+function getLibItem(id) {
+    return getVibeLibrary().singles.find(item => item.id === id) || null;
+}
+
+function saveVibeLibrary() {
+    postToParent({ type: 'SAVE_VIBE_LIBRARY', vibeLibrary: state.vibeLibrary });
+}
+
+function downscaleFileToDataUrl(file, maxDim, mime, quality) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const w = Math.max(1, Math.round(img.width * scale));
+                const h = Math.max(1, Math.round(img.height * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                URL.revokeObjectURL(url);
+                resolve(canvas.toDataURL(mime, quality));
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                reject(e);
+            }
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('图片读取失败'));
+        };
+        img.src = url;
+    });
+}
+
+function requestVibeEncode({ image, model, informationExtracted }) {
+    return new Promise((resolve, reject) => {
+        const requestId = `vibe-enc-${++vibeEncodeSeq}-${Date.now()}`;
+        const timer = setTimeout(() => {
+            if (!vibePendingEncodes.has(requestId)) return;
+            vibePendingEncodes.delete(requestId);
+            reject(new Error('编码超时（60 秒）'));
+        }, 60000);
+        vibePendingEncodes.set(requestId, {
+            resolve: (value) => { clearTimeout(timer); resolve(value); },
+            reject: (error) => { clearTimeout(timer); reject(error); },
+        });
+        postToParent({ type: 'ENCODE_VIBE', requestId, image, model, informationExtracted });
+    });
+}
+
+// 按 id 编码库里的单个 Vibe；编码完成后用 id 回查最新对象再写回，
+// 避免 INIT_DATA 中途替换 state.vibeLibrary 导致编码写到游离对象上。
+async function encodeLibItemById(id) {
+    const model = currentFormModel();
+    const modelKey = getVibeModelKeyLocal(model);
+    if (!modelKey) return;
+    const item = getLibItem(id);
+    if (!item || !item.image) return;
+    item.busy = true;
+    renderVibeAll();
+    try {
+        const encoding = await requestVibeEncode({
+            image: item.image,
+            model,
+            informationExtracted: clampVibeInfoLocal(item.infoExtracted),
+        });
+        const fresh = getLibItem(id);
+        if (fresh) {
+            fresh.encodings = fresh.encodings || {};
+            // 写入「模型@信息提取值」组合键：同图不同数值的编码各自保留，改回即复用
+            fresh.encodings[vibeEncodingKeyLocal(modelKey, fresh.infoExtracted)] = encoding;
+            saveVibeLibrary();
+        }
+    } finally {
+        const current = getLibItem(id);
+        if (current) delete current.busy;
+    }
+    renderVibeAll();
+}
+
+function makeIconBtn(iconClass, title, onClick, danger = false) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'nd-vibe-icon-btn' + (danger ? ' danger' : '');
+    btn.title = title;
+    btn.innerHTML = `<i class="${iconClass}"></i>`;
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+// ── 列表：顶部上传砖 + 库里全部单个 Vibe。勾选=本预设启用，强度随行编辑 ──
+function renderVibeList(modelKey) {
+    const list = $('nd_vibe_list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'nd-vibe-upload-tile';
+    tile.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>上传参考图（入库后需手动点「点击编码」，编码花点数，仅 NAI V4 / V4.5 支持）</span>';
+    tile.addEventListener('click', () => $('nd_vibe_file')?.click());
+    list.appendChild(tile);
+
+    const lib = getVibeLibrary();
+    lib.singles.forEach((item) => {
+        const sel = vibeDraftSelections.find(s => s.id === item.id) || null;
+        const checked = !!sel && sel.enabled !== false;
+        const isBusy = !!item.busy;
+        const row = document.createElement('div');
+        row.className = 'nd-vibe-item'
+            + (sel && sel.enabled === false ? ' is-disabled' : '')
+            + (isBusy ? ' is-busy' : '');
+
+        const enable = document.createElement('input');
+        enable.type = 'checkbox';
+        enable.className = 'nd-vibe-enable';
+        enable.checked = checked;
+        enable.title = '勾选后此参考图才参与本预设生成';
+        enable.addEventListener('change', () => {
+            let draft = vibeDraftSelections.find(s => s.id === item.id);
+            if (!draft) {
+                draft = { id: item.id, enabled: enable.checked, strength: 0.6 };
+                vibeDraftSelections.push(draft);
+            } else {
+                draft.enabled = enable.checked;
+            }
+            hintGroupEdited();
+            persistVibeBinding();
+            renderVibeList(modelKey);
+        });
+        row.appendChild(enable);
+
+        const thumb = document.createElement('img');
+        thumb.src = item.thumbnail || item.image;
+        thumb.alt = '';
+        thumb.title = item.name || '';
+        row.appendChild(thumb);
+
+        const main = document.createElement('div');
+        main.className = 'nd-vibe-main';
+        const name = document.createElement('div');
+        name.className = 'nd-vibe-name nd-vibe-name-editable';
+        name.textContent = item.name || '未命名 Vibe';
+        name.title = `${name.textContent}（点击重命名）`;
+        name.addEventListener('click', () => {
+            const next = prompt('Vibe 名称（留空恢复「未命名 Vibe」）', item.name || '');
+            if (next === null) return;
+            const trimmed = next.trim().slice(0, 60);
+            if (trimmed === (item.name || '').trim()) return;
+            item.name = trimmed;
+            saveVibeLibrary();
+            renderVibeAll();
+        });
+        main.appendChild(name);
+
+        // 一行「滑杆 + 数字框」：拖动/输入实时联动但不重渲染，松手或失焦才提交
+        const buildSliderRow = (labelText, currentValue, { onInput, onCommit }) => {
+            const row = document.createElement('div');
+            row.className = 'nd-vibe-row';
+            const label = document.createElement('label');
+            label.textContent = labelText;
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = '0';
+            slider.max = '1';
+            slider.step = '0.05';
+            slider.value = String(currentValue);
+            const num = document.createElement('input');
+            num.type = 'number';
+            num.className = 'nd-vibe-num';
+            num.min = '0';
+            num.max = '1';
+            num.step = '0.05';
+            num.value = Number(currentValue).toFixed(2);
+            slider.addEventListener('input', () => {
+                num.value = Number(slider.value).toFixed(2);
+                onInput?.(Number(slider.value));
+            });
+            slider.addEventListener('change', () => onCommit?.(Number(slider.value)));
+            // 输入过程允许 "0." 等中间态：只把合法值同步给滑杆，绝不回写覆盖正在输入的内容
+            num.addEventListener('input', () => {
+                const n = Number(num.value);
+                if (Number.isFinite(n)) {
+                    const clamped = Math.min(1, Math.max(0, n));
+                    slider.value = String(clamped);
+                    onInput?.(clamped);
+                }
+            });
+            const commitNum = () => {
+                const n = clampVibeStrength(num.value);
+                num.value = n.toFixed(2);
+                slider.value = String(n);
+                onCommit?.(n);
+            };
+            num.addEventListener('change', commitNum);
+            num.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); num.blur(); }
+            });
+            row.appendChild(label);
+            row.appendChild(slider);
+            row.appendChild(num);
+            return row;
+        };
+
+        // 拖强度本身就代表要使用此图：未入工作副本时自动勾选
+        const ensureDraft = () => {
+            let draft = vibeDraftSelections.find(s => s.id === item.id);
+            if (!draft) {
+                draft = { id: item.id, enabled: true, strength: clampVibeStrength(sel ? sel.strength : 0.6) };
+                vibeDraftSelections.push(draft);
+            }
+            return draft;
+        };
+        const strengthRow = buildSliderRow('强度', sel ? clampVibeStrength(sel.strength) : 0.6, {
+            onInput: (v) => { ensureDraft().strength = v; },
+            onCommit: () => {
+                hintGroupEdited();
+                persistVibeBinding();
+                renderVibeList(modelKey);
+            },
+        });
+        strengthRow.title = '强度在生成时生效，随时调整都不需要重新编码';
+        main.appendChild(strengthRow);
+
+        // 信息提取（对齐官方：0~1 连续值）烘焙进编码：每个数值各存一份编码，
+        // 改值只切换缓存键（已有该数值编码则直接用），改回原值即复用，绝不自动花钱重编
+        const infoValue = clampVibeInfoLocal(item.infoExtracted);
+        const infoRow = buildSliderRow('信息提取', infoValue, {
+            onInput: () => {},
+            onCommit: (v) => {
+                const next = clampVibeInfoLocal(v);
+                if (next === clampVibeInfoLocal(item.infoExtracted)) return;
+                item.infoExtracted = next;
+                saveVibeLibrary();
+                renderVibeAll();
+                if (!modelKey) {
+                    setVibeStatus('信息提取已变更；当前模型不支持编码，切到 V4 / V4.5 后点「点击编码」生效', 'error');
+                } else if (getLibItem(item.id)?.encodings?.[vibeEncodingKeyLocal(modelKey, next)]) {
+                    setVibeStatus('信息提取已变更：该数值已有编码，生成时直接使用', 'success');
+                } else {
+                    setVibeStatus('信息提取已变更：新数值尚未编码，点「点击编码」编码（消耗点数）；改回原数值可复用旧编码', 'error');
+                }
+            },
+        });
+        infoRow.title = '信息提取度烘焙在编码中：每个数值各存一份，切换到已编码过的数值直接复用，新数值需手动编码（消耗点数）';
+        infoRow.querySelector('.nd-vibe-num').disabled = !!item.busy;
+        infoRow.querySelector('input[type="range"]').disabled = !!item.busy;
+        main.appendChild(infoRow);
+
+        // 编码状态即手动编码按钮：未编码不会在生成时偷偷扣点（生成时直接跳过并提示）
+        const encBtn = document.createElement('button');
+        encBtn.type = 'button';
+        if (!modelKey) {
+            encBtn.className = 'nd-vibe-badge off';
+            encBtn.textContent = '模型不支持';
+            encBtn.disabled = true;
+        } else if (isBusy) {
+            encBtn.className = 'nd-vibe-badge pending';
+            encBtn.textContent = '编码中…';
+            encBtn.disabled = true;
+        } else if (item.encodings && item.encodings[vibeEncodingKeyLocal(modelKey, item.infoExtracted)]) {
+            encBtn.className = 'nd-vibe-badge ok';
+            encBtn.textContent = '✓ 已编码';
+            encBtn.title = '当前模型+当前信息提取值已有编码，生成不会重复扣费；点击可重新编码（会再次消耗点数）';
+            encBtn.addEventListener('click', () => {
+                if (!confirm('重新编码会再次消耗 Anlas 点数，确认继续？')) return;
+                encodeLibItemById(item.id);
+            });
+        } else {
+            encBtn.className = 'nd-vibe-badge encode';
+            encBtn.textContent = '点击编码';
+            encBtn.title = '编码会消耗 Anlas 点数；未编码的 Vibe 生成时会被跳过，不扣编码费';
+            encBtn.addEventListener('click', () => encodeLibItemById(item.id));
+        }
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'nd-vibe-info-row';
+        actionRow.appendChild(encBtn);
+        actionRow.appendChild(makeIconBtn('fa-solid fa-file-export', '导出此 Vibe（含原图与各模型编码）', () => exportVibeSingle(item.id)));
+        actionRow.appendChild(makeIconBtn('fa-solid fa-xmark', '从库删除（所有预设 / 组里的引用都会失效）', () => removeLibItem(item.id), true));
+        main.appendChild(actionRow);
+        row.appendChild(main);
+
+        list.appendChild(row);
+    });
+}
+
+// ── Vibe 组保存栏：下拉选组整体套用勾选+强度；＋另存 / ✏重命名 / 💾覆盖 / 🗑删 ──
+function renderGroupBar() {
+    const lib = getVibeLibrary();
+    const sel = $('nd_vibe_group_sel');
+    if (sel) {
+        sel.innerHTML = '<option value="">— Vibe 组 —</option>'
+            + lib.groups.map(g => {
+                const label = `${g.name || '未命名组'}（${g.members.length} 张）`;
+                return `<option value="${g.id}">${escapeHtml(label)}</option>`;
+            }).join('');
+        vibeSelectedGroupId = lib.groups.some(g => g.id === vibeSelectedGroupId) ? vibeSelectedGroupId : '';
+        sel.value = vibeSelectedGroupId;
+    }
+    const hasGroup = !!getSelectedGroup();
+    ['nd_vibe_group_rename', 'nd_vibe_group_del', 'nd_vibe_group_export'].forEach((id) => {
+        const el = $(id);
+        if (el) el.disabled = !hasGroup;
+    });
+}
+
+function renderVibeAll() {
+    const modelKey = getVibeModelKeyLocal(currentFormModel());
+    const hint = $('nd_vibe_model_hint');
+    if (hint) hint.textContent = modelKey ? '' : '（当前模型不支持 Vibe）';
+    renderVibeList(modelKey);
+    renderGroupBar();
+}
+
+function getSelectedGroup() {
+    if (!vibeSelectedGroupId) return null;
+    return getVibeLibrary().groups.find(g => g.id === vibeSelectedGroupId) || null;
+}
+
+// 选组：用组快照整体替换当前勾选工作副本（库中已删除的成员跳过）
+function applyGroupToDraft(groupId) {
+    vibeSelectedGroupId = groupId || '';
+    const group = getSelectedGroup();
+    if (!group) {
+        persistVibeBinding();
+        renderVibeList(getVibeModelKeyLocal(currentFormModel()));
+        return;
+    }
+    vibeDraftSelections = group.members
+        .filter(m => getLibItem(m.id))
+        .map(m => ({
+            id: m.id,
+            enabled: m.enabled !== false,
+            strength: clampVibeStrength(m.strength),
+        }));
+    persistVibeBinding();
+    renderVibeList(getVibeModelKeyLocal(currentFormModel()));
+    setVibeStatus(`已套用组「${group.name}」，并已同步到当前参数预设，生成即生效`, 'success');
+}
+
+// 组选中状态下改勾选/强度会即时写回当前参数预设并即时生效；
+// 组快照本身只在按 💾 覆盖或 ＋ 另存时更新——组是模板，勾选才是生成依据。
+function hintGroupEdited() {
+    if (!vibeSelectedGroupId) return;
+    const group = getSelectedGroup();
+    if (!group) return;
+    setVibeStatus(`勾选已即时生效于本预设；组「${group.name}」的快照未变，按 💾 才会把当前勾选覆盖进组`, 'info');
+}
+
+// 当前勾选+强度的快照（只保留库里仍存在的项）
+function snapshotDraftMembers() {
+    return vibeDraftSelections
+        .filter(s => getLibItem(s.id))
+        .map(s => ({
+            id: s.id,
+            enabled: s.enabled !== false,
+            strength: clampVibeStrength(s.strength),
+        }));
+}
+
+function saveDraftAsNewGroup() {
+    const members = snapshotDraftMembers().filter(m => m.enabled);
+    if (!members.length) {
+        setVibeStatus('当前没有勾选任何 Vibe，无法存组', 'error');
+        return;
+    }
+    const name = prompt('新 Vibe 组名称（保存当前勾选与强度）：', '');
+    if (name == null) return;
+    const group = {
+        id: makeVibeId().replace('vibe-', 'vibegroup-'),
+        name: name.trim().slice(0, 60) || `Vibe组 ${getVibeLibrary().groups.length + 1}`,
+        members,
+    };
+    getVibeLibrary().groups.push(group);
+    vibeSelectedGroupId = group.id;
+    saveVibeLibrary();
+    persistVibeBinding();
+    renderVibeAll();
+    setVibeStatus(`已另存为新组「${group.name}」，并已绑定到当前参数预设`, 'success');
+}
+
+// 💾：有选中组→用当前勾选覆盖；未选组→走另存新组
+function overwriteOrSaveGroup() {
+    const group = getSelectedGroup();
+    if (!group) {
+        saveDraftAsNewGroup();
+        return;
+    }
+    const members = snapshotDraftMembers().filter(m => m.enabled);
+    if (!members.length) {
+        setVibeStatus('当前没有勾选任何 Vibe，无法覆盖保存', 'error');
+        return;
+    }
+    group.members = members;
+    saveVibeLibrary();
+    persistVibeBinding();
+    renderGroupBar();
+    setVibeStatus(`组「${group.name}」已更新为当前勾选与强度`, 'success');
+}
+
+function renameSelectedGroup() {
+    const group = getSelectedGroup();
+    if (!group) return;
+    const name = prompt('组名称：', group.name || '');
+    if (name == null) return;
+    group.name = name.trim().slice(0, 60) || group.name;
+    saveVibeLibrary();
+    renderGroupBar();
+}
+
+function deleteSelectedGroup() {
+    const group = getSelectedGroup();
+    if (!group) return;
+    if (!confirm(`删除组「${group.name}」？组内的单个 Vibe 仍保留在库里，本预设的勾选也不受影响。`)) return;
+    const lib = getVibeLibrary();
+    lib.groups = lib.groups.filter(g => g.id !== group.id);
+    vibeSelectedGroupId = '';
+    saveVibeLibrary();
+    persistVibeBinding();
+    renderVibeAll();
+    setVibeStatus('组已删除', 'success');
+}
+
+// ✕ 行内按钮：从库删除单个 Vibe，同步修剪所有组与当前工作副本
+function removeLibItem(id) {
+    if (!confirm('从库删除此 Vibe？所有画师串预设 / Vibe 组里对它的引用都会失效（编码不会自动找回，需要重新花点数）。')) return;
+    const lib = getVibeLibrary();
+    lib.singles = lib.singles.filter(item => item.id !== id);
+    lib.groups.forEach(group => {
+        group.members = group.members.filter(m => m.id !== id);
+    });
+    // 成员清空的组没有存在意义；若删的正是当前选中组则回到未选择
+    lib.groups = lib.groups.filter(group => group.members.length > 0);
+    if (vibeSelectedGroupId && !lib.groups.some(g => g.id === vibeSelectedGroupId)) {
+        vibeSelectedGroupId = '';
+    }
+    vibeDraftSelections = vibeDraftSelections.filter(sel => sel.id !== id);
+    saveVibeLibrary();
+    persistVibeBinding();
+    renderVibeAll();
+}
+
+// ── 上传：先入库（编码的家），再自动引用到本预设 ──
+async function handleVibeFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const modelKey = getVibeModelKeyLocal(currentFormModel());
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setVibeStatus(`正在处理图片 ${i + 1}/${files.length}…`);
+        let image;
+        let thumbnail;
+        try {
+            image = await downscaleFileToDataUrl(file, 1024, 'image/jpeg', 0.9);
+            thumbnail = await downscaleFileToDataUrl(file, 256, 'image/jpeg', 0.8);
+        } catch (e) {
+            setVibeStatus(`图片处理失败：${e.message}`, 'error');
+            continue;
+        }
+        const baseName = (file.name || '').replace(/\.[^.]+$/, '').slice(0, 50);
+        const item = {
+            id: makeVibeId(),
+            name: baseName || `Vibe ${getVibeLibrary().singles.length + 1}`,
+            image,
+            thumbnail,
+            infoExtracted: 1,
+            encodings: {},
+        };
+        getVibeLibrary().singles.push(item);
+        if (!vibeDraftSelections.some(sel => sel.id === item.id)) {
+            vibeDraftSelections.push({ id: item.id, enabled: true, strength: 0.6 });
+        }
+        saveVibeLibrary();
+        renderVibeAll();
+        setVibeStatus(`图片 ${i + 1}/${files.length} 已入库，未编码（不会自动扣点）`);
+    }
+    const fileInput = $('nd_vibe_file');
+    if (fileInput) fileInput.value = '';
+    if (!vibeSelectedGroupId) persistVibeBinding();
+    if (vibeSelectedGroupId) {
+        hintGroupEdited();
+    } else if (modelKey) {
+        setVibeStatus('处理完成：已入库并勾选；点「点击编码」完成编码后才会在生成时生效（编码消耗点数）', 'success');
+    } else {
+        setVibeStatus('图片已入库；当前模型不支持 Vibe，切到 V4 / V4.5 后点「点击编码」生效', 'error');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vibe / 组 的导出导入（JSON，含原图与各模型编码，换机可免重新花点数）
+// ═══════════════════════════════════════════════════════════════════════════
+function downloadJson(filename, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function safeFileName(name) {
+    return String(name || 'vibe').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'vibe';
+}
+
+function exportVibeSingle(id) {
+    const item = getLibItem(id);
+    if (!item) return;
+    downloadJson(`${safeFileName(item.name)}.vibe.json`, {
+        type: 'lwb-novel-vibe',
+        version: 1,
+        kind: 'single',
+        exportDate: new Date().toISOString(),
+        item: buildVibeSinglePayload(item),
+    });
+}
+
+function buildVibeSinglePayload(item) {
+    return {
+        id: item.id,
+        name: String(item.name || '').slice(0, 60),
+        image: String(item.image || ''),
+        thumbnail: String(item.thumbnail || ''),
+        infoExtracted: clampVibeInfoLocal(item.infoExtracted),
+        encodings: sanitizeVibeEncodings(item.encodings, item.infoExtracted),
+    };
+}
+
+function exportVibeGroup(groupId) {
+    const lib = getVibeLibrary();
+    const group = lib.groups.find(g => g.id === groupId);
+    if (!group) return;
+    // 成员顺序内联勾选/强度 + 完整 single（原图与编码）；已从库丢失的成员跳过
+    const members = group.members
+        .map(m => {
+            const item = lib.singles.find(s => s.id === m.id);
+            if (!item) return null;
+            return {
+                enabled: m.enabled !== false,
+                strength: clampVibeStrength(m.strength),
+                item: buildVibeSinglePayload(item),
+            };
+        })
+        .filter(Boolean);
+    if (!members.length) return;
+    downloadJson(`${safeFileName(group.name)}.vibegroup.json`, {
+        type: 'lwb-novel-vibe',
+        version: 1,
+        kind: 'group',
+        exportDate: new Date().toISOString(),
+        name: group.name,
+        members,
+    });
+}
+
+async function handleVibeImportFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const lib = getVibeLibrary();
+    let importedSingles = 0;
+    let importedGroups = 0;
+    const failures = [];
+
+    for (const file of files) {
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (!data || data.type !== 'lwb-novel-vibe' || data.version !== 1) {
+                failures.push(`${file.name}: 不是小白X Vibe 文件`);
+                continue;
+            }
+            if (data.kind === 'single') {
+                if (!data.item || typeof data.item !== 'object' || !data.item.image) {
+                    failures.push(`${file.name}: 内容不完整`);
+                    continue;
+                }
+                lib.singles.push({
+                    id: makeVibeId(),
+                    name: String(data.item.name || '').slice(0, 60),
+                    image: String(data.item.image || ''),
+                    thumbnail: String(data.item.thumbnail || data.item.image || ''),
+                    infoExtracted: clampVibeInfoLocal(data.item.infoExtracted),
+                    encodings: sanitizeVibeEncodings(data.item.encodings, data.item.infoExtracted),
+                });
+                importedSingles++;
+            } else if (data.kind === 'group') {
+                const rawMembers = Array.isArray(data.members) ? data.members : [];
+                const members = [];
+                rawMembers.forEach(raw => {
+                    if (!raw || typeof raw !== 'object' || !raw.item || typeof raw.item !== 'object' || !raw.item.image) return;
+                    const newId = makeVibeId();
+                    lib.singles.push({
+                        id: newId,
+                        name: String(raw.item.name || '').slice(0, 60),
+                        image: String(raw.item.image || ''),
+                        thumbnail: String(raw.item.thumbnail || raw.item.image || ''),
+                        infoExtracted: clampVibeInfoLocal(raw.item.infoExtracted),
+                        encodings: sanitizeVibeEncodings(raw.item.encodings, raw.item.infoExtracted),
+                    });
+                    members.push({
+                        id: newId,
+                        enabled: raw.enabled !== false,
+                        strength: clampVibeStrength(raw.strength),
+                    });
+                });
+                if (!members.length) {
+                    failures.push(`${file.name}: 组内没有有效图片`);
+                    continue;
+                }
+                lib.groups.push({
+                    id: makeVibeId().replace('vibe-', 'vibegroup-'),
+                    name: String(data.name || '').slice(0, 60) || `导入组 ${lib.groups.length + 1}`,
+                    members,
+                });
+                importedGroups++;
+            } else {
+                failures.push(`${file.name}: 未知类型`);
+            }
+        } catch (e) {
+            failures.push(`${file.name}: ${e?.message || '解析失败'}`);
+        }
+    }
+
+    const importInput = $('nd_vibe_import_file');
+    if (importInput) importInput.value = '';
+    if (importedSingles || importedGroups) {
+        saveVibeLibrary();
+        renderVibeAll();
+        setVibeStatus(`已导入 ${importedSingles} 个单个 / ${importedGroups} 个组（编码随文件带入，无需重花点数）`, 'success');
+    }
+    if (failures.length) {
+        setVibeStatus(`部分文件未导入：${failures.join('；')}`, 'error');
     }
 }
 
@@ -3659,7 +4580,7 @@ function applyParamsPreset() {
     $('nd_negative').value = p.negativePrefix || '';
     $('nd_max_images').value = p.maxImages || 0;
     $('nd_max_chars').value = p.maxCharactersPerImage || 0;
-    
+
     const pm = p.params || {};
     const dp = DEFAULTS.params;
     
@@ -3693,6 +4614,30 @@ function applyParamsPreset() {
     
     updateModelOptions();
     refreshLayoutSummaries(); // “数量约束”块的摘要读的是当前参数预设
+
+    // Vibe：勾选状态以预设保存的 selections 为准（勾选即带、不勾即不带）；
+    // groupId 只作组标识显示，selections 为空（旧数据）才从组成员快照灌入初值。
+    // 在 updateModelOptions 之后，徽标才能按当前模型渲染
+    const savedGroupId = String(p.vibe?.groupId || '');
+    const savedSelections = Array.isArray(p.vibe?.selections) ? p.vibe.selections : [];
+    if (savedSelections.length) {
+        vibeSelectedGroupId = savedGroupId;
+        vibeDraftSelections = JSON.parse(JSON.stringify(savedSelections));
+    } else {
+        const savedGroup = savedGroupId ? getVibeLibrary().groups.find(g => g.id === savedGroupId) : null;
+        vibeSelectedGroupId = savedGroup ? savedGroup.id : '';
+        vibeDraftSelections = savedGroup
+            ? savedGroup.members
+                .filter(m => getLibItem(m.id))
+                .map(m => ({
+                    id: m.id,
+                    enabled: m.enabled !== false,
+                    strength: clampVibeStrength(m.strength),
+                }))
+            : [];
+    }
+    renderVibeAll();
+    setVibeStatus('');
 }
 
 /** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset）；collapseLayout=切换预设时收起布局里展开的消息块 */
@@ -4198,6 +5143,7 @@ function collectParamsPreset() {
     p.positivePrefix = $('nd_positive').value;
     p.negativePrefix = $('nd_negative').value;
     p.maxImages = Math.max(0, Number($('nd_max_images').value) || 0);
+    // 缩略图不再走表单：由“…”菜单里的「更换缩略图」（画廊选图 / 本地上传）直接写进对应预设。
     const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
     const characterLimit = getModelCapability(model).maxCharactersPerImage || 10;
     p.maxCharactersPerImage = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
@@ -4275,6 +5221,28 @@ window.addEventListener('message', event => {
             if ($('nd_cache_size')) $('nd_cache_size').textContent = state.cacheStats?.sizeMB || 0 + ' MB';
             renderGalleryView();
             break;
+
+        case 'CONVERT_LEGACY_DONE': {
+            const btn = $('nd_convert_legacy_jpeg');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-images"></i> 舊圖轉JPEG';
+            }
+            break;
+        }
+
+        case 'PRESET_THUMB_CANDIDATES_DATA':
+            renderThumbCandidates(data);
+            break;
+
+        case 'ENCODE_VIBE_RESULT': {
+            const pending = vibePendingEncodes.get(data.requestId);
+            if (!pending) break;
+            vibePendingEncodes.delete(data.requestId);
+            if (data.ok) pending.resolve(data.encoding);
+            else pending.reject(new Error(data.message || 'Vibe 编码失败'));
+            break;
+        }
 
         case 'BATCH_DELETED': {
             if (data.requestId !== batchDeleteRequestId) break;
@@ -4478,6 +5446,8 @@ window.addEventListener('pagehide', event => {
 window.addEventListener('beforeunload', () => {
     cardMenu?.destroy();
     cardMenu = null;
+    presetMenu?.destroy();
+    presetMenu = null;
     galleryImageWindow.dispose();
 
 
@@ -4832,9 +5802,41 @@ function initializePage() {
     $('nd_batch_done').addEventListener('click', toggleBatchMode);
 
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
-    
-    $('nd_clear_all').addEventListener('click', () => { 
-        if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' }); 
+
+    $('nd_convert_legacy_jpeg').addEventListener('click', () => {
+        const btn = $('nd_convert_legacy_jpeg');
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 轉換中…';
+        postToParent({ type: 'CONVERT_LEGACY_JPEG' });
+    });
+
+    // ── Vibe 氛围转移 ──
+    $('nd_vibe_file')?.addEventListener('change', e => {
+        const files = e.target.files;
+        if (files?.length) handleVibeFiles(files);
+    });
+    // 切换模型后刷新 Vibe 支持提示与编码徽标（编码本身在生成时按需自动补）
+    $('nd_model_sel')?.addEventListener('change', () => renderVibeAll());
+    $('nd_model')?.addEventListener('input', () => renderVibeAll());
+
+    // ── Vibe 组保存栏 ──
+    $('nd_vibe_group_sel')?.addEventListener('change', e => applyGroupToDraft(e.target.value));
+    $('nd_vibe_group_saveas')?.addEventListener('click', () => saveDraftAsNewGroup());
+    $('nd_vibe_group_rename')?.addEventListener('click', () => renameSelectedGroup());
+    $('nd_vibe_group_save')?.addEventListener('click', () => overwriteOrSaveGroup());
+    $('nd_vibe_group_del')?.addEventListener('click', () => deleteSelectedGroup());
+    $('nd_vibe_group_export')?.addEventListener('click', () => {
+        const group = getSelectedGroup();
+        if (group) exportVibeGroup(group.id);
+    });
+    $('nd_vibe_import_file')?.addEventListener('change', e => {
+        const files = e.target.files;
+        if (files?.length) handleVibeImportFiles(files);
+    });
+
+    $('nd_clear_all').addEventListener('click', () => {
+        if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' });
     });
     
     
@@ -5010,7 +6012,7 @@ function initializePage() {
             .catch((error) => { console.error('[ND-UI] 预设排序模块加载失败，参数预设无法排序:', error); }),
         import('../../shared/preset-list-kit.js')
             .then((module) => {
-                presetListKit = module.createPresetListKit({ escapeHtml, shareMenu: { get: () => getCardMenu(), peek: () => cardMenu } });
+                presetListKit = module.createPresetListKit({ escapeHtml, shareMenu: { get: () => getPresetMenu(), peek: () => presetMenu } });
                 renderApiPresetBar();
             })
             .catch((error) => { console.error('[ND-UI] 预设列表模块加载失败，预设列表无法显示或排序:', error); }),

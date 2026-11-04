@@ -41,6 +41,7 @@ export function computeMenuPosition(anchor, menu, viewport, { margin = VIEWPORT_
  * @param {Document} options.document
  * @param {Function} [options.getViewport] () => { width, height }，默认取 document 的视口（测试用）
  * @param {boolean} [options.portal] Render outside transformed/scrolling chat containers.
+ *                                   TT 的 WKWebView 渲染不出卡片行内浮层，打开时挂进页面真实内容树（.app-container，缺省回退 body）才可见（与缩略图弹层同修法）。
  */
 export function createCardMenuController({ document, getViewport, portal = false } = {}) {
     if (!document) throw new TypeError('缺少 document');
@@ -50,6 +51,7 @@ export function createCardMenuController({ document, getViewport, portal = false
         height: win?.innerHeight || document.documentElement?.clientHeight || 0,
     }));
     let current = null; // { button, menu, wrap }
+    let openedAt = 0; // 打开时刻：开菜单后立即可能有一次聚焦引发的微滚动，宽限期内不当作“用户滚动了”来关菜单
     const ownerObserver = portal ? new win.MutationObserver(() => {
         if (current && !current.button.isConnected) close();
     }) : null;
@@ -73,16 +75,24 @@ export function createCardMenuController({ document, getViewport, portal = false
     }
 
     function place({ button, menu }) {
-        // 先以固定定位取消隐藏再量尺寸；量完立即定位，同一帧内不会闪烁。
-        menu.style.position = 'fixed';
+        // 不用 position: fixed：TT 的 WKWebView 在 iframe 里渲染不了 fixed 浮层（怎么放都不可见）。
+        // 一律用 absolute 挂在文档坐标系：offsetParent 换算后与 fixed 视口坐标数学等价，所有引擎下都可见。
+        menu.style.position = 'absolute';
         menu.style.left = '0px';
         menu.style.top = '0px';
         menu.removeAttribute('hidden');
         const rect = menu.getBoundingClientRect?.() || { width: 0, height: 0 };
         const anchor = button.getBoundingClientRect?.() || { top: 0, bottom: 0, left: 0, right: 0 };
         const pos = computeMenuPosition(anchor, { width: rect.width || 0, height: rect.height || 0 }, viewport());
-        menu.style.left = `${Math.round(pos.left)}px`;
-        menu.style.top = `${Math.round(pos.top)}px`;
+        // 锚点是视口坐标；absolute 需要文档坐标 = 视口坐标 + 滚动偏移，再减掉 offsetParent 的文档偏移。
+        const sx = win.scrollX || win.pageXOffset || 0;
+        const sy = win.scrollY || win.pageYOffset || 0;
+        const parent = menu.offsetParent;
+        const pr = parent?.getBoundingClientRect?.();
+        const px = pr ? pr.left + sx : 0;
+        const py = pr ? pr.top + sy : 0;
+        menu.style.left = `${Math.round(pos.left + sx - px)}px`;
+        menu.style.top = `${Math.round(pos.top + sy - py)}px`;
         if (pos.maxHeight > 0) menu.style.maxHeight = `${Math.round(pos.maxHeight)}px`;
         menu.dataset.placement = pos.flipped ? 'top' : 'bottom';
     }
@@ -95,10 +105,11 @@ export function createCardMenuController({ document, getViewport, portal = false
         current = { button, menu, wrap };
         button.setAttribute('aria-expanded', 'true');
         if (portal) {
-            document.body.append(menu);
+            (document.querySelector('.app-container') || document.body).append(menu);
             ownerObserver.observe(document.body, { childList: true, subtree: true });
         }
         place(current);
+        openedAt = Date.now();
         itemsOf(menu)[0]?.focus?.({ preventScroll: true });
         return true;
     }
@@ -129,9 +140,10 @@ export function createCardMenuController({ document, getViewport, portal = false
     on(document, 'focusin', (event) => {
         if (current && !current.wrap.contains(event.target) && !current.menu.contains(event.target)) close();
     });
-    // 浮层不跟随滚动 / 缩放：直接关闭（菜单自己的滚动除外）。
+    // 浮层不跟随滚动 / 缩放：直接关闭（菜单自己的滚动除外）。刚打开后的头 250ms 例外——
+    // 聚焦首个菜单项可能在部分 WebView（TT 的 WKWebView）里触发一次对焦滚动，把刚开的菜单秒关。
     on(document, 'scroll', (event) => {
-        if (current && !current.menu.contains(event.target)) close();
+        if (current && !current.menu.contains(event.target) && Date.now() - openedAt > 250) close();
     }, true);
     if (win) on(win, 'resize', () => close());
 

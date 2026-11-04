@@ -344,16 +344,24 @@ const STYLES = `
 .nd-novel .nd-detail-value.warning{ color: var(--nd-warning); }
 .nd-novel .nd-detail-value.error{ color: var(--nd-error); }
 
-/* 菜单 - 向下展开（楼层按钮用） */
+/* 菜单 - 向下展开（楼层按钮用）；整体限高，预设网格在菜单内部滚动 */
 .nd-novel .nd-menu {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 220px;
+    width: 242px;
+    display: flex;
+    flex-direction: column;
+    /* 高度策略与 main 一致：固定高度，网格内部滚动，菜单永不随内容撑长 */
+    height: 380px;
+    min-height: 200px;
+    max-height: 70vh;
+    overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 10px;
+    box-sizing: border-box;
     box-shadow: var(--nd-shadow-lg);
     opacity: 0;
     visibility: hidden;
@@ -372,6 +380,7 @@ const STYLES = `
     border: none;
     border-radius: 0;
     overflow: visible;
+    flex-shrink: 0;
 }
 
 .nd-novel .nd-row{
@@ -423,14 +432,22 @@ ${MAX_IMAGES_INPUT_CSS}
 
 .nd-novel .nd-inner-sep{ display: none; }
 
-.nd-novel .nd-controls{ display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.nd-novel .nd-controls{ display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-shrink: 0; }
+
+/* 尺寸（控制行内，弹性占满）+ 数目并排一行 */
+.nd-novel .nd-row-pair{ display: flex; align-items: stretch; gap: 8px; padding: 6px 2px; }
+.nd-novel .nd-row-pair .nd-row{ flex: 1; min-width: 0; padding: 0; }
+.nd-novel .nd-row-pair .nd-label{ width: auto; padding-right: 2px; }
+.nd-novel .nd-controls .nd-row{ flex: 1; min-width: 0; padding: 0; }
 
 .nd-novel .nd-auto{
-    flex: 1;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 12px;
+    min-height: 32px;
+    box-sizing: border-box;
+    padding: 0 12px;
     background: var(--nd-bg-active);
     border: 1px solid var(--nd-border-subtle);
     border-radius: var(--nd-radius-sm);
@@ -468,6 +485,111 @@ ${MAX_IMAGES_INPUT_CSS}
     transition: all 0.15s;
 }
 .nd-novel .nd-gear:hover { background: var(--nd-bg-active); color: var(--nd-text-secondary); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   画师串预设网格
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* 结构与已验证可用的 nai-preset-switcher 对齐：
+   普通 block 卡片（不用 button/flex），缩略图直接是 <img> 本身 */
+.nd-preset-grid {
+    flex: 1;
+    min-height: 0;
+    margin-top: 10px;
+    display: grid;
+    /* 固定 4 列：菜单宽 260px，内容约 240px，每列约 54px（原卡片一半） */
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: max-content;
+    align-items: start;
+    gap: 6px;
+    align-content: start;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.nd-preset-card {
+    position: relative;
+    border: 1px solid var(--nd-border-subtle);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    overflow: hidden;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.nd-preset-card:hover { border-color: rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.07); }
+.nd-preset-card:active { transform: scale(0.96); }
+.nd-preset-card.active {
+    border: 1px solid var(--nd-success);
+    box-shadow: 0 0 8px rgba(62, 207, 142, 0.35);
+    background: rgba(62, 207, 142, 0.08);
+}
+
+/* 缩略图固定像素高度：绝不依赖 aspect-ratio 或百分比 padding，
+   否则该 WebView 会把高度算成 0，导致卡片被压成细线、全部挤在一起不滚动。
+   高度带 !important：楼层/悬浮两种挂载位置命中的宿主页样式不同（聊天消息里的
+   img 规则可能更高优先级），不加会被宿主样式拉伸成“随位置填满高度” */
+.nd-preset-thumb {
+    width: 100% !important;
+    height: 75px !important;
+    max-height: 75px !important;
+    object-fit: cover;
+    background: rgba(128, 128, 128, 0.28);
+    display: block;
+    pointer-events: none;
+}
+.nd-preset-thumb.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: center;
+    padding: 2px;
+    box-sizing: border-box;
+}
+
+.nd-preset-check {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    z-index: 2;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--nd-success);
+    color: #0b1712;
+    font-size: 9px;
+    font-weight: 700;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+.nd-preset-card.active .nd-preset-check { display: flex; }
+
+.nd-preset-name {
+    font-size: 10px;
+    line-height: 1.25;
+    color: var(--nd-text-secondary);
+    padding: 3px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+.nd-preset-card.active .nd-preset-name { color: var(--nd-text-primary); }
+
+.nd-preset-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--nd-text-muted);
+    font-size: 11px;
+    padding: 24px 0;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    悬浮按钮样式（固定定位，可拖拽）
@@ -567,21 +689,6 @@ function createPersistMenuBtn() {
     return btn;
 }
 
-function fillPresetSelect(selectEl) {
-    if (!selectEl) return;
-    const settings = getSettings();
-    const presets = settings.paramsPresets || [];
-    const currentId = settings.selectedParamsPresetId;
-    selectEl.replaceChildren();
-    presets.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name || '未命名';
-        if (p.id === currentId) opt.selected = true;
-        selectEl.appendChild(opt);
-    });
-}
-
 function fillSizeSelect(selectEl) {
     if (!selectEl) return;
     const settings = getSettings();
@@ -593,6 +700,59 @@ function fillSizeSelect(selectEl) {
         option.textContent = opt.label;
         if (opt.value === current) option.selected = true;
         selectEl.appendChild(option);
+    });
+}
+
+/**
+ * 渲染视觉化画师串预设网格：每张卡片 = 缩略图 + 预设 name，
+ * 当前选中预设高亮；点击事件由调用方在网格容器上委托处理。
+ */
+function renderPresetGrid(gridEl) {
+    if (!gridEl) return;
+    const settings = getSettings();
+    const presets = settings.paramsPresets || [];
+    const currentId = settings.selectedParamsPresetId;
+    gridEl.replaceChildren();
+
+    if (!presets.length) {
+        gridEl.appendChild(createEl('div', 'nd-preset-empty', '暂无画师串预设'));
+        return;
+    }
+
+    presets.forEach((p) => {
+        // 卡片必须是普通 div（不能是 button + flex）：旧 WebKit 对 button 内
+        // flex 内容的高度计算在 grid auto 行中会循环归零导致整卡塌陷
+        const card = createEl('div', `nd-preset-card${p.id === currentId ? ' active' : ''}`);
+        card.dataset.presetId = p.id;
+        card.title = p.name || '未命名';
+        // 内联 align-self 防止 grid 把卡片在纵向拉伸/压缩
+        card.style.alignSelf = 'start';
+
+        // 空缩略图占位：内联固定高度＋!important（不依赖 stylesheet、不被宿主样式改写），纯灰底
+        const makeEmpty = () => {
+            const empty = createEl('div', 'nd-preset-thumb empty', '无预览');
+            empty.style.cssText = 'width:100% !important;height:75px !important;max-height:75px !important;display:flex;align-items:center;justify-content:center;background:rgba(128,128,128,0.28);color:rgba(255,255,255,0.45);font-size:10px;line-height:1.2;text-align:center;padding:2px;box-sizing:border-box;';
+            return empty;
+        };
+
+        if (p.thumbnail) {
+            const img = document.createElement('img');
+            img.className = 'nd-preset-thumb';
+            img.alt = '';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            // 内联固定尺寸＋!important：最高优先级，宿主样式（不同挂载位置规则不同）与外部残留 CSS 都改不了
+            img.style.cssText = 'width:100% !important;height:75px !important;max-height:75px !important;object-fit:cover;display:block;background:rgba(128,128,128,0.28);box-sizing:border-box;';
+            img.src = p.thumbnail;
+            img.addEventListener('error', () => img.replaceWith(makeEmpty()), { once: true });
+            card.appendChild(img);
+        } else {
+            card.appendChild(makeEmpty());
+        }
+
+        card.appendChild(createEl('span', 'nd-preset-check', '✓'));
+        card.appendChild(createEl('div', 'nd-preset-name', p.name || '未命名'));
+        gridEl.appendChild(card);
     });
 }
 
@@ -681,31 +841,33 @@ function createFloorPanelElement(messageId) {
 
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
-    const rowPreset = createEl('div', 'nd-row');
-    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
-    const presetSelect = createEl('select', 'nd-select nd-preset-select');
-    fillPresetSelect(presetSelect);
-    rowPreset.appendChild(presetSelect);
-    const innerSep = createEl('div', 'nd-inner-sep');
+    // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
+    // 「自动/手动」开关与「数目」并排一行（高度对齐输入框，文字短了把空间让给数目输入框），
+    // 「尺寸」移到下方控制行与设置按钮同排。
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', isAuto ? '自动' : '手动')
+    );
+    const rowPair = createEl('div', 'nd-row-pair');
+    rowPair.append(autoToggle, maxImages.createRow());
+    card.append(rowPair);
+
+    const controls = createEl('div', 'nd-controls');
     const rowSize = createEl('div', 'nd-row');
     rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    card.append(rowPreset, innerSep, rowSize, maxImages.createRow());
-
-    const controls = createEl('div', 'nd-controls');
-    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
-    autoToggle.append(
-        createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', '自动配图')
-    );
     const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
     settingsBtn.title = '打开设置';
     settingsBtn.appendChild(createDrawIcon('sliders'));
-    controls.append(autoToggle, settingsBtn);
+    controls.append(rowSize, settingsBtn);
 
-    menu.append(card, controls);
+    const presetGrid = createEl('div', 'nd-preset-grid');
+    renderPresetGrid(presetGrid);
+
+    menu.append(card, controls, presetGrid);
 
     root.append(capsule, detail, menu);
     return root;
@@ -722,10 +884,10 @@ function cacheFloorDOM(panelData) {
         errorRow: el.querySelector('.nd-error-row'),
         error: el.querySelector('.nd-error'),
         time: el.querySelector('.nd-time'),
-        presetSelect: el.querySelector('.nd-preset-select'),
         sizeSelect: el.querySelector('.nd-size-select'),
         maxImagesInput: el.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`),
         autoToggle: el.querySelector('.nd-auto-toggle'),
+        presetGrid: el.querySelector('.nd-preset-grid'),
     };
 }
 
@@ -1055,8 +1217,15 @@ function bindFloorPanelEvents(panelData) {
         }
     });
 
-    panelData.$cache.presetSelect?.addEventListener('change', async (e) => {
-        await setQuickPreset(e.target.value);
+    panelData.$cache.presetGrid?.addEventListener('click', async (e) => {
+        const card = e.target.closest('.nd-preset-card');
+        if (!card) return;
+        e.stopPropagation();
+        const id = card.dataset.presetId;
+        if (id && id !== getSettings().selectedParamsPresetId) {
+            await setQuickPreset(id);
+        }
+        el.classList.remove('expanded');
     });
 
     panelData.$cache.sizeSelect?.addEventListener('change', async (e) => {
@@ -1096,9 +1265,7 @@ function bindFloorPanelEvents(panelData) {
 }
 
 function refreshFloorPresetSelect(messageId) {
-    const data = panelMap.get(messageId);
-    const select = data?.$cache?.presetSelect;
-    fillPresetSelect(select);
+    renderPresetGrid(panelMap.get(messageId)?.$cache?.presetGrid);
 }
 
 function refreshFloorSizeSelect(messageId) {
@@ -1700,7 +1867,7 @@ async function handleFloatingAbort() {
 }
 
 function refreshFloatingPresetSelect() {
-    fillPresetSelect($floatingCache.presetSelect);
+    renderPresetGrid($floatingCache.presetGrid);
 }
 
 function refreshFloatingSizeSelect() {
@@ -1721,10 +1888,10 @@ function cacheFloatingDOM() {
         detailErrorRow: floatingEl.querySelector('.nd-error-row'),
         detailError: floatingEl.querySelector('.nd-error'),
         detailTime: floatingEl.querySelector('.nd-time'),
-        presetSelect: floatingEl.querySelector('.nd-preset-select'),
         sizeSelect: floatingEl.querySelector('.nd-size-select'),
         maxImagesInput: floatingEl.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`),
         autoToggle: floatingEl.querySelector('.nd-auto-toggle'),
+        presetGrid: floatingEl.querySelector('.nd-preset-grid'),
     };
 }
 
@@ -1772,30 +1939,33 @@ function createFloatingButton() {
 
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
-    const rowPreset = createEl('div', 'nd-row');
-    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
-    const presetSelect = createEl('select', 'nd-select nd-preset-select');
-    fillPresetSelect(presetSelect);
-    rowPreset.appendChild(presetSelect);
-    const innerSep = createEl('div', 'nd-inner-sep');
+    // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
+    // 「自动/手动」开关与「数目」并排一行（高度对齐输入框，文字短了把空间让给数目输入框），
+    // 「尺寸」移到下方控制行与设置按钮同排。
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', isAuto ? '自动' : '手动')
+    );
+    const rowPair = createEl('div', 'nd-row-pair');
+    rowPair.append(autoToggle, maxImages.createRow());
+    card.append(rowPair);
+
+    const controls = createEl('div', 'nd-controls');
     const rowSize = createEl('div', 'nd-row');
     rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    card.append(rowPreset, innerSep, rowSize, maxImages.createRow());
-
-    const controls = createEl('div', 'nd-controls');
-    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
-    autoToggle.append(
-        createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', '自动配图')
-    );
     const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
     settingsBtn.title = '打开设置';
     settingsBtn.appendChild(createDrawIcon('sliders'));
-    controls.append(autoToggle, settingsBtn);
-    menu.append(card, controls);
+    controls.append(rowSize, settingsBtn);
+
+    const presetGrid = createEl('div', 'nd-preset-grid');
+    renderPresetGrid(presetGrid);
+
+    menu.append(card, controls, presetGrid);
 
     const capsule = createEl('div', 'nd-capsule');
     const inner = createEl('div', 'nd-inner');
@@ -1838,8 +2008,15 @@ function createFloatingButton() {
     floatingEl.addEventListener('lostpointercapture', onFloatingPointerCancel);
     floatingEl.addEventListener('click', onFloatingControlClick);
 
-    $floatingCache.presetSelect?.addEventListener('change', async (e) => {
-        await setQuickPreset(e.target.value);
+    $floatingCache.presetGrid?.addEventListener('click', async (e) => {
+        const card = e.target.closest('.nd-preset-card');
+        if (!card) return;
+        e.stopPropagation();
+        const id = card.dataset.presetId;
+        if (id && id !== getSettings().selectedParamsPresetId) {
+            await setQuickPreset(id);
+        }
+        floatingEl?.classList.remove('expanded');
     });
 
     $floatingCache.sizeSelect?.addEventListener('change', async (e) => {
@@ -1890,9 +2067,9 @@ function destroyFloatingButton() {
 
 function updateAllPresetSelects() {
     panelMap.forEach((data) => {
-        fillPresetSelect(data.$cache?.presetSelect);
+        renderPresetGrid(data?.$cache?.presetGrid);
     });
-    fillPresetSelect($floatingCache.presetSelect);
+    renderPresetGrid($floatingCache.presetGrid);
     // “数目”输入框的提示里带当前预设的出图数，切换预设后一并刷新。
     updateAllMaxImagesInputs();
 }
@@ -1910,16 +2087,21 @@ function updateAllMaxImagesInputs() {
 
 export function updateAutoModeUI() {
     const isAuto = getSettings().mode === 'auto';
+    const modeText = isAuto ? '自动' : '手动';
 
     panelMap.forEach((data) => {
         if (!data.root) return;
         data.root.classList.toggle('auto-on', isAuto);
         data.$cache.autoToggle?.classList.toggle('on', isAuto);
+        const text = data.$cache.autoToggle?.querySelector('.nd-auto-text');
+        if (text) text.textContent = modeText;
     });
 
     if (floatingEl) {
         floatingEl.classList.toggle('auto-on', isAuto);
         $floatingCache.autoToggle?.classList.toggle('on', isAuto);
+        const text = $floatingCache.autoToggle?.querySelector('.nd-auto-text');
+        if (text) text.textContent = modeText;
     }
 }
 

@@ -13,7 +13,7 @@ import { FORM_MAX_COUNT } from '../../../shared/character-edit-form.js';
 
 register('./host-lib-hook.mjs', import.meta.url);
 
-const pageUrl = new URL('../novel-draw.html', import.meta.url);
+const pageUrl = new URL('../novel-draw2.html', import.meta.url);
 const { window, document } = parseHTML(readFileSync(pageUrl, 'utf8').replace(/<script[\s\S]*?<\/script>/g, ''));
 
 // linkedom's <select> only has a value getter; the page assigns it (filters, dropdown resets).

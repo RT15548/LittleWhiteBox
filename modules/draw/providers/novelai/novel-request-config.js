@@ -38,6 +38,20 @@ export function resolveNovelAIImageApi(baseUrl, transport = 'image') {
     return `${resolvedPath}${suffix}`;
 }
 
+export function resolveNovelAIEncodeVibeApi(baseUrl) {
+    const raw = String(baseUrl || '').trim();
+    if (!raw) return `${DEFAULT_IMAGE_ORIGIN}/ai/encode-vibe`;
+    const suffixIndex = raw.search(/[?#]/);
+    const path = (suffixIndex < 0 ? raw : raw.slice(0, suffixIndex)).replace(/\/+$/, '');
+    const suffix = suffixIndex < 0 ? '' : raw.slice(suffixIndex);
+    const resolvedPath = /\/ai\/encode-vibe$/i.test(path)
+        ? path
+        : /\/ai\/generate-image(?:-stream)?$/i.test(path)
+            ? path.replace(/\/ai\/generate-image(?:-stream)?$/i, '/ai/encode-vibe')
+            : `${path}/ai/encode-vibe`;
+    return `${resolvedPath}${suffix}`;
+}
+
 export function resolveNovelAIBackendImageApi(baseUrl, transport = 'image', baseHref) {
     const resolved = resolveNovelAIImageApi(baseUrl, transport);
     try {
