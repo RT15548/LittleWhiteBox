@@ -541,84 +541,6 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
 .nd-advanced-only { display: flex !important; }
 .nd-simple-only { display: none !important; }
 
-/* ── 预设缩略图（头像式上传方框，3:4 竖图） ── */
-.nd-thumb-box {
-    position: relative;
-    width: 96px;
-    height: 128px;
-    border: 1.5px dashed var(--border);
-    border-radius: 10px;
-    background: var(--bg-input);
-    cursor: pointer;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: border-color 0.15s;
-}
-.nd-thumb-box:hover,
-.nd-thumb-box:focus-visible { border-color: var(--border-focus); outline: none; }
-.nd-thumb-box.has-image { border-style: solid; }
-.nd-thumb-box img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: none;
-}
-.nd-thumb-box.has-image img { display: block; }
-.nd-thumb-placeholder {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 6px;
-    color: var(--text-muted);
-    font-size: 11px;
-    text-align: center;
-    line-height: 1.3;
-}
-.nd-thumb-placeholder i { font-size: 22px; opacity: 0.6; }
-.nd-thumb-box.has-image .nd-thumb-placeholder { display: none; }
-.nd-thumb-mask {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 4px 0;
-    background: rgba(0, 0, 0, 0.65);
-    color: #fff;
-    font-size: 10px;
-    text-align: center;
-    opacity: 0;
-    transition: opacity 0.15s;
-    pointer-events: none;
-}
-.nd-thumb-box.has-image:hover .nd-thumb-mask,
-.nd-thumb-box.has-image:focus-visible .nd-thumb-mask { opacity: 1; }
-.nd-thumb-clear {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 22px;
-    height: 22px;
-    border: none;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
-    font-size: 11px;
-    cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 2;
-}
-.nd-thumb-box.has-image .nd-thumb-clear { display: flex; }
-.nd-thumb-clear:hover { background: var(--danger); }
-#nd_thumbnail_pick { margin-top: 6px; padding: 5px 12px; font-size: 12px; }
-
 /* ── 从画廊选缩略图弹层 ── */
 .nd-thumbpick-overlay {
     position: fixed; inset: 0; z-index: 2000;
@@ -1213,22 +1135,7 @@ button.nd-vibe-badge:disabled { cursor: default; }
                         <textarea id="nd_negative" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
                         <p class="form-hint">鬼图、畸形、风格污染相关的排除词也建议固定在这里。</p>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">预设缩略图</label>
-                        <div id="nd_thumbnail_box" class="nd-thumb-box" role="button" tabindex="0" title="点击上传或更换缩略图">
-                            <img id="nd_thumbnail_preview" alt="">
-                            <span class="nd-thumb-placeholder" id="nd_thumbnail_placeholder">
-                                <i class="fa-regular fa-image"></i>
-                                <span>上传缩略图</span>
-                            </span>
-                            <span class="nd-thumb-mask"><i class="fa-solid fa-arrows-rotate"></i> 点击更换</span>
-                            <button type="button" id="nd_thumbnail_clear" class="nd-thumb-clear" title="移除缩略图"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                        <input type="file" id="nd_thumbnail_file" accept="image/*" hidden>
-                        <input type="hidden" id="nd_thumbnail">
-                        <button type="button" id="nd_thumbnail_pick" class="btn btn-sm">从画廊选图</button>
-                        <p class="form-hint">点击方框选择本地图片，或「从画廊选图」挑一张用本预设生成过的图；悬浮窗 / 楼层按钮的画师串卡片会显示这张缩略图。</p>
-                    </div>
+                    <!-- 缩略图不再走表单：在上方预设网格卡片右上角「…」菜单里「更换缩略图」（画廊选图 / 本地上传）。 -->
                 </div>
 
                 <div class="card">

@@ -3621,7 +3621,7 @@ function applyStateToUI() {
 }
 
 // ── 参数预设列表 ─────────────────────────────────────────────
-// 每个预设一行：拖动手柄 + 名称（点选）+ “…”菜单。点选只在页面里切换（和保存前的下拉框一样不通知宿主），
+// 网格卡片：缩略图在上（按住拖动排序）、名称在下、“…”浮在右上；预设选择仍只在页面里切换（不通知宿主）。
 // 新建 / 删除 / 导出等操作都带上被点的那一行的 id，不依赖宿主记的选中项。
 
 // 当前真正显示的预设 id：选中项找不到时 applyParamsPreset 会退回第一个，列表高亮跟它保持一致。
@@ -3647,6 +3647,13 @@ function getParamsListView() {
             getPresets: () => state.paramsPresets || [],
             getCurrentId: currentParamsPresetId,
             noun: '参数预设',
+            variant: 'grid',
+            menuItems: [
+                { action: 'thumbnail', label: '更换缩略图', icon: 'fa-image' },
+                { action: 'duplicate', label: '复制', icon: 'fa-copy' },
+                { action: 'export', label: '导出', icon: 'fa-download' },
+                { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
+            ],
             onSelect: id => selectParamsPreset(id),
             onAction: handleParamsPresetAction,
             onRename: renameParamsPreset,
@@ -3688,9 +3695,11 @@ function renameParamsPreset(id, name, preset) {
     postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
 }
 
-// 菜单项的动作：点选、改名与“…”按钮由视图处理，这里只收 duplicate / export / delete。
+// 菜单项的动作：点选、改名与“…”按钮由视图处理，这里只收 thumbnail / duplicate / export / delete。
 function handleParamsPresetAction(action, id, preset) {
-    if (action === 'duplicate') {
+    if (action === 'thumbnail') {
+        openThumbnailPicker(id);
+    } else if (action === 'duplicate') {
         postToParent({ type: 'ADD_PARAMS_PRESET', baseId: id, name: `${preset.name || preset.id} 副本` });
     } else if (action === 'export') {
         postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: id });
@@ -3699,18 +3708,13 @@ function handleParamsPresetAction(action, id, preset) {
     }
 }
 
-function updateThumbnailPreview(src) {
-    const box = $('nd_thumbnail_box');
-    const img = $('nd_thumbnail_preview');
-    if (!box || !img) return;
-    const url = String(src || '').trim();
-    if (url) {
-        img.src = url;
-        box.classList.add('has-image');
-    } else {
-        img.removeAttribute('src');
-        box.classList.remove('has-image');
-    }
+// 缩略图直接写进指定预设（不再经表单）：写本地 → 整份保存 → 重绘网格卡片。
+function applyPresetThumbnail(presetId, thumb) {
+    const preset = (state.paramsPresets || []).find(p => p.id === presetId);
+    if (!preset) return;
+    preset.thumbnail = String(thumb || '').trim();
+    postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+    renderParamsPresetList();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3736,14 +3740,31 @@ function ensureThumbPickOverlay() {
         <div class="nd-thumbpick-dialog">
             <div class="nd-thumbpick-head">
                 <span class="nd-thumbpick-title">从画廊选择缩略图</span>
+                <button type="button" id="nd_thumb_pick_upload" class="nd-thumbpick-toggle">上传本地图片</button>
                 <button type="button" id="nd_thumb_pick_toggle" class="nd-thumbpick-toggle">显示全部图片</button>
                 <button type="button" id="nd_thumb_pick_close" class="nd-thumbpick-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div id="nd_thumb_pick_grid" class="nd-thumbpick-grid"></div>
+            <input type="file" id="nd_thumb_pick_file" accept="image/*" class="hidden">
         </div>`;
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('visible'); });
     $('nd_thumb_pick_close').addEventListener('click', () => overlay.classList.remove('visible'));
+    $('nd_thumb_pick_upload').addEventListener('click', () => $('nd_thumb_pick_file')?.click());
+    $('nd_thumb_pick_file').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file || !thumbPickState.presetId) return;
+        try {
+            // 与导入参数预设的缩略图规格一致：256px JPEG，避免 dataURL 过大撑爆存档
+            const thumb = await downscaleFileToDataUrl(file, 256, 'image/jpeg', 0.8);
+            applyPresetThumbnail(thumbPickState.presetId, thumb);
+            overlay.classList.remove('visible');
+        } catch (err) {
+            console.error('[ND-UI] 缩略图本地图片处理失败:', err);
+            alert('图片处理失败，请换一张试试');
+        }
+    });
     $('nd_thumb_pick_toggle').addEventListener('click', () => {
         thumbPickState.all = !thumbPickState.all;
         requestThumbCandidates(thumbPickState.all);
@@ -3752,8 +3773,7 @@ function ensureThumbPickOverlay() {
         const card = e.target.closest('.nd-thumbpick-item');
         const thumb = card?.dataset?.thumb;
         if (!thumb) return;
-        $('nd_thumbnail').value = thumb;
-        updateThumbnailPreview(thumb);
+        applyPresetThumbnail(thumbPickState.presetId, thumb);
         overlay.classList.remove('visible');
     });
     return overlay;
@@ -3773,8 +3793,8 @@ function requestThumbCandidates(all) {
     });
 }
 
-function openThumbnailPicker() {
-    thumbPickState.presetId = String(state.selectedParamsPresetId || '');
+function openThumbnailPicker(presetId = state.selectedParamsPresetId) {
+    thumbPickState.presetId = String(presetId || '');
     thumbPickState.all = false;
     ensureThumbPickOverlay().classList.add('visible');
     requestThumbCandidates(false);
@@ -4595,8 +4615,6 @@ function applyParamsPreset() {
     $('nd_negative').value = p.negativePrefix || '';
     $('nd_max_images').value = p.maxImages || 0;
     $('nd_max_chars').value = p.maxCharactersPerImage || 0;
-    $('nd_thumbnail').value = p.thumbnail || '';
-    updateThumbnailPreview(p.thumbnail || '');
 
     const pm = p.params || {};
     const dp = DEFAULTS.params;
@@ -5147,7 +5165,7 @@ function collectParamsPreset() {
     p.positivePrefix = $('nd_positive').value;
     p.negativePrefix = $('nd_negative').value;
     p.maxImages = Math.max(0, Number($('nd_max_images').value) || 0);
-    p.thumbnail = String($('nd_thumbnail')?.value || '').trim();
+    // 缩略图不再走表单：由“…”菜单里的「更换缩略图」（画廊选图 / 本地上传）直接写进对应预设。
     const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
     const characterLimit = getModelCapability(model).maxCharactersPerImage || 10;
     p.maxCharactersPerImage = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
@@ -5773,37 +5791,6 @@ function initializePage() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 轉換中…';
         postToParent({ type: 'CONVERT_LEGACY_JPEG' });
-    });
-
-    // 预设缩略图：头像式方框，点击上传/更换，× 移除；本地图片转 dataURL
-    const thumbBox = $('nd_thumbnail_box');
-    const thumbFile = $('nd_thumbnail_file');
-    thumbBox?.addEventListener('click', () => thumbFile?.click());
-    thumbBox?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            thumbFile?.click();
-        }
-    });
-    $('nd_thumbnail_clear')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        $('nd_thumbnail').value = '';
-        updateThumbnailPreview('');
-    });
-    $('nd_thumbnail_pick')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openThumbnailPicker();
-    });
-    thumbFile?.addEventListener('change', e => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            $('nd_thumbnail').value = String(reader.result || '');
-            updateThumbnailPreview(reader.result);
-        };
-        reader.readAsDataURL(file);
-        e.target.value = '';
     });
 
     // ── Vibe 氛围转移 ──
