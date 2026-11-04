@@ -118,7 +118,7 @@ export function createPresetListView({
         <div class="preset-row preset-card-grid${selected ? ' selected' : ''}" role="listitem" tabindex="0" data-preset-id="${pid}"${selected ? ' aria-current="true"' : ''}>
             <span class="preset-thumb" role="button" tabindex="0" data-preset-drag="${pid}" title="按住拖动调整顺序，也可聚焦后按 ↑ / ↓" aria-label="拖动调整${escapeHtml(noun)} ${pname} 的顺序">${thumb
                 ? `<img src="${thumb}" alt="" draggable="false">`
-                : '<i class="fa-regular fa-image" aria-hidden="true"></i>'}</span>
+                : ''}</span>
             <input type="text" class="preset-row-name inline-name" value="${pname}" placeholder="${escapeHtml(noun)}名称" title="点一下改名（Enter 确认，Esc 还原）" aria-label="${escapeHtml(noun)}名称" autocomplete="off">
             <span class="char-menu-wrap" data-card-menu>
                 <button type="button" class="char-action-button char-menu-button" data-preset-action="menu" data-preset-id="${pid}" title="更多操作" aria-label="更多操作 ${pname}" aria-haspopup="menu" aria-expanded="false"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>

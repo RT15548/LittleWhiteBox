@@ -1,4 +1,4 @@
-import{n as C}from"./async-errors-C4kfchr9.js";import{ut as te}from"./gallery-cache-Dq4zRh98.js";import{B as He,H as ke,V as z,ct as Qe,d as Ee,in as Xe,lt as Ke,n as ce,t as Je,z as ue}from"./message-toolbar-Bs4CyevN.js";import{o as Te}from"./panel-escape-ymarUWxh.js";import{gt as Se,mt as v,vt as I,yt as Ze}from"./draw-common-DlZJvGJ0.js";import{a as Ie,i as H,l as Le,o as ie,s as w,t as Re,u as Ne}from"./novel-draw-BeEY--Xj.js";import{a as et,c as Ae,d as tt,f as nt,i as xe,l as Pe,m as ot,o as rt,p as pe,r as De,s as we,t as Fe,u as at}from"./draw-run-ui-state-CgVERtQP.js";import{getContext as N}from"../../../../../../scripts/extensions.js";var Oe="xb_novel_float_pos",B=8e3,it="novelai",a={IDLE:"idle",SUBMITTING:"submitting",ACCEPTED:"accepted",UNCERTAIN:"uncertain",QUEUED:"queued",LLM:"llm",GEN:"gen",COOLDOWN:"cooldown",RECONNECTING:"reconnecting",CANCELLING:"cancelling",BACKEND_LEGACY:"backend_legacy",SUCCESS:"success",PARTIAL:"partial",ERROR:"error"},st=[{value:"default",label:"跟随预设",width:null,height:null},{value:"auto",label:"AI 自动（按构图）",width:null,height:null},{value:"832x1216",label:"832 × 1216  竖图",width:832,height:1216},{value:"1216x832",label:"1216 × 832  横图",width:1216,height:832},{value:"1024x1024",label:"1024 × 1024  方图",width:1024,height:1024},{value:"768x1280",label:"768 x 1280  大竖",width:768,height:1280},{value:"1280x768",label:"1280 x 768  大横",width:1280,height:768}],p=new Map,W=new Map,L=null,i=null,m=null,h=a.IDLE,$=null,f={success:0,total:0,error:null,startTime:0},S=null,Q=null,J=0,g={},ye=!1,se=null,ze=74,$e=98,lt=`
+import{n as C}from"./async-errors-C4kfchr9.js";import{ut as te}from"./gallery-cache-Dq4zRh98.js";import{B as He,H as ke,V as z,ct as Qe,d as Ee,in as Xe,lt as Ke,n as ce,t as Je,z as ue}from"./message-toolbar-Bs4CyevN.js";import{o as Te}from"./panel-escape-ymarUWxh.js";import{gt as Se,mt as v,vt as I,yt as Ze}from"./draw-common-DlZJvGJ0.js";import{a as Ie,i as H,l as Le,o as ie,s as w,t as Re,u as Ne}from"./novel-draw-CrPCbAru.js";import{a as et,c as Ae,d as tt,f as nt,i as xe,l as Pe,m as ot,o as rt,p as pe,r as De,s as we,t as Fe,u as at}from"./draw-run-ui-state-CgVERtQP.js";import{getContext as N}from"../../../../../../scripts/extensions.js";var Oe="xb_novel_float_pos",B=8e3,it="novelai",a={IDLE:"idle",SUBMITTING:"submitting",ACCEPTED:"accepted",UNCERTAIN:"uncertain",QUEUED:"queued",LLM:"llm",GEN:"gen",COOLDOWN:"cooldown",RECONNECTING:"reconnecting",CANCELLING:"cancelling",BACKEND_LEGACY:"backend_legacy",SUCCESS:"success",PARTIAL:"partial",ERROR:"error"},st=[{value:"default",label:"跟随预设",width:null,height:null},{value:"auto",label:"AI 自动（按构图）",width:null,height:null},{value:"832x1216",label:"832 × 1216  竖图",width:832,height:1216},{value:"1216x832",label:"1216 × 832  横图",width:1216,height:832},{value:"1024x1024",label:"1024 × 1024  方图",width:1024,height:1024},{value:"768x1280",label:"768 x 1280  大竖",width:768,height:1280},{value:"1280x768",label:"1280 x 768  大横",width:1280,height:768}],p=new Map,W=new Map,L=null,i=null,m=null,h=a.IDLE,$=null,f={success:0,total:0,error:null,startTime:0},S=null,Q=null,J=0,g={},ye=!1,se=null,ze=74,$e=98,lt=`
 
 /* ═══════════════════════════════════════════════════════════════════════════
    楼层按钮样式
@@ -231,10 +231,10 @@ import{n as C}from"./async-errors-C4kfchr9.js";import{ut as te}from"./gallery-ca
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 220px;
+    width: 242px;
     display: flex;
     flex-direction: column;
-    max-height: min(70vh, 480px);
+    max-height: min(55vh, 400px);
     overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);

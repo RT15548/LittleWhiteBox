@@ -349,10 +349,10 @@ const STYLES = `
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 220px;
+    width: 242px;
     display: flex;
     flex-direction: column;
-    max-height: min(70vh, 480px);
+    max-height: min(55vh, 400px);
     overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);

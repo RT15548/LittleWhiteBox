@@ -27,7 +27,6 @@
 .char-menu { z-index: 200; }
 .preset-list.is-grid .preset-thumb:active { cursor: grabbing; }
 .preset-list.is-grid .preset-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-.preset-list.is-grid .preset-thumb .fa-image { font-size: 1.6em; opacity: .45; }
 .preset-list.is-grid .preset-row-name { display: block; width: 100%; flex: none; min-width: 0; max-width: 100%; height: 28px; line-height: 18px; text-align: center; padding: 4px 6px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .preset-list.is-grid .preset-row-name:focus { white-space: normal; }
 .preset-list.is-grid .char-menu-wrap { position: absolute; top: 4px; right: 4px; }
