@@ -16,8 +16,8 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
 </head>
 <body>
 <h1>画图与语音接口</h1>
-<nav aria-label="目录"><a href="#draw">画图</a><a href="#presets">选择预设</a><a href="#draw-fields">画图参数</a><a href="#tts">语音</a><a href="#tts-fields">语音参数</a><a href="#errors">错误处理</a></nav>
-<p>在自己写的卡片里，把提示词或要朗读的文字交给小白X，就能使用用户配置好的画图、语音服务。提示词、参数和文字都可以来自 AI、脚本或用户输入；生成后如何显示、播放，由你的卡片决定。</p>
+<nav aria-label="目录"><a href="#draw">画图</a><a href="#presets">选择预设</a><a href="#draw-fields">画图参数</a><a href="#keep">保存结果</a><a href="#tts">语音</a><a href="#tts-fields">语音参数</a><a href="#errors">错误处理</a></nav>
+<p>在自己写的卡片里，把提示词或要朗读的文字交给小白X，就能使用用户配置好的画图、语音服务。提示词、参数和文字都可以来自 AI、脚本或用户输入；生成后如何显示、播放，由你的卡片决定；要让图片刷新后仍在，见<a href="#keep">保存生成结果</a>。</p>
 <h2>开始前</h2>
 <ol>
 <li>在酒馆中打开小白X总开关，并开启要用的画图或语音功能。</li>
@@ -208,6 +208,39 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
 </tbody></table>
 <p>自定义模式下，模型、采样器、步数、参考图、批量大小等直接写在工作流 JSON 中，不放进 params。传入自己的 customWorkflow 时，同时设置 <code>workflowMode: 'custom'</code>。节点 ID 必须与这份 JSON 对应。</p>
 <p>通过接口调用 ComfyUI 时，请在画图面板选择“浏览器直连”（ComfyUI 需允许浏览器跨域访问），或开启“使用小白X后台任务”。接口不使用酒馆的普通代理；仅配置普通代理时会返回 <code>not_configured</code>，<code>field</code> 为 <code>connectionMode</code>。调用不会替你更改这些设置。</p>
+</section>
+
+<section id="keep"><h2>保存生成结果</h2>
+<p><code>generate</code> 返回的 Blob 只在当前页面里有效，刷新后就没有了。要让图片留在楼层上，卡片自己保存，并给每张图一个编号，显示时按编号取回。下面的代码以酒馆页面为准；在卡片 iframe 里，把 <code>SillyTavern</code> 写成 <code>window.parent.SillyTavern</code>。</p>
+<h3>编号</h3>
+<p>用楼层当前这一页的 <code>send_date</code> 加 <code>swipe_id</code> 作编号。重新生成或换到新的 swipe 时，这一页会得到新的 <code>send_date</code>，所以旧图不会出现在新的一页上；开场白的几个备选页共用同一个 <code>send_date</code>，靠 <code>swipe_id</code> 区分。不要用楼层序号：删掉前面的楼层后，序号会变。</p>
+<pre><code>const { chat, getCurrentChatId } = SillyTavern.getContext();
+const message = chat[messageId];
+const key = message.send_date + '#' + message.swipe_id;  // 同一聊天内的编号
+const chatId = getCurrentChatId();                       // 跨聊天区分时加上它</code></pre>
+<h3>只在这台设备上看：存进 IndexedDB</h3>
+<p>把 Blob 直接存进卡片自己的 IndexedDB 库，键为 <code>chatId</code> + 编号，不写聊天记录，也不上传服务器。显示时取出 Blob，用 <code>URL.createObjectURL</code> 展示，替换或离开页面时释放。换设备、换浏览器或清除浏览器数据后，图片就看不到了。</p>
+<h3>跨设备：存到酒馆服务器</h3>
+<p>把图片上传到酒馆的用户图片目录，再把地址按编号记进聊天元数据。图片和聊天一起保存在服务器上，登录同一账号的任何设备都能看到。</p>
+<pre><code>const context = SillyTavern.getContext();
+const base64 = await new Promise((resolve, reject) =&gt; {
+  const reader = new FileReader();
+  reader.onload = () =&gt; resolve(String(reader.result).split(',')[1]);
+  reader.onerror = () =&gt; reject(reader.error);
+  reader.readAsDataURL(blob);
+});
+const response = await fetch('/api/images/upload', {
+  method: 'POST',
+  headers: context.getRequestHeaders(),
+  body: JSON.stringify({ image: base64, format: 'png', ch_name: '我的卡', filename: 'scene-' + Date.now() }),
+});
+if (!response.ok) throw new Error('图片保存失败');
+const { path } = await response.json();  // 例如 user/images/我的卡/scene-1730000000000.png
+context.chatMetadata.myCardImages ??= {};
+context.chatMetadata.myCardImages[key] = path;
+context.saveMetadataDebounced();</code></pre>
+<p><code>format</code> 按 <code>blob.type</code> 填 <code>png</code>、<code>jpg</code> 或 <code>webp</code>。显示时从 <code>SillyTavern.getContext().chatMetadata</code> 按编号读出 <code>path</code>，直接作为 <code>img.src</code>。每次都重新调用 <code>getContext()</code>：切换聊天后，聊天元数据换成了另一个对象。删除时向 <code>/api/images/delete</code> 发送 <code>{ path }</code>（同样带 <code>getRequestHeaders()</code>），再删掉元数据里的这一项。</p>
+<p>不要写进消息的 <code>extra.media</code>：那是酒馆自己的附图位，图片会显示在正文下方，开启识图时还会随聊天记录发给模型。</p>
 </section>
 
 <section id="tts"><h2>语音</h2>
