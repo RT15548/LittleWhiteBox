@@ -2568,7 +2568,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 62611
+      "sizeBytes": 63679
     },
     {
       "source": "littlewhitebox",

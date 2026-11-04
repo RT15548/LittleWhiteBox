@@ -251,6 +251,10 @@ export function ensureDrawImageStyles() {
 .xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:var(--draw-text-primary);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
 .xb-nd-dropdown button:hover{background:var(--draw-accent-soft)}
 .xb-nd-dropdown [data-action="delete-image"]{color:var(--draw-danger)}
+/* 菜单里的图标是细线条，在普通密度屏幕上笔画不到 1px，叠在图片上显得发灰：略放大并叠一圈同色描边加粗；“放大”是文字符号，同样加大加粗。 */
+.xb-nd-menu-trigger .draw-icon,.xb-nd-dropdown .draw-icon,.xb-nd-nav-arrow .draw-icon{filter:drop-shadow(0 0 .4px currentColor) drop-shadow(0 0 .4px currentColor)}
+.xb-nd-menu-trigger .draw-icon,.xb-nd-dropdown .draw-icon{font-size:17px}
+.xb-nd-dropdown [data-action="open-gallery"]{font-size:17px;font-weight:700}
 .xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--draw-bg-secondary);padding:8px 16px;border-radius:8px;color:var(--draw-text-primary);font-size:12px;z-index:10}
 /* 圖片標題（overlay 模式）：懸停或 title-show 時浮現的圖頂細條 */
 .xb-nd-title-bar{position:absolute;top:0;left:0;right:0;z-index:6;pointer-events:none;display:flex;align-items:center;min-height:22px;padding:3px 44px 3px 10px;background:rgba(0,0,0,0.55);font-size:13px;line-height:1.4;letter-spacing:0.02em;color:rgba(255,255,255,0.95);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,0.6);opacity:0;transition:opacity 0.2s ease}
@@ -272,6 +276,11 @@ export function ensureDrawImageStyles() {
 .xb-nd-view-empty img{display:none}
 .xb-nd-view-empty .xb-nd-nav-pill{position:static;margin-inline-end:40px}
 .xb-nd-view-empty .xb-nd-menu-wrap{top:16px;right:16px}
+/* 无图的空卡很矮：下拉菜单竖着展开会被 .xb-nd-img-wrap 裁掉、还盖住“重新加载”，改成在标题行里向左横排；
+   也没有图片可点，点击才显示的控制钮在这里始终可见。 */
+.xb-nd-view-empty .xb-nd-dropdown{top:-5px;right:calc(100% + 6px);flex-direction:row;transform-origin:right center}
+.xb-nd-tap-controls .xb-nd-img.xb-nd-view-empty .xb-nd-nav-pill{opacity:0.82;pointer-events:auto}
+.xb-nd-tap-controls .xb-nd-img.xb-nd-view-empty .xb-nd-menu-trigger{opacity:0.9;pointer-events:auto}
 .xb-nd-view-empty .xb-nd-view-notice{padding:12px 0 0}
 .xb-nd-view-empty .xb-nd-status-overlay{position:static;max-height:none}
 .xb-nd-edit{animation:nd-slide-up 0.2s ease-out;box-sizing:border-box;flex-direction:column;max-height:calc(100dvh - 32px)}
