@@ -1,5 +1,5 @@
 {
-  "buildId": "16019708b0ae5b31b4a0",
+  "buildId": "bcce1c1f6d5abbb33763",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-DBnEM2pO.js",
@@ -291,7 +291,7 @@
         "shared/settings-repository-KNx9b1Of.js",
         "shared/comfy-draw-BVyxb_xR.js",
         "shared/message-toolbar-Bs4CyevN.js",
-        "shared/novel-draw-ClVKrAY8.js",
+        "shared/novel-draw-BN2QHfbw.js",
         "shared/sd-draw-BpTV7d3r.js",
         "shared/draw-common-DlZJvGJ0.js",
         "shared/gallery-cache-Dq4zRh98.js",
@@ -1051,10 +1051,10 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-CdanAyr4.js": {
+    "shared/floating-panel-D5XNit95.js": {
       "imports": [
         "shared/message-toolbar-Bs4CyevN.js",
-        "shared/novel-draw-ClVKrAY8.js",
+        "shared/novel-draw-BN2QHfbw.js",
         "shared/draw-common-DlZJvGJ0.js",
         "shared/gallery-cache-Dq4zRh98.js",
         "shared/draw-run-ui-state-CgVERtQP.js",
@@ -1274,7 +1274,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-ClVKrAY8.js": {
+    "shared/novel-draw-BN2QHfbw.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/after-ai-gate-BTdpruz4.js",
@@ -1297,7 +1297,7 @@
         "shared/identity-BQcqMF8H.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-CdanAyr4.js",
+        "shared/floating-panel-D5XNit95.js",
         "shared/msgpack-EEcozSlQ.js",
         "shared/gallery-cache-Dq4zRh98.js"
       ],

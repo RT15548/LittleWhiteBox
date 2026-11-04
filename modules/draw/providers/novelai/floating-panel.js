@@ -352,10 +352,10 @@ const STYLES = `
     width: 242px;
     display: flex;
     flex-direction: column;
-    /* 限高＝屏幕的 1/2~1/3。双声明：TT 的 WebView 会丢弃带 min()/vh 的声明，
-       必须先给纯 px 回退（永远生效），现代浏览器再被 min() 覆盖取更小值 */
-    max-height: 400px;
-    max-height: min(50vh, 400px);
+    /* 高度策略与 main 一致：固定高度，网格内部滚动，菜单永不随内容撑长 */
+    height: 380px;
+    min-height: 200px;
+    max-height: 70vh;
     overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
@@ -373,13 +373,6 @@ const STYLES = `
     opacity: 1;
     visibility: visible;
     transform: none;
-}
-
-/* 菜单默认向下展开；下方空间不足时整体翻到上方（placeMenuToViewport 在展开时测量决定），
-   否则手机上悬浮钮靠近屏幕底部时菜单会一直伸到屏幕外，预设网格够不着也滚不了 */
-.nd-float.nd-novel.menu-flip .nd-menu {
-    top: auto;
-    bottom: calc(100% + 8px);
 }
 
 .nd-novel .nd-card{
@@ -1209,7 +1202,6 @@ function bindFloorPanelEvents(panelData) {
             refreshFloorPresetSelect(messageId);
             refreshFloorSizeSelect(messageId);
             refreshFloorMaxImagesInput(messageId);
-            placeMenuToViewport(el);
         }
         el.classList.toggle('expanded');
     }));
@@ -1810,7 +1802,6 @@ function routeFloatingClick(target) {
             refreshFloatingPresetSelect();
             refreshFloatingSizeSelect();
             refreshFloatingMaxImagesInput();
-            placeMenuToViewport(floatingEl);
         }
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
@@ -2092,23 +2083,6 @@ function updateAllSizeSelects() {
 
 function updateAllMaxImagesInputs() {
     maxImages.updateAll();
-}
-
-/** 展开菜单前按当前视口放置：下方放不下就翻到上方，并把限高收到可用空间内（手机上悬浮钮靠底部时菜单不再伸出屏幕）。 */
-function placeMenuToViewport(rootEl) {
-    const menu = rootEl?.querySelector?.('.nd-menu');
-    if (!menu) return;
-    const win = rootEl.ownerDocument?.defaultView || window;
-    const rect = rootEl.getBoundingClientRect();
-    const margin = 8;
-    const below = win.innerHeight - rect.bottom - margin;
-    const above = rect.top - margin;
-    const cap = Math.min((win.innerHeight || 800) * 0.5, 400);
-    const need = Math.min(menu.offsetHeight || cap, cap);
-    const flip = below < need && above > below;
-    rootEl.classList.toggle('menu-flip', flip);
-    // 内联 px 是 TT 上的真正兜底（CSS min()/vh 可能被丢弃），取「半屏/400px/可用空间」最小值，保底 240
-    menu.style.maxHeight = `${Math.round(Math.max(240, Math.min(cap, flip ? above : below)))}px`;
 }
 
 export function updateAutoModeUI() {
