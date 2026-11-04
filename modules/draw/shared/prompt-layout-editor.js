@@ -282,6 +282,19 @@ export function createPromptLayoutEditor({
         button.setAttribute('aria-expanded', String(open));
     }
 
+    // 异步预览回包只更新已展开的原文，不重建列表或触碰编辑草稿。
+    function refreshPreviews() {
+        for (const button of list.querySelectorAll('[data-ple-preview]')) {
+            const id = button.getAttribute('data-ple-preview');
+            if (!previewOpen.has(id)) continue;
+            const body = button.closest('.lwb-ple-row, .lwb-ple-fixed').querySelector('[data-ple-preview-body]');
+            const text = previewSources.get(id)();
+            if (body.value === text) continue;
+            body.textContent = text;
+            fitPreview(body);
+        }
+    }
+
     // 固定消息成组：左边是行，右边写组名；自定义消息不进组、没有左侧竖线。
     // 组可以整体拖动（组名即把手，只支持鼠标 / 触摸拖动，不可聚焦、没有键盘移动）；相邻两组的组名与竖线交替换色。
     function buildGroup(label, rows, attrs, index) {
@@ -1132,6 +1145,7 @@ export function createPromptLayoutEditor({
             render({ force: true });
         },
         refreshSummaries,
+        refreshPreviews,
         refreshStatus: () => refreshStatus(),
         getLayout: () => readLayout(),
         isCollapsed: () => collapsed,

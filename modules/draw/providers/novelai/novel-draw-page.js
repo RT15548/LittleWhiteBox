@@ -2337,6 +2337,7 @@ function applyPromptChain(chain) {
         .map(section => [section.key, section.content]));
     const fields = chain.find(item => item.role === 'tools')?.fields || [];
     promptPreviewTexts.tools = ['submit_scene_plan', ...fields.map(field => `${field.path}：${field.description}`)].join('\n');
+    layoutEditor?.refreshPreviews();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

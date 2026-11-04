@@ -697,6 +697,42 @@ test('the request structure shows every fixed prebuilt message, including the ap
     assert.deepEqual(ctx.changes, []);
 });
 
+// 契约：预览回包更新当前只读数据，不能重建或覆盖正在编辑的消息；否则会丢失未保存草稿。
+test('preview refresh updates open data in place without changing drafts or opening closed previews', t => {
+    let preview = 'request-a';
+    const ctx = setup(t, { describeBuiltin: id => ({ action: null, preview: id === 'frame' ? preview : '' }) });
+    ctx.add();
+    const [id] = customIds(ctx);
+    const draft = ctx.field(id, 'content');
+    draft.value = 'unsaved draft';
+    ctx.fire(draft, 'input');
+    const toggle = ctx.host.querySelector('[data-ple-preview="frame"]');
+    const body = ctx.row('frame').querySelector('[data-ple-preview-body]');
+    ctx.click(toggle);
+    draft.focus();
+    const layout = structuredClone(ctx.getLayout());
+    const changeCount = ctx.changes.length;
+
+    for (const next of ['request-b', 'request-b', 'request-c']) {
+        preview = next;
+        ctx.editor.refreshPreviews();
+        assert.equal(body.value, next);
+        assert.ok(ctx.row('frame').querySelector('[data-ple-preview-body]') === body);
+        assert.ok(ctx.field(id, 'content') === draft);
+        assert.ok(ctx.document.activeElement === draft);
+        assert.equal(draft.value, 'unsaved draft');
+        assert.deepEqual(ctx.getLayout(), layout);
+        assert.equal(ctx.changes.length, changeCount);
+    }
+
+    ctx.click(toggle);
+    preview = 'request-d';
+    ctx.editor.refreshPreviews();
+    assert.equal(body.hasAttribute('hidden'), true);
+    ctx.click(toggle);
+    assert.equal(body.value, preview);
+});
+
 test('tool-role rows are badged 工具返回 (not 工具), and only rows with an inline editor are marked editable', () => {
     const { document } = parseHTML('<html><body><div id="host"></div><div id="parking" hidden><div id="opening"><textarea></textarea></div><div id="guide"><textarea></textarea></div></div></body></html>');
     const host = document.getElementById('host');
