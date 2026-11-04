@@ -18,9 +18,13 @@
    部分 WebView 的 stretch 行高会把未解码 img / aspect-ratio 的高度算成 0，卡片会被压成细线、名称被 overflow 裁掉
    （与 novel-draw.html 的 .nd-thumbpick-grid 和画师串 .nd-preset-grid 已验证的修法一致）。 */
 .preset-list.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); grid-auto-rows: max-content; align-items: start; gap: 10px; max-height: 340px; }
-.preset-list.is-grid .preset-row.preset-card-grid { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; }
+.preset-list.is-grid .preset-row.preset-card-grid { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; }
 .preset-list.is-grid .preset-row.preset-card-grid.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.preset-list.is-grid .preset-thumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 132px; background: rgba(255,255,255,.05); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; overflow: hidden; }
+/* 卡片不再 overflow: hidden（会裁掉弹出的“…”菜单）；圆角裁切交给缩略图自己。 */
+.preset-list.is-grid .preset-thumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 132px; background: rgba(255,255,255,.05); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; overflow: hidden; border-radius: 7px 7px 0 0; }
+/* absolute 菜单随卡片布局，浮到相邻卡片之上 */
+.preset-list.is-grid .char-menu-wrap { position: absolute; top: 4px; right: 4px; }
+.char-menu { z-index: 200; }
 .preset-list.is-grid .preset-thumb:active { cursor: grabbing; }
 .preset-list.is-grid .preset-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .preset-list.is-grid .preset-thumb .fa-image { font-size: 1.6em; opacity: .45; }

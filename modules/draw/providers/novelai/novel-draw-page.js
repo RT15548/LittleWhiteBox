@@ -3749,7 +3749,8 @@ function ensureThumbPickOverlay() {
             <div id="nd_thumb_pick_grid" class="nd-thumbpick-grid"></div>
             <input type="file" id="nd_thumb_pick_file" accept="image/*" class="hidden">
         </div>`;
-    document.body.appendChild(overlay);
+    // 不挂 body：TT 的 WKWebView 里 iframe 内 body 直挂的浮层不可见，要挂进页面的真实内容树
+    (document.querySelector('.app-container') || document.body).appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('visible'); });
     $('nd_thumb_pick_close').addEventListener('click', () => overlay.classList.remove('visible'));
     $('nd_thumb_pick_upload').addEventListener('click', () => $('nd_thumb_pick_file')?.click());
@@ -3798,7 +3799,10 @@ function requestThumbCandidates(all) {
 function openThumbnailPicker(presetId = state.selectedParamsPresetId) {
     thumbPickState.presetId = String(presetId || '');
     thumbPickState.all = false;
-    ensureThumbPickOverlay().classList.add('visible');
+    const overlay = ensureThumbPickOverlay();
+    // 遮罩是 absolute（相对文档），打开时对齐当前滚动位置盖住视口
+    overlay.style.top = `${window.scrollY || document.documentElement?.scrollTop || 0}px`;
+    overlay.classList.add('visible');
     requestThumbCandidates(false);
 }
 

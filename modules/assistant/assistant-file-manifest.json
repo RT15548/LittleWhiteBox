@@ -3146,8 +3146,8 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
-      "relativePath": "modules/draw/providers/novelai/novel-draw.html",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw2.html",
+      "relativePath": "modules/draw/providers/novelai/novel-draw2.html",
       "extension": ".html",
       "sizeBytes": 125820
     },

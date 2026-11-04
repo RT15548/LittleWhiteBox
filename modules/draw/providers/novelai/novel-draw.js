@@ -218,7 +218,7 @@ const handleFrameMessageEvent = observeAsyncCallback(handleFrameMessage, { sourc
 const MODULE_KEY = 'novelDraw';
 const DRAW_RUN_PROVIDER = 'novelai';
 const SERVER_FILE_KEY = 'settings';
-const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
+const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw2.html`;
 // Provider requests share the unified server plugin installation.
 const NAI_BACKEND_BASE = SERVER_PLUGIN_BASE;
 const NAI_BACKEND_GENERATE = `${NAI_BACKEND_BASE}/v1/generate-image`;

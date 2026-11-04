@@ -565,9 +565,11 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
 .nd-advanced-only { display: flex !important; }
 .nd-simple-only { display: none !important; }
 
-/* ── 从画廊选缩略图弹层 ── */
+/* ── 从画廊选缩略图弹层 ──
+   不用 position: fixed：TT 的 WKWebView 里 iframe 内的 fixed 浮层（以及 body 直挂元素）不可见。
+   改为 absolute 挂在 .app-container（页面真实内容树）内、文档坐标系，打开时用 JS 把 top 对齐到当前滚动位置。 */
 .nd-thumbpick-overlay {
-    position: fixed; inset: 0; z-index: 2000;
+    position: absolute; left: 0; right: 0; top: 0; min-height: 100dvh; z-index: 2000;
     background: rgba(0, 0, 0, 0.55);
     display: none; align-items: center; justify-content: center;
     padding: 24px;

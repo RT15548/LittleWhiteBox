@@ -1628,7 +1628,7 @@
     "modules/assistant/assistant-overlay.html",
     "modules/debug-panel/debug-panel.html",
     "modules/draw/providers/comfyui/comfy-draw.html",
-    "modules/draw/providers/novelai/novel-draw.html",
+    "modules/draw/providers/novelai/novel-draw2.html",
     "modules/draw/providers/sd-webui/sd-draw.html",
     "modules/ebook/ebook.html",
     "modules/ena-planner/ena-planner.html",

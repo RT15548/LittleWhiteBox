@@ -73,16 +73,24 @@ export function createCardMenuController({ document, getViewport, portal = false
     }
 
     function place({ button, menu }) {
-        // 先以固定定位取消隐藏再量尺寸；量完立即定位，同一帧内不会闪烁。
-        menu.style.position = 'fixed';
+        // 不用 position: fixed：TT 的 WKWebView 在 iframe 里渲染不了 fixed 浮层（怎么放都不可见）。
+        // 一律用 absolute 挂在文档坐标系：offsetParent 换算后与 fixed 视口坐标数学等价，所有引擎下都可见。
+        menu.style.position = 'absolute';
         menu.style.left = '0px';
         menu.style.top = '0px';
         menu.removeAttribute('hidden');
         const rect = menu.getBoundingClientRect?.() || { width: 0, height: 0 };
         const anchor = button.getBoundingClientRect?.() || { top: 0, bottom: 0, left: 0, right: 0 };
         const pos = computeMenuPosition(anchor, { width: rect.width || 0, height: rect.height || 0 }, viewport());
-        menu.style.left = `${Math.round(pos.left)}px`;
-        menu.style.top = `${Math.round(pos.top)}px`;
+        // 锚点是视口坐标；absolute 需要文档坐标 = 视口坐标 + 滚动偏移，再减掉 offsetParent 的文档偏移。
+        const sx = win.scrollX || win.pageXOffset || 0;
+        const sy = win.scrollY || win.pageYOffset || 0;
+        const parent = menu.offsetParent;
+        const pr = parent?.getBoundingClientRect?.();
+        const px = pr ? pr.left + sx : 0;
+        const py = pr ? pr.top + sy : 0;
+        menu.style.left = `${Math.round(pos.left + sx - px)}px`;
+        menu.style.top = `${Math.round(pos.top + sy - py)}px`;
         if (pos.maxHeight > 0) menu.style.maxHeight = `${Math.round(pos.maxHeight)}px`;
         menu.dataset.placement = pos.flipped ? 'top' : 'bottom';
     }
