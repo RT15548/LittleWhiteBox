@@ -111,7 +111,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/slash-command.js",
       "relativePath": "core/slash-command.js",
       "extension": ".js",
-      "sizeBytes": 1832
+      "sizeBytes": 1947
     },
     {
       "source": "littlewhitebox",
@@ -1826,7 +1826,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 261350
+      "sizeBytes": 261387
     },
     {
       "source": "littlewhitebox",
@@ -3128,7 +3128,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prompt-layout-editor.js",
       "relativePath": "modules/draw/shared/prompt-layout-editor.js",
       "extension": ".js",
-      "sizeBytes": 63815
+      "sizeBytes": 64452
     },
     {
       "source": "littlewhitebox",
@@ -3884,7 +3884,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/prompt-layout-editor.test.js",
       "relativePath": "modules/draw/shared/tests/prompt-layout-editor.test.js",
       "extension": ".js",
-      "sizeBytes": 41414
+      "sizeBytes": 42979
     },
     {
       "source": "littlewhitebox",
@@ -9239,7 +9239,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/README.md",
       "relativePath": "modules/variables/state2/README.md",
       "extension": ".md",
-      "sizeBytes": 25525
+      "sizeBytes": 28294
     },
     {
       "source": "littlewhitebox",
@@ -9372,7 +9372,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/prompt-variables.test.js",
       "relativePath": "modules/variables/tests/prompt-variables.test.js",
       "extension": ".js",
-      "sizeBytes": 11164
+      "sizeBytes": 26081
     },
     {
       "source": "littlewhitebox",
@@ -9467,6 +9467,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/varevent.test.js",
+      "relativePath": "modules/variables/tests/varevent.test.js",
+      "extension": ".js",
+      "sizeBytes": 11753
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/variables-panel-runtime.test.js",
       "relativePath": "modules/variables/tests/variables-panel-runtime.test.js",
       "extension": ".js",
@@ -9484,7 +9491,35 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent-editor.js",
       "relativePath": "modules/variables/varevent-editor.js",
       "extension": ".js",
-      "sizeBytes": 64869
+      "sizeBytes": 54399
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/condition.js",
+      "relativePath": "modules/variables/varevent/condition.js",
+      "extension": ".js",
+      "sizeBytes": 6765
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/copy.js",
+      "relativePath": "modules/variables/varevent/copy.js",
+      "extension": ".js",
+      "sizeBytes": 559
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/document.js",
+      "relativePath": "modules/variables/varevent/document.js",
+      "extension": ".js",
+      "sizeBytes": 7309
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/run.js",
+      "relativePath": "modules/variables/varevent/run.js",
+      "extension": ".js",
+      "sizeBytes": 5782
     },
     {
       "source": "littlewhitebox",
@@ -18003,7 +18038,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/check-garbled.js",
       "relativePath": "scripts/check-garbled.js",
       "extension": ".js",
-      "sizeBytes": 1495
+      "sizeBytes": 956
     },
     {
       "source": "littlewhitebox",
@@ -18032,6 +18067,20 @@
       "relativePath": "scripts/check.mjs",
       "extension": ".mjs",
       "sizeBytes": 1227
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/garbled-text.mjs",
+      "relativePath": "scripts/garbled-text.mjs",
+      "extension": ".mjs",
+      "sizeBytes": 1828
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/garbled-text.test.mjs",
+      "relativePath": "scripts/garbled-text.test.mjs",
+      "extension": ".mjs",
+      "sizeBytes": 3852
     },
     {
       "source": "littlewhitebox",
