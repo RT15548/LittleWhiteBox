@@ -372,6 +372,13 @@ const STYLES = `
     transform: none;
 }
 
+/* 菜单默认向下展开；下方空间不足时整体翻到上方（placeMenuToViewport 在展开时测量决定），
+   否则手机上悬浮钮靠近屏幕底部时菜单会一直伸到屏幕外，预设网格够不着也滚不了 */
+.nd-float.nd-novel.menu-flip .nd-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+}
+
 .nd-novel .nd-card{
     background: transparent;
     border: none;
@@ -1199,6 +1206,7 @@ function bindFloorPanelEvents(panelData) {
             refreshFloorPresetSelect(messageId);
             refreshFloorSizeSelect(messageId);
             refreshFloorMaxImagesInput(messageId);
+            placeMenuToViewport(el);
         }
         el.classList.toggle('expanded');
     }));
@@ -1799,6 +1807,7 @@ function routeFloatingClick(target) {
             refreshFloatingPresetSelect();
             refreshFloatingSizeSelect();
             refreshFloatingMaxImagesInput();
+            placeMenuToViewport(floatingEl);
         }
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
@@ -2080,6 +2089,22 @@ function updateAllSizeSelects() {
 
 function updateAllMaxImagesInputs() {
     maxImages.updateAll();
+}
+
+/** 展开菜单前按当前视口放置：下方放不下就翻到上方，并把限高收到可用空间内（手机上悬浮钮靠底部时菜单不再伸出屏幕）。 */
+function placeMenuToViewport(rootEl) {
+    const menu = rootEl?.querySelector?.('.nd-menu');
+    if (!menu) return;
+    const win = rootEl.ownerDocument?.defaultView || window;
+    const rect = rootEl.getBoundingClientRect();
+    const margin = 8;
+    const below = win.innerHeight - rect.bottom - margin;
+    const above = rect.top - margin;
+    const cap = Math.min(win.innerHeight * 0.55, 400);
+    const need = Math.min(menu.offsetHeight || cap, cap);
+    const flip = below < need && above > below;
+    rootEl.classList.toggle('menu-flip', flip);
+    menu.style.maxHeight = `${Math.round(Math.max(180, Math.min(cap, flip ? above : below)))}px`;
 }
 
 export function updateAutoModeUI() {

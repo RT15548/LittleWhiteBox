@@ -1,5 +1,5 @@
 {
-  "buildId": "008350510a816eaf9473",
+  "buildId": "a2e613f1b45cb8b00e23",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-DBnEM2pO.js",
@@ -291,7 +291,7 @@
         "shared/settings-repository-KNx9b1Of.js",
         "shared/comfy-draw-BVyxb_xR.js",
         "shared/message-toolbar-Bs4CyevN.js",
-        "shared/novel-draw-_MbmR82u.js",
+        "shared/novel-draw-BI5K91na.js",
         "shared/sd-draw-BpTV7d3r.js",
         "shared/draw-common-DlZJvGJ0.js",
         "shared/gallery-cache-Dq4zRh98.js",
@@ -1038,10 +1038,10 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-BdRC-W2L.js": {
+    "shared/floating-panel-BBdzoR2b.js": {
       "imports": [
-        "shared/comfy-draw-BVyxb_xR.js",
         "shared/message-toolbar-Bs4CyevN.js",
+        "shared/novel-draw-BI5K91na.js",
         "shared/draw-common-DlZJvGJ0.js",
         "shared/gallery-cache-Dq4zRh98.js",
         "shared/draw-run-ui-state-CgVERtQP.js",
@@ -1051,10 +1051,10 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-PKMGF2wQ.js": {
+    "shared/floating-panel-BdRC-W2L.js": {
       "imports": [
+        "shared/comfy-draw-BVyxb_xR.js",
         "shared/message-toolbar-Bs4CyevN.js",
-        "shared/novel-draw-_MbmR82u.js",
         "shared/draw-common-DlZJvGJ0.js",
         "shared/gallery-cache-Dq4zRh98.js",
         "shared/draw-run-ui-state-CgVERtQP.js",
@@ -1274,7 +1274,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-_MbmR82u.js": {
+    "shared/novel-draw-BI5K91na.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/after-ai-gate-BTdpruz4.js",
@@ -1297,7 +1297,7 @@
         "shared/identity-BQcqMF8H.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-PKMGF2wQ.js",
+        "shared/floating-panel-BBdzoR2b.js",
         "shared/msgpack-EEcozSlQ.js",
         "shared/gallery-cache-Dq4zRh98.js"
       ],
