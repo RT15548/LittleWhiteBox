@@ -8,18 +8,27 @@
 <title>Novel Draw</title>
 <script src="../../shared/theme-boot.js"></script>
 <script>
-// 临时诊断：部分环境（TT 的 WKWebView）开不了 devtools，未捕获错误直接显示在画面左下角，
-// 便于远程定位「点击无反应」类问题；确认后移除。
+// 临时诊断：TT 的 WKWebView 开不了 devtools，且 iframe 内 body 直挂元素不可见——
+// 错误条挂进 .app-container（真实内容树），并同时转发到宿主页面的 toastr（TT 里 toastr 一定可见）；
+// 另把每次点击摘要也弹 toast，用于分辨「点击没生效」还是「菜单开了但不可见」。确认后移除。
 (function () {
+    var box = null;
     function show(text) {
-        var box = document.getElementById('nd_diag_error');
-        if (!box) {
-            box = document.createElement('div');
-            box.id = 'nd_diag_error';
-            box.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;background:#a11;color:#fff;font:11px/1.5 monospace;padding:6px 10px;border-radius:6px;max-width:92%;white-space:pre-wrap;word-break:break-all;pointer-events:none;';
-            (document.body || document.documentElement).appendChild(box);
-        }
-        box.textContent += (box.textContent ? '\n' : '') + String(text).slice(0, 400);
+        text = String(text);
+        try {
+            var t = window.parent && window.parent !== window ? window.parent.toastr : null;
+            t && t.info && t.info(text.slice(0, 200), 'ND诊断', { timeOut: 2500, extendedTimeOut: 4000 });
+        } catch (err) {}
+        try {
+            box = box || document.getElementById('nd_diag_error');
+            if (!box || !box.isConnected) {
+                box = document.createElement('div');
+                box.id = 'nd_diag_error';
+                box.style.cssText = 'position:absolute;left:8px;bottom:8px;z-index:99999;background:#a11;color:#fff;font:11px/1.5 monospace;padding:6px 10px;border-radius:6px;max-width:92%;white-space:pre-wrap;word-break:break-all;pointer-events:none;';
+                (document.querySelector('.app-container') || document.body).appendChild(box);
+            }
+            box.textContent += (box.textContent ? '\n' : '') + text.slice(0, 400);
+        } catch (err) {}
     }
     window.addEventListener('error', function (ev) {
         var where = ev.filename ? ' @' + ev.filename.split('/').pop() + ':' + ev.lineno : '';
@@ -29,6 +38,14 @@
         var reason = ev.reason && (ev.reason.stack || ev.reason.message) ? (ev.reason.stack || ev.reason.message) : String(ev.reason);
         show('Promise: ' + reason);
     });
+    window.addEventListener('click', function (ev) {
+        var t = ev.target;
+        var desc = (t && t.tagName) || '?';
+        var cls = t && t.className && String(t.className);
+        if (cls) desc += '.' + cls.split(/\s+/).slice(0, 2).join('.');
+        var menuBtn = t && t.closest && t.closest('[data-preset-action="menu"]');
+        show(menuBtn ? 'CLICK menu-btn ' + (menuBtn.dataset.presetId || '') : 'CLICK ' + desc);
+    }, true);
 })();
 </script>
 <link rel="stylesheet" href="../../shared/settings-shell.css">

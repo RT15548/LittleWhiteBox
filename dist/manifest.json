@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-Zx4mR8tQ.js",
+      "file": "apps/novel-draw-Vt8sK3nR.js",
       "css": []
     },
     "apps/story-outline": {
@@ -152,7 +152,7 @@
         "assets/settings-ui-3BrbRAIN.css"
       ]
     },
-    "apps/novel-draw-Zx4mR8tQ.js": {
+    "apps/novel-draw-Vt8sK3nR.js": {
       "imports": [
         "shared/preload-helper-CBBx94LT.js",
         "shared/custom-tool-sandbox-DRHy979J.js",
