@@ -3674,11 +3674,13 @@ function syncParamsPresetSelection() {
 
 function selectParamsPreset(id) {
     if (!id || id === state.selectedParamsPresetId) return; // 再点已选中的一行不重填表单，免得冲掉未保存的编辑
-    // 切换前先把悬而未发的 Vibe 绑定写回旧预设，避免写到新预设上
-    flushVibeBinding();
+    // 切换前先把悬而未发的 Vibe 绑定写回旧预设，避免写到新预设上；此处只写不发——
+    // 保存要带新选中的 id 发出，否则宿主存下旧选中并回推 INIT_DATA，几秒后高亮会跳回旧预设
+    flushVibeBinding(false);
     state.selectedParamsPresetId = id;
     applyParamsPreset();
     syncParamsPresetSelection();
+    postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: id, paramsPresets: state.paramsPresets, silent: true });
 }
 
 // 排序：本地先重排并重绘列表（不重填表单，未保存的编辑保留），宿主只收到新的 id 顺序。
@@ -3860,7 +3862,7 @@ const vibePendingEncodes = new Map();
 // 勾选/选组/存组后即时写回当前画师串预设（静默持久化，不刷提示、不重推 UI），
 // 这样用户不必再点参数预设「保存」，生成时也能跟上当前 Vibe 选择。
 let persistVibeTimer = null;
-function flushVibeBinding() {
+function flushVibeBinding(post = true) {
     if (persistVibeTimer) {
         clearTimeout(persistVibeTimer);
         persistVibeTimer = null;
@@ -3873,7 +3875,7 @@ function flushVibeBinding() {
         groupId: vibeSelectedGroupId || '',
         selections: JSON.parse(JSON.stringify(vibeDraftSelections || [])),
     };
-    postToParent({
+    if (post) postToParent({
         type: 'SAVE_PARAMS_PRESET',
         selectedParamsPresetId: state.selectedParamsPresetId,
         paramsPresets: state.paramsPresets,
