@@ -431,17 +431,20 @@ ${MAX_IMAGES_INPUT_CSS}
 
 .nd-novel .nd-controls{ display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-shrink: 0; }
 
-/* 尺寸 + 数目并排一行 */
+/* 尺寸（控制行内，弹性占满）+ 数目并排一行 */
 .nd-novel .nd-row-pair{ display: flex; align-items: stretch; gap: 8px; padding: 6px 2px; }
 .nd-novel .nd-row-pair .nd-row{ flex: 1; min-width: 0; padding: 0; }
 .nd-novel .nd-row-pair .nd-label{ width: auto; padding-right: 2px; }
+.nd-novel .nd-controls .nd-row{ flex: 1; min-width: 0; padding: 0; }
 
 .nd-novel .nd-auto{
-    flex: 1;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 9px 12px;
+    min-height: 32px;
+    box-sizing: border-box;
+    padding: 0 12px;
     background: var(--nd-bg-active);
     border: 1px solid var(--nd-border-subtle);
     border-radius: var(--nd-radius-sm);
@@ -833,25 +836,27 @@ function createFloorPanelElement(messageId) {
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
     // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
+    // 「自动/手动」开关与「数目」并排一行（高度对齐输入框，文字短了把空间让给数目输入框），
+    // 「尺寸」移到下方控制行与设置按钮同排。
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', isAuto ? '自动' : '手动')
+    );
+    const rowPair = createEl('div', 'nd-row-pair');
+    rowPair.append(autoToggle, maxImages.createRow());
+    card.append(rowPair);
+
+    const controls = createEl('div', 'nd-controls');
     const rowSize = createEl('div', 'nd-row');
     rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    const rowPair = createEl('div', 'nd-row-pair');
-    rowPair.append(rowSize, maxImages.createRow());
-    card.append(rowPair);
-
-    const controls = createEl('div', 'nd-controls');
-    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
-    autoToggle.append(
-        createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', '自动配图')
-    );
     const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
     settingsBtn.title = '打开设置';
     settingsBtn.appendChild(createDrawIcon('sliders'));
-    controls.append(autoToggle, settingsBtn);
+    controls.append(rowSize, settingsBtn);
 
     const presetGrid = createEl('div', 'nd-preset-grid');
     renderPresetGrid(presetGrid);
@@ -1929,25 +1934,27 @@ function createFloatingButton() {
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
     // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
+    // 「自动/手动」开关与「数目」并排一行（高度对齐输入框，文字短了把空间让给数目输入框），
+    // 「尺寸」移到下方控制行与设置按钮同排。
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', isAuto ? '自动' : '手动')
+    );
+    const rowPair = createEl('div', 'nd-row-pair');
+    rowPair.append(autoToggle, maxImages.createRow());
+    card.append(rowPair);
+
+    const controls = createEl('div', 'nd-controls');
     const rowSize = createEl('div', 'nd-row');
     rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    const rowPair = createEl('div', 'nd-row-pair');
-    rowPair.append(rowSize, maxImages.createRow());
-    card.append(rowPair);
-
-    const controls = createEl('div', 'nd-controls');
-    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
-    autoToggle.append(
-        createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', '自动配图')
-    );
     const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
     settingsBtn.title = '打开设置';
     settingsBtn.appendChild(createDrawIcon('sliders'));
-    controls.append(autoToggle, settingsBtn);
+    controls.append(rowSize, settingsBtn);
 
     const presetGrid = createEl('div', 'nd-preset-grid');
     renderPresetGrid(presetGrid);
@@ -2074,16 +2081,21 @@ function updateAllMaxImagesInputs() {
 
 export function updateAutoModeUI() {
     const isAuto = getSettings().mode === 'auto';
+    const modeText = isAuto ? '自动' : '手动';
 
     panelMap.forEach((data) => {
         if (!data.root) return;
         data.root.classList.toggle('auto-on', isAuto);
         data.$cache.autoToggle?.classList.toggle('on', isAuto);
+        const text = data.$cache.autoToggle?.querySelector('.nd-auto-text');
+        if (text) text.textContent = modeText;
     });
 
     if (floatingEl) {
         floatingEl.classList.toggle('auto-on', isAuto);
         $floatingCache.autoToggle?.classList.toggle('on', isAuto);
+        const text = $floatingCache.autoToggle?.querySelector('.nd-auto-text');
+        if (text) text.textContent = modeText;
     }
 }
 

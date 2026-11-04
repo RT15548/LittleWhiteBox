@@ -21,7 +21,7 @@
 .preset-list.is-grid .preset-row.preset-card-grid { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; }
 .preset-list.is-grid .preset-row.preset-card-grid.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 /* 卡片不再 overflow: hidden（会裁掉弹出的“…”菜单）；圆角裁切交给缩略图自己。 */
-.preset-list.is-grid .preset-thumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 132px; background: rgba(255,255,255,.05); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; overflow: hidden; border-radius: 7px 7px 0 0; }
+.preset-list.is-grid .preset-thumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 132px; background: rgba(128,128,128,.28); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; overflow: hidden; border-radius: 7px 7px 0 0; }
 /* absolute 菜单随卡片布局，浮到相邻卡片之上 */
 .preset-list.is-grid .char-menu-wrap { position: absolute; top: 4px; right: 4px; }
 .char-menu { z-index: 200; }
