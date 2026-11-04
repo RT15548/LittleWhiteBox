@@ -1,4 +1,4 @@
-import{Gt as A,Jt as V,Kt as q,Xt as B,Yt as _,it as W,qt as C}from"./message-toolbar-BHFqQ9J6.js";import{Ct as $,St as P}from"./draw-common-CvOOwm0B.js";var v=8,M=8,T=(e,t,n)=>Math.max(t,Math.min(e,n));function X(e=window){const t=e.visualViewport,n=t?.offsetLeft??0,a=t?.offsetTop??0,r=t?.width??e.innerWidth,o=t?.height??e.innerHeight;return{left:n,top:a,width:r,height:o,right:n+r,bottom:a+o}}var re=`
+import{Gt as A,Jt as V,Kt as q,Xt as B,Yt as _,it as W,qt as C}from"./message-toolbar-as5ZZ0mq.js";import{Ct as $,St as P}from"./draw-common-Caxajziv.js";var v=8,M=8,T=(e,t,n)=>Math.max(t,Math.min(e,n));function X(e=window){const t=e.visualViewport,n=t?.offsetLeft??0,a=t?.offsetTop??0,r=t?.width??e.innerWidth,o=t?.height??e.innerHeight;return{left:n,top:a,width:r,height:o,right:n+r,bottom:a+o}}var re=`
 .nd-floating-global[data-menu-side].expanded,
 .nd-floating-global[data-menu-side].show-detail { transition: none; }
 .nd-floating-global[data-menu-side] .nd-menu,

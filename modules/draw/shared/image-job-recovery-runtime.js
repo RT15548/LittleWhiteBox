@@ -144,6 +144,7 @@ function previewOptions(record, item, target) {
         characterPrompts: item.previewMetadata?.characterPrompts ?? null,
         negativePrompt: item.previewMetadata?.negativePrompt ?? null,
         postPrompt: item.previewMetadata?.postPrompt ?? null,
+        vibeNames: item.previewMetadata?.vibeNames || '',
         orientation: item.previewMetadata?.orientation ?? null,
         // Recovery retains the same compiled snapshot as live delivery.
         continuityChars: Array.isArray(item.previewMetadata?.continuityChars) ? item.previewMetadata.continuityChars : null,

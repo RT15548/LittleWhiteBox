@@ -1833,7 +1833,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 249206
+      "sizeBytes": 249461
     },
     {
       "source": "littlewhitebox",
@@ -2743,7 +2743,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 78259
+      "sizeBytes": 78376
     },
     {
       "source": "littlewhitebox",
@@ -2883,7 +2883,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-job-recovery-runtime.js",
       "relativePath": "modules/draw/shared/image-job-recovery-runtime.js",
       "extension": ".js",
-      "sizeBytes": 25178
+      "sizeBytes": 25236
     },
     {
       "source": "littlewhitebox",
@@ -3016,7 +3016,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/pending-image-jobs.js",
       "relativePath": "modules/draw/shared/pending-image-jobs.js",
       "extension": ".js",
-      "sizeBytes": 34999
+      "sizeBytes": 35057
     },
     {
       "source": "littlewhitebox",
@@ -3030,7 +3030,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prepared-chat-images.js",
       "relativePath": "modules/draw/shared/prepared-chat-images.js",
       "extension": ".js",
-      "sizeBytes": 9380
+      "sizeBytes": 9440
     },
     {
       "source": "littlewhitebox",
@@ -3058,7 +3058,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prepared-slot-executor.js",
       "relativePath": "modules/draw/shared/prepared-slot-executor.js",
       "extension": ".js",
-      "sizeBytes": 11165
+      "sizeBytes": 11226
     },
     {
       "source": "littlewhitebox",
@@ -17877,7 +17877,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-inline-pr8.mjs",
       "relativePath": "scripts/build-inline-pr8.mjs",
       "extension": ".mjs",
-      "sizeBytes": 3870
+      "sizeBytes": 4467
     },
     {
       "source": "littlewhitebox",
