@@ -52,6 +52,27 @@ function isExchangeMessage(message, exchange) {
         && message.tool_calls[0].function.name === exchange.name;
 }
 
+/** DeepSeek thinking requires nonempty reasoning for these completed synthetic calls. */
+export function projectScenePlannerDeepSeekHistory(messages) {
+    const exchanges = Object.values(EXCHANGES);
+    return messages.map(message => {
+        if (message.providerPayload?.openaiCompatibleMessage
+            || !exchanges.some(exchange => isExchangeMessage(message, exchange))) return message;
+        return {
+            ...message,
+            providerPayload: {
+                ...message.providerPayload,
+                openaiCompatibleMessage: {
+                    role: message.role,
+                    content: message.content,
+                    tool_calls: message.tool_calls,
+                    reasoning_content: message.content,
+                },
+            },
+        };
+    });
+}
+
 /** Hosted Claude consumes structured assistant content and starts delivery after a plain user turn. */
 export function projectScenePlannerHostClaudeHistory(messages) {
     // Outer protocol retries append feedback after this pair; ownership is its call id/name,

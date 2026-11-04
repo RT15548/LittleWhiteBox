@@ -9,7 +9,8 @@ import {
 } from './scene-plan-contract.js';
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
 import { GOOGLE_SYNTHETIC_HISTORY_SIGNATURE } from './scene-planner-messages.js';
-import { projectScenePlannerHostClaudeHistory } from './scene-planner-handoff.js';
+import { projectScenePlannerDeepSeekHistory, projectScenePlannerHostClaudeHistory } from './scene-planner-handoff.js';
+import { shouldPreserveHistoricalReasoning } from '../../agent-core/adapters/openai-compatible-replay-policy.js';
 import {
     MAX_CUSTOM_TOOL_CALLS,
     TOOL_RECORD_MAX_CHARS,
@@ -555,9 +556,12 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
     }
 
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
-    const messages = providerConfig.provider === 'sillytavern-claude'
-        ? projectScenePlannerHostClaudeHistory(sourceMessages)
-        : [...sourceMessages];
+    let messages = [...sourceMessages];
+    if (providerConfig.provider === 'sillytavern-claude') {
+        messages = projectScenePlannerHostClaudeHistory(sourceMessages);
+    } else if (shouldPreserveHistoricalReasoning(providerConfig, task.tools)) {
+        messages = projectScenePlannerDeepSeekHistory(sourceMessages);
+    }
     const abortScope = createAbortScope(options.timeout, options.signal);
     const baseAgentTask = {
         ...task,

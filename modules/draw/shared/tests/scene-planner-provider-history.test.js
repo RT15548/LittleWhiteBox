@@ -150,19 +150,21 @@ test('Google Gemini 3 receives signed synthetic history and sends only the appro
     assert.deepEqual(JSON.parse(result.toolCalls[0].arguments), PARAMETERS);
 });
 
-for (const [model, toolMode, signed] of [
+for (const [model, toolMode, signed, reasoningMode = 'inherit'] of [
     ['gemini-3-flash-preview', 'native', true],
     ['gpt-4.1', 'native', false],
     ['deepseek-chat', 'native', false],
+    ['deepseek-flash', 'native', false, 'off'],
+    ['deepseek-flash', 'tagged-json', false],
     ['gemini-3-flash-preview', 'tagged-json', false],
 ]) {
-    test(`OpenAI-compatible ${model}/${toolMode} isolates Google's signature projection`, async t => {
+    test(`OpenAI-compatible ${model}/${toolMode}/${reasoningMode} isolates provider history`, async t => {
         forbidNetwork(t);
         t.mock.method(console, 'log', () => {});
         const task = await buildTask();
         const original = structuredClone(task);
         const expected = expectedHistory(task);
-        const config = { provider: 'openai-compatible', model, toolMode, apiKey: 'offline-fixture' };
+        const config = { provider: 'openai-compatible', model, toolMode, apiKey: 'offline-fixture', reasoning: { mode: reasoningMode } };
         const adapter = new OpenAICompatibleAdapter(config);
         const requests = [];
         t.mock.method(adapter.client.chat.completions, 'create', async body => {
@@ -180,6 +182,13 @@ for (const [model, toolMode, signed] of [
         if (toolMode === 'native') {
             const calls = body.messages.flatMap(message => message.tool_calls || []);
             assert.equal(calls.length, 3);
+            for (const message of body.messages.filter(message => message.tool_calls)) {
+                if (/deepseek/i.test(model)) {
+                    assert.equal(message.reasoning_content, reasoningMode === 'off' ? '' : message.content);
+                } else {
+                    assert.equal(Object.hasOwn(message, 'reasoning_content'), false);
+                }
+            }
             for (const call of calls) {
                 if (signed) assert.deepEqual(call.extra_content, { google: { thought_signature: GOOGLE_SYNTHETIC_HISTORY_SIGNATURE } });
                 else assert.equal(Object.hasOwn(call, 'extra_content'), false);
@@ -194,6 +203,65 @@ for (const [model, toolMode, signed] of [
         }
         assert.deepEqual(task, original);
         assert.equal(result.result.toolCalls[0].name, SUBMIT.name);
+    });
+}
+
+// Protocol contracts: synthetic history needs nonempty reasoning without an extra paid
+// correction, and real tool continuations must retain the model's reasoning verbatim.
+for (const mode of ['inherit', 'on']) {
+    test(`DeepSeek ${mode} projects only synthetic reasoning and preserves real tool continuations`, async t => {
+        forbidNetwork(t);
+        t.mock.method(console, 'log', () => {});
+        const layout = addBlock(createDefaultLayout(), createCustomBlock({
+            role: 'user', content: 'One image of the library entrance.',
+        }));
+        const task = await buildTask({ customPrompts: { layout } });
+        const custom = { name: 'note', parameters: { type: 'object', properties: {} } };
+        task.tools.push({ type: 'function', function: custom });
+        const original = structuredClone(task);
+        const config = {
+            provider: 'openai-compatible', model: 'deepseek-flash', toolMode: 'native',
+            apiKey: 'offline-fixture', reasoning: { mode, effort: 'high' },
+        };
+        const originalConfig = structuredClone(config);
+        const adapter = new OpenAICompatibleAdapter(config);
+        const reasoning = 'Model-returned fixture reasoning before the actual custom tool call.';
+        const liveCall = { id: 'live-note', type: 'function', function: { name: 'note', arguments: '{}' } };
+        const requests = [];
+        t.mock.method(adapter.client.chat.completions, 'create', async body => {
+            requests.push(structuredClone(body));
+            const synthetic = body.messages.filter(message => message.tool_calls?.[0]?.id.startsWith('draw_'));
+            assert.equal(synthetic.length, 3);
+            for (const message of synthetic) {
+                assert.ok(message.reasoning_content.trim().length > 0);
+                assert.equal(message.reasoning_content, message.content);
+            }
+            assert.equal(body.messages.at(-1).role, 'tool');
+            assert.equal(body.thinking?.type, mode === 'on' ? 'enabled' : undefined);
+            assert.equal(requests.length <= 2, true, 'No corrective request may be added');
+            return { choices: [{ finish_reason: 'tool_calls', message: {
+                role: 'assistant', content: '', reasoning_content: reasoning,
+                tool_calls: requests.length === 1 ? [liveCall] : [
+                    { id: SUBMIT.id, type: 'function', function: { name: SUBMIT.name, arguments: SUBMIT.arguments } },
+                ],
+            } }] };
+        });
+        const invoked = [];
+        const result = await callDrawScenePlannerAgentRuntime({
+            task, providerConfig: config, agentCore: { createAgentAdapter: () => adapter },
+            customTools: [custom],
+            customToolHost: { invoke: async (name, args) => { invoked.push({ name, args }); return '{"ok":true}'; } },
+        });
+        assert.equal(requests.length, 2);
+        assert.deepEqual(requests[1].messages.slice(0, requests[0].messages.length), requests[0].messages);
+        assert.equal(requests[1].messages.at(-2).reasoning_content, reasoning);
+        assert.deepEqual(requests[1].messages.at(-2).tool_calls, [liveCall]);
+        assert.equal(requests[1].messages.at(-1).tool_call_id, liveCall.id);
+        assert.deepEqual(invoked, [{ name: 'note', args: {} }]);
+        assert.equal(result.result.toolCalls[0].name, SUBMIT.name);
+        assert.equal(result.diagnostic.snapshot().correctionCount, 0);
+        assert.deepEqual(task, original);
+        assert.deepEqual(config, originalConfig);
     });
 }
 

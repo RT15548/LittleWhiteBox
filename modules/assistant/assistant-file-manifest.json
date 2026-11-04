@@ -2526,7 +2526,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-agent-runtime.js",
       "relativePath": "modules/draw/shared/draw-agent-runtime.js",
       "extension": ".js",
-      "sizeBytes": 39130
+      "sizeBytes": 39446
     },
     {
       "source": "littlewhitebox",
@@ -3261,7 +3261,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner-handoff.js",
       "relativePath": "modules/draw/shared/scene-planner-handoff.js",
       "extension": ".js",
-      "sizeBytes": 4396
+      "sizeBytes": 5202
     },
     {
       "source": "littlewhitebox",
@@ -3947,7 +3947,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-planner-provider-history.test.js",
       "relativePath": "modules/draw/shared/tests/scene-planner-provider-history.test.js",
       "extension": ".js",
-      "sizeBytes": 23021
+      "sizeBytes": 27125
     },
     {
       "source": "littlewhitebox",
