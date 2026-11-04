@@ -1,6 +1,6 @@
 // 请求结构里消息块的“附带工具”：纯函数契约（不执行任何代码）。
 // 工具代码（block.tool.code）沿用 Reborn 的写法：`return { name, description, parameters, action: async (args) => ..., stealth };`
-// 代码只在浏览器的沙盒 iframe 里执行（custom-tool-sandbox.js），本模块只负责校验沙盒回传的定义、
+// 代码由浏览器 iframe 或后台 QuickJS 沙盒执行，本模块只负责校验沙盒回传的定义、
 // 把它变成 Agent 的工具说明，以及把工具返回值整理成给模型的文本。
 import { SUBMIT_SCENE_PLAN_TOOL_NAME, ScenePlannerError } from './scene-plan-contract.js';
 import { MAX_TOOLS, MAX_TOOL_CODE_CHARS, hasTool, assertToolCodeLength } from './scene-planner-layout.js';
@@ -44,6 +44,25 @@ export function extractToolName(code) {
 export function collectToolBlocks(layout) {
     const blocks = Array.isArray(layout?.blocks) ? layout.blocks : [];
     return blocks.filter(block => hasTool(block) && block.enabled !== false && String(block.tool.code).trim());
+}
+
+export function snapshotCustomToolSources(layout) {
+    const sources = collectToolBlocks(layout).map(block => ({ blockId: String(block.id), code: String(block.tool.code) }));
+    assertCustomToolSources(sources);
+    return sources;
+}
+
+export function assertCustomToolSources(sources) {
+    if (!Array.isArray(sources) || sources.length > MAX_TOOLS) throw new Error('Invalid custom tool source list');
+    const ids = new Set();
+    for (const source of sources) {
+        if (!source || typeof source.blockId !== 'string' || !source.blockId || ids.has(source.blockId)
+            || typeof source.code !== 'string' || Object.keys(source).some(key => !['blockId', 'code'].includes(key))) {
+            throw new Error('Invalid custom tool source');
+        }
+        assertToolCodeLength(source.code);
+        ids.add(source.blockId);
+    }
 }
 
 function isPlainObject(value) {
@@ -139,8 +158,8 @@ export function toToolResponseObject(text) {
 }
 
 /**
- * 请求组装时：让宿主（浏览器沙盒）读出每个启用且附带工具的消息块的定义，并校验。
- * 没有宿主（后台任务、Node）却启用了带工具的消息时直接拒绝，绝不在没有沙盒的环境里运行用户代码。
+ * 请求组装时让当前沙盒读出工具定义；后台快照不调用此函数，只传递源码。
+ * 缺少沙盒时拒绝执行用户代码。
  * @returns {Promise<Array<{name: string, description: string, parameters: object, stealth: boolean}>>}
  */
 export async function resolveCustomToolDefinitions(layout, host, { signal } = {}) {
@@ -148,7 +167,7 @@ export async function resolveCustomToolDefinitions(layout, host, { signal } = {}
     if (!blocks.length) return [];
     if (!host || typeof host.define !== 'function') {
         throw new ScenePlannerError(
-            '请求结构里有启用的“附带工具”，需要在浏览器里运行；后台任务不会执行自定义代码。',
+            '附带工具缺少执行环境，无法运行。',
             'CUSTOM_TOOL_HOST_MISSING',
         );
     }

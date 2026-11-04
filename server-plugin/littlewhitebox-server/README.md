@@ -1,6 +1,6 @@
 # LittleWhiteBox Server
 
-小白盒统一后端。绘图后台任务与 Exa 联网共用一个安装包，内部由 `image-jobs/`、`draw-runs/`、`providers/` 和 `web/` 分别所有。只需安装一次，不需要给每个 App 单独安装后端。
+小白盒统一后端。`image-jobs/` 与 `draw-runs/` 只管理任务，绘图业务从扩展内的签名执行包加载；Exa 继续由 `web/` 所有。只需安装一次，不需要给每个 App 单独安装后端。
 
 开启小白X后台任务后，Scene Planner 与整批图片任务都在 Node 进程中执行；前端显示“提交后台”完成后，切后台、断网、刷新、WebView 冻结或关闭浏览器都不会暂停已创建的任务，重新打开后会自动接回。Exa 联网则是随当前调用结束的一次性请求，不进入绘图队列。
 
@@ -13,13 +13,13 @@
 
 ## 升级
 
-SillyTavern 的前端扩展更新不会改写 `plugins/`。LittleWhiteBox 更新后，如果界面提示后台插件版本不兼容，请用扩展内的 `server-plugin/littlewhitebox-server/` 完整覆盖 `SillyTavern/plugins/littlewhitebox-server/`，再重启 SillyTavern。前端会在提交场景分析前校验运行契约，不会继续调用不兼容的旧插件。
+从未提供 `runtimeHostAbi` 的旧后台升级时，先完成并接回现有任务，再停止酒馆，用本目录完整替换 `SillyTavern/plugins/littlewhitebox-server/`，然后重启。以后普通绘图更新只需更新 LittleWhiteBox 扩展，不再复制后台目录或重启。聊天、图片和设置不迁移、不清理。
 
 从 `littlewhitebox-image-jobs` 升级时：先等待任务完成并接回，停止酒馆，移除 `plugins/littlewhitebox-image-jobs/`（以及更早的 `littlewhitebox-nai/`），放入本目录，同步更新前端后重启。旧后端没有需要迁移的持久化任务数据；已落库的图片与聊天记录不删除。新前端只调用新插件 ID，不探测或回退旧接口。不能只更改旧目录名，也不能只更新前端。
 
 分发版本与插件身份由 [manifest.json](./manifest.json) 定义。前端通过 `draw-work-cancellation-v1` 检查整组取消能力；Exa 对应 `exa-web-v1`。升级必须包含整个目录及打包产物，不分别安装功能补丁。
 
-后台继续使用 `draw-run-runtime-v4`：提示词与 `submit_scene_plan` Tool Schema 随前端请求提供，后台只解释图片执行结果。只要图片执行契约不变，后续调整规划字段或前端卡片展示不需要替换后台；供应商协议变化或后台缺陷修复仍可能需要升级。
+固定宿主只负责验签加载、用户隔离、唯一队列、幂等、取消和结果生命周期。规划器、字段校验、模型 SDK、三家供应商协议与工具沙盒在扩展的 `dist/server/` 内一起更新。新任务绑定新包；排队、规划、出图和待接回任务保留原包，不重发请求。宿主安全修复与宿主 ABI 改变不属于普通绘图功能更新。
 
 升级重启前，请先等待正在运行的任务完成并接回；后台任务及取消回执保存在进程内存中，重启不会续跑。
 
@@ -43,6 +43,20 @@ Scene Planner 支持免密反代，Agent API Key 可以留空；图片生成供�
 
 联网协议与 HTTP 处理的源码在 `modules/agent-core/web/`，本包 `web/web-runtime.cjs` 由同一源码生成，随插件统一构建与验收，见[构建规则](../../docs/plugin-build.md)。删除联网功能时删除 `web/`、入口注册、对应前端路由与生成任务即可，不影响绘图任务。
 
+## 图片保存与打开文件夹
+
+绘图的“图片按日期分文件夹保存”与“打开文件夹”需要本插件：酒馆自带的 `/api/images/upload` 会去掉文件夹名里的 `/`，只能保存一级目录，浏览器本身也无法打开资源管理器。没有安装时，前端不调用这两个接口：开了“按日期分文件夹保存”的图片照常保存到默认的角色名文件夹并提示“按日期分文件夹保存未生效”，“打开文件夹”提示需要安装插件；其余功能不受影响。
+
+| 方法 | 路径 | capability | 说明 |
+|---|---|---|---|
+| POST | `/v1/images/save` | `image-save-v1` | 请求体 `{ image(base64), format, filename, folder: [一级, 二级?] }`；写入当前用户的 `user/images/<folder>/`，返回 `{ ok, path }`，`path` 与上传接口同形（如 `/user/images/角色/2026_10_31/a.png`） |
+| POST | `/v1/images/open-folder` | `open-folder-v1` | 在酒馆所在机器的文件管理器中打开用户图片根目录（`user/images`，不存在则先创建）；前端只用这种方式。请求体可选带 `folder: [一级, 二级?]` 打开其中的子文件夹（不存在则打开最近的上级），规则同上；返回 `{ ok, path, exact }` |
+
+- 文件夹名逐级按酒馆 `sanitize-filename` 的规则清理（删除 `/  ? < > : * | "`、控制字符、结尾的点和空格，拒绝 Windows 保留名）；空、`.`、`..` 或超过两级一律 400，解析结果必须仍在用户图片目录内。文件名同样逐段清理，格式只接受 png / jpg / jpeg / webp / gif。
+- 两条路由都要求登录的用户身份（`req.user`），受酒馆 CSRF 保护，不接收任意路径。打开文件夹只在请求来自本机（环回地址或本机网卡地址，且没有 `X-Forwarded-For` 等代理头）时执行，否则返回 403 `not_local`；页面提示无法直接打开。
+- 打开文件夹用 `child_process.spawn` 传参数数组、不经 shell：Windows `explorer.exe`、macOS `open`、Linux `xdg-open`；系统找不到对应程序时返回 500 `open_failed`。
+- 这两项随本目录的新版后台一起提供，前端按 capability 检查是否可用。安装或升级方法见前文，覆盖整个后台目录后重启酒馆；只更新扩展不会给已安装的后台增加文件系统能力。
+
 ## Provider 边界
 
 - NovelAI：保留 `/v1/generate-image`、`/v2/generate-image`、`/v1/generate-image-stream`、`/v1/test`、`/v2/test` 的现有行为；异步任务在服务器读取 V5 MessagePack 流，只保留并交付最终 PNG。前台逐张后端发送仍由 `/v1/generate-image-stream` 原样转发流。
@@ -63,9 +77,11 @@ draw-run-runtime-v4
 draw-run-planner-retry-v1
 draw-run-planner-layout-v1
 exa-web-v1
+image-save-v1
+open-folder-v1
 ```
 
-`draw-run-planner-layout-v1` 表示后台规划请求接受多条消息，并允许 `system` / `assistant` 角色（自定义请求块），但至少需要一条 `user` 消息。未更新的旧插件不会声明该能力，仍只接受“单条 user 消息”的默认请求结构，默认设置下照常可用；需要自定义请求结构时，扩展会提示更新插件，或关闭“后台任务”改用浏览器流程。
+这些 capability 保留给正式发布过的客户端。新客户端读取 `runtimeHostAbi`，在保存提交标记前调用 `POST /v1/runtime/prepare`，传入 `{ extensionId, runtimeId }`。新任务使用 `X-LWB-Extension` 与 `X-LWB-Runtime` 指定执行包，查询、取消和结果接回不依赖当前安装版本。包不完整、摘要或签名错误只拒绝新任务，不影响存量任务。
 
 通用任务接口位于 `/v1/jobs`：
 
@@ -98,13 +114,13 @@ node server-plugin/littlewhitebox-server/tests/loopback-deployment-matrix.js
 
 Scene Planner 后台运行接口位于 `/v1/draw-runs`，包含创建、当前用户列表、单项查询、取消与接管 ACK。它与 `/v1/jobs` 经过同一个图片任务校验/创建 service，图片执行仍完全服从现有单用户串行队列。
 
-`/status` 已发布 `draw-runs-v1` capability。NovelAI、SD WebUI 与 ComfyUI 的楼层配图在各自开启“小白X后台任务”后，会把场景分析与批量出图一并提交到这些接口；缺少 capability 时明确要求更新后端，不会退回浏览器执行 Planner。
+NovelAI、SD WebUI 与 ComfyUI 开启“小白X后台任务”后，将场景分析与批量出图一起提交。执行包加载失败会明确报错，不自动退回浏览器，也不删除模型采样参数来迁就旧校验器。
 
 直接连接 OpenAI compatible、OpenAI Responses、Anthropic 或 Google 的 Agent 配置会由 Node 访问所填 Base URL；其中 `127.0.0.1` 指 SillyTavern 服务器本机。任务内凭证只保存在进程内存且不写入恢复 journal：Agent 凭证在 Planner 结束后释放；图片凭证会转交 child job，保留到该图片任务终态后释放。
 
 ## Agent Core Node 产物
 
-后台 Draw Run 使用已提交的 `draw-runs/vendor/agent-core-node.cjs` 与 `draw-runs/vendor/draw-run-runtime.cjs`。前者包含 Agent Core 及 OpenAI、Anthropic、Google SDK，后者包含环境无关的 Scene Planner executor、三家图片 compiler 与确定性标识符。复制插件后无需也不允许在运行环境执行 `npm install`。实际进入两个 bundle 的所有第三方包及其许可证位于 `draw-runs/vendor/THIRD_PARTY_LICENSES.txt`。
+扩展的 `dist/server/runtime-<摘要>.cjs` 包含 Agent Core、模型 SDK、规划器、图片编译及传输、QuickJS/WASM 工具沙盒；`runtime.json` 包含宿主 ABI、SHA-256 摘要和 Ed25519 签名，许可证位于同目录。宿主只读取当前用户个人／全局扩展目录中的包，不接收上传代码、任意路径或下载地址。验签后执行已读取的同一份字节，运行环境无需 `npm install`。
 
 仓库开发者在 Agent Core 或相关 SDK 升级后运行：
 
@@ -114,6 +130,12 @@ npm run build
 
 总构建核对实际入包依赖与 `package-lock.json` 的锁定版本；总验收重建并比对已提交产物，阻止源码、依赖锁文件与 bundle/许可证清单脱节。若依赖未附带 LICENSE/NOTICE/COPYING 文件，构建会提取 README 的 License 段；两处都没有许可证正文时直接失败。暂存、发布与失败恢复统一遵循[构建规则](../../docs/plugin-build.md)，本目标不独立发布。
 
-总验收使用固定 Node.js 18.20.8 隔离加载两个 bundle，创建七类 Adapter、调用一次 Draw Run compiler，并让打包后的 Google SDK 向本机模拟端点发出一次真实 `generateContent` 请求。当前 `@google/genai` 虽声明 Node.js 20，但本插件锁定并打包的调用路径支持 Node.js 18；升级 SDK 后必须通过此检查。
+总验收使用固定 Node.js 18.20.8 隔离加载执行包，创建七类 Adapter、调用 Draw Run compiler，并让打包后的 SDK 访问本机模拟端点。模拟端点用于验证协议，不替代真实供应商出图验收。
 
-NovelAI V5 流解析使用已提交的 `providers/novelai/vendor/novel-v5-parser.cjs`，它将浏览器直连所用的同一帧解析器与 MessagePack decoder 打包给 Node；对应许可证位于同目录的 `THIRD_PARTY_LICENSES.txt`。仓库开发者升级解析器或 `@msgpack/msgpack` 后运行 `npm run build`；插件运行环境不需要安装依赖。
+签名接入统一 `npm run build`；维护者私钥默认位于用户目录的 `.config/littlewhitebox/runtime-release-key.pem`，或由 `LWB_RUNTIME_SIGNING_KEY` 指定。私钥需由维护者备份，不能提交、分发或打印。`npm run check` 与 CI 只比对产物和验签，不读取私钥；没有匹配签名时不得发布改动的执行包。
+
+## 后台自定义工具
+
+浏览器只快照工具源码，后台沙盒初始化一次后执行。QuickJS/WASM 隔离脚本，Worker 负责取消和超时终止；工具可使用纯 JS 和公网 `fetch`，不能访问 Node、文件、DOM、酒馆 Cookie 或服务器内网。DNS 和每次重定向都检查地址，并固定连接到验证过的地址。这个限制不影响 SD、ComfyUI 等正常供应商的本机地址。
+
+工具数量、调用次数、代码及结果长度沿用共享契约。单次定义限时 3 秒、调用限时 10 秒，整个工具运行时内存上限 32 MiB；公网请求和响应分别最多 4 MiB。工具错误返回规划流程，不会改由浏览器执行。工具执行包与其他绘图业务一起更新。

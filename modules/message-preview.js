@@ -5,8 +5,9 @@ import { createMessageButtonOwnership } from "../core/message-button-ownership.j
 import { observeAsyncCallback, observeBackgroundTask } from '../shared/common/async-errors.js';
 
 
-const C = { MAX_HISTORY: 10, CHECK: 200, DEBOUNCE: 300, CLEAN: 300000, TARGET: "/api/backends/chat-completions/generate", TIMEOUT: 30, ASSOC_DELAY: 1000, REQ_WINDOW: 30000 };
-const S = { active: false, isPreview: false, isLong: false, isHistoryUiBound: false, previewData: null, previewIds: new Set(), interceptedIds: [], history: [], listeners: [], resolve: null, reject: null, sendBtnWasDisabled: false, longPressTimer: null, longPressDelay: 1000, chatLenBefore: 0, restoreLong: null, cleanTimer: null, previewAbort: null, tailAPI: null, genEndedOff: null, cleanupFallback: null, pendingPurge: false };
+const C = { MAX_HISTORY: 10, CHECK: 200, DEBOUNCE: 300, CLEAN: 300000, TARGET: "/api/backends/chat-completions/generate", TIMEOUT: 30 };
+const REQUEST_ERRORS = { unsupportedBody: '无法只读获取此请求体', previewCancelled: '拦截已取消' };
+const S = { active: false, isPreview: false, isLong: false, isHistoryUiBound: false, previewData: null, previewIds: new Set(), interceptedIds: [], history: [], generation: null, listeners: [], resolve: null, reject: null, sendBtnWasDisabled: null, longPressTimer: null, longPressDelay: 1000, chatLenBefore: 0, restoreLong: null, cleanTimer: null, previewAbort: null, tailAPI: null, genEndedOff: null, cleanupFallback: null, pendingPurge: false };
 const historyButtonOwnership = createMessageButtonOwnership();
 const runtimeOptions = { supportsPreview: true };
 
@@ -20,21 +21,26 @@ function removeOwnedHistoryButtons() {
 }
 
 const $q = (sel) => $(sel);
-const ON = (e, c) => eventSource.on(e, c);
 const OFF = (e, c) => eventSource.removeListener(e, c);
 const now = () => Date.now();
 const geEnabled = () => { try { return ("isXiaobaixEnabled" in window) ? !!window.isXiaobaixEnabled : true; } catch { return true; } };
 const debounce = (fn, w) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), w); }; };
 const safeJson = (t) => { try { return JSON.parse(t); } catch { return null; } };
 
-const readText = async (b) => { try { if (!b) return ""; if (typeof b === "string") return b; if (b instanceof Blob) return await b.text(); if (b instanceof URLSearchParams) return b.toString(); if (typeof b === "object" && typeof b.text === "function") return await b.text(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "readText" }, caughtError); } return ""; };
+async function readRequestBody(input, options) {
+  const body = options?.body;
+  // Fetch's non-null init.body overrides a Request's body. Clone before the
+  // original fetch can consume it; never read the caller's stream directly.
+  if (body == null) return input instanceof Request ? input.clone().text() : '';
+  if (typeof body === 'string') return body;
+  if (body instanceof Blob) return body.text();
+  if (body instanceof URLSearchParams) return body.toString();
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return new TextDecoder().decode(body);
+  throw new TypeError(REQUEST_ERRORS.unsupportedBody);
+}
 
-function isSafeBody(body) { if (!body) return true; return (typeof body === "string" || body instanceof Blob || body instanceof URLSearchParams || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || (typeof FormData !== "undefined" && body instanceof FormData)); }
-
-async function safeReadBodyFromInput(input, options) { try { if (input instanceof Request) return await readText(input.clone()); const body = options?.body; if (!isSafeBody(body)) return ""; return await readText(body); } catch { return ""; } }
-
-const isGen = (u) => String(u || "").includes(C.TARGET);
-const isTarget = async (input, opt = {}) => { try { const url = input instanceof Request ? input.url : input; if (!isGen(url)) return false; const text = await safeReadBodyFromInput(input, opt); return text ? text.includes('"messages"') : true; } catch { return input instanceof Request ? isGen(input.url) : isGen(input); } };
+const requestUrl = input => input instanceof Request ? input.url : String(input);
+const isTarget = input => new URL(requestUrl(input), window.location.href).pathname === C.TARGET;
 const getSettings = () => { const d = extension_settings[EXT_ID] || (extension_settings[EXT_ID] = {}); d.preview = d.preview || { enabled: false, timeoutSeconds: C.TIMEOUT }; d.recorded = d.recorded || { enabled: true }; d.preview.timeoutSeconds = C.TIMEOUT; return d; };
 
 function injectPreviewModalStyles() {
@@ -671,7 +677,7 @@ const formatPreview = (d) => {
   });
   return out;
 };
-const formatRaw = (d) => { try { const obj = cloneJson(d?.requestData ?? d); return colorXml(JSON.stringify(obj, null, 2)); } catch { try { return colorXml(String(d)); } catch { return ""; } } };
+const formatRaw = (d) => { try { if (typeof d?.requestBody === 'string') return colorXml(d.requestData == null ? d.requestBody : JSON.stringify(d.requestData, null, 2)); const obj = cloneJson(d?.requestData ?? d); return colorXml(JSON.stringify(obj, null, 2)); } catch { try { return colorXml(String(d)); } catch { return ""; } } };
 const formatBackend = (d) => { try { const obj = simulateBackendPayload(d); return colorXml(JSON.stringify(obj, null, 2)); } catch (error) { try { return colorXml(JSON.stringify({ error: error?.message || String(error) }, null, 2)); } catch { return ""; } } };
 const buildPreviewHtml = (d) => {
   const formatted = formatPreview(d);
@@ -688,25 +694,51 @@ const displayPreview = async (d) => { try { await openPopup(buildPreviewHtml(d),
 
 const pushHistory = (r) => { S.history.unshift(r); if (S.history.length > C.MAX_HISTORY) S.history.length = C.MAX_HISTORY; };
 const extractUser = (ms) => { if (!Array.isArray(ms)) return ""; for (let i = ms.length - 1; i >= 0; i--) if (ms[i]?.role === "user") return ms[i].content || ""; return ""; };
+const isBackgroundGeneration = type => type === 'quiet' || type === 'impersonate';
 
-async function recordReal(input, options) {
-  try {
-    const url = input instanceof Request ? input.url : input;
-    const body = await safeReadBodyFromInput(input, options);
-    if (!body) return;
-    const data = safeJson(body) || {}, ctx = getContext();
-    pushHistory({ url, method: options?.method || (input instanceof Request ? input.method : "POST"), requestData: data, messages: data.messages || [], model: data.model || "Unknown", timestamp: now(), messageId: ctx.chat?.length || 0, characterName: ctx.characters?.[ctx.characterId]?.name || "Unknown", userInput: extractUser(data.messages || []), isRealRequest: true });
-    setTimeout(() => { if (S.history[0] && !S.history[0].associatedMessageId) S.history[0].associatedMessageId = ctx.chat?.length || 0; }, C.ASSOC_DELAY);
-  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "recordReal" }, caughtError); }
+function recordReal(snapshot, generation) {
+  const history = S.history;
+  const sequence = generation ? ++generation.requestSequence : 0;
+  // Classify the copied body, never the caller's options. Capture order before
+  // decoding, and keep receipt identity on the generation even if decoding lags.
+  return snapshot.body.then(body => {
+    if (S.history !== history) return;
+    const data = safeJson(body);
+    const owner = isBackgroundGeneration(data?.type) ? null : generation;
+    if (owner?.record?.sequence > sequence) return;
+    const previous = owner?.record;
+    const record = { url: snapshot.url, method: snapshot.method, timestamp: snapshot.timestamp,
+      requestData: data, requestBody: body, associatedMessage: owner?.message ?? null, sequence };
+    const index = previous ? history.indexOf(previous) : -1;
+    if (index >= 0) history[index] = record;
+    else pushHistory(record);
+    if (owner) owner.record = record;
+  });
 }
 
 const findRec = (id) => {
-  if (!S.history.length) return null;
-  const preds = [(r) => r.associatedMessageId === id, (r) => r.messageId === id, (r) => r.messageId === id - 1, (r) => Math.abs(r.messageId - id) <= 1];
-  for (const p of preds) { const m = S.history.find(p); if (m) return m; }
-  const cs = S.history.filter((r) => r.messageId <= id + 2);
-  return cs.length ? cs.sort((a, b) => b.messageId - a.messageId)[0] : S.history[0];
+  const message = getContext().chat?.[id];
+  return message ? S.history.find(record => record.associatedMessage === message) ?? null : null;
 };
+
+function startGeneration(type, options, dryRun) {
+  // Quiet/impersonate never create an assistant floor in either supported host.
+  // They can run inside a foreground generation and must not replace its owner.
+  if (dryRun || isBackgroundGeneration(type)) return;
+  S.generation = { chat: getContext().chat, record: null, message: null, requestSequence: 0,
+    preview: S.isPreview || S.isLong };
+}
+
+function associateRecord(messageId, type) {
+  const generation = S.generation;
+  const message = getContext().chat?.[messageId];
+  if (type === 'first_message' || isBackgroundGeneration(type) || !generation || generation.chat !== getContext().chat ||
+      generation.message || !message || message.is_user) return;
+  // Retain identity, not a guessed index: deleting an earlier floor must not
+  // make this request appear on a different message.
+  generation.message = message;
+  if (generation.record) generation.record.associatedMessage = message;
+}
 
 // Improved purgePreviewArtifacts - follows SillyTavern's batch delete pattern
 async function purgePreviewArtifacts() {
@@ -779,80 +811,67 @@ function installEventSourceTail(es) {
   return api;
 }
 
-let __installed = false;
-const MW_KEY = Symbol.for("lwbox.fetchMiddlewareStack");
-const BASE_KEY = Symbol.for("lwbox.fetchBase");
-const ORIG_KEY = Symbol.for("lwbox.fetch.origDesc");
-const CMP_KEY = Symbol.for("lwbox.fetch.composed");
-const ID = Symbol.for("lwbox.middleware.identity");
-const getFetchFromDesc = (d) => { try { if (typeof d?.value === "function") return d.value; if (typeof d?.get === "function") { const v = d.get.call(window); if (typeof v === "function") return v; } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "getFetchFromDesc" }, caughtError); } return globalThis.fetch; };
-const compose = (base, stack) => stack.reduce((acc, mw) => mw(acc), base);
-const withTimeout = (p, ms = 200) => { try { return Promise.race([p, new Promise((r) => setTimeout(r, ms))]); } catch { return p; } };
-const ensureAccessor = () => { try { const d = Object.getOwnPropertyDescriptor(window, "fetch"); if (!window[ORIG_KEY]) window[ORIG_KEY] = d || null; window[BASE_KEY] ||= getFetchFromDesc(d); Object.defineProperty(window, "fetch", { configurable: true, enumerable: d?.enumerable ?? true, get() { return reapply(); }, set(v) { if (typeof v === "function") { window[BASE_KEY] = v; queueMicrotask(reapply); } } }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "ensureAccessor" }, caughtError); } };
-const reapply = () => { try { const base = window[BASE_KEY] || getFetchFromDesc(Object.getOwnPropertyDescriptor(window, "fetch")); const stack = window[MW_KEY] || (window[MW_KEY] = []); let idx = stack.findIndex((m) => m && m[ID]); if (idx === -1) { stack.push(makeMw()); idx = stack.length - 1; } if (idx !== window[MW_KEY].length - 1) { const mw = window[MW_KEY][idx]; window[MW_KEY].splice(idx, 1); window[MW_KEY].push(mw); } const composed = compose(base, stack) || base; if (!window[CMP_KEY] || window[CMP_KEY]._base !== base || window[CMP_KEY]._stack !== stack) { composed._base = base; composed._stack = stack; window[CMP_KEY] = composed; } return window[CMP_KEY]; } catch { return globalThis.fetch; } };
-function makeMw() {
-  const mw = (next) => async function f(input, options = {}) {
-    try {
-      if (await isTarget(input, options)) {
-        if (S.isPreview || S.isLong) {
-          const url = input instanceof Request ? input.url : input;
-          return interceptPreview(url, options).catch(() => new Response(JSON.stringify({ error: { message: "拦截失败，请手动中止消息生成。" } }), { status: 200, headers: { "Content-Type": "application/json" } }));
-        } else { try { await withTimeout(recordReal(input, options)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "f" }, caughtError); } }
-      }
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "f" }, caughtError); }
-    return Reflect.apply(next, this, arguments);
-  };
-  Object.defineProperty(mw, ID, { value: true, enumerable: false });
-  return Object.freeze(mw);
-}
+let fetchHook = null;
+
 function installFetch() {
-  if (__installed) return; __installed = true;
-  try {
-    window[MW_KEY] ||= [];
-    window[BASE_KEY] ||= getFetchFromDesc(Object.getOwnPropertyDescriptor(window, "fetch"));
-    ensureAccessor();
-    if (!window[MW_KEY].some((m) => m && m[ID])) window[MW_KEY].push(makeMw());
-    else {
-      const i = window[MW_KEY].findIndex((m) => m && m[ID]);
-      if (i !== window[MW_KEY].length - 1) {
-        const mw = window[MW_KEY][i];
-        window[MW_KEY].splice(i, 1);
-        window[MW_KEY].push(mw);
+  if (!fetchHook) {
+    const original = window.fetch;
+    const observer = function (input, options) {
+      let preview = false;
+      try {
+        if (S.active && geEnabled() && isTarget(input)) {
+          const settings = extension_settings[EXT_ID];
+          const generation = S.generation && !S.generation.message && S.generation.chat === getContext().chat ? S.generation : null;
+          preview = runtimeOptions.supportsPreview && settings.preview.enabled && (S.isPreview || S.isLong || generation?.preview);
+          if (preview || settings.recorded.enabled) {
+            const snapshot = { url: requestUrl(input), method: options?.method || (input instanceof Request ? input.method : 'GET'),
+              timestamp: now(), body: readRequestBody(input, options) };
+            if (preview) return interceptPreview(snapshot).catch(error => {
+              S.reject?.(error); S.resolve = S.reject = null;
+              throw error;
+            });
+            observeBackgroundTask(recordReal(snapshot, generation), { source: import.meta.url, operation: 'recordReal' });
+          }
+        }
+      } catch (error) {
+        // Only preview may block a request. A failed observation must never
+        // substitute a response, consume a response stream or change an error.
+        if (preview) return Promise.reject(error);
+        console.warn({ source: import.meta.url, operation: 'observeRequest' }, error);
       }
-    }
-    queueMicrotask(reapply);
-    window.addEventListener("pageshow", reapply, { passive: true });
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reapply(); }, { passive: true });
-    window.addEventListener("focus", reapply, { passive: true });
-  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "installFetch" }, caughtError); }
+      return Reflect.apply(original, this, arguments);
+    };
+    fetchHook = { original, observer };
+    window.fetch = observer;
+  } else if (window.fetch === fetchHook.original) {
+    window.fetch = fetchHook.observer;
+  }
 }
+
 function uninstallFetch() {
-  if (!__installed) return;
-  try {
-    const s = window[MW_KEY];
-    const i = Array.isArray(s) ? s.findIndex((m) => m && m[ID]) : -1;
-    if (i >= 0) s.splice(i, 1);
-    const others = Array.isArray(window[MW_KEY]) && window[MW_KEY].length;
-    const orig = window[ORIG_KEY];
-    if (!others) {
-      if (orig) {
-        try { Object.defineProperty(window, "fetch", orig); }
-        catch { Object.defineProperty(window, "fetch", { configurable: true, enumerable: true, writable: true, value: window[BASE_KEY] || globalThis.fetch }); }
-      } else {
-        Object.defineProperty(window, "fetch", { configurable: true, enumerable: true, writable: true, value: window[BASE_KEY] || globalThis.fetch });
-      }
-    } else {
-      reapply();
-    }
-  } catch (caughtError) { console.warn({ source: import.meta.url, operation: "uninstallFetch" }, caughtError); }
-  __installed = false;
+  S.active = false;
+  // A later wrapper may have captured observer. Leave that wrapper intact;
+  // the captured function is now transparent, and re-enabling reuses it.
+  if (fetchHook && window.fetch === fetchHook.observer) window.fetch = fetchHook.original;
 }
 const setupFetch = () => { if (!S.active) { installFetch(); S.active = true; } };
-const restoreFetch = () => { if (S.active) { uninstallFetch(); S.active = false; } };
-const updateFetchState = () => { const st = getSettings(), need = (st.preview.enabled || st.recorded.enabled); if (need && !S.active) setupFetch(); if (!need && S.active) restoreFetch(); };
+const restoreFetch = () => uninstallFetch();
+const updateFetchState = () => {
+  const settings = getSettings();
+  if (!settings.preview.enabled) {
+    S.isLong = false;
+    if (S.generation) S.generation.preview = false;
+    $q('#message_preview_btn').css('color', '');
+  }
+  if (!settings.recorded.enabled) { S.history = []; if (S.generation) S.generation.record = null; }
+  if (geEnabled() && (settings.preview.enabled || settings.recorded.enabled)) setupFetch();
+  // Switches suspend observation, not the forwarding entry point. Scripts
+  // loaded while disabled still capture the same innermost observer.
+  else S.active = false;
+};
 
-async function interceptPreview(url, options) {
-  const body = await safeReadBodyFromInput(url, options);
+async function interceptPreview(snapshot) {
+  const body = await snapshot.body;
   const data = safeJson(body) || {};
   const userInput = extractUser(data?.messages || []);
   const ctx = getContext();
@@ -866,7 +885,7 @@ async function interceptPreview(url, options) {
     oneShotOnLast(event_types.GENERATION_ENDED, () => setTimeout(observeAsyncCallback(() => purgePreviewArtifacts(), { source: import.meta.url, operation: "callback" }), 0));
   }
 
-  S.previewData = { url, method: options?.method || "POST", requestData: data, messages: data?.messages || [], model: data?.model || "Unknown", timestamp: now(), userInput, isPreview: true };
+  S.previewData = { url: snapshot.url, method: snapshot.method, requestBody: body, requestData: data, timestamp: snapshot.timestamp, userInput, isPreview: true };
   if (S.isLong) { setTimeout(() => { observeBackgroundTask(displayPreview(S.previewData), { source: import.meta.url, operation: "callback" }); }, 100); } else if (S.resolve) { S.resolve({ success: true, data: S.previewData }); S.resolve = S.reject = null; }
   const payload = S.isLong ? { choices: [{ message: { content: "【小白X】已拦截消息" }, finish_reason: "stop" }], intercepted: true } : { choices: [{ message: { content: "" }, finish_reason: "stop" }] };
   return new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -911,7 +930,7 @@ function mountHistoryButton(message, messageId) {
 const disableSend = (dis = true) => {
   const $b = $q("#send_but");
   if (dis) { S.sendBtnWasDisabled = $b.prop("disabled"); $b.prop("disabled", true).off("click.preview-block").on("click.preview-block", (e) => { e.preventDefault(); e.stopImmediatePropagation(); return false; }); }
-  else { $b.prop("disabled", S.sendBtnWasDisabled).off("click.preview-block"); S.sendBtnWasDisabled = false; }
+  else if (S.sendBtnWasDisabled !== null) { $b.prop("disabled", S.sendBtnWasDisabled).off("click.preview-block"); S.sendBtnWasDisabled = null; }
 };
 const triggerSend = () => {
   const $b = $q("#send_but"), $t = $q("#send_textarea"), txt = String($t.val() || ""); if (!txt.trim()) return false;
@@ -956,7 +975,7 @@ async function showPreview() {
     if (toast) toastr.clear(toast); toastr.error(`拦截异常: ${e.message}`, "", { timeOut: 5000 });
   } finally {
     try { S.previewAbort?.abort("拦截结束"); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "showPreview" }, caughtError); } S.previewAbort = null;
-    if (S.resolve) S.resolve({ success: false, error: "拦截已取消" }); S.resolve = S.reject = null;
+    if (S.resolve) S.resolve({ success: false, error: REQUEST_ERRORS.previewCancelled }); S.resolve = S.reject = null;
     clearTimeout(S.cleanupFallback); S.cleanupFallback = null;
     S.isPreview = false; S.previewData = null;
     disableSend(false); if (backup) $q("#send_textarea").val(backup);
@@ -967,7 +986,7 @@ async function showHistoryPreview(messageId) {
   try {
     const set = getSettings(); if (!set.recorded.enabled || !geEnabled()) return;
     const rec = findRec(messageId);
-    if (rec?.messages?.length || rec?.requestData?.messages?.length) await openPopup(buildPreviewHtml({ ...rec, isHistoryPreview: true, targetMessageId: messageId }), `消息历史查看 - 第 ${messageId + 1} 条消息`);
+    if (rec?.requestBody != null) await openPopup(buildPreviewHtml({ ...rec, isHistoryPreview: true, targetMessageId: messageId }), `消息历史查看 - 第 ${messageId + 1} 条消息`);
     else toastr.warning(`未找到第 ${messageId + 1} 条消息的API请求记录`);
   } catch { toastr.error("查看历史消息失败"); }
 }
@@ -982,7 +1001,7 @@ const cleanupMemory = () => {
 };
 
 function onLast(ev, handler) {
-  if (typeof eventSource.makeLast === "function") { eventSource.makeLast(ev, handler); S.listeners.push({ e: ev, h: handler, off: () => { } }); return; }
+  if (typeof eventSource.makeLast === "function") { eventSource.makeLast(ev, handler); S.listeners.push({ e: ev, h: handler, off: () => OFF(ev, handler) }); return; }
   if (S.tailAPI?.onLast) { const off = S.tailAPI.onLast(ev, handler); S.listeners.push({ e: ev, h: handler, off }); return; }
   const tail = (...args) => queueMicrotask(() => { try { handler(...args); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "tail" }, caughtError); } });
   eventSource.on(ev, tail);
@@ -995,23 +1014,13 @@ const addEvents = () => {
     { e: event_types.MESSAGE_RECEIVED, h: addHistoryButtonsDebounced },
     { e: event_types.CHARACTER_MESSAGE_RENDERED, h: addHistoryButtonsDebounced },
     { e: event_types.USER_MESSAGE_RENDERED, h: addHistoryButtonsDebounced },
-    { e: event_types.CHAT_CHANGED, h: () => { S.history = []; setTimeout(addHistoryButtonsDebounced, C.CHECK); } },
-    { e: event_types.MESSAGE_RECEIVED, h: (messageId) => setTimeout(() => { const r = S.history.find((x) => !x.associatedMessageId && now() - x.timestamp < C.REQ_WINDOW); if (r) r.associatedMessageId = messageId; }, 100) },
+    { e: event_types.CHAT_CHANGED, h: () => { S.history = []; S.generation = null; setTimeout(addHistoryButtonsDebounced, C.CHECK); } },
+    { e: event_types.MESSAGE_RECEIVED, h: associateRecord },
+    { e: event_types.GENERATION_STARTED, h: startGeneration },
+    // ENDED has no generation identity and quiet calls can emit it too. Only
+    // MESSAGE_RECEIVED closes the foreground record (including streamed replies).
+    { e: event_types.GENERATION_ENDED, h: () => { if (S.generation) S.generation.preview = false; } },
   ].forEach(({ e, h }) => onLast(e, h));
-  const late = (payload) => {
-    try {
-      const ctx = getContext();
-      pushHistory({
-        url: C.TARGET, method: "POST", requestData: payload, messages: payload?.messages || [], model: payload?.model || "Unknown",
-        timestamp: now(), messageId: ctx.chat?.length || 0, characterName: ctx.characters?.[ctx.characterId]?.name || "Unknown",
-        userInput: extractUser(payload?.messages || []), isRealRequest: true, source: "settings_ready",
-      });
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "late" }, caughtError); }
-    queueMicrotask(() => updateFetchState());
-  };
-  if (typeof eventSource.makeLast === "function") { eventSource.makeLast(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off: () => { } }); }
-  else if (S.tailAPI?.onLast) { const off = S.tailAPI.onLast(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off }); }
-  else { ON(event_types.CHAT_COMPLETION_SETTINGS_READY, late); S.listeners.push({ e: event_types.CHAT_COMPLETION_SETTINGS_READY, h: late, off: () => OFF(event_types.CHAT_COMPLETION_SETTINGS_READY, late) }); queueMicrotask(() => { try { OFF(event_types.CHAT_COMPLETION_SETTINGS_READY, late); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "addEvents" }, caughtError); } try { ON(event_types.CHAT_COMPLETION_SETTINGS_READY, late); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "addEvents" }, caughtError); } }); }
 };
 const removeEvents = () => { S.listeners.forEach(({ e, h, off }) => { if (typeof off === "function") { try { off(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeEvents" }, caughtError); } } else { try { OFF(e, h); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "removeEvents" }, caughtError); } } }); S.listeners = []; };
 
@@ -1039,11 +1048,15 @@ const waitIntercept = () => new Promise((resolve, reject) => {
   S.resolve = (v) => { clearTimeout(t); resolve(v); }; S.reject = (e) => { clearTimeout(t); reject(e); };
 });
 
-function cleanup() {
+function cleanup({ detachFetch = true } = {}) {
   $('#xiaobaix_preview_enabled, #xiaobaix_recorded_enabled').off('change.xbMessagePreview');
-  removeEvents(); restoreFetch(); disableSend(false);
+  removeEvents();
+  if (detachFetch) restoreFetch();
+  else S.active = false;
+  disableSend(false);
   removeOwnedHistoryButtons(); $("#message_preview_btn").remove(); cleanupMemory();
-  Object.assign(S, { resolve: null, reject: null, isPreview: false, isLong: false, interceptedIds: [], chatLenBefore: 0, sendBtnWasDisabled: false, pendingPurge: false });
+  if (S.resolve) S.resolve({ success: false, error: REQUEST_ERRORS.previewCancelled });
+  Object.assign(S, { resolve: null, reject: null, isPreview: false, isLong: false, interceptedIds: [], chatLenBefore: 0, sendBtnWasDisabled: null, pendingPurge: false, history: [], generation: null });
   if (S.cleanTimer) { clearInterval(S.cleanTimer); S.cleanTimer = null; }
   if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; }
   if (S.restoreLong) { try { S.restoreLong(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanup" }, caughtError); } S.restoreLong = null; }
@@ -1053,10 +1066,13 @@ function cleanup() {
 
 function initMessagePreview() {
   try {
-    cleanup();
+    const history = S.history;
+    const generation = S.generation;
+    cleanup({ detachFetch: false });
     const set = getSettings();
+    if (set.recorded.enabled) { S.history = history; S.generation = generation; }
     if (!runtimeOptions.supportsPreview && set.preview.enabled) return;
-    S.tailAPI = installEventSourceTail(eventSource);
+    S.tailAPI = typeof eventSource.makeLast === 'function' ? null : installEventSourceTail(eventSource);
     const btn = $(`<div id="message_preview_btn" class="fa-regular fa-note-sticky interactable" title="预览消息"></div>`);
     $("#send_but").before(btn); bindBtn();
     $("#xiaobaix_preview_enabled").prop("checked", set.preview.enabled).on("change.xbMessagePreview", function () {
@@ -1076,11 +1092,14 @@ function initMessagePreview() {
     if (!set.preview.enabled) $("#message_preview_btn").hide();
     updateFetchState(); if (set.recorded.enabled) addHistoryButtonsDebounced();
     if (set.preview.enabled || set.recorded.enabled) addEvents();
-    if (window.registerModuleCleanup) window.registerModuleCleanup("messagePreview", cleanup);
+    if (window.registerModuleCleanup) window.registerModuleCleanup("messagePreview", () => cleanup({ detachFetch: false }));
     if (set.preview.enabled) S.cleanTimer = setInterval(cleanupMemory, C.CLEAN);
   } catch { toastr.error("模块初始化失败"); }
 }
 
+// Install before delayed UI initialization, so later fetch wrappers capture
+// this single observation point. It stays inactive until the feature is ready.
+installFetch();
 window.addEventListener("beforeunload", cleanup);
 window.messagePreviewCleanup = cleanup;
 

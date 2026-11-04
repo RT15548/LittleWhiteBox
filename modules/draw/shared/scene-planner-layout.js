@@ -1,11 +1,11 @@
 // 场景规划请求的"块布局"：存储、设置界面、请求组装三方共用的契约（纯函数）。
 // 零依赖：不得 import 任何模块；也不在逻辑里读时间或随机数（id 随机源由调用方注入）。
-// 布局 = 有序块列表：8 个内置块（内容与角色由代码决定，只能移动）+ 任意数量的自定义消息块。
+// 布局 = 固定阶段 + 阶段之间的自定义消息；内置块的次序由本文件统一定义。
 // 自定义块可以“附带工具”（tool: { code }）：块的 content 是随请求发出的说明消息，tool.code 是用户写的工具代码
-// （只在浏览器沙盒里执行，见 custom-tool-sandbox.js）。工具跟着这条消息走：消息启用，工具才注册。
+// （由所选执行端的沙盒执行）。工具跟着这条消息走：消息启用，工具才注册。
 // 稀疏存储：预设只有在布局偏离默认时才带 layout 字段；内置块只存 {id}，避免内容随版本漂移。
 
-export const SCENE_PLANNER_LAYOUT_VERSION = 1;
+export const SCENE_PLANNER_LAYOUT_VERSION = 2;
 
 function freezeBlock(block) {
     return Object.freeze(block);
@@ -15,15 +15,56 @@ function freezeBlock(block) {
 export const BUILTIN_BLOCKS = Object.freeze([
     freezeBlock({ id: 'opening', label: '开场与视角', role: 'system' }),
     freezeBlock({ id: 'frame', label: '材料说明与输出去向', role: 'system' }),
-    freezeBlock({ id: 'guide', label: 'TAG指南', role: 'system' }),
-    freezeBlock({ id: 'rules', label: '场景规则', role: 'system' }),
-    freezeBlock({ id: 'tools', label: '工具说明', role: 'system' }),
-    freezeBlock({ id: 'worldInfo', label: '世界书', role: 'user' }),
-    freezeBlock({ id: 'content', label: '角色与正文', role: 'user', required: true }),
-    freezeBlock({ id: 'limits', label: '数量约束', role: 'user', required: true }),
+    freezeBlock({ id: 'tools', label: '可用工具', role: 'system' }),
+    freezeBlock({ id: 'worldInfo', label: '世界书', role: 'tool' }),
+    freezeBlock({ id: 'content', label: '角色与正文', role: 'tool', required: true }),
+    freezeBlock({ id: 'guide', label: 'TAG指南', role: 'tool' }),
+    freezeBlock({ id: 'rules', label: '场景规则', role: 'tool' }),
+    freezeBlock({ id: 'limits', label: '数量约束', role: 'tool', required: true }),
 ]);
 
-export const BUILTIN_BLOCK_IDS = Object.freeze(BUILTIN_BLOCKS.map(block => block.id));
+export const SCENE_PLANNER_STAGES = Object.freeze([
+    Object.freeze({ id: 'setup', label: '角色与工具', blockIds: Object.freeze(['opening', 'frame', 'tools']) }),
+    Object.freeze({ id: 'materials', label: '知识材料', blockIds: Object.freeze(['worldInfo', 'content']) }),
+    Object.freeze({ id: 'guide', label: '绘图规范', blockIds: Object.freeze(['guide', 'rules', 'limits']) }),
+]);
+export const BUILTIN_BLOCK_IDS = Object.freeze(SCENE_PLANNER_STAGES.flatMap(stage => stage.blockIds));
+export const PROMPT_ROLE_LABELS = Object.freeze({ system: '系统设定', user: '用户消息', assistant: '模型消息', tool: '工具返回', tools: '工具定义' });
+export const TOOL_DEFINITIONS_LABEL = '工具定义与字段说明';
+export const PREBUILT_MESSAGE_LABELS = Object.freeze({
+    call: '预构建调用', result: '预构建返回',
+    resultHint: '预先构建的工具返回', approval: '预先构建的提交确认',
+});
+const STAGE_BY_BLOCK = new Map(SCENE_PLANNER_STAGES.flatMap((stage, index) => stage.blockIds.map(id => [id, index])));
+
+// v1 用户预设曾允许任意移动内置块。在解析入口归位；自定义消息按相邻阶段安置，
+// 保留其相互次序、内容、角色和工具代码，不把旧布局的排序语义带入请求组装。
+function fixStageOrder(blocks) {
+    const customs = SCENE_PLANNER_STAGES.map(() => []);
+    let stageIndex = 0;
+    let lastCustomStage = 0;
+    for (const block of blocks) {
+        if (STAGE_BY_BLOCK.has(block.id)) stageIndex = STAGE_BY_BLOCK.get(block.id);
+        else {
+            lastCustomStage = Math.max(lastCustomStage, stageIndex);
+            customs[lastCustomStage].push(block);
+        }
+    }
+    return SCENE_PLANNER_STAGES.flatMap((stage, index) => [
+        ...stage.blockIds.map(id => ({ id })), ...customs[index],
+    ]);
+}
+
+/** 编辑器和组装器消费同一阶段投影；自定义消息只出现在完整阶段之后。 */
+export function projectScenePlannerLayout(raw) {
+    const { blocks } = normalizeLayout(raw).layout;
+    return SCENE_PLANNER_STAGES.map((stage, index) => {
+        const start = blocks.findIndex(block => block.id === stage.blockIds[0]);
+        const end = index + 1 < SCENE_PLANNER_STAGES.length
+            ? blocks.findIndex(block => block.id === SCENE_PLANNER_STAGES[index + 1].blockIds[0]) : blocks.length;
+        return { ...stage, blocks: blocks.slice(start, end), customBlocks: blocks.slice(start + stage.blockIds.length, end) };
+    });
+}
 export const CUSTOM_BLOCK_ROLES = Object.freeze(['system', 'user', 'assistant']);
 export const MAX_TOOLS = 8;
 export const MAX_TOOL_CODE_CHARS = 20000;
@@ -146,7 +187,7 @@ function normalizeCore(raw, { trimName = true } = {}) {
         if (raw.version !== undefined) {
             if (typeof raw.version === 'number' && raw.version > SCENE_PLANNER_LAYOUT_VERSION) {
                 notes.push(`布局版本 ${raw.version} 高于当前支持的 ${SCENE_PLANNER_LAYOUT_VERSION}，已尽力按已知字段读取`);
-            } else if (raw.version !== SCENE_PLANNER_LAYOUT_VERSION) {
+            } else if (raw.version !== 1 && raw.version !== SCENE_PLANNER_LAYOUT_VERSION) {
                 notes.push('布局版本无效，已按当前版本处理');
             }
         }
@@ -240,26 +281,11 @@ function normalizeCore(raw, { trimName = true } = {}) {
     if (invalidRoles > 0) notes.push(`${invalidRoles} 个自定义块的角色无效，已设为 user 并停用`);
     if (coercedFields > 0) notes.push(`${coercedFields} 处自定义块字段类型不符，已转换`);
 
-    // 补回缺失的内置块：按规范顺序处理，每个插在"最近的、已存在的前驱内置块"之后，没有前驱则放最前。
-    // 因为已补回的块也算存在，连续缺失时自然保持规范顺序。
-    const restored = [];
-    BUILTIN_BLOCK_IDS.forEach((id, canonicalIndex) => {
-        if (seenBuiltin.has(id)) return;
-        let insertAt = 0;
-        for (let prev = canonicalIndex - 1; prev >= 0; prev -= 1) {
-            const at = blocks.findIndex(block => block.id === BUILTIN_BLOCK_IDS[prev]);
-            if (at !== -1) {
-                insertAt = at + 1;
-                break;
-            }
-        }
-        blocks.splice(insertAt, 0, { id });
-        restored.push(BUILTIN_BY_ID.get(id).label);
-    });
+    const restored = BUILTIN_BLOCK_IDS.filter(id => !seenBuiltin.has(id)).map(id => BUILTIN_BY_ID.get(id).label);
     if (restored.length > 0) notes.push(`补回了缺失的内置块：${restored.join('、')}`);
 
     return {
-        layout: { version: SCENE_PLANNER_LAYOUT_VERSION, blocks },
+        layout: { version: SCENE_PLANNER_LAYOUT_VERSION, blocks: fixStageOrder(blocks) },
         repaired: notes.length > 0,
         notes,
     };
@@ -392,23 +418,30 @@ export function setBlocksEnabled(layout, ids, enabled) {
 }
 
 /**
- * 把一组块整体上移 / 下移一格（内置块也可以一起动）。组按在布局里的先后顺序保持相对次序；
+ * 把自定义消息整体上移 / 下移；完整的内置阶段是一个不可拆分的移动单位。
  * 上移 / 下移是相对“组外的块”算的：组里不连续时会先并拢到同一处。已在边界时原样返回。
  */
 export function moveBlocks(layout, ids, direction) {
     return editBlocks(layout, blocks => {
-        const wanted = new Set(toIdList(ids));
+        const wanted = new Set(toIdList(ids).filter(id => !isBuiltinId(id)));
+        const units = [];
+        for (const block of blocks) {
+            if (!isBuiltinId(block.id)) units.push([block]);
+            else if (SCENE_PLANNER_STAGES.some(stage => stage.blockIds[0] === block.id)) {
+                units.push(SCENE_PLANNER_STAGES.find(stage => stage.blockIds[0] === block.id).blockIds.map(id => ({ id })));
+            }
+        }
         const group = blocks.filter(block => wanted.has(block.id));
         const step = direction > 0 ? 1 : direction < 0 ? -1 : 0;
         if (!group.length || step === 0) return blocks;
-        const rest = blocks.filter(block => !wanted.has(block.id));
-        const outsideBefore = (index) => blocks.slice(0, index).filter(block => !wanted.has(block.id)).length;
-        const first = blocks.findIndex(block => wanted.has(block.id));
-        const last = blocks.length - 1 - blocks.slice().reverse().findIndex(block => wanted.has(block.id));
+        const rest = units.filter(unit => !wanted.has(unit[0].id));
+        const outsideBefore = (index) => units.slice(0, index).filter(unit => !wanted.has(unit[0].id)).length;
+        const first = units.findIndex(unit => wanted.has(unit[0].id));
+        const last = units.length - 1 - units.slice().reverse().findIndex(unit => wanted.has(unit[0].id));
         const at = step < 0
-            ? Math.max(0, outsideBefore(first) - 1)
+            ? Math.max(1, outsideBefore(first) - 1)
             : Math.min(rest.length, outsideBefore(last) + 1);
-        return [...rest.slice(0, at), ...group, ...rest.slice(at)];
+        return [...rest.slice(0, at).flat(), ...group, ...rest.slice(at).flat()];
     });
 }
 
@@ -438,15 +471,7 @@ export function updateBlock(layout, id, patch) {
 }
 
 export function moveBlock(layout, id, direction) {
-    return editBlocks(layout, blocks => {
-        const step = direction > 0 ? 1 : direction < 0 ? -1 : 0;
-        const from = blocks.findIndex(block => block.id === id);
-        const to = from + step;
-        if (step === 0 || from === -1 || to < 0 || to >= blocks.length) return blocks;
-        const next = blocks.slice();
-        [next[from], next[to]] = [next[to], next[from]];
-        return next;
-    });
+    return moveBlocks(layout, [id], direction);
 }
 
 export function reorderBlocks(layout, orderedIds) {

@@ -20,6 +20,7 @@ const bundle = await build({
             contents: `export const state = { requests: [], anchors: [] };
                 export async function callLLM(messages) {
                     state.requests.push(messages);
+                    await state.onRequest?.();
                     return JSON.stringify({ anchors: state.anchors });
                 }`, loader: 'js',
         }));
@@ -67,4 +68,44 @@ test('shared scene examples retain their narratives and edges through extraction
         assert.equal(atoms.length, 1);
         assert.deepEqual({ scene: atoms[0].semantic, edges: atoms[0].edges, where: atoms[0].where }, anchor);
     }
+});
+
+// Acceptance: current manual hiding excludes source before a model request;
+// unhide restores eligibility. Cost: silently sending unwanted dialogue.
+test('manual-hidden replies and user context never enter new anchor requests', async () => {
+    const user = { mes: 'private player variant', is_user: true, is_system: true };
+    const reply = { mes: 'private reply variant', is_system: true };
+    state.requests.length = 0;
+    state.anchors = [];
+    assert.deepEqual(await extractAtomsForRound(user, reply, 38), []);
+    assert.equal(state.requests.length, 0);
+    reply.is_system = false;
+    await extractAtomsForRound(user, reply, 38);
+    assert.ok(!state.requests[0][1].content.includes(user.mes));
+    assert.ok(state.requests[0][1].content.includes(reply.mes));
+    user.is_system = false;
+    await extractAtomsForRound(user, reply, 38);
+    assert.ok(state.requests[1][1].content.includes(user.mes));
+    reply.is_system = true;
+    reply.xb_summary_hidden = true;
+    await extractAtomsForRound(user, reply, 38);
+    assert.ok(state.requests[2][1].content.includes(reply.mes));
+});
+
+test('hiding after input capture preserves the anchor result and affects only the next read', async t => {
+    const user = { mes: 'captured player context', is_user: true };
+    const reply = { mes: 'captured reply' };
+    const { anchor } = ANCHOR_GENERATION_EXAMPLES[0];
+    state.requests.length = 0;
+    state.anchors = [anchor];
+    state.onRequest = () => { user.is_system = true; reply.is_system = true; };
+    t.after(() => { delete state.onRequest; });
+    const atoms = await extractAtomsForRound(user, reply, 38);
+    assert.equal(atoms.length, 1);
+    assert.equal(atoms[0].semantic, anchor.scene);
+    assert.equal(atoms[0].floor, 38);
+    assert.ok(state.requests[0][1].content.includes(user.mes));
+    assert.ok(state.requests[0][1].content.includes(reply.mes));
+    assert.deepEqual(await extractAtomsForRound(user, reply, 38), []);
+    assert.equal(state.requests.length, 1);
 });

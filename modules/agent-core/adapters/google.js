@@ -676,6 +676,11 @@ export class GoogleAdapter {
                 ...this.auth.headers,
             },
             body: {
+                session: {
+                    model: this.config.model,
+                    history: getChatHistory(this.activeChat),
+                    config: this.sessionConfig,
+                },
                 sendMessage: sendPayload,
                 stream: typeof task.onStreamProgress === 'function',
             },

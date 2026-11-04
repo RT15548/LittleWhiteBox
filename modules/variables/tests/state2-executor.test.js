@@ -1,110 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-
-const sourceRoot = path.resolve('modules/variables/state2');
-const yamlModuleUrl = pathToFileURL(path.resolve('libs/js-yaml.mjs')).href;
-
-function copySourceFile(tempDir, name, transform = source => source) {
-    const source = readFileSync(path.join(sourceRoot, name), 'utf8');
-    writeFileSync(path.join(tempDir, name), transform(source), 'utf8');
-}
-
-async function createHarness() {
-    const tempDir = mkdtempSync(path.join(tmpdir(), 'lwb-state2-'));
-
-    writeFileSync(path.join(tempDir, 'package.json'), '{"type":"module"}\n', 'utf8');
-    writeFileSync(path.join(tempDir, 'mock-env.js'), `
-export const state = {
-  ctx: {
-    chatId: 'test-chat',
-    chat: [],
-    chatMetadata: { variables: {}, extensions: {} },
-    saveCount: 0,
-    saveMetadataDebounced() { this.saveCount += 1; },
-  },
-};
-
-export function resetContext() {
-  state.ctx.chatId = 'test-chat';
-  state.ctx.chat = [];
-  state.ctx.chatMetadata = { variables: {}, extensions: {} };
-  state.ctx.saveCount = 0;
-}
-`, 'utf8');
-    writeFileSync(path.join(tempDir, 'mock-extensions.js'), `
-import { state } from './mock-env.js';
-export function getContext() {
-  return state.ctx;
-}
-`, 'utf8');
-    writeFileSync(path.join(tempDir, 'mock-variables.js'), `
-import { state } from './mock-env.js';
-
-export function getLocalVariable(name) {
-  const variables = state.ctx.chatMetadata.variables ||= {};
-  const value = variables[name];
-  if (value == null) return '';
-  if (typeof value !== 'string') return value;
-  return value.trim?.() === '' || isNaN(Number(value)) ? value : Number(value);
-}
-
-export function setLocalVariable(name, value) {
-  if (!name) throw new Error('Variable name cannot be empty or undefined.');
-  const variables = state.ctx.chatMetadata.variables ||= {};
-  variables[name] = value;
-  state.ctx.saveMetadataDebounced();
-  return value;
-}
-`, 'utf8');
-
-    copySourceFile(tempDir, 'parser.js', source => source
-        .replace("import jsyaml from '../../../libs/js-yaml.mjs';", `import jsyaml from '${yamlModuleUrl}';`));
-    copySourceFile(tempDir, 'semantic.js');
-    copySourceFile(tempDir, 'guard-core.js');
-    copySourceFile(tempDir, 'guard.js', source => source
-        .replace("import { getContext } from '../../../../../../extensions.js';", "import { getContext } from './mock-extensions.js';"));
-    copySourceFile(tempDir, 'executor.js', source => source
-        .replace("import { getContext } from '../../../../../../extensions.js';", "import { getContext } from './mock-extensions.js';")
-        .replace("import { getLocalVariable, setLocalVariable } from '../../../../../../variables.js';", "import { getLocalVariable, setLocalVariable } from './mock-variables.js';"));
-
-    const envModuleUrl = pathToFileURL(path.join(tempDir, 'mock-env.js')).href;
-    const executorModuleUrl = pathToFileURL(path.join(tempDir, 'executor.js')).href;
-    const guardModuleUrl = pathToFileURL(path.join(tempDir, 'guard.js')).href;
-    // eslint-disable-next-line no-unsanitized/method -- Imports only this test's locally copied environment fixture.
-    const env = await import(envModuleUrl);
-    // eslint-disable-next-line no-unsanitized/method -- Imports only this test's locally copied executor fixture.
-    const executor = await import(executorModuleUrl);
-    // eslint-disable-next-line no-unsanitized/method -- Imports only this test's locally copied guard fixture.
-    const guard = await import(guardModuleUrl);
-
-    return {
-        tempDir,
-        env,
-        executor,
-        guard,
-        reset() {
-            env.resetContext();
-        },
-        cleanup() {
-            rmSync(tempDir, { recursive: true, force: true });
-        },
-    };
-}
-
-function readStoredValue(ctx, root) {
-    const raw = ctx.chatMetadata.variables?.[root];
-    if (typeof raw !== 'string') return raw;
-    try { return JSON.parse(raw); } catch { return raw; }
-}
-
-function lwbMeta(ctx) {
-    return ctx.chatMetadata.extensions?.LittleWhiteBox || {};
-}
-
+import { createHarness, readStoredValue } from './helpers/state2-harness.js';
 let harness;
 
 test.before(async () => {
@@ -113,13 +9,14 @@ test.before(async () => {
 
 test.beforeEach(() => {
     harness.reset();
+    harness.env.state.ctx.chat = Array.from({ length: 9 }, () => ({ mes: 'existing message', swipe_id: 0 }));
 });
 
 test.after(() => {
     harness?.cleanup();
 });
 
-test('state2 apply runs parser, rules, guard coercion, WAL, and idempotency together', () => {
+test('state2 apply runs parser, rules, guard coercion, request recording, and idempotency together', () => {
     const { ctx } = harness.env.state;
     const result = harness.executor.applyStateForMessage(1, `
 before
@@ -142,12 +39,11 @@ middle
     });
     assert.deepEqual(ctx.chatMetadata.LWB_RULES_V2['数据.背包.[*].数量'], { typeLock: 'number' });
 
-    const log = lwbMeta(ctx).stateLogV2;
-    assert.ok(log.floors['1']);
-    assert.equal(log.floors['1'].rules.length, 5);
-    assert.equal(log.floors['1'].ops.length, 1);
-    assert.deepEqual(log.floors['1'].roots, ['数据']);
-
+    const record = ctx.chat[1].extra.LittleWhiteBox_state2;
+    assert.equal(record.v, 1);
+    assert.equal(record.entries.length, 1);
+    assert.equal(record.entries[0].rules.length, 5);
+    assert.deepEqual(record.entries[0].ops, [{ op: 'push', path: '数据.背包', value: { 名称: '蓝药', 数量: '5' }, source: 'text' }]);
     const second = harness.executor.applyStateForMessage(1, `
 before
 <state>
@@ -351,198 +247,6 @@ test('state2 execution records operation failures without writing atoms', () => 
         文本: 'not array',
     });
     assert.match(ctx.chatMetadata.variables.LWB_STATE_ERRORS, /not-array/);
-});
-
-test('state2 restore replays WAL to the requested floor and restores rules', async () => {
-    const { ctx } = harness.env.state;
-    harness.executor.applyStateForMessage(1, `
-<state>
-$schema 数据
-  背包:
-    - 名称: ""
-      数量: 0
-数据.背包: +{"名称":"蓝药","数量":"5"}
-</state>
-`);
-    harness.executor.applyStateForMessage(2, `
-<state>
-数据.背包: +{"名称":"红药","数量":"7"}
-</state>
-`);
-    harness.executor.applyStateForMessage(3, `
-<state>
-数据.背包: +{"名称":"坏药","数量":"9"}
-</state>
-`);
-
-    await harness.executor.restoreStateV2ToFloor(2);
-
-    assert.deepEqual(readStoredValue(ctx, '数据'), {
-        背包: [
-            { 名称: '蓝药', 数量: 5 },
-            { 名称: '红药', 数量: 7 },
-        ],
-    });
-    assert.deepEqual(ctx.chatMetadata.LWB_RULES_V2['数据.背包.[*].数量'], { typeLock: 'number' });
-
-    const guard = harness.guard.validate('set', '数据.背包.2.数量', '8', undefined);
-    assert.equal(guard.allow, true);
-    assert.equal(guard.value, 8);
-});
-
-test('state2 trim removes future WAL/checkpoints/applied signatures before restore', async () => {
-    const { ctx } = harness.env.state;
-    ctx.chatMetadata.extensions = {
-        LittleWhiteBox: {
-            stateCkptV2: { version: 1, every: 1, points: {} },
-        },
-    };
-
-    harness.executor.applyStateForMessage(1, `
-<state>
-数据.值: 1
-</state>
-`);
-    harness.executor.applyStateForMessage(2, `
-<state>
-数据.值: 2
-</state>
-`);
-    harness.executor.applyStateForMessage(3, `
-<state>
-数据.值: 3
-</state>
-`);
-
-    assert.ok(lwbMeta(ctx).stateCkptV2.points['3']);
-
-    await harness.executor.trimStateV2FromFloor(3);
-    await harness.executor.restoreStateV2ToFloor(10);
-
-    assert.deepEqual(readStoredValue(ctx, '数据'), { 值: 2 });
-    assert.equal(lwbMeta(ctx).stateLogV2.floors['3'], undefined);
-    assert.equal(lwbMeta(ctx).stateCkptV2.points['3'], undefined);
-});
-
-test('state2 checkpoint replay matches full replay and keeps later floors', async () => {
-    const { ctx } = harness.env.state;
-    ctx.chatMetadata.extensions = {
-        LittleWhiteBox: {
-            stateCkptV2: { version: 1, every: 2, points: {} },
-        },
-    };
-
-    harness.executor.applyStateForMessage(1, `
-<state>
-数据.值: 1
-</state>
-`);
-    harness.executor.applyStateForMessage(2, `
-<state>
-数据.值: +4
-</state>
-`);
-    harness.executor.applyStateForMessage(3, `
-<state>
-数据.列表: +["x"]
-</state>
-`);
-
-    assert.deepEqual(lwbMeta(ctx).stateCkptV2.points['2'].vars, {
-        数据: '{"值":5}',
-        LWB_STATE_ERRORS: '',
-    });
-
-    await harness.executor.restoreStateV2ToFloor(3);
-    assert.deepEqual(readStoredValue(ctx, '数据'), {
-        值: 5,
-        列表: ['x'],
-    });
-});
-
-test('state2 checkpoint saving can be disabled without breaking restore', async () => {
-    const { ctx } = harness.env.state;
-    ctx.chatMetadata.extensions = {
-        LittleWhiteBox: {
-            stateCkptV2: { version: 1, every: 0, points: {} },
-        },
-    };
-
-    harness.executor.applyStateForMessage(1, `
-<state>
-数据.值: 1
-</state>
-`);
-    harness.executor.applyStateForMessage(2, `
-<state>
-数据.值: +2
-</state>
-`);
-
-    assert.deepEqual(lwbMeta(ctx).stateCkptV2.points, {});
-    await harness.executor.restoreStateV2ToFloor(2);
-    assert.deepEqual(readStoredValue(ctx, '数据'), { 值: 3 });
-});
-
-test('state2 restore and trim handle invalid floors defensively', async () => {
-    const { ctx } = harness.env.state;
-    harness.executor.applyStateForMessage(1, `
-<state>
-数据.值: 1
-</state>
-`);
-
-    const invalidRestore = await harness.executor.restoreStateV2ToFloor('bad');
-    assert.deepEqual(invalidRestore, { ok: true, usedCheckpoint: null });
-    assert.equal(ctx.chatMetadata.variables.数据, undefined);
-
-    const invalidTrim = await harness.executor.trimStateV2FromFloor('bad');
-    assert.deepEqual(invalidTrim, { ok: false });
-});
-
-test('state2 restore below zero clears only State2-owned roots and rules', async () => {
-    const { ctx } = harness.env.state;
-    ctx.chatMetadata.variables.外部 = '{"保留":true}';
-    ctx.chatMetadata.LWB_RULES_V2 = {
-        '外部.字段': { typeLock: 'string' },
-    };
-
-    harness.executor.applyStateForMessage(1, `
-<state>
-$schema 数据
-  值: 0
-数据.值: 1
-</state>
-`);
-
-    await harness.executor.restoreStateV2ToFloor(-1);
-
-    assert.deepEqual(readStoredValue(ctx, '外部'), { 保留: true });
-    assert.equal(ctx.chatMetadata.variables.数据, undefined);
-    assert.deepEqual(ctx.chatMetadata.LWB_RULES_V2, {
-        '外部.字段': { typeLock: 'string' },
-    });
-});
-
-test('state2 removing state block clears that floor WAL and reapplies prior state on restore', async () => {
-    const { ctx } = harness.env.state;
-    harness.executor.applyStateForMessage(1, `
-<state>
-数据.值: 1
-</state>
-`);
-    harness.executor.applyStateForMessage(2, `
-<state>
-数据.值: 2
-</state>
-`);
-
-    const result = harness.executor.applyStateForMessage(2, 'no state here');
-    assert.equal(result.skipped, false);
-    assert.equal(lwbMeta(ctx).stateLogV2.floors['2'], undefined);
-
-    await harness.executor.restoreStateV2ToFloor(2);
-    assert.deepEqual(readStoredValue(ctx, '数据'), { 值: 1 });
 });
 
 test('state2 guard metadata wrapper saves and reloads core rules', () => {

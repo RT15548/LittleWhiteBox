@@ -3,6 +3,8 @@ import vm from 'node:vm';
 import { parse } from 'acorn';
 import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 import { MEMORY_CHAT_MESSAGES } from '../../maintenance/chat-contract.js';
+import { SUMMARY_TRANSFER_COPY } from '../../transfer-copy.js';
+import { countOwnedHidden, HIDE_OWNERSHIP_CLAIMED_KEY } from '../../hide-state.js';
 
 // Execute production entrypoints with explicit boundary dependencies. Never
 // assert source spelling: these tests protect observable state and stored data.
@@ -12,7 +14,8 @@ const declarations = parse(source, { sourceType: 'module', ecmaVersion: 'latest'
     .map(node => node.type === 'ExportNamedDeclaration' ? node.declaration : node)
     .filter(Boolean);
 export function entry(names, dependencies) {
-    const context = vm.createContext({ observeBackgroundTask, MEMORY_CHAT_MESSAGES, ...dependencies });
+    const context = vm.createContext({ observeBackgroundTask, MEMORY_CHAT_MESSAGES, SUMMARY_TRANSFER_COPY,
+        countOwnedHidden, HIDE_OWNERSHIP_CLAIMED_KEY, ...dependencies });
     vm.runInContext(declarations.filter(node => node.type === 'FunctionDeclaration' ? names.includes(node.id.name)
         : node.type === 'VariableDeclaration' && node.declarations.some(item => names.includes(item.id.name)))
         .map(node => source.slice(node.start, node.end)).join('\n')

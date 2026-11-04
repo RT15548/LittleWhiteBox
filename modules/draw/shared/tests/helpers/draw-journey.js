@@ -26,6 +26,8 @@ export async function fixture(sources, options = {}) {
  window.HTMLImageElement.prototype.decode=async()=>{};
  window.xiaobaixDraw={getStatus:()=>({ready:true,enabled:true}),getProvider:()=> 'review-provider'};
  const stubs={
+ 'image-save.js':'export const saveImageToServer=async()=>"";export const getImageFolderName=()=>"review";',
+ 'image-autosave.js':'export const autoSaveDeliveredImage=async()=>false;',
  'server-storage.js':'export const NovelDrawStorage={};',
  'user.js':'export const getCurrentUserHandle=()=>globalThis.__drawJourneyReview.user??"review-user";',
  'extensions.js':'export const getContext=()=>globalThis.__drawJourneyReview.ctx;',
@@ -34,12 +36,12 @@ export async function fixture(sources, options = {}) {
  'debug-core.js':'export const xbLog={error:(...a)=>globalThis.__drawJourneyReview.counters.errors.push(a)};',
  'generate-interceptor.js':'export const GENERATE_INTERCEPTOR_ORDER={};export function registerGenerateInterceptor(){}export function unregisterGenerateInterceptor(){}',
  'viewport.js':'export const getSafeViewportStyles=()=>"";export const observeViewport=()=>()=>{};',
- 'pending-image-jobs.js':'export const PendingJobState={CANCELLING:"cancelling"};export const getPendingImageJobSlots=async()=>new Map();export const discardPendingImageSlot=async()=>{};',
+ 'pending-image-jobs.js':'export const PendingJobState={CANCELLING:"cancelling",ADOPTING:"adopting"};export const PendingJobAdoptionPhase={READY:"ready"};export const listPendingImageJobs=async()=>[];export const getPendingImageJobSlots=async()=>new Map();export const discardPendingImageSlot=async()=>{};',
  'recoverable-image-jobs.js':'export const isPendingJobLeaseLost=()=>false;',
  'script.js':'export const messageFormatting=(text)=>text;'
  };
  const result=await build({stdin:{contents:[
- 'draw-common.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','card-tag-editor.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js','confirmable-chat-save.js'
+ 'draw-common.js','draw-settings.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','card-tag-editor.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js','confirmable-chat-save.js'
  ].map(f=>'export * from "./'+f+'";').join('\n'),resolveDir:fileURLToPath(new URL('../../', import.meta.url))},bundle:true,write:false,platform:'node',format:'esm',plugins:[{name:'host-boundary',setup(b){b.onResolve({filter:/\.js$/},({path:p})=>{const name=p.split('/').at(-1);return Object.hasOwn(stubs,name)?{path:name,namespace:'host'}:null});b.onLoad({filter:/.*/,namespace:'host'},({path:p})=>({contents:stubs[p]}));}}]});
  // eslint-disable-next-line no-unsanitized/method -- Only locally bundled source and fixed test stubs enter this module.
  const api=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text+'\n//# sourceURL=draw-journey-review-'+createIdentifier()+'.mjs').toString('base64'));

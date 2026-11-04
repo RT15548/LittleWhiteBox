@@ -1,4 +1,6 @@
 import { FREE_DEFAULT_VOICE, FREE_VOICES } from './tts-api.js';
+import { mediaFailure, MediaApiError, requireFields } from '../../shared/media-api.js';
+import { TTS_OPTION_FIELDS } from './tts-request.js';
 
 /** Public speech configuration contains only selectable voices, never provider credentials. */
 export function readTtsVoices(config) {
@@ -17,27 +19,16 @@ export function readTtsVoices(config) {
     return { voices, defaultVoice };
 }
 
-/** Overrides apply to one request. Omission preserves the main-chat settings. */
-export function ttsRequestSettings(config, options) {
-    if (options.speed !== undefined && (!Number.isFinite(options.speed) || options.speed < 0.5 || options.speed > 2)) {
-        throw new Error('合成语速须在 0.5–2 之间');
-    }
-    if (options.language !== undefined && (typeof options.language !== 'string' || options.language.length > 80)) {
-        throw new Error('无效的合成语言');
-    }
-    return {
-        speed: options.speed ?? config.volc?.speechRate,
-        language: options.language ?? config.volc?.explicitLanguage,
-    };
-}
-
 /** Disabling TTS cancels all external downloads, including a late cache result. */
 export function createTtsExternalSynthesis({ isEnabled, synthesize }) {
     const requests = new Set();
     let closed = false;
     return {
         async synthesize(text, options = {}) {
-            if (closed || !isEnabled()) throw new Error('TTS 模块未启用');
+            if (closed || !isEnabled()) throw new MediaApiError('disabled');
+            requireFields(options, TTS_OPTION_FIELDS);
+            if (options.signal !== undefined && (typeof options.signal?.addEventListener !== 'function' || typeof options.signal?.aborted !== 'boolean')) throw new MediaApiError('invalid_request', { field: 'signal' });
+            if (options.onProgress !== undefined && typeof options.onProgress !== 'function') throw new MediaApiError('invalid_request', { field: 'onProgress' });
             const controller = new AbortController();
             const abort = () => controller.abort();
             if (options.signal?.aborted) abort();
@@ -47,9 +38,10 @@ export function createTtsExternalSynthesis({ isEnabled, synthesize }) {
                 controller.signal.throwIfAborted();
                 const blob = await synthesize(text, { ...options, signal: controller.signal });
                 controller.signal.throwIfAborted();
-                if (closed || !isEnabled()) throw new Error('TTS 模块未启用');
+                if (closed || !isEnabled()) throw new MediaApiError('disabled');
                 return blob;
-            } finally {
+            } catch (error) { throw mediaFailure(error, controller.signal); }
+            finally {
                 requests.delete(controller);
                 options.signal?.removeEventListener('abort', abort);
             }

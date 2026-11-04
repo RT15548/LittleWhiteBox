@@ -63,6 +63,6 @@ test('the browser dist adapter resolves the tool protocol marker', async () => {
 });
 
 test('the vendored node bundle adapter resolves the tool protocol marker', () => {
-    const bundle = require('../../../server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs');
+    const bundle = require('../../../server-plugin/littlewhitebox-server/tests/runtime-fixture.js').bundle.agentCore;
     assertMarkerBehaviour(bundle.createAgentAdapter, 'node bundle');
 });

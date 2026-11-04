@@ -278,112 +278,60 @@ function installWIHiddenTagStripper() {
     ctx?.saveSettingsDebounced?.();
 }
 
-  function registerWIEventSystem() {
-      const { eventSource, event_types: evtTypes } = getContext() || {};
-      if (evtTypes?.CHAT_COMPLETION_PROMPT_READY) {
-          const lateChatReplacementHandler = async (data) => {
+async function replacePromptVariables(text, dryRun, sourceInfo) {
+    // Preview/background assembly reads variables but must not queue event actions.
+    if (!dryRun && text.includes('<varevent')) {
+        TAG_RE_VAREVENT.lastIndex = 0;
+        let match;
+        while ((match = TAG_RE_VAREVENT.exec(text)) !== null) {
+            enqueuePendingVareventBlock(match[1] ?? '', sourceInfo);
+        }
+        text = await replaceVareventInString(text, false, false);
+    }
+    text = replaceXbGetVarInString(text);
+    text = replaceXbGetVarYamlInString(text);
+    return replaceXbGetVarYamlIdxInString(text);
+}
+
+function registerWIEventSystem() {
+    const { eventSource, event_types: evtTypes } = getContext() || {};
+    if (evtTypes?.CHAT_COMPLETION_PROMPT_READY) {
+        const lateChatReplacementHandler = async (data) => {
             try {
-                if (data?.dryRun) return;
                 const chat = data?.chat;
                 if (!Array.isArray(chat)) return;
                 for (const msg of chat) {
                     if (typeof msg?.content === 'string') {
-                        if (msg.content.includes('<varevent')) {
-                            TAG_RE_VAREVENT.lastIndex = 0;
-                            let mm;
-                            while ((mm = TAG_RE_VAREVENT.exec(msg.content)) !== null) {
-                                enqueuePendingVareventBlock(mm[1] ?? '', 'chat.content');
-                            }
-                            msg.content = await replaceVareventInString(msg.content, false, false);
-                        }
-                                if (msg.content.indexOf('{{xbgetvar::') !== -1) {
-                                    msg.content = replaceXbGetVarInString(msg.content);
-                                }
-                                if (msg.content.indexOf('{{xbgetvar_yaml::') !== -1) {
-                                    msg.content = replaceXbGetVarYamlInString(msg.content);
-                                }
-                                if (msg.content.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
-                                    msg.content = replaceXbGetVarYamlIdxInString(msg.content);
-                                }
-                            }
-                            if (Array.isArray(msg?.content)) {
-                                for (const part of msg.content) {
+                        msg.content = await replacePromptVariables(msg.content, data.dryRun, 'chat.content');
+                    }
+                    if (Array.isArray(msg?.content)) {
+                        for (const part of msg.content) {
                             if (part?.type === 'text' && typeof part.text === 'string') {
-                                if (part.text.includes('<varevent')) {
-                                    TAG_RE_VAREVENT.lastIndex = 0;
-                                    let mm;
-                                    while ((mm = TAG_RE_VAREVENT.exec(part.text)) !== null) {
-                                        enqueuePendingVareventBlock(mm[1] ?? '', 'chat.content[].text');
-                                    }
-                                    part.text = await replaceVareventInString(part.text, false, false);
-                                }
-                                        if (part.text.indexOf('{{xbgetvar::') !== -1) {
-                                            part.text = replaceXbGetVarInString(part.text);
-                                        }
-                                        if (part.text.indexOf('{{xbgetvar_yaml::') !== -1) {
-                                            part.text = replaceXbGetVarYamlInString(part.text);
-                                        }
-                                        if (part.text.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
-                                            part.text = replaceXbGetVarYamlIdxInString(part.text);
-                                        }
-                                    }
-                                }
+                                part.text = await replacePromptVariables(part.text, data.dryRun, 'chat.content[].text');
                             }
+                        }
+                    }
                     if (typeof msg?.mes === 'string') {
-                        if (msg.mes.includes('<varevent')) {
-                            TAG_RE_VAREVENT.lastIndex = 0;
-                            let mm;
-                            while ((mm = TAG_RE_VAREVENT.exec(msg.mes)) !== null) {
-                                enqueuePendingVareventBlock(mm[1] ?? '', 'chat.mes');
-                            }
-                            msg.mes = await replaceVareventInString(msg.mes, false, false);
-                        }
-                                if (msg.mes.indexOf('{{xbgetvar::') !== -1) {
-                                    msg.mes = replaceXbGetVarInString(msg.mes);
-                                }
-                                if (msg.mes.indexOf('{{xbgetvar_yaml::') !== -1) {
-                                    msg.mes = replaceXbGetVarYamlInString(msg.mes);
-                                }
-                                if (msg.mes.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
-                                    msg.mes = replaceXbGetVarYamlIdxInString(msg.mes);
-                                }
-                            }
-                        }
-                      } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lateChatReplacementHandler" }, caughtError); }
-          };
-          try {
-              if (eventSource && typeof eventSource.makeLast === 'function') {
-                  eventSource.makeLast(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
-              } else {
-                  events?.on(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
-              }
-          } catch {
-              events?.on(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
-          }
-      }
-      if (evtTypes?.GENERATE_AFTER_COMBINE_PROMPTS) {
-          events?.on(evtTypes.GENERATE_AFTER_COMBINE_PROMPTS, async (data) => {
-              try {
-                  if (data?.dryRun) return;
-
+                        msg.mes = await replacePromptVariables(msg.mes, data.dryRun, 'chat.mes');
+                    }
+                }
+            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lateChatReplacementHandler" }, caughtError); }
+        };
+        try {
+            if (eventSource && typeof eventSource.makeLast === 'function') {
+                eventSource.makeLast(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
+            } else {
+                events?.on(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
+            }
+        } catch {
+            events?.on(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
+        }
+    }
+    if (evtTypes?.GENERATE_AFTER_COMBINE_PROMPTS) {
+        events?.on(evtTypes.GENERATE_AFTER_COMBINE_PROMPTS, async (data) => {
+            try {
                 if (typeof data?.prompt === 'string') {
-                    if (data.prompt.includes('<varevent')) {
-                        TAG_RE_VAREVENT.lastIndex = 0;
-                        let mm;
-                        while ((mm = TAG_RE_VAREVENT.exec(data.prompt)) !== null) {
-                            enqueuePendingVareventBlock(mm[1] ?? '', 'prompt');
-                        }
-                        data.prompt = await replaceVareventInString(data.prompt, false, false);
-                    }
-                    if (data.prompt.indexOf('{{xbgetvar::') !== -1) {
-                        data.prompt = replaceXbGetVarInString(data.prompt);
-                    }
-                    if (data.prompt.indexOf('{{xbgetvar_yaml::') !== -1) {
-                        data.prompt = replaceXbGetVarYamlInString(data.prompt);
-                    }
-                    if (data.prompt.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
-                        data.prompt = replaceXbGetVarYamlIdxInString(data.prompt);
-                    }
+                    data.prompt = await replacePromptVariables(data.prompt, data.dryRun, 'prompt');
                 }
             } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
         });

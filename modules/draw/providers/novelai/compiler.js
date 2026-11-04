@@ -264,6 +264,7 @@ export function compile(scenePlan, generationRecipe) {
             task,
             promptData,
             tags: task?.scene || '',
+            continuityChars: structuredClone(task?.chars || []),
             providerMetadata: {
                 autoLearnCharacters: recipe.autoLearnEnabled && Array.isArray(task?.chars)
                     ? task.chars

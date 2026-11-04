@@ -1,5 +1,6 @@
 import { editMemoryBatch, iterateMemoryRecords, memoryItems, memoryKey, sameMemory, MEMORY_COLLECTIONS } from './domain.js';
 import { createEvidenceReader } from './evidence.js';
+import { isUserHidden } from '../data/message-visibility.js';
 import { MemoryMaintenanceError, requireMemory, memoryUpdated } from './errors.js';
 import { projectMemoryRecord, memoryPolicy, recordHandle } from './records.js';
 import { maintenanceTask, memoryOwnership, subtractRanges, unionRanges, overlaps } from './ranges.js';
@@ -348,7 +349,7 @@ export function createMemorySession({ chatId, chat, json, atoms, l0Index, cutoff
         const indexed = new Set(source.atoms.filter(atom => atom.floor <= cutoff).map(atom => atom.floor));
         const missingAnchors = [];
         for (let floor = start; floor <= Math.min(cutoff, chat.length - 1); floor++) {
-            if (chat[floor]?.is_user || indexed.has(floor) || ['ok', 'empty'].includes(l0Index?.byFloor?.[String(floor)]?.status)) continue;
+            if (chat[floor]?.is_user || isUserHidden(chat[floor]) || indexed.has(floor) || ['ok', 'empty'].includes(l0Index?.byFloor?.[String(floor)]?.status)) continue;
             missingAnchors.push({ floor: floor + 1, status: l0Index?.byFloor?.[String(floor)]?.status || 'missing' });
         }
         return { supplied: evidence.ranges(), missingAnchors };

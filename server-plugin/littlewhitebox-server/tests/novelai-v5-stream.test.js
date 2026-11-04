@@ -12,7 +12,7 @@ const { encode } = require('@msgpack/msgpack');
 const {
     NovelV5StreamError,
     readNovelV5FinalImage,
-} = require('../providers/novelai/v5-stream.js');
+} = require('../../../modules/draw/server/providers/novelai/v5-stream.js');
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -66,7 +66,7 @@ test('closes an upstream response that declares an unsupported compression', asy
 
 test('loads and decodes from a copied plugin provider without installed packages', async () => {
     const tempDirectory = await mkdtemp(path.join(tmpdir(), 'lwb-novel-v5-parser-'));
-    const sourceDirectory = path.resolve(__dirname, '../providers/novelai');
+    const sourceDirectory = path.resolve(__dirname, '../../../modules/draw/server/providers/novelai');
     const isolatedDirectory = path.join(tempDirectory, 'novelai');
     try {
         await cp(sourceDirectory, isolatedDirectory, { recursive: true });

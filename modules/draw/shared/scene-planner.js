@@ -22,9 +22,10 @@ import {
     buildScenePlannerWorldInfoBlock,
 } from './scene-planner-frame.js';
 import { planScenePlannerMessages } from './scene-planner-assembly.js';
+import { renderScenePlannerMessage } from './scene-planner-handoff.js';
 import { normalizeLayout } from './scene-planner-layout.js';
 import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker } from '../../agent-core/adapters/tool-protocol-marker.js';
-import { resolveCustomToolDefinitions } from './custom-tools.js';
+import { resolveCustomToolDefinitions, snapshotCustomToolSources } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
 import { isNamedTagEnabled } from './named-tag-items.js';
@@ -216,6 +217,7 @@ async function buildScenePlannerRequest(options = {}) {
         absoluteMaxCharactersPerImage = 0,
         modelGuide = null,
         plannerProfile = null,
+        continuityText = '',
     } = options;
     const profile = normalizeScenePlannerProfile(plannerProfile);
     const centerMode = profile.centerMode === 'normalized' ? 'normalized' : 'grid';
@@ -243,7 +245,7 @@ async function buildScenePlannerRequest(options = {}) {
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const fieldDescriptions = parseFieldDescriptions(promptConfig.fieldDescriptions);
     const runtime = await resolveExpansionRuntime(options.expansionOptions);
-    const slots = createPromptSlots(['worldInfo', 'characterInfo', 'lastMessage']);
+    const slots = createPromptSlots(['worldInfo', 'characterInfo', 'continuity', 'lastMessage']);
 
     try {
         // Every dynamic value is expanded exactly once, then spliced literally into the
@@ -267,14 +269,20 @@ async function buildScenePlannerRequest(options = {}) {
             buildCharacterInfoForLLM(presentCharacters),
             runtime,
         );
+        const continuityBlock = String(continuityText || '').trim();
+        const expandedContinuity = continuityBlock
+            ? await expandScenePromptText(continuityBlock, runtime)
+            : '';
         const tagGuide = typeof modelGuide === 'string'
             ? modelGuide
             : getEffectiveTagGuide(promptConfig.tagGuideContent);
 
-        // 布局来自整份预设（customPrompts.layout）；缺省/默认布局走 legacy，请求与改造前逐字节一致。
+        // Existing layout data still owns custom messages and the order inside each document.
         const { layout } = normalizeLayout(customPrompts?.layout);
-        // 附带工具：代码在沙盒里读出定义；没有宿主（后台 / Node）时直接拒绝，不会运行用户代码。
-        const customTools = await resolveCustomToolDefinitions(layout, options.customToolHost, { signal: options.signal });
+        // 后台只捕获源码；工具初始化由实际执行任务的沙盒负责。
+        const customToolSources = options.executionTarget === 'server' ? snapshotCustomToolSources(layout) : [];
+        const customTools = options.executionTarget === 'server' ? []
+            : await resolveCustomToolDefinitions(layout, options.customToolHost, { signal: options.signal });
         const plan = planScenePlannerMessages({
             layout,
             builtinTexts: {
@@ -283,7 +291,8 @@ async function buildScenePlannerRequest(options = {}) {
                 guide: buildScenePlannerGuideSection(tagGuide, profile),
                 rules: buildScenePlannerRulesSection(promptConfig.sceneRules),
                 worldInfo: buildScenePlannerWorldInfoBlock(slots.worldInfo),
-                content: buildScenePlannerContentBlock(slots.characterInfo, slots.lastMessage),
+                // 无锚点时槽位传空串，{{continuity}} 行整体移除，请求结构与上游完全一致。
+                content: buildScenePlannerContentBlock(slots.characterInfo, slots.lastMessage, continuityBlock ? slots.continuity : ''),
                 limits: buildSessionLimitsLine(
                     effectiveMaxImages,
                     effectiveMaxCharactersPerImage,
@@ -298,40 +307,22 @@ async function buildScenePlannerRequest(options = {}) {
         const slotValues = {
             [slots.worldInfo]: withoutMarker(expandedWorldInfo),
             [slots.characterInfo]: withoutMarker(expandedCharacterInfo),
+            [slots.continuity]: withoutMarker(expandedContinuity),
             [slots.lastMessage]: withoutMarker(expandedMessageText),
         };
-        // 模板按顺序各展开一次、再替换槽位：自定义块只在模板里，永远用不到动态槽位。
-        // legacy 的两条模板即使展开为空也照常保留，与改造前完全一致；其余布局丢弃展开后为空的消息。
-        const rendered = [];
+        // Expand raw templates before JSON encoding, so quotes/newlines and macros inside
+        // documents survive both native tool results and the existing tagged-JSON adapter.
+        const messages = [];
         for (const item of plan.templates) {
-            if (!plan.legacy && !item.template) continue;
-            rendered.push({
-                role: item.role,
-                content: applyPromptSlots(
-                    await expandScenePromptText(item.template, runtime),
-                    slotValues,
-                ).trim(),
-            });
+            const expanded = applyPromptSlots(
+                await expandScenePromptText(item.template, runtime),
+                slotValues,
+            ).trim();
+            if (!expanded && item.role !== 'tool') continue;
+            messages.push(renderScenePlannerMessage(item, expanded));
         }
-
-        let prompt;
-        let readyMessages;
-        if (plan.legacy) {
-            const [system, user] = rendered;
-            prompt = {
-                systemPrompt: system.content,
-                messages: [{ role: 'user', content: user.content }],
-            };
-            readyMessages = [
-                ...(system.content ? [{ role: 'system', content: system.content }] : []),
-                ...prompt.messages,
-            ];
-        } else {
-            // 多消息：system 角色消息留在 messages 里按位置发送，工具说明标记就在持有 tools 块的那条 system 里。
-            const messages = rendered.filter((message) => message.content);
-            prompt = { systemPrompt: '', messages };
-            readyMessages = stripToolProtocolMarker(markToolProtocolMessages(messages));
-        }
+        const prompt = { systemPrompt: '', messages };
+        const readyMessages = stripToolProtocolMarker(markToolProtocolMessages(messages));
         await emitScenePromptReady(runtime, readyMessages);
         return {
             prompt,
@@ -351,6 +342,7 @@ async function buildScenePlannerRequest(options = {}) {
                 centerMode,
             },
             customTools,
+            customToolSources,
         };
     } catch (error) {
         if (error instanceof ScenePlannerError) throw error;
@@ -369,6 +361,7 @@ export async function buildScenePlannerTask(options = {}) {
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
             ...(request.customTools.length ? { customTools: request.customTools } : {}),
+            ...(request.customToolSources.length ? { customToolSources: request.customToolSources } : {}),
         },
         agent: { channel: '', providerConfig: null },
     });
@@ -384,7 +377,7 @@ export async function prepareScenePlannerInput(options = {}) {
         diagnostic?.fail(error, { stage: 'prompt' });
         throw error;
     }
-    // 只生成快照（后台任务路径）时，沙盒读完定义就关；要继续执行的调用方（generateAndParseScenePlan）自己保留宿主。
+    // 快照准备完成后释放浏览器宿主；浏览器连续执行的调用方自行保留。
     if (options.keepCustomToolHost !== true) options.customToolHost?.dispose?.();
 
     let providerConfig = options.agentOptions?.providerConfig || null;
@@ -408,6 +401,7 @@ export async function prepareScenePlannerInput(options = {}) {
             validationContext: request.validationContext,
             presentCharacters: Array.isArray(options.presentCharacters) ? options.presentCharacters : [],
             ...(request.customTools.length ? { customTools: request.customTools } : {}),
+            ...(request.customToolSources.length ? { customToolSources: request.customToolSources } : {}),
             // 重试设置随快照冻结：后台 Draw Run 只能读到这里，与浏览器流程行为一致。
             ...(options.plannerRetry ? { retry: normalizePlannerRetry(options.plannerRetry) } : {}),
         },

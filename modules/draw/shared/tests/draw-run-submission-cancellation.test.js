@@ -8,7 +8,7 @@ import { subscribeDrawRunActivity } from '../draw-run-activity.js';
 
 function setup(runId) {
     const message = { mes: 'A character stands beside the sea.', swipe_id: 0 };
-    const ctx = { chatId: runId, chat: [message], getRequestHeaders: () => ({}) };
+    const ctx = { chatId: runId, groupId: 'fixture', chat: [message], getRequestHeaders: () => ({}), saveChat() {} };
     const sourceHash = hashSceneSource(message.mes);
     const controller = new AbortController();
     const phases = [];
@@ -19,17 +19,17 @@ function setup(runId) {
         signal: controller.signal, imageProvider: 'novelai', generationRecipe: {},
         prepared: { version: 1, planner: { validationContext: { sceneSource: { sourceHash } } },
             agent: { providerConfig: { provider: 'openai-compatible', model: 'offline-model' } } },
-        saveAndConfirm: async ({ precondition, verify }) => {
-            if (precondition) assert.equal(precondition(persisted), true);
+        owner: 'fixture',
+        journal: { create: async value => ({ ...value, leaseId: 'fixture' }), forget: async () => {}, release: async () => {} },
+        requestSave: () => {
             persisted = structuredClone(ctx.chat);
-            assert.equal(verify(persisted), true);
         },
         onStateChange: phase => phases.push(phase),
     };
     return { options, controller, phases, persisted: () => persisted };
 }
 
-test('cancelling while the marker is saved clears it without sending a Draw Run POST', async t => {
+test('cancelling during journal admission clears the marker without sending a Draw Run POST', async t => {
     const fixture = setup('run-cancel-during-save');
     const jobs = new Map(), states = [], reconciled = [];
     const job = acquireFloorImageJob(jobs, fixture.options.ctx, 0, () => ({ controller: fixture.controller }));
@@ -40,11 +40,11 @@ test('cancelling while the marker is saved clears it without sending a Draw Run 
     t.after(subscribeDrawRunActivity(detail => {
         if (detail.runId === fixture.options.runId && detail.phase === 'reconciled') reconciled.push(detail);
     }));
-    const saveAndConfirm = fixture.options.saveAndConfirm;
-    let saves = 0;
-    fixture.options.saveAndConfirm = async options => {
-        await saveAndConfirm(options);
-        if (++saves === 1) fixture.controller.abort();
+    const create = fixture.options.journal.create;
+    fixture.options.journal.create = async options => {
+        const record = await create(options);
+        fixture.controller.abort();
+        return record;
     };
     const requests = [];
     fixture.options.fetchImpl = async (url, options) => {
@@ -62,7 +62,6 @@ test('cancelling while the marker is saved clears it without sending a Draw Run 
     assert.equal(getFloorImageState(jobs, fixture.options.ctx, 0), null);
     assert.equal(reconciled.length, 1);
     assert.deepEqual(requests, []);
-    assert.equal(saves, 2);
     assert.equal(findDrawRunMarker(fixture.options.ctx.chat, fixture.options.runId), null);
     assert.equal(findDrawRunMarker(fixture.persisted(), fixture.options.runId), null);
     assert.equal(states.includes('uncertain'), false);

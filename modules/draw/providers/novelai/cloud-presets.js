@@ -446,9 +446,9 @@ function ensureStyles() {
     animation: cloudFadeIn 0.2s ease;
 }
 
-@keyframes cloudFadeIn { 
-    from { opacity: 0; } 
-    to { opacity: 1; } 
+@keyframes cloudFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -458,12 +458,12 @@ function ensureStyles() {
     background: #161b22;
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 16px;
-    
+
     /* 大尺寸 - 比原来更宽以适应网格 */
     width: calc(100vw - 48px);
     max-width: 800px;
     height: 80vh;
-    
+
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -508,7 +508,7 @@ function ensureStyles() {
 .cp-title i { color: #d4a574; }
 
 .cp-close {
-    width: 40px; 
+    width: 40px;
     height: 40px;
     min-width: 40px;
     border: none;
@@ -525,8 +525,8 @@ function ensureStyles() {
 }
 
 .cp-close:hover,
-.cp-close:active { 
-    background: rgba(255,255,255,0.2); 
+.cp-close:active {
+    background: rgba(255,255,255,0.2);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -824,7 +824,7 @@ function createModal() {
                 </div>
                 <button class="cp-close" type="button">✕</button>
             </div>
-            
+
             <div class="cp-search">
                 <input type="text" class="cp-search-input" placeholder="🔍 搜索预设名称、作者或简介...">
             </div>
@@ -843,7 +843,7 @@ function createModal() {
                 </div>
                 <div class="cp-grid" style="display:none"></div>
             </div>
-            
+
             <div class="cp-pagination" style="display:none">
                 <button class="cp-page-btn" id="cp-prev">
                     <i class="fa-solid fa-chevron-left"></i> 上一页

@@ -6,14 +6,14 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const bundlePath = path.resolve(__dirname, '../draw-runs/vendor/agent-core-node.cjs');
+const bundlePath = require('./runtime-fixture.js').bundlePath;
 
 test('standalone Node bundle creates all seven Agent adapters without installed packages', async () => {
     const tempDirectory = await mkdtemp(path.join(tmpdir(), 'lwb-agent-core-node-'));
     const isolatedBundlePath = path.join(tempDirectory, 'agent-core-node.cjs');
     try {
         await copyFile(bundlePath, isolatedBundlePath);
-        const agentCore = require(isolatedBundlePath);
+        const agentCore = require(isolatedBundlePath).agentCore;
         const hostClient = agentCore.createHostChatCompletionsClient({
             requestHeadersProvider: () => ({ Cookie: 'session=test' }),
             fetch: async () => {
@@ -48,7 +48,7 @@ test('standalone Node bundle creates all seven Agent adapters without installed 
 });
 
 test('Node entry rejects every hosted adapter without a request-scoped Host Client', () => {
-    const agentCore = require(bundlePath);
+    const agentCore = require(bundlePath).agentCore;
     for (const provider of [
         'sillytavern-openai-compatible',
         'sillytavern-claude',
@@ -61,7 +61,7 @@ test('Node entry rejects every hosted adapter without a request-scoped Host Clie
 });
 
 test('hosted adapters translate the run-scoped preset key to proxy_password', () => {
-    const agentCore = require(bundlePath);
+    const agentCore = require(bundlePath).agentCore;
     const hostClient = agentCore.createHostChatCompletionsClient({
         requestHeadersProvider: () => ({ Cookie: 'session=test' }),
         fetch: async () => {

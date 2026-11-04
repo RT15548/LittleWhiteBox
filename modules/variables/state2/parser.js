@@ -1,4 +1,5 @@
 import jsyaml from '../../../libs/js-yaml.mjs';
+import { parseJsonInput } from './json-input.js';
 
 /**
  * Robust <state> block matcher (no regex)
@@ -264,6 +265,9 @@ function looksLikeDataOpForSchemaPath(line, schemaPath) {
 }
 
 export function parseStateBlock(content) {
+    if (String(content ?? '').trimStart().startsWith('{')) {
+        return { rules: [], ops: parseJsonInput(content) };
+    }
     const lines = String(content ?? '').split(/\r?\n/);
 
     const rules = [];

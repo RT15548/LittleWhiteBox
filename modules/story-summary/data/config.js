@@ -7,7 +7,7 @@ import { SUMMARY_CONFIG_LOCAL_STORAGE_KEY, writeSummaryConfigLocalCache } from '
 import { CHARACTER_ALIAS_OUTPUT_TEMPLATE } from './character-aliases.js';
 import { EVENT_MEMORY_ROLES } from "./events.js";
 import { DEFAULT_SUMMARY_DELAY_FLOORS, normalizeSummaryDelayFloors } from './summary-delay.js';
-import { normalizeRecallTimeoutSec } from './recall-settings.js';
+import { normalizeRecallTimeoutSec, normalizeRerankTimeoutSec, normalizeQueryEmbeddingTimeoutSec } from './recall-settings.js';
 import { DEFAULT_MEMORY_MAINTENANCE_ENABLED } from '../maintenance/settings.js';
 import {
     SUMMARY_ALIAS_RULES, SUMMARY_FACT_UPDATE_RULES, buildSummaryAssistantDocPrompt,
@@ -316,20 +316,26 @@ function normalizeVectorConfig(rawVector = null) {
             model: DEFAULT_L0_MODEL,
             supportedProviders: ["siliconflow", "openrouter", "custom"],
         }),
-        embeddingApi: normalizeOpenAiCompatApiConfig(rawVector?.embeddingApi, {
-            provider: DEFAULT_VECTOR_PROVIDER,
-            url: DEFAULT_L0_URL,
-            key: sharedKey,
-            model: DEFAULT_EMBEDDING_MODEL,
-            supportedProviders: ["siliconflow", "custom"],
-        }),
-        rerankApi: normalizeOpenAiCompatApiConfig(rawVector?.rerankApi, {
-            provider: DEFAULT_VECTOR_PROVIDER,
-            url: DEFAULT_L0_URL,
-            key: sharedKey,
-            model: DEFAULT_RERANK_MODEL,
-            supportedProviders: ["siliconflow", "custom"],
-        }),
+        embeddingApi: {
+            ...normalizeOpenAiCompatApiConfig(rawVector?.embeddingApi, {
+                provider: DEFAULT_VECTOR_PROVIDER,
+                url: DEFAULT_L0_URL,
+                key: sharedKey,
+                model: DEFAULT_EMBEDDING_MODEL,
+                supportedProviders: ["siliconflow", "custom"],
+            }),
+            timeoutSec: normalizeQueryEmbeddingTimeoutSec(rawVector?.embeddingApi?.timeoutSec),
+        },
+        rerankApi: {
+            ...normalizeOpenAiCompatApiConfig(rawVector?.rerankApi, {
+                provider: DEFAULT_VECTOR_PROVIDER,
+                url: DEFAULT_L0_URL,
+                key: sharedKey,
+                model: DEFAULT_RERANK_MODEL,
+                supportedProviders: ["siliconflow", "custom"],
+            }),
+            timeoutSec: normalizeRerankTimeoutSec(rawVector?.rerankApi?.timeoutSec),
+        },
     };
 }
 

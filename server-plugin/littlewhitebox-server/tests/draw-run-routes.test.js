@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const { MAX_ENVELOPE_BYTES } = require('../draw-runs/envelope.js');
+const { MAX_ENVELOPE_BYTES } = require('../../../modules/draw/server/draw-runs/envelope.js');
 const { registerDrawRunRoutes } = require('../draw-runs/routes.js');
 
 function createRouter() {

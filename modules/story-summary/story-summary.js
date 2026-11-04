@@ -32,6 +32,7 @@ import { createMemoryMaintenanceHost } from './maintenance/host.js';
 import { createSummaryDiagnostics } from './summary-diagnostics.js';
 import { MEMORY_CHAT_MESSAGES } from './maintenance/chat-contract.js';
 import { SUMMARY_FEEDBACK_COPY } from './feedback-copy.js';
+import { SUMMARY_TRANSFER_COPY } from './transfer-copy.js';
 import { summaryFailureReason } from './summary-failure.js';
 import {
     clearEmbeddingFailureNotice,
@@ -99,7 +100,7 @@ import { formatStorySummaryL2Events } from "./prompt-events.js";
 import { projectStoryCharacters } from "./prompt-characters.js";
 import { getAutoSummaryPlan } from './generate/summary-trigger.js';
 import { buildEventVectorText, selectMissingEventVectorPairs } from './vector/pipeline/event-vector-input.js';
-import { createHideStateController } from './hide-state.js';
+import { createHideStateController, countOwnedHidden, HIDE_OWNERSHIP_CLAIMED_KEY } from './hide-state.js';
 
 // prompt text builder
 import {
@@ -111,7 +112,7 @@ import {
     getRecallPrefetchStartAction,
 } from "./generate/recall-prefetch.js";
 import { selectBestStoryMemoryResult } from "./generate/story-memory-result.js";
-import { createRecallReuse, recallConfigKey } from './generate/recall-reuse.js';
+import { createRecallReuse, recallConfigKey, getRecallConfigChange } from './generate/recall-reuse.js';
 import { createRecallDiagnostics, formatRecallDiagnostics, formatRecallReuseDiagnostics, recordRecallFallback } from './recall-diagnostics.js';
 import { RECALL_TIMEOUT_REASONS, recallFailureNotice, recallCancellationNotice } from './generate/recall-failure.js';
 import { runRequiredRecall } from './generate/required-recall.js';
@@ -237,6 +238,7 @@ const serviceTests = createServiceTests({
 });
 const summaryDiagnostics = createSummaryDiagnostics();
 const memoryMaintenance = createMemoryMaintenanceHost({
+    prepareInput: ensureHideOwnership,
     readSummaryDiagnostics: args => summaryDiagnostics.read(getChatIdentity(getContext()), args),
     isEnabled: () => isStorySummaryEnabledForCurrentChat(),
     invalidateRecall: () => {
@@ -294,6 +296,7 @@ export function getStorySummaryChatState() {
     return {
         hasChat,
         chatId: context?.chatId || null,
+        chatIdentity: getChatIdentity(context),
         globalEnabled,
         chatEnabled,
         effectiveEnabled,
@@ -1622,16 +1625,23 @@ async function finishVectorConfigTransition(previousConfig, nextConfig, reason, 
     return true;
 }
 
+function invalidateRecallForConfigChange(change, reason) {
+    if (change === 'reuse-only') {
+        // A new deadline applies to future requests, not this generation's prompt or work.
+        recallReuse.invalidate();
+    } else if (change) {
+        serviceTests.cancel();
+        cancelRecallAndClearPrompt(reason);
+    }
+}
+
 async function changePanelConfig(reason, applyChange, vectorChanged = true) {
     return changeSummaryConfig({
         chatId: getContext()?.chatId || '',
         reason: `summary-config:${reason}`,
         vectorChanged,
         applyChange,
-        invalidateRecall: () => {
-            serviceTests.cancel();
-            cancelRecallAndClearPrompt('vector-config-changed');
-        },
+        invalidateRecall: change => invalidateRecallForConfigChange(change, 'vector-config-changed'),
         afterVectorChange: (previous, next, session) => finishVectorConfigTransition(previous, next, reason, session),
     });
 }
@@ -2292,7 +2302,7 @@ async function synchronizeSavedSummaryConfig(assertCurrent = () => {}) {
         assertCurrent,
         beforeApply: (previous, next) => {
             if (JSON.stringify(previous.vector) !== JSON.stringify(next.vector)) serviceTests.cancel();
-            if (recallConfigKey(previous) !== recallConfigKey(next)) cancelRecallAndClearPrompt('recall-config-reloaded');
+            invalidateRecallForConfigChange(getRecallConfigChange(previous, next), 'recall-config-reloaded');
         },
         afterVectorChange: (previous, next, session) => finishVectorConfigTransition(previous, next, 'server-reload', session),
     });
@@ -2351,7 +2361,7 @@ function setHideUiSettings(patch = {}) {
 
 async function sendFrameBaseData(store, totalFloors) {
     const ui = getHideUiSettings();
-    const hiddenCount = (getContext().chat || []).reduce((count, message) => count + Number(!!message?.is_system), 0);
+    const hiddenCount = countOwnedHidden(getContext().chat);
 
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
     const rollbackTargetEndMesId = getRollbackOnceTargetEndMesId(store);
@@ -2404,30 +2414,25 @@ function buildFramePayload(store) {
     };
 }
 
-async function copyTextToClipboard(text) {
-    const value = String(text ?? "");
-    if (!value) {
-        throw new Error("没有可复制的内容");
+function downloadSummaryMemoryPackage() {
+    const { chatId } = getContext();
+    if (!chatId) throw new Error(SUMMARY_TRANSFER_COPY.noChat);
+    const payload = buildSummaryExportPackage(getSummaryStore());
+    const name = String(chatId).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 80);
+    const timestamp = payload.exportedAt.replace(/[:.]/g, '-');
+    const filename = `memory_${name}_${timestamp}.json`;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    try {
+        link.click();
+    } finally {
+        link.remove();
+        URL.revokeObjectURL(url);
     }
-
-    if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-        return;
-    }
-
-    const ta = document.createElement("textarea");
-    ta.value = value;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.left = "-9999px";
-    document.body.appendChild(ta);
-    ta.select();
-    ta.setSelectionRange(0, ta.value.length);
-    const ok = document.execCommand?.("copy");
-    ta.remove();
-    if (!ok) {
-        throw new Error("浏览器不支持自动复制");
-    }
+    return { filename };
 }
 
 function stripFloorMarker(summary) {
@@ -2681,25 +2686,27 @@ function formatStorySummaryMemoryText(store) {
 }
 
 
-async function importSummaryMemoryPackage(rawText, targetChatId = '') {
+async function importSummaryMemoryPackage(rawText, targetChatId = '', targetChatIdentity = '') {
     if (!String(rawText || "").trim()) {
-        throw new Error("记忆包内容为空");
+        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.emptyFile), { code: 'summary_import_empty' });
     }
     let parsed;
     try {
         parsed = JSON.parse(String(rawText));
     } catch {
-        throw new Error("JSON 解析失败");
+        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.invalidJson), { code: 'summary_import_json' });
     }
 
     const importedJson = extractSummaryImportJson(parsed);
     const { chatId, chat } = getContext();
-    if (!chatId || (targetChatId && chatId !== targetChatId)) {
-        throw new Error("当前没有打开聊天");
+    if (!chatId || (targetChatId && chatId !== targetChatId)
+        || (targetChatIdentity && getChatIdentity(getContext()) !== targetChatIdentity)) {
+        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
     }
     const assertImportActive = () => {
-        if (getContext()?.chatId !== chatId) {
-            throw new Error("聊天已切换，已取消导入");
+        if (getContext()?.chatId !== chatId
+            || (targetChatIdentity && getChatIdentity(getContext()) !== targetChatIdentity)) {
+            throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
         }
     };
 
@@ -2868,6 +2875,7 @@ const hideState = createHideStateController({
             saveChat: context.saveChat,
             managed: !!events && isStorySummaryEnabledForCurrentChat(),
             enabled: isSummarySourceValid(store, context.chat?.length || 0) && ui.hideSummarized,
+            claimed: chat_metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true,
             summaryBoundary: store?.lastSummarizedMesId ?? -1,
             useVectorBoundary: !!getVectorConfig()?.enabled && ui.useVectorBoundary,
             keepVisibleCount: ui.keepVisibleCount,
@@ -2883,6 +2891,13 @@ const hideState = createHideStateController({
         assertMemoryWritable(state.chatId);
         return state.saveChat();
     },
+    // Saved with the chat header on the next host save; until then this session
+    // already treats the chat as adopted.
+    markClaimed: state => {
+        if (getContext().chatId !== state.chatId) return;
+        chat_metadata.extensions ||= {};
+        (chat_metadata.extensions[EXT_ID] ||= {})[HIDE_OWNERSHIP_CLAIMED_KEY] = true;
+    },
     onError: (error, stage) => {
         const message = stage === 'boundary'
             ? '读取向量隐藏边界失败，已按有效总结边界恢复原文'
@@ -2892,12 +2907,49 @@ const hideState = createHideStateController({
     },
 });
 
+// Initial ownership restoration is shared by load and new-input consumers.
+// Once the existing chat marker is set, ordinary reconciliation is unchanged.
+let hideOwnershipPreparation = null;
 function applyHideState(options) {
-    return hideState.reconcile(options);
+    const metadata = chat_metadata;
+    if (metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true) {
+        return hideState.reconcile(options);
+    }
+    const { chatId, chat } = getContext();
+    const pending = hideOwnershipPreparation;
+    if (pending?.chatId === chatId && pending.chat === chat && pending.metadata === metadata) return pending.promise;
+    const preparation = { chatId, chat, metadata };
+    hideOwnershipPreparation = preparation;
+    preparation.promise = (async () => {
+        // A message/settings change can supersede the boundary read. Keep the
+        // initial wait alive, but never retry a read failure or another chat.
+        while (await hideState.reconcile(options) === false) {
+            if (hideOwnershipPreparation !== preparation || getContext().chatId !== chatId
+                || getContext().chat !== chat || chat_metadata !== metadata
+                || metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true) return;
+        }
+    })().finally(() => {
+        if (hideOwnershipPreparation === preparation) hideOwnershipPreparation = null;
+    });
+    return preparation.promise;
+}
+
+async function ensureHideOwnership(signal) {
+    throwIfSignalAborted(signal);
+    const metadata = chat_metadata;
+    if (metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] === true) return;
+    const context = getContext();
+    const { chatId, chat } = context;
+    if (!messageSources.isLoaded(context)) throw createAbortError();
+    await waitForSummaryPreparation(() => applyHideState(), signal);
+    throwIfSignalAborted(signal);
+    if (getContext().chatId !== chatId || getContext().chat !== chat || chat_metadata !== metadata
+        || metadata.extensions?.[EXT_ID]?.[HIDE_OWNERSHIP_CLAIMED_KEY] !== true) throw createAbortError();
 }
 
 function cancelPendingHide(options) {
     hideState.cancel(options);
+    hideOwnershipPreparation = null;
 }
 
 function applyHideStateDebounced() {
@@ -3298,32 +3350,34 @@ async function handleFrameMessage(event) {
             })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
-        case "SUMMARY_COPY":
+        case "SUMMARY_EXPORT":
             observeBackgroundTask((async () => {
                 try {
-                    const store = getSummaryStore();
-                    const payload = buildSummaryExportPackage(store);
-                    await copyTextToClipboard(JSON.stringify(payload, null, 2));
+                    const result = downloadSummaryMemoryPackage();
                     postToFrame({
-                        type: "SUMMARY_COPY_RESULT",
+                        type: "SUMMARY_EXPORT_RESULT",
                         success: true,
-                        events: payload.counts.events,
-                        facts: payload.counts.facts,
+                        filename: result.filename,
                     });
                 } catch (e) {
-                    postToFrame({ type: "SUMMARY_COPY_RESULT", success: false, error: e.message });
+                    postToFrame({ type: "SUMMARY_EXPORT_RESULT", success: false, error: e.message });
                 }
             })(), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
 
-        case "SUMMARY_IMPORT_TEXT":
+        case "SUMMARY_IMPORT_FILE":
             if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
-                postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "请等待当前总结/向量任务结束" });
+                postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: SUMMARY_TRANSFER_COPY.busy });
                 break;
             }
             observeBackgroundTask((async () => {
                 try {
-                    const targetChatId = getContext()?.chatId || '';
+                    const targetChatId = data.chatId;
+                    const targetChatIdentity = data.chatIdentity;
+                    if (!targetChatId || !targetChatIdentity || getContext()?.chatId !== targetChatId
+                        || getChatIdentity(getContext()) !== targetChatIdentity) {
+                        throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
+                    }
                     const result = await runVectorWriteTask(
                         {
                             chatId: targetChatId,
@@ -3331,14 +3385,25 @@ async function handleFrameMessage(event) {
                             scope: VECTOR_WRITE_SCOPES.IO,
                         },
                         async () => {
-                            if (getContext()?.chatId !== targetChatId) {
-                                throw new Error('聊天已切换，已取消导入');
+                            if (getContext()?.chatId !== targetChatId
+                                || getChatIdentity(getContext()) !== targetChatIdentity) {
+                                throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
                             }
-                            return changeRecallData(targetChatId, () => importSummaryMemoryPackage(data.text || "", targetChatId));
+                            let text;
+                            try {
+                                text = await data.file.text();
+                            } catch (cause) {
+                                throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.readFailed, { cause }), { code: 'summary_import_file_read' });
+                            }
+                            if (getContext()?.chatId !== targetChatId
+                                || getChatIdentity(getContext()) !== targetChatIdentity) {
+                                throw Object.assign(new Error(SUMMARY_TRANSFER_COPY.chatChanged), { code: 'summary_import_chat_changed' });
+                            }
+                            return changeRecallData(targetChatId, () => importSummaryMemoryPackage(text, targetChatId, targetChatIdentity));
                         },
                     );
                     if (!result) {
-                        postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "导入已取消" });
+                        postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: SUMMARY_TRANSFER_COPY.cancelled });
                         return;
                     }
                     notifyStorySummaryChatState();
@@ -3348,7 +3413,8 @@ async function handleFrameMessage(event) {
                         counts: result.counts,
                     });
                 } catch (e) {
-                    postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: memorySaveError(e) });
+                    postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false,
+                        error: typeof e.code === 'string' && e.code.startsWith('summary_import_') ? e.message : memorySaveError(e) });
                     notifyStorySummaryChatState();
                 }
             })(), { source: import.meta.url, operation: 'handleFrameMessage' });
@@ -3836,8 +3902,6 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
     logRecallRuntimeCheckpoint("chatChanged:before-retain", `chat=${activeChatId || "-"} length=${Array.isArray(chat) ? chat.length : 0}`);
     await retainRecallRuntimeOnly(activeChatId);
     if (isChatStale(scheduledChatId)) return;
-    const newLength = Array.isArray(chat) ? chat.length : 0;
-
     const rollback = await runVectorWriteTask(
         {
             chatId: scheduledChatId,
@@ -3847,10 +3911,15 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
         async () => {
             if (!await waitForMemoryCommit(undefined, { recover: false })) return { status: 'deferred' };
             if (isChatStale(scheduledChatId)) return { status: 'stale' };
+            if (!messageSources.isLoaded(getContext())) return { status: 'deferred' };
+            const source = messageSources.capture(getContext());
             const result = await rollbackSummaryIfNeeded();
-            if (result.status !== 'failed' && !isChatStale(scheduledChatId)) {
+            if (result.status === 'deferred' || !messageSources.isLoaded(getContext())) return { status: 'deferred' };
+            // Loaded-chat edits invalidate only this length-based reconciliation,
+            // not a completed rollback or the remaining chat initialization.
+            if (result.status !== 'failed' && !isChatStale(scheduledChatId) && messageSources.isCurrent(source, getContext())) {
                 try {
-                    await reconcileVectorFloorsOnLoad(scheduledChatId, newLength);
+                    await reconcileVectorFloorsOnLoad(scheduledChatId, source.sources.length);
                 } catch (error) {
                     await clearHideState();
                     throw error;
@@ -3878,6 +3947,7 @@ async function handleChatChanged(scheduledChatId = getContext()?.chatId || '', {
     if (isChatStale(scheduledChatId) || getSummaryStore() !== store) return;
 
     if (frameReady) {
+        const newLength = getContext().chat.length;
         await sendFrameBaseData(store, newLength);
         sendFrameFullData(store, newLength);
 
@@ -3918,8 +3988,8 @@ async function truncateVectorDataFromFloor(chatId, newLength) {
  * 加载时对账，覆盖尚未完成的删除同步，以及
  * 宿主崩溃、功能关闭期间被清空、第三方直接 emit 等遗留的越界派生数据。
  *
- * chatLength 为 0 同样要处理：ST 的四个 CHAT_CHANGED 都在 getChat()/printMessages()
- * 之后 emit，此刻长度 0 就是"聊天真的空了"，不存在"尚未载入"的中间态。
+ * 调用方通过原文追踪器确认加载状态后取长度；排队期间可能再次重载，
+ * 不能仅凭任务来自 CHAT_CHANGED，就把临时空数组当成真实删除。
  * 先用 lastChunkFloor 与内存中的 atom 楼层做廉价判定，没有越界就不碰 DB。
  */
 async function reconcileVectorFloorsOnLoad(chatId, chatLength) {
@@ -3947,6 +4017,7 @@ function handleMessageUpdated(chatId, floor) { return synchronizeCurrentSources(
 async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null) {
     if (isChatStale(chatId) || !isStorySummaryEnabledForCurrentChat()) return { status: 'stale' };
     const change = retainSourceChange(messageSources, getContext(), { kind, floor });
+    if (!messageSources.isLoaded(getContext())) return { status: 'deferred' };
     if (!change) return { status: 'unchanged' };
     for (const changedFloor of change.anchorFloors) rememberVectorMaintenance(chatId, changedFloor, 'source_changed');
     // retainSourceChange already retired live anchors; only background cache work queues.
@@ -3956,7 +4027,9 @@ async function synchronizeCurrentSources(chatId, kind = 'observed', floor = null
     const outcome = await runVectorWriteTask(
         { chatId, kind: 'source-sync', scope: VECTOR_WRITE_SCOPES.CONSISTENCY },
         () => synchronizeSourceCaches(messageSources, getContext(), {
-            kind, floor, getCurrentContext: getContext,
+            // The native event was retained above. Replaying it after a queue
+            // wait could mistake a later reload's empty array for that deletion.
+            getCurrentContext: getContext,
             isCurrent: () => !isChatStale(chatId) && isStorySummaryEnabledForCurrentChat(),
         }),
     );
@@ -4017,10 +4090,11 @@ async function ensureCurrentSources(signal, { requireSummary = true, recover = t
     if (messageSources.inspect(getContext())) cancelEmbeddingWriteTasks('Source synchronization');
     if (!await waitForMemoryCommit(signal, { recover })) throw createAbortError();
     if (isChatStale(chatId)) throw createAbortError();
-    await waitForSummaryPreparation(() => synchronizeCurrentSources(chatId), signal);
+    const outcome = await waitForSummaryPreparation(() => synchronizeCurrentSources(chatId), signal);
+    if (outcome?.status === 'deferred') throw createAbortError();
     await waitForSummaryPreparation(() => waitForVectorWrites(), signal);
     throwIfSignalAborted(signal);
-    if (isChatStale(chatId) || messageSources.inspect(getContext())) {
+    if (isChatStale(chatId) || !messageSources.isLoaded(getContext()) || messageSources.inspect(getContext())) {
         throw createAbortError();
     }
     assertMemoryWritable(chatId);
@@ -4028,6 +4102,7 @@ async function ensureCurrentSources(signal, { requireSummary = true, recover = t
         const error = { code: getSummaryStore()?.summaryInvalid ? 'summary_history_invalid' : 'source_boundary_invalid' };
         throw Object.assign(new Error(memorySaveError(error)), error);
     }
+    await ensureHideOwnership(signal);
 }
 
 async function handleMessageReceived(scheduledChatId, targetMesId = null) {
@@ -4201,6 +4276,7 @@ async function prepareMemoryPrompt(type, signal, diagnostics = createRecallDiagn
     // Single-chat regenerate has already removed the old answer in the host.
     const excludeLastAi = type === 'swipe';
     const vectorCfg = getVectorConfig();
+    if (vectorCfg?.enabled) await ensureHideOwnership(signal);
 
     // ★ 最后一道关卡：向量启用时，同步等待分词器就绪
     if (vectorCfg?.enabled && !isTokenizerReady()) {
@@ -4464,7 +4540,7 @@ function runContentChangeSync(handler, ...args) {
     const context = getContext();
     const chatId = context?.chatId || null;
     if (!chatId || !isStorySummaryEnabledForCurrentChat()) return undefined;
-    const change = messageSources.inspect(context);
+    const change = messageSources.inspect(context, { kind: handler === handleMessageDeleted ? 'delete' : 'observed' });
     // A save-without-edit does not schedule maintenance. A real local edit
     // invalidates future reuse, not this generation's already running recall.
     if (!change) return undefined;

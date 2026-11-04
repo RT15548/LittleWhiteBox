@@ -19,13 +19,13 @@ function groupIdsOf(groups) {
  * @param {object} options
  * @param {Document} options.document 页面（设置 iframe）的 document
  * @param {Element} options.container 放预设面板的容器
- * @param {function} options.getLibrary () => 当前草稿库 { characters, groups }（用户所见，含未保存编辑）
- * @param {function} [options.syncGroupEnabled] (latestGroups, groupIds?) => 把草稿里这些分组的开关同步成最新值并重绘
+ * @param {Function} options.getLibrary () => 当前草稿库 { characters, groups }（用户所见，含未保存编辑）
+ * @param {Function} [options.syncGroupEnabled] (latestGroups, groupIds?) => 把草稿里这些分组的开关同步成最新值并重绘
  * @param {object} options.runtime character-group-presets-runtime 的接口：
  *        saveGroupPresets / applyGroupPresetForCurrentChat / getActiveCharacterAvatars / listHostCharacters /
  *        onGroupPresetApplied / onGroupPresetContextChanged
  * @param {object} options.settings { get() } 共享设置读取（characterGroupPresets / characterGroupPresetApplied / characterGroups）
- * @param {function} [options.toast] (message, level) => 提示
+ * @param {Function} [options.toast] (message, level) => 提示
  */
 export function bindGroupPresetPanel(options = {}) {
     const { document, container, getLibrary, syncGroupEnabled, runtime, settings, toast } = options;

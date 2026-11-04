@@ -9,7 +9,7 @@ import { updateMessageBlock } from "../../../../../../script.js";
 import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
-import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler, waitForAfterAiReady } from "../../core/after-ai-gate.js";
 import {
     normalizePath,
     lwbSplitPathWithBrackets,
@@ -29,7 +29,10 @@ import {
     applyXbGetVarForMessage,
     parseValueForSet,  
 } from "./var-commands.js";
-import { applyStateForMessage } from "./state2/index.js";
+import {
+    applyStateForMessage, createStateApi, rebuildStateV2, handleStateSwipe,
+    handleStateSwipeDeleted, openStateChat, cleanupStateService,
+} from "./state2/index.js";
 import {
     preprocessBumpAliases,
     executeQueuedVareventJsAfterTurn,
@@ -58,7 +61,6 @@ const guardianState = {
     table: {},
     regexCache: {},
     bypass: false,
-    origVarApi: null,
     lastMetaSyncAt: 0
 };
 
@@ -69,7 +71,11 @@ let initialized = false;
 let pendingSwipeApply = new Map();
 let suppressUpdatedOnce = new Set();
 let postReceiveApplyQueue = Promise.resolve();
+let stateApi = null;
 let afterAiGateDispose = null;
+let stateAfterAiJobs = new WeakMap();
+let stateAfterAiAbort = new AbortController();
+let stateAfterAiGeneration = 0;
 
 CacheRegistry.register(MODULE_ID, {
     name: '变量系统缓存',
@@ -1378,112 +1384,6 @@ export function applyRulesDeltaToTable(delta) {
     rulesSaveToMeta();
 }
 
-/**
- * install variable API patch
- */
-function installVariableApiPatch() {
-    try {
-        const ctx = getContext();
-        const api = ctx?.variables?.local;
-        if (!api || guardianState.origVarApi) return;
-
-        guardianState.origVarApi = {
-            set: api.set?.bind(api),
-            add: api.add?.bind(api),
-            inc: api.inc?.bind(api),
-            dec: api.dec?.bind(api),
-            del: api.del?.bind(api)
-        };
-
-        if (guardianState.origVarApi.set) {
-            api.set = (name, value) => {
-                try {
-                    if (guardianState.bypass) return guardianState.origVarApi.set(name, value);
-
-                    let finalValue = value;
-                    if (value && typeof value === 'object' && !Array.isArray(value)) {
-                        const hasRuleKey = Object.keys(value).some(k => k.startsWith('$'));
-                        if (hasRuleKey) {
-                            const { cleanValue, rulesDelta } = rulesLoadFromTree(value, normalizePath(name));
-                            finalValue = cleanValue;
-                            applyRulesDeltaToTable(rulesDelta);
-                        }
-                    }
-
-                    const res = guardValidate('set', normalizePath(name), finalValue);
-                    if (!res.allow) return;
-                    return guardianState.origVarApi.set(name, res.value);
-                } catch {
-                    return;
-                }
-            };
-        }
-
-        if (guardianState.origVarApi.add) {
-            api.add = (name, delta) => {
-                try {
-                    if (guardianState.bypass) return guardianState.origVarApi.add(name, delta);
-
-                    const res = guardValidate('bump', normalizePath(name), delta);
-                    if (!res.allow) return;
-
-                    const cur = Number(getValueAtPath(normalizePath(name)));
-                    if (!Number.isFinite(cur)) {
-                        return guardianState.origVarApi.set(name, res.value);
-                    }
-
-                    const next = res.value;
-                    const diff = Number(next) - cur;
-                    return guardianState.origVarApi.add(name, diff);
-                } catch {
-                    return;
-                }
-            };
-        }
-
-        if (guardianState.origVarApi.inc) {
-            api.inc = (name) => api.add?.(name, 1);
-        }
-
-        if (guardianState.origVarApi.dec) {
-            api.dec = (name) => api.add?.(name, -1);
-        }
-
-        if (guardianState.origVarApi.del) {
-            api.del = (name) => {
-                try {
-                    if (guardianState.bypass) return guardianState.origVarApi.del(name);
-
-                    const res = guardValidate('delNode', normalizePath(name));
-                    if (!res.allow) return;
-                    return guardianState.origVarApi.del(name);
-                } catch {
-                    return;
-                }
-            };
-        }
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "installVariableApiPatch" }, caughtError); }
-}
-
-/**
- * uninstall variable API patch
- */
-function uninstallVariableApiPatch() {
-    try {
-        const ctx = getContext();
-        const api = ctx?.variables?.local;
-        if (!api || !guardianState.origVarApi) return;
-
-        if (guardianState.origVarApi.set) api.set = guardianState.origVarApi.set;
-        if (guardianState.origVarApi.add) api.add = guardianState.origVarApi.add;
-        if (guardianState.origVarApi.inc) api.inc = guardianState.origVarApi.inc;
-        if (guardianState.origVarApi.dec) api.dec = guardianState.origVarApi.dec;
-        if (guardianState.origVarApi.del) api.del = guardianState.origVarApi.del;
-
-        guardianState.origVarApi = null;
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "uninstallVariableApiPatch" }, caughtError); }
-}
-
 /* ============ Snapshots / Rollback ============= */
 
 function getSnapMap() {
@@ -1821,30 +1721,6 @@ function rollbackToPreviousOf(messageId) {
 async function rollbackToPreviousOfAsync(messageId) {
     const id = Number(messageId);
     if (Number.isNaN(id)) return;
-
-    // Notify L0 rollback hook for floor >= id
-    if (typeof globalThis.LWB_StateRollbackHook === 'function') {
-        try {
-            await globalThis.LWB_StateRollbackHook(id);
-        } catch (e) {
-            console.error('[variablesCore] LWB_StateRollbackHook failed:', e);
-        }
-    }
-
-    const prevId = id - 1;
-    const mode = getVariablesMode();
-
-    if (mode === '2.0') {
-        try {
-            const mod = await import('./state2/index.js');
-            await mod.restoreStateV2ToFloor(prevId); // prevId < 0 handled by implementation
-        } catch (e) {
-            console.error('[variablesCore][2.0] restoreStateV2ToFloor failed:', e);
-        }
-        return;
-    }
-
-    // mode === '1.0'
     rollbackToPreviousOf(id);
 }
 
@@ -1853,10 +1729,7 @@ async function rebuildVariablesFromScratch() {
     try {
         const mode = getVariablesMode();
         if (mode === '2.0') {
-            const mod = await import('./state2/index.js');
-            const chat = getContext()?.chat || [];
-            const lastId = chat.length ? chat.length - 1 : -1;
-            await mod.restoreStateV2ToFloor(lastId);
+            rebuildStateV2();
             return;
         }
         // 1.0 legacy logic
@@ -2422,6 +2295,55 @@ function getMsgIdStrict(payload) {
     return undefined;
 }
 
+function resetStateAfterAiJobs() {
+    stateAfterAiAbort.abort();
+    stateAfterAiAbort = new AbortController();
+    stateAfterAiJobs = new WeakMap();
+}
+
+function notifyStateAfterAi(chatId, messageId, message) {
+    const swipeId = message.swipe_id ?? 0;
+    let job = stateAfterAiJobs.get(message);
+    if (!job || job.messageId !== messageId || job.swipeId !== swipeId) {
+        job = { messageId, swipeId, generation: stateAfterAiGeneration, lastGeneration: null, lastText: null, pending: false, dirty: false };
+        stateAfterAiJobs.set(message, job);
+    }
+    job.generation = stateAfterAiGeneration;
+    job.dirty = true;
+    if (job.pending) return;
+
+    const signal = stateAfterAiAbort.signal;
+    const isCurrent = () => {
+        const ctx = getContext();
+        return !signal.aborted && initialized && getVariablesMode() === '2.0'
+            && String(ctx?.chatId || '') === chatId && ctx?.chat?.[messageId] === message
+            && stateAfterAiJobs.get(message) === job && (message.swipe_id ?? 0) === swipeId;
+    };
+    job.pending = true;
+    const task = (async () => {
+        try {
+            while (job.dirty && isCurrent()) {
+                if (!await waitForAfterAiReady(chatId, signal) || !isCurrent()) return;
+                job.dirty = false;
+                const generation = job.generation;
+                const text = readMessageText(message);
+                if (job.lastGeneration === generation && job.lastText === text) continue;
+
+                await applyVarsForMessage(messageId);
+                if (!isCurrent()) return;
+                const unchanged = readMessageText(message) === text;
+                applyXbGetVarForMessage(messageId, true);
+                job.lastText = unchanged ? readMessageText(message) : text;
+                job.lastGeneration = generation;
+                await executeQueuedVareventJsAfterTurn();
+            }
+        } finally {
+            job.pending = false;
+        }
+    })();
+    observeBackgroundTask(task, { source: import.meta.url, operation: 'notifyStateAfterAi' });
+}
+
 function queuePostReceiveApply(messageId, options = {}) {
     const shouldSnapshot = options?.snapshot === true;
     const task = postReceiveApplyQueue
@@ -2451,6 +2373,10 @@ function notifyVariablesAfterAi(data, source) {
 
     const message = chat[messageId];
     if (!message || message.is_user) return;
+    if (getVariablesMode() === '2.0') {
+        notifyStateAfterAi(chatId, messageId, message);
+        return;
+    }
 
     notifyAfterAiHint({
         chatId,
@@ -2464,6 +2390,7 @@ function registerVariablesAfterAiGate() {
     initAfterAiGate();
     if (afterAiGateDispose) return;
     afterAiGateDispose = registerAfterAiHandler(MODULE_ID, ({ chatId, messageId }) => {
+        if (getVariablesMode() === '2.0') return;
         if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
         const message = getContext()?.chat?.[messageId];
         if (!message || message.is_user) return;
@@ -2543,7 +2470,13 @@ function bindEvents() {
             const id = getMsgIdLoose(data);
             if (typeof id !== 'number') return;
 
-            if (getVariablesMode() !== '2.0') clearAppliedFor(id);
+            if (getVariablesMode() === '2.0') {
+                await applyVarsForMessage(id); // State publication precedes the first await.
+                applyXbGetVarForMessage(id, true);
+                await executeQueuedVareventJsAfterTurn();
+                return;
+            }
+            clearAppliedFor(id);
 
             // Roll back first so re-apply uses the edited message
             await rollbackToPreviousOfAsync(id);
@@ -2579,8 +2512,14 @@ function bindEvents() {
             const id = getMsgIdLoose(data);
             if (typeof id !== 'number') return;
 
+            if (getVariablesMode() === '2.0') {
+                const result = handleStateSwipe(id);
+                if (result.atoms.length) $(document).trigger('xiaobaix:variables:stateAtomsGenerated', { messageId: id, atoms: result.atoms });
+                await executeQueuedVareventJsAfterTurn();
+                return;
+            }
             lastSwipedId = id;
-            if (getVariablesMode() !== '2.0') clearAppliedFor(id);
+            clearAppliedFor(id);
 
             // Roll back first so swipe applies cleanly
             await rollbackToPreviousOfAsync(id);
@@ -2595,24 +2534,22 @@ function bindEvents() {
         } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 
+    events?.on(event_types.MESSAGE_SWIPE_DELETED, (data) => {
+        if (getVariablesMode() === '2.0') handleStateSwipeDeleted(data);
+    });
+
     // message deleted
     events?.on(event_types.MESSAGE_DELETED, async (data) => {
         try {
+            if (getVariablesMode() === '2.0') {
+                rebuildStateV2();
+                return;
+            }
             const id = getMsgIdStrict(data);
             if (typeof id !== 'number') return;
 
             // Roll back first before delete handling
             await rollbackToPreviousOfAsync(id);
-
-            // 2.0: physical delete -> trim WAL/ckpt to avoid bloat
-            if (getVariablesMode() === '2.0') {
-                try {
-                    const mod = await import('./state2/index.js');
-                    await mod.trimStateV2FromFloor(id);
-                } catch (e) {
-                    console.error('[variablesCore][2.0] trimStateV2FromFloor failed:', e);
-                }
-            }
 
             if (getVariablesMode() !== '2.0') {
                 clearSnapshotsFrom(id);
@@ -2623,8 +2560,9 @@ function bindEvents() {
 
     // note
 
-    events?.on(event_types.GENERATION_STARTED, (data) => {
+    events?.on(event_types.GENERATION_STARTED, (data, _options, dryRun) => {
         try {
+            if (getVariablesMode() === '2.0' && dryRun !== true) stateAfterAiGeneration += 1;
             if (getVariablesMode() !== '2.0') snapshotPreviousFloor();
 
             // cancel swipe delay
@@ -2640,8 +2578,10 @@ function bindEvents() {
     });
 
     // chat changed
-    events?.on(event_types.CHAT_CHANGED, async () => {
+    events?.on(event_types.CHAT_CHANGED, () => {
         try {
+            resetStateAfterAiJobs();
+            openStateChat();
             rulesClearCache();
             rulesLoadFromMeta();
 
@@ -2649,12 +2589,6 @@ function bindEvents() {
             meta[LWB_PLOT_APPLIED_KEY] = {};
             getContext()?.saveMetadataDebounced?.();
 
-            if (getVariablesMode() === '2.0') {
-                try {
-                    const mod = await import('./state2/index.js');
-                    mod.clearStateAppliedFrom(0);
-                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
-            }
         } catch (caughtError) { console.warn({ source: import.meta.url, operation: "bindEvents" }, caughtError); }
     });
 }
@@ -2677,9 +2611,6 @@ export function initVariablesCore() {
     // load rules
     rulesLoadFromMeta();
 
-    // install API patch
-    installVariableApiPatch();
-
     // bind events
     bindEvents();
 
@@ -2693,32 +2624,17 @@ export function initVariablesCore() {
         save: rulesSaveToMeta,
     };
 
+    stateApi = createStateApi({
+        notify: payload => $(document).trigger('xiaobaix:variables:stateAtomsGenerated', payload),
+    });
+    const applyText = stateApi.applyText;
     globalThis.LWB_StateV2 = {
-        /**
-         * @param {string} text - 包含 <state>...</state> 的文本
-         * @param {{ floor?: number, silent?: boolean }} [options]
-         *  - floor: 指定写入/记录用楼层（默认：最后一楼）
-         *  - silent: true 时不触发 stateAtomsGenerated（初始化用）
-         */
-        applyText: async (text, options = {}) => {
-            const { applyStateForMessage } = await import('./state2/index.js');
-            const ctx = getContext();
-            const floor =
-                Number.isFinite(options.floor)
-                    ? Number(options.floor)
-                    : Math.max(0, (ctx?.chat?.length || 1) - 1);
-            const result = applyStateForMessage(floor, String(text || ''));
-            // ✅ 默认会触发（当作事件）
-            // ✅ 初始化时 silent=true，不触发（当作基线写入）
-            if (!options.silent && result?.atoms?.length) {
-                $(document).trigger('xiaobaix:variables:stateAtomsGenerated', {
-                    messageId: floor,
-                    atoms: result.atoms,
-                });
-            }
-            return result;
-        },
+        applyText: async (text, options = {}) => applyText(text, options),
+        apply: stateApi.apply,
+        getInputSchema: stateApi.getInputSchema,
+        beginTurn: stateApi.beginTurn,
     };
+    openStateChat();
 }
 
 /**
@@ -2727,6 +2643,7 @@ export function initVariablesCore() {
 export function cleanupVariablesCore() {
     try { xbLog.info('variablesCore', '变量系统清理'); } catch (error) { console.warn({ source: import.meta.url, operation: 'cleanupVariablesCore' }, error); }
     if (!initialized) return;
+    resetStateAfterAiJobs();
 
     // cleanup events
     events?.cleanup();
@@ -2734,15 +2651,14 @@ export function cleanupVariablesCore() {
     afterAiGateDispose?.();
     afterAiGateDispose = null;
 
-    // uninstall API patch
-    uninstallVariableApiPatch();
-
     // clear rules
     rulesClearCache();
 
     // clear global hooks
     delete globalThis.LWB_Guard;
     delete globalThis.LWB_StateV2;
+    cleanupStateService();
+    stateApi = null;
 
     // clear guard state
     guardBypass(false);

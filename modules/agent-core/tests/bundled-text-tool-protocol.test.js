@@ -19,7 +19,7 @@ for (const target of ['browser', 'backend']) {
         const entry = new URL(`../../../dist/${manifest.entries['runtime/agent-core'].file}`, import.meta.url);
         // eslint-disable-next-line no-unsanitized/method -- Entry comes only from this repository's generated build manifest.
         const bundle = target === 'browser' ? await import(entry.href)
-            : require('../../../server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs');
+            : require('../../../server-plugin/littlewhitebox-server/tests/runtime-fixture.js').bundle.agentCore;
         let content;
         let streaming;
         let requests = 0;

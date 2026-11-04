@@ -3,9 +3,9 @@
 const assert = require('node:assert/strict');
 const { afterEach, test } = require('node:test');
 
-const comfyui = require('../providers/comfyui/adapter.js');
-const sdWebUi = require('../providers/sd-webui/adapter.js');
-const { readResponseBuffer } = require('../providers/upstream.js');
+const comfyui = require('../../../modules/draw/server/providers/comfyui/adapter.js');
+const sdWebUi = require('../../../modules/draw/server/providers/sd-webui/adapter.js');
+const { readResponseBuffer } = require('../../../modules/draw/server/providers/upstream.js');
 
 const ORIGINAL_FETCH = global.fetch;
 const ORIGINAL_DATE_NOW = Date.now;
@@ -393,7 +393,7 @@ test('ComfyUI treats a completed history entry without status_str as finished', 
 });
 
 test('NovelAI adapter validates each transport and returns normalized image results', async () => {
-    const novelai = require('../providers/novelai/adapter.js');
+    const novelai = require('../../../modules/draw/server/providers/novelai/adapter.js');
     const options = { parseTimeout: Number, parseUrl: String };
     const url = 'https://api.novelai.test/ai/generate-image-stream';
 
@@ -412,14 +412,14 @@ test('NovelAI adapter validates each transport and returns normalized image resu
     assert.deepEqual(normalized.context, { key: 'k', insecure: true });
     assert.deepEqual(normalized.items.map(item => item.kind), ['msgpack-stream', 'legacy-image']);
 
-    const clientPath = require.resolve('../providers/novelai/client.js');
+    const clientPath = require.resolve('../../../modules/draw/server/providers/novelai/client.js');
     const client = require(clientPath);
     const originalV5 = client.generateV5ImageBuffer;
     const originalGenerate = client.generateImageBuffer;
     client.generateV5ImageBuffer = async () => ({ ok: true, buffer: PNG, mime: 'image/png' });
     client.generateImageBuffer = async () => ({ ok: true, buffer: PNG, mime: 'image/png' });
-    delete require.cache[require.resolve('../providers/novelai/adapter.js')];
-    const reloaded = require('../providers/novelai/adapter.js');
+    delete require.cache[require.resolve('../../../modules/draw/server/providers/novelai/adapter.js')];
+    const reloaded = require('../../../modules/draw/server/providers/novelai/adapter.js');
     try {
         const streamed = await reloaded.execute({
             context: normalized.context,
@@ -436,17 +436,17 @@ test('NovelAI adapter validates each transport and returns normalized image resu
     } finally {
         client.generateV5ImageBuffer = originalV5;
         client.generateImageBuffer = originalGenerate;
-        delete require.cache[require.resolve('../providers/novelai/adapter.js')];
+        delete require.cache[require.resolve('../../../modules/draw/server/providers/novelai/adapter.js')];
     }
 });
 
 test('NovelAI adapter converts an upstream failure into a coded adapter error', async () => {
-    const clientPath = require.resolve('../providers/novelai/client.js');
+    const clientPath = require.resolve('../../../modules/draw/server/providers/novelai/client.js');
     const client = require(clientPath);
     const original = client.generateImageBuffer;
     client.generateImageBuffer = async () => ({ ok: false, status: 429, error: 'rate limited' });
-    delete require.cache[require.resolve('../providers/novelai/adapter.js')];
-    const reloaded = require('../providers/novelai/adapter.js');
+    delete require.cache[require.resolve('../../../modules/draw/server/providers/novelai/adapter.js')];
+    const reloaded = require('../../../modules/draw/server/providers/novelai/adapter.js');
     try {
         await assert.rejects(
             reloaded.execute({
@@ -458,6 +458,6 @@ test('NovelAI adapter converts an upstream failure into a coded adapter error', 
         );
     } finally {
         client.generateImageBuffer = original;
-        delete require.cache[require.resolve('../providers/novelai/adapter.js')];
+        delete require.cache[require.resolve('../../../modules/draw/server/providers/novelai/adapter.js')];
     }
 });

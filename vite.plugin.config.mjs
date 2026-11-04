@@ -62,6 +62,7 @@ export default defineConfig({
             if (!importer || !source.startsWith('.')) return;
             let resolved = path.resolve(path.dirname(importer.split('?')[0]), source.split('?')[0]);
             if (!inside(resolved)) return { id: `/__st__/${posix(path.relative(path.resolve(root, '../../../../..'), resolved))}`, external: true };
+            if (fs.existsSync(path.join(outputRoot, path.relative(root, resolved)))) return posix(resolved);
             if (resolved.endsWith('.js') && fs.existsSync(resolved.slice(0, -3) + '.ts')) return posix(resolved.slice(0, -3) + '.ts');
         },
         load(id) {

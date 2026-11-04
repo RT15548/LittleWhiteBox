@@ -1,10 +1,12 @@
 export {
     applyStateForMessage,
-    clearStateAppliedFor,
-    clearStateAppliedFrom,
-    restoreStateV2ToFloor,
-    trimStateV2FromFloor,
-} from './executor.js';
+    rebuildStateV2,
+    handleStateSwipe,
+    handleStateSwipeDeleted,
+    openStateChat,
+    cleanupStateService,
+    createStateApi,
+} from './service.js';
 
 export { parseStateBlock, extractStateBlocks, computeStateSignature, parseInlineValue } from './parser.js';
 export { generateSemantic } from './semantic.js';

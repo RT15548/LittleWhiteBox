@@ -17,7 +17,7 @@ import {
 } from "../../shared/gallery-cache.js";
 import { getContext } from "../../../../../../../extensions.js";
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
-import { saveBase64AsFile } from "../../../../../../../utils.js";
+import { bindImageSaveControls } from '../../shared/image-save-controls.js';
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
@@ -26,7 +26,7 @@ import { SdDrawStorage } from "../../../../core/server-storage.js";
 import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
-import { assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
+import { bindScenePlanSource } from "../../shared/scene-placement.js";
 import { retryScenePlanning } from "../../shared/planner-retry.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
@@ -42,6 +42,10 @@ import { characterLibraryFromSettings, selectEnabledCharacters } from "../../sha
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { buildSdImageRequest, compile as compileSdScenePlan, SD_REQUEST_DELAY_MS } from "./compiler.js";
+import { validateDrawInput } from '../../shared/public-api.js';
+import { decodeImageList } from '../../shared/image-collection.js';
+import { runPublicImageJob } from '../../shared/public-image-job.js';
+import { MediaApiError } from '../../../../shared/media-api.js';
 import {
     createBackendItemError,
     createImageBackendJobMonitorRegistry,
@@ -53,7 +57,7 @@ import {
     reportImageBackendJobState,
 } from "../../shared/backend-image-jobs.js";
 import { submitRecoverableImageJob } from "../../shared/recoverable-image-jobs.js";
-import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
+import { submitProviderDrawRun } from "../../shared/draw-run-browser.js";
 import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
@@ -110,6 +114,8 @@ if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
     drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
 }
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
+import { openImageFolder, saveImageToServer } from '../../shared/image-save.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from '../../shared/image-autosave.js';
 import {
     loadLocalDanbooruDB,
     unloadLocalDanbooruDB,
@@ -694,7 +700,6 @@ async function fetchSdProxy(path, body = {}, { signal, generationConfig, attempt
     if (!response.ok) {
         const text = await response.text().catch(() => '');
         const error = classifySdError(text || response.statusText || `HTTP ${response.status}`);
-        error.status = response.status;
         throw imageHttpFailure(error, response.status);
     }
 
@@ -713,7 +718,7 @@ export async function fetchSdSamplers({ signal } = {}) {
     return Array.isArray(data) ? data : [];
 }
 
-async function requestSdImage({ prompt, negativePrompt = '', params = {}, payload, generationConfig, signal } = {}) {
+async function requestSdImage({ prompt, negativePrompt = '', params = {}, payload, generationConfig, signal, allResults = false } = {}) {
     const attempt = createImageRequestAttempt();
     try {
         signal?.throwIfAborted();
@@ -722,6 +727,7 @@ async function requestSdImage({ prompt, negativePrompt = '', params = {}, payloa
         const body = payload || buildSdImageRequest({ prompt, negativePrompt, params: effective });
         const response = await fetchSdProxy('generate', body, { signal, generationConfig, attempt });
         const data = await response.json();
+        if (allResults) return decodeImageList(data?.images);
         const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
         if (!firstImage) {
             throw new Error('SD WebUI 没有返回图片');
@@ -880,6 +886,41 @@ export async function generateSdImage({
     );
 }
 
+export const sdPublicGeneration = {
+    presetsKey: 'presets', selectedKey: 'selectedPresetId',
+    snapshot() {
+        return settingsLoaded && settingsCache ? structuredClone(settingsCache)
+            : SdDrawStorage.getStrict(SERVER_FILE_KEY, null).then(saved => normalizeSettings(saved || {}));
+    },
+    generate(request, settings, { signal, onProgress }) {
+        const defaults = getEffectiveParams(settings);
+        validateDrawInput(request, defaults);
+        if (!settings.host) throw new MediaApiError('not_configured');
+        const params = getEffectiveParams(settings, request.params || {});
+        const characters = request.characterPrompts || [];
+        const prompt = joinTags(request.positivePrefix ?? params.positivePrefix, request.prompt, ...characters.map(item => item.prompt));
+        const negativePrompt = request.negativePrompt ?? joinTags(params.negativePrefix, ...characters.map(item => item.uc));
+        let payload;
+        try { payload = buildSdImageRequest({ prompt, negativePrompt, params }); }
+        catch (cause) { throw new MediaApiError('invalid_request', { cause }); }
+        for (const [field, value] of Object.entries(request.params || {})) {
+            const compiled = field === 'clip_skip' ? payload.override_settings?.CLIP_stop_at_last_layers : payload[field];
+            if (typeof value === 'number' && compiled !== undefined && value !== compiled) throw new MediaApiError('invalid_request', { field: `params.${field}` });
+        }
+        return sdImageRequestQueue.enqueue(() => settings.useImageBackendJobs
+            ? runPublicImageJob(sdBackendJobsClient, {
+                provider: 'sd-webui', context: { url: settings.host, auth: settings.auth },
+                delay: { min: SD_REQUEST_DELAY_MS, max: SD_REQUEST_DELAY_MS },
+                items: [{ request: { payload, resultMode: 'all' }, timeout: settings.timeout }],
+            }, { signal, onProgress })
+            : requestSdImage({ payload, generationConfig: settings, signal, allResults: true }), {
+            signal, scope: 'public',
+            onQueued: data => onProgress?.({ state: 'queued', ...data }),
+            onStart: () => onProgress?.({ state: 'generating' }),
+        });
+    },
+};
+
 function classifySdError(message) {
     const text = String(message || '');
     const lower = text.toLowerCase();
@@ -1023,6 +1064,15 @@ function bindOverlayEvents() {
             ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed);
         checkbox.checked = getSharedDrawSettings().saveAsJpeg === true;
         checkbox.disabled = false;
+    });
+    bindImageSaveControls({
+        autoSave: querySettings('#sd-gallery-auto-save'),
+        folder: querySettings('#sd-gallery-save-by-folder'),
+        openButton: querySettings('#sd-gallery-open-folder'),
+        getSettings: getSharedDrawSettings,
+        saveSettings: mutate => withSaveTimeout(updateSharedDrawSettingsPersistent(mutate, '已保存', { notify: false, silent: false })),
+        report: (state, text) => updateStatusText('sd-gallery-status', state === 'info' ? '' : state, text),
+        openFolder: openImageFolder,
     });
     querySettings('#sd-gallery-clear-expired')?.addEventListener('click', async () => {
         updateStatusText('sd-gallery-status', '', '正在清理...');
@@ -1467,6 +1517,8 @@ function fillForm(settings) {
     setValue('sd-gallery-cache-days', getSharedDrawSettings().cacheDays);
     const jpegCheckbox = querySettings('#sd-gallery-save-as-jpeg');
     if (jpegCheckbox) jpegCheckbox.checked = getSharedDrawSettings().saveAsJpeg === true;
+    setChecked('sd-gallery-auto-save', getSharedDrawSettings().autoSaveImages);
+    setChecked('sd-gallery-save-by-folder', getSharedDrawSettings().saveImagesByFolder);
     setSelectValue('sd-draw-model', preset.model || '');
     setSelectValue('sd-draw-sampler', preset.sampler_name || '');
     applyPromptPresetToForm(settings);
@@ -3573,7 +3625,7 @@ async function saveCurrentImage(container) {
         const charName = ctx.groupId
             ? String(ctx.groups?.[ctx.groupId]?.id ?? 'group')
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
-        const url = await saveBase64AsFile(preview.base64, charName, `sd_${imgId}`, 'png');
+        const url = await saveImageToServer({ base64: preview.base64, charName, fileName: `sd_${imgId}`, format: 'png' });
         await updatePreviewSavedUrl(imgId, url);
         preview.savedUrl = url;
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "saveCurrentImage" }, caughtError); });
@@ -3712,6 +3764,7 @@ export async function generateImagesFromText(options = {}) {
                 negativePrompt: promptData.negative,
             });
             await setSlotSelection(slotId, imgId);
+            observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId, filePrefix: imageFilePrefix("sd-webui") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
             successCount++;
             images.push({
                 slotId,
@@ -3784,7 +3837,7 @@ async function runPreparedSdSlots(input) {
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
-            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("sd-webui"),
             backend: settings.useImageBackendJobs === true,
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runSdImageBatch({
@@ -3840,7 +3893,7 @@ export async function generateAndInsertImages({
                         providerSettings: sdSettings,
                         sharedSettings: sharedSettingsSnapshot,
                     });
-                    return prepareScenePlannerInput({ ...plannerOptions, maxPlanImages });
+                    return prepareScenePlannerInput({ ...plannerOptions, maxPlanImages, executionTarget: 'server' });
                 },
                 createGenerationRecipe: () => createSdGenerationRecipe({
                     settings: sdSettings,
@@ -3872,8 +3925,7 @@ export async function generateAndInsertImages({
                 onStateChange,
             });
             if (signal.aborted) throw new Error('已取消');
-            if (built.sceneSource) assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), built.sceneSource.sourceHash);
-            return built;
+            return { ...built, tasks: bindScenePlanSource(built.tasks, built.sceneSource, normalizeMessageSceneSourceText(message.mes)) };
         }, { maxRetries: sharedSettingsSnapshot.plannerMaxRetries, signal, onStateChange });
         return await runPreparedSdSlots({ ctx, message, messageId: resolvedMessageId,
             sourceText: message.mes, tasks, settings: sdSettings,
@@ -4041,7 +4093,7 @@ export function cleanupSdDraw() {
     abortPendingRequest();
     observeBackgroundTask(abortGeneration(null, { reason: 'teardown' }), { source: "modules/draw/providers/sd-webui/sd-draw.js", operation: "cleanupSdDraw" });
     clearFloorImageJobs(generationJobs);
-    sdImageRequestQueue.clear();
+    sdImageRequestQueue.clear({ scope: 'default' });
     hideSettings();
     destroySdDrawPanelsRef?.();
     ensureSdDrawPanelRef = null;

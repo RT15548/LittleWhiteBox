@@ -21,6 +21,7 @@ import { parseJsonResponse } from './json-response.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { filterText } from '../utils/text-filter.js';
 import { ANCHOR_GENERATION_RULES } from '../../data/generation-rules.js';
+import { isUserHidden } from '../../data/message-visibility.js';
 
 const MODULE_ID = 'atom-extraction';
 
@@ -161,12 +162,12 @@ export async function extractAtomsForRound(userMessage, aiMessage, aiFloor, opti
         || shouldCancel?.() === true
     );
 
-    if (!aiMessage?.mes?.trim()) return [];
+    if (!aiMessage?.mes?.trim() || isUserHidden(aiMessage)) return [];
 
     const parts = [];
     const userName = userMessage?.name || '用户';
 
-    if (userMessage?.mes?.trim()) {
+    if (!isUserHidden(userMessage) && userMessage?.mes?.trim()) {
         const userText = filterText(userMessage.mes);
         parts.push(`<user name="${escapeNameAttribute(userName)}">\n${userText}\n</user>`);
     }

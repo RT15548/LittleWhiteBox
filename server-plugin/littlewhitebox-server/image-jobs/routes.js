@@ -1,7 +1,5 @@
 'use strict';
 
-const { MAX_JOB_ITEMS, createImageJobService } = require('./service.js');
-
 function getRequestOwner(req) {
     const handle = req.user?.profile?.handle;
     return typeof handle === 'string' && handle.length > 0 ? handle : null;
@@ -11,7 +9,7 @@ function parseItemIndex(value) {
     const raw = String(value ?? '');
     if (!/^(0|[1-9]\d*)$/.test(raw)) return null;
     const index = Number(raw);
-    return Number.isSafeInteger(index) && index < MAX_JOB_ITEMS ? index : null;
+    return Number.isSafeInteger(index) ? index : null;
 }
 
 function sendOwnerError(res) {
@@ -22,13 +20,13 @@ function sendNotFound(res) {
     return res.status(404).send({ ok: false, error: 'Image job not found' });
 }
 
-function registerImageJobRoutes(router, { manager, adapters, service = null }) {
-    const imageJobService = service || createImageJobService({ manager, adapters });
+function registerImageJobRoutes(router, { manager, service }) {
+    const imageJobService = service;
     router.post('/v1/jobs', (req, res) => {
         const owner = getRequestOwner(req);
         if (!owner) return sendOwnerError(res);
         try {
-            const job = imageJobService.create(owner, req.body || {});
+            const job = imageJobService.create(owner, req.body || {}, req.runtime);
             return res.status(202).send({ ok: true, job: { id: job.id, state: job.state, total: job.total, createdAt: job.createdAt } });
         } catch (error) {
             return res.status(Number.isInteger(error?.status) ? error.status : 503).send({
@@ -58,6 +56,8 @@ function registerImageJobRoutes(router, { manager, adapters, service = null }) {
         if (!owner) return sendOwnerError(res);
         const index = parseItemIndex(req.params.index);
         if (index === null) return res.status(400).send({ ok: false, error: 'Result index is invalid' });
+        const job = manager.getJob(owner, req.params.jobId);
+        if (job && index >= job.total) return res.status(400).send({ ok: false, error: 'Result index is invalid' });
         const result = manager.getResult(owner, req.params.jobId, index);
         if (!result) return sendNotFound(res);
         if (result.state === 'consumed') return res.status(410).send({ ok: false, state: result.state, error: 'Image result was already consumed' });
@@ -72,6 +72,8 @@ function registerImageJobRoutes(router, { manager, adapters, service = null }) {
         if (!owner) return sendOwnerError(res);
         const index = parseItemIndex(req.params.index);
         if (index === null) return res.status(400).send({ ok: false, error: 'Result index is invalid' });
+        const job = manager.getJob(owner, req.params.jobId);
+        if (job && index >= job.total) return res.status(400).send({ ok: false, error: 'Result index is invalid' });
         const result = manager.consumeResult(owner, req.params.jobId, index);
         if (!result) return sendNotFound(res);
         if (!result.ok) return res.status(409).send({ ok: false, state: result.state, error: result.error || null });

@@ -11,6 +11,7 @@ import { buildFiles, compareBuild } from './build/artifacts.mjs';
 import { checkProject } from './check-project.mjs';
 
 const checkOnly = process.argv.includes('--check');
+process.env.LWB_BUILD_CHECK = checkOnly ? '1' : '0';
 checkProject();
 fs.mkdirSync(path.join(root, 'output'), { recursive: true });
 const runRoot = fs.mkdtempSync(path.join(root, 'output/plugin-build-'));
@@ -26,7 +27,7 @@ function run(command, args) {
 }
 for (const [command, args] of checks) run(command, args);
 for (const script of generators) run('node', ['--import', 'tsx', script]);
-await build({ configFile: path.join(root, 'vite.plugin.config.mjs'), build: { outDir: path.join(stage, 'dist') } });
+await build({ configFile: path.join(root, 'vite.plugin.config.mjs'), build: { outDir: path.join(stage, 'dist'), emptyOutDir: false } });
 const summary = validateBuild(path.join(stage, 'dist'));
 run('node', ['scripts/build-assistant-file-manifest.mjs']);
 if (checkOnly) {

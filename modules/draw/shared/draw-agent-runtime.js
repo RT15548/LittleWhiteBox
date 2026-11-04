@@ -8,6 +8,8 @@ import {
     isScenePlannerCorrectionError,
 } from './scene-plan-contract.js';
 import { redactRequestSecrets } from '../../agent-core/adapters/request-inspection.js';
+import { GOOGLE_SYNTHETIC_HISTORY_SIGNATURE } from './scene-planner-messages.js';
+import { projectScenePlannerHostClaudeHistory } from './scene-planner-handoff.js';
 import {
     MAX_CUSTOM_TOOL_CALLS,
     TOOL_RECORD_MAX_CHARS,
@@ -23,6 +25,7 @@ import {
 
 const DEFAULT_SCENE_PLANNER_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_SCENE_PLANNER_ATTEMPTS = 3;
+export const SCENE_PLANNER_TOOL_CHOICE = 'auto';
 
 // 每次场景规划（含它的重试）一条记录，只放在页面内存里：最近 10 条，较早的失败再多留到共 5 条，
 // 这样成功的记录多了也不会把失败的挤掉。
@@ -357,7 +360,7 @@ export function beginDrawScenePlannerDiagnostic(initial = {}, onDiagnosticUpdate
         reasoningBudgetTokens: null,
         reasoningControlFields: {},
         reasoningOutputVisible: false,
-        toolChoice: 'required',
+        toolChoice: SCENE_PLANNER_TOOL_CHOICE,
         toolsCount: 1,
         attemptCount: 0,
         progress: {
@@ -551,10 +554,14 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
         throw error;
     }
 
+    const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
+    const messages = providerConfig.provider === 'sillytavern-claude'
+        ? projectScenePlannerHostClaudeHistory(sourceMessages)
+        : [...sourceMessages];
     const abortScope = createAbortScope(options.timeout, options.signal);
     const baseAgentTask = {
         ...task,
-        toolChoice: 'required',
+        toolChoice: SCENE_PLANNER_TOOL_CHOICE,
         temperature: providerConfig.temperature,
         maxTokens: providerConfig.maxTokens,
         reasoning: providerConfig.reasoning,
@@ -564,7 +571,25 @@ export async function callDrawScenePlannerAgentRuntime(options = {}) {
     delete baseAgentTask.onStreamProgress;
     delete baseAgentTask.onToolProtocolFallback;
 
-    const messages = Array.isArray(task.messages) ? [...task.messages] : [];
+    // Google's OpenAI endpoint uses a different signature field for artificial history.
+    // Keep this projection out of the stored prompt and out of other providers' requests.
+    if (providerConfig.toolMode !== 'tagged-json'
+        && ['openai-compatible', 'sillytavern-openai-compatible'].includes(providerConfig.provider)
+        && /gemini/i.test(String(providerConfig.model || ''))) {
+        messages.forEach((message, index) => {
+            const synthetic = message.providerPayload?.googleContent?.parts?.some(part => (
+                part.functionCall && part.thoughtSignature === GOOGLE_SYNTHETIC_HISTORY_SIGNATURE
+            ));
+            if (!synthetic) return;
+            messages[index] = {
+                ...message,
+                tool_calls: message.tool_calls.map(call => ({
+                    ...call,
+                    extra_content: { google: { thought_signature: GOOGLE_SYNTHETIC_HISTORY_SIGNATURE } },
+                })),
+            };
+        });
+    }
     const corrections = [];
     const validationFailures = [];
     const attempts = [];

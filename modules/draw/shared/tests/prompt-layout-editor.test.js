@@ -186,7 +186,7 @@ test('role select and enable toggle patch the row in place and write through onC
     Array.from(select.querySelectorAll('option')).find(option => option.getAttribute('value') === 'assistant').selected = true;
     ctx.fire(select, 'change');
     assert.equal(ctx.getLayout().blocks.at(-1).role, 'assistant');
-    assert.equal(row.querySelector('[data-ple-role]').textContent, 'assistant');
+    assert.equal(row.querySelector('[data-ple-role]').classList.contains('assistant'), true);
 
     const toggle = ctx.field(id, 'toggle');
     toggle.checked = false;
@@ -234,42 +234,14 @@ test('user text is rendered as text, never parsed as markup', (t) => {
 
 function layoutRows(ctx) {
     let top = 0;
-    for (const row of ctx.rows()) {
+    for (const row of ctx.host.querySelectorAll('[data-ple-sort-id]')) {
         const rect = { top, bottom: top + 100, height: 100, left: 0, right: 300, width: 300 };
         row.getBoundingClientRect = () => rect;
         top += 100;
     }
 }
 
-test('keyboard: arrows on a handle move the block one step, keep focus on that handle and announce the new position', (t) => {
-    const ctx = setup(t);
-    const down = ctx.key(ctx.field('opening', 'handle'), 'ArrowDown');
-    assert.equal(down.defaultPrevented, true);
-    assert.deepEqual(ctx.ids().slice(0, 3), ['frame', 'opening', 'guide']);
-    assert.deepEqual(ctx.getLayout().blocks.slice(0, 2).map(block => block.id), ['frame', 'opening']);
-    assert.equal(ctx.focused.at(-1), 'opening');
 
-    const before = ctx.changes.length;
-    ctx.key(ctx.field('frame', 'handle'), 'ArrowUp'); // 已在最前
-    ctx.key(ctx.field('limits', 'handle'), 'ArrowDown'); // 已在最后
-    assert.equal(ctx.changes.length, before, '边界处不动');
-    assert.equal(ctx.key(ctx.field('opening', 'handle'), 'a').defaultPrevented, false);
-});
-
-test('dragging a handle reorders through onChange; built-in and custom blocks sort together', (t) => {
-    const ctx = setup(t);
-    ctx.add();
-    const [id] = customIds(ctx);
-    layoutRows(ctx);
-    const handle = ctx.field(id, 'handle');
-    ctx.fire(handle, 'pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 850 });
-    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 10 });
-    assert.equal(ctx.row('opening').classList.contains('drop-before'), true);
-    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 10 });
-    assert.equal(ctx.ids()[0], id);
-    assert.equal(ctx.getLayout().blocks[0].id, id);
-    assert.equal(ctx.host.querySelectorAll('.dragging, .drop-before, .drop-after').length, 0);
-});
 
 // ── 删除 / 恢复默认 ─────────────────────────────────────
 
@@ -289,7 +261,7 @@ test('deleting a block with content asks first, declining keeps it, accepting re
     assert.equal(ctx.confirms.length, 2);
     assert.deepEqual(customIds(ctx), []);
     assert.equal(ctx.getLayout().blocks.length, 8);
-    assert.equal(ctx.focused.at(-1), 'limits', '焦点落到相邻块的手柄');
+    assert.equal(ctx.focused.at(-1), 'BUTTON', '最后一条删除后回到添加入口');
     assert.equal(ctx.dirty(), false, '回到与已保存一致');
 });
 
@@ -302,28 +274,6 @@ test('deleting an empty block does not ask', (t) => {
     assert.deepEqual(customIds(ctx), []);
 });
 
-test('reset asks only when custom blocks would be lost, and it changes the draft only', (t) => {
-    const ctx = setup(t, { confirmAnswers: [false, true] });
-    // 只调了内置块顺序：不弹确认
-    ctx.key(ctx.field('opening', 'handle'), 'ArrowDown');
-    const reset = ctx.host.querySelector('[data-ple-reset]');
-    assert.equal(reset.hasAttribute('disabled'), false);
-    ctx.click(reset);
-    assert.equal(ctx.confirms.length, 0);
-    assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
-    assert.equal(isDefaultLayout(ctx.getLayout()), true);
-
-    // 有自定义块：先确认
-    ctx.add();
-    ctx.add();
-    ctx.click(reset);
-    assert.equal(ctx.confirms.length, 1);
-    assert.equal(customIds(ctx).length, 2, '拒绝后不变');
-    ctx.click(reset);
-    assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
-    assert.equal(ctx.focused.at(-1), 'BUTTON', '焦点回到“添加消息”按钮');
-    assert.equal(reset.hasAttribute('disabled'), true);
-});
 
 // ── 重绘策略 ────────────────────────────────────────────
 
@@ -452,7 +402,6 @@ test('add inserts below the expanded message, becomes the expanded one, and cons
     const ctx = setup(t);
     ctx.add();
     const [first] = customIds(ctx);
-    ctx.click(ctx.field('rules', 'handle')); // 没有展开项变化，先让第一条展开着
     ctx.add();
     const [, second] = customIds(ctx);
     assert.equal(ctx.ids().indexOf(second), ctx.ids().indexOf(first) + 1, '紧贴在展开那条下方');
@@ -503,37 +452,8 @@ function withCustoms(t, count = 3) {
     return ctx;
 }
 
-test('the 多选 button toggles selection mode: checkboxes appear, a click selects, leaving clears the selection', (t) => {
-    const ctx = setup(t);
-    const button = ctx.host.querySelector('[data-ple-select-mode]');
-    assert.equal(ctx.host.querySelector('.lwb-ple').classList.contains('select-mode'), false);
-    assert.equal(bar(ctx).hasAttribute('hidden'), true);
 
-    ctx.click(button);
-    assert.equal(ctx.host.querySelector('.lwb-ple').classList.contains('select-mode'), true);
-    assert.equal(button.getAttribute('aria-pressed'), 'true');
-    assert.equal(ctx.host.querySelectorAll('[data-ple-field="select"]').length, 8, '每行一个选择框');
-
-    const box = ctx.field('guide', 'select');
-    box.checked = true;
-    ctx.click(box);
-    assert.deepEqual(selectedIds(ctx), ['guide']);
-    assert.equal(bar(ctx).hasAttribute('hidden'), false);
-    assert.equal(ctx.changes.length, 0, '选择不改布局');
-    assert.equal(ctx.dirty(), false);
-
-    box.checked = false;
-    ctx.click(box);
-    assert.deepEqual(selectedIds(ctx), []);
-    assert.equal(bar(ctx).hasAttribute('hidden'), true);
-
-    ctx.click(ctx.field('rules', 'select'));
-    ctx.click(button);
-    assert.deepEqual(selectedIds(ctx), [], '退出多选清空选择');
-    assert.equal(ctx.host.querySelector('.lwb-ple').classList.contains('select-mode'), false);
-});
-
-test('Ctrl click selects without expanding, Shift click selects a range, built-in rows are selectable too', (t) => {
+test('Ctrl click selects without expanding and Shift click selects custom messages without selecting built-ins', (t) => {
     const ctx = withCustoms(t);
     const [a, b, c] = customIds(ctx);
     assert.deepEqual(expandedIds(ctx), [c]);
@@ -550,7 +470,7 @@ test('Ctrl click selects without expanding, Shift click selects a range, built-i
     assert.ok(selectedIds(ctx).includes(b));
 
     ctx.fire(ctx.row('frame').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
-    assert.ok(selectedIds(ctx).includes('frame'), '内置块也能选');
+    assert.equal(selectedIds(ctx).includes('frame'), false, '内置块不参与消息选择');
     assert.equal(ctx.edits.length, edits, '没有触发“去编辑”');
     ctx.fire(ctx.field('frame', 'edit'), 'click', { ctrlKey: true });
     assert.equal(ctx.edits.at(-1), 'frame', '按钮本身不被当成选择');
@@ -559,8 +479,8 @@ test('Ctrl click selects without expanding, Shift click selects a range, built-i
 test('the selection bar copies, deletes, toggles and clears; copy and delete need at least one custom block', (t) => {
     const ctx = withCustoms(t);
     const [a, b] = customIds(ctx);
-    ctx.fire(ctx.field('opening', 'handle'), 'click', { ctrlKey: true });
-    assert.equal(bulk(ctx, 'copy').hasAttribute('disabled'), true, '只选了内置块时不能复制');
+    ctx.fire(ctx.row('opening').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
+    assert.equal(bulk(ctx, 'copy').hasAttribute('disabled'), true, '内置块不参与选择，没有消息可复制');
     assert.equal(bulk(ctx, 'delete').hasAttribute('disabled'), true);
     ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
     assert.equal(bulk(ctx, 'copy').hasAttribute('disabled'), false);
@@ -577,13 +497,13 @@ test('the selection bar copies, deletes, toggles and clears; copy and delete nee
     assert.ok(b);
 });
 
-test('bulk copy duplicates custom blocks right below their originals, skips built-ins with a notice, selects the copies and can be undone', (t) => {
+test('bulk copy duplicates only custom messages, selects the copies and can be undone', (t) => {
     const ctx = withCustoms(t);
     const [a, b, c] = customIds(ctx);
     const before = ctx.getLayout();
     ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
     ctx.fire(ctx.field(c, 'main'), 'click', { ctrlKey: true });
-    ctx.fire(ctx.field('guide', 'handle'), 'click', { ctrlKey: true });
+    ctx.fire(ctx.row('guide').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
     ctx.click(bulk(ctx, 'copy'));
 
     const ids = ctx.ids();
@@ -602,9 +522,9 @@ test('bulk copy duplicates custom blocks right below their originals, skips buil
     assert.ok(b);
 });
 
-test('bulk copy of only built-in blocks changes nothing and explains why', (t) => {
+test('clicking built-in blocks leaves bulk copy disabled and the layout unchanged', (t) => {
     const ctx = setup(t);
-    ctx.fire(ctx.field('guide', 'handle'), 'click', { ctrlKey: true });
+    ctx.fire(ctx.row('guide').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
     const before = ctx.changes.length;
     ctx.click(bulk(ctx, 'copy'));
     assert.equal(bulk(ctx, 'copy').hasAttribute('disabled'), true, '按钮本来就不可用');
@@ -612,19 +532,19 @@ test('bulk copy of only built-in blocks changes nothing and explains why', (t) =
     assert.equal(ctx.changes.length, before);
 });
 
-test('bulk delete removes only custom blocks, keeps selected built-ins, and the 撤销 bar restores everything', (t) => {
+test('bulk delete removes only custom messages, preserves built-ins, and the 撤销 bar restores everything', (t) => {
     const ctx = withCustoms(t);
     const [a, b, c] = customIds(ctx);
     const before = ctx.getLayout();
     ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
     ctx.fire(ctx.field(b, 'main'), 'click', { ctrlKey: true });
-    ctx.fire(ctx.field('rules', 'handle'), 'click', { ctrlKey: true });
+    ctx.fire(ctx.row('rules').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
     const confirmsBefore = ctx.confirms.length;
     ctx.click(bulk(ctx, 'delete'));
     assert.equal(ctx.confirms.length, confirmsBefore, '有撤销，不再逐个确认');
     assert.deepEqual(customIds(ctx), [c]);
     assert.ok(ctx.ids().includes('rules'), '内置块保留');
-    assert.deepEqual(selectedIds(ctx), ['rules'], '内置块仍然选中');
+    assert.deepEqual(selectedIds(ctx), [], '固定阶段不参与选择');
 
     ctx.click(ctx.host.querySelector('[data-ple-undo]'));
     assert.deepEqual(ctx.getLayout(), before);
@@ -646,41 +566,7 @@ test('deleting one block also offers 撤销, and any later change hides the undo
     assert.equal(undo.hasAttribute('hidden'), true, '之后任何修改都会收起撤销条（撤销只还原最近一次）');
 });
 
-test('dragging one selected row moves the whole selected group; keyboard moves it one step', (t) => {
-    const ctx = withCustoms(t);
-    const [a, b, c] = customIds(ctx);
-    ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
-    ctx.fire(ctx.field(b, 'main'), 'click', { ctrlKey: true });
-    layoutRows(ctx);
-    const top = ctx.ids().indexOf(a);
-    const handle = ctx.field(a, 'handle');
-    ctx.fire(handle, 'pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: top * 100 + 10 });
-    assert.equal(ctx.row(b).classList.contains('dragging'), true, '整组都标记为拖动中');
-    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 10 }); // 拖到最顶
-    assert.equal(ctx.row('opening').classList.contains('drop-before'), true);
-    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 10 });
-    assert.deepEqual(ctx.ids().slice(0, 3), [a, b, 'opening'], '两条一起移到最前，保持相对顺序');
-    assert.equal(ctx.host.querySelectorAll('.dragging, .drop-before, .drop-after').length, 0);
-    assert.deepEqual(selectedIds(ctx), [a, b], '移动后选择还在');
 
-    ctx.key(ctx.field(b, 'handle'), 'ArrowDown');
-    assert.deepEqual(ctx.ids().slice(0, 3), ['opening', a, b], '键盘：整组下移一格');
-    assert.ok(c);
-});
-
-test('dragging a row that is not selected moves only that row', (t) => {
-    const ctx = withCustoms(t);
-    const [a, b, c] = customIds(ctx);
-    ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
-    ctx.fire(ctx.field(b, 'main'), 'click', { ctrlKey: true });
-    layoutRows(ctx);
-    const handle = ctx.field(c, 'handle');
-    ctx.fire(handle, 'pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: ctx.ids().indexOf(c) * 100 + 10 });
-    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 10 });
-    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 10 });
-    assert.equal(ctx.ids()[0], c);
-    assert.ok(ctx.ids().indexOf(a) > 0 && ctx.ids().indexOf(b) > 0, '没选中的行单独移动，选中的行留在原处');
-});
 
 test('selection and expansion never leak into the stored layout or the draft', (t) => {
     const ctx = withCustoms(t);
@@ -712,4 +598,59 @@ test('reset and render({collapse}) clear the selection and the undo bar; stale i
     ctx.editor.render();
     assert.deepEqual(selectedIds(ctx), []);
     assert.equal(bar(ctx).hasAttribute('hidden'), true);
+});
+
+// Contracts: stage boundaries shown by the editor are the positions used by the saved request.
+test('fixed stages have no drag handles; inserted messages cross whole stages with keyboard and pointer input', t => {
+    const ctx = setup(t);
+    for (const id of BUILTIN_BLOCK_IDS) {
+        assert.equal(ctx.field(id, 'handle'), undefined);
+        assert.equal(ctx.field(id, 'select'), undefined);
+    }
+    ctx.click(ctx.host.querySelector('[data-ple-insert-after="tools"]'));
+    const [id] = customIds(ctx);
+    const area = ctx.field(id, 'content');
+    area.value = '保留这条消息';
+    ctx.fire(area, 'input');
+    assert.equal(ctx.ids().indexOf(id), ctx.ids().indexOf('tools') + 1);
+    ctx.key(ctx.field(id, 'handle'), 'ArrowDown');
+    assert.equal(ctx.ids().indexOf(id), ctx.ids().indexOf('content') + 1);
+    assert.equal(ctx.field(id, 'content').value, '保留这条消息');
+    layoutRows(ctx);
+    ctx.fire(ctx.field(id, 'handle'), 'pointerdown', { button: 0, pointerId: 1, clientY: 150 });
+    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 0 });
+    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 0 });
+    assert.equal(ctx.ids().indexOf(id), ctx.ids().indexOf('tools') + 1);
+    assert.deepEqual(ctx.ids().filter(value => BUILTIN_BLOCK_IDS.includes(value)), BUILTIN_BLOCK_IDS);
+    assert.equal(ctx.field(id, 'content').value, '保留这条消息');
+});
+
+test('multi-selected messages move together without selecting or splitting the fixed stages', t => {
+    const ctx = withCustoms(t);
+    const [a, b, c] = customIds(ctx);
+    ctx.fire(ctx.field(a, 'main'), 'click', { ctrlKey: true });
+    ctx.fire(ctx.field(b, 'main'), 'click', { shiftKey: true });
+    ctx.fire(ctx.row('guide').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
+    assert.deepEqual(selectedIds(ctx), [a, b]);
+    ctx.key(ctx.field(a, 'handle'), 'ArrowUp');
+    assert.deepEqual(ctx.ids().slice(ctx.ids().indexOf('content') + 1, ctx.ids().indexOf('guide')), [a, b]);
+    assert.equal(ctx.ids().at(-1), c);
+    assert.deepEqual(ctx.ids().filter(value => BUILTIN_BLOCK_IDS.includes(value)), BUILTIN_BLOCK_IDS);
+    assert.equal(ctx.getLayout().blocks.find(block => block.id === a).content, '内容 1');
+    assert.equal(ctx.getLayout().blocks.find(block => block.id === b).content, '内容 2');
+});
+
+test('explicit reset still asks before removing custom messages and declining preserves the draft', t => {
+    const ctx = setup(t, { confirmAnswers: [false, true] });
+    ctx.add();
+    const [id] = customIds(ctx);
+    const area = ctx.field(id, 'content');
+    area.value = '不可丢失';
+    ctx.fire(area, 'input');
+    const reset = ctx.host.querySelector('[data-ple-reset]');
+    ctx.click(reset);
+    assert.equal(ctx.field(id, 'content').value, '不可丢失');
+    ctx.click(reset);
+    assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
+    assert.equal(isDefaultLayout(ctx.getLayout()), true);
 });

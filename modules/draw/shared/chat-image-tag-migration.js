@@ -4,14 +4,14 @@ import { readGeneratedImageForAdoption } from './generated-image-runtime.js';
 import { getPreview, getPreviewsBySlot, getPreviewsForMessage, storePreview, updatePreviewRecord, clearPreviewPlacements,
     getSlotSelection, setSlotSelection } from './gallery-cache.js';
 import { placePreparedImageSlots } from './prepared-image-placement.js';
-import { captureImagePlacement, saveChatImagePlacements, getImageChatIdentity } from './chat-image-persistence.js';
-import { hashSceneSource } from './scene-source.js';
+import { captureImagePlacement, getImageChatIdentity, imagePlacementSource } from './chat-image-persistence.js';
 import { hashStableValue } from './generation-fingerprint.js';
 import { createDrawImageSlotRegex } from './image-marker-syntax.js';
-import { setActiveMessageText } from './scene-placement.js';
+import { isSceneSlotAlive, setActiveMessageText } from './scene-placement.js';
 import { commitChatImagePlacement } from './chat-image-placement.js';
 import { syncRenderedMessageFromState, renderPreviewsForMessage, isMessageBeingEdited } from './draw-common.js';
 import { PreviewStatus, hasPreviewImage, DRAW_SLOT_ERRORS } from './image-record.js';
+import { listPendingImageJobs, discardPendingImageSlot, PendingJobState, PendingJobAdoptionPhase } from './pending-image-jobs.js';
 
 const admissions = new WeakMap();
 const editing = new WeakMap();
@@ -33,6 +33,13 @@ export function withdrawEditedImagePlacements(ctx, messageId) {
         const records = await getPreviewsForMessage(String(ctx.chatId), messageId);
         await clearPreviewPlacements(owner, records.filter(record => record.placement?.owner === owner
             && record.placement.swipeIndex === swipeIndex && !attached.has(record.slotId)).map(record => record.slotId));
+        for (const record of await listPendingImageJobs()) {
+            if (record.submission?.owner !== owner || record.delivery?.swipeIndex !== swipeIndex
+                || (record.submission.messageDate !== null ? record.submission.messageDate !== message.send_date
+                    : record.delivery.messageId !== String(messageId))
+                || record.state === PendingJobState.ADOPTING && record.adoptionPhase !== PendingJobAdoptionPhase.READY) continue;
+            for (const item of record.items) if (!attached.has(item.slotId)) await discardPendingImageSlot(item.slotId);
+        }
     })().then(() => { if (editing.get(message) === operation) editing.delete(message); });
     // Failed withdrawal must not give a viewport refresh permission to undo
     // the user's edit. A subsequent explicit edit retries this same boundary.
@@ -77,21 +84,23 @@ async function recoverMessage(ctx, messageId, message, initialSource, swipeIndex
     // A paid result whose text save failed reuses its original slot/attempt.
     // Match only this exact branch/source, never a merely similar earlier floor.
     for (let pass = 0; pass < records.length; pass++) {
-        const sourceHash = hashSceneSource(source);
-        const slots = new Map(records.filter(record => record.placement?.sourceHash === sourceHash
+        const slots = new Map(records.filter(record => !isSceneSlotAlive(source, record.slotId)
+            && imagePlacementSource(source, record.placement) !== null
             && record.placement.swipeIndex === swipeIndex).map(record => [record.slotId, record]));
         if (!slots.size) break;
         const items = [...slots.values()].sort((a, b) => a.placement.order - b.placement.order);
-        const next = placePreparedImageSlots(source, items.map(item => ({ placement: item.placement.task })), items);
+        const prefix = imagePlacementSource(source, items[0].placement);
+        const sameSourceItems = items.filter(item => imagePlacementSource(source, item.placement) === prefix);
+        const next = placePreparedImageSlots(prefix, sameSourceItems.map(item => ({ placement: item.placement.task })), sameSourceItems) + source.slice(prefix.length);
         if (next === source) break;
-        if (items.every(item => item.placement.task.mode === 'replace')) {
-            commitChatImagePlacement({ message, swipeIndex, before: source, edits: items.map(item => ({
+        if (sameSourceItems.every(item => item.placement.task.mode === 'replace')) {
+            commitChatImagePlacement({ message, swipeIndex, before: source, edits: sameSourceItems.map(item => ({
                 ...item.placement.task, slotId: item.slotId, content: `[image:${item.slotId}]`,
             })) });
         } else setActiveMessageText(message, next);
         source = message.mes;
         entry.source = source;
-        items.forEach(item => restoredSlots.add(item.slotId));
+        sameSourceItems.forEach(item => restoredSlots.add(item.slotId));
         changed = true;
     }
 
@@ -160,11 +169,6 @@ async function recoverMessage(ctx, messageId, message, initialSource, swipeIndex
         edits.forEach(edit => restoredSlots.add(edit.slotId));
         changed = true;
     }
-    // Re-entering a floor also retries attachment persistence, even if its
-    // in-memory text already contains the slot from an earlier failed save.
-    const attached = new Set([...source.matchAll(createDrawImageSlotRegex())].map(match => match[1]));
-    const saveSlots = new Set([...restoredSlots, ...records.filter(record => record.placement && attached.has(record.slotId)).map(record => record.slotId)]);
-    if (saveSlots.size) void saveChatImagePlacements(ctx, [...saveSlots]);
     if (restoredSlots.size) {
         await syncRenderedMessageFromState(messageId, { chatId, expectedMessage: message,
             insertedSlotIds: [...restoredSlots] });

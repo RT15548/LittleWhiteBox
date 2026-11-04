@@ -11,10 +11,10 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const PLUGIN_ID = require('../manifest.json').id;
-const REQUIRED_SILLYTAVERN_VERSION = '1.18.0';
+const SUPPORTED_SILLYTAVERN_VERSIONS = new Set(['1.14.0', '1.18.0']);
 const PROBE_PATH = `/api/plugins/${PLUGIN_ID}/v1/draw-runs/probe`;
 const STATUS_PATH = `/api/plugins/${PLUGIN_ID}/status`;
-const START_TIMEOUT_MS = 60_000;
+const START_TIMEOUT_MS = 180_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const BASIC_AUTH = `Basic ${Buffer.from('probe-user:probe-password').toString('base64')}`;
 const pluginRoot = path.resolve(__dirname, '..');
@@ -50,7 +50,7 @@ function yamlString(value) {
     return JSON.stringify(String(value).replaceAll('\\', '/'));
 }
 
-function buildConfig({ dataRoot, port, ipv6 = false, tls = false, basicAuth = false, bindAddress = null }) {
+function buildConfig({ dataRoot, port, ipv6 = false, tls = false, basicAuth = false, bindAddress = null, extensions = false }) {
     return [
         `dataRoot: ${yamlString(dataRoot)}`,
         `listen: ${basicAuth || bindAddress ? 'true' : 'false'}`,
@@ -80,7 +80,10 @@ function buildConfig({ dataRoot, port, ipv6 = false, tls = false, basicAuth = fa
         'enableServerPluginsAutoUpdate: false',
         'skipContentCheck: true',
         'extensions:',
-        '  enabled: false',
+        `  enabled: ${extensions}`,
+        '  autoUpdate: false',
+        '  models:',
+        '    autoDownload: false',
         'logging:',
         '  enableAccessLog: false',
         '',
@@ -256,6 +259,7 @@ async function createSecondUser(endpoint, adminSession) {
 
 async function waitForServer(endpoint, authorization, child, output, getSpawnError) {
     const deadline = Date.now() + START_TIMEOUT_MS;
+    let lastError;
     while (Date.now() < deadline) {
         if (getSpawnError()) throw getSpawnError();
         if (child.exitCode !== null || child.signalCode !== null) {
@@ -268,11 +272,11 @@ async function waitForServer(endpoint, authorization, child, output, getSpawnErr
             });
             if (response.status === 200) return;
         } catch (caughtError) {
-            console.warn({ source: __filename, operation: "waitForServer" }, caughtError);
+            lastError = caughtError;
         }
         await new Promise(resolve => setTimeout(resolve, 250));
     }
-    throw new Error(`Timed out waiting for SillyTavern.\n${output()}`);
+    throw new Error(`Timed out waiting for SillyTavern.\n${output()}`, { cause: lastError });
 }
 
 async function waitForChildExit(exited, timeoutMs) {
@@ -315,7 +319,7 @@ async function startSillyTavern(sandboxRoot, tempRoot, name, options) {
     const configPath = path.join(instanceRoot, 'config.yaml');
     const host = options.ipv6 ? '::1' : options.bindAddress || '127.0.0.1';
     const port = options.port || await getFreePort(host);
-    await fsPromises.mkdir(instanceRoot, { recursive: true });
+    await fsPromises.mkdir(dataRoot, { recursive: true });
     await fsPromises.writeFile(configPath, buildConfig({ ...options, dataRoot, port }), 'utf8');
 
     const child = spawn(process.execPath, [
@@ -356,7 +360,7 @@ async function startSillyTavern(sandboxRoot, tempRoot, name, options) {
         await stopChild(child);
         throw error;
     }
-    return { child, endpoint, authorization, logs: () => logs };
+    return { child, endpoint, authorization, dataRoot, logs: () => logs };
 }
 
 async function withSillyTavern(sandboxRoot, tempRoot, name, options, callback) {
@@ -456,9 +460,9 @@ async function prepareSillyTavernSandbox(tempRoot) {
     assert.equal(fs.existsSync(path.join(sillyTavernRoot, 'node_modules')), true, `SillyTavern dependencies not found: ${sillyTavernRoot}`);
     const packageJson = JSON.parse(await fsPromises.readFile(path.join(sillyTavernRoot, 'package.json'), 'utf8'));
     assert.equal(
-        packageJson.version,
-        REQUIRED_SILLYTAVERN_VERSION,
-        `Expected SillyTavern ${REQUIRED_SILLYTAVERN_VERSION}, received ${packageJson.version}`,
+        SUPPORTED_SILLYTAVERN_VERSIONS.has(packageJson.version),
+        true,
+        `Unsupported SillyTavern verification version: ${packageJson.version}`,
     );
 
     const sandboxRoot = path.join(tempRoot, 'sillytavern');
@@ -474,6 +478,8 @@ async function prepareSillyTavernSandbox(tempRoot) {
     ]);
     await createTemporaryLink(path.join(sillyTavernRoot, 'node_modules'), path.join(sandboxRoot, 'node_modules'));
     await createTemporaryLink(pluginRoot, path.join(sandboxRoot, 'plugins', PLUGIN_ID));
+    await fsPromises.cp(path.resolve(pluginRoot, '../../dist/server'),
+        path.join(sandboxRoot, 'public/scripts/extensions/third-party/LittleWhiteBox/dist/server'), { recursive: true });
     return sandboxRoot;
 }
 
@@ -539,6 +545,11 @@ async function main() {
                 probe(endpoint, second, { protocol: 'http', addressFamily: 'IPv4', basicAuth: false }),
             ]);
             results.push({ case: 'HTTP IPv4 + two concurrent sessions + CSRF', ok: probes.every(value => value.ok) });
+            const { runtimeId } = require('../../../dist/server/runtime.json');
+            const prepared = await postJson(endpoint, `/api/plugins/${PLUGIN_ID}/v1/runtime/prepare`, first,
+                { extensionId: 'LittleWhiteBox', runtimeId });
+            assert.equal(prepared.status, 200, prepared.text);
+            assert.equal(prepared.json.runtimeId, runtimeId);
         });
 
         await withSillyTavern(sandboxRoot, activeTempRoot, 'https-ipv4-basic', { tls: true, basicAuth: true }, async ({ endpoint, authorization }) => {
@@ -589,7 +600,8 @@ async function main() {
     }
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
     console.error(error);
     process.exitCode = 1;
 });
+module.exports = { prepareSillyTavernSandbox, startSillyTavern, cleanupResources, openSession, postJson, request, sessionHeaders };

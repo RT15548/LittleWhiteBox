@@ -1,11 +1,12 @@
 // One policy for scheduling and diagnostic counts; no storage or model calls.
+import { isUserHidden } from '../../data/message-visibility.js';
 export const L0_FLOOR_MAX_ATTEMPTS = 3;
 
 export function summarizeL0Floors(chat, byFloor) {
     let total = 0, ok = 0, empty = 0, terminalFail = 0;
     const failedFloors = [];
     for (const [floor, message] of (chat || []).entries()) {
-        if (message?.is_user) continue;
+        if (message?.is_user || isUserHidden(message)) continue;
         total++;
         const status = byFloor?.[floor];
         if (status?.status === 'ok') ok++;

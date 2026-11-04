@@ -51,8 +51,9 @@ function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
-function clampNumber(value, fallback, min, max) {
+function clampNumber(value, fallback, min, max, strict = false) {
     const number = Number(value);
+    if (strict && (!Number.isFinite(number) || number < min || number > max)) throw new RangeError('ComfyUI size is out of range');
     if (!Number.isFinite(number)) return fallback;
     return Math.min(max, Math.max(min, number));
 }
@@ -248,22 +249,26 @@ function pruneComfyOutputNodes(workflow, preferredSaveImageNodeId = '') {
     return workflow;
 }
 
-function pickComfyOutputAssetByNodeIds(item, nodeIds = []) {
+function pickComfyOutputAssetsByNodeIds(item, nodeIds = []) {
     const outputs = item?.outputs || {};
     for (const nodeId of nodeIds) {
         const assets = extractComfyOutputAssets(outputs[String(nodeId)]);
-        if (assets.length) return assets[0];
+        if (assets.length) return assets;
     }
-    return null;
+    return [];
 }
 
 export function resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId = '') {
+    return resolveComfyDirectOutputImages(item, workflow, preferredSaveImageNodeId)[0] || null;
+}
+
+export function resolveComfyDirectOutputImages(item, workflow, preferredSaveImageNodeId = '') {
     const preferredNodeId = String(preferredSaveImageNodeId || '').trim();
     if (preferredNodeId) {
-        const preferredAsset = pickComfyOutputAssetByNodeIds(item, [preferredNodeId]);
-        if (preferredAsset) return preferredAsset;
+        const preferredAssets = pickComfyOutputAssetsByNodeIds(item, [preferredNodeId]);
+        if (preferredAssets.length) return preferredAssets;
     }
-    return pickComfyOutputAssetByNodeIds(item, getPreferredComfySaveImageNodeIds(workflow)) || null;
+    return pickComfyOutputAssetsByNodeIds(item, getPreferredComfySaveImageNodeIds(workflow));
 }
 
 function injectTextFieldIntoNode(nodeInputs, value, role) {
@@ -299,15 +304,15 @@ function injectPromptIntoWorkflow(workflow, positive, negative, width, height, n
     return pruneComfyOutputNodes(result, nodeMap.saveImage);
 }
 
-export function buildComfyImageRequest({ prompt, negativePrompt = '', params = {}, recipe = {}, seed } = {}) {
+export function buildComfyImageRequest({ prompt, negativePrompt = '', params = {}, recipe = {}, seed, strict = false } = {}) {
     const effective = requireObject(params, 'ComfyUI params');
     const generationRecipe = requireObject(recipe, 'ComfyUI generationRecipe');
     const normalizedSeed = normalizeSeed(seed);
     const positive = String(prompt || '').trim();
     const negative = String(negativePrompt || '').trim();
     if (!positive) throw new Error('Prompt 不能为空');
-    const width = clampNumber(effective.width, 1024, 64, 2048);
-    const height = clampNumber(effective.height, 1024, 64, 2048);
+    const width = clampNumber(effective.width, 1024, 64, 2048, strict);
+    const height = clampNumber(effective.height, 1024, 64, 2048, strict);
 
     if (generationRecipe.workflowMode === 'custom' && generationRecipe.customWorkflow?.json) {
         const custom = generationRecipe.customWorkflow;
@@ -333,8 +338,8 @@ export function buildComfyImageRequest({ prompt, negativePrompt = '', params = {
             model,
             sampler: effective.sampler || 'euler',
             scheduler: effective.scheduler || 'normal',
-            steps: effective.steps || 20,
-            cfg: effective.cfg || 7,
+            steps: effective.steps ?? 20,
+            cfg: effective.cfg ?? 7,
             width,
             height,
             positive,

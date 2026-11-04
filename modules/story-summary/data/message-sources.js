@@ -24,12 +24,21 @@ export function createMessageSourceTracker() {
     let sources = [];
     let generation = 0;
     let completions = new WeakMap();
+    let emptyLoaded = false;
     // Only unfinished consistency work survives an owner switch. The baseline
     // is borrowed, not copied again; success or chat deletion releases it.
     const pending = new Map();
+    // reloadCurrentChat clears the same array before awaiting IO, without a
+    // start event or an owner change. Only a deletion event or completed load
+    // confirms an empty chat; background observations cannot make that decision.
+    function isLoaded(context) {
+        if (getChatIdentity(context) !== owner) return false;
+        if (context.chat.length) emptyLoaded = false;
+        return context.chat.length > 0 || emptyLoaded;
+    }
     const capture = context => ({ owner: getChatIdentity(context), generation, sources: context.chat.map(read) });
     const isCurrent = (snapshot, context) => snapshot?.owner === owner && getChatIdentity(context) === owner
-        && snapshot.generation === generation && snapshot.sources.length === context.chat.length
+        && isLoaded(context) && snapshot.generation === generation && snapshot.sources.length === context.chat.length
         && snapshot.sources.every((source, floor) => equal(source, context.chat[floor]));
     // Consume each native deletion at its notification boundary, not by count:
     // an intervening candidate addition can leave the total unchanged.
@@ -43,6 +52,8 @@ export function createMessageSourceTracker() {
     function inspect(context, { kind = 'observed', floor: eventFloor = null } = {}) {
         const { chat } = context;
         if (getChatIdentity(context) !== owner) return null;
+        if (kind === 'delete') emptyLoaded = chat.length === 0;
+        if (!isLoaded(context)) return null;
         bindLoadedSources(chat);
         const positions = new Map(chat.map((message, floor) => [message, floor]));
         const sharedLength = Math.min(sources.length, chat.length);
@@ -127,6 +138,7 @@ export function createMessageSourceTracker() {
     function reset(context = {}) {
         const { chat = [] } = context;
         owner = getChatIdentity(context);
+        emptyLoaded = chat.length === 0;
         sources = pending.get(owner)?.sources || chat.map(read);
         if (pending.has(owner)) bindLoadedSources(chat);
         completions = new WeakMap(chat.map(message => [message, read(message)]));
@@ -140,7 +152,7 @@ export function createMessageSourceTracker() {
         pending.set(owner, { ...previous, chatId: context.chatId, sources, change });
     }
     return {
-        capture, inspect, isCurrent, reset, retain,
+        capture, inspect, isCurrent, isLoaded, reset, retain,
         observeSwipeDeleted(context, { messageId, swipeId }) {
             if (getChatIdentity(context) !== owner) return;
             const message = context.chat[messageId];
@@ -175,6 +187,7 @@ export function createMessageSourceTracker() {
             const reloaded = owner !== null && getChatIdentity(context) === owner;
             if (!reloaded) reset(context);
             else if (bindLoadedSources(context.chat)) generation++;
+            emptyLoaded = context.chat.length === 0;
             return reloaded;
         },
         observeCompletion(context, floor) {
@@ -187,6 +200,7 @@ export function createMessageSourceTracker() {
         // Caller owns the existing serial consistency-write session. No second queue.
         async synchronize(context, apply, readCurrent = () => context) {
             if (getChatIdentity(context) !== owner || !readCurrent()) return { status: 'stale' };
+            if (!isLoaded(context)) return { status: 'deferred' };
             const change = inspect(context);
             if (!change) { pending.delete(owner); return { status: 'unchanged' }; }
             retain(context);

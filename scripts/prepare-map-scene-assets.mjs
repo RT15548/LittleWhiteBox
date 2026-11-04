@@ -1,4 +1,3 @@
-/* eslint-env node */
 // Offline conversion only. Pass the directory containing the four verified Kenney packs.
 import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
 import path from 'node:path';

@@ -17,25 +17,6 @@ pre:has(+ .xiaobaix-iframe) {
     text-align: center;
 }
 
-.scheduled-tasks-embedded-warning {
-    padding: 15px;
-    background: var(--SmartThemeBlurTintColor);
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 8px;
-    margin: 10px 0;
-}
-
-.warning-note {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    padding: 8px;
-    background: rgba(255, 193, 7, 0.1);
-    border-left: 3px solid #ffc107;
-    border-radius: 4px;
-}
-
 .task-item {
     align-items: center;
     border: 1px solid var(--SmartThemeBorderColor);

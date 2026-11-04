@@ -54,6 +54,48 @@ test('recognizes the batch jobs capability without guessing from version', () =>
     assert.equal(hasImageBackendJobsCapability({ ready: false, capabilities: [IMAGE_BATCH_JOBS_CAPABILITY] }), false);
 });
 
+// Public generation must not resend an uncertain paid submission (double charge / lost ownership).
+test('public submission opts out of create retries while existing monitors retain their behavior', async () => {
+    let calls = 0;
+    const client = createImageBackendJobsClient({ fetchImpl: async () => { calls++; throw new TypeError('offline'); } });
+    await assert.rejects(client.runJob({ provider: 'test', items: [] }, { retryCreate: false }));
+    assert.equal(calls, 1);
+});
+
+// Cancellation during an uncertain submission must fence that request ID without another generation (unwanted charge).
+test('public submission still cancels by request ID when aborted before the create response', async () => {
+    for (const cancellationFailsOnce of [false, true]) {
+        const controller = new AbortController();
+        let creates = 0;
+        let cancellations = 0;
+        const client = createImageBackendJobsClient({
+            createRequestId: () => 'public-cancelled-create', pollInterval: 1, maxRetryDelay: 1,
+            maxConsecutiveRetries: cancellationFailsOnce ? 1 : 0,
+            fetchImpl: async (url, options = {}) => {
+                if (url.endsWith('/v1/jobs') && options.method === 'POST') {
+                    creates++;
+                    controller.abort();
+                    throw new DOMException('aborted before response', 'AbortError');
+                }
+                if (url.endsWith('/v1/cancel')) {
+                    cancellations++;
+                    assert.deepEqual(JSON.parse(options.body).jobIds, ['public-cancelled-create']);
+                    assert.notEqual(options.signal?.aborted, true);
+                    if (cancellationFailsOnce && cancellations === 1) throw new TypeError('cancel response lost');
+                    return jsonResponse({ ok: true });
+                }
+                if (url.endsWith('/v1/jobs/public-cancelled-create')) return jsonResponse({ ok: false }, 404);
+                assert.fail(`Unexpected request ${url}`);
+            },
+        });
+        const result = await client.runJob({ items: [{}] }, { signal: controller.signal, retryCreate: false });
+        assert.equal(result.abortRequested, true);
+        assert.equal(result.job.state, 'cancelled');
+        assert.equal(creates, 1);
+        assert.equal(cancellations, cancellationFailsOnce ? 2 : 1);
+    }
+});
+
 test('reports backend delivery, reconnecting, and cancellation as distinct observable states', () => {
     const states = [];
     reportImageBackendJobState((state, data) => states.push({ state, data }), 'status', {

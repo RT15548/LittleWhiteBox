@@ -44,9 +44,11 @@ import {
     cleanupNovelDraw,
     decodeNovelBackendJobResult,
     initNovelDraw,
+    novelPublicGeneration,
 } from "./modules/draw/providers/novelai/novel-draw.js";
-import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
-import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
+import { initSdDraw, cleanupSdDraw, sdPublicGeneration } from "./modules/draw/providers/sd-webui/sd-draw.js";
+import { initComfyDraw, cleanupComfyDraw, comfyPublicGeneration } from "./modules/draw/providers/comfyui/comfy-draw.js";
+import { createDrawPublicApi } from './modules/draw/shared/public-api.js';
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
 import { startGroupPresetWatcher, stopGroupPresetWatcher } from "./modules/draw/shared/character-group-presets-runtime.js";
 import { startImageJobRecovery, stopImageJobRecovery } from "./modules/draw/shared/image-job-recovery-runtime.js";
@@ -61,7 +63,7 @@ import "./modules/story-summary/story-summary.js";
 import { STORY_SUMMARY_TOGGLE_EVENT } from './modules/story-summary/runtime-events.js';
 import { configureL0ContinuationCheck } from './modules/story-summary/vector/pipeline/l0-eligibility.js';
 import "./modules/story-outline/story-outline.js";
-import { initTts, cleanupTts } from "./modules/tts/tts.js";
+import { initTts, cleanupTts, installTtsPublicApi } from "./modules/tts/tts.js";
 import { initEnaPlanner, cleanupEnaPlanner } from "./modules/ena-planner/ena-planner.js";
 import { initAssistant, cleanupAssistant } from "./modules/assistant/assistant.js";
 import { initEbook, cleanupEbook } from "./modules/ebook/ebook.js";
@@ -81,7 +83,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
     recorded: { enabled: true },
     templateEditor: { enabled: true, characterBindings: {} },
-    tasks: { enabled: true, globalTasks: [], processedMessages: [], character_allowed_tasks: [] },
+    tasks: { enabled: true, globalTasks: [], processedMessages: [] },
     preview: { enabled: false },
     immersive: { enabled: false },
     xiaobaiOs: createDefaultXiaobaiOsSettings(),
@@ -220,6 +222,7 @@ function migrateDrawProviderSettings(targetSettings) {
 }
 
 async function cleanupDrawProvider(provider = settings.drawProvider) {
+    if (!isXiaobaixEnabled || normalizeDrawProvider(settings.drawProvider) === 'disabled') publicDrawApi.cancelAll();
     clearSharedImageRequestsRuntime();
     // 分组预设的聊天监听是三个画图 provider 共享的，只在这里统一停；切换 provider 时 init 会重新启动。
     try { stopGroupPresetWatcher(); } catch (e) { console.warn({ source: import.meta.url, operation: "cleanupDrawProvider" }, e); }
@@ -257,6 +260,12 @@ function notifyTavernDrawStatusChanged() {
         window.xiaobaixTavern?.refreshDrawStatus?.();
     } catch (caughtError) { console.warn({ source: import.meta.url, operation: "notifyTavernDrawStatusChanged" }, caughtError); }
 }
+
+const publicDrawApi = createDrawPublicApi({
+    isEnabled: () => isXiaobaixEnabled && normalizeDrawProvider(settings.drawProvider) !== 'disabled',
+    getProvider: () => normalizeDrawProvider(settings.drawProvider),
+    providers: { novelai: novelPublicGeneration, sdwebui: sdPublicGeneration, comfyui: comfyPublicGeneration },
+});
 
 function installDrawFacade() {
     function joinDrawTags(...parts) {
@@ -416,6 +425,8 @@ function installDrawFacade() {
     }
 
     window.xiaobaixDraw = {
+        generate: publicDrawApi.generate,
+        getPresets: publicDrawApi.getPresets,
         getProvider() {
             return normalizeDrawProvider(settings.drawProvider);
         },
@@ -476,6 +487,7 @@ if (migrateDrawProviderSettings(settings)) {
     saveSettingsDebounced();
 }
 installDrawFacade();
+installTtsPublicApi();
 
 const DEPRECATED_KEYS = [
     'characterUpdater',
@@ -715,7 +727,7 @@ async function toggleAllFeatures(enabled) {
         cleanupXiaobaiOs();
         cleanupChatMessageImages();
         cleanupAllResources();
-        if (window.messagePreviewCleanup) try { window.messagePreviewCleanup(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
+        if (window.messagePreviewCleanup) try { window.messagePreviewCleanup({ detachFetch: false }); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         if (window.buttonCollapseCleanup) try { window.buttonCollapseCleanup(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         try { cleanupVariablesPanel(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
         try { cleanupVariablesCore(); } catch (e) { console.warn({ source: import.meta.url, operation: "toggleAllFeatures" }, e); }
@@ -806,7 +818,7 @@ async function setupSettings() {
         }, { source: import.meta.url, operation: "callback" }));
 
         const moduleConfigs = [
-            { id: 'xiaobaix_recorded_enabled', key: 'recorded' },
+            { id: 'xiaobaix_recorded_enabled', key: 'recorded', init: initMessagePreview },
             { id: 'xiaobaix_immersive_enabled', key: 'immersive', init: initImmersiveMode },
             { id: 'xiaobaix_preview_enabled', key: 'preview', init: initMessagePreview },
             { id: 'scheduled_tasks_enabled', key: 'tasks', init: initTasks },
@@ -840,7 +852,6 @@ async function setupSettings() {
                 }
                 if (!enabled && cleanup) cleanup();
                 if (enabled && init) await init();
-                if (CHAT_SURFACE_MANAGED && key === 'recorded' && enabled) initMessagePreview();
                 if (key === 'storySummary') {
                     $(document).trigger(STORY_SUMMARY_TOGGLE_EVENT, [enabled]);
                 }

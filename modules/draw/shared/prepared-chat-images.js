@@ -4,13 +4,14 @@ import { createPlaceholder, renderPreviewsForMessage, syncRenderedMessageFromSta
     isMessageBeingEdited, classifyError, clearDrawSavedEntry, materializeDrawSavedPreview } from './draw-common.js';
 import { setActiveMessageText, isSceneSlotAlive } from './scene-placement.js';
 import { createImageIdentifiers, placePreparedImageSlots } from './prepared-image-placement.js';
-import { captureImagePlacement, saveChatImagePlacements, getImageChatIdentity } from './chat-image-persistence.js';
+import { captureImagePlacement, getImageChatIdentity } from './chat-image-persistence.js';
 import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { executePreparedSlots } from './prepared-slot-executor.js';
 import { setSlotActivity, clearSlotActivity } from './slot-activity.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
 import { commitChatImagePlacement, restoreChatImagePlacements } from './chat-image-placement.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+import { autoSaveDeliveredImage } from './image-autosave.js';
 
 
 const providers = new Map();
@@ -41,8 +42,8 @@ export function prepareNativeChatImages(provider, input) {
 // The two input adapters supply already compiled metadata and the same provider
 // batch runner. This is the only owner of pre-request chat placement for them.
 export async function submitPreparedChatImages({ ctx, message, messageId, sourceText,
-    tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource,
-    swipeIndex = message.swipe_id ?? 0 }) {
+    tasks, metadata, backend, run, signal, onStateChange, onPlacement, nativeMessage = false, onPrepared, placementSource, filePrefix,
+    swipeIndex = message.swipe_id ?? 0, manual = false }) {
     const chatId = String(ctx.chatId);
     const chatIdentity = getImageChatIdentity(ctx);
     const ids = tasks.map(task => ({ ...createImageIdentifiers(),
@@ -96,7 +97,7 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         if (getImageChatIdentity(live) !== chatIdentity || liveId < 0
             || (message.swipe_id ?? 0) !== swipeIndex || placementSource?.invalid
             || !(existingSlots ? ids.every(item => isSceneSlotAlive(message.mes, item.slotId))
-                : nativeMessage ? message.mes.startsWith(placementSource?.sourceText ?? sourceText) : message.mes === expectedText)
+                : message.mes.startsWith(nativeMessage ? placementSource?.sourceText ?? sourceText : expectedText))
             || isMessageBeingEdited(liveId)) throw new Error(DRAW_SLOT_COPY.sourceChanged);
     };
     const validateSource = () => {
@@ -108,7 +109,12 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
         await materializeDrawSavedPreview(message, task.placement.slotId, { messageId, chatId });
         validateSource();
     }
-    return executePreparedSlots({ items, backend, nativeMessage, onPrepared,
+    return executePreparedSlots({ items, backend, nativeMessage, onPrepared, manual,
+        afterDelivered: item => autoSaveDeliveredImage({ imgId: item.imgId, slotId: item.slotId, filePrefix,
+            chatTarget: () => {
+                const target = getImageChatIdentity(getContext()) === chatIdentity ? resolveTarget(item.slotId) : null;
+                return target?.isActiveSwipe ? target : null;
+            } }),
         store: storePreview, remove: deletePreview, clearSelection: clearSlotSelection,
         select: async (slotId, imgId) => {
             await setSlotSelection(slotId, imgId);
@@ -138,13 +144,9 @@ export async function submitPreparedChatImages({ ctx, message, messageId, source
                 return true;
             }
             // Manual tags use the same synchronous text/card handoff as native
-            // tags. Persistence is a follow-up, not a prerequisite for paid
-            // transport; a busy/failed host save must never suppress the call.
+            // tags. The host's own autosave persists this edit.
             if (replacesTags) placeTags();
-            else setActiveMessageText(message, plannedText);
-            // Save follows placement independently. Neither slow host I/O nor
-            // readback uncertainty may hold the provider queue or undo this edit.
-            void saveChatImagePlacements(ctx, ids.map(item => item.slotId));
+            else setActiveMessageText(message, plannedText + message.mes.slice(sourceText.length));
             const liveId = getContext().chat.indexOf(message);
             void syncRenderedMessageFromState(liveId, { chatId, expectedMessage: message,
                 insertedSlotIds: ids.map(item => item.slotId) }).catch(error => console.error(DRAW_SLOT_COPY.renderFailed, error));

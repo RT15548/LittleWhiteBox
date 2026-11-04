@@ -4,13 +4,9 @@ import test from 'node:test';
 import {
     DRAW_RUN_BLOCKED_RETRY_MS,
     DRAW_RUN_PROGRESS_POLL_MS,
-    DrawRunAdoptionRecoveryStatus,
-    DrawRunPendingAdoptionAction,
     DrawRunRecoveryAction,
-    planDrawRunAdoptionRetry,
     planDrawRunPollDelay,
     planDrawRunRecovery,
-    planPendingAdoptionRecovery,
 } from '../draw-run-recovery.js';
 import { PendingJobAdoptionPhase, PendingJobState } from '../pending-image-jobs.js';
 
@@ -334,39 +330,6 @@ test('a gallery adoption also waits for its frozen source chat without periodic 
         now: NOW,
     });
     assert.equal(active.plan[0].action, DrawRunRecoveryAction.RECOVER_ADOPTION);
-});
-
-test('pending adoption only falls back to gallery after persisted marker absence is confirmed', () => {
-    assert.deepEqual(planPendingAdoptionRecovery({ persistedMarkerPresent: true }), {
-        action: DrawRunPendingAdoptionAction.WAIT_FOR_TARGET,
-        reason: 'marker_present',
-    });
-    assert.deepEqual(planPendingAdoptionRecovery({ persistedMarkerPresent: false }), {
-        action: DrawRunPendingAdoptionAction.FALLBACK_TO_GALLERY,
-        delivery: { mode: 'gallery', reason: 'target_missing' },
-    });
-});
-
-test('adoption retry distinguishes an active lease from a stable blocked state', () => {
-    assert.equal(planDrawRunAdoptionRetry({
-        status: DrawRunAdoptionRecoveryStatus.LEASE_ACTIVE,
-        leaseExpiresAt: NOW + 2_000,
-    }, { now: NOW }), 2_010);
-    assert.equal(planDrawRunAdoptionRetry({
-        status: DrawRunAdoptionRecoveryStatus.LEASE_ACTIVE,
-        leaseExpiresAt: NOW,
-    }, { now: NOW }), DRAW_RUN_BLOCKED_RETRY_MS);
-    assert.equal(planDrawRunAdoptionRetry({
-        status: DrawRunAdoptionRecoveryStatus.BLOCKED,
-        reason: 'marker_not_cleared',
-    }, { now: NOW }), DRAW_RUN_BLOCKED_RETRY_MS);
-    assert.equal(planDrawRunAdoptionRetry({
-        status: DrawRunAdoptionRecoveryStatus.COMPLETED,
-    }, { now: NOW }), null);
-
-    assert.equal(planDrawRunPollDelay([
-        { action: DrawRunRecoveryAction.WAIT, reason: 'run_in_progress' },
-    ]), DRAW_RUN_PROGRESS_POLL_MS);
 });
 
 test('an active Planner is polled for visible progress without accelerating blocked retries', () => {

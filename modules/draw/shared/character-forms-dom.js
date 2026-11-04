@@ -155,7 +155,7 @@ function renumber(list) {
  * @param {object} options
  * @param {Document} options.document
  * @param {object[]} [options.forms] 额外形态（character.forms）
- * @param {function} options.createField 页面的字段构建函数 (label, field, value, placeholder, { multiline, dataKey })
+ * @param {Function} options.createField 页面的字段构建函数 (label, field, value, placeholder, { multiline, dataKey })
  */
 export function createFormsEditor({ document, forms = [], createField }) {
     const root = el(document, 'div', 'sd-char-forms');

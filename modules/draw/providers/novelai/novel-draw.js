@@ -5,12 +5,14 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../../../utils.js";
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
+import { buildContinuityBlockForRequest } from '../../shared/character-continuity.js';
+import { isGenericCharacterName as isGenericCharName } from '../../shared/generic-char-name.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
+import { drawingRuntimeHeaders, DRAWING_RUNTIME_ABI } from '../../shared/drawing-runtime-client.js';
 import { SERVER_PLUGIN_COPY } from '../../../../shared/server-plugin/copy.js';
 import { DRAW_BACKEND_COPY, createDrawBackendStatusCopy } from '../../shared/draw-backend-copy.js';
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
@@ -42,6 +44,7 @@ import {
     warmSlotPreviewNeighbors,
     getThumbnailCandidates,
 } from "../../shared/gallery-cache.js";
+import { getContinuityImageRecords } from '../../shared/draw-common.js';
 import { ScenePlannerError, generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { classifyScenePlannerErrorForUi } from "../../shared/scene-planner-error-ui.js";
 import {
@@ -127,7 +130,11 @@ import {
 import { NovelV5RequestError, V5_QUALITY_IDS, V5_UC_IDS } from "./novel-v5-request.js";
 import { compile as compileNovelScenePlan, compileNovelImageRequest } from "./compiler.js";
 import { readNovelV5ErrorText, readNovelV5FinalImage, NovelV5StreamError } from "./novel-v5-stream.js";
-import { decodeNovelBackendJobResult, hasNovelV5FinalImageCapability } from "./novel-backend-job-result.js";
+import { validateDrawInput } from '../../shared/public-api.js';
+import { imageBlob } from '../../shared/image-collection.js';
+import { runPublicImageJob } from '../../shared/public-image-job.js';
+import { MediaApiError } from '../../../../shared/media-api.js';
+import { decodeNovelBackendJobResult } from "./novel-backend-job-result.js";
 import {
     createImageBackendJobMonitorRegistry,
     createImageBackendJobsClient,
@@ -137,7 +144,7 @@ import {
     reportImageBackendJobState,
 } from "../../shared/backend-image-jobs.js";
 import { submitRecoverableImageJob } from "../../shared/recoverable-image-jobs.js";
-import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
+import { submitProviderDrawRun } from "../../shared/draw-run-browser.js";
 import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { migrateLegacyNovelPromptSettings } from "./novel-prompt-migration.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
@@ -189,16 +196,20 @@ if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
     drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
 }
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
+import { openImageFolder, saveImageToServer } from '../../shared/image-save.js';
+import { IMAGE_SAVE_COPY, setAutoSaveImages } from '../../shared/image-save-core.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from '../../shared/image-autosave.js';
 import { replaceSceneSlotElements } from "../../shared/scene-slot-dom.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { createDrawImageSlotRegex, stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
-import { ScenePlacementError, assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
+import { ScenePlacementError, bindScenePlanSource } from "../../shared/scene-placement.js";
 import { retryScenePlanning } from "../../shared/planner-retry.js";
 import { pickNeighborAfterRemoval, reorderPresetsByIds } from "../../shared/preset-order.js";
 import { submitPreparedChatImages, registerPreparedImageProvider } from "../../shared/prepared-chat-images.js";
 import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
+import { requestNovelImageWithRetry } from './novel-request-retry.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
 import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
@@ -228,7 +239,6 @@ const NAI_BACKEND_TEST = `${NAI_BACKEND_BASE}/v1/test`;
 const NAI_BACKEND_TEST_V2 = `${NAI_BACKEND_BASE}/v2/test`;
 const NAI_BACKEND_STATUS = `${NAI_BACKEND_BASE}/status`;
 const NAI_BACKEND_MIN_VERSION = SERVER_PLUGIN_VERSION;
-const NAI_BACKEND_V5_MIN_VERSION = SERVER_PLUGIN_VERSION;
 const NAI_BACKEND_STATUS_TIMEOUT = 5000;
 const NAI_BACKEND_STATUS_ATTEMPTS = 2;
 const NAI_BACKEND_STATUS_RETRY_DELAY_MS = 1000;
@@ -273,6 +283,7 @@ async function fetchBackendPluginStatus(signal) {
             return {
                 ready: true,
                 version,
+                runtimeHostAbi: data.runtimeHostAbi,
                 capabilities: Array.isArray(data.capabilities) ? data.capabilities.map(String) : [],
             };
         }
@@ -311,7 +322,7 @@ async function checkBackendPluginStatus({ signal } = {}) {
     return status;
 }
 
-async function assertV5BackendCapability(signal) {
+async function assertDrawingRuntimeHost(signal) {
     const status = await checkBackendPluginStatus({ signal });
     if (!status.ready) {
         const reason = status.reason === 'not_installed'
@@ -320,14 +331,13 @@ async function assertV5BackendCapability(signal) {
                 ? `版本过旧（当前 v${status.version || '未知'}）`
                 : '未就绪';
         throw new NovelDrawError(
-            `NovelAI V5 后端插件${reason}。${SERVER_PLUGIN_COPY.install}`,
+            `绘图后端插件${reason}。${SERVER_PLUGIN_COPY.install}`,
             ErrorType.NETWORK,
         );
     }
-    if (!isVersionAtLeast(status.version, NAI_BACKEND_V5_MIN_VERSION)
-        || !status.capabilities?.includes('v5-msgpack-stream')) {
+    if (status.runtimeHostAbi !== DRAWING_RUNTIME_ABI) {
         throw new NovelDrawError(
-            `当前后端插件不支持 NovelAI V5 流协议。${SERVER_PLUGIN_COPY.update}`,
+            `请完成这一次后台升级，以后绘图功能随扩展更新。${SERVER_PLUGIN_COPY.update}`,
             ErrorType.NETWORK,
         );
     }
@@ -415,6 +425,7 @@ const DEFAULT_SETTINGS = {
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     danbooruLocalDB: false,
     messageFilterRules: [],
+    continuityEnabled: true,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -704,9 +715,9 @@ function describeApiError(status, text, fallbackType) {
         case 408:
         case 504: return new NovelDrawError('请求超时', ErrorType.TIMEOUT);
         case 429: return new NovelDrawError('当前并发繁忙，请稍后重试', ErrorType.BUSY);
-        case 500:
-        case 502:
-        case 503: return new NovelDrawError('服务不可用', ErrorType.NETWORK);
+        case 500: return new NovelDrawError('图片请求失败（HTTP 500）：服务器处理请求时发生内部错误。', ErrorType.UNKNOWN);
+        case 502: return new NovelDrawError('图片请求失败（HTTP 502）：负责转发请求的网关或代理，从上游服务器收到无效响应。', ErrorType.UNKNOWN);
+        case 503: return new NovelDrawError('图片请求失败（HTTP 503）：服务器暂时无法处理请求，可能正在维护或负载过高。', ErrorType.UNKNOWN);
         default: return new NovelDrawError(`失败: ${text || status}`, fallbackType);
     }
 }
@@ -1073,6 +1084,7 @@ function normalizeSettings(saved = {}) {
         },
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules: Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [],
+        continuityEnabled: source.continuityEnabled !== false,
     };
 
     if (!merged.paramsPresets?.length) {
@@ -1543,34 +1555,6 @@ async function ensureJSZip() {
 
 // ── 角色自动学习 ─────────────────────────────────────────────
 
-/** 通用/匿名角色名过滤：预编译为单一正则，避免每次调用迭代 30+ 个 pattern */
-const GENERIC_NAME_REGEX = new RegExp([
-    // 中文通用/匿名
-    '(?:^未知)', '(?:^路人)', '(?:^路边)', '(?:^陌生)', '(?:^无名)', '(?:^某[个位])',
-    '(?:^女[人性孩][A-Za-z0-9]?$)', '(?:^男[人性孩][A-Za-z0-9]?$)',
-    '(?:^少[女男年][A-Za-z0-9]?$)', '(?:^大[叔妈姐哥][A-Za-z0-9]?$)',
-    '(?:^老[人头大妇][A-Za-z0-9]?$)',
-    '(?:^[女男人]$)',
-    '(?:^角色[0-9A-Za-z]*$)', '(?:^人物[0-9A-Za-z]*$)',
-    '(?:^配角)', '(?:^(?:NPC|mob))',
-    '(?:^[男女][0-9]+$)',
-    // 中文关系/职业称呼
-    '(?:^[哥姐弟妹]$)',
-    '(?:^(?:哥哥|姐姐|弟弟|妹妹|老师|学长|学姐|前辈|老板|店员|医生|护士|主人|奴隶|仆人)$)',
-    // 日语称呼
-    '(?:^(?:お[兄姉]ちゃん|先輩|先生|マスター|お嬢様|ご主人様)$)',
-    // 英文通用
-    '(?:^(?:faceless|unnamed|unknown|random|stranger|passerby|bystander))',
-    '(?:^(?:girl|boy|woman|man|person|male|female)\\s*[A-Za-z0-9]?$)',
-    // 英文关系/职业称呼
-    '(?:^(?:teacher|master|boss|doctor|nurse|brother|sister|senpai|sensei)$)',
-].join('|'), 'i');
-
-function isGenericCharName(name) {
-    if (!name || name.trim().length <= 1) return true;
-    return GENERIC_NAME_REGEX.test(name.trim());
-}
-
 // 已有角色补字段的学习规则（auto_update 模式）：原样从 autoLearnFromTasks 抽出，
 // 供学习阶段和“写回时合并到最新角色库”共用。对传入角色就地修改，返回是否有改动。
 function fillExistingCharacterFromCandidate(found, char) {
@@ -1693,7 +1677,7 @@ async function generateViaBackend({ url, legacyBaseUrl, apiKey, insecure, payloa
             attempt.submit(signal);
             return fetch(endpoint, {
                 method: 'POST',
-                headers: getRequestHeaders(),
+                headers: { ...getRequestHeaders(), ...drawingRuntimeHeaders() },
                 signal,
                 body,
             });
@@ -1739,7 +1723,7 @@ async function generateV5ViaBackend({ url, apiKey, insecure, payload, signal, ti
         attempt.submit(signal);
         response = await fetch(NAI_BACKEND_GENERATE_STREAM, {
             method: 'POST',
-            headers: getRequestHeaders(),
+            headers: { ...getRequestHeaders(), ...drawingRuntimeHeaders() },
             signal,
             body,
         });
@@ -1797,11 +1781,11 @@ async function testApiConnection(apiKey, baseUrl, opts = {}) {
         // 后端发送模式：前端提供最终端点与探针报文，server plugin 只负责传输。
         if (sendMode === 'backend') {
             if (probe.multipart) {
-                await assertV5BackendCapability(controller.signal);
+                await assertDrawingRuntimeHost(controller.signal);
             }
             const request = endpoint => fetch(endpoint, {
                 method: 'POST',
-                headers: getRequestHeaders(),
+                headers: { ...getRequestHeaders(), ...drawingRuntimeHeaders() },
                 signal: controller.signal,
                 body: JSON.stringify({
                     url: endpoint === NAI_BACKEND_TEST ? (resolvedBase || '') : apiUrl,
@@ -1942,7 +1926,7 @@ async function executePreparedNovelRequest(prepared, requestConfig, signal) {
         if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
         if (requestConfig.sendMode === 'backend') {
             if (prepared.isV5) {
-                await assertV5BackendCapability(controller.signal);
+                await assertDrawingRuntimeHost(controller.signal);
                 const response = await generateV5ViaBackend({
                     attempt,
                     url: prepared.apiUrl,
@@ -2097,13 +2081,6 @@ async function runNovelImageBatch({
                     ErrorType.NETWORK,
                 );
             }
-            if (prepared.some(item => item.isV5) && !hasNovelV5FinalImageCapability(backendStatus)) {
-                detachScope.dispose();
-                throw new NovelDrawError(
-                    `当前后端插件不支持 NovelAI V5 后台结果。${SERVER_PLUGIN_COPY.update}也可关闭“小白X后台任务”。`,
-                    ErrorType.NETWORK,
-                );
-            }
             const backendRequest = compiledBatch
                 ? {
                     provider: compiledBatch.provider,
@@ -2204,10 +2181,12 @@ async function runNovelImageBatch({
         }
         try {
             const base64 = await enqueueImageRequest(
-                async () => {
-                    if (await onItemStarting?.({ index }) === false) return null;
-                    return executePreparedNovelRequest(prepared[index], requestConfig, signal);
-                },
+                () => requestNovelImageWithRetry({
+                    request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
+                    sendMode: requestConfig.sendMode,
+                    signal,
+                    beforeRequest: () => onItemStarting?.({ index }),
+                }),
                 {
                     signal,
                     batchKey: queueBatch,
@@ -2257,6 +2236,65 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
     if (image) return image;
     throw failure || new NovelDrawError('NovelAI 未返回图片', ErrorType.UNKNOWN);
 }
+
+export const novelPublicGeneration = {
+    presetsKey: 'paramsPresets', selectedKey: 'selectedParamsPresetId',
+    snapshot() {
+        return settingsLoaded && settingsCache ? structuredClone(getRuntimeSettings())
+            : NovelDrawStorage.getStrict(SERVER_FILE_KEY, null).then(saved => ({ ...normalizeSettings(saved || {}), timeout: getSharedDrawSettings().timeout }));
+    },
+    async generate(request, settings, { signal, onProgress }) {
+        const preset = settings.paramsPresets.find(item => item.id === settings.selectedParamsPresetId) || settings.paramsPresets[0];
+        if (!preset || !settings.apiKey) throw new MediaApiError('not_configured');
+        const defaults = normalizeParamsPreset(DEFAULT_PARAMS_PRESET, 0).params;
+        validateDrawInput(request, defaults);
+        const params = { ...DEFAULT_PARAMS_PRESET.params, ...preset.params, ...request.params };
+        const model = String(params.model);
+        const isV5 = isNovelV5Model(model);
+        for (const [field, allowedIds] of [['v5QualityPresetId', V5_QUALITY_IDS], ['v5UcPresetId', V5_UC_IDS]]) {
+            if (request.params?.[field] !== undefined && !allowedIds.includes(request.params[field])) throw new MediaApiError('invalid_request', { field: `params.${field}` });
+        }
+        const isV3 = model.includes('nai-diffusion-3') || model.includes('furry-3');
+        const common = ['model', 'sampler', 'scheduler', 'steps', 'scale', 'width', 'height', 'seed'];
+        const allowed = isV5 ? [...common, 'cfg_rescale', 'v5QualityPresetId', 'v5UcPresetId', 'transparentBackground']
+            : isV3 ? [...common, 'ucPreset', 'sm', 'sm_dyn', 'decrisper']
+                : [...common, 'ucPreset', 'qualityToggle', 'autoSmea', 'cfg_rescale', ...(model.includes('4-5') ? ['variety_boost'] : [])];
+        for (const field of Object.keys(request.params || {})) {
+            if (!allowed.includes(field)) throw new MediaApiError('unsupported_field', { field: `params.${field}` });
+        }
+        const requestConfig = snapshotNovelRequestConfig(settings, settings, DEFAULT_SETTINGS.timeout);
+        const config = { ...requestConfig,
+            overrideSize: request.params?.width !== undefined || request.params?.height !== undefined ? 'default' : requestConfig.overrideSize };
+        let prepared;
+        try {
+            // An explicit size belongs to this call, not the floating-panel size override.
+            if (request.params?.width !== undefined || request.params?.height !== undefined) {
+                const sized = prepareNovelImageRequest({ params }, requestConfig);
+                params.width = request.params?.width ?? sized.payload.parameters.width;
+                params.height = request.params?.height ?? sized.payload.parameters.height;
+            }
+            prepared = prepareNovelImageRequest({
+                scene: joinTags(request.positivePrefix ?? preset.positivePrefix, request.prompt),
+                negativePrompt: request.negativePrompt ?? preset.negativePrefix ?? '',
+                characterPrompts: request.characterPrompts || [], params,
+            }, config);
+        } catch (cause) { throw new MediaApiError('invalid_request', { cause }); }
+        const cooldownMs = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
+        const result = await novelImageRequestQueue.enqueue(() => isNovelImageBackendJobEnabled(config)
+            ? runPublicImageJob(imageBackendJobsClient, {
+                provider: 'novelai', context: { key: config.apiKey, insecure: config.insecureTLS },
+                delay: settings.requestDelay,
+                items: [{ request: { transport: prepared.transport, url: prepared.apiUrl, payload: prepared.payload }, timeout: config.timeout }],
+            }, { signal, onProgress })
+            : executePreparedNovelRequest(prepared, config, signal), {
+            signal, scope: 'public',
+            cooldownMs,
+            onQueued: data => onProgress?.({ state: 'queued', ...data }),
+            onStart: () => onProgress?.({ state: 'generating' }),
+        });
+        return Array.isArray(result) ? result : [imageBlob(result)];
+    },
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 画师串预设缩略图候选
@@ -2507,6 +2545,17 @@ async function handleDelegatedClick(e) {
             break;
         }
         case 'open-gallery':
+            if (actionEl.tagName === 'IMG' && document.body.classList.contains('xb-nd-tap-controls')) {
+                // 觸控裝置：點圖只切換控制列（張數列＋「⋮」），不開彈窗放大。
+                const willShow = !container.classList.contains('controls-visible');
+                container.classList.toggle('controls-visible', willShow);
+                if (!willShow) {
+                    document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
+                }
+                break;
+            }
+            // 菜单放大与鼠标点图共用画廊入口；触屏点图仅切换控制列。
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
             await handleImageClick(container);
             break;
         case 'refresh-image':
@@ -2564,6 +2613,11 @@ async function handleDelegatedClick(e) {
 function setupEventDelegation() {
     if (window._xbNovelEventsBound) return;
     window._xbNovelEventsBound = true;
+
+    // 僅觸控裝置啟用「點圖才顯示控制列」；滑鼠端維持原樣（點圖即開畫廊放大）。
+    if (window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches) {
+        document.body.classList.add('xb-nd-tap-controls');
+    }
 
     document.addEventListener('click', handleDelegatedClickEvent, { capture: true });
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
@@ -2733,7 +2787,7 @@ async function saveSingleImage(container) {
     try {
         const charName = preview.characterName || getChatCharacterName();
         const image = getBase64ImagePayload(preview.base64);
-        const url = await saveBase64AsFile(image.base64, charName, `novel_${imgId}`, image.format);
+        const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${imgId}`, format: image.format });
         preview.savedUrl = url;
         await updatePreviewSavedUrl(imgId, url);
         await setSlotSelection(slotId, imgId);
@@ -2954,6 +3008,7 @@ async function buildNovelScenePlannerOptions({
     signal,
     useWorldbook = true,
     onStateChange,
+    continuityText = '',
 }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset(settings) || DEFAULT_PROMPT_CONFIG;
@@ -2973,6 +3028,7 @@ async function buildNovelScenePlannerOptions({
     return {
         sceneSource,
         presentCharacters,
+        continuityText,
         useWorldInfo: useWorldbook && settings.useWorldInfo,
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
@@ -3030,6 +3086,8 @@ async function generateImagesFromText(options = {}) {
         if (!sceneSource.content) throw new NovelDrawError('正文内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
+        // 文本配图（书库/小白X 等入口）没有聊天归属，不读写酒馆聊天的上镜锚点，避免多来源记忆互相污染
+        const continuityText = '';
         job.phase = 'llm';
         options.onStateChange?.('llm', toScenePlannerProgress());
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
@@ -3044,6 +3102,7 @@ async function generateImagesFromText(options = {}) {
                 signal,
                 useWorldbook: !!options.useWorldbook,
                 onStateChange: options.onStateChange,
+                continuityText,
             });
         } catch (e) {
             console.error('[NovelDraw] 文本配图场景分析失败:', e);
@@ -3111,6 +3170,7 @@ async function generateImagesFromText(options = {}) {
                     negativePrompt: item.negativePrompt,
                 });
                 await setSlotSelection(item.slotId, imgId);
+                observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId: item.slotId, filePrefix: imageFilePrefix("novelai") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
                 successCount++;
                 images[index] = {
                     slotId: item.slotId,
@@ -3189,12 +3249,18 @@ async function runPreparedNovelSlots(input) {
             resolveForBackend: resolveNovelImageTransport(settings) !== 'frontend',
         });
         const tasks = await resolveImageTaskOrientations(input.tasks, recipe.overrideSize, job.controller.signal);
-        const { compiledBatch, requests, metadata } = prepareImageInput('novelai', tasks, recipe);
+        const prepared = prepareImageInput('novelai', tasks, recipe);
+        const compiledBatch = prepared.compiledBatch;
+        const requests = prepared.requests;
+        // 原始角色快照随每张图入库：锚点只在图片实际生成成功后生效（含手动槽位逐张生成），
+        // 失败/被丢弃的计划不进锚点
+        const metadata = prepared.metadata;
         job.phase = 'gen';
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
-            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
+            manual: input.manual === true,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("novelai"),
             backend: resolveNovelImageTransport(settings) === 'backend-job',
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runNovelImageBatch({
@@ -3238,7 +3304,24 @@ async function generateAndInsertImages({
 
         const presentCharacters = detectPresentCharacters(sceneSource.content, characterLibraryFromSettings(settings));
 
-        if (isNovelImageBackendJobEnabled(settings)) {
+        // 上镜锚点：从图片记录重建——只取本聊天、目标楼层之前、当前分支上成功生成的图，
+        // 删楼/切分支/删图后锚点自然失效，不再单独维护历史账本。
+        const continuityText = settings.continuityEnabled === false
+            ? ''
+            : buildContinuityBlockForRequest({
+                records: await getContinuityImageRecords({
+                    chat: ctx.chat,
+                    beforeMessageId: messageId,
+                }),
+                presentCharacters,
+                bodyText: sceneSource.content,
+            });
+
+        // 手动生图：即使开了后端任务模式，规划也走浏览器侧，只落槽位不提交；
+        // 后端 Draw Run 无法只规划不执行。
+        const manualSlots = getSharedDrawSettings().autoGenerateImages === false;
+
+        if (!manualSlots && isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
             // Vibe 编码在浏览器侧完成（/ai/encode-vibe 直连），编码结果随 recipe 一起提交给后端
             const vibeReferences = await ensurePresetVibeReady(settings, preset, { signal });
@@ -3251,6 +3334,7 @@ async function generateAndInsertImages({
                 preparePlanner: async ({ maxPlanImages }) => {
                     job.phase = 'llm';
                     return prepareScenePlannerInput({
+                        executionTarget: 'server',
                         ...await buildNovelScenePlannerOptions({
                             sceneSource,
                             presentCharacters,
@@ -3258,6 +3342,7 @@ async function generateAndInsertImages({
                             preset,
                             signal,
                             onStateChange,
+                            continuityText,
                         }),
                         maxPlanImages,
                     });
@@ -3304,11 +3389,11 @@ async function generateAndInsertImages({
                     preset,
                     signal,
                     onStateChange,
+                    continuityText,
                 }));
                 if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
                 await maybeAutoLearnFromTasks(planned, settings);
-                assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), source.sceneSource.sourceHash);
-                return planned;
+                return bindScenePlanSource(planned, source.sceneSource, normalizeMessageSceneSourceText(message.mes));
             }, { maxRetries: settings.plannerMaxRetries, signal, onStateChange });
         } catch (e) {
             console.error('[NovelDraw] 场景分析原始错误:', e);
@@ -3319,6 +3404,11 @@ async function generateAndInsertImages({
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
 
+        if (manualSlots) {
+            // 只把规划好的槽位和 TAG 落入正文与图库，不提交 NAI；每张由用户点击生成
+            return await runPreparedNovelSlots({ ctx, message, messageId, sourceText: message.mes,
+                tasks, settings, preset, job, onStateChange, manual: true });
+        }
         return await runPreparedNovelSlots({ ctx, message, messageId, sourceText: message.mes,
             tasks, settings, preset, job, onStateChange });
     } catch (error) {
@@ -3517,7 +3607,10 @@ async function sendInitData() {
             activeApiPresetId: settings.activeApiPresetId || null,
             cacheDays: getSharedDrawSettings().cacheDays,
             imageTitleMode: getSharedDrawSettings().imageTitleMode,
+            autoGenerateImages: getSharedDrawSettings().autoGenerateImages !== false,
             saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
+            autoSaveImages: getSharedDrawSettings().autoSaveImages === true,
+            saveImagesByFolder: getSharedDrawSettings().saveImagesByFolder === true,
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             vibeLibrary: settings.vibeLibrary || { singles: [], groups: [] },
@@ -3534,6 +3627,7 @@ async function sendInitData() {
             autoLearnMode: settings.autoLearnMode || 'new_only',
             autoLearnGroupId: settings.autoLearnGroupId || '',
             danbooruLocalDB: !!settings.danbooruLocalDB,
+            continuityEnabled: settings.continuityEnabled !== false,
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
@@ -3825,6 +3919,29 @@ async function handleFrameMessage(event) {
                 text: ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed,
                 saveAsJpeg: getSharedDrawSettings().saveAsJpeg === true,
             }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
+        // 自动保存与按日期保存两个开关一起提交，宿主回执后页面才恢复控件。
+        case 'SAVE_IMAGE_SAVE_OPTIONS': {
+            const autoSaveImages = data.autoSaveImages === true;
+            const saveImagesByFolder = data.saveImagesByFolder === true;
+            const ok = await updateSharedDrawSettingsPersistent((settings) => {
+                setAutoSaveImages(settings, autoSaveImages);
+                settings.saveImagesByFolder = saveImagesByFolder;
+            }, '已保存', { notify: false, silent: false });
+            if (iframe.isConnected) postToIframe(iframe, {
+                type: 'STATUS', state: ok ? 'success' : 'error', target: 'image-save',
+                text: ok ? IMAGE_SAVE_COPY.saved : IMAGE_SAVE_COPY.saveFailed,
+                autoSaveImages: getSharedDrawSettings().autoSaveImages === true,
+                saveImagesByFolder: getSharedDrawSettings().saveImagesByFolder === true,
+            }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
+        case 'OPEN_IMAGE_FOLDER': {
+            const { state, text } = await openImageFolder();
+            if (iframe.isConnected) postToIframe(iframe, { type: 'STATUS', state, text, target: 'image-folder' }, 'LittleWhiteBox-NovelDraw');
             break;
         }
 
@@ -4423,6 +4540,24 @@ async function handleFrameMessage(event) {
             break;
         }
 
+        case 'SAVE_AUTO_GENERATE_IMAGES': {
+            const nextAuto = data.autoGenerateImages === true;
+            await updateSharedSettingsPersistent((settings) => {
+                settings.autoGenerateImages = nextAuto;
+            }, nextAuto ? '已开启自动排队' : '已关闭自动排队，需逐张手动生成');
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_CONTINUITY_ENABLED': {
+            const enabled = !!data.enabled;
+            await updateSettingsPersistent((settings) => {
+                settings.continuityEnabled = enabled;
+            }, enabled ? '沿用角色着装已开启' : '沿用角色着装已关闭');
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
         case 'DANBOORU_LOCAL_SEARCH': {
             const results = searchLocalDanbooru(data.query || '', 10);
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
@@ -4507,6 +4642,9 @@ async function handleFrameMessage(event) {
             const currentPrompts = getActivePromptPreset() || {};
             const model = String(data.model || getActiveParamsPreset()?.params?.model || '');
             const promptDraft = {
+                layout: data.promptDraft?.layout ?? currentPrompts.layout,
+                topSystem: data.promptDraft?.topSystem ?? currentPrompts.topSystem,
+                sceneRules: data.promptDraft?.sceneRules ?? currentPrompts.sceneRules,
                 modelGuideOverrides: normalizeNovelPromptGuideOverrides(
                     data.promptDraft?.modelGuideOverrides ?? currentPrompts.modelGuideOverrides,
                 ),
@@ -4548,7 +4686,7 @@ async function handleFrameMessage(event) {
                 }
                 const charName = preview.characterName || getChatCharacterName();
                 const image = getBase64ImagePayload(preview.base64);
-                const url = await saveBase64AsFile(image.base64, charName, `novel_${data.imgId}`, image.format);
+                const url = await saveImageToServer({ base64: image.base64, charName, fileName: `novel_${data.imgId}`, format: image.format });
                 preview.savedUrl = url;
                 await updatePreviewSavedUrl(data.imgId, url);
                 if (Number.isFinite(preview.messageId)) {
@@ -4653,6 +4791,8 @@ async function handleFrameMessage(event) {
                     postStatus('success', '提交后台完成，可关闭页面');
                 } else if (result?.status === 'uncertain') {
                     postStatus('loading', '后台任务确认中，请勿重复提交');
+                } else if (result?.manual) {
+                    postStatus('success', `已规划 ${result.total} 张，逐张点击「生成」出图`);
                 } else {
                     postStatus('success', `完成! ${result.success} 张`);
                 }
@@ -4913,7 +5053,7 @@ export async function cleanupNovelDraw() {
     backendJobMonitors.deactivate();
     observeBackgroundTask(abortGeneration(null, { reason: 'teardown' }), { source: import.meta.url, operation: 'cleanupNovelDraw' });
     clearFloorImageJobs(generationJobs);
-    novelImageRequestQueue.clear();
+    novelImageRequestQueue.clear({ scope: 'default' });
 
     window.removeEventListener('message', handleFrameMessageEvent);
     // 移除事件委托监听器（防止累积泄漏）
@@ -4930,6 +5070,8 @@ export async function cleanupNovelDraw() {
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
     delete window.xiaobaixNovelDraw;
     delete window._xbNovelEventsBound;
+    // 触控样式只属于 NovelAI 生图；不清掉会连带隐藏其他供应商的图片操作按钮
+    document.body.classList.remove('xb-nd-tap-controls');
 
     // 动态导入并清理
     try {

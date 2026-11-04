@@ -1,6 +1,7 @@
 import {
     beginDrawScenePlannerDiagnostic,
     callDrawScenePlannerAgentRuntime,
+    SCENE_PLANNER_TOOL_CHOICE,
 } from './draw-agent-runtime.js';
 import {
     ScenePlannerError,
@@ -17,6 +18,7 @@ import {
 import { logScenePlannerDiagnostic } from './scene-planner-debug.js';
 import { markToolProtocolMessages } from '../../agent-core/adapters/tool-protocol-marker.js';
 import { normalizeToolDefinitions, toFunctionTool } from './custom-tools.js';
+import { assertScenePlannerMessages } from './scene-planner-messages.js';
 const ERROR_SOURCE = "modules/draw/shared/scene-planner-executor.js";
 
 
@@ -37,20 +39,6 @@ function annotateRetryCount(error, retryCount) {
     return error;
 }
 
-const PLANNER_MESSAGE_ROLES = new Set(['system', 'user', 'assistant']);
-
-// 请求可含多条消息与 system/assistant 角色；但没有任何 user 消息时模型拿不到任务正文，直接判无效。
-function isValidPlannerMessages(messages) {
-    if (!Array.isArray(messages)) return false;
-    let hasUser = false;
-    for (const message of messages) {
-        if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
-        if (!PLANNER_MESSAGE_ROLES.has(message.role) || typeof message.content !== 'string') return false;
-        if (message.role === 'user') hasUser = true;
-    }
-    return hasUser;
-}
-
 function assertPreparedScenePlanner(prepared) {
     const prompt = prepared?.planner?.prompt;
     const validationContext = prepared?.planner?.validationContext;
@@ -58,9 +46,13 @@ function assertPreparedScenePlanner(prepared) {
         || prepared.version !== 1
         || !prompt
         || typeof prompt.systemPrompt !== 'string'
-        || !isValidPlannerMessages(prompt.messages)
         || !validationContext?.sceneSource) {
         throw new ScenePlannerError('Scene Planner 预处理结果无效。', 'PREPARED_INPUT_INVALID');
+    }
+    try {
+        assertScenePlannerMessages(prompt.messages);
+    } catch (error) {
+        throw new ScenePlannerError(`Scene Planner 预处理消息无效：${error.message}`, 'PREPARED_INPUT_INVALID', null, { cause: error });
     }
     assertSubmitScenePlanTool(prepared.planner.tool);
     readPreparedCustomTools(prepared);
@@ -88,7 +80,7 @@ export function createPreparedScenePlannerTask(prepared) {
         systemPrompt: input.planner.prompt.systemPrompt,
         messages: markToolProtocolMessages(input.planner.prompt.messages),
         tools: [input.planner.tool, ...readPreparedCustomTools(input).map(toFunctionTool)],
-        toolChoice: 'required',
+        toolChoice: SCENE_PLANNER_TOOL_CHOICE,
     };
 }
 
@@ -184,10 +176,10 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
         || beginDrawScenePlannerDiagnostic({}, options.onDiagnosticUpdate);
     const task = createPreparedScenePlannerTask(input);
     const customTools = readPreparedCustomTools(input);
-    // 自定义工具要有能运行它们的宿主（浏览器沙盒）。后台 Draw Run 没有，所以带自定义工具的快照在这里就被拒绝。
+    // 已解析的工具定义必须配对本次运行的沙盒宿主。
     if (customTools.length && typeof options.customToolHost?.invoke !== 'function') {
         const error = new ScenePlannerError(
-            '请求结构里有启用的“附带工具”，需要在浏览器里运行；后台任务不会执行自定义代码。',
+            '附带工具缺少执行环境，无法运行。',
             'CUSTOM_TOOL_HOST_MISSING',
         );
         diagnostic.fail(error, { stage: 'config' });

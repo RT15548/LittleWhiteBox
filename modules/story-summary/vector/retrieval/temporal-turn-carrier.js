@@ -1,3 +1,5 @@
+import { isUserHidden } from '../../data/message-visibility.js';
+
 export const TEMPORAL_PROTECTION_POLICY = Object.freeze({
     maxProtectedEvents: 5,
     maxCandidateShare: 0.40,
@@ -52,6 +54,7 @@ export function findExactTimeFloors(chat, marker, beforeFloor = chat?.length || 
     const normalizedMarker = normalizeTimeText(marker);
     const floors = [];
     for (let floor = 0; floor < Math.min(beforeFloor, (chat || []).length); floor++) {
+        if (isUserHidden(chat[floor])) continue;
         if (normalizeTimeText(chat[floor]?.mes).includes(normalizedMarker)) floors.push(floor);
     }
     return floors;

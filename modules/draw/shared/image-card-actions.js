@@ -9,8 +9,6 @@ import { isMessageBeingEdited, renderPreviewsForMessage, removeDrawSavedEntry, c
 import { withdrawEditedImagePlacements } from './chat-image-tag-migration.js';
 import { getImageChatIdentity } from './chat-image-persistence.js';
 import { isSceneSlotAlive } from './scene-placement.js';
-import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
-import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
 import { DRAW_SLOT_COPY, hasPreviewImage } from './image-record.js';
 import { withDrawActionFeedback } from './draw-action-feedback.js';
 
@@ -159,6 +157,7 @@ async function redrawFloorFailed(provider, container, messageId, floor = { claim
             slotIds.push(slotId);
             // 不传历史合成负向：编译时使用当前全局负向与本图已保存的角色 uc。
             tasks.push({ scene: tags, title: record?.title ?? '', characterPrompts: record?.characterPrompts ?? [],
+                chars: record?.continuityChars ?? [],
                 orientation: record?.orientation ?? null,
                 ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
@@ -198,6 +197,8 @@ async function redraw(provider, container) {
         return await generatePreparedChatImages(provider, { ctx, message, messageId, sourceText, swipeIndex,
             tasks: [{ scene: tags, title: record?.title ?? container.dataset.title ?? '', characterPrompts: record?.characterPrompts ?? [],
                 orientation: record?.orientation ?? null,
+                // 供应商侧成功后回写画面记忆（上镜锚点）需要规划时的原始角色快照
+                chars: Array.isArray(record?.continuityChars) ? record.continuityChars : [],
                 ...(provider === 'novelai' ? { sourceImage: record } : {}),
                 post_prompt: record?.postPrompt ?? '',
                 placement: { mode: 'existing', slotId } }] });
@@ -227,31 +228,9 @@ export async function removeChatImageSlot(container) {
     const withdrawal = withdrawEditedImagePlacements(ctx, messageId);
     container.remove();
 
+    // 正文里的图位由酒馆自动保存带走；这里只清本地记录。保存前刷新最多留一张找不到图的卡，可以再移除一次。
     try {
         await Promise.all([withdrawal, discardPendingImageSlot(slotId)]);
-    } catch (cause) {
-        throw new Error(DRAW_SLOT_COPY.removeLocalSaveFailed, { cause });
-    }
-    try {
-        await withConfirmableChatMutation(ctx, async () => {
-            const assertSaveTarget = () => {
-                if (!isCurrentTarget() || findImageJobDeliverySlot(ctx.chat, slotId)) {
-                    throw new Error(DRAW_SLOT_COPY.removeTargetChanged);
-                }
-            };
-            assertSaveTarget();
-            await saveChatAndConfirm({ ctx: { ...ctx, saveChat: () => {
-                // Web Locks may wait too: never let a late deletion save B's chat.
-                assertSaveTarget();
-                return ctx.saveChat();
-            } }, verify: persisted => !findImageJobDeliverySlot(persisted, slotId) });
-        });
-    } catch (cause) {
-        // Keep local removal and all image records. Never silently roll back the
-        // visible action or delete paid data when only the chat save is uncertain.
-        throw new Error(DRAW_SLOT_COPY.removeSaveFailed, { cause });
-    }
-    try {
         for (const record of await getPreviewsBySlot(slotId)) await deletePreview(record.imgId);
         await clearSlotSelection(slotId);
     } catch (cause) {

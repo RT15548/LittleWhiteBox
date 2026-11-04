@@ -9,6 +9,7 @@ import {
     PendingJobState,
     releasePendingImageJobLease,
     resetPendingImageJobAdoptionPlacement,
+    bindPendingDrawRunItems,
 } from './pending-image-jobs.js';
 import { deriveDrawRunChildJobId, deriveDrawRunItemIds } from './draw-run-identifiers.js';
 import {
@@ -28,6 +29,7 @@ const defaultJournal = {
     markPlacing: markPendingImageJobAdoptionPlacing,
     release: releasePendingImageJobLease,
     resetPlacing: resetPendingImageJobAdoptionPlacement,
+    bindItems: bindPendingDrawRunItems,
 };
 
 export class DrawRunAdoptionError extends Error {
@@ -56,6 +58,8 @@ function normalizeMetadata(source) {
         negativePrompt: source?.negativePrompt ?? null,
         postPrompt: source?.postPrompt ?? null,
         orientation: source?.orientation ?? null,
+        // 后台 Draw Run 接管的图也要带原始角色快照，成功入库后才进上镜锚点
+        continuityChars: Array.isArray(source?.continuityChars) ? source.continuityChars : null,
         providerMetadata,
     };
 }
@@ -108,6 +112,7 @@ export function normalizeDrawRunHandoff(run, marker) {
         provider,
         sourceHash,
         targetHash,
+        sourceLength: marker.sourceLength,
         items,
         cancelling: Number(run.cancelRequestedAt) > 0,
     };
@@ -139,6 +144,13 @@ async function acquireRecord({ handoff, marker, resolveTarget, chatTarget, journ
             && farewell.leaseId === record.leaseId;
         if (record.leaseExpiresAt > now() && !farewellMatches) return { record, owned: false };
         record = await journal.claim(record.jobId, { now: now(), farewell });
+        if (record?.submission && record.items.length === 0) {
+            record = await journal.bindItems(record.jobId, record.leaseId, handoff.items.map(item => ({ ...item,
+                placement: { owner: record.submission.owner, sourceHash: marker.targetHash,
+                    sourceLength: marker.sourceLength, swipeIndex: record.delivery.swipeIndex,
+                    task: { mode: 'source', sourceHash: handoff.sourceHash, offset: item.insertOffset }, order: item.index },
+            })));
+        }
         return { record, owned: Boolean(record) };
     }
 
@@ -176,14 +188,12 @@ export async function adoptExistingJobFromDrawRun({
     resolveTarget,
     isMessageBeingEdited = () => false,
     chatTarget,
-    confirmSlots,
     syncSlots = async () => {},
     farewell = null,
     journal = defaultJournal,
     now = Date.now,
 } = {}) {
     if (typeof resolveTarget !== 'function') throw new TypeError('Draw Run adoption 缺少 marker 定位器');
-    if (typeof confirmSlots !== 'function') throw new TypeError('Draw Run adoption 缺少可确认保存');
     if (!chatTarget?.endpoint || !chatTarget?.body) throw new TypeError('Draw Run adoption 缺少持久化聊天目标');
     if (typeof syncSlots !== 'function') throw new TypeError('Draw Run adoption 缺少楼层渲染同步器');
     const handoff = normalizeDrawRunHandoff(run, marker);
@@ -221,13 +231,6 @@ export async function adoptExistingJobFromDrawRun({
         const alive = livingSlots(target.sourceText, handoff.items);
         if (alive.length > 0) {
             await guard();
-            await confirmSlots({
-                runId: handoff.runId,
-                slotIds: alive,
-                target,
-                expectedText: target.sourceText,
-            });
-            await guard();
             await syncSlots({ target, slotIds: alive });
             await guard();
             record = await journal.markReady(record.jobId, record.leaseId, record.delivery);
@@ -235,7 +238,7 @@ export async function adoptExistingJobFromDrawRun({
         }
 
         if (record.delivery.mode === 'gallery'
-            || record.adoptionPhase === PendingJobAdoptionPhase.PLACING) {
+            || record.adoptionPhase === PendingJobAdoptionPhase.PLACING && !record.submission) {
             record = await journal.markReady(record.jobId, record.leaseId, {
                 mode: 'gallery',
                 reason: record.delivery.reason || 'slots_missing',
@@ -243,9 +246,10 @@ export async function adoptExistingJobFromDrawRun({
             return { status: 'ready', record, delivery: 'gallery', inserted: false, owned: true };
         }
 
-        const currentSourceHash = hashSceneSource(normalizeMessageSceneSourceText(target.sourceText));
-        if (currentSourceHash !== handoff.sourceHash
-            || hashSceneSource(target.sourceText) !== handoff.targetHash) {
+        const originalPrefix = value => value.slice(0, handoff.sourceLength ?? value.length);
+        const matches = value => hashSceneSource(originalPrefix(value)) === handoff.targetHash
+            && hashSceneSource(normalizeMessageSceneSourceText(originalPrefix(value))) === handoff.sourceHash;
+        if (!matches(target.sourceText)) {
             record = await journal.markReady(record.jobId, record.leaseId, {
                 mode: 'gallery',
                 reason: 'source_changed',
@@ -253,7 +257,7 @@ export async function adoptExistingJobFromDrawRun({
             return { status: 'ready', record, delivery: 'gallery', inserted: false, owned: true };
         }
 
-        record = await journal.markPlacing(record.jobId, record.leaseId);
+        if (record.adoptionPhase === PendingJobAdoptionPhase.PENDING) record = await journal.markPlacing(record.jobId, record.leaseId);
         await guard();
         target = currentTarget(resolveTarget, handoff.runId, marker);
         if (!target || isMessageBeingEdited(target.messageId)) {
@@ -264,8 +268,7 @@ export async function adoptExistingJobFromDrawRun({
             await releaseOwned();
             return { status: 'wait', reason: 'target_changed', record, owned: false };
         }
-        if (hashSceneSource(normalizeMessageSceneSourceText(target.sourceText)) !== handoff.sourceHash
-            || hashSceneSource(target.sourceText) !== handoff.targetHash) {
+        if (!matches(target.sourceText)) {
             record = await journal.markReady(record.jobId, record.leaseId, {
                 mode: 'gallery',
                 reason: 'source_changed',
@@ -274,13 +277,13 @@ export async function adoptExistingJobFromDrawRun({
         }
 
         const plannedText = insertScenePlacementsPreservingSlots(
-            target.sourceText,
-            handoff.items.map(item => ({
+            originalPrefix(target.sourceText),
+            handoff.items.filter(item => !record.items.find(entry => entry.slotId === item.slotId)?.discarded).map(item => ({
                 placement: { mode: 'source', sourceHash: handoff.sourceHash, offset: item.insertOffset },
                 content: `[image:${item.slotId}]`,
             })),
             { block: true },
-        );
+        ) + target.sourceText.slice(originalPrefix(target.sourceText).length);
         const originalText = target.sourceText;
         if (!setDrawRunMarkerText(target, plannedText)) {
             await releaseOwned();
@@ -296,23 +299,6 @@ export async function adoptExistingJobFromDrawRun({
             }
             throw error;
         }
-        try {
-            await confirmSlots({
-                runId: handoff.runId,
-                slotIds: handoff.items.map(item => item.slotId),
-                target,
-                expectedText: originalText,
-            });
-        } catch (error) {
-            // 写前核对失败意味着 saveChat 根本没有执行，恢复内存中的原文是确定安全的；
-            // 保存后读回不确定时则保留 plannedText，交给 PLACING 恢复判定。
-            if (error?.saveAttempted === false && getDrawRunMarkerText(target) === plannedText) {
-                setDrawRunMarkerText(target, originalText);
-                record = await journal.resetPlacing(record.jobId, record.leaseId);
-            }
-            throw error;
-        }
-        await guard();
         await syncSlots({ target, slotIds: handoff.items.map(item => item.slotId) });
         await guard();
         record = await journal.markReady(record.jobId, record.leaseId, record.delivery);

@@ -1,8 +1,8 @@
 # 后端 Draw Run 设计
 
-Draw Run 将场景规划、工具纠错与图片请求编译交给后端。现行入口为 `draw-runs-v1`与`draw-run-runtime-v4`，接收前端 Tool Schema，只以 images 作为执行结果；NovelAI V5 子任务归一为最终 PNG。
+Draw Run 将场景规划、工具纠错与图片请求编译交给后端。正式 v1 API 保留；新任务通过宿主 ABI 和执行包内容摘要选择随扩展更新的绘图业务。安装、签名、版本绑定与后台工具边界统一见[服务端说明](../server-plugin/littlewhitebox-server/README.md)。NovelAI V5 子任务归一为最终 PNG。
 
-执行与进程内存边界见 [Image Job](./image-backend-batch-jobs.md)。发布验证须覆盖真实宿主写盘／读回、关闭浏览器接回和三家 Provider 实盘，自动契约测试不覆盖这些外部行为。
+执行与进程内存边界见 [Image Job](./image-backend-batch-jobs.md)。发布验证须覆盖真实宿主保存／重新加载、关闭浏览器接回和三家 Provider 实盘，自动契约测试不覆盖这些外部行为。
 
 ## 0. 目标与产品承诺
 
@@ -29,7 +29,7 @@ Draw Run 将场景规划、工具纠错与图片请求编译交给后端。现�
 浏览器快速预处理
   ├─ 冻结正文、Scene Source、角色、世界书、Prompt（宏展开在浏览器侧完成）
   ├─ 冻结 Agent 配置与图片 generationRecipe
-  ├─ 在目标 swipe extra 保存 runId marker（唯一 accessor + confirmable save）
+  ├─ 在原有 journal 写入恢复凭据，目标 swipe extra 标记 runId
   └─ POST /v1/draw-runs
               ↓ 202：提交后台完成
 后端 DrawRunManager
@@ -58,10 +58,10 @@ Agent 渠道分两类传输：
 | 功能所有者 | 后端 `DrawRunManager`；浏览器只有提交与恢复协调器 |
 | 唯一事实来源 | Planner 状态归 Draw Run；图片执行归 Image Job；交付归现有 pending image journal |
 | 临时态 | 请求正文、Agent 凭证、图片密钥、LLM transcript、编译 recipe 全在后端内存 |
-| 持久态 | 只在目标 swipe extra 保存最小 run handle；Planner 后沿用Image Job IndexedDB journal |
+| 持久态 | 提交前沿用 Image Job IndexedDB journal 保存最小恢复凭据；聊天 marker 由宿主自动保存 |
 | 外部依赖 | Agent Core、酒馆三条 Chat Completion 渠道、直接模型 API、三家图片服务、聊天保存接口 |
-| 注册入口 | 后端声明 `draw-runs-v1` 路由 capability 与 `draw-run-runtime-v4` 运行契约；前端只注册一个共享恢复运行时 |
-| 删除路径 | 删 draw-runs 后端目录、前端协调器、capability，清理 `extra.xbDrawRuns`；图片 compiler 继续供普通链路使用 |
+| 注册入口 | 稳定宿主声明 `runtimeHostAbi`；前端准备签名执行包后提交，恢复流程仍只有一个共享运行时 |
+| 删除路径 | 删执行包内 Draw Run 业务、宿主 draw-runs 注册与前端协调器，一次清理 `extra.xbDrawRuns`；图片 compiler 继续供普通链路使用 |
 | 兼容对象 | 当前 SillyTavern、浏览器/WebView、现行 Agent Provider 和三家图片协议；不兼容测试线旧 Draw Run 草稿与旧 journal schema |
 
 ## 3. Draw Run 领域模型
@@ -226,8 +226,8 @@ Host Client 边界：
 Node 发布边界：
 
 - `modules/agent-core/node-entry.js` 是后端唯一入口；酒馆三渠道在入口层强制要求实例 Host Client，不导出浏览器全局 setter。
-- `npm run build` 中的 Node 目标用 esbuild 生成 `server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs`，把 Agent Core、三个 SDK 及其实际依赖打成 CommonJS 单文件；产物只允许引用 Node 内置模块。
-- 同一构建根据 esbuild metafile 生成 `draw-runs/vendor/THIRD_PARTY_LICENSES.txt`，逐项记录实际入包依赖的精确版本、许可证声明及上游随包附带的 LICENSE/NOTICE/COPYING 正文；未附带这些文件时回退提取 README 的 License 段，仍无正文则构建失败。
+- `npm run build` 将 Agent Core、三个 SDK、绘图执行及供应商传输、工具沙盒一起生成扩展的签名 CommonJS 执行包；只允许引用 Node 内置模块，不在后台安装目录保留业务副本。
+- 同一构建根据实际输入生成执行包许可证清单，记录精确依赖版本与上游许可证正文；没有许可证正文的依赖不能进入产物。
 - 构建与验收统一遵循[插件构建规则](plugin-build.md)，本功能不保留独立流水线。依赖锁定、产物与许可证一致性、暂存发布和失败恢复都由总流程负责。
 - 运行时不安装 npm 依赖；bundle 编译目标与 server plugin 最低版本均为 Node.js 18。总验收中的 Node 18 兼容检查及其覆盖范围见[服务端说明](../server-plugin/littlewhitebox-server/README.md)。
 
@@ -311,156 +311,56 @@ providers/comfyui/compiler
 
 Provider registry 只做 `provider → recipe validator → compiler → Image Job adapter`，不写巨大 switch。
 
-## 9. marker 与提交顺序
+## 9. 提交、聊天保存与恢复凭据
 
-### Swipe extra 唯一 accessor
+绘图不负责确认整份聊天文件。正文、swipe extra 修改后请求宿主 `saveChatDebounced`，不等待保存、不读回聊天、不为画图建立聊天版本或保存锁。图片显示与任务执行不依赖磁盘聊天是否已保存。
 
-事实（已核实）：活动 swipe 的工作副本是 `message.extra`；`syncMesToSwipe()`（`script.js:6837`）将其 `structuredClone` 到 `swipe_info[swipe_id].extra`（`:6880`），且在无 swipe 结构时直接 `return false`。
+唯一持久交付事实仍是 pending image journal，没有新增表、缓存或后台队列。它从提交前开始，沿用确定性的 childJobId：
 
-契约：
+1. 冻结原正文长度、targetHash、Scene Source、模型与供应商配置，准备执行包。
+2. 原子创建 `adopting/pending` journal，初始 items 为空；`submission` 仅含用户＋聊天身份、原始 marker、消息时间。不得存凭据、Prompt 或整份正文。
+3. 写入目标 swipe marker、请求宿主防抖保存，POST Draw Run。当前聊天、swipe 或原正文已经变化时不提交；原文后追加续写不算修改原文。
+4. 收到 202 即可离开。POST 回执丢失只查询同一 runId，绝不自动重发生成。
+5. 明确拒绝删除本地凭据；不确定时保留 journal 和 marker，按原有不确定窗口查询。
 
-- 封装唯一 accessor，禁止业务代码分别手写两份 marker。
-- 活动 swipe：修改 `message.extra`，再调用 `syncMesToSwipe()`。
-- 非活动 swipe：修改对应 `swipe_info[i].extra`。
-- 从未 swipe 过的消息（无 swipe 结构）：只有 `message.extra` 一份。
-- 扫描时按 swipe 读取并按 runId 去重。
+这条最小凭据必须跨刷新保留：否则宿主尚未保存 marker 就关闭页面，已接收的付费任务会失去定位。所有者是绘图交付流程；失败沿用现有恢复重试；交付和 ACK 后随同一条 journal 删除。图片落画廊时，原文指纹、长度和插入位置一并交给现有 preview placement，覆盖 journal 已删但聊天尚未保存的窗口。用户明确删除槽位时撤销 placement／标记 discarded。
 
-### Confirmable save（读回验证）
+marker 的唯一 accessor 保留：活动 swipe 修改 message.extra 并同步 swipe_info；非活动 swipe 只改其 extra；没有 swipe 结构则只有 message.extra。marker 包含 version、provider、sourceHash、targetHash、sourceLength、createdAt，以及自动模式标志。正式线旧 marker 没有 sourceLength 时仍按完整原文匹配。
 
-事实（已核实）：`ctx.saveChat` 即 `saveChatConditional`（`st-context.js:154`），它吞异常且等锁超时时静默返回不保存（`script.js:9352-9358`）；`isChatSaving` 锁不对插件暴露，直接调用 `saveChat()` 无法与宿主保存队列正确协调。
+## 10. child 接管与图片交付
 
-契约：确认边界不建立在调用返回上，而建立在读回验证上。首次提交以当前页面的活聊天为事实：
-
-```text
-严格确认点击时的聊天 / 楼层 / swipe / 正文仍未变化
-→ 在内存中写入 marker，并按 chatId 获取同源 Web Lock
-→ saveChatConditional() 等待宿主锁并尝试保存
-→ 从点击时冻结的聊天身份重新读取服务端文件
-→ 验证目标 marker 确实存在，才 POST Draw Run
-```
-
-- 首次提交不再要求“内存整份聊天 === 持久化整份聊天”。ST 的防抖保存、本页未落盘字段、其他扩展的合法内存修改都不应阻塞一次正常点击。
-- SillyTavern 的 `integrity` 是文件身份标识，不是每次保存递增的版本号；同一聊天双标签同时编辑仍属于 ST 原生的整聊覆盖边界。首次 marker 保存不自建另一套聊天版本系统；但无论宿主保存返回何种结果，读回没有 marker 都绝不 POST Draw Run。
-- adoption 与 marker 清理的写前条件只核对目标 run 的 marker 和冻结 swipe 正文；同一目标被编辑时不保存，无关楼层或运行时字段的合法差异不再阻断任务交接。SillyTavern 仍以整份聊天保存，因此不同标签页同时编辑不同楼层沿用宿主自身的最后写入覆盖边界，不在画图状态机内伪造聊天版本系统。
-- 同一页面内另有一层非持久化 mutation queue，把“修改共享 `ctx.chat` → 保存并确认”整体串行，防止首次 marker 与恢复互相覆盖。
-- 读回失败或内容不符都属于"不确定"：不 POST、不回滚可能已成功的远端写入，保留 marker 等恢复清理。
-- 封装冻结调用时的聊天身份：单人聊天读 `/api/chats/get`，群聊读 `/api/chats/group/get`；保存期间切换聊天不能改变读回目标。
-- 保存等待和读回各有 15 秒上限。保存超时或抛错后仍继续读回：读回验证通过即确认，未通过才判定"不确定"；不取消仍可能完成的宿主保存。
-- Draw Run adoption 激活后的Image Job恢复结算仍按目标槽位做写前校验与读回验证；同一目标冲突时恢复内存槽位并让位。
-
-### marker 内容与严格顺序
-
-目标 swipe 只保存身份，不保存进度、正文、Prompt、密钥或计划：
-
-```js
-extra.xbDrawRuns[runId] = {
-  version: 1,
-  provider,
-  sourceHash,
-  targetHash,
-  createdAt,
-  // 自动模式才有
-  automatic: true,
-  // 正式线已有标记的读取兼容；新取消使用整组意图 journal
-  cancelRequestedAt,
-}
-```
-
-```text
-点击时冻结活动 swipe index 与完整正文
-→ 查询Image Job journal；当前 swipe 仍有活跃图片槽位时在进入 Planner 前拒绝第二批，gallery-only 或用户已删除的槽位不锁正文
-→ 查询 capability 并完成全部 Planner 预处理
-→ 生成 runId（slotId/imgId 由 runId + index 确定性派生）
-→ 保存 marker 前再次核对仍是点击时的同一 swipe；重算剥槽正文的 sourceHash，并以冻结的完整 swipe targetHash 做严格 CAS（且楼层不在编辑中）
-→ 写 swipe extra marker（唯一 accessor）
-→ confirmable save：保存并读回验证 marker 在场
-→ POST Draw Run
-→ 收到 202 后确认后台接管；胶囊开始显示后端真实阶段
-```
-
-故障语义：
-
-- marker 保存失败或读回不确定：绝不 POST。
-- marker 存在、GET run 404：受 `SUBMISSION_UNCERTAINTY_WINDOW_MS` 约束——窗口内只能 WAIT（另一页面的 POST 可能尚未到达服务端，立即清 marker 会制造孤儿任务）；超窗仍 404 才判定"未提交 / Node 已重启"，清 marker 并提示。发起提交的活页面收到明确 4xx 时可立即清理。
-- POST 已到、响应丢失：相同 runId 查询或重发，接回既有任务。
-- Planner 失败：删除 marker，不往正文写失败卡。
-- 自动模式不在预处理或 202 时提前写完成标记。只有 child handoff 已建立、marker 可以确认删除时，才在同一次 chat save 中把 `automatic: true` 原子转成该 Provider 现有的 `xb_*_auto_done`；明确拒绝、Planner 失败或 handoff 前取消均不写完成标记，可以再次触发。多标签页恢复以服务端读回的 `auto_done` 为准同步本页内存，不能由陈旧页面后续保存擦除。
-- 切聊天：不取消，只停止当前页面监控。
-- swipe 重排、消息前移：runId 随 swipe extra 移动，不依赖楼层下标。
-- adoption journal 中的 `messageId` 只是写入时定位提示；恢复以确定性 `slotId` 扫描全部正文与非活动 swipe。删除更早楼层导致消息下标变化时，不得把仍存在的已付费图片槽位误判为丢失。
-
-## 10. adoption 与 gallery-only journal
-
-### journal delivery 判别模型
-
-不给旧 schema 加永久兼容默认值。测试线无历史包袱，直接重整为判别结构：
-
-```js
-originRunId,        // adoption journal 必带：marker 已删、ACK 响应丢失时凭它补 ACK
-originRunAckReady,  // marker 已确认持久化删除后才为 true；图片结算不得越过此闸门 ACK
-delivery: { mode: 'slots', chatId, messageId }
-// 或
-delivery: { mode: 'gallery' }
-```
-
-运行时只认当前结构；不留"字段缺失就当 slots"的旧语义。Image Job既有测试 fixture 同步迁移。
-
-### `adopting` 状态与Image Job恢复器隔离
-
-adoption 的 child 由服务端创建，客户端 slots 尚未落盘时不得进入普通 Image Job 恢复，否则不存在的 slot 会被当作已删除目标。journal 创建与恢复必须遵守以下隔离和原子性规则：
-
-契约：
-
-- journal 的接管状态为：`adopting/pending → adopting/placing → adopting/ready → active`。
-- `adopting` 只能由 Draw Run 恢复器处理；Image Job 恢复器必须忽略它（`planImageJobReattach` 对 `adopting` 不产生任何动作）。
-- 写 slots 或判定 gallery-only 并经读回确认后只转 `adopting/ready`；marker 已确认从服务端聊天删除、`originRunAckReady` 已打开后，才转 `active`。
-- `active/cancelling` 且带 `originRunId` 的记录本身即证明 marker 已从服务端删除。其他标签页若仍有本地陈旧 marker，只清内存，不得保存陈旧聊天快照。
-- adoption journal 创建必须用 IndexedDB 原子 `add` / 单事务 CAS，禁止 `put` 盲写，两标签页只允许一个成功。
-- `adopting/pending` 尚未写过正文；若后端 run 消失，默认受从 marker/journal `createdAt` 起算的 120 秒窗口保护。只有 Draw Run 提交请求仍不确定时留下的 run 遗言，才把这一窗口缩短为从遗言时间起 20 秒；adoption 页面留下的 `{jobId, leaseId}` 遗言只证明当前 adoption 租约持有者已经离开，允许新页面立即换租，不改变 missing-run 的判定窗口。超窗仍不存在时持 adoption 租约清除 marker、删除 journal，并明确提示用户重新画图。禁止把它留在无 manifest 可执行的永久恢复循环里。`placing/ready` 已有独立恢复事实，不依赖 run 仍然存在。
-
-### adoptExistingJobFromDrawRun
-
-Draw Run唯一特许入口，不破坏Image Job普通任务的 `journal → slots → POST`。只接受：当前 owner 可见的 Draw Run、runId marker、后端返回的 childJobId 与 manifest、sourceHash 与 marker targetHash 双重校验。
+`adopting` 只由 Draw Run 恢复器处理，Image Job 恢复器忽略它。后端 handoff 到达后，按同一租约向已有 journal 填入 items，不另建记录或购买任务。
 
 接管顺序：
 
 ```text
-原子创建 child job 本地 journal（adopting/pending，含 originRunId）
-→ 校验目标 swipe 的 sourceHash 与完整文本 targetHash
-→ 写正文前转 adopting/placing（刷新后若槽位不在持久化正文中，绝不复活，改走 gallery-only）
-→ 写入真实图片 slots（或判定 gallery-only）
-→ confirmable save：保存并读回验证
-→ journal 转 adopting/ready
-→ 持同一 adoption lease，读回确认目标正文未被其他标签页改写
-→ 删除 draw-run marker 并保存；自动任务在同一次保存中写入现有 Provider auto_done
-→ journal.originRunAckReady = true
-→ 单事务转 active/cancelling 且释放 adoption lease
-→ 交给Image Job attachJob()；图片落库与正文结算成功后 ACK Draw Run
-→ 删除 journal（ACK 响应丢失时凭 originRunId 重试，404 视为已完成）
+查询原 run → 将 handoff items 绑定到同一 journal
+→ 按 marker 找原 message/swipe；已有槽位只认 slotId
+→ 首次放图按原文前缀校验位置，保留其后的续写
+→ 写 slots 并渲染（或 target_missing/source_changed 时保留到画廊）
+→ journal ready，originRunAckReady 表示 child 已交接
+→ 本地清 marker，请求宿主防抖保存，激活原 journal
+→ Image Job 接图，图片与 selection 落库，再 ACK
+→ ACK 完成后删除 journal
 ```
 
-marker 清理后，面板控制权改读同一条Image Job journal，不另建 UI 状态快照：child 仍在排队/生成时继续显示实际阶段与张数并可取消。带完整任务身份的页面内活动事件只负责唤醒目标楼层读取当前 marker/journal，并携带这一刻的阶段或终态；事件不落盘、不设 TTL，也不作为任务事实。新取消先持久化精确 run/job 集合并用同一个后端请求确认，恢复顺序与生命周期遵守 [整组取消契约](./image-backend-batch-jobs.md#整组取消)。journal 删除后，成功/部分成功结果按浏览器生成的同一终态短暂显示，再自动回到空闲。
+- marker 未保存即关页：在同一用户与聊天内，按消息时间、swipe 和原文前缀找唯一目标；无唯一目标不猜位置，已付费结果留画廊。
+- 原文后续写不使任务失效；原有前缀被改动不能盲插。已有 slotId 不受全文变化影响。
+- 用户已明确删除的槽位不恢复；其他槽位继续接图。图片从未成功保存进正文的情况由 placement 恢复，不重画。
+- `placing/ready` 刷新后沿用同一 journal；旧正式记录无 submission 时保留其原有缺槽转画廊语义。
+- 自动完成标志在 child 交接时写入现有 Provider auto_done，不在预处理或 202 时提前写。失败或 handoff 前取消不标完成。
+- 整组取消沿用精确 run/job 集合与后端 ACK。取消确认不再要求读回原聊天证明 marker 消失，也不能删除 child 的交付记录。
+- 活跃规划按现有周期查询；网络失败和租约占用按原恢复机制重试。不同 run 的接管独立推进，不等待聊天保存。
+- 目标聊天未激活时不轮询其 adoption；切回聊天、网络恢复或页面可见时唤醒。关闭页面不传播取消；Node 重启仍不恢复进程内任务。
 
-酒馆停止键 / Escape 只中止仍在浏览器调用栈里的前台生成，不取消已经由后端接管的 Draw Run。后台任务只能从对应楼层或悬浮画图胶囊显式取消，避免用户停止文本生成时误伤早前楼层已经付费的后台批。
+## 11. 多标签页与用户隔离
 
-刷新卡在任何一步都能继续；不允许出现"child job 已存在但本地无任何恢复依据"的窗口（marker 删除与 ACK 之间崩溃时，journal 即恢复依据）。
-
-Planner 尚未完成、后端还没有 handoff manifest 时不存在合法的插图位置，因此楼层不得提前伪造占位卡，只由面板显示分析阶段。manifest 给出确定的 `insertOffset/slotId` 后，adoption 才依次创建 journal、把 slots 写入 `message.mes` 并确认落盘；从未离开页面时，紧接着使用与前台生成相同的宿主 `messageFormatting` 重建当前楼层并投影 pending 卡。
-
-slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只是可重建视图。断联恢复、F5、切回原聊天、宿主重新渲染消息、图片落库或跨标签页画廊失效通知都会触发同一个幂等预览投影：先确认当前 DOM 仍表示正文中的每个 slot；完全缺席时按当前正文重建楼层，再把 pending 卡或已落库图片原地放回。写 DOM 前必须再次核对聊天、消息对象、正文快照与编辑态；异步读取期间被用户删除或修改的 slot 不得复活。已完成图片不得依赖再次 F5 才可见。
-
-正文变了：不覆盖正文、不强插 slots，journal 转 `delivery.mode = 'gallery'`，图片继续收进画廊，提示"正文已变化，图片已保留在画廊"。gallery 模式的结算边界：全部图片落画廊（IndexedDB 写入成功）后才 ACK；不写 selection、不写失败卡、不改正文。
-
-恢复调度：租约仍有效且没有精确页面遗言时等待租约到期；正在运行的 Draw Run 每 3 秒刷新一次阶段，marker 冲突、保存不确定等稳定阻塞固定 15 秒退避。阶段刷新复用恢复循环，因此不追求动画级频率，避免 Planner 运行期间持续高频扫描 IndexedDB 和后端任务列表。无论 slots 还是 gallery，adoption 的目标聊天一律取冻结的 `chatTarget.chatId`；目标聊天未激活时不设周期轮询 timer，只由 `CHAT_CHANGED`、网络恢复或页面重新可见事件唤醒。pending adoption 找不到后端 run 时，无 run 遗言仍从原 marker/journal 的 `createdAt` 起算 120 秒，不会在每次恢复时重新获得宽限；正常刷新/关闭在 Draw Run POST 仍不确定时留下 run 遗言，恢复器才精确调度到遗言后的 20 秒边界。adoption 的 job 遗言只提前换租，不缩短 missing-run 窗口。遗言由同步 localStorage 承载，只证明旧页面已经死亡；BFCache 不写，系统强杀或写入失败完整退回原租约与不确定窗口。
-
-楼层正在编辑：延迟接管，不覆盖编辑器草稿。
-
-## 11. 多标签页与 unclaimed run
-
-- 同源多标签页沿用 IndexedDB lease；创建 child journal 时只允许一个标签页 CAS 成功接管。
-- Draw Run 的首次 marker、adoption 槽位和恢复结算写入都按聊天持有同源 Web Lock，同页共享内存修改另由 mutation queue 串行；两类锁都只活在运行期，不新增持久状态。首次 marker 以当前活聊天为事实并在保存后读回确认；adoption 与 marker 清理在保存前精确比较目标 run 的 marker + swipe 正文，不能被同一目标的并发修改越过，也不因无关楼层差异永久卡住。Image Job槽位结算继续按其目标槽位快照执行；其他标签页已经推进同一目标正文时，陈旧恢复页只能让位。
-- 后端存在且没有 marker/journal：不自动取消、不自动删除、不猜楼层，保持 `unclaimed`。已有 adoption journal 可按冻结的 chat target 跨聊天只读确认；无论 delivery 是 slots 还是 gallery，目标聊天未激活时都只等待，不能把“当前看不到 marker”误判成目标消失。回到目标聊天后再完成对应的占位符或 gallery 接回与 marker 清理。
-
+- 提交前 admission 与 journal 插入在同一 IndexedDB 事务中，防止两个页面为同一消息/swipe 购买不同任务。
+- child 仍沿用原有租约，同一时刻只由一个页面交付；释放与页面遗言遵守现有生命周期。
+- submission 的用户＋聊天身份只在相同账号、相同聊天使用；切账号不能恢复别人的 marker、凭据或图片。
+- 已有 marker/slot 的稳定身份优先于楼层下标；删除更早楼层后仍接回原消息。
+- 后端存在但没有当前浏览器 marker/journal 的任务仍是 unclaimed：不自动取消、不删除、不猜楼层。
+- 聊天持久化和多标签同时编辑的覆盖边界归 SillyTavern；绘图不再围绕整份聊天构造第二套保存协议。
 
 ## 12. 最低必要测试
 
@@ -473,7 +373,7 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 
 契约清单：
 
-- marker 保存确认（含读回验证）发生在 POST 之前；读回不符判定不确定，不 POST、不回滚。
+- journal admission 必须在 POST 之前；聊天保存不返回、读回不可用也不阻断提交与接图。
 - marker 在提交不确定窗口内遇 404 只 WAIT，超窗才清理；活页面明确 4xx 立即清理。
 - POST 响应丢失不会重复执行 Planner 或生图。
 - Alice/Bob 并发时 Cookie、CSRF、Agent 配置不串线（探针矩阵 + 集成）。
@@ -485,7 +385,7 @@ slots 已进入 `message.mes` 后，正文是唯一排版事实，当前 DOM 只
 - adoption journal 并发创建只有一个标签页成功（原子 add/CAS）。
 - child 创建后取消：Draw Run 保持 `dispatched` + manifest，adoption 仍能收取已 ready 结果。
 - marker 已删、ACK 响应丢失后，凭 `originRunId` 补 ACK。
-- sourceHash 或首次写占位符前的完整 swipe targetHash 变化时只进画廊；gallery 模式落库成功后才 ACK。
+- 首次插图的原文前缀变化时只进画廊；追加续写不阻断插图，gallery 模式落库成功后才 ACK。
 - adoption 已落盘后，用户只删除部分槽位时不复活被删槽位，其余仍存槽位继续接图；当前 swipe 的Image Job journal 清理前不得启动会替换它的第二批。
 - 消息移动、swipe 切换后仍能按 marker 找回（含活动/非活动/无 swipe 结构三形态）。
 - 两标签页只能有一个接管者。

@@ -1,325 +1,109 @@
 'use strict';
 
-/**
- * @param {(req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => Promise<unknown>} handler
- * @returns {import('express').RequestHandler}
- */
-function asyncRoute(handler) {
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Express receives failures through next; return the observed task so direct callers can await completion.
-    return (req, res, next) => handler(req, res, next).catch(next);
-}
-
-/**
- * LittleWhiteBox server plugin. Feature routes are registered here; each feature owns its implementation.
- * Installation and coordinated frontend/backend upgrades are documented in README.md.
- */
-
-const { pipeline } = require('node:stream/promises');
-const {
-    generateImage,
-    openImageStream,
-    testConnection,
-} = require('./providers/novelai/client.js');
 const { createAsyncImageJobManager } = require('./image-jobs/job-manager.js');
 const { registerImageJobRoutes } = require('./image-jobs/routes.js');
-const { createImageJobService } = require('./image-jobs/service.js');
 const { createDrawRunManager } = require('./draw-runs/draw-run-manager.js');
-const { createEnvelopeValidator } = require('./draw-runs/envelope.js');
 const { createPerRunHostClient } = require('./draw-runs/loopback-host-client.js');
 const { registerLoopbackProbeRoutes } = require('./draw-runs/loopback-probe.js');
 const { registerDrawRunRoutes } = require('./draw-runs/routes.js');
-const agentCore = require('./draw-runs/vendor/agent-core-node.cjs');
-const drawRunRuntime = require('./draw-runs/vendor/draw-run-runtime.cjs');
-const { parseTimeout } = require('./providers/upstream.js');
-const novelai = require('./providers/novelai/adapter.js');
-const sdWebUi = require('./providers/sd-webui/adapter.js');
-const comfyui = require('./providers/comfyui/adapter.js');
 const pluginManifest = require('./manifest.json');
-const { createRequestAbortScope } = require('./request-abort.js');
 const { registerWebRoutes, EXA_BACKEND_CAPABILITY } = require('./web/routes.js');
+const { IMAGE_SAVE_CAPABILITY, OPEN_FOLDER_CAPABILITY, registerImageFileRoutes } = require('./image-files/routes.js');
 const { CANCELLATION_CAPABILITY, createCancellationRegistry, registerCancellationRoutes } = require('./cancellation.js');
+const { RUNTIME_HOST_ABI, createRuntimeLoader } = require('./runtime-loader.js');
 
-const providerAdapters = Object.freeze({
-    novelai,
-    'sd-webui': sdWebUi,
-    comfyui,
-});
-
-const PLUGIN_VERSION = pluginManifest.version;
-const PLUGIN_CAPABILITIES = Object.freeze([
-    'v5-msgpack-stream',
-    'image-batch-jobs-v1',
-    'novelai-v5-final-image-v1',
-    'draw-runs-v1',
-    'draw-run-runtime-v4',
-    'draw-run-planner-retry-v1',
-    'draw-run-planner-layout-v1',
-    CANCELLATION_CAPABILITY,
-    EXA_BACKEND_CAPABILITY,
-]);
-const LOG_PREFIX = `[${pluginManifest.id}]`;
-
-const info = {
-    id: pluginManifest.id,
-    name: pluginManifest.name,
-    version: PLUGIN_VERSION,
-    description: pluginManifest.description,
-};
-
+const info = { ...pluginManifest };
+const loader = createRuntimeLoader();
 const cancellations = createCancellationRegistry();
-const jobManager = createAsyncImageJobManager({
-    adapters: providerAdapters,
-    cancellations,
-});
-const imageJobService = createImageJobService({
-    manager: jobManager,
-    adapters: providerAdapters,
-});
+const jobManager = createAsyncImageJobManager({ cancellations });
+const imageJobService = {
+    create(owner, body, execution) {
+        const runtime = jobManager.runtimeFor(owner, body.requestId) || execution;
+        return jobManager.createJob({ owner, ...runtime.api.normalizeImageJob(body), execution: runtime });
+    },
+    get: (owner, id) => jobManager.getJob(owner, id),
+    cancel: (owner, id) => jobManager.cancelJob(owner, id),
+};
 const drawRunManager = createDrawRunManager({
-    cancellations,
-    runtime: drawRunRuntime,
-    agentCore,
-    envelopeValidator: createEnvelopeValidator(drawRunRuntime),
-    imageJobService,
-    createHostClient: req => createPerRunHostClient(req, agentCore),
+    cancellations, imageJobService,
+    resolveRuntime: req => req.runtime,
+    createHostClient: (req, agentCore) => createPerRunHostClient(req, agentCore),
 });
+const capabilities = [
+    'v5-msgpack-stream', 'image-batch-jobs-v1', 'novelai-v5-final-image-v1',
+    'draw-runs-v1', 'draw-run-runtime-v4', 'draw-run-planner-retry-v1', 'draw-run-planner-layout-v1',
+    CANCELLATION_CAPABILITY, EXA_BACKEND_CAPABILITY, IMAGE_SAVE_CAPABILITY, OPEN_FOLDER_CAPABILITY,
+];
+const transportRoutes = new WeakMap();
 
-function parseUpstreamUrl(value) {
-    try {
-        const url = new URL(String(value || '').trim());
-        return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
-    } catch {
-        return null;
-    }
-}
-
-function errorMessage(error) {
-    return String(error?.message || error);
-}
-
-function sendRequestError(scope, res, error, label) {
-    if (scope.cause === 'client') return;
-    if (scope.cause === 'timeout') {
-        return res.status(200).send({ ok: false, code: 'timeout', error: 'NovelAI request timed out' });
-    }
-    console.error(`${LOG_PREFIX} ${label} error:`, error);
-    return res.status(200).send({ ok: false, error: errorMessage(error) });
-}
-
-function registerGenerateRoute(router, path) {
-    router.post(path, async (req, res) => {
-        const scope = createRequestAbortScope(req, res);
-        try {
-            if (scope.signal.aborted) return;
-            const body = req.body || {};
-            const key = String(body.key || '').trim();
-            const url = parseUpstreamUrl(body.url);
-            const payload = body.payload;
-            const timeout = parseTimeout(body.timeout);
-            if (!key) return res.status(400).send({ ok: false, error: 'API key is required' });
-            if (!url) return res.status(400).send({ ok: false, error: 'A complete HTTP(S) url is required' });
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-                return res.status(400).send({ ok: false, error: 'payload is required' });
-            }
-            if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
-            scope.setDeadline(timeout);
-
-            const result = await generateImage({
-                url,
-                key,
-                payload,
-                insecure: body.insecure === true,
-                signal: scope.signal,
-            });
-
-            if (!result.ok) {
-                console.warn(`${LOG_PREFIX} upstream ${result.status}: ${result.error.slice(0, 300)}`);
-            }
-            return res.status(200).send(result);
-        } catch (error) {
-            return sendRequestError(scope, res, error, path);
-        } finally {
-            scope.dispose();
-        }
+function requestRuntime(req) {
+    return loader.load(req, {
+        extensionId: req.headers?.['x-lwb-extension'] || 'LittleWhiteBox',
+        runtimeId: req.headers?.['x-lwb-runtime'] || undefined,
     });
 }
 
-function registerTestRoute(router, path) {
-    router.post(path, async (req, res) => {
-        const scope = createRequestAbortScope(req, res);
-        try {
-            if (scope.signal.aborted) return;
-            const body = req.body || {};
-            const key = String(body.key || '').trim();
-            const url = parseUpstreamUrl(body.url);
-            const payload = body.payload;
-            const timeout = parseTimeout(body.timeout);
-            if (!key) return res.status(400).send({ ok: false, error: 'API key is required' });
-            if (!url) return res.status(400).send({ ok: false, error: 'A complete HTTP(S) url is required' });
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-                return res.status(400).send({ ok: false, error: 'payload is required' });
-            }
-            if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
-            scope.setDeadline(timeout);
-
-            const result = await testConnection({
-                url,
-                key,
-                payload,
-                multipart: body.multipart === true,
-                insecure: body.insecure === true,
-                signal: scope.signal,
-            });
-            return res.status(200).send(result);
-        } catch (error) {
-            return sendRequestError(scope, res, error, path);
-        } finally {
-            scope.dispose();
-        }
-    });
-}
-
-/**
- * @param {import('express').Router} router
- */
-async function init(router) {
-    router.get('/status', (_req, res) => {
-        res.status(200).send({
-            ok: true,
-            id: info.id,
-            version: PLUGIN_VERSION,
-            capabilities: [...PLUGIN_CAPABILITIES],
+function route(handler) {
+    return (req, res) => Promise.resolve().then(() => handler(req, res)).catch(error => {
+        if (res.headersSent) return res.destroy(error);
+        return res.status(Number.isInteger(error.status) ? error.status : 503).send({
+            ok: false, code: error.code || 'runtime_unavailable', error: String(error.message || error),
         });
     });
+}
 
-    registerImageJobRoutes(router, {
-        manager: jobManager,
-        adapters: providerAdapters,
-        service: imageJobService,
-    });
+async function init(router) {
+    router.get('/status', (_req, res) => res.status(200).send({
+        ok: true, id: info.id, version: info.version, capabilities, runtimeHostAbi: RUNTIME_HOST_ABI,
+    }));
+    router.post('/v1/runtime/prepare', route(async (req, res) => {
+        if (!req.user?.profile?.handle) return res.status(403).send({ ok: false, code: 'authenticated_profile_required' });
+        const runtime = await loader.load(req, req.body || {});
+        return res.status(200).send({ ok: true, runtimeId: runtime.id, abi: RUNTIME_HOST_ABI });
+    }));
+    const runtimeRouter = {
+        get: (...args) => router.get(...args),
+        delete: (...args) => router.delete(...args),
+        post(path, handler) {
+            router.post(path, route(async (req, res) => {
+                if (path === '/v1/jobs' || path === '/v1/draw-runs') {
+                    const owner = req.user?.profile?.handle;
+                    if (!owner) return res.status(403).send({ ok: false, code: 'authenticated_profile_required' });
+                    req.runtime = path === '/v1/jobs'
+                        ? jobManager.runtimeFor(owner, req.body?.requestId)
+                        : drawRunManager.runtimeFor(owner, req.body?.runId);
+                    req.runtime ||= await requestRuntime(req);
+                }
+                return handler(req, res);
+            }));
+        },
+    };
+    registerImageJobRoutes(runtimeRouter, { manager: jobManager, service: imageJobService });
+    registerDrawRunRoutes(runtimeRouter, { manager: drawRunManager });
     registerLoopbackProbeRoutes(router);
-    registerDrawRunRoutes(router, { manager: drawRunManager });
     registerCancellationRoutes(router, { registry: cancellations, jobManager, drawRunManager });
     registerWebRoutes(router);
-
-    // v1 is the frozen upstream 1.0.1 contract; URL resolution deliberately
-    // stays inside the client so input validation runs in its original order.
-    router.post('/v1/generate-image', asyncRoute(async (req, res) => {
-        const scope = createRequestAbortScope(req, res);
-        try {
-            if (scope.signal.aborted) return;
-            const body = req.body || {};
-            const key = String(body.key || '').trim();
-            const payload = body.payload;
-            const timeout = parseTimeout(body.timeout);
-            if (!key) return res.status(400).send({ ok: false, error: 'API key is required' });
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-                return res.status(400).send({ ok: false, error: 'payload is required' });
+    registerImageFileRoutes(router);
+    for (const path of ['/v1/generate-image', '/v2/generate-image', '/v1/generate-image-stream', '/v1/test', '/v2/test']) {
+        router.post(path, route(async (req, res) => {
+            const runtime = await requestRuntime(req);
+            let routes = transportRoutes.get(runtime);
+            if (!routes) {
+                routes = new Map();
+                runtime.api.registerTransportRoutes({ post: (name, handler) => routes.set(name, handler) });
+                transportRoutes.set(runtime, routes);
             }
-            if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
-            scope.setDeadline(timeout);
-
-            const result = await generateImage({
-                baseUrl: body.url,
-                key,
-                payload,
-                insecure: body.insecure === true,
-                signal: scope.signal,
-            });
-            if (!result.ok) {
-                console.warn(`${LOG_PREFIX} upstream ${result.status}: ${result.error.slice(0, 300)}`);
-            }
-            return res.status(200).send(result);
-        } catch (error) {
-            return sendRequestError(scope, res, error, 'generate-image');
-        } finally {
-            scope.dispose();
-        }
-    }));
-
-    registerGenerateRoute(router, '/v2/generate-image');
-
-    router.post('/v1/generate-image-stream', asyncRoute(async (req, res) => {
-        const scope = createRequestAbortScope(req, res);
-        try {
-            if (scope.signal.aborted) return;
-            const body = req.body || {};
-            const key = String(body.key || '').trim();
-            const url = parseUpstreamUrl(body.url);
-            const payload = body.payload;
-            const timeout = parseTimeout(body.timeout);
-            if (!key) return res.status(400).send('API key is required');
-            if (!url) return res.status(400).send('A complete HTTP(S) url is required');
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-                return res.status(400).send('payload is required');
-            }
-            if (timeout === null) return res.status(400).send('timeout must be a positive number');
-            scope.setDeadline(timeout);
-
-            const result = await openImageStream({
-                url,
-                key,
-                payload,
-                insecure: body.insecure === true,
-                signal: scope.signal,
-            });
-            if (!result.ok) {
-                return res.status(result.status || 502).type('text/plain').send(result.error || 'NovelAI V5 request failed');
-            }
-
-            res.status(200);
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.setHeader('Cache-Control', 'no-store');
-            await pipeline(result.response, res, { signal: scope.signal });
-        } catch (error) {
-            if (scope.cause === 'client') return;
-            if (scope.cause === 'timeout') {
-                if (!res.headersSent) res.status(504).type('text/plain').send('NovelAI request timed out');
-                else res.destroy();
-                return;
-            }
-            console.error(`${LOG_PREFIX} generate-image-stream error:`, error);
-            if (!res.headersSent) res.status(502).type('text/plain').send(errorMessage(error));
-            else res.destroy(error);
-        } finally {
-            scope.dispose();
-        }
-    }));
-
-    router.post('/v1/test', asyncRoute(async (req, res) => {
-        const scope = createRequestAbortScope(req, res);
-        try {
-            if (scope.signal.aborted) return;
-            const body = req.body || {};
-            const key = String(body.key || '').trim();
-            const timeout = parseTimeout(body.timeout);
-            if (!key) return res.status(400).send({ ok: false, error: 'API key is required' });
-            if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
-            scope.setDeadline(timeout);
-
-            const result = await testConnection({
-                baseUrl: body.url,
-                key,
-                insecure: body.insecure === true,
-                signal: scope.signal,
-            });
-            return res.status(200).send(result);
-        } catch (error) {
-            return sendRequestError(scope, res, error, 'test');
-        } finally {
-            scope.dispose();
-        }
-    }));
-
-    registerTestRoute(router, '/v2/test');
-
-    console.log(`${LOG_PREFIX} server plugin initialized (v${PLUGIN_VERSION})`);
+            runtime.retain();
+            try { return await routes.get(path)(req, res, error => { throw error; }); }
+            finally { runtime.release(); }
+        }));
+    }
 }
 
 async function exit() {
     drawRunManager.close();
     jobManager.close();
     cancellations.close();
+    loader.close();
 }
-
 module.exports = { exit, info, init };

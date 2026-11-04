@@ -108,6 +108,15 @@ export function isPendingImageJobItem(item) {
     return !item.discarded && !item.deliveryCommitted;
 }
 
+export function isPendingDrawRunSubmission(record, { owner, messageId, messageDate = null, swipeIndex }) {
+    if (!record?.submission || record.submission.owner !== owner
+        || record.delivery.swipeIndex !== swipeIndex
+        || record.state !== PendingJobState.ADOPTING && !record.items.some(isPendingImageJobItem)) return false;
+    return messageDate !== null && record.submission.messageDate !== null
+        ? record.submission.messageDate === messageDate
+        : record.delivery.messageId === String(messageId);
+}
+
 let dbOpening = null;
 
 function openPendingJobsDB() {
@@ -178,6 +187,7 @@ function normalizeItem(source) {
         index,
         slotId,
         imgId,
+        ...(source.placement ? { placement: structuredClone(source.placement) } : {}),
         ...(source.discarded === true ? { discarded: true } : {}),
         ...(source.deliveryCommitted === true ? { deliveryCommitted: true } : {}),
         previewMetadata: {
@@ -185,6 +195,7 @@ function normalizeItem(source) {
             title: normalizeText(metadata.title),
             positive: normalizeText(metadata.positive),
             characterPrompts: metadata.characterPrompts ?? null,
+            continuityChars: Array.isArray(metadata.continuityChars) ? structuredClone(metadata.continuityChars) : null,
             negativePrompt: metadata.negativePrompt ?? null,
             postPrompt: metadata.postPrompt ?? null,
             orientation: metadata.orientation ?? null,
@@ -259,8 +270,9 @@ export function normalizePendingImageJob(source) {
     const leaseId = normalizeText(source?.leaseId).trim();
     if (!jobId || !provider || !leaseId) return null;
     const items = (Array.isArray(source?.items) ? source.items : []).map(normalizeItem).filter(Boolean);
-    if (items.length === 0) return null;
     const state = PENDING_JOB_STATES.has(source?.state) ? source.state : '';
+    const submission = source?.submission;
+    if (items.length === 0 && !(state === PendingJobState.ADOPTING && submission?.marker && submission?.owner)) return null;
     const delivery = normalizeDelivery(source?.delivery);
     if (!state || !delivery) return null;
     const originRunId = normalizeText(source?.originRunId).trim();
@@ -282,6 +294,7 @@ export function normalizePendingImageJob(source) {
         leaseId,
         originRunId,
         originRunAckReady,
+        ...(submission ? { submission: structuredClone(submission) } : {}),
         cancelRequested: source?.cancelRequested === true,
         ...(originRunId ? {
             chatTarget,
@@ -327,7 +340,14 @@ async function addPendingImageJob(record, state, { conflictIsNull = false } = {}
             records.onsuccess = () => {
                 const slots = new Set(normalized.items.filter(isPendingImageJobItem).map(item => item.slotId));
                 for (const raw of records.result) {
-                    const conflict = normalizePendingImageJob(raw)?.items
+                    const prior = normalizePendingImageJob(raw);
+                    if (normalized.submission && isPendingDrawRunSubmission(prior, {
+                        owner: normalized.submission.owner, messageDate: normalized.submission.messageDate,
+                        messageId: normalized.delivery.messageId, swipeIndex: normalized.delivery.swipeIndex,
+                    })) {
+                        return fail(new PendingImageJobConflictError(prior.jobId));
+                    }
+                    const conflict = prior?.items
                         .find(item => isPendingImageJobItem(item) && slots.has(item.slotId));
                     if (conflict) return fail(new PendingImageSlotBusyError(conflict.slotId));
                 }
@@ -348,6 +368,15 @@ export async function recordPendingImageJob(record) {
 // 返回 null 表示另一页面已经先取得所有权，调用方不得覆盖或接管它。
 export async function createAdoptingPendingImageJob(record) {
     return addPendingImageJob(record, PendingJobState.ADOPTING, { conflictIsNull: true });
+}
+
+// The same journal starts before Planner submission and later owns its child.
+// Only recovery identity is stored, never prompts or credentials. It is removed
+// with normal delivery/ACK, or when submission is definitively rejected.
+export async function bindPendingDrawRunItems(jobId, leaseId, items) {
+    return patchPendingImageJob(jobId, leaseId, record => ({ ...record, items: items.map(normalizeItem) }), {
+        requireState: PendingJobState.ADOPTING,
+    });
 }
 
 // 接管一条租约已过期的记录，换发新 leaseId。返回 null 表示不该接管：记录已消失，

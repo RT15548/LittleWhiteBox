@@ -1,8 +1,6 @@
-import showdown from 'showdown';
+import { parseMessageMarkdown } from './message-markdown-parser.js';
 import { isHtmlStructureLine, preprocessHtmlBoundaryLines } from './markdown-html-boundaries.js';
 
-let markdownConverter = null;
-let showdownPatched = false;
 let htmlBlockSerial = 0;
 const htmlBlockStore = new Map();
 let htmlBoundarySerial = 0;
@@ -42,28 +40,6 @@ function formatHtmlBlockSize(code = '') {
 
 function isHtmlBlockLanguage(language = '') {
     return HTML_BLOCK_LANGUAGES.has(String(language || '').trim().toLowerCase());
-}
-
-function patchShowdownHtmlSpans() {
-    if (showdownPatched) return;
-    showdownPatched = true;
-    showdown.subParser('unhashHTMLSpans', function unhashHTMLSpans(text, options, globals) {
-        let nextText = globals.converter._dispatch('unhashHTMLSpans.before', text, options, globals);
-        for (let index = 0; index < globals.gHtmlSpans.length; index += 1) {
-            let repText = globals.gHtmlSpans[index];
-            let limit = 0;
-            while (/¨C(\d+)C/.test(repText)) {
-                const num = RegExp.$1;
-                repText = repText.replace(`¨C${num}C`, globals.gHtmlSpans[num]);
-                if (limit === 10000) {
-                    break;
-                }
-                limit += 1;
-            }
-            nextText = nextText.replace(`¨C${index}C`, repText);
-        }
-        return globals.converter._dispatch('unhashHTMLSpans.after', nextText, options, globals);
-    });
 }
 
 function looksLikeHtmlCode(code = '') {
@@ -354,20 +330,7 @@ export function renderMarkdownToHtml(text, options = {}) {
     const markdownText = preprocessMarkdownInput(raw, options);
 
     try {
-        if (!markdownConverter) {
-            patchShowdownHtmlSpans();
-            markdownConverter = new showdown.Converter({
-                emoji: true,
-                literalMidWordUnderscores: true,
-                parseImgDimensions: true,
-                simpleLineBreaks: true,
-                strikethrough: true,
-                tables: true,
-                underline: true,
-                disableForced4SpacesIndentedSublists: true,
-            });
-        }
-        const html = injectHtmlBoundaryPlaceholders(markdownConverter.makeHtml(markdownText));
+        const html = injectHtmlBoundaryPlaceholders(parseMessageMarkdown(markdownText));
         return injectHtmlBlockPlaceholders(sanitizeMarkdownHtml(html));
     } catch (caughtError) {
         console.warn({ source: import.meta.url, operation: "renderMarkdownToHtml" }, caughtError);

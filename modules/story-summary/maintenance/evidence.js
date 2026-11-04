@@ -1,5 +1,6 @@
 import { requireMemory } from './errors.js';
 import { applyTextFilterRules } from '../data/text-filter-rules.js';
+import { isUserHidden } from '../data/message-visibility.js';
 
 export const SOURCE_PAGE_CHARS = 10000;
 const sourceRecord = (message, index) => ({
@@ -24,6 +25,7 @@ export function createEvidenceReader(readChat, cutoff, filterRules = []) {
             let budget = limit, next = null;
             for (let current = floor; current <= to; current++) {
                 requireMemory(chat[current - 1], 'source_missing', '', 'floor');
+                if (isUserHidden(chat[current - 1])) continue;
                 const record = sourceRecord(chat[current - 1], current - 1);
                 const story = applyTextFilterRules(record.text, filterRules);
                 const text = view === 'raw' ? record.text : story, start = current === floor ? offset : 0;
@@ -52,6 +54,7 @@ export function createEvidenceReader(readChat, cutoff, filterRules = []) {
             const hits = [];
             let floor = from;
             for (; floor <= lastFloor; floor++) {
+                if (isUserHidden(chat[floor - 1])) continue;
                 const record = sourceRecord(chat[floor - 1], floor - 1), text = applyTextFilterRules(record.text, filterRules);
                 const at = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
                 if (at >= 0) {

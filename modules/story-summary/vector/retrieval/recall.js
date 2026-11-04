@@ -18,6 +18,7 @@ import {
     scoreRecallRuntimeL1,
 } from '../runtime/runtime.js';
 import { getPublishedStateAtoms as getStateAtoms } from '../storage/state-store.js';
+import { isUserHidden } from '../../data/message-visibility.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { throwIfSignalAborted } from '../../../../shared/common/abort-utils.js';
@@ -147,7 +148,7 @@ function getLastMessages(chat, count = 3, excludeLastAi = false) {
     if (excludeLastAi && messages.length > 0 && !messages[messages.length - 1]?.is_user) {
         messages = messages.slice(0, -1);
     }
-    return messages.slice(-count);
+    return messages.filter(message => !isUserHidden(message)).slice(-count);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

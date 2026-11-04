@@ -39,9 +39,9 @@ export function computeMenuPosition(anchor, menu, viewport, { margin = VIEWPORT_
 /**
  * @param {object} options
  * @param {Document} options.document
- * @param {function} [options.getViewport] () => { width, height }，默认取 document 的视口（测试用）
- * @param {boolean} [options.portal] 打开时把菜单挂进页面真实内容树（.app-container，缺省回退 body）而不是卡片行内：
- *                                   TT 的 WKWebView 渲染不出卡片行内浮层，挂进内容树才可见（与缩略图弹层同修法）。
+ * @param {Function} [options.getViewport] () => { width, height }，默认取 document 的视口（测试用）
+ * @param {boolean} [options.portal] Render outside transformed/scrolling chat containers.
+ *                                   TT 的 WKWebView 渲染不出卡片行内浮层，打开时挂进页面真实内容树（.app-container，缺省回退 body）才可见（与缩略图弹层同修法）。
  */
 export function createCardMenuController({ document, getViewport, portal = false } = {}) {
     if (!document) throw new TypeError('缺少 document');

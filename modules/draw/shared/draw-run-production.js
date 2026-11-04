@@ -1,15 +1,10 @@
 import { fetchImageBackendJobsStatus } from './backend-image-jobs.js';
 import { SERVER_PLUGIN_COPY } from '../../../shared/server-plugin/copy.js';
 import { publishDrawRunActivity } from './draw-run-activity.js';
-import {
-    DRAW_RUN_PLANNER_LAYOUT_CAPABILITY,
-    DRAW_RUN_PLANNER_RETRY_CAPABILITY,
-    hasDrawRunsCapability,
-    REQUIRED_DRAW_RUN_PLUGIN_VERSION,
-} from './draw-run-client.js';
+import { prepareDrawingRuntime, DRAWING_RUNTIME_ABI } from './drawing-runtime-client.js';
 import { submitDrawRun } from './draw-run-coordinator.js';
 import { listActiveSwipeDrawRunMarkers } from './draw-run-markers.js';
-import { listPendingImageJobs } from './pending-image-jobs.js';
+import { isPendingDrawRunSubmission, listPendingImageJobs } from './pending-image-jobs.js';
 import { isSceneSlotAlive } from './scene-placement.js';
 import { hashSceneSource } from './scene-source.js';
 
@@ -52,12 +47,6 @@ async function runBeforeMarker(task, signal) {
     }
 }
 
-// 旧形状 = 恰好一条 user 消息。缺少 prompt 的输入交给后续校验处理，这里不当作新结构。
-function isLegacyPlannerPromptShape(prompt) {
-    if (!prompt || !Array.isArray(prompt.messages)) return true;
-    return prompt.messages.length === 1 && prompt.messages[0]?.role === 'user';
-}
-
 function emit(onStateChange, state, data = {}) {
     try {
         onStateChange?.(state, data);
@@ -85,9 +74,12 @@ export async function submitProviderDrawRun({
     isMessageBeingEdited,
     getHeaders = () => ctx?.getRequestHeaders?.() || {},
     statusLoader = fetchImageBackendJobsStatus,
+    runtimePreparer = prepareDrawingRuntime,
     pendingJobsLoader = listPendingImageJobs,
     submit = submitDrawRun,
     onStateChange,
+    owner,
+    requestSave,
 } = {}) {
     const normalizedProvider = String(provider || '').trim();
     if (!ctx || !message || !Number.isSafeInteger(messageId) || messageId < 0) {
@@ -102,6 +94,7 @@ export async function submitProviderDrawRun({
         throw new DrawRunProductionError('当前 swipe 不可用，无法提交后台画图。', 'DRAW_RUN_TARGET_INVALID');
     }
     const targetHash = hashSceneSource(String(message.mes ?? ''));
+    const targetLength = String(message.mes ?? '').length;
     // 同一 swipe 的后台任务串行接入，避免重复提交及相互改变规划的正文快照。
     // 完成后再次配图会追加新槽位，不替换既有图片；切换 Provider 也遵守同一入口约束。
     if (listActiveSwipeDrawRunMarkers(message).length > 0) {
@@ -125,7 +118,8 @@ export async function submitProviderDrawRun({
     }
     const activeText = String(message.mes ?? '');
     const hasLiveImageJob = (Array.isArray(pendingJobs) ? pendingJobs : []).some(record => (
-        record?.delivery?.mode === 'slots'
+        isPendingDrawRunSubmission(record, { owner, messageId, messageDate: message.send_date ?? null, swipeIndex: targetSwipeIndex })
+        || record?.delivery?.mode === 'slots'
         && Array.isArray(record.items)
         && record.items.some(item => isSceneSlotAlive(activeText, item?.slotId))
     ));
@@ -149,14 +143,13 @@ export async function submitProviderDrawRun({
             'DRAW_RUN_BACKEND_UNAVAILABLE',
         );
     }
-    if (!hasDrawRunsCapability(status)) {
-        const installedVersion = String(status?.version || '未知');
+    if (status.runtimeHostAbi !== DRAWING_RUNTIME_ABI) {
         throw new DrawRunProductionError(
-            `后台画图插件版本不兼容：当前 ${installedVersion}，需要 ${REQUIRED_DRAW_RUN_PLUGIN_VERSION}。`
-                + SERVER_PLUGIN_COPY.update,
+            '请完成这一次后台升级，以后绘图功能随扩展更新。' + SERVER_PLUGIN_COPY.update,
             'DRAW_RUN_BACKEND_OUTDATED',
         );
     }
+    const runtimeHeaders = await runBeforeMarker(() => runtimePreparer({ getHeaders, signal }), signal);
 
     const prepared = await runBeforeMarker(
         () => preparePlanner({ maxPlanImages: DRAW_RUN_MAX_IMAGE_ITEMS }),
@@ -166,28 +159,6 @@ export async function submitProviderDrawRun({
         const error = new Error('已取消');
         error.name = 'AbortError';
         throw error;
-    }
-    // 旧插件只接受“单条 user 消息”；自定义块产生的多消息结构发过去只会被服务端以晦涩的校验错误拒绝，
-    // 这里提前给出可操作的提示。默认（旧）形状不受影响，旧插件照常可用。
-    if (!isLegacyPlannerPromptShape(prepared?.planner?.prompt)
-        && !status.capabilities.includes(DRAW_RUN_PLANNER_LAYOUT_CAPABILITY)) {
-        throw new DrawRunProductionError(
-            '当前的请求结构需要更新版本的后台插件才能在后台运行。'
-                + `${SERVER_PLUGIN_COPY.update}也可关闭“后台任务”后使用浏览器流程。`,
-            'DRAW_RUN_BACKEND_OUTDATED',
-        );
-    }
-    // 带“附带工具”的消息要运行用户写的代码，代码只在浏览器沙盒里执行；后台任务不会也不能执行它，
-    // 所以带自定义工具的请求结构不提交后台，给出可操作的提示。
-    if (prepared?.planner?.customTools?.length) {
-        throw new DrawRunProductionError(
-            '请求结构里有启用的“附带工具”（会运行你写的代码），代码只能在浏览器里运行。请关闭“后台任务”后使用浏览器流程，或在请求结构里停用带工具的消息。',
-            'DRAW_RUN_CUSTOM_TOOLS_UNSUPPORTED',
-        );
-    }
-    // 旧版后台插件的请求校验不认识 planner.retry；它不会重试，但也不能因此拒绝整个任务。
-    if (prepared?.planner && !status.capabilities.includes(DRAW_RUN_PLANNER_RETRY_CAPABILITY)) {
-        delete prepared.planner.retry;
     }
     const generationRecipe = createGenerationRecipe(prepared);
     let result;
@@ -199,9 +170,13 @@ export async function submitProviderDrawRun({
             messageId,
             targetSwipeIndex,
             targetHash,
+            targetLength,
+            owner,
+            requestSave,
             prepared,
             imageProvider: normalizedProvider,
             generationRecipe,
+            runtimeHeaders,
             automatic,
             syncActiveSwipe,
             isMessageBeingEdited,
@@ -209,8 +184,7 @@ export async function submitProviderDrawRun({
             onStateChange,
         });
     } catch (error) {
-        // 可确认保存失败时 marker 可能已经落盘。唤醒恢复器，让它以持久化事实
-        // 继续判定，而不是等用户切聊天或重新显示页面。
+        // 请求结果不确定时由同一任务日志继续查询，不能重新购买。
         if (error?.uncertain === true) {
             publishDrawRunActivity({
                 provider: normalizedProvider,

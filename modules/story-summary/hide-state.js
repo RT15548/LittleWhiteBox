@@ -1,9 +1,24 @@
-// Automatic hiding owns the host's message visibility while managed, as before.
-// managed=false releases control without changing flags; enabled=false restores
-// visibility only while the module still manages this chat. Explicit clear() is
-// reserved for active repairs or the one-time disable transition.
-// Host flags are a projection, not a second boundary. All bookkeeping below is
-// session-local; loading/deleting a chat audits its saved flags from scratch.
+// Automatic hiding owns only the floors it hid itself. The host's is_system flag
+// is shared with manual hiding (eye button, /hide, scripts), so each floor this
+// module hides carries OWNED_KEY beside it; floors hidden without it are never
+// revealed. managed=false releases control without changing flags; enabled=false
+// reveals owned floors only while the module still manages this chat. Explicit
+// clear() is reserved for active repairs or the one-time disable transition.
+// OWNED_KEY lives on the message itself (not extra, which the host replaces per
+// swipe) so it moves with the floor on deletion, reordering and chat copies.
+// OWNED_KEY means "inside the automatic range", not "last hidden by us": the host
+// emits no event for manual hide/unhide, so a user who reveals and re-hides an
+// owned floor leaves the mark in place. Inside the range such a floor would be
+// re-hidden anyway; tracking DOM changes would still miss off-screen /hide.
+import { SUMMARY_HIDDEN_KEY as OWNED_KEY } from './data/message-visibility.js';
+// Chat-level marker (in this extension's chat metadata) that legacy unmarked
+// automatic hiding has been adopted. Retire with OWNED_KEY.
+export const HIDE_OWNERSHIP_CLAIMED_KEY = 'hideOwnershipClaimed';
+
+export function countOwnedHidden(chat) {
+    return (Array.isArray(chat) ? chat : []).reduce((count, message) => count + Number(!!message?.is_system && message[OWNED_KEY] === true), 0);
+}
+
 export function getHiddenThrough({ enabled, summaryBoundary, vectorBoundary = -1,
     useVectorBoundary, keepVisibleCount, length }) {
     if (!enabled || !Number.isInteger(summaryBoundary) || summaryBoundary < 0) return -1;
@@ -20,6 +35,7 @@ export function createHideStateController({
     renderMessage,
     refresh,
     save,
+    markClaimed,
     onError,
     debounceMs = 250,
 }) {
@@ -62,19 +78,45 @@ export function createHideStateController({
             && matchesMessagePrefix(current, state.messages);
     }
 
-    function apply(state, end, messageId) {
+    // Chats saved before ownership existed carry unmarked automatic hiding.
+    // The old version re-projected the same range on every load, so the floors
+    // it hid are exactly those this load would hide; when the summary is
+    // unusable or hiding is off it had already revealed them, and any floor
+    // still hidden is the user's. Adopt once per chat; later manual hides,
+    // inside or outside the boundary, stay with the user.
+    function claimLegacy(state, end) {
+        for (let id = 0; id <= Math.min(end, state.length - 1); id++) {
+            const message = state.chat[id];
+            if (message?.is_system && message[OWNED_KEY] !== true) message[OWNED_KEY] = true;
+        }
+        markClaimed(state);
+    }
+
+    function apply(state, end, messageId, claim = false) {
         if (!state.chatId || !Array.isArray(state.chat)) return 0;
         const previous = applied;
-        const audit = !previous || !ownsCurrentChat(previous, state)
+        const audit = claim || !previous || !ownsCurrentChat(previous, state)
             || !matchesMessagePrefix(state, previous.messages);
+        if (claim) claimLegacy(state, end);
         let changed = 0;
         const updateRange = (start, last) => {
             for (let id = Math.max(0, start); id <= Math.min(last, state.length - 1); id++) {
                 const message = state.chat[id];
-                const hidden = id <= end;
-                if (!message || Boolean(message.is_system) === hidden) continue;
-                message.is_system = hidden;
-                renderMessage(id, hidden);
+                if (!message) continue;
+                if (id <= end) {
+                    // A manual hide inside the range stays the user's.
+                    if (message.is_system) continue;
+                    message.is_system = true;
+                    message[OWNED_KEY] = true;
+                    renderMessage(id, true);
+                } else {
+                    if (message[OWNED_KEY] !== true) continue;
+                    delete message[OWNED_KEY];
+                    if (message.is_system) {
+                        message.is_system = false;
+                        renderMessage(id, false);
+                    }
+                }
                 changed++;
             }
         };
@@ -82,11 +124,13 @@ export function createHideStateController({
             updateRange(0, state.length - 1);
         } else {
             updateRange(Math.min(previous.end, end) + 1, Math.max(previous.end, end));
-            // New messages outside the moving boundary must also be visible.
+            // New messages outside the moving boundary must not stay owned-hidden.
             updateRange(Math.max(previous.messages.length, Math.max(previous.end, end) + 1), state.length - 1);
             if (Number.isInteger(messageId) && messageId >= 0) updateRange(messageId, messageId);
         }
         applied = { chatId: state.chatId, chat: state.chat, messages: state.messages, end };
+        // Adoption alone writes nothing: its marks ride the next host save, and an
+        // unsaved adoption is simply repeated with the same result on next load.
         if (changed) refresh();
         return changed;
     }
@@ -110,6 +154,7 @@ export function createHideStateController({
         }
     }
 
+    // false means superseded before application; callers may await a fresh projection.
     async function reconcile({ full = true, messageId } = {}) {
         if (full) applied = null;
         const version = invalidate();
@@ -117,7 +162,7 @@ export function createHideStateController({
         while (version === revision && ownsCurrentChat(owner)) {
             // Stopping management is not a request to make the chat visible.
             // Only the explicit disable transition may restore flags once.
-            if (!getState().managed) return;
+            if (!getState().managed) return true;
             // A pending commit temporarily blocks consumption; it does not mean
             // hiding was disabled. Capture the projection only after settlement.
             const pending = getPendingSave();
@@ -140,12 +185,16 @@ export function createHideStateController({
             // A commit may have started during the vector read. Discard that
             // boundary and recapture after saving rather than publishing it.
             if (getPendingSave()) continue;
-            if (!isCurrent(state, version)) return;
-            const changed = apply(state, getHiddenThrough({ ...state, vectorBoundary }), messageId);
+            if (!isCurrent(state, version)) return false;
+            // Without the vector boundary the old range is unknown; adopt later.
+            // An empty array may be a host reload window, not this chat's floors.
+            const claim = !state.claimed && !readError && state.length > 0;
+            const changed = apply(state, getHiddenThrough({ ...state, vectorBoundary }), messageId, claim);
             if (readError) onError(readError, 'boundary');
             await saveChanges(state, changed);
-            return;
+            return true;
         }
+        return false;
     }
 
     return {
@@ -166,6 +215,7 @@ export function createHideStateController({
             applied = null;
             const state = capture();
             // Immediate, independent of config, vector IO and shutdown queues.
+            // Reveals owned floors only; an unadopted legacy chat waits for reconcile.
             const changed = apply(state, -1);
             // Chat-level disable also saves its metadata; that caller includes
             // these synchronous flag changes in the same host save.

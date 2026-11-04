@@ -17,6 +17,46 @@ function fixture() {
 }
 const edit = { collection: 'facts', key: 'f-1', patch: { o: '只是传闻，未查证' } };
 
+// Acceptance: source read/search ignores manual-hidden floors in every mode,
+// retains physical numbering, and sees an unhide on its next read. Cost: leak.
+test('maintenance source tools respect live manual hiding without rewriting old memory', () => {
+    const { session, current } = fixture();
+    const original = structuredClone(current.store);
+    current.chat[1].mes = 'visibility-test-secret';
+    current.chat[1].is_system = true;
+    for (const view of ['story', 'raw']) {
+        assert.deepEqual(session.runTool('ReadSource', { floor: 1, to: 3, view }, current).items.map(item => item.floor), [1, 3]);
+        assert.deepEqual(session.runTool('SearchSource', { query: 'visibility-test-secret' }, current).hits, []);
+    }
+    current.chat[1].is_system = false;
+    assert.equal(session.runTool('ReadSource', { floor: 2 }, current).items[0].text, current.chat[1].mes);
+    assert.deepEqual(session.runTool('SearchSource', { query: 'visibility-test-secret' }, current).hits.map(hit => hit.floor), [2]);
+    assert.deepEqual(current.store, original);
+});
+
+// Acceptance: new reports omit manually hidden gaps, keep automatic gaps, and
+// observe unhide without rewriting earlier reports or memory. Cost: false gaps
+// persisted in maintenance history for source deliberately excluded by the user.
+test('maintenance coverage respects current manual hiding without rewriting earlier reports', () => {
+    const current = maintenanceFixture();
+    current.start = 8;
+    current.cutoff = 11;
+    current.chat[9].is_system = true;
+    Object.assign(current.chat[11], { is_system: true, xb_summary_hidden: true });
+    const originalMemory = structuredClone({ json: current.json, atoms: current.atoms, l0Index: current.l0Index });
+    const session = createMemorySession(current);
+    const firstReport = session.coverage();
+    const automaticGap = { floor: 12, status: 'missing' };
+    assert.deepEqual(firstReport.missingAnchors, [automaticGap]);
+
+    current.chat[9].is_system = false;
+    assert.deepEqual(session.coverage().missingAnchors, [{ floor: 10, status: 'missing' }, automaticGap]);
+    current.chat[9].is_system = true;
+    assert.deepEqual(session.coverage().missingAnchors, [automaticGap]);
+    assert.deepEqual(firstReport.missingAnchors, [automaticGap]);
+    assert.deepEqual({ json: current.json, atoms: current.atoms, l0Index: current.l0Index }, originalMemory);
+});
+
 for (const replacement of [false, true]) test(`source tools read edits without requiring unchanged source (array replaced: ${replacement})`, () => {
     const { session, current } = fixture();
     const old = session.runTool('ReadSource', { floor: 2 }, current).items[0].text;

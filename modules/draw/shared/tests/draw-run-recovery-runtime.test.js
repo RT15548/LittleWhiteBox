@@ -15,7 +15,8 @@ globalThis.indexedDB = indexedDB;
 globalThis.window = new EventTarget();
 const stubs = {
     'extensions.js': 'export const getContext=()=>globalThis.__drawRunRecoveryTest.ctx;',
-    'script.js': 'export const syncMesToSwipe=()=>true; export const getRequestHeaders=()=>({});',
+    'script.js': 'export const syncMesToSwipe=()=>true; export const getRequestHeaders=()=>({}); export const saveChatDebounced=()=>{void globalThis.__drawRunRecoveryTest.ctx.saveChat();};',
+    'utils.js': 'export const uuidv4=()=>"recovery-fixture";',
     'user.js': 'export const getCurrentUserHandle=()=>"alice";',
     'draw-common.js': 'export const isMessageBeingEdited=()=>false;export const syncRenderedMessageFromState=async()=>{};',
 };
@@ -165,13 +166,12 @@ test('cancellation of an already adopted child consumes its intent on completed 
     await expectNoCancellationIntent();
 });
 
-// Acceptance contracts (all offline, real journal + recovery + persisted-chat readback):
+// Acceptance contracts (offline, real journal + recovery):
 // - Marker cleanup followed by one failed intent deletion must retry to completion, including after reload.
 //   Cost: invisible durable intent leaks and repeated backend cancellation requests.
-// - A different current chat, failed readback, or failed ACK cannot prove the original marker is gone.
-//   Cost: losing cancellation ownership while work remains unresolved.
-// - An unadopted backend child or an adopting journal must retain cancellation ownership and delivery items.
-//   Cost: losing a paid image or its cancellation intent.
+// - Failed cancellation ACK or another account cannot retire the cancellation intent.
+// - Successful cancellation retires independently of chat I/O without deleting delivery items.
+//   Cost: losing cancellation ownership or a paid image.
 for (const reload of [false, true]) test(`retirement retries after marker removal${reload ? ' across a fresh runtime and chat switch' : ''}`, async t => {
     const runId = `retire-after-clear-${reload}`;
     const message = { mes: 'offline scene', extra: { xbDrawRuns: {
@@ -224,7 +224,7 @@ for (const reload of [false, true]) test(`retirement retries after marker remova
     if (reload) assert.deepEqual(host.ctx.chat, [{ mes: 'untouched' }]);
 });
 
-test('untracked intent retirement requires original-chat absence, ACK and no outstanding child', async t => {
+test('cancellation ACK retires its intent without chat readback or deleting paid child ownership', async t => {
     const runId = 'retirement-proof';
     const marker = { mes: 'original', extra: { xbDrawRuns: {
         [runId]: api.createDrawRunMarker({ provider: 'sd-webui', sourceHash: 'source', targetHash: 'target' }),
@@ -232,43 +232,34 @@ test('untracked intent retirement requires original-chat absence, ACK and no out
     const chatTarget = { kind: 'group', chatId: 'original', endpoint: '/api/chats/group/get', body: { id: 'original' } };
     host.ctx = { chatId: 'different-chat', chat: [], getRequestHeaders: () => ({}) };
     t.mock.method(console, 'warn', () => {});
-    let persisted = [marker], readFails = false, ackFails = false, reads = 0, runs = [], records = [];
-    t.mock.method(globalThis, 'fetch', async (_url, options) => {
-        reads++;
-        assert.deepEqual(JSON.parse(options.body), chatTarget.body);
-        if (readFails) throw new Error('readback offline');
-        return Response.json(persisted);
-    });
+    let ackFails = true;
+    t.mock.method(globalThis, 'fetch', async () => assert.fail('cancellation never reads the chat'));
     const imageClient = { async cancelWork() { if (ackFails) throw new Error('ACK lost'); } };
-    await api.cancelDrawWork({ owner: 'alice', jobIds: [], runIds: [runId], chatTarget }, imageClient);
+    await assert.rejects(api.cancelDrawWork({ owner: 'alice', jobIds: [], runIds: [runId], chatTarget }, imageClient));
+    const child = await api.createAdoptingPendingImageJob({ jobId: 'paid-child-retirement', provider: 'sd-webui',
+        originRunId: runId, sourceHash: 'source', chatTarget,
+        delivery: { mode: 'slots', chatId: 'original', messageId: '0', swipeIndex: 0 },
+        items: [{ index: 0, imgId: 'paid-image', slotId: 'paid-slot' }] });
+    t.after(() => api.forgetPendingImageJob(child.jobId, child.leaseId));
+    const before = await api.getPendingImageJob(child.jobId);
     const retries = [];
     const recover = async (owner = 'alice') => {
         const cancellation = await api.resumeDrawCancellations(imageClient, owner);
-        await api.runDrawRunRecoveryPass({ ctx: host.ctx, records,
+        await api.runDrawRunRecoveryPass({ ctx: host.ctx, records: [before],
             excludedRunIds: cancellation.blockedRunIds, acknowledgedRunIds: cancellation.acknowledgedRunIds,
             acknowledgedEntries: cancellation.acknowledgedEntries,
             onCancellationSettled: id => api.settleDrawRunCancellations(owner, [id]),
-            scheduleRecovery: delay => retries.push(delay), client: { listRuns: async () => runs,
+            scheduleRecovery: delay => retries.push(delay), client: { listRuns: async () => [],
                 cancelRun: async () => assert.fail('no individual cancellation'), acknowledgeRun: async () => assert.fail('no child ACK') } });
-        assert.equal((await api.drawCancellationJournal.list()).length, 1);
     };
     t.after(async () => { for (const entry of await api.drawCancellationJournal.list()) await api.drawCancellationJournal.forget(entry.id); });
-    await recover(); // No marker in the current chat does not prove absence in the original chat.
-    persisted = [];
-    readFails = true; await recover(); assert.equal(retries.length, 1);
-    readFails = false;
-    const previousReads = reads;
-    ackFails = true; await recover(); ackFails = false;
+    await recover();
+    assert.equal((await api.drawCancellationJournal.list()).length, 1);
+    ackFails = false;
     await recover('bob');
-    assert.equal(reads, previousReads, 'failed ACK or a different owner cannot authorize readback/retirement');
-    runs = [{ id: runId, state: 'dispatched', childJobId: 'paid-child', handoffManifest: { items: ['paid-image'] } }];
+    assert.equal((await api.drawCancellationJournal.list()).length, 1);
     await recover();
-    assert.equal(reads, previousReads, 'a child without a delivery journal is not settled');
-    runs = [];
-    records = [{ originRunId: runId, state: 'adopting', originRunAckReady: false, chatTarget,
-        items: [{ imgId: 'paid-image', slotId: 'paid-slot' }] }];
-    const original = structuredClone(records);
-    await recover();
-    assert.deepEqual(records, original);
-    assert.equal(reads, previousReads, 'adoption remains the owner of pending image delivery');
+    assert.deepEqual(await api.drawCancellationJournal.list(), []);
+    assert.deepEqual(await api.getPendingImageJob(child.jobId), { ...before, cancelRequested: true });
+    assert.ok(api.findDrawRunMarker([marker], runId), 'retirement does not require changing another chat');
 });

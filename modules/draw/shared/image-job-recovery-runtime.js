@@ -12,12 +12,9 @@ import { createDrawRunClient } from './draw-run-client.js';
 import { resumeDrawCancellations, settleDrawRunCancellations } from './draw-work-cancellation.js';
 import { publishDrawRunActivity, subscribeDrawRunActivity } from './draw-run-activity.js';
 import { runDrawRunRecoveryPass } from './draw-run-recovery-runtime.js';
-import {
-    readChatAndConfirm,
-    saveChatAndConfirm,
-    withConfirmableChatMutation,
-} from './confirmable-chat-save.js';
-import { persistedChatHasDeliverySlots } from './draw-run-markers.js';
+import { withConfirmableChatMutation } from './confirmable-chat-save.js';
+import { requestDrawChatSave } from './draw-chat-save.js';
+import { getImageChatIdentity } from './chat-image-persistence.js';
 import {
     clearSlotSelection,
     deletePreview,
@@ -27,10 +24,10 @@ import {
     storePreview,
 } from './gallery-cache.js';
 import { executeImageJobReattachEntry } from './image-job-recovery-executor.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from './image-autosave.js';
 import { planImageJobReattach, ReattachAction } from './image-job-reattach.js';
 import { readPageFarewells } from './page-farewell.js';
 import { getPendingImageJob, listPendingImageJobs, PendingJobState } from './pending-image-jobs.js';
-import { removeSceneSlotPlaceholders } from './scene-placement.js';
 import { deliverPreparedImage } from './prepared-image-delivery.js';
 import {
     classifyError,
@@ -43,9 +40,7 @@ import {
 import {
     classifyImageJobDeliveryTarget,
     commitImageJobDeliverySlotRemoval,
-    getImageJobDeliveryTextAt,
     ImageJobDeliveryTargetState,
-    persistedImageJobDeliveryChangesMatch,
     requireImageJobDeliveryTarget,
 } from './image-job-delivery-target.js';
 import { observeAsyncCallback, observeBackgroundTask } from '../../../shared/common/async-errors.js';
@@ -125,6 +120,16 @@ function requireAvailableTarget(record, item = null) {
     });
 }
 
+// 接回的图片送达后同样走“自动保存”，但以任务提交时刻为准：开关打开前提交的任务不算新图，不保存。
+// 楼层目标在保存完成后再取，聊天已切走则只保存文件。
+function autoSaveRecoveredImage(record, item) {
+    observeBackgroundTask(autoSaveDeliveredImage({ imgId: item.imgId, slotId: item.slotId, filePrefix: imageFilePrefix(record.provider), generatedAt: record.createdAt,
+        chatTarget: () => {
+            const target = record.delivery?.mode === 'slots' ? recordTarget(record, item) : null;
+            return target?.state === ImageJobDeliveryTargetState.ALIVE && target.isActiveSwipe ? target : null;
+        } }), { source: import.meta.url, operation: 'autoSaveRecoveredImage' });
+}
+
 function previewOptions(record, item, target) {
     return {
         ...record.gallery,
@@ -132,6 +137,7 @@ function previewOptions(record, item, target) {
         messageId: target?.messageId ?? record.gallery?.messageId ?? record.delivery?.messageId ?? '',
         slotId: item.slotId,
         imgId: item.imgId,
+        ...(item.placement ? { placement: item.placement } : {}),
         tags: item.previewMetadata?.tags || '',
         title: item.previewMetadata?.title || '',
         positive: item.previewMetadata?.positive || '',
@@ -139,6 +145,8 @@ function previewOptions(record, item, target) {
         negativePrompt: item.previewMetadata?.negativePrompt ?? null,
         postPrompt: item.previewMetadata?.postPrompt ?? null,
         orientation: item.previewMetadata?.orientation ?? null,
+        // Recovery retains the same compiled snapshot as live delivery.
+        continuityChars: Array.isArray(item.previewMetadata?.continuityChars) ? item.previewMetadata.continuityChars : null,
     };
 }
 
@@ -193,6 +201,7 @@ function createDeliveryAdapter() {
             await guard();
             if (record.delivery?.mode === 'gallery') {
                 await storePreview({ ...previewOptions(record, item, null), base64 });
+                autoSaveRecoveredImage(record, item);
                 return;
             }
             const committed = await deliverPreparedImage({
@@ -211,6 +220,7 @@ function createDeliveryAdapter() {
             });
             if (committed) {
                 await renderRecord(record);
+                autoSaveRecoveredImage(record, item);
             } else {
                 // The slot was removed while delivery was in flight. Do not
                 // recreate records that the slot's deletion already cleaned up.
@@ -288,63 +298,7 @@ function createDeliveryAdapter() {
                         isEditing: isMessageBeingEdited,
                         isAnyEditing: isAnyMessageBeingEdited,
                         guard,
-                        persist: async ({ changes = [] } = {}) => {
-                            if (!saveContext?.saveChat) return;
-                            if (changes.length === 0) {
-                                const localText = getImageJobDeliveryTextAt(saveContext.chat, record.delivery);
-                                if (typeof localText !== 'string') {
-                                    const readback = await readChatAndConfirm({
-                                        ctx: saveContext,
-                                        verify: persistedChat => slotsToRemove.every(slotId => (
-                                            !persistedChatHasDeliverySlots(
-                                                persistedChat,
-                                                record.delivery,
-                                                [slotId],
-                                            )
-                                        )),
-                                    });
-                                    if (!readback.confirmed) {
-                                        throw new Error('后台生图目标槽位仍在持久化聊天中，暂缓结算');
-                                    }
-                                    return;
-                                }
-                                await saveChatAndConfirm({
-                                    ctx: saveContext,
-                                    precondition: (persistedChat) => {
-                                        const persistedText = getImageJobDeliveryTextAt(
-                                            persistedChat,
-                                            record.delivery,
-                                        );
-                                        return typeof persistedText === 'string'
-                                            && removeSceneSlotPlaceholders(persistedText, slotsToRemove) === localText;
-                                    },
-                                    // delivery.messageId 是 adoption 时的定位提示，用户删除更早楼层后
-                                    // 可能已经失效。保存后的唯一终态事实是本批 slot 在整份聊天里
-                                    // 都不存在，不能只核对旧下标指向的那一条消息。
-                                    verify: persistedChat => slotsToRemove.every(slotId => (
-                                        !persistedChatHasDeliverySlots(
-                                            persistedChat,
-                                            record.delivery,
-                                            [slotId],
-                                        )
-                                    )),
-                                });
-                                return;
-                            }
-                            await saveChatAndConfirm({
-                                ctx: saveContext,
-                                precondition: persistedChat => persistedImageJobDeliveryChangesMatch(
-                                    persistedChat,
-                                    changes,
-                                    'beforeText',
-                                ),
-                                verify: persistedChat => persistedImageJobDeliveryChangesMatch(
-                                    persistedChat,
-                                    changes,
-                                    'afterText',
-                                ),
-                            });
-                        },
+                        persist: () => requestDrawChatSave(saveContext),
                     });
                 });
             }
@@ -369,8 +323,8 @@ function createDeliveryAdapter() {
             // 非 adopting 的 Draw Run journal 按 normalize 契约必然已经打开 ACK gate；
             // 这里是删除前的最后一道不变量断言，不是正常等待分支。
             if (!current?.originRunAckReady) {
-                const error = new Error('Draw Run marker 尚未确认清理，暂缓 ACK');
-                error.code = 'DRAW_RUN_MARKER_NOT_CLEARED';
+                const error = new Error('Draw Run 图片尚未交接，暂缓 ACK');
+                error.code = 'DRAW_RUN_HANDOFF_INCOMPLETE';
                 throw error;
             }
             await runtimeDrawRunClient.acknowledgeRun(record.originRunId);
@@ -472,6 +426,7 @@ async function runRecoveryPass() {
     }
     const records = allRecords.filter(record => (
         !isBlocked(record) && record.state !== PendingJobState.ADOPTING
+        && (!record.submission || record.submission.owner === getImageChatIdentity(ctx))
         && (record.delivery?.mode === 'gallery' || record.delivery?.retainWithoutSlot || record.delivery?.chatId === chatId)
     ));
     if (records.length === 0) return;

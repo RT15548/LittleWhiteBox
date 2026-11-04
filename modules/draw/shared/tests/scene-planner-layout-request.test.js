@@ -1,391 +1,257 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
-import {
-    OpenAICompatibleAdapter,
-    buildTaggedMessages,
-} from '../../../agent-core/adapters/openai-compatible.js';
+import { OpenAICompatibleAdapter, buildTaggedMessages } from '../../../agent-core/adapters/openai-compatible.js';
 import { TOOL_PROTOCOL_MARKER as M } from '../../../agent-core/adapters/tool-protocol-marker.js';
-import {
-    buildScenePlannerTask,
-    generateAndParseScenePlan,
-    prepareScenePlannerInput,
-} from '../scene-planner.js';
+import { buildScenePlannerTask, generateAndParseScenePlan, prepareScenePlannerInput } from '../scene-planner.js';
 import { createPreparedScenePlannerTask } from '../scene-planner-executor.js';
+import { assertScenePlannerMessages } from '../scene-planner-messages.js';
 import { getLastDrawAgentDiagnostic, resetDrawAgentRuntimeForTests } from '../draw-agent.js';
-import {
-    addBlock,
-    createCustomBlock,
-    createDefaultLayout,
-    reorderBlocks,
-} from '../scene-planner-layout.js';
+import { addBlock, createCustomBlock, createDefaultLayout, reorderBlocks } from '../scene-planner-layout.js';
+import { buildScenePlannerChainPreview } from '../scene-planner-frame.js';
 
 const PROMPTS = { topSystem: 'OPEN', tagGuideContent: 'GUIDE', sceneRules: 'RULES', fieldDescriptions: '' };
 const NARRATIVE = '雨声停了。阿璃推开门。';
-
+const ORDER = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits'];
+const ROLES = ['system', 'user', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool'];
 let idCounter = 0;
-function custom(role, content, options = {}) {
-    return createCustomBlock({ role, content, name: 'x', ...options }, [], () => (idCounter += 1) / 36 ** 6);
-}
-
-const DEFAULT_ORDER = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits'];
-function layoutOf(order, customs = {}) {
+const custom = (role, content, options = {}) => createCustomBlock({ role, content, ...options }, [], () => ++idCounter / 36 ** 6);
+function layoutOf(order = ORDER, customs = {}) {
     let layout = reorderBlocks(createDefaultLayout(), order);
-    // customs: { 位置: 块 }，按位置从前往后插入
-    for (const [index, block] of Object.entries(customs).sort(([a], [b]) => a - b)) {
-        layout = addBlock(layout, block, Number(index));
-    }
+    for (const [index, block] of Object.entries(customs).sort(([a], [b]) => a - b)) layout = addBlock(layout, block, Number(index));
     return layout;
 }
-
-// 宏桩：只展开 {{user}}，并记录每次调用的入参；其余（含 {{lastMessage}} 等）保持字面量。
 function createRuntime() {
-    const calls = [];
-    const emits = [];
-    return {
-        calls,
-        emits,
-        runtime: {
-            substituteParams: (text) => {
-                calls.push(text);
-                return text.split('{{user}}').join('〈用户〉');
-            },
-            promptReadyEvent: 'READY',
-            eventSource: { emit: async (event, payload) => { emits.push(JSON.parse(JSON.stringify(payload))); } },
-        },
-    };
+    const calls = [], emits = [];
+    return { calls, emits, runtime: {
+        substituteParams: text => { calls.push(text); return text.split('{{user}}').join('〈用户〉'); },
+        promptReadyEvent: 'READY',
+        eventSource: { emit: async (_event, payload) => { emits.push(structuredClone(payload)); } },
+    } };
 }
-
 async function build(layout, options = {}) {
     const recorder = createRuntime();
-    const task = await buildScenePlannerTask({
-        messageText: NARRATIVE,
-        maxImages: 1,
-        promptDefaults: PROMPTS,
-        customPrompts: layout === undefined ? null : { layout },
-        expansionOptions: { runtime: recorder.runtime },
-        ...options,
-    });
+    const task = await buildScenePlannerTask({ messageText: NARRATIVE, maxImages: 1, promptDefaults: PROMPTS,
+        customPrompts: layout === undefined ? null : { layout }, expansionOptions: { runtime: recorder.runtime }, ...options });
     return { task, ...recorder };
 }
-
-function protocolTextFor(task) {
-    return buildTaggedMessages({
-        systemPrompt: '', tools: task.tools, toolChoice: task.toolChoice, messages: [{ role: 'user', content: 'x' }],
-    })[0].content;
+const receipts = task => task.messages.filter(message => message.role === 'tool');
+const documents = task => receipts(task).map(message => JSON.parse(message.content));
+// Cost: dropping continuity here silently changes a later paid image request.
+test('continuity reaches planner materials once and an empty snapshot leaves the request unchanged', async () => {
+    const baseline = await build();
+    assert.deepEqual((await build(undefined, { continuityText: '' })).task, baseline.task);
+    const continuityText = 'Alice: blue coat, silver hair';
+    const { task } = await build(undefined, { continuityText });
+    assert.equal(documents(task).map(value => value.content).join('\n').split(continuityText).length - 1, 1);
+});
+function adapterBody(task, toolMode) {
+    return new OpenAICompatibleAdapter({ provider: 'openai-compatible', model: 'gpt-4o', toolMode,
+        apiKey: 'fixture', baseUrl: 'http://127.0.0.1:1/v1' }).buildRequestBody(task);
 }
 
-function adapterBody(task, toolMode, model = 'gpt-4o') {
-    const adapter = new OpenAICompatibleAdapter({
-        provider: 'openai-compatible', model, toolMode, apiKey: 'k', baseUrl: 'http://127.0.0.1:1/v1',
-    });
-    return adapter.buildRequestBody(task);
-}
-
-// ───────── 默认布局 ─────────
-
-test('absent, explicit-default and ignored layouts all produce the identical request (5 macro calls)', async () => {
-    const baseline = await build(undefined);
-    const variants = [
-        createDefaultLayout(),
-        { version: 1, blocks: [{ id: 'content' }] },
-        'garbage',
-        // 停用的自定义块不改变请求
-        addBlock(createDefaultLayout(), custom('assistant', 'GHOST', { enabled: false }), 3),
-    ];
-    for (const layout of variants) {
+// Check observable role/data/protocol contracts, not production prompt prose.
+test('default, absent and disabled-only layouts produce the same completed handoff', async () => {
+    const baseline = await build();
+    for (const layout of [createDefaultLayout(), { version: 1, blocks: [{ id: 'content' }] }, 'garbage',
+        addBlock(createDefaultLayout(), custom('assistant', 'GHOST', { enabled: false }), 3)]) {
         const result = await build(layout);
         assert.deepEqual(result.task, baseline.task);
         assert.deepEqual(result.emits, baseline.emits);
-        assert.deepEqual(result.calls.map((text) => text.replace(/XBDRAWSLOT_(\w+?)_\w+/g, 'S_$1')),
-            baseline.calls.map((text) => text.replace(/XBDRAWSLOT_(\w+?)_\w+/g, 'S_$1')));
-        assert.equal(result.calls.length, 5);
     }
-    assert.equal(baseline.calls.length, 5);
-    assert.equal(baseline.task.messages.length, 1);
-    assert.equal(baseline.task.messages[0].role, 'user');
-    assert.equal(baseline.task.systemPrompt.includes(M), false);
-    // emit 载荷：system + user，与改造前一致。
-    assert.deepEqual(baseline.emits.map((payload) => payload.chat.map((message) => message.role)), [['system', 'user']]);
+    assert.equal(baseline.task.systemPrompt, '');
+    assert.equal(baseline.task.toolChoice, 'auto');
+    assert.deepEqual(baseline.task.messages.map(message => message.role), ROLES);
+    assert.equal(documents(baseline.task).at(-1).approved, true);
+    assert.deepEqual(baseline.emits[0].chat.map(message => message.role), ROLES);
+    assert.equal(JSON.stringify(baseline.emits).includes(M), false);
 });
 
-test('default layout through the adapter keeps today request: protocol appended to the system message', async () => {
-    const { task } = await build(createDefaultLayout());
-    const protocol = protocolTextFor(task);
-    const tagged = adapterBody(task, 'tagged-json');
-    assert.deepEqual(tagged.messages, [
-        { role: 'system', content: `${task.systemPrompt}\n\n${protocol}` },
-        { role: 'user', content: task.messages[0].content },
-    ]);
-    const native = adapterBody(task, 'native');
-    assert.deepEqual(native.messages, [
-        { role: 'system', content: task.systemPrompt },
-        { role: 'user', content: task.messages[0].content },
-    ]);
-    assert.equal(native.tools.length, 1);
-});
-
-// ───────── 仍是 [system, user] 的自定义布局（legacy） ─────────
-
-test('custom blocks that keep the [system, user] shape stay on the legacy prompt shape', async () => {
-    const layout = layoutOf(DEFAULT_ORDER, { 1: custom('system', 'EXTRA-SYS'), 7: custom('user', 'EXTRA-USER') });
-    const { task, calls } = await build(layout);
-    assert.equal(task.messages.length, 1);
-    assert.equal(task.messages[0].role, 'user');
-    assert.ok(task.systemPrompt.startsWith('OPEN\n\nEXTRA-SYS\n\n## 你收到的材料'));
-    assert.ok(task.systemPrompt.endsWith('## 场景规则\n\nRULES'));
-    assert.match(task.messages[0].content, /<\/worldInfo>\n\nEXTRA-USER\n\n<content>/);
-    assert.equal(task.systemPrompt.includes(M), false);
-    assert.equal(calls.length, 5);
-});
-
-// ───────── 非 legacy 布局 ─────────
-
-test('assistant tail layout: systemPrompt empty, messages hold system/user/assistant in order; 6 macro calls', async () => {
-    const layout = layoutOf(DEFAULT_ORDER, { 99: custom('assistant', '{{user}} 的前缀') });
-    const { task, calls, emits } = await build(layout);
-    assert.equal(task.systemPrompt, '');
-    assert.deepEqual(task.messages.map((message) => message.role), ['system', 'user', 'assistant']);
-    assert.equal(task.messages[0].content.endsWith(`\n\n${M}`), true);
-    assert.equal(task.messages[2].content, '〈用户〉 的前缀');
-    // 3 次动态值 + 每条合并后的消息 1 次。
-    assert.equal(calls.length, 3 + 3);
-    // 预览载荷里永远看不到标记。
-    assert.equal(JSON.stringify(emits).includes('XBDRAW_TOOL_PROTOCOL'), false);
-    assert.deepEqual(emits[0].chat.map((message) => message.role), ['system', 'user', 'assistant']);
-    assert.equal(emits[0].chat[0].content.endsWith('## 场景规则\n\nRULES'), true);
-});
-
-test('tools block inside the user group becomes its own system message; emit hides it and merges neighbours', async () => {
-    const layout = layoutOf(['opening', 'frame', 'guide', 'rules', 'worldInfo', 'tools', 'content', 'limits']);
-    const { task, emits, calls } = await build(layout);
-    assert.deepEqual(task.messages.map((message) => message.role), ['system', 'user', 'system', 'user']);
-    assert.equal(task.messages[2].content, M);
-    assert.equal(calls.length, 3 + 4);
-    // 预览 = 原生模式实际会发送的内容：标记消息被剔除后，两条相邻 user 合并。
-    assert.deepEqual(emits[0].chat.map((message) => message.role), ['system', 'user']);
-    assert.match(emits[0].chat[1].content, /<\/worldInfo>\n\n<content>/);
-});
-
-test('messages that expand to nothing are dropped in non-legacy mode', async () => {
-    const layout = layoutOf(DEFAULT_ORDER, { 99: custom('assistant', '{{empty}}') });
-    const recorder = createRuntime();
-    const baseSubstitute = recorder.runtime.substituteParams;
-    recorder.runtime.substituteParams = (text) => baseSubstitute(text).split('{{empty}}').join('');
-    const task = await buildScenePlannerTask({
-        messageText: NARRATIVE,
-        maxImages: 1,
-        promptDefaults: PROMPTS,
-        customPrompts: { layout },
-        expansionOptions: { runtime: recorder.runtime },
-    });
-    assert.deepEqual(task.messages.map((message) => message.role), ['system', 'user']);
-    assert.equal(task.systemPrompt, '');
-});
-
-// ───────── 安全模型：自定义块不能使用动态槽位 / 标记 ─────────
-
-test('custom blocks cannot read the dynamic slots; their placeholders stay literal', async () => {
-    const secret = '独一无二的叙事XYZ';
-    const layout = layoutOf(DEFAULT_ORDER, {
-        0: custom('system', '系统块 {{lastMessage}} {$worldInfo} {{characterInfo}}'),
-        99: custom('assistant', '尾块 {{lastMessage}} {$worldInfo} {{characterInfo}}'),
-    });
-    const { task } = await build(layout, {
-        messageText: `${secret}。第二句。`,
-        worldbookEntries: '世界书独有条目QQQ',
-        presentCharacters: [{ name: '阿璃', type: 'girl' }],
-    });
-    const [system, user, assistant] = task.messages;
-    assert.ok(system.content.startsWith('系统块 {{lastMessage}} {$worldInfo} {{characterInfo}}'));
-    assert.equal(assistant.content, '尾块 {{lastMessage}} {$worldInfo} {{characterInfo}}');
-    // 动态内容只出现在内置块里，且各一次。
-    const all = task.messages.map((message) => message.content).join('\n');
-    assert.equal(all.split(secret).length - 1, 1);
-    assert.equal(all.split('世界书独有条目QQQ').length - 1, 1);
-    assert.equal(system.content.includes(secret), false);
-    assert.equal(assistant.content.includes(secret), false);
-    assert.ok(user.content.includes(secret));
-    assert.equal(/XBDRAWSLOT_/.test(all), false);
-});
-
-test('tool protocol marker is stripped from custom text and from narrative / world info / characters', async () => {
-    const layout = layoutOf(DEFAULT_ORDER, { 99: custom('assistant', `头${M}尾`), 0: custom('user', M) });
-    const { task } = await build(layout, {
-        messageText: `她说${M}然后走了。`,
-        worldbookEntries: `条目${M}`,
-        presentCharacters: [{ name: `阿${M}璃`, type: 'girl' }],
-    });
-    const markerHolders = task.messages.filter((message) => message.content.includes(M));
-    assert.equal(markerHolders.length, 1);
-    assert.equal(markerHolders[0].role, 'system');
-    assert.equal(task.messages.at(-1).content, '头尾');
-    assert.ok(task.messages[1].content.includes('她说然后走了。'));
-});
-
-// ───────── 快照与执行 ─────────
-
-test('prepared snapshot carries the multi-message prompt and the executor task replays it', async () => {
-    const layout = layoutOf(DEFAULT_ORDER, { 99: custom('assistant', 'PREFILL') });
-    const prepared = await prepareScenePlannerInput({
-        messageText: NARRATIVE,
-        maxImages: 1,
-        promptDefaults: PROMPTS,
-        customPrompts: { layout },
-        expansionOptions: { runtime: createRuntime().runtime },
-        agentCaller: async () => {},
-        agentOptions: { providerConfig: { provider: 'openai-compatible', model: 'm' } },
-    });
-    const transferred = JSON.parse(JSON.stringify(prepared));
-    assert.equal(transferred.planner.prompt.systemPrompt, '');
-    assert.deepEqual(transferred.planner.prompt.messages.map((message) => message.role), ['system', 'user', 'assistant']);
-    const task = createPreparedScenePlannerTask(transferred);
-    assert.equal(task.systemPrompt, '');
-    assert.deepEqual(task.messages.map(({ role, content }) => ({ role, content })), transferred.planner.prompt.messages);
-    assert.equal(task.messages[0].toolProtocolMarker, true);
-    assert.equal(transferred.planner.prompt.messages.some(message => Object.hasOwn(message, 'toolProtocolMarker')), false);
-    assert.equal(task.toolChoice, 'required');
-});
-
-// ───────── 经真实适配器 ─────────
-
-test('adapter: tools block moved before the opening puts the protocol text first (tagged)', async () => {
-    const layout = layoutOf(['tools', 'opening', 'frame', 'guide', 'rules', 'worldInfo', 'content', 'limits']);
-    const { task } = await build(layout);
-    const protocol = protocolTextFor(task);
-    const body = adapterBody(task, 'tagged-json');
-    assert.equal(body.messages.length, 2);
-    assert.equal(body.messages[0].role, 'system');
-    assert.ok(body.messages[0].content.startsWith(`${protocol}\n\nOPEN\n\n## 你收到的材料`));
-    assert.equal(JSON.stringify(body).includes('XBDRAW_TOOL_PROTOCOL'), false);
-    assert.equal(Object.hasOwn(body, 'tools'), false);
-});
-
-test('adapter: tools block between user messages is a separate system message in tagged mode', async () => {
-    const layout = layoutOf(['opening', 'frame', 'guide', 'rules', 'worldInfo', 'tools', 'content', 'limits']);
-    const { task } = await build(layout);
-    const protocol = protocolTextFor(task);
-    const body = adapterBody(task, 'tagged-json');
-    assert.deepEqual(body.messages.map((message) => message.role), ['system', 'user', 'system', 'user']);
-    assert.equal(body.messages[2].content, protocol);
-    assert.ok(body.messages[1].content.startsWith('<worldInfo>'));
-    assert.ok(body.messages[3].content.startsWith('<content>'));
-    // 协议文本只出现一次，不会再额外塞进首条 system。
-    assert.equal(body.messages.filter((message) => message.content.includes('<tool_call>')).length, 1);
-});
-
-test('adapter: native mode strips the marker, keeps tools, and merges the emptied neighbours', async () => {
-    const layout = layoutOf(['opening', 'frame', 'guide', 'rules', 'worldInfo', 'tools', 'content', 'limits']);
-    const { task } = await build(layout);
-    const body = adapterBody(task, 'native');
-    assert.equal(JSON.stringify(body.messages).includes('XBDRAW_TOOL_PROTOCOL'), false);
-    assert.equal(body.tools.length, 1);
-    assert.equal(body.tools[0].function.name, 'submit_scene_plan');
-    assert.deepEqual(body.messages.map((message) => message.role), ['system', 'user']);
-
-    const headBody = adapterBody((await build(layoutOf(['tools', 'opening', 'frame', 'guide', 'rules', 'worldInfo', 'content', 'limits']))).task, 'native');
-    assert.deepEqual(headBody.messages.map((message) => message.role), ['system', 'user']);
-    assert.ok(headBody.messages[0].content.startsWith('OPEN\n\n'));
-});
-
-test('adapter: a custom assistant tail message is last in both modes', async () => {
-    const layout = layoutOf(DEFAULT_ORDER, { 99: custom('assistant', 'PREFILL') });
-    const { task } = await build(layout);
-    for (const toolMode of ['tagged-json', 'native']) {
-        const body = adapterBody(task, toolMode);
-        assert.deepEqual(body.messages.at(-1), { role: 'assistant', content: 'PREFILL' });
-        assert.deepEqual(body.messages.map((message) => message.role), ['system', 'user', 'assistant']);
-        assert.equal(JSON.stringify(body.messages).includes('XBDRAW_TOOL_PROTOCOL'), false);
+test('materials and requirements move into separate JSON results without duplicate data', async () => {
+    const world = '世界资料："雨城"\n\\街道 $& $1 $$';
+    const character = { name: '阿璃', type: 'girl', appearance: 'silver hair', outfits: [{ name: '外套', tags: 'red coat' }] };
+    const { task } = await build(undefined, { worldbookEntries: world, presentCharacters: [character],
+        maxCharactersPerImage: 2, messageText: '独一无二的正文。她说"你好"。' });
+    const [materials, guide] = documents(task);
+    assert.ok(materials.content.includes(world));
+    assert.ok(materials.content.includes(character.appearance));
+    assert.ok(materials.content.includes('red coat'));
+    assert.ok(materials.content.includes('【插图点 1】'));
+    assert.ok(guide.content.includes(PROMPTS.tagGuideContent));
+    assert.ok(guide.content.includes(PROMPTS.sceneRules));
+    const data = task.messages.map(message => message.role === 'tool' ? JSON.parse(message.content).content : message.content).join('\n');
+    for (const token of [world, character.appearance, '独一无二的正文', PROMPTS.tagGuideContent, PROMPTS.sceneRules]) {
+        assert.equal(data.split(token).length - 1, 1, token);
     }
-    const tagged = adapterBody(task, 'tagged-json');
-    assert.ok(tagged.messages[0].content.includes('<tool_call>'));
+    assert.equal(task.tools[0].function.parameters.properties.images.items.properties.characters.maxItems, 2);
 });
 
-// ───────── 端到端：伪 provider + 纠错轮 ─────────
-
-function buildSettings(toolMode) {
-    return {
-        currentPresetName: '主预设',
-        presets: {
-            主预设: {
-                provider: 'openai-compatible',
-                modelConfigs: {
-                    'openai-compatible': { baseUrl: 'https://main.example/v1', model: 'gpt-4o', apiKey: 'k', toolMode },
-                },
-            },
-        },
+test('dynamic macros expand once before JSON serialization and custom blocks cannot capture data slots', async () => {
+    const runtime = createRuntime();
+    runtime.runtime.substituteParams = text => {
+        runtime.calls.push(text);
+        return text.replace(/\{\{(user|nested|later)\}\}/g, (_, key) => ({ user: '〈用户〉', nested: '{{later}}', later: 'WRONG_SECOND_PASS' })[key]);
     };
+    const layout = layoutOf(ORDER, { 0: custom('system', '{{lastMessage}} {$worldInfo} {{characterInfo}}'), 99: custom('assistant', '{{user}} / {{lastMessage}}') });
+    const { task } = await build(layout, { messageText: '剧情{{nested}}，她拿着$&和"钥匙"。', worldbookEntries: 'WORLD{{nested}}',
+        presentCharacters: [{ name: '角色{{nested}}', type: 'girl' }], expansionOptions: { runtime: runtime.runtime } });
+    const [materials] = documents(task);
+    assert.ok(materials.content.includes('剧情{{later}}'));
+    assert.ok(materials.content.includes('WORLD{{later}}'));
+    assert.ok(materials.content.includes('角色{{later}}'));
+    assert.ok(materials.content.includes('$&'));
+    assert.equal(JSON.stringify(task).includes('WRONG_SECOND_PASS'), false);
+    assert.equal(task.messages.find(message => message.content === '〈用户〉 / {{lastMessage}}').role, 'assistant');
+    assert.equal(JSON.stringify(task).includes('XBDRAWSLOT_'), false);
+    assert.equal(runtime.calls.filter(text => text.includes('剧情{{nested}}')).length, 1);
+    assert.equal(runtime.calls.filter(text => text.includes('WORLD{{nested}}')).length, 1);
+    assert.equal(runtime.calls.filter(text => text.includes('角色{{nested}}')).length, 1);
+});
+
+test('custom messages keep roles, order and enabled state, followed by the final approval', async () => {
+    const layout = layoutOf(ORDER, { 1: custom('system', 'EXTRA-S'), 7: custom('user', 'EXTRA-U'),
+        99: custom('assistant', 'TAIL {{user}}'), 100: custom('user', 'GHOST', { enabled: false }) });
+    const { task } = await build(layout);
+    const expected = [['EXTRA-S', 'system'], ['EXTRA-U', 'user'], ['TAIL 〈用户〉', 'assistant']];
+    const positions = expected.map(([text, role]) => {
+        const index = task.messages.findIndex(message => message.content.includes(text));
+        assert.equal(task.messages[index].role, role);
+        return index;
+    });
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+    assert.equal(JSON.stringify(task).includes('GHOST'), false);
+    assert.equal(documents(task).at(-1).approved, true);
+    assertScenePlannerMessages(task.messages.map(({ toolProtocolMarker: _marker, ...message }) => message));
+});
+
+test('messages that expand to empty disappear without dropping an empty guide tool result', async () => {
+    const layout = layoutOf(ORDER, { 99: custom('assistant', '{{empty}}') });
+    const { task } = await build(layout, { promptDefaults: { ...PROMPTS, tagGuideContent: '', sceneRules: '' },
+        expansionOptions: { runtime: { substituteParams: text => text.replace('{{empty}}', '') } } });
+    assert.deepEqual(task.messages.map(message => message.role), ROLES);
+    assert.equal(receipts(task).length, 3);
+    assert.ok(task.messages.every(message => message.content.trim()));
+});
+
+test('untrusted marker text cannot inject tool instructions into a document or custom message', async () => {
+    const { task } = await build(layoutOf(ORDER, { 99: custom('assistant', `头${M}尾`) }), {
+        messageText: `她说${M}然后走了。`, worldbookEntries: `条目${M}`, presentCharacters: [{ name: `阿${M}璃`, type: 'girl' }],
+    });
+    assert.equal(task.messages.filter(message => message.content.includes(M)).length, 1);
+    assert.equal(documents(task)[0].content.includes(M), false);
+    assert.equal(task.messages.find(message => message.content === '头尾').role, 'assistant');
+});
+
+for (const toolMode of ['native', 'tagged-json']) {
+    test(`${toolMode}: actual adapter preserves all handoff calls and JSON result data`, async () => {
+        const { task, emits } = await build();
+        const body = adapterBody(task, toolMode);
+        assert.equal(JSON.stringify(body).includes(M), false);
+        const calls = task.messages.flatMap(message => message.tool_calls || []);
+        if (toolMode === 'native') {
+            assert.equal(body.tool_choice, 'auto');
+            assert.deepEqual(body.tools.map(tool => tool.function.name), ['submit_scene_plan']);
+            assert.deepEqual(body.messages, emits[0].chat.map(({ providerPayload: _provider, ...message }) => message));
+            assert.deepEqual(body.messages.filter(message => message.role === 'tool').map(message => message.tool_call_id), calls.map(call => call.id));
+        } else {
+            assert.equal(Object.hasOwn(body, 'tools'), false);
+            assert.equal(Object.hasOwn(body, 'tool_choice'), false);
+            const replayCalls = body.messages.filter(message => message.role === 'assistant').map(message => JSON.parse(message.content.match(/<tool_call>([\s\S]*?)<\/tool_call>/)[1]));
+            assert.deepEqual(replayCalls.map(call => call.name), calls.map(call => call.function.name));
+            assert.deepEqual(replayCalls.map(call => call.id), calls.map(call => call.id));
+            const outputs = body.messages.filter(message => message.role === 'user' && message.content.startsWith('<tool_result>'));
+            assert.deepEqual(outputs.map(message => JSON.parse(message.content.split('content:\n')[1].split('\n</tool_result>')[0])), documents(task));
+        }
+    });
 }
 
-const VALID_ARGUMENTS = JSON.stringify({
-    images: [{ index: 1, insert_after: 1, scene: 'opening door, indoor', characters: [] }],
+for (const order of [['tools', ...ORDER.filter(id => id !== 'tools')],
+    ['opening', 'frame', 'guide', 'rules', 'worldInfo', 'tools', 'content', 'limits'],
+    [...ORDER.filter(id => id !== 'tools'), 'tools']]) {
+    test(`moved tool instructions stay outside documents and appear once: ${order.indexOf('tools')}`, async () => {
+        const { task } = await build(layoutOf(order));
+        const protocol = buildTaggedMessages({ tools: task.tools, toolChoice: task.toolChoice, messages: [{ role: 'user', content: 'x' }] })[0].content;
+        const body = adapterBody(task, 'tagged-json');
+        assert.equal(body.messages.filter(message => message.role === 'system' && message.content.includes(protocol)).length, 1);
+        assert.equal(documents(task).some(result => result.content.includes(M)), false);
+        assert.equal(adapterBody(task, 'native').messages.some(message => message.content.includes(M)), false);
+    });
+}
+
+test('prepared prompt survives JSON transfer and replays the same paired messages', async () => {
+    const prepared = await prepareScenePlannerInput({ messageText: NARRATIVE, promptDefaults: PROMPTS,
+        customPrompts: { layout: layoutOf(ORDER, { 99: custom('assistant', 'TAIL') }) },
+        expansionOptions: { runtime: createRuntime().runtime }, agentCaller: async () => {},
+        agentOptions: { providerConfig: { provider: 'openai-compatible', model: 'offline' } } });
+    const transferred = JSON.parse(JSON.stringify(prepared));
+    assertScenePlannerMessages(transferred.planner.prompt.messages);
+    const task = createPreparedScenePlannerTask(transferred);
+    assert.equal(task.toolChoice, 'auto');
+    assert.deepEqual(task.messages.map(({ toolProtocolMarker: _marker, ...message }) => message), transferred.planner.prompt.messages);
+    assert.deepEqual(task.tools.map(tool => tool.function.name), ['submit_scene_plan']);
 });
 
-async function runEndToEnd(layout, toolMode) {
+test('default structure preview locates editable sections in their actual message stages', async () => {
+    const { task } = await build();
+    const preview = buildScenePlannerChainPreview();
+    assert.deepEqual(preview.filter(item => item.role !== 'tools').map(item => item.role), task.messages.map(message => message.role));
+    assert.equal(preview.find(item => item.sections?.some(section => section.key === 'topSystem')).role, 'system');
+    assert.equal(preview.find(item => item.sections?.some(section => section.key === 'tagGuide')).role, 'tool');
+    assert.equal(preview.find(item => item.sections?.some(section => section.key === 'content')).role, 'tool');
+});
+
+test('current-draft preview follows actual assembly after custom insertion, disabling and legacy reordering', async () => {
+    const extras = [custom('user', 'EARLY'), custom('assistant', 'MIDDLE'), custom('user', 'DISABLED', { enabled: false })];
+    for (const order of [ORDER, [...ORDER].reverse()]) {
+        const layout = { version: 1, blocks: [...order.slice(0, 2).map(id => ({ id })), extras[0],
+            ...order.slice(2, 5).map(id => ({ id })), extras[1], ...order.slice(5).map(id => ({ id })), extras[2]] };
+        const { task } = await build(layout);
+        const preview = buildScenePlannerChainPreview({ layout }).filter(item => item.role !== 'tools');
+        assert.deepEqual(preview.map(item => item.role), task.messages.map(message => message.role));
+        const shown = preview.flatMap(item => item.sections).filter(section => extras.some(block => block.id === section.key));
+        assert.deepEqual(shown.map(section => section.content), ['EARLY', 'MIDDLE']);
+    }
+});
+
+const VALID_ARGUMENTS = { images: [{ index: 1, insert_after: 1, scene: 'opening door, indoor', characters: [] }] };
+async function runPlanner(toolMode, replies) {
     resetDrawAgentRuntimeForTests();
-    const settings = buildSettings(toolMode);
     const requests = [];
-    const responses = ['{}', VALID_ARGUMENTS];
-    const result = await generateAndParseScenePlan({
-        messageText: '阿璃推开门。',
-        maxImages: 1,
-        promptDefaults: PROMPTS,
-        customPrompts: { layout },
-        expansionOptions: { runtime: { substituteParams: (text) => text } },
+    const result = await generateAndParseScenePlan({ messageText: '阿璃推开门。', maxImages: 1, promptDefaults: PROMPTS,
+        expansionOptions: { runtime: { substituteParams: text => text } },
         agentOptions: {
-            dependencies: { getAgentSettings: async () => settings },
-            loadAgentCore: async () => ({
-                createAgentAdapter: (providerConfig) => {
-                    const adapter = new OpenAICompatibleAdapter(providerConfig);
-                    adapter.client.chat.completions.create = async (body) => {
-                        requests.push(structuredClone(body));
-                        const args = responses[requests.length - 1];
-                        const message = toolMode === 'native'
-                            ? {
-                                role: 'assistant',
-                                content: '',
-                                tool_calls: [{ id: `call-${requests.length}`, type: 'function', function: { name: 'submit_scene_plan', arguments: args } }],
-                            }
-                            : { role: 'assistant', content: `<tool_call>${JSON.stringify({ name: 'submit_scene_plan', arguments: args })}</tool_call>` };
-                        return { choices: [{ message, finish_reason: toolMode === 'native' ? 'tool_calls' : 'stop' }] };
-                    };
-                    return adapter;
-                },
-            }),
+            providerConfig: { provider: 'openai-compatible', model: 'gpt-4o', apiKey: 'fixture', toolMode },
+            agentCore: { createAgentAdapter: config => {
+                const adapter = new OpenAICompatibleAdapter(config);
+                adapter.client.chat.completions.create = async body => {
+                    requests.push(structuredClone(body));
+                    const args = JSON.stringify(replies[requests.length - 1]);
+                    const message = toolMode === 'native'
+                        ? { role: 'assistant', content: '', tool_calls: [{ id: `submit-${requests.length}`, type: 'function', function: { name: 'submit_scene_plan', arguments: args } }] }
+                        : { role: 'assistant', content: `<tool_call>${JSON.stringify({ name: 'submit_scene_plan', arguments: JSON.parse(args) })}</tool_call>` };
+                    return { choices: [{ message, finish_reason: toolMode === 'native' ? 'tool_calls' : 'stop' }] };
+                };
+                return adapter;
+            } },
         },
     });
     return { result, requests };
 }
-
-test('end to end: correction turns append after the layout messages (tagged and native)', async (t) => {
-    t.mock.method(console, 'log', () => {});
-    const layout = layoutOf(['tools', 'opening', 'frame', 'guide', 'rules', 'worldInfo', 'content', 'limits'], {
-        99: custom('system', '追加的系统块'),
+for (const toolMode of ['native', 'tagged-json']) {
+    test(`${toolMode}: completed history adds no model request on a successful plan`, async t => {
+        t.mock.method(console, 'log', () => {});
+        const { result, requests } = await runPlanner(toolMode, [VALID_ARGUMENTS]);
+        assert.equal(requests.length, 1);
+        assert.equal(result.length, 1);
+        assert.equal(result[0].scene, VALID_ARGUMENTS.images[0].scene);
+        assert.equal(getLastDrawAgentDiagnostic().toolChoice, 'auto');
+        assert.equal(getLastDrawAgentDiagnostic().correctionCount, 0);
     });
-    for (const toolMode of ['tagged-json', 'native']) {
-        const { result, requests } = await runEndToEnd(layout, toolMode);
+    test(`${toolMode}: existing correction appends to the handoff without replaying local reads`, async t => {
+        t.mock.method(console, 'log', () => {});
+        const { result, requests } = await runPlanner(toolMode, [{}, VALID_ARGUMENTS]);
         assert.equal(result.length, 1);
         assert.equal(requests.length, 2);
-        const first = requests[0].messages;
-        const second = requests[1].messages;
-        assert.equal(JSON.stringify(requests).includes('XBDRAW_TOOL_PROTOCOL'), false);
-        if (toolMode === 'tagged-json') {
-            assert.ok(first[0].content.startsWith('如果你需要调用工具'));
-            assert.equal(Object.hasOwn(requests[0], 'tools'), false);
-        } else {
-            assert.ok(first[0].content.startsWith('OPEN'));
-            assert.equal(requests[0].tools.length, 1);
-        }
-        // 第二次请求以第一次的全部消息为前缀，纠错轮只在末尾追加。
-        assert.deepEqual(second.slice(0, first.length), first);
-        assert.ok(second.length > first.length);
+        assert.deepEqual(requests[1].messages.slice(0, requests[0].messages.length), requests[0].messages);
         assert.equal(getLastDrawAgentDiagnostic().correctionCount, 1);
-    }
-});
-
-test('end to end: default layout request has the legacy shape', async (t) => {
-    t.mock.method(console, 'log', () => {});
-    const { requests } = await runEndToEnd(undefined, 'tagged-json');
-    assert.deepEqual(requests[0].messages.map((message) => message.role), ['system', 'user']);
-    assert.ok(requests[0].messages[0].content.startsWith('OPEN'));
-});
+    });
+}

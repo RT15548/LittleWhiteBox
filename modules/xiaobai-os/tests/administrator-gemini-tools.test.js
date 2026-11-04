@@ -40,7 +40,7 @@ test('administrator map tools survive loading and history restoration in Gemini 
     const entry = new URL(`../../../dist/${manifest.entries['runtime/agent-core'].file}`, import.meta.url);
     // eslint-disable-next-line no-unsanitized/method -- Trusted entry from this repository's build manifest.
     const browser = await import(entry.href);
-    const node = createRequire(import.meta.url)('../../../server-plugin/littlewhitebox-server/draw-runs/vendor/agent-core-node.cjs');
+    const node = createRequire(import.meta.url)('../../../server-plugin/littlewhitebox-server/tests/runtime-fixture.js').bundle.agentCore;
     for (const factory of [createAgentAdapter, browser.createAgentAdapter, node.createAgentAdapter]) {
         const adapter = factory({ provider: 'openai-compatible', apiKey: 'fixture-only', model: 'gemini-2.5-pro' });
         for (const tools of [before, loader.getTools(), restored.getTools()]) {

@@ -135,7 +135,7 @@ export function createSubmitScenePlanTool(options = {}) {
         type: 'array',
         minItems: maxImages || 1,
         ...(maxPlanItems ? { maxItems: maxPlanItems } : {}),
-        description: '图片任务，按阅读顺序排列。数量约束见消息末尾。',
+        description: '图片任务，按阅读顺序排列。数量约束见绘图要求。',
         items: {
             type: 'object',
             additionalProperties: false,

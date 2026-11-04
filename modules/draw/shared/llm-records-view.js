@@ -329,7 +329,12 @@ export function createLlmRecordsView({ document, container, getRecords }) {
         const request = createSection(document, '请求');
         const notices = Array.isArray(record?.notices) ? record.notices.filter(Boolean) : [];
         if (notices.length) renderBlocks(document, request.body, [{ title: '提示', kind: 'text', text: notices.join('\n') }]);
-        renderBlocks(document, request.body, [{ title: '实际发送的请求', kind: record?.request === undefined ? 'text' : 'json', text: '这条记录没有请求内容。', value: record?.request }]);
+        const sdkBody = record?.request?.request?.body;
+        const systemInstruction = sdkBody?.chatCreate?.config?.systemInstruction ?? sdkBody?.session?.config?.systemInstruction;
+        if (systemInstruction !== undefined) renderBlocks(document, request.body, [{
+            title: '系统设定', kind: typeof systemInstruction === 'string' ? 'text' : 'json', text: systemInstruction, value: systemInstruction,
+        }]);
+        renderBlocks(document, request.body, [{ title: '请求参数（含会话上下文）', kind: record?.request === undefined ? 'text' : 'json', text: '这条记录没有请求内容。', value: record?.request }]);
         body.appendChild(request.details);
 
         const raw = createSection(document, '原始 JSON');

@@ -15,7 +15,7 @@ const {
     generateV5ImageBuffer,
     openImageStream,
     testConnection,
-} = require('../providers/novelai/client.js');
+} = require('../../../modules/draw/server/providers/novelai/client.js');
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -40,6 +40,7 @@ let lastStreamRequest = null;
 
 async function invokeRoute(handler, body) {
     const req = new EventEmitter();
+    req.user = { directories: { extensions: require('node:path').resolve(__dirname, '../../../..') } };
     req.aborted = false;
     req.destroyed = false;
     req.body = body;
@@ -309,6 +310,7 @@ test('advertises and proxies the V5 MessagePack stream route', async () => {
     ]) assert.equal(statusResponse.body.capabilities.includes(capability), true);
 
     const req = new EventEmitter();
+    req.user = { directories: { extensions: require('node:path').resolve(__dirname, '../../../..') } };
     req.aborted = false;
     req.destroyed = false;
     req.body = {
@@ -391,6 +393,7 @@ test('does not start an upstream request after the client already disconnected',
     });
 
     const req = new EventEmitter();
+    req.user = { directories: { extensions: require('node:path').resolve(__dirname, '../../../..') } };
     req.aborted = true;
     req.destroyed = true;
     req.body = { url: origin, key: 'key', payload: {} };
@@ -417,6 +420,7 @@ test('responds after SillyTavern middleware destroys an already complete request
     });
 
     const req = new EventEmitter();
+    req.user = { directories: { extensions: require('node:path').resolve(__dirname, '../../../..') } };
     req.aborted = false;
     req.complete = true;
     req.destroyed = true;
@@ -501,6 +505,7 @@ test('rejects unresolved backend URLs before starting an upstream request', asyn
     });
 
     const req = new EventEmitter();
+    req.user = { directories: { extensions: require('node:path').resolve(__dirname, '../../../..') } };
     req.aborted = false;
     req.destroyed = false;
     req.body = { url: '/relative/ai/generate-image', key: 'key', payload: {}, timeout: 1000 };
@@ -558,6 +563,7 @@ test('enforces the request timeout inside the backend plugin', async () => {
     });
 
     const req = new EventEmitter();
+    req.user = { directories: { extensions: require('node:path').resolve(__dirname, '../../../..') } };
     req.aborted = false;
     req.destroyed = false;
     req.body = { url: `${origin}/slow`, key: 'key', payload: {}, timeout: 20 };

@@ -1,60 +1,23 @@
-import { getContext } from '../../../../../../extensions.js';
 import { getCurrentUserHandle } from '../../../../../../user.js';
 import { getChatIdentity } from './chat-identity.js';
 import { hashSceneSource } from './scene-source.js';
-import { findImageJobDeliverySlot } from './image-job-delivery-target.js';
-import { saveChatAndConfirm, withConfirmableChatMutation } from './confirmable-chat-save.js';
-import { clearPreviewPlacements } from './gallery-cache.js';
-import { DRAW_SLOT_COPY } from './image-record.js';
 
 export function getImageChatIdentity(ctx) {
     const chat = getChatIdentity(ctx);
     return chat === null ? null : JSON.stringify([getCurrentUserHandle(), chat]);
 }
 
-// The gallery attempt owns only the still-unconfirmed attachment. Its owner and
-// original order survive restart; confirmation/removal deletes this fact only.
+// 图位写进正文后由酒馆自己的自动保存落盘。保存前关了页面，重新打开时正文还是放图位之前的原文，
+// 按这条记录（原文指纹 + 位置）把图位放回去，不重画。用户编辑删掉图位时才清除。
 export function captureImagePlacement(owner, source, swipeIndex, task, order) {
-    return owner ? { owner, sourceHash: hashSceneSource(source), swipeIndex, task: { ...task }, order } : null;
+    return owner ? { owner, sourceHash: hashSceneSource(source), sourceLength: source.length, swipeIndex, task: { ...task }, order } : null;
 }
 
-const saves = new Map();
-export function saveChatImagePlacements(ctx, slotIds) {
-    const owner = getImageChatIdentity(ctx);
-    if (!owner) return Promise.resolve(false);
-    let state = saves.get(owner);
-    if (!state) { state = { pending: new Set(), operation: null }; saves.set(owner, state); }
-    slotIds.forEach(id => state.pending.add(id));
-    if (state.operation) return state.operation;
-    const current = () => getContext().chat === ctx.chat && getImageChatIdentity(getContext()) === owner;
-    state.operation = (async () => {
-        while (state.pending.size) {
-            const ids = [...state.pending];
-            state.pending.clear();
-            // The host reuses its chat array across navigation. Identity, not
-            // that mutable array, owns the queue and every subsequent write.
-            if (!current()) return false;
-            try {
-                const saved = await withConfirmableChatMutation(ctx, async () => {
-                    if (!current()) return false;
-                    const alive = ids.filter(id => findImageJobDeliverySlot(ctx.chat, id));
-                    if (!alive.length) return true;
-                    await saveChatAndConfirm({ ctx: { ...ctx, saveChat: () => {
-                        // Runs after the Web Lock wait, immediately at host I/O.
-                        if (!current()) throw new Error(DRAW_SLOT_COPY.sourceChanged);
-                        return ctx.saveChat();
-                    } }, verify: persisted => alive.every(id => findImageJobDeliverySlot(persisted, id)) });
-                    await clearPreviewPlacements(owner, alive);
-                    return true;
-                });
-                if (!saved) return false;
-            } catch (error) {
-                console.error(DRAW_SLOT_COPY.attachmentSaveFailed, error);
-                globalThis.toastr?.warning?.(DRAW_SLOT_COPY.attachmentSaveFailed);
-                return false;
-            }
-        }
-        return true;
-    })().finally(() => { saves.delete(owner); });
-    return state.operation;
+// Released placements lack a length and still match their exact original text.
+// New receipts identify the unchanged prefix, so appending a continuation does
+// not revoke a paid image's original location. Editing that prefix still does.
+export function imagePlacementSource(text, placement) {
+    const length = Number.isSafeInteger(placement?.sourceLength) ? placement.sourceLength : text.length;
+    const prefix = text.slice(0, length);
+    return hashSceneSource(prefix) === placement?.sourceHash ? prefix : null;
 }

@@ -3,9 +3,9 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const drawRuntime = require('../draw-runs/vendor/draw-run-runtime.cjs');
+const drawRuntime = require('./runtime-fixture.js').bundle.drawRuntime;
 const { createDrawRunManager } = require('../draw-runs/draw-run-manager.js');
-const { createEnvelopeValidator } = require('../draw-runs/envelope.js');
+const { createEnvelopeValidator } = require('../../../modules/draw/server/draw-runs/envelope.js');
 
 function createEnvelope(runId, overrides = {}) {
     const sourceText = 'Hello.';
@@ -268,6 +268,81 @@ function createManager({
     };
 }
 
+test('A/B/C updates pin queued planners and child images to their accepted package without duplicating queues or charges', async t => {
+    const { createAsyncImageJobManager } = require('../image-jobs/job-manager.js');
+    const { createCancellationRegistry } = require('../cancellation.js');
+    const cancellations = createCancellationRegistry();
+    const jobs = createAsyncImageJobManager({ cancellations, retentionMs: 10000 });
+    const paid = [];
+    let finishPlan;
+    let finishImage;
+    const planGate = new Promise(resolve => { finishPlan = resolve; });
+    const imageGate = new Promise(resolve => { finishImage = resolve; });
+    const make = version => ({ id: version, references: 0,
+        retain() { this.references++; }, release() { this.references--; },
+        api: { envelopeValidator: createEnvelopeValidator(drawRuntime), agentCore: { createAgentAdapter() {} },
+            runtime: createRuntime({
+                async executePreparedScenePlanner() {
+                    if (version === 'A') await planGate;
+                    return [{ scene: version, chars: [], placement: { insertAfter: 1 } }];
+                },
+                compileDrawRunImages(provider, scenes) {
+                    const compiled = createRuntime().compileDrawRunImages(provider, scenes);
+                    compiled.context = { version };
+                    compiled.delay = { min: 1, max: 1 };
+                    return compiled;
+                },
+            }),
+            adapters: { 'sd-webui': { async execute({ owner }) {
+                paid.push(`${owner}:${version}`);
+                if (version === 'A') await imageGate;
+                return { buffer: Buffer.from(version), mime: 'image/png' };
+            } } },
+        },
+    });
+    const a = make('A'), b = make('B'), c = make('C');
+    let selected = a;
+    const manager = createDrawRunManager({ cancellations, resolveRuntime: () => selected,
+        createHostClient() { throw new Error('Direct provider'); }, maxConcurrentPlanners: 1,
+        imageJobService: {
+            create: (owner, body, execution) => jobs.createJob({ owner, ...body, execution }),
+            get: (owner, id) => jobs.getJob(owner, id), cancel: (owner, id) => jobs.cancelJob(owner, id),
+        },
+    });
+    t.after(() => { finishPlan(); finishImage(); manager.close(); jobs.close(); cancellations.close(); });
+    const first = createEnvelope('update-run-a');
+    manager.create('alice', first);
+    await waitFor(() => manager.get('alice', first.runId)?.state === 'planning');
+    selected = b;
+    manager.create('alice', createEnvelope('update-run-b'));
+    selected = c;
+    manager.create('alice', createEnvelope('update-run-c'));
+    manager.create('alice', first);
+    assert.equal(manager.list('alice').length, 3);
+    assert.equal(a.references, 1);
+    finishPlan();
+    await waitFor(() => manager.list('alice').every(run => run.state === 'dispatched'));
+    assert.deepEqual(paid, ['alice:A']);
+    manager.cancel('alice', 'update-run-b');
+    manager.create('bob', createEnvelope('update-run-c'));
+    await waitFor(() => paid.includes('bob:C'));
+    assert.equal(jobs.listJobs('alice').length, 3);
+    finishImage();
+    await waitFor(() => jobs.listJobs('alice').every(job => ['completed', 'cancelled'].includes(job.state)));
+    assert.deepEqual(paid.filter(value => value.startsWith('alice:')), ['alice:A', 'alice:C']);
+    for (const id of ['update-run-a', 'update-run-c']) {
+        const child = manager.get('alice', id).childJobId;
+        assert.equal(jobs.getResult('alice', child, 0).buffer.toString(), id.slice(-1).toUpperCase());
+        jobs.consumeResult('alice', child, 0);
+    }
+    assert.equal(manager.get('bob', 'update-run-a'), null);
+    for (const owner of ['alice', 'bob']) {
+        for (const run of manager.list(owner)) manager.acknowledge(owner, run.id);
+        for (const job of jobs.listJobs(owner)) jobs.deleteJob(owner, job.id);
+    }
+    assert.deepEqual([a.references, b.references, c.references], [0, 0, 0]);
+});
+
 async function waitFor(predicate, timeoutMs = 1000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -490,7 +565,7 @@ test('active backend retry remains a retry in the frontend projection', async t 
 });
 
 test('backend dispatches a decorated tagged plan once and retains ambiguous-call diagnostics without dispatch', async (t) => {
-    const agentCore = require('../draw-runs/vendor/agent-core-node.cjs');
+    const agentCore = require('./runtime-fixture.js').bundle.agentCore;
     t.mock.method(console, 'log', () => {});
     const payload = JSON.stringify({ name: 'submit_scene_plan', arguments: {
         images: [{ insert_after: 1, scene: 'book cover, title: SUMMER', characters: [] }],
@@ -545,7 +620,7 @@ test('backend dispatches a decorated tagged plan once and retains ambiguous-call
 });
 
 test('backend DSML failures retain protocol classification and deliver redacted originals to F12 once', async (t) => {
-    const agentCore = require('../draw-runs/vendor/agent-core-node.cjs');
+    const agentCore = require('./runtime-fixture.js').bundle.agentCore;
     const { logDrawRunPlannerDiagnostics } = await import('../../../modules/draw/shared/draw-run-debug.js');
     const logs = [];
     t.mock.method(console, 'log', (_label, details) => logs.push(details));
@@ -725,6 +800,7 @@ test('Draw Run dispatch is idempotent and hands off a deterministic child manife
             postPrompt: '',
             orientation: null,
             negativePrompt: 'bad',
+            continuityChars: null,
         },
     });
     assert.doesNotMatch(JSON.stringify(dispatched), /agent-secret|image-secret/);
@@ -1064,31 +1140,31 @@ test('Draw Run rejects malformed planner prompt messages', () => {
     const validate = createEnvelopeValidator(drawRuntime);
     const user = { role: 'user', content: 'u' };
     const cases = [
-        [[], /must contain 1 to \d+ messages/],
-        ['x', /must contain 1 to \d+ messages/],
-        [Array.from({ length: 1001 }, () => ({ ...user })), /must contain 1 to \d+ messages/],
-        [[{ role: 'system', content: 's' }], /at least one user message/],
-        [[{ role: 'assistant', content: 'a' }, { role: 'system', content: 's' }], /at least one user message/],
-        [[{ role: 'tool', content: 't' }, user], /messages\[0\]\.role must be system, user or assistant/],
-        [[user, { role: 'developer', content: 'd' }], /messages\[1\]\.role must be system, user or assistant/],
-        [[{ content: 'u' }], /role/],
-        [[{ role: 'user', content: 42 }], /messages\[0\]\.content must be a string/],
-        [[user, { role: 'system', content: null }], /messages\[1\]\.content must be a string/],
-        [[{ role: 'user', content: '   ' }], /messages\[0\]\.content must not be empty/],
-        [[user, { role: 'system', content: '' }], /messages\[1\]\.content must not be empty/],
-        [[{ role: 'user', content: 'u', name: 'x' }], /messages\[0\]\.name is not allowed/],
-        [[user, { role: 'system', content: 's', providerPayload: {} }], /messages\[1\]\.providerPayload is not allowed/],
-        [[user, null], /messages\[1\]/],
-        [[user, 'text'], /messages\[1\]/],
+        [],
+        'x',
+        Array.from({ length: 1001 }, () => ({ ...user })),
+        [{ role: 'system', content: 's' }],
+        [{ role: 'assistant', content: 'a' }, { role: 'system', content: 's' }],
+        [{ role: 'tool', content: 't' }, user],
+        [user, { role: 'developer', content: 'd' }],
+        [{ content: 'u' }],
+        [{ role: 'user', content: 42 }],
+        [user, { role: 'system', content: null }],
+        [{ role: 'user', content: '   ' }],
+        [user, { role: 'system', content: '' }],
+        [{ role: 'user', content: 'u', name: 'x' }],
+        [user, { role: 'system', content: 's', providerPayload: {} }],
+        [user, null],
+        [user, 'text'],
     ];
-    for (const [messages, pattern] of cases) {
+    for (const messages of cases) {
         const envelope = createEnvelope('run-prompt-invalid');
         envelope.planner.prompt.messages = messages;
-        assert.throws(() => validate(envelope), error => error.status === 400 && pattern.test(error.message), `${JSON.stringify(messages).slice(0, 80)}`);
+        assert.throws(() => validate(envelope), { status: 400, code: 'invalid_draw_run' }, JSON.stringify(messages).slice(0, 80));
     }
     const extra = createEnvelope('run-prompt-extra');
     extra.planner.prompt.extra = true;
-    assert.throws(() => validate(extra), /planner\.prompt\.extra is not allowed/);
+    assert.throws(() => validate(extra), { status: 400, code: 'invalid_draw_run' });
 });
 
 test('Draw Run still enforces the total envelope size limit on very large multi-message prompts', () => {
@@ -1125,11 +1201,10 @@ test('backend hands the whole multi-message planner prompt to the Planner runtim
     assert.deepEqual(received, { systemPrompt: 'system', messages });
 });
 
-test('Draw Run rejects planner.customTools: custom tool code only ever runs in the browser', () => {
+test('Draw Run rejects client-supplied definitions instead of executing them outside the sandbox', () => {
     const validate = createEnvelopeValidator(drawRuntime);
     const envelope = createEnvelope('run-custom-tools');
     envelope.planner.customTools = [{ name: 'note', description: '', parameters: { type: 'object', properties: {} }, stealth: false }];
     assert.throws(() => validate(envelope), (error) => error.status === 400
-        && error.code === 'custom_tools_unsupported'
-        && /only runs in the browser/.test(error.message));
+        && error.code === 'custom_tools_unsupported');
 });

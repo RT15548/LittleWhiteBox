@@ -1,6 +1,8 @@
 import { createSubmitScenePlanTool } from './scene-plan-tool.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { spliceLiteral } from './scene-prompt-expansion.js';
+import { planScenePlannerMessages } from './scene-planner-assembly.js';
+import { BUILTIN_BLOCKS, PREBUILT_MESSAGE_LABELS, PROMPT_ROLE_LABELS, SCENE_PLANNER_STAGES, TOOL_DEFINITIONS_LABEL, normalizeLayout } from './scene-planner-layout.js';
 
 /**
  * The fixed part of the planner request. It describes the world the model is in — what the
@@ -25,16 +27,12 @@ export const CONTENT_TEMPLATE = `<content>
 {{lastMessage}}
 </content>`;
 
-function joinBlocks(blocks) {
-    return blocks.map((block) => String(block || '').trim()).filter(Boolean).join('\n\n');
-}
-
 export function buildScenePlannerFrameText(profile) {
     const { imageModelName } = normalizeScenePlannerProfile(profile);
     return `## 你收到的材料
 - <worldInfo>：世界书。其中的 tag 组合、同人角色资料、姿势库是写提示词时的参考来源；未知角色的外貌优先参考其中的数据。
 - <content>：本次唯一的叙事来源。开头是【已录入角色】列表；固定外貌由角色库自动写入，你只写本图中的状态，不要重复固定外貌里已有的 tag；正文里每个可插图的位置已标为【插图点 N】。
-- 消息末尾的数量约束：可用插图点数、images 数量、每图人数上限。
+- 绘图要求中的数量约束：可用插图点数、images 数量、每图人数上限。
 
 ## 你的输出去哪
 The app uses each image's scene and character fields, together with the character library and the user's generation settings, to build a request for ${imageModelName}. Field meanings and model-specific controls are described in submit_scene_plan.`;
@@ -52,36 +50,17 @@ export function buildScenePlannerRulesSection(rules = '') {
     return rulesText ? `## 场景规则\n\n${rulesText}` : '';
 }
 
-export function buildScenePlannerSystemPrompt({ opening = '', guide = '', sceneRules = '', profile } = {}) {
-    const effective = normalizeScenePlannerProfile(profile);
-    return joinBlocks([
-        opening,
-        buildScenePlannerFrameText(effective),
-        buildScenePlannerGuideSection(guide, effective),
-        buildScenePlannerRulesSection(sceneRules),
-    ]);
-}
-
-// 世界书 / 正文两个内置块的未展开模板（槽位哨兵已拼入）；布局组装与默认用户任务共用，保证两条路径同源。
+// 世界书 / 正文的未展开模板；槽位值在宏展开后原样插入。
 export function buildScenePlannerWorldInfoBlock(worldInfoSlot) {
     return spliceLiteral(WORLD_INFO_TEMPLATE, '{$worldInfo}', worldInfoSlot);
 }
 
-export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot) {
+export function buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot, continuitySlot = '') {
     return spliceLiteral(
-        spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', characterInfoSlot),
+        spliceLiteral(CONTENT_TEMPLATE, '{{characterInfo}}', [characterInfoSlot, continuitySlot].filter(Boolean).join('\n\n')),
         '{{lastMessage}}',
         lastMessageSlot,
     );
-}
-
-/** Slots are opaque tokens; the caller resolves them after macro expansion. */
-export function buildScenePlannerUserTask({ worldInfoSlot, characterInfoSlot, lastMessageSlot, limitsLine = '' } = {}) {
-    return joinBlocks([
-        buildScenePlannerWorldInfoBlock(worldInfoSlot),
-        buildScenePlannerContentBlock(characterInfoSlot, lastMessageSlot),
-        limitsLine,
-    ]);
 }
 
 function flattenSchemaFields(schema, path, out) {
@@ -103,52 +82,41 @@ export function listScenePlanFieldDescriptions(profile, descriptions = {}) {
     return flattenSchemaFields(tool.function.parameters, '', []);
 }
 
-/**
- * Read-only request structure for the prompt editor: one system, one user, one tool.
- * `editable` sections map onto the three user-editable textareas.
- */
-export function buildScenePlannerChainPreview({ profile, hasTagGuide = true, descriptions = {} } = {}) {
+/** Preview is a projection of the actual assembly, including the current custom-message draft. */
+export function buildScenePlannerChainPreview({ profile, hasTagGuide = true, descriptions = {}, layout, builtinTexts = {} } = {}) {
     const effective = normalizeScenePlannerProfile(profile);
+    const sections = {
+        opening: { key: 'topSystem', editable: true, summary: '开场与视角' },
+        frame: { key: 'frame', summary: '材料说明与输出去向', content: buildScenePlannerFrameText(effective) },
+        tools: { key: 'toolDeclaration', summary: '可用工具', content: createSubmitScenePlanTool({ profile: effective, descriptions }).function.name },
+        worldInfo: { key: 'worldInfo', summary: '世界书', content: WORLD_INFO_TEMPLATE },
+        content: { key: 'content', summary: '角色与正文', content: CONTENT_TEMPLATE },
+        guide: { key: 'tagGuide', editable: true, summary: `${effective.imageModelName} Tag 指南${hasTagGuide ? '' : '（当前为空，不注入）'}` },
+        rules: { key: 'sceneRules', editable: true, summary: '场景规则' },
+        limits: { key: 'limits', summary: '本次数量约束：可用插图点数、images 数量、每图人数上限' },
+    };
+    for (const block of normalizeLayout(layout).layout.blocks) {
+        if (!sections[block.id]) sections[block.id] = { key: block.id, summary: block.name || '自定义消息', content: block.content };
+    }
+    const texts = { ...Object.fromEntries(BUILTIN_BLOCKS.map(block => [block.id, block.id])), ...builtinTexts };
+    const { templates } = planScenePlannerMessages({ layout, builtinTexts: texts });
     return [
-        {
-            role: 'system',
-            key: 'system',
-            summary: 'system：规划器的身份、材料说明、指南与规则',
-            sections: [
-                { key: 'topSystem', editable: true, summary: '开场与视角' },
-                { key: 'frame', summary: '材料说明与输出去向（内置）', content: buildScenePlannerFrameText(effective) },
-                {
-                    key: 'tagGuide',
-                    editable: true,
-                    summary: `${effective.imageModelName} Tag 指南${hasTagGuide ? '' : '（当前为空，不注入）'}`,
-                },
-                { key: 'sceneRules', editable: true, summary: '场景规则' },
-            ],
-        },
-        {
-            role: 'user',
-            key: 'userTask',
-            summary: 'user：本次材料',
-            sections: [
-                {
-                    key: 'worldInfo',
-                    summary: '世界书',
-                    content: WORLD_INFO_TEMPLATE,
-                    variables: ['{{persona}} — 用户角色设定', '{{description}} — 世界/场景', '{$worldInfo} — 世界书条目'],
-                },
-                {
-                    key: 'content',
-                    summary: '已录入角色 + 正文（含【插图点 N】）',
-                    content: CONTENT_TEMPLATE,
-                    variables: ['{{characterInfo}} — 已录入角色列表', '{{lastMessage}} — 正文'],
-                },
-                { key: 'limits', summary: '本次数量约束：可用插图点数、images 数量、每图人数上限' },
-            ],
-        },
+        ...templates.map((item, index) => {
+            const roleLabel = item.stageId
+                ? PREBUILT_MESSAGE_LABELS[item.tool_calls ? 'call' : 'result']
+                : PROMPT_ROLE_LABELS[item.role];
+            const items = item.blockIds.filter(id => !(id in texts) || String(texts[id]).trim()).map(id => sections[id]);
+            const summary = items.length ? items.map(section => section.summary).join('、')
+                : SCENE_PLANNER_STAGES.find(stage => stage.id === item.stageId)?.label
+                    || (item.stageId === 'approval' ? (item.approved ? '确认提交' : '申请提交') : '执行步骤');
+            return { role: item.role, roleLabel, key: `message-${index}`, summary,
+                sections: items.length ? items : [{ key: `message-${index}`, summary, content: item.template }] };
+        }),
         {
             role: 'tools',
+            roleLabel: PROMPT_ROLE_LABELS.tools,
             key: 'tools',
-            summary: 'tools：submit_scene_plan 字段说明（模型读到的字段语义）',
+            summary: TOOL_DEFINITIONS_LABEL,
             fields: listScenePlanFieldDescriptions(effective, descriptions),
         },
     ];

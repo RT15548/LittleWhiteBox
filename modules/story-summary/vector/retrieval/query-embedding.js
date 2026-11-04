@@ -2,7 +2,8 @@ import { embed } from '../utils/embedder.js';
 import { throwIfSignalAborted, waitForAbortableDelay } from '../../../../shared/common/abort-utils.js';
 import { SUMMARY_FEEDBACK_COPY } from '../../feedback-copy.js';
 import { observeVectorActivity } from '../runtime/vector-activity.js';
-import { QUERY_EMBEDDING_TIMEOUT_MS, QUERY_EMBEDDING_RETRY_DELAY_MS, canRetryRecallEmbedding } from './query-embedding-policy.js';
+import { QUERY_EMBEDDING_RETRY_DELAY_MS, canRetryRecallEmbedding } from './query-embedding-policy.js';
+import { normalizeQueryEmbeddingTimeoutSec } from '../../data/recall-settings.js';
 
 // Foreground query policy only; background batch retry policy is independent.
 export async function embedRecallQuery(texts, vectorConfig, options = {}) {
@@ -17,11 +18,12 @@ export async function embedRecallQuery(texts, vectorConfig, options = {}) {
 }
 
 async function requestQueryVectors(texts, vectorConfig, { signal, onFailure, stage = 'round1-embed' }) {
+    const timeout = normalizeQueryEmbeddingTimeoutSec(vectorConfig?.embeddingApi?.timeoutSec) * 1000;
     for (let attempt = 1; ; attempt++) {
         throwIfSignalAborted(signal);
         const startedAt = performance.now();
         try {
-            const vectors = await embed(texts, vectorConfig, { timeout: QUERY_EMBEDDING_TIMEOUT_MS, signal });
+            const vectors = await embed(texts, vectorConfig, { timeout, signal });
             throwIfSignalAborted(signal);
             return vectors;
         } catch (cause) {

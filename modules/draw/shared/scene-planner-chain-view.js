@@ -30,7 +30,7 @@ export function renderScenePlannerChain(container, chain, { getEditable, onField
 
         const role = document.createElement('span');
         role.className = `chain-role ${item.role}`;
-        role.textContent = item.role;
+        role.textContent = item.roleLabel;
 
         const summary = document.createElement('div');
         summary.className = 'chain-summary';

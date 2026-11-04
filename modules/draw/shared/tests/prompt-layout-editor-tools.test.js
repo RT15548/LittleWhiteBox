@@ -180,14 +180,49 @@ test(`附带工具最多 ${MAX_TOOLS} 个：第 ${MAX_TOOLS + 1} 个被拦下，
     assert.equal(ui.field(row, 'tool-toggle').checked, false);
 });
 
-test('普通消息没有代码框，也没有 🛠 标记；顶栏没有单独的“添加工具”按钮', (t) => {
+test('普通消息没有代码框，也没有 🛠 标记', (t) => {
     const ui = setup(t);
     const row = ui.addMessage();
     assert.equal(ui.customRows().length, 1);
     assert.equal(ui.field(row, 'code'), undefined);
     assert.equal(row.querySelector('[data-ple-tool-tag]'), null);
-    assert.equal(ui.host.querySelector('[data-ple-add-tool]'), null);
     assert.equal(ui.field(row, 'tool-toggle').checked, false);
+});
+
+// Contract: the direct entry creates a normal editable tool draft without executing code
+// or overwriting any existing message; it cannot bypass the existing tool limit.
+test('direct tool entry creates one attached-tool draft without running or changing existing tools', t => {
+    let executions = 0;
+    const ui = setup(t, { onTestTool: async () => { executions++; return { ok: true }; } });
+    const existing = ui.setTool(ui.addMessage(), true);
+    const source = ui.field(existing, 'code');
+    source.value = 'return { name: "kept", action() {} };';
+    ui.fire(source, 'input');
+    const saved = structuredClone(ui.toolBlocks()[0]);
+    ui.editor.setCollapsed(true);
+    ui.fire(ui.host.querySelector('[data-ple-add-tool]'), 'click');
+    assert.equal(ui.editor.isCollapsed(), false);
+    assert.equal(executions, 0);
+    assert.equal(ui.toolBlocks().length, 2);
+    const added = ui.toolBlocks().find(block => block.id !== saved.id);
+    assert.deepEqual(ui.toolBlocks().find(block => block.id === saved.id), saved);
+    assert.equal(added.tool.code, DEFAULT_TOOL_CODE);
+    assert.equal(added.enabled, true);
+    const row = ui.toolRows().find(item => item.getAttribute('data-block-id') === added.id);
+    assert.equal(ui.field(row, 'code').value, DEFAULT_TOOL_CODE);
+    assert.equal(ui.field(row, 'tool-toggle').checked, true);
+    assert.ok(row.classList.contains('expanded'));
+    assert.deepEqual(layoutForStorage(ui.layout()).blocks.find(block => block.id === added.id), added);
+});
+
+test('direct tool entry at the existing limit leaves every message and tool source unchanged', t => {
+    let layout = createDefaultLayout();
+    for (let index = 0; index < MAX_TOOLS; index++) {
+        layout = addBlockAfter(layout, createToolBlock({ code: `return { name: "kept${index}", action() {} };` }, layout.blocks.map(block => block.id), () => (index + 1) / 20));
+    }
+    const ui = setup(t, { layout });
+    ui.fire(ui.host.querySelector('[data-ple-add-tool]'), 'click');
+    assert.deepEqual(ui.layout(), layout);
 });
 
 test('多选复制带工具的消息：副本不带工具，并在提示里说明', (t) => {

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { test } = require('node:test');
 
-const agentCore = require('../draw-runs/vendor/agent-core-node.cjs');
+const agentCore = require('./runtime-fixture.js').bundle.agentCore;
 const {
     captureLoopbackRequestContext,
     createLoopbackFetch,

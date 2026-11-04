@@ -1,10 +1,10 @@
-import { COC7_DIFFICULTIES, COC7_REQUEST_FIELDS, type Coc7Request } from '../domain/coc7-request.js';
+import { COC7_DIFFICULTIES, COC7_REQUEST_FIELDS, parseCoc7Request, type Coc7Request } from '../domain/coc7-request.js';
 import { COC7_CAPABILITIES } from '../domain/coc7-catalog.js';
 import { ACTION_CHECK_OPEN, ACTION_CHECK_CLOSE } from './markup.js';
 
 const example: Coc7Request = { action: 'Climb the wet wall', stat: 'athletics', difficulty: 'hard',
     success: 'Reach the balcony unseen.', failure: 'Make noise and draw a guard.' };
-export const COC7_EXAMPLE = 'You reach for the ledge.\n\n' + ACTION_CHECK_OPEN + JSON.stringify(example) + ACTION_CHECK_CLOSE;
+export const COC7_EXAMPLE = 'You reach for the ledge.\n\n' + ACTION_CHECK_OPEN + JSON.stringify(parseCoc7Request(example)) + ACTION_CHECK_CLOSE;
 export function coc7CapabilityProjection() {
     return Object.entries(COC7_CAPABILITIES).map(([id, { label, description }]) => ({
         id, name: label, use: description,
@@ -19,7 +19,7 @@ export function coc7RequestContract(): string {
             + (name === 'difficulty' ? ` ${difficulties}.` : '')).join('\n');
     const capabilities = coc7CapabilityProjection()
         .map(({ id, name, use }) => `${id}=${name} (${use})`).join('; ');
-    return 'Fields: nonempty strings; omit unused optional fields.\n'
+    return 'Fields: nonempty strings.\n'
         + fields + '\n## Player capabilities\n' + capabilities
         + `\nExample:\n${COC7_EXAMPLE}\n`;
 }

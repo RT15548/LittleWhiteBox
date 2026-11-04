@@ -96,62 +96,6 @@ function mergeSecrets(...groups) {
     return new Set(groups.flatMap(group => [...(group || [])]));
 }
 
-function buildDisplayMetadata(artifact = {}) {
-    const promptData = artifact.promptData || {};
-    const metadata = {
-        tags: String(artifact.tags || artifact.task?.scene || ''),
-        positive: String(promptData.positive || promptData.scene || ''),
-        characterPrompts: cloneJson(promptData.characterPrompts || []),
-        postPrompt: String(artifact.task?.post_prompt || ''),
-        orientation: artifact.task?.orientation ?? null,
-        negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
-    };
-    if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {
-        metadata.providerMetadata = cloneJson(artifact.providerMetadata);
-    }
-    return metadata;
-}
-
-function createProgressDiagnostic(runId, onUpdate) {
-    const record = {
-        stage: 'planning',
-        attempt: 0,
-        maxAttempts: 3,
-        validationFailures: [],
-        attempts: [],
-    };
-    const apply = (patch = {}) => {
-        if (typeof patch.stage === 'string') record.stage = patch.stage;
-        if (Number.isInteger(patch.attemptCount)) record.attempt = patch.attemptCount;
-        const retrying = patch.progress?.phase === 'retry';
-        // 重试等待阶段的 progress.total 是“最多重试几次”，不是 Agent 的尝试上限，不能写进 maxAttempts。
-        if (!retrying && Number.isInteger(patch.progress?.total)) record.maxAttempts = patch.progress.total;
-        if (retrying && Number.isInteger(patch.progress.current) && Number.isInteger(patch.progress.total)) {
-            record.retry = { current: patch.progress.current, total: patch.progress.total };
-        } else if (typeof patch.stage === 'string' && patch.stage !== 'retry') {
-            delete record.retry; // 重试结束，回到普通请求阶段
-        }
-        if (Array.isArray(patch.validationFailures)) {
-            record.validationFailures = cloneJson(patch.validationFailures) || [];
-        }
-        if (Array.isArray(patch.attempts)) record.attempts = cloneJson(patch.attempts) || [];
-        if (patch.argumentRepair) record.argumentRepair = cloneJson(patch.argumentRepair);
-        onUpdate(cloneJson(record));
-    };
-    return Object.freeze({
-        id: runId,
-        update: apply,
-        applyProviderConfig(config) {
-            record.presetName = String(config.currentPresetName || '');
-            record.provider = String(config.provider || '');
-            record.model = String(config.model || '');
-            apply();
-        },
-        succeed: apply,
-        fail(_error, patch = {}) { apply(patch); },
-        snapshot() { return cloneJson(record); },
-    });
-}
 
 class DrawRunManager {
     constructor({
@@ -160,6 +104,7 @@ class DrawRunManager {
         envelopeValidator,
         imageJobService,
         createHostClient,
+        resolveRuntime = null,
         now = Date.now,
         maxRuns = MAX_DRAW_RUNS_GLOBAL,
         maxRunsPerOwner = MAX_DRAW_RUNS_PER_OWNER,
@@ -170,14 +115,14 @@ class DrawRunManager {
         childSweepIntervalMs = CHILD_SWEEP_INTERVAL_MS,
         cancellations = null,
     } = {}) {
-        if (!runtime || typeof runtime.executePreparedScenePlanner !== 'function'
-            || typeof runtime.compileDrawRunImages !== 'function') {
+        if (!resolveRuntime && (!runtime || typeof runtime.executePreparedScenePlanner !== 'function'
+            || typeof runtime.compileDrawRunImages !== 'function')) {
             throw new TypeError('Draw Run manager requires the Draw Run runtime');
         }
-        if (!agentCore || typeof agentCore.createAgentAdapter !== 'function') {
+        if (!resolveRuntime && (!agentCore || typeof agentCore.createAgentAdapter !== 'function')) {
             throw new TypeError('Draw Run manager requires Agent Core');
         }
-        if (typeof envelopeValidator !== 'function') {
+        if (!resolveRuntime && typeof envelopeValidator !== 'function') {
             throw new TypeError('Draw Run manager requires an envelope validator');
         }
         if (!imageJobService || typeof imageJobService.create !== 'function'
@@ -188,6 +133,7 @@ class DrawRunManager {
             throw new TypeError('Draw Run manager requires a per-run Host Client factory');
         }
         this.runtime = runtime;
+        this.resolveRuntime = resolveRuntime || (() => ({ api: { runtime, agentCore, envelopeValidator } }));
         this.cancellations = cancellations;
         this.agentCore = agentCore;
         this.envelopeValidator = envelopeValidator;
@@ -215,7 +161,9 @@ class DrawRunManager {
     create(owner, rawEnvelope, requestContext) {
         if (this.closed) throw managerError('Draw Run manager is closed', 'draw_run_closed', 503);
         this.#sweepChildren();
-        const { envelope, inputBytes } = this.envelopeValidator(rawEnvelope);
+        const prior = this.runs.get(storageKey(owner, rawEnvelope?.runId));
+        const execution = prior?.execution || this.resolveRuntime(requestContext);
+        const { envelope, inputBytes } = execution.api.envelopeValidator(rawEnvelope);
         const key = storageKey(owner, envelope.runId);
         const signature = requestSignature(envelope);
         const existing = this.runs.get(key);
@@ -241,7 +189,7 @@ class DrawRunManager {
         let hostSession = null;
         if (String(envelope.agent.channel).startsWith('sillytavern-')) {
             try {
-                hostSession = this.createHostClient(requestContext);
+                hostSession = this.createHostClient(requestContext, execution.api.agentCore);
             } catch (error) {
                 throw managerError(
                     String(error?.message || 'Unable to create the Draw Run Host Client'),
@@ -254,6 +202,7 @@ class DrawRunManager {
         const timestamp = this.now();
         const run = {
             id: envelope.runId,
+            execution,
             key,
             owner,
             requestSignature: signature,
@@ -283,12 +232,13 @@ class DrawRunManager {
         };
         try {
             this.cancellations?.reserve(owner, {
-                runIds: [envelope.runId], jobIds: [this.runtime.deriveDrawRunChildJobId(envelope.runId)],
+                runIds: [envelope.runId], jobIds: [execution.api.runtime.deriveDrawRunChildJobId(envelope.runId)],
             });
         } catch (error) {
             hostSession?.dispose?.();
             throw error;
         }
+        execution.retain?.();
         this.runs.set(key, run);
         this.storedEnvelopeBytes += inputBytes;
         this.queue.push(key);
@@ -301,6 +251,10 @@ class DrawRunManager {
         return this.#ownerRuns(owner)
             .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id))
             .map(run => this.#snapshot(run));
+    }
+
+    runtimeFor(owner, runId) {
+        return this.runs.get(storageKey(owner, runId))?.execution || null;
     }
 
     get(owner, runId) {
@@ -351,6 +305,7 @@ class DrawRunManager {
             this.#releaseCancellationReservation(run);
             run.abortController?.abort();
             this.#releaseSensitiveInput(run);
+            run.execution.release?.();
             if (run.expiryTimer) clearTimeout(run.expiryTimer);
         }
         this.runs.clear();
@@ -398,19 +353,18 @@ class DrawRunManager {
             validationFailures: [],
         };
         run.updatedAt = this.now();
-        const diagnostic = createProgressDiagnostic(run.id, (progress) => {
-            if (!this.runs.has(run.key)) return;
-            run.progress = progress;
-            run.updatedAt = this.now();
-        });
-
         try {
+            const diagnostic = run.execution.api.runtime.createProgressDiagnostic(run.id, (progress) => {
+                if (!this.runs.has(run.key)) return;
+                run.progress = progress;
+                run.updatedAt = this.now();
+            });
             const scenePoints = run.plannerInput.planner.validationContext.sceneSource.points;
-            const scenePlan = await this.runtime.executePreparedScenePlanner(run.plannerInput, {
+            const scenePlan = await run.execution.api.runtime.executePreparedScenePlanner(run.plannerInput, {
                 timeout: run.plannerInput.agent.providerConfig.timeoutMs,
                 signal: controller.signal,
                 diagnostic,
-                agentCore: this.agentCore,
+                agentCore: run.execution.api.agentCore,
                 ...(run.hostSession ? { hostClient: run.hostSession.client } : {}),
             });
             this.#releasePlannerInput(run);
@@ -423,50 +377,28 @@ class DrawRunManager {
             run.state = 'compiling';
             run.progress = { ...run.progress, stage: 'compiling' };
             run.updatedAt = this.now();
-            const compiled = this.runtime.compileDrawRunImages(
+            const compiled = run.execution.api.runtime.compileDrawRunImages(
                 run.provider,
                 scenePlan,
                 run.generationRecipe,
             );
-            if (!Array.isArray(compiled.items) || !Array.isArray(compiled.artifacts)
-                || compiled.items.length === 0 || compiled.items.length !== compiled.artifacts.length) {
-                throw new Error('Draw Run compiler returned misaligned image items and artifacts');
-            }
             if (run.cancelRequestedAt !== null) {
                 this.#finishTerminal(run, 'cancelled');
                 return;
             }
-
-            const childJobId = this.runtime.deriveDrawRunChildJobId(run.id);
-            const manifestItems = compiled.artifacts.map((artifact, index) => {
-                const ids = this.runtime.deriveDrawRunItemIds(run.id, index);
-                const insertAfter = Number(artifact.task?.placement?.insertAfter);
-                const point = Array.isArray(scenePoints) ? scenePoints[insertAfter - 1] : null;
-                if (!point || !Number.isInteger(point.offset)) {
-                    throw new Error(`Draw Run compiler artifact ${index + 1} has an invalid placement`);
-                }
-                return {
-                    index,
-                    ...ids,
-                    insertOffset: point.offset,
-                    displayMetadata: buildDisplayMetadata(artifact),
-                };
-            });
+            const handoffManifest = run.execution.api.runtime.createDrawRunHandoff(
+                run.id, run.provider, run.sourceHash, compiled, scenePoints,
+            );
+            const childJobId = handoffManifest.childJobId;
             this.imageJobService.create(run.owner, {
                 provider: compiled.provider,
                 requestId: childJobId,
                 context: compiled.context,
                 delay: compiled.delay,
                 items: compiled.items,
-            });
+            }, run.execution);
             run.childJobId = childJobId;
-            run.handoffManifest = {
-                childJobId,
-                provider: run.provider,
-                sourceHash: run.sourceHash,
-                placementContract: 1,
-                items: manifestItems,
-            };
+            run.handoffManifest = handoffManifest;
             run.state = 'dispatched';
             run.progress = { ...run.progress, stage: 'dispatched' };
             run.updatedAt = this.now();
@@ -528,6 +460,7 @@ class DrawRunManager {
 
     #deleteRun(run) {
         if (!this.runs.has(run.key)) return;
+        run.execution.release?.();
         if (run.expiryTimer) clearTimeout(run.expiryTimer);
         this.queue = this.queue.filter(key => key !== run.key);
         this.#releaseSensitiveInput(run);
@@ -537,7 +470,7 @@ class DrawRunManager {
 
     #releaseCancellationReservation(run) {
         this.cancellations?.release(run.owner, 'run', run.id);
-        if (!run.childJobId) this.cancellations?.release(run.owner, 'job', this.runtime.deriveDrawRunChildJobId(run.id));
+        if (!run.childJobId) this.cancellations?.release(run.owner, 'job', run.execution.api.runtime.deriveDrawRunChildJobId(run.id));
     }
 
     #snapshot(run) {

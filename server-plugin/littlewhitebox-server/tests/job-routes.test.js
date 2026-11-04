@@ -5,7 +5,11 @@ const { EventEmitter } = require('node:events');
 const { test } = require('node:test');
 
 const { createAsyncImageJobManager } = require('../image-jobs/job-manager.js');
-const { registerImageJobRoutes } = require('../image-jobs/routes.js');
+const { registerImageJobRoutes: registerRoutes } = require('../image-jobs/routes.js');
+const { createImageJobService } = require('../../../modules/draw/server/image-jobs/service.js');
+function registerImageJobRoutes(router, { manager, adapters }) {
+    registerRoutes(router, { manager, service: createImageJobService({ manager, adapters }) });
+}
 
 function createRouter() {
     const routes = new Map();

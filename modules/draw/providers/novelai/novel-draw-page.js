@@ -133,6 +133,8 @@ let state = {
     cacheStats: { count: 0, sizeMB: '0' },
     imageTitleMode: 'none',
     saveAsJpeg: false,
+    autoSaveImages: false,
+    saveImagesByFolder: false,
     selectedParamsPresetId: null,
     paramsPresets: [],
     characterTags: [],
@@ -142,6 +144,7 @@ let state = {
     autoLearnMode: 'new_only',
     autoLearnGroupId: '',
     danbooruLocalDB: false,
+    autoGenerateImages: true,
     showFloorButton: true,
     showFloatingButton: false,
     promptPresets: [],
@@ -302,6 +305,7 @@ function requestPromptChainPreview() {
             topSystem: $('nd_prompt_system')?.value || '',
             sceneRules: $('nd_prompt_format')?.value || '',
             modelGuideOverrides: collectModelGuideOverridesFromForm(),
+            layout: getEffectivePromptLayout(getActivePromptPresetForForm()),
         },
     });
 }
@@ -2337,7 +2341,11 @@ function renderPromptChain(chain) {
         return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
     };
 
-    container.innerHTML = DOMPurify.sanitize(chain.map((item, i) => {
+    const fields = chain.find(item => item.role === 'tools')?.fields || [];
+    $('nd_prompt_tool_fields').innerHTML = DOMPurify.sanitize(fields.map(field => `
+        <div class="chain-field"><code>${escapeHtml(field.path)}</code><span>${escapeHtml(field.description)}</span></div>
+    `).join(''));
+    container.innerHTML = DOMPurify.sanitize(chain.filter(item => item.role !== 'tools').map((item, i) => {
         const sections = Array.isArray(item.sections) ? item.sections : [];
         const sectionsHtml = sections.map((section, sectionIndex) => {
             if (typeof section.content === 'string') sectionContent.set(section.key, section.content);
@@ -2352,22 +2360,12 @@ function renderPromptChain(chain) {
                 <div class="chain-section-content"></div>
             </div>`;
         }).join('');
-        const fields = Array.isArray(item.fields) ? item.fields : [];
-        const fieldsHtml = fields.length
-            ? `<div class="chain-fields">${fields.map(field => `
-                <div class="chain-field">
-                    <code>${escapeHtml(field.path)}</code>
-                    <span>${escapeHtml(field.description)}</span>
-                </div>`).join('')}</div>`
-            : '';
-
         return `
         <div class="chain-item has-sections" data-key="${escapeHtml(item.key)}">
-            <span class="chain-role ${item.role}">${item.role}</span>
+            <span class="chain-role ${escapeHtml(item.role)}">${escapeHtml(item.roleLabel)}</span>
             <div class="chain-summary">
                 <div class="chain-summary-text"><span>${i + 1}. ${escapeHtml(item.summary)}</span></div>
                 ${sectionsHtml ? `<div class="chain-sections">${sectionsHtml}</div>` : ''}
-                ${fieldsHtml}
             </div>
         </div>`;
     }).join(''));
@@ -3589,6 +3587,8 @@ function applyStateToUI() {
         $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
         const titleModeSel = $('nd_image_title_mode');
         $('nd_save_as_jpeg').checked = state.saveAsJpeg === true;
+        $('nd_auto_save_images').checked = state.autoSaveImages === true;
+        $('nd_save_by_folder').checked = state.saveImagesByFolder === true;
         if (titleModeSel) titleModeSel.value = ['none', 'overlay', 'collapse'].includes(state.imageTitleMode)
             ? state.imageTitleMode : 'none';
 
@@ -3613,6 +3613,8 @@ function applyStateToUI() {
         $('nd_danbooru_local').checked = !!state.danbooruLocalDB;
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
+        $('nd_continuity_enabled').checked = state.continuityEnabled !== false;
+        $('nd_auto_generate_images').checked = state.autoGenerateImages !== false;
         renderFilterRules(state.messageFilterRules);
     } catch (e) {
         console.error('[ND-UI] applyStateToUI 部分失败:', e);
@@ -4945,7 +4947,7 @@ function describeBuiltinBlock(id) {
         case 'frame':
             return { summary: '固定文本：说明下面提供了哪些材料，以及结果要通过工具交回（程序生成，不可编辑）', action: 'view' };
         case 'tools':
-            return { summary: '固定工具：submit_scene_plan 及各字段说明（程序生成，不可编辑）', action: 'view' };
+            return { summary: `submit_scene_plan${collectToolBlocks(getEffectivePromptLayout(getActivePromptPresetForForm())).length ? '、已启用的附带工具' : ''}`, action: 'view' };
         case 'worldInfo':
             return { summary: state.useWorldInfo === true ? '世界书注入已开启：命中的条目放在这里' : '世界书注入未开启（在世界书页面开启）', action: 'edit' };
         case 'content': {
@@ -4982,7 +4984,7 @@ function editBuiltinBlock(id) {
         input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
         input?.focus?.();
     } else if (id === 'frame' || id === 'tools') {
-        const details = $('nd_prompt_chain_details');
+        const details = $(id === 'tools' ? 'nd_prompt_tool_definitions' : 'nd_prompt_chain_details');
         if (details) {
             details.open = true;
             details.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
@@ -5017,11 +5019,15 @@ function getLayoutEditor() {
             getOwnerKey: currentPromptPresetId,
             getLayout: () => getEffectivePromptLayout(getActivePromptPresetForForm()),
             getSavedLayout: () => getSavedPromptLayout(getActivePromptPresetForForm()),
-            onChange: layout => setPromptLayoutDraft(getActivePromptPresetForForm(), layout),
+            onChange: layout => {
+                setPromptLayoutDraft(getActivePromptPresetForForm(), layout);
+                if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
+            },
             describeBuiltin: describeBuiltinBlock,
             onEditBuiltin: editBuiltinBlock,
             builtinEditors: Object.fromEntries(Array.from(document.querySelectorAll('[data-prompt-editor]'), node => [node.dataset.promptEditor, node])),
             editorParking: $('nd_prompt_editors'),
+            toolDefinitions: $('nd_prompt_tool_definitions'),
             confirm: message => confirm(message),
             autoScroll: (event, list) => presetListKit?.autoScroll(event, list),
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
@@ -5161,6 +5167,20 @@ function updateModelOptions() {
     );
     $('nd_auto_smea_group').classList.toggle('hidden', isV5);
     $('nd_variety_boost_group').classList.toggle('hidden', isV5);
+
+    // V5 Full Medium Effort 锁参：14 步 / Euler Ancestral / CFG 重缩放 0 / Heavy 负面预设
+    const isMedium = model === 'nai-diffusion-5-full-medium';
+    const mediumHint = 'Medium Effort 固定参数：14 步、Euler Ancestral、重缩放 0、Heavy 负面';
+    const lockControl = (el, locked, lockedValue) => {
+        el.disabled = locked;
+        el.title = locked ? mediumHint : '';
+        if (locked && lockedValue !== undefined) el.value = lockedValue;
+    };
+    lockControl($('nd_steps'), isMedium, isMedium ? 14 : undefined);
+    lockControl($('nd_sampler_sel'), isMedium, isMedium ? 'k_euler_ancestral' : undefined);
+    lockControl($('nd_cfg_rescale'), isMedium, isMedium ? 0 : undefined);
+    lockControl($('nd_v5_uc'), isMedium, isMedium ? 'heavy' : undefined);
+
     const characterLimit = capability.maxCharactersPerImage || 10;
     $('nd_max_chars').max = String(characterLimit);
     $('nd_max_chars').value = Math.min(characterLimit, Math.max(0, Number($('nd_max_chars').value) || 0));
@@ -5347,6 +5367,20 @@ window.addEventListener('message', event => {
                 state.saveAsJpeg = data.saveAsJpeg === true;
                 $('nd_save_as_jpeg').checked = state.saveAsJpeg;
                 $('nd_save_as_jpeg').disabled = false;
+                galleryFeedback.show(data.state, data.text);
+                break;
+            }
+            if (data.target === 'image-save') {
+                state.autoSaveImages = data.autoSaveImages === true;
+                state.saveImagesByFolder = data.saveImagesByFolder === true;
+                $('nd_auto_save_images').checked = state.autoSaveImages;
+                $('nd_save_by_folder').checked = state.saveImagesByFolder;
+                $('nd_auto_save_images').disabled = $('nd_save_by_folder').disabled = false;
+                galleryFeedback.show(data.state, data.text);
+                break;
+            }
+            if (data.target === 'image-folder') {
+                $('nd_open_image_folder').disabled = false;
                 galleryFeedback.show(data.state, data.text);
                 break;
             }
@@ -5719,6 +5753,16 @@ function initializePage() {
         postToParent({ type: 'SAVE_DANBOORU_LOCAL_DB', enabled });
     });
 
+    $('nd_continuity_enabled').addEventListener('change', () => {
+        state.continuityEnabled = $('nd_continuity_enabled').checked;
+        postToParent({ type: 'SAVE_CONTINUITY_ENABLED', enabled: state.continuityEnabled });
+    });
+
+    $('nd_auto_generate_images').addEventListener('change', () => {
+        state.autoGenerateImages = $('nd_auto_generate_images').checked;
+        postToParent({ type: 'SAVE_AUTO_GENERATE_IMAGES', autoGenerateImages: state.autoGenerateImages });
+    });
+
     // clear all characters
     $('nd_char_clear').addEventListener('click', () => {
         const savedCount = persistedCharacters().length;
@@ -5786,6 +5830,19 @@ function initializePage() {
     $('nd_save_as_jpeg')?.addEventListener('change', () => {
         $('nd_save_as_jpeg').disabled = true;
         postToParent({ type: 'SAVE_JPEG', saveAsJpeg: $('nd_save_as_jpeg').checked });
+    });
+
+    // 自动保存 / 按日期保存：两个开关一起提交，等宿主回执后再恢复控件；打开文件夹由宿主执行。
+    for (const id of ['nd_auto_save_images', 'nd_save_by_folder']) {
+        $(id)?.addEventListener('change', () => {
+            $('nd_auto_save_images').disabled = $('nd_save_by_folder').disabled = true;
+            postToParent({ type: 'SAVE_IMAGE_SAVE_OPTIONS', autoSaveImages: $('nd_auto_save_images').checked,
+                saveImagesByFolder: $('nd_save_by_folder').checked });
+        });
+    }
+    $('nd_open_image_folder')?.addEventListener('click', () => {
+        $('nd_open_image_folder').disabled = true;
+        postToParent({ type: 'OPEN_IMAGE_FOLDER' });
     });
 
     // 批量管理

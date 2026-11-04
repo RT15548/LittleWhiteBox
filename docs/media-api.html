@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小白X · 画图与语音接口</title>
+<style>
+:root{color-scheme:light dark;font:16px/1.75 system-ui,sans-serif;background:#fff;color:#222}
+body{max-width:900px;margin:auto;padding:28px 24px 80px}h1{font-size:1.8rem}h2{margin-top:2.5rem}h3{margin-top:1.8rem}
+a{color:#2468b1}code{font:.9em/1.6 ui-monospace,Consolas,monospace;overflow-wrap:anywhere}pre{padding:16px;background:#f2f5f8;border-radius:8px;overflow:auto}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid #dce1e5}th:first-child,td:first-child{width:34%}
+nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
+@media(prefers-color-scheme:dark){:root{background:#171b21;color:#e8edf3}a{color:#8fbfff}pre{background:#242c36}th,td{border-color:#3d4651}}
+@media(max-width:520px){body{padding:18px 16px 48px}th,td{padding:8px 5px}h1{font-size:1.5rem}}
+</style>
+</head>
+<body>
+<h1>画图与语音接口</h1>
+<nav aria-label="目录"><a href="#draw">画图</a><a href="#presets">选择预设</a><a href="#draw-fields">画图参数</a><a href="#tts">语音</a><a href="#tts-fields">语音参数</a><a href="#errors">错误处理</a></nav>
+<p>在自己写的卡片里，把提示词或要朗读的文字交给小白X，就能使用用户配置好的画图、语音服务。提示词、参数和文字都可以来自 AI、脚本或用户输入；生成后如何显示、播放，由你的卡片决定。</p>
+<h2>开始前</h2>
+<ol>
+<li>在酒馆中打开小白X总开关，并开启要用的画图或语音功能。</li>
+<li>画图先在对应面板配置服务和参数；语音可以使用试用音色，也可以配置自己的火山引擎账号。</li>
+<li>把下面的 HTML 示例放进由小白X渲染的卡片前端中。<code>window.parent</code> 就是卡片外的酒馆页面。</li>
+</ol>
+<p>小白X的 srcdoc、Blob 两种 HTML 渲染方式都支持这样调用。卡片需要与酒馆同源，也就是协议、域名和端口相同；嵌入的外站网页不能直接调用。若代码就在酒馆页面中运行，将 <code>window.parent</code> 换成 <code>window</code>。</p>
+
+<section id="draw"><h2>画图</h2>
+<p>调用 <code>window.parent.xiaobaixDraw.generate(request)</code>，得到 <code>{ images: Blob[] }</code>。<code>images</code> 是图片文件数组，一张图、多张图都用同一种方式处理。</p>
+<h3>可直接复制的画图示例</h3>
+<p>整段复制到卡片前端，输入提示词后点击“生成”。示例使用用户当前选择的画图服务和参数，支持取消，并显示本次返回的全部图片。</p>
+<pre><code id="draw-example">&lt;form id="draw-form"&gt;
+  &lt;label&gt;画面描述 &lt;textarea name="prompt" required&gt;&lt;/textarea&gt;&lt;/label&gt;
+  &lt;button type="submit"&gt;生成&lt;/button&gt;
+  &lt;button id="draw-cancel" type="button" disabled&gt;取消&lt;/button&gt;
+&lt;/form&gt;
+&lt;p id="draw-status" role="status"&gt;&lt;/p&gt;
+&lt;div id="draw-images"&gt;&lt;/div&gt;
+&lt;script&gt;
+(() =&gt; {
+  const form = document.querySelector('#draw-form');
+  const status = document.querySelector('#draw-status');
+  const container = document.querySelector('#draw-images');
+  const cancel = document.querySelector('#draw-cancel');
+  const submit = form.querySelector('[type="submit"]');
+  let controller = null;
+  let pageActive = true;
+  const urls = [];
+
+  function clearImages() {
+    container.replaceChildren();
+    urls.splice(0).forEach(url =&gt; URL.revokeObjectURL(url));
+  }
+
+  function showImages(images) {
+    clearImages();
+    images.forEach((blob, index) =&gt; {
+      const url = URL.createObjectURL(blob);
+      urls.push(url);
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '生成图片 ' + (index + 1);
+      img.style.maxWidth = '100%';
+      container.append(img);
+    });
+  }
+
+  form.onsubmit = async event =&gt; {
+    event.preventDefault();
+    if (!pageActive || controller) return;
+    const current = new AbortController();
+    controller = current;
+    const isCurrent = () =&gt; pageActive &amp;&amp; controller === current;
+    submit.disabled = true;
+    cancel.disabled = false;
+    status.textContent = '生成中…';
+    try {
+      const request = {
+        prompt: form.elements.prompt.value,
+        signal: current.signal,
+        onProgress: ({ state }) =&gt; {
+          if (!isCurrent()) return;
+          status.textContent = state === 'queued' ? '排队中…' : '生成中…';
+        },
+      };
+      const { images } = await window.parent.xiaobaixDraw.generate(request);
+      if (!isCurrent()) return;
+      showImages(images);
+      status.textContent = '完成，共 ' + images.length + ' 张图片';
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (error.partialResult?.images?.length) {
+        showImages(error.partialResult.images);
+      }
+      status.textContent = error.code === 'aborted'
+        ? '已取消' : error.message;
+    } finally {
+      if (isCurrent()) {
+        controller = null;
+        submit.disabled = false;
+        cancel.disabled = true;
+      }
+    }
+  };
+  cancel.onclick = () =&gt; controller?.abort();
+  window.addEventListener('pageshow', () =&gt; { pageActive = true; });
+  window.addEventListener('pagehide', () =&gt; {
+    pageActive = false;
+    controller?.abort();
+    controller = null;
+    clearImages();
+    submit.disabled = false;
+    cancel.disabled = true;
+    status.textContent = '';
+  });
+})();
+&lt;/script&gt;</code></pre>
+<p>示例从输入框读取 <code>prompt</code>，它不是固定的。你的脚本也可以把 AI 返回的请求对象直接传给 <code>generate</code>；如果 AI 返回的是 JSON 文本，先用 <code>JSON.parse</code> 转成对象。只想修改某些参数时，把它们加进 <code>request.params</code>，不用重新填写全部配置。</p>
+
+<h3 id="presets">选择服务和预设</h3>
+<p><code>provider</code> 可填 <code>'novelai'</code>、<code>'sdwebui'</code> 或 <code>'comfyui'</code>。不填就用当前选择的服务；指定其他已配置的服务，只影响本次调用，不会替用户切换画图面板。</p>
+<p>用 <code>getPresets({ provider })</code> 获取该服务保存的预设；不传参数则查询当前服务。下面这段代码可以放在卡片的 <code>&lt;script&gt;</code> 中，查看 SD WebUI 的可选预设：</p>
+<pre><code id="presets-example">(async () =&gt; {
+  try {
+    const presets = await window.parent.xiaobaixDraw.getPresets({
+      provider: 'sdwebui',
+    });
+    console.table(presets.api);       // API 预设
+    console.table(presets.params);    // 参数预设
+    console.table(presets.workflows); // 工作流预设，只有 ComfyUI 使用
+  } catch (error) {
+    console.error(error.code, error.message);
+  }
+})();</code></pre>
+<p>每一项都有 <code>id</code>、<code>name</code> 和 <code>selected</code>（是否当前选中），不包含密钥。把选中项的 <code>id</code> 填进请求的 <code>apiPresetId</code>、<code>paramsPresetId</code> 或 <code>workflowPresetId</code> 即可；不填就沿用该服务当前的选择。</p>
+<p>参数按这个顺序取值：<strong>本次传入的值 → 选定预设的值 → 小白X默认值</strong>。<code>0</code>、<code>false</code> 和空字符串不会被当成“没填”。调用不会修改保存的配置；提交后再改设置或请求对象，也不会改变正在排队的这一单。</p>
+
+<h3 id="draw-fields">画图请求字段</h3>
+<p>除 <code>prompt</code> 外都可以省略。不要把供应商文档中的其他字段直接塞进请求；下面列出的字段才是这个接口支持的。</p>
+<table><thead><tr><th>字段</th><th>怎么填</th></tr></thead><tbody>
+<tr><td><code>provider</code></td><td>字符串：<code>'novelai' | 'sdwebui' | 'comfyui'</code>。</td></tr>
+<tr><td><code>apiPresetId / paramsPresetId</code></td><td>字符串，从 <code>getPresets()</code> 查询到的 API／参数预设 ID。</td></tr>
+<tr><td><code>prompt</code></td><td>必填字符串，描述你要画的内容。</td></tr>
+<tr><td><code>positivePrefix</code></td><td>字符串，放在 prompt 前面的固定提示词。不填时使用预设中的正面前缀；填 <code>''</code> 表示本次不加前缀。</td></tr>
+<tr><td><code>negativePrompt</code></td><td>字符串，描述不希望出现的内容。不填时继承预设；填 <code>''</code> 表示本次清空负面提示词。</td></tr>
+<tr><td><code>characterPrompts</code></td><td>数组，每个角色一项：<code>{ prompt?: string, uc?: string, center?: { x: number, y: number } }</code>。prompt 是角色描述，uc 是该角色的负面词；x、y 为 0～1 的位置坐标。NovelAI 按模型能力处理角色和位置；SD／ComfyUI 把角色文字合并进整张图的提示词，不使用位置坐标。</td></tr>
+<tr><td><code>params</code></td><td>对象，只填写要改的生成参数。各服务支持的字段见下面三张表。</td></tr>
+<tr><td><code>overrideSize</code></td><td>字符串，使用面板中的尺寸选项，如 <code>'1024x1024'</code>。<code>'default'</code> 表示使用参数里的尺寸；此接口中 <code>'auto'</code> 也使用参数尺寸，不会分析提示词判断横竖图。直接填写 <code>params.width / height</code> 更明确，且优先于此选项。</td></tr>
+<tr><td><code>signal</code></td><td><code>AbortSignal</code>，用于取消，见上面的完整示例。</td></tr>
+<tr><td><code>onProgress</code></td><td>函数，接收 <code>{ state, ahead?, position? }</code>。state 表示当前阶段，例如 queued（排队）、generating（生成）；收到哪些阶段取决于连接方式。它不是百分比，完成以 <code>await generate(...)</code> 返回为准。</td></tr>
+</tbody></table>
+
+<h3>NovelAI：params</h3>
+<table><thead><tr><th>字段</th><th>类型与含义</th></tr></thead><tbody>
+<tr><td><code>model</code></td><td>字符串，模型 ID，填写画图参数面板使用的名称。</td></tr>
+<tr><td><code>sampler / scheduler</code></td><td>字符串，采样器／噪声调度器名称。</td></tr>
+<tr><td><code>width / height</code></td><td>正整数，图片宽／高，单位为像素。</td></tr>
+<tr><td><code>steps / scale</code></td><td>采样步数（正整数）／提示词引导强度（数字，面板中的 CFG）。</td></tr>
+<tr><td><code>seed</code></td><td>整数，随机种子；<code>-1</code> 表示随机。</td></tr>
+<tr><td><code>ucPreset</code></td><td>数字，非 V5 模型的负面预设：0 Heavy、1 Light、2 Human Focus、3 None。</td></tr>
+<tr><td><code>qualityToggle / autoSmea</code></td><td>布尔值，V4 系列的质量词开关／自动 SMEA。</td></tr>
+<tr><td><code>cfg_rescale</code></td><td>数字，CFG 重缩放；V4 系列和 V5 可用。</td></tr>
+<tr><td><code>variety_boost</code></td><td>布尔值，V4.5 多样性增强。</td></tr>
+<tr><td><code>sm / sm_dyn / decrisper</code></td><td>布尔值，V3 的 SMEA／动态 SMEA／Decrisper 开关。</td></tr>
+<tr><td><code>v5QualityPresetId</code></td><td>V5 质量预设：<code>'standard' | 'light' | 'none'</code>。</td></tr>
+<tr><td><code>v5UcPresetId</code></td><td>V5 负面预设：<code>'heavy' | 'light' | 'furryFocus' | 'humanFocus' | 'none'</code>。</td></tr>
+<tr><td><code>transparentBackground</code></td><td>布尔值，V5 透明背景开关。</td></tr>
+</tbody></table>
+<p>选择模型后，只传该模型支持的选项；拿不准时不传，使用已保存的参数。目前 NovelAI 一次生成一张图，不支持通过此接口传入参考图或进行图生图。</p>
+
+<h3>SD WebUI：params</h3>
+<table><thead><tr><th>字段</th><th>类型与含义</th></tr></thead><tbody>
+<tr><td><code>model / sampler_name</code></td><td>字符串，模型／采样器名称。</td></tr>
+<tr><td><code>width / height</code></td><td>正整数，图片宽／高，单位为像素。</td></tr>
+<tr><td><code>steps / cfg_scale</code></td><td>采样步数（正整数）／提示词引导强度（数字）。</td></tr>
+<tr><td><code>seed</code></td><td>整数，随机种子；<code>-1</code> 表示随机。</td></tr>
+<tr><td><code>batch_size / n_iter</code></td><td>正整数，每批张数／批次数。例如 batch_size 为 2、n_iter 为 1 时，一次请求生成两张图。</td></tr>
+<tr><td><code>restore_faces / tiling</code></td><td>布尔值，面部修复／平铺纹理开关。</td></tr>
+<tr><td><code>enable_hr</code></td><td>布尔值，开启高分辨率修复。</td></tr>
+<tr><td><code>hr_scale / hr_upscaler</code></td><td>放大倍率（数字）／放大算法名称（字符串），配合 enable_hr 使用。</td></tr>
+<tr><td><code>denoising_strength</code></td><td>数字，高分辨率修复时的重绘幅度。</td></tr>
+<tr><td><code>clip_skip</code></td><td>正整数，CLIP 跳层。</td></tr>
+<tr><td><code>positivePrefix / negativePrefix</code></td><td>字符串，预设的正面／负面前缀。本次请求另填了顶层 positivePrefix 或 negativePrompt 时，以顶层为准。</td></tr>
+</tbody></table>
+
+<h3>ComfyUI：params 与工作流</h3>
+<table><thead><tr><th>params 字段</th><th>类型与含义</th></tr></thead><tbody>
+<tr><td><code>model</code></td><td>字符串，模型名称，简单模式使用。</td></tr>
+<tr><td><code>sampler / scheduler</code></td><td>字符串，采样器／调度器，简单模式使用。</td></tr>
+<tr><td><code>steps / cfg</code></td><td>采样步数（正整数）／提示词引导强度（数字），简单模式使用。</td></tr>
+<tr><td><code>width / height</code></td><td>正整数，图片宽／高，单位为像素。自定义模式需要配置对应尺寸节点。</td></tr>
+<tr><td><code>positivePrefix / negativePrefix</code></td><td>字符串，正面／负面前缀；顶层 positivePrefix 或 negativePrompt 优先。自定义模式需要配置对应提示词节点。</td></tr>
+</tbody></table>
+<p>以下字段与 <code>prompt</code> 同级，<strong>不放进 params</strong>：</p>
+<table><thead><tr><th>字段</th><th>怎么填</th></tr></thead><tbody>
+<tr><td><code>seed</code></td><td>0～4294967295 的整数，省略时随机。自定义模式需要配置种子节点。</td></tr>
+<tr><td><code>workflowPresetId</code></td><td>字符串，已保存的工作流 ID。选定后使用该自定义工作流。</td></tr>
+<tr><td><code>workflowMode</code></td><td><code>'simple'</code>（简单模式）或 <code>'custom'</code>（自定义工作流）。不填则跟随所选工作流或当前设置。</td></tr>
+<tr><td><code>customWorkflow</code></td><td>对象，只填写要覆盖的工作流内容，字段见下表。</td></tr>
+</tbody></table>
+<table><thead><tr><th>customWorkflow 字段</th><th>怎么填（均为字符串）</th></tr></thead><tbody>
+<tr><td><code>json</code></td><td>ComfyUI 导出的 API Format 工作流 JSON 文本；如果手上是对象，用 <code>JSON.stringify</code> 转成文本。</td></tr>
+<tr><td><code>nodePositive / nodeNegative</code></td><td>正面／负面提示词节点 ID，例如 <code>'6'</code>、<code>'7'</code>。</td></tr>
+<tr><td><code>nodeWidth / nodeHeight</code></td><td>宽／高节点 ID；若同一节点包含 width 和 height，两项填同一个 ID。</td></tr>
+<tr><td><code>nodeSeed</code></td><td>包含 seed 或 noise_seed 输入的节点 ID。</td></tr>
+<tr><td><code>nodeSaveImage</code></td><td>用于获取结果的 SaveImage 节点 ID。返回这个节点的全部图片。</td></tr>
+</tbody></table>
+<p>自定义模式下，模型、采样器、步数、参考图、批量大小等直接写在工作流 JSON 中，不放进 params。传入自己的 customWorkflow 时，同时设置 <code>workflowMode: 'custom'</code>。节点 ID 必须与这份 JSON 对应。</p>
+<p>通过接口调用 ComfyUI 时，请在画图面板选择“浏览器直连”（ComfyUI 需允许浏览器跨域访问），或开启“使用小白X后台任务”。接口不使用酒馆的普通代理；仅配置普通代理时会返回 <code>not_configured</code>，<code>field</code> 为 <code>connectionMode</code>。调用不会替你更改这些设置。</p>
+</section>
+
+<section id="tts"><h2>语音</h2>
+<p>调用 <code>window.parent.xiaobaixTts.synthesize(text, options)</code>，得到一个音频 <code>Blob</code>。text 是要朗读的文字，options 是可选的音色、语速等参数；不填 options 就使用当前配置。</p>
+<h3>可直接复制的语音示例</h3>
+<p>整段复制到卡片前端。选择音色、输入文字后点击“合成”，完成后用播放器播放。示例不会自动朗读，也不会把声音插入聊天。</p>
+<pre><code id="tts-example">&lt;form id="tts-form"&gt;
+  &lt;label&gt;音色 &lt;select name="speaker"&gt;&lt;/select&gt;&lt;/label&gt;
+  &lt;label&gt;文字 &lt;textarea name="text" required&gt;&lt;/textarea&gt;&lt;/label&gt;
+  &lt;button type="submit"&gt;合成&lt;/button&gt;
+  &lt;button id="tts-cancel" type="button" disabled&gt;取消&lt;/button&gt;
+&lt;/form&gt;
+&lt;p id="tts-status" role="status"&gt;&lt;/p&gt;
+&lt;audio id="tts-player" controls&gt;&lt;/audio&gt;
+&lt;script&gt;
+(() =&gt; {
+  const form = document.querySelector('#tts-form');
+  const status = document.querySelector('#tts-status');
+  const player = document.querySelector('#tts-player');
+  const cancel = document.querySelector('#tts-cancel');
+  const submit = form.querySelector('[type="submit"]');
+  const tts = window.parent.xiaobaixTts;
+  const { voices, defaultVoice } = tts.getVoices();
+  for (const voice of voices) {
+    if (!voice.available) continue;
+    form.elements.speaker.add(new Option(
+      voice.name, voice.id, false, voice.id === defaultVoice,
+    ));
+  }
+  let controller = null;
+  let pageActive = true;
+  let audioUrl = null;
+
+  function clearAudio() {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    audioUrl = null;
+  }
+
+  form.onsubmit = async event =&gt; {
+    event.preventDefault();
+    if (!pageActive || controller) return;
+    const current = new AbortController();
+    controller = current;
+    const isCurrent = () =&gt; pageActive &amp;&amp; controller === current;
+    submit.disabled = true;
+    cancel.disabled = false;
+    status.textContent = '合成中…';
+    try {
+      const text = form.elements.text.value;
+      const options = {
+        speaker: form.elements.speaker.value,
+        speed: 1,
+        signal: current.signal,
+        onProgress: ({ receivedBytes }) =&gt; {
+          if (!isCurrent()) return;
+          if (receivedBytes !== undefined) {
+            status.textContent = '已接收 ' + receivedBytes + ' 字节';
+          }
+        },
+      };
+      const audio = await tts.synthesize(text, options);
+      if (!isCurrent()) return;
+      clearAudio();
+      audioUrl = URL.createObjectURL(audio);
+      player.src = audioUrl;
+      status.textContent = '合成完成，点击播放器播放';
+    } catch (error) {
+      if (!isCurrent()) return;
+      status.textContent = error.code === 'aborted'
+        ? '已取消' : error.message;
+    } finally {
+      if (isCurrent()) {
+        controller = null;
+        submit.disabled = false;
+        cancel.disabled = true;
+      }
+    }
+  };
+  cancel.onclick = () =&gt; controller?.abort();
+  window.addEventListener('pageshow', () =&gt; { pageActive = true; });
+  window.addEventListener('pagehide', () =&gt; {
+    pageActive = false;
+    controller?.abort();
+    controller = null;
+    clearAudio();
+    submit.disabled = false;
+    cancel.disabled = true;
+    status.textContent = '';
+  });
+})();
+&lt;/script&gt;</code></pre>
+<p><code>getVoices()</code> 返回 <code>{ voices, defaultVoice }</code>。每个音色有 id、name、source（free 试用音色／auth 鉴权音色）和 available（当前是否可用）。把音色 id 填入 options.speaker 即可。</p>
+<p>两份示例都用 <code>URL.createObjectURL(blob)</code> 生成可供 img／audio 使用的临时地址，在替换结果或离开页面时用 <code>URL.revokeObjectURL(url)</code> 释放。离开页面后，晚到的结果不会再显示。不要刚显示就释放，否则图片或音频可能还没加载完。</p>
+
+<h3 id="tts-fields">语音参数</h3>
+<p>试用音色只支持 <code>speaker、emotion、speed、signal、onProgress</code>。鉴权音色支持下面全部选项；能否使用某个情绪、语言或格式，还取决于选用的音色和模型。</p>
+<table><thead><tr><th>options 字段</th><th>类型与含义</th></tr></thead><tbody>
+<tr><td><code>speaker</code></td><td>字符串，音色 ID 或保存的音色名称；省略时使用当前默认音色。</td></tr>
+<tr><td><code>resourceId</code></td><td>字符串，火山引擎资源 ID。通常不需要填，会按音色选择。</td></tr>
+<tr><td><code>model</code></td><td>字符串，语音模型名称；不填时按当前音色和“使用 TTS 1.1”设置选择。</td></tr>
+<tr><td><code>uid</code></td><td>字符串，发送给语音服务的用户标识；默认 <code>'st_user'</code>，不是 API 密钥。</td></tr>
+<tr><td><code>format</code></td><td><code>'mp3' | 'wav' | 'pcm' | 'ogg_opus' | 'opus'</code>，默认 mp3。想用 audio 播放器直接播放，优先用 mp3 或 wav；pcm 是原始音频数据，需要自己解码。</td></tr>
+<tr><td><code>sampleRate</code></td><td>数字，采样率（Hz），默认 24000。</td></tr>
+<tr><td><code>speed / speechRate</code></td><td>语速，两者选一个：speed 为 0.5～2 倍速；speechRate 使用鉴权服务的语速值，0 为正常语速。不填时使用面板语速。</td></tr>
+<tr><td><code>loudnessRate</code></td><td>数字，音量调整，默认 0。</td></tr>
+<tr><td><code>emotion / emotionScale</code></td><td>情绪名称（字符串）／情绪强度（数字）。emotionScale 配合 emotion 使用。</td></tr>
+<tr><td><code>contextTexts</code></td><td>字符串数组，为本次朗读提供上下文。</td></tr>
+<tr><td><code>language / explicitLanguage</code></td><td>字符串，指定朗读语言。两者含义相同，只传一个。</td></tr>
+<tr><td><code>disableMarkdownFilter</code></td><td>布尔值，是否关闭 Markdown 过滤。</td></tr>
+<tr><td><code>disableEmojiFilter</code></td><td>布尔值，是否关闭表情符号过滤。</td></tr>
+<tr><td><code>enableLanguageDetector</code></td><td>布尔值，是否开启语言检测。</td></tr>
+<tr><td><code>maxLengthToFilterParenthesis</code></td><td>数字，过滤括号内文字的长度阈值。</td></tr>
+<tr><td><code>postProcessPitch</code></td><td>数字，音高调整。</td></tr>
+<tr><td><code>cacheConfig</code></td><td>对象，语音服务的缓存选项：<code>{ text_type?: number, use_cache?: boolean }</code>。不填时跟随面板中的服务端缓存设置。</td></tr>
+<tr><td><code>signal</code></td><td><code>AbortSignal</code>，用于取消，见上面的完整示例。</td></tr>
+<tr><td><code>onProgress</code></td><td>函数，接收 <code>{ state, receivedBytes? }</code>。state：generating 合成中、receiving 接收音频、cached 使用已缓存音频、complete 完成。receivedBytes 是已收到的音频字节数。</td></tr>
+</tbody></table>
+<p>情绪强度、语言、文本过滤和音高选项不填时，沿用语音面板的配置。传入 <code>false</code> 或 <code>0</code> 时会使用你传入的值，不会被已保存设置替换。</p>
+</section>
+
+<section id="errors"><h2>错误处理</h2>
+<p>调用失败会进入 <code>catch</code>。<code>error.message</code> 可用于显示提示；如果要按错误类型做不同处理，用 <code>error.code</code>。有问题的字段可能出现在 <code>error.field</code> 中。</p>
+<table><thead><tr><th>error.code</th><th>含义与处理</th></tr></thead><tbody>
+<tr><td><code>disabled</code></td><td>功能未开启。检查小白X总开关和对应的画图／语音开关。</td></tr>
+<tr><td><code>not_configured</code></td><td>缺少服务配置。到对应面板补齐 API、模型或工作流等设置。</td></tr>
+<tr><td><code>invalid_request</code></td><td>参数值或类型不正确。按字段表检查，数字不要写成字符串。</td></tr>
+<tr><td><code>unsupported_field</code></td><td>当前服务、模型或工作流不支持这个字段。去掉该字段或选择支持它的服务。</td></tr>
+<tr><td><code>preset_not_found</code></td><td>预设 ID 不存在。重新查询 getPresets，或省略 ID 使用当前选择。</td></tr>
+<tr><td><code>invalid_result / provider_error</code></td><td>没有取得可用结果，或服务／网络出错。先检查服务端结果，避免重复生成、重复计费。</td></tr>
+<tr><td><code>partial_result</code></td><td>只取得了部分图片。已取得的图片放在 <code>error.partialResult.images</code> 中，可以继续展示，不必整批重画。</td></tr>
+<tr><td><code>aborted</code></td><td>调用已取消。若带有 partialResult，也可以保留其中的图片。</td></tr>
+</tbody></table>
+<p>取消方法是 <code>controller.abort()</code>，两份完整示例都已接好取消按钮。取消不一定能阻止服务端继续生成，也不代表退费。接口不会因网络错误自动重新提交生成请求。</p>
+</section>
+<p>需要编辑器补全时，可使用类型声明：<a href="../modules/draw/shared/public-api.d.ts">画图</a> · <a href="../modules/tts/tts-external.d.ts">语音</a>。</p>
+</body>
+</html>

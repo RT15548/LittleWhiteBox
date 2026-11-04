@@ -80,9 +80,10 @@ class AsyncImageJobManager {
         this.closed = false;
     }
 
-    createJob({ owner, provider, requestId, context, delay, items }) {
+    createJob({ owner, provider, requestId, context, delay, items, execution = null }) {
         if (this.closed) throw new Error('Image job manager is closed');
-        if (!this.adapters[provider]) throw createManagerError('Unknown image job provider', 'invalid_provider', 400);
+        const adapter = execution?.api.adapters[provider] || this.adapters[provider];
+        if (!adapter) throw createManagerError('Unknown image job provider', 'invalid_provider', 400);
         if (typeof requestId !== 'string' || requestId.length === 0) {
             throw createManagerError('requestId is required', 'invalid_request', 400);
         }
@@ -108,6 +109,8 @@ class AsyncImageJobManager {
         const timestamp = this.now();
         const job = {
             id: requestId,
+            execution,
+            adapter,
             storageKey,
             owner,
             provider,
@@ -133,6 +136,7 @@ class AsyncImageJobManager {
             })),
         };
         this.cancellations?.reserve(owner, { jobIds: [requestId] });
+        execution?.retain?.();
         this.jobs.set(storageKey, job);
         this.storedInputBytes += inputBytes;
         this.#enqueueJob(job);
@@ -146,6 +150,10 @@ class AsyncImageJobManager {
         return this.#ownerJobs(owner)
             .sort((left, right) => left.createdAt - right.createdAt || (left.id < right.id ? -1 : 1))
             .map(job => this.#snapshot(job));
+    }
+
+    runtimeFor(owner, jobId) {
+        return this.#ownedJob(owner, jobId)?.execution || null;
     }
 
     getJob(owner, jobId) {
@@ -226,6 +234,7 @@ class AsyncImageJobManager {
             scheduler.active?.controller.abort();
         }
         for (const job of this.jobs.values()) {
+            job.execution?.release?.();
             this.cancellations?.release(job.owner, 'job', job.id);
             if (job.expiryTimer) clearTimeout(job.expiryTimer);
             this.#discardSecrets(job, true);
@@ -314,10 +323,13 @@ class AsyncImageJobManager {
         item.state = 'running';
 
         try {
-            const result = await this.adapters[job.provider].execute(execution);
-            if (job.cancelRequested) {
+            const result = await job.adapter.execute(execution);
+            // Only the opt-in collection API retains already downloaded results after cancellation.
+            // Released single-image callers keep their original cancellation contract.
+            const retainCollection = item.request?.resultMode === 'all' && Buffer.isBuffer(result?.buffer) && result.buffer.length > 0;
+            if (job.cancelRequested && !retainCollection) {
                 item.state = 'cancelled';
-            } else if (timedOut) {
+            } else if (timedOut && !retainCollection) {
                 item.state = 'failed';
                 item.error = { code: 'timeout', message: 'Image request timed out' };
             } else if (!result || !Buffer.isBuffer(result.buffer) || !String(result.mime || '')) {
@@ -430,6 +442,8 @@ class AsyncImageJobManager {
     }
 
     #deleteStoredJob(job) {
+        if (!this.jobs.has(job.storageKey)) return;
+        job.execution?.release?.();
         if (job.expiryTimer) clearTimeout(job.expiryTimer);
         for (const item of job.items) this.#releaseResult(item);
         this.#releaseInput(job);

@@ -5,6 +5,7 @@
 
 import { buildRAggregateText } from './state-vector-input.js';
 import { isL0FloorDeferred } from './l0-eligibility.js';
+import { isUserHidden } from '../../data/message-visibility.js';
 import { inputDigest } from '../utils/vector-input-digest.js';
 import { getContext } from '../../../../../../../extensions.js';
 import { xbLog } from '../../../../core/debug-core.js';
@@ -17,12 +18,9 @@ import {
 import { L0_FLOOR_MAX_ATTEMPTS, summarizeL0Floors } from './l0-floor-status.js';
 import { trackVectorActivity } from '../runtime/vector-activity.js';
 import { createAnchorExtractionDraft } from '../../data/anchor-extraction.js';
-import { assertMemoryWritable, waitForMemoryCommit, retireSummaryMemorySources } from '../../data/memory-commit.js';
-import { getChatIdentity } from '../../data/chat-identity.js';
-import { runVectorWriteTask, VECTOR_WRITE_SCOPES } from '../runtime/maintenance-coordinator.js';
+import { assertMemoryWritable, waitForMemoryCommit } from '../../data/memory-commit.js';
 import { sameMemory } from '../../maintenance/domain.js';
-import { invalidateSummaryAnchors, getSummaryStore, rollbackSummaryIfNeeded } from '../../data/store.js';
-import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
+import { invalidateSummaryAnchors, getSummaryStore } from '../../data/store.js';
 import { embed } from '../llm/siliconflow.js';
 import { extractAtomsForRound } from '../llm/atom-extraction.js';
 import { getL0FailureDetails } from '../llm/l0-retry-policy.js';
@@ -56,7 +54,6 @@ let initialized = false;
 export function initStateIntegration() {
     if (initialized) return;
     initialized = true;
-    globalThis.LWB_StateRollbackHook = handleStateRollback;
     xbLog.info(MODULE_ID, 'L0 状态层集成已初始化');
 }
 
@@ -78,10 +75,10 @@ function buildL0InputText(userMessage, aiMessage) {
     const userName = userMessage?.name || '用户';
     const aiName = aiMessage?.name || '角色';
 
-    if (userMessage?.mes?.trim()) {
+    if (!isUserHidden(userMessage) && userMessage?.mes?.trim()) {
         parts.push(`【用户：${userName}】\n${filterText(userMessage.mes).trim()}`);
     }
-    if (aiMessage?.mes?.trim()) {
+    if (!isUserHidden(aiMessage) && aiMessage?.mes?.trim()) {
         parts.push(`【角色：${aiName}】\n${filterText(aiMessage.mes).trim()}`);
     }
 
@@ -145,7 +142,7 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options, d
 
     const tryQueueFloor = (i) => {
         const msg = chat[i];
-        if (!msg || msg.is_user || queuedFloors.has(i) || isL0FloorDeferred(chat, i)) return;
+        if (!msg || msg.is_user || isUserHidden(msg) || queuedFloors.has(i) || isL0FloorDeferred(chat, i)) return;
 
         const st = getL0FloorStatus(i);
         // ★ 只跳过 ok 和 empty，fail 的可以重试
@@ -214,6 +211,7 @@ async function incrementalExtractAtomsInner(chatId, chat, onProgress, options, d
     // ★ 通用处理单个 pair 的逻辑（复用于正常模式和降速模式）
     const processPair = async (pair, idx, workerId) => {
         const floor = pair.aiFloor;
+        if (isUserHidden(pair.aiMsg)) return;
         const prev = getL0FloorStatus(floor);
 
         activeFloors.add(floor);
@@ -567,16 +565,4 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
 export async function clearAllAtomsAndVectors(chatId) {
     await invalidateSummaryAnchors(chatId, 0, 'anchors_cleared');
     xbLog.info(MODULE_ID, '已清空所有记忆锚点');
-}
-
-function handleStateRollback(floor) {
-    const context = getContext(), owner = getSummaryStore(), identity = getChatIdentity(context);
-    retireSummaryMemorySources(context.chatId, { fromFloor: floor });
-    // Retire before returning to the host; only cache IO joins the existing writer.
-    observeBackgroundTask(runVectorWriteTask({ chatId: context.chatId, kind: 'variable-source-sync', scope: VECTOR_WRITE_SCOPES.CONSISTENCY }, () => {
-        if (getChatIdentity(getContext()) !== identity || getSummaryStore() !== owner) return { status: 'stale' };
-        return rollbackSummaryIfNeeded({ invalidateFromFloor: floor });
-    }), {
-        source: import.meta.url, operation: 'handleStateRollback',
-    });
 }

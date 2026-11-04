@@ -23,6 +23,11 @@ function fixture(t, registryOptions = {}) {
     const runs = createDrawRunManager({
         cancellations: registry,
         runtime: {
+            createProgressDiagnostic: require('../../../modules/draw/server/draw-runs/projection.js').createProgressDiagnostic,
+            createDrawRunHandoff(id, provider, sourceHash, compiled) {
+                return { childJobId: `child-${id}`, provider, sourceHash, placementContract: 1,
+                    items: compiled.items.map((_, index) => ({ index, slotId: `slot-${id}`, imgId: `img-${id}`, insertOffset: 1, displayMetadata: {} })) };
+            },
             async executePreparedScenePlanner() { await new Promise(resolve => { plannerRelease = resolve; }); return []; },
             compileDrawRunImages() { return { provider: 'fixture', context: {}, delay: { min: 0, max: 0 },
                 items: [{ kind: 'image', request: { name: 'child' }, timeout: 60_000 }],

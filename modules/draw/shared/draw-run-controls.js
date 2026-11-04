@@ -6,12 +6,14 @@ import { createImageBackendJobsClient } from './backend-image-jobs.js';
 import { cancelDrawWork, captureDrawCancellationJobs, holdDrawCancellation, settleDrawRunCancellations } from './draw-work-cancellation.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
 import { createConfirmableChatTarget } from './confirmable-chat-save.js';
+import { getImageChatIdentity } from './chat-image-persistence.js';
 import {
     listActiveSwipeDrawRunMarkers,
     listDrawRunMarkers,
 } from './draw-run-markers.js';
 import {
     listPendingImageJobs,
+    isPendingDrawRunSubmission,
     PendingJobState,
 } from './pending-image-jobs.js';
 import { isSceneSlotAlive } from './scene-placement.js';
@@ -23,7 +25,7 @@ let pendingStateReadVersion = 0;
 export function captureDrawCancellationTarget(messageId, ctx = getContext()) {
     const normalizedId = messageId === null || messageId === undefined ? -1 : Number(messageId);
     const message = ctx?.chat?.[normalizedId];
-    return { ctx, message, owner: getCurrentUserHandle(), messageId: normalizedId, chatId: String(ctx?.chatId || ''),
+    return { ctx, message, owner: getCurrentUserHandle(), imageOwner: getImageChatIdentity(ctx), messageId: normalizedId, chatId: String(ctx?.chatId || ''),
         swipeIndex: message?.swipe_id ?? 0, text: String(message?.mes ?? ''),
         entries: message ? listActiveSwipeDrawRunMarkers(message) : [] };
 }
@@ -42,7 +44,7 @@ function getPendingDrawRuns(messageId, ctx = getContext()) {
     return listActiveSwipeDrawRunMarkers(message);
 }
 
-function findPendingChildDrawRuns(messageId, records, ctx = getContext()) {
+function findPendingChildDrawRuns(messageId, records, ctx = getContext(), owner = getImageChatIdentity(ctx)) {
     const normalizedMessageId = Number(messageId);
     if (!Number.isSafeInteger(normalizedMessageId) || normalizedMessageId < 0) return [];
     const chatId = String(ctx?.chatId || '');
@@ -53,6 +55,9 @@ function findPendingChildDrawRuns(messageId, records, ctx = getContext()) {
     return (Array.isArray(records) ? records : []).filter(record => {
         if (!record || ![PendingJobState.PREPARING, PendingJobState.ADOPTING, PendingJobState.ACTIVE, PendingJobState.CANCELLING]
                 .includes(record.state)) return false;
+        if (record.submission && record.submission.owner !== owner) return false;
+        if (isPendingDrawRunSubmission(record, { owner, messageId, messageDate: message.send_date ?? null,
+            swipeIndex: activeSwipeIndex })) return true;
         if (String(record.chatTarget?.chatId || record.delivery?.chatId || '') !== chatId) return false;
         const recordSwipeIndex = Number(record.delivery?.mode === 'slots'
             ? record.delivery?.swipeIndex
@@ -155,7 +160,7 @@ export function cancelFloorDrawWork(messageId, {
     const operation = holdDrawCancellation(capturedJobs.map(job => job.backendCancel.signal), async () => {
         const records = await recordsPromise;
         const children = findPendingChildDrawRuns(target.messageId, records, { chatId: target.chatId,
-            chat: { [target.messageId]: { mes: target.text, swipe_id: target.swipeIndex } } });
+            chat: { [target.messageId]: { mes: target.text, send_date: target.message?.send_date, swipe_id: target.swipeIndex } } }, target.imageOwner);
         const targets = {
             owner: target.owner,
             jobIds: [...new Set([...liveJobIds, ...children.map(record => record.jobId)])],

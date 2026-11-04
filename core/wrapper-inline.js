@@ -188,6 +188,7 @@ export function getWrapperScript() {
         function post(m){try{parent.postMessage(m,parentOrigin)}catch (e) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }}
         if(!options||typeof options!=='object'){reject(new Error('Invalid options'));return}
         var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
+        function hostError(x){var err=new Error(x.message);err.code=x.code;err.details=x.details;return err}
         function onMessage(e){
           if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
           var d=e&&e.data||{};
@@ -195,9 +196,9 @@ export function getWrapperScript() {
           if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
           else if(d.type==='generateStreamChunk'&&options.streaming&&options.streaming.onChunk){try{options.streaming.onChunk(d.chunk,d.accumulated)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }}
           else if(d.type==='generateStreamComplete'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }resolve(d.result)}
-          else if(d.type==='generateStreamError'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }reject(new Error(d.error||'Stream failed'))}
+          else if(d.type==='generateStreamError'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }reject(hostError(d.error))}
           else if(d.type==='generateResult'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }resolve(d.result)}
-          else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }reject(new Error(d.error||'Generation failed'))}
+          else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch (_) { console.warn('[LittleWhiteBox core/wrapper-inline.js]', _); }reject(hostError(d.error))}
         }
         try{window.addEventListener('message',onMessage)}catch(e){ console.warn('[LittleWhiteBox core/wrapper-inline.js]', e); }
         var sanitized=sanitizeOptions(options);

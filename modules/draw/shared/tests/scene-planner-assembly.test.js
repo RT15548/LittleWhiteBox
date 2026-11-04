@@ -1,232 +1,110 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
 import { TOOL_PROTOCOL_MARKER as M } from '../../../agent-core/adapters/tool-protocol-marker.js';
 import { planScenePlannerMessages } from '../scene-planner-assembly.js';
-import {
-    addBlock,
-    createCustomBlock,
-    createDefaultLayout,
-    reorderBlocks,
-} from '../scene-planner-layout.js';
-const BASE_TEXTS = {
-    opening: 'OPEN',
-    frame: 'FRAME',
-    guide: 'GUIDE',
-    rules: 'RULES',
-    worldInfo: 'WORLD',
-    content: 'CONTENT',
-    limits: 'LIMITS',
-};
+import { addBlock, createCustomBlock, createDefaultLayout, reorderBlocks } from '../scene-planner-layout.js';
 
-// 注入确定性 random，保证自定义块 id 互不相同。
-let idCounter = 0;
-function custom(role, content, { enabled } = {}) {
-    return createCustomBlock({ role, content, name: 'x', enabled }, [], () => (idCounter += 1) / 36 ** 6);
-}
+const TEXTS = { opening: 'OPEN', frame: 'FRAME', guide: 'GUIDE', rules: 'RULES', worldInfo: 'WORLD', content: 'CONTENT', limits: 'LIMITS' };
+const ORDER = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits'];
+let sequence = 0;
+const custom = (role, content, enabled = true) => createCustomBlock({ role, content, enabled }, [], () => ++sequence / 36 ** 6);
+const plan = (layout, builtinTexts = TEXTS) => planScenePlannerMessages({ layout, builtinTexts }).templates;
+const results = templates => templates.filter(item => item.role === 'tool');
 
-function withCustom(layout, block, index) {
-    return addBlock(layout, block, index);
-}
-
-function plan(layout, texts = BASE_TEXTS) {
-    return planScenePlannerMessages({ layout, builtinTexts: texts });
-}
-
-function simplify(result) {
-    return result.templates.map((item) => [item.role, item.template]);
-}
-
-test('default layout is legacy: [system, user], tools marker stripped, blocks joined by blank lines', () => {
-    const result = plan(createDefaultLayout());
-    assert.equal(result.legacy, true);
-    assert.deepEqual(simplify(result), [
-        ['system', 'OPEN\n\nFRAME\n\nGUIDE\n\nRULES'],
-        ['user', 'WORLD\n\nCONTENT\n\nLIMITS'],
-    ]);
-    // blockIds 仍记录 tools 块，便于调用方定位。
-    assert.deepEqual(result.templates[0].blockIds, ['opening', 'frame', 'guide', 'rules', 'tools']);
-    assert.deepEqual(result.templates[1].blockIds, ['worldInfo', 'content', 'limits']);
+// The external message protocol, not the prose wording, is the contract under test.
+test('default request reads materials, reads requirements, then receives approval in three paired exchanges', () => {
+    const templates = plan();
+    assert.deepEqual(templates.map(item => item.role), ['system', 'user', 'assistant', 'tool', 'assistant', 'tool', 'assistant', 'tool']);
+    const calls = templates.flatMap(item => item.tool_calls || []);
+    assert.deepEqual(calls.map(call => call.function.name), ['read_scene_materials', 'read_drawing_guide', 'request_draw_approval']);
+    assert.deepEqual(calls.map(call => call.id), results(templates).map(item => item.tool_call_id));
+    assert.equal(new Set(calls.map(call => call.id)).size, 3);
+    calls.forEach(call => assert.deepEqual(JSON.parse(call.function.arguments), {}));
+    assert.equal(templates[0].template, `OPEN\n\nFRAME\n\n${M}`);
+    assert.equal(results(templates)[0].template, 'WORLD\n\nCONTENT');
+    assert.equal(results(templates)[1].template, 'GUIDE\n\nRULES\n\nLIMITS');
+    assert.equal(results(templates)[2].approved, true);
 });
 
-test('absent / invalid layouts behave as the default layout', () => {
+test('absent, invalid and explicit default layouts use one assembly path', () => {
     const expected = plan(createDefaultLayout());
-    for (const raw of [undefined, null, 'oops', 7, {}, { blocks: 'x' }, []]) {
-        assert.deepEqual(plan(raw), expected);
-    }
-    // 缺内置块的布局会被自愈补回，仍是默认请求。
-    assert.deepEqual(plan({ version: 1, blocks: [{ id: 'content' }] }).templates.map((item) => item.role), ['system', 'user']);
-});
-
-test('missing builtinTexts is tolerated and yields an empty legacy request', () => {
-    for (const input of [undefined, {}, { layout: undefined }, { builtinTexts: null }]) {
-        const result = planScenePlannerMessages(input);
-        assert.equal(result.legacy, true);
-        assert.deepEqual(simplify(result), [['system', ''], ['user', '']]);
+    for (const value of [undefined, null, 'oops', 7, {}, [], { blocks: 'x' }, { version: 1, blocks: [{ id: 'content' }] }]) {
+        assert.deepEqual(plan(value), expected);
     }
 });
 
-test('empty built-in blocks are omitted entirely', () => {
-    const result = plan(createDefaultLayout(), { ...BASE_TEXTS, opening: '  \n ', guide: '', rules: '\t', worldInfo: '' });
-    assert.deepEqual(simplify(result), [['system', 'FRAME'], ['user', 'CONTENT\n\nLIMITS']]);
-    assert.deepEqual(result.templates[0].blockIds, ['frame', 'tools']);
-    assert.deepEqual(result.templates[1].blockIds, ['content', 'limits']);
+test('empty document sections disappear without dropping the completed read exchange', () => {
+    const templates = plan(undefined, { ...TEXTS, opening: ' ', guide: '', rules: '\t', worldInfo: '', limits: '' });
+    assert.equal(templates[0].template, `FRAME\n\n${M}`);
+    assert.equal(results(templates)[0].template, 'CONTENT');
+    assert.equal(results(templates)[1].template, '');
+    assert.equal(results(templates).length, 3);
 });
 
-test('block texts are trimmed before joining', () => {
-    const result = plan(createDefaultLayout(), { ...BASE_TEXTS, opening: '\n\n OPEN \n\n', limits: ' LIMITS\n' });
-    assert.deepEqual(simplify(result), [
-        ['system', 'OPEN\n\nFRAME\n\nGUIDE\n\nRULES'],
-        ['user', 'WORLD\n\nCONTENT\n\nLIMITS'],
-    ]);
+test('legacy document order cannot rearrange the fixed readings', () => {
+    const layout = reorderBlocks(createDefaultLayout(), ['opening', 'frame', 'limits', 'rules', 'guide', 'tools', 'content', 'worldInfo']);
+    const templates = plan(layout);
+    assert.equal(results(templates)[0].template, 'WORLD\n\nCONTENT');
+    assert.equal(results(templates)[1].template, 'GUIDE\n\nRULES\n\nLIMITS');
 });
 
-test('empty custom blocks do not split neighbouring same-role blocks', () => {
+test('custom blocks retain their roles and relative order outside atomic tool pairs', () => {
+    const extra = [custom('system', 'EXTRA-S'), custom('user', 'EXTRA-U'), custom('assistant', 'EXTRA-A')];
     let layout = createDefaultLayout();
-    // opening 与 frame 之间插一条空的 user 自定义块：若不省略，会把 system 劈成两条。
-    layout = withCustom(layout, custom('user', '   '), 1);
-    layout = withCustom(layout, custom('assistant', ''), 3);
-    const result = plan(layout);
-    assert.equal(result.legacy, true);
-    assert.deepEqual(simplify(result), [
-        ['system', 'OPEN\n\nFRAME\n\nGUIDE\n\nRULES'],
-        ['user', 'WORLD\n\nCONTENT\n\nLIMITS'],
-    ]);
+    layout = addBlock(layout, extra[0], 1);
+    layout = addBlock(layout, extra[1], 7);
+    layout = addBlock(layout, extra[2], 99);
+    const templates = plan(layout);
+    const customIds = new Set(extra.map(block => block.id));
+    assert.deepEqual(templates.flatMap(item => item.blockIds.filter(id => customIds.has(id)).map(id => ({ id, role: item.role }))),
+        extra.map(block => ({ id: block.id, role: block.role })));
+    for (const item of results(templates)) assert.equal(item.blockIds.some(id => customIds.has(id)), false);
+    templates.forEach((item, index) => {
+        if (item.tool_calls) assert.equal(templates[index + 1].tool_call_id, item.tool_calls[0].id);
+    });
+    assert.equal(templates.at(-1).approved, true);
 });
 
-test('disabled custom blocks are skipped and do not split merges', () => {
-    let layout = createDefaultLayout();
-    layout = withCustom(layout, custom('assistant', 'GHOST', { enabled: false }), 2);
-    layout = withCustom(layout, custom('system', 'GHOST2', { enabled: false }), 6);
-    const result = plan(layout);
-    assert.equal(result.legacy, true);
-    assert.equal(JSON.stringify(result).includes('GHOST'), false);
-    assert.deepEqual(simplify(result), simplify(plan(createDefaultLayout())));
+test('empty and disabled custom messages do not alter the request', () => {
+    let layout = addBlock(createDefaultLayout(), custom('assistant', 'DISABLED', false), 2);
+    layout = addBlock(layout, custom('user', ' '), 1);
+    assert.deepEqual(plan(layout), plan());
 });
 
-test('custom block present but the result is still [system, user]: legacy, equal to plain concatenation', () => {
-    let layout = createDefaultLayout();
-    layout = withCustom(layout, custom('system', 'EXTRA-SYS'), 1);
-    layout = withCustom(layout, custom('user', 'EXTRA-USER'), 7);
-    const result = plan(layout);
-    assert.equal(result.legacy, true);
-    assert.deepEqual(simplify(result), [
-        ['system', 'OPEN\n\nEXTRA-SYS\n\nFRAME\n\nGUIDE\n\nRULES'],
-        ['user', 'WORLD\n\nEXTRA-USER\n\nCONTENT\n\nLIMITS'],
-    ]);
+test('adjacent custom messages still merge by role, while the action checklist stays separate', () => {
+    let layout = addBlock(createDefaultLayout(), custom('assistant', 'A1'), 99);
+    layout = addBlock(layout, custom('assistant', 'A2'), 99);
+    const templates = plan(layout);
+    assert.equal(templates.find(item => item.template === 'A1\n\nA2').role, 'assistant');
+    assert.equal(templates.filter(item => item.role === 'user').length, 1);
 });
 
-test('reordering inside the user group keeps legacy and follows the new order', () => {
-    const layout = reorderBlocks(createDefaultLayout(), ['opening', 'frame', 'guide', 'rules', 'tools', 'limits', 'content', 'worldInfo']);
-    const result = plan(layout);
-    assert.equal(result.legacy, true);
-    assert.deepEqual(simplify(result)[1], ['user', 'LIMITS\n\nCONTENT\n\nWORLD']);
+for (const order of [
+    ['tools', ...ORDER.filter(id => id !== 'tools')],
+    ['opening', 'frame', 'guide', 'rules', 'worldInfo', 'tools', 'content', 'limits'],
+    [...ORDER.filter(id => id !== 'tools'), 'tools'],
+]) {
+    test(`legacy tool placement is normalized to the opening: ${order.indexOf('tools')}`, () => {
+        const templates = plan(reorderBlocks(createDefaultLayout(), order));
+        const directIds = templates.filter(item => item.role !== 'tool').flatMap(item => item.blockIds);
+        assert.deepEqual(directIds, ['opening', 'frame', 'tools']);
+        const holders = templates.filter(item => item.template.includes(M));
+        assert.equal(holders.length, 1);
+        assert.equal(holders[0].role, 'system');
+    });
+}
+
+test('protocol markers in document and custom text cannot create a second protocol position', () => {
+    const layout = addBlock(createDefaultLayout(), custom('user', `BEFORE${M}AFTER`), 99);
+    const templates = plan(layout, { ...TEXTS, opening: `O${M}P`, content: `C${M}ONTENT` });
+    assert.equal(templates.map(item => item.template).join('').split(M).length - 1, 1);
+    assert.equal(results(templates)[0].template, 'WORLD\n\nCONTENT');
+    assert.equal(templates.find(item => item.template === 'BEFOREAFTER').role, 'user');
 });
 
-test('tools block moved to the front of the system group: not legacy, marker leads the system message', () => {
-    const layout = reorderBlocks(createDefaultLayout(), ['tools', 'opening', 'frame', 'guide', 'rules', 'worldInfo', 'content', 'limits']);
-    const result = plan(layout);
-    assert.equal(result.legacy, false);
-    assert.deepEqual(simplify(result), [
-        ['system', `${M}\n\nOPEN\n\nFRAME\n\nGUIDE\n\nRULES`],
-        ['user', 'WORLD\n\nCONTENT\n\nLIMITS'],
-    ]);
-});
-
-test('tools block alone between user messages becomes its own system message', () => {
-    const layout = reorderBlocks(createDefaultLayout(), ['opening', 'frame', 'guide', 'rules', 'worldInfo', 'tools', 'content', 'limits']);
-    const result = plan(layout);
-    assert.equal(result.legacy, false);
-    assert.deepEqual(simplify(result), [
-        ['system', 'OPEN\n\nFRAME\n\nGUIDE\n\nRULES'],
-        ['user', 'WORLD'],
-        ['system', M],
-        ['user', 'CONTENT\n\nLIMITS'],
-    ]);
-});
-
-test('a system block after the tools block pushes the marker off the end: not legacy', () => {
-    const layout = withCustom(createDefaultLayout(), custom('system', 'AFTER-TOOLS'), 5);
-    const result = plan(layout);
-    assert.equal(result.legacy, false);
-    assert.deepEqual(simplify(result)[0], ['system', `OPEN\n\nFRAME\n\nGUIDE\n\nRULES\n\n${M}\n\nAFTER-TOOLS`]);
-});
-
-test('a custom assistant tail message makes the request non-legacy and ends the list', () => {
-    const layout = withCustom(createDefaultLayout(), custom('assistant', 'PREFILL'), 8);
-    const result = plan(layout);
-    assert.equal(result.legacy, false);
-    assert.deepEqual(result.templates.map((item) => item.role), ['system', 'user', 'assistant']);
-    assert.deepEqual(result.templates.at(-1), { role: 'assistant', template: 'PREFILL', blockIds: [layout.blocks[8].id] });
-    // 非 legacy 时 system 末尾的标记原样保留，由适配器决定如何处理。
-    assert.equal(result.templates[0].template.endsWith(`\n\n${M}`), true);
-});
-
-test('tools block placed after the user group yields a trailing system message', () => {
-    const layout = reorderBlocks(createDefaultLayout(), ['opening', 'frame', 'guide', 'rules', 'worldInfo', 'content', 'limits', 'tools']);
-    const result = plan(layout);
-    assert.equal(result.legacy, false);
-    assert.deepEqual(result.templates.map((item) => item.role), ['system', 'user', 'system']);
-    assert.equal(result.templates[2].template, M);
-});
-
-test('tool protocol marker is removed from custom and built-in text; only the tools block yields it', () => {
-    let layout = createDefaultLayout();
-    layout = withCustom(layout, custom('system', `前${M}后`), 0);
-    layout = withCustom(layout, custom('user', M), 7);
-    layout = withCustom(layout, custom('system', `${M}\n\n${M}`), 4);
-    const result = plan(layout, { ...BASE_TEXTS, opening: `O${M}P`, content: `${M}CONTENT` });
-    const joined = result.templates.map((item) => item.template).join('\n---\n');
-    // 只剩 tools 块那一个标记，且 legacy 时被剥掉。
-    assert.equal(result.legacy, true);
-    assert.equal(joined.includes(M), false);
-    assert.deepEqual(simplify(result), [
-        ['system', '前后\n\nOP\n\nFRAME\n\nGUIDE\n\nRULES'],
-        ['user', 'WORLD\n\nCONTENT\n\nLIMITS'],
-    ]);
-
-    // 非 legacy 时恰好剩 tools 块的一个标记。
-    const nonLegacy = plan(withCustom(layout, custom('assistant', `x${M}y`), 11), BASE_TEXTS);
-    const count = nonLegacy.templates.map((item) => item.template).join('\n').split(M).length - 1;
-    assert.equal(nonLegacy.legacy, false);
-    assert.equal(count, 1);
-    assert.equal(nonLegacy.templates.at(-1).template, 'xy');
-});
-
-test('a marker in the user template can never survive (stripped before legacy detection)', () => {
-    const result = plan(createDefaultLayout(), { ...BASE_TEXTS, worldInfo: `W${M}` });
-    assert.equal(result.legacy, true);
-    assert.equal(result.templates[1].template.includes(M), false);
-});
-
-test('request without any user text keeps an empty user entry (same as before for the default layout)', () => {
-    const result = plan(createDefaultLayout(), { opening: 'O', frame: 'F' });
-    assert.equal(result.legacy, true);
-    assert.deepEqual(simplify(result), [['system', 'O\n\nF'], ['user', '']]);
-
-    // 非 legacy：也补一条空 user 在末尾，由调用方在展开后丢弃。
-    const nonLegacy = plan(withCustom(createDefaultLayout(), custom('assistant', 'A'), 8), { opening: 'O', frame: 'F' });
-    assert.equal(nonLegacy.legacy, false);
-    assert.deepEqual(nonLegacy.templates.map((item) => item.role), ['system', 'assistant', 'user']);
-});
-
-test('consecutive same-role custom blocks merge across the whole list', () => {
-    let layout = createDefaultLayout();
-    layout = withCustom(layout, custom('assistant', 'A1'), 8);
-    layout = withCustom(layout, custom('assistant', 'A2'), 9);
-    layout = withCustom(layout, custom('user', 'U-LAST'), 10);
-    const result = plan(layout);
-    assert.deepEqual(simplify(result), [
-        ['system', 'OPEN\n\nFRAME\n\nGUIDE\n\nRULES\n\n' + M],
-        ['user', 'WORLD\n\nCONTENT\n\nLIMITS'],
-        ['assistant', 'A1\n\nA2'],
-        ['user', 'U-LAST'],
-    ]);
-});
-
-test('planning does not mutate its input layout', () => {
-    const layout = withCustom(createDefaultLayout(), custom('assistant', 'A'), 8);
-    const snapshot = structuredClone(layout);
+test('assembly does not mutate layout or source texts', () => {
+    const layout = addBlock(createDefaultLayout(), custom('assistant', 'A'), 99);
+    const before = structuredClone({ layout, texts: TEXTS });
     plan(layout);
-    assert.deepEqual(layout, snapshot);
+    assert.deepEqual({ layout, texts: TEXTS }, before);
 });

@@ -127,7 +127,7 @@ export function createSerialImageRequestQueue({
                 error = caught;
             }
 
-            const cooldown = started ? normalizeCooldown(getCooldownMs()) : 0;
+            const cooldown = started ? normalizeCooldown(item.cooldownMs ?? getCooldownMs()) : 0;
             if (cooldown > 0) {
                 item.phase = 'cooldown';
                 item.cooldownUntil = now() + cooldown;
@@ -155,7 +155,7 @@ export function createSerialImageRequestQueue({
         })(), { source: import.meta.url, operation: "pump" });
     }
 
-    function enqueue(run, { signal, batchKey, onQueued, onStart, onCooldown } = {}) {
+    function enqueue(run, { signal, batchKey, scope = 'default', cooldownMs, onQueued, onStart, onCooldown } = {}) {
         return new Promise((resolve, reject) => {
             if (signal?.aborted) {
                 reject(createAbortError());
@@ -167,6 +167,8 @@ export function createSerialImageRequestQueue({
                 run,
                 signal,
                 batchKey,
+                scope,
+                cooldownMs,
                 onQueued,
                 onStart,
                 onCooldown,
@@ -197,8 +199,9 @@ export function createSerialImageRequestQueue({
         });
     }
 
-    function clear() {
-        const queued = pending.splice(0);
+    function clear({ scope } = {}) {
+        const queued = pending.filter(item => scope === undefined || item.scope === scope);
+        for (const item of queued) pending.splice(pending.indexOf(item), 1);
         queued.forEach((item) => {
             detachAbort(item);
             item.phase = 'cancelled';

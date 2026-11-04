@@ -17,7 +17,7 @@ import {
 } from "../../shared/gallery-cache.js";
 import { getContext } from "../../../../../../../extensions.js";
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
-import { saveBase64AsFile } from "../../../../../../../utils.js";
+import { bindImageSaveControls } from '../../shared/image-save-controls.js';
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
@@ -26,7 +26,7 @@ import { ComfyDrawStorage } from "../../../../core/server-storage.js";
 import { generateAndParseScenePlan, prepareScenePlannerInput } from "../../shared/scene-planner.js";
 import { createSceneSource, normalizeMessageSceneSourceText } from "../../shared/scene-source.js";
 import { stripDrawImageSlots } from "../../shared/image-marker-syntax.js";
-import { assertSceneSourceUnchanged } from "../../shared/scene-placement.js";
+import { bindScenePlanSource } from "../../shared/scene-placement.js";
 import { retryScenePlanning } from "../../shared/planner-retry.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
@@ -48,8 +48,13 @@ import {
     COMFY_REQUEST_DELAY_MS,
     parseComfyApiWorkflowJson,
     resolveComfyDirectOutputImage,
+    resolveComfyDirectOutputImages,
     validateComfyWorkflowNodeMap,
 } from "./compiler.js";
+import { validateDrawInput } from '../../shared/public-api.js';
+import { imageBlob } from '../../shared/image-collection.js';
+import { runPublicImageJob } from '../../shared/public-image-job.js';
+import { MediaApiError } from '../../../../shared/media-api.js';
 import {
     createBackendItemError,
     createImageBackendJobMonitorRegistry,
@@ -62,7 +67,7 @@ import {
     reportImageBackendJobState,
 } from "../../shared/backend-image-jobs.js";
 import { submitRecoverableImageJob } from "../../shared/recoverable-image-jobs.js";
-import { submitProviderDrawRun } from "../../shared/draw-run-production.js";
+import { submitProviderDrawRun } from "../../shared/draw-run-browser.js";
 import { cancelFloorDrawWork, captureDrawCancellationTarget } from "../../shared/draw-run-controls.js";
 import { createCharacterEnabledControl, getCharacterEnabledFromCard } from "../../shared/character-enabled-control.js";
 import { createCharacterLibraryUi } from "../../shared/character-library-ui.js";
@@ -119,6 +124,8 @@ if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
     drawCommonModule.setImageTitleSettingsProvider(() => getSharedDrawSettings());
 }
 import { IMAGE_SAVE_BUTTON_HTML, IMAGE_SAVING_INDICATOR_HTML } from '../../shared/image-save-ui.js';
+import { openImageFolder, saveImageToServer } from '../../shared/image-save.js';
+import { autoSaveDeliveredImage, imageFilePrefix } from '../../shared/image-autosave.js';
 import {
     loadLocalDanbooruDB,
     unloadLocalDanbooruDB,
@@ -917,6 +924,7 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs, gener
             generationConfig: settings,
             preferredSaveImageNodeId: body?.preferredSaveImageNodeId,
             attempt,
+            allResults: settings.publicCollection === true,
         });
         return { ok: true, json: async () => ({ data }) };
     }
@@ -983,7 +991,8 @@ async function fetchComfyDirectBlob(path, query = {}, { signal, timeoutMs, gener
     const settings = generationConfig || getSettings();
     const directSignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
     try {
-        const response = await fetch(createComfyUrl(path, query, settings), {
+        const url = createComfyUrl(path, query, settings);
+        const response = await fetch(url, {
             headers: getComfyAuthHeaders(settings),
             signal: directSignal.signal,
         });
@@ -1044,6 +1053,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, {
     generationConfig,
     preferredSaveImageNodeId,
     attempt,
+    allResults = false,
 } = {}) {
     const deadline = createComfyDeadlineSignal(signal, timeoutMs);
     try {
@@ -1109,6 +1119,21 @@ async function fetchComfyDirectImageFromWorkflow(workflow, {
             throw new Error(`ComfyUI 未返回图片数据。${suffix}`);
         }
 
+        if (allResults) {
+            const images = [];
+            let failure;
+            for (const output of resolveComfyDirectOutputImages(item, workflow, preferredSaveImageNodeId)) {
+                try {
+                    const blob = await fetchComfyDirectBlob('/view', output, { signal: deadline.signal, timeoutMs, generationConfig });
+                    images.push(imageBlob(new Uint8Array(await blob.arrayBuffer())));
+                } catch (error) {
+                    failure ||= error;
+                    if (deadline.signal.aborted) break;
+                }
+            }
+            if (failure) throw new MediaApiError(images.length ? 'partial_result' : 'provider_error', { cause: failure, partialResult: { images } });
+            return images;
+        }
         const blob = await fetchComfyDirectBlob('/view', {
             filename: imgInfo.filename,
             subfolder: imgInfo.subfolder,
@@ -1181,6 +1206,7 @@ async function requestComfyImage({ prompt, negativePrompt = '', params = {}, pre
         });
         const data = await response.json();
         if (!data?.data) throw new Error('ComfyUI 未返回图片数据');
+        if (settings.publicCollection) return data.data;
         return String(data.data || '');
     } catch (error) { throw attempt.failure(error); }
 }
@@ -1356,6 +1382,53 @@ export async function generateComfyImage({
     );
 }
 
+export const comfyPublicGeneration = {
+    presetsKey: 'presets', selectedKey: 'selectedPresetId',
+    snapshot() {
+        return settingsLoaded && settingsCache ? structuredClone(settingsCache)
+            : ComfyDrawStorage.getStrict(SERVER_FILE_KEY, null).then(saved => normalizeSettings(saved || {}));
+    },
+    generate(request, settings, { signal, onProgress }) {
+        validateDrawInput(request, getEffectiveParams(settings), { workflow: true, seed: true });
+        if (!settings.host) throw new MediaApiError('not_configured');
+        // The host's generic proxy shares its Authorization header with the upstream service.
+        // Public collections require direct access or the existing server transport that separates credentials.
+        if (!settings.useImageBackendJobs && !isDirectConnection(settings)) {
+            throw new MediaApiError('not_configured', { field: 'connectionMode' });
+        }
+        if (!['simple', 'custom'].includes(settings.workflowMode)) throw new MediaApiError('invalid_request', { field: 'workflowMode' });
+        if (settings.workflowMode === 'custom' && !settings.customWorkflow?.json) throw new MediaApiError('not_configured', { field: 'customWorkflow' });
+        if (settings.workflowMode === 'custom') {
+            const mappings = { width: 'nodeWidth', height: 'nodeHeight', positivePrefix: 'nodePositive', negativePrefix: 'nodeNegative' };
+            for (const field of Object.keys(request.params || {})) {
+                if (!mappings[field] || !settings.customWorkflow[mappings[field]]) throw new MediaApiError('unsupported_field', { field: `params.${field}` });
+            }
+            if (request.seed !== undefined && !settings.customWorkflow.nodeSeed) throw new MediaApiError('unsupported_field', { field: 'seed' });
+            if (request.negativePrompt !== undefined && !settings.customWorkflow.nodeNegative) throw new MediaApiError('unsupported_field', { field: 'negativePrompt' });
+        }
+        const params = getEffectiveParams(settings, request.params || {});
+        const characters = request.characterPrompts || [];
+        if (settings.workflowMode === 'simple' && !params.model) throw new MediaApiError('not_configured', { field: 'params.model' });
+        let prepared;
+        try { prepared = buildComfyImageRequest({
+            prompt: joinTags(request.positivePrefix ?? params.positivePrefix, request.prompt, ...characters.map(item => item.prompt)),
+            negativePrompt: request.negativePrompt ?? joinTags(params.negativePrefix, ...characters.map(item => item.uc)),
+            params, recipe: settings, seed: request.seed ?? createComfySeed(), strict: true,
+        }); } catch { throw new MediaApiError('invalid_request'); }
+        return comfyImageRequestQueue.enqueue(() => settings.useImageBackendJobs
+            ? runPublicImageJob(comfyBackendJobsClient, {
+                provider: 'comfyui', context: { url: settings.host, auth: settings.auth },
+                delay: { min: COMFY_REQUEST_DELAY_MS, max: COMFY_REQUEST_DELAY_MS },
+                items: [{ request: { ...prepared, resultMode: 'all' }, timeout: settings.timeout }],
+            }, { signal, onProgress })
+            : requestComfyImage({ prepared, generationConfig: { ...settings, publicCollection: true }, signal }), {
+            signal, scope: 'public',
+            onQueued: data => onProgress?.({ state: 'queued', ...data }),
+            onStart: () => onProgress?.({ state: 'generating' }),
+        });
+    },
+};
+
 async function generateSingleComfyImage(request, {
     signal,
     generationConfig,
@@ -1489,6 +1562,15 @@ function bindOverlayEvents() {
             ok ? GALLERY_JPEG_COPY.saved : GALLERY_JPEG_COPY.saveFailed);
         checkbox.checked = getSharedDrawSettings().saveAsJpeg === true;
         checkbox.disabled = false;
+    });
+    bindImageSaveControls({
+        autoSave: querySettings('#comfy-gallery-auto-save'),
+        folder: querySettings('#comfy-gallery-save-by-folder'),
+        openButton: querySettings('#comfy-gallery-open-folder'),
+        getSettings: getSharedDrawSettings,
+        saveSettings: mutate => withSaveTimeout(updateSharedDrawSettingsPersistent(mutate, '已保存', { notify: false, silent: false })),
+        report: (state, text) => updateStatusText('comfy-gallery-status', state === 'info' ? '' : state, text),
+        openFolder: openImageFolder,
     });
     querySettings('#comfy-gallery-clear-expired')?.addEventListener('click', async () => {
         updateStatusText('comfy-gallery-status', '', '正在清理...');
@@ -2221,6 +2303,8 @@ function fillForm(settings) {
     setValue('comfy-gallery-cache-days', getSharedDrawSettings().cacheDays);
     const comfyJpegCheckbox = querySettings('#comfy-gallery-save-as-jpeg');
     if (comfyJpegCheckbox) comfyJpegCheckbox.checked = getSharedDrawSettings().saveAsJpeg === true;
+    setChecked('comfy-gallery-auto-save', getSharedDrawSettings().autoSaveImages);
+    setChecked('comfy-gallery-save-by-folder', getSharedDrawSettings().saveImagesByFolder);
 
     // 模型配置页面
     populateModelSelect(settings.modelCache || []);
@@ -4145,6 +4229,7 @@ export async function generateImagesFromText(options = {}) {
                 postPrompt: task.post_prompt || '',
             });
             await setSlotSelection(slotId, imgId);
+            observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId, filePrefix: imageFilePrefix("comfyui") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
             successCount++;
             images.push({
                 slotId,
@@ -4582,7 +4667,7 @@ async function saveCurrentImage(container) {
         const charName = ctx.groupId
             ? String(ctx.groups?.[ctx.groupId]?.id ?? 'group')
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
-        const url = await saveBase64AsFile(preview.base64, charName, `comfy_${imgId}`, 'png');
+        const url = await saveImageToServer({ base64: preview.base64, charName, fileName: `comfy_${imgId}`, format: 'png' });
         await updatePreviewSavedUrl(imgId, url);
         preview.savedUrl = url;
         await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "saveCurrentImage" }, caughtError); });
@@ -4630,7 +4715,7 @@ async function runPreparedComfySlots(input) {
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
-            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource,
+            nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("comfyui"),
             backend: settings.useImageBackendJobs === true,
             signal: job.controller.signal, onStateChange, onPlacement: input.onPlacement,
             run: handlers => runComfyImageBatch({
@@ -4686,7 +4771,7 @@ export async function generateAndInsertImages({
                         providerSettings: comfySettings,
                         sharedSettings: sharedSettingsSnapshot,
                     });
-                    return prepareScenePlannerInput({ ...plannerOptions, maxPlanImages });
+                    return prepareScenePlannerInput({ ...plannerOptions, maxPlanImages, executionTarget: 'server' });
                 },
                 createGenerationRecipe: prepared => createComfyGenerationRecipe({
                     settings: comfySettings,
@@ -4714,8 +4799,7 @@ export async function generateAndInsertImages({
                 message, messageId: resolvedMessageId, signal, promptOverride, negativePromptOverride, onStateChange,
             });
             if (signal.aborted) throw new Error('已取消');
-            if (built.sceneSource) assertSceneSourceUnchanged(normalizeMessageSceneSourceText(message.mes), built.sceneSource.sourceHash);
-            return built;
+            return { ...built, tasks: bindScenePlanSource(built.tasks, built.sceneSource, normalizeMessageSceneSourceText(message.mes)) };
         }, { maxRetries: sharedSettingsSnapshot.plannerMaxRetries, signal, onStateChange });
         return await runPreparedComfySlots({ ctx, message, messageId: resolvedMessageId,
             sourceText: message.mes, tasks, settings: comfySettings,
@@ -4883,7 +4967,7 @@ export function cleanupComfyDraw() {
     abortPendingRequest();
     observeBackgroundTask(abortGeneration(null, { reason: 'teardown' }), { source: import.meta.url, operation: "cleanupComfyDraw" });
     clearFloorImageJobs(generationJobs);
-    comfyImageRequestQueue.clear();
+    comfyImageRequestQueue.clear({ scope: 'default' });
     hideSettings();
     destroyComfyDrawPanelsRef?.();
     ensureComfyDrawPanelRef = null;

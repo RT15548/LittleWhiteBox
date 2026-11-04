@@ -8,14 +8,9 @@ import { synthesizeV3, synthesizeV3Stream } from './tts-api.js';
 import { normalizeEmotion } from './tts-text.js';
 import { inferResourceIdBySpeaker } from './tts-voices.js';
 import { getRequestHeaders } from "../../../../../../script.js";
+import { buildSynthesizeParams, speedToSpeechRate } from './tts-request.js';
 
 // ============ 工具函数（内部） ============
-
-function normalizeSpeed(value) {
-    const num = Number.isFinite(value) ? value : 1.0;
-    if (num >= 0.5 && num <= 2.0) return num;
-    return Math.min(2.0, Math.max(0.5, 1 + num / 100));
-}
 
 function estimateDuration(text) {
     return Math.max(2, Math.ceil(String(text || '').length / 4));
@@ -38,7 +33,7 @@ function resolveContextTexts(context, resourceId) {
 // ============ 导出的工具函数 ============
 
 export function speedToV3SpeechRate(speed) {
-    return Math.round((normalizeSpeed(speed) - 1) * 100);
+    return speedToSpeechRate(speed);
 }
 
 export function buildV3Headers(resourceId, config) {
@@ -57,35 +52,6 @@ export function buildV3Headers(resourceId, config) {
 }
 
 // ============ 参数构建 ============
-
-function buildSynthesizeParams({ text, speaker, resourceId }, config) {
-    const params = {
-        providerMode: 'auth',
-        appId: config.volc.appId,
-        accessKey: config.volc.accessKey,
-        resourceId,
-        speaker,
-        text,
-        format: 'mp3',
-        sampleRate: 24000,
-        speechRate: speedToV3SpeechRate(config.volc.speechRate),
-        loudnessRate: 0,
-        emotionScale: config.volc.emotionScale,
-        explicitLanguage: config.volc.explicitLanguage,
-        disableMarkdownFilter: config.volc.disableMarkdownFilter,
-        disableEmojiFilter: config.volc.disableEmojiFilter,
-        enableLanguageDetector: config.volc.enableLanguageDetector,
-        maxLengthToFilterParenthesis: config.volc.maxLengthToFilterParenthesis,
-        postProcessPitch: config.volc.postProcessPitch,
-    };
-    if (resourceId === 'seed-tts-1.0' && config.volc.useTts11 !== false) {
-        params.model = 'seed-tts-1.1';
-    }
-    if (config.volc.serverCacheEnabled) {
-        params.cacheConfig = { text_type: 1, use_cache: true };
-    }
-    return params;
-}
 
 // ============ 单段播放（导出供混合模式使用） ============
 

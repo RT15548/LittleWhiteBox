@@ -79,11 +79,17 @@ export function getEffectiveNovelModelGuide(model, promptPreset) {
         : getLoadedTagGuideById(guideId);
 }
 
-/** 请求结构只读预览：system / user / tools 三节。 */
+/** 当前草稿的消息预览，复用实际组装器。 */
 export function getPromptChainPreview(customPrompts, model) {
     return buildScenePlannerChainPreview({
+        layout: customPrompts?.layout,
         profile: getNovelPlannerProfile(model),
         hasTagGuide: !!getEffectiveNovelModelGuide(model, customPrompts).trim(),
+        builtinTexts: {
+            opening: typeof customPrompts?.topSystem === 'string' ? customPrompts.topSystem : LLM_PROMPT_CONFIG.topSystem,
+            rules: typeof customPrompts?.sceneRules === 'string' ? customPrompts.sceneRules : LLM_PROMPT_CONFIG.sceneRules,
+            guide: getEffectiveNovelModelGuide(model, customPrompts),
+        },
     });
 }
 

@@ -28,8 +28,14 @@ const DEFAULT_SHARED_DRAW_SETTINGS = {
     characterGroupPresets: [],
     characterGroupPresetApplied: null,
     danbooruLocalDB: false,
+    // NovelAI 回复中的绘图标签是否自动排队生图；关闭后改为楼层内手动点「生成」
+    autoGenerateImages: true,
     messageFilterRules: [],
     saveAsJpeg: false,
+    autoSaveImages: false,
+    // 开启“自动保存新生成的图片”的时刻；只有此后生成的图片才会自动保存，旧缓存不处理。
+    autoSaveImagesSince: 0,
+    saveImagesByFolder: false,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     updatedAt: 0,
 };
@@ -50,6 +56,7 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'autoLearnCharacters',
     'autoLearnMode',
     'autoLearnGroupId',
+    'continuityEnabled',
     'overrideSize',
     'overrideMaxImages',
     'showFloorButton',
@@ -115,9 +122,13 @@ export function normalizeSharedDrawSettings(saved = {}) {
         characterGroupPresets: groupPresetState.presets,
         characterGroupPresetApplied: groupPresetState.applied,
         danbooruLocalDB: source.danbooruLocalDB === true,
+        autoGenerateImages: source.autoGenerateImages !== false,
         messageFilterRules,
         imageTitleMode: normalizeImageTitleMode(source.imageTitleMode),
         saveAsJpeg: source.saveAsJpeg === true,
+        autoSaveImages: source.autoSaveImages === true,
+        autoSaveImagesSince: Number.isFinite(Number(source.autoSaveImagesSince)) ? Math.max(0, Math.floor(Number(source.autoSaveImagesSince))) : 0,
+        saveImagesByFolder: source.saveImagesByFolder === true,
         worldbooks: {
             enabled: rawWorldbooks.enabled === true,
             uploadedBooks: Array.isArray(rawWorldbooks.uploadedBooks) ? rawWorldbooks.uploadedBooks : [],

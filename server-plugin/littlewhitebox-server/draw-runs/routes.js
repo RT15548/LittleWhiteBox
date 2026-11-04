@@ -1,6 +1,6 @@
 'use strict';
 
-const { MAX_ENVELOPE_BYTES } = require('./envelope.js');
+const { MAX_ENVELOPE_BYTES } = require('../runtime-contract.js');
 const { id: pluginId } = require('../manifest.json');
 
 const DRAW_RUNS_PATH = '/v1/draw-runs';

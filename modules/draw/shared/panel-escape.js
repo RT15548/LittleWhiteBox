@@ -141,11 +141,11 @@ export function createEditGuard({ document, rootSelector = EDIT_ROOT_SELECTOR } 
  * 被菜单 / 对话框 / 拖拽截走（stopPropagation）或已 preventDefault 的 Esc 到不了这里或会被判为已消费。
  * @param {object} options
  * @param {Document} options.document
- * @param {function} options.close 关闭面板（与点 ✕ 相同）
- * @param {function} [options.hasUnsavedEdit]
+ * @param {Function} options.close 关闭面板（与点 ✕ 相同）
+ * @param {Function} [options.hasUnsavedEdit]
  * @param {string[]} [options.layerSelectors] 视为“开着的层”的选择器
  * @param {string[]} [options.dragSelectors] 视为“拖拽进行中”的选择器
- * @returns {function} 取消监听
+ * @returns {Function} 取消监听
  */
 export function installPanelEscape({ document, close, hasUnsavedEdit = () => false, layerSelectors = ESCAPE_LAYER_SELECTORS, dragSelectors = ESCAPE_DRAG_SELECTORS } = {}) {
     const win = document.defaultView;
@@ -207,10 +207,10 @@ function forwardEscapeIntoFrame(frameDocument) {
  * 处理方式是把 Esc 转发进 iframe，由 installPanelEscape 那一套决定是否真的关闭。随面板创建时注册、关闭时取消。
  * @param {object} options
  * @param {Window} options.hostWindow
- * @param {function} options.getOverlay 返回面板浮层元素（或 null）
- * @param {function} options.getFrame 返回 iframe 元素（或 null）
- * @param {function} [options.forward] 测试用：自定义转发
- * @returns {function} 取消监听
+ * @param {Function} options.getOverlay 返回面板浮层元素（或 null）
+ * @param {Function} options.getFrame 返回 iframe 元素（或 null）
+ * @param {Function} [options.forward] 测试用：自定义转发
+ * @returns {Function} 取消监听
  */
 export function installHostPanelEscape({ hostWindow, getOverlay, getFrame, forward = forwardEscapeIntoFrame } = {}) {
     const hostDocument = hostWindow?.document;

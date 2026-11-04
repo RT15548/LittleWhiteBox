@@ -1,5 +1,7 @@
 import { DOMPurify } from '../../../../../../lib.js';
 import { VOICE_DATA, inferResourceIdBySpeaker, isTts2Voice } from './tts-voices.js';
+import { mountMediaApiHint } from '../../shared/media-api-hint.js';
+document.querySelectorAll('[data-tts-api-hint]').forEach(root => mountMediaApiHint(root, 'tts'));
 // Page entry; the host TTS runtime remains in tts.js.
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -77,6 +77,15 @@
 .lwb-ple-toggle input:focus-visible { outline: 2px solid var(--accent, #d4a574); outline-offset: 1px; }
 
 .lwb-ple-list { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.lwb-ple-stage { min-width: 0; }
+.lwb-ple-stage-title { margin: 14px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.lwb-ple-exchange { padding: 4px 0 8px; font-size: 11px; color: var(--text-secondary); }
+.lwb-ple-insert { align-self: flex-start; margin: 6px 0; padding: 6px 10px; min-height: 32px; background: transparent; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.lwb-ple-insert:hover, .lwb-ple-insert:focus-visible { color: var(--text-primary); border-color: var(--accent); }
+.lwb-ple-stage.drop-before { box-shadow: 0 -2px var(--accent); }
+.lwb-ple-stage.drop-after { box-shadow: 0 2px var(--accent); }
+.lwb-ple-stage details { min-width: 0; font-size: 12px; }
+.lwb-ple-stage details > summary { padding: 8px 0; cursor: pointer; }
 .lwb-ple-row {
     min-width: 0;
     border: 0;

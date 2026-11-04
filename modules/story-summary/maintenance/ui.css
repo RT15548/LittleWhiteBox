@@ -42,7 +42,8 @@ body:has(#settings-modal.assistant-page.active) { overflow: hidden; }
 }
 .memory-button { background: transparent; border: 1px solid var(--bdr); border-radius: 6px; color: var(--txt); min-height: 40px; padding: 7px 13px; white-space: nowrap; }
 .memory-button:hover:not(:disabled) { background: var(--bg2); border-color: var(--txt3); }
-.memory-state { padding: 10px 0; color: var(--txt2); font-size: .8125rem; }
+.memory-state { padding: 10px 0; color: var(--txt2); font-size: .8125rem; white-space: pre-line; overflow-wrap: anywhere; }
+.memory-maintenance-failure { white-space: pre-line; overflow-wrap: anywhere; }
 .memory-state[data-status='unconfirmed'], .memory-state[data-status='source_invalid'], .memory-state[data-status='history_invalid'], .memory-state[data-status='failed'] { border-left: 2px solid var(--hl); padding-left: 12px; color: var(--txt); margin: 12px 0; }
 .memory-index-state { display: flex; align-items: center; gap: 16px; font-size: .8125rem; padding: 12px 0; }
 .memory-index-state span { flex: 1; }

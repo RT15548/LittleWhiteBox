@@ -135,21 +135,21 @@ function withLocked(character, locked) {
  * @param {Element} options.listElement 角色列表容器；本模块在其中渲染分组与卡片
  * @param {Element} options.toolbarElement 工具栏容器；本模块在其中渲染“新建分组 / 多选”和批量栏
  * @param {HTMLInputElement} [options.searchInput] 仅筛选当前草稿，不重建卡片
- * @param {function} options.readCharacters ({ keepEmpty }) => 从表单读出的角色数组。每个角色必须带 id（卡片的 dataset.characterId）；
+ * @param {Function} options.readCharacters ({ keepEmpty }) => 从表单读出的角色数组。每个角色必须带 id（卡片的 dataset.characterId）；
  *        keepEmpty 为 true 时不丢弃全空的新卡片（库操作期间要保留它们，只有保存时才丢弃）
- * @param {function} options.renderCard ({ character, ordinal }) => 卡片元素。根节点 class 含 sd-char-card、dataset.characterId 为角色 id；
+ * @param {Function} options.renderCard ({ character, ordinal }) => 卡片元素。根节点 class 含 sd-char-card、dataset.characterId 为角色 id；
  *        头部含 .sd-char-card-header > .sd-char-card-title 与 .btn-group，本模块往里加拖拽手柄、复选框与复制按钮
- * @param {function} options.renderEmpty () => 没有任何角色也没有分组时显示的占位元素
- * @param {function} [options.onChange] 列表重绘或卡片增删后调用，参数 { count }
- * @param {{success: function, warning: function, error: function}} [options.notify] 提示（toastr）
- * @param {function} [options.confirm] 默认 document.defaultView.confirm
- * @param {function} [options.prompt] 默认 document.defaultView.prompt
- * @param {function} [options.getStorage] 返回 Storage（折叠状态用），默认 window.localStorage；任何异常都会被忽略
- * @param {function} [options.makeId] 透传给 character-library.js（测试用）
- * @param {function} [options.hitTest] (x, y) => Element，默认 document.elementFromPoint（测试用）
- * @param {function} [options.getRect] (element) => { top, bottom }，默认 getBoundingClientRect（测试用）
- * @param {function} [options.getViewport] () => { width, height }，卡片“…”菜单定位用的视口尺寸，默认取 document 的视口（测试用）
- * @param {function} [options.download] (fileName, data) => 触发下载，默认用 Blob + a[download]（测试用）
+ * @param {Function} options.renderEmpty () => 没有任何角色也没有分组时显示的占位元素
+ * @param {Function} [options.onChange] 列表重绘或卡片增删后调用，参数 { count }
+ * @param {{success: Function, warning: Function, error: Function}} [options.notify] 提示（toastr）
+ * @param {Function} [options.confirm] 默认 document.defaultView.confirm
+ * @param {Function} [options.prompt] 默认 document.defaultView.prompt
+ * @param {Function} [options.getStorage] 返回 Storage（折叠状态用），默认 window.localStorage；任何异常都会被忽略
+ * @param {Function} [options.makeId] 透传给 character-library.js（测试用）
+ * @param {Function} [options.hitTest] (x, y) => Element，默认 document.elementFromPoint（测试用）
+ * @param {Function} [options.getRect] (element) => { top, bottom }，默认 getBoundingClientRect（测试用）
+ * @param {Function} [options.getViewport] () => { width, height }，卡片“…”菜单定位用的视口尺寸，默认取 document 的视口（测试用）
+ * @param {Function} [options.download] (fileName, data) => 触发下载，默认用 Blob + a[download]（测试用）
  * @param {string} [options.nameFieldSelector] 新建角色后聚焦的输入框选择器
  */
 export function createCharacterLibraryUi(options = {}) {

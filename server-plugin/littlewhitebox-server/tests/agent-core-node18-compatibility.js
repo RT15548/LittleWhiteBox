@@ -6,8 +6,8 @@ const http = require('node:http');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 
-const agentCoreBundlePath = path.resolve(__dirname, '../draw-runs/vendor/agent-core-node.cjs');
-const drawRunBundlePath = path.resolve(__dirname, '../draw-runs/vendor/draw-run-runtime.cjs');
+const agentCoreBundlePath = require('./runtime-fixture.js').bundlePath;
+const drawRunBundlePath = require('./runtime-fixture.js').bundlePath;
 
 function listen(server) {
     return new Promise((resolve, reject) => {
@@ -85,8 +85,13 @@ async function main() {
             copyFile(agentCoreBundlePath, isolatedAgentCorePath),
             copyFile(drawRunBundlePath, isolatedDrawRunPath),
         ]);
-        const agentCore = require(isolatedAgentCorePath);
-        const drawRunRuntime = require(isolatedDrawRunPath);
+        const agentCore = require(isolatedAgentCorePath).agentCore;
+        const drawRunRuntime = require(isolatedDrawRunPath).drawRuntime;
+        const toolHost = require(isolatedDrawRunPath).createNodeToolHost();
+        try {
+            await toolHost.define('echo', "return { name: 'echo', action: async args => ({ value: args.value, node: typeof process }) };");
+            assert.deepEqual(JSON.parse(await toolHost.invoke('echo', { value: 18 })), { value: 18, node: 'undefined' });
+        } finally { toolHost.dispose(); }
         const compiled = drawRunRuntime.compileDrawRunImages('sd-webui', [{
             scene: 'portrait',
             chars: [],

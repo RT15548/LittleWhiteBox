@@ -1,4 +1,5 @@
-import { parseActionCheckRequest, type ActionCheckRequest, type ActionCheckResult } from './action-check.js';
+import type { ActionCheckResult } from './action-check.js';
+import { parseD20RecordedRequest, type D20RecordedRequest } from './d20-record.js';
 import { checkMarker, checkMarkerIds } from './check-marker.js';
 import { upgradeDiceChecks } from '../storage/upgrade-records.js';
 import { parseCoc7RecordedRequest, parseCoc7Resolution, type Coc7RecordedRequest, type Coc7Resolution } from './coc7-record.js';
@@ -18,7 +19,7 @@ interface CheckHistory {
 export interface D20CheckRecord extends ActionCheckResult, CheckHistory {
     rule: 'd20';
     id: string;
-    request: ActionCheckRequest;
+    request: D20RecordedRequest;
 }
 export interface Coc7CheckRecord extends CheckHistory { rule: 'coc7'; id: string; request: Coc7RecordedRequest; result: Coc7Result; resolution?: Coc7Resolution }
 export type ActionCheckRecord = D20CheckRecord | Coc7CheckRecord;
@@ -61,7 +62,7 @@ export function parseDiceRecords(value: unknown): DiceMessageRecords {
             throw new TypeError('dice_record_invalid');
         }
         // Historical outcomes are stored facts, not recalculated from today's difficulty table.
-        return { ...record, request: parseActionCheckRequest(record.request) };
+        return { ...record, request: parseD20RecordedRequest(record.request) };
     });
     return { schemaVersion: DICE_RECORDS_SCHEMA_VERSION, checks };
 }

@@ -18,17 +18,6 @@ export const DrawRunRecoveryAction = Object.freeze({
     SETTLE_CANCELLATION: 'settle_cancellation',
 });
 
-export const DrawRunAdoptionRecoveryStatus = Object.freeze({
-    COMPLETED: 'completed',
-    LEASE_ACTIVE: 'lease_active',
-    BLOCKED: 'blocked',
-});
-
-export const DrawRunPendingAdoptionAction = Object.freeze({
-    WAIT_FOR_TARGET: 'wait_for_target',
-    FALLBACK_TO_GALLERY: 'fallback_to_gallery',
-});
-
 export const DRAW_RUN_BLOCKED_RETRY_MS = 15_000;
 export const DRAW_RUN_PROGRESS_POLL_MS = 3_000;
 
@@ -242,29 +231,6 @@ export function planDrawRunRecovery({
         !claimedRuns.has(run.id) && !recordsByOrigin.has(run.id)
     ));
     return { plan, unclaimed };
-}
-
-export function planPendingAdoptionRecovery({ persistedMarkerPresent } = {}) {
-    if (typeof persistedMarkerPresent !== 'boolean') {
-        throw new TypeError('Draw Run pending adoption 缺少持久化 marker 判定');
-    }
-    return persistedMarkerPresent
-        ? { action: DrawRunPendingAdoptionAction.WAIT_FOR_TARGET, reason: 'marker_present' }
-        : {
-            action: DrawRunPendingAdoptionAction.FALLBACK_TO_GALLERY,
-            delivery: { mode: 'gallery', reason: 'target_missing' },
-        };
-}
-
-export function planDrawRunAdoptionRetry(outcome, { now = Date.now() } = {}) {
-    if (outcome?.status === DrawRunAdoptionRecoveryStatus.COMPLETED) return null;
-    if (outcome?.status === DrawRunAdoptionRecoveryStatus.LEASE_ACTIVE) {
-        const leaseExpiresAt = Number(outcome.leaseExpiresAt);
-        if (Number.isFinite(leaseExpiresAt) && leaseExpiresAt > now) {
-            return Math.max(100, leaseExpiresAt - now + 10);
-        }
-    }
-    return DRAW_RUN_BLOCKED_RETRY_MS;
 }
 
 export function planDrawRunPollDelay(plan = [], { now = Date.now() } = {}) {

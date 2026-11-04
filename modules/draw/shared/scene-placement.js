@@ -17,12 +17,21 @@ export function assertSceneSourceUnchanged(sourceText, expectedHash) {
     return actualHash;
 }
 
+export function bindScenePlanSource(tasks, sceneSource, currentText) {
+    if (!sceneSource) return tasks;
+    const sourceLength = sceneSource.sourceText.length;
+    assertSceneSourceUnchanged(currentText.slice(0, sourceLength), sceneSource.sourceHash);
+    return tasks.map(task => ({ ...task, placement: { ...task.placement, sourceLength } }));
+}
+
 function resolvePlacementOffset(sourceText, placement, sourceHash) {
     if (placement?.mode === 'tail') return sourceText.length;
     if (placement?.mode !== 'source') {
         throw new ScenePlacementError('图片任务缺少有效 placement。');
     }
-    if (placement.sourceHash !== sourceHash) {
+    const expected = Number.isSafeInteger(placement.sourceLength)
+        ? hashSceneSource(sourceText.slice(0, placement.sourceLength)) : sourceHash;
+    if (placement.sourceHash !== expected) {
         throw new ScenePlacementError('图片任务不属于当前正文。', 'SCENE_SOURCE_CHANGED');
     }
     const offset = Number(placement.offset);

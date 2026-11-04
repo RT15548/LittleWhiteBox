@@ -21,6 +21,10 @@
 
 import {
     CUSTOM_BLOCK_ROLES,
+    PREBUILT_MESSAGE_LABELS,
+    PROMPT_ROLE_LABELS,
+    SCENE_PLANNER_STAGES,
+    TOOL_DEFINITIONS_LABEL,
     MAX_TOOLS,
     addBlockAfter,
     createCustomBlock,
@@ -34,13 +38,14 @@ import {
     layoutForStorage,
     moveBlocks,
     normalizeLayout,
+    projectScenePlannerLayout,
     removeBlock,
     removeBlocks,
     reorderBlocks,
     setBlocksEnabled,
     updateBlock,
 } from './scene-planner-layout.js';
-import { createSortableList, moveIdToIndex } from './sortable-list.js';
+import { createSortableList } from './sortable-list.js';
 import { createCharacterActionIcon } from './character-action-icons.js';
 import { readCollapsed, writeCollapsed } from './preset-list-view.js';
 import { DEFAULT_TOOL_CODE, extractToolName } from './custom-tools.js';
@@ -119,6 +124,7 @@ function blocksOf(layout) {
  * @param {function(PointerEvent, Element): void} [options.autoScroll] 拖拽中靠近边缘时滚动（第二个参数是列表容器）
  * @param {function(): string} [options.getDisabledReason] 返回非空字符串 = 编辑器停用并显示这段说明（例如宿主版本太旧）
  * @param {function(object): Promise<{ok: boolean, message: string}>} [options.onTestTool] 工具块“试运行”：宿主在沙盒里读出这个块的工具定义，返回要显示的结果；不传则不显示按钮
+ * @param {Element} [options.toolDefinitions] 宿主持有的工具定义详情，显示在固定页尾
  * @param {function(): number} [options.random] 自定义块 id 的随机源，默认 Math.random
  * @param {string} [options.collapseId] 面板折叠偏好的存储名（如 'prompt-layout'）；缺省则不记忆
  * @returns {{render: function(object=): void, setLayout: function(object): void, refreshSummaries: function(): void, refreshStatus: function(): void, getLayout: function(): object, isCollapsed: function(): boolean, setCollapsed: function(boolean): void, destroy: function(): void}}
@@ -133,6 +139,7 @@ export function createPromptLayoutEditor({
     describeBuiltin = null,
     onEditBuiltin = null,
     builtinEditors = {},
+    toolDefinitions = null,
     editorParking = null,
     confirm = null,
     announce = null,
@@ -176,11 +183,12 @@ export function createPromptLayoutEditor({
     const titleNode = create(document, 'span', { className: 'lwb-ple-title', text: '请求结构' });
     const dirtyBadge = create(document, 'span', { className: 'lwb-ple-dirty', text: '未保存', attrs: { hidden: true, 'data-ple-dirty': '' } });
     const addButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-primary', text: '添加消息', attrs: { type: 'button', 'data-ple-add': '', title: '在当前展开的消息下方添加一条自定义消息（没有展开项时，加在最近选中的消息下方，再没有就加在末尾）' } });
+    const addToolButton = create(document, 'button', { className: 'lwb-ple-btn lwb-ple-btn-primary', text: '添加自定义工具', attrs: { type: 'button', 'data-ple-add-tool': '' } });
     const selectModeButton = create(document, 'button', { className: 'lwb-ple-btn', text: '多选', attrs: { type: 'button', 'data-ple-select-mode': '', 'aria-pressed': 'false', title: '显示选择框；也可以按住 Ctrl / Shift 点击消息行选择（Shift 选范围）' } });
     const resetButton = create(document, 'button', { className: 'lwb-ple-btn', text: '恢复默认结构', attrs: { type: 'button', 'data-ple-reset': '', title: '恢复内置块的默认顺序并移除自定义消息（只改草稿，保存后才生效）' } });
     const hint = create(document, 'p', {
         className: 'lwb-ple-hint',
-        text: '按发送顺序排列。点击编辑，拖动手柄调整顺序。',
+        text: '主流程固定，自定义消息可在各环节之间插入和移动。',
     });
     const notice = create(document, 'p', { className: 'lwb-ple-notice', attrs: { hidden: true, role: 'alert', 'data-ple-notice': '' } });
     const selectionCount = create(document, 'span', { className: 'lwb-ple-selection-count', attrs: { 'data-ple-selection-count': '' } });
@@ -200,7 +208,7 @@ export function createPromptLayoutEditor({
     const status = create(document, 'div', { className: 'lwb-ple-status', attrs: { role: 'status', 'aria-live': 'polite', 'data-ple-status': '' } });
     root.appendChild(create(document, 'div', { className: 'lwb-ple-head' }, [
         create(document, 'div', { className: 'lwb-ple-headline' }, [collapseButton, titleIcon, titleNode, dirtyBadge, collapsedCount]),
-        create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, selectModeButton, resetButton]),
+        create(document, 'div', { className: 'lwb-ple-actions' }, [addButton, addToolButton, selectModeButton, resetButton]),
     ]));
     root.appendChild(hint);
     root.appendChild(notice);
@@ -233,7 +241,7 @@ export function createPromptLayoutEditor({
     // ── 行 ──
 
     function roleBadge(role) {
-        return create(document, 'span', { className: `lwb-ple-role ${role}`, text: role, attrs: { 'data-ple-role': '' } });
+        return create(document, 'span', { className: `lwb-ple-role ${role}`, text: PROMPT_ROLE_LABELS[role], attrs: { 'data-ple-role': '' } });
     }
 
     function customTitle(block) {
@@ -292,12 +300,7 @@ export function createPromptLayoutEditor({
             attrs: { role: 'listitem', 'data-block-id': block.id, 'data-builtin': 'true' },
         });
         const line = create(document, 'div', { className: 'lwb-ple-line' }, [
-            buildHandle(block, label),
-            buildSelectBox(block, label),
-            create(document, 'span', { className: 'lwb-ple-lock', attrs: { title: '内置块：内容固定，只能移动，不能删除', role: 'img', 'aria-label': '内置块' } }, [
-                create(document, 'i', { className: 'fa-solid fa-lock', attrs: { 'aria-hidden': 'true' } }),
-            ]),
-            roleBadge(meta.role),
+            ...(block.id === 'tools' ? [] : [roleBadge(meta.role)]),
             create(document, editor ? 'button' : 'span', {
                 className: editor ? 'lwb-ple-main lwb-ple-label' : 'lwb-ple-label', text: label,
                 attrs: editor ? { type: 'button', 'data-ple-field': 'main', 'aria-expanded': String(open) } : {},
@@ -328,7 +331,7 @@ export function createPromptLayoutEditor({
     function buildCustomBody(block) {
         const roleSelect = create(document, 'select', { className: 'lwb-ple-select', attrs: { 'data-ple-field': 'role' } });
         for (const role of CUSTOM_BLOCK_ROLES) {
-            const option = create(document, 'option', { text: role, attrs: { value: role } });
+            const option = create(document, 'option', { text: PROMPT_ROLE_LABELS[role], attrs: { value: role } });
             if (role === block.role) option.setAttribute('selected', '');
             roleSelect.appendChild(option);
         }
@@ -354,7 +357,7 @@ export function createPromptLayoutEditor({
             create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: '内容' }), textarea]),
             create(document, 'label', {
                 className: 'lwb-ple-tool-toggle',
-                attrs: { title: `给这条消息附带一个工具：写一段 JS 定义它，模型规划时可以调用（最多 ${MAX_TOOLS} 个）。消息启用，工具才会注册；代码在浏览器沙盒里运行` },
+                attrs: { title: `给这条消息附带一个工具：写一段 JS 定义它，模型规划时可以调用（最多 ${MAX_TOOLS} 个）。消息启用，工具才会注册；代码在隔离沙盒里运行` },
             }, [toolToggle, create(document, 'span', { text: '附带工具' })]),
         ];
         if (tool) {
@@ -370,7 +373,7 @@ export function createPromptLayoutEditor({
                 create(document, 'label', { className: 'lwb-ple-field' }, [create(document, 'span', { text: '工具代码' }), code]),
                 errorNode,
                 create(document, 'p', { className: 'lwb-ple-tool-name', text: toolNameText(block), attrs: { 'data-ple-tool-name': '' } }),
-                create(document, 'p', { className: 'lwb-ple-tool-warning', text: '代码在浏览器的沙盒里运行，读不到酒馆页面和存储，但仍可联网。只启用你信任的代码；导入带工具代码的模板时会先问你是否启用。' }),
+                create(document, 'p', { className: 'lwb-ple-tool-warning', text: '代码在隔离沙盒里运行，读不到酒馆页面和存储，但仍可联网。只启用你信任的代码；导入带工具代码的模板时会先问你是否启用。' }),
             );
             if (onTestTool) {
                 children.push(create(document, 'div', { className: 'lwb-ple-body-actions' }, [
@@ -390,7 +393,7 @@ export function createPromptLayoutEditor({
         const title = customTitle(block);
         const row = create(document, 'div', {
             className: `lwb-ple-row lwb-ple-custom${open ? ' expanded' : ''}${block.enabled ? '' : ' off'}`,
-            attrs: { role: 'listitem', 'data-block-id': block.id, 'data-builtin': 'false' },
+            attrs: { role: 'listitem', 'data-block-id': block.id, 'data-builtin': 'false', 'data-ple-sort-id': block.id },
         });
         const toggle = create(document, 'input', {
             attrs: { type: 'checkbox', 'data-ple-field': 'toggle', 'aria-label': `启用 ${title}`, title: '关闭后这条消息（和它附带的工具）不会发送，但内容保留' },
@@ -442,7 +445,7 @@ export function createPromptLayoutEditor({
         const badge = row.querySelector('[data-ple-role]');
         if (badge) {
             badge.setAttribute('class', `lwb-ple-role ${block.role}`);
-            badge.textContent = block.role;
+            badge.textContent = PROMPT_ROLE_LABELS[block.role];
         }
         row.classList.toggle('off', !block.enabled);
         row.querySelector('[data-ple-field="toggle"]')?.setAttribute('aria-label', `启用 ${title}`);
@@ -488,9 +491,22 @@ export function createPromptLayoutEditor({
         clearNode(list);
         const reason = disabledReason();
         if (!reason) {
-            for (const block of blocks) {
-                list.appendChild(describeBlock(block).builtin ? buildBuiltinRow(block) : buildCustomRow(block));
+            for (const [index, stage] of projectScenePlannerLayout(layout).entries()) {
+                const section = create(document, 'section', { className: 'lwb-ple-stage', attrs: { ...(stage.id === 'setup' ? {} : { 'data-ple-sort-id': stage.blockIds.at(-1) }), 'data-ple-stage': stage.id } });
+                section.appendChild(create(document, 'h3', { className: 'lwb-ple-stage-title', text: `${index + 1}. ${stage.label}` }));
+                if (stage.id !== 'setup') section.appendChild(create(document, 'div', { className: 'lwb-ple-exchange', text: PREBUILT_MESSAGE_LABELS.resultHint }));
+                for (const id of stage.blockIds) section.appendChild(buildBuiltinRow({ id }));
+                list.appendChild(section);
+                for (const block of stage.customBlocks) list.appendChild(buildCustomRow(block));
+                list.appendChild(create(document, 'button', { className: 'lwb-ple-insert', text: '+ 插入消息', attrs: { type: 'button', 'data-ple-insert-after': stage.customBlocks.at(-1)?.id || stage.blockIds.at(-1), 'aria-label': `在${stage.label}之后插入消息` } }));
             }
+            list.appendChild(create(document, 'div', { className: 'lwb-ple-exchange', text: PREBUILT_MESSAGE_LABELS.approval }));
+            const definitions = create(document, 'section', { className: 'lwb-ple-stage', attrs: { 'data-ple-stage': 'definitions' } }, [
+                create(document, 'h3', { className: 'lwb-ple-stage-title', text: `4. ${TOOL_DEFINITIONS_LABEL}` }),
+            ]);
+            if (toolDefinitions) definitions.appendChild(toolDefinitions);
+            else definitions.appendChild(create(document, 'button', { className: 'lwb-ple-btn', text: '查看工具定义', attrs: { type: 'button', 'data-ple-definitions': '' } }));
+            list.appendChild(definitions);
         }
         lastSignature = signatureOf(layout, reason);
         refreshStatus();
@@ -520,9 +536,10 @@ export function createPromptLayoutEditor({
         setHidden(notice, !reason);
         setHidden(hint, Boolean(reason));
         addButton.disabled = Boolean(reason);
+        addToolButton.disabled = Boolean(reason);
         selectModeButton.disabled = Boolean(reason);
         resetButton.disabled = Boolean(reason) || isDefaultLayout(layout);
-        for (const button of [addButton, selectModeButton, resetButton]) {
+        for (const button of [addButton, addToolButton, selectModeButton, resetButton]) {
             if (button.disabled) button.setAttribute('disabled', ''); else button.removeAttribute('disabled');
         }
         syncCollapse(layout);
@@ -562,17 +579,14 @@ export function createPromptLayoutEditor({
         if (sortable) return;
         sortable = createSortableList({
             container: list,
-            rowSelector: ROW_SELECTOR,
+            rowSelector: '[data-ple-sort-id]',
             handleSelector: HANDLE_SELECTOR,
-            getId: row => row.getAttribute('data-block-id'),
-            onReorder: handleReorder,
-            moveStep: (ids, id, direction) => {
-                const from = ids.indexOf(id);
-                return from < 0 ? ids : moveIdToIndex(ids, id, from + (direction < 0 ? -1 : 1));
-            },
+            getId: row => row.getAttribute('data-ple-sort-id'),
+            onReorder: (ids, meta) => handleReorder([...SCENE_PLANNER_STAGES[0].blockIds, ...ids.flatMap(id => SCENE_PLANNER_STAGES.find(stage => stage.blockIds.at(-1) === id)?.blockIds || [id])], meta),
+            moveStep: (_ids, id, direction) => sortableIds(moveBlocks(readLayout(), [id], direction)),
             // 拖动 / 键盘移动选中的行之一时，整组一起动。
             getGroupIds: id => (selected.size > 1 && selected.has(id) ? selectedInOrder() : null),
-            moveGroupStep: (ids, group, direction) => blocksOf(moveBlocks(readLayout(), group, direction)).map(block => block.id),
+            moveGroupStep: (_ids, group, direction) => sortableIds(moveBlocks(readLayout(), group, direction)),
             autoScroll: autoScroll ? event => autoScroll(event, list) : null,
             document,
             draggingClass: 'dragging',
@@ -580,6 +594,10 @@ export function createPromptLayoutEditor({
             afterClass: 'drop-after',
             bodyClass: 'lwb-ple-dragging',
         });
+    }
+
+    function sortableIds(layout) {
+        return projectScenePlannerLayout(layout).flatMap(stage => [...(stage.id === 'setup' ? [] : [stage.blockIds.at(-1)]), ...stage.customBlocks.map(block => block.id)]);
     }
 
     /**
@@ -692,6 +710,7 @@ export function createPromptLayoutEditor({
     }
 
     function selectOne(id, on = null) {
+        if (describeBlock({ id }).builtin) return;
         const shouldAdd = on === null ? !selected.has(id) : on;
         if (shouldAdd) {
             selected.add(id);
@@ -705,7 +724,7 @@ export function createPromptLayoutEditor({
     }
 
     function selectRangeTo(id) {
-        const ids = orderedIds();
+        const ids = blocksOf(readLayout()).filter(block => !describeBlock(block).builtin).map(block => block.id);
         const from = ids.indexOf(anchorId ?? id);
         const to = ids.indexOf(id);
         if (to < 0) return;
@@ -765,22 +784,30 @@ export function createPromptLayoutEditor({
         return selectedInOrder().at(-1) || null;
     }
 
-    function handleAdd() {
+    function handleAdd(afterId, withTool = false) {
         if (disabledReason()) return;
         setCollapsed(false); // 折叠时新消息会加在看不见的地方：先展开
         const layout = readLayout();
         const blocks = blocksOf(layout);
-        const anchorBlock = blocks.find(block => block.id === insertionAnchorId(blocks)) || null;
-        const block = createCustomBlock({ role: 'user' }, blocks.map(item => item.id), random);
+        if (withTool && !canAttachTool(blocks)) return;
+        const anchorBlock = blocks.find(block => block.id === (afterId || insertionAnchorId(blocks))) || null;
+        const block = createCustomBlock({ role: 'user', ...(withTool ? { tool: { code: DEFAULT_TOOL_CODE } } : {}) }, blocks.map(item => item.id), random);
         expandOnly(block.id);
-        pendingFocus = { id: block.id, field: 'content' };
+        pendingFocus = { id: block.id, field: withTool ? 'code' : 'content' };
         commit(addBlockAfter(layout, block, anchorBlock?.id));
         const row = Array.from(list.querySelectorAll(ROW_SELECTOR)).find(item => item.getAttribute('data-block-id') === block.id);
         row?.scrollIntoView?.({ block: 'nearest' });
         const total = list.querySelectorAll(ROW_SELECTOR).length;
-        say(anchorBlock
+        say(withTool ? '已添加自定义工具，编辑代码后保存'
+            : anchorBlock
             ? `已在“${labelOf(anchorBlock)}”下方添加一条自定义消息，共 ${total} 项`
             : `已在末尾添加一条自定义消息，共 ${total} 项`);
+    }
+
+    function canAttachTool(blocks) {
+        if (blocks.filter(hasTool).length < MAX_TOOLS) return true;
+        say(`附带工具最多 ${MAX_TOOLS} 个，请先取消别的消息上的工具`);
+        return false;
     }
 
     // 勾选 / 取消“附带工具”：取消时代码先存进本页面的内存，勾回来恢复；数量上限在这里拦。
@@ -789,10 +816,9 @@ export function createPromptLayoutEditor({
         const blocks = blocksOf(layout);
         const block = blocks.find(item => item.id === id);
         if (!block) return;
-        if (checked && blocks.filter(hasTool).length >= MAX_TOOLS) {
+        if (checked && !canAttachTool(blocks)) {
             const box = row?.querySelector?.('[data-ple-field="tool-toggle"]');
             if (box) { box.checked = false; box.removeAttribute('checked'); }
-            say(`附带工具最多 ${MAX_TOOLS} 个，请先取消别的消息上的工具`);
             return;
         }
         const draftKey = JSON.stringify([getOwnerKey(), id]);
@@ -845,9 +871,11 @@ export function createPromptLayoutEditor({
         expanded.delete(id);
         selected.delete(id);
         // 删完后焦点落到原位置的下一项（没有就上一项）的手柄，键盘用户不至于丢到页面顶部。
-        const neighbor = blocks[index + 1] || blocks[index - 1];
+        const neighbor = blocks.slice(index + 1).find(item => !describeBlock(item).builtin)
+            || blocks.slice(0, index).reverse().find(item => !describeBlock(item).builtin);
         pendingFocus = neighbor ? { id: neighbor.id, field: 'handle' } : null;
         commit(removeBlock(layout, id));
+        if (!neighbor) addButton.focus?.();
         showUndo(`已删除“${name}”`, layout);
         say(`已删除“${name}”`);
     }
@@ -935,6 +963,9 @@ export function createPromptLayoutEditor({
     }
 
     listen(list, 'click', async (event) => {
+        const insert = event.target.closest?.('[data-ple-insert-after]');
+        if (insert) { handleAdd(insert.getAttribute('data-ple-insert-after')); return; }
+        if (event.target.closest?.('[data-ple-definitions]')) { onEditBuiltin?.('tools'); return; }
         // Ctrl / ⌘ / Shift 点击行头 = 选择（Shift 选范围），不触发展开、编辑等原有操作。
         const modifier = event.ctrlKey || event.metaKey || event.shiftKey;
         const row = event.target?.closest?.(ROW_SELECTOR);
@@ -971,7 +1002,8 @@ export function createPromptLayoutEditor({
         else if (hit.field === 'tool-toggle') handleToolToggle(hit.id, Boolean(hit.node.checked), hit.row);
     });
     listen(collapseButton, 'click', () => setCollapsed(!collapsed));
-    listen(addButton, 'click', handleAdd);
+    listen(addButton, 'click', () => handleAdd());
+    listen(addToolButton, 'click', () => handleAdd('tools', true));
     listen(resetButton, 'click', handleReset);
     listen(selectModeButton, 'click', toggleSelectMode);
     listen(copyButton, 'click', handleBulkCopy);

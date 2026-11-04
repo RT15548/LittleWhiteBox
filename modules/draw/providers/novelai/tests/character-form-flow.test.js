@@ -607,3 +607,27 @@ test('gallery controls dispatch commands and restore controls from host receipts
     assert.equal(posted.at(-1).type, 'BATCH_CANCEL_EXPORT');
     assert.equal(document.getElementById('nd_zip_output').childElementCount, 0);
 });
+
+// Acceptance: the image-save switches submit together, wait for the host receipt, and the folder button reports through the notice.
+// Cost: switches that look saved but are not, or a folder button that stays disabled after a failed open.
+test('image save switches and open-folder button follow the host protocol', async () => {
+    const receive = data => window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: { source: 'LittleWhiteBox-NovelDraw', ...data },
+    }));
+    receive({ type: 'INIT_DATA', settings: { characterTags: [], characterGroups: [], autoSaveImages: true, saveImagesByFolder: false, imageTitleMode: 'none' } });
+    const [auto, folder, open] = ['nd_auto_save_images', 'nd_save_by_folder', 'nd_open_image_folder'].map(id => document.getElementById(id));
+    assert.deepEqual([auto.checked, folder.checked], [true, false]);
+    folder.checked = true;
+    folder.dispatchEvent(new window.Event('change'));
+    assert.deepEqual([auto.disabled, folder.disabled], [true, true]);
+    const submitted = posted.at(-1);
+    assert.deepEqual([submitted.type, submitted.autoSaveImages, submitted.saveImagesByFolder], ['SAVE_IMAGE_SAVE_OPTIONS', true, true]);
+    receive({ type: 'STATUS', target: 'image-save', state: 'error', text: '保存失败，请重试', autoSaveImages: true, saveImagesByFolder: false });
+    assert.deepEqual([auto.disabled, folder.disabled, folder.checked], [false, false, false]);
+    click(open);
+    assert.deepEqual([posted.at(-1).type, open.disabled], ['OPEN_IMAGE_FOLDER', true]);
+    receive({ type: 'STATUS', target: 'image-folder', state: 'success', text: '已打开图片目录' });
+    assert.equal(open.disabled, false);
+    assert.equal(document.getElementById('nd_gallery_status').textContent, '已打开图片目录');
+});
