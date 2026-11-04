@@ -344,16 +344,21 @@ const STYLES = `
 .nd-novel .nd-detail-value.warning{ color: var(--nd-warning); }
 .nd-novel .nd-detail-value.error{ color: var(--nd-error); }
 
-/* 菜单 - 向下展开（楼层按钮用） */
+/* 菜单 - 向下展开（楼层按钮用）；整体限高，预设网格在菜单内部滚动 */
 .nd-novel .nd-menu {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
     width: 220px;
+    display: flex;
+    flex-direction: column;
+    max-height: min(70vh, 480px);
+    overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
     padding: 10px;
+    box-sizing: border-box;
     box-shadow: var(--nd-shadow-lg);
     opacity: 0;
     visibility: hidden;
@@ -372,6 +377,7 @@ const STYLES = `
     border: none;
     border-radius: 0;
     overflow: visible;
+    flex-shrink: 0;
 }
 
 .nd-novel .nd-row{
@@ -423,7 +429,12 @@ ${MAX_IMAGES_INPUT_CSS}
 
 .nd-novel .nd-inner-sep{ display: none; }
 
-.nd-novel .nd-controls{ display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.nd-novel .nd-controls{ display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-shrink: 0; }
+
+/* 尺寸 + 数目并排一行 */
+.nd-novel .nd-row-pair{ display: flex; align-items: stretch; gap: 8px; padding: 6px 2px; }
+.nd-novel .nd-row-pair .nd-row{ flex: 1; min-width: 0; padding: 0; }
+.nd-novel .nd-row-pair .nd-label{ width: auto; padding-right: 2px; }
 
 .nd-novel .nd-auto{
     flex: 1;
@@ -669,21 +680,6 @@ function createPersistMenuBtn() {
     return btn;
 }
 
-function fillPresetSelect(selectEl) {
-    if (!selectEl) return;
-    const settings = getSettings();
-    const presets = settings.paramsPresets || [];
-    const currentId = settings.selectedParamsPresetId;
-    selectEl.replaceChildren();
-    presets.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name || '未命名';
-        if (p.id === currentId) opt.selected = true;
-        selectEl.appendChild(opt);
-    });
-}
-
 function fillSizeSelect(selectEl) {
     if (!selectEl) return;
     const settings = getSettings();
@@ -836,18 +832,15 @@ function createFloorPanelElement(messageId) {
 
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
-    const rowPreset = createEl('div', 'nd-row');
-    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
-    const presetSelect = createEl('select', 'nd-select nd-preset-select');
-    fillPresetSelect(presetSelect);
-    rowPreset.appendChild(presetSelect);
-    const innerSep = createEl('div', 'nd-inner-sep');
+    // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
     const rowSize = createEl('div', 'nd-row');
     rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    card.append(rowPreset, innerSep, rowSize, maxImages.createRow());
+    const rowPair = createEl('div', 'nd-row-pair');
+    rowPair.append(rowSize, maxImages.createRow());
+    card.append(rowPair);
 
     const controls = createEl('div', 'nd-controls');
     const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
@@ -880,7 +873,6 @@ function cacheFloorDOM(panelData) {
         errorRow: el.querySelector('.nd-error-row'),
         error: el.querySelector('.nd-error'),
         time: el.querySelector('.nd-time'),
-        presetSelect: el.querySelector('.nd-preset-select'),
         sizeSelect: el.querySelector('.nd-size-select'),
         maxImagesInput: el.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`),
         autoToggle: el.querySelector('.nd-auto-toggle'),
@@ -1214,10 +1206,6 @@ function bindFloorPanelEvents(panelData) {
         }
     });
 
-    panelData.$cache.presetSelect?.addEventListener('change', async (e) => {
-        await setQuickPreset(e.target.value);
-    });
-
     panelData.$cache.presetGrid?.addEventListener('click', async (e) => {
         const card = e.target.closest('.nd-preset-card');
         if (!card) return;
@@ -1266,10 +1254,7 @@ function bindFloorPanelEvents(panelData) {
 }
 
 function refreshFloorPresetSelect(messageId) {
-    const data = panelMap.get(messageId);
-    const select = data?.$cache?.presetSelect;
-    fillPresetSelect(select);
-    renderPresetGrid(data?.$cache?.presetGrid);
+    renderPresetGrid(panelMap.get(messageId)?.$cache?.presetGrid);
 }
 
 function refreshFloorSizeSelect(messageId) {
@@ -1871,7 +1856,6 @@ async function handleFloatingAbort() {
 }
 
 function refreshFloatingPresetSelect() {
-    fillPresetSelect($floatingCache.presetSelect);
     renderPresetGrid($floatingCache.presetGrid);
 }
 
@@ -1893,7 +1877,6 @@ function cacheFloatingDOM() {
         detailErrorRow: floatingEl.querySelector('.nd-error-row'),
         detailError: floatingEl.querySelector('.nd-error'),
         detailTime: floatingEl.querySelector('.nd-time'),
-        presetSelect: floatingEl.querySelector('.nd-preset-select'),
         sizeSelect: floatingEl.querySelector('.nd-size-select'),
         maxImagesInput: floatingEl.querySelector(`.${MAX_IMAGES_INPUT_CLASS}`),
         autoToggle: floatingEl.querySelector('.nd-auto-toggle'),
@@ -1945,18 +1928,15 @@ function createFloatingButton() {
 
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
-    const rowPreset = createEl('div', 'nd-row');
-    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
-    const presetSelect = createEl('select', 'nd-select nd-preset-select');
-    fillPresetSelect(presetSelect);
-    rowPreset.appendChild(presetSelect);
-    const innerSep = createEl('div', 'nd-inner-sep');
+    // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
     const rowSize = createEl('div', 'nd-row');
     rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
     const sizeSelect = createEl('select', 'nd-select size nd-size-select');
     fillSizeSelect(sizeSelect);
     rowSize.appendChild(sizeSelect);
-    card.append(rowPreset, innerSep, rowSize, maxImages.createRow());
+    const rowPair = createEl('div', 'nd-row-pair');
+    rowPair.append(rowSize, maxImages.createRow());
+    card.append(rowPair);
 
     const controls = createEl('div', 'nd-controls');
     const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
@@ -2014,10 +1994,6 @@ function createFloatingButton() {
     floatingEl.addEventListener('pointercancel', onFloatingPointerCancel);
     floatingEl.addEventListener('lostpointercapture', onFloatingPointerCancel);
     floatingEl.addEventListener('click', onFloatingControlClick);
-
-    $floatingCache.presetSelect?.addEventListener('change', async (e) => {
-        await setQuickPreset(e.target.value);
-    });
 
     $floatingCache.presetGrid?.addEventListener('click', async (e) => {
         const card = e.target.closest('.nd-preset-card');
@@ -2078,10 +2054,8 @@ function destroyFloatingButton() {
 
 function updateAllPresetSelects() {
     panelMap.forEach((data) => {
-        fillPresetSelect(data.$cache?.presetSelect);
         renderPresetGrid(data?.$cache?.presetGrid);
     });
-    fillPresetSelect($floatingCache.presetSelect);
     renderPresetGrid($floatingCache.presetGrid);
     // “数目”输入框的提示里带当前预设的出图数，切换预设后一并刷新。
     updateAllMaxImagesInputs();
