@@ -4,10 +4,10 @@ import { SlashCommandAbortController } from "../../../../slash-commands/SlashCom
 /**
  * 执行 SillyTavern 斜杠命令
  * @param {string} command - 要执行的命令
- * @param {{signal?: AbortSignal}} [options] - 命令链的取消信号
+ * @param {{signal?: AbortSignal, rawResult?: boolean}} [options] - 命令链的取消信号；rawResult 保留宿主返回对象
  * @returns {Promise<any>} 命令执行结果
  */
-export async function executeSlashCommand(command, { signal } = {}) {
+export async function executeSlashCommand(command, { signal, rawResult = false } = {}) {
     const controller = signal ? new SlashCommandAbortController() : null;
     const onAbort = () => controller.abort(String(signal.reason || 'Task stopped'), true);
     try {
@@ -21,6 +21,7 @@ export async function executeSlashCommand(command, { signal } = {}) {
         const result = controller
             ? await executeSlashCommands(command, true, null, false, null, controller)
             : await executeSlashCommands(command, true);
+        if (rawResult) return result;
         if (result && typeof result === 'object' && result.pipe !== undefined) {
             const pipeValue = result.pipe;
             if (typeof pipeValue === 'string') {

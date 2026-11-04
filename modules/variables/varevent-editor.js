@@ -4,17 +4,21 @@
  */
 
 import { getContext } from "../../../../../extensions.js";
-import { getLocalVariable } from "../../../../../variables.js";
+import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents } from "../../core/event-manager.js";
+import { executeSlashCommand } from '../../core/slash-command.js';
 import { replaceXbGetVarInString, replaceXbGetVarYamlInString, replaceXbGetVarYamlIdxInString } from "./var-commands.js";
 import { observeBackgroundTask } from '../../shared/common/async-errors.js';
+import { conditionGroups, executeCondition, joinConditions, macroExpression, parseCondition } from './varevent/condition.js';
+import { createEventDocument, findVareventBlocks, newEvent, newEventGroup, parseVareventEvents, serializeEventDocument } from './varevent/document.js';
+import { createEventRun, removeLegacyEventQueue } from './varevent/run.js';
+import { VAREVENT_COPY, eventErrorText } from './varevent/copy.js';
 
 
 const MODULE_ID = 'vareventEditor';
 const LWB_EXT_ID = 'LittleWhiteBox';
 const LWB_VAREVENT_PROMPT_KEY = 'LWB_varevent_display';
 const EDITOR_STYLES_ID = 'lwb-varevent-editor-styles';
-const TAG_RE_VAREVENT = /<\s*varevent[^>]*>([\s\S]*?)<\s*\/\s*varevent\s*>/gi;
 
 const OP_ALIASES = {
     set: ['set', '记下', '記下', '记录', '記錄', '录入', '錄入', 'record'],
@@ -31,9 +35,9 @@ const TOP_OP_RE = new RegExp(`^(${OP_WORDS_PATTERN})\\s*:\\s*$`, 'i');
 
 let events = null;
 let initialized = false;
-let origEmitMap = new WeakMap();
-
-function debounce(fn, wait = 100) { let t = null; return (...args) => { clearTimeout(t); t = setTimeout(() => fn.apply(null, args), wait); }; }
+let latePromptDispose = null;
+const editorTimers = new Set();
+const editorDisposers = new Set();
 
 function stripYamlInlineComment(s) {
     const text = String(s ?? ''); if (!text) return '';
@@ -140,136 +144,113 @@ export function preprocessBumpAliases(innerText) {
     return out.join('\n');
 }
 
-export function parseVareventEvents(innerText) {
-    const evts = [], lines = String(innerText || '').split(/\r?\n/);
-    let cur = null;
-    const flush = () => { if (cur) { evts.push(cur); cur = null; } };
-    const isStopLine = (t) => !t ? false : /^\[\s*event\.[^\]]+]\s*$/i.test(t) || /^(condition|display|js_execute)\s*:/i.test(t) || /^<\s*\/\s*varevent\s*>/i.test(t);
-    const findUnescapedQuote = (str, q) => { for (let i = 0; i < str.length; i++) if (str[i] === q && str[i - 1] !== '\\') return i; return -1; };
-    for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i], line = raw.trim(); if (!line) continue;
-        const header = /^\[\s*event\.([^\]]+)]\s*$/i.exec(line);
-        if (header) { flush(); cur = { id: String(header[1]).trim() }; continue; }
-        const m = /^(condition|display|js_execute)\s*:\s*(.*)$/i.exec(line);
-        if (m) {
-            const key = m[1].toLowerCase(); let valPart = m[2] ?? ''; if (!cur) cur = {};
-            let value = ''; const ltrim = valPart.replace(/^\s+/, ''), firstCh = ltrim[0];
-            if (firstCh === '"' || firstCh === "'") {
-                const quote = firstCh; let after = ltrim.slice(1), endIdx = findUnescapedQuote(after, quote);
-                if (endIdx !== -1) value = after.slice(0, endIdx);
-                else { value = after + '\n'; while (++i < lines.length) { const ln = lines[i], pos = findUnescapedQuote(ln, quote); if (pos !== -1) { value += ln.slice(0, pos); break; } value += ln + '\n'; } }
-                value = value.replace(/\\"/g, '"').replace(/\\'/g, "'");
-            } else { value = valPart; let j = i + 1; while (j < lines.length) { const nextTrim = lines[j].trim(); if (isStopLine(nextTrim)) break; value += '\n' + lines[j]; j++; } i = j - 1; }
-            if (key === 'condition') cur.condition = value; else if (key === 'display') cur.display = value; else if (key === 'js_execute') cur.js = value;
-        }
-    }
-    flush(); return evts;
+export { parseVareventEvents };
+
+function reportEventError(kind, event, error) {
+    console.warn({ source: import.meta.url, eventId: event?.id, kind }, error);
+    if (typeof window !== 'undefined') window.toastr?.warning?.(eventErrorText(kind, event, error));
 }
 
-export function evaluateCondition(expr) {
-    const isNumericLike = (v) => v != null && /^-?\d+(?:\.\d+)?$/.test(String(v).trim());
-    // eslint-disable-next-line no-unused-vars -- Used by eval() expression; keep in scope.
-    function VAR(path) {
-        try {
-            const p = String(path ?? '').replace(/\[(\d+)\]/g, '.$1'), seg = p.split('.').map(s => s.trim()).filter(Boolean);
-            if (!seg.length) return ''; const root = getLocalVariable(seg[0]);
-            if (seg.length === 1) { if (root == null) return ''; return typeof root === 'object' ? JSON.stringify(root) : String(root); }
-            let obj; if (typeof root === 'string') { try { obj = JSON.parse(root); } catch { return undefined; } } else if (root && typeof root === 'object') obj = root; else return undefined;
-            let cur = obj; for (let i = 1; i < seg.length; i++) { cur = cur?.[/^\d+$/.test(seg[i]) ? Number(seg[i]) : seg[i]]; if (cur === undefined) return undefined; }
-            return cur == null ? '' : typeof cur === 'object' ? JSON.stringify(cur) : String(cur);
-        } catch { return undefined; }
-    }
-    // eslint-disable-next-line no-unused-vars -- Used by eval() expression; keep in scope.
-    const VAL = (t) => String(t ?? '');
-    // eslint-disable-next-line no-unused-vars -- Used by eval() expression; keep in scope.
-    function REL(a, op, b) {
-        if (isNumericLike(a) && isNumericLike(b)) { const A = Number(String(a).trim()), B = Number(String(b).trim()); if (op === '>') return A > B; if (op === '>=') return A >= B; if (op === '<') return A < B; if (op === '<=') return A <= B; }
-        else { const A = String(a), B = String(b); if (op === '>') return A > B; if (op === '>=') return A >= B; if (op === '<') return A < B; if (op === '<=') return A <= B; }
-        return false;
-    }
-    try {
-        let processed = expr.replace(/var\(`([^`]+)`\)/g, 'VAR("$1")').replace(/val\(`([^`]+)`\)/g, 'VAL("$1")');
-        processed = processed.replace(/(VAR\(".*?"\)|VAL\(".*?"\))\s*(>=|<=|>|<)\s*(VAR\(".*?"\)|VAL\(".*?"\))/g, 'REL($1,"$2",$3)');
-        // eslint-disable-next-line no-eval -- intentional: user-defined expression evaluation
-        return !!eval(processed);
-    } catch { return false; }
+export function evaluateCondition(expr, event = {}) {
+    try { return executeCondition(parseCondition(expr), getContext, getLocalVariable); }
+    catch (error) { reportEventError(VAREVENT_COPY.conditionError, event, error); return false; }
 }
 
-export async function runJS(code) {
+function selectEvent(innerText) {
+    let candidates;
+    try { candidates = parseVareventEvents(innerText); }
+    catch (error) { reportEventError(VAREVENT_COPY.conditionError, {}, error); return null; }
+    for (const event of candidates.reverse()) {
+        if (!String(event.display ?? '').trim() && !String(event.js ?? '').trim()) continue;
+        if (!String(event.condition ?? '').trim() || evaluateCondition(event.condition, event)) return event;
+    }
+    return null;
+}
+
+export async function runJS(code, assertCurrent = () => {}, signal) {
+    assertCurrent();
     const ctx = getContext();
-    try {
-        const STscriptProxy = async (command) => { if (!command) return; if (command[0] !== '/') command = '/' + command; const { executeSlashCommands, substituteParams } = getContext(); return await executeSlashCommands?.(substituteParams ? substituteParams(command) : command, true); };
-        // eslint-disable-next-line no-new-func -- intentional: user-defined async script
-        const fn = new Function('ctx', 'getVar', 'setVar', 'console', 'STscript', `return (async()=>{ ${code}\n })();`);
-        const getVar = (k) => getLocalVariable(k);
-        const setVar = (k, v) => { getContext()?.variables?.local?.set?.(k, v); };
-        return await fn(ctx, getVar, setVar, console, (typeof window !== 'undefined' && window?.STscript) || STscriptProxy);
-    } catch (err) { console.error('[LWB:runJS]', err); }
+    const guard = () => {
+        assertCurrent();
+        if (getContext()?.chatId !== ctx?.chatId || getContext()?.chat !== ctx?.chat) {
+            throw new DOMException(VAREVENT_COPY.invalidRun, 'AbortError');
+        }
+    };
+    const getVar = key => { guard(); return getLocalVariable(key); };
+    const setVar = (key, value) => { guard(); return setLocalVariable(key, value); };
+    const hostCalls = [];
+    const executeHostCommand = async command => {
+        guard();
+        if (!command) return;
+        let result;
+        if (!signal && typeof window !== 'undefined' && typeof window.STscript === 'function') result = await window.STscript(command);
+        else result = await executeSlashCommand(command, { signal, rawResult: true });
+        guard();
+        return result;
+    };
+    const STscriptProxy = command => {
+        const call = executeHostCommand(command);
+        // Existing action-builder snippets do not await STscript. Own their
+        // completion without changing the user's script or leaving rejections loose.
+        hostCalls.push(call.then(() => null, error => error));
+        return call;
+    };
+    // eslint-disable-next-line no-new-func -- Existing user-authored event scripts run in the host page.
+    const fn = new Function('ctx', 'getVar', 'setVar', 'console', 'STscript', `return (async()=>{ ${code}\n })();`);
+    let result, failure;
+    try { result = await fn(ctx, getVar, setVar, console, STscriptProxy); }
+    catch (error) { failure = error; }
+    while (hostCalls.length) {
+        const errors = await Promise.all(hostCalls.splice(0));
+        failure ||= errors.find(Boolean);
+    }
+    if (failure) throw failure;
+    return result;
 }
 
 export async function runST(code) {
-    try { if (!code) return; if (code[0] !== '/') code = '/' + code; const { executeSlashCommands, substituteParams } = getContext() || {}; return await executeSlashCommands?.(substituteParams ? substituteParams(code) : code, true); }
-    catch (err) { console.error('[LWB:runST]', err); }
+    if (!code) return;
+    const ctx = getContext();
+    if (code[0] !== '/') code = '/' + code;
+    return await ctx.executeSlashCommands(ctx.substituteParams ? ctx.substituteParams(code) : code, true);
 }
 
-async function buildVareventReplacement(innerText, dryRun, executeJs = false) {
-    try {
-        const evts = parseVareventEvents(innerText); if (!evts.length) return '';
-        let chosen = null;
-        for (let i = evts.length - 1; i >= 0; i--) {
-            const ev = evts[i], condStr = String(ev.condition ?? '').trim(), condOk = condStr ? evaluateCondition(condStr) : true;
-            if (!((ev.display && String(ev.display).trim()) || (ev.js && String(ev.js).trim()))) continue;
-            if (condOk) { chosen = ev; break; }
+const eventRun = createEventRun({
+    getContext, execute: runJS,
+    report: (event, error) => reportEventError(VAREVENT_COPY.scriptError, event, error),
+});
+
+async function expandEvents(text, dryRun, executeJs, enqueue, source) {
+    const blocks = findVareventBlocks(text);
+    let output = '', cursor = 0;
+    for (const block of blocks) {
+        const event = selectEvent(block.inner);
+        output += text.slice(cursor, block.start) + String(event?.display ?? '').replace(/^\n+|\n+$/g, '');
+        cursor = block.end;
+        if (!dryRun && event) {
+            if (enqueue) enqueue(event, source);
+            if (executeJs && event.js?.trim()) await runJS(event.js);
         }
-        if (!chosen) return '';
-        let out = chosen.display ? String(chosen.display).replace(/^\n+/, '').replace(/\n+$/, '') : '';
-        if (!dryRun && executeJs && chosen.js && String(chosen.js).trim()) { try { await runJS(chosen.js); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "buildVareventReplacement" }, caughtError); } }
-        return out;
-    } catch { return ''; }
+    }
+    return output + text.slice(cursor);
 }
 
 export async function replaceVareventInString(text, dryRun = false, executeJs = false) {
-    if (!text || text.indexOf('<varevent') === -1) return text;
-    const replaceAsync = async (input, regex, repl) => { let out = '', last = 0; regex.lastIndex = 0; let m; while ((m = regex.exec(input))) { out += input.slice(last, m.index); out += await repl(...m); last = regex.lastIndex; } return out + input.slice(last); };
-    return await replaceAsync(text, TAG_RE_VAREVENT, (m, inner) => buildVareventReplacement(inner, dryRun, executeJs));
+    return await expandEvents(String(text ?? ''), dryRun, executeJs, false);
 }
 
 export function enqueuePendingVareventBlock(innerText, sourceInfo) {
-    try { const ctx = getContext(), meta = ctx?.chatMetadata || {}, list = (meta.LWB_PENDING_VAREVENT_BLOCKS ||= []); list.push({ inner: String(innerText || ''), source: sourceInfo || 'unknown', turn: (ctx?.chat?.length ?? 0), ts: Date.now() }); ctx?.saveMetadataDebounced?.(); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "enqueuePendingVareventBlock" }, caughtError); }
+    eventRun.enqueue(selectEvent(innerText), sourceInfo);
 }
 
 export function drainPendingVareventBlocks() {
-    try { const ctx = getContext(), meta = ctx?.chatMetadata || {}, list = Array.isArray(meta.LWB_PENDING_VAREVENT_BLOCKS) ? meta.LWB_PENDING_VAREVENT_BLOCKS.slice() : []; meta.LWB_PENDING_VAREVENT_BLOCKS = []; ctx?.saveMetadataDebounced?.(); return list; } catch { return []; }
+    eventRun.cancel();
+    return [];
 }
 
-export async function executeQueuedVareventJsAfterTurn() {
-    const blocks = drainPendingVareventBlocks(); if (!blocks.length) return;
-    for (const item of blocks) {
-        try {
-            const evts = parseVareventEvents(item.inner); if (!evts.length) continue;
-            let chosen = null;
-            for (let j = evts.length - 1; j >= 0; j--) { const ev = evts[j], condStr = String(ev.condition ?? '').trim(); if (!(condStr ? evaluateCondition(condStr) : true)) continue; if (!(ev.js && String(ev.js).trim())) continue; chosen = ev; break; }
-            if (chosen) { try { await runJS(String(chosen.js ?? '').trim()); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeQueuedVareventJsAfterTurn" }, caughtError); } }
-        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "executeQueuedVareventJsAfterTurn" }, caughtError); }
-    }
+export function executeQueuedVareventJsAfterTurn() {
+    return eventRun.flush();
 }
-
-let _scanRunning = false;
-async function runImmediateVarEvents() {
-    if (_scanRunning) return; _scanRunning = true;
-    try {
-        const wiList = getContext()?.world_info || [];
-        for (const entry of wiList) {
-            const content = String(entry?.content ?? ''); if (!content || content.indexOf('<varevent') === -1) continue;
-            TAG_RE_VAREVENT.lastIndex = 0; let m;
-            while ((m = TAG_RE_VAREVENT.exec(content)) !== null) {
-                const evts = parseVareventEvents(m[1] ?? '');
-                for (const ev of evts) { if (!(String(ev.condition ?? '').trim() ? evaluateCondition(String(ev.condition ?? '').trim()) : true)) continue; if (String(ev.display ?? '').trim()) await runST(`/sys "${String(ev.display ?? '').trim().replace(/"/g, '\\"')}"`); if (String(ev.js ?? '').trim()) await runJS(String(ev.js ?? '').trim()); }
-            }
-        }
-    } catch (caughtError) { console.warn({ source: import.meta.url, operation: "runImmediateVarEvents" }, caughtError); } finally { setTimeout(() => { _scanRunning = false; }, 0); }
-}
-const runImmediateVarEventsDebounced = debounce(runImmediateVarEvents, 30);
 
 function installWIHiddenTagStripper() {
     const ctx = getContext(), ext = ctx?.extensionSettings; if (!ext) return;
@@ -278,48 +259,62 @@ function installWIHiddenTagStripper() {
     ctx?.saveSettingsDebounced?.();
 }
 
-async function replacePromptVariables(text, dryRun, sourceInfo) {
-    // Preview/background assembly reads variables but must not queue event actions.
-    if (!dryRun && text.includes('<varevent')) {
-        TAG_RE_VAREVENT.lastIndex = 0;
-        let match;
-        while ((match = TAG_RE_VAREVENT.exec(text)) !== null) {
-            enqueuePendingVareventBlock(match[1] ?? '', sourceInfo);
+async function replacePromptVariables(text, dryRun, sourceInfo, finalRequest = false, enqueue) {
+    // Expansion is not enrollment. Request-ready hooks capture selections on the
+    // actual payload; only GENERATE_AFTER_DATA can attach them to a reply run.
+    if (!dryRun && finalRequest) text = await expandEvents(text, false, false, enqueue, sourceInfo);
+    else if (!dryRun) {
+        // Preserve script source until selection; prompt macros inside scripts must
+        // not be captured early or rewritten by an unrelated assembly request.
+        let output = '', cursor = 0;
+        for (const block of findVareventBlocks(text)) {
+            output += replaceReadMacros(text.slice(cursor, block.start)) + block.raw;
+            cursor = block.end;
         }
-        text = await replaceVareventInString(text, false, false);
+        return output + replaceReadMacros(text.slice(cursor));
     }
+    return replaceReadMacros(text);
+}
+
+function replaceReadMacros(text) {
     text = replaceXbGetVarInString(text);
     text = replaceXbGetVarYamlInString(text);
     return replaceXbGetVarYamlIdxInString(text);
 }
 
+async function replacePromptMessages(chat, replace) {
+    for (const message of chat) {
+        for (const key of ['content', 'mes']) {
+            if (typeof message?.[key] === 'string') message[key] = await replace(message[key]);
+        }
+        if (Array.isArray(message?.content)) for (const part of message.content) {
+            if (part?.type === 'text' && typeof part.text === 'string') part.text = await replace(part.text);
+        }
+    }
+}
+
 function registerWIEventSystem() {
     const { eventSource, event_types: evtTypes } = getContext() || {};
+    const selections = new WeakMap();
+    const capture = owner => {
+        const selected = selections.get(owner) || [];
+        selections.set(owner, selected);
+        return (event, source) => selected.push({ event, source });
+    };
     if (evtTypes?.CHAT_COMPLETION_PROMPT_READY) {
         const lateChatReplacementHandler = async (data) => {
             try {
+                if (!initialized) return;
                 const chat = data?.chat;
                 if (!Array.isArray(chat)) return;
-                for (const msg of chat) {
-                    if (typeof msg?.content === 'string') {
-                        msg.content = await replacePromptVariables(msg.content, data.dryRun, 'chat.content');
-                    }
-                    if (Array.isArray(msg?.content)) {
-                        for (const part of msg.content) {
-                            if (part?.type === 'text' && typeof part.text === 'string') {
-                                part.text = await replacePromptVariables(part.text, data.dryRun, 'chat.content[].text');
-                            }
-                        }
-                    }
-                    if (typeof msg?.mes === 'string') {
-                        msg.mes = await replacePromptVariables(msg.mes, data.dryRun, 'chat.mes');
-                    }
-                }
+                const remember = data.dryRun ? undefined : capture(chat);
+                await replacePromptMessages(chat, text => replacePromptVariables(text, data.dryRun, 'chat.content', true, remember));
             } catch (caughtError) { console.warn({ source: import.meta.url, operation: "lateChatReplacementHandler" }, caughtError); }
         };
         try {
             if (eventSource && typeof eventSource.makeLast === 'function') {
                 eventSource.makeLast(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
+                latePromptDispose = () => eventSource.removeListener(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
             } else {
                 events?.on(evtTypes.CHAT_COMPLETION_PROMPT_READY, lateChatReplacementHandler);
             }
@@ -336,38 +331,34 @@ function registerWIEventSystem() {
             } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
         });
     }
-    if (evtTypes?.GENERATION_ENDED) {
-        events?.on(evtTypes.GENERATION_ENDED, async () => {
-            try {
-                getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false);      
-                const ctx = getContext();
-                const chat = ctx?.chat || [];
-                const lastMsg = chat[chat.length - 1];    
-                if (lastMsg && !lastMsg.is_user) {
-                    await executeQueuedVareventJsAfterTurn();
-                } else {
-
-                    drainPendingVareventBlocks();
-                }
-            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
-        });
-    }    
-    if (evtTypes?.CHAT_CHANGED) {
-        events?.on(evtTypes.CHAT_CHANGED, () => {
-            try {
-                getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false);
-                drainPendingVareventBlocks();
-                runImmediateVarEventsDebounced();
-            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
-        });
+    const on = (key, handler) => { if (evtTypes?.[key]) events.on(evtTypes[key], handler); };
+    on('TEXT_COMPLETION_SETTINGS_READY', async data => {
+        if (typeof data?.prompt === 'string') {
+            data.prompt = await replacePromptVariables(data.prompt, false, 'text.prompt', true, capture(data));
+        }
+    });
+    on('GENERATE_AFTER_DATA', async (data, dryRun) => {
+        if (!data || dryRun) return;
+        const enqueue = eventRun.prepare();
+        const owner = Array.isArray(data.prompt) ? data.prompt : data;
+        for (const { event, source } of selections.get(owner) || []) enqueue?.(event, source);
+        selections.delete(owner);
+        const replace = text => replacePromptVariables(text, false, 'generation.prompt', true, enqueue);
+        if (typeof data.prompt === 'string') data.prompt = await replace(data.prompt);
+        else if (Array.isArray(data.prompt)) await replacePromptMessages(data.prompt, replace);
+        if (typeof data.input === 'string') data.input = await replace(data.input);
+    });
+    on('GENERATION_STARTED', (type, options, dryRun) => eventRun.begin(type, options, dryRun));
+    on('MESSAGE_RECEIVED', (id, type) => eventRun.received(id, type));
+    on('GENERATION_ENDED', () => eventRun.ended());
+    on('GENERATION_STOPPED', () => eventRun.cancel());
+    for (const key of ['MESSAGE_SWIPED', 'MESSAGE_SWIPE_DELETED', 'MESSAGE_DELETED', 'MESSAGE_EDITED']) {
+        on(key, id => eventRun.changed(key, id));
     }
-    if (evtTypes?.APP_READY) {
-        events?.on(evtTypes.APP_READY, () => {
-            try {
-                runImmediateVarEventsDebounced();
-            } catch (caughtError) { console.warn({ source: import.meta.url, operation: "registerWIEventSystem" }, caughtError); }
-        });
-    }
+    on('CHAT_CHANGED', () => {
+        eventRun.cancel();
+        removeLegacyEventQueue(getContext());
+    });
 }
 
 const LWBVE = { installed: false, obs: null };
@@ -390,8 +381,12 @@ const U = {
         let dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
         const onDown = (e) => { if (!(e instanceof PointerEvent) || e.button !== 0) return; dragging = true; const r = modal.getBoundingClientRect(), ro = overlay.getBoundingClientRect(); modal.style.left = (r.left - ro.left) + 'px'; modal.style.top = (r.top - ro.top) + 'px'; modal.style.transform = ''; sx = e.clientX; sy = e.clientY; sl = parseFloat(modal.style.left) || 0; st = parseFloat(modal.style.top) || 0; window.addEventListener('pointermove', onMove, { passive: true }); window.addEventListener('pointerup', onUp, { once: true }); e.preventDefault(); };
         const onMove = (e) => { if (!dragging) return; let nl = sl + e.clientX - sx, nt = st + e.clientY - sy; const maxL = (overlay.clientWidth || overlay.getBoundingClientRect().width) - modal.offsetWidth, maxT = (overlay.clientHeight || overlay.getBoundingClientRect().height) - modal.offsetHeight; modal.style.left = Math.max(0, Math.min(maxL, nl)) + 'px'; modal.style.top = Math.max(0, Math.min(maxT, nt)) + 'px'; };
-        const onUp = () => { dragging = false; window.removeEventListener('pointermove', onMove); };
+        const onUp = () => { dragging = false; window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
         header.addEventListener('pointerdown', onDown);
+        const dispose = () => { onUp(); header.removeEventListener('pointerdown', onDown); observer.disconnect(); editorDisposers.delete(dispose); };
+        const observer = new MutationObserver(() => { if (!overlay.isConnected) dispose(); });
+        observer.observe(document.body, { childList: true });
+        editorDisposers.add(dispose);
     },
     mini(innerHTML, title = '编辑器') {
         const wrap = U.el('div', 'lwb-ve-overlay'), modal = U.el('div', 'lwb-ve-modal'); modal.style.maxWidth = '720px'; modal.style.pointerEvents = 'auto'; modal.style.zIndex = '10010'; wrap.appendChild(modal);
@@ -404,15 +399,8 @@ const U = {
 };
 
 const P = {
-    stripOuter(s) { let t = String(s || '').trim(); if (!t.startsWith('(') || !t.endsWith(')')) return t; let i = 0, d = 0, q = null; while (i < t.length) { const c = t[i]; if (q) { if (c === q && t[i - 1] !== '\\') q = null; i++; continue; } if (c === '"' || c === "'" || c === '`') { q = c; i++; continue; } if (c === '(') d++; else if (c === ')') d--; i++; } return d === 0 ? t.slice(1, -1).trim() : t; },
-    stripOuterWithFlag(s) { let t = String(s || '').trim(); if (!t.startsWith('(') || !t.endsWith(')')) return { text: t, wrapped: false }; let i = 0, d = 0, q = null; while (i < t.length) { const c = t[i]; if (q) { if (c === q && t[i - 1] !== '\\') q = null; i++; continue; } if (c === '"' || c === "'" || c === '`') { q = c; i++; continue; } if (c === '(') d++; else if (c === ')') d--; i++; } return d === 0 ? { text: t.slice(1, -1).trim(), wrapped: true } : { text: t, wrapped: false }; },
-    splitTopWithOps(s) { const out = []; let i = 0, start = 0, d = 0, q = null, pendingOp = null; while (i < s.length) { const c = s[i]; if (q) { if (c === q && s[i - 1] !== '\\') q = null; i++; continue; } if (c === '"' || c === "'" || c === '`') { q = c; i++; continue; } if (c === '(') { d++; i++; continue; } if (c === ')') { d--; i++; continue; } if (d === 0 && (s.slice(i, i + 2) === '&&' || s.slice(i, i + 2) === '||')) { const seg = s.slice(start, i).trim(); if (seg) out.push({ op: pendingOp, expr: seg }); pendingOp = s.slice(i, i + 2); i += 2; start = i; continue; } i++; } const tail = s.slice(start).trim(); if (tail) out.push({ op: pendingOp, expr: tail }); return out; },
-    parseComp(s) { const t = P.stripOuter(s), m = t.match(/^var\(\s*([`'"])([\s\S]*?)\1\s*\)\s*(==|!=|>=|<=|>|<)\s*(val|var)\(\s*([`'"])([\s\S]*?)\5\s*\)$/); if (!m) return null; return { lhs: m[2], op: m[3], rhsIsVar: m[4] === 'var', rhs: m[6] }; },
-    hasBinary: (s) => /\|\||&&/.test(s),
-    paren: (s) => (s.startsWith('(') && s.endsWith(')')) ? s : `(${s})`,
-    wrapBack: (s) => { const t = String(s || '').trim(); return /^([`'"]).*\1$/.test(t) ? t : '`' + t.replace(/`/g, '\\`') + '`'; },
-    buildVar: (name) => `var(${P.wrapBack(name)})`,
-    buildVal(v) { const t = String(v || '').trim(); return /^([`'"]).*\1$/.test(t) ? `val(${t})` : `val(${P.wrapBack(t)})`; },
+    buildVar: name => macroExpression('var', name),
+    buildVal: value => macroExpression('val', value),
 };
 
 function buildSTscriptFromActions(actionList) {
@@ -434,8 +422,8 @@ function buildSTscriptFromActions(actionList) {
 }
 
 const UI = {
-    getEventBlockHTML(index) {
-        return `<div class="lwb-ve-event-title">事件 #<span class="lwb-ve-idx">${index}</span><span class="lwb-ve-close" title="删除事件" style="margin-left:auto;">✕</span></div><div class="lwb-ve-section"><div class="lwb-ve-label">执行条件</div><div class="lwb-ve-condgroups"></div><button type="button" class="lwb-ve-btn lwb-ve-add-group"><i class="fa-solid fa-plus"></i>添加条件小组</button></div><div class="lwb-ve-section"><div class="lwb-ve-label">将显示世界书内容（可选）</div><textarea class="lwb-ve-text lwb-ve-display" placeholder="例如：&lt;Info&gt;……&lt;/Info&gt;"></textarea></div><div class="lwb-ve-section"><div class="lwb-ve-label">将执行stscript命令或JS代码（可选）</div><textarea class="lwb-ve-text lwb-ve-js" placeholder="stscript:/setvar key=foo 1 | /run SomeQR 或 直接JS"></textarea><div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;"><button type="button" class="lwb-ve-btn lwb-ve-gen-st">常用st控制</button></div></div>`;
+    getEventBlockHTML() {
+        return `<div class="lwb-ve-event-title">事件 #<span class="lwb-ve-idx"></span><span class="lwb-ve-close" title="删除事件" style="margin-left:auto;">✕</span></div><div class="lwb-ve-section"><div class="lwb-ve-label">执行条件</div><div class="lwb-ve-condgroups"></div><button type="button" class="lwb-ve-btn lwb-ve-add-group"><i class="fa-solid fa-plus"></i>添加条件小组</button></div><div class="lwb-ve-section"><div class="lwb-ve-label">将显示世界书内容（可选）</div><textarea class="lwb-ve-text lwb-ve-display" placeholder="例如：&lt;Info&gt;……&lt;/Info&gt;"></textarea></div><div class="lwb-ve-section"><div class="lwb-ve-label">将执行stscript命令或JS代码（可选）</div><textarea class="lwb-ve-text lwb-ve-js" placeholder="stscript:/setvar key=foo 1 | /run SomeQR 或 直接JS"></textarea><div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;"><button type="button" class="lwb-ve-btn lwb-ve-gen-st">常用st控制</button></div></div>`;
     },
     getConditionRowHTML() {
         return `<select class="lwb-ve-input lwb-ve-mini lwb-ve-lop" style="display:none;"><option value="||">或</option><option value="&&" selected>和</option></select><select class="lwb-ve-input lwb-ve-mini lwb-ve-ctype"><option value="vv">比较值</option><option value="vvv">比较变量</option></select><input class="lwb-ve-input lwb-ve-var" placeholder="变量名称"/><select class="lwb-ve-input lwb-ve-mini lwb-ve-op"><option value="==">等于</option><option value="!=">不等于</option><option value=">=">大于或等于</option><option value="<=">小于或等于</option><option value=">">大于</option><option value="<">小于</option></select><span class="lwb-ve-vals"><span class="lwb-ve-valwrap"><input class="lwb-ve-input lwb-ve-val" placeholder="值"/></span></span><span class="lwb-ve-varrhs" style="display:none;"><span class="lwb-ve-valvarwrap"><input class="lwb-ve-input lwb-ve-valvar" placeholder="变量B名称"/></span></span><button type="button" class="lwb-ve-btn ghost lwb-ve-del">删除</button>`;
@@ -468,23 +456,29 @@ const UI = {
     },
     addConditionRow(container, params) { const row = UI.createConditionRow(params, () => UI.refreshLopDisplay(container)); container.appendChild(row); UI.refreshLopDisplay(container); return row; },
     parseConditionIntoUI(block, condStr) {
-        try {
-            const groupWrap = block.querySelector('.lwb-ve-condgroups'); if (!groupWrap) return;
-            // Template-only UI markup.
-            groupWrap.innerHTML = '';
-            const top = P.splitTopWithOps(condStr);
-            top.forEach((seg, idxSeg) => {
-                const { text } = P.stripOuterWithFlag(seg.expr), g = UI.makeConditionGroup(); groupWrap.appendChild(g);
-                const glopSel = g.querySelector('.lwb-ve-group-lop'); if (glopSel) { glopSel.style.display = idxSeg === 0 ? 'none' : ''; if (idxSeg > 0) glopSel.value = seg.op || '&&'; }
-                const name = g.querySelector('.lwb-ve-group-name'); if (name) name.textContent = ('ABCDEFGHIJKLMNOPQRSTUVWXYZ'[idxSeg] || (idxSeg + 1)) + ' 小组';
-                const rows = P.splitTopWithOps(P.stripOuter(text)); let first = true; const cw = g.querySelector('.lwb-ve-conds');
-                rows.forEach(r => { const comp = P.parseComp(r.expr); if (!comp) return; UI.addConditionRow(cw, { lop: first ? null : (r.op || '&&'), lhs: comp.lhs, op: comp.op, rhsIsVar: comp.rhsIsVar, rhs: comp.rhs }); first = false; });
-            });
-        } catch (caughtError) { console.warn({ source: import.meta.url, operation: "parseConditionIntoUI" }, caughtError); }
+        const groupWrap = block.querySelector('.lwb-ve-condgroups');
+        let groups;
+        try { groups = conditionGroups(condStr); } catch { groups = null; }
+        groupWrap.replaceChildren();
+        if (!groups) {
+            const label = U.el('label', 'lwb-ve-label'); label.textContent = VAREVENT_COPY.rawCondition;
+            const input = U.el('textarea', 'lwb-ve-text lwb-ve-condition-source'); input.value = condStr;
+            label.appendChild(input); groupWrap.appendChild(label);
+            block.querySelector('.lwb-ve-add-group').style.display = 'none';
+            return;
+        }
+        groups.forEach((group, index) => {
+            const element = UI.makeConditionGroup(); groupWrap.appendChild(element);
+            const operator = element.querySelector('.lwb-ve-group-lop');
+            operator.style.display = index ? '' : 'none'; operator.value = group.operator || '&&';
+            element.querySelector('.lwb-ve-group-name').textContent = `${index + 1} 小组`;
+            group.rows.forEach(row => UI.addConditionRow(element.querySelector('.lwb-ve-conds'), row));
+        });
     },
-    createEventBlock(index) {
-        const block = U.el('div', 'lwb-ve-event', UI.getEventBlockHTML(index));
-        block.querySelector('.lwb-ve-event-title .lwb-ve-close')?.addEventListener('click', () => { block.remove(); block.dispatchEvent(new CustomEvent('lwb-refresh-idx', { bubbles: true })); });
+    createEventBlock(index, onRemove) {
+        const block = U.el('div', 'lwb-ve-event', UI.getEventBlockHTML());
+        block.querySelector('.lwb-ve-idx').textContent = index;
+        block.querySelector('.lwb-ve-event-title .lwb-ve-close')?.addEventListener('click', () => { if (onRemove) onRemove(); else block.remove(); });
         const groupWrap = block.querySelector('.lwb-ve-condgroups'), addGroupBtn = block.querySelector('.lwb-ve-add-group');
         const refreshGroupOpsAndNames = () => { U.qa(groupWrap, '.lwb-ve-condgroup').forEach((g, i) => { const glop = g.querySelector('.lwb-ve-group-lop'); if (glop) { glop.style.display = i === 0 ? 'none' : ''; if (i > 0 && !glop.value) glop.value = '&&'; } const nm = g.querySelector('.lwb-ve-group-name'); if (nm) nm.textContent = ('ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i] || (i + 1)) + ' 小组'; }); };
         const createGroup = () => { const g = UI.makeConditionGroup(); UI.addConditionRow(g.querySelector('.lwb-ve-conds'), {}); g.querySelector('.lwb-ve-del-group')?.addEventListener('click', () => { g.remove(); refreshGroupOpsAndNames(); }); return g; };
@@ -494,99 +488,142 @@ const UI = {
         return block;
     },
     refreshEventIndices(eventsWrap) {
-        U.qa(eventsWrap, '.lwb-ve-event').forEach((el, i) => {
+        U.qa(eventsWrap, '.lwb-ve-event').forEach(el => {
             const idxEl = el.querySelector('.lwb-ve-idx'); if (!idxEl) return;
-            idxEl.textContent = String(i + 1); idxEl.style.cursor = 'pointer'; idxEl.title = '点击修改显示名称';
+            idxEl.style.cursor = 'pointer'; idxEl.title = '点击修改显示名称';
             if (!idxEl.dataset.clickbound) { idxEl.dataset.clickbound = '1'; idxEl.addEventListener('click', () => { const cur = idxEl.textContent || '', name = prompt('输入事件显示名称：', cur) ?? ''; if (name) idxEl.textContent = name; }); }
         });
     },
-    processEventBlock(block, idx) {
-        const displayName = String(block.querySelector('.lwb-ve-idx')?.textContent || '').trim();
-        const id = (displayName && /^\w[\w.-]*$/.test(displayName)) ? displayName : String(idx + 1).padStart(4, '0');
-        const lines = [`[event.${id}]`]; let condStr = '', hasAny = false;
-        const groups = U.qa(block, '.lwb-ve-condgroup');
-        for (let gi = 0; gi < groups.length; gi++) {
-            const g = groups[gi], rows = U.qa(g, '.lwb-ve-conds .lwb-ve-row'); let groupExpr = '', groupHas = false;
-            for (const r of rows) {
-                const v = r.querySelector('.lwb-ve-var')?.value?.trim?.() || '', op = r.querySelector('.lwb-ve-op')?.value || '==', ctype = r.querySelector('.lwb-ve-ctype')?.value || 'vv'; if (!v) continue;
-                let rowExpr = '';
-                if (ctype === 'vv') { const ins = U.qa(r, '.lwb-ve-vals .lwb-ve-val'), exprs = []; for (const inp of ins) { const val = (inp?.value || '').trim(); if (!val) continue; exprs.push(`${P.buildVar(v)} ${op} ${P.buildVal(val)}`); } if (exprs.length === 1) rowExpr = exprs[0]; else if (exprs.length > 1) rowExpr = '(' + exprs.join(' || ') + ')'; }
-                else { const ins = U.qa(r, '.lwb-ve-varrhs .lwb-ve-valvar'), exprs = []; for (const inp of ins) { const rhs = (inp?.value || '').trim(); if (!rhs) continue; exprs.push(`${P.buildVar(v)} ${op} ${P.buildVar(rhs)}`); } if (exprs.length === 1) rowExpr = exprs[0]; else if (exprs.length > 1) rowExpr = '(' + exprs.join(' || ') + ')'; }
-                if (!rowExpr) continue;
-                const lop = r.querySelector('.lwb-ve-lop')?.value || '&&';
-                if (!groupHas) { groupExpr = rowExpr; groupHas = true; } else { if (lop === '&&') { const left = P.hasBinary(groupExpr) ? P.paren(groupExpr) : groupExpr, right = P.hasBinary(rowExpr) ? P.paren(rowExpr) : rowExpr; groupExpr = `${left} && ${right}`; } else { groupExpr = `${groupExpr} || ${(P.hasBinary(rowExpr) ? P.paren(rowExpr) : rowExpr)}`; } }
+    processEventBlock(block) {
+        let condition = '';
+        const raw = block.querySelector('.lwb-ve-condition-source');
+        if (raw) condition = raw.value;
+        else for (const group of U.qa(block, '.lwb-ve-condgroup')) {
+            let expression = '';
+            for (const row of U.qa(group, '.lwb-ve-conds .lwb-ve-row')) {
+                const name = row.querySelector('.lwb-ve-var').value.trim();
+                if (!name) continue;
+                const operator = row.querySelector('.lwb-ve-op').value;
+                const isVariable = row.querySelector('.lwb-ve-ctype').value === 'vvv';
+                const value = row.querySelector(isVariable ? '.lwb-ve-valvar' : '.lwb-ve-val').value;
+                if (isVariable && !value.trim()) continue;
+                const comparison = `${P.buildVar(name)} ${operator} ${isVariable ? P.buildVar(value.trim()) : P.buildVal(value)}`;
+                expression = joinConditions(expression, row.querySelector('.lwb-ve-lop').value || '&&', comparison);
             }
-            if (!groupHas) continue;
-            const glop = g.querySelector('.lwb-ve-group-lop')?.value || '&&', wrap = P.hasBinary(groupExpr) ? P.paren(groupExpr) : groupExpr;
-            if (!hasAny) { condStr = wrap; hasAny = true; } else condStr = glop === '&&' ? `${condStr} && ${wrap}` : `${condStr} || ${wrap}`;
+            if (expression) condition = joinConditions(condition, group.querySelector('.lwb-ve-group-lop').value || '&&', expression);
         }
-        const disp = block.querySelector('.lwb-ve-display')?.value ?? '', js = block.querySelector('.lwb-ve-js')?.value ?? '', dispCore = String(disp).replace(/^\n+|\n+$/g, '');
-        if (!dispCore && !js) return { lines: [] };
-        if (condStr) lines.push(`condition: ${condStr}`);
-        if (dispCore !== '') lines.push('display: "' + ('\n' + dispCore + '\n').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
-        if (js !== '') lines.push(`js_execute: ${JSON.stringify(js)}`);
-        return { lines };
+        return {
+            id: block.querySelector('.lwb-ve-idx').textContent,
+            condition,
+            display: block.querySelector('.lwb-ve-display').value,
+            js: block.querySelector('.lwb-ve-js').value,
+        };
     },
 };
 
 export function openVarEditor(entryEl, uid) {
-    const textarea = (uid ? document.getElementById(`world_entry_content_${uid}`) : null) || entryEl?.querySelector?.('textarea[name="content"]');
+    const textarea = (uid ? document.getElementById('world_entry_content_' + uid) : null) || entryEl?.querySelector?.('textarea[name="content"]');
     if (!textarea) { U.toast.warn('未找到内容输入框，请先展开该条目的编辑抽屉'); return; }
-    const overlay = U.el('div', 'lwb-ve-overlay'), modal = U.el('div', 'lwb-ve-modal'); overlay.appendChild(modal); modal.style.pointerEvents = 'auto'; modal.style.zIndex = '10010';
-    const header = U.el('div', 'lwb-ve-header', `<span>条件规则编辑器</span><span class="lwb-ve-close">✕</span>`);
-    const tabs = U.el('div', 'lwb-ve-tabs'), tabsCtrl = U.el('div'); tabsCtrl.style.cssText = 'margin-left:auto;display:inline-flex;gap:6px;';
-    const btnAddTab = U.el('button', 'lwb-ve-btn', '+组'), btnDelTab = U.el('button', 'lwb-ve-btn ghost', '-组');
-    tabs.appendChild(tabsCtrl); tabsCtrl.append(btnAddTab, btnDelTab);
-    const body = U.el('div', 'lwb-ve-body'), footer = U.el('div', 'lwb-ve-footer');
-    const btnCancel = U.el('button', 'lwb-ve-btn', '取消'), btnOk = U.el('button', 'lwb-ve-btn primary', '确认');
-    footer.append(btnCancel, btnOk); modal.append(header, tabs, body, footer); U.drag(modal, overlay, header);
-    const pagesWrap = U.el('div'); body.appendChild(pagesWrap);
-    const addEventBtn = U.el('button', 'lwb-ve-btn', '<i class="fa-solid fa-plus"></i> 添加事件'); addEventBtn.type = 'button'; addEventBtn.style.cssText = 'background: var(--SmartThemeBlurTintColor); border: 1px solid var(--SmartThemeBorderColor); cursor: pointer; margin-right: 5px;';
-    const bumpBtn = U.el('button', 'lwb-ve-btn lwb-ve-gen-bump', 'bump数值映射设置');
-    const tools = U.el('div', 'lwb-ve-toolbar'); tools.append(addEventBtn, bumpBtn); body.appendChild(tools);
-    bumpBtn.addEventListener('click', () => openBumpAliasBuilder(null));
+    let model;
+    try { model = createEventDocument(String(textarea.value || '')); }
+    catch (error) { reportEventError(VAREVENT_COPY.conditionError, {}, error); return; }
+    if (!model.groups.length) model.groups.push(newEventGroup());
+    let active = model.groups[0], views = new Map();
+    const overlay = U.el('div', 'lwb-ve-overlay'), modal = U.el('div', 'lwb-ve-modal');
+    overlay.appendChild(modal);
+    const header = U.el('div', 'lwb-ve-header', '<span>条件规则编辑器</span><span class="lwb-ve-close">✕</span>');
+    const tabs = U.el('div', 'lwb-ve-tabs'), body = U.el('div', 'lwb-ve-body'), footer = U.el('div', 'lwb-ve-footer');
+    const cancel = U.el('button', 'lwb-ve-btn', '取消'), save = U.el('button', 'lwb-ve-btn primary', '确认');
+    footer.append(cancel, save); modal.append(header, tabs, body, footer); U.drag(modal, overlay, header);
+    const page = U.el('div', 'lwb-ve-page active'), eventList = U.el('div');
+    page.appendChild(eventList); body.appendChild(page);
+    const toolbar = U.el('div', 'lwb-ve-toolbar');
+    const addEvent = U.el('button', 'lwb-ve-btn', '添加事件'), bump = U.el('button', 'lwb-ve-btn', 'bump数值映射设置');
+    toolbar.append(addEvent, bump); body.appendChild(toolbar);
+    bump.addEventListener('click', () => openBumpAliasBuilder(null));
     const wi = document.getElementById('WorldInfo'), wiIcon = document.getElementById('WIDrawerIcon');
-    const wasPinned = !!wi?.classList.contains('pinnedOpen'); let tempPinned = false;
-    if (wi && !wasPinned) { wi.classList.add('pinnedOpen'); tempPinned = true; } if (wiIcon && !wiIcon.classList.contains('drawerPinnedOpen')) wiIcon.classList.add('drawerPinnedOpen');
-    const closeEditor = () => { try { const pinChecked = !!document.getElementById('WI_panel_pin')?.checked; if (tempPinned && !pinChecked) { wi?.classList.remove('pinnedOpen'); wiIcon?.classList.remove('drawerPinnedOpen'); } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "closeEditor" }, caughtError); } overlay.remove(); };
-    btnCancel.addEventListener('click', closeEditor); header.querySelector('.lwb-ve-close')?.addEventListener('click', closeEditor);
-    const TAG_RE = { varevent: /<varevent>([\s\S]*?)<\/varevent>/gi }, originalText = String(textarea.value || ''), vareventBlocks = [];
-    TAG_RE.varevent.lastIndex = 0; let mm; while ((mm = TAG_RE.varevent.exec(originalText)) !== null) vareventBlocks.push({ inner: mm[1] ?? '' });
-    const pageInitialized = new Set();
-    const makePage = () => { const page = U.el('div', 'lwb-ve-page'), eventsWrap = U.el('div'); page.appendChild(eventsWrap); return { page, eventsWrap }; };
-    const renderPage = (pageIdx) => {
-        const tabEls = U.qa(tabs, '.lwb-ve-tab'); U.setActive(tabEls, pageIdx);
-        const current = vareventBlocks[pageIdx], evts = (current && typeof current.inner === 'string') ? (parseVareventEvents(current.inner) || []) : [];
-        let page = U.qa(pagesWrap, '.lwb-ve-page')[pageIdx]; if (!page) { page = makePage().page; pagesWrap.appendChild(page); }
-        U.qa(pagesWrap, '.lwb-ve-page').forEach(el => el.classList.remove('active')); page.classList.add('active');
-        let eventsWrap = page.querySelector(':scope > div'); if (!eventsWrap) { eventsWrap = U.el('div'); page.appendChild(eventsWrap); }
-        const init = () => {
-            // Template-only UI markup.
-            eventsWrap.innerHTML = '';
-            if (!evts.length) eventsWrap.appendChild(UI.createEventBlock(1));
-            else evts.forEach((_ev, i) => { const block = UI.createEventBlock(i + 1); try { const condStr = String(_ev.condition || '').trim(); if (condStr) UI.parseConditionIntoUI(block, condStr); const disp = String(_ev.display || ''), dispEl = block.querySelector('.lwb-ve-display'); if (dispEl) dispEl.value = disp.replace(/^\r?\n/, '').replace(/\r?\n$/, ''); const js = String(_ev.js || ''), jsEl = block.querySelector('.lwb-ve-js'); if (jsEl) jsEl.value = js; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "init" }, caughtError); } eventsWrap.appendChild(block); });
-            UI.refreshEventIndices(eventsWrap); eventsWrap.addEventListener('lwb-refresh-idx', () => UI.refreshEventIndices(eventsWrap));
-        };
-        if (!pageInitialized.has(pageIdx)) { init(); pageInitialized.add(pageIdx); } else if (!eventsWrap.querySelector('.lwb-ve-event')) init();
+    const wasPinned = !!wi?.classList.contains('pinnedOpen');
+    if (wi && !wasPinned) wi.classList.add('pinnedOpen');
+    wiIcon?.classList.add('drawerPinnedOpen');
+    const close = () => {
+        editorDisposers.delete(close);
+        if (!wasPinned && !document.getElementById('WI_panel_pin')?.checked) {
+            wi?.classList.remove('pinnedOpen'); wiIcon?.classList.remove('drawerPinnedOpen');
+        }
+        overlay.remove();
     };
-    pagesWrap._lwbRenderPage = renderPage;
-    addEventBtn.addEventListener('click', () => { const active = pagesWrap.querySelector('.lwb-ve-page.active'), eventsWrap = active?.querySelector(':scope > div'); if (!eventsWrap) return; eventsWrap.appendChild(UI.createEventBlock(eventsWrap.children.length + 1)); eventsWrap.dispatchEvent(new CustomEvent('lwb-refresh-idx', { bubbles: true })); });
-    if (vareventBlocks.length === 0) { const tab = U.el('div', 'lwb-ve-tab active', '组 1'); tabs.insertBefore(tab, tabsCtrl); const { page, eventsWrap } = makePage(); pagesWrap.appendChild(page); page.classList.add('active'); eventsWrap.appendChild(UI.createEventBlock(1)); UI.refreshEventIndices(eventsWrap); tab.addEventListener('click', () => { U.qa(tabs, '.lwb-ve-tab').forEach(el => el.classList.remove('active')); tab.classList.add('active'); U.qa(pagesWrap, '.lwb-ve-page').forEach(el => el.classList.remove('active')); page.classList.add('active'); }); }
-    else { vareventBlocks.forEach((_b, i) => { const tab = U.el('div', 'lwb-ve-tab' + (i === 0 ? ' active' : ''), `组 ${i + 1}`); tab.addEventListener('click', () => renderPage(i)); tabs.insertBefore(tab, tabsCtrl); }); renderPage(0); }
-    btnAddTab.addEventListener('click', () => { const newIdx = U.qa(tabs, '.lwb-ve-tab').length; vareventBlocks.push({ inner: '' }); const tab = U.el('div', 'lwb-ve-tab', `组 ${newIdx + 1}`); tab.addEventListener('click', () => pagesWrap._lwbRenderPage(newIdx)); tabs.insertBefore(tab, tabsCtrl); pagesWrap._lwbRenderPage(newIdx); });
-    btnDelTab.addEventListener('click', () => { const tabEls = U.qa(tabs, '.lwb-ve-tab'); if (tabEls.length <= 1) { U.toast.warn('至少保留一组'); return; } const activeIdx = tabEls.findIndex(t => t.classList.contains('active')), idx = activeIdx >= 0 ? activeIdx : 0; U.qa(pagesWrap, '.lwb-ve-page')[idx]?.remove(); tabEls[idx]?.remove(); vareventBlocks.splice(idx, 1); const rebind = U.qa(tabs, '.lwb-ve-tab'); rebind.forEach((t, i) => { const nt = t.cloneNode(true); nt.textContent = `组 ${i + 1}`; nt.addEventListener('click', () => pagesWrap._lwbRenderPage(i)); tabs.replaceChild(nt, t); }); pagesWrap._lwbRenderPage(Math.max(0, Math.min(idx, rebind.length - 1))); });
-    btnOk.addEventListener('click', () => {
-        const pageEls = U.qa(pagesWrap, '.lwb-ve-page'); if (pageEls.length === 0) { closeEditor(); return; }
-        const builtBlocks = [], seenIds = new Set();
-        pageEls.forEach((p) => { const wrap = p.querySelector(':scope > div'), blks = wrap ? U.qa(wrap, '.lwb-ve-event') : [], lines = ['<varevent>']; let hasEvents = false; blks.forEach((b, j) => { const r = UI.processEventBlock(b, j); if (r.lines.length > 0) { const idLine = r.lines[0], mm = idLine.match(/^\[\s*event\.([^\]]+)\]/i), id = mm ? mm[1] : `evt_${j + 1}`; let use = id, k = 2; while (seenIds.has(use)) use = `${id}_${k++}`; if (use !== id) r.lines[0] = `[event.${use}]`; seenIds.add(use); lines.push(...r.lines); hasEvents = true; } }); if (hasEvents) { lines.push('</varevent>'); builtBlocks.push(lines.join('\n')); } });
-        const oldVal = textarea.value || '', originals = [], RE = { varevent: /<varevent>([\s\S]*?)<\/varevent>/gi }; RE.varevent.lastIndex = 0; let m; while ((m = RE.varevent.exec(oldVal)) !== null) originals.push({ start: m.index, end: RE.varevent.lastIndex });
-        let acc = '', pos = 0; const minLen = Math.min(originals.length, builtBlocks.length);
-        for (let i = 0; i < originals.length; i++) { const { start, end } = originals[i]; acc += oldVal.slice(pos, start); if (i < minLen) acc += builtBlocks[i]; pos = end; } acc += oldVal.slice(pos);
-        if (builtBlocks.length > originals.length) { const extras = builtBlocks.slice(originals.length).join('\n\n'); acc = acc.replace(/\s*$/, ''); if (acc && !/(?:\r?\n){2}$/.test(acc)) acc += (/\r?\n$/.test(acc) ? '' : '\n') + '\n'; acc += extras; }
-        acc = acc.replace(/(?:\r?\n){3,}/g, '\n\n'); textarea.value = acc; try { window?.jQuery?.(textarea)?.trigger?.('input'); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "openVarEditor" }, caughtError); }
-        U.toast.ok('已更新条件规则到该世界书条目'); closeEditor();
+    editorDisposers.add(close);
+    cancel.addEventListener('click', close); header.querySelector('.lwb-ve-close').addEventListener('click', close);
+
+    const flush = () => {
+        for (const [event, view] of views) {
+            const values = UI.processEventBlock(view.block);
+            for (const key of ['id', 'condition', 'display', 'js']) {
+                event.values[key] = values[key] !== view.initial[key] ? values[key] : view.baseline[key];
+            }
+        }
+    };
+    const render = () => {
+        tabs.replaceChildren(); eventList.replaceChildren(); views = new Map();
+        model.groups.forEach((group, index) => {
+            const tab = U.el('div', 'lwb-ve-tab' + (group === active ? ' active' : ''));
+            tab.textContent = '组 ' + (index + 1);
+            tab.addEventListener('click', () => { flush(); active = group; render(); });
+            tabs.appendChild(tab);
+        });
+        const controls = U.el('div'); controls.style.marginLeft = 'auto';
+        const add = U.el('button', 'lwb-ve-btn', '+组'), remove = U.el('button', 'lwb-ve-btn ghost', '-组');
+        controls.append(add, remove); tabs.appendChild(controls);
+        add.addEventListener('click', () => { flush(); active = newEventGroup(); model.groups.push(active); render(); });
+        remove.addEventListener('click', () => {
+            if (model.groups.length === 1) { U.toast.warn('至少保留一组'); return; }
+            flush(); const index = model.groups.indexOf(active); model.groups.splice(index, 1);
+            active = model.groups[Math.min(index, model.groups.length - 1)]; render();
+        });
+        active.events.forEach(event => {
+            const block = UI.createEventBlock(event.values.id, () => {
+                flush(); active.events.splice(active.events.indexOf(event), 1); render();
+            });
+            block.querySelector('.lwb-ve-idx').textContent = event.values.id;
+            if (event.values.condition?.trim()) UI.parseConditionIntoUI(block, event.values.condition);
+            block.querySelector('.lwb-ve-display').value = String(event.values.display ?? '').replace(/^\r?\n/, '').replace(/\r?\n$/, '');
+            block.querySelector('.lwb-ve-js').value = event.values.js ?? '';
+            const error = U.el('div', 'lwb-ve-condition-error'); error.setAttribute('role', 'alert'); error.hidden = true;
+            block.appendChild(error); eventList.appendChild(block);
+            views.set(event, { block, initial: UI.processEventBlock(block), baseline: { ...event.values }, error });
+        });
+        UI.refreshEventIndices(eventList);
+    };
+    addEvent.addEventListener('click', () => {
+        flush();
+        let id = 1; const ids = new Set(active.events.map(event => event.values.id));
+        while (ids.has(String(id))) id++;
+        active.events.push(newEvent(id)); render();
     });
-    document.body.appendChild(overlay);
+    save.addEventListener('click', () => {
+        flush();
+        for (const group of model.groups) for (const event of group.events) {
+            let error = null;
+            try {
+                if ((!event.original || event.values.id !== event.original.id)
+                    && (!event.values.id || /[\]\r\n]/.test(event.values.id))) throw new Error(VAREVENT_COPY.invalidName);
+                if (event.values.condition !== event.original?.condition && event.values.condition?.trim()) parseCondition(event.values.condition);
+            } catch (cause) { error = cause; }
+            if (!error) continue;
+            active = group; render();
+            const view = views.get(event);
+            view.error.hidden = false; view.error.textContent = VAREVENT_COPY.saveError;
+            (view.block.querySelector('.lwb-ve-condition-source') || view.block.querySelector('.lwb-ve-var'))?.focus();
+            return;
+        }
+        const output = serializeEventDocument(model);
+        if (output !== textarea.value) {
+            textarea.value = output;
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        close();
+    });
+    render(); document.body.appendChild(overlay);
 }
 
 export function openActionBuilder(block) {
@@ -650,33 +687,45 @@ function tryInjectButtons(root) {
     });
 }
 
+function scheduleEditor(callback, delay) {
+    const timer = setTimeout(() => { editorTimers.delete(timer); if (initialized) callback(); }, delay);
+    editorTimers.add(timer);
+    return timer;
+}
+
 function observeWIEntriesForEditorButton() {
     try { LWBVE.obs?.disconnect(); LWBVE.obs = null; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "observeWIEntriesForEditorButton" }, caughtError); }
     const root = document.getElementById('WorldInfo') || document.body;
-    const cb = (() => { let t = null; return () => { clearTimeout(t); t = setTimeout(() => tryInjectButtons(root), 100); }; })();
+    const cb = (() => { let t = null; return () => { clearTimeout(t); editorTimers.delete(t); t = scheduleEditor(() => tryInjectButtons(root), 100); }; })();
     const obs = new MutationObserver(() => cb()); try { obs.observe(root, { childList: true, subtree: true }); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "observeWIEntriesForEditorButton" }, caughtError); } LWBVE.obs = obs;
 }
 
 export function initVareventEditor() {
     if (initialized) return; initialized = true;
     events = createModuleEvents(MODULE_ID);
+    removeLegacyEventQueue(getContext());
     injectEditorStyles();
     installWIHiddenTagStripper();
     registerWIEventSystem();
     observeWIEntriesForEditorButton();
-    setTimeout(() => tryInjectButtons(document.body), 600);
+    scheduleEditor(() => tryInjectButtons(document.body), 600);
     if (typeof window !== 'undefined') { window.LWBVE = LWBVE; window.openVarEditor = openVarEditor; window.openActionBuilder = openActionBuilder; window.openBumpAliasBuilder = openBumpAliasBuilder; window.parseVareventEvents = parseVareventEvents; window.getBumpAliasStore = getBumpAliasStore; window.setBumpAliasStore = setBumpAliasStore; window.clearBumpAliasStore = clearBumpAliasStore; }
     LWBVE.installed = true;
 }
 
 export function cleanupVareventEditor() {
     if (!initialized) return;
+    initialized = false;
+    eventRun.cancel();
+    latePromptDispose?.(); latePromptDispose = null;
+    for (const timer of editorTimers) clearTimeout(timer);
+    editorTimers.clear();
+    for (const dispose of editorDisposers) dispose();
     events?.cleanup(); events = null;
     U.qa(document, '.lwb-ve-overlay').forEach(el => el.remove());
     U.qa(document, '.lwb-var-editor-button').forEach(el => el.remove());
     document.getElementById(EDITOR_STYLES_ID)?.remove();
     try { getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupVareventEditor" }, caughtError); }
-    try { const { eventSource } = getContext() || {}; const orig = eventSource && origEmitMap.get(eventSource); if (orig) { eventSource.emit = orig; origEmitMap.delete(eventSource); } } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupVareventEditor" }, caughtError); }
     try { LWBVE.obs?.disconnect(); LWBVE.obs = null; } catch (caughtError) { console.warn({ source: import.meta.url, operation: "cleanupVareventEditor" }, caughtError); }
     if (typeof window !== 'undefined') LWBVE.installed = false;
     initialized = false;

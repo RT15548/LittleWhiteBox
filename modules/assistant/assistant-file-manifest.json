@@ -111,7 +111,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/slash-command.js",
       "relativePath": "core/slash-command.js",
       "extension": ".js",
-      "sizeBytes": 1832
+      "sizeBytes": 1947
     },
     {
       "source": "littlewhitebox",
@@ -9211,7 +9211,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/README.md",
       "relativePath": "modules/variables/state2/README.md",
       "extension": ".md",
-      "sizeBytes": 25525
+      "sizeBytes": 28294
     },
     {
       "source": "littlewhitebox",
@@ -9344,7 +9344,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/prompt-variables.test.js",
       "relativePath": "modules/variables/tests/prompt-variables.test.js",
       "extension": ".js",
-      "sizeBytes": 11164
+      "sizeBytes": 26081
     },
     {
       "source": "littlewhitebox",
@@ -9439,6 +9439,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/varevent.test.js",
+      "relativePath": "modules/variables/tests/varevent.test.js",
+      "extension": ".js",
+      "sizeBytes": 11753
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/variables-panel-runtime.test.js",
       "relativePath": "modules/variables/tests/variables-panel-runtime.test.js",
       "extension": ".js",
@@ -9456,7 +9463,35 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent-editor.js",
       "relativePath": "modules/variables/varevent-editor.js",
       "extension": ".js",
-      "sizeBytes": 64869
+      "sizeBytes": 54399
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/condition.js",
+      "relativePath": "modules/variables/varevent/condition.js",
+      "extension": ".js",
+      "sizeBytes": 6765
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/copy.js",
+      "relativePath": "modules/variables/varevent/copy.js",
+      "extension": ".js",
+      "sizeBytes": 559
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/document.js",
+      "relativePath": "modules/variables/varevent/document.js",
+      "extension": ".js",
+      "sizeBytes": 7309
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent/run.js",
+      "relativePath": "modules/variables/varevent/run.js",
+      "extension": ".js",
+      "sizeBytes": 5782
     },
     {
       "source": "littlewhitebox",

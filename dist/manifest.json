@@ -1,8 +1,8 @@
 {
-  "buildId": "d04caccda17812dd4c6e",
+  "buildId": "f5d296476ac24a16e2d7",
   "entries": {
     "apps/assistant": {
-      "file": "apps/assistant-BB0Ejg_e.js",
+      "file": "apps/assistant-Dc7PDHgE.js",
       "css": []
     },
     "apps/debug-panel": {
@@ -60,7 +60,7 @@
       "css": []
     },
     "runtime/assistant-jsapi": {
-      "file": "runtime/assistant-jsapi-BOKN8lRi.js",
+      "file": "runtime/assistant-jsapi-DUnSoTcQ.js",
       "css": []
     },
     "runtime/call-generate": {
@@ -92,7 +92,7 @@
     }
   },
   "resources": {
-    "apps/assistant-BB0Ejg_e.js": {
+    "apps/assistant-Dc7PDHgE.js": {
       "imports": [
         "shared/build-assets-CzCSC94G.js",
         "shared/async-errors-C4kfchr9.js",
@@ -110,7 +110,7 @@
         "shared/plan-ledger-CA-jXBVs.js",
         "shared/settings-markup-Cpw3sanR.js",
         "shared/message-markdown-B5pdvOqZ.js",
-        "shared/jsapi-runtime-CEu4Y5dH.js",
+        "runtime/assistant-jsapi-DUnSoTcQ.js",
         "shared/current-plans-CUNFxdY8.js"
       ],
       "dynamicImports": [],
@@ -317,6 +317,7 @@
         "shared/identity-DNYTl8Vz.js",
         "shared/copy-DLRJE4J2.js",
         "shared/var-commands-GyTA_R-d.js",
+        "shared/acorn-DAc-aPko.js",
         "shared/novel-draw-knOWT2ho.js",
         "shared/media-api-Dk7luLqv.js",
         "shared/sd-draw-p5Xu39RB.js",
@@ -328,7 +329,7 @@
         "shared/server-storage-vft3_lW8.js",
         "host/plugin.js",
         "runtime/agent-core-BaR2mmV_.js",
-        "shared/jsapi-runtime-CEu4Y5dH.js",
+        "runtime/assistant-jsapi-DUnSoTcQ.js",
         "shared/tavern-GUCwStek.js",
         "shared/debug-panel-Bx-Hn791.js"
       ],
@@ -346,9 +347,9 @@
       "dynamicImports": [],
       "css": []
     },
-    "runtime/assistant-jsapi-BOKN8lRi.js": {
+    "runtime/assistant-jsapi-DUnSoTcQ.js": {
       "imports": [
-        "shared/jsapi-runtime-CEu4Y5dH.js"
+        "shared/acorn-DAc-aPko.js"
       ],
       "dynamicImports": [],
       "css": []
@@ -753,6 +754,11 @@
       "css": []
     },
     "shared/abort-utils-C76zWFGO.js": {
+      "imports": [],
+      "dynamicImports": [],
+      "css": []
+    },
+    "shared/acorn-DAc-aPko.js": {
       "imports": [],
       "dynamicImports": [],
       "css": []
@@ -1166,11 +1172,6 @@
       "css": []
     },
     "shared/js-yaml-onWw6tsF.js": {
-      "imports": [],
-      "dynamicImports": [],
-      "css": []
-    },
-    "shared/jsapi-runtime-CEu4Y5dH.js": {
       "imports": [],
       "dynamicImports": [],
       "css": []
