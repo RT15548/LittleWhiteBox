@@ -724,6 +724,15 @@ function renderPresetGrid(gridEl) {
         // flex 内容的高度计算在 grid auto 行中会循环归零导致整卡塌陷
         const card = createEl('div', `nd-preset-card${p.id === currentId ? ' active' : ''}`);
         card.dataset.presetId = p.id;
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-pressed', String(p.id === currentId));
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                card.click();
+            }
+        });
         card.title = p.name || '未命名';
         // 内联 align-self 防止 grid 把卡片在纵向拉伸/压缩
         card.style.alignSelf = 'start';

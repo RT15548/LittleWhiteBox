@@ -8,6 +8,13 @@ import { createPresetListView } from '../preset-list-view.js';
 
 const escapeHtml = str => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// Acceptance (script injection): an imported cover cannot introduce HTML handlers.
+test('imported preset thumbnails remain image attributes, never executable markup', () => {
+    const h = setup({ presets: [{ id: 'a', name: 'offline', thumbnail: 'x" onerror="alert(1)' }], extra: { variant: 'grid' } });
+    h.view.render();
+    assert.equal(h.list.querySelector('img').getAttribute('onerror'), null);
+});
+
 function setup({ presets, current = 'a', withMenu = true, withSortable = true, extra = {} } = {}) {
     const { document } = parseHTML('<!doctype html><html><body><div id="list"></div></body></html>');
     const list = document.getElementById('list');

@@ -13,7 +13,7 @@ import { FORM_MAX_COUNT } from '../../../shared/character-edit-form.js';
 
 register('./host-lib-hook.mjs', import.meta.url);
 
-const pageUrl = new URL('../novel-draw2.html', import.meta.url);
+const pageUrl = new URL('../novel-draw.html', import.meta.url);
 const { window, document } = parseHTML(readFileSync(pageUrl, 'utf8').replace(/<script[\s\S]*?<\/script>/g, ''));
 
 // linkedom's <select> only has a value getter; the page assigns it (filters, dropdown resets).
@@ -630,4 +630,39 @@ test('image save switches and open-folder button follow the host protocol', asyn
     receive({ type: 'STATUS', target: 'image-folder', state: 'success', text: '已打开图片目录' });
     assert.equal(open.disabled, false);
     assert.equal(document.getElementById('nd_gallery_status').textContent, '已打开图片目录');
+});
+
+// Acceptance (paid encoding loss / wrong preset): selection changes save only
+// their owning preset; an in-flight encode stays bound to its submitted info value.
+test('Vibe selection and late encoding survive an intervening page refresh', async () => {
+    const receive = data => window.dispatchEvent(Object.assign(new window.Event('message'), {
+        origin: window.location.origin, source: window.parent,
+        data: { source: 'LittleWhiteBox-NovelDraw', ...data },
+    }));
+    const settings = {
+        selectedParamsPresetId: 'vibe-preset',
+        paramsPresets: [{ id: 'vibe-preset', name: 'Vibe', params: { model: 'nai-diffusion-4-5-full' },
+            vibe: { groupId: '', selections: [] } }],
+        vibeLibrary: { singles: [{ id: 'reference', name: 'test', image: 'data:image/png;base64,AQID', infoExtracted: 1, encodings: {} }], groups: [] },
+    };
+    receive({ type: 'INIT_DATA', settings });
+    const checkbox = document.querySelector('.nd-vibe-enable');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new window.Event('change'));
+    assert.equal(posted.at(-1).type, 'SAVE_PRESET_VIBE');
+    assert.equal(posted.at(-1).presetId, 'vibe-preset');
+    assert.equal(posted.at(-1).vibe.selections[0].id, 'reference');
+    click(document.querySelector('.nd-vibe-badge.encode'));
+    const request = posted.findLast(message => message.type === 'ENCODE_VIBE');
+    assert.equal(request.informationExtracted, 1);
+    const refreshed = structuredClone(settings);
+    refreshed.vibeLibrary.singles[0].infoExtracted = .3;
+    receive({ type: 'INIT_DATA', settings: refreshed });
+    assert.equal(document.querySelector('.nd-vibe-badge').disabled, true);
+    receive({ type: 'ENCODE_VIBE_RESULT', requestId: request.requestId, ok: true, encoding: 'paid-result' });
+    await flush();
+    const saved = posted.findLast(message => message.type === 'SAVE_VIBE_LIBRARY').vibeLibrary.singles[0];
+    assert.equal(saved.encodings['v4-5full@1.00'], 'paid-result');
+    assert.equal(saved.encodings['v4-5full@0.30'], undefined);
+    assert.equal(document.querySelector('.nd-vibe-badge').disabled, false);
 });

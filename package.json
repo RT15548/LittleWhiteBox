@@ -31,7 +31,6 @@
         "ignore": "^7.0.6",
         "linkedom": "^0.18.13",
         "meshoptimizer": "1.3.0",
-        "supports-color": "^11.0.0",
         "tsx": "^4.22.3",
         "typescript": "^6.0.3",
         "vite": "8.1.6",

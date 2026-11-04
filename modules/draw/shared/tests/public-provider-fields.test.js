@@ -11,6 +11,8 @@ import { compileNovelImageRequest } from '../../providers/novelai/compiler.js';
 import { snapshotNovelRequestConfig, isNovelImageBackendJobEnabled } from '../../providers/novelai/novel-request-config.js';
 import { isNovelV5Model } from '../../providers/novelai/novel-model-capabilities.js';
 import { V5_QUALITY_IDS, V5_UC_IDS } from '../../providers/novelai/novel-v5-request.js';
+import { createVibeEncodingService } from '../../providers/novelai/vibe-encoding.js';
+import { getVibeModelKey, vibeEncodingKey } from '../../providers/novelai/vibe.js';
 import { imageBlob } from '../image-collection.js';
 
 // Contracts: the real provider adapters transmit all declared parameters, compile before queuing,
@@ -27,15 +29,17 @@ function novelDefaults() {
     const presetStart = source.indexOf('const DEFAULT_PARAMS_PRESET = ');
     const presetCode = source.slice(presetStart, source.indexOf('\n};', presetStart) + 3);
     const normalizeCode = source.slice(source.indexOf('function normalizeV5QualityPresetId('), source.indexOf('/** 当前生效的 API 配置'));
-    return runInNewContext(`${presetCode}\n${normalizeCode}\n({DEFAULT_PARAMS_PRESET,normalizeParamsPreset})`, { V5_QUALITY_IDS, V5_UC_IDS });
+    return runInNewContext(`${presetCode}\n${normalizeCode}\n({DEFAULT_PARAMS_PRESET,normalizeParamsPreset,ensurePresetVibeReady})`, {
+        V5_QUALITY_IDS, V5_UC_IDS, createVibeEncodingService, getVibeModelKey, vibeEncodingKey,
+    });
 }
 
 test('NovelAI public generation uses existing model compilers, frozen fields and selected transport without retry', async () => {
-    const { DEFAULT_PARAMS_PRESET, normalizeParamsPreset } = novelDefaults();
+    const { DEFAULT_PARAMS_PRESET, normalizeParamsPreset, ensurePresetVibeReady } = novelDefaults();
     const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0);
     let queued; let compiled; let jobs = 0; let direct = 0;
     const api = adapter('../../providers/novelai/novel-draw.js', 'novelPublicGeneration', {
-        DEFAULT_PARAMS_PRESET, normalizeParamsPreset, DEFAULT_SETTINGS: { timeout: 120000 }, V5_QUALITY_IDS, V5_UC_IDS,
+        DEFAULT_PARAMS_PRESET, normalizeParamsPreset, ensurePresetVibeReady, DEFAULT_SETTINGS: { timeout: 120000 }, V5_QUALITY_IDS, V5_UC_IDS,
         isNovelV5Model, snapshotNovelRequestConfig, isNovelImageBackendJobEnabled, imageBlob,
         randomDelay: () => 0, imageBackendJobsClient: {},
         prepareNovelImageRequest(request, config) {
@@ -52,11 +56,13 @@ test('NovelAI public generation uses existing model compilers, frozen fields and
     ]) {
         const result = await api.generate({ prompt: 'dynamic', positivePrefix: '', negativePrompt: '', params: { model, width: 512, height: 768, seed: 0, scale: 0, ...specific } },
             { apiKey: 'fixture', apiBaseUrl: 'https://fixture.invalid', sendMode: backend ? 'backend' : 'frontend', useImageBackendJobs: backend, overrideSize: '1024x1024',
-                paramsPresets: [{ ...DEFAULT_PARAMS_PRESET, id: 'p' }], selectedParamsPresetId: 'p' }, {});
+                paramsPresets: [{ ...DEFAULT_PARAMS_PRESET, id: 'p', vibe: { selections: [{ id: 'v', strength: 0.4 }] } }], selectedParamsPresetId: 'p',
+                vibeLibrary: { singles: [{ id: 'v', name: 'fixture', infoExtracted: 1, encodings: { 'v4-5full@1.00': 'paid-encoding' } }], groups: [] } }, {});
         assert.equal(result[0].type, 'image/png');
         assert.equal(compiled.payload.parameters.seed, 0); assert.equal(compiled.payload.parameters.scale, 0);
         assert.equal(compiled.payload.parameters.width, 512); assert.equal(compiled.payload.parameters.height, 768);
         assert.equal(compiled.payload.parameters.n_samples, 1);
+        assert.deepEqual(structuredClone(compiled.payload.parameters.reference_image_multiple_cached?.map(item => item.data)), model === 'nai-diffusion-4-5-full' ? ['paid-encoding'] : undefined);
     }
     assert.equal(direct, 2); assert.equal(jobs, 1); assert.equal(typeof queued, 'function');
 });
@@ -111,9 +117,9 @@ test('SD and NovelAI compilation failures are invalid_request, while transport f
     await assert.rejects(api.generate({ prompt: 'dynamic' }), { code: 'provider_error' });
     assert.equal(queued, 1);
 
-    const { DEFAULT_PARAMS_PRESET, normalizeParamsPreset } = novelDefaults();
+    const { DEFAULT_PARAMS_PRESET, normalizeParamsPreset, ensurePresetVibeReady } = novelDefaults();
     const novel = adapter('../../providers/novelai/novel-draw.js', 'novelPublicGeneration', {
-        DEFAULT_PARAMS_PRESET, normalizeParamsPreset, DEFAULT_SETTINGS: { timeout: 120000 }, V5_QUALITY_IDS, V5_UC_IDS,
+        DEFAULT_PARAMS_PRESET, normalizeParamsPreset, ensurePresetVibeReady, DEFAULT_SETTINGS: { timeout: 120000 }, V5_QUALITY_IDS, V5_UC_IDS,
         isNovelV5Model, snapshotNovelRequestConfig,
         prepareNovelImageRequest: (request, config) => compileNovelImageRequest(request, {
             ...config, defaultParams: DEFAULT_PARAMS_PRESET.params,

@@ -1,3 +1,4 @@
+import { createIdentifier as createVibeCacheKey } from '../../../../shared/common/identifier.js';
 import { assembleCharacterPrompts, joinTags } from '../../shared/character-prompts.js';
 import { getNovelModelCapability, isNovelV5Model } from './novel-model-capabilities.js';
 import { resolveNovelAIBackendImageApi, resolveNovelAIImageApi } from './novel-request-config.js';
@@ -5,14 +6,6 @@ import { buildNovelV5RequestBody } from './novel-v5-request.js';
 
 const MAX_SEED = 0xFFFFFFFF;
 
-function createVibeCacheKey() {
-    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-    return 'vibe-xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
-        const random = Math.random() * 16 | 0;
-        const value = char === 'x' ? random : (random & 0x3) | 0x8;
-        return value.toString(16);
-    });
-}
 
 // 仅保留结构合法的 Vibe 引用，并把强度钳制到 0～1
 function normalizeVibeReferences(value) {
@@ -266,6 +259,7 @@ export function compile(scenePlan, generationRecipe) {
             tags: task?.scene || '',
             continuityChars: structuredClone(task?.chars || []),
             providerMetadata: {
+                presetId: String(recipe.presetId || ''),
                 autoLearnCharacters: recipe.autoLearnEnabled && Array.isArray(task?.chars)
                     ? task.chars
                     : [],

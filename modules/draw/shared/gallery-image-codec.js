@@ -8,6 +8,8 @@ export const GALLERY_JPEG_COPY = Object.freeze({
     saved: '已保存',
     saveFailed: '保存失败，请重试',
     conversionFailed: 'JPEG 转换失败，已保留原图',
+    originalSaveFailed: '原图保存失败，未替换图库缓存',
+    batchConfirm: '将先把 PNG 原图保存到酒馆图片文件夹，再压缩浏览器中的副本。保存失败的图片不会转换。继续？',
 });
 
 let conversionQueue = Promise.resolve();

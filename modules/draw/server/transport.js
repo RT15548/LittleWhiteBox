@@ -1,6 +1,6 @@
 'use strict';
 const { pipeline } = require('node:stream/promises');
-const { generateImage, openImageStream, testConnection } = require('./providers/novelai/client.js');
+const { generateImage, encodeVibe, openImageStream, testConnection } = require('./providers/novelai/client.js');
 const { parseTimeout } = require('./providers/upstream.js');
 const { createRequestAbortScope } = require('../../../server-plugin/littlewhitebox-server/request-abort.js');
 const LOG_PREFIX = '[littlewhitebox-server]';
@@ -36,7 +36,7 @@ function sendRequestError(scope, res, error, label) {
     return res.status(200).send({ ok: false, error: errorMessage(error) });
 }
 
-function registerGenerateRoute(router, path) {
+function registerGenerateRoute(router, path, send = generateImage) {
     router.post(path, async (req, res) => {
         const scope = createRequestAbortScope(req, res);
         try {
@@ -54,7 +54,7 @@ function registerGenerateRoute(router, path) {
             if (timeout === null) return res.status(400).send({ ok: false, error: 'timeout must be a positive number' });
             scope.setDeadline(timeout);
 
-            const result = await generateImage({
+            const result = await send({
                 url,
                 key,
                 payload,
@@ -147,6 +147,7 @@ function registerTransportRoutes(router) {
     }));
 
     registerGenerateRoute(router, '/v2/generate-image');
+    registerGenerateRoute(router, '/v1/encode-vibe', encodeVibe);
 
     router.post('/v1/generate-image-stream', asyncRoute(async (req, res) => {
         const scope = createRequestAbortScope(req, res);

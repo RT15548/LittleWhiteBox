@@ -17,6 +17,7 @@ export function prepareImageInput(provider, tasks, recipe) {
         params: recipe.params,
     }));
     const metadata = compiledBatch.artifacts.map(({ task, promptData, continuityChars }) => ({
+        presetId: novel ? String(recipe.presetId || '') : '',
         tags: task.scene || '',
         title: task.title || '',
         orientation: task.orientation ?? null,

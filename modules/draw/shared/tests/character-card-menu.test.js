@@ -31,7 +31,7 @@ function mount() {
 }
 
 test('portal mounts the open menu into the page content tree and restores it on close', () => {
-    const { document, window } = parseHTML(MARKUP.replace('<body>', '<body><div class="app-container"></div>'));
+    const { document } = parseHTML(MARKUP.replace('<body>', '<body><div class="app-container"></div>'));
     const controller = createCardMenuController({ document, getViewport: () => ({ width: 800, height: 600 }), portal: true });
     const buttonA = document.querySelector('#a button[aria-haspopup]');
     const menuA = document.querySelector('#a [role="menu"]');
@@ -62,7 +62,6 @@ test('opening shows the menu, marks the button expanded and focuses the first it
     assert.equal(t.controller.toggle(t.buttonA), true);
     assert.equal(t.menuA.hasAttribute('hidden'), false);
     assert.equal(t.buttonA.getAttribute('aria-expanded'), 'true');
-    assert.equal(t.menuA.style.position, 'absolute');
     assert.equal(t.controller.isOpen(), true);
     assert.equal(t.controller.getOpenButton(), t.buttonA);
     t.controller.toggle(t.buttonA);

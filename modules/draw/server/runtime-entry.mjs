@@ -1,4 +1,5 @@
 import * as agentCore from '../../agent-core/node-entry.js';
+import { webcrypto } from 'node:crypto';
 import * as drawRuntime from '../node-entry.js';
 import envelope from './draw-runs/envelope.js';
 import imageService from './image-jobs/service.js';
@@ -9,6 +10,9 @@ import transport from './transport.js';
 import { createNodeToolHost } from './tools/host.mjs';
 import hostContract from '../../../server-plugin/littlewhitebox-server/runtime-contract.js';
 export { createNodeToolHost };
+
+// Node 18 script files lack the global Web Crypto exposed by browsers.
+if (!globalThis.crypto) Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
 
 export { agentCore, drawRuntime };
 export const abi = hostContract.RUNTIME_HOST_ABI;

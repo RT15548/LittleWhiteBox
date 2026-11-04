@@ -139,6 +139,7 @@ function previewOptions(record, item, target) {
         imgId: item.imgId,
         ...(item.placement ? { placement: item.placement } : {}),
         tags: item.previewMetadata?.tags || '',
+        presetId: item.previewMetadata?.presetId || '',
         title: item.previewMetadata?.title || '',
         positive: item.previewMetadata?.positive || '',
         characterPrompts: item.previewMetadata?.characterPrompts ?? null,

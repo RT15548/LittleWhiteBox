@@ -67,6 +67,19 @@ function envelopeFor(prepared, imageProvider = 'novelai') {
         generationRecipe: recipeFor(imageProvider) });
 }
 
+// Acceptance (protocol mismatch / lost paid reference): background requests carry
+// the same Vibe encodings and preset provenance as direct generation.
+test('background NovelAI accepts Vibe selections and retains them through validation', async () => {
+    const envelope = envelopeFor(await preparedFor('openai-compatible'));
+    envelope.generationRecipe.presetId = 'preset-offline';
+    envelope.generationRecipe.vibeReferences = [{ encoding: 'encoded-reference', strength: .4, name: 'offline' }];
+    const accepted = validate(envelope).envelope.generationRecipe;
+    assert.equal(accepted.presetId, 'preset-offline');
+    assert.deepEqual(accepted.vibeReferences, envelope.generationRecipe.vibeReferences);
+    envelope.generationRecipe.vibeReferences[0].strength = 2;
+    assert.throws(() => validate(envelope));
+});
+
 // Exercise real config resolution and planner preparation against the unchanged server validator.
 // Hand-written provider configs previously missed new settings leaking into the Draw Run protocol.
 for (const imageProvider of ['novelai', 'sd-webui', 'comfyui']) {

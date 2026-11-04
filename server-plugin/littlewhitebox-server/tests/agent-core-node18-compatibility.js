@@ -87,6 +87,13 @@ async function main() {
         ]);
         const agentCore = require(isolatedAgentCorePath).agentCore;
         const drawRunRuntime = require(isolatedDrawRunPath).drawRuntime;
+        const vibeBatch = drawRunRuntime.compileDrawRunImages('novelai', [{ scene: 'offline', chars: [] }], {
+            apiBaseUrl: '', apiKey: 'offline', timeout: 5000, requestDelay: { min: 1000, max: 1000 },
+            params: { model: 'nai-diffusion-4-5-full', width: 832, height: 1216 },
+            knownCharacters: [], autoLearnEnabled: false, autoLearnMode: 'new_only', seeds: [1],
+            vibeReferences: [{ encoding: 'offline-reference', strength: .5 }],
+        });
+        assert.equal(vibeBatch.items[0].request.payload.parameters.reference_image_multiple_cached[0].data, 'offline-reference');
         const toolHost = require(isolatedDrawRunPath).createNodeToolHost();
         try {
             await toolHost.define('echo', "return { name: 'echo', action: async args => ({ value: args.value, node: typeof process }) };");

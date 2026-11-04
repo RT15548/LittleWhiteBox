@@ -1,3 +1,6 @@
+import { createVibeEncodingService } from './vibe-encoding.js';
+import { createIdentifier as createVibeCacheKey } from '../../../../shared/common/identifier.js';
+import { getVibeModelKey, clampVibeInfoExtracted, vibeEncodingKey, normalizeVibeEncodings } from './vibe.js';
 // novel-draw.js
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -230,7 +233,7 @@ const handleFrameMessageEvent = observeAsyncCallback(handleFrameMessage, { sourc
 const MODULE_KEY = 'novelDraw';
 const DRAW_RUN_PROVIDER = 'novelai';
 const SERVER_FILE_KEY = 'settings';
-const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw2.html`;
+const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
 // Provider requests share the unified server plugin installation.
 const NAI_BACKEND_BASE = SERVER_PLUGIN_BASE;
 const NAI_BACKEND_GENERATE = `${NAI_BACKEND_BASE}/v1/generate-image`;
@@ -763,53 +766,11 @@ function normalizeV5UcPresetId(value, legacyPreset) {
     return ({ 0: 'heavy', 1: 'light', 2: 'humanFocus', 3: 'none' })[Number(legacyPreset)] || 'heavy';
 }
 
-export function getVibeModelKey(model) {
-    const name = String(model || '');
-    if (name.includes('4-5-curated')) return 'v4-5curated';
-    if (name.includes('4-5-full')) return 'v4-5full';
-    if (name.includes('4-curated')) return 'v4curated';
-    if (name.includes('4-full')) return 'v4full';
-    return null;
-}
-
-// information_extracted 为 0~1 连续值（官方 UI 即滑杆），默认 1
-function clampVibeInfoExtracted(value) {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
-}
-
-// 编码缓存键 = 模型@信息提取值（量化两位小数）：同一张图可在多个信息提取值下各存一份编码，
-// 改值只是指向另一个键，改回原值直接命中旧编码，无需重花点数。裸键（无 @）为旧数据。
-const VIBE_ENCODING_KEY_RE = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
-
-function vibeEncodingKey(modelKey, infoExtracted) {
-    return `${modelKey}@${clampVibeInfoExtracted(infoExtracted).toFixed(2)}`;
-}
-
-function parseVibeEncodingKey(key) {
-    if (!VIBE_ENCODING_KEY_RE.test(String(key || ''))) return null;
-    const at = String(key).indexOf('@');
-    return {
-        modelKey: at < 0 ? String(key) : String(key).slice(0, at),
-        info: at < 0 ? null : clampVibeInfoExtracted(Number(String(key).slice(at + 1))),
-    };
-}
-
 // ── Vibe 库条目：编码是花点数的昂贵资源，统一存全局库，供多个画师串预设引用 ──
 function normalizeVibeLibItem(raw, index) {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const infoExtracted = clampVibeInfoExtracted(source.infoExtracted);
-    const rawEncodings = source.encodings && typeof source.encodings === 'object' && !Array.isArray(source.encodings)
-        ? source.encodings
-        : {};
-    const encodings = {};
-    Object.entries(rawEncodings).forEach(([key, value]) => {
-        if (typeof value !== 'string' || !value) return;
-        const parsed = parseVibeEncodingKey(key);
-        if (!parsed) return;
-        // 旧数据裸键必然对应当前信息提取值（旧逻辑改值即清空编码），迁移为组合键
-        encodings[vibeEncodingKey(parsed.modelKey, parsed.info == null ? infoExtracted : parsed.info)] = value;
-    });
+    const encodings = normalizeVibeEncodings(source.encodings);
     return {
         id: String(source.id || `vibe-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`),
         name: String(source.name || '').slice(0, 60),
@@ -856,9 +817,7 @@ function normalizeVibeLibrary(raw) {
     return { singles, groups };
 }
 
-// ── 画师串预设的 Vibe 配置有两种模式 ──
-// groupId 非空＝引用某个已保存的 Vibe 组（组更新后预设自动跟随）；
-// groupId 为空＝散装 selections（本预设自己的勾选 + 强度快照）。
+// selections 是生成快照；groupId 只标记所套用的组。
 function normalizePresetVibe(raw) {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     const seen = new Set();
@@ -894,30 +853,37 @@ function uint8ToBase64(bytes) {
     return btoa(binary);
 }
 
-function createVibeCacheKey() {
-    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-    return 'vibe-xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
-        const random = Math.random() * 16 | 0;
-        const value = char === 'x' ? random : (random & 0x3) | 0x8;
-        return value.toString(16);
-    });
-}
 
-// 调用 NovelAI /ai/encode-vibe，返回 base64 编码（浏览器直连，与生成同样的端点与 Key）
-async function encodeVibeReference({ apiKey, apiBaseUrl, imageBase64, model, informationExtracted, signal = undefined }) {
+// 编码沿用图片 API 端点、Key 与发送模式；只有用户手动操作才调用。
+async function encodeVibeReference({ apiKey, apiBaseUrl, imageBase64, model, informationExtracted, sendMode, insecureTLS, signal = undefined }) {
     if (!apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
     const url = resolveNovelAIEncodeVibeApi(apiBaseUrl);
+    const payload = {
+        image: stripDataUrlPrefix(imageBase64),
+        information_extracted: clampVibeInfoExtracted(informationExtracted),
+        model,
+    };
+    if (sendMode === 'backend') {
+        await assertDrawingRuntimeHost(signal);
+        const response = await fetch(`${NAI_BACKEND_BASE}/v1/encode-vibe`, {
+            method: 'POST',
+            headers: { ...getRequestHeaders(), ...drawingRuntimeHeaders() },
+            body: JSON.stringify({ url: new URL(url, location.href).href, key: apiKey,
+                payload, insecure: insecureTLS === true, timeout: 55000 }),
+            signal,
+        });
+        if (response.status === 404) throw new NovelDrawError(`请更新绘图后端后使用 Vibe 编码。${SERVER_PLUGIN_COPY.update}`, ErrorType.NETWORK);
+        const result = await response.json();
+        if (!response.ok || !result.ok || !result.encoding) throw new NovelDrawError(result.error || 'Vibe 编码失败', ErrorType.PROVIDER);
+        return result.encoding;
+    }
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-            image: stripDataUrlPrefix(imageBase64),
-            information_extracted: clampVibeInfoExtracted(informationExtracted),
-            model,
-        }),
+        body: JSON.stringify(payload),
         signal,
     });
     if (!response.ok) {
@@ -926,17 +892,41 @@ async function encodeVibeReference({ apiKey, apiBaseUrl, imageBase64, model, inf
     }
     const buffer = await response.arrayBuffer();
     const bytes = new Uint8Array(buffer);
-    if (bytes.length < 100) {
+    if (!bytes.length || /(?:json|text|html)/i.test(response.headers.get('content-type') || '')) {
         throw new NovelDrawError(
-            'Vibe 编码返回数据异常（内容过短），该端点可能不支持 /ai/encode-vibe',
+            'Vibe 编码返回数据异常，该端点未返回二进制编码',
             ErrorType.PROVIDER,
         );
     }
     return uint8ToBase64(bytes);
 }
 
+const vibeEncoder = createVibeEncodingService({
+    readItem: id => getSettings().vibeLibrary.singles.find(item => item.id === id),
+    encode: input => {
+        const settings = getSettings();
+        return encodeVibeReference({
+            apiKey: String(settings.apiKey || '').trim(), apiBaseUrl: String(settings.apiBaseUrl || '').trim(),
+            imageBase64: input.image, model: input.model, informationExtracted: input.informationExtracted,
+            sendMode: settings.sendMode, insecureTLS: settings.insecureTLS, signal: AbortSignal.timeout(55_000),
+        });
+    },
+    save: async (input, key, encoding) => {
+        const saved = await updateSettingsPersistent(settings => {
+            const item = settings.vibeLibrary.singles.find(item => item.id === input.id && item.image === input.image);
+            if (item) item.encodings[key] = encoding;
+        }, '', { notify: false, silent: true });
+        if (!saved) {
+            // Retain the paid result for explicit retry/export in this session.
+            const item = getSettings().vibeLibrary.singles.find(item => item.id === input.id && item.image === input.image);
+            if (item) item.encodings[key] = encoding;
+            showToast('Vibe 编码已返回但保存失败，请导出备份或重试保存；不要重复编码', 'error', 8000);
+        }
+        return saved;
+    },
+});
+
 // 生成前：以 preset.vibe.selections 的实际勾选为准（勾选即带、不勾即不带，即时生效）。
-// groupId 仅作旧数据兼容：selections 为空且组仍存在时回退组成员快照。
 // 编码只允许用户在设置页手动发起（花点数），这里绝不自动补编：
 // 缺当前模型编码的项直接跳过并提示，保证不会在生成时偷偷扣编码费。
 // 返回本次实际注入用的 [{ encoding, strength }]（库中已删除 / 未启用 / 未编码的项自动跳过）。
@@ -947,16 +937,8 @@ async function ensurePresetVibeReady(settings, preset, { signal } = {}) {
     if (!Array.isArray(library.singles)) library.singles = [];
     if (!Array.isArray(library.groups)) library.groups = [];
 
-    const groupId = String(preset?.vibe?.groupId || '');
     const selections = Array.isArray(preset?.vibe?.selections) ? preset.vibe.selections : [];
-    let activeSelections = selections.filter(sel => sel && sel.id && sel.enabled !== false);
-    // 旧数据兼容：组引用模式下历史版本 selections 恒为空数组，此时才回退组成员。
-    // 新数据取消全部勾选后 selections 仍保留 enabled:false 条目（非空），不再回退，确保不勾即不带。
-    if (selections.length === 0 && groupId) {
-        const group = library.groups.find(g => g.id === groupId);
-        const members = Array.isArray(group?.members) ? group.members : [];
-        activeSelections = members.filter(sel => sel && sel.id && sel.enabled !== false);
-    }
+    const activeSelections = selections.filter(sel => sel && sel.id && sel.enabled !== false);
     if (!modelKey || activeSelections.length === 0) return [];
 
     const byId = new Map(library.singles.map(item => [item.id, item]));
@@ -967,8 +949,8 @@ async function ensurePresetVibeReady(settings, preset, { signal } = {}) {
         if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
         const item = byId.get(sel.id);
         if (!item) continue;
-        // 按当前模型+当前信息提取值的组合键取编码；裸键兜底未经迁移的旧数据
-        const encoding = item.encodings[vibeEncodingKey(modelKey, item.infoExtracted)] || item.encodings[modelKey];
+        // 按当前模型与信息提取值取编码，不自动发起收费编码请求。
+        const encoding = item.encodings[vibeEncodingKey(modelKey, item.infoExtracted)];
         if (!encoding) {
             // 该数值下未编码：跳过，不扣编码费
             unencoded.push(item.name || '未命名');
@@ -1876,6 +1858,7 @@ export function createNovelGenerationRecipe({
         baseHref: globalThis.location?.href,
         resolveForBackend: resolveForBackend === true,
         params: cloneSettingsObject(params),
+        presetId: String(preset?.id || ''),
         positivePrefix: preset?.positivePrefix || '',
         negativePrefix: preset?.negativePrefix || '',
         vibeReferences: Array.isArray(vibeReferences) ? cloneSettingsObject(vibeReferences) : [],
@@ -2214,12 +2197,12 @@ async function runNovelImageBatch({
     return { mode: requestConfig.sendMode, outcomes, aborted: signal?.aborted === true };
 }
 
-async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, queueBatch, onQueueStateChange }) {
+async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, vibeReferences, generationConfig, signal, queueBatch, onQueueStateChange }) {
     let image = null;
     let failure = null;
     const monitorGeneration = backendJobMonitors.captureGeneration();
     await runNovelImageBatch({
-        requests: [{ scene, characterPrompts, negativePrompt, params }],
+        requests: [{ scene, characterPrompts, negativePrompt, params, vibeReferences }],
         generationConfig,
         signal,
         monitorGeneration,
@@ -2275,6 +2258,7 @@ export const novelPublicGeneration = {
                 scene: joinTags(request.positivePrefix ?? preset.positivePrefix, request.prompt),
                 negativePrompt: request.negativePrompt ?? preset.negativePrefix ?? '',
                 characterPrompts: request.characterPrompts || [], params,
+                vibeReferences: await ensurePresetVibeReady(settings, { ...preset, params }, { signal }),
             }, config);
         } catch (cause) { throw new MediaApiError('invalid_request', { cause }); }
         const cooldownMs = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
@@ -2329,7 +2313,9 @@ async function pushPresetThumbCandidates(iframe, { requestId, presetId, all }) {
     const limit = 60;
     const pool = (all ? [...matched, ...others] : matched).slice(0, limit);
     const images = [];
-    for (const record of pool) {
+    for (const candidate of pool) {
+        const record = await getPreview(candidate.imgId);
+        if (!record) continue;
         const thumb = await createThumbnailDataUrlFromPreview(record);
         if (!thumb) continue;
         images.push({
@@ -3156,6 +3142,7 @@ async function generateImagesFromText(options = {}) {
                 const imgId = generateImgId();
                 await storePreview({
                     ...galleryMeta,
+                    presetId: preset.id,
                     imgId,
                     slotId: item.slotId,
                     messageId,
@@ -3612,6 +3599,7 @@ async function sendInitData() {
             selectedParamsPresetId: settings.selectedParamsPresetId,
             paramsPresets: settings.paramsPresets,
             vibeLibrary: settings.vibeLibrary || { singles: [], groups: [] },
+            vibeEncodingIds: vibeEncoder.activeIds(),
             useWorldInfo: settings.useWorldInfo,
             plannerMaxRetries: settings.plannerMaxRetries,
             characterTags: settings.characterTags,
@@ -4004,14 +3992,13 @@ async function handleFrameMessage(event) {
 
         case 'ENCODE_VIBE': {
             try {
-                const s = getSettings();
-                const encoding = await encodeVibeReference({
-                    apiKey: String(s.apiKey || '').trim(),
-                    apiBaseUrl: String(s.apiBaseUrl || '').trim(),
-                    imageBase64: String(data.image || ''),
-                    model: String(data.model || ''),
-                    informationExtracted: Number(data.informationExtracted),
-                });
+                await settingsUpdateQueue;
+                const result = await vibeEncoder.run(data);
+                const encoding = result.encoding;
+                const currentFrame = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (currentFrame) postToIframe(currentFrame, {
+                    type: 'VIBE_ENCODING_UPDATED', ...result, image: data.image,
+                }, 'LittleWhiteBox-NovelDraw');
                 if (iframe) postToIframe(iframe, {
                     type: 'ENCODE_VIBE_RESULT',
                     requestId: data.requestId,
@@ -4020,13 +4007,28 @@ async function handleFrameMessage(event) {
                 }, 'LittleWhiteBox-NovelDraw');
             } catch (error) {
                 console.error('[NovelDraw] ENCODE_VIBE 失败:', error);
+                postStatus('error', error?.message || 'Vibe 编码失败', 'vibe');
                 if (iframe) postToIframe(iframe, {
                     type: 'ENCODE_VIBE_RESULT',
                     requestId: data.requestId,
                     ok: false,
                     message: error?.message || 'Vibe 编码失败',
                 }, 'LittleWhiteBox-NovelDraw');
+            } finally {
+                const currentFrame = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (currentFrame) postToIframe(currentFrame, {
+                    type: 'VIBE_ENCODING_STATE', ids: vibeEncoder.activeIds(),
+                }, 'LittleWhiteBox-NovelDraw');
             }
+            break;
+        }
+
+        case 'SAVE_PRESET_VIBE': {
+            const ok = await updateSettingsPersistent((settings) => {
+                const preset = settings.paramsPresets.find(p => p.id === data.presetId);
+                if (preset) preset.vibe = normalizePresetVibe(data.vibe);
+            }, '', { notify: false, silent: true });
+            if (!ok) postStatus('error', 'Vibe 选择保存失败，请重试', 'vibe');
             break;
         }
 
@@ -4036,9 +4038,10 @@ async function handleFrameMessage(event) {
                 if (Array.isArray(data.paramsPresets) && data.paramsPresets.length > 0) {
                     settings.paramsPresets = data.paramsPresets;
                 }
-            }, '已保存', { target: 'params' });
+            }, '已保存', { target: 'params', notify: data.silent !== true });
+            if (!ok && data.silent) postStatus('error', '参数预设保存失败，请重试', 'params');
             if (ok) {
-                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+                if (!data.silent) observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
                 try {
                     const { refreshPresetSelect } = await import('./floating-panel.js');
                     refreshPresetSelect?.();
@@ -4050,11 +4053,22 @@ async function handleFrameMessage(event) {
         // Vibe 库是全局资源（编码花点数），UI 端在上传/编码完成/删除/导入/存组后整体回存。
         // 静默保存且不回推 INIT_DATA：编码是异步多步流程，回推会替换 UI 持有的对象引用导致丢编码。
         case 'SAVE_VIBE_LIBRARY': {
-            await updateSettingsPersistent((settings) => {
+            const ok = await updateSettingsPersistent((settings) => {
                 if (data.vibeLibrary && typeof data.vibeLibrary === 'object') {
-                    settings.vibeLibrary = normalizeVibeLibrary(data.vibeLibrary);
+                    const library = normalizeVibeLibrary(data.vibeLibrary);
+                    for (const item of library.singles) {
+                        const previous = settings.vibeLibrary.singles.find(entry => entry.id === item.id && entry.image === item.image);
+                        item.encodings = { ...previous?.encodings, ...item.encodings };
+                    }
+                    settings.vibeLibrary = library;
+                    const ids = new Set(library.singles.map(item => item.id));
+                    for (const preset of settings.paramsPresets) {
+                        preset.vibe.selections = preset.vibe.selections.filter(sel => ids.has(sel.id));
+                        if (!library.groups.some(group => group.id === preset.vibe.groupId)) preset.vibe.groupId = '';
+                    }
                 }
             }, '', { notify: false, silent: true });
+            if (!ok) postStatus('error', 'Vibe 库保存失败，请重试或导出备份', 'vibe');
             break;
         }
 
@@ -4151,7 +4165,8 @@ async function handleFrameMessage(event) {
                     const resolvedIdMap = new Map();
                     vibeImports.forEach((imported) => {
                         const existing = imported.image
-                            ? library.singles.find(s => s.image === imported.image)
+                            ? library.singles.find(s => s.image === imported.image
+                                && s.infoExtracted === imported.infoExtracted)
                             : null;
                         if (existing) {
                             if (!existing.encodings || typeof existing.encodings !== 'object') {
@@ -4174,6 +4189,7 @@ async function handleFrameMessage(event) {
                             .filter(m => library.singles.some(s => s.id === m.id));
                         if (vibeGroup.members.length) {
                             library.groups.push(vibeGroup);
+                            newPreset.vibe.selections = vibeGroup.members.map(member => ({ ...member }));
                         } else {
                             // 成员全部失效时退回无 Vibe（newPreset.vibe.groupId 指向的组不存在，
                             // ensurePresetVibeReady 会静默回退空 selections）
@@ -4804,11 +4820,14 @@ async function handleFrameMessage(event) {
             if (quickTestSession.busy) break;
             try {
                 postStatus('loading', QUICK_TEST_COPY.generating);
-                const preset = getActiveParamsPreset();
+                const preset = cloneSettingsObject(getActiveParamsPreset());
+                const settings = cloneSettingsObject(getRuntimeSettings());
+                const vibeReferences = await ensurePresetVibeReady(settings, preset);
                 const tags = (typeof data.tags === 'string' && data.tags.trim()) ? data.tags.trim() : '1girl, smile';
                 const scene = joinTags(preset?.positivePrefix, tags);
                 const imgId = await quickTestSession.generate(async () => ({
-                    base64: await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} }),
+                    base64: await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {}, vibeReferences, generationConfig: settings }),
+                    presetId: preset.id,
                     imgId: generateImgId(),
                     slotId: TEST_SLOT_ID,
                     tags,

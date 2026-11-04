@@ -619,6 +619,7 @@ export async function storePreview(opts) {
         chapterPath = '',
         chapterTitle = '',
         continuityChars = null,
+        presetId = '',
     } = opts;
     const database = await openDB();
     const ctx = getContext();
@@ -652,6 +653,7 @@ export async function storePreview(opts) {
                 chatId: resolvedChatId,
                 characterName: resolvedCharacterName,
                 source,
+                presetId,
                 bookId,
                 bookTitle,
                 chapterPath,
@@ -1166,90 +1168,90 @@ export function isJpegBase64(value) {
     return body.startsWith('/9j/');
 }
 
-/** 把缓存里仍是 PNG 的旧记录批量转成 JPEG，腾出 IndexedDB 空间。 */
-export async function convertLegacyPreviewsToJpeg({ onProgress } = {}) {
-    const database = await openDB();
-    const stats = { total: 0, converted: 0, failed: 0, savedBytes: 0 };
-    const allRaw = await new Promise((resolve, reject) => {
-        try {
-            const tx = database.transaction(DB_STORE, 'readonly');
-            const request = tx.objectStore(DB_STORE).getAll();
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        } catch (e) { reject(e); }
-    });
-    const targets = allRaw.filter((r) => r?.imgId && r.base64 && !isJpegBase64(r.base64));
-    stats.total = targets.length;
-    let done = 0;
-    for (const record of targets) {
-        try {
-            const originalBody = (record.base64.startsWith('data:') ? record.base64.split(',')[1] : record.base64)
-                .replace(/[^A-Za-z0-9+/=]/g, '');
-            const originalBytes = atob(originalBody).length;
-            const converted = await convertImageToJpeg(record.base64);
-            if (converted && converted !== record.base64) {
-                const convertedBody = (converted.startsWith('data:') ? converted.split(',')[1] : converted)
-                    .replace(/[^A-Za-z0-9+/=]/g, '');
-                const convertedBytes = atob(convertedBody).length;
-                record.base64 = converted;
-                const thumb = await createThumbnailDataUrl(converted);
-                if (thumb) record.thumbBase64 = thumb;
-                await new Promise((resolve, reject) => {
-                    try {
-                        const tx = database.transaction(DB_STORE, 'readwrite');
-                        tx.objectStore(DB_STORE).put(record);
-                        tx.oncomplete = () => {
-                            invalidateCache(record.slotId);
-                            resolve();
-                        };
-                        tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
-                    } catch (e) { reject(e); }
-                });
-                stats.converted++;
-                stats.savedBytes += Math.max(0, originalBytes - convertedBytes);
-            }
-        } catch {
-            stats.failed++;
-        }
-        done++;
-        try { onProgress?.(done, stats.total); } catch { /* 进度回调失败不影响转换 */ }
+// Compression keeps the lossless source in the existing image folder. The
+// gallery owns only the preview; explicit gallery deletion still leaves saved files.
+let legacyConversion = null;
+export function convertLegacyPreviewsToJpeg(options = {}) {
+    if (!legacyConversion) {
+        legacyConversion = convertLegacyPreviews(options).finally(() => { legacyConversion = null; });
     }
-    if (stats.converted) publishCacheChange([]);
+    return legacyConversion;
+}
+
+async function convertLegacyPreviews({ onProgress } = {}) {
+    const database = await openDB();
+    const rows = await getGalleryMetadata();
+    const stats = { total: rows.length, converted: 0, skipped: 0, failed: 0, savedBytes: 0 };
+    const changedSlots = new Set();
+    for (const [index, row] of rows.entries()) {
+        try {
+            const record = await getPreview(row.imgId);
+            if (!record?.base64 || getBase64ImagePayload(record.base64).format !== 'png') {
+                stats.skipped++;
+                continue;
+            }
+            const original = record.base64;
+            const converted = await convertImageToJpeg(original);
+            if (!isJpegBase64(converted) || converted.length >= original.length) {
+                stats.skipped++;
+                continue;
+            }
+            const thumb = await createThumbnailDataUrl(converted);
+            // Save the bytes we are about to replace. An old savedUrl may now
+            // return a login page, a different image, or a lossy copy.
+            const image = getBase64ImagePayload(original);
+            const savedUrl = await saveImageToServer({
+                base64: image.base64,
+                charName: record.characterName || getChatCharacterName(),
+                fileName: `original_${record.imgId}`,
+                format: image.format,
+            });
+            if (!savedUrl) throw new Error(GALLERY_JPEG_COPY.originalSaveFailed);
+            const changed = await new Promise((resolve, reject) => {
+                const tx = database.transaction(DB_STORE, 'readwrite');
+                const store = tx.objectStore(DB_STORE);
+                const request = store.get(record.imgId);
+                let written = false;
+                request.onsuccess = () => {
+                    const latest = request.result;
+                    // Do not resurrect deletions or overwrite a concurrent image/save.
+                    if (!latest || latest.base64 !== original || latest.savedUrl !== record.savedUrl) return;
+                    latest.base64 = converted;
+                    latest.savedUrl = savedUrl;
+                    if (thumb) latest.thumbBase64 = thumb;
+                    store.put(withGalleryMetadata(latest));
+                    written = true;
+                    changedSlots.add(latest.slotId);
+                };
+                tx.oncomplete = () => resolve(written);
+                tx.onerror = tx.onabort = () => reject(storageWriteError(tx));
+            });
+            if (changed) {
+                stats.converted++;
+                stats.savedBytes += Math.max(0, Math.round((original.length - converted.length) * 0.75));
+            } else stats.skipped++;
+        } catch (error) {
+            stats.failed++;
+            console.warn('[Gallery] JPEG conversion retained original:', row.imgId, error);
+        } finally {
+            onProgress?.(index + 1, stats.total);
+        }
+    }
+    if (changedSlots.size) {
+        invalidateCache();
+        publishCacheChange([...changedSlots]);
+    }
     return stats;
 }
 
 // 预设缩略图候选：一次扫描分出「用该预设生成过的图」与其他成功图，
 // 均按时间倒序。旧记录没有 presetId，只能在 others 里手动认。
 export async function getThumbnailCandidates(presetId = '') {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const matched = [];
-        const others = [];
-        try {
-            const tx = database.transaction(DB_STORE, 'readonly');
-            const store = tx.objectStore(DB_STORE);
-            const request = store.openCursor();
-            request.onsuccess = (event) => {
-                const cursor = event.target.result;
-                if (!cursor) {
-                    matched.sort((a, b) => b.timestamp - a.timestamp);
-                    others.sort((a, b) => b.timestamp - a.timestamp);
-                    resolve({ matched, others });
-                    return;
-                }
-                const record = cursor.value;
-                if (record && hasPreviewImage(record)) {
-                    (record.presetId === String(presetId || '') && presetId
-                        ? matched
-                        : others).push(record);
-                }
-                cursor.continue();
-            };
-            request.onerror = () => reject(request.error);
-        } catch (e) {
-            reject(e);
-        }
-    });
+    const records = (await getGalleryMetadata()).filter(record => record.displayable);
+    return {
+        matched: records.filter(record => presetId && record.presetId === presetId),
+        others: records.filter(record => !presetId || record.presetId !== presetId),
+    };
 }
 
 export async function getGallerySummary() {

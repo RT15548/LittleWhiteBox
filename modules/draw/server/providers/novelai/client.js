@@ -348,6 +348,18 @@ async function generateImage({ url, baseUrl, key, payload, insecure, signal }) {
     return { ok: true, ...extractImageBase64(body) };
 }
 
+async function encodeVibe({ url, key, payload, insecure, signal }) {
+    const response = await openUpstreamResponse({ url, key, payload, insecure, signal, accept: 'application/octet-stream' });
+    if (!responseIsSuccessful(response)) {
+        return { ok: false, status: responseStatus(response), error: await readError(response, signal) };
+    }
+    const buffer = await readResponseBuffer(response, signal);
+    if (!buffer.length || /(?:json|text|html)/i.test(String(response.headers['content-type'] || ''))) {
+        throw new Error('NovelAI did not return a binary Vibe encoding');
+    }
+    return { ok: true, encoding: buffer.toString('base64') };
+}
+
 async function openImageStream({ url, key, payload, insecure, signal }) {
     const multipart = createMultipartRequest(payload);
     const response = await openUpstreamResponse({
@@ -433,6 +445,7 @@ async function testConnection({ url, baseUrl, key, payload, multipart, insecure,
 }
 
 module.exports = {
+    encodeVibe,
     generateImage,
     generateImageBuffer,
     generateV5ImageBuffer,

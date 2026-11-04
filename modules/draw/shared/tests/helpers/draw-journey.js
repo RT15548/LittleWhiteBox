@@ -38,7 +38,8 @@ export async function fixture(sources, options = {}) {
  'viewport.js':'export const getSafeViewportStyles=()=>"";export const observeViewport=()=>()=>{};',
  'pending-image-jobs.js':'export const PendingJobState={CANCELLING:"cancelling",ADOPTING:"adopting"};export const PendingJobAdoptionPhase={READY:"ready"};export const listPendingImageJobs=async()=>[];export const getPendingImageJobSlots=async()=>new Map();export const discardPendingImageSlot=async()=>{};',
  'recoverable-image-jobs.js':'export const isPendingJobLeaseLost=()=>false;',
- 'script.js':'export const messageFormatting=(text)=>text;'
+ 'script.js':'export const messageFormatting=(text)=>text;',
+ ...options.stubs,
  };
  const result=await build({stdin:{contents:[
  'draw-common.js','draw-settings.js','chat-message-images.js','chat-image-tag-migration.js','chat-image-persistence.js','chat-message-image-markup.js','gallery-cache.js','image-record.js','prepared-chat-images.js','image-card-actions.js','card-tag-editor.js','draw-action-feedback.js','draw-message-viewport.js','generated-image-runtime.js','confirmable-chat-save.js'

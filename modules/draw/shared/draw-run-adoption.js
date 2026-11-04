@@ -61,6 +61,7 @@ function normalizeMetadata(source) {
         // 后台 Draw Run 接管的图也要带原始角色快照，成功入库后才进上镜锚点
         continuityChars: Array.isArray(source?.continuityChars) ? source.continuityChars : null,
         providerMetadata,
+        presetId: String(source?.providerMetadata?.presetId || ''),
     };
 }
 

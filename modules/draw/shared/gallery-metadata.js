@@ -12,10 +12,11 @@ export function withGalleryMetadata(record) {
         hasPreviewImage(record) ? 1 : 0,
         (record.base64?.length || 0) * 0.75,
         String(record.savedUrl || ''),
+        String(record.presetId || ''),
     ] };
 }
 
 export function galleryMetadataFromKey(key, imgId) {
-    const [timestamp, slotId, characterName, displayable, sizeBytes, savedUrl] = key;
-    return { imgId, timestamp, slotId, characterName, displayable: !!displayable, sizeBytes, savedUrl: savedUrl || null };
+    const [timestamp, slotId, characterName, displayable, sizeBytes, savedUrl, presetId = ''] = key;
+    return { imgId, timestamp, slotId, characterName, displayable: !!displayable, sizeBytes, savedUrl: savedUrl || null, presetId };
 }

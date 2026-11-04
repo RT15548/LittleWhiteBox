@@ -246,7 +246,8 @@ export function createSortableList({
         if (!drag || event.pointerId !== drag.pointerId) return;
         drag.lastX = event.clientX;
         drag.lastY = event.clientY;
-        if (Math.abs(event.clientY - drag.startY) > DRAG_THRESHOLD_PX) drag.moved = true;
+        if (Math.abs(event.clientY - drag.startY) > DRAG_THRESHOLD_PX
+            || (gridMode && Math.abs(event.clientX - drag.startX) > DRAG_THRESHOLD_PX)) drag.moved = true;
         if (!drag.moved) return;
         autoScroll?.(event);
         // 自动滚动之后再量：落点要按滚动后的实时位置算。

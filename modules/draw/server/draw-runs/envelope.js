@@ -280,13 +280,25 @@ function validateGenerationRecipe(provider, value, imageCount) {
         recipe = assertExactKeys(value, [
             'apiBaseUrl', 'apiKey', 'insecureTLS', 'timeout', 'requestDelay', 'overrideSize',
             'baseHref', 'resolveForBackend', 'params', 'positivePrefix', 'negativePrefix',
-            'knownCharacters', 'autoLearnEnabled', 'autoLearnMode', 'seeds',
+            'knownCharacters', 'autoLearnEnabled', 'autoLearnMode', 'seeds', 'vibeReferences', 'presetId',
         ], path, [
             'apiBaseUrl', 'apiKey', 'insecureTLS', 'timeout', 'requestDelay', 'overrideSize',
             'resolveForBackend', 'params', 'positivePrefix', 'negativePrefix', 'knownCharacters',
             'autoLearnEnabled', 'autoLearnMode', 'seeds',
         ]);
         validateCommonRecipe(recipe, path);
+        if (recipe.presetId !== undefined) requireString(recipe.presetId, 'generationRecipe.presetId', { allowEmpty: true });
+        if (recipe.vibeReferences !== undefined) {
+            if (!Array.isArray(recipe.vibeReferences)) throw invalid('generationRecipe.vibeReferences must be an array');
+            recipe.vibeReferences.forEach((reference, index) => {
+                const field = `${path}.vibeReferences[${index}]`;
+                assertExactKeys(reference, ['encoding', 'strength', 'name'], field, ['encoding', 'strength']);
+                requireString(reference.encoding, `${field}.encoding`);
+                requirePositiveNumber(reference.strength, `${field}.strength`, { allowZero: true });
+                if (reference.strength > 1) throw invalid(`${field}.strength must not exceed 1`);
+                if (reference.name !== undefined) requireString(reference.name, `${field}.name`, { allowEmpty: true });
+            });
+        }
         // 空值是 NovelAI 官方图片域名的现行设置语义；compiler 会在服务端解析为官方端点。
         requireString(recipe.apiBaseUrl, `${path}.apiBaseUrl`, { allowEmpty: true });
         requireString(recipe.apiKey, `${path}.apiKey`);

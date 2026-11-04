@@ -191,6 +191,7 @@ function normalizeItem(source) {
         ...(source.discarded === true ? { discarded: true } : {}),
         ...(source.deliveryCommitted === true ? { deliveryCommitted: true } : {}),
         previewMetadata: {
+            presetId: String(metadata.presetId || metadata.providerMetadata?.presetId || ''),
             tags: normalizeText(metadata.tags),
             title: normalizeText(metadata.title),
             positive: normalizeText(metadata.positive),

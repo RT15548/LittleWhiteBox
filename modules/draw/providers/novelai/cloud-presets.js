@@ -1,3 +1,4 @@
+import { normalizeVibeEncodings as sanitizeSharedEncodings, clampVibeInfoExtracted as clampSharedInfoExtracted, clampVibeStrength as clampSharedStrength } from './vibe.js';
 // cloud-presets.js
 // 云端预设管理模块 (保持大尺寸 + 分页搜索)
 
@@ -131,37 +132,7 @@ function normalizeImportedParams(rawParams, version, warnings) {
 //   散装  vibe.references = [{ id, enabled, strength, item: single }]
 //   组引用 vibe.group = { name, members: [{ enabled, strength, item: single }] }
 // 导入方一律重新生成本地 id，single 合入自己的库，组则重建并让预设引用新组 id。
-// Vibe 编码按「模型@信息提取值」组合键分别缓存（量化两位小数）；裸键为旧数据，迁移到当前值
-const VIBE_ENCODING_KEY_RE = /^(v4curated|v4full|v4-5curated|v4-5full)(@[01](?:\.\d{1,2})?)?$/;
-
-function sanitizeSharedEncodings(rawEncodings, infoExtracted) {
-    const encodings = {};
-    if (rawEncodings && typeof rawEncodings === 'object' && !Array.isArray(rawEncodings)) {
-        for (const [key, value] of Object.entries(rawEncodings)) {
-            if (typeof value !== 'string' || !value.trim() || !VIBE_ENCODING_KEY_RE.test(key)) continue;
-            const at = key.indexOf('@');
-            const modelKey = at < 0 ? key : key.slice(0, at);
-            const info = at < 0
-                ? clampSharedInfoExtracted(infoExtracted)
-                : clampSharedInfoExtracted(Number(key.slice(at + 1)));
-            encodings[`${modelKey}@${info.toFixed(2)}`] = value;
-        }
-    }
-    return encodings;
-}
-
-function clampSharedStrength(value) {
-    let strength = Number(value);
-    if (!Number.isFinite(strength)) strength = 0.6;
-    return Math.min(1, Math.max(0, strength));
-}
-
-// information_extracted 为 0~1 连续值（官方滑杆），默认 1
-function clampSharedInfoExtracted(value) {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
-}
-
+// Vibe 编码按「模型@信息提取值」组合键分别缓存（量化两位小数）。
 // 单个内联项 → 本地 single（重新生成 id）；无原图且无任何编码时返回 null
 function importInlineSingle(srcItem, generateVibeId) {
     if (!srcItem || typeof srcItem !== 'object' || Array.isArray(srcItem)) return null;
@@ -256,7 +227,7 @@ function collectVibeReferences(preset, vibeLibrary) {
     for (const sel of selections) {
         if (!sel || !sel.id || seen.has(sel.id)) continue;
         const item = singles.find(s => s.id === sel.id);
-        if (!item || !item.image) continue;
+        if (!item || (!item.image && !Object.keys(item.encodings || {}).length)) continue;
         seen.add(sel.id);
         references.push({
             id: item.id,
@@ -268,35 +239,8 @@ function collectVibeReferences(preset, vibeLibrary) {
     return references;
 }
 
-// 导出组模式：内联组名 + 成员勾选/强度 + 成员 single；组在库里已删除则返回 null
-function collectVibeGroupExport(preset, vibeLibrary) {
-    const groupId = String(preset?.vibe?.groupId || '');
-    const singles = vibeLibrary && Array.isArray(vibeLibrary.singles) ? vibeLibrary.singles : [];
-    const groups = vibeLibrary && Array.isArray(vibeLibrary.groups) ? vibeLibrary.groups : [];
-    if (!groupId || !groups.length || !singles.length) return null;
-    const group = groups.find(g => g.id === groupId);
-    if (!group) return null;
-
-    const members = [];
-    for (const m of Array.isArray(group.members) ? group.members : []) {
-        if (!m || !m.id) continue;
-        const item = singles.find(s => s.id === m.id);
-        if (!item || !item.image) continue;
-        members.push({
-            id: item.id,
-            enabled: m.enabled !== false,
-            strength: clampSharedStrength(m.strength),
-            item: buildSharedSingle(item),
-        });
-    }
-    if (!members.length) return null;
-    return { name: String(group.name || '').slice(0, 60) || 'Vibe 组', members };
-}
-
-// 供非 envelope 场景复用：组优先内联整组，否则散装内联被勾选项；无 Vibe 返回 null
+// 分享的是预设当前选择，而不是来源组的旧快照。
 export function collectPresetVibeExport(preset, vibeLibrary) {
-    const group = collectVibeGroupExport(preset, vibeLibrary);
-    if (group) return { group };
     const references = collectVibeReferences(preset, vibeLibrary);
     return references.length ? { references } : null;
 }
@@ -310,7 +254,9 @@ export function parsePresetVibeFragment(rawVibe, generateVibeId) {
     if (rawVibe.group && typeof rawVibe.group === 'object') {
         const result = normalizeVibeGroup(rawVibe.group, generateVibeId);
         return {
-            vibe: { groupId: result.vibeGroup.id, selections: [] },
+            vibe: result.vibeGroup
+                ? { groupId: result.vibeGroup.id, selections: result.vibeGroup.members.map(m => ({ ...m })) }
+                : emptyVibe,
             vibeImports: result.vibeImports,
             vibeGroup: result.vibeGroup,
         };
@@ -364,7 +310,7 @@ export function parsePresetData(data, generateId, generateVibeId = generateId) {
             thumbnail: typeof data.preset.thumbnail === 'string' ? data.preset.thumbnail : '',
             // 组模式只存新组 id（组对象在 vibeGroup 里待父层入库）；散装存勾选快照
             vibe: vibeGroup
-                ? { groupId: vibeGroup.id, selections: [] }
+                ? { groupId: vibeGroup.id, selections: vibeGroup.members.map(m => ({ ...m })) }
                 : { groupId: '', selections },
             maxImages: version === 1 ? 0 : Math.max(0, Number(data.preset.maxImages) || 0),
             maxCharactersPerImage: version === 1
@@ -383,9 +329,8 @@ export function exportPreset(preset, vibeLibrary = null, { interactive = true } 
     // 云端分享才需要询问作者名/简介；本地完整备份直接跳过 prompt
     const author = interactive ? (prompt("请输入你的作者名:", "") || "") : "";
     const description = interactive ? (prompt("简介 (画风介绍):", "") || "") : "";
-    // 组模式内联整个组（名+成员勾选+原图编码）；散装模式只内联被勾选的 single
-    const vibeGroupExport = collectVibeGroupExport(preset, vibeLibrary);
-    const vibeReferences = vibeGroupExport ? [] : collectVibeReferences(preset, vibeLibrary);
+    // 导出预设当前选择及所需编码，不把来源组的旧配置覆盖回来。
+    const vibe = collectPresetVibeExport(preset, vibeLibrary);
     
     return {
         type: PRESET_TYPE,
@@ -401,11 +346,7 @@ export function exportPreset(preset, vibeLibrary = null, { interactive = true } 
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             // 缩略图（dataURL）随云端预设一起分享；无图则省略
             ...(preset.thumbnail ? { thumbnail: preset.thumbnail } : {}),
-            ...(vibeGroupExport
-                ? { vibe: { group: vibeGroupExport } }
-                : vibeReferences.length
-                    ? { vibe: { references: vibeReferences } }
-                    : {}),
+            ...(vibe ? { vibe } : {}),
             overrideSize: preset.overrideSize === 'auto' ? 'auto' : 'default',
             params: { ...preset.params }
         }
