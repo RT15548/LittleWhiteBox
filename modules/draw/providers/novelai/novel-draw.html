@@ -169,12 +169,19 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 }
 .char-empty strong { color: var(--text-primary); display: block; margin-bottom: 6px; font-size: 14px; }
 .char-empty p { font-size: 12px; margin-top: 6px; }
-.filter-rule-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.filter-rule-row input { flex: 1; font-size: 13px; padding: 4px 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); }
+/* 每行：起始 → 结束 | 「发给 AI」勾选 | 删除。列表上方的 .filter-rule-head 用同一套列宽，标题刚好对着勾选框 */
+.filter-rule-row, .filter-rule-head { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto minmax(0, 1fr) 52px 24px; align-items: center; gap: 6px; }
+.filter-rule-row { margin-bottom: 6px; }
+.filter-rule-row.dragging { opacity: .45; }
+.filter-rule-row .filter-rule-drag { justify-self: center; }
+.filter-rule-head { margin-bottom: 2px; font-size: 11px; color: var(--text-muted); }
+.filter-rule-head span { grid-column: 5; text-align: center; white-space: nowrap; }
+.filter-rule-row input[type="text"] { min-width: 0; font-size: 13px; padding: 4px 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); }
 .filter-rule-row .rule-arrow { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
 .filter-rule-row .btn-del-rule { flex-shrink: 0; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px; }
 .filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
-.filter-rule-row input:focus { outline: none; border-color: var(--border-focus); }
+.filter-rule-row input[type="text"]:focus { outline: none; border-color: var(--border-focus); }
+.filter-rule-row .fr-keep { justify-self: center; width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .char-card {
     display: block; padding: 6px 8px;
     border-bottom: 1px solid rgba(255,255,255,.06); transition: background 0.15s;
@@ -1358,7 +1365,8 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                         <div class="card-title"><i class="fa-solid fa-filter"></i> 消息过滤规则</div>
                         <span class="chain-toggle-icon" aria-hidden="true"></span>
                     </summary>
-                    <p class="form-hint" style="margin-bottom:8px;">送模前移除 RP 消息中的思考块等干扰内容。起始留空表示从消息开头过滤；结束留空表示过滤到消息末尾。</p>
+                    <p class="form-hint" style="margin-bottom:8px;">发送前过滤 RP 消息中匹配的思考块等干扰内容；起始留空表示从消息开头过滤；结束留空表示过滤到消息末尾。<br>默认匹配内容既不供 AI 读取，也不插入图片；勾选「发给 AI」后供 AI 读取，但不允许插入图片。常用于对话美化等。</p>
+                    <div class="filter-rule-head" aria-hidden="true"><span>发给 AI</span></div>
                     <div id="nd_filter_rules_list"></div>
                     <div class="btn-group" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
                         <button id="nd_filter_add" class="btn btn-sm">+ 添加规则</button>

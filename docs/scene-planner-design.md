@@ -61,7 +61,7 @@ Adapter 与总超时 scope 各创建一次。网络、配置、Provider 与取�
 
 ## 正文位置与写入
 
-[scene-source.js](../modules/draw/shared/scene-source.js)冻结正文，过滤映射视图中的图片标记与排除区段，保留原始 UTF-16 offset，sourceHash 对完整快照计算。
+[scene-source.js](../modules/draw/shared/scene-source.js)冻结正文，过滤映射视图中的图片标记与排除区段（过滤规则勾选“发给 AI”的片段保留给 AI 阅读，但其内部不生成插图点），保留原始 UTF-16 offset，sourceHash 对完整快照计算。
 
 images.insert_after 唯一决定位置，规划草稿不参与放置。[scene-placement.js](../modules/draw/shared/scene-placement.js)逆序批量插入，写前精确比较 hash，原文变化即拒写；不模糊找 anchor 或找不到便追加末尾。
 

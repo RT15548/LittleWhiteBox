@@ -1,5 +1,6 @@
 import { DOMPurify } from '../../../../../../../../lib.js';
 import { createGalleryImageWindow } from '../../shared/gallery-image-window.js';
+import { createFilterRuleHandle, createFilterRuleSortable } from '../../shared/filter-rule-sort.js';
 import { createGalleryImageRequests } from './gallery-image-requests.js';
 import { createGalleryFeedback } from './gallery-feedback.js';
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
@@ -466,13 +467,17 @@ const ND_DEFAULT_FILTER_RULES = [
     { start: '',           end: '</think>' },
 ];
 
+// 「发给 AI」是每行一个勾选框，列标题写在列表上方（不在每行重复文字）。
+// 存储形态：只有勾选「发给 AI」时才写 keep:true，不勾（默认）不写这个键
 function renderFilterRuleRow(rule, container) {
     const row = document.createElement('div');
     row.className = 'filter-rule-row';
     row.innerHTML = DOMPurify.sanitize(`<input type="text" class="fr-start" placeholder="起始（可空）" value="${escapeHtml(rule.start || '')}">` +
         `<span class="rule-arrow">→</span>` +
         `<input type="text" class="fr-end" placeholder="结束（可空）" value="${escapeHtml(rule.end || '')}">` +
+        `<input type="checkbox" class="fr-keep" title="发给 AI" aria-label="发给 AI"${rule.keep === true ? ' checked' : ''}>` +
         `<button class="btn-del-rule" title="删除">✕</button>`);
+    row.prepend(createFilterRuleHandle(document));
     row.querySelector('.btn-del-rule').onclick = () => row.remove();
     container.appendChild(row);
 }
@@ -491,7 +496,11 @@ function collectFilterRules() {
     rows.forEach(row => {
         const start = row.querySelector('.fr-start')?.value || '';
         const end = row.querySelector('.fr-end')?.value || '';
-        if (start || end) rules.push({ start, end });
+        if (!start && !end) return;
+        const rule = { start, end };
+        // 勾选「发给 AI」才写 keep:true；不勾（默认）不写键
+        if (row.querySelector('.fr-keep')?.checked) rule.keep = true;
+        rules.push(rule);
     });
     return rules;
 }
@@ -4761,6 +4770,7 @@ function initializePage() {
     // ═══════════════════════════════════════════════════════════════════════
     // 消息过滤规则
     // ═══════════════════════════════════════════════════════════════════════
+    createFilterRuleSortable({ container: $('nd_filter_rules_list'), document });
     $('nd_filter_add').addEventListener('click', () => {
         renderFilterRuleRow({ start: '', end: '' }, $('nd_filter_rules_list'));
     });

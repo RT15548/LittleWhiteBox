@@ -3,6 +3,7 @@ import { normalizeGroupPresetState } from './character-group-presets.js';
 import { normalizeCharacterLibrary } from './character-library.js';
 import { normalizePlannerRetry } from './planner-retry.js';
 import { API_PRESET_COPY } from './api-presets-copy.js';
+import { normalizeMessageFilterRules } from './message-filter-rules.js';
 
 const SERVER_FILE_KEY = 'settings';
 export const DEFAULT_SHARED_GALLERY_CACHE_DAYS = 3;
@@ -96,9 +97,7 @@ export function normalizeSharedDrawSettings(saved = {}) {
         && !Array.isArray(source.worldbooks)
         ? source.worldbooks
         : {};
-    const messageFilterRules = (Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [])
-        .filter(rule => rule && typeof rule === 'object')
-        .map(rule => ({ start: String(rule.start || ''), end: String(rule.end || '') }));
+    const messageFilterRules = normalizeMessageFilterRules(source.messageFilterRules);
     const characterLibrary = normalizeCharacterLibrary({
         characters: source.characterTags,
         groups: source.characterGroups,
