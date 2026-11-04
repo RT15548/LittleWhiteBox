@@ -626,39 +626,6 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
 .auto-learn-mode-row.hidden { display: none; }
 .auto-learn-mode-row select { max-width: 200px; }
 
-/* 消息链可视化 */
-.prompt-chain-container { margin-top: 8px; }
-.chain-item {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 6px 10px; border-radius: 6px; font-size: 12px;
-    cursor: pointer; transition: background 0.15s; margin-bottom: 4px;
-}
-.chain-item:hover { background: var(--bg-tertiary); }
-.chain-summary { flex: 1; min-width: 0; }
-.chain-summary-text { display: flex; align-items: center; gap: 6px; }
-.chain-variables { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-.chain-section-content {
-    display: none; margin-top: 6px; padding: 8px;
-    background: var(--bg-input); border-radius: 6px;
-    font-family: monospace; font-size: 10px; white-space: pre-wrap;
-    max-height: 200px; overflow-y: auto; color: var(--text-muted);
-}
-.chain-item.has-sections { cursor: default; }
-.chain-sections { display: grid; gap: 5px; margin-top: 6px; }
-.chain-section {
-    padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg-tertiary); cursor: pointer;
-}
-.chain-section:hover { border-color: var(--accent); }
-.chain-section-summary { color: var(--text-secondary); font-size: 11px; }
-.chain-section.expanded > .chain-section-content { display: block; }
-.chain-fields { display: grid; gap: 4px; margin-top: 6px; }
-.chain-field {
-    display: grid; grid-template-columns: minmax(120px, 0.35fr) 1fr; gap: 8px;
-    padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg-tertiary); font-size: 11px; color: var(--text-secondary);
-}
-.chain-field code { font-size: 10px; color: var(--accent); word-break: break-all; }
 </style>
 </head>
 
@@ -1378,10 +1345,7 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                     <p class="form-hint">画什么、怎么画：分级、构图、角色外貌与服装、动作、光影、物理约束与内容偏好。</p>
                     <textarea aria-label="场景规则" id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
                 </div></div>
-                <details id="nd_prompt_tool_definitions">
-                    <summary>submit_scene_plan</summary>
-                    <div id="nd_prompt_tool_fields" class="chain-fields"></div>
-                </details></div>
+</div>
 
 
 
@@ -1407,15 +1371,6 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
                         </div>
                         <div id="nd_filter_status" class="status-text"></div>
                     </div>
-                </details>
-
-                <details id="nd_prompt_chain_details" class="card prompt-advanced-card">
-                    <summary class="prompt-card-header">
-                        <div class="card-title"><i class="fa-solid fa-eye"></i> 请求内容预览</div>
-                        <span class="chain-toggle-icon" aria-hidden="true"></span>
-                    </summary>
-                    <p class="form-hint">跟随当前草稿；世界书、正文与数量在运行时填入。</p>
-                    <div id="nd_prompt_chain" class="prompt-chain-container"></div>
                 </details>
 
                 <details class="card prompt-advanced-card">

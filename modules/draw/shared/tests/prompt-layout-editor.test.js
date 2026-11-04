@@ -10,7 +10,7 @@ import {
     isDefaultLayout,
     layoutForStorage,
 } from '../prompt-layout-editor.js';
-import { BUILTIN_BLOCK_IDS, addBlock, createCustomBlock } from '../scene-planner-layout.js';
+import { BUILTIN_BLOCK_IDS, addBlock, addBlockAfter, createCustomBlock } from '../scene-planner-layout.js';
 
 // 固定的"随机源"：每次返回不同的值，保证 id 唯一又可复现。
 function sequenceRandom() {
@@ -143,7 +143,7 @@ test('add appends an expanded custom block, focuses its content box, announces i
     const [id] = customIds(ctx);
     assert.ok(id);
     assert.equal(ctx.ids().at(-1), id, '加在末尾');
-    assert.deepEqual(ctx.getLayout().blocks.at(-1), { id, role: 'user', name: '', content: '', enabled: true });
+    assert.deepEqual(ctx.getLayout().blocks.at(-1), { id, role: 'user', name: '', content: '', enabled: true, afterApproval: true });
     assert.equal(ctx.row(id).querySelector('.lwb-ple-main').getAttribute('aria-expanded'), 'true');
     assert.ok(ctx.field(id, 'content'), '展开后有编辑区');
     assert.equal(ctx.focused.at(-1), 'content');
@@ -577,7 +577,7 @@ test('selection and expansion never leak into the stored layout or the draft', (
     const json = JSON.stringify(ctx.getLayout());
     assert.doesNotMatch(json, /selected|expanded|select|anchor/);
     assert.deepEqual(Object.keys(ctx.getLayout()), ['version', 'blocks']);
-    assert.deepEqual(Object.keys(ctx.getLayout().blocks.find(block => block.id === a)).sort(), ['content', 'enabled', 'id', 'name', 'role']);
+    assert.deepEqual(Object.keys(ctx.getLayout().blocks.find(block => block.id === a)).sort(), ['afterApproval', 'content', 'enabled', 'id', 'name', 'role']);
     assert.deepEqual(layoutForStorage(createDefaultLayout()), undefined);
 });
 
@@ -601,14 +601,15 @@ test('reset and render({collapse}) clear the selection and the undo bar; stale i
 });
 
 // Contracts: stage boundaries shown by the editor are the positions used by the saved request.
-test('fixed stages have no drag handles; inserted messages cross whole stages with keyboard and pointer input', t => {
-    const ctx = setup(t);
+test('fixed stages have no drag handles; messages cross whole stages with keyboard and pointer input', t => {
+    const layout = addBlockAfter(createDefaultLayout(), createCustomBlock({ role: 'user' }, [], () => 0.5), 'tools');
+    const ctx = setup(t, { layout });
     for (const id of BUILTIN_BLOCK_IDS) {
         assert.equal(ctx.field(id, 'handle'), undefined);
         assert.equal(ctx.field(id, 'select'), undefined);
     }
-    ctx.click(ctx.host.querySelector('[data-ple-insert-after="tools"]'));
     const [id] = customIds(ctx);
+    ctx.fire(ctx.field(id, 'main'), 'click');
     const area = ctx.field(id, 'content');
     area.value = '保留这条消息';
     ctx.fire(area, 'input');
@@ -620,9 +621,22 @@ test('fixed stages have no drag handles; inserted messages cross whole stages wi
     ctx.fire(ctx.field(id, 'handle'), 'pointerdown', { button: 0, pointerId: 1, clientY: 150 });
     ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 0 });
     ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 0 });
-    assert.equal(ctx.ids().indexOf(id), ctx.ids().indexOf('tools') + 1);
+    assert.equal(ctx.ids().indexOf(id), 0);
     assert.deepEqual(ctx.ids().filter(value => BUILTIN_BLOCK_IDS.includes(value)), BUILTIN_BLOCK_IDS);
     assert.equal(ctx.field(id, 'content').value, '保留这条消息');
+});
+
+test('there are no insert buttons between groups; a new message goes after the approval group and can move before it', t => {
+    const ctx = setup(t);
+    assert.equal(ctx.host.querySelector('[data-ple-insert-after]'), null);
+    ctx.add();
+    const [id] = customIds(ctx);
+    const order = () => Array.from(ctx.host.querySelectorAll('[data-ple-stage], .lwb-ple-row'), node => (node.hasAttribute('data-ple-stage') ? `组:${node.getAttribute('data-ple-stage')}` : node.getAttribute('data-block-id')));
+    assert.deepEqual(order().filter(name => name.startsWith('组:')), ['组:setup', '组:materials', '组:guide', '组:approval']);
+    assert.ok(order().indexOf(id) > order().indexOf('组:approval'), '新消息排在提交确认之后');
+    ctx.key(ctx.field(id, 'handle'), 'ArrowUp');
+    assert.equal(ctx.getLayout().blocks.find(block => block.id === id).afterApproval, undefined);
+    assert.ok(order().indexOf(id) < order().indexOf('组:approval'), '上移一格后排在提交确认之前');
 });
 
 test('multi-selected messages move together without selecting or splitting the fixed stages', t => {
@@ -633,8 +647,9 @@ test('multi-selected messages move together without selecting or splitting the f
     ctx.fire(ctx.row('guide').querySelector('.lwb-ple-label'), 'click', { ctrlKey: true });
     assert.deepEqual(selectedIds(ctx), [a, b]);
     ctx.key(ctx.field(a, 'handle'), 'ArrowUp');
-    assert.deepEqual(ctx.ids().slice(ctx.ids().indexOf('content') + 1, ctx.ids().indexOf('guide')), [a, b]);
-    assert.equal(ctx.ids().at(-1), c);
+    const flag = id => ctx.getLayout().blocks.find(block => block.id === id).afterApproval;
+    assert.deepEqual(ctx.ids().slice(ctx.ids().indexOf('limits') + 1), [a, b, c]);
+    assert.deepEqual([flag(a), flag(b), flag(c)], [undefined, undefined, true]);
     assert.deepEqual(ctx.ids().filter(value => BUILTIN_BLOCK_IDS.includes(value)), BUILTIN_BLOCK_IDS);
     assert.equal(ctx.getLayout().blocks.find(block => block.id === a).content, '内容 1');
     assert.equal(ctx.getLayout().blocks.find(block => block.id === b).content, '内容 2');
@@ -653,4 +668,111 @@ test('explicit reset still asks before removing custom messages and declining pr
     ctx.click(reset);
     assert.deepEqual(ctx.ids(), BUILTIN_BLOCK_IDS);
     assert.equal(isDefaultLayout(ctx.getLayout()), true);
+});
+
+test('the request structure shows every fixed prebuilt message, including the approval pair, and previews any row in place', t => {
+    const ctx = setup(t, { describeBuiltin: id => ({ summary: `摘要-${id}`, action: null, ...(id === 'frame' ? { preview: 'FRAME-TEXT' } : {}) }) });
+    const fixed = Array.from(ctx.host.querySelectorAll('[data-ple-fixed]'), node => node.getAttribute('data-ple-fixed'));
+    assert.deepEqual(fixed, ['fixed-action', 'fixed-materials-call', 'fixed-guide-call', 'fixed-approval-call', 'fixed-approval-result']);
+    assert.equal(ctx.host.querySelector('[data-ple-fixed] [data-ple-drag]'), null);
+    assert.deepEqual(ctx.ids().filter(id => fixed.includes(id)), []);
+    const body = id => ctx.host.querySelector(`[data-ple-fixed="${id}"] [data-ple-preview-body]`);
+    const toggle = id => ctx.host.querySelector(`[data-ple-preview="${id}"]`);
+    assert.equal(body('fixed-approval-result').hasAttribute('hidden'), true);
+    ctx.click(toggle('fixed-approval-result'));
+    assert.equal(body('fixed-approval-result').hasAttribute('hidden'), false);
+    assert.match(body('fixed-approval-result').textContent, /APPROVED/);
+    // 预览显示真正发出去的包装，而不只是里面那句话。
+    assert.deepEqual(JSON.parse(body('fixed-approval-result').textContent), { approved: true, content: 'APPROVED. Proceed with `submit_scene_plan`.' });
+    ctx.click(toggle('fixed-approval-result'));
+    assert.equal(body('fixed-approval-result').hasAttribute('hidden'), true);
+    // 行里的灰字只放包装里面那句话（并截到和别的行一样长），不把整串 JSON 挤进一行。
+    const summaryOf = id => ctx.host.querySelector(`[data-ple-fixed="${id}"] .lwb-ple-summary`).textContent;
+    assert.ok(!summaryOf('fixed-approval-result').includes('{'));
+    assert.match(summaryOf('fixed-approval-result'), /^APPROVED\./);
+    for (const id of fixed) assert.ok(Array.from(summaryOf(id)).length <= 41, `${id} summary too long`);
+    assert.equal(toggle('opening'), null);
+    ctx.click(toggle('frame'));
+    assert.equal(ctx.row('frame').querySelector('[data-ple-preview-body]').textContent, 'FRAME-TEXT');
+    assert.deepEqual(ctx.changes, []);
+});
+
+test('tool-role rows are badged 工具返回 (not 工具), and only rows with an inline editor are marked editable', () => {
+    const { document } = parseHTML('<html><body><div id="host"></div><div id="parking" hidden><div id="opening"><textarea></textarea></div><div id="guide"><textarea></textarea></div></div></body></html>');
+    const host = document.getElementById('host');
+    const editor = createPromptLayoutEditor({
+        document, container: host, onChange: () => {},
+        builtinEditors: { opening: document.getElementById('opening'), guide: document.getElementById('guide') },
+        editorParking: document.getElementById('parking'),
+        describeBuiltin: () => ({ summary: '摘要', action: 'edit' }),
+    });
+    editor.render();
+    const row = id => host.querySelector(`[data-block-id="${id}"]`);
+    const badge = node => node.querySelector('[data-ple-role]');
+    const approvalResult = host.querySelector('[data-ple-fixed="fixed-approval-result"]');
+    assert.equal(badge(approvalResult).textContent, '工具返回');
+    assert.equal(badge(row('worldInfo')).textContent, '工具返回');
+    assert.equal(badge(row('limits')).textContent, '工具返回');
+    assert.equal(badge(row('opening')).textContent, '系统');
+    assert.match(badge(row('limits')).getAttribute('title'), /不是工具定义/);
+    assert.equal(badge(row('opening')).hasAttribute('title'), false);
+    // 只有 opening / guide 提供了就地编辑器：只有它们带 editable，其余内置行与固定消息行都不带。
+    assert.equal(row('opening').classList.contains('lwb-ple-editable'), true);
+    assert.equal(row('guide').classList.contains('lwb-ple-editable'), true);
+    assert.equal(row('worldInfo').classList.contains('lwb-ple-editable'), false);
+    assert.equal(approvalResult.classList.contains('lwb-ple-editable'), false);
+    // 内置行与固定消息行的末尾永远是两个按钮格（预览格、设置/编辑格），缺的一格留空，按钮才能上下对齐。
+    for (const line of host.querySelectorAll('.lwb-ple-builtin > .lwb-ple-line, .lwb-ple-fixed > .lwb-ple-line')) {
+        const tail = Array.from(line.children).slice(-2);
+        assert.deepEqual(tail.map(node => node.classList.contains('lwb-ple-slot')), [true, true]);
+    }
+    assert.equal(row('opening').querySelector('.lwb-ple-slot [data-ple-field="edit"]') !== null, true);
+    assert.equal(approvalResult.querySelectorAll('.lwb-ple-slot')[1].classList.contains('empty'), true);
+    editor.destroy();
+});
+
+test('each fixed group, including the approval one, is dragged as one unit by its name (pointer only, not focusable)', t => {
+    const layout = addBlockAfter(createDefaultLayout(), createCustomBlock({ role: 'user' }, [], () => 0.5), 'tools');
+    const ctx = setup(t, { layout });
+    const handles = Array.from(ctx.host.querySelectorAll('.lwb-ple-group-label[data-ple-drag]'), node => node.getAttribute('data-ple-drag'));
+    assert.deepEqual(handles, ['tools', 'content', 'limits', 'approval']);
+    // 组名不能聚焦：没有 tabindex / role，提示里也不再提键盘。
+    for (const node of ctx.host.querySelectorAll('.lwb-ple-group-label[data-ple-drag]')) {
+        assert.equal(node.hasAttribute('tabindex'), false);
+        assert.equal(node.hasAttribute('role'), false);
+        assert.doesNotMatch(node.getAttribute('title'), /↑|↓|聚焦/);
+    }
+    const [id] = customIds(ctx);
+    layoutRows(ctx);
+    ctx.fire(ctx.host.querySelector('[data-ple-drag="tools"]'), 'pointerdown', { button: 0, pointerId: 1, clientY: 50 });
+    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 190 });
+    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 190 });
+    assert.equal(ctx.ids()[0], id);
+    assert.deepEqual(ctx.ids().filter(value => BUILTIN_BLOCK_IDS.includes(value)), BUILTIN_BLOCK_IDS);
+});
+
+test('dragging the approval group below a message that follows it moves that message in front of the approval pair, and the move is announced', t => {
+    const layout = addBlockAfter(createDefaultLayout(), createCustomBlock({ role: 'user' }, [], () => 0.5));
+    const ctx = setup(t, { layout });
+    const [id] = customIds(ctx);
+    assert.equal(ctx.getLayout().blocks.find(block => block.id === id).afterApproval, true);
+    layoutRows(ctx);
+    // 排序行依次是 4 个固定组 + 末尾这条消息；“提交确认”是第 4 行（300–400），消息是第 5 行（400–500）。
+    ctx.fire(ctx.host.querySelector('[data-ple-drag="approval"]'), 'pointerdown', { button: 0, pointerId: 1, clientY: 350 });
+    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 480 });
+    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 480 });
+    assert.equal(ctx.getLayout().blocks.find(block => block.id === id).afterApproval, undefined);
+    assert.deepEqual(ctx.announced, ['“提交确认”已移动位置']);
+});
+
+test('moving a message announces its new position among the blocks, not counting the approval marker', t => {
+    const layout = addBlockAfter(createDefaultLayout(), createCustomBlock({ role: 'user' }, [], () => 0.5), 'tools');
+    const ctx = setup(t, { layout });
+    const [id] = customIds(ctx);
+    layoutRows(ctx);
+    ctx.fire(ctx.field(id, 'handle'), 'pointerdown', { button: 0, pointerId: 1, clientY: 150 });
+    ctx.fire(ctx.document, 'pointermove', { pointerId: 1, clientY: 0 });
+    ctx.fire(ctx.document, 'pointerup', { pointerId: 1, clientY: 0 });
+    assert.equal(ctx.announced.length, 1);
+    assert.match(ctx.announced[0], new RegExp(`已移到第 1 位，共 ${BUILTIN_BLOCK_IDS.length + 1} 位`));
 });

@@ -62,7 +62,7 @@ test('a message can carry a tool; it survives normalization and other blocks sta
     const plain = createCustomBlock({ role: 'user', content: 'hi' }, [tool.id], () => 0.2);
     const layout = addBlockAfter(addBlockAfter(createDefaultLayout(), tool), plain, tool.id);
     const blocks = layout.blocks.filter(block => !describeBlock(block).builtin);
-    assert.deepEqual(blocks[0], { ...tool });
+    assert.deepEqual(blocks[0], { ...tool, afterApproval: true });
     assert.deepEqual(blocks[0].tool, { code: GAME_CONTENT_CODE });
     assert.equal(blocks[0].role, 'system');
     assert.equal(Object.hasOwn(blocks[1], 'tool'), false);

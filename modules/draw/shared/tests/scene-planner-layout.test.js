@@ -13,7 +13,12 @@ const ORDER = ['opening', 'frame', 'tools', 'worldInfo', 'content', 'guide', 'ru
 const OLD_ORDER = ['opening', 'frame', 'guide', 'rules', 'tools', 'worldInfo', 'content', 'limits'];
 const custom = (id, extra = {}) => ({ id, role: 'user', name: '', content: '', enabled: true, ...extra });
 const ids = layout => layout.blocks.map(block => block.id);
-const customs = layout => layout.blocks.filter(block => !BUILTIN_BLOCK_IDS.includes(block.id));
+// afterApproval 只表示位置（提交确认之前 / 之后），不属于消息内容，比较内容时去掉。
+const customs = layout => layout.blocks.filter(block => !BUILTIN_BLOCK_IDS.includes(block.id)).map((block) => {
+    const content = { ...block };
+    delete content.afterApproval;
+    return content;
+});
 function fixed(layout) {
     assert.deepEqual(ids(layout).filter(id => BUILTIN_BLOCK_IDS.includes(id)), ORDER);
     for (const stage of projectScenePlannerLayout(layout)) {
@@ -74,7 +79,25 @@ test('one keyboard move crosses an entire stage and reversing it restores the sa
     const next = moveBlock(start, 'message', 1);
     assert.deepEqual(projectScenePlannerLayout(next).map(stage => stage.customBlocks.map(block => block.id)), [[], ['message'], []]);
     assert.deepEqual(moveBlock(next, 'message', -1), start);
-    assert.deepEqual(moveBlock(start, 'message', -1), start);
+    const top = moveBlock(start, 'message', -1);
+    assert.deepEqual(projectScenePlannerLayout(top)[0].leadingBlocks.map(block => block.id), ['message']);
+    assert.deepEqual(moveBlock(top, 'message', 1), start);
+    assert.deepEqual(moveBlock(top, 'message', -1), top);
+});
+
+test('custom messages can sit before every group; the groups keep their order and stay unsplit', () => {
+    const raw = { version: 2, blocks: [custom('a', { role: 'system' }), custom('b'), ...ORDER.map(id => ({ id })), custom('c')] };
+    const { layout } = normalizeLayout(raw);
+    assert.deepEqual(ids(layout).slice(0, 2), ['a', 'b']);
+    assert.deepEqual(projectScenePlannerLayout(layout)[0].leadingBlocks.map(block => block.id), ['a', 'b']);
+    fixed(layout);
+    assert.deepEqual(layout, normalizeLayout(layout).layout);
+    for (const at of [0, 1, 3, 5, 7, 8]) {
+        const placed = addBlock(createDefaultLayout(), custom('x'), at);
+        fixed(placed);
+        assert.equal(ids(placed).includes('x'), true);
+    }
+    assert.equal(ids(addBlock(createDefaultLayout(), custom('x'), 0))[0], 'x');
 });
 
 test('edit, disable, copy and delete affect only selected messages; copies do not register duplicate tools', () => {
@@ -127,4 +150,49 @@ test('message IDs remain unique even when the random source repeats', () => {
         assert.equal(taken.includes(block.id), false);
         taken.push(block.id);
     }
+});
+
+test('a whole fixed group can move across neighbouring custom messages but never past another group', () => {
+    const start = addBlockAfter(createDefaultLayout(), custom('m'), 'tools');
+    const down = moveBlocks(start, ['tools'], 1);
+    assert.deepEqual(projectScenePlannerLayout(down)[0].leadingBlocks.map(block => block.id), ['m']);
+    fixed(down);
+    assert.deepEqual(moveBlocks(down, ['tools'], -1), start);
+    assert.deepEqual(moveBlocks(createDefaultLayout(), ['content'], -1), createDefaultLayout());
+    assert.deepEqual(moveBlocks(createDefaultLayout(), ['limits'], 1), createDefaultLayout());
+    assert.deepEqual(moveBlocks(start, ['frame'], 1), start);
+});
+
+test('messages can follow the approval pair; crossing it only flips their position and keeps their data', () => {
+    let layout = addBlockAfter(createDefaultLayout(), custom('end', { content: 'END' }));
+    assert.equal(layout.blocks.at(-1).afterApproval, true);
+    assert.deepEqual(projectScenePlannerLayout(layout).at(-1).trailingBlocks.map(block => block.id), ['end']);
+    assert.deepEqual(projectScenePlannerLayout(layout).at(-1).customBlocks, []);
+    fixed(layout);
+    const before = moveBlocks(layout, ['end'], -1);
+    assert.equal(before.blocks.at(-1).afterApproval, undefined);
+    assert.deepEqual(projectScenePlannerLayout(before).at(-1).customBlocks.map(block => block.id), ['end']);
+    assert.deepEqual(moveBlocks(before, ['end'], 1), layout);
+    assert.equal(customs(before)[0].content, 'END');
+    const next = addBlockAfter(layout, custom('later'), 'end');
+    assert.equal(next.blocks.at(-1).afterApproval, true);
+    assert.deepEqual(reorderBlocks(layout, [...ids(layout).filter(id => id !== 'end'), 'approval', 'end']), layout);
+    // 提交确认拖到这条消息之后：消息回到提交确认之前，数据不变。
+    const flipped = reorderBlocks(layout, [...ids(layout).filter(id => id !== 'end'), 'end', 'approval']);
+    assert.equal(flipped.blocks.at(-1).afterApproval, undefined);
+    assert.deepEqual(flipped, before);
+    assert.deepEqual(layout, normalizeLayout(layout).layout);
+    assert.deepEqual(layoutForStorage(layout), layout);
+    assert.equal(isDefaultLayout(layout), false);
+});
+
+test('a message whose id is the approval marker id is regenerated instead of vanishing on the next move', () => {
+    const raw = { version: SCENE_PLANNER_LAYOUT_VERSION, blocks: [...ORDER.map(id => ({ id })), custom('approval', { content: '别丢' })] };
+    const { layout } = normalizeLayout(raw);
+    const [kept] = customs(layout);
+    assert.equal(kept.content, '别丢');
+    assert.notEqual(kept.id, 'approval');
+    const moved = moveBlocks(layout, [kept.id], -1);
+    assert.equal(customs(moved).length, 1);
+    assert.equal(customs(reorderBlocks(layout, ids(layout))).length, 1);
 });

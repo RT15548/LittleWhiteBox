@@ -78,14 +78,26 @@
 
 .lwb-ple-list { display: flex; flex-direction: column; gap: 0; min-width: 0; }
 .lwb-ple-stage { min-width: 0; }
-.lwb-ple-stage-title { margin: 14px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-primary); }
-.lwb-ple-exchange { padding: 4px 0 8px; font-size: 11px; color: var(--text-secondary); }
-.lwb-ple-insert { align-self: flex-start; margin: 6px 0; padding: 6px 10px; min-height: 32px; background: transparent; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
-.lwb-ple-insert:hover, .lwb-ple-insert:focus-visible { color: var(--text-primary); border-color: var(--accent); }
+/* 程序预先构建的固定消息行（只读）与内联预览 */
+.lwb-ple-fixed { background: var(--lwb-ple-builtin-bg); border-bottom: 1px solid var(--border); }
+/* 分组靠左侧竖排的组名区分：组名文字和右边的粗竖线用同一个颜色（相邻两组在青绿 / 紫之间交替），
+   竖线向右带一点同色的渐变（约 64px 淡出）；右边的行不再另外加底色（行与行之间仍是细分隔线）。不支持 color-mix 时只有粗竖线。 */
+.lwb-ple-group { --lwb-ple-grp-c: var(--border-focus, rgba(212, 165, 116, 0.5)); display: grid; grid-template-columns: 2.7em minmax(0, 1fr); gap: 0; align-items: stretch; }
+.lwb-ple-group.alt { --lwb-ple-grp-c: #8f7fe0; }
+/* 行少的组（如“提交确认”只有两行）比竖排的组名还矮，组会被组名撑高，最后一行下面就多出一截空白。
+   让最后一行吃掉多出来的高度（内容在里面居中），最后一行的分隔线就总是贴着组的底边，和别的组一样。 */
+.lwb-ple-group-rows { min-width: 0; display: flex; flex-direction: column; }
+.lwb-ple-group-rows > :last-child { flex: 1 0 auto; display: flex; flex-direction: column; justify-content: center; }
+@supports (background: color-mix(in srgb, red, blue)) {
+    .lwb-ple-group-rows { background: linear-gradient(to right, color-mix(in srgb, var(--lwb-ple-grp-c) 16%, transparent), transparent 64px); }
+}
+.lwb-ple-group-label { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 0; writing-mode: vertical-rl; font-size: 14px; font-weight: 700; letter-spacing: 0.16em; color: var(--lwb-ple-grp-c); border-right: 4px solid var(--lwb-ple-grp-c); white-space: nowrap; }
+/* 组名上的拖动把手：字号、粗细、字距都和自定义消息行首的把手（.lwb-ple-handle）一致，只是颜色随色块文字色；组名是 14px 加粗，两列点会糊成一团，所以这里单独恢复。 */
+.lwb-ple-group-grip { writing-mode: horizontal-tb; font-size: 14px; font-weight: 400; letter-spacing: -2px; line-height: 1; }
+.lwb-ple-group-label[data-ple-drag] { cursor: grab; touch-action: none; user-select: none; }
+.lwb-ple-group-label[data-ple-drag]:hover { filter: brightness(1.15); }
 .lwb-ple-stage.drop-before { box-shadow: 0 -2px var(--accent); }
 .lwb-ple-stage.drop-after { box-shadow: 0 2px var(--accent); }
-.lwb-ple-stage details { min-width: 0; font-size: 12px; }
-.lwb-ple-stage details > summary { padding: 8px 0; cursor: pointer; }
 .lwb-ple-row {
     min-width: 0;
     border: 0;
@@ -96,20 +108,10 @@
 .lwb-ple-row:hover { background: var(--accent-soft); }
 .lwb-ple-row.expanded { background: var(--bg-secondary); }
 /* 内置块（开场与视角、材料说明与输出去向、模型TAG指南、场景规则、工具说明、世界书、角色与正文、数量约束）是默认的固定结构：
-   行底色只比页面底色深一点点（一层很淡的灰），左侧再加一道细边，和自定义消息仍然分得出，整体不发灰。深色主题里页面底色本身已经很深，所以多混一点黑色；浅色主题只需要很少。
-   悬停 / 选中 / 展开仍有反馈：悬停与选中在深底上叠一层 accent-soft，展开编辑时沿用 bg-secondary 方便看清输入框。 */
-.lwb-ple { --lwb-ple-builtin-bg: var(--bg-tertiary, #242834); }
-@supports (background: color-mix(in srgb, red, blue)) {
-    .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #171922) 82%, #000); }
-    @media (prefers-color-scheme: light) {
-        :root:not([data-draw-theme="dark"]) .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 97%, #000); }
-    }
-    :root[data-draw-theme="light"] .lwb-ple { --lwb-ple-builtin-bg: color-mix(in srgb, var(--bg-primary, #fcfaf6) 97%, #000); }
-}
-.lwb-ple-row.lwb-ple-builtin {
-    background: var(--lwb-ple-builtin-bg);
-    border-left: 3px solid var(--border-focus, rgba(212, 165, 116, 0.5));
-}
+   分组已经由左侧色块标出，所以行底色和别的行一样（透明，跟随页面底色）。能就地编辑的行另有一层淡灰底，见文件后面的 lwb-ple-editable。
+   悬停 / 选中在行上叠一层 accent-soft，展开编辑时沿用 bg-secondary 方便看清输入框。 */
+.lwb-ple { --lwb-ple-builtin-bg: transparent; }
+.lwb-ple-row.lwb-ple-builtin { background: var(--lwb-ple-builtin-bg); }
 .lwb-ple-row.lwb-ple-builtin:hover,
 .lwb-ple-row.lwb-ple-builtin.selected { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--lwb-ple-builtin-bg); }
 .lwb-ple-row.lwb-ple-builtin.expanded { background: var(--bg-secondary); }
@@ -153,32 +155,39 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
     background: var(--accent-soft);
     color: var(--text-secondary);
 }
-/* 角色徽标按角色上色（文字标签照常保留，不靠颜色单独传达）：system 紫、user 绿、assistant 蓝。
+/* 角色徽标按角色上色（文字标签照常保留，不靠颜色单独传达）：system 紫、user 绿、assistant 蓝、tool 黄。
    深色主题是“带色调的深底 + 同色相的亮字”，浅色主题是“浅色底 + 同色相的深字 + 一圈淡边”（文字对比度均 ≥ 4.5:1）。
    浅色 = 跟随系统时的媒体查询 + 主题菜单强制浅色的 :root[data-draw-theme="light"]，两处内容一致。
-   三种颜色只在这一组变量里定义；内置块行与自定义消息行用的是同一个 .lwb-ple-role。 */
+   四种颜色只在这一组变量里定义；内置块行与自定义消息行用的是同一个 .lwb-ple-role。 */
 .lwb-ple {
     --role-system-bg: rgba(167, 139, 250, 0.16); --role-system-fg: #c4b5fd; --role-system-line: rgba(167, 139, 250, 0.34);
     --role-user-bg: rgba(74, 222, 128, 0.13); --role-user-fg: #86efac; --role-user-line: rgba(74, 222, 128, 0.3);
     --role-assistant-bg: rgba(96, 165, 250, 0.16); --role-assistant-fg: #93c5fd; --role-assistant-line: rgba(96, 165, 250, 0.34);
+    --role-tool-bg: rgba(250, 204, 21, 0.14); --role-tool-fg: #fde047; --role-tool-line: rgba(250, 204, 21, 0.32);
 }
 @media (prefers-color-scheme: light) {
     :root:not([data-draw-theme="dark"]) .lwb-ple {
         --role-system-bg: #efe9fb; --role-system-fg: #5b3fa6; --role-system-line: #d6c9f2;
         --role-user-bg: #e6f4ea; --role-user-fg: #1e6b3a; --role-user-line: #c3e3cd;
         --role-assistant-bg: #e5eefb; --role-assistant-fg: #1f4f9c; --role-assistant-line: #c3d6f2;
+        --role-tool-bg: #fbf3d4; --role-tool-fg: #7a5b00; --role-tool-line: #ecd98a;
     }
 }
 :root[data-draw-theme="light"] .lwb-ple {
     --role-system-bg: #efe9fb; --role-system-fg: #5b3fa6; --role-system-line: #d6c9f2;
     --role-user-bg: #e6f4ea; --role-user-fg: #1e6b3a; --role-user-line: #c3e3cd;
     --role-assistant-bg: #e5eefb; --role-assistant-fg: #1f4f9c; --role-assistant-line: #c3d6f2;
+    --role-tool-bg: #fbf3d4; --role-tool-fg: #7a5b00; --role-tool-line: #ecd98a;
 }
 .lwb-ple-role.system { background: var(--role-system-bg); color: var(--role-system-fg); border-color: var(--role-system-line); }
 .lwb-ple-role.user { background: var(--role-user-bg); color: var(--role-user-fg); border-color: var(--role-user-line); }
 .lwb-ple-role.assistant { background: var(--role-assistant-bg); color: var(--role-assistant-fg); border-color: var(--role-assistant-line); }
+.lwb-ple-role.tool { background: var(--role-tool-bg); color: var(--role-tool-fg); border-color: var(--role-tool-line); }
 
-.lwb-ple-label { font-size: 13px; font-weight: 600; color: var(--text-primary, #e6edf3); overflow-wrap: anywhere; }
+.lwb-ple-label { font-size: 13px; font-weight: 400; color: var(--text-primary, #e6edf3); overflow-wrap: anywhere; }
+/* 粗体只用来强调带笔形按钮的可编辑内置行；自定义消息和不可编辑的行（固定消息、只有预览 / 设置的内置行）都是常规字重。
+   可编辑行的标题是按钮（.lwb-ple-main 会把 font 继承回去），所以这里用更高的选择器把粗细压回来。 */
+.lwb-ple-builtin.lwb-ple-editable .lwb-ple-label { font-weight: 700; }
 .lwb-ple-label.muted { font-weight: 400; color: var(--text-secondary, #8b949e); }
 .lwb-ple-summary {
     order: 10;
@@ -190,11 +199,35 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.lwb-ple-builtin .lwb-ple-label { flex: 1 1 0; min-width: 0; }
-.lwb-ple-builtin .lwb-ple-line > .lwb-ple-btn { padding: 6px; border-color: transparent; background: transparent; color: var(--text-secondary); }
+/* 内置行与固定消息行的列：角色徽标 | 标题（固定宽度）| 摘要（吃掉剩余宽度）| 预览格 | 设置 / 编辑格。
+   两个按钮格宽度固定、靠右，没有按钮的格子留空，所以每一行的预览、设置、笔形按钮都落在同一条竖线上。 */
+.lwb-ple-builtin .lwb-ple-label, .lwb-ple-fixed .lwb-ple-label { flex: 0 1 156px; min-width: 0; }
+/* 可编辑行的标题是按钮（字号随继承、左右还有内边距），用 px 定宽并去掉内边距，摘要才和只读行对在同一条竖线上。 */
+.lwb-ple-builtin .lwb-ple-main.lwb-ple-label { padding-inline: 0; }
+.lwb-ple-slot { display: flex; align-items: center; justify-content: center; flex: 0 0 64px; min-width: 0; }
+.lwb-ple-slot:nth-last-child(2) { margin-left: auto; }
+.lwb-ple-slot .lwb-ple-btn { min-width: 56px; }
+@media (min-width: 769px) {
+    .lwb-ple-builtin .lwb-ple-summary, .lwb-ple-fixed .lwb-ple-summary { order: 0; }
+}
 /* 笔形图标按钮（角色卡同款，.char-action-button 的外观来自 preset-list-view.css）：这里只保证图标尺寸，样式表缺失时也不会撑成默认大小。 */
 .lwb-ple-icon-btn { flex-shrink: 0; }
 .lwb-ple-icon-btn svg { width: 16px; height: 16px; }
+/* “这行能就地编辑”的强调：行底色是一层淡灰（正文色混 6%，深浅主题都自动取反），笔形按钮用主题里的青色（--border-focus）外框 + 同色图标 + 淡底；
+   能编辑的行因此比只读行多一层“可点”的提示，但不会盖过正文。不支持 color-mix 时退回只靠笔形按钮的外框强调。 */
+.lwb-ple { --lwb-ple-edit: var(--border-focus, #3d7c83); }
+.lwb-ple-builtin .lwb-ple-icon-btn {
+    border-color: var(--lwb-ple-edit);
+    color: var(--lwb-ple-edit);
+    background: var(--accent-soft);
+}
+.lwb-ple-builtin .lwb-ple-icon-btn:hover { color: var(--text-primary); background: var(--accent-soft); }
+@supports (background: color-mix(in srgb, red, blue)) {
+    .lwb-ple { --lwb-ple-editable-bg: color-mix(in srgb, var(--text-primary) 6%, var(--lwb-ple-builtin-bg)); }
+    .lwb-ple-row.lwb-ple-builtin.lwb-ple-editable:not(.expanded) { background: var(--lwb-ple-editable-bg); }
+    .lwb-ple-row.lwb-ple-builtin.lwb-ple-editable:not(.expanded):hover,
+    .lwb-ple-row.lwb-ple-builtin.lwb-ple-editable.selected:not(.expanded) { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--lwb-ple-editable-bg); }
+}
 .lwb-ple-count { flex-shrink: 0; margin-left: auto; font-size: 11px; color: var(--text-muted, #8b949e); white-space: nowrap; }
 .lwb-ple-chevron { flex-shrink: 0; width: 1em; text-align: center; color: var(--text-secondary, #8b949e); }
 
@@ -235,6 +268,9 @@ body.lwb-ple-dragging, body.lwb-ple-dragging * { cursor: grabbing !important; us
 }
 .lwb-ple-textarea { min-height: 120px; resize: vertical; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; line-height: 1.6; }
 .lwb-ple-body-actions { display: flex; justify-content: flex-end; }
+/* 只读预览：沿用上面的文本框外观，去掉最小高度（由脚本按内容撑高），与行内容左右对齐，底色略深表示不可编辑。 */
+.lwb-ple-preview { display: block; width: calc(100% - 12px); min-height: 0; max-height: 360px; margin: 0 6px 8px; background: var(--bg-tertiary); cursor: text; }
+.lwb-ple-preview[hidden] { display: none; }
 
 .lwb-ple-selection-bar, .lwb-ple-undo-bar {
     display: flex;
