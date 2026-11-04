@@ -36,7 +36,9 @@ export function planScenePlannerMessages({ layout, builtinTexts } = {}) {
             templates.push({ role, template, blockIds: [block.id] });
         }
     }
-    projectScenePlannerLayout(layout).forEach(stage => {
+    const stages = projectScenePlannerLayout(layout);
+    stages.forEach(stage => {
+        stage.leadingBlocks.forEach(appendBlock);
         if (stage.id === 'setup') stage.blocks.filter(block => stage.blockIds.includes(block.id)).forEach(appendBlock);
         else {
             if (stage.id === 'materials') templates.push({ role: 'user', template: SCENE_PLANNER_ACTION, blockIds: [] });
@@ -46,5 +48,6 @@ export function planScenePlannerMessages({ layout, builtinTexts } = {}) {
         stage.customBlocks.forEach(appendBlock);
     });
     templates.push(...buildScenePlannerExchange('approval').map(item => ({ ...item, stageId: 'approval' })));
+    stages.at(-1).trailingBlocks.forEach(appendBlock);
     return { templates };
 }

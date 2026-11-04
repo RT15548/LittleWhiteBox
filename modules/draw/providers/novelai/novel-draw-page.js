@@ -1,5 +1,6 @@
 import { DOMPurify } from '../../../../../../../../lib.js';
 import { createGalleryImageWindow } from '../../shared/gallery-image-window.js';
+import { createFilterRuleHandle, createFilterRuleSortable } from '../../shared/filter-rule-sort.js';
 import { createGalleryImageRequests } from './gallery-image-requests.js';
 import { createGalleryFeedback } from './gallery-feedback.js';
 import { mountServerPluginGuide } from '../../../../shared/server-plugin/installation-guide.js';
@@ -466,13 +467,17 @@ const ND_DEFAULT_FILTER_RULES = [
     { start: '',           end: '</think>' },
 ];
 
+// 「发给 AI」是每行一个勾选框，列标题写在列表上方（不在每行重复文字）。
+// 存储形态：只有勾选「发给 AI」时才写 keep:true，不勾（默认）不写这个键
 function renderFilterRuleRow(rule, container) {
     const row = document.createElement('div');
     row.className = 'filter-rule-row';
     row.innerHTML = DOMPurify.sanitize(`<input type="text" class="fr-start" placeholder="起始（可空）" value="${escapeHtml(rule.start || '')}">` +
         `<span class="rule-arrow">→</span>` +
         `<input type="text" class="fr-end" placeholder="结束（可空）" value="${escapeHtml(rule.end || '')}">` +
+        `<input type="checkbox" class="fr-keep" title="发给 AI" aria-label="发给 AI"${rule.keep === true ? ' checked' : ''}>` +
         `<button class="btn-del-rule" title="删除">✕</button>`);
+    row.prepend(createFilterRuleHandle(document));
     row.querySelector('.btn-del-rule').onclick = () => row.remove();
     container.appendChild(row);
 }
@@ -491,7 +496,11 @@ function collectFilterRules() {
     rows.forEach(row => {
         const start = row.querySelector('.fr-start')?.value || '';
         const end = row.querySelector('.fr-end')?.value || '';
-        if (start || end) rules.push({ start, end });
+        if (!start && !end) return;
+        const rule = { start, end };
+        // 勾选「发给 AI」才写 keep:true；不勾（默认）不写键
+        if (row.querySelector('.fr-keep')?.checked) rule.keep = true;
+        rules.push(rule);
     });
     return rules;
 }
@@ -2315,77 +2324,19 @@ function parseDanbooruCharName(tagName) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 消息链可视化
+// 请求结构：行内预览用的文本
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderPromptChain(chain) {
-    const container = $('nd_prompt_chain');
-    if (!container) return;
+let promptPreviewTexts = {};
 
-    const editableMap = {
-        topSystem: 'nd_prompt_system',
-        tagGuide: 'nd_prompt_guide',
-        sceneRules: 'nd_prompt_format',
-    };
-    const sectionContent = new Map();
-    const getPreviewContent = (key) => {
-        const editableId = editableMap[key];
-        const content = editableId
-            ? ($(editableId)?.value.trim() || '(当前为空，不注入)')
-            : (sectionContent.get(key) || '(运行时按本次请求生成)');
-        return content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
-    };
-
+/** 宿主按当前模型算出的固定文本，供“请求结构”各行的“预览”使用；工具字段说明也在这里更新。 */
+function applyPromptChain(chain) {
+    promptPreviewTexts = Object.fromEntries(chain
+        .flatMap(item => (Array.isArray(item.sections) ? item.sections : []))
+        .filter(section => typeof section.content === 'string')
+        .map(section => [section.key, section.content]));
     const fields = chain.find(item => item.role === 'tools')?.fields || [];
-    $('nd_prompt_tool_fields').innerHTML = DOMPurify.sanitize(fields.map(field => `
-        <div class="chain-field"><code>${escapeHtml(field.path)}</code><span>${escapeHtml(field.description)}</span></div>
-    `).join(''));
-    container.innerHTML = DOMPurify.sanitize(chain.filter(item => item.role !== 'tools').map((item, i) => {
-        const sections = Array.isArray(item.sections) ? item.sections : [];
-        const sectionsHtml = sections.map((section, sectionIndex) => {
-            if (typeof section.content === 'string') sectionContent.set(section.key, section.content);
-            const sectionVars = (section.variables || []).map(v => `<span>${escapeHtml(v)}</span>`).join(' ');
-            const sectionEdit = section.editable
-                ? ' <button type="button" class="chain-editable" data-edit-trigger aria-label="编辑此内容"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>'
-                : '';
-            return `
-            <div class="chain-section" data-key="${escapeHtml(section.key)}" data-editable-id="${editableMap[section.key] || ''}">
-                <div class="chain-section-summary">${sectionIndex + 1}. ${escapeHtml(section.summary)}${sectionEdit}</div>
-                ${sectionVars ? `<div class="chain-variables">${sectionVars}</div>` : ''}
-                <div class="chain-section-content"></div>
-            </div>`;
-        }).join('');
-        return `
-        <div class="chain-item has-sections" data-key="${escapeHtml(item.key)}">
-            <span class="chain-role ${escapeHtml(item.role)}">${escapeHtml(item.roleLabel)}</span>
-            <div class="chain-summary">
-                <div class="chain-summary-text"><span>${i + 1}. ${escapeHtml(item.summary)}</span></div>
-                ${sectionsHtml ? `<div class="chain-sections">${sectionsHtml}</div>` : ''}
-            </div>
-        </div>`;
-    }).join(''));
-
-    container.querySelectorAll('.chain-section').forEach(el => {
-        el.addEventListener('click', (event) => {
-            event.stopPropagation();
-            const preview = el.querySelector('.chain-section-content');
-            const isExpanded = el.classList.toggle('expanded');
-            if (isExpanded) preview.textContent = getPreviewContent(el.dataset.key);
-        });
-    });
-    container.querySelectorAll('[data-edit-trigger]').forEach(trigger => {
-        trigger.addEventListener('click', (event) => {
-            event.stopPropagation();
-            const editableId = trigger.closest('.chain-section')?.dataset.editableId;
-            const target = editableId ? $(editableId) : null;
-            if (target) {
-                const blockId = target.closest('[data-prompt-editor]')?.dataset.promptEditor;
-                if (blockId) getLayoutEditor()?.openBuiltin(blockId);
-                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                target.focus();
-            }
-        });
-    });
+    promptPreviewTexts.tools = ['submit_scene_plan', ...fields.map(field => `${field.path}：${field.description}`)].join('\n');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3804,7 +3755,6 @@ function resetActivePromptPresetToDefaults() {
     if (layoutSupported()) setPromptLayoutDraft(activePreset, PLE.createDefaultLayout());
     renderLayoutEditor({ collapse: true });
     refreshLayoutSummaries();
-    if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
 }
 
 let promptListView = null;
@@ -3991,6 +3941,10 @@ function summarizeLayoutText(value, emptyText) {
     return `${head}（共 ${text.length} 字）`;
 }
 
+function previewTextOf(key) {
+    return promptPreviewTexts[key] || '（运行时按本次请求生成）';
+}
+
 function describeBuiltinBlock(id) {
     switch (id) {
         case 'opening':
@@ -4000,22 +3954,22 @@ function describeBuiltinBlock(id) {
         case 'rules':
             return { summary: summarizeLayoutText($('nd_prompt_format')?.value, '（当前为空，不注入）'), action: 'edit' };
         case 'frame':
-            return { summary: '固定文本：说明下面提供了哪些材料，以及结果要通过工具交回（程序生成，不可编辑）', action: 'view' };
+            return { summary: '固定文本：说明下面提供了哪些材料，以及结果要通过工具交回（程序生成，不可编辑）', action: null, preview: previewTextOf('frame') };
         case 'tools':
-            return { summary: `submit_scene_plan${collectToolBlocks(getEffectivePromptLayout(getActivePromptPresetForForm())).length ? '、已启用的附带工具' : ''}`, action: 'view' };
+            return { summary: `submit_scene_plan${collectToolBlocks(getEffectivePromptLayout(getActivePromptPresetForForm())).length ? '、已启用的附带工具' : ''}`, action: null, preview: previewTextOf('tools') };
         case 'worldInfo':
-            return { summary: state.useWorldInfo === true ? '世界书注入已开启：命中的条目放在这里' : '世界书注入未开启（在世界书页面开启）', action: 'edit' };
+            return { summary: state.useWorldInfo === true ? '世界书注入已开启：命中的条目放在这里' : '世界书注入未开启（在世界书页面开启）', action: 'edit', preview: previewTextOf('worldInfo') };
         case 'content': {
             const chars = Array.isArray(state.characterTags) ? state.characterTags : [];
             const enabled = chars.filter(char => char.enabled !== false).length;
-            return { summary: `最近的聊天正文与角色标签（共 ${chars.length} 个角色，启用 ${enabled} 个）`, action: 'edit' };
+            return { summary: `最近的聊天正文与角色标签（共 ${chars.length} 个角色，启用 ${enabled} 个）`, action: 'edit', preview: previewTextOf('content') };
         }
         case 'limits': {
             const presets = state.paramsPresets || [];
             const params = presets.find(item => item.id === state.selectedParamsPresetId) || presets[0] || {};
             const images = Number(params.maxImages) || 0;
             const perImage = Number(params.maxCharactersPerImage) || 0;
-            return { summary: `每次最多 ${images || '不限'} 张图，每张图最多 ${perImage || '不限'} 个角色`, action: 'edit' };
+            return { summary: `每次最多 ${images || '不限'} 张图，每张图最多 ${perImage || '不限'} 个角色`, action: 'edit', preview: previewTextOf('limits') };
         }
         default:
             return { summary: '', action: null };
@@ -4038,12 +3992,6 @@ function editBuiltinBlock(id) {
         const input = $('nd_max_images');
         input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
         input?.focus?.();
-    } else if (id === 'frame' || id === 'tools') {
-        const details = $(id === 'tools' ? 'nd_prompt_tool_definitions' : 'nd_prompt_chain_details');
-        if (details) {
-            details.open = true;
-            details.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-        }
     }
 }
 
@@ -4076,13 +4024,11 @@ function getLayoutEditor() {
             getSavedLayout: () => getSavedPromptLayout(getActivePromptPresetForForm()),
             onChange: layout => {
                 setPromptLayoutDraft(getActivePromptPresetForForm(), layout);
-                if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
             },
             describeBuiltin: describeBuiltinBlock,
             onEditBuiltin: editBuiltinBlock,
             builtinEditors: Object.fromEntries(Array.from(document.querySelectorAll('[data-prompt-editor]'), node => [node.dataset.promptEditor, node])),
             editorParking: $('nd_prompt_editors'),
-            toolDefinitions: $('nd_prompt_tool_definitions'),
             confirm: message => confirm(message),
             autoScroll: (event, list) => presetListKit?.autoScroll(event, list),
             getDisabledReason: () => (state.promptLayoutSupported === true ? '' : LAYOUT_UNSUPPORTED_REASON),
@@ -4497,7 +4443,7 @@ window.addEventListener('message', event => {
 
         case 'PROMPT_CHAIN_DATA':
             if (Number(data.requestId) !== promptChainRequestId) break;
-            renderPromptChain(data.chain || []);
+            applyPromptChain(data.chain || []);
             break;
 
         case 'LAST_LLM_REQUEST_DATA':
@@ -4824,6 +4770,7 @@ function initializePage() {
     // ═══════════════════════════════════════════════════════════════════════
     // 消息过滤规则
     // ═══════════════════════════════════════════════════════════════════════
+    createFilterRuleSortable({ container: $('nd_filter_rules_list'), document });
     $('nd_filter_add').addEventListener('click', () => {
         renderFilterRuleRow({ start: '', end: '' }, $('nd_filter_rules_list'));
     });
@@ -4952,7 +4899,6 @@ function initializePage() {
     }));
 
     // 恢复默认只改表单；点保存才落盘
-    const refreshChainIfOpen = () => { if ($('nd_prompt_chain_details').open) requestPromptChainPreview(); };
     $('nd_prompt_reset_system').addEventListener('click', () => {
         const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
         const isPov = ['默认-第一人称完整规则', '新版-第一人称完整规则'].includes(activePreset?.name);
@@ -4960,21 +4906,18 @@ function initializePage() {
         $('nd_prompt_system').value = defaultTopSystem;
         setCurrentPromptTextDraft('topSystem', defaultTopSystem);
         refreshLayoutSummaries();
-        refreshChainIfOpen();
     });
     $('nd_prompt_reset_format').addEventListener('click', () => {
         const defaultSceneRules = state._defaultPrompts?.sceneRules || '';
         $('nd_prompt_format').value = defaultSceneRules;
         setCurrentPromptTextDraft('sceneRules', defaultSceneRules);
         refreshLayoutSummaries();
-        refreshChainIfOpen();
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
         const defaultContent = state.modelGuideDefaults?.[getCurrentModelGuideId()] ?? '';
         $('nd_prompt_guide').value = defaultContent;
         setCurrentModelGuideDraft(defaultContent);
         refreshLayoutSummaries();
-        refreshChainIfOpen();
     });
     $('nd_prompt_preset_import').addEventListener('change', observeAsyncCallback(async (e) => {
         const input = e.target; // await 之后事件对象可能已被重置，先留住输入框
@@ -5000,21 +4943,15 @@ function initializePage() {
         input.value = '';
     }, { source: import.meta.url, operation: "callback" }));
 
-    $('nd_prompt_chain_details').addEventListener('toggle', (event) => {
-        if (event.currentTarget.open) requestPromptChainPreview();
-    });
     ['nd_prompt_system', 'nd_prompt_format'].forEach((id) => {
         $(id).addEventListener('input', () => {
             setCurrentPromptTextDraft(id === 'nd_prompt_system' ? 'topSystem' : 'sceneRules', $(id).value);
             refreshLayoutSummaries();
-            if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
         });
     });
     $('nd_prompt_guide').addEventListener('input', () => {
         setCurrentModelGuideDraft($('nd_prompt_guide').value);
         refreshLayoutSummaries();
-        if ($('nd_prompt_chain_details').open) requestPromptChainPreview();
-        else promptChainRequestId += 1;
     });
 
     // 世界书上传

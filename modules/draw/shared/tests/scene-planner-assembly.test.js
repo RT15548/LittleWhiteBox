@@ -108,3 +108,28 @@ test('assembly does not mutate layout or source texts', () => {
     plan(layout);
     assert.deepEqual({ layout, texts: TEXTS }, before);
 });
+
+test('a custom message placed before every group leads the request and merges with the opening by role', () => {
+    const lead = custom('system', 'LEAD');
+    const templates = plan(addBlock(createDefaultLayout(), lead, 0));
+    assert.equal(templates[0].template, `LEAD
+
+OPEN
+
+FRAME
+
+${M}`);
+    assert.deepEqual(templates[0].blockIds.slice(0, 2), [lead.id, 'opening']);
+    assert.deepEqual(templates.map(item => item.role), plan().map(item => item.role));
+    const user = plan(addBlock(createDefaultLayout(), custom('user', 'FIRST'), 0));
+    assert.deepEqual(user.slice(0, 2).map(item => item.role), ['user', 'system']);
+    assert.equal(user[0].template, 'FIRST');
+});
+
+test('a custom message after the approval pair is sent after it', () => {
+    const tail = custom('user', 'AFTER');
+    const templates = plan(addBlock(createDefaultLayout(), { ...tail, afterApproval: true }, 99));
+    assert.equal(templates.at(-1).template, 'AFTER');
+    assert.equal(templates.at(-2).approved, true);
+    assert.deepEqual(templates.slice(0, -1), plan());
+});

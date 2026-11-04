@@ -75,6 +75,7 @@ import {
     syncActiveApiPreset,
 } from "../../shared/api-presets.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
+import { normalizeMessageFilterRules } from '../../shared/message-filter-rules.js';
 import { NOVEL_API_FIELDS, NOVEL_API_PRESET_OPTIONS, normalizeNovelApiConfig, normalizeNovelApiPresets } from './novel-api-config.js';
 import { createQuickTestSession, QUICK_TEST_SLOT_ID as TEST_SLOT_ID, QUICK_TEST_PAGE_SIZE, QUICK_TEST_COPY } from './quick-test-session.js';
 import { getSlotPreviewPage } from '../../shared/gallery-cache.js';
@@ -909,10 +910,7 @@ function normalizeSettings(saved = {}) {
         merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
     }
     // ── 消息过滤规则规范化 ──
-    if (!Array.isArray(merged.messageFilterRules)) merged.messageFilterRules = [];
-    merged.messageFilterRules = merged.messageFilterRules
-        .filter(r => r && typeof r === 'object')
-        .map(r => ({ start: String(r.start || ''), end: String(r.end || '') }));
+    merged.messageFilterRules = normalizeMessageFilterRules(merged.messageFilterRules);
 
     return merged;
 }

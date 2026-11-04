@@ -108,6 +108,7 @@ import {
     buildFailedPlaceholderHtml,
 } from "../../shared/draw-common.js";
 import * as drawCommonModule from "../../shared/draw-common.js";
+import { createFilterRuleHandle, createFilterRuleSortable } from "../../shared/filter-rule-sort.js";
 // 注入标题模式读取：渲染时按共享设置决定 overlay/collapse/none。
 // namespace + 存在性守卫，兼容测试环境对 draw-common 的精简 mock。
 if (typeof drawCommonModule.setImageTitleSettingsProvider === 'function') {
@@ -1442,6 +1443,8 @@ function bindOverlayEvents() {
             schedulePromptChainPreview();
         });
     });
+    const filterRulesList = querySettings('#sd-filter-rules-list');
+    if (filterRulesList) createFilterRuleSortable({ container: filterRulesList, document: filterRulesList.ownerDocument });
     querySettings('#sd-filter-add')?.addEventListener('click', () => {
         renderFilterRuleRow({ start: '', end: '' });
     });
@@ -2081,13 +2084,22 @@ function renderFilterRuleRow(rule = { start: '', end: '' }) {
     end.value = String(rule.end || '');
     end.dataset.sdFilterField = 'end';
 
+    // 「发给 AI」：只放一个勾选框，列标题写在列表上方；缺省不勾
+    const keep = document.createElement('input');
+    keep.type = 'checkbox';
+    keep.className = 'rule-keep';
+    keep.title = '发给 AI';
+    keep.setAttribute('aria-label', '发给 AI');
+    keep.checked = rule.keep === true;
+    keep.dataset.sdFilterField = 'keep';
+
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'btn-del-rule';
     del.textContent = '×';
     del.addEventListener('click', () => row.remove());
 
-    row.append(start, arrow, end, del);
+    row.append(createFilterRuleHandle(document), start, arrow, end, keep, del);
     list.appendChild(row);
 }
 
@@ -2101,10 +2113,15 @@ function renderFilterRules(rules = []) {
 
 function collectFilterRules() {
     return querySettingsAll('#sd-filter-rules-list .filter-rule-row')
-        .map((row) => ({
-            start: String(row.querySelector('[data-sd-filter-field="start"]')?.value || '').trim(),
-            end: String(row.querySelector('[data-sd-filter-field="end"]')?.value || '').trim(),
-        }))
+        .map((row) => {
+            const rule = {
+                start: String(row.querySelector('[data-sd-filter-field="start"]')?.value || '').trim(),
+                end: String(row.querySelector('[data-sd-filter-field="end"]')?.value || '').trim(),
+            };
+            // 「发给 AI」只在勾选时写入 keep: true；不勾（默认）不写键
+            if (row.querySelector('[data-sd-filter-field="keep"]')?.checked) rule.keep = true;
+            return rule;
+        })
         .filter((rule) => rule.start || rule.end);
 }
 

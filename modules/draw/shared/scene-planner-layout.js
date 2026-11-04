@@ -1,11 +1,15 @@
 // 场景规划请求的"块布局"：存储、设置界面、请求组装三方共用的契约（纯函数）。
 // 零依赖：不得 import 任何模块；也不在逻辑里读时间或随机数（id 随机源由调用方注入）。
-// 布局 = 固定阶段 + 阶段之间的自定义消息；内置块的次序由本文件统一定义。
+// 布局 = 固定阶段 + 自定义消息；内置阶段的次序由本文件统一定义，自定义消息可放在任意阶段之前、之间、之后（阶段内部不能插入）。
 // 自定义块可以“附带工具”（tool: { code }）：块的 content 是随请求发出的说明消息，tool.code 是用户写的工具代码
 // （由所选执行端的沙盒执行）。工具跟着这条消息走：消息启用，工具才注册。
 // 稀疏存储：预设只有在布局偏离默认时才带 layout 字段；内置块只存 {id}，避免内容随版本漂移。
 
 export const SCENE_PLANNER_LAYOUT_VERSION = 2;
+
+// “提交确认”（程序预先构建的申请 / 确认）不是布局里的块，编辑器用这个 id 当它的位置标记；
+// 排在它后面的自定义消息存成 afterApproval: true，发送时跟在提交确认之后。
+export const APPROVAL_MARKER_ID = 'approval';
 
 function freezeBlock(block) {
     return Object.freeze(block);
@@ -39,30 +43,42 @@ const STAGE_BY_BLOCK = new Map(SCENE_PLANNER_STAGES.flatMap((stage, index) => st
 
 // v1 用户预设曾允许任意移动内置块。在解析入口归位；自定义消息按相邻阶段安置，
 // 保留其相互次序、内容、角色和工具代码，不把旧布局的排序语义带入请求组装。
+// 排在所有内置块之前的自定义消息留在最前面（leading），标了 afterApproval 的留在最后面（trailing）。
 function fixStageOrder(blocks) {
+    const leading = [];
+    const trailing = [];
     const customs = SCENE_PLANNER_STAGES.map(() => []);
-    let stageIndex = 0;
-    let lastCustomStage = 0;
+    let stageIndex = -1;
+    let lastCustomStage = -1;
     for (const block of blocks) {
         if (STAGE_BY_BLOCK.has(block.id)) stageIndex = STAGE_BY_BLOCK.get(block.id);
+        else if (block.afterApproval) trailing.push(block);
         else {
             lastCustomStage = Math.max(lastCustomStage, stageIndex);
-            customs[lastCustomStage].push(block);
+            (lastCustomStage < 0 ? leading : customs[lastCustomStage]).push(block);
         }
     }
-    return SCENE_PLANNER_STAGES.flatMap((stage, index) => [
+    return [...leading, ...SCENE_PLANNER_STAGES.flatMap((stage, index) => [
         ...stage.blockIds.map(id => ({ id })), ...customs[index],
-    ]);
+    ]), ...trailing];
 }
 
-/** 编辑器和组装器消费同一阶段投影；自定义消息只出现在完整阶段之后。 */
+/** 编辑器和组装器消费同一阶段投影；自定义消息只出现在完整阶段之前、之间或之后（第一阶段之前的在 leadingBlocks，提交确认之后的在最后一个阶段的 trailingBlocks）。 */
 export function projectScenePlannerLayout(raw) {
     const { blocks } = normalizeLayout(raw).layout;
+    const firstTrailing = blocks.findIndex(block => block.afterApproval);
+    const stagesEnd = firstTrailing === -1 ? blocks.length : firstTrailing;
     return SCENE_PLANNER_STAGES.map((stage, index) => {
         const start = blocks.findIndex(block => block.id === stage.blockIds[0]);
-        const end = index + 1 < SCENE_PLANNER_STAGES.length
-            ? blocks.findIndex(block => block.id === SCENE_PLANNER_STAGES[index + 1].blockIds[0]) : blocks.length;
-        return { ...stage, blocks: blocks.slice(start, end), customBlocks: blocks.slice(start + stage.blockIds.length, end) };
+        const last = index + 1 === SCENE_PLANNER_STAGES.length;
+        const end = last ? stagesEnd : blocks.findIndex(block => block.id === SCENE_PLANNER_STAGES[index + 1].blockIds[0]);
+        return {
+            ...stage,
+            leadingBlocks: index === 0 ? blocks.slice(0, start) : [],
+            trailingBlocks: last ? blocks.slice(stagesEnd) : [],
+            blocks: blocks.slice(start, end),
+            customBlocks: blocks.slice(start + stage.blockIds.length, end),
+        };
     });
 }
 export const CUSTOM_BLOCK_ROLES = Object.freeze(['system', 'user', 'assistant']);
@@ -154,7 +170,7 @@ export function createDefaultLayout() {
 }
 
 export function createCustomBlock(
-    { role = 'user', name = '', content = '', enabled = true, tool = null } = {},
+    { role = 'user', name = '', content = '', enabled = true, tool = null, afterApproval = false } = {},
     existingIds = [],
     random = Math.random,
 ) {
@@ -167,6 +183,7 @@ export function createCustomBlock(
         content: coerceText(content).text,
         enabled: enabled !== false,
         ...(hasTool({ tool }) ? { tool: toolOf(tool.code) } : {}),
+        ...(afterApproval === true ? { afterApproval: true } : {}),
     };
 }
 
@@ -202,7 +219,8 @@ function normalizeCore(raw, { trimName = true } = {}) {
     }
 
     // 第一遍：分拣内置/自定义，内置只留首次出现；有效自定义 id 先占位，避免后面重新生成的 id 撞上它。
-    const used = new Set(BUILTIN_BLOCK_IDS);
+    // “提交确认”标记在排序时占一个 id，用户块不能叫这个名字（否则移动时会被当成标记滤掉），撞上就按非法 id 重新生成。
+    const used = new Set([...BUILTIN_BLOCK_IDS, APPROVAL_MARKER_ID]);
     const seenBuiltin = new Set();
     const slots = [];
     let droppedEntries = 0;
@@ -261,6 +279,7 @@ function normalizeCore(raw, { trimName = true } = {}) {
             content: contentInfo.text,
             // 角色无效时强制停用：宁可不发，也不悄悄发一条用户没选过角色的消息。
             enabled: roleValid && entry.enabled !== false,
+            ...(entry.afterApproval === true ? { afterApproval: true } : {}),
         };
         // 附带的工具；条目里别的字段（包括旧版独立工具块的 kind / code）一律忽略。
         if (hasTool(entry)) {
@@ -364,7 +383,9 @@ export function addBlockAfter(layout, block, afterId) {
         if (!isRecord(block) || isBuiltinId(block.id)) return blocks;
         const at = blocks.findIndex(item => item.id === afterId);
         const next = blocks.slice();
-        next.splice(at === -1 ? next.length : at + 1, 0, { ...block });
+        // 跟在“提交确认之后”的消息后面、或没有锚点放到末尾时，新消息也在提交确认之后。
+        const trailing = at === -1 || blocks[at].afterApproval === true;
+        next.splice(at === -1 ? next.length : at + 1, 0, trailing ? { ...block, afterApproval: true } : { ...block });
         return next;
     });
 }
@@ -417,13 +438,34 @@ export function setBlocksEnabled(layout, ids, enabled) {
     )));
 }
 
+// 移动 / 重排时临时把“提交确认”标记放进块列表：自定义消息越过它，就是在“提交确认之前 / 之后”之间切换；
+// 结束后去掉标记，把排在它后面的自定义消息标成 afterApproval。
+function withApprovalMarker(blocks, edit) {
+    const first = blocks.findIndex(block => block.afterApproval);
+    const marked = blocks.slice();
+    marked.splice(first === -1 ? marked.length : first, 0, { id: APPROVAL_MARKER_ID });
+    const edited = edit(marked);
+    const at = edited.findIndex(block => block.id === APPROVAL_MARKER_ID);
+    if (at === -1) return edited;
+    return edited.filter(block => block.id !== APPROVAL_MARKER_ID).map((block, index) => {
+        if (isBuiltinId(block.id)) return block;
+        const next = { ...block };
+        delete next.afterApproval;
+        return index >= at ? { ...next, afterApproval: true } : next;
+    });
+}
+
 /**
- * 把自定义消息整体上移 / 下移；完整的内置阶段是一个不可拆分的移动单位。
+ * 把自定义消息（或传入阶段最后一块的 id 时，整个内置阶段）整体上移 / 下移；完整的内置阶段是一个不可拆分的移动单位，阶段之间的先后顺序不变。
  * 上移 / 下移是相对“组外的块”算的：组里不连续时会先并拢到同一处。已在边界时原样返回。
  */
 export function moveBlocks(layout, ids, direction) {
-    return editBlocks(layout, blocks => {
-        const wanted = new Set(toIdList(ids).filter(id => !isBuiltinId(id)));
+    return editBlocks(layout, original => withApprovalMarker(original, blocks => {
+        // 编辑器用阶段的最后一块当“整组”的把手 id：移动它，就是把整个固定阶段挪过相邻的自定义消息。
+        const wanted = new Set(toIdList(ids).flatMap((id) => {
+            const stage = SCENE_PLANNER_STAGES.find(item => item.blockIds.at(-1) === id);
+            return stage ? [stage.blockIds[0]] : isBuiltinId(id) ? [] : [id];
+        }));
         const units = [];
         for (const block of blocks) {
             if (!isBuiltinId(block.id)) units.push([block]);
@@ -431,7 +473,7 @@ export function moveBlocks(layout, ids, direction) {
                 units.push(SCENE_PLANNER_STAGES.find(stage => stage.blockIds[0] === block.id).blockIds.map(id => ({ id })));
             }
         }
-        const group = blocks.filter(block => wanted.has(block.id));
+        const group = units.filter(unit => wanted.has(unit[0].id)).flat();
         const step = direction > 0 ? 1 : direction < 0 ? -1 : 0;
         if (!group.length || step === 0) return blocks;
         const rest = units.filter(unit => !wanted.has(unit[0].id));
@@ -439,10 +481,10 @@ export function moveBlocks(layout, ids, direction) {
         const first = units.findIndex(unit => wanted.has(unit[0].id));
         const last = units.length - 1 - units.slice().reverse().findIndex(unit => wanted.has(unit[0].id));
         const at = step < 0
-            ? Math.max(1, outsideBefore(first) - 1)
+            ? Math.max(0, outsideBefore(first) - 1)
             : Math.min(rest.length, outsideBefore(last) + 1);
         return [...rest.slice(0, at).flat(), ...group, ...rest.slice(at).flat()];
-    });
+    }));
 }
 
 export function removeBlock(layout, id) {
@@ -475,7 +517,7 @@ export function moveBlock(layout, id, direction) {
 }
 
 export function reorderBlocks(layout, orderedIds) {
-    return editBlocks(layout, blocks => {
+    return editBlocks(layout, original => withApprovalMarker(original, blocks => {
         if (!Array.isArray(orderedIds)) return blocks;
         const byId = new Map(blocks.map(block => [block.id, block]));
         const placed = new Set();
@@ -487,5 +529,5 @@ export function reorderBlocks(layout, orderedIds) {
         }
         // 没被列出的块保持原有相对顺序排在后面：只重排，绝不增删。
         return head.concat(blocks.filter(block => !placed.has(block.id)));
-    });
+    }));
 }
