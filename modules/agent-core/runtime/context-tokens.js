@@ -19,7 +19,7 @@ function buildTokenCounterMessages(messages = [], tools = [], providerConfig = {
         // Native replay can carry thought text/signatures and multiple model contents.
         // Count that representation once rather than just its visible text projection.
         const payload = message.role === 'assistant' ? message.providerPayload : null;
-        const nativeContent = ['google', 'sillytavern-google'].includes(providerConfig.provider)
+        const nativeContent = ['google', 'sillytavern-google', 'sillytavern-vertex'].includes(providerConfig.provider)
             ? payload?.googleContents || payload?.googleContent
             : ['anthropic', 'sillytavern-claude'].includes(providerConfig.provider) ? payload?.anthropicContent
                 : providerConfig.provider === 'openai-responses' ? payload?.openAIResponseOutput : null;
@@ -89,7 +89,7 @@ export function getTokenizerModelHint(providerConfig = {}) {
     const model = String(providerConfig?.model || '').trim();
     if (model) return model;
     if (['anthropic', 'sillytavern-claude'].includes(providerConfig?.provider)) return 'claude';
-    if (['google', 'sillytavern-google'].includes(providerConfig?.provider)) return 'gemini';
+    if (['google', 'sillytavern-google', 'sillytavern-vertex'].includes(providerConfig?.provider)) return 'gemini';
     return 'gpt-4o';
 }
 

@@ -3796,6 +3796,19 @@ function applyPromptPreset({ collapseLayout = false } = {}) {
         ? drafts.get('sceneRules')
         : active.sceneRules ?? '';
     applyModelGuideForCurrentModel();
+    // 内置模板只读：三个文本框不可编辑，保存按钮改文案，点击后另存为可编辑副本。
+    const isBuiltin = active.builtin === true;
+    for (const id of ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format']) {
+        const el = $(id);
+        if (el) el.readOnly = isBuiltin;
+    }
+    const saveButton = $('nd_prompt_preset_save');
+    if (saveButton) {
+        saveButton.innerHTML = isBuiltin
+            ? '<i class="fa-solid fa-floppy-disk"></i> 另存为可编辑副本'
+            : '<i class="fa-solid fa-floppy-disk"></i> 保存';
+        saveButton.title = isBuiltin ? '内置模板不可修改，保存会另存为可编辑副本' : '保存当前预设';
+    }
     renderLayoutEditor({ collapse: collapseLayout });
 }
 
@@ -3824,6 +3837,10 @@ const PROMPT_PRESET_MENU_ITEMS = Object.freeze([
 function resetActivePromptPresetToDefaults() {
     const defaults = state._defaultPrompts || {};
     const activePreset = getActivePromptPresetForForm();
+    if (activePreset?.builtin) {
+        alert('内置模板不可恢复默认，请先用“复制”另存一份可编辑副本');
+        return;
+    }
     if (!activePreset) {
         alert('没有可恢复的提示词预设');
         return;
@@ -3863,6 +3880,10 @@ function getPromptListView() {
             onSelect: id => selectPromptPreset(id),
             onAction: handlePromptPresetAction,
             onRename: (id, name, preset) => {
+                if (preset?.builtin) {
+                    alert('内置模板不可重命名，请先用“复制”另存一份可编辑副本');
+                    return false;
+                }
                 preset.name = name; // 先在本页显示新名字；宿主保存后回传的 INIT_DATA 是最终结果
                 postToParent({ type: 'RENAME_PROMPT_PRESET', id, name });
             },
@@ -3895,6 +3916,10 @@ function reorderPromptPresets(orderedIds) {
 
 function handlePromptPresetAction(action, id, preset) {
     const label = preset.name || preset.id;
+    if (preset?.builtin && (action === 'delete' || action === 'reset-defaults')) {
+        alert('内置模板不可删除或恢复默认，请先用“复制”另存一份可编辑副本');
+        return;
+    }
     if (action === 'duplicate') {
         postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
     } else if (action === 'export') {

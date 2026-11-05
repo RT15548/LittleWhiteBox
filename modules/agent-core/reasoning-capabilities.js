@@ -153,6 +153,8 @@ export function resolveReasoningCapability(context = {}) {
             return GOOGLE_LATEST;
         case 'sillytavern-google':
             return HOST_GOOGLE_LATEST;
+        case 'sillytavern-vertex':
+            return HOST_GOOGLE_LATEST;
         default:
             return INHERIT_ONLY;
     }

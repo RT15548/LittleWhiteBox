@@ -68,6 +68,19 @@ export const DEFAULT_MODEL_CONFIGS = {
         sendTemperature: true,
         sampling: {},
     },
+    'sillytavern-vertex': {
+        baseUrl: '',
+        model: 'gemini-2.5-pro',
+        apiKey: '',
+        vertexAuthMode: 'full',
+        vertexRegion: 'us-central1',
+        serviceAccountJson: '',
+        temperature: 1,
+        maxTokens: DEFAULT_MAX_TOKENS,
+        sendTemperature: true,
+        toolMode: 'tagged-json',
+        sampling: {},
+    },
     anthropic: {
         baseUrl: 'https://api.anthropic.com',
         model: 'claude-sonnet-4-0',
@@ -140,6 +153,7 @@ export function normalizeModelConfigs(modelConfigs = {}) {
             ? modelConfigs[provider]
             : {};
         const defaults = DEFAULT_MODEL_CONFIGS[provider];
+        const isVertex = provider === 'sillytavern-vertex';
         next[provider] = {
             baseUrl: String(source.baseUrl ?? defaults.baseUrl ?? ''),
             model: String(source.model ?? defaults.model ?? ''),
@@ -155,6 +169,12 @@ export function normalizeModelConfigs(modelConfigs = {}) {
                 : {}),
             reasoning: normalizeReasoningConfig(source.reasoning),
             sampling: normalizeSampling(source.sampling),
+            // provider 专用字段：白名单外的字段不会在 normalize 时保留，这里显式拷贝。
+            ...(isVertex ? {
+                vertexAuthMode: source.vertexAuthMode || defaults.vertexAuthMode || 'full',
+                vertexRegion: source.vertexRegion || defaults.vertexRegion || 'us-central1',
+                serviceAccountJson: String(source.serviceAccountJson || defaults.serviceAccountJson || ''),
+            } : {}),
         };
     });
     return next;

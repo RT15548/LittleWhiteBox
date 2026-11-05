@@ -1,6 +1,10 @@
 import { NOVEL_PROMPT_GUIDES } from './novel-model-capabilities.js';
 import { promptTemplateFingerprint } from '../../shared/prompt-template-migration.js';
-import { installScenePlannerPresets } from '../../shared/scene-planner-presets.js';
+import {
+    installScenePlannerPresets,
+    isBuiltinPromptPreset,
+    isPovPromptPreset,
+} from '../../shared/scene-planner-presets.js';
 
 // Upgrade boundary for prompt formats that have actually shipped.
 // - upstream config v7 / prompt template v4: YAML-era preset fields.
@@ -195,6 +199,44 @@ function migrateLegacyNovelPromptPresets(
     };
 }
 
+/**
+ * One-time upgrade: replace built-in preset content with the currently bundled
+ * templates and lock them read-only. The version marker keeps later loads from
+ * overwriting anything, so the refresh only runs once per saved configuration.
+ */
+function refreshBuiltinPresetContent(settings, currentDefaults) {
+    const source = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+    if (Number(source._builtinPresetVersion) >= 1) {
+        return { settings: source, refreshed: false };
+    }
+    for (const key of ['topSystem', 'topSystemPov', 'sceneRules']) {
+        if (typeof currentDefaults?.[key] !== 'string' || !currentDefaults[key].trim()) {
+            throw new Error(`提示词模板尚未加载：${key}`);
+        }
+    }
+    const existing = Array.isArray(source.promptPresets) ? source.promptPresets : [];
+    let refreshed = false;
+    const next = existing.map((preset) => {
+        if (!isBuiltinPromptPreset(preset)) return preset;
+        const isPov = isPovPromptPreset(preset.name);
+        refreshed = true;
+        return {
+            ...preset,
+            builtin: true,
+            topSystem: isPov ? currentDefaults.topSystemPov : currentDefaults.topSystem,
+            sceneRules: currentDefaults.sceneRules,
+        };
+    });
+    return {
+        settings: {
+            ...source,
+            promptPresets: next,
+            _builtinPresetVersion: 1,
+        },
+        refreshed,
+    };
+}
+
 export function migrateLegacyNovelPromptSettings(saved, currentDefaults, targetVersion) {
     const source = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
     const result = migrateLegacyNovelPromptPresets(source.promptPresets, {
@@ -205,12 +247,14 @@ export function migrateLegacyNovelPromptSettings(saved, currentDefaults, targetV
         ...source,
         promptPresets: result.presets,
     }, currentDefaults, targetVersion, { installVersion: 13 });
+    const builtin = refreshBuiltinPresetContent(installation.settings, currentDefaults);
     return {
         ...result,
-        settings: installation.settings,
-        presets: installation.settings.promptPresets,
-        templateVersion: installation.settings._promptTemplateVersion,
-        migrated: result.migrated || installation.changed,
+        settings: builtin.settings,
+        presets: builtin.settings.promptPresets,
+        templateVersion: builtin.settings._promptTemplateVersion,
+        builtinRefreshed: builtin.refreshed,
+        migrated: result.migrated || installation.changed || builtin.refreshed,
         installed: installation.installed,
     };
 }
