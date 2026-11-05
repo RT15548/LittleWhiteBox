@@ -1,6 +1,8 @@
 import { buildEntryUrl, reportBuildFailure } from "./core/build-assets.js";
 import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
+import { SlashCommandParser } from "../../../slash-commands/SlashCommandParser.js";
+import { SlashCommand } from "../../../slash-commands/SlashCommand.js";
 import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
@@ -1217,3 +1219,39 @@ jQuery(observeAsyncCallback(async () => {
 }, { source: import.meta.url, operation: "callback" }));
 
 export { executeSlashCommand };
+
+// 注册 /xiaobaix 与 /助手 斜杠命令（延後以避開加載順序衝突）
+setTimeout(() => {
+    try {
+        if (!SlashCommandParser || !SlashCommand) return;
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'xiaobaix',
+            callback: async () => {
+                if (!isXiaobaixEnabled) {
+                    globalThis.toastr?.warning('LittleWhiteBox 扩展未启用');
+                    return '';
+                }
+                if (!window.xiaobaixAssistant?.open) {
+                    await initAssistant();
+                }
+                if (window.xiaobaixAssistant?.open) {
+                    window.xiaobaixAssistant.open();
+                } else {
+                    globalThis.toastr?.warning('小白助手初始化失败');
+                }
+                return '';
+            },
+            helpString: '打开小白助手面板',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: '助手',
+            callback: async () => {
+                await SlashCommandParser.commands['xiaobaix']?.callback({}, '');
+                return '';
+            },
+            helpString: '打开小白助手面板 (快捷别名)',
+        }));
+    } catch (e) {
+        console.error('注册小白助手斜杠命令失败:', e);
+    }
+}, 2000);

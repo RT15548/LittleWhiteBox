@@ -32,6 +32,15 @@ const SILLYTAVERN_CLAUDE_FALLBACK_MODELS = Object.freeze([
     'claude-sonnet-4-0',
     'claude-sonnet-4-20250514',
 ]);
+const SILLYTAVERN_VERTEX_FALLBACK_MODELS = Object.freeze([
+    'gemini-3-flash',
+    'gemini-3-pro',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+]);
 
 
 function filterModels(models = []) {
@@ -221,6 +230,11 @@ export async function pullModelsForProvider(providerConfig, options = {}) {
 
     if (provider === 'sillytavern-claude') {
         return filterModels(await pullSillyTavernClaudeModels(providerConfig, options));
+    }
+
+    // 跟随酒馆：模型清单由酒馆主 API 决定，/status 不提供 Vertex 列表，直接给内建清单。
+    if (provider === 'sillytavern-vertex') {
+        return [...SILLYTAVERN_VERTEX_FALLBACK_MODELS];
     }
 
     const googleBearer = provider === 'sillytavern-google'

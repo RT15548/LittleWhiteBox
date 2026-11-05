@@ -506,6 +506,7 @@ function normalizeSettings(raw = {}) {
         return {
             id: String(preset.id || `prompt-${Date.now()}-${index}`),
             name: String(preset.name || `提示词预设 ${index + 1}`),
+            builtin: preset.builtin === true,
             topSystem: typeof preset.topSystem === 'string' ? preset.topSystem : defaults.topSystem,
             tagGuideContent: typeof preset.tagGuideContent === 'string'
                 ? preset.tagGuideContent

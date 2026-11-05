@@ -777,6 +777,10 @@ export function createAgentSettingsPanel(deps = {}) {
         if (baseUrlInput) baseUrlInput.value = draft.baseUrl || '';
         if (modelInput) modelInput.value = draft.model || '';
         if (apiKeyInput) apiKeyInput.value = draft.apiKey || '';
+        // 跟随酒馆：baseUrl / apiKey 由酒馆主 API 决定，不允许填写，避免误配。
+        const followingTavern = provider === 'sillytavern-vertex';
+        if (baseUrlInput) baseUrlInput.disabled = followingTavern;
+        if (apiKeyInput) apiKeyInput.disabled = followingTavern;
         syncModelListAuthControls(root, provider, draft.modelListAuth);
         if (maxTokensInput) maxTokensInput.value = String(normalizeMaxTokens(draft.maxTokens));
         syncWebSettingsForm(root, draft);

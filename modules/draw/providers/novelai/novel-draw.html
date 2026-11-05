@@ -502,6 +502,23 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
     .gallery-modal-thumb { width: 40px; height: 40px; }
     .gallery-modal .btn { min-height: 40px; }
 }
+/* 完整提示词弹窗：叠在画廊大图之上，复用 gallery-modal 外壳变量 */
+#nd_prompt_modal { z-index: 1001; }
+.prompt-modal-content {
+    width: min(720px, 92vw); max-height: 82vh; overflow-y: auto;
+    margin: auto; padding: 20px; border-radius: 14px;
+    background: var(--gm-bar); border: 1px solid var(--gm-line);
+}
+.prompt-modal-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--gm-text); }
+.prompt-modal-fields { display: flex; flex-direction: column; gap: 14px; }
+.prompt-modal-item { display: flex; flex-direction: column; gap: 4px; }
+.prompt-modal-item:has(.prompt-modal-text:empty) { display: none; }
+.prompt-modal-label { font-size: 12px; font-weight: 600; color: var(--gm-muted); letter-spacing: 0.04em; }
+.prompt-modal-text {
+    margin: 0; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3);
+    font-size: 12px; line-height: 1.55; color: var(--gm-text);
+    white-space: pre-wrap; word-break: break-word; user-select: text;
+}
 /* 批量管理：slot 卡與彈窗縮略圖上的勾選框 */
 .gallery-slot { position: relative; }
 .gallery-slot > .batch-cb {
@@ -1524,8 +1541,39 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
             <div class="gallery-modal-load-status" id="nd_modal_load_status" role="status" aria-live="polite" hidden></div>
             <div class="gallery-modal-actions">
                 <button class="btn btn-primary" id="nd_modal_use" type="button"><i class="fa-solid fa-check"></i> 使用此图</button>
+                <button class="btn" id="nd_modal_prompt" type="button"><i class="fa-solid fa-quote-right"></i> 完整提示词</button>
                 <button class="btn" id="nd_modal_save" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
                 <button class="btn btn-danger" id="nd_modal_delete" type="button"><i class="fa-solid fa-trash"></i> 删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 完整提示词弹窗（画廊大图内） -->
+    <div id="nd_prompt_modal" class="gallery-modal prompt-modal" role="dialog" aria-modal="true" aria-label="完整提示词">
+        <button class="gallery-modal-close" id="nd_prompt_close" type="button" aria-label="关闭" title="关闭（Esc）">✕</button>
+        <div class="prompt-modal-content">
+            <h3 class="prompt-modal-title">完整提示词</h3>
+            <div class="prompt-modal-fields">
+                <div class="prompt-modal-item" data-field="tags">
+                    <div class="prompt-modal-label">Tags</div>
+                    <pre class="prompt-modal-text" id="nd_modal_tags"></pre>
+                </div>
+                <div class="prompt-modal-item" data-field="vibe">
+                    <div class="prompt-modal-label">Vibe</div>
+                    <pre class="prompt-modal-text" id="nd_modal_vibe"></pre>
+                </div>
+                <div class="prompt-modal-item" data-field="positive">
+                    <div class="prompt-modal-label">正向</div>
+                    <pre class="prompt-modal-text" id="nd_modal_positive"></pre>
+                </div>
+                <div class="prompt-modal-item" data-field="character">
+                    <div class="prompt-modal-label">角色</div>
+                    <pre class="prompt-modal-text" id="nd_modal_character"></pre>
+                </div>
+                <div class="prompt-modal-item" data-field="negative">
+                    <div class="prompt-modal-label">負向</div>
+                    <pre class="prompt-modal-text" id="nd_modal_negative"></pre>
+                </div>
             </div>
         </div>
     </div>

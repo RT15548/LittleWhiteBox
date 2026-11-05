@@ -65,6 +65,7 @@ const NOVEL_DRAW_PROVIDER_SETTING_KEYS = new Set([
     'promptPresets',
     'selectedPromptPresetId',
     '_promptTemplateVersion',
+    '_builtinPresetVersion',
 ]);
 
 let settingsCache = null;

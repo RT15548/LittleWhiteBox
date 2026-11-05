@@ -16,11 +16,13 @@ const AGENT_CHANNELS = new Set([
     'sillytavern-openai-compatible',
     'sillytavern-claude',
     'sillytavern-google',
+    'sillytavern-vertex',
 ]);
 const HOSTED_AGENT_CHANNELS = new Set([
     'sillytavern-openai-compatible',
     'sillytavern-claude',
     'sillytavern-google',
+    'sillytavern-vertex',
 ]);
 
 function invalid(message, status = 400, code = 'invalid_draw_run') {

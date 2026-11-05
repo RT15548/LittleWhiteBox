@@ -21,6 +21,7 @@ const PROVIDER_FIELDS = {
     'sillytavern-claude': CLAUDE_FIELDS,
     google: { topP: 'topP', topK: 'topK', frequencyPenalty: 'frequencyPenalty', presencePenalty: 'presencePenalty' },
     'sillytavern-google': { topP: 'top_p', topK: 'top_k' },
+    'sillytavern-vertex': { topP: 'top_p', topK: 'top_k' },
 };
 
 export function samplingParametersFor(provider) {

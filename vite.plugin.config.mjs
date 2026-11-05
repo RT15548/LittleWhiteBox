@@ -10,11 +10,48 @@ import { outputRoot } from './scripts/build/output-root.mjs';
 const posix = value => value.replaceAll('\\', '/');
 const inside = value => { const resolved = path.resolve(value); return resolved === root || resolved.startsWith(`${root}${path.sep}`); };
 
+/**
+ * ST 核心模块的规范 URL 路径（相对于 ST 服务根）：
+ * - script.js/lib.js 位于服务根，其余前端模块均在 /scripts/ 下；
+ * - 扩展内引用形如 extensions/regex/engine.js 的，落到 /scripts/extensions/...；
+ * - 刻意不依赖构建机的文件系统布局：resolveId 产出的 /__st__/target 在不同机器上
+ *   会解析成任意宿主路径，只有 basename/子目录名是稳定信号。
+ */
+const stModuleUrlPath = (target) => {
+    const segs = String(target).split('/');
+    const base = segs[segs.length - 1];
+    if (base === 'script.js' || base === 'lib.js') return base;
+    const extIdx = segs.indexOf('extensions');
+    if (extIdx >= 0 && extIdx < segs.length - 1) return `scripts/extensions/${segs.slice(extIdx + 1).join('/')}`;
+    if (segs[segs.length - 2] === 'slash-commands') return `scripts/slash-commands/${base}`;
+    if (segs[segs.length - 2] === 'util') return `scripts/util/${base}`;
+    return `scripts/${base}`;
+};
+
+/** dist 下各 chunk 的 URL 深度 = 4（scripts/extensions/third-party/<name>）+ 1（dist）+ 子目录层数。 */
+const stRelativePrefix = (fileName) => '../'.repeat(5 + fileName.split('/').length - 1);
+
+const rewriteStModuleRefs = (code, fileName) => {
+    if (!code.includes('__st__/')) return null;
+    const ups = stRelativePrefix(fileName);
+    const rewrite = (_match, quote, target) => `${quote}${ups}${stModuleUrlPath(target)}${quote}`;
+    // 两种形态都吃：base 相对化之前是 "/__st__/x"，之后是 "(../)+__st__/x"。
+    const rewritten = code
+        .replaceAll(/(["'])\/__st__\/([^"']+)\1/g, rewrite)
+        .replaceAll(/(["'])(?:\.\.\/)+__st__\/([^"']+)\1/g, rewrite);
+    return rewritten === code ? null : rewritten;
+};
+
 export default defineConfig({
     root,
     base: './',
     publicDir: false,
     plugins: [vue(), createSourceAssetPlugin({ root }), {
+        name: 'plugin-st-module-rewrite',
+        renderChunk(code, chunk) {
+            return rewriteStModuleRefs(code, chunk.fileName);
+        },
+    }, {
         name: 'plugin-source-boundaries',
         enforce: 'pre',
         configResolved(config) {

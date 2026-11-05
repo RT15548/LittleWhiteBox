@@ -3120,6 +3120,7 @@ function openGalleryModalFromCache(charName, slotId) {
 let galleryModalOpener = null;
 function closeGalleryModal() {
     $('nd_gallery_modal').classList.remove('visible');
+    $('nd_prompt_modal').classList.remove('visible');
     galleryModalOpener?.focus?.({ preventScroll: true });
     galleryModalOpener = null;
     $('nd_modal_img').removeAttribute('data-img-id');
@@ -3128,6 +3129,47 @@ function closeGalleryModal() {
     $('nd_modal_thumbs').replaceChildren();
     modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
     syncGalleryImages();
+}
+
+// ── 完整提示词弹窗 ──────────────────────────────────────────────────────
+
+function fillPromptModal(current) {
+    if (!current) return;
+    $('nd_modal_tags').textContent = current.tags || '';
+    $('nd_modal_vibe').textContent = current.vibeNames || '';
+    $('nd_modal_positive').textContent = current.positive || '';
+    $('nd_modal_character').textContent = formatCharacterPromptsForModal(current.characterPrompts);
+    $('nd_modal_negative').textContent = current.negativePrompt || '';
+}
+
+function formatCharacterPromptsForModal(cp) {
+    if (Array.isArray(cp) && cp.length) {
+        return cp.map((c, i) => {
+            const name = c?.name || `角色 ${i + 1}`;
+            const parts = [];
+            if (c?.prompt) parts.push(c.prompt);
+            if (c?.uc) parts.push(`(消極: ${c.uc})`);
+            return `${name}: ${parts.join('，')}`;
+        }).join('\n');
+    }
+    if (cp && typeof cp === 'object') {
+        // 舊格式：{ 角色名: promptString }
+        return Object.entries(cp).map(([name, prompt]) => `${name}: ${prompt}`).join('\n');
+    }
+    return '';
+}
+
+function openPromptModal() {
+    const current = modalData.images[modalData.currentIndex];
+    if (!current) return;
+    fillPromptModal(current);
+    $('nd_prompt_modal').classList.add('visible');
+    $('nd_prompt_close').focus({ preventScroll: true });
+}
+
+function closePromptModal() {
+    $('nd_prompt_modal').classList.remove('visible');
+    $('nd_modal_save').focus({ preventScroll: true });
 }
 
 function renderModalThumbs() {
@@ -3754,6 +3796,19 @@ function applyPromptPreset({ collapseLayout = false } = {}) {
         ? drafts.get('sceneRules')
         : active.sceneRules ?? '';
     applyModelGuideForCurrentModel();
+    // 内置模板只读：三个文本框不可编辑，保存按钮改文案，点击后另存为可编辑副本。
+    const isBuiltin = active.builtin === true;
+    for (const id of ['nd_prompt_system', 'nd_prompt_guide', 'nd_prompt_format']) {
+        const el = $(id);
+        if (el) el.readOnly = isBuiltin;
+    }
+    const saveButton = $('nd_prompt_preset_save');
+    if (saveButton) {
+        saveButton.innerHTML = isBuiltin
+            ? '<i class="fa-solid fa-floppy-disk"></i> 另存为可编辑副本'
+            : '<i class="fa-solid fa-floppy-disk"></i> 保存';
+        saveButton.title = isBuiltin ? '内置模板不可修改，保存会另存为可编辑副本' : '保存当前预设';
+    }
     renderLayoutEditor({ collapse: collapseLayout });
 }
 
@@ -3782,6 +3837,10 @@ const PROMPT_PRESET_MENU_ITEMS = Object.freeze([
 function resetActivePromptPresetToDefaults() {
     const defaults = state._defaultPrompts || {};
     const activePreset = getActivePromptPresetForForm();
+    if (activePreset?.builtin) {
+        alert('内置模板不可恢复默认，请先用“复制”另存一份可编辑副本');
+        return;
+    }
     if (!activePreset) {
         alert('没有可恢复的提示词预设');
         return;
@@ -3821,6 +3880,10 @@ function getPromptListView() {
             onSelect: id => selectPromptPreset(id),
             onAction: handlePromptPresetAction,
             onRename: (id, name, preset) => {
+                if (preset?.builtin) {
+                    alert('内置模板不可重命名，请先用“复制”另存一份可编辑副本');
+                    return false;
+                }
                 preset.name = name; // 先在本页显示新名字；宿主保存后回传的 INIT_DATA 是最终结果
                 postToParent({ type: 'RENAME_PROMPT_PRESET', id, name });
             },
@@ -3853,6 +3916,10 @@ function reorderPromptPresets(orderedIds) {
 
 function handlePromptPresetAction(action, id, preset) {
     const label = preset.name || preset.id;
+    if (preset?.builtin && (action === 'delete' || action === 'reset-defaults')) {
+        alert('内置模板不可删除或恢复默认，请先用“复制”另存一份可编辑副本');
+        return;
+    }
     if (action === 'duplicate') {
         postToParent({ type: 'ADD_PROMPT_PRESET', sourcePresetId: id, name: `${label} 副本` });
     } else if (action === 'export') {
@@ -4903,10 +4970,22 @@ function initializePage() {
     $('nd_modal_prev').addEventListener('click', () => stepGallerySlot(-1));
     $('nd_modal_next').addEventListener('click', () => stepGallerySlot(1));
 
+    $('nd_modal_prompt').addEventListener('click', openPromptModal);
+    $('nd_prompt_close').addEventListener('click', closePromptModal);
+    $('nd_prompt_modal').addEventListener('click', e => {
+        if (e.target.id === 'nd_prompt_modal') closePromptModal();
+    });
+
     document.addEventListener('keydown', e => {
         if (!$('nd_gallery_modal').classList.contains('visible')) return;
-        if (e.key === 'Escape') { closeGalleryModal(); return; }
+        if (e.key === 'Escape') {
+            // 提示词弹窗开着时 Esc 先收它，不关整个大图
+            if ($('nd_prompt_modal').classList.contains('visible')) { closePromptModal(); return; }
+            closeGalleryModal();
+            return;
+        }
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        if ($('nd_prompt_modal').classList.contains('visible')) return;
         if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
         const tag = String(e.target?.tagName || '').toUpperCase();
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;

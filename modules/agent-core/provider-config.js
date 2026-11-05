@@ -5,6 +5,7 @@ import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { SillyTavernClaudeAdapter } from './adapters/sillytavern-claude.js';
 import { SillyTavernGoogleAdapter } from './adapters/sillytavern-google.js';
 import { SillyTavernOpenAICompatibleAdapter } from './adapters/sillytavern-openai-compatible.js';
+import { SillyTavernVertexAdapter } from './adapters/sillytavern-vertex.js';
 import { assertRuntimeReasoning } from './reasoning-capabilities.js';
 import { assertHostChatCompletionsClient } from '../../shared/host-llm/chat-completions/client.js';
 
@@ -29,6 +30,8 @@ export function createAgentAdapter(providerConfig = {}, options = {}) {
             return createSillyTavernAdapter(SillyTavernClaudeAdapter, providerConfig, options);
         case 'sillytavern-google':
             return createSillyTavernAdapter(SillyTavernGoogleAdapter, providerConfig, options);
+        case 'sillytavern-vertex':
+            return createSillyTavernAdapter(SillyTavernVertexAdapter, providerConfig, options);
         case 'openai-responses':
             return new OpenAIResponsesAdapter(providerConfig);
         case 'anthropic':
