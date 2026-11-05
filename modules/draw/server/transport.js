@@ -1,6 +1,7 @@
 'use strict';
 const { pipeline } = require('node:stream/promises');
 const { generateImage, encodeVibe, openImageStream, testConnection } = require('./providers/novelai/client.js');
+const novelBackendTransport = require('../providers/novelai/backend-transport-contract.cjs');
 const { parseTimeout } = require('./providers/upstream.js');
 const { createRequestAbortScope } = require('../../../server-plugin/littlewhitebox-server/request-abort.js');
 const LOG_PREFIX = '[littlewhitebox-server]';
@@ -36,12 +37,16 @@ function sendRequestError(scope, res, error, label) {
     return res.status(200).send({ ok: false, error: errorMessage(error) });
 }
 
-function registerGenerateRoute(router, path, send = generateImage) {
+function registerGenerateRoute(router, path) {
     router.post(path, async (req, res) => {
         const scope = createRequestAbortScope(req, res);
         try {
             if (scope.signal.aborted) return;
             const body = req.body || {};
+            if (body.operation !== undefined && body.operation !== novelBackendTransport.encodeVibeOperation) {
+                return res.status(400).send({ ok: false, error: 'Unsupported NovelAI transport operation' });
+            }
+            const send = body.operation === novelBackendTransport.encodeVibeOperation ? encodeVibe : generateImage;
             const key = String(body.key || '').trim();
             const url = parseUpstreamUrl(body.url);
             const payload = body.payload;
@@ -146,8 +151,7 @@ function registerTransportRoutes(router) {
         }
     }));
 
-    registerGenerateRoute(router, '/v2/generate-image');
-    registerGenerateRoute(router, '/v1/encode-vibe', encodeVibe);
+    registerGenerateRoute(router, novelBackendTransport.path);
 
     router.post('/v1/generate-image-stream', asyncRoute(async (req, res) => {
         const scope = createRequestAbortScope(req, res);

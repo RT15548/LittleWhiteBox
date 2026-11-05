@@ -1767,6 +1767,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/backend-transport-contract.cjs",
+      "relativePath": "modules/draw/providers/novelai/backend-transport-contract.cjs",
+      "extension": ".cjs",
+      "sizeBytes": 281
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/cloud-presets.js",
       "relativePath": "modules/draw/providers/novelai/cloud-presets.js",
       "extension": ".js",
@@ -1840,7 +1847,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 251160
+      "sizeBytes": 251122
     },
     {
       "source": "littlewhitebox",
@@ -2197,7 +2204,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/server/transport.js",
       "relativePath": "modules/draw/server/transport.js",
       "extension": ".js",
-      "sizeBytes": 9639
+      "sizeBytes": 10003
     },
     {
       "source": "littlewhitebox",
@@ -18220,7 +18227,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/README.md",
       "relativePath": "server-plugin/littlewhitebox-server/README.md",
       "extension": ".md",
-      "sizeBytes": 14349
+      "sizeBytes": 14558
     },
     {
       "source": "littlewhitebox",
@@ -18290,7 +18297,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/index.js",
       "relativePath": "server-plugin/littlewhitebox-server/index.js",
       "extension": ".js",
-      "sizeBytes": 5311
+      "sizeBytes": 5292
     },
     {
       "source": "littlewhitebox",
@@ -18437,7 +18444,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/server-plugin/littlewhitebox-server/tests/novelai-vibe.test.js",
       "relativePath": "server-plugin/littlewhitebox-server/tests/novelai-vibe.test.js",
       "extension": ".js",
-      "sizeBytes": 1917
+      "sizeBytes": 9234
     },
     {
       "source": "littlewhitebox",

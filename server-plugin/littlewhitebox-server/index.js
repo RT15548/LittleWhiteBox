@@ -84,7 +84,7 @@ async function init(router) {
     registerCancellationRoutes(router, { registry: cancellations, jobManager, drawRunManager });
     registerWebRoutes(router);
     registerImageFileRoutes(router);
-    for (const path of ['/v1/generate-image', '/v2/generate-image', '/v1/generate-image-stream', '/v1/test', '/v2/test', '/v1/encode-vibe']) {
+    for (const path of ['/v1/generate-image', '/v2/generate-image', '/v1/generate-image-stream', '/v1/test', '/v2/test']) {
         router.post(path, route(async (req, res) => {
             const runtime = await requestRuntime(req);
             let routes = transportRoutes.get(runtime);

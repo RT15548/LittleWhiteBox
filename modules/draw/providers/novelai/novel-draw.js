@@ -1,6 +1,7 @@
 import { createVibeEncodingService } from './vibe-encoding.js';
 import { createIdentifier as createVibeCacheKey } from '../../../../shared/common/identifier.js';
 import { getVibeModelKey, clampVibeInfoExtracted, vibeEncodingKey, normalizeVibeEncodings } from './vibe.js';
+import novelBackendTransport from './backend-transport-contract.cjs';
 // novel-draw.js
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -237,7 +238,7 @@ const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-d
 // Provider requests share the unified server plugin installation.
 const NAI_BACKEND_BASE = SERVER_PLUGIN_BASE;
 const NAI_BACKEND_GENERATE = `${NAI_BACKEND_BASE}/v1/generate-image`;
-const NAI_BACKEND_GENERATE_V2 = `${NAI_BACKEND_BASE}/v2/generate-image`;
+const NAI_BACKEND_GENERATE_V2 = `${NAI_BACKEND_BASE}${novelBackendTransport.path}`;
 const NAI_BACKEND_GENERATE_STREAM = `${NAI_BACKEND_BASE}/v1/generate-image-stream`;
 const NAI_BACKEND_TEST = `${NAI_BACKEND_BASE}/v1/test`;
 const NAI_BACKEND_TEST_V2 = `${NAI_BACKEND_BASE}/v2/test`;
@@ -865,14 +866,14 @@ async function encodeVibeReference({ apiKey, apiBaseUrl, imageBase64, model, inf
     };
     if (sendMode === 'backend') {
         await assertDrawingRuntimeHost(signal);
-        const response = await fetch(`${NAI_BACKEND_BASE}/v1/encode-vibe`, {
+        const response = await fetch(NAI_BACKEND_GENERATE_V2, {
             method: 'POST',
             headers: { ...getRequestHeaders(), ...drawingRuntimeHeaders() },
-            body: JSON.stringify({ url: new URL(url, location.href).href, key: apiKey,
+            body: JSON.stringify({ operation: novelBackendTransport.encodeVibeOperation,
+                url: new URL(url, location.href).href, key: apiKey,
                 payload, insecure: insecureTLS === true, timeout: 55000 }),
             signal,
         });
-        if (response.status === 404) throw new NovelDrawError(`请更新绘图后端后使用 Vibe 编码。${SERVER_PLUGIN_COPY.update}`, ErrorType.NETWORK);
         const result = await response.json();
         if (!response.ok || !result.ok || !result.encoding) throw new NovelDrawError(result.error || 'Vibe 编码失败', ErrorType.PROVIDER);
         return result.encoding;
@@ -3308,7 +3309,7 @@ async function generateAndInsertImages({
 
         if (!manualSlots && isNovelImageBackendJobEnabled(settings)) {
             job.phase = 'submitting';
-            // Vibe 编码在浏览器侧完成（/ai/encode-vibe 直连），编码结果随 recipe 一起提交给后端
+            // 只携带用户已手动取得的 Vibe 编码；生成任务不自动发起收费编码。
             const vibeReferences = await ensurePresetVibeReady(settings, preset, { signal });
             return await submitProviderDrawRun({
                 ctx,

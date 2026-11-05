@@ -60,7 +60,7 @@ Scene Planner 支持免密反代，Agent API Key 可以留空；图片生成供�
 ## Provider 边界
 
 - NovelAI：保留 `/v1/generate-image`、`/v2/generate-image`、`/v1/generate-image-stream`、`/v1/test`、`/v2/test` 的现有行为；异步任务在服务器读取 V5 MessagePack 流，只保留并交付最终 PNG。前台逐张后端发送仍由 `/v1/generate-image-stream` 原样转发流。
-  Vibe 的手动编码随发送模式走浏览器或 `/v1/encode-vibe`，返回二进制编码而不是图片，不自动重试。使用后端编码需更新本目录并重启酒馆；已经编码的参考图随绘图任务传递，无需再次编码。
+  Vibe 的手动编码随发送模式走浏览器或现有 `/v2/generate-image` 传输入口；请求外层的 `operation: "encode-vibe"` 由扩展执行包处理，返回编码而不是图片，不自动重试。省略 `operation` 保持原有出图行为，未知操作在请求供应商前拒绝。已安装支持签名执行包的后台后，Vibe 只需更新扩展，无需替换后台目录或重启酒馆；不在固定宿主新增供应商业务入口。
 - SD WebUI：后端直接请求 `/sdapi/v1/txt2img`。取消会中止当前 HTTP 传输，但不会调用会误伤同一实例其他用户的全局 `/interrupt`。
 - ComfyUI：开启后台批量任务后，由酒馆服务器完成 `/prompt`、`/history/:promptId`、`/view`；取消时只通过 `/queue` 删除本任务的 prompt，不调用全局 `/interrupt`。即使原连接模式选择浏览器直连，酒馆服务器也必须能够访问所填地址。关闭后台任务时仍保持原酒馆代理或浏览器直连链路。
 
