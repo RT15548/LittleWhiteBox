@@ -134,6 +134,7 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
   }
 })();</code></pre>
 <p>每一项都有 <code>id</code>、<code>name</code> 和 <code>selected</code>（是否当前选中），不包含密钥。把选中项的 <code>id</code> 填进请求的 <code>apiPresetId</code>、<code>paramsPresetId</code> 或 <code>workflowPresetId</code> 即可；不填就沿用该服务当前的选择。</p>
+<p>要决定显示不显示画图按钮，用 <code>window.parent.xiaobaixDraw.getStatus()</code>。它立即返回 <code>{ provider, enabled, ready }</code>：<code>provider</code> 是当前选择的服务，没选时为 <code>'disabled'</code>；<code>enabled</code> 表示小白X总开关打开且选了服务；<code>ready</code> 表示该服务的画图模块也已加载。<code>ready</code> 不检查 API 地址、密钥或模型有没有填好，这些缺了仍要等 <code>generate</code> 报 <code>not_configured</code>。所以先花钱、后画图的流程（例如先让 AI 写画面再画）不能只靠 <code>ready</code> 拦截，要准备好在画图这一步失败。</p>
 <p>参数按这个顺序取值：<strong>本次传入的值 → 选定预设的值 → 小白X默认值</strong>。<code>0</code>、<code>false</code> 和空字符串不会被当成“没填”。调用不会修改保存的配置；提交后再改设置或请求对象，也不会改变正在排队的这一单。</p>
 
 <h3 id="draw-fields">画图请求字段</h3>

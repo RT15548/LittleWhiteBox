@@ -23,6 +23,7 @@ const stubs = {
     'event-manager.js': 'exports.createModuleEvents=()=>({});exports.event_types={};',
     'server-storage.js': 'const storage=globalThis.__maxImagesProviderTest.storage;exports.SdDrawStorage=storage;exports.ComfyDrawStorage=storage;exports.NovelDrawStorage=storage;',
     'gallery-cache.js': 'module.exports={};',
+    'preset-gallery.js': 'exports.mountPresetGallery=()=>({render(){},destroy(){}});',
     'scene-planner.js': 'module.exports={};',
     'worldbook-processor.js': 'module.exports={};',
     'draw-agent.js': 'module.exports={};',

@@ -1,4 +1,5 @@
 import { mountThemeSwitch } from '../../shared/theme-switch.js';
+import { mountPresetGallery } from './preset-gallery.js';
 // floating-panel.js
 /**
  * NovelDraw 画图按钮面板 - 支持楼层按钮和悬浮按钮双模式
@@ -57,6 +58,7 @@ import { observeBackgroundTask } from '../../../../shared/common/async-errors.js
 const FLOAT_POS_KEY = 'xb_novel_float_pos';
 const AUTO_RESET_DELAY = 8000;
 const DRAW_RUN_PROVIDER = 'novelai';
+const presetGalleries = new WeakMap();
 
 const FloatState = {
     IDLE: 'idle',
@@ -344,23 +346,22 @@ const STYLES = `
 .nd-novel .nd-detail-value.warning{ color: var(--nd-warning); }
 .nd-novel .nd-detail-value.error{ color: var(--nd-error); }
 
-/* 菜单 - 向下展开（楼层按钮用）；整体限高，预设网格在菜单内部滚动 */
+/* Content sets the height; only a long preset list scrolls. */
 .nd-novel .nd-menu {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    width: 242px;
+    --nd-menu-gap: 8px;
+    width: 300px;
+    max-width: calc(100vw - 16px);
     display: flex;
     flex-direction: column;
-    /* 高度策略与 main 一致：固定高度，网格内部滚动，菜单永不随内容撑长 */
-    height: 380px;
-    min-height: 200px;
     max-height: 70vh;
     overflow: hidden;
     background: var(--nd-bg-solid);
     border: 1px solid var(--nd-border);
     border-radius: 12px;
-    padding: 10px;
+    padding: 14px;
     box-sizing: border-box;
     box-shadow: var(--nd-shadow-lg);
     opacity: 0;
@@ -375,46 +376,49 @@ const STYLES = `
     transform: none;
 }
 
-.nd-novel .nd-card{
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    overflow: visible;
+.nd-novel .nd-quick-controls{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(2, 37px);
+    gap: var(--nd-menu-gap);
     flex-shrink: 0;
 }
+.nd-novel .nd-card, .nd-novel .nd-controls { display: contents; }
+.nd-novel .nd-card > .nd-row:last-child { grid-column: 2 / -1; }
 
 .nd-novel .nd-row{
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 2px;
-    min-height: 36px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
 }
 
 .nd-novel .nd-label{
     font-size: 11px;
     color: var(--nd-text-muted);
-    width: 32px;
     flex-shrink: 0;
     padding: 0;
 }
 
 .nd-novel .nd-select {
     flex: 1;
+    width: 100%;
     min-width: 0;
     background: var(--nd-bg-active);
     border: 1px solid var(--nd-border-subtle);
     color: var(--nd-text-primary);
     font-size: 11px;
-    min-height: 32px;
+    height: 34px;
+    min-height: 34px;
     border-radius: 6px;
     padding: 6px 8px;
     margin: 0;
     box-sizing: border-box;
     outline: none;
     cursor: pointer;
-    text-align: center;
-    text-align-last: center;
+    text-align: left;
+    text-align-last: left;
     transition: border-color 0.2s;
     vertical-align: middle;
     -webkit-appearance: none;
@@ -426,26 +430,18 @@ const STYLES = `
 .nd-novel .nd-select option { background: var(--nd-bg-solid); color: var(--nd-text-primary); text-align: left; }
 .nd-novel .nd-select.size{ font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
 ${MAX_IMAGES_INPUT_CSS}
-.nd-novel .nd-max-images-input { background: var(--nd-bg-active); }
+.nd-novel .nd-max-images-input { height: 34px; background: var(--nd-bg-active); text-align: left; }
 .nd-novel .nd-max-images-input:hover { border-color: var(--nd-border-hover); }
 .nd-novel .nd-max-images-input:focus { border-color: var(--nd-text-muted); }
 
-.nd-novel .nd-inner-sep{ display: none; }
-
-.nd-novel .nd-controls{ display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-shrink: 0; }
-
-/* 尺寸（控制行内，弹性占满）+ 数目并排一行 */
-.nd-novel .nd-row-pair{ display: flex; align-items: stretch; gap: 8px; padding: 6px 2px; }
-.nd-novel .nd-row-pair .nd-row{ flex: 1; min-width: 0; padding: 0; }
-.nd-novel .nd-row-pair .nd-label{ width: auto; padding-right: 2px; }
-.nd-novel .nd-controls .nd-row{ flex: 1; min-width: 0; padding: 0; }
-
 .nd-novel .nd-auto{
-    flex: 0 0 auto;
+    grid-column: 1;
+    min-width: 0;
+    width: 100%;
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-height: 32px;
+    gap: var(--nd-menu-gap);
+    height: 34px;
     box-sizing: border-box;
     padding: 0 12px;
     background: var(--nd-bg-active);
@@ -470,9 +466,13 @@ ${MAX_IMAGES_INPUT_CSS}
 .nd-novel .nd-auto:hover .nd-auto-text{ color: var(--nd-text-secondary); }
 .nd-novel .nd-auto.on .nd-auto-text{ color: var(--nd-success); }
 
-.nd-novel .nd-gear{
-    width: 36px;
-    height: 36px;
+.nd-novel .nd-gear, .nd-novel .nd-controls .draw-theme-toggle{
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
     border: 1px solid var(--nd-border-subtle);
     border-radius: var(--nd-radius-sm);
     background: var(--nd-bg-active);
@@ -489,27 +489,33 @@ ${MAX_IMAGES_INPUT_CSS}
 /* ═══════════════════════════════════════════════════════════════════════════
    画师串预设网格
    ═══════════════════════════════════════════════════════════════════════════ */
-/* 结构与已验证可用的 nai-preset-switcher 对齐：
-   普通 block 卡片（不用 button/flex），缩略图直接是 <img> 本身 */
-.nd-preset-grid {
-    flex: 1;
+.nd-novel .nd-preset-grid {
+    flex: 0 1 auto;
     min-height: 0;
-    margin-top: 10px;
-    display: grid;
-    /* 固定 4 列：菜单宽 260px，内容约 240px，每列约 54px（原卡片一半） */
-    grid-template-columns: repeat(4, 1fr);
-    grid-auto-rows: max-content;
-    align-items: start;
-    gap: 6px;
-    align-content: start;
+    max-height: 310px;
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--nd-menu-gap);
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
 }
+.nd-novel .nd-preset-photo-row, .nd-novel .nd-preset-tags {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--nd-menu-gap);
+    flex-shrink: 0;
+}
+.nd-novel .nd-preset-tags { flex-wrap: wrap; }
 
-.nd-preset-card {
+.nd-novel .nd-preset-card {
     position: relative;
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
     border: 1px solid var(--nd-border-subtle);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.03);
@@ -519,40 +525,30 @@ ${MAX_IMAGES_INPUT_CSS}
     user-select: none;
     transition: border-color 0.15s, background 0.15s, transform 0.1s;
 }
-.nd-preset-card:hover { border-color: rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.07); }
-.nd-preset-card:active { transform: scale(0.96); }
-.nd-preset-card.active {
+.nd-novel .nd-preset-card:hover { border-color: var(--nd-border-hover); background: var(--nd-bg-active); }
+.nd-novel .nd-preset-card:focus-visible { outline: 2px solid var(--nd-border-hover); outline-offset: -2px; }
+.nd-novel .nd-preset-card:active { transform: scale(0.96); }
+.nd-novel .nd-preset-card.active {
     border: 1px solid var(--nd-success);
-    box-shadow: 0 0 8px rgba(62, 207, 142, 0.35);
-    background: rgba(62, 207, 142, 0.08);
+    background: var(--nd-bg-active);
 }
 
-/* 缩略图固定像素高度：绝不依赖 aspect-ratio 或百分比 padding，
-   否则该 WebView 会把高度算成 0，导致卡片被压成细线、全部挤在一起不滚动。
-   高度带 !important：楼层/悬浮两种挂载位置命中的宿主页样式不同（聊天消息里的
-   img 规则可能更高优先级），不加会被宿主样式拉伸成“随位置填满高度” */
-.nd-preset-thumb {
+/* Row layout sets explicit pixel heights; keep host chat-image rules out of previews. */
+.nd-novel .nd-preset-thumb {
     width: 100% !important;
-    height: 75px !important;
-    max-height: 75px !important;
-    object-fit: cover;
-    background: rgba(128, 128, 128, 0.28);
+    height: 64px;
+    max-height: none;
+    min-height: 0;
+    object-fit: contain;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
     display: block;
     pointer-events: none;
 }
-.nd-preset-thumb.empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: rgba(255, 255, 255, 0.35);
-    font-size: 10px;
-    line-height: 1.2;
-    text-align: center;
-    padding: 2px;
-    box-sizing: border-box;
-}
 
-.nd-preset-check {
+.nd-novel .nd-preset-check {
     position: absolute;
     top: 2px;
     right: 2px;
@@ -569,26 +565,38 @@ ${MAX_IMAGES_INPUT_CSS}
     justify-content: center;
     pointer-events: none;
 }
-.nd-preset-card.active .nd-preset-check { display: flex; }
+.nd-novel .nd-preset-card.active .nd-preset-check { display: flex; }
 
-.nd-preset-name {
-    font-size: 10px;
-    line-height: 1.25;
+.nd-novel .nd-preset-name {
+    font-size: 11px;
+    line-height: 1.4;
     color: var(--nd-text-secondary);
-    padding: 3px 4px;
+    padding: 5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     pointer-events: none;
 }
-.nd-preset-card.active .nd-preset-name { color: var(--nd-text-primary); }
+.nd-novel .nd-preset-card.active .nd-preset-name { color: var(--nd-text-primary); }
+.nd-novel .nd-preset-text { min-height: 31px; }
+.nd-novel .nd-preset-text .nd-preset-name { padding: 6px 24px 6px 10px; }
+.nd-novel .nd-preset-text .nd-preset-check { top: 50%; right: 5px; transform: translateY(-50%); }
 
-.nd-preset-empty {
-    grid-column: 1 / -1;
+.nd-novel .nd-preset-empty {
     text-align: center;
     color: var(--nd-text-muted);
     font-size: 11px;
-    padding: 24px 0;
+    padding: 16px 0;
+}
+@media (max-width: 360px), (pointer: coarse) {
+    .nd-novel .nd-card > .nd-row, .nd-novel .nd-card > .nd-row:last-child { grid-column: 1 / -1; }
+}
+@media (pointer: coarse) {
+    .nd-novel .nd-quick-controls { grid-template-columns: minmax(0, 1fr) repeat(2, 44px); }
+    .nd-novel .nd-select.size, .nd-novel .nd-max-images-input { height: 44px; min-height: 44px; font-size: 16px; }
+    .nd-novel .nd-auto, .nd-novel .nd-gear, .nd-novel .nd-controls .draw-theme-toggle { height: 44px; }
+    .nd-novel .nd-preset-text { min-height: 44px; }
+    .nd-novel .nd-preset-text .nd-preset-name { padding-top: 13px; padding-bottom: 13px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -709,60 +717,14 @@ function fillSizeSelect(selectEl) {
  */
 function renderPresetGrid(gridEl) {
     if (!gridEl) return;
+    if (!presetGalleries.has(gridEl)) presetGalleries.set(gridEl, mountPresetGallery(gridEl));
     const settings = getSettings();
-    const presets = settings.paramsPresets || [];
-    const currentId = settings.selectedParamsPresetId;
-    gridEl.replaceChildren();
+    presetGalleries.get(gridEl).render(settings.paramsPresets || [], settings.selectedParamsPresetId);
+}
 
-    if (!presets.length) {
-        gridEl.appendChild(createEl('div', 'nd-preset-empty', '暂无画师串预设'));
-        return;
-    }
-
-    presets.forEach((p) => {
-        // 卡片必须是普通 div（不能是 button + flex）：旧 WebKit 对 button 内
-        // flex 内容的高度计算在 grid auto 行中会循环归零导致整卡塌陷
-        const card = createEl('div', `nd-preset-card${p.id === currentId ? ' active' : ''}`);
-        card.dataset.presetId = p.id;
-        card.tabIndex = 0;
-        card.setAttribute('role', 'button');
-        card.setAttribute('aria-pressed', String(p.id === currentId));
-        card.addEventListener('keydown', event => {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                card.click();
-            }
-        });
-        card.title = p.name || '未命名';
-        // 内联 align-self 防止 grid 把卡片在纵向拉伸/压缩
-        card.style.alignSelf = 'start';
-
-        // 空缩略图占位：内联固定高度＋!important（不依赖 stylesheet、不被宿主样式改写），纯灰底
-        const makeEmpty = () => {
-            const empty = createEl('div', 'nd-preset-thumb empty', '无预览');
-            empty.style.cssText = 'width:100% !important;height:75px !important;max-height:75px !important;display:flex;align-items:center;justify-content:center;background:rgba(128,128,128,0.28);color:rgba(255,255,255,0.45);font-size:10px;line-height:1.2;text-align:center;padding:2px;box-sizing:border-box;';
-            return empty;
-        };
-
-        if (p.thumbnail) {
-            const img = document.createElement('img');
-            img.className = 'nd-preset-thumb';
-            img.alt = '';
-            img.loading = 'lazy';
-            img.decoding = 'async';
-            // 内联固定尺寸＋!important：最高优先级，宿主样式（不同挂载位置规则不同）与外部残留 CSS 都改不了
-            img.style.cssText = 'width:100% !important;height:75px !important;max-height:75px !important;object-fit:cover;display:block;background:rgba(128,128,128,0.28);box-sizing:border-box;';
-            img.src = p.thumbnail;
-            img.addEventListener('error', () => img.replaceWith(makeEmpty()), { once: true });
-            card.appendChild(img);
-        } else {
-            card.appendChild(makeEmpty());
-        }
-
-        card.appendChild(createEl('span', 'nd-preset-check', '✓'));
-        card.appendChild(createEl('div', 'nd-preset-name', p.name || '未命名'));
-        gridEl.appendChild(card);
-    });
+function destroyPresetGrid(gridEl) {
+    presetGalleries.get(gridEl)?.destroy();
+    presetGalleries.delete(gridEl);
 }
 
 const maxImages = createMaxImagesController({
@@ -781,6 +743,42 @@ const maxImages = createMaxImagesController({
 // ═══════════════════════════════════════════════════════════════════════════
 // ▼▼▼ 楼层按钮逻辑 ▼▼▼
 // ═══════════════════════════════════════════════════════════════════════════
+
+function updateAutoControl(button, isAuto) {
+    button.classList.toggle('on', isAuto);
+    button.setAttribute('aria-pressed', String(isAuto));
+    button.querySelector('.nd-auto-text').textContent = isAuto ? '自动配图' : '手动配图';
+}
+
+// Both mount points use the same quick-menu layout and controls.
+function createQuickMenu(isAuto) {
+    const menu = createEl('div', 'nd-menu');
+    const card = createEl('div', 'nd-card');
+    const rowSize = createEl('label', 'nd-row');
+    rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
+    const sizeSelect = createEl('select', 'nd-select size nd-size-select');
+    fillSizeSelect(sizeSelect);
+    rowSize.appendChild(sizeSelect);
+    card.append(rowSize, maxImages.createRow());
+
+    const controls = createEl('div', 'nd-controls');
+    const autoToggle = createEl('button', 'nd-auto nd-auto-toggle');
+    autoToggle.type = 'button';
+    autoToggle.append(createEl('span', 'nd-dot'), createEl('span', 'nd-auto-text'));
+    updateAutoControl(autoToggle, isAuto);
+    const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
+    settingsBtn.type = 'button';
+    settingsBtn.title = '打开设置';
+    settingsBtn.appendChild(createDrawIcon('sliders'));
+    controls.append(autoToggle, settingsBtn);
+
+    const presetGrid = createEl('div', 'nd-preset-grid');
+    renderPresetGrid(presetGrid);
+    const quickControls = createEl('div', 'nd-quick-controls');
+    quickControls.append(card, controls);
+    menu.append(quickControls, presetGrid);
+    return menu;
+}
 
 function createFloorPanelData(messageId) {
     return {
@@ -848,35 +846,7 @@ function createFloorPanelElement(messageId) {
     );
     detail.append(detailRowResult, detailRowError, detailRowTime);
 
-    const menu = createEl('div', 'nd-menu');
-    const card = createEl('div', 'nd-card');
-    // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
-    // 「自动/手动」开关与「数目」并排一行（高度对齐输入框，文字短了把空间让给数目输入框），
-    // 「尺寸」移到下方控制行与设置按钮同排。
-    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
-    autoToggle.append(
-        createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', isAuto ? '自动' : '手动')
-    );
-    const rowPair = createEl('div', 'nd-row-pair');
-    rowPair.append(autoToggle, maxImages.createRow());
-    card.append(rowPair);
-
-    const controls = createEl('div', 'nd-controls');
-    const rowSize = createEl('div', 'nd-row');
-    rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
-    const sizeSelect = createEl('select', 'nd-select size nd-size-select');
-    fillSizeSelect(sizeSelect);
-    rowSize.appendChild(sizeSelect);
-    const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
-    settingsBtn.title = '打开设置';
-    settingsBtn.appendChild(createDrawIcon('sliders'));
-    controls.append(rowSize, settingsBtn);
-
-    const presetGrid = createEl('div', 'nd-preset-grid');
-    renderPresetGrid(presetGrid);
-
-    menu.append(card, controls, presetGrid);
+    const menu = createQuickMenu(isAuto);
 
     root.append(capsule, detail, menu);
     return root;
@@ -1262,6 +1232,7 @@ function bindFloorPanelEvents(panelData) {
 
     const themeSwitch = mountThemeSwitch({ document, container: el.querySelector('.nd-controls') });
     panelData._cleanup = () => {
+        destroyPresetGrid(panelData.$cache.presetGrid);
         themeSwitch?.destroy();
         maxImagesBinding.destroy();
         document.removeEventListener('click', closeMenu);
@@ -1343,7 +1314,10 @@ function mountFloorPanel(messageEl, messageId) {
         id: `novel-draw-${messageId}`
     });
 
-    if (!success) return null;
+    if (!success) {
+        destroyPresetGrid(panel.querySelector('.nd-preset-grid'));
+        return null;
+    }
 
     cacheFloorDOM(panelData);
     bindFloorPanelEvents(panelData);
@@ -1946,35 +1920,7 @@ function createFloatingButton() {
     );
     detail.append(detailRowResult, detailRowError, detailRowTime);
 
-    const menu = createEl('div', 'nd-menu');
-    const card = createEl('div', 'nd-card');
-    // 预设选择由下方视觉化网格承担，菜单里不再重复放下拉框；尺寸与数目并排一行。
-    // 「自动/手动」开关与「数目」并排一行（高度对齐输入框，文字短了把空间让给数目输入框），
-    // 「尺寸」移到下方控制行与设置按钮同排。
-    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
-    autoToggle.append(
-        createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', isAuto ? '自动' : '手动')
-    );
-    const rowPair = createEl('div', 'nd-row-pair');
-    rowPair.append(autoToggle, maxImages.createRow());
-    card.append(rowPair);
-
-    const controls = createEl('div', 'nd-controls');
-    const rowSize = createEl('div', 'nd-row');
-    rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
-    const sizeSelect = createEl('select', 'nd-select size nd-size-select');
-    fillSizeSelect(sizeSelect);
-    rowSize.appendChild(sizeSelect);
-    const settingsBtn = createEl('button', 'nd-gear nd-settings-btn');
-    settingsBtn.title = '打开设置';
-    settingsBtn.appendChild(createDrawIcon('sliders'));
-    controls.append(rowSize, settingsBtn);
-
-    const presetGrid = createEl('div', 'nd-preset-grid');
-    renderPresetGrid(presetGrid);
-
-    menu.append(card, controls, presetGrid);
+    const menu = createQuickMenu(isAuto);
 
     const capsule = createEl('div', 'nd-capsule');
     const inner = createEl('div', 'nd-inner');
@@ -2051,6 +1997,7 @@ function createFloatingButton() {
 }
 
 function destroyFloatingButton() {
+    destroyPresetGrid($floatingCache.presetGrid);
     $floatingCache.popovers?.destroy();
     $floatingCache.themeSwitch?.destroy();
     $floatingCache.maxImagesBinding?.destroy();
@@ -2096,21 +2043,16 @@ function updateAllMaxImagesInputs() {
 
 export function updateAutoModeUI() {
     const isAuto = getSettings().mode === 'auto';
-    const modeText = isAuto ? '自动' : '手动';
 
     panelMap.forEach((data) => {
         if (!data.root) return;
         data.root.classList.toggle('auto-on', isAuto);
-        data.$cache.autoToggle?.classList.toggle('on', isAuto);
-        const text = data.$cache.autoToggle?.querySelector('.nd-auto-text');
-        if (text) text.textContent = modeText;
+        if (data.$cache.autoToggle) updateAutoControl(data.$cache.autoToggle, isAuto);
     });
 
     if (floatingEl) {
         floatingEl.classList.toggle('auto-on', isAuto);
-        $floatingCache.autoToggle?.classList.toggle('on', isAuto);
-        const text = $floatingCache.autoToggle?.querySelector('.nd-auto-text');
-        if (text) text.textContent = modeText;
+        if ($floatingCache.autoToggle) updateAutoControl($floatingCache.autoToggle, isAuto);
     }
 }
 

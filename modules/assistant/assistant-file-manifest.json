@@ -188,7 +188,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/media-api.html",
       "relativePath": "docs/media-api.html",
       "extension": ".html",
-      "sizeBytes": 29866
+      "sizeBytes": 30556
     },
     {
       "source": "littlewhitebox",
@@ -1791,7 +1791,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js",
-      "sizeBytes": 88308
+      "sizeBytes": 84931
     },
     {
       "source": "littlewhitebox",
@@ -1911,6 +1911,13 @@
       "relativePath": "modules/draw/providers/novelai/novel-v5-stream.js",
       "extension": ".js",
       "sizeBytes": 8260
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/preset-gallery.js",
+      "relativePath": "modules/draw/providers/novelai/preset-gallery.js",
+      "extension": ".js",
+      "sizeBytes": 6539
     },
     {
       "source": "littlewhitebox",
@@ -3688,7 +3695,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/floating-gesture.test.js",
       "relativePath": "modules/draw/shared/tests/floating-gesture.test.js",
       "extension": ".js",
-      "sizeBytes": 6140
+      "sizeBytes": 6202
     },
     {
       "source": "littlewhitebox",
@@ -3849,7 +3856,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/max-images-provider-order.test.js",
       "relativePath": "modules/draw/shared/tests/max-images-provider-order.test.js",
       "extension": ".js",
-      "sizeBytes": 6321
+      "sizeBytes": 6408
     },
     {
       "source": "littlewhitebox",
@@ -9302,7 +9309,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/README.md",
       "relativePath": "modules/variables/state2/README.md",
       "extension": ".md",
-      "sizeBytes": 28294
+      "sizeBytes": 30921
     },
     {
       "source": "littlewhitebox",

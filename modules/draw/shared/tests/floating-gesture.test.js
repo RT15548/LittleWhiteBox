@@ -37,6 +37,7 @@ test('floating gesture admission never turns drag/cancel into a paid action', as
         getPendingDrawWorkState: 'async()=>null',
         FloorImageBusyError: 'class extends Error {}',
         DRAW_SLOT_COPY: '{}',
+        mountPresetGallery: '()=>({render(){},destroy(){}})',
     };
     for (const item of imports.reverse()) {
         if (/max-images|draw-capsule-copy|async-errors|draw-visuals|theme-switch|floating-popovers/.test(item.source.value)) continue;
