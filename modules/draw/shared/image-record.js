@@ -1,6 +1,7 @@
 // A preview is also the durable input of an image attempt. Progress is not a
 // record state: only a live operation/backend job may claim to be generating.
 export const PreviewStatus = Object.freeze({ UNGENERATED: 'ungenerated', PENDING: 'pending', UNKNOWN: 'unknown', SUCCESS: 'success', FAILED: 'failed' });
+export const PUBLIC_DRAW_SOURCE = 'public-api';
 
 export function hasPreviewImage(record) {
     return record?.status !== PreviewStatus.FAILED && record?.status !== PreviewStatus.PENDING && record?.status !== PreviewStatus.UNKNOWN
@@ -34,6 +35,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     emptyResult: '绘图结果为空',
     storageFailed: '图片尚未保存成功，请勿刷新页面。',
     storageWriteFailed: '图库写入未完成。',
+    publicGallerySaveFailed: '图片已生成，但未能全部收入图库。请先在卡片中保存图片，不要重新生成。',
     storageReadFailed: '图库读取未完成。',
     renderFailed: '图位已保存，但界面刷新失败。',
     imageReadFailed: '图片记录读取失败，未重新绘图。',

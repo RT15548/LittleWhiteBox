@@ -111,7 +111,7 @@ test('SD and NovelAI compilation failures are invalid_request, while transport f
         requestSdImage: async () => { throw new Error('private upstream error'); },
     });
     sd.snapshot = () => ({ host: 'https://fixture.invalid' });
-    const api = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'sd-webui', providers: { 'sd-webui': sd } });
+    const api = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'sd-webui', providers: { 'sd-webui': sd }, captureGallery: () => async () => {} });
     await assert.rejects(api.generate({ prompt: '   ' }), { code: 'invalid_request' });
     assert.equal(queued, 0);
     await assert.rejects(api.generate({ prompt: 'dynamic' }), { code: 'provider_error' });
@@ -128,7 +128,7 @@ test('SD and NovelAI compilation failures are invalid_request, while transport f
     });
     novel.snapshot = () => ({ apiKey: 'fixture', apiBaseUrl: 'https://fixture.invalid',
         paramsPresets: [{ ...DEFAULT_PARAMS_PRESET, id: 'p' }], selectedParamsPresetId: 'p' });
-    const novelApi = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'novelai', providers: { novelai: novel } });
+    const novelApi = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'novelai', providers: { novelai: novel }, captureGallery: () => async () => {} });
     for (const size of [{}, { width: 512 }]) {
         await assert.rejects(novelApi.generate({ prompt: 'dynamic', params: {
             model: 'nai-diffusion-5-full', cfg_rescale: 2, ...size,

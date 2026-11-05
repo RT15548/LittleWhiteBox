@@ -2780,7 +2780,11 @@ async function renderGalleryManagement() {
             button.className = 'gallery-slot-btn';
             button.addEventListener('click', observeAsyncCallback(async () => {
                 const latest = await getPreview(slotSummaries[slotId]?.latestImgId).catch(() => null);
-                await openGallery(slotId, Number(latest?.messageId || 0), buildSharedGalleryCallbacks(slotId, Number(latest?.messageId || 0)));
+                const messageId = latest?.messageId == null ? null : Number(latest.messageId);
+                const refresh = () => renderGalleryManagement();
+                await openGallery(slotId, messageId, messageId === null
+                    ? { onSave: refresh, onDelete: refresh, onBecameEmpty: refresh }
+                    : buildSharedGalleryCallbacks(slotId, messageId));
             }, { source: import.meta.url, operation: "callback" }));
 
             const img = document.createElement('img');

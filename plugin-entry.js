@@ -49,6 +49,7 @@ import {
 import { initSdDraw, cleanupSdDraw, sdPublicGeneration } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw, comfyPublicGeneration } from "./modules/draw/providers/comfyui/comfy-draw.js";
 import { createDrawPublicApi } from './modules/draw/shared/public-api.js';
+import { capturePublicGallery } from './modules/draw/shared/public-gallery.js';
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
 import { startGroupPresetWatcher, stopGroupPresetWatcher } from "./modules/draw/shared/character-group-presets-runtime.js";
 import { startImageJobRecovery, stopImageJobRecovery } from "./modules/draw/shared/image-job-recovery-runtime.js";
@@ -262,6 +263,7 @@ function notifyTavernDrawStatusChanged() {
 }
 
 const publicDrawApi = createDrawPublicApi({
+    captureGallery: capturePublicGallery,
     isEnabled: () => isXiaobaixEnabled && normalizeDrawProvider(settings.drawProvider) !== 'disabled',
     getProvider: () => normalizeDrawProvider(settings.drawProvider),
     providers: { novelai: novelPublicGeneration, sdwebui: sdPublicGeneration, comfyui: comfyPublicGeneration },

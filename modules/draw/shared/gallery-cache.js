@@ -2,7 +2,7 @@
 // 画廊和缓存管理模块
 
 import { getContext } from "../../../../../../extensions.js";
-import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus } from './image-record.js';
+import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus, PUBLIC_DRAW_SOURCE } from './image-record.js';
 
 import { getSharedDrawSettings } from './draw-settings.js';
 import { convertImageToJpeg, GALLERY_JPEG_COPY } from './gallery-image-codec.js';
@@ -75,7 +75,7 @@ export function getBase64ImagePayload(value) {
     return { base64: parsed.data, format };
 }
 
-function blobToDataUrl(blob) {
+export function blobToDataUrl(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
@@ -1057,12 +1057,12 @@ export async function clearExpiredCache(cacheDays = 3) {
                     const isFailed = record.status === 'failed' || (!record.base64 && !record.savedUrl);
                     const shouldTrimSavedBase64 = !!record.savedUrl && !!record.base64;
 
-                    // Chat image rows are durable user inputs/results, not a
+                    // Chat and public API images are durable user inputs/results, not a
                     // disposable request cache. Only explicit gallery/slot
                     // deletion may remove the last copy of their TAG or image.
                     const chatImage = record.chatId && record.messageId !== undefined
                         && record.messageId !== null && record.messageId !== '' && !record.source;
-                    if (!chatImage && (isExpiredUnsaved || (isFailed && record.timestamp < cutoff))) {
+                    if (!chatImage && record.source !== PUBLIC_DRAW_SOURCE && (isExpiredUnsaved || (isFailed && record.timestamp < cutoff))) {
                         revokePreviewObjectUrl(record.imgId);
                         cursor.delete(); 
                         cleaned++; 

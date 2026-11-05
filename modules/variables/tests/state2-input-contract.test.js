@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHarness, readStoredValue } from './helpers/state2-harness.js';
+import { collectToolInputIssues } from '../../agent-core/runtime/tool-input-validation.js';
+import { parseJsonInput } from '../state2/json-input.js';
 
 let harness;
 let api;
@@ -16,6 +18,81 @@ test.beforeEach(() => {
     api = harness.executor.createStateApi();
 });
 test.after(() => harness.cleanup());
+
+// Acceptance: operation fields match intake; card rules stay with execution, not
+// request definitions (cost: malformed calls or unintended chat-dependent refusals).
+test('public schema checks format independently of card rules and current chat', () => {
+    const schema = api.getInputSchema();
+    assert.deepEqual(api.applyText('<state>$ro 角色.金钱</state>').errors, []);
+    assert.deepEqual(api.getInputSchema(), schema);
+    const input = { ops: [deduct()] };
+    assert.deepEqual(collectToolInputIssues(input, schema), []);
+    assert.equal(api.apply(input).status, 'failed', 'readonly enforcement stays in the executor');
+
+    harness.executor.cleanupStateService();
+    ctx().chatId = 'another-chat';
+    ctx().chat = [];
+    ctx().chatMetadata = { variables: {}, extensions: {} };
+    assert.deepEqual(api.getInputSchema(), schema);
+    const detached = harness.executor.createStateApi({ context() { throw new Error('schema must not read chat state'); } });
+    assert.deepEqual(detached.getInputSchema(), schema);
+});
+
+test('public schema and parser agree on each operation\'s required and allowed fields', () => {
+    const schema = api.getInputSchema();
+    const operations = [
+        { op: 'set', path: '角色.金钱', value: 20 },
+        { op: 'inc', path: '角色.金钱', delta: 0 },
+        { op: 'push', path: '角色.背包', value: '药' },
+        { op: 'remove', path: '角色.背包', value: '药' },
+        { op: 'del', path: '角色.金钱' },
+    ];
+    for (const operation of operations) {
+        const input = { ops: [operation] };
+        assert.deepEqual(collectToolInputIssues(input, schema), []);
+        assert.doesNotThrow(() => parseJsonInput(input));
+        for (const field of Object.keys(operation)) {
+            const incomplete = { ...operation };
+            delete incomplete[field];
+            const invalid = { ops: [incomplete] };
+            assert.ok(collectToolInputIssues(invalid, schema).length, `${operation.op} requires ${field}`);
+            assert.throws(() => parseJsonInput(invalid));
+        }
+        for (const field of ['value', 'delta', 'extra'].filter(key => !Object.hasOwn(operation, key))) {
+            const invalid = { ops: [{ ...operation, [field]: 0 }] };
+            assert.ok(collectToolInputIssues(invalid, schema).length, `${operation.op} rejects ${field}`);
+            assert.throws(() => parseJsonInput(invalid), { code: 'unexpected_field' });
+        }
+    }
+});
+
+test('public schema rejects malformed increments while preserving signed and zero deltas', () => {
+    const schema = api.getInputSchema();
+    for (const delta of [-2, 0, 2, 0.5]) {
+        const input = { ops: [{ op: 'inc', path: '角色.金钱', delta }] };
+        assert.deepEqual(collectToolInputIssues(input, schema), []);
+        assert.equal(parseJsonInput(input)[0].delta, delta);
+    }
+    for (const fields of [{ value: 0 }, { delta: 0, value: 0 }, { delta: '2' }, { delta: null }]) {
+        const input = { ops: [{ op: 'inc', path: '角色.金钱', ...fields }] };
+        assert.ok(collectToolInputIssues(input, schema).length);
+        assert.throws(() => parseJsonInput(input));
+    }
+});
+
+test('public schema preserves arbitrary JSON values and empty batches', () => {
+    const schema = api.getInputSchema();
+    for (const op of ['set', 'push', 'remove']) {
+        for (const value of [null, false, 0, '文字', [1, '二'], { nested: { n: 1 } }]) {
+            const input = { ops: [{ op, path: '角色.背包', value }] };
+            assert.deepEqual(collectToolInputIssues(input, schema), []);
+            assert.deepEqual(parseJsonInput(input)[0].value, value);
+        }
+    }
+    assert.deepEqual(collectToolInputIssues({ ops: [] }, schema), []);
+    assert.deepEqual(parseJsonInput({ ops: [] }), []);
+});
+
 
 test('invalid submissions cannot trigger legacy conversion before being rejected', () => {
     const fixture = JSON.parse(readFileSync(new URL('./fixtures/state2-wal-v1.json', import.meta.url), 'utf8'));

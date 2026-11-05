@@ -24,7 +24,7 @@ test('public API reports aborted after cancelling an unobserved backend create',
             assert.equal(options.method, 'GET');
             return Response.json({ ok: false }, { status: 404 });
         } });
-    const api = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'test', providers: { test: {
+    const api = createDrawPublicApi({ isEnabled: () => true, getProvider: () => 'test', captureGallery: () => async () => {}, providers: { test: {
         snapshot: () => ({}),
         generate: (_request, _settings, controls) => runPublicImageJob(client, { items: [{}] }, controls),
     } } });

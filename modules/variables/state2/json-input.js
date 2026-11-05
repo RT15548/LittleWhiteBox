@@ -32,6 +32,11 @@ const PUBLIC_NAMES = Object.freeze(Object.fromEntries(Object.entries(OPERATIONS)
 
 /** The public command schema is derived from the same operation table as validation. */
 export function getStateInputSchema() {
+    const fields = {
+        path: { type: 'string', description: 'Path within a managed variable, using dots or brackets.' },
+        value: { description: 'JSON value for set, push or remove.' },
+        delta: { type: 'number', description: 'Signed change for inc.' },
+    };
     return {
         type: 'object',
         properties: {
@@ -39,17 +44,15 @@ export function getStateInputSchema() {
                 type: 'array',
                 description: 'Changes for this passage. An empty array means no changes.',
                 items: {
-                    type: 'object',
-                    properties: {
-                        op: { type: 'string', enum: Object.keys(OPERATIONS) },
-                        path: { type: 'string', description: 'Existing managed variable path, using dots or brackets.' },
-                        value: { description: 'JSON value for set, push or remove.' },
-                        delta: { type: 'number', description: 'Signed change for inc.' },
-                    },
-                    required: ['op', 'path'],
-                    additionalProperties: false,
-                    description: Object.entries(OPERATIONS).map(([name, definition]) =>
-                        `${name}: ${['op', 'path', ...definition.fields].join(', ')}`).join('; '),
+                    anyOf: Object.entries(OPERATIONS).map(([name, definition]) => ({
+                        type: 'object',
+                        properties: {
+                            op: { type: 'string', enum: [name] },
+                            ...Object.fromEntries(['path', ...definition.fields].map(field => [field, { ...fields[field] }])),
+                        },
+                        required: ['op', 'path', ...definition.fields],
+                        additionalProperties: false,
+                    })),
                 },
             },
         },

@@ -85,7 +85,7 @@ export function validateDrawInput(request, defaults, { workflow = false, seed = 
     }
 }
 
-export function createDrawPublicApi({ isEnabled, getProvider, providers }) {
+export function createDrawPublicApi({ isEnabled, getProvider, providers, captureGallery }) {
     const requests = new Set();
     function resolveProvider(provider = getProvider()) {
         if (!isEnabled()) throw new MediaApiError('disabled');
@@ -113,7 +113,7 @@ export function createDrawPublicApi({ isEnabled, getProvider, providers }) {
             const { signal, onProgress } = input;
             if (signal !== undefined && (typeof signal?.addEventListener !== 'function' || typeof signal?.aborted !== 'boolean')) throw new MediaApiError('invalid_request', { field: 'signal' });
             if (onProgress !== undefined && typeof onProgress !== 'function') throw new MediaApiError('invalid_request', { field: 'onProgress' });
-            const { adapter } = resolveProvider(request.provider);
+            const { provider, adapter } = resolveProvider(request.provider);
             const controller = new AbortController();
             const abort = () => controller.abort();
             if (signal?.aborted) abort();
@@ -121,16 +121,25 @@ export function createDrawPublicApi({ isEnabled, getProvider, providers }) {
             requests.add(controller);
             try {
                 controller.signal.throwIfAborted();
+                const saveImages = captureGallery(request, provider);
                 const snapshot = adapter.snapshot();
                 const saved = snapshot instanceof Promise ? await snapshot : snapshot;
                 controller.signal.throwIfAborted();
                 const settings = resolveDrawSettings(saved, request, adapter);
-                const images = await adapter.generate(request, settings, {
-                    signal: controller.signal,
-                    onProgress,
-                });
+                let images;
+                try {
+                    images = await adapter.generate(request, settings, { signal: controller.signal, onProgress });
+                } catch (error) {
+                    if (error.partialResult?.images?.length) await saveImages(error.partialResult.images);
+                    throw error;
+                }
+                if (!Array.isArray(images) || !images.length) {
+                    controller.signal.throwIfAborted();
+                    throw new MediaApiError('invalid_result');
+                }
+                // Received images are already paid for; cancellation cannot discard them.
+                await saveImages(images);
                 if (controller.signal.aborted) throw new MediaApiError('aborted', { partialResult: { images } });
-                if (!Array.isArray(images) || !images.length) throw new MediaApiError('invalid_result');
                 return { images };
             } catch (error) { throw mediaFailure(error, controller.signal); }
             finally {

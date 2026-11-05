@@ -211,7 +211,9 @@ nav{display:flex;gap:16px 24px;flex-wrap:wrap}section,h3{scroll-margin-top:16px}
 </section>
 
 <section id="keep"><h2>保存生成结果</h2>
-<p><code>generate</code> 返回的 Blob 只在当前页面里有效，刷新后就没有了。要让图片留在楼层上，卡片自己保存，并给每张图一个编号，显示时按编号取回。下面的代码以酒馆页面为准；在卡片 iframe 里，把 <code>SillyTavern</code> 写成 <code>window.parent.SillyTavern</code>。</p>
+<p><code>generate</code> 取得的图片会自动收入小白X图库，归到调用开始时的角色或群聊；中途切换聊天不会改变归属。批量结果和 <code>error.partialResult.images</code> 中已取得的图片也会收录，不需要卡片额外调用保存接口。这些图库记录保存在当前浏览器，不随缓存到期清除，可在图片管理中删除。</p>
+<p>图库中现有的「自动保存新生成的图片」开关同样适用于卡片：开启后发起的生成请求，图片收入图库后会在后台保存到酒馆服务器。上传不会阻塞卡片接收图片；上传失败时会提示，图片仍留在图库，可手动保存。开启开关不会补存旧图或已经开始的请求。</p>
+<p>如果图库保存失败，小白X会提示，但仍将已生成的 Blob 返回卡片，不会重新生成或扣费。图库收录不等于恢复卡片内的显示：<code>generate</code> 返回的 Blob 引用只在当前页面内有效；要让图片刷新后仍留在卡片的原位置，卡片仍需按下面的方式保存、编号和取回。下面的代码以酒馆页面为准；在卡片 iframe 里，把 <code>SillyTavern</code> 写成 <code>window.parent.SillyTavern</code>。</p>
 <h3>编号</h3>
 <p>用楼层当前这一页的 <code>send_date</code> 加 <code>swipe_id</code> 作编号。重新生成或换到新的 swipe 时，这一页会得到新的 <code>send_date</code>，所以旧图不会出现在新的一页上；开场白的几个备选页共用同一个 <code>send_date</code>，靠 <code>swipe_id</code> 区分。不要用楼层序号：删掉前面的楼层后，序号会变。</p>
 <pre><code>const { chat, getCurrentChatId } = SillyTavern.getContext();

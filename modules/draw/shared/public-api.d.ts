@@ -46,6 +46,7 @@ export interface DrawResult { images: Blob[] }
 export interface PresetSummary { id: string; name: string; selected: boolean }
 export interface DrawPresets { provider: DrawProvider; api: PresetSummary[]; params: PresetSummary[]; workflows: PresetSummary[] }
 export interface DrawApi {
+    /** Also collects received images in the starting character/group's local gallery. */
     generate(request: DrawRequest): Promise<DrawResult>;
     getPresets(options?: { provider?: DrawProvider }): Promise<DrawPresets>;
     getStatus(): { provider: DrawProvider | 'disabled'; enabled: boolean; ready: boolean };
