@@ -2,6 +2,8 @@ import { parseChatImageTags } from './chat-message-image-markup.js';
 import { generatePreparedChatImages, prepareNativeChatImages } from './prepared-chat-images.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
 import { subscribeChatImagePlacement, commitChatImagePlacement, rebaseImageText, rebaseImageOffset } from './chat-image-placement.js';
+import { DEFAULT_MESSAGE_FILTER_RULES } from './draw-common.js';
+import { getSharedDrawSettings } from './draw-settings.js';
 
 const MAIN_TYPES = new Set(['', 'normal', 'regenerate', 'swipe', 'continue']);
 
@@ -160,7 +162,8 @@ export function createChatImageSession({ context, provider, changed, report, aut
             observation = null; changed();
             if (!source.startsWith(initialBody)) return;
             // DICE's makeFirst listener has already applied its current body.
-            const candidates = parseChatImageTags(source).filter(tag => tag.end > initialBody.length);
+            const filterRules = [...(getSharedDrawSettings().messageFilterRules || []), ...DEFAULT_MESSAGE_FILTER_RULES];
+            const candidates = parseChatImageTags(source, filterRules).filter(tag => tag.end > initialBody.length);
             // 手动生图模式：新标签不自动接管，留在「待手动生成」状态，由用户逐张点击提交。
             if (candidates.length && autoGenerate()) await claim(ctx, index, candidates, true);
         },

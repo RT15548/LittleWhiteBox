@@ -6,11 +6,49 @@ export function normalizeChatMessageImageTags(value) {
 const TAG_PATTERN = /\[(?:img|图片)\s*:\s*([^\]]+)\]/gi;
 const OPAQUE_TAGS = new Set(['code', 'pre', 'script', 'style', 'textarea']);
 
+function escapeRegex(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// 将 filterRules 转换为 excluded 区间数组（[start, end] 开区间），
+// 与已有的代码块/HTML 属性排除逻辑统一处理。
+export function collectFilterRuleRanges(source, filterRules = []) {
+    const ranges = [];
+    const text = String(source || '');
+    const rules = Array.isArray(filterRules) ? filterRules : [];
+    for (const rule of rules) {
+        const start = String(rule?.start || '').trim();
+        const end = String(rule?.end || '').trim();
+        if (!start && !end) continue;
+        if (start && end) {
+            const regex = new RegExp(`${escapeRegex(start)}[\\s\\S]*?${escapeRegex(end)}`, 'gi');
+            for (const match of text.matchAll(regex)) {
+                if (match[0]) ranges.push([match.index, match.index + match[0].length]);
+            }
+        } else if (start) {
+            const idx = text.toLowerCase().indexOf(start.toLowerCase());
+            if (idx >= 0) ranges.push([idx, text.length]);
+        } else {
+            const idx = text.toLowerCase().indexOf(end.toLowerCase());
+            if (idx >= 0) ranges.push([0, idx + end.length]);
+        }
+    }
+    // 合并重叠区间
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const range of ranges) {
+        const last = merged[merged.length - 1];
+        if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+        else merged.push([...range]);
+    }
+    return merged;
+}
+
 // Keep raw offsets; code examples, escaped tags and HTML attributes are not requests.
-export function parseChatImageTags(value) {
+export function parseChatImageTags(value, filterRules = []) {
     const source = String(value || '');
     if (source.search(TAG_PATTERN) < 0) return [];
-    const excluded = [];
+    const excluded = collectFilterRuleRanges(source, filterRules);
     let offset = 0;
     while (offset < source.length) {
         const rest = source.slice(offset);
@@ -61,9 +99,10 @@ export function findRenderedChatImageTags(root, candidates, renderedTags = new M
     if (!document) return { matched: [], unmatched: [] };
     const walker = document.createTreeWalker(root, 5);
     const visible = [];
+    const SKIP_SELECTOR = 'code, pre, script, style, textarea, .xb-nd-img, think, thinking, status, status_bar, status-bar, mind, system, meta, options';
     while (walker.nextNode()) {
         const node = walker.currentNode;
-        if (node.parentElement?.closest('code, pre, script, style, textarea, .xb-nd-img')) continue;
+        if (node.parentElement?.closest(SKIP_SELECTOR)) continue;
         if (node.nodeType === 1) {
             const rendered = renderedTags.get(node);
             if (rendered) visible.push({ node, offset: 0, marker: rendered.candidate.marker });

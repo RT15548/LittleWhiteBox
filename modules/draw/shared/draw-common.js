@@ -40,6 +40,52 @@ let imageTitleSettingsProvider = null;
 export function setImageTitleSettingsProvider(provider) {
     imageTitleSettingsProvider = typeof provider === 'function' ? provider : null;
 }
+// 整楼重建补发 MESSAGE_UPDATED 的防环状态：MVU/酒馆助手等外部渲染器收到该事件后
+// 会重渲染楼层并可能再发同一事件，极端情况下与我们的重建互相触发形成闪烁死循环。
+const rebuildNotifyState = new Map(); // messageId -> { notifiedAt, timestamps: [], retryTimer }
+const REBUILD_NOTIFY_COOLDOWN_MS = 2000;
+const REBUILD_NOTIFY_WINDOW_MS = 10000;
+const REBUILD_NOTIFY_MAX_PER_WINDOW = 3;
+
+function pruneRebuildNotifyState(messageId, now = Date.now()) {
+    const state = rebuildNotifyState.get(messageId);
+    if (!state) return null;
+    state.timestamps = state.timestamps.filter(t => now - t < REBUILD_NOTIFY_WINDOW_MS);
+    if (state.timestamps.length === 0 && !state.retryTimer && now - state.notifiedAt > REBUILD_NOTIFY_WINDOW_MS) {
+        rebuildNotifyState.delete(messageId);
+        return null;
+    }
+    return state;
+}
+
+function isRebuildNotifyCoolingDown(messageId, now = Date.now()) {
+    const state = pruneRebuildNotifyState(messageId, now);
+    return !!state && now - state.notifiedAt < REBUILD_NOTIFY_COOLDOWN_MS;
+}
+
+function isRebuildNotifyBudgetExhausted(messageId, now = Date.now()) {
+    const state = pruneRebuildNotifyState(messageId, now);
+    return !!state && state.timestamps.length >= REBUILD_NOTIFY_MAX_PER_WINDOW;
+}
+
+function recordRebuildNotify(messageId, now = Date.now()) {
+    const state = pruneRebuildNotifyState(messageId, now) || { notifiedAt: 0, timestamps: [], retryTimer: 0 };
+    state.timestamps.push(now);
+    state.notifiedAt = now;
+    rebuildNotifyState.set(messageId, state);
+}
+
+function scheduleRebuildRetry(messageId, retry) {
+    const state = pruneRebuildNotifyState(messageId) || { notifiedAt: 0, timestamps: [], retryTimer: 0 };
+    if (state.retryTimer) return;
+    const wait = Math.max(REBUILD_NOTIFY_COOLDOWN_MS - (Date.now() - state.notifiedAt), 0) + 100;
+    state.retryTimer = setTimeout(() => {
+        const current = rebuildNotifyState.get(messageId);
+        if (current?.retryTimer) current.retryTimer = 0;
+        void retry();
+    }, wait);
+    rebuildNotifyState.set(messageId, state);
+}
 function resolveImageTitleMode() {
     try {
         const mode = imageTitleSettingsProvider?.()?.imageTitleMode;
@@ -105,6 +151,12 @@ export const DEFAULT_MESSAGE_FILTER_RULES = [
     { start: '<options>',  end: '</options>' },
     { start: '<WorldState>', end: '</WorldState>' },
     { start: '<state>',    end: '</state>' },
+    { start: '<status>',   end: '</status>' },
+    { start: '<Status>',   end: '</Status>' },
+    { start: '<status_bar>', end: '</status_bar>' },
+    { start: '<状态栏>',    end: '</状态栏>' },
+    { start: '<状态>',      end: '</状态>' },
+    { start: '<mind>',     end: '</mind>' },
     { start: '<UpdateVariable>', end: '</UpdateVariable>' },
     { start: '<—',         end: '—>' },
     { start: '',           end: '</think>' },
@@ -780,8 +832,11 @@ ${buildTagEditor(tags, true)}
 export async function notifyMessageRewritten(messageId) {
     try {
         if (!getMesTextElement(messageId)?.querySelector('pre')) return;
+        // 窗口内补发次数用尽后改为静默重建（正文与卡片仍恢复，但不再喂养循环）。
+        if (isRebuildNotifyBudgetExhausted(messageId)) return;
         const eventSource = getContext()?.eventSource;
         if (eventSource?.emit && event_types?.MESSAGE_UPDATED) {
+            recordRebuildNotify(messageId);
             await eventSource.emit(event_types.MESSAGE_UPDATED, messageId);
         }
     } catch (error) {
@@ -1022,6 +1077,12 @@ export async function syncRenderedMessageFromState(messageId, { chatId, expected
         await renderPreviewsForMessage(messageId);
         return true;
     }
+    // 冷却期内的整楼重建多半是外部渲染器（MVU 等）重渲染楼层后触发的连锁反应，
+    // 立刻重建只会喂养「重建→通知→外渲染→重建」的闪烁循环；改约到冷却结束后补做。
+    if (isRebuildNotifyCoolingDown(messageId)) {
+        scheduleRebuildRetry(messageId, () => syncRenderedMessageFromState(messageId, { chatId, expectedMessage, insertedSlotIds }));
+        return false;
+    }
     const rebuilt = await rebuildRenderedMessageFromState(messageId, { chatId, expectedMessage });
     if (!rebuilt) return false;
     await renderPreviewsForMessage(messageId);
@@ -1117,4 +1178,8 @@ export function stopSharedDrawPreviewRuntime() {
     drawPreviewCacheSyncCleanup = null;
     drawPreviewViewCleanup?.();
     drawPreviewViewCleanup = null;
+    for (const state of rebuildNotifyState.values()) {
+        if (state.retryTimer) clearTimeout(state.retryTimer);
+    }
+    rebuildNotifyState.clear();
 }
