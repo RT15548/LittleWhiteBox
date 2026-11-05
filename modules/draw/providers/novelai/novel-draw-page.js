@@ -5183,7 +5183,6 @@ window.addEventListener('message', event => {
             const btn = $('nd_convert_legacy_jpeg');
             if (btn) {
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-images"></i> 舊圖轉JPEG';
             }
             break;
         }
@@ -5781,7 +5780,6 @@ function initializePage() {
         if (btn.disabled) return;
         if (!confirm(GALLERY_JPEG_COPY.batchConfirm)) return;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 转换中…';
         postToParent({ type: 'CONVERT_LEGACY_JPEG' });
     });
 

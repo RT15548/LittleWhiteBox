@@ -357,6 +357,8 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
 .gallery-days-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--text-secondary); font-size: 12px; }
 .gallery-days-control .input { width: 64px; min-height: 44px; padding: 6px 8px; text-align: center; }
 .gallery-days-control .btn { min-height: 44px; }
+#nd_convert_legacy_jpeg:disabled .convert-idle,
+#nd_convert_legacy_jpeg:not(:disabled) .convert-busy { display: none; }
 .gallery-setting-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
 .gallery-setting-check input { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 3px; }
 .gallery-setting-check span { display: grid; gap: 4px; }
@@ -1582,7 +1584,10 @@ button.nd-vibe-badge:disabled { cursor: default; }
                         <div><button id="nd_open_image_folder" class="btn btn-sm" type="button">打开文件夹</button></div>
                         <div class="gallery-settings-danger">
                             <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
-                            <button id="nd_convert_legacy_jpeg" class="btn btn-sm" title="把缓存里仍是 PNG 的旧图批量转成 JPEG 以节省空间"><i class="fa-solid fa-images"></i> 舊圖轉JPEG</button>
+                            <button id="nd_convert_legacy_jpeg" class="btn btn-sm" title="把缓存里仍是 PNG 的旧图批量转成 JPEG 以节省空间">
+                                <span class="convert-idle"><i class="fa-solid fa-images"></i> 旧图转 JPEG</span>
+                                <span class="convert-busy"><i class="fa-solid fa-spinner fa-spin"></i> 转换中…</span>
+                            </button>
                             <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
                         </div>
                     </div>

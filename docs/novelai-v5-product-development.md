@@ -700,7 +700,7 @@ MessagePack 解码使用锁定版本的成熟依赖（`@msgpack/msgpack`），�
 ## 15. 非目标
 
 - 不接入 V5 Inpainting。
-- 不接入 Vibe Transfer 或 Precise Reference；NovelAI 官方说明它们尚未随 V5 首发提供。
+- V5 暂不接入 Vibe Transfer 或 Precise Reference；插件现有 Vibe Transfer 已支持 V4/V4.5，模型支持范围见 [Vibe 模型映射](../modules/draw/providers/novelai/vibe.js)。
 - 不展示 intermediate 流式预览。
 - 不新增自动模型选择。
 - 不自动切换提示词预设。

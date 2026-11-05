@@ -1,5 +1,5 @@
 {
-  "buildId": "4cb1d601265ee4e68f5f",
+  "buildId": "a6dc29b03d5ae1c92974",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-Dc7PDHgE.js",
@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-CsNsOpE7.js",
+      "file": "apps/novel-draw-D8KPP8Bv.js",
       "css": []
     },
     "apps/story-outline": {
@@ -152,7 +152,7 @@
         "assets/settings-ui-3BrbRAIN.css"
       ]
     },
-    "apps/novel-draw-CsNsOpE7.js": {
+    "apps/novel-draw-D8KPP8Bv.js": {
       "imports": [
         "shared/preload-helper-BdDHxvum.js",
         "shared/async-errors-C4kfchr9.js",
