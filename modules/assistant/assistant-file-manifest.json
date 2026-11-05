@@ -2260,7 +2260,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/character-continuity.js",
       "relativePath": "modules/draw/shared/character-continuity.js",
       "extension": ".js",
-      "sizeBytes": 8465
+      "sizeBytes": 12006
     },
     {
       "source": "littlewhitebox",
@@ -3444,6 +3444,13 @@
       "relativePath": "modules/draw/shared/tests/character-card-menu.test.js",
       "extension": ".js",
       "sizeBytes": 5280
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-continuity-form-alias.test.js",
+      "relativePath": "modules/draw/shared/tests/character-continuity-form-alias.test.js",
+      "extension": ".js",
+      "sizeBytes": 6339
     },
     {
       "source": "littlewhitebox",
