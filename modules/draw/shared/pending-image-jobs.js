@@ -199,6 +199,7 @@ function normalizeItem(source) {
             continuityChars: Array.isArray(metadata.continuityChars) ? structuredClone(metadata.continuityChars) : null,
             negativePrompt: metadata.negativePrompt ?? null,
             postPrompt: metadata.postPrompt ?? null,
+            vibeNames: normalizeText(metadata.vibeNames),
             orientation: metadata.orientation ?? null,
             providerMetadata,
         },

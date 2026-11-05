@@ -620,6 +620,7 @@ export async function storePreview(opts) {
         chapterTitle = '',
         continuityChars = null,
         presetId = '',
+        vibeNames = '',
     } = opts;
     const database = await openDB();
     const ctx = getContext();
@@ -671,6 +672,7 @@ export async function storePreview(opts) {
                 postPrompt,
                 orientation,
                 continuityChars: Array.isArray(continuityChars) ? continuityChars : null,
+                vibeNames: String(vibeNames || ''),
                 // Only creation grants attachment authority. Progress/late paid
                 // results cannot restore authority withdrawn by save or editing.
                 placement: previous.result ? previous.result.placement ?? null : placement ?? null,
@@ -711,6 +713,7 @@ export async function storeFailedPlaceholder(opts) {
         negativePrompt: opts.negativePrompt ?? null,
         postPrompt: opts.postPrompt ?? null,
         orientation: opts.orientation ?? null,
+        vibeNames: opts.vibeNames || '',
     });
 }
 

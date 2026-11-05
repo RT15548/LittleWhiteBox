@@ -3104,6 +3104,7 @@ async function generateImagesFromText(options = {}) {
         options.onStateChange?.('gen', { current: 0, total: tasks.length });
 
         const vibeReferences = await ensurePresetVibeReady(settings, preset, { signal });
+        const vibeNamesForStore = vibeReferences.map(v => v.name).filter(Boolean).join('、');
         const compiledBatch = compileNovelScenePlan(
             tasks,
             createNovelGenerationRecipe({
@@ -3154,6 +3155,7 @@ async function generateImagesFromText(options = {}) {
                     title: item.task.title,
                     characterPrompts: item.characterPrompts,
                     negativePrompt: item.negativePrompt,
+                    vibeNames: vibeNamesForStore,
                 });
                 await setSlotSelection(item.slotId, imgId);
                 observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId: item.slotId, filePrefix: imageFilePrefix("novelai") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
@@ -3227,6 +3229,7 @@ async function runPreparedNovelSlots(input) {
         const vibeReferences = await ensurePresetVibeReady(settings, preset, {
             signal: job.controller.signal,
         });
+        const vibeNames = vibeReferences.map(v => v.name).filter(Boolean).join('、');
         const recipe = createNovelGenerationRecipe({
             settings,
             preset,
@@ -3245,6 +3248,7 @@ async function runPreparedNovelSlots(input) {
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
+            vibeNames,
             manual: input.manual === true,
             nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("novelai"),
             backend: resolveNovelImageTransport(settings) === 'backend-job',

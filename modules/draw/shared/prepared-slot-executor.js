@@ -109,6 +109,7 @@ export async function executePreparedSlots({ items, backend, store, remove, sele
                         previewMetadata: { tags: item.tags, title: item.title, positive: item.positive, postPrompt: item.postPrompt, presetId: item.presetId,
                             orientation: item.orientation ?? null,
                             characterPrompts: item.characterPrompts, negativePrompt: item.negativePrompt,
+                            vibeNames: item.vibeNames || '',
                             continuityChars: Array.isArray(item.continuityChars) ? item.continuityChars : null } })),
                 },
                 commitPlacements: async () => {
