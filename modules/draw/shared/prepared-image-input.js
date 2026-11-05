@@ -16,8 +16,9 @@ export function prepareImageInput(provider, tasks, recipe) {
         negativePrompt: novel ? promptData.negativePrompt : promptData.negative,
         params: recipe.params,
     }));
-    const metadata = compiledBatch.artifacts.map(({ task, promptData, continuityChars }) => ({
+    const metadata = compiledBatch.artifacts.map(({ task, promptData, continuityChars, vibeNames }) => ({
         presetId: novel ? String(recipe.presetId || '') : '',
+        vibeNames: vibeNames || '',
         tags: task.scene || '',
         title: task.title || '',
         orientation: task.orientation ?? null,

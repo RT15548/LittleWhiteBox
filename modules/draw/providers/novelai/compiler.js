@@ -3,6 +3,7 @@ import { assembleCharacterPrompts, joinTags } from '../../shared/character-promp
 import { getNovelModelCapability, isNovelV5Model } from './novel-model-capabilities.js';
 import { resolveNovelAIBackendImageApi, resolveNovelAIImageApi } from './novel-request-config.js';
 import { buildNovelV5RequestBody } from './novel-v5-request.js';
+import { getVibeModelKey } from './vibe.js';
 
 const MAX_SEED = 0xFFFFFFFF;
 
@@ -16,9 +17,17 @@ function normalizeVibeReferences(value) {
             const strength = Number(item.strength);
             return {
                 encoding: item.encoding,
+                name: String(item.name || '').trim(),
                 strength: Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 0.6,
             };
         });
+}
+
+// Local provenance only: names never enter the paid image request payload.
+export function getNovelVibeNames(model, references) {
+    return getVibeModelKey(model)
+        ? normalizeVibeReferences(references).map(item => item.name).filter(Boolean).join('、')
+        : '';
 }
 
 function requireObject(value, label) {
@@ -257,6 +266,7 @@ export function compile(scenePlan, generationRecipe) {
             task,
             promptData,
             tags: task?.scene || '',
+            vibeNames: getNovelVibeNames(recipe.params?.model ?? recipe.defaultParams?.model, recipe.vibeReferences),
             continuityChars: structuredClone(task?.chars || []),
             providerMetadata: {
                 presetId: String(recipe.presetId || ''),

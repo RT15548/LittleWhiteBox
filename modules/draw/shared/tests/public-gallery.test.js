@@ -10,6 +10,7 @@ import { fixture } from './helpers/draw-journey.js';
 // - A failed local write cannot lose other results, reject paid generation or trigger another request (lost images/double charge).
 // - The existing autosave switch applies only to new requests, including partial results (unexpected uploads/lost images).
 // - Slow or failed uploads cannot delay card results, edit chat or repeat generation (broken cards/wrong-chat writes/double charge).
+// - Concurrent public requests retain their prepared provenance, including partial results (invisible metadata loss).
 async function setup(t) {
     const previousReader = globalThis.FileReader;
     globalThis.FileReader = class {
@@ -82,6 +83,30 @@ test('public batches retain original ownership and bytes across reopening/expiry
     assert.deepEqual(h.ctx.chatMetadata, originalMetadata);
     for (const row of rows) await h.api.deletePreview(row.imgId);
     assert.equal((await h.api.getGalleryMetadata()).length, 0);
+});
+
+test('public Vibe provenance is frozen per request and survives partial delivery', async t => {
+    const h = await setup(t);
+    h.adapter.generate = async (request, _settings, { onPrepared }) => {
+        const metadata = { presetId: request.prompt, vibeNames: request.prompt };
+        onPrepared(metadata);
+        metadata.vibeNames = 'later edit';
+        await h.settle();
+        if (request.prompt === 'partial') throw new h.api.MediaApiError('partial_result', { partialResult: { images: h.images } });
+        return h.images;
+    };
+    await Promise.all([
+        h.publicApi.generate({ provider: 'novelai', prompt: '水彩' }),
+        assert.rejects(h.publicApi.generate({ provider: 'novelai', prompt: 'partial' }), { code: 'partial_result' }),
+    ]);
+    h.api.destroyGalleryCache();
+    const rows = await h.api.getGalleryMetadata();
+    assert.equal(rows.length, 6);
+    for (const row of rows) {
+        const record = await h.api.getPreview(row.imgId);
+        assert.equal(record.vibeNames, record.tags);
+        assert.equal(record.presetId, record.tags);
+    }
 });
 
 test('autosave uses the resolved provider and original owner without delaying card results or writing chat', async t => {

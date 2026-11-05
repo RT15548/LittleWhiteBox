@@ -509,6 +509,7 @@ export async function exportPortablePreviewsForSlots(slotIds = []) {
             negativePrompt: preview.negativePrompt || null,
             postPrompt: preview.postPrompt ?? null,
             orientation: preview.orientation ?? null,
+            vibeNames: String(preview.vibeNames || ''),
             timestamp: Number(preview.timestamp) || Date.now(),
         });
         selections.push({ slotId, selectedImgId: imgId });
@@ -1359,7 +1360,7 @@ function ensureGalleryStyles() {
 .nd-gallery-btn.primary:hover{background:#fff}
 .nd-gallery-btn.danger{color:#f87171;border-color:rgba(248,113,113,0.3)}
 .nd-gallery-btn.danger:hover{background:rgba(248,113,113,0.15)}
-.nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:#b4b1a9}
+.nd-gallery-info{flex-shrink:0;text-align:center;margin:12px 0 8px;font-size:12px;color:#b4b1a9;max-width:90%;overflow-wrap:anywhere}
 @media(max-height:500px){.nd-gallery-thumbs{margin-top:8px;padding:6px}.nd-gallery-thumb{width:40px;height:40px}.nd-gallery-actions{margin-top:8px}.nd-gallery-info{margin-top:6px}}`;
     document.head.appendChild(style);
 }
@@ -1620,7 +1621,7 @@ function renderGallery() {
 
     const displayVersion = previews.length - currentIndex;
     const date = new Date(current.timestamp).toLocaleString();
-    document.getElementById('nd-gallery-info').textContent = `版本 ${displayVersion} / ${previews.length} · ${date}`;
+    document.getElementById('nd-gallery-info').textContent = `版本 ${displayVersion} / ${previews.length} · ${date}${current.vibeNames ? ` · Vibe：${current.vibeNames}` : ''}`;
 }
 
 function navigateGallery(delta) {

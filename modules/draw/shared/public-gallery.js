@@ -17,7 +17,7 @@ export function capturePublicGallery(request, provider) {
         characterName: getImageFolderName(),
     };
     const slotId = `public-${createIdentifier()}`;
-    return async images => {
+    return async (images, metadata = {}) => {
         const failures = [];
         for (const [index, blob] of images.entries()) {
             const imgId = `${slotId}-${index}`;
@@ -27,7 +27,8 @@ export function capturePublicGallery(request, provider) {
                     base64: await blobToDataUrl(blob), tags: request.prompt,
                     negativePrompt: request.negativePrompt,
                     characterPrompts: request.characterPrompts,
-                    presetId: request.paramsPresetId,
+                    presetId: metadata.presetId ?? request.paramsPresetId,
+                    vibeNames: metadata.vibeNames || '',
                 });
                 // Use the existing switch, but never make the card wait for a server upload.
                 observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId, filePrefix, generatedAt }),

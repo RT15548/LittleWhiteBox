@@ -124,7 +124,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     async function recordJob(id) {
         const record = await api.recordPendingImageJob({ jobId: id, provider: 'sd-webui', delivery: { mode: 'gallery' },
             items: [{ index: 0, slotId: id + '-slot', imgId: id + '-image', previewMetadata: {
-                orientation: 'landscape', continuityChars: [{ name: 'Alice', costume: 'blue coat' }],
+                orientation: 'landscape', vibeNames: 'recovered-reference', continuityChars: [{ name: 'Alice', costume: 'blue coat' }],
             } }] });
         await api.markPendingImageJobActive(id, record.leaseId);
         await api.renewPendingImageJobLease(id, record.leaseId, { now: 0 });
@@ -158,6 +158,7 @@ test('online retry and new delivery proceed while an unrelated recovered job is 
     assert.equal(await api.getPendingImageJob('new-job'), null);
     assert.equal(host.previews.get('new-job-image')?.base64, 'delivered');
     assert.equal(host.previews.get('new-job-image')?.orientation, 'landscape');
+    assert.equal(host.previews.get('new-job-image')?.vibeNames, 'recovered-reference');
     assert.deepEqual(host.previews.get('new-job-image')?.continuityChars, [{ name: 'Alice', costume: 'blue coat' }]);
     // 接回的图以任务提交时刻交给自动保存，开关打开前提交的任务因此不会被当成新图。
     assert.equal(host.autoSaved.find(call => call.imgId === 'new-job-image')?.generatedAt, submittedAt);

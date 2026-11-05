@@ -9,6 +9,7 @@ function buildDisplayMetadata(artifact = {}) {
         continuityChars: cloneJson(artifact.continuityChars ?? null),
         postPrompt: String(artifact.task?.post_prompt || ''),
         orientation: artifact.task?.orientation ?? null,
+        vibeNames: String(artifact.vibeNames || ''),
         negativePrompt: String(promptData.negative || promptData.negativePrompt || ''),
     };
     if (artifact.providerMetadata && typeof artifact.providerMetadata === 'object') {

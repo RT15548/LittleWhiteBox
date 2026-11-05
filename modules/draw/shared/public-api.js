@@ -126,11 +126,12 @@ export function createDrawPublicApi({ isEnabled, getProvider, providers, capture
                 const saved = snapshot instanceof Promise ? await snapshot : snapshot;
                 controller.signal.throwIfAborted();
                 const settings = resolveDrawSettings(saved, request, adapter);
-                let images;
+                let images, galleryMetadata;
                 try {
-                    images = await adapter.generate(request, settings, { signal: controller.signal, onProgress });
+                    images = await adapter.generate(request, settings, { signal: controller.signal, onProgress,
+                        onPrepared: metadata => { galleryMetadata = structuredClone(metadata); } });
                 } catch (error) {
-                    if (error.partialResult?.images?.length) await saveImages(error.partialResult.images);
+                    if (error.partialResult?.images?.length) await saveImages(error.partialResult.images, galleryMetadata);
                     throw error;
                 }
                 if (!Array.isArray(images) || !images.length) {
@@ -138,7 +139,7 @@ export function createDrawPublicApi({ isEnabled, getProvider, providers, capture
                     throw new MediaApiError('invalid_result');
                 }
                 // Received images are already paid for; cancellation cannot discard them.
-                await saveImages(images);
+                await saveImages(images, galleryMetadata);
                 if (controller.signal.aborted) throw new MediaApiError('aborted', { partialResult: { images } });
                 return { images };
             } catch (error) { throw mediaFailure(error, controller.signal); }

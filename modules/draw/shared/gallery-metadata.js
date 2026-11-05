@@ -13,10 +13,11 @@ export function withGalleryMetadata(record) {
         (record.base64?.length || 0) * 0.75,
         String(record.savedUrl || ''),
         String(record.presetId || ''),
+        String(record.vibeNames || ''),
     ] };
 }
 
 export function galleryMetadataFromKey(key, imgId) {
-    const [timestamp, slotId, characterName, displayable, sizeBytes, savedUrl, presetId = ''] = key;
-    return { imgId, timestamp, slotId, characterName, displayable: !!displayable, sizeBytes, savedUrl: savedUrl || null, presetId };
+    const [timestamp, slotId, characterName, displayable, sizeBytes, savedUrl, presetId = '', vibeNames = ''] = key;
+    return { imgId, timestamp, slotId, characterName, displayable: !!displayable, sizeBytes, savedUrl: savedUrl || null, presetId, vibeNames };
 }

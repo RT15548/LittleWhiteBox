@@ -133,7 +133,7 @@ import {
     NOVEL_PROMPT_GUIDES,
 } from "./novel-model-capabilities.js";
 import { NovelV5RequestError, V5_QUALITY_IDS, V5_UC_IDS } from "./novel-v5-request.js";
-import { compile as compileNovelScenePlan, compileNovelImageRequest } from "./compiler.js";
+import { compile as compileNovelScenePlan, compileNovelImageRequest, getNovelVibeNames } from "./compiler.js";
 import { readNovelV5ErrorText, readNovelV5FinalImage, NovelV5StreamError } from "./novel-v5-stream.js";
 import { validateDrawInput } from '../../shared/public-api.js';
 import { imageBlob } from '../../shared/image-collection.js';
@@ -2225,7 +2225,7 @@ export const novelPublicGeneration = {
         return settingsLoaded && settingsCache ? structuredClone(getRuntimeSettings())
             : NovelDrawStorage.getStrict(SERVER_FILE_KEY, null).then(saved => ({ ...normalizeSettings(saved || {}), timeout: getSharedDrawSettings().timeout }));
     },
-    async generate(request, settings, { signal, onProgress }) {
+    async generate(request, settings, { signal, onProgress, onPrepared }) {
         const preset = settings.paramsPresets.find(item => item.id === settings.selectedParamsPresetId) || settings.paramsPresets[0];
         if (!preset || !settings.apiKey) throw new MediaApiError('not_configured');
         const defaults = normalizeParamsPreset(DEFAULT_PARAMS_PRESET, 0).params;
@@ -2247,7 +2247,7 @@ export const novelPublicGeneration = {
         const requestConfig = snapshotNovelRequestConfig(settings, settings, DEFAULT_SETTINGS.timeout);
         const config = { ...requestConfig,
             overrideSize: request.params?.width !== undefined || request.params?.height !== undefined ? 'default' : requestConfig.overrideSize };
-        let prepared;
+        let prepared, vibeReferences;
         try {
             // An explicit size belongs to this call, not the floating-panel size override.
             if (request.params?.width !== undefined || request.params?.height !== undefined) {
@@ -2255,13 +2255,15 @@ export const novelPublicGeneration = {
                 params.width = request.params?.width ?? sized.payload.parameters.width;
                 params.height = request.params?.height ?? sized.payload.parameters.height;
             }
+            vibeReferences = await ensurePresetVibeReady(settings, { ...preset, params }, { signal });
             prepared = prepareNovelImageRequest({
                 scene: joinTags(request.positivePrefix ?? preset.positivePrefix, request.prompt),
                 negativePrompt: request.negativePrompt ?? preset.negativePrefix ?? '',
                 characterPrompts: request.characterPrompts || [], params,
-                vibeReferences: await ensurePresetVibeReady(settings, { ...preset, params }, { signal }),
+                vibeReferences,
             }, config);
         } catch (cause) { throw new MediaApiError('invalid_request', { cause }); }
+        onPrepared?.({ presetId: preset.id, vibeNames: getNovelVibeNames(model, vibeReferences) });
         const cooldownMs = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
         const result = await novelImageRequestQueue.enqueue(() => isNovelImageBackendJobEnabled(config)
             ? runPublicImageJob(imageBackendJobsClient, {
@@ -3104,7 +3106,6 @@ async function generateImagesFromText(options = {}) {
         options.onStateChange?.('gen', { current: 0, total: tasks.length });
 
         const vibeReferences = await ensurePresetVibeReady(settings, preset, { signal });
-        const vibeNamesForStore = vibeReferences.map(v => v.name).filter(Boolean).join('、');
         const compiledBatch = compileNovelScenePlan(
             tasks,
             createNovelGenerationRecipe({
@@ -3115,7 +3116,7 @@ async function generateImagesFromText(options = {}) {
                 vibeReferences,
             }),
         );
-        const batchItems = compiledBatch.artifacts.map(({ task, promptData }) => {
+        const batchItems = compiledBatch.artifacts.map(({ task, promptData, vibeNames }) => {
             const { scene, characterPrompts, negativePrompt } = promptData;
             return {
                 task,
@@ -3123,6 +3124,7 @@ async function generateImagesFromText(options = {}) {
                 scene,
                 characterPrompts,
                 tagsForStore: task.scene || '',
+                vibeNames,
                 negativePrompt,
                 request: {
                     scene,
@@ -3155,7 +3157,7 @@ async function generateImagesFromText(options = {}) {
                     title: item.task.title,
                     characterPrompts: item.characterPrompts,
                     negativePrompt: item.negativePrompt,
-                    vibeNames: vibeNamesForStore,
+                    vibeNames: item.vibeNames,
                 });
                 await setSlotSelection(item.slotId, imgId);
                 observeBackgroundTask(autoSaveDeliveredImage({ imgId, slotId: item.slotId, filePrefix: imageFilePrefix("novelai") }), { source: import.meta.url, operation: "autoSaveDeliveredImage" });
@@ -3184,6 +3186,7 @@ async function generateImagesFromText(options = {}) {
                     positive: item.scene,
                     errorType: errorType.code,
                     errorMessage: errorType.desc,
+                    vibeNames: item.vibeNames,
                     characterPrompts: item.characterPrompts,
                     orientation: item.task.orientation ?? null,
                     title: item.task.title,
@@ -3229,7 +3232,6 @@ async function runPreparedNovelSlots(input) {
         const vibeReferences = await ensurePresetVibeReady(settings, preset, {
             signal: job.controller.signal,
         });
-        const vibeNames = vibeReferences.map(v => v.name).filter(Boolean).join('、');
         const recipe = createNovelGenerationRecipe({
             settings,
             preset,
@@ -3248,7 +3250,6 @@ async function runPreparedNovelSlots(input) {
         const monitorGeneration = backendJobMonitors.captureGeneration();
         return await submitPreparedChatImages({
             ctx, message, messageId, sourceText, tasks, metadata, swipeIndex: input.swipeIndex,
-            vibeNames,
             manual: input.manual === true,
             nativeMessage: input.nativeMessage, onPrepared: input.onPrepared, placementSource: input.placementSource, filePrefix: imageFilePrefix("novelai"),
             backend: resolveNovelImageTransport(settings) === 'backend-job',
@@ -4839,6 +4840,7 @@ async function handleFrameMessage(event) {
                     positive: scene,
                     negativePrompt: preset?.negativePrefix || '',
                     source: 'quick-test',
+                    vibeNames: getNovelVibeNames(preset?.params?.model, vibeReferences),
                 }));
                 await pushTestHistory(imgId, 0);
                 postStatus('success', QUICK_TEST_COPY.generated);

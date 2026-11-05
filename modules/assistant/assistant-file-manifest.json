@@ -1784,7 +1784,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/compiler.js",
       "relativePath": "modules/draw/providers/novelai/compiler.js",
       "extension": ".js",
-      "sizeBytes": 12124
+      "sizeBytes": 12620
     },
     {
       "source": "littlewhitebox",
@@ -1847,7 +1847,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 251122
+      "sizeBytes": 251519
     },
     {
       "source": "littlewhitebox",
@@ -2106,7 +2106,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/server/draw-runs/projection.js",
       "relativePath": "modules/draw/server/draw-runs/projection.js",
       "extension": ".js",
-      "sizeBytes": 2903
+      "sizeBytes": 2956
     },
     {
       "source": "littlewhitebox",
@@ -2610,7 +2610,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
       "relativePath": "modules/draw/shared/draw-common.js",
       "extension": ".js",
-      "sizeBytes": 63679
+      "sizeBytes": 63778
     },
     {
       "source": "littlewhitebox",
@@ -2631,7 +2631,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-run-adoption.js",
       "relativePath": "modules/draw/shared/draw-run-adoption.js",
       "extension": ".js",
-      "sizeBytes": 14220
+      "sizeBytes": 14264
     },
     {
       "source": "littlewhitebox",
@@ -2792,7 +2792,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
       "relativePath": "modules/draw/shared/gallery-cache.js",
       "extension": ".js",
-      "sizeBytes": 78504
+      "sizeBytes": 78775
     },
     {
       "source": "littlewhitebox",
@@ -2813,7 +2813,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-metadata.js",
       "relativePath": "modules/draw/shared/gallery-metadata.js",
       "extension": ".js",
-      "sizeBytes": 966
+      "sizeBytes": 1033
     },
     {
       "source": "littlewhitebox",
@@ -2932,7 +2932,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/image-job-recovery-runtime.js",
       "relativePath": "modules/draw/shared/image-job-recovery-runtime.js",
       "extension": ".js",
-      "sizeBytes": 25234
+      "sizeBytes": 25292
     },
     {
       "source": "littlewhitebox",
@@ -3072,7 +3072,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/pending-image-jobs.js",
       "relativePath": "modules/draw/shared/pending-image-jobs.js",
       "extension": ".js",
-      "sizeBytes": 35093
+      "sizeBytes": 35151
     },
     {
       "source": "littlewhitebox",
@@ -3100,7 +3100,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prepared-image-input.js",
       "relativePath": "modules/draw/shared/prepared-image-input.js",
       "extension": ".js",
-      "sizeBytes": 1786
+      "sizeBytes": 1833
     },
     {
       "source": "littlewhitebox",
@@ -3114,7 +3114,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/prepared-slot-executor.js",
       "relativePath": "modules/draw/shared/prepared-slot-executor.js",
       "extension": ".js",
-      "sizeBytes": 11190
+      "sizeBytes": 11251
     },
     {
       "source": "littlewhitebox",
@@ -3212,14 +3212,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/public-api.js",
       "relativePath": "modules/draw/shared/public-api.js",
       "extension": ".js",
-      "sizeBytes": 8965
+      "sizeBytes": 9114
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/public-gallery.js",
       "relativePath": "modules/draw/shared/public-gallery.js",
       "extension": ".js",
-      "sizeBytes": 2346
+      "sizeBytes": 2441
     },
     {
       "source": "littlewhitebox",
@@ -3800,7 +3800,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/image-job-recovery-runtime.test.js",
       "relativePath": "modules/draw/shared/tests/image-job-recovery-runtime.test.js",
       "extension": ".js",
-      "sizeBytes": 22593
+      "sizeBytes": 22715
     },
     {
       "source": "littlewhitebox",
@@ -3975,7 +3975,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/public-gallery.test.js",
       "relativePath": "modules/draw/shared/tests/public-gallery.test.js",
       "extension": ".js",
-      "sizeBytes": 10098
+      "sizeBytes": 11306
     },
     {
       "source": "littlewhitebox",
@@ -4067,6 +4067,13 @@
       "relativePath": "modules/draw/shared/tests/sortable-list.test.js",
       "extension": ".js",
       "sizeBytes": 19198
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/vibe-gallery-names.test.js",
+      "relativePath": "modules/draw/shared/tests/vibe-gallery-names.test.js",
+      "extension": ".js",
+      "sizeBytes": 5082
     },
     {
       "source": "littlewhitebox",
