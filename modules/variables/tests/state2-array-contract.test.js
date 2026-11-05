@@ -41,6 +41,38 @@ test.before(async () => { harness = await createHarness(); });
 test.beforeEach(() => seed());
 test.after(() => harness.cleanup());
 
+test('turn continuations replay array-index deletes as separate ordered batches', () => {
+    const target = { floor: 49, swipeId: 0 };
+    api.beginTurn(target).commit({ ops: [{ op: 'del', path: 'data.a.0' }] });
+    api.beginContinuation(target).commit({ ops: [{ op: 'del', path: 'data.a.1' }] });
+    assert.deepEqual(value().a, ['B', 'D'], 'later index 1 refers to the array after the first batch');
+    api.beginContinuation(target).commit({ ops: [{ op: 'del', path: 'data.a[0]' }] });
+    assert.deepEqual(value().a, ['D'], 'the same index is legal in a later batch');
+    assert.deepEqual(ctx().chat[49].extra[KEY].entries.map(entry => entry.ops.length), [1, 1, 1]);
+    replay();
+    const replacement = api.beginTurn(target);
+    assert.deepEqual(value().a, ['A', 'B', 'C', 'D']);
+    replacement.commit({ ops: [{ op: 'del', path: 'data.a.2' }] });
+    assert.deepEqual(value().a, ['A', 'B', 'D']);
+    assert.equal(ctx().chat[49].extra[KEY].entries.length, 1);
+    replay();
+});
+
+test('each continuation validates its own batch without combining it with earlier requests', () => {
+    const target = { floor: 49, swipeId: 0 };
+    api.beginTurn(target).commit({ ops: [{ op: 'del', path: 'data.a.0' }] });
+    const before = snapshot();
+    assert.throws(() => api.beginContinuation(target).commit({ ops: [
+        { op: 'del', path: 'data.a.0' },
+        { op: 'set', path: 'data.a.1', value: 'edited' },
+    ] }), { code: 'conflicting_operations' });
+    assert.deepEqual(snapshot(), before);
+    api.beginContinuation(target).commit({ ops: [{ op: 'set', path: 'data.a.1', value: 'edited-C' }] });
+    api.beginContinuation(target).commit({ ops: [{ op: 'del', path: 'data.a.0' }] });
+    assert.deepEqual(value().a, ['edited-C', 'D']);
+    replay();
+});
+
 test('safe distinct index deletions retain reverse-order protection and replay', () => {
     const result = api.apply({ ops: [
         { op: 'del', path: 'data.a.1' },

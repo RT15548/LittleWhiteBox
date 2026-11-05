@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { EventEmitter } from 'node:events';
 import { createHarness, readStoredValue } from './helpers/state2-harness.js';
 
 // Execute the guide's runnable examples as inputs, not a source spelling checklist.
@@ -11,13 +12,14 @@ const examples = [...guide.matchAll(/^```(\w*)\r?\n([\s\S]*?)^```/gm)]
     .map(([, language, body]) => ({ language, body }));
 const initializer = examples.find(({ body }) => body.trimStart().startsWith('<<taskjs>>'));
 
-async function runScript(body, api, context) {
+async function runScript(body, api, context, globals = {}) {
     const diagnostics = [];
     const source = body.replace(/^\s*<<taskjs>>\s*/, '').replace(/\s*<<\/taskjs>>\s*$/, '');
     await runInNewContext(`(async () => { ${source}\n })()`, {
         LWB_StateV2: api,
         SillyTavern: { getContext: () => context },
         console: { log() {}, warn: (...args) => diagnostics.push(args), error: (...args) => diagnostics.push(args) },
+        ...globals,
     });
     assert.deepEqual(diagnostics, []);
 }
@@ -59,7 +61,7 @@ test('guide initialization and runnable examples work with the documented initia
                     await runScript(body, api, context);
                     assert.deepEqual(context.chatMetadata.variables, stored, 'rerunning the replaceable-turn example does not accumulate its increment');
                 }
-            } else if (body.includes('<state>') && body !== initializer.body) {
+            } else if (body.trimStart().startsWith('<state>')) {
                 await initialize();
                 const result = harness.executor.applyStateForMessage(1, body);
                 assert.deepEqual(result.errors, []);
@@ -70,6 +72,40 @@ test('guide initialization and runnable examples work with the documented initia
             }
         }
     } finally {
+        harness.cleanup();
+    }
+});
+
+// Acceptance: the alternate-greeting task initializes each swipe and releases
+// its listener on disposal; otherwise switching greetings silently loses state.
+test('guide task scripts initialize alternate greetings without duplicate records or lingering listeners', async () => {
+    const harness = await createHarness();
+    const cleanups = [];
+    try {
+        const context = harness.env.state.ctx;
+        context.eventSource = new EventEmitter();
+        context.eventTypes = { MESSAGE_SWIPED: 'message_swiped' };
+        const message = { mes: '开场', is_user: false, swipe_id: 0,
+            swipes: ['开场', '备选开场'], swipe_info: [{ extra: {} }, { extra: {} }], extra: {} };
+        context.chat.push(message);
+        for (const { body } of examples.filter(item => item.body.trimStart().startsWith('<<taskjs>>') && item !== initializer)) {
+            await runScript(body, harness.executor.createStateApi(), context, { onCleanup: callback => cleanups.push(callback) });
+        }
+        assert.equal(readStoredValue(context, '数据').当前地点, '新手村');
+        for (const [swipe, place] of [[1, '城镇'], [0, '新手村']]) {
+            message.swipe_id = swipe;
+            message.extra = structuredClone(message.swipe_info[swipe].extra);
+            harness.executor.handleStateSwipe(0);
+            context.eventSource.emit(context.eventTypes.MESSAGE_SWIPED, 0);
+            assert.equal(readStoredValue(context, '数据').当前地点, place);
+            const stored = structuredClone(message.extra);
+            context.eventSource.emit(context.eventTypes.MESSAGE_SWIPED, 0);
+            assert.deepEqual(message.extra, stored);
+        }
+        cleanups.splice(0).forEach(cleanup => cleanup());
+        assert.equal(context.eventSource.listenerCount(context.eventTypes.MESSAGE_SWIPED), 0);
+    } finally {
+        cleanups.forEach(cleanup => cleanup());
         harness.cleanup();
     }
 });

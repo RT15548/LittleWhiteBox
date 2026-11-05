@@ -265,6 +265,6 @@ export function createStateApi({ context = getContext, notify = () => {} } = {})
     return {
         apply, applyText,
         getInputSchema: getStateInputSchema,
-        beginTurn: createTurnStateApi({ context, prepare, save: scheduleSave, receipt: jsonResult, notify: sendNotification }),
+        ...createTurnStateApi({ context, prepare, save: scheduleSave, receipt: jsonResult, notify: sendNotification }),
     };
 }

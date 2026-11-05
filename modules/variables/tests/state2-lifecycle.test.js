@@ -75,6 +75,22 @@ test('the preserved public text API supports await and then while publishing sta
     assert.equal(money(), 63);
 });
 
+test('the registered public continuation API appends without resetting and full replacement owns both batches', () => {
+    const api = globalThis.LWB_StateV2;
+    const target = { floor: 1, swipeId: 0 };
+    const input = delta => ({ ops: [{ op: 'inc', path: '角色.金钱', delta }] });
+    api.beginTurn(target).commit(input(-20));
+    assert.equal(money(), 50);
+    const continuation = api.beginContinuation(target);
+    assert.equal(money(), 50);
+    assert.equal(continuation.commit(input(-5)).status, 'success');
+    assert.equal(money(), 45);
+    const replacement = api.beginTurn(target);
+    assert.equal(money(), 70, 'body and ordinary API changes remain');
+    replacement.commit(input(-7));
+    assert.equal(money(), 63);
+});
+
 test('same-stamp continuation waits for readiness and coalesces all assistant completion hints', async () => {
     const message = ctx().chat[1];
     message.send_date = 'unchanged host timestamp';

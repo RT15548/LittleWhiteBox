@@ -2633,6 +2633,7 @@ export function initVariablesCore() {
         apply: stateApi.apply,
         getInputSchema: stateApi.getInputSchema,
         beginTurn: stateApi.beginTurn,
+        beginContinuation: stateApi.beginContinuation,
     };
     openStateChat();
 }

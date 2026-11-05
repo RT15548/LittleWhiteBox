@@ -9316,7 +9316,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/README.md",
       "relativePath": "modules/variables/state2/README.md",
       "extension": ".md",
-      "sizeBytes": 30921
+      "sizeBytes": 32811
     },
     {
       "source": "littlewhitebox",
@@ -9414,14 +9414,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/service.js",
       "relativePath": "modules/variables/state2/service.js",
       "extension": ".js",
-      "sizeBytes": 12920
+      "sizeBytes": 12912
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/turn-state.js",
       "relativePath": "modules/variables/state2/turn-state.js",
       "extension": ".js",
-      "sizeBytes": 4458
+      "sizeBytes": 4765
     },
     {
       "source": "littlewhitebox",
@@ -9463,7 +9463,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/state2-array-contract.test.js",
       "relativePath": "modules/variables/tests/state2-array-contract.test.js",
       "extension": ".js",
-      "sizeBytes": 8778
+      "sizeBytes": 10544
     },
     {
       "source": "littlewhitebox",
@@ -9484,7 +9484,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/state2-guide-examples.test.js",
       "relativePath": "modules/variables/tests/state2-guide-examples.test.js",
       "extension": ".js",
-      "sizeBytes": 3963
+      "sizeBytes": 5966
     },
     {
       "source": "littlewhitebox",
@@ -9498,7 +9498,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/state2-lifecycle.test.js",
       "relativePath": "modules/variables/tests/state2-lifecycle.test.js",
       "extension": ".js",
-      "sizeBytes": 20406
+      "sizeBytes": 21148
     },
     {
       "source": "littlewhitebox",
@@ -9519,7 +9519,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/tests/state2-turn.test.js",
       "relativePath": "modules/variables/tests/state2-turn.test.js",
       "extension": ".js",
-      "sizeBytes": 4712
+      "sizeBytes": 12066
     },
     {
       "source": "littlewhitebox",
@@ -9603,7 +9603,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/variables-core.js",
       "relativePath": "modules/variables/variables-core.js",
       "extension": ".js",
-      "sizeBytes": 99309
+      "sizeBytes": 99364
     },
     {
       "source": "littlewhitebox",

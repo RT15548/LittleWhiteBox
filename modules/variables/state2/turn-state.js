@@ -2,18 +2,17 @@ import { parseJsonInput } from './json-input.js';
 import { readRecord, readRecords, writeRecord, prefixDigests } from './records.js';
 import { calculateRebuild, publishRebuild } from './rebuild.js';
 
-// One replaceable submission per selected swipe. Ordinary API calls and body
-// initialization never acquire this marker and are never targets of rollback.
+// Replacement and continuation submissions share ownership. Ordinary API calls
+// and body initialization never acquire this marker and are never rolled back.
 const TURN_SCOPE = 'turn';
 const ERRORS = {
     invalid_turn_target: '只能更新最后一条 AI 回复的当前 swipe',
     stale_turn_target: '目标回复或变量已变化，请重新更新变量',
-    duplicate_turn_record: '本楼存在重复的变量提交记录',
 };
 function fail(code) { throw Object.assign(new Error(ERRORS[code]), { code }); }
 
 export function createTurnStateApi({ context, prepare, save, receipt, notify }) {
-    return function beginTurn({ floor, swipeId } = {}) {
+    function begin({ floor, swipeId } = {}, continuation = false) {
         const ctx = context();
         const message = ctx?.chat?.[floor];
         if (!ctx?.chatId || !message || floor !== ctx.chat.length - 1 || message.is_user || message.is_system
@@ -21,13 +20,16 @@ export function createTurnStateApi({ context, prepare, save, receipt, notify }) 
         const runtime = prepare(ctx, context);
         const records = readRecords(ctx.chat);
         const previous = readRecord(message);
-        const indices = (previous?.entries || []).flatMap((entry, index) => entry.scope === TURN_SCOPE ? [index] : []);
-        if (indices.length > 1) fail('duplicate_turn_record');
-        const slot = indices[0] ?? (previous?.entries.length || 0);
+        const entries = previous?.entries || [];
+        const firstTurn = entries.findIndex(entry => entry.scope === TURN_SCOPE);
+        const slot = continuation || firstTurn === -1 ? entries.length : firstTurn;
         const empty = { kind: 'call', source: 'json', scope: TURN_SCOPE, roots: [], ops: [] };
-        // No submission on THIS floor means no rollback, not a search backwards.
-        if (indices.length && previous.entries[slot].ops.length) {
-            records[floor] = { ...previous, entries: previous.entries.map((entry, index) => index === slot ? empty : entry) };
+        // Replacement rolls back every owned batch on THIS floor only, leaving
+        // one durable slot. Continuation does not publish anything until commit.
+        if (!continuation && firstTurn !== -1
+            && (entries[firstTurn].ops.length || entries.some((entry, index) => index > firstTurn && entry.scope === TURN_SCOPE))) {
+            records[floor] = { ...previous, entries: entries.flatMap((entry, index) =>
+                entry.scope !== TURN_SCOPE ? [entry] : index === firstTurn ? [empty] : []) };
             const rebuilt = calculateRebuild(ctx, records, runtime.roots);
             writeRecord(message, rebuilt.records[floor]);
             publishRebuild(ctx.chatMetadata, rebuilt);
@@ -65,8 +67,8 @@ export function createTurnStateApi({ context, prepare, save, receipt, notify }) 
                 next[floor] = { ...current, entries };
                 const rebuilt = calculateRebuild(ctx, next, runtime.roots, entry);
                 const result = receipt(rebuilt.result);
-                // A rejected replacement leaves the already-rolled-back state
-                // intact; never publish a partial new submission.
+                // Any operation error rejects this entire batch before publication.
+                // Continuation keeps prior submissions; replacement keeps its rollback.
                 if (result.errors.length) return { ...result, status: 'failed', changes: [], corrections: [] };
                 writeRecord(message, rebuilt.records[floor]);
                 publishRebuild(ctx.chatMetadata, rebuilt);
@@ -77,5 +79,9 @@ export function createTurnStateApi({ context, prepare, save, receipt, notify }) 
                 return result;
             },
         };
+    }
+    return {
+        beginTurn: options => begin(options),
+        beginContinuation: options => begin(options, true),
     };
 }
