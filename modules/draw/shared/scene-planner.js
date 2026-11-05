@@ -94,13 +94,25 @@ function formatReferenceList(items, fallbackLabel) {
 /** 动态标签的使用规则只在角色清单开头写一次，各角色行里只列条目。 */
 const DYNAMIC_TAG_LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条，写进 action）';
 
+/**
+ * 本次请求带了【前文画面中的角色】（只有 NovelAI 的沿用着装会带）时，多形态角色的说明改成“先沿用上次形态”；
+ * 没带（SD / ComfyUI、文本配图、关掉沿用）仍用共用句子“未提及用第一个”，因为那时没有可沿用的前文画面。
+ * 清单是客户端拼的，所以不必动 character-forms.js 里的共用常量。
+ */
+export const FORM_ROSTER_NOTE ='有多个形态：form 写其中一个，同一画面只出现一个；正文没提形态时沿用前文画面里的形态，前文没有就用第一个';
+
+/** 有别名时在角色清单开头写一次：name、form 照抄，别名只用来认人。 */
+const NAME_LEGEND = '（name、form 照抄下面的值；别名只是正文里的叫法，不要写进 name）';
+
 /** Registered characters as plain facts; what to do with them is defined by the Tool schema. */
-export function buildCharacterInfoForLLM(presentCharacters) {
+export function buildCharacterInfoForLLM(presentCharacters, { hasContinuity = false } = {}) {
     if (!presentCharacters?.length) {
         return '【已录入角色】: 无';
     }
+    const formNote = hasContinuity ? FORM_ROSTER_NOTE : FORM_EXCLUSIVE_NOTE;
 
     let hasDynamicTags = false;
+    let hasAliases = false;
     const lines = [];
     for (const character of presentCharacters) {
         // 多形态角色（展开后相邻排列）合成一条：角色名只写一次，各形态嵌套在下面；单形态角色保持平铺。
@@ -110,10 +122,15 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const dynamicStates = formatReferenceList(character.dynamicStates, '动态标签');
         hasDynamicTags ||= Boolean(dynamicStates);
         if (!multi || character.formIndex === 0) {
-            const aliases = character.aliases?.length ? `（别名: ${character.aliases.join(', ')}）` : '';
-            lines.push(`- ${character.baseName ?? character.name}${aliases}${multi ? FORM_EXCLUSIVE_NOTE : ` ${type}${danbooru}`}`);
+            // 名字、别名、形态各占一行：名字那一行只有正式名称，模型没有可以整段抄走的“名称（别名）”。
+            lines.push(`- name: ${character.baseName ?? character.name}${multi ? '' : ` ${type}${danbooru}`}`);
+            if (character.aliases?.length) {
+                hasAliases = true;
+                lines.push(`  别名: ${character.aliases.join(', ')}`);
+            }
+            if (multi) lines.push(`  ${formNote}`);
         }
-        if (multi) lines.push(`  形态 ${character.formName} ${type}${danbooru}`);
+        if (multi) lines.push(`  form: ${character.formName} ${type}${danbooru}`);
         const pad = multi ? '    ' : '  ';
         const outfits = formatReferenceList(character.outfits, '服装');
         if (character.appearance) lines.push(`${pad}固定外貌: ${character.appearance}`);
@@ -121,7 +138,8 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         if (dynamicStates) lines.push(`${pad}动态标签: ${dynamicStates}`);
     }
 
-    return `【已录入角色】\n${hasDynamicTags ? `${DYNAMIC_TAG_LEGEND}\n` : ''}${lines.join('\n')}`;
+    const legends = [hasDynamicTags && DYNAMIC_TAG_LEGEND, hasAliases && NAME_LEGEND].filter(Boolean);
+    return `【已录入角色】\n${legends.map(legend => `${legend}\n`).join('')}${lines.join('\n')}`;
 }
 
 function collectWorldInfoSections(result) {
@@ -265,11 +283,11 @@ async function buildScenePlannerRequest(options = {}) {
             }),
             runtime,
         );
+        const continuityBlock = String(continuityText || '').trim();
         const expandedCharacterInfo = await expandScenePromptText(
-            buildCharacterInfoForLLM(presentCharacters),
+            buildCharacterInfoForLLM(presentCharacters, { hasContinuity: Boolean(continuityBlock) }),
             runtime,
         );
-        const continuityBlock = String(continuityText || '').trim();
         const expandedContinuity = continuityBlock
             ? await expandScenePromptText(continuityBlock, runtime)
             : '';

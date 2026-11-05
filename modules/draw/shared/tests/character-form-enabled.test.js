@@ -81,7 +81,7 @@ test('expansion: with the first form off, the next enabled form answers the bare
     assert.deepEqual(present.map(entry => entry.name), ['司盈昃（龙形）', '司盈昃（兽形）']);
     const text = buildCharacterInfoForLLM(present);
     assert.equal(text.split(FORM_EXCLUSIVE_NOTE).length - 1, 1);
-    assert.ok(text.indexOf(FORM_EXCLUSIVE_NOTE) < text.indexOf('形态 龙形'));
+    assert.ok(text.indexOf(FORM_EXCLUSIVE_NOTE) < text.indexOf('form: 龙形'));
     assert.ok(!/司盈昃（(人形|龙形|兽形)）/.test(text), 'the list never shows 名称（形态名） as a name');
 });
 

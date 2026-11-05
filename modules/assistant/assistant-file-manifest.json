@@ -3310,7 +3310,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner.js",
       "relativePath": "modules/draw/shared/scene-planner.js",
       "extension": ".js",
-      "sizeBytes": 20181
+      "sizeBytes": 21508
     },
     {
       "source": "littlewhitebox",
@@ -3478,7 +3478,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/character-form-enabled.test.js",
       "relativePath": "modules/draw/shared/tests/character-form-enabled.test.js",
       "extension": ".js",
-      "sizeBytes": 12749
+      "sizeBytes": 12748
     },
     {
       "source": "littlewhitebox",
@@ -3793,7 +3793,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/named-tag-enabled-flow.test.js",
       "relativePath": "modules/draw/shared/tests/named-tag-enabled-flow.test.js",
       "extension": ".js",
-      "sizeBytes": 14993
+      "sizeBytes": 14999
     },
     {
       "source": "littlewhitebox",
@@ -3927,6 +3927,13 @@
       "relativePath": "modules/draw/shared/tests/scene-planner-assembly.test.js",
       "extension": ".js",
       "sizeBytes": 6469
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/tests/scene-planner-character-roster.test.js",
+      "relativePath": "modules/draw/shared/tests/scene-planner-character-roster.test.js",
+      "extension": ".js",
+      "sizeBytes": 2633
     },
     {
       "source": "littlewhitebox",

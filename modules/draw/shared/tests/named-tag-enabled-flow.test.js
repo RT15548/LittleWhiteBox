@@ -226,7 +226,7 @@ test('dynamic-tag legend is printed once under the roster header, only when some
         girl('C', [{ name: '草帽', tags: 'straw hat' }]),
     ]);
     assert.equal(countLegend(several), 1);
-    assert.ok(several.startsWith(`【已录入角色】\n${LEGEND}\n- A [girl]`));
+    assert.ok(several.startsWith(`【已录入角色】\n${LEGEND}\n- name: A [girl]`));
     assert.ok(several.includes('\n  动态标签: 害羞=blush\n'));
     assert.ok(several.includes('\n  动态标签: 生气=angry, frown\n'));
     assert.ok(!several.includes('动态标签参考（'));
