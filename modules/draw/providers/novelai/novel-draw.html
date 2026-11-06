@@ -1103,6 +1103,8 @@ button.nd-vibe-badge:disabled { cursor: default; }
                         <div class="btn-group">
                             <button id="nd_params_add" class="btn" title="以当前选中的预设为底新建一个"><i class="fa-solid fa-plus"></i> 新建</button>
                             <button id="nd_params_cloud" class="btn" title="云端预设" style="color:var(--warning);"><i class="fa-solid fa-cloud-arrow-down"></i> 云端预设</button>
+                            <button id="nd_params_export" class="btn btn-icon" title="导出所有预设（智绘姬互通，含模型参数与 Vibe）"><i class="fa-solid fa-share-from-square"></i></button>
+                            <label class="btn btn-icon" title="导入预设文件（自动恢复模型参数与 Vibe）" style="cursor:pointer;"><i class="fa-solid fa-file-import"></i><input type="file" id="nd_params_import" accept=".json" style="display:none;"></label>
                             <button id="nd_params_save" class="btn btn-primary" title="保存当前预设"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                         </div>
                     </div>
