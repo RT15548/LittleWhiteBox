@@ -1777,7 +1777,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/cloud-presets.js",
       "relativePath": "modules/draw/providers/novelai/cloud-presets.js",
       "extension": ".js",
-      "sizeBytes": 48967
+      "sizeBytes": 39275
     },
     {
       "source": "littlewhitebox",
@@ -1833,21 +1833,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 306064
+      "sizeBytes": 306007
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 125008
+      "sizeBytes": 125032
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 256880
+      "sizeBytes": 265361
     },
     {
       "source": "littlewhitebox",
@@ -1939,13 +1939,6 @@
       "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "extension": ".js",
       "sizeBytes": 37762
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/chatu8-preset-import.test.js",
-      "relativePath": "modules/draw/providers/novelai/tests/chatu8-preset-import.test.js",
-      "extension": ".js",
-      "sizeBytes": 8336
     },
     {
       "source": "littlewhitebox",

@@ -5574,12 +5574,13 @@ function initializePage() {
         postToParent({ type: 'OPEN_CLOUD_PRESETS' });
     });
 
-    // 智绘姬互通格式导入：只搬正/负向固定词，预览图与 Vibe 由宿主侧自动跳过
+    // 智绘姬互通格式导入（预览图 / Vibe / 参数由宿主侧恢复）
     $('nd_params_import').addEventListener('change', async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
         try {
-            const data = JSON.parse(await file.text());
+            const text = await file.text();
+            const data = JSON.parse(text);
             postToParent({ type: 'IMPORT_CHATU8_PRESETS', payload: data });
         } catch (err) {
             alert('读取文件失败，可能不是合法的 JSON: ' + err.message);
@@ -5587,11 +5588,10 @@ function initializePage() {
         e.target.value = ''; // 清空选择，允许重复选同一个文件
     });
 
-    // 批量导出全部参数预设（智绘姬互通格式，含缩略图与被引用的 Vibe）
     $('nd_params_export').addEventListener('click', () => {
-        postToParent({ type: 'EXPORT_CURRENT_PRESET' });
+        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: state.selectedParamsPresetId });
     });
-    
+
     // ═══════════════════════════════════════════════════════════════════════
     // 角色标签
     // ═══════════════════════════════════════════════════════════════════════

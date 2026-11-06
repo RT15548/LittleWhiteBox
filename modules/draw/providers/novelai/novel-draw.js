@@ -155,9 +155,8 @@ import { migrateLegacyNovelPromptSettings } from "./novel-prompt-migration.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     openCloudPresetsModal,
-    downloadChatu8PresetsFile,
+    downloadPresetAsFile,
     parsePresetData,
-    parseChatu8PresetFile,
     destroyCloudPresets,
     setVibeLibraryProvider,
 } from "./cloud-presets.js";
@@ -4219,98 +4218,247 @@ async function handleFrameMessage(event) {
             }), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
-        // 批量导出全部参数预设为智绘姬互通文件（缩略图进 images 段，被引用 Vibe 进 vibes 段）
         case 'EXPORT_CURRENT_PRESET': {
             const s = getSettings();
             if (!s.paramsPresets || s.paramsPresets.length === 0) {
                 postStatus('error', '没有可导出的预设', 'params');
                 break;
             }
-            downloadChatu8PresetsFile(s.paramsPresets);
+
+            // 智绘姬原生格式：图片放顶层 images（dataURL），预设用 previewImageId 引用。
+            // 智绘姬导入时会自动转存图片并重写 id，卡片即可显示预览；
+            // 图片只存一份（不内嵌 thumbnail），避免文件体积翻倍。
+            const chatu8Format = { presets: {}, images: {} };
+            // 额外顶层 vibes 段携带预设引用到的 Vibe 单项/组（智绘姬会忽略未知字段）
+            const vibeLib = s.vibeLibrary || { singles: [], groups: [] };
+            const vibeSinglesById = new Map((vibeLib.singles || []).map(item => [item.id, item]));
+            const vibeGroupsById = new Map((vibeLib.groups || []).map(group => [group.id, group]));
+            const neededSingleIds = new Set();
+            const neededGroupIds = new Set();
+            s.paramsPresets.forEach((p) => {
+                if (p.vibe?.groupId && vibeGroupsById.has(p.vibe.groupId)) {
+                    neededGroupIds.add(p.vibe.groupId);
+                    vibeGroupsById.get(p.vibe.groupId).members?.forEach(m => neededSingleIds.add(m.id));
+                }
+                p.vibe?.selections?.forEach(sel => { if (sel && vibeSinglesById.has(sel.id)) neededSingleIds.add(sel.id); });
+            });
+            s.paramsPresets.forEach((p, i) => {
+                const name = p.name || '未命名';
+                const preset = {
+                    fixedPrompt: p.positivePrefix || "",
+                    fixedPrompt_end: "",
+                    negativePrompt: p.negativePrefix || ""
+                };
+                if (p.thumbnail) {
+                    const imageId = `lwb-thumb-${i + 1}`;
+                    chatu8Format.images[imageId] = p.thumbnail;
+                    preset.previewImageId = imageId;
+                }
+                if (p.vibe && (p.vibe.groupId || p.vibe.selections?.length)) {
+                    preset.vibe = {
+                        groupId: p.vibe.groupId && neededGroupIds.has(p.vibe.groupId) ? p.vibe.groupId : '',
+                        selections: (p.vibe.selections || [])
+                            .filter(sel => sel && neededSingleIds.has(sel.id))
+                            .map(sel => ({ id: sel.id, enabled: sel.enabled !== false, strength: sel.strength })),
+                    };
+                }
+                chatu8Format.presets[name] = preset;
+            });
+            if (neededSingleIds.size || neededGroupIds.size) {
+                chatu8Format.vibes = {
+                    singles: [...neededSingleIds].map(id => vibeSinglesById.get(id)).filter(Boolean).map(item => ({
+                        id: item.id, name: item.name || '', image: item.image || '',
+                        thumbnail: item.thumbnail || '', infoExtracted: item.infoExtracted, encodings: item.encodings || {},
+                    })),
+                    groups: [...neededGroupIds].map(id => vibeGroupsById.get(id)).filter(Boolean).map(group => ({
+                        id: group.id, name: group.name || '',
+                        members: (group.members || []).map(m => ({ id: m.id, enabled: m.enabled !== false, strength: m.strength })),
+                    })),
+                };
+            }
+            // 没有任何缩略图时不输出空 images，保持与智绘姬导出文件结构一致
+            if (!Object.keys(chatu8Format.images).length) delete chatu8Format.images;
+
+            const blob = new Blob([JSON.stringify(chatu8Format, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'st-chatu8-imported-from-lwb.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
             postStatus('success', `已导出 ${s.paramsPresets.length} 个预设`, 'params');
             break;
         }
-        // 智绘姬互通文件导入：正/负向固定词直接搬；顶层 images 段仅计数不还原；
-        // 顶层 vibes 段合入全局 Vibe 库并把预设引用重映射到新 id；顶层 params 段按名恢复生图参数
         case 'IMPORT_CHATU8_PRESETS': {
-            let parsed;
-            try {
-                parsed = parseChatu8PresetFile(data.payload, generateSlotId);
-            } catch (error) {
-                postStatus('error', `导入失败：${error?.message || '格式无效'}`, 'params');
+            const dataObj = data.payload;
+            // 检查是不是符合 chatu8 的格式 { "presets": { "名字": { "fixedPrompt": "..." } } }
+            if (!dataObj || !dataObj.presets || typeof dataObj.presets !== 'object') {
+                postStatus('error', '导入失败：不是有效的 ChatU8 格式', 'params');
                 break;
             }
-            const existingNames = new Set((getSettings().paramsPresets || []).map(p => p.name));
-            const newCount = parsed.presets.filter(p => !existingNames.has(p.name)).length;
-            const overwriteCount = parsed.presets.length - newCount;
-            const generateVibeLibId = () => `vibe-${createVibeCacheKey()}`;
-            const ok = await updateSettingsPersistent((settings) => {
-                // 合入文件携带的 Vibe 库：全部重发新 id；single 同原图去重并补齐缺失编码
-                const library = settings.vibeLibrary || (settings.vibeLibrary = { singles: [], groups: [] });
-                if (!Array.isArray(library.singles)) library.singles = [];
-                if (!Array.isArray(library.groups)) library.groups = [];
-                const singleIdMap = new Map();
-                for (const raw of parsed.vibeSingles || []) {
-                    const prior = raw.image ? library.singles.find(s => s.image === raw.image) : null;
-                    if (prior) {
-                        if (!prior.encodings || typeof prior.encodings !== 'object') prior.encodings = {};
-                        Object.entries(raw.encodings).forEach(([key, value]) => { if (!prior.encodings[key]) prior.encodings[key] = value; });
-                        singleIdMap.set(raw.id, prior.id);
-                    } else {
-                        const item = { ...raw, id: generateVibeLibId() };
-                        library.singles.push(item);
-                        singleIdMap.set(raw.id, item.id);
-                    }
-                }
-                const groupIdMap = new Map();
-                for (const raw of parsed.vibeGroups || []) {
-                    const members = raw.members
-                        .map(m => singleIdMap.has(m.id) ? { ...m, id: singleIdMap.get(m.id) } : null)
-                        .filter(Boolean);
-                    if (!members.length) continue;
-                    const sameName = raw.name ? library.groups.find(g => g.name === raw.name) : null;
-                    if (sameName) {
-                        groupIdMap.set(raw.id, sameName.id);
-                    } else {
-                        const group = { id: generateVibeLibId().replace(/^vibe-/, 'vibegroup-'), name: raw.name, members };
-                        library.groups.push(group);
-                        groupIdMap.set(raw.id, group.id);
-                    }
-                }
-                for (const imported of parsed.presets) {
-                    // vibe 引用按入库结果重写；解析不到的引用丢弃
-                    imported.vibe = {
-                        groupId: (imported.vibe?.groupId && groupIdMap.get(imported.vibe.groupId)) || '',
-                        selections: (imported.vibe?.selections || [])
-                            .map(sel => singleIdMap.has(sel.id) ? { ...sel, id: singleIdMap.get(sel.id) } : null)
-                            .filter(Boolean),
-                    };
-                    // 同名预设直接覆盖（保留原 id），不产生重复项
-                    const existingIdx = settings.paramsPresets.findIndex(p => p.name === imported.name);
-                    if (existingIdx >= 0) {
-                        imported.id = settings.paramsPresets[existingIdx].id;
-                        settings.paramsPresets[existingIdx] = imported;
-                    } else {
-                        settings.paramsPresets.push(imported);
-                    }
-                    // 选中最后导入的一个
-                    settings.selectedParamsPresetId = imported.id;
-                }
-            }, `导入${newCount}个新预设，覆盖同名${overwriteCount}个预设`, { target: 'params' });
-            if (ok) {
-                await notifySettingsUpdated();
-                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
-                try {
-                    const { refreshPresetSelect } = await import('./floating-panel.js');
-                    refreshPresetSelect?.();
-                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
-                const skipped = [
-                    parsed.skippedPreviews ? `预览图×${parsed.skippedPreviews}` : '',
-                    parsed.skippedVibes ? `Vibe×${parsed.skippedVibes}` : '',
-                ].filter(Boolean).join('、');
-                if (skipped) showToast(`已跳过不兼容内容：${skipped}`, 'info', 5000);
-                if (parsed.warnings?.length) showToast(parsed.warnings.join('；'), 'warning', 5000);
+
+            // 提取数据并保存到小白X设置中
+            const importedImages = (dataObj.images && typeof dataObj.images === 'object') ? dataObj.images : {};
+            const importedVibes = (dataObj.vibes && typeof dataObj.vibes === 'object') ? dataObj.vibes : null;
+            // 提前统计新增 / 覆盖数量，用于顶部卡片绿色状态文案
+            const importEntries = Object.entries(dataObj.presets)
+                .filter(([, presetData]) => presetData && typeof presetData === 'object');
+            if (!importEntries.length) {
+                postStatus('error', '文件中没有找到可导入的预设', 'params');
+                break;
             }
+            const existingPresetNames = new Set((getSettings().paramsPresets || []).map(p => p.name));
+            let importNewCount = 0;
+            let importOverwriteCount = 0;
+            for (const [presetName] of importEntries) {
+                if (existingPresetNames.has(presetName)) importOverwriteCount++;
+                else importNewCount++;
+            }
+            updateSettingsPersistent(async (settings) => {
+                // ── 先合入文件携带的 Vibe 库（单项/组），全部重发新 id，避免与本地冲突 ──
+                const vibeSingleIdMap = new Map();
+                const vibeGroupIdMap = new Map();
+                if (importedVibes) {
+                    const library = settings.vibeLibrary || (settings.vibeLibrary = { singles: [], groups: [] });
+                    if (!Array.isArray(library.singles)) library.singles = [];
+                    if (!Array.isArray(library.groups)) library.groups = [];
+                    (Array.isArray(importedVibes.singles) ? importedVibes.singles : []).forEach((raw) => {
+                        if (!raw || typeof raw !== 'object') return;
+                        const encodings = raw.encodings && typeof raw.encodings === 'object' ? raw.encodings : {};
+                        const image = String(raw.image || '');
+                        const hasEncoding = Object.values(encodings).some(v => typeof v === 'string' && v);
+                        if (!image && !hasEncoding) return;
+                        // 同原图去重：复用本地/本批次已有的单项，只补齐缺失编码
+                        const newId = `vibe-${createVibeCacheKey()}`;
+                        const prior = image ? library.singles.find(s => s.image === image) : null;
+                        if (prior) {
+                            Object.entries(encodings).forEach(([key, value]) => {
+                                if (typeof value === 'string' && value && !prior.encodings[key]) prior.encodings[key] = value;
+                            });
+                            vibeSingleIdMap.set(raw.id, prior.id);
+                        } else {
+                            const item = {
+                                id: newId, name: String(raw.name || '').slice(0, 60), image,
+                                thumbnail: String(raw.thumbnail || image || ''),
+                                infoExtracted: clampVibeInfoExtracted(raw.infoExtracted), encodings: {},
+                            };
+                            Object.entries(encodings).forEach(([key, value]) => {
+                                if (typeof value === 'string' && value) item.encodings[key] = value;
+                            });
+                            library.singles.push(item);
+                            vibeSingleIdMap.set(raw.id, newId);
+                        }
+                    });
+                    (Array.isArray(importedVibes.groups) ? importedVibes.groups : []).forEach((raw) => {
+                        if (!raw || typeof raw !== 'object') return;
+                        const members = (Array.isArray(raw.members) ? raw.members : [])
+                            .map(m => m && vibeSingleIdMap.has(m.id) ? {
+                                id: vibeSingleIdMap.get(m.id), enabled: m.enabled !== false,
+                                strength: Number.isFinite(Number(m.strength)) ? Number(m.strength) : 0.6,
+                            } : null)
+                            .filter(Boolean);
+                        if (!members.length) return;
+                        const groupName = String(raw.name || '').slice(0, 60);
+                        const sameName = groupName ? library.groups.find(g => g.name === groupName) : null;
+                        if (sameName) {
+                            vibeGroupIdMap.set(raw.id, sameName.id);
+                        } else {
+                            const newId = `vibegroup-${createVibeCacheKey()}`;
+                            library.groups.push({ id: newId, name: groupName, members });
+                            vibeGroupIdMap.set(raw.id, newId);
+                        }
+                    });
+                }
+                // 遍历 chatu8 的 presets 对象
+                for (const [presetName, presetData] of importEntries) {
+
+                    // 构建一个小白X能看懂的新预设
+                    const newPreset = {
+                        id: generateSlotId(),
+                        name: presetName,
+                        positivePrefix: presetData.fixedPrompt || '',
+                        negativePrefix: presetData.negativePrompt || '',
+                        // 缩略图优先取内嵌 thumbnail（旧版小白X 文件），
+                        // 否则按智绘姬格式用 previewImageId 到顶层 images 取回 dataURL
+                        thumbnail: (() => {
+                            if (typeof presetData.thumbnail === 'string' && presetData.thumbnail) {
+                                return presetData.thumbnail;
+                            }
+                            const refId = presetData.previewImageId;
+                            if (refId && typeof importedImages[refId] === 'string') {
+                                return importedImages[refId];
+                            }
+                            return '';
+                        })(),
+                        maxImages: 0,
+                        maxCharactersPerImage: 0,
+                        // 补齐其余默认参数
+                        params: {
+                            model: 'nai-diffusion-4-5-full',
+                            sampler: 'k_euler_ancestral',
+                            scheduler: 'karras',
+                            steps: 28,
+                            scale: 6,
+                            width: 832,
+                            height: 1216,
+                            seed: -1,
+                            qualityToggle: true,
+                            autoSmea: false,
+                            ucPreset: 0,
+                            cfg_rescale: 0,
+                            v5QualityPresetId: 'standard',
+                            v5UcPresetId: 'heavy',
+                            transparentBackground: false,
+                            variety_boost: false,
+                            sm: false,
+                            sm_dyn: false,
+                            decrisper: false
+                        },
+                        // 随文件携带的 vibe 配置（id 已重映射；enabled 原样保留）
+                        vibe: (() => {
+                            const v = presetData.vibe;
+                            if (!importedVibes || !v || typeof v !== 'object') {
+                                return { groupId: '', selections: [] };
+                            }
+                            const groupId = v.groupId && vibeGroupIdMap.has(v.groupId)
+                                ? vibeGroupIdMap.get(v.groupId) : '';
+                            const selections = (Array.isArray(v.selections) ? v.selections : [])
+                                .map(sel => (sel && vibeSingleIdMap.has(sel.id)) ? {
+                                    id: vibeSingleIdMap.get(sel.id),
+                                    enabled: sel.enabled !== false,
+                                    strength: Number.isFinite(Number(sel.strength)) ? Number(sel.strength) : 0.6,
+                                } : null)
+                                .filter(Boolean);
+                            return { groupId, selections };
+                        })(),
+                    };
+                    // 同名预设直接覆盖（保留原 id，避免重复导入产生重复项）
+                    const existingIdx = settings.paramsPresets.findIndex(p => p.name === presetName);
+                    if (existingIdx >= 0) {
+                        newPreset.id = settings.paramsPresets[existingIdx].id;
+                        settings.paramsPresets[existingIdx] = newPreset;
+                    } else {
+                        settings.paramsPresets.push(newPreset);
+                    }
+                    // 如果是最后导入的一个，就让界面选中它
+                    settings.selectedParamsPresetId = newPreset.id;
+                }
+
+                // 刷新悬浮面板的预设下拉
+                try {
+                    const { refreshPresetSelectAll } = await import('./floating-panel.js');
+                    refreshPresetSelectAll?.();
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "IMPORT_CHATU8_PRESETS" }, caughtError); }
+
+            }, `导入${importNewCount}个新预设，覆盖同名${importOverwriteCount}个预设`, { target: 'params' }).then((ok) => {
+                if (ok) {
+                    notifySettingsUpdated();
+                    sendInitData();
+                }
+            });
             break;
         }
         case 'PRESET_THUMB_CANDIDATES': {
