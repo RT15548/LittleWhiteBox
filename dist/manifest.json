@@ -1,5 +1,5 @@
 {
-  "buildId": "c7fca06d4a09112cfbbf",
+  "buildId": "5c9d3d7031eff782cbd7",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-Dc7PDHgE.js",
@@ -20,7 +20,7 @@
       ]
     },
     "apps/novel-draw": {
-      "file": "apps/novel-draw-pZBPg70d.js",
+      "file": "apps/novel-draw-C3x5dMMf.js",
       "css": []
     },
     "apps/story-outline": {
@@ -152,7 +152,7 @@
         "assets/settings-ui-3BrbRAIN.css"
       ]
     },
-    "apps/novel-draw-pZBPg70d.js": {
+    "apps/novel-draw-C3x5dMMf.js": {
       "imports": [
         "shared/preload-helper-BdDHxvum.js",
         "shared/async-errors-C4kfchr9.js",
@@ -318,7 +318,7 @@
         "shared/copy-DLRJE4J2.js",
         "shared/var-commands-CKUWTzPZ.js",
         "shared/acorn-DAc-aPko.js",
-        "shared/novel-draw-DN8OKQSr.js",
+        "shared/novel-draw-CLKsY_17.js",
         "shared/media-api-Dk7luLqv.js",
         "shared/sd-draw-CsFf9ik7.js",
         "shared/comfy-draw-CVbUT4CF.js",
@@ -1048,19 +1048,6 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/floating-panel-B6hBcgE6.js": {
-      "imports": [
-        "shared/async-errors-C4kfchr9.js",
-        "shared/gallery-cache-DwL-PEz-.js",
-        "shared/message-toolbar-CbaS44KC.js",
-        "shared/panel-escape-Dco4Fc14.js",
-        "shared/draw-common-DpLm_n65.js",
-        "shared/novel-draw-DN8OKQSr.js",
-        "shared/draw-run-ui-state-DirVvQ1N.js"
-      ],
-      "dynamicImports": [],
-      "css": []
-    },
     "shared/floating-panel-DFDCrG4l.js": {
       "imports": [
         "shared/async-errors-C4kfchr9.js",
@@ -1069,6 +1056,19 @@
         "shared/panel-escape-Dco4Fc14.js",
         "shared/draw-common-DpLm_n65.js",
         "shared/comfy-draw-CVbUT4CF.js",
+        "shared/draw-run-ui-state-DirVvQ1N.js"
+      ],
+      "dynamicImports": [],
+      "css": []
+    },
+    "shared/floating-panel-DTGFGo91.js": {
+      "imports": [
+        "shared/async-errors-C4kfchr9.js",
+        "shared/gallery-cache-DwL-PEz-.js",
+        "shared/message-toolbar-CbaS44KC.js",
+        "shared/panel-escape-Dco4Fc14.js",
+        "shared/draw-common-DpLm_n65.js",
+        "shared/novel-draw-CLKsY_17.js",
         "shared/draw-run-ui-state-DirVvQ1N.js"
       ],
       "dynamicImports": [],
@@ -1294,7 +1294,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-DN8OKQSr.js": {
+    "shared/novel-draw-CLKsY_17.js": {
       "imports": [
         "shared/rolldown-runtime-b3L32Ng1.js",
         "shared/preload-helper-BdDHxvum.js",
@@ -1320,7 +1320,7 @@
         "shared/media-api-Dk7luLqv.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-B6hBcgE6.js",
+        "shared/floating-panel-DTGFGo91.js",
         "shared/msgpack-EEcozSlQ.js",
         "shared/gallery-cache-DwL-PEz-.js"
       ],

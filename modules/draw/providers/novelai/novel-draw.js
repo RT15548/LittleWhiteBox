@@ -155,8 +155,9 @@ import { migrateLegacyNovelPromptSettings } from "./novel-prompt-migration.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     openCloudPresetsModal,
-    downloadPresetAsFile,
+    downloadChatu8PresetsFile,
     parsePresetData,
+    parseChatu8PresetFile,
     destroyCloudPresets,
     setVibeLibraryProvider,
 } from "./cloud-presets.js";
@@ -4218,16 +4219,56 @@ async function handleFrameMessage(event) {
             }), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
         }
+        // 批量导出全部参数预设为智绘姬互通文件（缩略图进 images 段，被引用 Vibe 进 vibes 段）
         case 'EXPORT_CURRENT_PRESET': {
             const s = getSettings();
-            const presetId = data.presetId || s.selectedParamsPresetId;
-            const preset = s.paramsPresets.find(p => p.id === presetId);
-            if (!preset) {
+            if (!s.paramsPresets || s.paramsPresets.length === 0) {
                 postStatus('error', '没有可导出的预设', 'params');
                 break;
             }
-            downloadPresetAsFile(preset);
-            postStatus('success', '已导出', 'params');
+            downloadChatu8PresetsFile(s.paramsPresets);
+            postStatus('success', `已导出 ${s.paramsPresets.length} 个预设`, 'params');
+            break;
+        }
+        // 智绘姬互通文件导入：只搬正/负向固定词（参数落默认），预览图与 Vibe 引用自动跳过
+        case 'IMPORT_CHATU8_PRESETS': {
+            let parsed;
+            try {
+                parsed = parseChatu8PresetFile(data.payload, generateSlotId);
+            } catch (error) {
+                postStatus('error', `导入失败：${error?.message || '格式无效'}`, 'params');
+                break;
+            }
+            const existingNames = new Set((getSettings().paramsPresets || []).map(p => p.name));
+            const newCount = parsed.presets.filter(p => !existingNames.has(p.name)).length;
+            const overwriteCount = parsed.presets.length - newCount;
+            const ok = await updateSettingsPersistent((settings) => {
+                for (const imported of parsed.presets) {
+                    // 同名预设直接覆盖（保留原 id），不产生重复项
+                    const existingIdx = settings.paramsPresets.findIndex(p => p.name === imported.name);
+                    if (existingIdx >= 0) {
+                        imported.id = settings.paramsPresets[existingIdx].id;
+                        settings.paramsPresets[existingIdx] = imported;
+                    } else {
+                        settings.paramsPresets.push(imported);
+                    }
+                    // 选中最后导入的一个
+                    settings.selectedParamsPresetId = imported.id;
+                }
+            }, `导入${newCount}个新预设，覆盖同名${overwriteCount}个预设`, { target: 'params' });
+            if (ok) {
+                await notifySettingsUpdated();
+                observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+                try {
+                    const { refreshPresetSelect } = await import('./floating-panel.js');
+                    refreshPresetSelect?.();
+                } catch (caughtError) { console.warn({ source: import.meta.url, operation: "handleFrameMessage" }, caughtError); }
+                const skipped = [
+                    parsed.skippedPreviews ? `预览图×${parsed.skippedPreviews}` : '',
+                    parsed.skippedVibes ? `Vibe×${parsed.skippedVibes}` : '',
+                ].filter(Boolean).join('、');
+                if (skipped) showToast(`已跳过不兼容内容：${skipped}`, 'info', 5000);
+            }
             break;
         }
         case 'PRESET_THUMB_CANDIDATES': {
