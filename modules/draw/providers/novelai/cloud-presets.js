@@ -327,8 +327,9 @@ export function parsePresetData(data, generateId, generateVibeId = generateId) {
 
 // ── 智绘姬互通文件导入 ──
 // 智绘姬导出的预设文件结构：{ presets: { 名字: { fixedPrompt, fixedPrompt_end, negativePrompt,
-// previewImageId? } }, images?: { id: dataURL } }。该格式不含采样/尺寸等生图参数，
-// 故导入只搬正/负向固定词，参数一律落默认；预览图与 Vibe 引用不在互通范围，计数后跳过。
+// previewImageId? } }, images?: { id: dataURL } }。除 presets 外皆为可选扩展段：
+// 顶层 vibes（本扩展导出时写入的 Vibe 单项/组）与 params（按预设名存的生图参数）存在则恢复，
+// 智绘姬原生文件没有这两段，自然落默认；预览图一律不还原，仅计数提示。
 export function parseChatu8PresetFile(data, generateId) {
     if (typeof generateId !== 'function') throw new TypeError('generateId must be a function');
     if (!data || typeof data !== 'object' || Array.isArray(data)
@@ -339,7 +340,41 @@ export function parseChatu8PresetFile(data, generateId) {
         .filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value));
     if (!entries.length) throw new Error('文件中没有找到可导入的预设');
 
+    // 顶层 vibes 段：校验结构并清洗（编码键/强度/信息提取值），供宿主入库后重映射 id
+    const rawVibes = data.vibes && typeof data.vibes === 'object' && !Array.isArray(data.vibes) ? data.vibes : null;
+    const vibeSingles = [];
+    const singleIdSet = new Set();
+    for (const raw of rawVibes && Array.isArray(rawVibes.singles) ? rawVibes.singles : []) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.id == null) continue;
+        const image = typeof raw.image === 'string' ? raw.image : '';
+        const encodings = sanitizeSharedEncodings(raw.encodings, raw.infoExtracted);
+        if (!image && !Object.keys(encodings).length) continue;
+        const id = String(raw.id);
+        singleIdSet.add(id);
+        vibeSingles.push({
+            id, name: String(raw.name || '').slice(0, 60), image,
+            thumbnail: typeof raw.thumbnail === 'string' ? raw.thumbnail : '',
+            infoExtracted: clampSharedInfoExtracted(raw.infoExtracted), encodings,
+        });
+    }
+    const vibeGroups = [];
+    const groupIdSet = new Set();
+    for (const raw of rawVibes && Array.isArray(rawVibes.groups) ? rawVibes.groups : []) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.id == null) continue;
+        const members = (Array.isArray(raw.members) ? raw.members : [])
+            .filter(m => m && typeof m === 'object' && m.id != null && singleIdSet.has(String(m.id)))
+            .map(m => ({ id: String(m.id), enabled: m.enabled !== false, strength: clampSharedStrength(m.strength) }));
+        if (!members.length) continue;
+        const id = String(raw.id);
+        groupIdSet.add(id);
+        vibeGroups.push({ id, name: String(raw.name || '').slice(0, 60), members });
+    }
+
+    // 顶层 params 段：按预设名恢复生图参数（缺失则全默认）
+    const rawParams = data.params && typeof data.params === 'object' && !Array.isArray(data.params) ? data.params : null;
+
     const presets = [];
+    const warnings = [];
     let skippedPreviews = 0;
     let skippedVibes = 0;
     for (const [name, item] of entries) {
@@ -349,22 +384,38 @@ export function parseChatu8PresetFile(data, generateId) {
             .filter(Boolean)
             .join(', ');
         if (item.previewImageId || (typeof item.thumbnail === 'string' && item.thumbnail)) skippedPreviews++;
-        if (item.vibe && typeof item.vibe === 'object') skippedVibes++;
+        // vibe 引用：仅在顶层 vibes 段可解析时保留（id 待宿主入库后重映射）；
+        // 引用了但段里找不到的计为跳过
+        let vibe = { groupId: '', selections: [] };
+        const rv = item.vibe;
+        if (rv && typeof rv === 'object' && !Array.isArray(rv)) {
+            const groupId = rv.groupId != null && groupIdSet.has(String(rv.groupId)) ? String(rv.groupId) : '';
+            const selections = (Array.isArray(rv.selections) ? rv.selections : [])
+                .filter(sel => sel && sel.id != null && singleIdSet.has(String(sel.id)))
+                .map(sel => ({ id: String(sel.id), enabled: sel.enabled !== false, strength: clampSharedStrength(sel.strength) }));
+            if (groupId || selections.length) {
+                vibe = { groupId, selections };
+            } else if (rv.groupId != null && rv.groupId !== ''
+                || (Array.isArray(rv.selections) && rv.selections.length)) {
+                skippedVibes++;
+            }
+        }
         presets.push({
             id: generateId(),
             name: String(name || '导入预设'),
             positivePrefix,
             negativePrefix: typeof item.negativePrompt === 'string' ? item.negativePrompt : '',
             thumbnail: '',
-            vibe: { groupId: '', selections: [] },
+            vibe,
             maxImages: 0,
             maxCharactersPerImage: 0,
             overrideSize: 'default',
-            params: { ...DEFAULT_PARAMS },
+            params: rawParams && rawParams[name] && typeof rawParams[name] === 'object'
+                ? normalizeImportedParams(rawParams[name], CURRENT_PRESET_VERSION, warnings)
+                : { ...DEFAULT_PARAMS },
         });
     }
-    // 顶层 images/vibes 段即使存在也不入库，仅在统计里体现
-    return { presets, skippedPreviews, skippedVibes };
+    return { presets, vibeSingles, vibeGroups, skippedPreviews, skippedVibes, warnings };
 }
 
 // ── 智绘姬互通文件导出（批量）──
@@ -409,6 +460,10 @@ export function buildChatu8PresetFile(paramsPresets, vibeLibrary = null) {
             if (!entry.vibe.groupId && !entry.vibe.selections.length) delete entry.vibe;
         }
         file.presets[p.name || '未命名'] = entry;
+        // 顶层 params 段：按预设名存生图参数（智绘姬忽略未知字段；回导时按名恢复）
+        if (p.params && typeof p.params === 'object' && !Array.isArray(p.params)) {
+            (file.params ||= {})[p.name || '未命名'] = p.params;
+        }
     });
 
     if (neededSingleIds.size || neededGroupIds.size) {

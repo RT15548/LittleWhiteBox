@@ -65,6 +65,7 @@ test('chatu8 export: batches presets with images segment and referenced vibes', 
             id: 'p1', name: '预设A', positivePrefix: 'artist:a', negativePrefix: 'lowres',
             thumbnail: 'data:image/jpeg;base64,CCC',
             vibe: { groupId: 'g1', selections: [] },
+            params: { steps: 28, scale: 5 },
         },
         {
             id: 'p2', name: '预设B', positivePrefix: '', negativePrefix: 'bad hands',
@@ -93,6 +94,10 @@ test('chatu8 export: batches presets with images segment and referenced vibes', 
     assert.deepEqual(file.vibes.singles.map(s => s.id), ['v1']);
     assert.deepEqual(file.vibes.groups.map(g => g.id), ['g1']);
     assert.equal(file.vibes.singles[0].encodings['v4-5full@0.70'], 'enc1');
+
+    // params：带参数的预设按名进顶层段，无参数的不出现
+    assert.deepEqual(file.params['预设A'], { steps: 28, scale: 5 });
+    assert.equal(file.params['预设C'], undefined);
 });
 
 test('chatu8 export: omits empty images/vibes segments', () => {
@@ -103,14 +108,53 @@ test('chatu8 export: omits empty images/vibes segments', () => {
     assert.equal('vibes' in file, false);
 });
 
-test('chatu8 roundtrip: exported file imports back with prompts intact', () => {
+test('chatu8 roundtrip: exported file imports back with prompts/vibe/params intact', () => {
+    const vibeLibrary = {
+        singles: [{ id: 'v1', name: '光影', image: 'data:image/png;base64,AAA', thumbnail: '', infoExtracted: 0.7, encodings: { 'v4-5full@0.70': 'enc1' } }],
+        groups: [{ id: 'g1', name: '氛围组', members: [{ id: 'v1', enabled: true, strength: 0.6 }] }],
+    };
     const file = buildChatu8PresetFile([
-        { id: 'p1', name: '回环', positivePrefix: 'artist:a, year 2025', negativePrefix: 'lowres', thumbnail: 'data:image/png;base64,DDD', vibe: { groupId: '', selections: [] } },
-    ]);
-    const { presets, skippedPreviews } = parseChatu8PresetFile(file, generateId);
+        {
+            id: 'p1', name: '回环', positivePrefix: 'artist:a, year 2025', negativePrefix: 'lowres',
+            thumbnail: 'data:image/png;base64,DDD',
+            vibe: { groupId: 'g1', selections: [{ id: 'v1', enabled: false, strength: 0.4 }] },
+            params: { steps: 23, scale: 4.5 },
+        },
+    ], vibeLibrary);
+    const { presets, vibeSingles, vibeGroups, skippedPreviews, skippedVibes } = parseChatu8PresetFile(file, generateId);
     assert.equal(presets.length, 1);
     assert.equal(presets[0].name, '回环');
     assert.equal(presets[0].positivePrefix, 'artist:a, year 2025');
     assert.equal(presets[0].negativePrefix, 'lowres');
     assert.equal(skippedPreviews, 1);
+    assert.equal(skippedVibes, 0);
+    // vibe 引用经顶层 vibes 段恢复（id 为文件内原始值，由宿主入库后重映射）
+    assert.equal(presets[0].vibe.groupId, 'g1');
+    assert.deepEqual(presets[0].vibe.selections, [{ id: 'v1', enabled: false, strength: 0.4 }]);
+    assert.equal(vibeSingles.length, 1);
+    assert.equal(vibeSingles[0].encodings['v4-5full@0.70'], 'enc1');
+    assert.equal(vibeGroups.length, 1);
+    assert.deepEqual(vibeGroups[0].members, [{ id: 'v1', enabled: true, strength: 0.6 }]);
+    // 顶层 params 段按名恢复生图参数
+    assert.equal(presets[0].params.steps, 23);
+    assert.equal(presets[0].params.scale, 4.5);
+});
+
+test('chatu8 import: vibe references without a resolvable vibes segment are skipped', () => {
+    const file = {
+        presets: {
+            '孤儿引用': {
+                fixedPrompt: 'a', negativePrompt: '',
+                vibe: { groupId: 'gX', selections: [{ id: 'vX', enabled: true, strength: 0.5 }] },
+            },
+            '无引用': { fixedPrompt: 'b', negativePrompt: '' },
+        },
+        // 无顶层 vibes 段：引用无从解析
+    };
+    const { presets, skippedVibes, vibeSingles, vibeGroups } = parseChatu8PresetFile(file, generateId);
+    assert.equal(skippedVibes, 1);
+    assert.deepEqual(presets[0].vibe, { groupId: '', selections: [] });
+    assert.deepEqual(presets[1].vibe, { groupId: '', selections: [] });
+    assert.equal(vibeSingles.length, 0);
+    assert.equal(vibeGroups.length, 0);
 });

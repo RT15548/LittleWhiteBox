@@ -4230,7 +4230,8 @@ async function handleFrameMessage(event) {
             postStatus('success', `已导出 ${s.paramsPresets.length} 个预设`, 'params');
             break;
         }
-        // 智绘姬互通文件导入：只搬正/负向固定词（参数落默认），预览图与 Vibe 引用自动跳过
+        // 智绘姬互通文件导入：正/负向固定词直接搬；顶层 images 段仅计数不还原；
+        // 顶层 vibes 段合入全局 Vibe 库并把预设引用重映射到新 id；顶层 params 段按名恢复生图参数
         case 'IMPORT_CHATU8_PRESETS': {
             let parsed;
             try {
@@ -4242,8 +4243,48 @@ async function handleFrameMessage(event) {
             const existingNames = new Set((getSettings().paramsPresets || []).map(p => p.name));
             const newCount = parsed.presets.filter(p => !existingNames.has(p.name)).length;
             const overwriteCount = parsed.presets.length - newCount;
+            const generateVibeLibId = () => `vibe-${createVibeCacheKey()}`;
             const ok = await updateSettingsPersistent((settings) => {
+                // 合入文件携带的 Vibe 库：全部重发新 id；single 同原图去重并补齐缺失编码
+                const library = settings.vibeLibrary || (settings.vibeLibrary = { singles: [], groups: [] });
+                if (!Array.isArray(library.singles)) library.singles = [];
+                if (!Array.isArray(library.groups)) library.groups = [];
+                const singleIdMap = new Map();
+                for (const raw of parsed.vibeSingles || []) {
+                    const prior = raw.image ? library.singles.find(s => s.image === raw.image) : null;
+                    if (prior) {
+                        if (!prior.encodings || typeof prior.encodings !== 'object') prior.encodings = {};
+                        Object.entries(raw.encodings).forEach(([key, value]) => { if (!prior.encodings[key]) prior.encodings[key] = value; });
+                        singleIdMap.set(raw.id, prior.id);
+                    } else {
+                        const item = { ...raw, id: generateVibeLibId() };
+                        library.singles.push(item);
+                        singleIdMap.set(raw.id, item.id);
+                    }
+                }
+                const groupIdMap = new Map();
+                for (const raw of parsed.vibeGroups || []) {
+                    const members = raw.members
+                        .map(m => singleIdMap.has(m.id) ? { ...m, id: singleIdMap.get(m.id) } : null)
+                        .filter(Boolean);
+                    if (!members.length) continue;
+                    const sameName = raw.name ? library.groups.find(g => g.name === raw.name) : null;
+                    if (sameName) {
+                        groupIdMap.set(raw.id, sameName.id);
+                    } else {
+                        const group = { id: generateVibeLibId().replace(/^vibe-/, 'vibegroup-'), name: raw.name, members };
+                        library.groups.push(group);
+                        groupIdMap.set(raw.id, group.id);
+                    }
+                }
                 for (const imported of parsed.presets) {
+                    // vibe 引用按入库结果重写；解析不到的引用丢弃
+                    imported.vibe = {
+                        groupId: (imported.vibe?.groupId && groupIdMap.get(imported.vibe.groupId)) || '',
+                        selections: (imported.vibe?.selections || [])
+                            .map(sel => singleIdMap.has(sel.id) ? { ...sel, id: singleIdMap.get(sel.id) } : null)
+                            .filter(Boolean),
+                    };
                     // 同名预设直接覆盖（保留原 id），不产生重复项
                     const existingIdx = settings.paramsPresets.findIndex(p => p.name === imported.name);
                     if (existingIdx >= 0) {
@@ -4268,6 +4309,7 @@ async function handleFrameMessage(event) {
                     parsed.skippedVibes ? `Vibe×${parsed.skippedVibes}` : '',
                 ].filter(Boolean).join('、');
                 if (skipped) showToast(`已跳过不兼容内容：${skipped}`, 'info', 5000);
+                if (parsed.warnings?.length) showToast(parsed.warnings.join('；'), 'warning', 5000);
             }
             break;
         }

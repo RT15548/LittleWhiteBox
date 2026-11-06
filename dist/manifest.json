@@ -1,5 +1,5 @@
 {
-  "buildId": "5c9d3d7031eff782cbd7",
+  "buildId": "e257c3bf99f81858e8ca",
   "entries": {
     "apps/assistant": {
       "file": "apps/assistant-Dc7PDHgE.js",
@@ -318,7 +318,7 @@
         "shared/copy-DLRJE4J2.js",
         "shared/var-commands-CKUWTzPZ.js",
         "shared/acorn-DAc-aPko.js",
-        "shared/novel-draw-CLKsY_17.js",
+        "shared/novel-draw-CVX3EYPj.js",
         "shared/media-api-Dk7luLqv.js",
         "shared/sd-draw-CsFf9ik7.js",
         "shared/comfy-draw-CVbUT4CF.js",
@@ -1048,6 +1048,19 @@
       "dynamicImports": [],
       "css": []
     },
+    "shared/floating-panel-Cbfejduf.js": {
+      "imports": [
+        "shared/async-errors-C4kfchr9.js",
+        "shared/gallery-cache-DwL-PEz-.js",
+        "shared/message-toolbar-CbaS44KC.js",
+        "shared/panel-escape-Dco4Fc14.js",
+        "shared/draw-common-DpLm_n65.js",
+        "shared/novel-draw-CVX3EYPj.js",
+        "shared/draw-run-ui-state-DirVvQ1N.js"
+      ],
+      "dynamicImports": [],
+      "css": []
+    },
     "shared/floating-panel-DFDCrG4l.js": {
       "imports": [
         "shared/async-errors-C4kfchr9.js",
@@ -1056,19 +1069,6 @@
         "shared/panel-escape-Dco4Fc14.js",
         "shared/draw-common-DpLm_n65.js",
         "shared/comfy-draw-CVbUT4CF.js",
-        "shared/draw-run-ui-state-DirVvQ1N.js"
-      ],
-      "dynamicImports": [],
-      "css": []
-    },
-    "shared/floating-panel-DTGFGo91.js": {
-      "imports": [
-        "shared/async-errors-C4kfchr9.js",
-        "shared/gallery-cache-DwL-PEz-.js",
-        "shared/message-toolbar-CbaS44KC.js",
-        "shared/panel-escape-Dco4Fc14.js",
-        "shared/draw-common-DpLm_n65.js",
-        "shared/novel-draw-CLKsY_17.js",
         "shared/draw-run-ui-state-DirVvQ1N.js"
       ],
       "dynamicImports": [],
@@ -1294,7 +1294,7 @@
       "dynamicImports": [],
       "css": []
     },
-    "shared/novel-draw-CLKsY_17.js": {
+    "shared/novel-draw-CVX3EYPj.js": {
       "imports": [
         "shared/rolldown-runtime-b3L32Ng1.js",
         "shared/preload-helper-BdDHxvum.js",
@@ -1320,7 +1320,7 @@
         "shared/media-api-Dk7luLqv.js"
       ],
       "dynamicImports": [
-        "shared/floating-panel-DTGFGo91.js",
+        "shared/floating-panel-Cbfejduf.js",
         "shared/msgpack-EEcozSlQ.js",
         "shared/gallery-cache-DwL-PEz-.js"
       ],
