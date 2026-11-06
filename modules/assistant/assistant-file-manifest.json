@@ -1777,7 +1777,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/cloud-presets.js",
       "relativePath": "modules/draw/providers/novelai/cloud-presets.js",
       "extension": ".js",
-      "sizeBytes": 39275
+      "sizeBytes": 41477
     },
     {
       "source": "littlewhitebox",
@@ -1833,21 +1833,21 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw-page.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw-page.js",
       "extension": ".js",
-      "sizeBytes": 305240
+      "sizeBytes": 305838
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
       "relativePath": "modules/draw/providers/novelai/novel-draw.html",
       "extension": ".html",
-      "sizeBytes": 124553
+      "sizeBytes": 124805
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
       "relativePath": "modules/draw/providers/novelai/novel-draw.js",
       "extension": ".js",
-      "sizeBytes": 251519
+      "sizeBytes": 253995
     },
     {
       "source": "littlewhitebox",
@@ -1939,6 +1939,13 @@
       "relativePath": "modules/draw/providers/novelai/tests/character-form-flow.test.js",
       "extension": ".js",
       "sizeBytes": 37762
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/tests/chatu8-preset-import.test.js",
+      "relativePath": "modules/draw/providers/novelai/tests/chatu8-preset-import.test.js",
+      "extension": ".js",
+      "sizeBytes": 2598
     },
     {
       "source": "littlewhitebox",
@@ -18042,6 +18049,13 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-pr-skip-checks.mjs",
+      "relativePath": "scripts/build-pr-skip-checks.mjs",
+      "extension": ".mjs",
+      "sizeBytes": 2553
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-server-plugin.mjs",
       "relativePath": "scripts/build-server-plugin.mjs",
       "extension": ".mjs",
@@ -18724,7 +18738,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/vite.plugin.config.mjs",
       "relativePath": "vite.plugin.config.mjs",
       "extension": ".mjs",
-      "sizeBytes": 5395
+      "sizeBytes": 7305
     },
     {
       "source": "littlewhitebox",
