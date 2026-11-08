@@ -51,11 +51,13 @@ export function normalizeContinuityLimits(source) {
 const capOf = value => positiveInteger(value, DEFAULT_MAX_ENTRIES);
 const MAX_TAG_LENGTH = 600;
 const MAX_FORM_LENGTH = 80;
+const MAX_NAME_LENGTH = 200;
 // 规划清单里角色行写作“名称（别名: …）”，模型有时把整段当名字抄回来；记忆里统一去掉这段说明。
 const ALIAS_NOTE_SUFFIX = /\s*[（(]\s*别名\s*[:：][^）)]*[）)]\s*$/;
 
 function stripAliasNote(name) {
-    return String(name || '').replace(ALIAS_NOTE_SUFFIX, '').trim();
+    // 先截断再匹配：名字不会有这么长，别让异常长的输入拖慢正则。
+    return String(name || '').slice(0, MAX_NAME_LENGTH).replace(ALIAS_NOTE_SUFFIX, '').trim();
 }
 
 /** 在场角色的名字 + 正式名称（含别名展开），用来判断“是不是已录入角色”。 */
@@ -268,6 +270,13 @@ export function buildContinuityFromImageRecords(records, { knownNames = [], char
     return state;
 }
 
+/** 在场角色当前被记住的形态和衣着（页面算好后随规划数据一起送出，补没写的衣着时用）。 */
+export function buildContinuityEntries({ records = [], presentCharacters = [], maxEntries = DEFAULT_MAX_ENTRIES } = {}) {
+    const characters = Array.isArray(presentCharacters) ? presentCharacters : [];
+    const knownNames = knownNamesOf(characters, createContinuityNameResolver(characters));
+    return buildContinuityFromImageRecords(records, { knownNames, characters, maxEntries }).entries;
+}
+
 /**
  * 展示给规划 LLM 的 costume 去掉已经在固定外貌里的词：记忆里存的是原样，这里只改展示，
  * 免得 LLM 看到记忆里重复的词又原样抄回来（它会被告知“这里的 costume 就是本图的起点”）。
@@ -323,7 +332,8 @@ export function findOmittedCostumes(rawArguments) {
 export function stripEmptyCostumeText(value) {
     const text = String(value || '');
     if (!text.includes(EMPTY_COSTUME_TEXT)) return text;
-    return text.split(EMPTY_COSTUME_TEXT).join('')
+    // 衣着文字最终只保留 MAX_TAG_LENGTH 以内；先截断，空白很长的异常输入不会拖慢下面的正则。
+    return text.split(EMPTY_COSTUME_TEXT).join('').slice(0, MAX_TAG_LENGTH * 4)
         .replace(/\s*[,，、]\s*(?:[,，、]\s*)+/g, ', ')
         .replace(/^[\s,，、]+|[\s,，、]+$/g, '');
 }

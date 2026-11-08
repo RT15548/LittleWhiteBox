@@ -17,6 +17,7 @@ import {
     buildContinuityBlockForRequest,
     DEFAULT_MAX_ENTRIES,
     DEFAULT_MAX_FLOORS,
+    buildContinuityEntries,
     normalizeContinuityLimits,
 } from '../../shared/character-continuity.js';
 import { isGenericCharacterName as isGenericCharName } from '../../shared/generic-char-name.js';
@@ -3004,6 +3005,7 @@ async function buildNovelScenePlannerOptions({
     useWorldbook = true,
     onStateChange,
     continuityText = '',
+    continuityRecords = null,
 }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset(settings) || DEFAULT_PROMPT_CONFIG;
@@ -3024,6 +3026,16 @@ async function buildNovelScenePlannerOptions({
         sceneSource,
         presentCharacters,
         continuityText,
+        // 规划解析完之后的收尾（补没写的衣着、去重）：随规划数据一起送出，浏览器和后台 Draw Run 都在共用的执行函数里做。
+        refine: {
+            dedupe: true,
+            ...(continuityRecords ? {
+                continuity: {
+                    entries: buildContinuityEntries({ records: continuityRecords, presentCharacters, maxEntries: settings.continuityMaxEntries }),
+                    maxEntries: settings.continuityMaxEntries,
+                },
+            } : {}),
+        },
         useWorldInfo: useWorldbook && settings.useWorldInfo,
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
@@ -3305,14 +3317,17 @@ async function generateAndInsertImages({
 
         // 上镜锚点：从图片记录重建——只取本聊天、目标楼层之前、当前分支上成功生成的图，
         // 删楼/切分支/删图后锚点自然失效，不再单独维护历史账本。
+        const continuityRecords = settings.continuityEnabled === false
+            ? []
+            : await getContinuityImageRecords({
+                chat: ctx.chat,
+                beforeMessageId: messageId,
+                maxFloors: settings.continuityMaxFloors,
+            });
         const continuityText = settings.continuityEnabled === false
             ? ''
             : buildContinuityBlockForRequest({
-                records: await getContinuityImageRecords({
-                    chat: ctx.chat,
-                    beforeMessageId: messageId,
-                    maxFloors: settings.continuityMaxFloors,
-                }),
+                records: continuityRecords,
                 presentCharacters,
                 bodyText: sceneSource.content,
                 maxEntries: settings.continuityMaxEntries,
@@ -3344,6 +3359,7 @@ async function generateAndInsertImages({
                             signal,
                             onStateChange,
                             continuityText,
+                            continuityRecords,
                         }),
                         maxPlanImages,
                     });
@@ -3384,6 +3400,7 @@ async function generateAndInsertImages({
                     };
                 }
                 job.phase = 'llm';
+                // 补没写的衣着、去重都在共用的规划执行函数里做（见 refine），这里拿到的已经是收尾后的计划。
                 const planned = await generateAndParseScenePlan(await buildNovelScenePlannerOptions({
                     ...source,
                     settings,
@@ -3391,6 +3408,7 @@ async function generateAndInsertImages({
                     signal,
                     onStateChange,
                     continuityText,
+                    continuityRecords,
                 }));
                 if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
                 await maybeAutoLearnFromTasks(planned, settings);

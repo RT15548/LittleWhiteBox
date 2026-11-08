@@ -28,6 +28,7 @@ import { TOOL_PROTOCOL_MARKER, markToolProtocolMessages, stripToolProtocolMarker
 import { resolveCustomToolDefinitions, snapshotCustomToolSources } from './custom-tools.js';
 import { normalizeScenePlannerProfile } from './scene-planner-profile.js';
 import { normalizePlannerRetry } from './planner-retry.js';
+import { normalizeScenePlanRefine } from './scene-plan-refine.js';
 import { isNamedTagEnabled } from './named-tag-items.js';
 import { FORM_EXCLUSIVE_NOTE } from './character-forms.js';
 import {
@@ -411,6 +412,7 @@ export async function prepareScenePlannerInput(options = {}) {
         }
     }
 
+    const refine = normalizeScenePlanRefine(options.refine);
     return createSerializableSnapshot({
         version: 1,
         planner: {
@@ -422,6 +424,8 @@ export async function prepareScenePlannerInput(options = {}) {
             ...(request.customToolSources.length ? { customToolSources: request.customToolSources } : {}),
             // 重试设置随快照冻结：后台 Draw Run 只能读到这里，与浏览器流程行为一致。
             ...(options.plannerRetry ? { retry: normalizePlannerRetry(options.plannerRetry) } : {}),
+            // 规划解析完之后的收尾设置（补没写的衣着、去重）：随快照冻结，后台 Draw Run 也按它做。
+            ...(refine ? { refine } : {}),
         },
         agent: {
             channel: String(providerConfig?.provider || ''),

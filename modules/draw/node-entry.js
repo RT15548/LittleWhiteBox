@@ -11,6 +11,7 @@ import {
 import { executePreparedScenePlanner } from './shared/scene-planner-executor.js';
 import { assertSubmitScenePlanTool } from './shared/scene-plan-contract.js';
 import { assertScenePlannerMessages } from './shared/scene-planner-messages.js';
+import { assertScenePlanRefine } from './shared/scene-plan-refine.js';
 import { hashSceneSource } from './shared/scene-source.js';
 export { assertCustomToolSources } from './shared/custom-tools.js';
 export { buildDisplayMetadata, createProgressDiagnostic } from './server/draw-runs/projection.js';
@@ -43,6 +44,7 @@ export function compileDrawRunImages(provider, scenePlan, generationRecipe) {
 
 export {
     assertDrawRunId,
+    assertScenePlanRefine,
     assertScenePlannerMessages,
     assertSubmitScenePlanTool,
     createDrawRunId,
