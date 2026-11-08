@@ -31,7 +31,7 @@ const CONTINUITY_BLOCK_HEADER = [
 ].join('\n');
 export const EMPTY_COSTUME_TEXT = '（空＝没穿）';
 const CONTINUITY_VERSION = 1;
-export const DEFAULT_MAX_FLOORS = 200;
+export const DEFAULT_MAX_FLOORS = 100;
 export const DEFAULT_MAX_ENTRIES = 50;
 const MAX_EDITS = 200;
 /** 正整数设置项（没设或写错就用 fallback）；记忆上限的设置归一化与这里共用。 */
@@ -52,6 +52,7 @@ const capOf = value => positiveInteger(value, DEFAULT_MAX_ENTRIES);
 const MAX_TAG_LENGTH = 600;
 const MAX_FORM_LENGTH = 80;
 const MAX_NAME_LENGTH = 200;
+const sanitizeForm = value => sanitizeTags(value).slice(0, MAX_FORM_LENGTH);
 // 规划清单里角色行写作“名称（别名: …）”，模型有时把整段当名字抄回来；记忆里统一去掉这段说明。
 const ALIAS_NOTE_SUFFIX = /\s*[（(]\s*别名\s*[:：][^）)]*[）)]\s*$/;
 
@@ -106,7 +107,7 @@ function normalizeEntry(raw) {
     if (!name) return null;
     const appear = sanitizeTags(raw.appear);
     const costume = sanitizeTags(raw.costume);
-    const form = sanitizeTags(raw.form).slice(0, MAX_FORM_LENGTH);
+    const form = sanitizeForm(raw.form);
     // 条目存在就是“这个角色出现过”，衣着为空也留下：空表示没穿，不是没有记录（没有条目才是新出现的角色）。
     const floor = validFloor(raw.floor);
     return { name, ...(form ? { form } : {}), appear, costume, at: Number(raw.at) || 0, ...(floor === null ? {} : { floor }), ...(raw.edited === true ? { edited: true } : {}) };
@@ -216,7 +217,7 @@ export function mergePlanIntoContinuity(entries, tasks, {
             const isKnown = known.has(key);
             const appear = sanitizeTags(char.appear);
             const costume = sanitizeTags(char.costume);
-            const form = sanitizeTags(char.form).slice(0, MAX_FORM_LENGTH);
+            const form = sanitizeForm(char.form);
             // 用户在记忆界面清除（revoked），或旧版本改提示词后存下的撤销快照：删掉这个角色的记忆。
             if (char.revoked === true || isLegacyRevocation(char, appear, costume)) {
                 map.delete(key);
@@ -377,7 +378,7 @@ export function fillOmittedCostumes(tasks, { records = [], entries: knownEntries
             if (!omitted[task.index - 1]?.[charIndex]) return char;
             const key = lowerKey(resolver.canonicalName(char.name));
             const entry = key ? entries.find(item => lowerKey(item.name) === key) : null;
-            const form = sanitizeTags(char.form).slice(0, MAX_FORM_LENGTH);
+            const form = sanitizeForm(char.form);
             // 记忆里没有形态时无从比较（旧图没记形态、手改时形态留空），按同一形态沿用。
             return entry && (!entry.form || entry.form === form) ? { ...char, costume: entry.costume } : { ...char, costumeOmitted: true };
         });
@@ -415,7 +416,7 @@ export function normalizeContinuityEdits(raw, { resolver = createContinuityNameR
         map.delete(key);
         map.set(key, {
             name,
-            form: sanitizeTags(item.form).slice(0, MAX_FORM_LENGTH),
+            form: sanitizeForm(item.form),
             appear: sanitizeTags(item.appear),
             costume: sanitizeTags(item.costume),
             at: Math.max(0, Math.floor(Number(item.at) || 0)),
@@ -423,6 +424,23 @@ export function normalizeContinuityEdits(raw, { resolver = createContinuityNameR
         });
     }
     return [...map.values()].slice(-MAX_EDITS);
+}
+
+/** 新的修改应该插在哪：已有图片的最大楼层 + 1（没有图片时为 0）。 */
+export function nextContinuityEditPosition(records) {
+    const ids = (Array.isArray(records) ? records : []).map(record => Number(record?.messageId)).filter(Number.isFinite);
+    return ids.length ? Math.max(...ids) + 1 : 0;
+}
+
+/**
+ * 增删改一条修改：op 为 set（整条替换该角色的记忆）/ remove（让该角色的记忆消失）/ reset（清空全部修改）。
+ * 其它 op 或空名字不改动。
+ */
+export function updateContinuityEdits(edits, { op, name, form, appear, costume, at } = {}, { resolver } = {}) {
+    if (op === 'reset') return [];
+    const current = normalizeContinuityEdits(edits, { resolver });
+    if (op !== 'set' && op !== 'remove') return current;
+    return normalizeContinuityEdits([...current, { name, form, appear, costume, at, removed: op === 'remove' }], { resolver });
 }
 
 /**

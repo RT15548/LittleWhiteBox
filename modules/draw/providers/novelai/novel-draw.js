@@ -14,12 +14,20 @@ import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
 import {
+    applyContinuityEdits,
     buildContinuityBlockForRequest,
     DEFAULT_MAX_ENTRIES,
     DEFAULT_MAX_FLOORS,
     buildContinuityEntries,
+    buildContinuityMemoryView,
+    createContinuityNameResolver,
+    nextContinuityEditPosition,
+    normalizeContinuityEdits,
     normalizeContinuityLimits,
+    stripEmptyCostumeText,
+    updateContinuityEdits,
 } from '../../shared/character-continuity.js';
+import { expandCharacterForms, normalizeForms } from '../../shared/character-forms.js';
 import { isGenericCharacterName as isGenericCharName } from '../../shared/generic-char-name.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { drawingRuntimeHeaders, DRAWING_RUNTIME_ABI } from '../../shared/drawing-runtime-client.js';
@@ -93,7 +101,6 @@ import { getSlotPreviewPage } from '../../shared/gallery-cache.js';
 import { resolveImageTaskOrientations } from '../../shared/image-orientation.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
 import { normalizeNamedTagList } from "../../shared/named-tag-items.js";
-import { normalizeForms } from "../../shared/character-forms.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
 import {
@@ -3319,11 +3326,11 @@ async function generateAndInsertImages({
         // 删楼/切分支/删图后锚点自然失效，不再单独维护历史账本。
         const continuityRecords = settings.continuityEnabled === false
             ? []
-            : await getContinuityImageRecords({
+            : applyContinuityEdits(await getContinuityImageRecords({
                 chat: ctx.chat,
                 beforeMessageId: messageId,
                 maxFloors: settings.continuityMaxFloors,
-            });
+            }), readContinuityEdits(ctx), { beforeMessageId: messageId });
         const continuityText = settings.continuityEnabled === false
             ? ''
             : buildContinuityBlockForRequest({
@@ -3694,6 +3701,56 @@ async function sendCacheData({ requestId } = {}) {
 function postStatus(state, text, target = '', extra = {}) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (iframe) postToIframe(iframe, { type: 'STATUS', state, text, target, ...extra }, 'LittleWhiteBox-NovelDraw');
+}
+
+// ── 沿用角色着装：记忆清单与手动修改（修改按聊天存在 chatMetadata.LittleWhiteBox.continuityEdits）──
+function readContinuityEdits(ctx) {
+    return normalizeContinuityEdits(ctx?.chatMetadata?.LittleWhiteBox?.continuityEdits);
+}
+
+async function writeContinuityEdits(ctx, edits) {
+    const metadata = ctx?.chatMetadata;
+    if (!metadata || typeof metadata !== 'object') return;
+    const store = metadata.LittleWhiteBox && typeof metadata.LittleWhiteBox === 'object'
+        ? metadata.LittleWhiteBox
+        : (metadata.LittleWhiteBox = {});
+    if (edits.length) store.continuityEdits = edits;
+    else delete store.continuityEdits;
+    await ctx.saveMetadata?.();
+}
+
+const hasChat = ctx => Array.isArray(ctx?.chat) && Boolean(ctx?.chatId);
+
+// 服装记忆的读取范围（设置里的数字；没设或写错就用默认）。
+function continuityLimits() {
+    const { continuityMaxFloors, continuityMaxEntries } = normalizeContinuityLimits(getRuntimeSettings());
+    return { maxFloors: continuityMaxFloors, maxEntries: continuityMaxEntries };
+}
+
+async function loadContinuityMemoryRecords(ctx, stats = null) {
+    return getContinuityImageRecords({ chat: ctx.chat, beforeMessageId: ctx.chat.length, maxFloors: continuityLimits().maxFloors, stats });
+}
+
+function allContinuityCharacters() {
+    return expandCharacterForms(selectEnabledCharacters(characterLibraryFromSettings(getRuntimeSettings())));
+}
+
+// scanned：编辑记忆时刚读过的 { records, scan, characters }（编辑只改聊天元数据，记录仍有效），带上就不用再读一遍。
+async function postContinuityMemory(scanned = null) {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe) return;
+    const ctx = getContext();
+    const withChat = hasChat(ctx);
+    const limits = continuityLimits();
+    const scan = scanned?.scan ?? {};
+    const entries = withChat
+        ? buildContinuityMemoryView(scanned?.records ?? await loadContinuityMemoryRecords(ctx, scan), readContinuityEdits(ctx), {
+            characters: scanned?.characters ?? allContinuityCharacters(),
+            beforeMessageId: ctx.chat.length,
+            maxEntries: limits.maxEntries,
+        })
+        : [];
+    postToIframe(iframe, { type: 'CONTINUITY_MEMORY', hasChat: withChat, entries, scan: withChat ? { ...scan, maxFloors: limits.maxFloors } : null }, 'LittleWhiteBox-NovelDraw');
 }
 
 function postGroupPresetContext() {
@@ -4604,6 +4661,57 @@ async function handleFrameMessage(event) {
                 settings.continuityEnabled = enabled;
             }, enabled ? '沿用角色着装已开启' : '沿用角色着装已关闭');
             observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_CONTINUITY_LIMITS': {
+            const limits = normalizeContinuityLimits({ continuityMaxFloors: data.maxFloors, continuityMaxEntries: data.maxEntries });
+            await updateSettingsPersistent((settings) => {
+                Object.assign(settings, limits);
+            }, '服装记忆的读取范围已保存');
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            observeBackgroundTask(postContinuityMemory(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'CONTINUITY_MEMORY_REQUEST': {
+            try { await postContinuityMemory(); } catch (error) {
+                console.warn('[NovelDraw] 读取沿用角色着装记忆失败:', error);
+                postStatus('error', `读取服装记忆失败：${error.message || error}`);
+            }
+            break;
+        }
+
+        case 'CONTINUITY_MEMORY_EDIT': {
+            const ctx = getContext();
+            try {
+                let scanned = null;
+                if (hasChat(ctx)) {
+                    const chatId = ctx.chatId;
+                    const characters = allContinuityCharacters();
+                    const resolver = createContinuityNameResolver(characters);
+                    const scan = {};
+                    const records = await loadContinuityMemoryRecords(ctx, scan);
+                    // 读图片记录期间用户可能切了聊天：ctx 还指向旧聊天，不能把修改写进去，只刷新当前聊天的清单。
+                    if (getContext()?.chatId === chatId) {
+                        scanned = { records, scan, characters };
+                        const next = updateContinuityEdits(readContinuityEdits(ctx), {
+                            op: data.op,
+                            name: data.name,
+                            form: data.form,
+                            appear: data.appear,
+                            // 模型可能把提示里的“（空＝没穿）”抄进衣着，用户也可能从清单里复制，这里统一去掉。
+                            costume: stripEmptyCostumeText(data.costume),
+                            at: nextContinuityEditPosition(records),
+                        }, { resolver });
+                        await writeContinuityEdits(ctx, next);
+                    }
+                }
+                await postContinuityMemory(scanned);
+            } catch (error) {
+                console.warn('[NovelDraw] 修改沿用角色着装记忆失败:', error);
+                postStatus('error', `修改服装记忆失败：${error.message || error}`);
+            }
             break;
         }
 

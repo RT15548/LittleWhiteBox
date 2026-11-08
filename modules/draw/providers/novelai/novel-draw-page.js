@@ -65,6 +65,7 @@ import {
     setCharacterSaveStatus,
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
+import { createContinuityMemoryPanel } from '../../shared/continuity-memory-panel.js';
 import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
@@ -1416,6 +1417,11 @@ function handleDragKeydown(event) {
         handleNode?.closest(charHandle ? '.char-card' : '.char-group')?.scrollIntoView?.({ block: 'nearest' });
     });
 }
+
+let continuityMemoryPanel = null;
+// 服装记忆面板的本机显示偏好（localStorage）。
+const MEMORY_LIMIT_KEY = 'lwb.draw.memoryLimit'; // 服装记忆最多显示几个角色（没存过 = 10，0 = 全部）
+const MEMORY_ORDER_KEY = 'lwb.draw.memoryOrder'; // 服装记忆里角色的显示顺序（只是本机的显示偏好）
 
 function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
@@ -3568,6 +3574,7 @@ function applyStateToUI() {
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
         $('nd_continuity_enabled').checked = state.continuityEnabled !== false;
+        continuityMemoryPanel?.setScanLimits({ maxFloors: state.continuityMaxFloors, maxEntries: state.continuityMaxEntries });
         $('nd_auto_generate_images').checked = state.autoGenerateImages !== false;
         renderFilterRules(state.messageFilterRules);
     } catch (e) {
@@ -5163,6 +5170,10 @@ window.addEventListener('message', event => {
             break;
         }
 
+        case 'CONTINUITY_MEMORY':
+            continuityMemoryPanel?.render(data);
+            break;
+
         case 'GROUP_PRESET_CONTEXT':
             // 聊天切换后宿主推来的轻量更新：只刷新“当前聊天”相关的数据，不动其它状态。
             if (Array.isArray(data.activeAvatars)) state.activeAvatars = data.activeAvatars;
@@ -5675,6 +5686,35 @@ function initializePage() {
     $('nd_continuity_enabled').addEventListener('change', () => {
         state.continuityEnabled = $('nd_continuity_enabled').checked;
         postToParent({ type: 'SAVE_CONTINUITY_ENABLED', enabled: state.continuityEnabled });
+    });
+    // 服装记忆：展开时向宿主要当前聊天的记忆，改动交回宿主，宿主每次都回一份最新的（CONTINUITY_MEMORY）。
+    continuityMemoryPanel = createContinuityMemoryPanel({
+        document,
+        container: $('nd_continuity_memory_mount'),
+        requestMemory: () => postToParent({ type: 'CONTINUITY_MEMORY_REQUEST' }),
+        editMemory: payload => postToParent({ type: 'CONTINUITY_MEMORY_EDIT', ...payload }),
+        confirm: message => window.confirm(message),
+        getOrder: () => {
+            try { return JSON.parse(localStorage.getItem(MEMORY_ORDER_KEY) || '[]'); } catch { return []; }
+        },
+        getScanLimits: () => ({ maxFloors: state.continuityMaxFloors, maxEntries: state.continuityMaxEntries }),
+        onScanLimitsChange: (limits) => {
+            state.continuityMaxFloors = limits.maxFloors;
+            state.continuityMaxEntries = limits.maxEntries;
+            postToParent({ type: 'SAVE_CONTINUITY_LIMITS', ...limits });
+        },
+        getLimit: () => {
+            try {
+                const raw = localStorage.getItem(MEMORY_LIMIT_KEY);
+                return raw === null ? null : Number(raw);
+            } catch { return null; }
+        },
+        onLimitChange: (value) => {
+            try { localStorage.setItem(MEMORY_LIMIT_KEY, String(value)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "memoryLimit" }, caughtError); }
+        },
+        onOrderChange: (names) => {
+            try { localStorage.setItem(MEMORY_ORDER_KEY, JSON.stringify(names.slice(0, 200))); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "memoryOrder" }, caughtError); }
+        },
     });
 
     $('nd_auto_generate_images').addEventListener('change', () => {

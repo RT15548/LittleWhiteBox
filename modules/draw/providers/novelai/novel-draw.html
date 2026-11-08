@@ -237,6 +237,20 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-section-count:not(:empty)::before { content: '· '; }
 .char-section-actions { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .char-edit-section.is-collapsed .char-section-head { margin-bottom: 0; }
+.cm-panel { margin: 6px 0 0 44px; }
+.cm-list { display: flex; flex-direction: column; gap: 6px; }
+/* 记忆条目：和服装 / 动态标签条目同一套折叠头（.named-tag-*），这里只补卡片外观与内容。 */
+.cm-entry { padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08)); background: rgba(255,255,255,.03); }
+.cm-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cm-name { font-size: 12px; font-weight: 600; flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-floor { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.cm-edited { font-size: 11px; color: var(--accent, var(--text-secondary)); white-space: nowrap; }
+.cm-body .form-group { margin-bottom: 8px; }
+.cm-body .form-group:last-child { margin-bottom: 0; }
+.cm-costume { resize: none; }
+.cm-limit { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 11px; color: var(--text-secondary); }
+.cm-limit-input { width: 4.5em; padding: 4px 6px; text-align: center; }
+.cm-more { margin-top: 6px; }
 .char-edit-form { margin-top: 0; padding-top: 10px; } /* 摘要行自带下边线 */
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
@@ -1470,6 +1484,7 @@ button.nd-vibe-badge:disabled { cursor: default; }
                                     <span>沿用角色着装</span>
                                 </div>
                                 <p class="form-hint" style="margin-left:44px;margin-top:4px;">画新图时，沿用角色上一次出图时的外貌和着装；正文写明换装或其他变化时才改</p>
+                                <div id="nd_continuity_memory_mount"></div>
                             </div>
                             <div class="auto-learn-section">
                                 <div class="auto-learn-toggle-row">
