@@ -87,7 +87,7 @@ import {
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
-import { restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
+import { markNewGroupsOff, restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
 import {
     findApiPreset,
     pickApiConfig,
@@ -4548,13 +4548,25 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_CHARACTER_TAGS': {
+            let newGroupPresets = null;
             const ok = await updateSharedSettingsPersistent((settings) => {
+                newGroupPresets = null;
                 if (data.restorePresetReferences) {
                     settings.characterGroupPresets = restoreGroupPresetReferences(settings.characterGroupPresets, data.restorePresetReferences);
                 }
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
-                if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
+                if (Array.isArray(data.characterGroups)) {
+                    // 新建的分组在已有预设里默认是“关”，不是“不管”。
+                    const marked = markNewGroupsOff(settings.characterGroupPresets, settings.characterGroups, data.characterGroups);
+                    if (marked !== settings.characterGroupPresets) {
+                        settings.characterGroupPresets = marked;
+                        newGroupPresets = marked;
+                    }
+                    settings.characterGroups = data.characterGroups;
+                }
             }, '角色标签已保存', data.requestId ? { notify: false } : undefined);
+            // 页面持有预设的本地副本，之后保存会整份写回：先让它对齐，免得旧副本把新分组的“关”冲掉。
+            if (ok && newGroupPresets) postStatus('success', '', 'group-presets', { presets: newGroupPresets });
             // 带 requestId 的是编辑区的自动保存：只回一条带 requestId 的回执（页面据此串行保存、更新状态栏），不占用全局状态栏。
             if (data.requestId) postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'char-tags', { requestId: data.requestId });
             // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。

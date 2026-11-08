@@ -98,6 +98,10 @@ textarea.input[data-autofit] { min-height: 0; overflow-y: hidden; }
 .char-library-options > summary { font-weight: 600; color: var(--text-primary); } /* 与各区块标题（.card-title）一致 */
 .char-library-options > .char-management-sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; padding-top: 12px; }
 .char-management-sidebar > .card { margin: 0; }
+/* 角色页「筛选与管理」的三个模块：纵向排开，第一个模块里的卡片沿用原来的自适应网格。 */
+.char-library-options > .char-management-sidebar.mgmt-modules { display: flex; flex-direction: column; gap: 12px; }
+.mgmt-modules .card { margin: 0; }
+.mgmt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
 .char-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .char-summary-label { font-size: 11px; color: var(--text-secondary); }
 .char-summary-value { font-size: 17px; margin-top: 2px; overflow-wrap: anywhere; }
@@ -155,6 +159,7 @@ textarea.input[data-autofit] { min-height: 0; overflow-y: hidden; }
     .char-list-card { padding-top: 0; }
     .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .char-library-options > .char-management-sidebar { grid-template-columns: minmax(0, 1fr); }
+    .mgmt-grid { grid-template-columns: minmax(0, 1fr); }
     .char-quick-tools .input { font-size: 14px; }
     .btn, .btn-sm, .header-close, .input { min-height: 44px; }
     .btn-icon { width: 44px; }

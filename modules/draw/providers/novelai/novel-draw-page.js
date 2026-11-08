@@ -65,6 +65,7 @@ import {
     setCharacterSaveStatus,
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
+import { normalizeMgmtLayout, toggleMgmtCollapsed } from '../../shared/mgmt-modules.js';
 import { createContinuityMemoryPanel } from '../../shared/continuity-memory-panel.js';
 import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
@@ -800,11 +801,24 @@ function handleGroupPresetStatus(data) {
             renderGroupPresetPanel();
         }
     }
+    // 宿主在保存角色库时给新分组补了“关”：没有 seq 的回执只带预设，用来对齐本地副本。
+    if (!data.seq && data.state === 'success' && Array.isArray(data.presets) && !groupPresetPendingSaves.size) {
+        groupPresetHostPresets = data.presets;
+        state.characterGroupPresets = data.presets;
+        renderGroupPresetPanel();
+    }
     if (data.state === 'error') groupPresetToast(data.text || '分组预设操作失败', 'error');
 }
 
+// 分组预设模块折叠时不画：数据照常更新，等展开时再画一次（折叠的模块不占任何渲染开销）。
+let groupPresetRenderDeferred = false;
 function renderGroupPresetPanel() {
     if (!GP) return;
+    if (isMgmtModuleCollapsed('presets')) {
+        groupPresetRenderDeferred = true;
+        return;
+    }
+    groupPresetRenderDeferred = false;
     if (groupPresetPanel) {
         groupPresetPanel.render();
         return;
@@ -1418,10 +1432,45 @@ function handleDragKeydown(event) {
     });
 }
 
+const MGMT_LAYOUT_KEY = 'lwb.draw.mgmtModules';
+
 let continuityMemoryPanel = null;
 // 服装记忆面板的本机显示偏好（localStorage）。
 const MEMORY_LIMIT_KEY = 'lwb.draw.memoryLimit'; // 服装记忆最多显示几个角色（没存过 = 10，0 = 全部）
 const MEMORY_ORDER_KEY = 'lwb.draw.memoryOrder'; // 服装记忆里角色的显示顺序（只是本机的显示偏好）
+// 「筛选与管理」里三个模块的顺序固定，只有折叠状态记在本机（localStorage）；读不到或读坏了就用默认（全部展开）。
+let mgmtLayout = null;
+function loadMgmtLayout() {
+    if (!mgmtLayout) {
+        try { mgmtLayout = normalizeMgmtLayout(localStorage.getItem(MGMT_LAYOUT_KEY)); } catch { mgmtLayout = normalizeMgmtLayout(null); }
+    }
+    return mgmtLayout;
+}
+function isMgmtModuleCollapsed(id) {
+    return loadMgmtLayout().collapsed.includes(id);
+}
+
+function setupMgmtModules() {
+    const root = $('nd_mgmt_modules');
+    if (!root) return;
+    // 三个模块的上下顺序固定，只有折叠状态会变（并记在本机）。
+    const modules = new Map(Array.from(root.querySelectorAll('.mgmt-module'), node => [node.dataset.mgmtModule, node]));
+    const apply = () => {
+        for (const [id, node] of modules) setEditorSectionCollapsed(node, isMgmtModuleCollapsed(id));
+    };
+    const commit = (next) => {
+        mgmtLayout = next;
+        apply();
+        // 刚展开的模块才补画它延后的内容。
+        if (groupPresetRenderDeferred && !isMgmtModuleCollapsed('presets')) renderGroupPresetPanel();
+        try { localStorage.setItem(MGMT_LAYOUT_KEY, JSON.stringify(mgmtLayout)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setupMgmtModules" }, caughtError); }
+    };
+    apply();
+    root.addEventListener('click', (event) => {
+        const toggle = event.target.closest('[data-mgmt-toggle]');
+        if (toggle) commit(toggleMgmtCollapsed(loadMgmtLayout(), toggle.dataset.mgmtToggle));
+    });
+}
 
 function setupCharacterDragAndSelection() {
     const list = $('nd_char_list');
@@ -5657,6 +5706,7 @@ function initializePage() {
         postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: $('nd_auto_learn').checked, autoLearnMode: mode, autoLearnGroupId: state.autoLearnGroupId });
     });
     setupCharacterDragAndSelection();
+    setupMgmtModules();
     $('nd_planner_retries').addEventListener('change', () => {
         const raw = String($('nd_planner_retries').value).trim();
         const parsed = raw === '' ? Number.NaN : Math.floor(Number(raw));
