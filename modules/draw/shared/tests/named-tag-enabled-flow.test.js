@@ -216,7 +216,7 @@ test('planner character facts never mention disabled items, even when raw librar
 });
 
 test('dynamic-tag legend is printed once under the roster header, only when someone has enabled dynamic tags', () => {
-    const LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条，写进 action）';
+    const LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条；非瞬时的写进 costume，瞬时的写进 action）';
     const countLegend = (text) => text.split(LEGEND).length - 1;
     const girl = (name, dynamicStates) => ({ name, type: 'girl', appearance: 'hair', dynamicStates });
 

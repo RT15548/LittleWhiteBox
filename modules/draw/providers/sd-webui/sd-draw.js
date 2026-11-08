@@ -3563,12 +3563,12 @@ async function toggleEditPanel(container, show) {
 
 async function saveEditedTags(container) {
     try {
-        await persistCardTagEdits(container, (tags, characters, record) => {
+        const { notice } = await persistCardTagEdits(container, (tags, characters, record) => {
             const data = buildEditedPromptData(tags, characters);
             return { positive: data.positive, negativePrompt: data.negative ?? record?.negativePrompt ?? '' };
         });
         observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
-        toastr.success(DRAW_SLOT_COPY.tagSaved);
+        toastr.success(notice);
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.tagSaveFailed, error);

@@ -23,6 +23,8 @@ test('all provider schemas and field previews put title and orientation before d
         assert.deepEqual(item.properties.orientation.enum, ['portrait', 'landscape']);
         assert.ok(item.required.includes('title'));
         assert.ok(item.required.includes('orientation'));
+        // costume is required: an unclothed character still submits the field (an empty string or just the state), never by leaving it out.
+        assert.ok(item.properties.characters.items.required.includes('costume'));
         const fields = listScenePlanFieldDescriptions(profile).map(field => field.path);
         assert.ok(fields.indexOf('images[].title') < fields.indexOf('images[].orientation'));
         assert.ok(fields.indexOf('images[].orientation') < fields.indexOf('images[].scene'));

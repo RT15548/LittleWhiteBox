@@ -13,7 +13,12 @@ import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../scrip
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
-import { buildContinuityBlockForRequest } from '../../shared/character-continuity.js';
+import {
+    buildContinuityBlockForRequest,
+    DEFAULT_MAX_ENTRIES,
+    DEFAULT_MAX_FLOORS,
+    normalizeContinuityLimits,
+} from '../../shared/character-continuity.js';
 import { isGenericCharacterName as isGenericCharName } from '../../shared/generic-char-name.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { drawingRuntimeHeaders, DRAWING_RUNTIME_ABI } from '../../shared/drawing-runtime-client.js';
@@ -431,6 +436,8 @@ const DEFAULT_SETTINGS = {
     danbooruLocalDB: false,
     messageFilterRules: [],
     continuityEnabled: true,
+    continuityMaxFloors: DEFAULT_MAX_FLOORS,
+    continuityMaxEntries: DEFAULT_MAX_ENTRIES,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1069,6 +1076,7 @@ function normalizeSettings(saved = {}) {
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules: Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [],
         continuityEnabled: source.continuityEnabled !== false,
+        ...normalizeContinuityLimits(source),
     };
 
     if (!merged.paramsPresets?.length) {
@@ -2742,13 +2750,13 @@ async function toggleEditPanel(container, show) {
 
 async function saveEditedTags(container) {
     try {
-        await persistCardTagEdits(container, (tags, characters, record) => {
+        const { notice } = await persistCardTagEdits(container, (tags, characters, record) => {
             const preset = getActiveParamsPreset();
             return { positive: joinTags(preset?.positivePrefix, tags),
                 negativePrompt: record?.negativePrompt ?? preset?.negativePrefix ?? '' };
         });
         observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
-        showToast(DRAW_SLOT_COPY.tagSaved);
+        showToast(notice);
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.tagSaveFailed, error);
@@ -3303,9 +3311,11 @@ async function generateAndInsertImages({
                 records: await getContinuityImageRecords({
                     chat: ctx.chat,
                     beforeMessageId: messageId,
+                    maxFloors: settings.continuityMaxFloors,
                 }),
                 presentCharacters,
                 bodyText: sceneSource.content,
+                maxEntries: settings.continuityMaxEntries,
             });
 
         // 手动生图：即使开了后端任务模式，规划也走浏览器侧，只落槽位不提交；
@@ -3620,6 +3630,7 @@ async function sendInitData() {
             autoLearnGroupId: settings.autoLearnGroupId || '',
             danbooruLocalDB: !!settings.danbooruLocalDB,
             continuityEnabled: settings.continuityEnabled !== false,
+            ...normalizeContinuityLimits(settings),
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,

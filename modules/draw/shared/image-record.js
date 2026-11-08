@@ -43,6 +43,7 @@ export const DRAW_SLOT_COPY = Object.freeze({
     reloadImage: '重新加载',
     editTargetChanged: '图片版本已变化，草稿已保留，请重新打开编辑后保存。',
     tagSaved: 'TAG 已保存',
+    tagSavedCharactersEdited: 'TAG 已保存。编辑过的角色不会从这张图读取服装记忆。',
     tagSaveFailed: 'TAG 保存失败',
     tagReadFailed: 'TAG 读取失败',
     tagAdoptionFailed: '图片标签接管失败',

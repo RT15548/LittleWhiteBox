@@ -5,6 +5,16 @@ import { createImageIdentifiers } from './prepared-image-placement.js';
 import { DRAW_SLOT_COPY, DRAW_SLOT_ERRORS, PreviewStatus } from './image-record.js';
 import { continuityAfterTagEdit } from './character-continuity.js';
 
+const tagEditedAt = record => (Array.isArray(record?.continuityChars) ? record.continuityChars : [])
+    .map((char, index) => (char?.tagEdited === true ? index : -1)).filter(index => index >= 0);
+
+/** 保存 TAG 之后给用户看的提示：这次保存让某个角色被跳过（之前没被跳过）时，补一句记忆的说明。 */
+export function tagSavedNotice(before, after) {
+    const already = new Set(tagEditedAt(before));
+    return tagEditedAt(after).some(index => !already.has(index))
+        ? DRAW_SLOT_COPY.tagSavedCharactersEdited : DRAW_SLOT_COPY.tagSaved;
+}
+
 export function getCharacterTagEditGroups(characterPrompts = []) {
     return (characterPrompts || []).flatMap((character, index) => {
         const name = character.name || `角色 ${index + 1}`;
@@ -47,6 +57,7 @@ export async function persistCardTagEdits(container, compile) {
         messageId, chatId: String(ctx.chatId), expectedImgId: imgId,
     });
     assertEditorTarget();
+    const recordBefore = record;
     // 角色负向（uc）编辑框：面板里有才覆盖，没有就保持记录原值。
     // 放在角色 prompt 之后读，索引与 data-index 一一对应。
     const characterPrompts = Array.isArray(record?.characterPrompts)
@@ -93,5 +104,5 @@ export async function persistCardTagEdits(container, compile) {
     container.dataset.tags = record.tags;
     container.dataset.positive = record.positive || '';
     panel.dataset.imgId = record.imgId;
-    return record;
+    return { record, notice: tagSavedNotice(recordBefore, record) };
 }

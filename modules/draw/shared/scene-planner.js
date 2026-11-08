@@ -92,7 +92,7 @@ function formatReferenceList(items, fallbackLabel) {
 }
 
 /** 动态标签的使用规则只在角色清单开头写一次，各角色行里只列条目。 */
-const DYNAMIC_TAG_LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条，写进 action）';
+const DYNAMIC_TAG_LEGEND = '（动态标签参考：可叠加的额外外观，按画面选用若干条；非瞬时的写进 costume，瞬时的写进 action）';
 
 /**
  * 本次请求带了【前文画面中的角色】（只有 NovelAI 的沿用着装会带）时，多形态角色的说明改成“先沿用上次形态”；

@@ -744,21 +744,32 @@ async function resolveRenderPreviewForSlot(message, messageId, slotId) {
 
 // Slot identity, not the gallery's historical floor number, owns continuity.
 // Use the same selected/saved version as rendering, on each floor's active branch.
-export async function getContinuityImageRecords({ chat, beforeMessageId }) {
+// Only the last `maxFloors` floors before the target are read (a character not drawn in that window counts as new);
+// `stats`, when given, is filled with what was read and how long it took.
+export async function getContinuityImageRecords({ chat, beforeMessageId, maxFloors = Infinity, stats = null }) {
+    const startedAt = Date.now();
     const target = chat[beforeMessageId];
-    const sources = chat.slice(0, beforeMessageId).flatMap(message =>
-        [...extractSlotIds(message.mes)].map(slotId => ({ message, text: message.mes, slotId })));
+    const end = Math.min(Math.max(0, beforeMessageId), chat.length);
+    const first = Number.isFinite(maxFloors) && maxFloors > 0 ? Math.max(0, end - Math.floor(maxFloors)) : 0;
+    const sources = [];
+    for (let messageId = first; messageId < end; messageId += 1) {
+        const message = chat[messageId];
+        for (const slotId of extractSlotIds(message.mes)) sources.push({ message, text: message.mes, slotId, messageId });
+    }
     const records = [];
     // Retain snapshots only; loading every image payload in parallel would pin
     // the entire chat gallery in memory until the last lookup finishes.
-    for (const { message, slotId } of sources) {
-        const { preview } = await resolveRenderPreviewForSlot(message, chat.indexOf(message), slotId);
+    for (const { message, slotId, messageId } of sources) {
+        const { preview } = await resolveRenderPreviewForSlot(message, messageId, slotId);
         records.push(preview?.status === PreviewStatus.SUCCESS ? preview.continuityChars : null);
     }
-    const targetIndex = chat.indexOf(target);
+    if (stats) Object.assign(stats, { floors: end - first, slots: sources.length, ms: Date.now() - startedAt, truncated: first > 0 });
+    // A target past the end of the chat (the whole chat is wanted) excludes nothing.
+    const targetIndex = target === undefined ? Infinity : chat.indexOf(target);
     return records.flatMap((continuityChars, index) => {
         const { message, text } = sources[index];
-        const messageId = chat.indexOf(message);
+        // The floor can move or vanish while images load: the cheap check first, a lookup only when it did move.
+        const messageId = chat[sources[index].messageId] === message ? sources[index].messageId : chat.indexOf(message);
         if (messageId < 0 || messageId >= targetIndex || message.mes !== text
             || !continuityChars?.length) return [];
         return [{ messageId, timestamp: index, continuityChars }];
