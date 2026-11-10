@@ -599,6 +599,8 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
 }
 .nd-thumbpick-close { width: 30px; padding: 0; }
 .nd-thumbpick-toggle:hover, .nd-thumbpick-close:hover { border-color: var(--border-focus); }
+.nd-thumbpick-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+.nd-thumbpick-toggle:disabled:hover { border-color: var(--border); }
 .nd-thumbpick-grid {
     flex: 1; overflow-y: auto; padding: 14px;
     display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

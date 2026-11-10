@@ -3666,8 +3666,8 @@ function getParamsListView() {
             noun: '参数预设',
             variant: 'grid',
             menuItems: [
-                { action: 'thumbnail', label: '更换缩略图', icon: 'fa-image' },
-                { action: 'duplicate', label: '复制', icon: 'fa-copy' },
+                { action: 'thumbnail', label: '更换缩略图', icon: 'fa-images' },
+                { action: 'duplicate', label: '复制', icon: 'fa-clone' },
                 { action: 'export', label: '导出', icon: 'fa-download' },
                 { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
             ],
@@ -3759,6 +3759,7 @@ function ensureThumbPickOverlay() {
         <div class="nd-thumbpick-dialog">
             <div class="nd-thumbpick-head">
                 <span class="nd-thumbpick-title">从画廊选择缩略图</span>
+                <button type="button" id="nd_thumb_pick_remove" class="nd-thumbpick-toggle">移除缩略图</button>
                 <button type="button" id="nd_thumb_pick_upload" class="nd-thumbpick-toggle">上传本地图片</button>
                 <button type="button" id="nd_thumb_pick_toggle" class="nd-thumbpick-toggle">显示全部图片</button>
                 <button type="button" id="nd_thumb_pick_close" class="nd-thumbpick-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
@@ -3771,6 +3772,11 @@ function ensureThumbPickOverlay() {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('visible'); });
     $('nd_thumb_pick_close').addEventListener('click', () => overlay.classList.remove('visible'));
     $('nd_thumb_pick_upload').addEventListener('click', () => $('nd_thumb_pick_file')?.click());
+    $('nd_thumb_pick_remove').addEventListener('click', () => {
+        if (!thumbPickState.presetId) return;
+        applyPresetThumbnail(thumbPickState.presetId, '');
+        overlay.classList.remove('visible');
+    });
     $('nd_thumb_pick_file').addEventListener('change', observeAsyncCallback(async (e) => {
         const file = e.target.files?.[0];
         e.target.value = '';
@@ -3818,6 +3824,9 @@ function openThumbnailPicker(presetId = state.selectedParamsPresetId) {
     thumbPickState.presetId = String(presetId || '');
     thumbPickState.all = false;
     const overlay = ensureThumbPickOverlay();
+    // 没有缩略图可移除时置灰，按钮位置不动
+    const current = (state.paramsPresets || []).find(p => p.id === thumbPickState.presetId);
+    $('nd_thumb_pick_remove').disabled = !String(current?.thumbnail || '').trim();
     // 遮罩是 absolute（相对文档），打开时对齐当前滚动位置盖住视口
     overlay.style.top = `${window.scrollY || document.documentElement?.scrollTop || 0}px`;
     overlay.classList.add('visible');
