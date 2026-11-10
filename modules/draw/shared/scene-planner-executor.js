@@ -19,6 +19,7 @@ import { logScenePlannerDiagnostic } from './scene-planner-debug.js';
 import { markToolProtocolMessages } from '../../agent-core/adapters/tool-protocol-marker.js';
 import { normalizeToolDefinitions, toFunctionTool } from './custom-tools.js';
 import { assertScenePlannerMessages } from './scene-planner-messages.js';
+import { readRawPlanArguments, refineScenePlanTasks } from './scene-plan-refine.js';
 const ERROR_SOURCE = "modules/draw/shared/scene-planner-executor.js";
 
 
@@ -321,10 +322,17 @@ export async function executePreparedScenePlanner(prepared, options = {}) {
         throw error;
     }
 
-    diagnostic.succeed({ stage: 'parse', imageTaskCount: parsed.tasks.length });
-    logger?.info?.('novelDrawLlm', `submit_scene_plan 已接收 ${parsed.tasks.length} 个图片任务`, {
+    // 页面要求的收尾（补没写的衣着、去重）：浏览器和后台 Draw Run 都在这里做，没有 refine 就原样返回。
+    const tasks = refineScenePlanTasks(parsed.tasks, {
+        refine: input.planner.refine,
+        presentCharacters: input.planner.presentCharacters,
+        rawArguments: readRawPlanArguments(response.result),
+    });
+
+    diagnostic.succeed({ stage: 'parse', imageTaskCount: tasks.length });
+    logger?.info?.('novelDrawLlm', `submit_scene_plan 已接收 ${tasks.length} 个图片任务`, {
         provider: response.providerConfig?.provider,
         model: response.providerConfig?.model,
     });
-    return parsed.tasks;
+    return tasks;
 }

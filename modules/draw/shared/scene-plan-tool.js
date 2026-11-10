@@ -72,10 +72,13 @@ export function getScenePlanCharacterProperties(profile) {
             'Stable appearance visible in this composition, such as hair, eyes or build. Every unregistered character needs a non-empty appearance description. Omit for registered characters, whose appearance comes from the character library.',
         ),
         costume: stringSchema(
-            '本图实际穿着与状态：款式、颜色、细节、穿着状态（敞开、破损、湿透、滑落）。已录入角色有服装参考时，选一套或其变体并按画面状态改写，不把多套拼在一起。没有服装事实时省略。',
+            '持续状态：换一张图仍会保持的、固定外貌以外的一切——衣着及其穿戴状态（敞开、湿透、破损）、身体部件、非人特征、配饰等。写画面里有的东西。脱掉的衣物不再写，露出的部位写明（topless、bare chest），其它身体部件、非人特征和配饰照旧保留；全部都没有才写 "costume": ""。'
+            + '这个字段必须提交：没有衣服（全裸、半裸、只剩配饰）是合法且常见的取值，这时只写其余状态，不要为了让这个字段有内容而去补一套衣服。'
+            + '取值优先级：正文写的穿搭 > 前文画面里这个角色的 costume > 服装参考、世界书、数据表里的穿搭描述（没有前文画面时，最后一条不存在）。沿用记忆时直接照抄记忆里的 costume，不要再用服装参考补一遍。'
+            + '要选衣服时（新角色、换了形态、或正文写了新的衣物），已录入角色有服装参考的，选一套或其变体，衣物以参考为准，只按画面调整状态，不要额外补充与参考里已有衣物重复或同义的内容，也不把多套参考拼在一起；正文写到而参考里没有的衣物可以补上，正文穿的整套衣服参考里都没有可以直接整套写。',
         ),
         action: stringSchema(
-            '本图该角色的姿态、动作、视线、面向、表情。',
+            '只写瞬时内容：这一瞬间的姿态、动作、视线、面向、表情；撩衣、握物这类一瞬间的动作也写这里。身上一直有的东西（身体部件、非人特征、配饰、穿着本身）不写在这里，写进 costume。',
             { minLength: 1 },
         ),
         interact: stringSchema(INTERACT_DESCRIPTIONS[effective.interactSyntax]),
@@ -123,11 +126,11 @@ export function createSubmitScenePlanTool(options = {}) {
     const charactersSchema = {
         type: 'array',
         ...(maxCharactersPerImage ? { maxItems: maxCharactersPerImage } : {}),
-        description: '画面中出现的角色，按重要度排序。纯风景、物件、建筑主体时为空数组。每项的字段按 type → danbooru → appear → costume → action → interact 的顺序拼成该角色的提示词。',
+        description: '画面中出现的角色，按重要度排序。纯风景、物件、建筑主体时为空数组。每项的字段按 type → danbooru → appear → costume → action → interact 的顺序拼成该角色的提示词。同一个角色的外貌（已录入角色是角色清单里的固定外貌，未录入角色是你写的 appear）、costume、action 合起来就是这个角色的提示词：相同或同义的词只写一处，按 外貌 > costume > action 的优先级留在靠前的字段；属于某个角色的词不写进整图 scene；不同角色之间不受此限。',
         items: {
             type: 'object',
             additionalProperties: false,
-            required: ['name', 'action'],
+            required: ['name', 'costume', 'action'],
             properties: getScenePlanCharacterProperties(profile),
         },
     };

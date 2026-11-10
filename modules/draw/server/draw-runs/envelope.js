@@ -144,7 +144,7 @@ function validatePlanner(value, runtime) {
     }
     const planner = assertExactKeys(
         value,
-        ['prompt', 'tool', 'validationContext', 'presentCharacters', 'retry', 'customToolSources'],
+        ['prompt', 'tool', 'validationContext', 'presentCharacters', 'retry', 'customToolSources', 'refine'],
         'planner',
         ['prompt', 'tool', 'validationContext', 'presentCharacters'],
     );
@@ -210,8 +210,14 @@ function validatePlanner(value, runtime) {
             baseDelayMs: requireInteger(source.baseDelayMs, 'planner.retry.baseDelayMs', 100, 30_000),
         };
     }
+    if (planner.refine !== undefined) {
+        // 页面随规划数据送来的收尾设置（补没写的衣着、去重）：形状不对就拒收，不带病执行。
+        try { runtime.assertScenePlanRefine(planner.refine); } catch (error) { throw invalid(error.message); }
+        assertSafeJson(planner.refine, 'planner.refine');
+    }
     return {
         ...(retry ? { retry } : {}),
+        ...(planner.refine ? { refine: cloneJson(planner.refine) } : {}),
         ...(planner.customToolSources ? { customToolSources: cloneJson(planner.customToolSources) } : {}),
         prompt: cloneJson(prompt),
         tool: cloneJson(planner.tool),

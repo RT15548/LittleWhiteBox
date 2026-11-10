@@ -68,6 +68,7 @@ import { captureEditSave, installHostPanelEscape } from "../../shared/panel-esca
 import { resolveInitialTab, saveLastTab } from "../../shared/last-tab.js";
 import { EXTRA_TAGS_COPY, createCharacterEditorNote } from "../../shared/character-editor-copy.js";
 import { bindGroupPresetPanel } from "../../shared/character-group-presets-draft-binding.js";
+import { markNewGroupsOff } from "../../shared/character-group-presets.js";
 import { createApiPresetPage } from "../../shared/api-preset-page.js";
 import { API_PRESET_COPY } from '../../shared/api-presets-copy.js';
 import {
@@ -2567,6 +2568,8 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
         settings.useWorldInfo = getChecked('sd-shared-use-worldinfo');
         settings.messageFilterRules = collectFilterRules();
         settings.characterTags = characterTags;
+        const markedPresets = markNewGroupsOff(settings.characterGroupPresets, settings.characterGroups, characterGroups);
+        if (markedPresets !== settings.characterGroupPresets) settings.characterGroupPresets = markedPresets;
         settings.characterGroups = characterGroups;
         settings.worldbooks = {
             ...(settings.worldbooks || {}),
@@ -3563,12 +3566,12 @@ async function toggleEditPanel(container, show) {
 
 async function saveEditedTags(container) {
     try {
-        await persistCardTagEdits(container, (tags, characters, record) => {
+        const { notice } = await persistCardTagEdits(container, (tags, characters, record) => {
             const data = buildEditedPromptData(tags, characters);
             return { positive: data.positive, negativePrompt: data.negative ?? record?.negativePrompt ?? '' };
         });
         observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
-        toastr.success(DRAW_SLOT_COPY.tagSaved);
+        toastr.success(notice);
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.tagSaveFailed, error);

@@ -13,7 +13,21 @@ import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../scrip
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
-import { buildContinuityBlockForRequest } from '../../shared/character-continuity.js';
+import {
+    applyContinuityEdits,
+    buildContinuityBlockForRequest,
+    DEFAULT_MAX_ENTRIES,
+    DEFAULT_MAX_FLOORS,
+    buildContinuityEntries,
+    buildContinuityMemoryView,
+    createContinuityNameResolver,
+    nextContinuityEditPosition,
+    normalizeContinuityEdits,
+    normalizeContinuityLimits,
+    stripEmptyCostumeText,
+    updateContinuityEdits,
+} from '../../shared/character-continuity.js';
+import { expandCharacterForms, normalizeForms } from '../../shared/character-forms.js';
 import { isGenericCharacterName as isGenericCharName } from '../../shared/generic-char-name.js';
 import { SERVER_PLUGIN_BASE, SERVER_PLUGIN_VERSION } from '../../../../shared/server-plugin/identity.js';
 import { drawingRuntimeHeaders, DRAWING_RUNTIME_ABI } from '../../shared/drawing-runtime-client.js';
@@ -73,7 +87,7 @@ import {
 import { attachDrawAgentSettingsSurface } from "../../shared/agent-settings-surface.js";
 import { createSerialImageRequestQueue } from "../../shared/serial-image-request-queue.js";
 import { characterLibraryFromSettings, selectEnabledCharacters } from "../../shared/character-library.js";
-import { restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
+import { markNewGroupsOff, restoreGroupPresetReferences } from "../../shared/character-group-presets.js";
 import {
     findApiPreset,
     pickApiConfig,
@@ -87,7 +101,6 @@ import { getSlotPreviewPage } from '../../shared/gallery-cache.js';
 import { resolveImageTaskOrientations } from '../../shared/image-orientation.js';
 import { detectPresentCharacters } from "../../shared/present-characters.js";
 import { normalizeNamedTagList } from "../../shared/named-tag-items.js";
-import { normalizeForms } from "../../shared/character-forms.js";
 import { joinTags } from "../../shared/character-prompts.js";
 import { resolveAutoLearnCharacter } from "./novel-character-learning.js";
 import {
@@ -431,6 +444,8 @@ const DEFAULT_SETTINGS = {
     danbooruLocalDB: false,
     messageFilterRules: [],
     continuityEnabled: true,
+    continuityMaxFloors: DEFAULT_MAX_FLOORS,
+    continuityMaxEntries: DEFAULT_MAX_ENTRIES,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1069,6 +1084,7 @@ function normalizeSettings(saved = {}) {
         danbooruLocalDB: source.danbooruLocalDB === true,
         messageFilterRules: Array.isArray(source.messageFilterRules) ? source.messageFilterRules : [],
         continuityEnabled: source.continuityEnabled !== false,
+        ...normalizeContinuityLimits(source),
     };
 
     if (!merged.paramsPresets?.length) {
@@ -2742,13 +2758,13 @@ async function toggleEditPanel(container, show) {
 
 async function saveEditedTags(container) {
     try {
-        await persistCardTagEdits(container, (tags, characters, record) => {
+        const { notice } = await persistCardTagEdits(container, (tags, characters, record) => {
             const preset = getActiveParamsPreset();
             return { positive: joinTags(preset?.positivePrefix, tags),
                 negativePrompt: record?.negativePrompt ?? preset?.negativePrefix ?? '' };
         });
         observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
-        showToast(DRAW_SLOT_COPY.tagSaved);
+        showToast(notice);
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.tagSaveFailed, error);
@@ -2996,6 +3012,7 @@ async function buildNovelScenePlannerOptions({
     useWorldbook = true,
     onStateChange,
     continuityText = '',
+    continuityRecords = null,
 }) {
     let worldbookEntries = null;
     const customPrompts = getActivePromptPreset(settings) || DEFAULT_PROMPT_CONFIG;
@@ -3016,6 +3033,16 @@ async function buildNovelScenePlannerOptions({
         sceneSource,
         presentCharacters,
         continuityText,
+        // 规划解析完之后的收尾（补没写的衣着、去重）：随规划数据一起送出，浏览器和后台 Draw Run 都在共用的执行函数里做。
+        refine: {
+            dedupe: true,
+            ...(continuityRecords ? {
+                continuity: {
+                    entries: buildContinuityEntries({ records: continuityRecords, presentCharacters, maxEntries: settings.continuityMaxEntries }),
+                    maxEntries: settings.continuityMaxEntries,
+                },
+            } : {}),
+        },
         useWorldInfo: useWorldbook && settings.useWorldInfo,
         customPrompts,
         promptDefaults: DEFAULT_PROMPT_CONFIG,
@@ -3297,15 +3324,20 @@ async function generateAndInsertImages({
 
         // 上镜锚点：从图片记录重建——只取本聊天、目标楼层之前、当前分支上成功生成的图，
         // 删楼/切分支/删图后锚点自然失效，不再单独维护历史账本。
+        const continuityRecords = settings.continuityEnabled === false
+            ? []
+            : applyContinuityEdits(await getContinuityImageRecords({
+                chat: ctx.chat,
+                beforeMessageId: messageId,
+                maxFloors: settings.continuityMaxFloors,
+            }), readContinuityEdits(ctx), { beforeMessageId: messageId });
         const continuityText = settings.continuityEnabled === false
             ? ''
             : buildContinuityBlockForRequest({
-                records: await getContinuityImageRecords({
-                    chat: ctx.chat,
-                    beforeMessageId: messageId,
-                }),
+                records: continuityRecords,
                 presentCharacters,
                 bodyText: sceneSource.content,
+                maxEntries: settings.continuityMaxEntries,
             });
 
         // 手动生图：即使开了后端任务模式，规划也走浏览器侧，只落槽位不提交；
@@ -3334,6 +3366,7 @@ async function generateAndInsertImages({
                             signal,
                             onStateChange,
                             continuityText,
+                            continuityRecords,
                         }),
                         maxPlanImages,
                     });
@@ -3374,6 +3407,7 @@ async function generateAndInsertImages({
                     };
                 }
                 job.phase = 'llm';
+                // 补没写的衣着、去重都在共用的规划执行函数里做（见 refine），这里拿到的已经是收尾后的计划。
                 const planned = await generateAndParseScenePlan(await buildNovelScenePlannerOptions({
                     ...source,
                     settings,
@@ -3381,6 +3415,7 @@ async function generateAndInsertImages({
                     signal,
                     onStateChange,
                     continuityText,
+                    continuityRecords,
                 }));
                 if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.ABORTED);
                 await maybeAutoLearnFromTasks(planned, settings);
@@ -3620,6 +3655,7 @@ async function sendInitData() {
             autoLearnGroupId: settings.autoLearnGroupId || '',
             danbooruLocalDB: !!settings.danbooruLocalDB,
             continuityEnabled: settings.continuityEnabled !== false,
+            ...normalizeContinuityLimits(settings),
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
@@ -3665,6 +3701,56 @@ async function sendCacheData({ requestId } = {}) {
 function postStatus(state, text, target = '', extra = {}) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (iframe) postToIframe(iframe, { type: 'STATUS', state, text, target, ...extra }, 'LittleWhiteBox-NovelDraw');
+}
+
+// ── 沿用角色着装：记忆清单与手动修改（修改按聊天存在 chatMetadata.LittleWhiteBox.continuityEdits）──
+function readContinuityEdits(ctx) {
+    return normalizeContinuityEdits(ctx?.chatMetadata?.LittleWhiteBox?.continuityEdits);
+}
+
+async function writeContinuityEdits(ctx, edits) {
+    const metadata = ctx?.chatMetadata;
+    if (!metadata || typeof metadata !== 'object') return;
+    const store = metadata.LittleWhiteBox && typeof metadata.LittleWhiteBox === 'object'
+        ? metadata.LittleWhiteBox
+        : (metadata.LittleWhiteBox = {});
+    if (edits.length) store.continuityEdits = edits;
+    else delete store.continuityEdits;
+    await ctx.saveMetadata?.();
+}
+
+const hasChat = ctx => Array.isArray(ctx?.chat) && Boolean(ctx?.chatId);
+
+// 服装记忆的读取范围（设置里的数字；没设或写错就用默认）。
+function continuityLimits() {
+    const { continuityMaxFloors, continuityMaxEntries } = normalizeContinuityLimits(getRuntimeSettings());
+    return { maxFloors: continuityMaxFloors, maxEntries: continuityMaxEntries };
+}
+
+async function loadContinuityMemoryRecords(ctx, stats = null) {
+    return getContinuityImageRecords({ chat: ctx.chat, beforeMessageId: ctx.chat.length, maxFloors: continuityLimits().maxFloors, stats });
+}
+
+function allContinuityCharacters() {
+    return expandCharacterForms(selectEnabledCharacters(characterLibraryFromSettings(getRuntimeSettings())));
+}
+
+// scanned：编辑记忆时刚读过的 { records, scan, characters }（编辑只改聊天元数据，记录仍有效），带上就不用再读一遍。
+async function postContinuityMemory(scanned = null) {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!iframe) return;
+    const ctx = getContext();
+    const withChat = hasChat(ctx);
+    const limits = continuityLimits();
+    const scan = scanned?.scan ?? {};
+    const entries = withChat
+        ? buildContinuityMemoryView(scanned?.records ?? await loadContinuityMemoryRecords(ctx, scan), readContinuityEdits(ctx), {
+            characters: scanned?.characters ?? allContinuityCharacters(),
+            beforeMessageId: ctx.chat.length,
+            maxEntries: limits.maxEntries,
+        })
+        : [];
+    postToIframe(iframe, { type: 'CONTINUITY_MEMORY', hasChat: withChat, entries, scan: withChat ? { ...scan, maxFloors: limits.maxFloors } : null }, 'LittleWhiteBox-NovelDraw');
 }
 
 function postGroupPresetContext() {
@@ -4462,13 +4548,25 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_CHARACTER_TAGS': {
+            let newGroupPresets = null;
             const ok = await updateSharedSettingsPersistent((settings) => {
+                newGroupPresets = null;
                 if (data.restorePresetReferences) {
                     settings.characterGroupPresets = restoreGroupPresetReferences(settings.characterGroupPresets, data.restorePresetReferences);
                 }
                 if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
-                if (Array.isArray(data.characterGroups)) settings.characterGroups = data.characterGroups;
+                if (Array.isArray(data.characterGroups)) {
+                    // 新建的分组在已有预设里默认是“关”，不是“不管”。
+                    const marked = markNewGroupsOff(settings.characterGroupPresets, settings.characterGroups, data.characterGroups);
+                    if (marked !== settings.characterGroupPresets) {
+                        settings.characterGroupPresets = marked;
+                        newGroupPresets = marked;
+                    }
+                    settings.characterGroups = data.characterGroups;
+                }
             }, '角色标签已保存', data.requestId ? { notify: false } : undefined);
+            // 页面持有预设的本地副本，之后保存会整份写回：先让它对齐，免得旧副本把新分组的“关”冲掉。
+            if (ok && newGroupPresets) postStatus('success', '', 'group-presets', { presets: newGroupPresets });
             // 带 requestId 的是编辑区的自动保存：只回一条带 requestId 的回执（页面据此串行保存、更新状态栏），不占用全局状态栏。
             if (data.requestId) postStatus(ok ? 'success' : 'error', ok ? '已保存' : '保存失败', 'char-tags', { requestId: data.requestId });
             // 页面已按同一规则恢复预设引用。成功只发保存状态，不用旧快照覆盖后续编辑。
@@ -4575,6 +4673,57 @@ async function handleFrameMessage(event) {
                 settings.continuityEnabled = enabled;
             }, enabled ? '沿用角色着装已开启' : '沿用角色着装已关闭');
             observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'SAVE_CONTINUITY_LIMITS': {
+            const limits = normalizeContinuityLimits({ continuityMaxFloors: data.maxFloors, continuityMaxEntries: data.maxEntries });
+            await updateSettingsPersistent((settings) => {
+                Object.assign(settings, limits);
+            }, '服装记忆的读取范围已保存');
+            observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            observeBackgroundTask(postContinuityMemory(), { source: import.meta.url, operation: 'handleFrameMessage' });
+            break;
+        }
+
+        case 'CONTINUITY_MEMORY_REQUEST': {
+            try { await postContinuityMemory(); } catch (error) {
+                console.warn('[NovelDraw] 读取沿用角色着装记忆失败:', error);
+                postStatus('error', `读取服装记忆失败：${error.message || error}`);
+            }
+            break;
+        }
+
+        case 'CONTINUITY_MEMORY_EDIT': {
+            const ctx = getContext();
+            try {
+                let scanned = null;
+                if (hasChat(ctx)) {
+                    const chatId = ctx.chatId;
+                    const characters = allContinuityCharacters();
+                    const resolver = createContinuityNameResolver(characters);
+                    const scan = {};
+                    const records = await loadContinuityMemoryRecords(ctx, scan);
+                    // 读图片记录期间用户可能切了聊天：ctx 还指向旧聊天，不能把修改写进去，只刷新当前聊天的清单。
+                    if (getContext()?.chatId === chatId) {
+                        scanned = { records, scan, characters };
+                        const next = updateContinuityEdits(readContinuityEdits(ctx), {
+                            op: data.op,
+                            name: data.name,
+                            form: data.form,
+                            appear: data.appear,
+                            // 模型可能把提示里的“（空＝没穿）”抄进衣着，用户也可能从清单里复制，这里统一去掉。
+                            costume: stripEmptyCostumeText(data.costume),
+                            at: nextContinuityEditPosition(records),
+                        }, { resolver });
+                        await writeContinuityEdits(ctx, next);
+                    }
+                }
+                await postContinuityMemory(scanned);
+            } catch (error) {
+                console.warn('[NovelDraw] 修改沿用角色着装记忆失败:', error);
+                postStatus('error', `修改服装记忆失败：${error.message || error}`);
+            }
             break;
         }
 

@@ -22,7 +22,8 @@ const SI = {
 };
 const ALICE = { id: 'c2', name: 'Alice', aliases: ['Al'], type: 'girl', appearance: 'silver hair' };
 const library = (...characters) => normalizeCharacterLibrary({ characters, groups: [] }).characters;
-const snapshot = (timestamp, ...chars) => ({ timestamp, continuityChars: chars });
+// Real planner snapshots always carry an action key; a snapshot without one and with nothing else is the legacy revocation shape.
+const snapshot = (timestamp, ...chars) => ({ timestamp, continuityChars: chars.map(char => ({ action: 'standing', ...char })) });
 const names = state => state.entries.map(entry => entry.name);
 
 test('alias, annotated name and official name share one memory entry under the official name', () => {
@@ -68,7 +69,7 @@ test('a dragon without outfit is remembered as the form, so a silent body does n
         presentCharacters: detectPresentCharacters(text, library(SI)),
         bodyText: text,
     });
-    assert.match(block, /^- 司盈昃｜form: 龙形$/m);
+    assert.match(block, /^- 司盈昃｜form: 龙形｜costume: （空＝没穿）$/m);
     assert.ok(block.includes('form 沿用这里列出的'), 'the block tells the model to keep the last form when the body is silent');
 });
 
@@ -76,7 +77,7 @@ test('editing a prompt revokes the whole snapshot, form included; single-form ch
     const present = detectPresentCharacters('渔行歌 Alice', library(SI, ALICE));
     const state = buildContinuityFromImageRecords([
         snapshot(1, { name: '司盈昃', form: '龙形', appear: '', costume: '' }, { name: 'Alice', form: '', appear: '', costume: 'red coat' }),
-        snapshot(2, { name: '司盈昃', appear: '', costume: '' }, { name: 'Alice', form: '', appear: '', costume: '' }),
+        snapshot(2, { name: '司盈昃', revoked: true }, { name: 'Alice', revoked: true }),
     ], { characters: present });
     assert.deepEqual(names(state), []);
 });
@@ -143,4 +144,25 @@ test('current forms, pre-form snapshots and unregistered characters remain eligi
     ]) {
         assert.notEqual(buildContinuityBlockForRequest({ records: [snapshot(1, char)], presentCharacters, bodyText }), '');
     }
+});
+
+test('the legacy revocation shape { name, appear: "", costume: "" } (no action, no revoked) still deletes the memory', () => {
+    const present = detectPresentCharacters('渔行歌 Alice', library(SI, ALICE));
+    const legacy = (timestamp, ...chars) => ({ timestamp, continuityChars: chars });
+    const state = buildContinuityFromImageRecords([
+        snapshot(1, { name: '司盈昃', form: '龙形', appear: '', costume: 'black robe' }, { name: 'Alice', form: '', appear: '', costume: 'red coat' }),
+        legacy(2, { name: '司盈昃', appear: '', costume: '' }, { name: 'Alice', appear: '', costume: '' }),
+    ], { characters: present });
+    assert.deepEqual(names(state), [], 'both memories are deleted');
+    // Real snapshots always carry action, so an empty costume there still means "not wearing"; user edits are flagged and mean the same.
+    const bare = buildContinuityFromImageRecords([
+        snapshot(1, { name: 'Alice', form: '', appear: '', costume: 'red coat' }),
+        snapshot(2, { name: 'Alice', form: '', appear: '', costume: '' }),
+    ], { characters: present });
+    assert.deepEqual(bare.entries.map(entry => [entry.name, entry.costume]), [['Alice', '']]);
+    const edited = buildContinuityFromImageRecords([
+        snapshot(1, { name: 'Alice', form: '', appear: '', costume: 'red coat' }),
+        legacy(2, { name: 'Alice', form: '', appear: '', costume: '', edited: true }),
+    ], { characters: present });
+    assert.deepEqual(edited.entries.map(entry => [entry.name, entry.costume, entry.edited]), [['Alice', '', true]]);
 });

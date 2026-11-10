@@ -237,6 +237,23 @@ loadBuildEntry('runtime/draw-settings').catch(reportBuildFailure);
 .char-section-count:not(:empty)::before { content: '· '; }
 .char-section-actions { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .char-edit-section.is-collapsed .char-section-head { margin-bottom: 0; }
+.cm-panel { margin: 6px 0 0 44px; }
+.cm-list { display: flex; flex-direction: column; gap: 6px; }
+/* 记忆条目：和服装 / 动态标签条目同一套折叠头（.named-tag-*），这里只补卡片外观与内容。 */
+.cm-entry { padding: 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.08)); background: rgba(255,255,255,.03); }
+.cm-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cm-name { font-size: 12px; font-weight: 600; flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-floor { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.cm-edited { font-size: 11px; color: var(--accent, var(--text-secondary)); white-space: nowrap; }
+.cm-body .form-group { margin-bottom: 8px; }
+.cm-body .form-group:last-child { margin-bottom: 0; }
+.cm-costume { resize: none; }
+.cm-limit { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 11px; color: var(--text-secondary); }
+.cm-limit-input { width: 4.5em; padding: 4px 6px; text-align: center; }
+.cm-more { margin-top: 6px; }
+/* ── 筛选与管理：三个可折叠的模块（顺序固定，只有折叠状态存本机 localStorage） ── */
+.mgmt-module > .char-section-head { gap: 4px; justify-content: flex-start; margin-bottom: 6px; }
+.mgmt-module > .char-section-head .char-section-toggle { color: var(--text-primary); font-size: 13px; }
 .char-edit-form { margin-top: 0; padding-top: 10px; } /* 摘要行自带下边线 */
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
@@ -582,6 +599,8 @@ body:has(#view-gallery.active #nd_batch.btn-primary) .gallery-notice { top: calc
 }
 .nd-thumbpick-close { width: 30px; padding: 0; }
 .nd-thumbpick-toggle:hover, .nd-thumbpick-close:hover { border-color: var(--border-focus); }
+.nd-thumbpick-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+.nd-thumbpick-toggle:disabled:hover { border-color: var(--border); }
 .nd-thumbpick-grid {
     flex: 1; overflow-y: auto; padding: 14px;
     display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -1357,7 +1376,11 @@ button.nd-vibe-badge:disabled { cursor: default; }
                 </div>
 
                 <div class="char-management-layout"><div class="char-quick-tools"><input aria-label="搜索角色" id="nd_char_search" type="text" class="input" placeholder="搜索角色、别名或标签"><button id="nd_char_add" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> 添加角色</button></div>
-                    <details class="draw-disclosure char-library-options"><summary>筛选与管理</summary><aside class="char-management-sidebar"><section class="card"><div class="card-title">筛选角色</div>
+                    <details class="draw-disclosure char-library-options"><summary>筛选与管理</summary><aside class="char-management-sidebar mgmt-modules" id="nd_mgmt_modules"><section class="mgmt-module char-edit-section" data-mgmt-module="filters">
+                        <div class="char-section-head">
+                            <button type="button" class="char-section-toggle" data-mgmt-toggle="filters" aria-expanded="true" title="展开 / 折叠"><i class="fa-solid fa-chevron-down char-section-chevron" aria-hidden="true"></i><span class="char-section-title">筛选与概览</span></button>
+                        </div>
+                        <div class="char-section-body mgmt-module-body"><div class="mgmt-grid"><section class="card"><div class="card-title">筛选角色</div>
 
 
                             <div class="char-filter-row">
@@ -1435,13 +1458,13 @@ button.nd-vibe-badge:disabled { cursor: default; }
                             </div>
                         </div>
 
-                        <div class="card">
-                            <div id="nd_group_preset_root"></div>
-                            <div id="nd_gp_status" class="status-text" role="status"></div>
-                        </div>
 
-                        <div class="card">
-                            <div class="card-title">智能辅助</div>
+                        </div></div></section>
+                    <section class="mgmt-module char-edit-section" data-mgmt-module="assist">
+                        <div class="char-section-head">
+                            <button type="button" class="char-section-toggle" data-mgmt-toggle="assist" aria-expanded="true" title="展开 / 折叠"><i class="fa-solid fa-chevron-down char-section-chevron" aria-hidden="true"></i><span class="char-section-title">智能辅助</span></button>
+                        </div>
+                        <div class="char-section-body mgmt-module-body"><div class="card">
                             <div class="auto-learn-section" style="margin-bottom:12px;">
                                 <div class="auto-learn-toggle-row">
                                     <label class="toggle-switch">
@@ -1470,6 +1493,7 @@ button.nd-vibe-badge:disabled { cursor: default; }
                                     <span>沿用角色着装</span>
                                 </div>
                                 <p class="form-hint" style="margin-left:44px;margin-top:4px;">画新图时，沿用角色上一次出图时的外貌和着装；正文写明换装或其他变化时才改</p>
+                                <div id="nd_continuity_memory_mount"></div>
                             </div>
                             <div class="auto-learn-section">
                                 <div class="auto-learn-toggle-row">
@@ -1485,6 +1509,17 @@ button.nd-vibe-badge:disabled { cursor: default; }
                                 <p class="form-hint" style="margin-left:44px;margin-top:4px;">启用后加载本地 Danbooru top 7000 角色库，支持离线搜索和自动修正 danbooruTag</p>
                             </div>
                         </div>
+                        </div></section>
+                    <section class="mgmt-module char-edit-section" data-mgmt-module="presets">
+                        <div class="char-section-head">
+                            <button type="button" class="char-section-toggle" data-mgmt-toggle="presets" aria-expanded="true" title="展开 / 折叠"><i class="fa-solid fa-chevron-down char-section-chevron" aria-hidden="true"></i><span class="char-section-title">分组预设</span></button>
+                        </div>
+                        <div class="char-section-body mgmt-module-body">
+                        <div class="card">
+                            <div id="nd_group_preset_root"></div>
+                            <div id="nd_gp_status" class="status-text" role="status"></div>
+                        </div>
+                        </div></section>
                     </aside></details>
 
                     <section class="char-management-main">

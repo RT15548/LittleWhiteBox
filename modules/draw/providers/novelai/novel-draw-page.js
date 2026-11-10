@@ -65,6 +65,8 @@ import {
     setCharacterSaveStatus,
 } from '../../shared/character-editor-autosave.js';
 import { bindInlineRename } from '../../shared/inline-rename.js';
+import { normalizeMgmtLayout, toggleMgmtCollapsed } from '../../shared/mgmt-modules.js';
+import { createContinuityMemoryPanel } from '../../shared/continuity-memory-panel.js';
 import { resolveInitialTab, saveLastTab } from '../../shared/last-tab.js';
 import { renderCharacterActionIcon } from '../../shared/character-action-icons.js';
 
@@ -799,11 +801,24 @@ function handleGroupPresetStatus(data) {
             renderGroupPresetPanel();
         }
     }
+    // 宿主在保存角色库时给新分组补了“关”：没有 seq 的回执只带预设，用来对齐本地副本。
+    if (!data.seq && data.state === 'success' && Array.isArray(data.presets) && !groupPresetPendingSaves.size) {
+        groupPresetHostPresets = data.presets;
+        state.characterGroupPresets = data.presets;
+        renderGroupPresetPanel();
+    }
     if (data.state === 'error') groupPresetToast(data.text || '分组预设操作失败', 'error');
 }
 
+// 分组预设模块折叠时不画：数据照常更新，等展开时再画一次（折叠的模块不占任何渲染开销）。
+let groupPresetRenderDeferred = false;
 function renderGroupPresetPanel() {
     if (!GP) return;
+    if (isMgmtModuleCollapsed('presets')) {
+        groupPresetRenderDeferred = true;
+        return;
+    }
+    groupPresetRenderDeferred = false;
     if (groupPresetPanel) {
         groupPresetPanel.render();
         return;
@@ -1414,6 +1429,46 @@ function handleDragKeydown(event) {
         const handleNode = document.querySelector(`[${attribute}="${CSS.escape(id)}"]`);
         handleNode?.focus();
         handleNode?.closest(charHandle ? '.char-card' : '.char-group')?.scrollIntoView?.({ block: 'nearest' });
+    });
+}
+
+const MGMT_LAYOUT_KEY = 'lwb.draw.mgmtModules';
+
+let continuityMemoryPanel = null;
+// 服装记忆面板的本机显示偏好（localStorage）。
+const MEMORY_LIMIT_KEY = 'lwb.draw.memoryLimit'; // 服装记忆最多显示几个角色（没存过 = 10，0 = 全部）
+const MEMORY_ORDER_KEY = 'lwb.draw.memoryOrder'; // 服装记忆里角色的显示顺序（只是本机的显示偏好）
+// 「筛选与管理」里三个模块的顺序固定，只有折叠状态记在本机（localStorage）；读不到或读坏了就用默认（全部展开）。
+let mgmtLayout = null;
+function loadMgmtLayout() {
+    if (!mgmtLayout) {
+        try { mgmtLayout = normalizeMgmtLayout(localStorage.getItem(MGMT_LAYOUT_KEY)); } catch { mgmtLayout = normalizeMgmtLayout(null); }
+    }
+    return mgmtLayout;
+}
+function isMgmtModuleCollapsed(id) {
+    return loadMgmtLayout().collapsed.includes(id);
+}
+
+function setupMgmtModules() {
+    const root = $('nd_mgmt_modules');
+    if (!root) return;
+    // 三个模块的上下顺序固定，只有折叠状态会变（并记在本机）。
+    const modules = new Map(Array.from(root.querySelectorAll('.mgmt-module'), node => [node.dataset.mgmtModule, node]));
+    const apply = () => {
+        for (const [id, node] of modules) setEditorSectionCollapsed(node, isMgmtModuleCollapsed(id));
+    };
+    const commit = (next) => {
+        mgmtLayout = next;
+        apply();
+        // 刚展开的模块才补画它延后的内容。
+        if (groupPresetRenderDeferred && !isMgmtModuleCollapsed('presets')) renderGroupPresetPanel();
+        try { localStorage.setItem(MGMT_LAYOUT_KEY, JSON.stringify(mgmtLayout)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "setupMgmtModules" }, caughtError); }
+    };
+    apply();
+    root.addEventListener('click', (event) => {
+        const toggle = event.target.closest('[data-mgmt-toggle]');
+        if (toggle) commit(toggleMgmtCollapsed(loadMgmtLayout(), toggle.dataset.mgmtToggle));
     });
 }
 
@@ -3568,6 +3623,7 @@ function applyStateToUI() {
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
         $('nd_continuity_enabled').checked = state.continuityEnabled !== false;
+        continuityMemoryPanel?.setScanLimits({ maxFloors: state.continuityMaxFloors, maxEntries: state.continuityMaxEntries });
         $('nd_auto_generate_images').checked = state.autoGenerateImages !== false;
         renderFilterRules(state.messageFilterRules);
     } catch (e) {
@@ -3610,8 +3666,8 @@ function getParamsListView() {
             noun: '参数预设',
             variant: 'grid',
             menuItems: [
-                { action: 'thumbnail', label: '更换缩略图', icon: 'fa-image' },
-                { action: 'duplicate', label: '复制', icon: 'fa-copy' },
+                { action: 'thumbnail', label: '更换缩略图', icon: 'fa-images' },
+                { action: 'duplicate', label: '复制', icon: 'fa-clone' },
                 { action: 'export', label: '导出', icon: 'fa-download' },
                 { action: 'delete', label: '删除', icon: 'fa-trash', danger: true },
             ],
@@ -3703,6 +3759,7 @@ function ensureThumbPickOverlay() {
         <div class="nd-thumbpick-dialog">
             <div class="nd-thumbpick-head">
                 <span class="nd-thumbpick-title">从画廊选择缩略图</span>
+                <button type="button" id="nd_thumb_pick_remove" class="nd-thumbpick-toggle">移除缩略图</button>
                 <button type="button" id="nd_thumb_pick_upload" class="nd-thumbpick-toggle">上传本地图片</button>
                 <button type="button" id="nd_thumb_pick_toggle" class="nd-thumbpick-toggle">显示全部图片</button>
                 <button type="button" id="nd_thumb_pick_close" class="nd-thumbpick-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
@@ -3715,6 +3772,11 @@ function ensureThumbPickOverlay() {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('visible'); });
     $('nd_thumb_pick_close').addEventListener('click', () => overlay.classList.remove('visible'));
     $('nd_thumb_pick_upload').addEventListener('click', () => $('nd_thumb_pick_file')?.click());
+    $('nd_thumb_pick_remove').addEventListener('click', () => {
+        if (!thumbPickState.presetId) return;
+        applyPresetThumbnail(thumbPickState.presetId, '');
+        overlay.classList.remove('visible');
+    });
     $('nd_thumb_pick_file').addEventListener('change', observeAsyncCallback(async (e) => {
         const file = e.target.files?.[0];
         e.target.value = '';
@@ -3762,6 +3824,9 @@ function openThumbnailPicker(presetId = state.selectedParamsPresetId) {
     thumbPickState.presetId = String(presetId || '');
     thumbPickState.all = false;
     const overlay = ensureThumbPickOverlay();
+    // 没有缩略图可移除时置灰，按钮位置不动
+    const current = (state.paramsPresets || []).find(p => p.id === thumbPickState.presetId);
+    $('nd_thumb_pick_remove').disabled = !String(current?.thumbnail || '').trim();
     // 遮罩是 absolute（相对文档），打开时对齐当前滚动位置盖住视口
     overlay.style.top = `${window.scrollY || document.documentElement?.scrollTop || 0}px`;
     overlay.classList.add('visible');
@@ -5163,6 +5228,10 @@ window.addEventListener('message', event => {
             break;
         }
 
+        case 'CONTINUITY_MEMORY':
+            continuityMemoryPanel?.render(data);
+            break;
+
         case 'GROUP_PRESET_CONTEXT':
             // 聊天切换后宿主推来的轻量更新：只刷新“当前聊天”相关的数据，不动其它状态。
             if (Array.isArray(data.activeAvatars)) state.activeAvatars = data.activeAvatars;
@@ -5646,6 +5715,7 @@ function initializePage() {
         postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: $('nd_auto_learn').checked, autoLearnMode: mode, autoLearnGroupId: state.autoLearnGroupId });
     });
     setupCharacterDragAndSelection();
+    setupMgmtModules();
     $('nd_planner_retries').addEventListener('change', () => {
         const raw = String($('nd_planner_retries').value).trim();
         const parsed = raw === '' ? Number.NaN : Math.floor(Number(raw));
@@ -5675,6 +5745,35 @@ function initializePage() {
     $('nd_continuity_enabled').addEventListener('change', () => {
         state.continuityEnabled = $('nd_continuity_enabled').checked;
         postToParent({ type: 'SAVE_CONTINUITY_ENABLED', enabled: state.continuityEnabled });
+    });
+    // 服装记忆：展开时向宿主要当前聊天的记忆，改动交回宿主，宿主每次都回一份最新的（CONTINUITY_MEMORY）。
+    continuityMemoryPanel = createContinuityMemoryPanel({
+        document,
+        container: $('nd_continuity_memory_mount'),
+        requestMemory: () => postToParent({ type: 'CONTINUITY_MEMORY_REQUEST' }),
+        editMemory: payload => postToParent({ type: 'CONTINUITY_MEMORY_EDIT', ...payload }),
+        confirm: message => window.confirm(message),
+        getOrder: () => {
+            try { return JSON.parse(localStorage.getItem(MEMORY_ORDER_KEY) || '[]'); } catch { return []; }
+        },
+        getScanLimits: () => ({ maxFloors: state.continuityMaxFloors, maxEntries: state.continuityMaxEntries }),
+        onScanLimitsChange: (limits) => {
+            state.continuityMaxFloors = limits.maxFloors;
+            state.continuityMaxEntries = limits.maxEntries;
+            postToParent({ type: 'SAVE_CONTINUITY_LIMITS', ...limits });
+        },
+        getLimit: () => {
+            try {
+                const raw = localStorage.getItem(MEMORY_LIMIT_KEY);
+                return raw === null ? null : Number(raw);
+            } catch { return null; }
+        },
+        onLimitChange: (value) => {
+            try { localStorage.setItem(MEMORY_LIMIT_KEY, String(value)); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "memoryLimit" }, caughtError); }
+        },
+        onOrderChange: (names) => {
+            try { localStorage.setItem(MEMORY_ORDER_KEY, JSON.stringify(names.slice(0, 200))); } catch (caughtError) { console.warn({ source: import.meta.url, operation: "memoryOrder" }, caughtError); }
+        },
     });
 
     $('nd_auto_generate_images').addEventListener('change', () => {

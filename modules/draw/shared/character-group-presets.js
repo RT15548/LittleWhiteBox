@@ -312,6 +312,32 @@ export function setGroupState(presets, presetId, groupKey, state, { groupIds } =
     }));
 }
 
+/**
+ * 新出现的分组（上一次保存的分组里没有）在每个预设里默认记为“关”；已有分组、预设里已写的键都不动。
+ * 返回新数组（有变化的预设 revision + 1，下次进聊天会按新开关重新应用）；没有新分组时原样返回。
+ * previousGroups 不是数组（从未保存过分组）时没有“上一次”可比，原样返回，不能把现有分组全记成新分组；
+ * 预设缺 revision / groupStates 时按 0 / {} 处理。
+ */
+export function markNewGroupsOff(presets, previousGroups, nextGroups) {
+    if (!Array.isArray(presets) || !presets.length || !Array.isArray(previousGroups)) return presets;
+    const before = new Set(previousGroups.map(group => group?.id));
+    const fresh = (Array.isArray(nextGroups) ? nextGroups : [])
+        .map(group => group?.id)
+        .filter(id => isValidGroupKey(id) && !before.has(id));
+    if (!fresh.length) return presets;
+    return presets.map((preset) => {
+        const states = isPlainObject(preset?.groupStates) ? preset.groupStates : {};
+        const missing = fresh.filter(id => !Object.hasOwn(states, id));
+        if (!missing.length) return preset;
+        const revision = Number.isSafeInteger(preset?.revision) ? preset.revision : 0;
+        return {
+            ...preset,
+            revision: revision + 1,
+            groupStates: { ...states, ...Object.fromEntries(missing.map(id => [id, false])) },
+        };
+    });
+}
+
 /** 批量设置：默认合并进现有 groupStates；replace 为 true 时整体替换（如“用当前分组开关覆盖预设”）。 */
 export function setGroupStates(presets, presetId, groupStates, { groupIds, replace = false } = {}) {
     const current = requirePreset(presets, presetId);

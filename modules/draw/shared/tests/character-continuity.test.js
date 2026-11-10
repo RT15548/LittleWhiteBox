@@ -12,7 +12,8 @@ import { buildContinuityFromImageRecords } from '../character-continuity.js';
 // - Manual planning never calls transport, even with backend mode enabled; failed placement cleans up.
 // - Only visible, successful, selected images on each living source branch contribute facts.
 // - Compiler facts survive backend journal and saved-chat reload without a parallel history store.
-// - Character TAG edits revoke the affected snapshot, including earlier stale facts, without guessing new tags.
+// - Character TAG edits skip the edited character's snapshot for that image only (earlier memory stays), without guessing new tags;
+//   the save toast says so only when an edit actually skipped a character.
 for (const backend of [false, true]) test(`manual planning makes no paid request, backend=${backend}`, async () => {
     const saved = new Map(); let commits = 0; let requests = 0;
     const options = {
@@ -92,7 +93,7 @@ test('browser and signed runtime use identical compiled snapshots through journa
     }
 });
 
-for (const mode of ['single', 'failed-floor']) test(`TAG edits revoke stale facts before ${mode} redraw`, async t => {
+for (const mode of ['single', 'failed-floor']) test(`TAG edits skip the edited character's snapshot before ${mode} redraw, keeping the earlier memory`, async t => {
     const h = await fixture(['[image:edited-slot]']); t.after(() => h.stop());
     const characters = [{ prompt: 'red dress', uc: '' }, { prompt: 'black coat', uc: '' }];
     const chars = [{ name: 'Alice', costume: 'red dress' }, { name: 'Bobby', costume: 'black coat' }];
@@ -109,12 +110,58 @@ for (const mode of ['single', 'failed-floor']) test(`TAG edits revoke stale fact
     }
     await h.api.readCardTagEditor(card);
     panel.querySelector('[data-type="char"][data-index="0"]').value = 'blue dress';
-    await h.api.persistCardTagEdits(card, () => ({}));
+    const firstSave = await h.api.persistCardTagEdits(card, () => ({}));
     let submitted;
     h.api.registerPreparedImageProvider('continuity-check', async input => { submitted = input.tasks[0]; });
     if (mode === 'single') await h.api.redrawImageCard('continuity-check', card);
     else await h.api.redrawFloorFailedImageCards('continuity-check', card);
     assert.equal(compileNovelPromptForTask(submitted).characterPrompts[0].prompt, 'blue dress');
-    const history = buildContinuityFromImageRecords([{ continuityChars: chars }, { continuityChars: submitted.chars }]);
-    assert.deepEqual(history.entries.map(({ name, costume }) => ({ name, costume })), [{ name: 'Bobby', costume: 'black coat' }]);
+    // An earlier floor remembered Alice in a blue dress; the redrawn image skips only the edited Alice (Bobby is untouched).
+    const earlier = { continuityChars: [{ name: 'Alice', costume: 'blue dress', action: 'standing' }] };
+    const history = buildContinuityFromImageRecords([earlier, { continuityChars: submitted.chars }]);
+    assert.deepEqual(Object.fromEntries(history.entries.map(({ name, costume }) => [name, costume])), { Alice: 'blue dress', Bobby: 'black coat' });
+    // The save toast: the first save that skips a character says so; saving the same card again without touching a character does not.
+    assert.equal(firstSave.notice, h.api.DRAW_SLOT_COPY.tagSavedCharactersEdited);
+    assert.equal((await h.api.getPreview('edited-image')).continuityChars.some(char => char.tagEdited === true), true);
+    assert.equal((await h.api.persistCardTagEdits(card, () => ({}))).notice, h.api.DRAW_SLOT_COPY.tagSaved, 'nothing newly skipped');
+});
+
+test('the save notice mentions skipped characters only when this save newly skipped one', async t => {
+    const h = await fixture(['plain']); t.after(() => h.stop());
+    const { DRAW_SLOT_COPY, tagSavedNotice } = h.api;
+    const plain = [{ name: 'Alice', costume: 'x', action: 'standing' }, { name: 'Bobby', costume: 'y', action: 'standing' }];
+    const skip = char => ({ name: char.name, costume: '', costumeOmitted: true, tagEdited: true, action: '' });
+    assert.equal(tagSavedNotice({ continuityChars: plain }, { continuityChars: plain }), DRAW_SLOT_COPY.tagSaved, 'no edit');
+    assert.equal(tagSavedNotice({ continuityChars: plain }, { continuityChars: [skip(plain[0]), plain[1]] }), DRAW_SLOT_COPY.tagSavedCharactersEdited, 'first edit');
+    assert.equal(tagSavedNotice({ continuityChars: [skip(plain[0]), plain[1]] }, { continuityChars: [skip(plain[0]), plain[1]] }), DRAW_SLOT_COPY.tagSaved, 'already skipped, nothing new');
+    assert.equal(tagSavedNotice({ continuityChars: [skip(plain[0]), plain[1]] }, { continuityChars: [skip(plain[0]), skip(plain[1])] }), DRAW_SLOT_COPY.tagSavedCharactersEdited, 'a second character newly skipped');
+    assert.equal(tagSavedNotice(null, { continuityChars: [skip(plain[0])] }), DRAW_SLOT_COPY.tagSavedCharactersEdited, 'a card with no record yet');
+    assert.equal(tagSavedNotice(null, null), DRAW_SLOT_COPY.tagSaved);
+    assert.equal(tagSavedNotice({ continuityChars: plain }, { continuityChars: [{ ...plain[0], costumeOmitted: true }, plain[1]] }), DRAW_SLOT_COPY.tagSaved, 'a model-omitted costume is not a tag edit');
+});
+
+test('only the last maxFloors floors before the target are read, counted back from the target; stats say what was read', async t => {
+    const h = await fixture(['[image:a]', '[image:b]', 'plain', '[image:c]', 'target']); t.after(() => h.stop());
+    await image(h, 'a', 'dress a', { messageId: 0 });
+    await image(h, 'b', 'dress b', { messageId: 1 });
+    await image(h, 'c', 'dress c', { messageId: 3 });
+    const before = h.ctx.chat.length - 1;
+    const readWindow = (maxFloors, stats) => h.api.getContinuityImageRecords({ chat: h.ctx.chat, beforeMessageId: before, maxFloors, stats });
+    assert.deepEqual(costumes(await readWindow(undefined)), ['dress a', 'dress b', 'dress c']);
+    const stats = {};
+    assert.deepEqual(costumes(await readWindow(2, stats)), ['dress c'], 'floors 2 and 3 only');
+    assert.deepEqual([stats.floors, stats.slots, stats.truncated, typeof stats.ms], [2, 1, true, 'number']);
+    const wide = {};
+    assert.deepEqual(costumes(await readWindow(500, wide)), ['dress a', 'dress b', 'dress c']);
+    assert.deepEqual([wide.floors, wide.slots, wide.truncated], [4, 3, false], 'a window wider than the chat reads everything');
+    const records = await readWindow(3);
+    assert.deepEqual(records.map(record => record.messageId), [1, 3], 'floor numbers stay the real chat floors');
+});
+
+test('asking for the whole chat (target past the end) excludes nothing', async t => {
+    const h = await fixture(['[image:a]', '[image:b]']); t.after(() => h.stop());
+    await image(h, 'a', 'dress a', { messageId: 0 });
+    await image(h, 'b', 'dress b', { messageId: 1 });
+    const records = await h.api.getContinuityImageRecords({ chat: h.ctx.chat, beforeMessageId: h.ctx.chat.length });
+    assert.deepEqual(costumes(records), ['dress a', 'dress b']);
 });
