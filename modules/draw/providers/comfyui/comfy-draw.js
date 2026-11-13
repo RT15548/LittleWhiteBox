@@ -153,12 +153,12 @@ import { prepareImageInput } from '../../shared/prepared-image-input.js';
 import { acquireFloorImageJob, getFloorImageJob, getFloorImageJobs, getFloorImagePhase, getFloorImageState, releaseFloorImageJob, observeFloorImageJob, failFloorImageJob, clearFloorImageJobs, resolveFloorImageJobTarget, rebaseFloorImageJobsAfterSwipeDeletion } from '../../shared/floor-image-job.js';
 import { createImageRequestAttempt, imageHttpFailure, withImageRequestOutcome, ImageRequestOutcome } from '../../shared/image-request-outcome.js';
 import { createImageCardRedrawProvider } from "../../shared/image-card-redraw-provider.js";
-import { redrawImageCard, removeChatImageSlot, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
+import { redrawImageCard, removeChatImageSlot, removeFloorFailedImageCards, restoreImageCard, retryFloorFailedImageCards } from "../../shared/image-card-actions.js";
 import { toggleImageCardControls } from '../../shared/image-card-controls.js';
 import { withDrawActionFeedback } from "../../shared/draw-action-feedback.js";
 import { getCharacterTagEditGroups, persistCardTagEdits, readCardTagEditor } from "../../shared/card-tag-editor.js";
 import { getCurrentUserHandle } from "../../../../../../../user.js";
-import { hasPreviewImage, DRAW_SLOT_COPY } from "../../shared/image-record.js";
+import { hasPreviewImage, DRAW_SLOT_COPY, DRAW_SLOT_ERRORS } from "../../shared/image-record.js";
 import { observeAsyncCallback, observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
 const handleImageDelegatedClickEvent = observeAsyncCallback(handleImageDelegatedClick, { source: import.meta.url, operation: "handleImageDelegatedClick" });
@@ -1312,36 +1312,46 @@ async function runComfyImageBatch({
             detachScope.dispose();
         }
     }
-    for (let index = 0; index < requests.length; index++) {
-        if (signal?.aborted) {
-            for (let pending = index; pending < requests.length; pending++) {
-                await onItemSettled?.({ index: pending, state: 'cancelled', error: new Error('已取消'), source: 'frontend' });
+    // 整批一次性入队：同一楼层的所有图在提交时就占好队列位置，前一层画完才轮到下一层。
+    const queued = requests.map((_, index) => generateComfyImage({
+        ...requests[index],
+        prepared: prepared[index],
+        beforeRequest: () => onItemStarting?.({ index }),
+        generationConfig: settings,
+        signal,
+        queueBatch,
+        onQueueStateChange: (state, data) => {
+            if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
+            if (state === 'cooldown') {
+                if (index + 1 >= requests.length) return;
+                return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
             }
-            break;
-        }
-        try {
-            const base64 = await generateComfyImage({
-                ...requests[index],
-                prepared: prepared[index],
-                beforeRequest: () => onItemStarting?.({ index }),
-                generationConfig: settings,
-                signal,
-                queueBatch,
-                onQueueStateChange: (state, data) => {
-                if (state === 'start') return onStateChange?.('progress', { current: index + 1, total: requests.length });
-                if (state === 'cooldown') {
-                    if (index + 1 >= requests.length) return;
-                    return onStateChange?.('cooldown', { ...data, nextIndex: index + 2, total: requests.length });
+            onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
+        },
+    }));
+    // 未消费的排队项在取消时会被 reject，统一收割，避免未处理的拒绝。
+    let consumed = 0;
+    try {
+        for (let index = 0; index < requests.length; index++) {
+            if (signal?.aborted) {
+                for (let pending = index; pending < requests.length; pending++) {
+                    await onItemSettled?.({ index: pending, state: 'cancelled', error: new Error('已取消'), source: 'frontend' });
                 }
-                onStateChange?.(state, { current: index + 1, total: requests.length, ...data });
-                },
-            });
-            if (base64 === null) continue;
-            await onItemReady?.({ index, base64 });
-        } catch (error) {
-            await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
-            if (signal?.aborted) break;
+                break;
+            }
+            try {
+                const base64 = await queued[index];
+                consumed = index + 1;
+                if (base64 === null) continue;
+                await onItemReady?.({ index, base64 });
+            } catch (error) {
+                consumed = index + 1;
+                await onItemSettled?.({ index, state: signal?.aborted ? 'cancelled' : 'failed', error, source: 'frontend' });
+                if (signal?.aborted) break;
+            }
         }
+    } finally {
+        await Promise.allSettled(queued.slice(consumed));
     }
     return { mode: 'frontend' };
 }
@@ -4455,12 +4465,13 @@ function buildSharedGalleryCallbacks(slotId, messageId, container) {
             if (cont) {
                 // eslint-disable-next-line no-unsanitized/property -- The draw renderer escapes text fields; slot/message identifiers come from this image record.
                 cont.outerHTML = buildFailedPlaceholderHtml({
-                    slotId: sid, messageId: msgId,
+                    slotId: sid, imgId: lastImageInfo.imgId || '', messageId: msgId,
                     tags: lastImageInfo.tags || '', positive: lastImageInfo.positive || '',
-                    errorType: '图片已删除', errorMessage: '点击重试可重新生成',
+                    errorType: DRAW_SLOT_ERRORS.deleted.label, errorMessage: DRAW_SLOT_ERRORS.deleted.desc,
                 });
             }
-            await storeFailedPlaceholder({
+            // 画廊已把这条记录转成失败记录（输入全部保留）时不再另存一条只有 TAG 的占位。
+            if (!lastImageInfo.imgId) await storeFailedPlaceholder({
                 slotId: sid, messageId: msgId,
                 tags: lastImageInfo.tags || '', positive: lastImageInfo.positive || '',
                 errorType: 'deleted', errorMessage: '图片已删除，点击重试可重新生成',
@@ -4558,7 +4569,8 @@ async function handleImageDelegatedClick(event) {
     if (action === 'save-tags') { await saveEditedTags(container); return; }
     if (action === 'save-tags-retry') { await saveTagsAndRetry(container); return; }
     if (action === 'save-image') { container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open'); await saveCurrentImage(container); return; }
-    if (action === 'remove-placeholder') { await removePlaceholder(container); }
+    if (action === 'remove-placeholder') { await removePlaceholder(container); return; }
+    if (action === 'remove-floor-failed') { await removeFloorFailedImageCards(container); }
 }
 
 async function toggleEditPanel(container, show) {

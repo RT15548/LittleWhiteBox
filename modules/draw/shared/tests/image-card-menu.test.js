@@ -50,7 +50,8 @@ test('failed card: regenerate stays the primary button, the rest hide behind one
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');
     const menu = row.querySelector('[role="menu"]');
     assert.equal(menu.hasAttribute('hidden'), true);
-    assert.deepEqual(actions(menu), ['edit-tags', 'retry-floor-failed', 'remove-placeholder']);
+    assert.deepEqual(actions(menu), ['edit-tags', 'retry-floor-failed', 'remove-placeholder', 'remove-floor-failed']);
+    assert.equal(menu.querySelectorAll('.xb-nd-more-sep').length, 1, 'consecutive dangerous items share one separator');
 });
 
 test('failed card with earlier images adds a restore button next to the primary one', () => {

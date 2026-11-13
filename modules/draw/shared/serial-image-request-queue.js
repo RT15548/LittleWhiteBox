@@ -155,6 +155,17 @@ export function createSerialImageRequestQueue({
         })(), { source: import.meta.url, operation: "pump" });
     }
 
+    // 同一批（batchKey）的请求连续执行：一个楼层的图画完，才轮到后提交的楼层。
+    // 调用方把整批任务一次性入队，队列按批分组排队，所以层内连续、层间按提交顺序。
+    // 没有 batchKey 的请求（公共 API 等）按到达顺序排。
+    function insertionIndex(item) {
+        if (item.batchKey === undefined) return pending.length;
+        for (let index = pending.length - 1; index >= 0; index--) {
+            if (pending[index].batchKey === item.batchKey) return index + 1;
+        }
+        return active?.batchKey === item.batchKey ? 0 : pending.length;
+    }
+
     function enqueue(run, { signal, batchKey, scope = 'default', cooldownMs, onQueued, onStart, onCooldown } = {}) {
         return new Promise((resolve, reject) => {
             if (signal?.aborted) {
@@ -193,7 +204,7 @@ export function createSerialImageRequestQueue({
             };
             signal?.addEventListener('abort', item.abortHandler, { once: true });
 
-            pending.push(item);
+            pending.splice(insertionIndex(item), 0, item);
             notifyQueued();
             pump();
         });
