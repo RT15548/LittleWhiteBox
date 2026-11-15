@@ -1,0 +1,1734 @@
+{
+  "format": 1,
+  "name": "雾港证物审理",
+  "updates": [
+    "before",
+    "after"
+  ],
+  "schema": {
+    "type": "object",
+    "required": [
+      "docket"
+    ],
+    "properties": {
+      "docket": {
+        "type": "object",
+        "required": [
+          "clock",
+          "exhibits",
+          "people",
+          "claims",
+          "leads",
+          "verdict",
+          "note"
+        ],
+        "properties": {
+          "clock": {
+            "type": "object",
+            "description": "已审分钟数与截止分钟数。",
+            "required": [
+              "minute",
+              "limit"
+            ],
+            "properties": {
+              "minute": {
+                "type": "integer",
+                "description": "已审分钟，0 到 480。",
+                "minimum": 0,
+                "maximum": 480
+              },
+              "limit": {
+                "type": "integer",
+                "description": "截止分钟，固定 480。",
+                "minimum": 480,
+                "maximum": 480
+              }
+            }
+          },
+          "exhibits": {
+            "type": "object",
+            "description": "固定证物目录；custodian 为空表示尚未取得，首次取证后交给书记员。",
+            "required": [
+              "EX-01",
+              "EX-02",
+              "EX-03",
+              "EX-04",
+              "EX-05"
+            ],
+            "properties": {
+              "EX-01": {
+                "$ref": "#/$defs/exhibit"
+              },
+              "EX-02": {
+                "$ref": "#/$defs/exhibit"
+              },
+              "EX-03": {
+                "$ref": "#/$defs/exhibit"
+              },
+              "EX-04": {
+                "$ref": "#/$defs/exhibit"
+              },
+              "EX-05": {
+                "$ref": "#/$defs/exhibit"
+              }
+            },
+            "additionalProperties": false
+          },
+          "people": {
+            "type": "object",
+            "description": "涉案人员及其配合度。",
+            "required": [
+              "suspect_a",
+              "suspect_b",
+              "suspect_c",
+              "witness",
+              "clerk"
+            ],
+            "properties": {
+              "suspect_a": {
+                "$ref": "#/$defs/person"
+              },
+              "suspect_b": {
+                "$ref": "#/$defs/person"
+              },
+              "suspect_c": {
+                "$ref": "#/$defs/person"
+              },
+              "witness": {
+                "$ref": "#/$defs/person"
+              },
+              "clerk": {
+                "$ref": "#/$defs/person"
+              }
+            },
+            "additionalProperties": false
+          },
+          "claims": {
+            "type": "object",
+            "description": "已录入的证言，键为证言编号。",
+            "additionalProperties": {
+              "$ref": "#/$defs/claim"
+            }
+          },
+          "leads": {
+            "type": "object",
+            "description": "只有已点出的线索才能在正文里明确说出。",
+            "required": [
+              "L-01",
+              "L-02",
+              "L-03"
+            ],
+            "properties": {
+              "L-01": {
+                "$ref": "#/$defs/lead"
+              },
+              "L-02": {
+                "$ref": "#/$defs/lead"
+              },
+              "L-03": {
+                "$ref": "#/$defs/lead"
+              }
+            },
+            "additionalProperties": false
+          },
+          "verdict": {
+            "type": "object",
+            "description": "程序给出的审理结果；结案后只允许正文纪要与人物态度更新。",
+            "required": [
+              "status",
+              "label",
+              "accused",
+              "evidenceUsed",
+              "reason"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ongoing",
+                  "right_accuse",
+                  "wrong_accuse",
+                  "no_accuse",
+                  "timeout"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "accused": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "evidenceUsed": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "EX-01",
+                    "EX-02",
+                    "EX-03",
+                    "EX-04",
+                    "EX-05"
+                  ]
+                }
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          },
+          "note": {
+            "type": "string",
+            "description": "一句话记录当前审理最要紧的事实，每轮替换。",
+            "maxLength": 120
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "$defs": {
+      "exhibit": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "source",
+          "custodian",
+          "authenticity",
+          "contamination",
+          "legalChain",
+          "sealed",
+          "destroyed",
+          "inspected",
+          "tested",
+          "testLabel"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "custodian": {
+            "type": "string",
+            "enum": [
+              "",
+              "clerk",
+              "witness",
+              "suspect_a",
+              "suspect_b",
+              "suspect_c"
+            ]
+          },
+          "authenticity": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "genuine",
+              "forged"
+            ]
+          },
+          "contamination": {
+            "type": "string",
+            "enum": [
+              "clean",
+              "tainted",
+              "destroyed"
+            ]
+          },
+          "legalChain": {
+            "type": "boolean"
+          },
+          "sealed": {
+            "type": "boolean"
+          },
+          "destroyed": {
+            "type": "boolean"
+          },
+          "inspected": {
+            "type": "boolean"
+          },
+          "tested": {
+            "type": "string",
+            "enum": [
+              "none",
+              "match",
+              "mismatch"
+            ]
+          },
+          "testLabel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "person": {
+        "type": "object",
+        "required": [
+          "name",
+          "role",
+          "trust",
+          "testified"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "testified": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "claim": {
+        "type": "object",
+        "required": [
+          "id",
+          "speaker",
+          "topic",
+          "stance",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "speaker": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "stance": {
+            "type": "string",
+            "description": "证言明确指认的人物代号；空字符串表示未指认具体对象。"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "lead": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "opened"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "initial": {
+    "docket": {
+      "clock": {
+        "minute": 0,
+        "limit": 480
+      },
+      "exhibits": {
+        "EX-01": {
+          "id": "EX-01",
+          "name": "铅封舱单副本",
+          "source": "三号泊位调度室",
+          "custodian": "",
+          "authenticity": "unknown",
+          "contamination": "clean",
+          "legalChain": true,
+          "sealed": false,
+          "destroyed": false,
+          "inspected": false,
+          "tested": "none",
+          "testLabel": "尚未检验"
+        },
+        "EX-02": {
+          "id": "EX-02",
+          "name": "撕角提货票",
+          "source": "三号泊位雨棚",
+          "custodian": "",
+          "authenticity": "unknown",
+          "contamination": "clean",
+          "legalChain": true,
+          "sealed": false,
+          "destroyed": false,
+          "inspected": false,
+          "tested": "none",
+          "testLabel": "尚未检验"
+        },
+        "EX-03": {
+          "id": "EX-03",
+          "name": "沾油手套",
+          "source": "驳船甲板",
+          "custodian": "",
+          "authenticity": "unknown",
+          "contamination": "clean",
+          "legalChain": true,
+          "sealed": false,
+          "destroyed": false,
+          "inspected": false,
+          "tested": "none",
+          "testLabel": "尚未检验"
+        },
+        "EX-04": {
+          "id": "EX-04",
+          "name": "舱壁刮痕样本",
+          "source": "四号货舱",
+          "custodian": "",
+          "authenticity": "unknown",
+          "contamination": "clean",
+          "legalChain": true,
+          "sealed": false,
+          "destroyed": false,
+          "inspected": false,
+          "tested": "none",
+          "testLabel": "尚未检验"
+        },
+        "EX-05": {
+          "id": "EX-05",
+          "name": "私账页片",
+          "source": "嫌疑人住所",
+          "custodian": "",
+          "authenticity": "unknown",
+          "contamination": "clean",
+          "legalChain": true,
+          "sealed": false,
+          "destroyed": false,
+          "inspected": false,
+          "tested": "none",
+          "testLabel": "尚未检验"
+        }
+      },
+      "people": {
+        "suspect_a": {
+          "name": "祁修远",
+          "role": "泊位调度长",
+          "trust": 4,
+          "testified": false
+        },
+        "suspect_b": {
+          "name": "罗阿九",
+          "role": "驳船押运",
+          "trust": 3,
+          "testified": false
+        },
+        "suspect_c": {
+          "name": "温仪",
+          "role": "货代代表",
+          "trust": 4,
+          "testified": false
+        },
+        "witness": {
+          "name": "老陈",
+          "role": "夜班看守",
+          "trust": 5,
+          "testified": false
+        },
+        "clerk": {
+          "name": "值守书记员",
+          "role": "证物保管人",
+          "trust": 8,
+          "testified": false
+        }
+      },
+      "claims": {},
+      "leads": {
+        "L-01": {
+          "id": "L-01",
+          "title": "",
+          "opened": false
+        },
+        "L-02": {
+          "id": "L-02",
+          "title": "",
+          "opened": false
+        },
+        "L-03": {
+          "id": "L-03",
+          "title": "",
+          "opened": false
+        }
+      },
+      "verdict": {
+        "status": "ongoing",
+        "label": "审理进行中",
+        "accused": null,
+        "evidenceUsed": [],
+        "reason": ""
+      },
+      "note": "雾还没散。早八收卷前，查清这批货的来龙去脉。"
+    }
+  },
+  "access": [
+    {
+      "path": [
+        "docket",
+        "clock"
+      ],
+      "direct": false,
+      "description": "已审分钟数与截止分钟数。",
+      "update": "只有玩家明确要求等待、推进时间或给出耗时才提交 advance；不为每次对话自动扣时间。"
+    },
+    {
+      "path": [
+        "docket",
+        "exhibits"
+      ],
+      "direct": false,
+      "description": "固定证物目录；custodian 为空表示尚未取得，首次取证后交给书记员。",
+      "update": "只提交玩家本轮明确要求且尚未结算的动作；询问规则、假设行动或复述既成结果不提交。按证物编号或名称映射取证、转交、封存、检验；复合请求按明确顺序提交。"
+    },
+    {
+      "path": [
+        "docket",
+        "claims"
+      ],
+      "direct": false,
+      "description": "已录入的证言，键为证言编号。",
+      "update": "只提交玩家本轮明确要求且尚未结算的动作；询问规则、假设行动或复述既成结果不提交。玩家要求某人正式作证时提交 testify；普通交谈不自动录证言。"
+    },
+    {
+      "path": [
+        "docket",
+        "leads"
+      ],
+      "direct": false,
+      "description": "只有已点出的线索才能在正文里明确说出。"
+    },
+    {
+      "path": [
+        "docket",
+        "verdict"
+      ],
+      "direct": false,
+      "description": "程序给出的审理结果；结案后只允许正文纪要与人物态度更新。",
+      "update": "只提交玩家本轮明确要求且尚未结算的动作；询问规则、假设行动或复述既成结果不提交。正式指控须给出明确对象与证物清单；主动选择不指控结案时才提交 close_case。"
+    },
+    {
+      "path": [
+        "docket",
+        "note"
+      ],
+      "direct": true,
+      "stages": [
+        "after"
+      ],
+      "description": "最新一句审理纪要。",
+      "update": "正文形成新的审理进展时，用一句话替换纪要；只记录已发生的事实，不复写整段故事。"
+    },
+    {
+      "path": [
+        "docket",
+        "people",
+        "suspect_a",
+        "trust"
+      ],
+      "direct": true,
+      "stages": [
+        "after"
+      ],
+      "description": "祁修远的叙事配合度；影响态度描写，不改变证言或指控结论。",
+      "update": "仅在正文中的问话、安抚或施压确实改变祁修远的态度时更新；闲聊、假设或未发生的许诺不改变。"
+    },
+    {
+      "path": [
+        "docket",
+        "people",
+        "suspect_b",
+        "trust"
+      ],
+      "direct": true,
+      "stages": [
+        "after"
+      ],
+      "description": "罗阿九的叙事配合度；影响态度描写，不改变证言或指控结论。",
+      "update": "仅在正文中的问话、安抚或施压确实改变罗阿九的态度时更新；闲聊、假设或未发生的许诺不改变。"
+    },
+    {
+      "path": [
+        "docket",
+        "people",
+        "suspect_c",
+        "trust"
+      ],
+      "direct": true,
+      "stages": [
+        "after"
+      ],
+      "description": "温仪的叙事配合度；影响态度描写，不改变证言或指控结论。",
+      "update": "仅在正文中的问话、安抚或施压确实改变温仪的态度时更新；闲聊、假设或未发生的许诺不改变。"
+    },
+    {
+      "path": [
+        "docket",
+        "people",
+        "witness",
+        "trust"
+      ],
+      "direct": true,
+      "stages": [
+        "after"
+      ],
+      "description": "老陈的叙事配合度；影响态度描写，不改变证言或指控结论。",
+      "update": "仅在正文中的问话、安抚或施压确实改变老陈的态度时更新；闲聊、假设或未发生的许诺不改变。"
+    },
+    {
+      "path": [
+        "docket",
+        "people",
+        "clerk",
+        "trust"
+      ],
+      "direct": true,
+      "stages": [
+        "after"
+      ],
+      "description": "值守书记员的叙事配合度；影响态度描写，不改变证言或指控结论。",
+      "update": "仅在正文中的问话、安抚或施压确实改变值守书记员的态度时更新；闲聊、假设或未发生的许诺不改变。"
+    }
+  ],
+  "rules": [],
+  "functions": {
+    "isOngoing": {
+      "reads": [
+        [
+          "docket",
+          "clock"
+        ],
+        [
+          "docket",
+          "verdict"
+        ]
+      ],
+      "description": "案件尚未结束且仍在时限内。"
+    },
+    "clampAdvance": {
+      "reads": [
+        [
+          "docket",
+          "clock"
+        ]
+      ],
+      "description": "推进到截止时刻为止，返回实际经过分钟数。"
+    },
+    "clockSane": {
+      "reads": [
+        [
+          "docket",
+          "clock"
+        ]
+      ],
+      "description": "时钟保持在本案规定的审理期限内。"
+    },
+    "verdictLabel": {
+      "reads": [],
+      "description": "结局的中文名称。"
+    },
+    "canDiscover": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "只能首次取得尚未入册的证物。"
+    },
+    "exhibitUsable": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "证物已取得、保管链合法且没有污染或销毁。"
+    },
+    "isUninspected": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "证物尚未检验。"
+    },
+    "isNotSealed": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "证物尚未封存。"
+    },
+    "canTransfer": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ],
+        [
+          "docket",
+          "people"
+        ]
+      ],
+      "description": "只能转交已取得且未封存、未销毁的证物；接收人必须存在且不同于当前保管人。"
+    },
+    "setExhibitState": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "执行取证、转交、封存或检验；已有的断链和污染记录不会因登记或封存消失。"
+    },
+    "notTestified": {
+      "reads": [
+        [
+          "docket",
+          "people"
+        ]
+      ],
+      "description": "只能录取尚未正式作证的涉案人员或见证人的证言。"
+    },
+    "addClaim": {
+      "reads": [
+        [
+          "docket",
+          "people"
+        ],
+        [
+          "docket",
+          "claims"
+        ]
+      ],
+      "description": "把本次证言原文入册；口供只是说话者的陈述，不是程序确认的真相。"
+    },
+    "caseReadyToAccuse": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "举证清单必须至少包含两件不同的有效证物，且其中至少一件检验吻合。"
+    },
+    "makeVerdict": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "只依据本次提交的有效举证与指控对象判定结局。"
+    },
+    "leadOneReady": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "相应证物获得了有效的吻合检验结果。"
+    },
+    "leadTwoReady": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "相应证物获得了有效的吻合检验结果。"
+    },
+    "leadThreeReady": {
+      "reads": [
+        [
+          "docket",
+          "exhibits"
+        ]
+      ],
+      "description": "相应证物获得了有效的吻合检验结果。"
+    },
+    "openLead": {
+      "reads": [
+        [
+          "docket",
+          "leads"
+        ]
+      ],
+      "description": "首次获得有效检验结果后公开相应线索。"
+    }
+  },
+  "actions": [
+    {
+      "id": "advance",
+      "title": "推进时间",
+      "description": "按玩家明确给出的分钟数推进审理时钟，最多推进到截止。到点未结案则收卷，后续实质动作不能继续。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "minutes"
+        ],
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240,
+            "description": "玩家明确要求推进的分钟数；超过剩余时间时只推进到截止。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "call": "isOngoing",
+        "args": []
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "clock",
+            "minute"
+          ],
+          "value": {
+            "op": "add",
+            "args": [
+              {
+                "get": [
+                  "docket",
+                  "clock",
+                  "minute"
+                ]
+              },
+              {
+                "call": "clampAdvance",
+                "args": [
+                  {
+                    "param": [
+                      "minutes"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "discover",
+      "title": "取证",
+      "description": "首次取得目录中的证物并交书记员保管；已经取得的证物不能重新登记来清除污染或断链。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "exhibitId"
+        ],
+        "properties": {
+          "exhibitId": {
+            "type": "string",
+            "enum": [
+              "EX-01",
+              "EX-02",
+              "EX-03",
+              "EX-04",
+              "EX-05"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "call": "isOngoing",
+            "args": []
+          },
+          {
+            "call": "canDiscover",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "exhibits"
+          ],
+          "value": {
+            "call": "setExhibitState",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              },
+              {
+                "literal": "discover"
+              },
+              {
+                "literal": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "transfer",
+      "title": "转交证物",
+      "description": "把证物转交给另一个人保管。交给任何一名嫌疑人会当场断掉保管链并污染证物，此后不能再检验，也不能用于指控。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "exhibitId",
+          "toCode"
+        ],
+        "properties": {
+          "exhibitId": {
+            "type": "string",
+            "enum": [
+              "EX-01",
+              "EX-02",
+              "EX-03",
+              "EX-04",
+              "EX-05"
+            ]
+          },
+          "toCode": {
+            "type": "string",
+            "enum": [
+              "clerk",
+              "witness",
+              "suspect_a",
+              "suspect_b",
+              "suspect_c"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "call": "isOngoing",
+            "args": []
+          },
+          {
+            "call": "canTransfer",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              },
+              {
+                "param": [
+                  "toCode"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "exhibits"
+          ],
+          "value": {
+            "call": "setExhibitState",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              },
+              {
+                "literal": "transfer"
+              },
+              {
+                "param": [
+                  "toCode"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "seal",
+      "title": "封存证物",
+      "description": "封存已取得且保管链完整的证物，锁定当前保管人；检验时封存提高吻合机会。封存不修复已有污染或断链。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "exhibitId"
+        ],
+        "properties": {
+          "exhibitId": {
+            "type": "string",
+            "enum": [
+              "EX-01",
+              "EX-02",
+              "EX-03",
+              "EX-04",
+              "EX-05"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "call": "isOngoing",
+            "args": []
+          },
+          {
+            "call": "exhibitUsable",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              }
+            ]
+          },
+          {
+            "call": "isNotSealed",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "exhibits"
+          ],
+          "value": {
+            "call": "setExhibitState",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              },
+              {
+                "literal": "seal"
+              },
+              {
+                "literal": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "inspect",
+      "title": "检验证物",
+      "description": "检验已取得、尚未检验且保管链合法的证物；结论由准备好的随机材料和执行时的封存状态决定，正文读取实际检验结论。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "exhibitId"
+        ],
+        "properties": {
+          "exhibitId": {
+            "type": "string",
+            "enum": [
+              "EX-01",
+              "EX-02",
+              "EX-03",
+              "EX-04",
+              "EX-05"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "call": "isOngoing",
+            "args": []
+          },
+          {
+            "call": "isUninspected",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              }
+            ]
+          },
+          {
+            "call": "exhibitUsable",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "exhibits"
+          ],
+          "value": {
+            "call": "setExhibitState",
+            "args": [
+              {
+                "param": [
+                  "exhibitId"
+                ]
+              },
+              {
+                "literal": "inspect"
+              },
+              {
+                "prepared": [
+                  "rolls"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "testify",
+      "title": "录证言",
+      "description": "将指定涉案人员或见证人的正式证言原文入册，每人只录一次；人物配合度影响叙事态度，不改写这份陈述或把它变成事实。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "personCode"
+        ],
+        "properties": {
+          "personCode": {
+            "type": "string",
+            "enum": [
+              "suspect_a",
+              "suspect_b",
+              "suspect_c",
+              "witness"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "call": "isOngoing",
+            "args": []
+          },
+          {
+            "call": "notTestified",
+            "args": [
+              {
+                "param": [
+                  "personCode"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "people",
+            "suspect_a",
+            "testified"
+          ],
+          "value": {
+            "op": "if",
+            "args": [
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "param": [
+                      "personCode"
+                    ]
+                  },
+                  {
+                    "literal": "suspect_a"
+                  }
+                ]
+              },
+              {
+                "literal": true
+              },
+              {
+                "get": [
+                  "docket",
+                  "people",
+                  "suspect_a",
+                  "testified"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "people",
+            "suspect_b",
+            "testified"
+          ],
+          "value": {
+            "op": "if",
+            "args": [
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "param": [
+                      "personCode"
+                    ]
+                  },
+                  {
+                    "literal": "suspect_b"
+                  }
+                ]
+              },
+              {
+                "literal": true
+              },
+              {
+                "get": [
+                  "docket",
+                  "people",
+                  "suspect_b",
+                  "testified"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "people",
+            "suspect_c",
+            "testified"
+          ],
+          "value": {
+            "op": "if",
+            "args": [
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "param": [
+                      "personCode"
+                    ]
+                  },
+                  {
+                    "literal": "suspect_c"
+                  }
+                ]
+              },
+              {
+                "literal": true
+              },
+              {
+                "get": [
+                  "docket",
+                  "people",
+                  "suspect_c",
+                  "testified"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "people",
+            "witness",
+            "testified"
+          ],
+          "value": {
+            "op": "if",
+            "args": [
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "param": [
+                      "personCode"
+                    ]
+                  },
+                  {
+                    "literal": "witness"
+                  }
+                ]
+              },
+              {
+                "literal": true
+              },
+              {
+                "get": [
+                  "docket",
+                  "people",
+                  "witness",
+                  "testified"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "claims"
+          ],
+          "value": {
+            "call": "addClaim",
+            "args": [
+              {
+                "param": [
+                  "personCode"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "accuse",
+      "title": "提出指控",
+      "description": "正式提交指控对象与至少两件不同证物；每件都须有效且其中至少一件检验吻合。仅用本次举证判定结局，不借用未提交的证物。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "required": [
+          "suspectCode",
+          "evidence"
+        ],
+        "properties": {
+          "suspectCode": {
+            "type": "string",
+            "enum": [
+              "suspect_a",
+              "suspect_b",
+              "suspect_c"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 5,
+            "items": {
+              "type": "string",
+              "enum": [
+                "EX-01",
+                "EX-02",
+                "EX-03",
+                "EX-04",
+                "EX-05"
+              ]
+            },
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "call": "isOngoing",
+            "args": []
+          },
+          {
+            "call": "caseReadyToAccuse",
+            "args": [
+              {
+                "param": [
+                  "evidence"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "verdict"
+          ],
+          "value": {
+            "call": "makeVerdict",
+            "args": [
+              {
+                "param": [
+                  "suspectCode"
+                ]
+              },
+              {
+                "param": [
+                  "evidence"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "close_case",
+      "title": "暂不指控结案",
+      "description": "玩家明确选择证据不足、暂不指控时结束审理；不能代替玩家作此决定。",
+      "stages": [
+        "before"
+      ],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "玩家决定暂不指控的理由。"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "requires": {
+        "call": "isOngoing",
+        "args": []
+      },
+      "conversions": [],
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "verdict"
+          ],
+          "value": {
+            "literal": {
+              "status": "no_accuse",
+              "label": "暂不指控",
+              "accused": null,
+              "evidenceUsed": [],
+              "reason": ""
+            }
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "verdict",
+            "reason"
+          ],
+          "value": {
+            "param": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "id": "T-lead1",
+      "description": "首次取得对应的有效检验结果后，公开一条相关线索。",
+      "when": {
+        "call": "leadOneReady",
+        "args": []
+      },
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "leads",
+            "L-01"
+          ],
+          "value": {
+            "call": "openLead",
+            "args": [
+              {
+                "literal": "L-01"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "T-lead2",
+      "description": "首次取得对应的有效检验结果后，公开一条相关线索。",
+      "when": {
+        "call": "leadTwoReady",
+        "args": []
+      },
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "leads",
+            "L-02"
+          ],
+          "value": {
+            "call": "openLead",
+            "args": [
+              {
+                "literal": "L-02"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "T-lead3",
+      "description": "首次取得对应的有效检验结果后，公开一条相关线索。",
+      "when": {
+        "call": "leadThreeReady",
+        "args": []
+      },
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "leads",
+            "L-03"
+          ],
+          "value": {
+            "call": "openLead",
+            "args": [
+              {
+                "literal": "L-03"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "T-timeout",
+      "description": "审理时钟走到截止分钟仍未提出指控，天亮收卷。",
+      "when": {
+        "op": "and",
+        "args": [
+          {
+            "op": "gte",
+            "args": [
+              {
+                "get": [
+                  "docket",
+                  "clock",
+                  "minute"
+                ]
+              },
+              {
+                "get": [
+                  "docket",
+                  "clock",
+                  "limit"
+                ]
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "get": [
+                  "docket",
+                  "verdict",
+                  "status"
+                ]
+              },
+              {
+                "literal": "ongoing"
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "docket",
+            "verdict",
+            "status"
+          ],
+          "value": {
+            "literal": "timeout"
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "verdict",
+            "label"
+          ],
+          "value": {
+            "call": "verdictLabel",
+            "args": [
+              {
+                "literal": "timeout"
+              }
+            ]
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "verdict",
+            "accused"
+          ],
+          "value": {
+            "literal": null
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "verdict",
+            "evidenceUsed"
+          ],
+          "value": {
+            "literal": []
+          }
+        },
+        {
+          "path": [
+            "docket",
+            "verdict",
+            "reason"
+          ],
+          "value": {
+            "literal": "审理时限用尽，天亮收卷。"
+          }
+        }
+      ],
+      "timing": "action"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "C-clock",
+      "description": "审理时钟必须合法：已审分钟不超过截止分钟，且截止为 480。",
+      "test": {
+        "call": "clockSane",
+        "args": []
+      }
+    }
+  ],
+  "views": {
+    "case": {
+      "paths": [
+        [
+          "docket"
+        ]
+      ],
+      "description": "雾港证物审理的完整案件机制：证物链、身份权限、检验结论、审理时限与指控门槛。"
+    }
+  },
+  "extensions": {
+    "scripts": {
+      "prepare": {
+        "title": "准备本批检验随机数",
+        "description": "一次准备所有证物的原始检验随机数，纠错时复用；具体结果在执行检验时按当前状态计算。",
+        "enabled": true
+      }
+    }
+  }
+}

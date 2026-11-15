@@ -1,0 +1,1 @@
+(input, { get }) => { const ex=get(['docket','exhibits',input[0]]), to=input[1]; return !!ex && !!ex.custodian && !ex.destroyed && !ex.sealed && ex.custodian !== to && !!get(['docket','people',to]); }

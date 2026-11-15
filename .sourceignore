@@ -15,6 +15,8 @@ libs/**
 # A whole card in CardFiles layout: card data run by the card runtime (scripts are
 # function bodies), verified by modules/variables/state3/tests/jieling-example.test.ts.
 /modules/variables/state3/skill/references/examples/jieling/**
+# Standard-chat CardFiles data; exercised by wugang-example and wugang-frontend tests.
+/modules/variables/state3/skill/references/examples/wugang/**
 
 # Integrated CardFiles example; executed by modules/card-workspace/frontend-example.test.ts.
 /modules/card-workspace/skill/frontend/examples/jieling/**

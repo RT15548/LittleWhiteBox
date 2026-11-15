@@ -2435,7 +2435,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/SKILL.md",
       "relativePath": "modules/card-workspace/skill/SKILL.md",
       "extension": ".md",
-      "sizeBytes": 9483
+      "sizeBytes": 9632
     },
     {
       "source": "littlewhitebox",
@@ -2449,7 +2449,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples.md",
       "relativePath": "modules/card-workspace/skill/frontend/examples.md",
       "extension": ".md",
-      "sizeBytes": 1919
+      "sizeBytes": 2251
     },
     {
       "source": "littlewhitebox",
@@ -11346,7 +11346,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/SKILL.md",
       "relativePath": "modules/variables/state3/skill/SKILL.md",
       "extension": ".md",
-      "sizeBytes": 32974
+      "sizeBytes": 33431
     },
     {
       "source": "littlewhitebox",
@@ -11571,6 +11571,230 @@
       "relativePath": "modules/variables/state3/skill/references/examples/member-rules.ts",
       "extension": ".ts",
       "sizeBytes": 2709
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang.md",
+      "extension": ".md",
+      "sizeBytes": 8350
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/card.json",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/card.json",
+      "extension": ".json",
+      "sizeBytes": 246
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/creator_notes.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/creator_notes.md",
+      "extension": ".md",
+      "sizeBytes": 671
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/description.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/description.md",
+      "extension": ".md",
+      "sizeBytes": 318
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/message/0.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/message/0.md",
+      "extension": ".md",
+      "sizeBytes": 1756
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/regex/雾港：最新一楼卷宗.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/regex/雾港：最新一楼卷宗.md",
+      "extension": ".md",
+      "sizeBytes": 14223
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/scenario.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/scenario.md",
+      "extension": ".md",
+      "sizeBytes": 417
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/definition.json",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/definition.json",
+      "extension": ".json",
+      "sizeBytes": 40834
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/addClaim.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/addClaim.js",
+      "extension": ".js",
+      "sizeBytes": 940
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/canDiscover.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/canDiscover.js",
+      "extension": ".js",
+      "sizeBytes": 172
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/canTransfer.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/canTransfer.js",
+      "extension": ".js",
+      "sizeBytes": 201
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/caseReadyToAccuse.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/caseReadyToAccuse.js",
+      "extension": ".js",
+      "sizeBytes": 377
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/clampAdvance.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/clampAdvance.js",
+      "extension": ".js",
+      "sizeBytes": 120
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/clockSane.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/clockSane.js",
+      "extension": ".js",
+      "sizeBytes": 175
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/exhibitUsable.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/exhibitUsable.js",
+      "extension": ".js",
+      "sizeBytes": 185
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/isNotSealed.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/isNotSealed.js",
+      "extension": ".js",
+      "sizeBytes": 75
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/isOngoing.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/isOngoing.js",
+      "extension": ".js",
+      "sizeBytes": 139
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/isUninspected.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/isUninspected.js",
+      "extension": ".js",
+      "sizeBytes": 78
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/leadOneReady.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/leadOneReady.js",
+      "extension": ".js",
+      "sizeBytes": 181
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/leadThreeReady.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/leadThreeReady.js",
+      "extension": ".js",
+      "sizeBytes": 181
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/leadTwoReady.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/leadTwoReady.js",
+      "extension": ".js",
+      "sizeBytes": 181
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/makeVerdict.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/makeVerdict.js",
+      "extension": ".js",
+      "sizeBytes": 526
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/notTestified.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/notTestified.js",
+      "extension": ".js",
+      "sizeBytes": 134
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/openLead.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/openLead.js",
+      "extension": ".js",
+      "sizeBytes": 287
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/setExhibitState.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/setExhibitState.js",
+      "extension": ".js",
+      "sizeBytes": 1834
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/functions/verdictLabel.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/functions/verdictLabel.js",
+      "extension": ".js",
+      "sizeBytes": 147
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/variables/scripts/prepare.js",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/variables/scripts/prepare.js",
+      "extension": ".js",
+      "sizeBytes": 147
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/1.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/1.md",
+      "extension": ".md",
+      "sizeBytes": 1076
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/2.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/2.md",
+      "extension": ".md",
+      "sizeBytes": 299
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/3.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/3.md",
+      "extension": ".md",
+      "sizeBytes": 1237
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/4.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/4.md",
+      "extension": ".md",
+      "sizeBytes": 1866
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/5.md",
+      "relativePath": "modules/variables/state3/skill/references/examples/wugang/world_book/雾港证物审理·示例/5.md",
+      "extension": ".md",
+      "sizeBytes": 1104
     },
     {
       "source": "littlewhitebox",
@@ -11844,6 +12068,20 @@
       "relativePath": "modules/variables/state3/tests/submission-feedback.test.ts",
       "extension": ".ts",
       "sizeBytes": 9923
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/tests/wugang-example.test.ts",
+      "relativePath": "modules/variables/state3/tests/wugang-example.test.ts",
+      "extension": ".ts",
+      "sizeBytes": 18104
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state3/tests/wugang-frontend.test.ts",
+      "relativePath": "modules/variables/state3/tests/wugang-frontend.test.ts",
+      "extension": ".ts",
+      "sizeBytes": 14265
     },
     {
       "source": "littlewhitebox",
