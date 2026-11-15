@@ -2169,6 +2169,8 @@ async function runNovelImageBatch({
             request: () => executePreparedNovelRequest(prepared[index], requestConfig, signal),
             sendMode: requestConfig.sendMode,
             signal,
+            // 429 是限速：等一个请求间隔再试，别把队列抖动直接报成失败。
+            retryDelayMs: getNovelImageRequestDelay(),
             beforeRequest: () => onItemStarting?.({ index }),
         }),
         {
