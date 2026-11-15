@@ -2316,7 +2316,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/frontend-example.test.ts",
       "relativePath": "modules/card-workspace/frontend-example.test.ts",
       "extension": ".ts",
-      "sizeBytes": 18662
+      "sizeBytes": 18720
     },
     {
       "source": "littlewhitebox",
@@ -2449,63 +2449,70 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples.md",
       "relativePath": "modules/card-workspace/skill/frontend/examples.md",
       "extension": ".md",
-      "sizeBytes": 1850
+      "sizeBytes": 1919
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling.md",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling.md",
       "extension": ".md",
-      "sizeBytes": 3691
+      "sizeBytes": 4241
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/card.json",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/card.json",
       "extension": ".json",
-      "sizeBytes": 110
+      "sizeBytes": 121
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/creator_notes.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/creator_notes.md",
+      "extension": ".md",
+      "sizeBytes": 1303
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/description.md",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/description.md",
       "extension": ".md",
-      "sizeBytes": 4155
+      "sizeBytes": 4356
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/message/0.md",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/message/0.md",
       "extension": ".md",
-      "sizeBytes": 2758
+      "sizeBytes": 3607
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/tasks/[解铃会] 一体界面.md",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/tasks/[解铃会] 一体界面.md",
       "extension": ".md",
-      "sizeBytes": 99143
+      "sizeBytes": 109765
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/variables/definition.json",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/variables/definition.json",
       "extension": ".json",
-      "sizeBytes": 66226
+      "sizeBytes": 68524
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/variables/functions/cat.js",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/variables/functions/cat.js",
       "extension": ".js",
-      "sizeBytes": 2813
+      "sizeBytes": 2950
     },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/variables/functions/check.js",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/variables/functions/check.js",
       "extension": ".js",
-      "sizeBytes": 4094
+      "sizeBytes": 4288
     },
     {
       "source": "littlewhitebox",
@@ -2519,7 +2526,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/variables/functions/close_day.js",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/variables/functions/close_day.js",
       "extension": ".js",
-      "sizeBytes": 4975
+      "sizeBytes": 6127
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/variables/functions/finance.js",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/variables/functions/finance.js",
+      "extension": ".js",
+      "sizeBytes": 4537
     },
     {
       "source": "littlewhitebox",
@@ -2533,7 +2547,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/variables/functions/operate.js",
       "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/variables/functions/operate.js",
       "extension": ".js",
-      "sizeBytes": 3644
+      "sizeBytes": 4863
     },
     {
       "source": "littlewhitebox",
@@ -2544,136 +2558,136 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/互助班.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/互助班.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/互助班.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/互助班.md",
       "extension": ".md",
       "sizeBytes": 5406
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·周慕白.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·周慕白.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·周慕白.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·周慕白.md",
       "extension": ".md",
       "sizeBytes": 3072
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·苏曼.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·苏曼.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·苏曼.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·苏曼.md",
       "extension": ".md",
       "sizeBytes": 3206
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·陆承.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·陆承.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·陆承.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·陆承.md",
       "extension": ".md",
       "sizeBytes": 3819
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·顾宁.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会员·顾宁.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·顾宁.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会员·顾宁.md",
       "extension": ".md",
       "sizeBytes": 3819
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会所的房间.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/会所的房间.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会所的房间.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/会所的房间.md",
       "extension": ".md",
       "sizeBytes": 4542
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/出事.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/出事.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/出事.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/出事.md",
       "extension": ".md",
       "sizeBytes": 3711
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/前台·许棠.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/前台·许棠.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/前台·许棠.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/前台·许棠.md",
       "extension": ".md",
       "sizeBytes": 7585
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/前台·许棠·语料.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/前台·许棠·语料.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/前台·许棠·语料.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/前台·许棠·语料.md",
       "extension": ".md",
       "sizeBytes": 3715
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/包间.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/包间.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/包间.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/包间.md",
       "extension": ".md",
-      "sizeBytes": 5504
+      "sizeBytes": 5522
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/咨询师·闻清.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/咨询师·闻清.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/咨询师·闻清.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/咨询师·闻清.md",
       "extension": ".md",
       "sizeBytes": 9225
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/咨询师·闻清·语料.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/咨询师·闻清·语料.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/咨询师·闻清·语料.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/咨询师·闻清·语料.md",
       "extension": ".md",
       "sizeBytes": 4805
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/回复格式.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/回复格式.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/回复格式.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/回复格式.md",
       "extension": ".md",
       "sizeBytes": 2461
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/来访者和会员.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/来访者和会员.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/来访者和会员.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/来访者和会员.md",
       "extension": ".md",
-      "sizeBytes": 3491
+      "sizeBytes": 3560
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/经营状态.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/经营状态.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/经营状态.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/经营状态.md",
       "extension": ".md",
-      "sizeBytes": 3444
+      "sizeBytes": 4560
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/结业与退会.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/结业与退会.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/结业与退会.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/结业与退会.md",
       "extension": ".md",
       "sizeBytes": 3881
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/解铃会.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/解铃会.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/解铃会.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/解铃会.md",
       "extension": ".md",
-      "sizeBytes": 6315
+      "sizeBytes": 6630
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/解铃会文风.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/解铃会文风.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/解铃会文风.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/解铃会文风.md",
       "extension": ".md",
       "sizeBytes": 4714
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/面谈与入会.md",
-      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会/面谈与入会.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/面谈与入会.md",
+      "relativePath": "modules/card-workspace/skill/frontend/examples/jieling/world_book/解铃会·经营版/面谈与入会.md",
       "extension": ".md",
-      "sizeBytes": 5457
+      "sizeBytes": 5646
     },
     {
       "source": "littlewhitebox",
@@ -2694,7 +2708,7 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/card-workspace/skill/references/xiaobaix-heavy-ui.md",
       "relativePath": "modules/card-workspace/skill/references/xiaobaix-heavy-ui.md",
       "extension": ".md",
-      "sizeBytes": 5801
+      "sizeBytes": 5702
     },
     {
       "source": "littlewhitebox",

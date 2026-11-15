@@ -37,6 +37,7 @@
       return room.members.length >= R['每间最多'] ? y + '已经坐满' : '';
     }
     case 'private': {
+      if (club.day === 7) return '周日不开包间';
       const q = pairOf(x, y);
       if (!q) return x + '和' + y + '不是能排包间的一对';
       if (!q.ready) return '会所对两人的底还没摸清';
@@ -62,17 +63,19 @@
     case 'admit':
       if (!app(x)) return '本周没有这位来访者';
       if (!app(x).called) return '还没请这位来访者进来面谈';
-      return Object.prototype.hasOwnProperty.call(m, y) ? '名册里已经有' + y : '';
+      if (!app(x).name) return '这位来访者还没有登记姓名';
+      return Object.prototype.hasOwnProperty.call(m, app(x).name) ? '名册里已经有' + app(x).name : '';
     case 'decline':
       if (!app(x)) return '本周没有这位来访者';
       return app(x).called ? '' : '还没请这位来访者进来面谈';
     case 'consent': {
+      if (club.day === 7) return '周日不开包间';
+      if (club.today.privates >= club.privateRooms) return '今晚的包间都用掉了';
       const q = pairOf(x, y);
       if (!q) return x + '和' + y + '不是能排包间的一对';
       if (!q.ready) return '会所对两人的底还没摸清';
       return q.agreed ? '这一场两人已经同意过了' : '';
     }
-    case 'note': return Object.prototype.hasOwnProperty.call(m, x) ? '' : '名册里没有' + x;
   }
   return '未知操作';
 }

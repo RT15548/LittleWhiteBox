@@ -6,25 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { parseHTML } from 'linkedom';
-import ts from 'typescript';
 import { parseItemDocument } from './item-document.js';
 import { variableBundleFromFiles } from '../variables/state3/definition/card-files.js';
 import { compileDefinition } from '../variables/state3/definition/compile.js';
 import { initialize, settle } from '../variables/state3/engine/settle.js';
 import { accepted } from '../variables/state3/tests/fixture.js';
 import { createGuideFixture } from '../variables/state3/tests/guide-fixture.js';
-import { COPY, errorText } from '../variables/state3/ui/copy.js';
-import { element, resultLabel, showDiagnostics } from '../variables/state3/ui/result.js';
-import { createResultDialog } from '../variables/state3/ui/result-dialog.js';
-import { createAuthorExtensions } from '../variables/state3/ui/author-extensions.js';
-import { EXTENSION_COPY as EC } from '../variables/state3/extensions/copy.js';
-import { DEFINITION_FILE } from '../variables/state3/definition/format.js';
-import { fieldName } from '../variables/state3/definition/schema-fields.js';
-import type { State3Api } from '../variables/state3/runtime/api.js';
-import type { createState3Page } from '../variables/state3/ui/settings.js';
 import type { Json } from '../variables/state3/types.js';
 
 // Install the published CardFiles package, not the separate state3 weekly tutorial.
+// Contracts: the complete package settles a day and sends after settlement (broken play);
+// admission/renewal post each charge once (lost game progress); image and viewport
+// bindings follow their real floor and mount lifetime (wrong image actions or leaks).
 const folder = fileURLToPath(new URL('./skill/frontend/examples/jieling/', import.meta.url));
 const walk = (directory: string): string[] => readdirSync(directory).flatMap(name => {
     const path = join(directory, name);
@@ -42,28 +35,14 @@ const commands = task.body.replace(/^<<taskjs>>\r?\n/, '').replace(/\r?\n<<\/tas
 
 type ClubState = {
     club: { week: number; day: number; funds: number; acted: boolean; today: { audit: string; privates: number };
-        members: Record<string, { room: string; classWeek: number; status: string }>;
-        applicants: { id: string; called: boolean }[];
+        members: Record<string, { room: string; classWeek: number; status: string; nextFeeWeek: number; nextFeeDay: number }>;
+        applicants: { id: string; name: string; called: boolean }[];
+        cashbook: { kind: string; amount: number; who: string[] }[];
         report: null | { week: number; day: number; income: number; expense: number; classes: { held: boolean; members: string[] }[] } };
-    desk: { phase: string; cat: { price: Record<string, number> };
+    desk: { phase: string; cat: { price: Record<string, number>; rule: Record<string, number> };
         classes: Record<string, { members: string[]; tonight: boolean; open: boolean }>; matches: unknown[] };
 };
 const clubState = (value: Json) => value as unknown as ClubState;
-
-// Run the real controls factory with browser/style boundaries injected, as the
-// state3 recovery-controls tests do; never replace its DOM or click handlers.
-function controlsPage(document: Document, api: State3Api, tasks: Promise<unknown>[]) {
-    const source = ts.transpileModule(readFileSync(new URL('../variables/state3/ui/settings.ts', import.meta.url), 'utf8'), {
-        compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-    }).outputText.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '').replaceAll('import.meta.url', "'frontend-example-test'");
-    const create = runInNewContext(source + '\ncreateState3Page', {
-        document, AbortController, COPY, errorText, element, resultLabel, showDiagnostics, createResultDialog, createAuthorExtensions, EC, DEFINITION_FILE, fieldName,
-        styleText: '', controlsCss: '', confirm: () => true,
-        notifyInfo: (message: string) => { throw new Error(message); },
-        observeBackgroundTask: (work: Promise<unknown>) => tasks.push(work),
-    }) as typeof createState3Page;
-    return create(api);
-}
 
 async function terminal(t: TestContext) {
     const fixture = await createGuideFixture(bundle, { authorize: async () => {}, context: () => ({}), passage: () => '' });
@@ -99,20 +78,17 @@ async function terminal(t: TestContext) {
         for (const [id, callback] of [...queue]) { if (queue.delete(id)) {callback();} }
     };
     const images: { element: HTMLElement; messageId: number; refreshes: number; destroys: number }[] = [];
-    const cleanups: (() => void)[] = [], controlTasks: Promise<unknown>[] = [];
-    let updates = 0;
-    const controls = controlsPage(document, {
-        updateStatus: () => ({ busy: false, phase: 'ready' }), cancel() {},
-        update: async () => { updates++; },
-    } as unknown as State3Api, controlTasks);
-    const mountControls = () => controls.mountControl(4, [], { updates: ['after'], beforeIndex: -1, lastReceiptIndex: -1, definition: bundle.definition });
-    mountControls();
+    const cleanups: (() => void)[] = [];
+    const viewportEvents = new EventEmitter();
     const topWindow = {
         ...fixture.host, SillyTavern: { getContext: () => context }, innerWidth: 1440, innerHeight: 860,
         setTimeout: (callback: () => void) => schedule(timeouts, callback), clearTimeout: (id: number) => timeouts.delete(id),
         setInterval: (callback: () => void) => schedule(intervals, callback), clearInterval: (id: number) => intervals.delete(id),
         requestAnimationFrame: (callback: () => void) => schedule(frames, callback), cancelAnimationFrame: (id: number) => frames.delete(id),
-        matchMedia: () => ({ matches: true }),
+        matchMedia: (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)' || query === '(max-width:820px)' && topWindow.innerWidth <= 820 }),
+        visualViewport: { width: 1440, height: 860, offsetLeft: 0, offsetTop: 0,
+            addEventListener: (name: string, callback: () => void) => viewportEvents.on(name, callback),
+            removeEventListener: (name: string, callback: () => void) => viewportEvents.off(name, callback) },
         addEventListener: (name: string, callback: () => void) => windowEvents.on(name, callback),
         removeEventListener: (name: string, callback: () => void) => windowEvents.off(name, callback),
         xiaobaixDraw: { getStatus: () => ({ ready: true }), mountMessageImages(options: { element: HTMLElement; messageId: number }) {
@@ -144,13 +120,12 @@ async function terminal(t: TestContext) {
     };
     const nativeChanged = async () => { await new Promise<void>(resolve => setImmediate(resolve)); flush(frames); };
     const cleanup = () => cleanups.at(-1)!();
-    t.after(() => { cleanup(); controls.dispose(); globalThis.document = previousDocument; });
+    t.after(() => { cleanup(); globalThis.document = previousDocument; });
     mount();
     return { ...fixture, document, dom, chat, context, formatted, images, query, state, dispatched, nativeInput, events, windowEvents,
-        timeouts, intervals, frames, cleanups, mount, cleanup, mountControls, updates: () => updates,
+        timeouts, intervals, frames, cleanups, mount, cleanup, viewportEvents,
         nativeChanged, tick: () => { for (const callback of intervals.values()) {callback();} },
         async open() { query('#jl-launcher button').click(); flush(timeouts); await nativeChanged(); },
-        async clickControl() { query<HTMLButtonElement>('.lwb-state3-controls button').click(); await Promise.all(controlTasks.splice(0)); },
         async send(text: string) {
             const input = query<HTMLTextAreaElement>('[data-r="input"]'); input.value = text;
             input.dispatchEvent(new dom.Event('input', { bubbles: true }));
@@ -209,29 +184,59 @@ test('entry opens the integrated app, renders actual host chat and sends through
     assert.equal(p.nativeInput.value, '');
 });
 
-test('native state3 controls keep their node and handler across adoption, fold, replacement and cleanup', async t => {
+test('admission writes membership and both charges once, and renewal posts only on its due day', async () => {
+    const compiled = compileDefinition(bundle);
+    let state = accepted(await initialize(compiled)).state;
+    const initial = clubState(state), applicant = initial.club.applicants[0];
+    const perform = async (action: string, params: Record<string, Json> = {}) => {
+        state = accepted(await settle(compiled, state, [{ action, params }], { prepared: { panel: true, rolls: [100] } })).state;
+        return clubState(state);
+    };
+    const called = await perform('call', { applicant: applicant.id });
+    const name = called.club.applicants.find(item => item.id === applicant.id)!.name;
+    const admitted = await perform('admit', { applicant: applicant.id });
+    const price = admitted.desk.cat.price;
+    assert.equal(admitted.club.funds - initial.club.funds, price['入会费'] + price['会员月费']);
+    assert.deepEqual(admitted.club.cashbook.map(item => ({ amount: item.amount, who: item.who })), [
+        { amount: price['入会费'], who: [name] }, { amount: price['会员月费'], who: [name] },
+    ]);
+    assert.equal(admitted.club.members[name].nextFeeWeek, initial.club.week + admitted.desk.cat.rule['会费周期周数']);
+    const duplicate = await settle(compiled, state, [{ action: 'admit', params: { applicant: applicant.id } }], { prepared: { panel: true, rolls: [100] } });
+    assert.equal(duplicate.ok, false);
+    assert.equal(clubState(state).club.cashbook.length, 2);
+
+    // Start immediately before a known renewal, without simulating unrelated weeks.
+    const dueState = structuredClone(clubState(state));
+    for (const member of Object.values(dueState.club.members)) { member.nextFeeWeek += 10; }
+    dueState.club.members[name].nextFeeWeek = dueState.club.week;
+    dueState.club.members[name].nextFeeDay = dueState.club.day + 1;
+    state = dueState as unknown as Json;
+    const count = (value: ClubState) => value.club.cashbook.filter(item => item.kind === '会员月费' && item.who.includes(name)).length;
+    const beforeDue = await perform('closeday');
+    assert.equal(count(beforeDue), 1);
+    await perform('act');
+    const renewed = await perform('closeday');
+    assert.equal(count(renewed), 2);
+    await perform('act');
+    assert.equal(count(await perform('closeday')), 2);
+});
+
+test('fold and cleanup retain native controls and release viewport and generation listeners', async t => {
     const p = await terminal(t);
-    const original = p.query('.lwb-state3-controls'), nativeFloor = p.query('.mes[mesid="4"]');
-    assert.equal(original.previousElementSibling, nativeFloor.querySelector('.mes_text'));
+    const nativeFloor = p.query('.mes[mesid="4"]');
+    const original = p.document.createElement('button');
+    let nativeClicks = 0;
+    original.addEventListener('click', () => nativeClicks++);
+    nativeFloor.append(original);
     await p.open();
-    assert.equal(p.query('[data-r="vars"]').firstElementChild, original);
-    await p.clickControl(); assert.equal(p.updates(), 1);
+    assert.equal(original.parentElement, nativeFloor);
     p.query('[data-a="fold"]').click();
     assert.equal(original.parentElement, nativeFloor);
-    assert.equal(original.previousElementSibling, nativeFloor.querySelector('.mes_text'));
-    await p.clickControl(); assert.equal(p.updates(), 2);
     await p.open();
-    assert.equal(p.query('[data-r="vars"]').firstElementChild, original);
-    p.mountControls(); await p.nativeChanged();
-    const replacement = p.query('.lwb-state3-controls');
-    assert.notEqual(replacement, original);
-    assert.equal(original.isConnected, false);
-    assert.equal(replacement.parentElement, p.query('[data-r="vars"]'));
-    await p.clickControl(); assert.equal(p.updates(), 3);
     p.cleanup();
-    assert.equal(replacement.parentElement, nativeFloor);
-    assert.equal(replacement.previousElementSibling, nativeFloor.querySelector('.mes_text'));
-    await p.clickControl(); assert.equal(p.updates(), 4);
+    assert.equal(original.parentElement, nativeFloor);
+    original.click();
+    assert.equal(nativeClicks, 1);
     assert.equal(p.document.querySelector('#jl-app'), null);
     assert.equal(p.document.querySelector('#jl-launcher'), null);
     assert.equal(p.document.querySelector('#jl-style'), null);
@@ -240,6 +245,8 @@ test('native state3 controls keep their node and handler across adoption, fold, 
     assert.equal(p.events.listenerCount('generation-end'), 0);
     assert.equal(p.events.listenerCount('generation-stop'), 0);
     assert.equal(p.windowEvents.listenerCount('resize'), 0);
+    assert.equal(p.viewportEvents.listenerCount('resize'), 0);
+    assert.equal(p.viewportEvents.listenerCount('scroll'), 0);
 });
 
 test('image mounts use real floor IDs, dispose on redraw/removal and cleanup, and remount without duplicates', async t => {
@@ -264,12 +271,10 @@ test('image mounts use real floor IDs, dispose on redraw/removal and cleanup, an
     p.chat.splice(4, 1); p.tick();
     assert.equal(redrawn.destroys, 1);
     assert.deepEqual(active().map(image => image.messageId), [0]);
-    const firstCleanup = p.cleanups[0], control = p.query('.lwb-state3-controls');
+    const firstCleanup = p.cleanups[0];
     p.mount(); await p.nativeChanged();
     assert.equal(opening.destroys, 1);
     for (const id of ['jl-app', 'jl-style', 'jl-launcher']) {assert.equal(p.document.querySelectorAll('#' + id).length, 1);}
-    assert.equal(p.document.querySelectorAll('.lwb-state3-controls').length, 1);
-    assert.equal(p.query('[data-r="vars"]').firstElementChild, control);
     assert.equal(p.intervals.size, 1);
     assert.equal(p.events.listenerCount('generation-start'), 1);
     assert.equal(p.windowEvents.listenerCount('resize'), 1);
@@ -280,5 +285,6 @@ test('image mounts use real floor IDs, dispose on redraw/removal and cleanup, an
     assert.equal(active().length, 0);
     assert.ok(p.images.every(image => image.destroys === 1));
     assert.equal(p.intervals.size, 0); assert.equal(p.frames.size, 0); assert.equal(p.timeouts.size, 0);
-    assert.equal(control.parentElement, p.query('.mes[mesid="4"]'));
+    assert.equal(p.viewportEvents.listenerCount('resize'), 0);
+    assert.equal(p.viewportEvents.listenerCount('scroll'), 0);
 });

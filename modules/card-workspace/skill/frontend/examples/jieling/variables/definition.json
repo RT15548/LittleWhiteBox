@@ -30,7 +30,9 @@
           "acted",
           "seq",
           "report",
-          "lastEvent"
+          "lastEvent",
+          "cashbook",
+          "receipt"
         ],
         "properties": {
           "week": {
@@ -103,7 +105,8 @@
                 "classWeek",
                 "talkWeek",
                 "xp",
-                "note"
+                "nextFeeWeek",
+                "nextFeeDay"
               ],
               "properties": {
                 "sex": {
@@ -186,9 +189,16 @@
                   "type": "string",
                   "title": "XP 描述"
                 },
-                "note": {
-                  "type": "string",
-                  "title": "咨询师笔记"
+                "nextFeeWeek": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "title": "下次会费到期周"
+                },
+                "nextFeeDay": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 7,
+                  "title": "下次会费到期星期"
                 }
               }
             }
@@ -207,7 +217,8 @@
                 "hard",
                 "stress",
                 "loss",
-                "called"
+                "called",
+                "name"
               ],
               "properties": {
                 "id": {
@@ -255,6 +266,10 @@
                 "called": {
                   "type": "boolean",
                   "title": "已请进来"
+                },
+                "name": {
+                  "type": "string",
+                  "title": "登记姓名，未请进来时为空"
                 }
               }
             }
@@ -361,6 +376,79 @@
               "null"
             ],
             "title": "最近一次当场结果"
+          },
+          "cashbook": {
+            "type": "array",
+            "title": "本周真实资金流水",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "week",
+                "day",
+                "kind",
+                "who",
+                "amount"
+              ],
+              "properties": {
+                "week": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "day": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 7
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "who": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "atClose": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "receipt": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "title": "最近一次动作的流水位置",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "week",
+              "day",
+              "start"
+            ],
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "week": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "day": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 7
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         }
       },
@@ -371,7 +459,8 @@
           "cat",
           "classes",
           "matches",
-          "phase"
+          "phase",
+          "finance"
         ],
         "properties": {
           "cat": {
@@ -392,6 +481,10 @@
               "破产"
             ],
             "title": "会所状况"
+          },
+          "finance": {
+            "type": "object",
+            "title": "经营账目与有条件的收支预测"
           }
         }
       }
@@ -440,7 +533,8 @@
           "classWeek": 0,
           "talkWeek": 0,
           "xp": "心控与掌控：先拿心再要人，立规矩、要报备、冷落与奖赏，用平静的话一层层拆穿对方的体面，直到对方自己交出判断、求他管。",
-          "note": "失控早已稳在结业线下。留下的理由不是治疗，是在等顾宁；课上对她格外留意，建议老板先想清楚留他图什么。"
+          "nextFeeWeek": 5,
+          "nextFeeDay": 1
         },
         "顾宁": {
           "sex": "女",
@@ -459,7 +553,8 @@
           "classWeek": 0,
           "talkWeek": 0,
           "xp": "交出与顺从：渴望一个比她更沉得住气的男人用话剥掉她的体面壳，替她拿主意，让她心甘情愿跪下来把人和身体全交出去。",
-          "note": "失控最高，网上那位“主人”握着她的照片和单位，随时可能出事。界限还没谈清，课上回避具体问题，需要多找她谈。"
+          "nextFeeWeek": 5,
+          "nextFeeDay": 1
         },
         "苏曼": {
           "sex": "女",
@@ -477,7 +572,8 @@
           "classWeek": 0,
           "talkWeek": 0,
           "xp": "施痛：把男人绑住、打，看他忍到极限、疼得发抖还不肯喊停，看他的身体在她手里一点点失守。",
-          "note": "界限讲得最清楚，问题在她自己守不守。和周慕白已经可以谈包间，规矩谈死了她才放得开。"
+          "nextFeeWeek": 5,
+          "nextFeeDay": 1
         },
         "周慕白": {
           "sex": "男",
@@ -495,7 +591,8 @@
           "classWeek": 0,
           "talkWeek": 0,
           "xp": "受痛：被绑住、被打，疼到脑子里什么都不剩的那一刻才觉得安静。",
-          "note": "总说“怎么都行”，不知道自己的界限在哪，也不敢喊停。排包间前老板得替他把停的地方问出来。"
+          "nextFeeWeek": 5,
+          "nextFeeDay": 1
         }
       },
       "applicants": [
@@ -510,7 +607,8 @@
           "hard": false,
           "stress": "中",
           "loss": 58,
-          "called": false
+          "called": false,
+          "name": ""
         },
         {
           "id": "来访2",
@@ -523,7 +621,8 @@
           "hard": false,
           "stress": "重",
           "loss": 67,
-          "called": false
+          "called": false,
+          "name": ""
         }
       ],
       "consents": [],
@@ -535,13 +634,16 @@
       "acted": false,
       "seq": 2,
       "report": null,
-      "lastEvent": null
+      "lastEvent": null,
+      "cashbook": [],
+      "receipt": null
     },
     "desk": {
       "cat": {},
       "classes": {},
       "matches": [],
-      "phase": "经营中"
+      "phase": "经营中",
+      "finance": {}
     }
   },
   "access": [
@@ -550,8 +652,7 @@
         "club"
       ],
       "direct": false,
-      "description": "会所的全部经营状态，只由动作改变。",
-      "update": "老板在案头上做的决定（请人进来、旁听、找人谈、定互助室、分班、开包间、送结业、劝退、处理事件、扩租、收工）点下时已经结算，正文写到它们是复述，不提交。只在正文出现这三类事时提交：收下或婉拒已请进来的来访者、两人谈妥下一场包间、咨询师给出新的判断。正文没写明的不提交。"
+      "description": "会所全部经营状态。由老板在案头确认的动作和每日收工改变，正文依据结果继续写。"
     },
     {
       "path": [
@@ -575,7 +676,7 @@
         "funds"
       ],
       "direct": false,
-      "description": "账上的钱（元）。进账：入会费、课费（每人每节）、包间费（每场两人各付）、结业答谢；出账：每周日的互助室与包间租金、前台工资、咨询师底薪加每位在读会员的提成，处理事件和扩租的花费。价钱见 desk.cat.price。周日交完租和工资后为负即破产。"
+      "description": "账上的人民币。入会收一次入会费和首期会员月费，每人完整会费周期到期后在当天收工续收；课费按实际到课人数，包间每场两人各付。周日交合同周租、前台周薪、咨询师周底薪和实际开班课提成。平事、扩租当场付款；结业可能答谢。单价见desk.cat.price，周期见desk.cat.rule，明细与预测见desk.finance。周日交完租和工资后负数即破产。"
     },
     {
       "path": [
@@ -607,8 +708,7 @@
         "members"
       ],
       "direct": false,
-      "description": "会员名册，以全名为键，含已结业和已退会的人。loss 是失控：被 XP 牵着走、做不了主的程度，不是欲望大小；只由规则算，正文里的一时冲动或释放不改变它。trust 是对会所的信任，know 是会所对他摸清了多少底。失控低于结业线可以结业，到闹事线以上收工时可能闹事；两人了解都过包间了解线才能谈包间。xp 是给剧情用的具体描述，tags 是登记表勾选，给分班和配对用。note 是咨询师笔记。",
-      "update": "正文里咨询师对某位会员说出新的判断或建议时提交 note，用一两句话整体替换旧笔记。数值一律不改。"
+      "description": "会员名册，以登记全名为键。status在读者参加经营；loss是被欲望牵着走、做不了主的程度，trust是对会所的信任，know是会所摸清了多少底，都由动作和收工计算。xp保存登记的具体性癖或勾选底子，个人经历与咨询师判断在正文中展开。nextFeeWeek与nextFeeDay合起来是下次会费到期日；开局老会员前期会费已收、包含在交接余额中，到期前不补收。结业与退会之后不再续费。"
     },
     {
       "path": [
@@ -616,8 +716,7 @@
         "applicants"
       ],
       "direct": false,
-      "description": "本周的面谈名额，规则已掷好每位来访者的性别、接受对象、登记表勾选、是否重口、压力档和初始失控；名字、长相和具体经历由正文照这些写。called 表示已经请进来面谈。周日刷新，不累积。",
-      "update": "已经请进来（called 为 true）的来访者，正文里老板明确说收下时提交 admit：name 用正文里这个人的全名，xp 用一两句话写下正文里谈出的具体 XP。老板明确婉拒、或来访者当场起身走掉时提交 decline。还在谈、没表态的不提交。"
+      "description": "本周面谈名额。请进来时确定登记姓名name，正文沿用；性别、接受对象、勾选项、压力档和初始失控已登记，外貌、经历和表达按面谈展开。called为true的已经请进来，收下或婉拒均由老板在案头确认；收下后入册并收首期费用。周日刷新，不累积。"
     },
     {
       "path": [
@@ -625,8 +724,7 @@
         "consents"
       ],
       "direct": false,
-      "description": "两人都已同意、还没开的下一场包间。开过就用掉。",
-      "update": "正文里两人都明确说愿意下一场时提交 consent。只说考虑一下、或只有一方点头的不提交。"
+      "description": "老板分别谈过界限、两人明确同意之后，在案头确认的当晚包间安排。同意只管一场，开过用掉；收工时未开的也作废，下次重新谈。任何一人结业或退会，相关安排清除。"
     },
     {
       "path": [
@@ -666,7 +764,7 @@
         "report"
       ],
       "direct": false,
-      "description": "最近一次收工的日报：哪些班开了课、谁上了课、旁听没有，每位会员当天失控、了解、信任的实际变化，新出的事件，自己走的人，当天收支；周日另有房租工资和下周名额。日报刚变时，下一段正文从第二天早上写起，照日报写后果。"
+      "description": "最近一次收工日报。classes/members/incidents/quit是当天课程、个体变化、事件与离开的人；transactions是全天真实收付款（含收工前操作），income/expense由它统计，钱已逐笔入账。weekly是周日合同租金与工资细项、实际开班数和下周名额。日报刚变时正文进入次日早晨，照事实写后果。"
     },
     {
       "path": [
@@ -681,7 +779,23 @@
         "desk"
       ],
       "direct": false,
-      "description": "由规则从 club 推出的案头视图：cat 是全部固定数（price 价钱，rule 幅度与门槛，lines 登记表各项），classes 是各班，matches 是能排包间的对子，phase 是会所状况。"
+      "description": "规则推出的案头视图。cat提供固定单价、周期、门槛；classes是排班；matches是互补且适配的会员对；finance是同一份财务明细与标明假设的预测；phase是经营或破产。"
+    },
+    {
+      "path": [
+        "club",
+        "cashbook"
+      ],
+      "direct": false,
+      "description": "本周真实收付款，每笔记录日期、项目、相关人、带正负号的金额。课费每班一笔，人数在who；咨询师课提成按本周有收费的实际开课笔数计算。周日结完工资后清空，新周重新记；上一日明细留在日报。"
+    },
+    {
+      "path": [
+        "club",
+        "receipt"
+      ],
+      "direct": false,
+      "description": "最近一次案头动作的流水位置；desk.finance.lastReceipt据此给出本次项目与实际金额变化，不把此前已收的钱重复算成本次收入。"
     }
   ],
   "rules": [
@@ -798,6 +912,37 @@
           },
           {
             "literal": "经营中"
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance",
+      "kind": "derive",
+      "path": [
+        "desk",
+        "finance"
+      ],
+      "description": "模型与案头读取同一份经营账。weeklyDue含本周已开课和未过课日可开班的预计提成，actualWeeklyDue只含已发生提成；weeklyClassIncome是当前排班一整周的课费，weeklyMembershipAverage是会费按周期均摊，均不表示已经到账。weeklyNet按当前排班完整周计算；runwayWeeks依据实际到期日预测首个付不起周租工资的周日，null表示这些假设下不预计亏损。预测保持在读人数与排班，排除入会、包间、答谢、退会、平事与扩租。transactions是今日流水，weekTransactions是本周流水，lastReceipt是刚确认动作的流水与净额。",
+      "value": {
+        "call": "finance",
+        "args": [
+          {
+            "get": [
+              "club"
+            ]
+          },
+          {
+            "get": [
+              "desk",
+              "classes"
+            ]
+          },
+          {
+            "get": [
+              "desk",
+              "cat"
+            ]
           }
         ]
       }
@@ -2112,7 +2257,7 @@
     {
       "id": "closeday",
       "title": "今日收工",
-      "description": "结算今天：今晚有课的班按人数开课或开不了，每人每天按压力档涨失控，失控过闹事线的人各掷一次闹事，信任跌到退会线的人自己走；周日不开课，另算没课的人额外上涨、留着不送结业的人信任下降、房租工资、未处理事件扣口碑、刷新下周面谈名额，然后进入下一周。结果写进 club.report。这是老板在案头上按下的，按下时就已结算；正文写到它只是照着日报写。",
+      "description": "结束今天并进入明天：按排班与到课记录收课费、计算会员变化、事件和退会；仍在读且到期的人续收会费。周日另付整层合同周租、前台工资、咨询师底薪与本周实际开班提成，刷新下周面谈名额。未开的当晚同意清空。日报包含全天流水和后果，正文从次日早晨接着写。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -2204,69 +2349,73 @@
     {
       "id": "admit",
       "title": "收下来访者",
-      "description": "老板在正文里明确收下一位已经请进来面谈的来访者时提交。用该名额掷好的登记表、压力档和失控入册，信任与了解取新会员初值，未分班，收入会费。name 用正文给这位来访者起的全名；xp 用一两句话写下正文里谈出的具体 XP。",
+      "description": "面谈后老板在案头确认收下已请进来的来访者。按登记姓名、勾选底子与既定初值入册，未分班；一次收入会费和首期会员月费。下次到期为完整会费周期后的同一星期。正文承接入会结果。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "applicant",
-          "name",
-          "xp"
+          "applicant"
         ],
         "properties": {
           "applicant": {
             "type": "string",
             "title": "名额编号"
-          },
-          "name": {
-            "type": "string",
-            "title": "全名"
-          },
-          "xp": {
-            "type": "string",
-            "title": "XP 描述"
           }
         }
       },
       "conversions": [],
       "requires": {
-        "op": "eq",
+        "op": "and",
         "args": [
           {
-            "call": "check",
+            "op": "eq",
             "args": [
               {
-                "get": [
-                  "club"
+                "prepared": [
+                  "panel"
                 ]
               },
               {
-                "get": [
-                  "desk"
-                ]
-              },
-              {
-                "literal": "admit"
-              },
-              {
-                "param": [
-                  "applicant"
-                ]
-              },
-              {
-                "param": [
-                  "name"
-                ]
-              },
-              {
-                "param": [
-                  "xp"
-                ]
+                "literal": true
               }
             ]
           },
           {
-            "literal": ""
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "admit"
+                  },
+                  {
+                    "param": [
+                      "applicant"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
           }
         ]
       },
@@ -2297,14 +2446,10 @@
                 ]
               },
               {
-                "param": [
-                  "name"
-                ]
+                "literal": null
               },
               {
-                "param": [
-                  "xp"
-                ]
+                "literal": null
               },
               {
                 "literal": [
@@ -2319,7 +2464,7 @@
     {
       "id": "decline",
       "title": "婉拒来访者",
-      "description": "老板在正文里明确婉拒一位已经请进来面谈的来访者时提交；名额用掉。",
+      "description": "面谈后老板在案头确认婉拒或结束接待，名额用掉，不收费。正文承接离开结果。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -2335,39 +2480,57 @@
       },
       "conversions": [],
       "requires": {
-        "op": "eq",
+        "op": "and",
         "args": [
           {
-            "call": "check",
+            "op": "eq",
             "args": [
               {
-                "get": [
-                  "club"
+                "prepared": [
+                  "panel"
                 ]
               },
               {
-                "get": [
-                  "desk"
-                ]
-              },
-              {
-                "literal": "decline"
-              },
-              {
-                "param": [
-                  "applicant"
-                ]
-              },
-              {
-                "literal": null
-              },
-              {
-                "literal": null
+                "literal": true
               }
             ]
           },
           {
-            "literal": ""
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "decline"
+                  },
+                  {
+                    "param": [
+                      "applicant"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
           }
         ]
       },
@@ -2416,7 +2579,7 @@
     {
       "id": "consent",
       "title": "谈妥下一场",
-      "description": "正文里老板分别和两人谈过界限，两人都明确同意下一场包间时提交。只对 desk.matches 里 ready 的一对有效；同意只管一场，开过就用掉。",
+      "description": "老板分别同两人谈清界限、两人都明确同意后，在案头确认当晚下一场。两人了解都够且互相适配才可确认，不收费。开一场用掉；未开而收工也作废，下一场重新谈。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -2439,41 +2602,59 @@
       },
       "conversions": [],
       "requires": {
-        "op": "eq",
+        "op": "and",
         "args": [
           {
-            "call": "check",
+            "op": "eq",
             "args": [
               {
-                "get": [
-                  "club"
+                "prepared": [
+                  "panel"
                 ]
               },
               {
-                "get": [
-                  "desk"
-                ]
-              },
-              {
-                "literal": "consent"
-              },
-              {
-                "param": [
-                  "a"
-                ]
-              },
-              {
-                "param": [
-                  "b"
-                ]
-              },
-              {
-                "literal": null
+                "literal": true
               }
             ]
           },
           {
-            "literal": ""
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "consent"
+                  },
+                  {
+                    "param": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "param": [
+                      "b"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
           }
         ]
       },
@@ -2506,113 +2687,6 @@
               {
                 "param": [
                   "b"
-                ]
-              },
-              {
-                "literal": null
-              },
-              {
-                "literal": [
-                  50
-                ]
-              }
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "id": "note",
-      "title": "改写咨询师笔记",
-      "description": "正文里咨询师对某位会员有了新的判断或建议时提交，整段替换为一两句评估。只写文字意见，不影响任何数值。",
-      "parameters": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "member",
-          "text"
-        ],
-        "properties": {
-          "member": {
-            "type": "string",
-            "title": "会员",
-            "description": "名册里的全名。"
-          },
-          "text": {
-            "type": "string",
-            "title": "笔记"
-          }
-        }
-      },
-      "conversions": [],
-      "requires": {
-        "op": "eq",
-        "args": [
-          {
-            "call": "check",
-            "args": [
-              {
-                "get": [
-                  "club"
-                ]
-              },
-              {
-                "get": [
-                  "desk"
-                ]
-              },
-              {
-                "literal": "note"
-              },
-              {
-                "param": [
-                  "member"
-                ]
-              },
-              {
-                "param": [
-                  "text"
-                ]
-              },
-              {
-                "literal": null
-              }
-            ]
-          },
-          {
-            "literal": ""
-          }
-        ]
-      },
-      "effects": [
-        {
-          "path": [
-            "club"
-          ],
-          "value": {
-            "call": "operate",
-            "args": [
-              {
-                "get": [
-                  "club"
-                ]
-              },
-              {
-                "get": [
-                  "desk"
-                ]
-              },
-              {
-                "literal": "note"
-              },
-              {
-                "param": [
-                  "member"
-                ]
-              },
-              {
-                "param": [
-                  "text"
                 ]
               },
               {
@@ -2654,6 +2728,10 @@
     "close_day": {
       "reads": [],
       "description": "结算一天（周日连带周结算）并返回新的会所状态与日报。"
+    },
+    "finance": {
+      "reads": [],
+      "description": "从当前名册、排班和真实流水推出本周租金工资、课费、到期会费、明细和有条件的周转预测；只读不收付款。"
     }
   },
   "views": {
