@@ -277,7 +277,7 @@ display: "她把你当作轻薄之人。"
 <a id="media"></a>
 ## 6. 画图与语音接口（可选）
 
-图片可自备、运行时生成或混合使用，与前端档位独立。自备素材使用可访问 URL 或 Data URL，见[素材安排](<xiaobaix-heavy-ui.md#assets>)。
+图片可自备、运行时生成或混合使用，与界面形态独立。自备素材使用可访问 URL 或 Data URL，见[素材安排](<xiaobaix-heavy-ui.md#assets>)。
 
 公开入口位于宿主页：循环任务用 `window.xiaobaixDraw` / `window.xiaobaixTts`，同源楼层 iframe 用 `window.parent.xiaobaixDraw` / `window.parent.xiaobaixTts`。它们不是 iframe 的直接注入全局。
 
@@ -310,11 +310,11 @@ display: "她把你当作轻薄之人。"
 <a id="draw-storage"></a>
 ### 6.3 把生成的图留在楼层上
 
-编号、单设备（IndexedDB）与跨设备（酒馆服务器 + 聊天元数据）两种存法，按插件 `docs/user/media-api.md` 的“保存生成结果”一节。卡侧补充：
+已有聊天插图在自定义阅读器里显示时，读插件 `docs/user/media-api.md` 的“在自己的聊天 UI 中显示图片卡”，复用图片卡与操作，无需卡再保存一套图片记录。下面只针对卡自行生成和保存的图片：编号、单设备（IndexedDB）与跨设备（酒馆服务器 + 聊天元数据）两种存法，按同文“保存生成结果”一节处理。卡侧补充：
 
 - 单设备存法的库归卡所有，删除路径也归卡：订阅 `CHAT_DELETED`、`GROUP_CHAT_DELETED`（参数为聊天文件名，不带 `.jsonl`）删掉该聊天的记录；`CHAT_RENAMED` 的参数是 `{ oldFileName, newFileName }`，带 `.jsonl`，按新名改键。编号里的聊天名用 `getCurrentChatId()`。
 - 显示时把当前聊天的记录读进内存，楼层重绘后同步插回；`URL.createObjectURL` 的地址在换图、撤去、切换聊天和 `onCleanup` 时释放。
-- 图要出现在正文版式内部时，由循环任务插进 `.mes_text`；正文里的普通 `<img>` 受酒馆 `.mes_text img:not(.mes_img)` 尺寸上限约束（`style.css` 604–609），卡的图片规则要用更高优先级的选择器。
+- 卡自行保存的图片需要出现在原生正文内部时，由循环任务插进 `.mes_text`；正文里的普通 `<img>` 受酒馆 `.mes_text img:not(.mes_img)` 尺寸上限约束（`style.css` 604–609），卡的图片规则要用更高优先级的选择器。
 ## 7. 角色模板 `xiaobaix-template`
 
 这是已有卡可能使用的另一套显示能力，不在 CardFiles 当前可写回的字段内。需要制作楼层前端时使用本文已说明的正则与 HTML 代码块；不要在 card.json 里自造模板字段。

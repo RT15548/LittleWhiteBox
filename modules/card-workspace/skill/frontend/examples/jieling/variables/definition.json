@@ -1,0 +1,2681 @@
+{
+  "format": 1,
+  "name": "解铃会",
+  "updates": [
+    "after"
+  ],
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "club",
+      "desk"
+    ],
+    "properties": {
+      "club": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "week",
+          "day",
+          "funds",
+          "reputation",
+          "rooms",
+          "privateRooms",
+          "members",
+          "applicants",
+          "consents",
+          "incidents",
+          "today",
+          "acted",
+          "seq",
+          "report",
+          "lastEvent"
+        ],
+        "properties": {
+          "week": {
+            "type": "integer",
+            "title": "第几周",
+            "minimum": 1
+          },
+          "day": {
+            "type": "integer",
+            "title": "星期几",
+            "minimum": 1,
+            "maximum": 7
+          },
+          "funds": {
+            "type": "number",
+            "title": "账上"
+          },
+          "reputation": {
+            "type": "integer",
+            "title": "口碑",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "rooms": {
+            "type": "object",
+            "title": "互助室",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "dim",
+                "night"
+              ],
+              "properties": {
+                "dim": {
+                  "type": "string",
+                  "title": "维度"
+                },
+                "night": {
+                  "type": "integer",
+                  "title": "上课日",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              }
+            }
+          },
+          "privateRooms": {
+            "type": "integer",
+            "title": "包间数",
+            "minimum": 1
+          },
+          "members": {
+            "type": "object",
+            "title": "名册",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sex",
+                "accepts",
+                "tags",
+                "hard",
+                "stress",
+                "loss",
+                "trust",
+                "know",
+                "status",
+                "room",
+                "classWeek",
+                "talkWeek",
+                "xp",
+                "note"
+              ],
+              "properties": {
+                "sex": {
+                  "enum": [
+                    "男",
+                    "女"
+                  ],
+                  "title": "性别"
+                },
+                "accepts": {
+                  "enum": [
+                    "异性",
+                    "同性",
+                    "都可",
+                    "只上课"
+                  ],
+                  "title": "喜欢的性别"
+                },
+                "tags": {
+                  "type": "array",
+                  "title": "登记表勾选",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                },
+                "hard": {
+                  "type": "boolean",
+                  "title": "重口"
+                },
+                "stress": {
+                  "enum": [
+                    "轻",
+                    "中",
+                    "重"
+                  ],
+                  "title": "压力档"
+                },
+                "loss": {
+                  "type": "integer",
+                  "title": "失控",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "trust": {
+                  "type": "integer",
+                  "title": "信任",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "know": {
+                  "type": "integer",
+                  "title": "了解",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "status": {
+                  "enum": [
+                    "在读",
+                    "结业",
+                    "退会"
+                  ],
+                  "title": "状态"
+                },
+                "room": {
+                  "type": "string",
+                  "title": "所在班"
+                },
+                "classWeek": {
+                  "type": "integer",
+                  "title": "上次上课的周",
+                  "minimum": 0
+                },
+                "talkWeek": {
+                  "type": "integer",
+                  "title": "上次被找去谈的周",
+                  "minimum": 0
+                },
+                "xp": {
+                  "type": "string",
+                  "title": "XP 描述"
+                },
+                "note": {
+                  "type": "string",
+                  "title": "咨询师笔记"
+                }
+              }
+            }
+          },
+          "applicants": {
+            "type": "array",
+            "title": "本周面谈名额",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "sex",
+                "accepts",
+                "tags",
+                "hard",
+                "stress",
+                "loss",
+                "called"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "title": "名额编号"
+                },
+                "sex": {
+                  "enum": [
+                    "男",
+                    "女"
+                  ]
+                },
+                "accepts": {
+                  "enum": [
+                    "异性",
+                    "同性",
+                    "都可",
+                    "只上课"
+                  ]
+                },
+                "tags": {
+                  "type": "array",
+                  "title": "登记表勾选",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                },
+                "hard": {
+                  "type": "boolean"
+                },
+                "stress": {
+                  "enum": [
+                    "轻",
+                    "中",
+                    "重"
+                  ]
+                },
+                "loss": {
+                  "type": "integer",
+                  "title": "失控",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "called": {
+                  "type": "boolean",
+                  "title": "已请进来"
+                }
+              }
+            }
+          },
+          "consents": {
+            "type": "array",
+            "title": "已谈妥的下一场",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "a",
+                "b"
+              ],
+              "properties": {
+                "a": {
+                  "type": "string",
+                  "title": "一方"
+                },
+                "b": {
+                  "type": "string",
+                  "title": "另一方"
+                }
+              }
+            }
+          },
+          "incidents": {
+            "type": "array",
+            "title": "事件",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "week",
+                "day",
+                "who",
+                "kind",
+                "open"
+              ],
+              "properties": {
+                "week": {
+                  "type": "integer",
+                  "title": "周"
+                },
+                "day": {
+                  "type": "integer",
+                  "title": "天"
+                },
+                "who": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "title": "种类"
+                },
+                "open": {
+                  "type": "boolean",
+                  "title": "未处理"
+                }
+              }
+            }
+          },
+          "today": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "audit",
+              "privates"
+            ],
+            "properties": {
+              "audit": {
+                "type": "string",
+                "title": "今晚旁听"
+              },
+              "privates": {
+                "type": "integer",
+                "title": "今晚已开包间",
+                "minimum": 0
+              }
+            }
+          },
+          "acted": {
+            "type": "boolean",
+            "title": "收工后做过事"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "名额流水号",
+            "minimum": 0
+          },
+          "report": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "title": "上一次收工日报"
+          },
+          "lastEvent": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "title": "最近一次当场结果"
+          }
+        }
+      },
+      "desk": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cat",
+          "classes",
+          "matches",
+          "phase"
+        ],
+        "properties": {
+          "cat": {
+            "type": "object",
+            "title": "固定数"
+          },
+          "classes": {
+            "type": "object",
+            "title": "各班"
+          },
+          "matches": {
+            "type": "array",
+            "title": "能排包间的对子"
+          },
+          "phase": {
+            "enum": [
+              "经营中",
+              "破产"
+            ],
+            "title": "会所状况"
+          }
+        }
+      }
+    }
+  },
+  "initial": {
+    "club": {
+      "week": 1,
+      "day": 1,
+      "funds": 15000,
+      "reputation": 30,
+      "rooms": {
+        "一号室": {
+          "dim": "强弱与控制",
+          "night": 1
+        },
+        "二号室": {
+          "dim": "",
+          "night": 0
+        },
+        "三号室": {
+          "dim": "",
+          "night": 0
+        },
+        "四号室": {
+          "dim": "",
+          "night": 0
+        }
+      },
+      "privateRooms": 1,
+      "members": {
+        "陆承": {
+          "sex": "男",
+          "accepts": "异性",
+          "tags": [
+            "掌控",
+            "心控"
+          ],
+          "hard": false,
+          "stress": "轻",
+          "loss": 18,
+          "trust": 72,
+          "know": 70,
+          "status": "在读",
+          "room": "一号室",
+          "classWeek": 0,
+          "talkWeek": 0,
+          "xp": "心控与掌控：先拿心再要人，立规矩、要报备、冷落与奖赏，用平静的话一层层拆穿对方的体面，直到对方自己交出判断、求他管。",
+          "note": "失控早已稳在结业线下。留下的理由不是治疗，是在等顾宁；课上对她格外留意，建议老板先想清楚留他图什么。"
+        },
+        "顾宁": {
+          "sex": "女",
+          "accepts": "异性",
+          "tags": [
+            "顺从",
+            "交出"
+          ],
+          "hard": false,
+          "stress": "重",
+          "loss": 74,
+          "trust": 55,
+          "know": 48,
+          "status": "在读",
+          "room": "一号室",
+          "classWeek": 0,
+          "talkWeek": 0,
+          "xp": "交出与顺从：渴望一个比她更沉得住气的男人用话剥掉她的体面壳，替她拿主意，让她心甘情愿跪下来把人和身体全交出去。",
+          "note": "失控最高，网上那位“主人”握着她的照片和单位，随时可能出事。界限还没谈清，课上回避具体问题，需要多找她谈。"
+        },
+        "苏曼": {
+          "sex": "女",
+          "accepts": "异性",
+          "tags": [
+            "施痛"
+          ],
+          "hard": false,
+          "stress": "中",
+          "loss": 39,
+          "trust": 68,
+          "know": 63,
+          "status": "在读",
+          "room": "一号室",
+          "classWeek": 0,
+          "talkWeek": 0,
+          "xp": "施痛：把男人绑住、打，看他忍到极限、疼得发抖还不肯喊停，看他的身体在她手里一点点失守。",
+          "note": "界限讲得最清楚，问题在她自己守不守。和周慕白已经可以谈包间，规矩谈死了她才放得开。"
+        },
+        "周慕白": {
+          "sex": "男",
+          "accepts": "异性",
+          "tags": [
+            "受痛"
+          ],
+          "hard": false,
+          "stress": "重",
+          "loss": 66,
+          "trust": 61,
+          "know": 64,
+          "status": "在读",
+          "room": "一号室",
+          "classWeek": 0,
+          "talkWeek": 0,
+          "xp": "受痛：被绑住、被打，疼到脑子里什么都不剩的那一刻才觉得安静。",
+          "note": "总说“怎么都行”，不知道自己的界限在哪，也不敢喊停。排包间前老板得替他把停的地方问出来。"
+        }
+      },
+      "applicants": [
+        {
+          "id": "来访1",
+          "sex": "女",
+          "accepts": "都可",
+          "tags": [
+            "照顾",
+            "鉴赏"
+          ],
+          "hard": false,
+          "stress": "中",
+          "loss": 58,
+          "called": false
+        },
+        {
+          "id": "来访2",
+          "sex": "男",
+          "accepts": "异性",
+          "tags": [
+            "窥看",
+            "年下"
+          ],
+          "hard": false,
+          "stress": "重",
+          "loss": 67,
+          "called": false
+        }
+      ],
+      "consents": [],
+      "incidents": [],
+      "today": {
+        "audit": "",
+        "privates": 0
+      },
+      "acted": false,
+      "seq": 2,
+      "report": null,
+      "lastEvent": null
+    },
+    "desk": {
+      "cat": {},
+      "classes": {},
+      "matches": [],
+      "phase": "经营中"
+    }
+  },
+  "access": [
+    {
+      "path": [
+        "club"
+      ],
+      "direct": false,
+      "description": "会所的全部经营状态，只由动作改变。",
+      "update": "老板在案头上做的决定（请人进来、旁听、找人谈、定互助室、分班、开包间、送结业、劝退、处理事件、扩租、收工）点下时已经结算，正文写到它们是复述，不提交。只在正文出现这三类事时提交：收下或婉拒已请进来的来访者、两人谈妥下一场包间、咨询师给出新的判断。正文没写明的不提交。"
+    },
+    {
+      "path": [
+        "club",
+        "week"
+      ],
+      "direct": false,
+      "description": "第几周。周日收工后进入下一周。"
+    },
+    {
+      "path": [
+        "club",
+        "day"
+      ],
+      "direct": false,
+      "description": "星期几，1=周一 … 7=周日。只有「今日收工」让时间往前走，一次一天；白天、傍晚、深夜不存变量，跟着正文走。周一到周六每个班在自己那一晚上课，周日不开课。"
+    },
+    {
+      "path": [
+        "club",
+        "funds"
+      ],
+      "direct": false,
+      "description": "账上的钱（元）。进账：入会费、课费（每人每节）、包间费（每场两人各付）、结业答谢；出账：每周日的互助室与包间租金、前台工资、咨询师底薪加每位在读会员的提成，处理事件和扩租的花费。价钱见 desk.cat.price。周日交完租和工资后为负即破产。"
+    },
+    {
+      "path": [
+        "club",
+        "reputation"
+      ],
+      "direct": false,
+      "description": "口碑 0～100，决定周日刷新的面谈名额。送结业会涨；出事、事件拖着不处理、会员寒心自己走、劝退会跌。幅度见 desk.cat.rule。"
+    },
+    {
+      "path": [
+        "club",
+        "rooms"
+      ],
+      "direct": false,
+      "description": "互助室：每间的维度与上课日（0 表示还没定）。维度在空屋第一次分人前定，屋里人走空才能改。"
+    },
+    {
+      "path": [
+        "club",
+        "privateRooms"
+      ],
+      "direct": false,
+      "description": "包间数，决定一晚最多开几场。"
+    },
+    {
+      "path": [
+        "club",
+        "members"
+      ],
+      "direct": false,
+      "description": "会员名册，以全名为键，含已结业和已退会的人。loss 是失控：被 XP 牵着走、做不了主的程度，不是欲望大小；只由规则算，正文里的一时冲动或释放不改变它。trust 是对会所的信任，know 是会所对他摸清了多少底。失控低于结业线可以结业，到闹事线以上收工时可能闹事；两人了解都过包间了解线才能谈包间。xp 是给剧情用的具体描述，tags 是登记表勾选，给分班和配对用。note 是咨询师笔记。",
+      "update": "正文里咨询师对某位会员说出新的判断或建议时提交 note，用一两句话整体替换旧笔记。数值一律不改。"
+    },
+    {
+      "path": [
+        "club",
+        "applicants"
+      ],
+      "direct": false,
+      "description": "本周的面谈名额，规则已掷好每位来访者的性别、接受对象、登记表勾选、是否重口、压力档和初始失控；名字、长相和具体经历由正文照这些写。called 表示已经请进来面谈。周日刷新，不累积。",
+      "update": "已经请进来（called 为 true）的来访者，正文里老板明确说收下时提交 admit：name 用正文里这个人的全名，xp 用一两句话写下正文里谈出的具体 XP。老板明确婉拒、或来访者当场起身走掉时提交 decline。还在谈、没表态的不提交。"
+    },
+    {
+      "path": [
+        "club",
+        "consents"
+      ],
+      "direct": false,
+      "description": "两人都已同意、还没开的下一场包间。开过就用掉。",
+      "update": "正文里两人都明确说愿意下一场时提交 consent。只说考虑一下、或只有一方点头的不提交。"
+    },
+    {
+      "path": [
+        "club",
+        "incidents"
+      ],
+      "direct": false,
+      "description": "事件只有两种来源：包间不顺，和失控过线的会员在收工时闹事（课上失态、楼里纠缠、外面出事）。正文不能凭空新增事件。open 为 true 的每个周日继续扣口碑，直到老板在面板上处理。"
+    },
+    {
+      "path": [
+        "club",
+        "today"
+      ],
+      "direct": false,
+      "description": "今天的记账：今晚旁听哪间屋、已开了几场包间。收工时清空。"
+    },
+    {
+      "path": [
+        "club",
+        "acted"
+      ],
+      "direct": false,
+      "description": "上次收工后老板是否做过事；没做过不能收工。"
+    },
+    {
+      "path": [
+        "club",
+        "seq"
+      ],
+      "direct": false,
+      "description": "面谈名额的流水号。"
+    },
+    {
+      "path": [
+        "club",
+        "report"
+      ],
+      "direct": false,
+      "description": "最近一次收工的日报：哪些班开了课、谁上了课、旁听没有，每位会员当天失控、了解、信任的实际变化，新出的事件，自己走的人，当天收支；周日另有房租工资和下周名额。日报刚变时，下一段正文从第二天早上写起，照日报写后果。"
+    },
+    {
+      "path": [
+        "club",
+        "lastEvent"
+      ],
+      "direct": false,
+      "description": "最近一次当场定下的结果：包间（chance 为顺利率，smooth 为顺不顺，hurt 为受委屈的一方）、结业（thanks 为有无答谢）或劝退。正文照这个结果写，不要写成相反。"
+    },
+    {
+      "path": [
+        "desk"
+      ],
+      "direct": false,
+      "description": "由规则从 club 推出的案头视图：cat 是全部固定数（price 价钱，rule 幅度与门槛，lines 登记表各项），classes 是各班，matches 是能排包间的对子，phase 是会所状况。"
+    }
+  ],
+  "rules": [
+    {
+      "id": "cat",
+      "kind": "derive",
+      "path": [
+        "desk",
+        "cat"
+      ],
+      "description": "全部固定数。",
+      "value": {
+        "call": "cat",
+        "args": []
+      }
+    },
+    {
+      "id": "classes",
+      "kind": "derive",
+      "path": [
+        "desk",
+        "classes"
+      ],
+      "description": "每间互助室的班：满开班人数才开课，每间不超过每间最多人数。",
+      "value": {
+        "call": "classes",
+        "args": [
+          {
+            "get": [
+              "club",
+              "members"
+            ]
+          },
+          {
+            "get": [
+              "club",
+              "rooms"
+            ]
+          },
+          {
+            "get": [
+              "club",
+              "day"
+            ]
+          },
+          {
+            "get": [
+              "desk",
+              "cat"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "matches",
+      "kind": "derive",
+      "path": [
+        "desk",
+        "matches"
+      ],
+      "description": "能排包间的对子：双方都接受对方的性别（“只上课”的人不进包间），重口开关一致，至少一项一方左端、另一方右端（单端项两人都勾）。咬合项越多开包间越容易顺；两人失控越高、了解越浅越容易不顺。",
+      "value": {
+        "call": "matches",
+        "args": [
+          {
+            "get": [
+              "club",
+              "members"
+            ]
+          },
+          {
+            "get": [
+              "club",
+              "consents"
+            ]
+          },
+          {
+            "get": [
+              "desk",
+              "cat"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "phase",
+      "kind": "derive",
+      "path": [
+        "desk",
+        "phase"
+      ],
+      "description": "周日交完租和工资后账上为负即破产，经营结束。",
+      "value": {
+        "op": "if",
+        "args": [
+          {
+            "op": "lt",
+            "args": [
+              {
+                "get": [
+                  "club",
+                  "funds"
+                ]
+              },
+              {
+                "literal": 0
+              }
+            ]
+          },
+          {
+            "literal": "破产"
+          },
+          {
+            "literal": "经营中"
+          }
+        ]
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "act",
+      "title": "记一步",
+      "description": "老板发了话或做了一件事。让今天可以收工。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "act"
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "act"
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "call",
+      "title": "请下一位进来",
+      "description": "请一位本周的来访者进来面谈。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "applicant"
+        ],
+        "properties": {
+          "applicant": {
+            "type": "string",
+            "title": "名额编号"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "call"
+                  },
+                  {
+                    "param": [
+                      "applicant"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "call"
+              },
+              {
+                "param": [
+                  "applicant"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "audit",
+      "title": "旁听",
+      "description": "老板今晚进一间开课的互助室旁听。收工时这间屋的人多涨了解；信任低于旁听拘束线的人反而拘束、信任下降。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "room"
+        ],
+        "properties": {
+          "room": {
+            "type": "string",
+            "title": "互助室",
+            "description": "如“一号室”。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "audit"
+                  },
+                  {
+                    "param": [
+                      "room"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "audit"
+              },
+              {
+                "param": [
+                  "room"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "talk",
+      "title": "找会员谈",
+      "description": "老板单独找一位会员谈，了解当场上涨；每人每周一次。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "talk"
+                  },
+                  {
+                    "param": [
+                      "member"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "talk"
+              },
+              {
+                "param": [
+                  "member"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "setroom",
+      "title": "定互助室",
+      "description": "给一间空着的互助室定维度和每周上课的那一晚（1=周一 … 6=周六）。屋里有人时不能改。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "room",
+          "dim",
+          "night"
+        ],
+        "properties": {
+          "room": {
+            "type": "string",
+            "title": "互助室",
+            "description": "如“一号室”。"
+          },
+          "dim": {
+            "type": "string",
+            "title": "维度"
+          },
+          "night": {
+            "type": "integer",
+            "title": "上课日",
+            "minimum": 1,
+            "maximum": 6
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "setroom"
+                  },
+                  {
+                    "param": [
+                      "room"
+                    ]
+                  },
+                  {
+                    "param": [
+                      "dim"
+                    ]
+                  },
+                  {
+                    "param": [
+                      "night"
+                    ]
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "setroom"
+              },
+              {
+                "param": [
+                  "room"
+                ]
+              },
+              {
+                "param": [
+                  "dim"
+                ]
+              },
+              {
+                "param": [
+                  "night"
+                ]
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "assign",
+      "title": "分班",
+      "description": "把在读会员分进一间已定维度、他登记表上勾了该维度的互助室；room 为空字符串表示移出。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member",
+          "room"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          },
+          "room": {
+            "type": "string",
+            "title": "互助室",
+            "description": "空字符串表示不分班。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "assign"
+                  },
+                  {
+                    "param": [
+                      "member"
+                    ]
+                  },
+                  {
+                    "param": [
+                      "room"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "assign"
+              },
+              {
+                "param": [
+                  "member"
+                ]
+              },
+              {
+                "param": [
+                  "room"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "private",
+      "title": "开包间",
+      "description": "深夜给一对两人都同意了这一场的会员开包间，当场掷骰定顺不顺，两人各付包间费。顺：两人失控明显下降、信任上升；不顺：失控不降，受委屈的一方信任下降，记一件事并扣口碑。同意随之用掉。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "a",
+          "b"
+        ],
+        "properties": {
+          "a": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          },
+          "b": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "private"
+                  },
+                  {
+                    "param": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "param": [
+                      "b"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "private"
+              },
+              {
+                "param": [
+                  "a"
+                ]
+              },
+              {
+                "param": [
+                  "b"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "prepared": [
+                  "rolls"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "graduate",
+      "title": "送结业",
+      "description": "送一位失控已低于结业线的会员结业：口碑上升，偶尔家属答谢一笔。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "graduate"
+                  },
+                  {
+                    "param": [
+                      "member"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "graduate"
+              },
+              {
+                "param": [
+                  "member"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "prepared": [
+                  "rolls"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "dismiss",
+      "title": "劝退",
+      "description": "劝一位在读会员退会，口碑下降。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "dismiss"
+                  },
+                  {
+                    "param": [
+                      "member"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "dismiss"
+              },
+              {
+                "param": [
+                  "member"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "handle",
+      "title": "处理事件",
+      "description": "花钱处理一件未处理的事件，此后不再每周扣口碑。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "incident"
+        ],
+        "properties": {
+          "incident": {
+            "type": "integer",
+            "title": "事件序号",
+            "minimum": 0
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "handle"
+                  },
+                  {
+                    "param": [
+                      "incident"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "handle"
+              },
+              {
+                "param": [
+                  "incident"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "expand",
+      "title": "扩租",
+      "description": "盘下一间新的互助室或包间，一次性付钱，之后每周多一份租金。这是老板在案头上当场定下的事，点下时就已结算；正文写到它只是照着结果写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "互助室",
+              "包间"
+            ],
+            "title": "扩什么"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "expand"
+                  },
+                  {
+                    "param": [
+                      "kind"
+                    ]
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "expand"
+              },
+              {
+                "param": [
+                  "kind"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "closeday",
+      "title": "今日收工",
+      "description": "结算今天：今晚有课的班按人数开课或开不了，每人每天按压力档涨失控，失控过闹事线的人各掷一次闹事，信任跌到退会线的人自己走；周日不开课，另算没课的人额外上涨、留着不送结业的人信任下降、房租工资、未处理事件扣口碑、刷新下周面谈名额，然后进入下一周。结果写进 club.report。这是老板在案头上按下的，按下时就已结算；正文写到它只是照着日报写。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "conversions": [],
+      "requires": {
+        "op": "and",
+        "args": [
+          {
+            "op": "eq",
+            "args": [
+              {
+                "prepared": [
+                  "panel"
+                ]
+              },
+              {
+                "literal": true
+              }
+            ]
+          },
+          {
+            "op": "eq",
+            "args": [
+              {
+                "call": "check",
+                "args": [
+                  {
+                    "get": [
+                      "club"
+                    ]
+                  },
+                  {
+                    "get": [
+                      "desk"
+                    ]
+                  },
+                  {
+                    "literal": "closeday"
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  },
+                  {
+                    "literal": null
+                  }
+                ]
+              },
+              {
+                "literal": ""
+              }
+            ]
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "close_day",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "prepared": [
+                  "rolls"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "admit",
+      "title": "收下来访者",
+      "description": "老板在正文里明确收下一位已经请进来面谈的来访者时提交。用该名额掷好的登记表、压力档和失控入册，信任与了解取新会员初值，未分班，收入会费。name 用正文给这位来访者起的全名；xp 用一两句话写下正文里谈出的具体 XP。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "applicant",
+          "name",
+          "xp"
+        ],
+        "properties": {
+          "applicant": {
+            "type": "string",
+            "title": "名额编号"
+          },
+          "name": {
+            "type": "string",
+            "title": "全名"
+          },
+          "xp": {
+            "type": "string",
+            "title": "XP 描述"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "eq",
+        "args": [
+          {
+            "call": "check",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "admit"
+              },
+              {
+                "param": [
+                  "applicant"
+                ]
+              },
+              {
+                "param": [
+                  "name"
+                ]
+              },
+              {
+                "param": [
+                  "xp"
+                ]
+              }
+            ]
+          },
+          {
+            "literal": ""
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "admit"
+              },
+              {
+                "param": [
+                  "applicant"
+                ]
+              },
+              {
+                "param": [
+                  "name"
+                ]
+              },
+              {
+                "param": [
+                  "xp"
+                ]
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "decline",
+      "title": "婉拒来访者",
+      "description": "老板在正文里明确婉拒一位已经请进来面谈的来访者时提交；名额用掉。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "applicant"
+        ],
+        "properties": {
+          "applicant": {
+            "type": "string",
+            "title": "名额编号"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "eq",
+        "args": [
+          {
+            "call": "check",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "decline"
+              },
+              {
+                "param": [
+                  "applicant"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              }
+            ]
+          },
+          {
+            "literal": ""
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "decline"
+              },
+              {
+                "param": [
+                  "applicant"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "consent",
+      "title": "谈妥下一场",
+      "description": "正文里老板分别和两人谈过界限，两人都明确同意下一场包间时提交。只对 desk.matches 里 ready 的一对有效；同意只管一场，开过就用掉。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "a",
+          "b"
+        ],
+        "properties": {
+          "a": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          },
+          "b": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "eq",
+        "args": [
+          {
+            "call": "check",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "consent"
+              },
+              {
+                "param": [
+                  "a"
+                ]
+              },
+              {
+                "param": [
+                  "b"
+                ]
+              },
+              {
+                "literal": null
+              }
+            ]
+          },
+          {
+            "literal": ""
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "consent"
+              },
+              {
+                "param": [
+                  "a"
+                ]
+              },
+              {
+                "param": [
+                  "b"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "note",
+      "title": "改写咨询师笔记",
+      "description": "正文里咨询师对某位会员有了新的判断或建议时提交，整段替换为一两句评估。只写文字意见，不影响任何数值。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member",
+          "text"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "title": "会员",
+            "description": "名册里的全名。"
+          },
+          "text": {
+            "type": "string",
+            "title": "笔记"
+          }
+        }
+      },
+      "conversions": [],
+      "requires": {
+        "op": "eq",
+        "args": [
+          {
+            "call": "check",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "note"
+              },
+              {
+                "param": [
+                  "member"
+                ]
+              },
+              {
+                "param": [
+                  "text"
+                ]
+              },
+              {
+                "literal": null
+              }
+            ]
+          },
+          {
+            "literal": ""
+          }
+        ]
+      },
+      "effects": [
+        {
+          "path": [
+            "club"
+          ],
+          "value": {
+            "call": "operate",
+            "args": [
+              {
+                "get": [
+                  "club"
+                ]
+              },
+              {
+                "get": [
+                  "desk"
+                ]
+              },
+              {
+                "literal": "note"
+              },
+              {
+                "param": [
+                  "member"
+                ]
+              },
+              {
+                "param": [
+                  "text"
+                ]
+              },
+              {
+                "literal": null
+              },
+              {
+                "literal": [
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "constraints": [],
+  "functions": {
+    "cat": {
+      "reads": [],
+      "description": "解铃会的全部固定数：登记表各项与所属维度、价钱、增减幅度与门槛。"
+    },
+    "classes": {
+      "reads": [],
+      "description": "每间互助室的维度、上课日、在读成员、人数够不够开班、今晚是不是它的课。"
+    },
+    "matches": {
+      "reads": [],
+      "description": "所有能排包间的一对：性别与接受对象互相对得上、重口开关一致、至少一项左右咬合；附咬合项、两人了解是否都过包间了解线、是否已谈妥下一场。"
+    },
+    "check": {
+      "reads": [],
+      "description": "一个操作此刻能不能做；能做为空字符串，否则是原因。"
+    },
+    "operate": {
+      "reads": [],
+      "description": "执行一个已允许的操作并返回新的会所状态；开包间与送结业按当场骰子结算。"
+    },
+    "close_day": {
+      "reads": [],
+      "description": "结算一天（周日连带周结算）并返回新的会所状态与日报。"
+    }
+  },
+  "views": {
+    "club": {
+      "paths": [
+        [
+          "club"
+        ],
+        [
+          "desk"
+        ]
+      ],
+      "description": "解铃会此刻的经营状态。正文里的日子、钱、谁在哪个班、出没出事、包间顺不顺、谁走了，都以这里为准。"
+    }
+  },
+  "extensions": {
+    "scripts": {
+      "prepare": {
+        "title": "当场骰子",
+        "description": "每批结算掷一次骰子，并认出这一批是否来自老板的面板。",
+        "enabled": true
+      }
+    }
+  }
+}

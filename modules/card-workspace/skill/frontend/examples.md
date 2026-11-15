@@ -1,21 +1,23 @@
 # 前端示例索引
 
-下面的路径从插件目录算起，用 Read 打开。每个例子只演示一块能力；做整张卡时，按前端技能里"先走一遍玩家的路"的顺序把它们组合起来。
+先按前端承担的职责选择例子。路径从插件目录算起，用 Read 打开；读取示例不会安装或执行它。
 
-## 聊天卡：把一楼文字排成画面
+## 一体游玩界面：解铃会成品
 
-- `docs/user/render.md`：AI 回复或开场白里的 HTML 代码块怎样变成能点的小网页，网页里怎样执行酒馆命令、调用 AI 生成、知道自己在第几楼。从这里开始做按钮和本楼交互。
-- `docs/user/template.md`：AI 只输出地点、时间、正文几个字段，模板把它们填进固定版式，生成过程中实时更新。适合每楼长得一样的卡。
-- `docs/user/media-api.md`：里面的 `html draw-example` 和 `html tts-example` 是能直接跑的画图、语音组件，带取消、失败提示和结果显示。
+[解铃会](<examples/jieling.md>)是作者完成版的完整卡工程：场景入口、正文阅读、行动条与输入、案头状态、变量按钮和聊天图片操作都在同一界面内，底层仍使用酒馆聊天与小白X变量。
 
-## 带变量的面板
+做主要游玩界面时从这个例子看完整过程，再读[一体界面参考](<../references/xiaobaix-heavy-ui.md>)确认宿主衔接与生命周期。示例中的美术、布局和经营规则属于解铃会；按自己的题材设计，不把它们当固定模板。
 
-这些例子主要教变量怎样结算，面板只是让玩家能操作、看到结果：
+## 本楼展示与单项组件
 
-- `modules/variables/state3/skill/references/examples/camp/`：变量 3.0 的营地面板，按钮提交动作，条件不满足时告诉玩家原因。
-- `modules/variables/state3/skill/references/examples/jieling.md`：解铃会，一张完整的变量 3.0 示例卡。故事里接待来访者、旁听、听汇报，面板上分室、处理事件、结束一周。
-- `modules/variables/state2/skill/references/examples/state2-direct/`：变量 2.0 的初始化和面板直接写入。
+- `docs/user/render.md`：AI 回复或开场白里的 HTML 代码块怎样变成楼层网页，以及怎样执行命令、调用生成、取得楼号。
+- `docs/user/template.md`：把每楼输出填进固定版式，生成过程中实时更新。
+- `docs/user/media-api.md`：“在自己的聊天 UI 中显示图片卡”说明一体界面怎样挂载已有聊天图片；`html draw-example` 和 `html tts-example` 演示独立画图、语音请求及取消、失败和结果显示。
 
-## 固定界面的卡
+## 变量结算教学
 
-挂载、卸载、与聊天来回切换，读[重型前端参考](<../references/xiaobaix-heavy-ui.md>)。插件目前没有附带一整张固定界面、自己保存回合历史的成品卡；做这类卡时，生成、画图、语音可以复用上面的组件，回合和存档按前端技能里选定的做法自己实现。
+这些例子讲结算与回执，面板只是操作载体，不用它们代替一体界面的体验设计：
+
+- `modules/variables/state3/skill/references/examples/camp/`：变量 3.0 动作提交与条件失败反馈。
+- `modules/variables/state3/skill/references/examples/jieling.md`：按周经营的解铃会结算教学卡，讲前后阶段、派生值、随机数与一次性奖励。它与上面按日经营的成品是两套独立规则，文件分别成套使用。
+- `modules/variables/state2/skill/references/examples/state2-direct/`：变量 2.0 初始化与面板直接写入。

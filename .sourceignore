@@ -16,6 +16,9 @@ libs/**
 # function bodies), verified by modules/variables/state3/tests/jieling-example.test.ts.
 /modules/variables/state3/skill/references/examples/jieling/**
 
+# Integrated CardFiles example; executed by modules/card-workspace/frontend-example.test.ts.
+/modules/card-workspace/skill/frontend/examples/jieling/**
+
 # Local reference material (not part of the project)
 /ST-BaiBai-Image-main/**
 /st-chatu8/**

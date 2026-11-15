@@ -11,7 +11,7 @@ export const CARD_SKILL = Object.freeze({
 
 export const FRONTEND_SKILL = Object.freeze({
     id: 'builtin-card-frontend', title: '角色卡前端与交互',
-    summary: 'Design multi-message presentation or a fixed-screen card application: story reading, scenes, controls, generation, lifecycle and storage ownership. Includes a scoped example index; gameplay rules belong to the variable skills.',
+    summary: 'Design story presentation, supporting panels or an integrated play interface. Connect scene entry, reading, player actions and feedback while reusing host chat, variable controls and image operations. Includes a complete integrated-card example; gameplay rules belong to the variable skills.',
     path: 'modules/card-workspace/skill/frontend/SKILL.md',
     tools: [CARD_FILES],
 });
