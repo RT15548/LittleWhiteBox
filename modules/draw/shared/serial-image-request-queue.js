@@ -83,20 +83,19 @@ export function createSerialImageRequestQueue({
     }
 
     function notifyQueued() {
+        // 冷却中的请求已经结束，队列前面其实没有在跑的任务。这时不管是不是同一批，
+        // 都应该告诉用户“还在等限速”，而不是把它显示成“排队第 2 位”。
+        const cooling = active?.phase === 'cooldown' ? active : null;
+        const remaining = cooling ? cooling.cooldownUntil - now() : 0;
         pending.forEach((item, index) => {
-            const ahead = (active ? 1 : 0) + index;
-            const waitingForOwnCooldown = index === 0
-                && active?.phase === 'cooldown'
-                && item.batchKey !== undefined
-                && item.batchKey === active.batchKey;
-            if (waitingForOwnCooldown) {
-                const remaining = active.cooldownUntil - now();
-                if (item.queuePhase === 'queued' && remaining > 0) {
+            if (index === 0 && remaining > 0) {
+                if (item.queuePhase !== 'cooldown') {
                     item.queuePhase = 'cooldown';
                     notify(item.onCooldown, { duration: remaining });
                 }
                 return;
             }
+            const ahead = (active ? 1 : 0) + index;
             if (ahead > 0) {
                 item.queuePhase = 'queued';
                 notify(item.onQueued, { ahead, position: ahead + 1 });
