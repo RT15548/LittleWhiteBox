@@ -1,4 +1,6 @@
-const COPY = {
+import { getMessageActions } from '../state/message-actions.js';
+
+export const MESSAGE_ACTION_COPY = {
     actions: '消息操作',
     copy: { label: '复制', title: '复制整条消息' },
     edit: { label: '编辑', title: '编辑这条消息' },
@@ -8,7 +10,16 @@ const COPY = {
     'cancel-edit': { label: '取消', title: '取消本次修改' },
     success: { label: '已复制', title: '已复制' },
     error: { label: '复制失败', title: '复制失败' },
+    editor: '编辑消息',
+    copied: '已复制整条消息',
+    empty: '消息内容不能为空',
+    updated: '消息已更新',
+    deleted: '消息已删除',
+    deleteTurn: '删除这条用户消息及这一轮后续回复？',
+    noUserInput: '这条消息前没有可重答的用户输入',
+    saveFailed: error => `消息保存失败：${error}`,
 };
+const COPY = MESSAGE_ACTION_COPY;
 
 export function createMessageActions(state) {
     const expanded = new WeakSet();
@@ -17,7 +28,7 @@ export function createMessageActions(state) {
         const actions = document.createElement('nav');
         actions.className = 'xb-assistant-message-actions';
         actions.setAttribute('aria-label', COPY.actions);
-        const definitions = editing ? ['save-edit', 'cancel-edit'] : ['copy', 'edit', 'reroll', 'delete'];
+        const definitions = editing ? ['save-edit', 'cancel-edit'] : getMessageActions(state.messages, messageIndex);
         for (const action of definitions) {
             const feedback = state.messageActionFeedback?.[`${action}:${messageIndex}`];
             const copy = COPY[feedback] || COPY[action];

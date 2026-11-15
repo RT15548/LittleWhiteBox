@@ -26,12 +26,13 @@ import {
     WORKSPACE_KERNEL_VERSION,
     WORKSPACE_SOURCES,
 } from '../../shared/workspace-protocol.js';
-import { buildWorkspacePreconditions, workspaceMutationScopes, WORKSPACE_CONFLICT } from '../../shared/workspace-preconditions.js';
+import { buildWorkspacePreconditions, captureWorkspacePath, findWorkspaceConflicts, workspaceMutationScopes, WORKSPACE_CONFLICT } from '../../shared/workspace-preconditions.js';
 import { WORKSPACE_COPY } from './workspace-copy.js';
 import { shouldAutoRevealWorkspace } from '../../shared/window-layout.js';
 import { TOOL_NAMES } from '../tooling.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
 import { displayCardWorkspacePath } from '../../../card-workspace/paths.js';
+import { cardMetadataName, rebaseCardName } from '../../../card-workspace/rename.js';
 import { observeBackgroundTask } from '../../../../shared/common/async-errors.js';
 
 
@@ -304,6 +305,7 @@ export function createLocalSourcesManager(deps) {
     let workspaceUiPersistTimer = 0;
     const pendingEditorWrites = new Map();
     const pendingWorkspaceOperations = new Set();
+    let directoryChangeQueue = Promise.resolve();
 
     function getWorkspaceRuntimeMeta() {
         const workspace = state.runtime?.workspace && typeof state.runtime.workspace === 'object'
@@ -514,11 +516,14 @@ export function createLocalSourcesManager(deps) {
         return String(nextMatch.file.content || '') === String(liveEditorContent);
     }
 
-    async function applyAuthoritativeLocalSources(nextSources, toastText = '') {
+    async function applyAuthoritativeLocalSources(nextSources, toastText = '', directoryChange = null) {
         const normalizedNextSources = normalizeLocalSources(nextSources);
         state.localSources = normalizedNextSources;
         ensureWorkspaceSelection();
-        if (!shouldSkipAuthoritativeRender(normalizedNextSources)) {
+        if (directoryChange) {
+            deps.onWorkspaceDirectoryChanged?.(directoryChange.fromPath, directoryChange.toPath);
+            renderWorkspaceOnly?.();
+        } else if (!shouldSkipAuthoritativeRender(normalizedNextSources)) {
             render?.();
         }
         if (toastText) {
@@ -675,6 +680,73 @@ export function createLocalSourcesManager(deps) {
         console.info('[Assistant][LocalSources] host->iframe applyExternalLocalSources', summarizeLocalSources(nextSources));
         const normalizedNextSources = normalizeLocalSources(nextSources);
         return await applyAuthoritativeLocalSources(normalizedNextSources, toastText);
+    }
+
+    function applyExternalDirectoryChange(change) {
+        const result = directoryChangeQueue.then(() => relocateDirectoryDrafts(change));
+        directoryChangeQueue = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
+    async function relocateDirectoryDrafts({ fromPath, toPath, localSources }) {
+        // Finish outstanding receipts before replacing their UI snapshot. The
+        // repository rejects late writes at the removed path; their text stays
+        // in workspaceDrafts until it is reattached below.
+        for (;;) {
+            const entries = [...pendingEditorWrites.values()].filter(entry => entry.path.startsWith(fromPath) && !entry.disposed);
+            if (!entries.length) break;
+            for (const entry of entries) {
+                if (entry.timer) { clearTimeout(entry.timer); entry.timer = 0; }
+                entry.disposed = true;
+            }
+            await Promise.all(entries.map(entry => entry.inFlightPromise));
+        }
+        const drafts = Object.entries(state.workspaceDrafts || {}).filter(([path]) => path.startsWith(fromPath));
+        const writes = new Map(drafts.map(([path]) => [path, pendingEditorWrites.get(path)]));
+        for (const [path] of drafts) discardPendingEditorWrite(path);
+        const relocate = path => path?.startsWith(fromPath) ? (toPath ? toPath + path.slice(fromPath.length) : '') : path;
+        state.selectedFilePath = relocate(state.selectedFilePath);
+        state.selectedTreePath = relocate(state.selectedTreePath);
+        if (toPath) {
+            for (const [path, draft] of drafts) {
+                const nextPath = relocate(path);
+                const previous = writes.get(path);
+                const expected = previous.preconditions.find(item => item.path === path && item.scope === 'entry').expected;
+                const saved = findLocalFileByPath(localSources, nextPath)?.file;
+                const name = path === fromPath + 'card.json' ? cardMetadataName(saved?.originalContent) : undefined;
+                const baseline = expected.kind === 'file' ? rebaseCardName(expected.file, name) : null;
+                const rebasedDraft = rebaseCardName({ ...draft.file, content: draft.content }, name);
+                const text = rebasedDraft.content;
+                // Transfer the original evidence, not the newly received content.
+                // The host moved parents; the file itself still needs its guard.
+                const expectedSources = baseline ? kernelUpsertLocalSourceFile(localSources, nextPath, baseline.content,
+                    { originalContent: baseline.originalContent, originalGroupHash: baseline.originalGroupHash }).nextSources : [];
+                const preconditions = buildWorkspacePreconditions(TOOL_NAMES.WRITE, { path: nextPath }, localSources)
+                    .map(item => item.path === nextPath ? { ...item, expected: captureWorkspacePath(expectedSources, nextPath) } : item);
+                const preview = kernelUpsertLocalSourceFile(localSources, nextPath, text, { originalContent: rebasedDraft.originalContent }).file;
+                // A write can have failed solely because its old directory was
+                // moved. Resume only when its original file evidence still fits.
+                const status = previous.status === 'conflict'
+                    && !findWorkspaceConflicts(TOOL_NAMES.WRITE, { path: nextPath }, preconditions, localSources).length
+                    ? 'queued' : previous.status;
+                setDraftRecord(nextPath, { ...draft, status, content: text, file: preview });
+                const entry = { ...previous, status, path: nextPath, preconditions, disposed: false,
+                    inFlightContent: typeof previous.inFlightContent === 'string'
+                        ? rebaseCardName({ ...draft.file, content: previous.inFlightContent }, name).content : previous.inFlightContent,
+                    queuedContent: text, timer: 0, inFlightPromise: null, conflictSnapshot: localSources };
+                pendingEditorWrites.set(nextPath, entry);
+            }
+        }
+        // Paths, drafts and the live editor change together, before any await.
+        // Content equality may skip ordinary receipts, never a path change.
+        await applyAuthoritativeLocalSources(localSources, '', { fromPath, toPath });
+        if (toPath) {
+            // Existing conflicts and failed writes retain their explicit retry.
+            for (const [path] of drafts) await sendEditorWrite(relocate(path));
+            await flushPendingWorkspaceChanges({ toolName: TOOL_NAMES.DELETE, args: { path: toPath } });
+        }
+        persistWorkspaceUiStateImmediately();
+        renderWorkspaceOnly?.();
     }
 
     async function appendLocalSourceFiles(files, options = {}) {
@@ -966,7 +1038,7 @@ export function createLocalSourcesManager(deps) {
             source: WORKSPACE_SOURCES.EDITOR,
             preconditions: entry.preconditions,
             retryContent,
-            onWorkspaceObserved: observations => { entry.preconditions = observations; },
+            onWorkspaceObserved: observations => { if (observations.length) entry.preconditions = observations; },
             onWorkspaceConflict: snapshot => { entry.conflictSnapshot = normalizeLocalSources(snapshot); },
             path: targetPath,
         }).then(async result => {
@@ -1444,6 +1516,7 @@ export function createLocalSourcesManager(deps) {
         deleteLocalPath,
         clearLocalSources,
         applyExternalLocalSources,
+        applyExternalDirectoryChange,
         openWorkspace,
         closeWorkspace,
         toggleWorkspace,

@@ -4,7 +4,7 @@ import { normalizeVertexConfig } from '../agent-core/vertex-config.js';
 import { TEXT_API_COPY as COPY } from './copy.js';
 
 export const TEXT_API_SETTINGS_KEY = 'textApiPresets';
-export const TEXT_API_VERSION = 1;
+export const TEXT_API_VERSION = 2;
 export const TEXT_API_FEATURES = Object.freeze(['summary', 'planner', 'outline']);
 export const HOST_BINDING = '@host';
 export const HOST_PROVIDER = 'sillytavern-current';

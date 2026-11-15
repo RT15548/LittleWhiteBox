@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 import { getContext } from '../../../../../../extensions.js';
 import { syncMesToSwipe } from '../../../../../../../script.js';
 import { adoptExistingJobFromDrawRun, normalizeDrawRunHandoff } from './draw-run-adoption.js';
@@ -36,8 +37,8 @@ function clearLocalMarker(ctx, entry, completeAutomatic = false) {
 }
 
 function notifyTerminal(run) {
-    if (run?.state === 'failed') window.toastr?.error?.(run.error?.message || run.error || '后台场景规划失败。', '小白X画图');
-    else if (run?.state === 'cancelled') window.toastr?.info?.('后台画图任务已取消。', '小白X画图');
+    if (run?.state === 'failed') drawNotify.error(run.error?.message || run.error || '后台场景规划失败。', '小白X画图');
+    else if (run?.state === 'cancelled') drawNotify.info('后台画图任务已取消。', '小白X画图');
 }
 
 export async function runDrawRunRecoveryPass({ excludedRunIds = new Set(), acknowledgedRunIds = new Set(),

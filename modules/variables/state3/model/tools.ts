@@ -1,15 +1,10 @@
-import { contains } from '../engine/data.js';
 import { DIRECT_INPUTS } from '../engine/input.js';
-import type { Compiled, JsonObject, Path, UpdateStage } from '../types.js';
-import { allowsStage, canWriteDirect } from '../definition/stages.js';
+import type { Compiled, JsonObject, UpdateStage } from '../types.js';
+import { allowsStage, directWriteScopes } from '../definition/stages.js';
 import type { AgentToolDefinition } from '../../../agent-core/public-api.js';
 
 export const SUBMIT_TOOL = 'write';
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
-const blockedPaths = (compiled: Compiled, stage?: UpdateStage) => [
-    ...compiled.definition.access.filter(entry => !entry.direct || !allowsStage(compiled.definition, entry, stage)).map(entry => entry.path),
-    ...compiled.rules.filter(rule => rule.kind === 'derive').map(rule => rule.path),
-];
 
 /** A finite tool projection of action parameters; the full schema stays in the writing guide and final validator. */
 function inline(raw: unknown, root: unknown, seen = new Set<string>()): unknown {
@@ -28,43 +23,14 @@ function inline(raw: unknown, root: unknown, seen = new Set<string>()): unknown 
     return Object.fromEntries(Object.entries(raw).filter(([key]) => !['$id', '$schema', '$defs', 'definitions'].includes(key))
         .map(([key, value]) => [key, inline(value, root, seen)]));
 }
-export interface WritableField { path: Path; removable: boolean; descriptions: string[] }
-function finitePaths(raw: unknown, path: Path): Path[] | undefined {
-    if (!object(raw) || raw.$ref || ['allOf', 'anyOf', 'oneOf', 'if', 'patternProperties'].some(key => key in raw)) {return undefined;}
-    if (raw.type === 'array' || !raw.type) {return undefined;}
-    if (raw.type !== 'object') {return [path];}
-    if (raw.additionalProperties !== false) {return undefined;}
-    const paths = [path];
-    for (const [key, value] of Object.entries(object(raw.properties) ? raw.properties : {})) {
-        const children = finitePaths(value, [...path, key]);
-        if (!children) {return undefined;}
-        paths.push(...children);
-    }
-    return paths;
-}
-export function getWritableFields(compiled: Compiled, stage?: UpdateStage): WritableField[] {
-    const fields: WritableField[] = [];
-    const visit = (raw: unknown, path: Path, required: boolean) => {
-        if (path.length && canWriteDirect(compiled.definition, path, stage)) {fields.push({ path, removable: !required, descriptions: compiled.definition.access.filter(entry => contains(entry.path, path)).map(entry => entry.description) });}
-        if (!object(raw) || !object(raw.properties)) {return;}
-        for (const [key, schema] of Object.entries(raw.properties)) {visit(schema, [...path, key], Array.isArray(raw.required) && raw.required.includes(key));}
-    };
-    visit(compiled.definition.schema, [], true);
-    return fields;
-}
 export function getInputSchema(compiled: Compiled, stage?: UpdateStage): JsonObject {
     const operations: JsonObject[] = [];
-    for (const access of compiled.definition.access.filter(entry => entry.direct && allowsStage(compiled.definition, entry, stage))) {
-        const blocked = blockedPaths(compiled, stage);
-        if (blocked.some(path => contains(path, access.path))) {continue;}
-        let schema: unknown = compiled.definition.schema;
-        for (const segment of access.path) {schema = object(schema) && object(schema.properties) ? schema.properties[segment] : undefined;}
-        const candidates = finitePaths(schema, access.path)?.filter(path => canWriteDirect(compiled.definition, path, stage));
-        if (candidates?.length === 0) {continue;}
+    const scopes = directWriteScopes(compiled.definition, stage);
+    if (scopes.length) {
         // Tool providers may reject array-valued enums and tuple/prefix schemas.
         // Keep the path shape here; settlement enforces the full permissions.
-        const path: JsonObject = { type: 'array', items: { type: 'string' }, minItems: Math.max(1, access.path.length),
-            description: `Field-name segments within ${JSON.stringify(access.path)}. ${access.description}` };
+        const path: JsonObject = { type: 'array', items: { type: 'string' }, minItems: Math.max(1, Math.min(...scopes.map(scope => scope.path.length))),
+            description: 'Field-name segments within a writable scope in the writing guide.' };
         for (const [op, input] of Object.entries(DIRECT_INPUTS)) {
             operations.push({ type: 'object', description: input.description, required: ['op', 'path', ...Object.keys(input.parameters)],
                 properties: { op: { const: op }, path, ...input.parameters,

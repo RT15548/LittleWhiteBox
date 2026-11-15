@@ -78,14 +78,7 @@
       "reputation": 30,
       "exposure": 0,
       "waiting": 2,
-      "members": {
-        "周秀兰": {"age": 52, "job": "退休会计", "kink": "只对二十出头的男孩子动心。丈夫走后三年压不住了，上个月在儿子的同学面前失了态，儿子半年没回家。", "wants": "年下", "is": ["年上", "温柔"], "hates": ["粗暴"], "control": 35, "status": "在读", "room": "一号室", "note": "来了五周，总坐在离门最近的位置。"},
-        "林一舟": {"age": 21, "job": "大三学生", "kink": "只对比自己大二十岁以上的女人有反应。同龄女友提分手时说他“看我的眼神像在看一张白纸”。", "wants": "年上", "is": ["年下"], "hates": [], "control": 40, "status": "在读", "room": "一号室", "note": "辅导员介绍来的，说话前会先道歉。"},
-        "陈默": {"age": 34, "job": "程序员", "kink": "需要被命令、被贬低才能放松。在公司对女上司失控过一次，差点被开除；最怕这事被人知道。", "wants": "支配", "is": ["被支配"], "hates": ["露出"], "control": 30, "status": "在读", "room": "二号室", "note": "每次都提前十分钟到，坐得笔直。"},
-        "苏曼": {"age": 29, "job": "健身教练", "kink": "支配欲很强，被人注视时才觉得自己活着。曾在私教课上让学员做越界的事，被投诉后来的。", "wants": "被支配", "is": ["支配", "露出"], "hates": [], "control": 45, "status": "在读", "room": "二号室", "note": "嫌这里节奏太慢，但没缺过一次课。"},
-        "赵建国": {"age": 47, "job": "公交司机", "kink": "窥视癖。年轻时在澡堂偷看被抓过，此后二十年靠夜班躲着人。最近又开始在车上盯着乘客。", "wants": "露出", "is": ["窥视"], "hates": ["制服"], "control": 50, "status": "在读", "room": "二号室", "note": "话最少，但会给大家带热豆浆。"},
-        "何小满": {"age": 24, "job": "外卖骑手", "kink": "恋足。送餐时偷拿过顾客门口的鞋，被报了警，派出所的民警把他介绍到这里。", "wants": "足", "is": ["年下"], "hates": [], "control": 25, "status": "在读", "room": "", "note": "刚登记，还没分室。"}
-      },
+      "members": {},
       "incidents": [],
       "lastWeek": null,
       "flags": {"firstGraduate": false}
@@ -95,9 +88,7 @@
     {},
     {"club": {
       "funds": 2400,
-      "exposure": 10,
-      "members": {"何小满": {"room": "一号室", "note": "刚分到一号室，今天第一次参加互助。"}},
-      "incidents": [{"week": 1, "who": ["陈默", "苏曼"], "kind": "当场冲突", "summary": "陈默与苏曼在走廊起了争执，隔壁住户过来问了两次。", "open": true}]
+      "exposure": 10
     }}
   ],
   "access": [
@@ -130,7 +121,7 @@
       "stages": ["before"],
       "description": "Move a current member into a room, or out of every room with an empty room. A room holds at most 4 members.",
       "parameters": {"type": "object", "required": ["member", "room"], "additionalProperties": false, "properties": {
-        "member": {"type": "string", "title": "会员", "description": "Full name as registered, for example 何小满."},
+        "member": {"type": "string", "title": "会员", "description": "Full name as registered."},
         "room": {"$ref": "#/$defs/room", "title": "互助室", "description": "一号室, 二号室, 三号室, or an empty string to leave the member unassigned."}
       }, "$defs": {"room": {"enum": ["", "一号室", "二号室", "三号室"]}}},
       "conversions": [],

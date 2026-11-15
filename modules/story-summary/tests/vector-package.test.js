@@ -1,7 +1,12 @@
 /* global Buffer */
 import { createTestModuleUrl } from './helpers/bundle-module.js';
+import { createSessionStorage } from './helpers/session-storage.js';
 import { entry } from './helpers/story-summary-entry.js';
 import { orphanVectorIds } from '../vector/utils/vector-source.js';
+import { validateCurrentSources } from '../vector/storage/current-source-validation.js';
+import { classifyVectorRecoveryFailure, mergeVectorRecoveryFailures } from '../vector/integrity-recovery.js';
+import { getEmbeddingFailureDetails } from '../vector/llm/embedding-failure.js';
+import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import assert from 'node:assert/strict';
 import { beforeEach, after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -37,6 +42,8 @@ const bundled = await build({
         "export * from './modules/story-summary/vector/utils/vector-input-digest.js';",
         "export * from './modules/story-summary/vector/integrity-policy.js';",
         "export * as coordinator from './modules/story-summary/vector/runtime/maintenance-coordinator.js';",
+        "export * from './modules/story-summary/vector/runtime/embedding-receipts.js';",
+        "export * from './modules/story-summary/data/chat-identity.js';",
         "export * as io from './modules/story-summary/vector/storage/vector-io.js';",
         "export * as store from './modules/story-summary/vector/storage/chunk-store.js';",
         "export * as stateStore from './modules/story-summary/vector/storage/state-store.js';",
@@ -65,6 +72,9 @@ const { db } = mod;
 after(() => db.close());
 
 beforeEach(async () => {
+    globalThis.sessionStorage = createSessionStorage();
+    mod.forgetStoredEmbeddings(mod.getChatIdentity({ chatId: fixture.chatId }));
+    if (host.context?.chatId) mod.forgetStoredEmbeddings(mod.getChatIdentity(host.context));
     for (const table of db.tables) await table.clear();
     Object.assign(host, { filters: [], config: { enabled: true }, monitoring: true, logs: [], metadataWrites: 0, runtimeInvalidations: 0, runtimeMutations: 0, lexicalInvalidations: 0, embeddingInputs: [], embeddingError: null, onEmbed: null });
     host.context = { chatId: fixture.chatId, chat: structuredClone(fixture.chat) };
@@ -101,11 +111,16 @@ function maintainL1(options = {}) {
 // - Maintenance repair includes deleted targets, and repeated repair makes no model request.
 // - Partial failure/cancellation preserves completed work and retries only unfinished inputs.
 function repairAll() {
-    const boundary = entry(['repairVectorsNow', 'repairMissingEventVectorsNow', 'repairMissingEventVectorsInner'], {
+    const boundary = entry(['repairVectorsNow', 'reportVectorRepairResult', 'repairVectorLayers', 'repairMissingEventVectorsNow', 'repairMissingEventVectorsInner'], {
         structuredClone, ...mod.store, ...mod.coordinator,
         getContext: () => host.context, getVectorConfig: () => host.config,
         getSummaryStore: () => memory().storySummary, isStorySummaryEnabledForCurrentChat: () => true,
+        getStateAtoms: mod.stateStore.getStateAtoms, validateCurrentSources,
+        classifyVectorRecoveryFailure, mergeVectorRecoveryFailures, getEmbeddingFailureDetails, SUMMARY_FEEDBACK_COPY,
+        vectorRecoveryFailure: null,
         getEngineFingerprint: mod.getEngineFingerprint, embed: mod.embed,
+        getChatIdentity: mod.getChatIdentity, embedForStorage: mod.embedForStorage,
+        acknowledgeStoredEmbeddings: mod.acknowledgeStoredEmbeddings, retryStoredEmbeddings: mod.retryStoredEmbeddings,
         inputDigest: mod.inputDigest,
         selectMissingEventVectorPairs: mod.selectMissingEventVectorPairs, buildEventVectorText: mod.buildEventVectorText,
         orphanVectorIds, saveEventVectorsToDb: mod.store.saveEventVectors,
@@ -195,7 +210,22 @@ test('maintenance and ordinary repair agree on stale inputs and do not rebuy hea
     assert.deepEqual(host.embeddingInputs, []);
 });
 
-test('retry after partial repair failure never repeats already successful L1 or L2 requests', async () => {
+test('maintenance index repair rejects a changed model before paying or mutating saved cache data', async () => {
+    await seedCache();
+    host.config.embeddingApi = { model: 'different-model' };
+    const impact = { eventIds: fixture.events.map(event => event.id), atomIds: fixture.atoms.map(atom => atom.atomId) };
+    const before = await cacheSnapshot();
+    const metadata = structuredClone(host.metadata);
+    await assert.rejects(mod.inspectMaintenanceIndexes(fixture.chatId, impact), { code: 'fingerprint_mismatch' });
+    const owner = new AbortController();
+    await assert.rejects(mod.repairMaintenanceIndexes(fixture.chatId, impact,
+        { signal: owner.signal, operationId: 'automatic-model-mismatch' }), { code: 'fingerprint_mismatch' });
+    assert.deepEqual(host.embeddingInputs, []);
+    assert.deepEqual(await cacheSnapshot(), before);
+    assert.deepEqual(host.metadata, metadata);
+});
+
+test('manual retry after partial repair failure preserves completed L1 and finishes only outstanding layers', async () => {
     await seedCache();
     await db.chunks.update([fixture.chatId, 'c-0-0'], { text: 'changed chunk' });
     memory().stateAtoms[0].semantic = 'changed anchor';
@@ -206,8 +236,136 @@ test('retry after partial repair failure never repeats already successful L1 or 
     host.embeddingInputs = [];
     host.onEmbed = null;
     await repairAll();
-    assert.deepEqual(host.embeddingInputs, ['changed anchor', 'greets']);
+    assert.deepEqual(host.embeddingInputs, ['changed anchor', 'greets', 'Library visit changed event']);
     assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
+});
+
+async function seedMissingL0Atoms(count) {
+    await seedCache();
+    const atoms = Array.from({ length: count }, (_, index) => ({
+        ...structuredClone(fixture.atoms[0]), atomId: `missing-atom-${index}`,
+        semantic: `Missing anchor ${index}.`,
+        edges: [{ s: 'Alice', t: 'Bob', r: `missing relation ${index}` }],
+    }));
+    memory().stateAtoms.push(...atoms);
+    return atoms;
+}
+
+for (const failure of ['embedding', 'storage']) test(`L0 ${failure} failure retains committed batches and retry buys only remaining atoms`, async () => {
+    const atoms = await seedMissingL0Atoms(41);
+    const healthy = await db.stateVectors.get([fixture.chatId, fixture.atoms[0].atomId]);
+    const metadata = structuredClone(host.metadata);
+    const batches = [];
+    host.onEmbed = texts => {
+        batches.push([...texts]);
+        if (failure === 'embedding' && batches.length === 2) {
+            throw Object.assign(new Error('fixture embedding unavailable'), { embeddingFailure: { kind: 'http', status: 503 } });
+        }
+    };
+    let commits = 0;
+    const result = await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId, null, {
+        commit: task => {
+            if (failure === 'storage' && ++commits === 2) throw new Error('fixture storage unavailable');
+            return task();
+        },
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.code, failure === 'embedding' ? 'embedding_http_failed' : 'state_vector_write_failed');
+    if (failure === 'embedding') assert.equal(result.httpStatus, 503);
+    assert.equal(result.vectorized, 20);
+    assert.equal(result.failed, 21);
+    assert.equal(result.vectorFailed, 21);
+    assert.deepEqual(batches.map(batch => batch.length), [40, 40]);
+    assert.equal(await db.stateVectors.count(), 21);
+    assert.equal((await mod.pipeline.getL0VectorBuildStatus(fixture.chatId)).missing, 21);
+    assert.deepEqual(await db.stateVectors.get([fixture.chatId, fixture.atoms[0].atomId]), healthy);
+
+    const committed = await db.stateVectors.toArray();
+    host.embeddingInputs = [];
+    batches.length = 0;
+    host.onEmbed = texts => { batches.push([...texts]); };
+    if (failure === 'embedding') {
+        const automatic = await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId);
+        assert.equal(automatic.success, false);
+        assert.equal(automatic.code, 'embedding_http_failed');
+        assert.deepEqual(host.embeddingInputs, []);
+        assert.deepEqual(await db.stateVectors.toArray(), committed);
+        mod.retryStoredEmbeddings(mod.getChatIdentity(host.context));
+    }
+    const retried = await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId);
+    assert.equal(retried.success, true);
+    assert.equal(retried.vectorized, 21);
+    assert.deepEqual(batches.map(batch => batch.length), failure === 'embedding' ? [40, 2] : [2]);
+    const purchased = failure === 'embedding' ? atoms.slice(20) : atoms.slice(40);
+    assert.deepEqual(new Set(host.embeddingInputs), new Set(purchased.flatMap(atom => [atom.semantic, atom.edges[0].r])));
+    assert.equal(await db.stateVectors.count(), 42);
+    for (const row of committed) assert.deepEqual(await db.stateVectors.get([fixture.chatId, row.atomId]), row);
+    assert.deepEqual(host.metadata, metadata);
+    host.embeddingInputs = [];
+    assert.equal((await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId)).status, 'up_to_date');
+    assert.deepEqual(host.embeddingInputs, []);
+});
+
+test('L0 orphan-only cleanup reports its work and removes no healthy data or source memory without embedding', async () => {
+    await seedCache();
+    memory().stateAtoms = [];
+    const metadata = structuredClone(host.metadata);
+    const otherLayers = await Promise.all([db.chunks.toArray(), db.chunkVectors.toArray(), db.eventVectors.toArray()]);
+    const before = await mod.pipeline.getL0VectorBuildStatus(fixture.chatId);
+    assert.equal(before.missing, 0);
+    assert.equal(before.obsoleteCount, 1);
+    assert.equal((await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId)).success, true);
+    assert.equal((await mod.pipeline.getL0VectorBuildStatus(fixture.chatId)).obsoleteCount, 0);
+    assert.equal(await db.stateVectors.count(), 0);
+    assert.deepEqual(host.embeddingInputs, []);
+    assert.deepEqual(host.metadata, metadata);
+    assert.deepEqual(await Promise.all([db.chunks.toArray(), db.chunkVectors.toArray(), db.eventVectors.toArray()]), otherLayers);
+});
+
+test('L0 orphan cleanup commits independently before an embedding failure', async () => {
+    await seedMissingL0Atoms(1);
+    memory().stateAtoms = memory().stateAtoms.filter(atom => atom.atomId !== fixture.atoms[0].atomId);
+    host.embeddingError = new Error('fixture embedding failure');
+    const result = await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId);
+    assert.equal(result.success, false);
+    assert.equal(result.vectorized, 0);
+    assert.equal(result.failed, 1);
+    assert.equal(await db.stateVectors.count(), 0);
+    assert.equal((await mod.pipeline.getL0VectorBuildStatus(fixture.chatId)).obsoleteCount, 0);
+});
+
+test('L0 orphan cleanup rechecks live source IDs inside the commit', async () => {
+    await seedCache();
+    const atoms = structuredClone(memory().stateAtoms);
+    const healthy = await db.stateVectors.toArray();
+    memory().stateAtoms = [];
+    await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId, null, {
+        commit: task => { memory().stateAtoms = atoms; return task(); },
+    });
+    assert.deepEqual(await db.stateVectors.toArray(), healthy);
+    assert.deepEqual(host.embeddingInputs, []);
+});
+
+for (const change of ['semantic', 'relation', 'cancel', 'config', 'chat']) test(`L0 ${change} change before commit never writes obsolete embedded results`, async () => {
+    await seedCache();
+    const healthy = await db.stateVectors.toArray();
+    memory().stateAtoms[0].semantic = 'Anchor needing a fresh vector.';
+    const controller = new AbortController();
+    const result = await mod.pipeline.vectorizeMissingStateAtoms(fixture.chatId, null, {
+        signal: controller.signal,
+        commit: task => {
+            if (change === 'semantic') memory().stateAtoms[0].semantic = 'Newer authoritative anchor.';
+            else if (change === 'relation') memory().stateAtoms[0].edges[0].r = 'leaves';
+            else if (change === 'cancel') controller.abort();
+            else if (change === 'config') host.config = { enabled: true, embeddingApi: { model: 'changed-model' } };
+            else host.context.chatId = 'different-chat';
+            return task();
+        },
+    });
+    assert.equal(result.cancelled, true);
+    assert.equal(result.vectorized, 0);
+    assert.deepEqual(await db.stateVectors.toArray(), healthy);
+    assert.equal(host.embeddingInputs.length, 2);
 });
 
 for (const mode of ['incremental', 'repair']) test(`${mode} model wait does not block local writes or refill cleared chunks`, async () => {
@@ -410,7 +568,11 @@ test('daily checks distinguish absent proof from contradicted or mixed vector in
     assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
     await seedStoredChunkInputs(0, ['red door[image:slot-1]']);
     await db.stateVectors.toCollection().modify(row => { row.fingerprint = 'another-model'; });
-    assert.equal((await mod.checkVectorCacheConsistency()).status, 'inconsistent');
+    const check = await mod.checkVectorCacheConsistency();
+    assert.equal(check.status, 'inconsistent');
+    assert.equal(check.repairable, true);
+    assert.equal(check.diagnostic.code, 'invalid_package');
+    assert.deepEqual(check.diagnostic.details, { field: 'fingerprint', repairable: true });
     assert.deepEqual(host.embeddingInputs, []);
 });
 
@@ -427,8 +589,10 @@ for (const hardFirst of [false, true]) {
         const check = await mod.checkVectorCacheConsistency();
         assert.equal(check.status, 'inconsistent');
         assert.equal(check.repairable, false);
-        assert.equal(check.diagnostic.code, 'source_mismatch');
-        assert.deepEqual(check.diagnostic.details, { kind: 'state', id: hard.atomId, repairable: false });
+        assert.equal(check.sourceInvalid, true);
+        assert.equal(check.diagnostic.code, 'source_invalid');
+        assert.deepEqual(check.diagnostic.details, { kind: 'state', id: hard.atomId,
+            reason: 'invalid_floor', floor: host.context.chat.length, repairable: false });
         assert.deepEqual(await cacheSnapshot(), cache);
         assert.deepEqual(host.metadata, metadata);
         assert.equal(host.metadataWrites, 0);
@@ -447,8 +611,10 @@ for (const repairableLayer of ['l1', 'l2']) {
         const check = await mod.checkVectorCacheConsistency();
         assert.equal(check.status, 'inconsistent');
         assert.equal(check.repairable, false);
-        assert.equal(check.diagnostic.code, 'source_mismatch');
-        assert.deepEqual(check.diagnostic.details, { kind: 'state', id: fixture.atoms[0].atomId, repairable: false });
+        assert.equal(check.sourceInvalid, true);
+        assert.equal(check.diagnostic.code, 'source_invalid');
+        assert.deepEqual(check.diagnostic.details, { kind: 'state', id: fixture.atoms[0].atomId,
+            reason: 'invalid_floor', floor: host.context.chat.length, repairable: false });
         assert.deepEqual(await cacheSnapshot(), cache);
         assert.deepEqual(host.metadata, metadata);
         assert.equal(host.metadataWrites, 0);
@@ -547,10 +713,16 @@ test('a long absent floor retains all 28 materials when the second repair batch 
     host.onEmbed = null;
     host.embeddingError = null;
     host.embeddingInputs = [];
+    const blocked = await repair();
+    assert.equal(blocked.success, false);
+    assert.deepEqual(host.embeddingInputs, []);
+    mod.retryStoredEmbeddings(mod.getChatIdentity(host.context));
     const second = await repair();
     assert.equal(second.repaired, 8);
     assert.deepEqual(second.chunks, []);
-    assert.equal(host.embeddingInputs.length, 8);
+    const savedIds = new Set(saved.map(row => row.chunkId));
+    const remaining = (await mod.store.getAllChunks(fixture.chatId)).filter(chunk => !savedIds.has(chunk.chunkId));
+    assert.deepEqual(new Set(host.embeddingInputs), new Set(remaining.map(chunk => chunk.text)));
     assert.equal(await db.chunkVectors.count(), 28);
     for (const row of saved) assert.deepEqual(await db.chunkVectors.get([row.chatId, row.chunkId]), row);
     assert.equal((await mod.store.getMeta(fixture.chatId)).lastChunkFloor, 0);
@@ -578,10 +750,15 @@ for (const failure of ['request', 'cancel']) {
         host.onEmbed = null;
         host.embeddingError = null;
         host.embeddingInputs = [];
+        if (failure === 'request') {
+            assert.equal((await maintainL1()).success, false);
+            assert.deepEqual(host.embeddingInputs, []);
+            mod.retryStoredEmbeddings(mod.getChatIdentity(host.context));
+        }
         const next = await maintainL1();
         assert.equal(next.success, true);
         assert.equal(next.repaired, 5);
-        assert.deepEqual(host.embeddingInputs.sort(), remainingTexts.sort());
+        assert.deepEqual(host.embeddingInputs.sort(), failure === 'request' ? remainingTexts.sort() : []);
         for (const row of completed) assert.deepEqual(await db.chunkVectors.get([row.chatId, row.chunkId]), row);
     });
 }
@@ -707,8 +884,11 @@ test('many missing L1 segments in one floor stay silent after a failed repair an
     }), []);
     host.embeddingInputs = [];
     host.embeddingError = null;
+    assert.equal((await maintainL1()).success, false);
+    assert.deepEqual(host.embeddingInputs, []);
+    mod.retryStoredEmbeddings(mod.getChatIdentity(host.context));
     assert.equal((await maintainL1()).success, true);
-    assert.deepEqual(host.embeddingInputs.sort(), missing.map(row => row.chunk.text).sort());
+    assert.deepEqual(new Set(host.embeddingInputs), new Set(missing.map(row => row.chunk.text)));
     assert.equal((await mod.checkVectorCacheConsistency()).status, 'consistent');
 });
 

@@ -6,6 +6,8 @@ export { CARD_ROOT, rootFor } from './paths.js';
 
 // File layout and projections are shared by the tool, host and workspace UI.
 export const CARD_FILE = 'card.json';
+// The CardFlow design document lives in the user's SillyTavern files, not in the card.
+export const DESIGN_FILE = 'design.md';
 export const TEXT_FIELDS = ['description', 'personality', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions', 'creator_notes'];
 export const CARD_FIELDS = ['name', 'tags', 'creator', 'character_version'];
 export const json = value => JSON.stringify(value, null, 2);
@@ -18,6 +20,7 @@ export function locateFile(path) {
     const relative = parts.join('/');
     const base = { avatar, root: rootFor(avatar), relative };
     if (relative === CARD_FILE) return { ...base, kind: 'card' };
+    if (relative === DESIGN_FILE) return { ...base, kind: 'design' };
     const variables = locateVariableFile(relative);
     if (variables) return { ...base, ...variables };
     const field = TEXT_FIELDS.find(key => relative === `${key}.md`);
@@ -40,9 +43,9 @@ export function projectItem(target, value) {
     return serializeItemDocument(target.kind, value, target.id);
 }
 
-export function cardFiles(avatar, data, books) {
+export function cardFiles(avatar, data, books, design = '') {
     const root = rootFor(avatar);
-    const files = [{ path: root + CARD_FILE, content: json(projectCard(data)) }];
+    const files = [{ path: root + DESIGN_FILE, content: design }, { path: root + CARD_FILE, content: json(projectCard(data)) }];
     for (const field of TEXT_FIELDS) files.push({ path: `${root}${field}.md`, content: String(data[field] || '') });
     [data.first_mes || '', ...(data.alternate_greetings || [])].forEach((content, index) => {
         files.push({ path: `${root}message/${index}.md`, content });

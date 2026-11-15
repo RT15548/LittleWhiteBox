@@ -15,6 +15,7 @@ import {
     cleanupChatMessageImages,
     initChatMessageImages,
     refreshChatMessageImages,
+    mountChatMessageImages,
 } from './modules/draw/shared/chat-message-images.js';
 import { initImmersiveMode } from "./modules/immersive-mode.js";
 import { createDefaultTemplateSettings, hasActiveCustomTemplate, hasCustomTemplateForMessage, initTemplateEditor } from "./modules/template-editor/template-editor.js";
@@ -74,7 +75,9 @@ import { configureL0ContinuationCheck } from './modules/story-summary/vector/pip
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts, installTtsPublicApi } from "./modules/tts/tts.js";
 import { initEnaPlanner, cleanupEnaPlanner } from "./modules/ena-planner/ena-planner.js";
-import { initAssistant, cleanupAssistant } from "./modules/assistant/assistant.js";
+import { initAssistant, cleanupAssistant, syncAssistantWorkspaceDirectory } from "./modules/assistant/assistant.js";
+import { watchCardLifecycle } from "./modules/card-workspace/lifecycle.js";
+import { rootFor as cardWorkspaceRoot } from "./modules/card-workspace/paths.js";
 import { createPublicAgentApi } from './modules/agent-core/public-api.js';
 import { loadSharedAgentSettings } from './modules/agent-core/settings-repository.js';
 import { setHostRequestHeadersProvider } from './shared/host-request-headers.js';
@@ -439,6 +442,7 @@ function installDrawFacade() {
     }
 
     window.xiaobaixDraw = {
+        mountMessageImages: mountChatMessageImages,
         generate: publicDrawApi.generate,
         getPresets: publicDrawApi.getPresets,
         getProvider() {
@@ -1180,6 +1184,8 @@ jQuery(observeAsyncCallback(async () => {
         document.head.appendChild(styleElement);
 
         await setupSettings();
+        observeBackgroundTask(watchCardLifecycle(window.SillyTavern.getContext(), (from, to) => syncAssistantWorkspaceDirectory(cardWorkspaceRoot(from), to ? cardWorkspaceRoot(to) : null)),
+            { source: import.meta.url, operation: 'restoreCardWorkspace' });
         initPluginUpdate();
         setupMenuTabs();
 

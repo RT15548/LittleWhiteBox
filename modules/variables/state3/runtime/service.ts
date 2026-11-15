@@ -219,16 +219,16 @@ export function createSettlementService<S extends Snapshot>(adapter: HostAdapter
             assertCurrent(snapshot); signal?.throwIfAborted();
             const roots = variableRoots(compiled.definition);
             if (Object.keys(result.state as JsonObject).some(root => !roots.includes(root))) {reject('unowned-root');}
-            const history: History = { format: 2, roots, version: digest(compiled.bundle), revision: 0, checkpoints: [] };
+            const history: History = { format: 3, roots, version: digest(compiled.bundle), revision: 0, checkpoints: [],
+                openingMode: opening ? 'per-swipe' : 'common' };
             const records = clone(snapshot.records);
             if (opening) {records[0].entries.push(makeReceipt({ before: base, result, source: OPENING_SOURCE, revision: 1 }));}
             return publish(snapshot, history, records, { ...result, version: history.version }, false);
         },
         async initializeOpening({ signal }: RunOptions = {}): Promise<Result | undefined> {
             const snapshot = adapter.capture(0), history = snapshot.history;
-            if (!history || !snapshot.opening || snapshot.records[0]?.entries.length) {return;}
+            if (history?.openingMode !== 'per-swipe' || !snapshot.opening || snapshot.records[0]?.entries.some(isOpeningReceipt)) {return;}
             const compiled = compileDefinition(adapter.bundle());
-            if (!compiled.definition.openings) {return;}
             await authorize({ signal });
             assertCurrent(snapshot); signal?.throwIfAborted();
             const start = initialState(compiled.definition, snapshot.target.swipeId, snapshot.state as JsonObject);

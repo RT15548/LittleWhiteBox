@@ -14,6 +14,7 @@ globalThis.__drawRunRecoveryTest = host;
 globalThis.indexedDB = indexedDB;
 globalThis.window = new EventTarget();
 const stubs = {
+    'draw-toast.js': 'export const drawNotify={error(){},info(){}};',
     'extensions.js': 'export const getContext=()=>globalThis.__drawRunRecoveryTest.ctx;',
     'script.js': 'export const syncMesToSwipe=()=>true; export const getRequestHeaders=()=>({}); export const saveChatDebounced=()=>{void globalThis.__drawRunRecoveryTest.ctx.saveChat();};',
     'utils.js': 'export const uuidv4=()=>"recovery-fixture";',

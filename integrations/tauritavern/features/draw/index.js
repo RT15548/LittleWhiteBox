@@ -1,5 +1,5 @@
 import { renderPreviewsForMessage } from '../../../../modules/draw/shared/draw-common.js';
-import { mountChatMessageImages } from '../../../../modules/draw/shared/chat-message-images.js';
+import { drawMessageViewport } from '../../../../modules/draw/shared/draw-message-viewport.js';
 export function mountTauriTavernDrawPanel(element, mesid) {
     if (element.getAttribute('is_user') === 'true') return;
     return window.xiaobaixDraw?.mountMessagePanel(element, mesid);
@@ -10,7 +10,7 @@ export function mountTauriTavernDrawPanel(element, mesid) {
 export function createTauriTavernDrawDecorator({ settings, isDrawProviderActive, onError }) {
     return ({ content, mesid, signal }) => {
         if (!settings.enabled || !isDrawProviderActive()) return;
-        const release = mountChatMessageImages(content, mesid);
+        const release = drawMessageViewport.mount(content, mesid);
         void renderPreviewsForMessage(mesid, { content, signal }).catch(error => {
             if (!signal.aborted) onError(error);
         });

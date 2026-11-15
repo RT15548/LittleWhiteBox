@@ -46,6 +46,11 @@ export interface DrawResult { images: Blob[] }
 export interface PresetSummary { id: string; name: string; selected: boolean }
 export interface DrawPresets { provider: DrawProvider; api: PresetSummary[]; params: PresetSummary[]; workflows: PresetSummary[] }
 export interface DrawApi {
+    /** Mount existing chat image cards in this connected container, including same-origin iframes. */
+    mountMessageImages(options: { element: HTMLElement; messageId: number }): {
+        refresh(): Promise<void>;
+        destroy(): void;
+    };
     /** Also collects received images in the starting character/group's local gallery. */
     generate(request: DrawRequest): Promise<DrawResult>;
     getPresets(options?: { provider?: DrawProvider }): Promise<DrawPresets>;

@@ -85,7 +85,8 @@ export interface BeforeUpdate {
 }
 export interface SwipeRecord { entries: Receipt[] }
 export interface History {
-    format: 2; roots: string[]; version: string; revision: number;
+    format: 3; roots: string[]; version: string; revision: number;
+    openingMode: 'common' | 'per-swipe';
     checkpoints: { floor: number; revision: number; state: Json }[];
 }
 export interface Snapshot {

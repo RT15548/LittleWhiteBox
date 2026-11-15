@@ -1,6 +1,25 @@
+const VECTOR_REPAIR_ACTION = '「向量数据 → 补齐缺漏」';
 const VECTOR_REBUILD_ACTION = '「向量数据 → 完整重建」';
 const VECTOR_REBUILD_COST = '会调用 Embedding API';
 export const VECTOR_REBUILD_ADVICE = `请执行${VECTOR_REBUILD_ACTION}（${VECTOR_REBUILD_COST}，不会重新提取 L0 锚点）。`;
+const VECTOR_SOURCE_INVALID = '当前剧情记忆的条目标识或来源楼层无效。请确认打开的是对应聊天，必要时恢复聊天或剧情记忆备份；重建向量不能修复这类来源问题';
+
+const VECTOR_RECOVERY_FAILURES = Object.freeze({
+    credentials: 'Embedding 服务的凭据无效或无权限，请在向量设置中检查 API Key 和访问权限',
+    endpoint: 'Embedding 服务地址无效，请在向量设置中填写完整的服务地址',
+    quota: 'Embedding 服务限流或额度不足，请检查服务额度，或稍后重试',
+    service: 'Embedding 服务暂时不可用，请待服务恢复后重试',
+    request: 'Embedding 服务拒绝了请求，请检查向量设置中的模型和接口是否匹配',
+    timeout: 'Embedding 请求超时，无法确认服务是否已完成或计费；不会自动重发，请确认服务状态后再决定是否重试',
+    network: 'Embedding 连接中断或请求已取消，无法确认服务是否已完成或计费；不会自动重发，请检查连接后再决定是否重试',
+    outcome_unknown: '上次向量请求的结果无法确认，也无法确认是否已计费；不会自动重发，重试可能再次计费',
+    response: 'Embedding 服务没有返回有效向量，请检查所选模型是否支持向量接口',
+    storage: '浏览器未能读取或保存记忆缓存，请保持页面打开，检查存储空间和网站存储权限后重试',
+    request_record: '浏览器无法读取或更新向量请求记录，为避免重复计费，已暂停新的付费请求；请检查网站存储权限和可用空间',
+    model_changed: '向量设置已变化，请使用当前设置重新生成向量',
+    source_invalid: VECTOR_SOURCE_INVALID,
+    unknown: '无法确定记忆更新失败的原因，请反馈本次操作和此处的错误信息，无需查找或修改代码',
+});
 
 export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     title: '剧情总结',
@@ -96,20 +115,35 @@ export const SUMMARY_FEEDBACK_COPY = Object.freeze({
     }),
     vectorIntegrity: Object.freeze({
         fingerprintMismatch: '向量引擎/模型已变更',
-        cacheInconsistent: '部分向量缓存与保存的来源不一致',
+        cacheInconsistent: '部分记忆缓存需要更新',
+        sourceInvalid: VECTOR_SOURCE_INVALID,
+        failureReason: (failure = {}) => {
+            const reason = Object.hasOwn(VECTOR_RECOVERY_FAILURES, failure.reason) ? failure.reason : 'unknown';
+            const status = failure.httpStatus;
+            const http = Number.isInteger(status) && status >= 100 && status <= 599 ? `（HTTP ${status}）` : '';
+            return `${VECTOR_RECOVERY_FAILURES[reason]}${http}`;
+        },
+        recoveryFailure: failure => `记忆更新暂未完成：${SUMMARY_FEEDBACK_COPY.vectorIntegrity.failureReason(failure)}；本轮自动补齐已停止，已保存的更新会保留`,
+        manualFailure: failure => `检索补齐未完成：${SUMMARY_FEEDBACK_COPY.vectorIntegrity.failureReason(failure)}。已保存的内容和已完成的检索更新都会保留。`,
+        busy: '正在生成或更新记忆检索，请等当前任务结束后再重试。',
+        disabled: '当前聊天未启用剧情总结，请先启用后再补齐检索。',
+        preparationFailed: '暂时无法准备当前聊天的记忆检索，已保存的内容未被改动。请稍后重试。',
+        repairing: '正在更新记忆缓存，已完成的部分会保留…',
         l1Gap: count => `${count} 层片段未向量化`,
         l0Gap: count => `${count} 个楼层的记忆锚点提取未完成`,
         l0VectorsMissing: count => `${count} 个楼层的锚点向量需要补齐或更新`,
         eventsMissing: count => `${count} 个事件未向量化`,
         checking: '正在检查向量状态…',
         pending: '等待当前任务结束后检查。',
-        unavailable: '暂时无法读取向量状态，将稍后重试；详情见日志。',
+        unavailable: '暂时无法读取本地记忆缓存，已保存的数据未被改动。请稍后重新打开面板；若持续出现，请检查浏览器存储空间和网站存储权限。',
         status: issues => {
             if (!issues.length) return '';
             const rebuild = issues.some(issue => issue.action === 'rebuild');
             const advice = rebuild ? VECTOR_REBUILD_ADVICE
-                : issues.some(issue => issue.action === 'fill')
-                    ? '请执行「向量数据 → 补齐缺漏」，只更新需要修复的向量并清理已删除记忆的缓存。' : '';
+                : issues.some(issue => issue.action === 'resolve_recovery' && issue.reason !== 'unknown')
+                    ? `确认问题已解决后，可执行${VECTOR_REPAIR_ACTION}继续；重发未确认结果的请求可能再次计费。`
+                    : issues.some(issue => issue.action === 'fill')
+                        ? '可确认的向量缺口会在空闲时自动补齐。' : '';
             const anchors = issues.some(issue => issue.action === 'extract')
                 ? '请在「记忆锚点」中生成/补齐未完成的锚点。' : '';
             return `${issues.map(issue => issue.message).join('、')}。${advice}${anchors}`;

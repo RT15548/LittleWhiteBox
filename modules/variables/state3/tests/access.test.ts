@@ -74,7 +74,7 @@ test('A3: field-to-action associations are derived from effect paths and stages'
     assert.deepEqual(field(before, ['hero', 'amulet']).write, ['unequip', 'equip']);
     assert.equal(field(before, ['hero', 'amulet']).update, definition.access[2].update);
     assert.deepEqual(field(before, ['hero', 'health']).write, []);
-    assert.deepEqual(field(after, ['hero', 'health']).write, ['direct', 'heal']);
+    assert.deepEqual(field(after, ['hero', 'health']).write, ['heal']);
     assert.deepEqual(field(before, ['hero']).write, ['unequip', 'equip']);
     assert.deepEqual(field(after, ['hero', 'amulet']).write, []);
     definition.actions[0].effects = [{ path: ['hero'], value: { literal: getAt(state, ['hero'])! } }];

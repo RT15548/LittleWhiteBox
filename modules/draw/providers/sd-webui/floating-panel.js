@@ -1,4 +1,5 @@
-import { ensureDrawVisuals } from '../../shared/draw-visuals.js';
+import { drawNotify } from '../../shared/draw-toast.js';
+import { ensureDrawVisuals, DRAW_LAYERS } from '../../shared/draw-visuals.js';
 import { mountThemeSwitch } from '../../shared/theme-switch.js';
 import { getContext } from '../../../../../../../extensions.js';
 import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
@@ -382,7 +383,7 @@ ${MAX_IMAGES_INPUT_CSS}
 .nd-gear:hover { background: var(--nd-bg-active); color: var(--nd-text-secondary); }
 .nd-floating-global {
     position: fixed;
-    z-index: 10000;
+    z-index: ${DRAW_LAYERS.floating};
     user-select: none;
 }
 .nd-floating-global .nd-capsule {
@@ -460,7 +461,7 @@ const maxImages = createMaxImagesController({
         okText,
     ),
     listInputs: () => [...panelMap.values()].map((data) => data.cache?.maxImagesInput).concat(floatingCache.maxImagesInput),
-    notify: (message) => globalThis.toastr?.warning?.(message),
+    notify: (message) => drawNotify.warning(message),
 });
 function createFloorPanelData(messageId) {
     return {
@@ -842,10 +843,10 @@ async function handleFloorDrawClick(messageId) {
     } catch (error) {
         if (error.drawTaskReported) return;
         if (error instanceof FloorImageBusyError || isDrawRunPendingError(error)) {
-            toastr?.info?.(error.message);
+            drawNotify.info(error.message);
         } else {
             console.error(error);
-            toastr?.error?.(error.message);
+            drawNotify.error(error.message);
         }
     }
 }
@@ -866,7 +867,7 @@ async function handleFloorAbort(messageId) {
             setState: state => setFloorState(getContext().chat.indexOf(target.message), state),
         });
         if (aborted && isDrawCancellationTargetCurrent(target)) {
-            toastr?.info?.('正在中止');
+            drawNotify.info('正在中止');
         }
         if (isDrawCancellationTargetCurrent(target)) {
             const liveId = getContext().chat.indexOf(target.message);
@@ -874,7 +875,7 @@ async function handleFloorAbort(messageId) {
         }
     } catch (error) {
         console.error('[SdDraw] 中止失败:', error);
-        toastr?.error?.(DRAW_SLOT_COPY.cancelFailed);
+        drawNotify.error(DRAW_SLOT_COPY.cancelFailed);
     }
 }
 
@@ -1334,7 +1335,7 @@ async function handleFloatingDrawClick() {
     if (floatingState !== FloatState.IDLE) return;
     const messageId = findLastAIMessageId();
     if (messageId < 0) {
-        toastr?.warning?.('没有可配图的AI消息');
+        drawNotify.warning('没有可配图的AI消息');
         return;
     }
     floatingMessageId = messageId;
@@ -1348,10 +1349,10 @@ async function handleFloatingDrawClick() {
     } catch (error) {
         if (error.drawTaskReported) return;
         if (error instanceof FloorImageBusyError || isDrawRunPendingError(error)) {
-            toastr?.info?.(error.message);
+            drawNotify.info(error.message);
         } else {
             console.error(error);
-            toastr?.error?.(error.message);
+            drawNotify.error(error.message);
         }
     }
 }
@@ -1367,7 +1368,7 @@ async function handleFloatingAbort() {
             setState: setFloatingState,
         });
         if (aborted && isDrawCancellationTargetCurrent(target)) {
-            toastr?.info?.('正在中止');
+            drawNotify.info('正在中止');
         }
         if (messageId >= 0 && isDrawCancellationTargetCurrent(target)) {
             const liveId = getContext().chat.indexOf(target.message);
@@ -1375,7 +1376,7 @@ async function handleFloatingAbort() {
         }
     } catch (error) {
         console.error('[SdDraw] 中止失败:', error);
-        toastr?.error?.(DRAW_SLOT_COPY.cancelFailed);
+        drawNotify.error(DRAW_SLOT_COPY.cancelFailed);
     }
 }
 

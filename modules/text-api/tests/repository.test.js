@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { StorageFile } from '../../../core/storage-file.js';
 import { createTextApiRepository } from '../repository.js';
 import { migrateLegacySettings } from '../migration.js';
-import { applyPresetAction, resolveFeaturePreset, TEXT_API_SETTINGS_KEY as KEY, HOST_BINDING } from '../model.js';
+import { applyPresetAction, resolveFeaturePreset, TEXT_API_SETTINGS_KEY as KEY, TEXT_API_VERSION, HOST_BINDING } from '../model.js';
 import { assertPlannerPresetReady } from '../../ena-planner/ena-planner-api-config.js';
 import { legacy, emptyPlanner } from './legacy-fixtures.js';
 
@@ -144,4 +144,28 @@ test('planning alone rejects empty key, including after a valid neighbor replace
     assert.throws(() => assertPlannerPresetReady(snapshot));
     assert.doesNotThrow(() => assertPlannerPresetReady({ ...snapshot, apiKey: ' key ' }));
     assert.equal(resolveFeaturePreset(next, 'summary').id, 'summary-default');
+});
+
+// Acceptance (401 / lost settings): v1 discovery resets once for every feature,
+// failed upgrades preserve disk, and subsequent explicit choices survive reload.
+test('stored Text API v1 upgrades all bindings once without losing fields or later native choices', async () => {
+    const old = { version: 1, presets: [
+        { id: 'c', name: 'Claude', provider: 'sillytavern-claude', baseUrl: 'https://relay.invalid/v1', apiKey: 'c-key', model: 'c-alias',
+            prefixMode: 'auto', customPrefix: '', stream: true, temperature: 0, maxTokens: 512, sampling: {}, reasoning: {}, modelListAuth: 'x-api-key' },
+        { id: 'g', name: 'Google', provider: 'sillytavern-google', baseUrl: 'https://relay.invalid/v3', apiKey: 'g-key', model: 'g-alias',
+            prefixMode: 'auto', customPrefix: '', stream: false, temperature: null, maxTokens: null, sampling: {}, reasoning: {}, modelListAuth: 'x-goog-api-key' },
+    ], bindings: { summary: 'c', planner: 'g', outline: 'c' } };
+    const f = fixture({ common: { [KEY]: old, unrelated: 'keep' } });
+    const repository = f.create();
+    f.failWrite('common');
+    await assert.rejects(repository.load());
+    assert.deepEqual(f.files.common, { [KEY]: old, unrelated: 'keep' });
+    f.failWrite('');
+    const loaded = await repository.load();
+    assert.deepEqual(loaded, { ...old, version: TEXT_API_VERSION, presets: old.presets.map(p => ({ ...p, modelListAuth: 'bearer' })) });
+    assert.deepEqual(await f.create().load(), loaded);
+    for (const preset of old.presets) await repository.mutate('summary', { type: 'save', id: preset.id, preset });
+    const restored = await f.create().load();
+    assert.deepEqual(restored.presets.map(p => p.modelListAuth), ['x-api-key', 'x-goog-api-key']);
+    assert.equal(f.files.common.unrelated, 'keep');
 });

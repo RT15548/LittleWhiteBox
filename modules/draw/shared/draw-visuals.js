@@ -1,8 +1,17 @@
 import { extensionFolderPath } from '../../../core/constants.js';
 import { ensureDrawTheme } from './theme-switch.js';
 
+const FLOATING_LAYER = 9999999;
+export const DRAW_LAYERS = Object.freeze({
+    floating: FLOATING_LAYER,
+    imageMenu: FLOATING_LAYER + 1,
+    settings: FLOATING_LAYER + 2,
+    gallery: FLOATING_LAYER + 3,
+    toast: FLOATING_LAYER + 4,
+});
+
 // Settings and chat controls load the same draw-owned palette and SVG catalog.
-export function ensureDrawVisuals() {
+export function ensureDrawVisuals(document = globalThis.document) {
     ensureDrawTheme({ document });
     for (const file of ['draw-theme', 'settings-icons']) {
         const id = `xb-${file}`;

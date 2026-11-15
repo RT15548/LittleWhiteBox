@@ -1,4 +1,5 @@
 import { MEMORY_DATA_COPY } from '../data/memory-copy.js';
+import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 
 export const MEMORY_RESULT_COPY = Object.freeze({
     superseded: '本次成果已失效，可按当前内容继续处理。',
@@ -23,7 +24,8 @@ export const MEMORY_COPY = Object.freeze({
     behavior: '保存后，从下一次总结开始自动检查与修正记忆。',
     apiHeading: 'Agent API',
     api: '使用共享 Agent API，可在Agent模块任意功能中设置，如小白 OS 的「Agent API」；已配置则无需重复设置。',
-    heading: '维护记录', cancel: '停止（已完成部分保留）', repair: '重试更新', more: '更早记录',
+    heading: '维护记录', cancel: '停止（已完成部分保留）', repair: '重试补齐检索', more: '更早记录',
+    repairHint: '检查并补齐当前聊天所有缺失的检索数据；已成功的部分保留，不会重新运行 AI 维护。可能调用 Embedding API 并产生费用；结果未确认的请求，重试可能再次计费。',
     empty: '还没有维护记录', emptyEnabled: '下一次总结后，维护成果会出现在这里。',
     emptyDisabled: '自动维护未开启。', loading: '正在读取…',
     settingsSave: '保存设置', settingsClose: '关闭',
@@ -68,7 +70,12 @@ export const MEMORY_COPY = Object.freeze({
         turn_limit: `本次维护已达到调用次数上限，${RESUME_NEXT_SUMMARY}`, input_limit: `本次维护已达到上下文上限，${RESUME_NEXT_SUMMARY}`,
         cancelled: `维护已停止，${RESUME_NEXT_SUMMARY}`, failed: `本次维护失败，${RESUME_NEXT_SUMMARY}`, unconfirmed: MEMORY_SAVE_ERRORS.metadata_save_unconfirmed,
         source_invalid: MEMORY_DATA_COPY.sourceInvalid, history_invalid: MEMORY_DATA_COPY.historyInvalid },
-    indexPending: '修改已保存，部分内容还不能用于记忆检索。重试只更新检索，不会重新维护。',
+    indexPending: ({ count, failure } = {}) => {
+        const missing = Number.isInteger(count) && count > 0
+            ? `已确认 ${count} 条维护后的记忆缺少检索数据，部分内容可能搜不到。`
+            : '检索数据尚未补齐或更新，部分内容可能搜不到。';
+        return `已保存的内容仍然保留。${missing}${failure ? `原因：${SUMMARY_FEEDBACK_COPY.vectorIntegrity.failureReason(failure)}。` : ''}`;
+    },
     errors: { not_configured: '请先在 Agent API 中设置模型和服务地址。', no_boundary: '当前聊天还没有可维护的总结。',
         agent_auth: '共享 Agent API 的凭据不可用，请在 Agent API 设置中更新。',
         agent_balance: '共享 Agent API 余额不足。', agent_rate: '共享 Agent API 暂时限流。',

@@ -11,6 +11,7 @@ const host = { settings: {}, previews: new Map(), selections: new Map(), saved: 
 globalThis.__autoSaveTest = host;
 
 const stubs = {
+    'draw-toast.js': 'export const drawNotify={warning:text=>globalThis.__autoSaveTest.warnings.push(text)};',
     'gallery-cache.js': `
         const host = globalThis.__autoSaveTest;
         export const getPreview = async id => { host.beforePreview?.(); return host.previews.get(id); };
@@ -52,7 +53,6 @@ function reset(t, settings = { autoSaveImages: true, autoSaveImagesSince: 0 }) {
     host.previews = new Map([['img-1', { imgId: 'img-1', base64: 'data', savedUrl: null }]]);
     host.selections = new Map([['slot-1', 'img-1']]);
     t.mock.method(console, 'warn', () => {});
-    globalThis.toastr = { warning: text => host.warnings.push(text) };
 }
 const options = (extra = {}) => ({ imgId: 'img-1', slotId: 'slot-1', filePrefix: 'sd', ...extra });
 

@@ -1,14 +1,14 @@
 import { getContext } from '../../../../../../extensions.js';
 import { getSummaryStore } from '../data/store.js';
-import { getMemoryCommitState, assertMemoryWritable, getPublishedSummaryMemory } from '../data/memory-commit.js';
+import { getMemoryCommitState, getPublishedSummaryMemory } from '../data/memory-commit.js';
 import { getSummaryPanelConfig } from '../data/config.js';
 import { getStateAtoms, getL0Index } from '../vector/storage/state-store.js';
 import { getChatIdentity } from '../data/chat-identity.js';
 import { createMemoryScheduler } from './scheduler.js';
 import { projectMaintenanceReceipts, maintenanceHistoryImpact } from './history.js';
 import { registerMemoryMaintenance } from './notification.js';
-import { inspectMaintenanceIndexes, repairMaintenanceIndexes } from './indexes.js';
-import { requireMemory } from './errors.js';
+import { inspectMaintenanceIndexes } from './indexes.js';
+import { classifyVectorRecoveryFailure } from '../vector/integrity-recovery.js';
 import { presentMaintenanceReceipt } from './presentation.js';
 import { readMaintenanceSource } from './source-view.js';
 import { maintenanceRanges, maintenanceTask } from './ranges.js';
@@ -104,9 +104,13 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
             let index;
             try {
                 const inspection = await inspectMaintenanceIndexes(chatId, impact);
-                index = { status: inspection.status, count: inspection.events.length + inspection.atoms.length
-                    + (inspection.obsoleteEventIds?.length || 0) + (inspection.obsoleteAtomIds?.length || 0) };
-            } catch (error) { index = { status: 'pending', code: error.code || 'index_read_failed' }; }
+                index = { status: inspection.status, count: inspection.events.length + inspection.atoms.length,
+                    ...(inspection.failure ? { failure: inspection.failure } : {}) };
+            } catch (cause) {
+                const error = typeof cause?.code === 'string' && cause.code ? cause
+                    : Object.assign(new Error('Maintenance index inspection failed', { cause }), { code: 'index_read_failed' });
+                index = { status: 'pending', code: error.code, failure: classifyVectorRecoveryFailure({ error }) };
+            }
             // Index inspection may yield while a newer progress frame is published.
             const status = owner === getChatIdentity(getContext()) ? readStatus(publishedState()) : null;
             const state = status ? maintenanceState(status) : scheduler.snapshot(chatId, owner);
@@ -120,13 +124,6 @@ export function createMemoryMaintenanceHost({ isEnabled, invalidateRecall, refre
             const context = getContext();
             return readMaintenanceSource({ chatId: context.chatId, chat: context.chat,
                 store: getPublishedSummaryMemory().storySummary }, request);
-        },
-        async repairIndexes() {
-            assertMemoryWritable();
-            requireMemory(isEnabled(), 'no_boundary');
-            const current = read();
-            const impact = maintenanceHistoryImpact(current.store);
-            return repairMaintenanceIndexes(current.chatId, impact);
         },
     };
 }

@@ -1,5 +1,14 @@
 import { TEXT_API_COPY } from './copy.js';
+import { DEFAULT_MODEL_LIST_AUTH } from '../agent-core/model-list-auth.js';
 import { createPreset, HOST_BINDING, HOST_PROVIDER, TEXT_API_VERSION } from './model.js';
+
+// Text API v1 persisted native discovery defaults. Upgrade only at storage
+// initialization; current records preserve manual choices. Remove with v1 import.
+export function upgradeTextApiSettings(value) {
+    if (value?.version !== 1) return value;
+    return { ...value, version: TEXT_API_VERSION,
+        presets: value.presets.map(preset => ({ ...preset, modelListAuth: DEFAULT_MODEL_LIST_AUTH })) };
+}
 
 // Compatibility: the three deployed per-feature API records. Only upgrade/import
 // calls this conversion; current settings never carry these field names.

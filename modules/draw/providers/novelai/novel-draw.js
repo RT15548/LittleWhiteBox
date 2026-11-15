@@ -1,3 +1,4 @@
+import { drawNotify } from '../../shared/draw-toast.js';
 import { createVibeEncodingService } from './vibe-encoding.js';
 import { projectGalleryPrompt } from '../../shared/gallery-prompt.js';
 import { createIdentifier as createVibeCacheKey } from '../../../../shared/common/identifier.js';
@@ -14,6 +15,8 @@ import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../scrip
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { deleteGalleryImages, exportGalleryZipPart } from '../../shared/gallery-batch.js';
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
+import { DRAW_LAYERS } from '../../shared/draw-visuals.js';
+import { bindImageCardEvents } from '../../shared/image-card-events.js';
 import {
     applyContinuityEdits,
     buildContinuityBlockForRequest,
@@ -584,14 +587,7 @@ function getNovelImageRequestDelay() {
     return randomDelay(requestDelay?.min, requestDelay?.max);
 }
 
-function showToast(message, type = 'success', duration = 2500) {
-    const colors = { success: 'rgba(62,207,142,0.95)', error: 'rgba(248,113,113,0.95)', info: 'rgba(212,165,116,0.95)' };
-    const toast = document.createElement('div');
-    toast.textContent = message;
-    toast.style.cssText = `position:fixed;top:20px;left:50%;transform:translateX(-50%);background:${colors[type] || colors.info};color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:99999;animation:fadeInOut ${duration / 1000}s ease-in-out;max-width:80vw;text-align:center;word-break:break-all`;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), duration);
-}
+
 
 function getMesTextElement(messageId) {
     if (!Number.isFinite(messageId)) return null;
@@ -938,7 +934,7 @@ const vibeEncoder = createVibeEncodingService({
             // Retain the paid result for explicit retry/export in this session.
             const item = getSettings().vibeLibrary.singles.find(item => item.id === input.id && item.image === input.image);
             if (item) item.encodings[key] = encoding;
-            showToast('Vibe 编码已返回但保存失败，请导出备份或重试保存；不要重复编码', 'error', 8000);
+            drawNotify.error('Vibe 编码已返回但保存失败，请导出备份或重试保存；不要重复编码', undefined, { timeOut: 8000 });
         }
         return saved;
     },
@@ -982,11 +978,7 @@ async function ensurePresetVibeReady(settings, preset, { signal } = {}) {
         });
     }
     if (unencoded.length) {
-        showToast(
-            `以下 Vibe 尚未编码，本次未应用（不扣编码费）：${unencoded.join('、')}。请在画图设置中点「点击编码」后再生成`,
-            'warning',
-            6000,
-        );
+        drawNotify.warning(`以下 Vibe 尚未编码，本次未应用（不扣编码费）：${unencoded.join('、')}。请在画图设置中点「点击编码」后再生成`, undefined, { timeOut: 6000 });
     }
     return result;
 }
@@ -1180,20 +1172,20 @@ async function loadSettings() {
         }
         settingsLoaded = true;
         if (saved && promptUpgrade.installed) {
-            showToast(SCENE_PLANNER_PRESET_INSTALL_NOTICE, 'info', 8000);
+            drawNotify.info(SCENE_PLANNER_PRESET_INSTALL_NOTICE, undefined, { timeOut: 8000 });
         }
         if (promptUpgrade.upstreamPresetCount > 0) {
             const customNotice = promptUpgrade.customPresetCount > 0
                 ? `；其中 ${promptUpgrade.customPresetCount} 个自定义预设的旧规则已保留，请在提示词设置中检查`
                 : '';
-            showToast(`已升级 ${promptUpgrade.upstreamPresetCount} 个旧版 NovelAI 提示词预设${customNotice}`, 'info', 7000);
+            drawNotify.info(`已升级 ${promptUpgrade.upstreamPresetCount} 个旧版 NovelAI 提示词预设${customNotice}`, undefined, { timeOut: 7000 });
         }
         return settingsCache;
     } catch (e) {
         console.error('[NovelDraw] 加载设置失败:', e);
         settingsCache = null;
         settingsLoaded = false;
-        showToast('无法读取 NovelAI 配置，已禁止保存，请稍后重试', 'error', 5000);
+        drawNotify.error('无法读取 NovelAI 配置，已禁止保存，请稍后重试', undefined, { timeOut: 5000 });
         throw e;
     }
 }
@@ -2521,6 +2513,7 @@ function handleTouchEnd(e) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleDelegatedClick(e) {
+    const document = e.target.ownerDocument;
     const container = e.target.closest('.xb-nd-img');
     if (!container) {
         if (document.querySelector('.xb-nd-menu-wrap.open')) {
@@ -2608,14 +2601,14 @@ async function handleDelegatedClick(e) {
     }
 }
 
+let imageDelegationDispose = null;
 function setupEventDelegation() {
-    if (window._xbNovelEventsBound) return;
-    window._xbNovelEventsBound = true;
-
-    document.addEventListener('click', handleDelegatedClickEvent, { capture: true });
-    document.addEventListener('touchstart', handleTouchStart, { passive: true });
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    imageDelegationDispose ??= bindImageCardEvents([
+        ['click', handleDelegatedClickEvent, { capture: true }],
+        ['touchstart', handleTouchStart, { passive: true }],
+        ['touchmove', handleTouchMove, { passive: false }],
+        ['touchend', handleTouchEnd, { passive: true }],
+    ]);
 }
 
 async function handleImageClick(container) {
@@ -2623,7 +2616,7 @@ async function handleImageClick(container) {
     const messageId = parseInt(container.dataset.mesid);
     await openGallery(slotId, messageId, {
         onUse: (sid, msgId, selected, historyCount) => {
-            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            const cont = container.isConnected && container.dataset.slotId === sid ? container : null;
             if (cont) {
                 cont.querySelector('img').src = getPreviewDisplayUrl(selected);
                 cont.dataset.imgId = selected.imgId;
@@ -2641,7 +2634,7 @@ async function handleImageClick(container) {
             }
         },
         onSave: (imgId, url) => {
-            const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
+            const cont = container.isConnected && container.dataset.imgId === imgId ? container : null;
             if (cont) {
                 setImageState(cont, ImageState.SAVED);
             }
@@ -2656,7 +2649,7 @@ async function handleImageClick(container) {
                 });
         },
         onDelete: async (sid, deletedImgId, remainingPreviews) => {
-            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            const cont = container.isConnected && container.dataset.slotId === sid ? container : null;
             if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
                 const latest = remainingPreviews[0];
                 cont.querySelector('img').src = getPreviewDisplayUrl(latest);
@@ -2670,7 +2663,7 @@ async function handleImageClick(container) {
             void syncNovelDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onDelete" }, caughtError); });
         },
         onBecameEmpty: (sid, msgId, lastImageInfo) => {
-            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            const cont = container.isConnected && container.dataset.slotId === sid ? container : null;
             if (!cont) return;
             const failedHtml = buildFailedPlaceholderHtml({
                 slotId: sid,
@@ -2703,7 +2696,7 @@ async function toggleEditPanel(container, show) {
         try { preview = await readCardTagEditor(container); }
         catch (error) {
             console.error(DRAW_SLOT_COPY.tagReadFailed, error);
-            showToast(error.message, 'error');
+            drawNotify.error(error.message, undefined, { timeOut: 2500 });
             return;
         }
         const currentTags = preview?.tags ?? container.dataset.tags ?? '';
@@ -2754,18 +2747,18 @@ async function saveEditedTags(container) {
                 negativePrompt: record?.negativePrompt ?? preset?.negativePrefix ?? '' };
         });
         observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
-        showToast(notice);
+        drawNotify.success(notice, undefined, { timeOut: 2500 });
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.tagSaveFailed, error);
-        showToast(error.message, 'error');
+        drawNotify.error(error.message, undefined, { timeOut: 2500 });
         return false;
     }
 }
 
 async function refreshSingleImage(container) {
     try { await withDrawActionFeedback(container, () => redrawImageCard("novelai", container)); }
-    catch (error) { console.error(DRAW_SLOT_COPY.redrawFailed, error); globalThis.toastr?.error(error.message); }
+    catch (error) { console.error(DRAW_SLOT_COPY.redrawFailed, error); drawNotify.error(error.message); }
 }
 
 async function saveSingleImage(container) {
@@ -2788,7 +2781,7 @@ async function saveSingleImage(container) {
         container.querySelector('img').src = getPreviewDisplayUrl(preview);
         setImageState(container, ImageState.SAVED);
         container.dataset.imgId = preview.imgId;
-        showToast(`已保存到: ${url}`, 'success', 5000);
+        drawNotify.success(`已保存到: ${url}`, undefined, { timeOut: 5000 });
     } catch (e) {
         console.error('[NovelDraw] 保存失败:', e);
         alert('保存失败: ' + e.message);
@@ -2824,7 +2817,7 @@ async function deleteCurrentImage(container) {
             syncImageTitleElements(container, latest.title || '');
             updateNavControls(container, 0, successPreviews.length);
             await syncNovelDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews);
-            showToast(`已删除（剩余 ${successPreviews.length} 张）`);
+            drawNotify.success(`已删除（剩余 ${successPreviews.length} 张）`, undefined, { timeOut: 2500 });
         } else {
             await clearSlotSelection(slotId);
             await clearNovelDrawSavedEntry(messageId, slotId);
@@ -2838,11 +2831,11 @@ async function deleteCurrentImage(container) {
             });
             // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
             container.outerHTML = failedHtml;
-            showToast('图片已删除，占位符已保留');
+            drawNotify.success('图片已删除，占位符已保留', undefined, { timeOut: 2500 });
         }
     } catch (e) {
         console.error('[NovelDraw] 删除失败:', e);
-        showToast('删除失败: ' + e.message, 'error');
+        drawNotify.error('删除失败: ' + e.message, undefined, { timeOut: 2500 });
     }
 }
 
@@ -2859,7 +2852,7 @@ async function saveTagsAndRetry(container) {
 async function removePlaceholder(container) {
     if (!confirm(DRAW_SLOT_COPY.removeConfirm)) return;
     try { await removeChatImageSlot(container); }
-    catch (error) { console.error(DRAW_SLOT_COPY.removeFailed, error); globalThis.toastr?.error(error.message); }
+    catch (error) { console.error(DRAW_SLOT_COPY.removeFailed, error); drawNotify.error(error.message); }
 }
 
 function notifyNovelDrawAfterAi(data, source) {
@@ -3496,7 +3489,7 @@ async function autoGenerateForLastAI() {
     } catch (error) {
         if (!error.drawTaskReported) {
             console.error(error);
-            globalThis.toastr?.error(error.message);
+            drawNotify.error(error.message);
         }
     } finally {
         autoBusy = false;
@@ -3515,7 +3508,7 @@ function createOverlay(view = '') {
     const overlay = document.createElement('div');
     overlay.id = 'xiaobaix-novel-draw-overlay';
 
-    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:100002!important;display:none;overflow:hidden!important;`;
+    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:${DRAW_LAYERS.settings}!important;display:none;overflow:hidden!important;`;
 
     const updateHeight = () => {
         if (overlay.style.display !== 'none') {
@@ -3829,7 +3822,7 @@ function ensureAgentSettingsSurface() {
     agentSettingsSurface = attachDrawAgentSettingsSurface({
         surface: agentSettingsSurface,
         getRoot: getAgentSettingsSurfaceRoot,
-        showToast: (message) => toastr.info(String(message || ''), 'Agent API'),
+        showToast: (message) => drawNotify.info(String(message || ''), 'Agent API'),
         source: 'draw-novelai',
         logPrefix: 'NovelDraw',
     });
@@ -4330,7 +4323,7 @@ async function handleFrameMessage(event) {
                 if (ok) {
                     await notifySettingsUpdated();
                     observeBackgroundTask(sendInitData(), { source: import.meta.url, operation: 'handleFrameMessage' });
-                    if (importWarnings.length) showToast(importWarnings.join('；'), 'info', 5000);
+                    if (importWarnings.length) drawNotify.info(importWarnings.join('；'), undefined, { timeOut: 5000 });
                 }
             }), { source: import.meta.url, operation: 'handleFrameMessage' });
             break;
@@ -4874,7 +4867,7 @@ async function handleFrameMessage(event) {
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
                 }
                 observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
-                showToast(`已保存: ${url}`, 'success', 5000);
+                drawNotify.success(`已保存: ${url}`, undefined, { timeOut: 5000 });
             } catch (e) {
                 console.error('[NovelDraw] 保存失败:', e);
                 postStatus('error', '保存失败: ' + e.message);
@@ -4939,7 +4932,7 @@ async function handleFrameMessage(event) {
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-NovelDraw');
                 }
                 observeBackgroundTask(sendCacheData(), { source: import.meta.url, operation: "handleFrameMessage" });
-                showToast('已删除');
+                drawNotify.success('已删除', undefined, { timeOut: 2500 });
             } catch (e) {
                 console.error('[NovelDraw] 删除失败:', e);
                 postStatus('error', '删除失败: ' + e.message);
@@ -5060,7 +5053,7 @@ export async function initNovelDraw() {
     ]);
     if (initGeneration !== moduleLifecycleGeneration || window?.isXiaobaixEnabled === false) return false;
     if (!templatesOk || !guidesOk) {
-        showToast('NovelAI 提示词资源加载失败，已停止初始化', 'error', 5000);
+        drawNotify.error('NovelAI 提示词资源加载失败，已停止初始化', undefined, { timeOut: 5000 });
         return false;
     }
     let sharedDrawSettings;
@@ -5242,10 +5235,8 @@ export async function cleanupNovelDraw() {
 
     window.removeEventListener('message', handleFrameMessageEvent);
     // 移除事件委托监听器（防止累积泄漏）
-    document.removeEventListener('click', handleDelegatedClickEvent, { capture: true });
-    document.removeEventListener('touchstart', handleTouchStart, { passive: true });
-    document.removeEventListener('touchmove', handleTouchMove, { passive: false });
-    document.removeEventListener('touchend', handleTouchEnd, { passive: true });
+    imageDelegationDispose?.();
+    imageDelegationDispose = null;
     // 移除 overlay resize 监听器
     if (overlayResizeHandler) {
         window.removeEventListener('resize', overlayResizeHandler);
@@ -5254,7 +5245,6 @@ export async function cleanupNovelDraw() {
     }
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
     delete window.xiaobaixNovelDraw;
-    delete window._xbNovelEventsBound;
 
     // 动态导入并清理
     try {

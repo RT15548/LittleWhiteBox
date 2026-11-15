@@ -1,8 +1,11 @@
 import { workspaceRepository } from '../assistant/shared/workspace-repository.js';
-import { flattenLocalSourceFiles, upsertLocalSourceFile, removeLocalSourcePath, moveLocalSourcePath } from '../assistant/shared/local-workspace-kernel.js';
+import { flattenLocalSourceFiles, upsertLocalSourceFile, removeLocalSourcePath, moveLocalSourcePath, findLocalDirectoryByPath } from '../assistant/shared/local-workspace-kernel.js';
 import { INTERNAL_WORKSPACE_TOOL_NAMES } from '../assistant/shared/workspace-protocol.js';
 import { buildWorkspacePreconditions } from '../assistant/shared/workspace-preconditions.js';
 import { itemDocumentPath, parseItemDocument } from './item-document.js';
+import { rootFor } from './paths.js';
+import { COPY } from './copy.js';
+import { rebaseCardName } from './rename.js';
 
 export async function readFiles() {
     return flattenLocalSourceFiles((await workspaceRepository.readWorkspace()).localSources);
@@ -52,6 +55,35 @@ export async function observeTree(path) {
 export async function observePaths(paths) {
     const { localSources } = await workspaceRepository.readWorkspace();
     return buildWorkspacePreconditions(INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES, { files: paths.map(path => ({ path })) }, localSources);
+}
+
+export async function changeCardDirectory(from, to, readName = async () => undefined) {
+    const fromPath = rootFor(from), toPath = to ? rootFor(to) : null;
+    const name = to ? 'Move' : 'Delete', args = to ? { fromPath, toPath } : { path: fromPath };
+    // Lifecycle operations use the latest complete directory. Editor writes
+    // racing the transaction cause a fresh read; the move never freezes a draft.
+    for (;;) {
+        const sources = (await workspaceRepository.readWorkspace()).localSources;
+        const metadataPath = fromPath + 'card.json';
+        const card = flattenLocalSourceFiles(sources).find(file => file.path === metadataPath);
+        const savedName = to && card ? await readName() : undefined;
+        const result = await workspaceRepository.commitWorkspaceMutation({ name, args,
+            preconditions: buildWorkspacePreconditions(name, args, sources),
+            execute: async current => {
+                if (!findLocalDirectoryByPath(current, fromPath)) return { result: { ok: true }, nextSources: current };
+                if (to && findLocalDirectoryByPath(current, toPath)) throw new Error(COPY.designMoveConflict);
+                let nextSources = to ? moveLocalSourcePath(current, fromPath, toPath).nextSources
+                    : removeLocalSourcePath(current, fromPath).nextSources;
+                if (to && card) {
+                    const rebased = rebaseCardName(card, savedName);
+                    nextSources = upsertLocalSourceFile(nextSources, toPath + 'card.json', rebased.content,
+                        { originalContent: rebased.originalContent }).nextSources;
+                }
+                return { result: { ok: true }, nextSources };
+            } });
+        if (result.committed) return;
+        if (result.result.error !== 'workspace_conflict') throw new Error(result.result.error);
+    }
 }
 
 // The receipt and derived filename move together. A concurrent editor draft is

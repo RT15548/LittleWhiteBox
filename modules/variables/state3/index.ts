@@ -8,7 +8,7 @@ import { createHostAdapter, state3Context as getContext, inGroup, latestUserInde
 import { compileDefinition } from './definition/compile.js';
 import { initialize, settle } from './engine/settle.js';
 import { diagnostic, reject } from './engine/diagnostics.js';
-import { recordResult } from './runtime/history.js';
+import { recordResult, isOpeningReceipt } from './runtime/history.js';
 import { openDraft, saveDraft, checkDraft, saveCardDraft, exportRules, prepareRuleImport, importRules } from './definition/authoring.js';
 import { onRulesSaved } from './definition/card-host.js';
 import { createRuleRefresh } from './definition/refresh.js';
@@ -201,13 +201,14 @@ export function initState3() {
         const snapshot = adapter.capture(0);
         if (!snapshot.opening) {return false;}
         if (!ctx.chatMetadata[CHAT_KEY]) {return newChat?.chat === ctx.chat && newChat.metadata === ctx.chatMetadata;}
-        return !snapshot.records[0]?.entries.length && Boolean(adapter.bundle().definition.openings);
+        return snapshot.history?.openingMode === 'per-swipe' && !snapshot.records[0]?.entries.some(isOpeningReceipt);
     }
     function openingReady() {
         const ctx = getContext();
         if (inGroup(ctx) || !ctx.characters?.[ctx.characterId]?.data?.extensions?.[CARD_EXTENSION]) {return true;}
-        if (!adapter.bundle().definition.openings) {return true;}
-        return Boolean(ctx.chatMetadata[CHAT_KEY]) && adapter.capture(0).records.some(record => record.entries.length > 0);
+        const snapshot = adapter.capture(0);
+        if (!snapshot.history) {return !adapter.bundle().definition.openings;}
+        return snapshot.history.openingMode === 'common' || Boolean(snapshot.records[0]?.entries.some(isOpeningReceipt));
     }
     function initializeGreeting() {
         if (openingWork?.epoch === lifecycle) {return openingWork.promise;}

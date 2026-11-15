@@ -40,6 +40,8 @@ import { bindApiPopover, setApiPopoverOpen } from './ui/api-entry.js';
 import { bindContextMeter, renderContextMeter } from './ui/context-meter.js';
 import { buildAppMarkup as buildAssistantAppMarkup } from './ui/app-shell.js';
 import { createChatUi } from './ui/chat-ui.js';
+import { MESSAGE_ACTION_COPY } from './ui/message-actions.js';
+import { getMessageActions, getRerollUserIndex } from './state/message-actions.js';
 import { createSettingsPanel } from './ui/settings-panel.js';
 import { syncAgentSettingsPanelFeedback } from '../../agent-core/ui/settings-markup.js';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
@@ -48,6 +50,7 @@ import { buildWorkspaceTree } from './workspace/local-workspace-tree.js';
 import { WORKSPACE_COPY } from './workspace/workspace-copy.js';
 import {
     renderWorkspace as renderWorkspaceUi,
+    relocateWorkspaceEditor,
 } from './workspace/local-workspace-ui.js';
 import { injectAssistantStyles } from './styles.js';
 import {
@@ -560,7 +563,10 @@ async function editCardFiles(path = '') {
             const moved = result.results.find(item => item.saved && item.fromPath === path);
             if (moved) openWorkspacePanelTarget(moved.path);
         }
-        else openWorkspacePanelTarget(`${result.root}card.json`);
+        else {
+            openWorkspacePanelTarget(`${result.root}card.json`);
+            if (result.warnings?.length) showToast(result.warnings.map(item => item.message).join('\n'));
+        }
     } catch (error) { showToast(describeError(error)); }
 }
 
@@ -923,6 +929,10 @@ const localSourcesManager = createLocalSourcesManager({
     renderWorkspaceOnly,
     persistWorkspaceUiState,
     onWorkspaceClosed: clearWorkspaceSelectionContext,
+    onWorkspaceDirectoryChanged: (fromPath, toPath) => {
+        relocateWorkspaceEditor(document.getElementById('xb-assistant-workspace-panel'), fromPath, toPath);
+        clearWorkspaceSelectionContext();
+    },
     onWorkspaceSelectionChanged: () => {
         clearWorkspaceSelectionContext();
         renderContextHint(document.getElementById(ROOT_ID), state);
@@ -1381,36 +1391,6 @@ async function executeAssistantRun(run) {
     }
 }
 
-function getLastNonApprovalMessage(messages = []) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (message?.approvalRequest) continue;
-        return message || null;
-    }
-    return null;
-}
-
-function isEditableAssistantTextMessage(message) {
-    return !!(
-        message
-        && message.role === 'assistant'
-        && !message.streaming
-        && !(Array.isArray(message.toolCalls) && message.toolCalls.length)
-        && String(message.content || '').trim()
-    );
-}
-
-function findTurnUserMessageIndex(endIndex) {
-    for (let index = endIndex; index >= 0; index -= 1) {
-        const message = state.messages[index];
-        if (message?.approvalRequest) continue;
-        if (message?.role === 'user') {
-            return index;
-        }
-    }
-    return -1;
-}
-
 function buildSanitizedHtmlFragment(html) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
@@ -1728,14 +1708,16 @@ function bindEvents(root) {
         const messageIndex = Number.parseInt(actionButton.dataset.messageIndex || '', 10);
         const action = String(actionButton.dataset.messageAction || '').trim();
         if (!Number.isInteger(messageIndex) || messageIndex < 0 || !action) return;
-        if (state.isClosingAssistant || state.isClearingConversation || (state.isBusy && action !== 'cancel-edit')) return;
+        if (state.isClosingAssistant || state.isClearingConversation || state.isPreparingRun || (state.isBusy && action !== 'cancel-edit')) return;
         const message = state.messages[messageIndex];
-        if (!isEditableAssistantTextMessage(message)) return;
+        const requiredAction = ['save-edit', 'cancel-edit'].includes(action) ? 'edit' : action;
+        if (!getMessageActions(state.messages, messageIndex).includes(requiredAction)) return;
+        if (requiredAction !== action && state.editingMessageIndex !== messageIndex) return;
 
         if (action === 'copy') {
             const copied = await copyText(String(message.content || ''));
             flashMessageActionButton(messageIndex, action, copied);
-            showToast(copied ? '已复制整条消息' : '复制失败');
+            showToast(copied ? MESSAGE_ACTION_COPY.copied : MESSAGE_ACTION_COPY.error.label);
             return;
         }
 
@@ -1759,8 +1741,8 @@ function bindEvents(root) {
             if (state.isBusy) return;
             const textarea = root.querySelector(`.xb-assistant-bubble[data-message-index="${messageIndex}"] .xb-assistant-message-editor`);
             const nextContent = String(textarea?.value || '').trim();
-            if (!nextContent) {
-                showToast('消息内容不能为空');
+            if (!nextContent && !(message.role === 'user' && message.attachments?.length)) {
+                showToast(MESSAGE_ACTION_COPY.empty);
                 return;
             }
             state.messages[messageIndex] = {
@@ -1768,52 +1750,60 @@ function bindEvents(root) {
                 content: nextContent,
             };
             state.editingMessageIndex = -1;
-            await persistSession();
-            showToast('消息已更新');
+            const saved = await persistSession();
+            showToast(saved.ok ? MESSAGE_ACTION_COPY.updated : MESSAGE_ACTION_COPY.saveFailed(saved.error));
             render();
             return;
         }
 
         if (action === 'delete') {
             if (state.isBusy) return;
-            state.messages.splice(messageIndex, 1);
+            if (message.role === 'user') {
+                if (messageIndex < state.messages.length - 1 && !window.confirm(MESSAGE_ACTION_COPY.deleteTurn)) return;
+                state.messages.splice(messageIndex);
+            } else {
+                state.messages.splice(messageIndex, 1);
+            }
             state.editingMessageIndex = -1;
-            await persistSession();
-            showToast('消息已删除');
+            const saved = await persistSession();
+            showToast(saved.ok ? MESSAGE_ACTION_COPY.deleted : MESSAGE_ACTION_COPY.saveFailed(saved.error));
             render();
             return;
         }
 
         if (action === 'reroll') {
             if (state.isBusy || state.isPreparingRun) return;
-            const turnUserIndex = findTurnUserMessageIndex(messageIndex - 1);
+            const turnUserIndex = getRerollUserIndex(state.messages, messageIndex);
             if (turnUserIndex < 0) {
-                showToast('这条消息前没有可重跑的用户输入');
+                showToast(MESSAGE_ACTION_COPY.noUserInput);
                 return;
             }
             const nextMessages = state.messages.slice(0, turnUserIndex + 1);
-            const latestMessage = getLastNonApprovalMessage(nextMessages);
-            if (!latestMessage || latestMessage.role !== 'user') {
-                showToast('这条消息前没有可重跑的用户输入');
-                return;
-            }
-
             state.isPreparingRun = true;
             try {
                 const run = await createAssistantRun();
                 if (!run) return;
+                const previousMessages = state.messages;
                 state.messages = nextMessages;
                 state.pendingApproval = null;
                 state.editingMessageIndex = -1;
-                await persistSession();
+                const saved = await persistSession();
+                if (!saved.ok) {
+                    state.messages = previousMessages;
+                    state.activeRun = null;
+                    showToast(MESSAGE_ACTION_COPY.saveFailed(saved.error));
+                    render();
+                    return;
+                }
                 render();
 
                 state.isPreparingRun = false;
                 await executeAssistantRun(run);
             } catch (error) {
-                showToast(WORKSPACE_COPY.saveFailed(describeError(error)));
+                showToast(MESSAGE_ACTION_COPY.saveFailed(describeError(error)));
             } finally {
                 state.isPreparingRun = false;
+                render();
             }
         }
     };
@@ -2139,6 +2129,11 @@ window.addEventListener('message', (event) => {
             },
         };
         observeBackgroundTask(applyExternalLocalSources(data.payload?.localSources || []), { source: import.meta.url, operation: "callback" });
+        return;
+    }
+
+    if (data.type === WORKSPACE_MESSAGE_TYPES.DIRECTORY_CHANGED) {
+        observeBackgroundTask(localSourcesManager.applyExternalDirectoryChange(data.payload), { source: import.meta.url, operation: 'workspaceDirectoryChanged' });
         return;
     }
 

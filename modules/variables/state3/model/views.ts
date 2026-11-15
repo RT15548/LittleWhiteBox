@@ -1,8 +1,7 @@
 import type { Compiled, Definition, Expression, Json, Path, UpdateStage } from '../types.js';
-import { allowsStage } from '../definition/stages.js';
+import { allowsStage, directWriteScopes } from '../definition/stages.js';
 import { reject } from '../engine/diagnostics.js';
-import { clone, overlaps } from '../engine/data.js';
-import { getWritableFields } from './tools.js';
+import { clone, contains, overlaps } from '../engine/data.js';
 import { references } from '../engine/expressions.js';
 
 const authoredRules = (definition: Definition) => definition.rules.map(({ id, kind, path, description }) => ({ id, kind, path: clone(path), description }));
@@ -39,14 +38,14 @@ export function buildDescriptionView(compiled: Compiled, sections = Object.keys(
 }
 
 export function buildUpdateView(compiled: Compiled, state: Json, stage?: UpdateStage) {
-    const definition = compiled.definition, fields = getWritableFields(compiled, stage);
+    const definition = compiled.definition, scopes = directWriteScopes(definition, stage);
     const actions = definition.actions.filter(action => allowsStage(definition, action, stage));
     return { name: definition.name, state: clone(state), schema: clone(definition.schema),
-        writable: fields.map(({ path, descriptions, removable }) => ({ path: clone(path), descriptions, removable })),
+        writable: clone(scopes),
         actions: actions.map(({ id, description, parameters }) => ({ id, description, parameters: clone(parameters) })),
         fields: definition.access.map(entry => {
             const write = [
-                ...(entry.direct && allowsStage(definition, entry, stage) ? ['direct'] : []),
+                ...(scopes.some(scope => contains(scope.path, entry.path) && !scope.excluded.some(path => contains(path, entry.path))) ? ['direct'] : []),
                 ...actions.filter(action => action.effects.some(effect => overlaps(effect.path, entry.path))).map(action => action.id),
             ];
             return { path: clone(entry.path), write, description: entry.description, ...(write.length && entry.update ? { update: entry.update } : {}) };

@@ -12,7 +12,7 @@ export const DEFAULT_JSAPI_PERMISSION = 'deny';
 export const AGENT_PERMISSION_MODE_LABEL = '执行权限';
 export const AGENT_JSAPI_PERMISSION_LABEL = 'JavaScript API 权限';
 export const DEFAULT_MAX_TOKENS = 32000;
-export const AGENT_SETTINGS_CONFIG_VERSION = 2;
+export const AGENT_SETTINGS_CONFIG_VERSION = 3;
 export const AGENT_PERMISSION_MODE_OPTIONS = Object.freeze([
     { value: 'default', label: '默认权限' },
     { value: 'full', label: '完全权限' },

@@ -6,21 +6,21 @@ The [jieling folder](<jieling/>) is a whole character card in the CardFiles layo
 
 ## The game, from the player's seat
 
-The player has just taken over 解铃会, a peer-support center where people whose fetish has started to cost them something real meet in small rooms each week. The season is twelve weeks. The main opening leaves time to get acquainted; the alternative begins with tight funds and an unresolved argument.
+The player runs 解铃会, a peer-support center where adults whose fetish has started to cost them something real meet in small rooms each week. The season is twelve weeks. Only two staff are authored recurring characters: psychologist 沈知微 and receptionist 唐圆, both adult women. Their profiles live in [description.md](<jieling/description.md>). Prospective members emerge through the story's appointments and interviews, and enter the register when both sides agree to admission. The main opening leaves time to meet the staff; the alternative begins with tight funds and attention from the neighbours.
 
 Every week the player faces the same three questions, and none of them has a clean answer:
 
 - **Who to admit.** Applicants arrive in the story. Each one brings 500 yuan and a person: an arrest, a marriage at risk, a sharp tongue. Turning someone away costs nothing but a place.
-- **Who sits with whom.** A room only meets with three members, holds four, and the mix decides what happens. A retired woman drawn to young men and a student drawn to older women understand each other at once — and are the pair most likely to meet privately after class. A man who needs to be ordered about and a trainer who needs to be watched cannot stand each other — and when they break through, they leap ahead.
+- **Who sits with whom.** A room only meets with three members, holds four, and the mix decides what happens. Complementary members understand each other quickly but can cross boundaries in private. Mirrored members hear their own excuses in each other. Conflicting members may fight or achieve a breakthrough. These relations follow the people admitted during play.
 - **When to spend.** Rent is 2000 a week. Sessions pay 300 per member who attends. Hushing up an incident costs 600, and an incident left open keeps raising the outside world's attention until the center is shut down.
 
 Members graduate when they can live with their fetish without it running their life. Graduates leave, which is the point of the center and also the end of their fees. The story is where these people live: interviews, sessions and the week's consequences are narrated; the panel under the latest reply is where the player decides.
 
 ## Two ways to start
 
-`message/0.md` starts with the keys and register: 6000 yuan, no open incidents, and 何小满 still waiting for a room. `message/1.md` starts with an argument in the corridor: 2400 yuan, exposure 10, one open incident, and 何小满 already in the first room.
+[The main greeting](<jieling/message/0.md>) starts with the keys and a blank register: 6000 yuan and no outside attention. [The alternative](<jieling/message/1.md>) starts with a rent reminder: 2400 yuan and exposure 10 because the recruitment notice has attracted neighbourhood attention. Both start with an empty member register, empty rooms, no incidents and two prospective interviews. At the initial reputation this first intake is smaller than the minimum room size; the center pays the first week's rent while building its membership.
 
-Both use the same people and gameplay rules. In `variables/definition.json`, `initial` holds their shared starting data, `openings[0]` is `{}`, and `openings[1]` supplies the different funds, incident and room assignment. The club's derived room list follows the member assignment. The player chooses with the greeting arrows; the panel reads the selected opening's variables. Read [alternate openings](<../state-design.md#alternate-openings>) when adapting this to another card.
+Both use the same staff and gameplay rules. In [the definition](<jieling/variables/definition.json>), `initial` holds their shared starting data, `openings[0]` is `{}`, and `openings[1]` supplies only the different funds and exposure. Rooms and pair relations are derived as people join and receive assignments. The player chooses with the greeting arrows; the panel reads the selected opening's variables. Read [alternate openings](<../state-design.md#alternate-openings>) when adapting this to another card.
 
 ## Why each variable exists
 
@@ -61,7 +61,7 @@ Every gameplay field has `direct: false`; actions own costs, limits and refusals
 | Path | Role |
 | --- | --- |
 | `card.json`, `description.md`, `scenario.md` | Identity, premise and tone. `world` links the primary book. |
-| `message/0.md`, `message/1.md` | Two openings: receiving the keys, or arriving during an unresolved argument. Both end with the panel marker `【解铃会】`. |
+| `message/0.md`, `message/1.md` | Two openings with the staff: receiving the keys, or preparing interviews under financial and neighbourhood pressure. Both end with the panel marker `【解铃会】`. |
 | `world_book/解铃会/经营状态.md` | Constant entry: current values via `xbgetvar`, meanings via `xbvardesc`, and how to narrate a settled week. |
 | `world_book/解铃会/回复格式.md` | Constant entry at depth 0: every reply ends with the marker. |
 | `world_book/解铃会/面谈.md`, `互助室.md` | Keyword entries for interviews and sessions. |

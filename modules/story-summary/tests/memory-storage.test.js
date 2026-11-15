@@ -29,8 +29,23 @@ import { getChatIdentity } from '../data/chat-identity.js';
 import { applySummarySectionEdit } from '../data/section-edits.js';
 import { mergeEditedFactsWithTimestamps } from '../data/fact-edits.js';
 import { createMetrics } from '../vector/retrieval/metrics.js';
+import { createEmbeddingFailureError } from '../vector/llm/embedding-failure.js';
+import { buildRAggregateText } from '../vector/pipeline/state-vector-input.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const previousSessionStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+const sessionEntries = new Map();
+Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+    get length() { return sessionEntries.size; },
+    key(index) { return [...sessionEntries.keys()][index] ?? null; },
+    getItem(key) { return sessionEntries.get(String(key)) ?? null; },
+    setItem(key, value) { sessionEntries.set(String(key), String(value)); },
+    removeItem(key) { sessionEntries.delete(String(key)); },
+} });
+after(() => {
+    if (previousSessionStorage) Object.defineProperty(globalThis, 'sessionStorage', previousSessionStorage);
+    else delete globalThis.sessionStorage;
+});
 const host = globalThis.__memoryStorageTest = { metadata: {}, context: {} };
 const shims = {
     'extensions.js': 'export const getContext=()=>globalThis.__memoryStorageTest.context;',
@@ -60,6 +75,7 @@ const bundled = await build({
         "export * from './modules/story-summary/data/source-sync.js';",
         "export * from './modules/story-summary/maintenance/domain.js';",
         "export * from './modules/story-summary/maintenance/history.js';",
+        "export { repairMaintenanceIndexes } from './modules/story-summary/maintenance/indexes.js';",
         "export * from './modules/story-summary/maintenance/ranges.js';",
         "export * from './modules/story-summary/maintenance/session.js';",
         "export * from './modules/story-summary/maintenance/commit.js';",
@@ -71,7 +87,7 @@ const bundled = await build({
         "export { repairMissingChunks } from './modules/story-summary/vector/pipeline/chunk-repair.js';",
         "export { checkVectorCacheConsistency, createVectorPackage, restoreVectorPackage } from './modules/story-summary/vector/storage/package/service.js';",
         "export { inputDigest } from './modules/story-summary/vector/utils/vector-input-digest.js';",
-        "export { incrementalExtractAtoms } from './modules/story-summary/vector/pipeline/state-integration.js';",
+        "export { incrementalExtractAtoms, vectorizeMissingStateAtoms } from './modules/story-summary/vector/pipeline/state-integration.js';",
         "export * from './modules/story-summary/vector/storage/state-store.js';",
         "export { initStateIntegration } from './modules/story-summary/vector/pipeline/state-integration.js';",
         "export { db, stateVectorsTable, chunksTable, chunkVectorsTable, metaTable } from './modules/story-summary/data/db.js';",
@@ -96,6 +112,7 @@ const ext = () => host.metadata.extensions.LittleWhiteBox;
 const disk = () => host.files.get(host.context.chatId).extensions.LittleWhiteBox;
 
 beforeEach(async t => {
+    sessionEntries.clear();
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const expireReadback = () => {
         // Transport-failure integration cases advance the real transaction's
@@ -339,6 +356,57 @@ for (const target of ['user', 'assistant']) test(`L0 commits an already requeste
     await mod.incrementalExtractAtoms(host.context.chatId, host.context.chat);
     assert.equal(calls, 1);
     assert.equal(disk().stateAtoms.length, 1);
+});
+
+test('L0 manual vector retry repairs failed input once without changing anchors or rebuying healthy vectors', async () => {
+    await importFixture(); await seedAnchors();
+    host.vectorConfig.enabled = true;
+    const chatId = host.context.chatId;
+    const [healthy] = mod.getStateAtoms();
+    await mod.saveStateVectors(chatId, [{ atomId: healthy.atomId, floor: healthy.floor,
+        vector: [0, 1], rVector: [0, 1], sourceHash: mod.inputDigest('state', healthy.semantic),
+        relationHash: mod.inputDigest('relation', buildRAggregateText(healthy)),
+    }], 'test-engine');
+    const saved = await mod.stateVectorsTable.get([chatId, healthy.atomId]);
+    const before = structuredClone(disk()), writes = host.writes;
+    const inputs = [];
+    const problem = createEmbeddingFailureError('timeout', { kind: 'timeout' });
+    host.embed = texts => { inputs.push([...texts]); throw problem; };
+    const repair = (options = {}) => mod.vectorizeMissingStateAtoms(chatId, null, options);
+    assert.equal((await repair()).success, false);
+    assert.equal(inputs.length, 1);
+    host.embed = texts => { inputs.push([...texts]); return texts.map(() => [1, 0]); };
+    assert.equal((await repair()).success, false);
+    assert.equal(inputs.length, 1);
+    const recovered = await repair({ retryFailed: true });
+    assert.equal(recovered.success, true);
+    assert.equal(recovered.vectorized, host.fixture.atoms.length - 1);
+    assert.equal(inputs.length, 2);
+    assert.deepEqual(inputs[1], inputs[0]);
+    assert.equal(inputs.flat().includes(healthy.semantic), false);
+    assert.equal(await mod.getStateVectorsCount(chatId), host.fixture.atoms.length);
+    assert.deepEqual(await mod.stateVectorsTable.get([chatId, healthy.atomId]), saved);
+    assert.equal((await repair({ retryFailed: true })).vectorized, 0);
+    assert.equal(inputs.length, 2);
+    assert.equal(host.writes, writes);
+    assert.deepEqual(disk(), before);
+});
+
+test('L0 manual retry reuses a successful paid response after its vector save failed', async () => {
+    await seedAnchors();
+    host.vectorConfig.enabled = true;
+    const inputs = [];
+    host.embed = texts => { inputs.push([...texts]); return texts.map(() => [1, 0]); };
+    const failed = await mod.vectorizeMissingStateAtoms(host.context.chatId, null, {
+        commit: () => { throw new Error('vector storage unavailable'); },
+    });
+    assert.equal(failed.code, 'state_vector_write_failed');
+    assert.equal(await mod.getStateVectorsCount(host.context.chatId), 0);
+    assert.equal(inputs.length, 1);
+    const recovered = await mod.vectorizeMissingStateAtoms(host.context.chatId, null, { retryFailed: true });
+    assert.equal(recovered.success, true);
+    assert.equal(recovered.vectorized, host.fixture.atoms.length);
+    assert.equal(inputs.length, 1);
 });
 
 test('final prompt preserves saved L0/L1 and old L2 regardless of current manual or automatic hiding', async () => {
@@ -952,8 +1020,10 @@ for (const scenario of ['preparation', 'timeout', 'not_saved', 'followup', 'stal
         const vectorization = scenario === 'followup' ? entry(['autoVectorizeMissingEventsInner'], {
             assertSummaryExecutionActive() {}, isVectorWriteSessionCurrent: () => true,
             getVectorConfig: () => ({ enabled: true }), getEngineFingerprint: () => 'fixture',
+            getContext: () => host.context, getChatIdentity,
             getMeta: async () => null, collectMissingEventVectorPairs: async () => [{ id: 'fixture', text: 'fixture' }],
-            mergeAbortSignals: () => null, embed: async () => { throw problem; },
+            mergeAbortSignals: () => null, embedForStorage: async () => { throw problem; },
+            acknowledgeStoredEmbeddings() {},
         }) : null;
         if (scenario === 'followup') problem.cause = Object.assign(new Error('upstream throttled api_key=fixture-secret'), {
             status: 429, request: { authorization: 'request-secret' },
@@ -2061,12 +2131,61 @@ test('index status and repair include earlier runs regardless of results paginat
     assert.equal(first.items.length, 10); assert.equal(older.items.length, 1);
     assert.deepEqual(first.index, { status: 'pending', count: 2 });
     assert.deepEqual(older.index, first.index);
+    const before = structuredClone(disk()), writes = host.writes;
     let embedded = 0;
     host.embed = texts => { embedded += texts.length; return texts.map(() => [1, 0]); };
-    assert.equal((await maintenance.repairIndexes()).status, 'ready');
+    const impact = mod.maintenanceHistoryImpact(mod.getSummaryStore());
+    assert.equal((await mod.repairMaintenanceIndexes(host.context.chatId, impact)).status, 'ready');
     assert.equal(embedded, 3); // One event, one anchor's scene and one relation vector.
     assert.deepEqual((await maintenance.results()).index, { status: 'ready', count: 0 });
     assert.deepEqual((await maintenance.results(10)).index, { status: 'ready', count: 0 });
+    assert.deepEqual(disk(), before);
+    assert.equal(host.writes, writes);
+});
+
+test('maintenance results expose only safe classified failure after automatic index request fails', async () => {
+    await importFixture(); await seedAnchors();
+    await maintain([{ kind: 'edit', collection: 'events', key: 'evt-1', patch: { title: '红山项链误会' } }, fixAnchor]);
+    host.vectorConfig = { enabled: true, embeddingApi: { key: 'private-test-api-key' } };
+    const problem = createEmbeddingFailureError('private-test-api-key: private provider response',
+        { kind: 'http', status: 401, response: 'private provider response' });
+    let calls = 0;
+    host.embed = () => { calls++; throw problem; };
+    const impact = mod.maintenanceHistoryImpact(mod.getSummaryStore());
+    await assert.rejects(mod.repairMaintenanceIndexes(host.context.chatId, impact), error => error === problem);
+    const maintenance = mod.createMemoryMaintenanceHost({ isEnabled: () => true, changed() {} });
+    const expected = { status: 'pending', count: 2, failure: { reason: 'credentials', httpStatus: 401 } };
+    assert.deepEqual((await maintenance.results()).index, expected);
+    await assert.rejects(mod.repairMaintenanceIndexes(host.context.chatId, impact), error => error === problem);
+    assert.deepEqual((await maintenance.results()).index, expected);
+    assert.equal(calls, 1);
+});
+
+for (const boundary of ['storage', 'model_changed']) {
+    test(`maintenance results classify ${boundary} index inspection without exposing the underlying error`, async t => {
+        await importFixture(); await seedAnchors();
+        await maintain([fixAnchor]);
+        host.vectorConfig.enabled = true;
+        if (boundary === 'storage') t.mock.method(mod.stateVectorsTable, 'where', () => { throw new Error('private storage details'); });
+        else await mod.updateMeta(host.context.chatId, { fingerprint: 'different-model' });
+        const maintenance = mod.createMemoryMaintenanceHost({ isEnabled: () => true, changed() {} });
+        assert.deepEqual((await maintenance.results()).index, { status: 'pending',
+            code: boundary === 'storage' ? 'index_read_failed' : 'fingerprint_mismatch',
+            failure: { reason: boundary } });
+    });
+}
+
+test('orphan-only maintenance index cleanup reports no missing memories', async () => {
+    await importFixture(); await seedAnchors();
+    await mod.saveStateVectors(host.context.chatId, [{ atomId: fixAnchor.key, floor: 1, vector: [1, 0], rVector: [1, 0] }], 'test-engine');
+    await maintain([{ ...fixAnchor, kind: 'delete' }]);
+    host.vectorConfig.enabled = true;
+    const maintenance = mod.createMemoryMaintenanceHost({ isEnabled: () => true, changed() {} });
+    assert.deepEqual((await maintenance.results()).index, { status: 'pending', count: 0 });
+    const impact = mod.maintenanceHistoryImpact(mod.getSummaryStore());
+    assert.equal((await mod.repairMaintenanceIndexes(host.context.chatId, impact)).status, 'ready');
+    assert.equal(await mod.stateVectorsTable.get([host.context.chatId, fixAnchor.key]), undefined);
+    assert.deepEqual((await maintenance.results()).index, { status: 'ready', count: 0 });
 });
 
 async function completeRange(from = 1, to = 24) {

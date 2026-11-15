@@ -6,18 +6,20 @@ import { COPY } from './copy.js';
 import { equalJson, equalText } from './comparison.js';
 import { CARD_FIELDS, TEXT_FIELDS, cardFiles, locateFile, projectCard, projectItem, json } from './files.js';
 import { ITEM_KINDS, itemDocumentValue, serializeItemDocument, parseItemDocument } from './item-document.js';
+import { rebaseCardName } from './rename.js';
 
 // C1: newline representation and JSON key order cannot block unchanged content;
 // real text/array/value changes still conflict (lost edits / false save failures).
 function harness() {
     const card = { name: 'fixture', avatar: 'fixture.png', data: { extensions: { regex_scripts: [{ id: 'one', scriptName: 'one', replaceString: 'old' }] } } };
-    let book = { entries: { 1: { uid: 1, content: 'old', comment: 'one' } } }, writes = 0;
+    let book = { entries: { 1: { uid: 1, content: 'old', comment: 'one' } } }, writes = 0, design = null;
     const ctx = { characters: [card], characterId: 0, eventSource: { emit: async () => {} }, eventTypes: {} };
     const reversed = obj => Object.fromEntries(Object.entries(obj).reverse());
     const source = readFileSync(new URL('./host.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
     const api = runInNewContext(source + '\n({assertUnchanged,saveFile})', {
         COPY, equalJson, equalText, CARD_FIELDS, projectCard, projectItem, json, structuredClone, ITEM_KINDS, itemDocumentValue,
-        variableCardHost: () => ({}), getContext: () => ctx, getRequestHeaders: () => ({}),
+        variableCardHost: () => ({}), getContext: () => ctx, getRequestHeaders: () => ({}), readDesign: async () => design,
+        writeDesign: async (avatar, content) => { writes++; design = content.trim() ? content : null; },
         DOMPurify: { sanitize: v => v }, select_selected_character() {}, allowScopedScripts() {},
         newWorldInfoEntryTemplate: {}, originalWIDataKeyMap: {}, setWIOriginalDataValue() {},
         worldInfoCache: new Map(), updateWorldInfoList: async () => {},
@@ -44,6 +46,28 @@ test('C1: only line-ending representation is ignored; JSON settings retain seman
     }
     assert.equal(assertUnchanged({ originalContent: '{"a":1,"b":2}', content: '{"a":3,"b":2}' }, '{"b":2,"a":1}', true), true);
     assert.equal(equalJson({ a: [1, 2] }, { a: [2, 1] }), false);
+});
+
+// Acceptance: clearing a saved design elsewhere must not let an old draft
+// silently restore it; a genuinely new design can still be saved (lost work).
+test('design saves distinguish a new document from a remotely cleared baseline', async () => {
+    const host = harness(), target = { avatar: 'fixture.png', kind: 'design' };
+    await assert.rejects(host.saveFile(target, { originalContent: 'previous', content: 'draft' }), { message: COPY.conflict });
+    assert.equal(host.writes(), 0);
+    assert.equal((await host.saveFile(target, { content: 'new' })).content, 'new');
+    assert.equal((await host.saveFile(target, { originalContent: 'new', content: '  \n' })).content, '');
+    assert.equal((await host.saveFile(target, { originalContent: '', content: 'next' })).content, 'next');
+});
+
+test('metadata rebased after a host rename can save unrelated edits without reverting the name', async () => {
+    const host = harness();
+    host.card().data.name = 'Old';
+    const originalContent = json(projectCard(host.card().data));
+    const file = { originalContent, content: JSON.stringify({ ...JSON.parse(originalContent), creator: 'new author' }) };
+    host.card().data.name = 'New';
+    await host.saveFile({ avatar: 'fixture.png', kind: 'card' }, rebaseCardName(file, 'New'));
+    assert.equal(host.card().data.name, 'New');
+    assert.equal(host.card().data.creator, 'new author');
 });
 
 test('C1: regex and worldbook saves confirm equal JSON despite reordered response keys', async () => {

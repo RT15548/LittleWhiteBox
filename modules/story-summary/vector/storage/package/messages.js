@@ -4,6 +4,7 @@ const ERRORS = {
     invalid_package: '向量包格式或数值无效，未修改现有数据',
     unsupported_version: '不支持此向量包版本，请从原设备重新导出',
     source_mismatch: '向量来源与当前聊天内容不一致，请使用匹配的备份或重新生成向量',
+    source_invalid: '保存的记忆来源存在无效标识或楼层，请先修正对应记忆或恢复匹配的备份；重新生成向量不能修复来源。',
     incomplete_cache: `现有向量缓存不完整或与当前内容不一致。${VECTOR_REBUILD_ADVICE}完成后再上传或导出。校验详情见监控日志或浏览器控制台。`,
     no_chat: '未打开聊天',
     chat_changed: '聊天已切换，已取消向量数据操作',

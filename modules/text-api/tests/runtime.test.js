@@ -69,12 +69,12 @@ test('real SDK requests use the selected protocol, one resolved version prefix a
                     const deltas = [];
                     assert.equal((await generateText(preset, { messages, onDelta: (delta, full) => deltas.push([delta, full]) })).text, 'OK');
                     assert.equal(wire.requests.length, 2);
-                    for (const request of wire.requests) {
+                    for (const [index, request] of wire.requests.entries()) {
                         assert.equal(new URL(request.url, wire.url).pathname.startsWith('/custom/v3/'), true, request.url);
                         assert.equal(request.url.includes('/v3/v1'), false, request.url);
-                        assert.equal(request.headers.authorization, provider.startsWith('openai-') && apiKey ? `Bearer ${apiKey}` : undefined);
-                        assert.equal(request.headers['x-api-key'], provider === 'anthropic' && apiKey ? apiKey : undefined);
-                        if (provider === 'google') assert.equal(request.headers['x-goog-api-key'], apiKey);
+                        assert.equal(request.headers.authorization, (index === 0 || provider.startsWith('openai-')) && apiKey ? `Bearer ${apiKey}` : undefined);
+                        assert.equal(request.headers['x-api-key'], index === 1 && provider === 'anthropic' && apiKey ? apiKey : undefined);
+                        assert.equal(request.headers['x-goog-api-key'], index === 1 && provider === 'google' ? apiKey : undefined);
                     }
                     const body = wire.requests[1].body;
                     const parameters = provider === 'google' ? body.generationConfig || {} : body;
@@ -97,7 +97,7 @@ test('Google Text API uses Bearer for discovery without changing generation auth
         await t.test(base || 'bare', async t => {
             const wire = await service(t, 'google');
             const preset = createPreset('p', 'P', { provider: 'google', baseUrl: wire.url + base,
-                apiKey: 'fixture-key', model: 'fixture', stream: false, modelListAuth: 'bearer' });
+                apiKey: 'fixture-key', model: 'fixture', stream: false });
             assert.deepEqual(await listTextModels(preset), ['fixture']);
             assert.equal(wire.requests[0].url, listPrefix + '/models');
             assert.equal(wire.requests[0].headers.authorization, 'Bearer fixture-key');

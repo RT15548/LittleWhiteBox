@@ -1,10 +1,5 @@
-import { parseMessageMarkdown } from './message-markdown-parser.js';
+import { mapMessageMarkdownProse, parseMessageMarkdown } from './message-markdown-parser.js';
 import { isHtmlStructureLine, preprocessHtmlBoundaryLines } from './markdown-html-boundaries.js';
-
-let htmlBlockSerial = 0;
-const htmlBlockStore = new Map();
-let htmlBoundarySerial = 0;
-const htmlBoundaryStore = new Map();
 
 const HTML_BLOCK_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte']);
 export const HTML_PREVIEW_SANDBOX = 'allow-scripts';
@@ -17,16 +12,6 @@ function escapeHtml(text) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
-}
-
-function createHtmlBlockId() {
-    htmlBlockSerial += 1;
-    return `html-${Date.now().toString(36)}-${htmlBlockSerial.toString(36)}`;
-}
-
-function createHtmlBoundaryId() {
-    htmlBoundarySerial += 1;
-    return `raw-${Date.now().toString(36)}-${htmlBoundarySerial.toString(36)}`;
 }
 
 function formatHtmlBlockSize(code = '') {
@@ -51,19 +36,19 @@ function looksLikeHtmlCode(code = '') {
     return tagMatches.length >= 3 && /<\/[a-z][\w:-]*>/i.test(text);
 }
 
-function storeHtmlBlock(code = '', language = 'html') {
-    const id = createHtmlBlockId();
-    htmlBlockStore.set(id, {
-        code: String(code || ''),
-        language: String(language || 'html').trim() || 'html',
-    });
-    return `@@XBHTMLBLOCK:${id}@@`;
-}
-
-function storeHtmlBoundary(html = '') {
-    const id = createHtmlBoundaryId();
-    htmlBoundaryStore.set(id, String(html || ''));
-    return `@@XBHTMLRAW:${id}@@`;
+// Boundary tokens exist only during this render, never across messages.
+function createHtmlBoundaries(source) {
+    let prefix = '@@XBMARKDOWN:';
+    while (source.includes(prefix)) prefix += ':';
+    const entries = new Map();
+    return {
+        entries,
+        store(html) {
+            const token = `${prefix}${entries.size}@@`;
+            entries.set(token, html);
+            return token;
+        },
+    };
 }
 
 function normalizeBlankLikeLine(line = '') {
@@ -75,7 +60,7 @@ function normalizeBlankLikeLine(line = '') {
     return stripped ? normalized : '';
 }
 
-function preprocessNonFenceMarkdown(text = '') {
+function preprocessNonFenceMarkdown(text, markup) {
     const normalized = String(text || '');
     if (!normalized.trim()) return normalized;
     const normalizedLines = normalized.split(/\r?\n/).map((line) => normalizeBlankLikeLine(line));
@@ -98,66 +83,13 @@ function preprocessNonFenceMarkdown(text = '') {
         if (previousLine.trim()) {
             protectedLines.push('');
         }
-        protectedLines.push(storeHtmlBoundary(blockLines.join('\n')));
+        protectedLines.push(markup.store(blockLines.join('\n')));
         const nextLine = lines[index + 1] ?? '';
         if (nextLine.trim() && !isHtmlStructureLine(nextLine)) {
             protectedLines.push('');
         }
     }
     return protectedLines.join('\n');
-}
-
-function preprocessMarkdownInput(raw = '', options = {}) {
-    const text = String(raw || '');
-    const htmlFenceMode = options.htmlFenceMode === 'code' ? 'code' : 'placeholder';
-    const protectRawHtmlBoundaries = options.protectRawHtmlBoundaries !== false;
-    const fenceRegex = /(^|\n)(`{3,}|~{3,})[ \t]*([^\n]*)\n([\s\S]*?)\n\2[ \t]*(?=\n|$)/g;
-    let result = '';
-    let lastIndex = 0;
-    let match = null;
-
-    while ((match = fenceRegex.exec(text)) !== null) {
-        const leadingBreak = match[1] || '';
-        const blockStart = match.index + leadingBreak.length;
-        const fenceEnd = fenceRegex.lastIndex;
-        const rawLanguage = String(match[3] || '').trim().split(/\s+/)[0] || '';
-        const code = String(match[4] || '');
-        const shouldFoldAsHtml = isHtmlBlockLanguage(rawLanguage) || (!rawLanguage && looksLikeHtmlCode(code));
-
-        result += protectRawHtmlBoundaries
-            ? preprocessNonFenceMarkdown(text.slice(lastIndex, blockStart))
-            : text.slice(lastIndex, blockStart);
-        if (shouldFoldAsHtml && htmlFenceMode !== 'code') {
-            result += storeHtmlBlock(code, rawLanguage || 'html');
-        } else {
-            result += text.slice(blockStart, fenceEnd);
-        }
-        lastIndex = fenceEnd;
-    }
-
-    result += protectRawHtmlBoundaries
-        ? preprocessNonFenceMarkdown(text.slice(lastIndex))
-        : text.slice(lastIndex);
-    return result;
-}
-
-function injectHtmlBlockPlaceholders(html = '') {
-    return String(html || '').replace(/@@XBHTMLBLOCK:([a-z0-9-]+)@@|@@XB_HTML_BLOCK_([a-z0-9-]+)@@/g, (_match, id, legacyId) => (
-        `<span class="xb-markdown-html-placeholder" data-xb-html-block-id="${id || legacyId}"></span>`
-    ));
-}
-
-function injectHtmlBoundaryPlaceholders(html = '') {
-    const restoreHtmlBoundary = (_match, id) => {
-        const raw = htmlBoundaryStore.get(id) || '';
-        htmlBoundaryStore.delete(id);
-        return raw;
-    };
-    return String(html || '')
-        .replace(/<p>\s*@@XBHTMLRAW:([a-z0-9-]+)@@\s*<\/p>/g, restoreHtmlBoundary)
-        .replace(/(^|[\r\n])@@XBHTMLRAW:([a-z0-9-]+)@@(?=[\r\n]|$)/g, (match, prefix, id) => (
-            `${prefix}${restoreHtmlBoundary(match, id)}`
-        ));
 }
 
 function decodeHtmlAttribute(value = '') {
@@ -325,18 +257,34 @@ function sanitizeMarkdownHtml(html = '') {
 }
 
 export function renderMarkdownToHtml(text, options = {}) {
-    const raw = String(text || '').trim();
-    if (!raw) return '';
-    const markdownText = preprocessMarkdownInput(raw, options);
+    const raw = String(text || '');
+    if (!raw.trim()) return '';
 
     try {
-        const html = injectHtmlBoundaryPlaceholders(parseMessageMarkdown(markdownText));
-        return injectHtmlBlockPlaceholders(sanitizeMarkdownHtml(html));
+        const markup = createHtmlBoundaries(raw);
+        const markdownText = options.protectRawHtmlBoundaries === false ? raw
+            : mapMessageMarkdownProse(raw, prose => preprocessNonFenceMarkdown(prose, markup));
+        const html = parseMessageMarkdown(markdownText, {
+            htmlBoundaries: markup.entries,
+            renderFence: token => {
+                if (options.htmlFenceMode === 'code' || !token.meta.closed) return null;
+                const language = token.info.trim().split(/\s+/)[0];
+                if (!isHtmlBlockLanguage(language) && (language || !looksLikeHtmlCode(token.content))) return null;
+                // Keep source in a literal code node through sanitization. HTML
+                // inside an attribute can be removed by the host's sanitizer.
+                // The DOM owns preview content; no cross-render cache is needed.
+                // Encode whitespace too: the string-only sanitizer must not
+                // mistake attributes in literal code for live ones.
+                const code = escapeHtml(token.content).replace(/\s/g, character => `&#${character.codePointAt(0)};`);
+                return `<pre data-xb-html-language="${escapeHtml(language || 'html')}"><code>${code}</code></pre>`;
+            },
+        });
+        return sanitizeMarkdownHtml(html);
     } catch (caughtError) {
         console.warn({ source: import.meta.url, operation: "renderMarkdownToHtml" }, caughtError);
     }
 
-    return injectHtmlBlockPlaceholders(escapeHtml(markdownText).replace(/\n/g, '<br>'));
+    return escapeHtml(raw).replace(/\n/g, '<br>');
 }
 
 export async function copyText(text = '', ownerDocument = null) {
@@ -626,14 +574,8 @@ export function enhanceHtmlBlocks(rootNode, options = {}) {
     const doc = rootNode.ownerDocument || globalThis.document;
     if (!doc?.createElement) return;
 
-    Array.from(rootNode.querySelectorAll('.xb-markdown-html-placeholder[data-xb-html-block-id]')).forEach((placeholder) => {
-        const id = String(placeholder.getAttribute('data-xb-html-block-id') || '');
-        const entry = htmlBlockStore.get(id);
-        htmlBlockStore.delete(id);
-        if (!entry) {
-            placeholder.remove();
-            return;
-        }
+    Array.from(rootNode.querySelectorAll('pre[data-xb-html-language]')).forEach((placeholder) => {
+        const entry = { code: placeholder.textContent, language: placeholder.getAttribute('data-xb-html-language') };
 
         const node = createHtmlBlockNode(doc, entry, options);
         const parent = placeholder.parentElement;

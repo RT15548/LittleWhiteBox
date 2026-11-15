@@ -22,7 +22,8 @@ import { createAnchorExtractionDraft } from '../../data/anchor-extraction.js';
 import { assertMemoryWritable, waitForMemoryCommit } from '../../data/memory-commit.js';
 import { sameMemory } from '../../maintenance/domain.js';
 import { invalidateSummaryAnchors, getSummaryStore } from '../../data/store.js';
-import { embed } from '../llm/siliconflow.js';
+import { embedForStorage, acknowledgeStoredEmbeddings } from '../runtime/embedding-receipts.js';
+import { getChatIdentity } from '../../data/chat-identity.js';
 import { extractAtomsForRound } from '../llm/atom-extraction.js';
 import { getL0FailureDetails } from '../llm/l0-retry-policy.js';
 import {
@@ -385,6 +386,7 @@ async function collectL0VectorBuildState(chatId, options = {}) {
 
 export async function getL0VectorBuildStatus(chatId, options = {}) {
     const status = { ...await collectL0VectorBuildState(chatId, options) };
+    status.obsoleteCount = status.obsoleteAtomIds?.length || 0;
     delete status.missingAtoms;
     delete status.obsoleteAtomIds;
     return status;
@@ -392,7 +394,8 @@ export async function getL0VectorBuildStatus(chatId, options = {}) {
 
 /**
  * 仅补齐缺失或无效的 StateVector。StateAtoms 是唯一事实来源；本函数不会修改锚点或
- * 楼层提取状态。所有 Embedding 批次成功后才整批写库，失败时下轮仍可从事实数据重建。
+ * 楼层提取状态。每个成功的 Embedding 批次核对当前来源后立即写库，后续失败只留下未提交
+ * 的缺口；孤立向量单独本地清理，不等待 Embedding，也不为存储失败自动重发模型请求。
  */
 export async function vectorizeMissingStateAtoms(chatId, onProgress, options = {}) {
     return trackVectorActivity({ chatId, phase: 'l0-vectorization', api: (options.vectorConfig || getVectorConfig())?.embeddingApi, unit: 'atoms' },
@@ -406,13 +409,15 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
         vectorConfig = getVectorConfig(),
         signal = null,
         shouldCancel = null,
+        retryFailed = false,
         commit = task => task(),
     } = options;
     const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
+    let vectorized = 0;
     const cancelledResult = () => ({
         success: false,
         status: 'cancelled',
-        vectorized: 0,
+        vectorized,
         failed: 0,
         vectorFailed: 0,
         code: 'cancelled',
@@ -458,26 +463,43 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
         };
     }
 
+    const receiptChatId = getChatIdentity(getContext());
     const fingerprint = status.fingerprint;
     const batchSize = 20;
-    const allItems = [];
-
+    const isCurrent = () => !isCancelled()
+        && getContext()?.chatId === chatId
+        && getChatIdentity(getContext()) === receiptChatId
+        && getVectorConfig()?.enabled
+        && getEngineFingerprint(getVectorConfig()) === fingerprint;
+    const recordCurrent = write => commit(async () => {
+        if (!await waitForMemoryCommit(signal, { recover: options.persistence !== 'host' })) throw createAbortError();
+        assertMemoryWritable(chatId);
+        const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
+        if (!isCurrent() || atoms.some(atom => !sameMemory(atom, currentAtoms.get(atom.atomId)))) return false;
+        await write(currentAtoms);
+        return true;
+    });
+    let phase = 'write';
     try {
+        if (!isCurrent()) return cancelledResult();
+        if (status.obsoleteAtomIds.length) {
+            activity.update({ state: 'saving', activeUnits: 0 });
+            const cleaned = await recordCurrent(currentAtoms => deleteStateVectorsByIds(chatId,
+                status.obsoleteAtomIds.filter(id => !currentAtoms.has(id))));
+            if (!cleaned) return cancelledResult();
+        }
         onProgress?.(0, atoms.length);
         for (let i = 0; i < atoms.length; i += batchSize) {
-            if (isCancelled()) return cancelledResult();
+            if (!isCurrent()) return cancelledResult();
 
             const atomBatch = atoms.slice(i, i + batchSize);
             const semBatch = atomBatch.map(atom => atom.semantic);
             const rBatch = atomBatch.map(buildRAggregateText);
             const payload = semBatch.concat(rBatch);
-            activity.update({ activeUnits: atomBatch.length });
-            const vectors = await embed(payload, {
-                apiConfig: vectorConfig.embeddingApi,
-                timeout: 30000,
-                signal,
-            });
-            if (isCancelled()) return cancelledResult();
+            phase = 'embedding';
+            activity.update({ state: 'embedding', activeUnits: atomBatch.length });
+            const vectors = await embedForStorage(payload, vectorConfig, { chatId: receiptChatId, signal, retryFailed });
+            if (!isCurrent()) return cancelledResult();
             const split = semBatch.length;
             const expectedVectorCount = split * 2;
             if (
@@ -489,76 +511,47 @@ async function vectorizeMissingStateAtomsInner(chatId, onProgress, options, acti
             }
             const semVectors = vectors.slice(0, split);
             const rVectors = vectors.slice(split, split + split);
+            const items = atomBatch.map((atom, j) => ({
+                atomId: atom.atomId,
+                floor: atom.floor,
+                vector: semVectors[j],
+                rVector: rVectors[j] || semVectors[j],
+                sourceHash: inputDigest('state', semBatch[j]),
+                relationHash: inputDigest('relation', rBatch[j]),
+            }));
 
-            for (let j = 0; j < split; j++) {
-                const atom = atomBatch[j];
-                allItems.push({
-                    atomId: atom.atomId,
-                    floor: atom.floor,
-                    vector: semVectors[j],
-                    rVector: rVectors[j] || semVectors[j],
-                    sourceHash: inputDigest('state', semBatch[j]),
-                    relationHash: inputDigest('relation', rBatch[j]),
-                });
-            }
-
-            onProgress?.(allItems.length, atoms.length);
-            activity.update({ completed: allItems.length, activeUnits: 0 });
+            phase = 'write';
+            activity.update({ state: 'saving', activeUnits: 0 });
+            const saved = await recordCurrent(() => saveStateVectors(chatId, items, fingerprint));
+            if (!saved) return cancelledResult();
+            acknowledgeStoredEmbeddings(payload, vectorConfig, { chatId: receiptChatId });
+            vectorized += items.length;
+            onProgress?.(vectorized, atoms.length);
+            activity.update({ completed: vectorized });
         }
-
-        if (isCancelled()) return cancelledResult();
-        if (
-            getContext()?.chatId !== chatId
-            || getEngineFingerprint(getVectorConfig()) !== fingerprint
-        ) return cancelledResult();
     } catch (error) {
-        if (isCancelled()) return cancelledResult();
-        const failure = getEmbeddingFailureDetails(error);
-        xbLog.error(MODULE_ID, `L0 Embedding 失败: ${failure.code}`, error);
+        if (!isCurrent()) return cancelledResult();
+        const failure = phase === 'embedding'
+            ? getEmbeddingFailureDetails(error)
+            : { code: 'state_vector_write_failed' };
+        xbLog.error(MODULE_ID, `L0 向量补齐失败: ${failure.code}`, error);
         return {
             success: false,
             status: 'failed',
-            vectorized: 0,
-            failed: atoms.length,
-            vectorFailed: atoms.length,
+            vectorized,
+            failed: atoms.length - vectorized,
+            vectorFailed: atoms.length - vectorized,
             code: failure.code,
-            httpStatus: failure.httpStatus,
+            ...(failure.httpStatus ? { httpStatus: failure.httpStatus } : {}),
             error,
         };
     }
 
-    try {
-        if (isCancelled()) return cancelledResult();
-        const saved = await commit(async () => {
-            if (!await waitForMemoryCommit(signal, { recover: options.persistence !== 'host' })) throw createAbortError();
-            assertMemoryWritable(chatId);
-            const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
-            if (isCancelled() || atoms.some(atom => !sameMemory(atom, currentAtoms.get(atom.atomId)))) return false;
-            await deleteStateVectorsByIds(chatId, status.obsoleteAtomIds.filter(id => !currentAtoms.has(id)));
-            if (isCancelled()) return false;
-            await saveStateVectors(chatId, allItems, fingerprint);
-            return true;
-        });
-        if (!saved) return cancelledResult();
-    } catch (error) {
-        if (isCancelled()) return cancelledResult();
-        xbLog.error(MODULE_ID, 'L0 StateVector 写入失败', error);
-        return {
-            success: false,
-            status: 'failed',
-            vectorized: 0,
-            failed: atoms.length,
-            vectorFailed: atoms.length,
-            code: 'state_vector_write_failed',
-            error,
-        };
-    }
-
-    xbLog.info(MODULE_ID, `L0 向量补齐完成: ${allItems.length} 条`);
+    xbLog.info(MODULE_ID, `L0 向量补齐完成: ${vectorized} 条`);
     return {
         success: true,
         status: 'built',
-        vectorized: allItems.length,
+        vectorized,
         failed: 0,
         vectorFailed: 0,
     };

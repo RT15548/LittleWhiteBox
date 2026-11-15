@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 // “自动保存新生成的图片”：图片刚送达图库或楼层后，开了开关就把它存进酒馆，效果同手动点“保存”。
 // 只处理开关打开之后生成的新图，从不扫描旧缓存：开关本身不触发任何保存，只有各处“送达之后”的调用才会走到这里。
 // 三家画图的楼层配图、文本配图和后台接回都在各自送达之后调用；已保存的图（有 savedUrl）不会重复保存。
@@ -16,7 +17,7 @@ export const imageFilePrefix = provider => FILE_PREFIX[provider] || 'draw';
 function warnOnce() {
     if (Date.now() - lastWarnAt < WARN_INTERVAL_MS) return;
     lastWarnAt = Date.now();
-    globalThis.toastr?.warning(IMAGE_SAVE_COPY.autoSaveFailed);
+    drawNotify.warning(IMAGE_SAVE_COPY.autoSaveFailed);
 }
 
 // 保存成功后，让楼层里的这张图改用已保存的文件，并把“已保存”写回聊天（与手动保存相同）。

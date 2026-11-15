@@ -152,9 +152,9 @@ test('model listing allows no key and never retries authentication failures as a
                 const service = await mockProvider(t, provider);
                 assert.deepEqual(await pullModelsForProvider({ provider, apiKey, baseUrl: service.baseUrl }), ['test-model']);
                 assert.equal(service.requests.length, 1);
-                assertAuth(service.requests[0].headers, provider, apiKey.trim());
+                assertAuth(service.requests[0].headers, 'openai-compatible', apiKey.trim());
                 const query = new URL(service.requests[0].url, service.baseUrl).searchParams;
-                assert.equal(query.get('key'), provider === 'google' && apiKey ? apiKey.trim() : null);
+                assert.equal(query.get('key'), null);
             });
         }
         for (const status of [401, 403]) {
@@ -193,7 +193,7 @@ test('Claude model listing sends only the selected auth header without guessing 
                     assert.deepEqual(await pullModelsForProvider({ provider, baseUrl, apiKey, modelListAuth }, { signal: controller.signal }), ['test-model']);
                     assert.equal(requests.length, before + 1);
                     const request = requests.at(-1);
-                    assertAuth(request.headers, modelListAuth === 'bearer' ? 'openai-compatible' : 'anthropic', apiKey?.trim() || '');
+                    assertAuth(request.headers, modelListAuth === 'x-api-key' ? 'anthropic' : 'openai-compatible', apiKey?.trim() || '');
                     assert.equal(new URL(request.url).search, '');
                     assert.equal(request.signal, controller.signal);
                 }
@@ -217,11 +217,13 @@ test('Claude model listing does not retry 401 or 403 with another auth shape', a
     }
 });
 
-test('Claude model listing reaches Bearer-only relays with the configured key in either channel', async t => {
+// Acceptance (401/protocol failure): a fresh default must reach Bearer-only
+// relays immediately, without asking the user to change authentication.
+test('Claude model listing defaults reach Bearer-only relays with the configured key in either channel', async t => {
     for (const provider of ['anthropic', 'sillytavern-claude']) {
         const service = await mockProvider(t, 'anthropic', { requireModelListBearer: true });
         assert.deepEqual(await pullModelsForProvider({ provider, baseUrl: service.baseUrl,
-            apiKey: ' test-key ', modelListAuth: 'bearer' }), ['test-model']);
+            apiKey: ' test-key ' }), ['test-model']);
         assert.equal(service.requests.length, 1);
         assertAuth(service.requests[0].headers, 'openai-compatible', 'test-key');
     }

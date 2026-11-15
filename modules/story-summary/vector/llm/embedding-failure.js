@@ -80,7 +80,9 @@ export function getEmbeddingFailureDetails(error) {
     else if (kind === 'configuration_url') code = 'embedding_url_invalid';
     else if (kind === 'timeout') code = 'embedding_timeout';
     else if (kind === 'network') code = 'embedding_network_failed';
+    else if (kind === 'unknown_outcome') code = 'embedding_outcome_unknown';
     else if (kind === 'http') code = 'embedding_http_failed';
+    else if (kind === 'receipt_storage') code = 'embedding_receipt_storage_failed';
     else if (kind === 'invalid_response') code = 'invalid_embedding_response';
 
     const httpStatus = kind === 'http' && Number.isInteger(Number(failure.status))

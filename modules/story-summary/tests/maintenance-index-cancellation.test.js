@@ -1,4 +1,5 @@
 import { createTestModuleUrl } from './helpers/bundle-module.js';
+import { createSessionStorage } from './helpers/session-storage.js';
 // Exercise the real operation-scoped coordinator. Only storage/embedding/host
 // boundaries are replaced; cancellation must settle without buying another call.
 import assert from 'node:assert/strict';
@@ -17,16 +18,17 @@ const shims = {
     'modules/story-summary/data/store.js': 'export const getSummaryStore=()=>globalThis.__maintenanceIndexCancellationTest.store;',
     'modules/story-summary/data/memory-commit.js': 'export const assertMemoryWritable=()=>{}; export const waitForMemoryCommit=async()=>{};',
     'modules/story-summary/vector/storage/state-store.js': 'export const getStateAtoms=()=>globalThis.__maintenanceIndexCancellationTest.atoms; export const getStateVectorDescriptors=async()=>[]; export const saveStateVectors=(...args)=>globalThis.__maintenanceIndexCancellationTest.saveStates(...args); export const deleteStateVectorsByIds=async()=>{};',
-    'modules/story-summary/vector/storage/chunk-store.js': 'export const getEventVectorDescriptors=()=>globalThis.__maintenanceIndexCancellationTest.readEvents(); export const saveEventVectors=(...args)=>globalThis.__maintenanceIndexCancellationTest.saveEvents(...args); export const deleteEventVectorsByIds=async()=>{};',
-    'modules/story-summary/vector/utils/embedder.js': 'export const getEngineFingerprint=()=>"fixture-fingerprint";',
+    'modules/story-summary/vector/storage/chunk-store.js': 'export const getMeta=async()=>({fingerprint:"fixture-fingerprint"}); export const getEventVectorDescriptors=()=>globalThis.__maintenanceIndexCancellationTest.readEvents(); export const saveEventVectors=(...args)=>globalThis.__maintenanceIndexCancellationTest.saveEvents(...args); export const deleteEventVectorsByIds=async()=>{};',
+    'modules/story-summary/vector/utils/embedder.js': 'export const getEngineFingerprint=()=>"fixture-fingerprint"; export const embed=(texts,config,options)=>globalThis.__maintenanceIndexCancellationTest.embed(texts,options);',
     'modules/story-summary/vector/utils/vector-input-digest.js': 'export const inputDigest=(kind,text)=>kind+":"+text;',
     'modules/story-summary/vector/pipeline/state-vector-input.js': 'export const buildRAggregateText=atom=>atom?.semantic||"";',
-    'modules/story-summary/vector/llm/siliconflow.js': 'export const embed=(...args)=>globalThis.__maintenanceIndexCancellationTest.embed(...args);',
 };
 const bundled = await build({
     stdin: { resolveDir: root, contents: [
         "export * from './modules/story-summary/maintenance/indexes.js';",
         "export * from './modules/story-summary/vector/runtime/maintenance-coordinator.js';",
+        "export * from './modules/story-summary/vector/runtime/embedding-receipts.js';",
+        "export * from './modules/story-summary/data/chat-identity.js';",
     ].join('\n') },
     bundle: true, write: false, format: 'esm', platform: 'node',
     plugins: [{ name: 'maintenance-index-boundaries', setup(api) {
@@ -49,6 +51,8 @@ const deferred = () => {
 const drain = () => mod.runVectorGenerationTask({ chatId: 'chat', kind: 'fixture-drain' }, async () => {});
 const options = { timeout: 3000 };
 beforeEach(t => {
+    globalThis.sessionStorage = createSessionStorage();
+    mod.forgetStoredEmbeddings(mod.getChatIdentity({ chatId: 'chat' }));
     // Expected aborts/late fixture failures are already observed by assertions;
     // suppress the coordinator's diagnostic copy (its URL is this generated bundle).
     t.mock.method(console, 'warn', () => {});
@@ -82,6 +86,45 @@ test('ordinary embedding failures also detach the owner listener without writing
     assert.equal(getEventListeners(owner.signal, 'abort').length, 0);
     assert.equal(host.eventWrites.length + host.stateWrites.length, 0);
 });
+
+test('a later storage failure replays all successful responses without purchasing another embedding', options, async () => {
+    const storageFailure = new Error('fixture state storage unavailable');
+    host.saveStates = async (...args) => { host.stateWrites.push(args); throw storageFailure; };
+    await assert.rejects(mod.repairMaintenanceIndexes('chat', impact), error => error === storageFailure);
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.eventWrites.length, 1);
+    host.saveStates = async (...args) => { host.stateWrites.push(args); };
+    assert.equal((await mod.repairMaintenanceIndexes('chat', impact)).status, 'ready');
+    assert.equal(host.requests.length, 1);
+    assert.equal(host.stateWrites.length, 2);
+});
+
+test('failed index requests stay blocked across coordinator restart until explicit manual retry', options, async () => {
+    const failure = Object.assign(new Error('fixture timeout'), { embeddingFailure: { kind: 'timeout' } });
+    host.embed = async texts => { host.requests.push({ texts }); throw failure; };
+    await assert.rejects(mod.repairMaintenanceIndexes('chat', impact), error => error === failure);
+    await mod.shutdownVectorWriteCoordinator();
+    mod.resumeVectorWriteCoordinator();
+    await assert.rejects(mod.repairMaintenanceIndexes('chat', impact), error => error === failure);
+    assert.equal(host.requests.length, 1);
+    mod.retryStoredEmbeddings(mod.getChatIdentity({ chatId: 'chat' }));
+    host.embed = async texts => { host.requests.push({ texts }); return vectorsFor(texts); };
+    assert.equal((await mod.repairMaintenanceIndexes('chat', impact)).status, 'ready');
+    assert.equal(host.requests.length, 2);
+});
+
+test('a changed event after save failure uses its new source and reuses the unaffected anchor response', options, async () => {
+    host.saveEvents = async () => { throw new Error('fixture event storage unavailable'); };
+    await assert.rejects(mod.repairMaintenanceIndexes('chat', impact));
+    host.store.json.events[0].summary = 'new event source';
+    host.saveEvents = async (...args) => { host.eventWrites.push(args); };
+    assert.equal((await mod.repairMaintenanceIndexes('chat', impact)).status, 'ready');
+    assert.deepEqual(host.requests.map(request => request.texts), [['current event', 'current anchor'], ['new event source']]);
+    assert.equal(host.eventWrites[0][1][0].sourceHash, 'event:new event source');
+    assert.equal(host.stateWrites[0][1][0].sourceHash, 'state:current anchor');
+});
+
+function vectorsFor(texts) { return texts.map(() => [1, 0]); }
 
 test('an already cancelled owner never enqueues embedding or index writes', options, async () => {
     const owner = new AbortController(); owner.abort();

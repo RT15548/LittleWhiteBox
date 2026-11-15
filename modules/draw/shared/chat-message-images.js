@@ -1,10 +1,13 @@
+import { drawNotify } from './draw-toast.js';
 import { getContext } from '../../../../../../extensions.js';
 import { xbLog } from '../../../core/debug-core.js';
 import { createModuleEvents, event_types } from '../../../core/event-manager.js';
 import { parseChatImageTags, findRenderedChatImageTags } from './chat-message-image-markup.js';
 import { adoptChatImageMessage, releaseChatImageAdmission, withdrawEditedImagePlacements } from './chat-image-tag-migration.js';
 import { createChatImageSession } from './chat-image-session.js';
-import { buildPendingImageHtml, ensureDrawImageStyles, isMessageBeingEdited } from './draw-common.js';
+import { buildPendingImageHtml, ensureDrawImageStyles, isMessageBeingEdited, renderPreviewsForMessage, createPlaceholder } from './draw-common.js';
+import { retainImageCardDocument } from './image-card-events.js';
+import { MediaApiError } from '../../../shared/media-api.js';
 import { DRAW_SLOT_COPY } from './image-record.js';
 import { getSharedDrawSettings, getSharedMessageFilterRules } from './draw-settings.js';
 import { subscribeChatImagePlacement } from './chat-image-placement.js';
@@ -18,12 +21,13 @@ const leases = new Map();
 let initialized = false;
 let unsubscribeViews;
 let unsubscribePlacement;
+const mountedViews = new WeakMap();
 
 function available() { return initialized && window.xiaobaixDraw?.getStatus?.().ready === true; }
 function enabled() { return initialized && window.xiaobaixDraw?.getStatus?.().enabled === true; }
 function report(error) {
     xbLog.error('draw', DRAW_SLOT_COPY.tagAdoptionFailed, error);
-    globalThis.toastr?.error(error.message, DRAW_SLOT_COPY.tagAdoptionFailed);
+    drawNotify.error(error.message, DRAW_SLOT_COPY.tagAdoptionFailed);
 }
 const session = createChatImageSession({ context: getContext,
     provider: () => available() ? window.xiaobaixDraw.getProvider() : null,
@@ -42,7 +46,11 @@ function requestRefresh(message) {
     if (!initialized) return;
     const ctx = getContext();
     const id = message ? ctx.chat?.indexOf(message) : (ctx.chat?.length ?? 0) - 1;
-    if (id >= 0) drawMessageViewport.invalidate(document.querySelector(`.mes[mesid="${id}"] .mes_text`));
+    if (id >= 0) {
+        drawMessageViewport.registerNative(document.querySelector(`.mes[mesid="${id}"] .mes_text`));
+        for (const content of drawMessageViewport.contentsForMessage(id)) drawMessageViewport.invalidate(content);
+        drawMessageViewport.invalidate(document.querySelector(`.mes[mesid="${id}"] .mes_text`));
+    }
 }
 
 function createPendingCard(document, options) {
@@ -85,8 +93,7 @@ function updateTagCard(card, entry, input, view) {
 }
 
 function currentMessageId(lease) {
-    const value = lease.content.closest('.mes')?.getAttribute('mesid');
-    return value === null || value === undefined ? lease.messageId : Number(value);
+    return drawMessageViewport.messageId(lease.content);
 }
 
 function findMessageImageTags(content, source, nodes) {
@@ -132,12 +139,12 @@ function adoptPlacedCards(change) {
     const ctx = getContext();
     if (!available() || !change.edits || change.message?.mes !== change.after) return;
     const id = ctx.chat?.indexOf(change.message) ?? -1;
-    const content = document.querySelector(`.mes[mesid="${id}"] .mes_text`);
-    const lease = leases.get(content);
-    if (lease && drawMessageViewport.isActive(content)) {
+    for (const content of drawMessageViewport.contentsForMessage(id)) {
+        const lease = leases.get(content);
+        if (!lease || !drawMessageViewport.isActive(content)) continue;
         const messageId = currentMessageId(lease);
         if (!lease.content.isConnected || ctx.chat?.[messageId] !== change.message
-            || (change.message.swipe_id ?? 0) !== change.swipeIndex || isMessageBeingEdited(messageId)) return;
+            || (change.message.swipe_id ?? 0) !== change.swipeIndex || isMessageBeingEdited(messageId)) continue;
         const { matched } = findMessageImageTags(lease.content, change.before, lease.nodes);
         for (const match of matched.reverse()) {
             const edit = change.edits.find(item => item.start === match.candidate.start && item.end === match.candidate.end);
@@ -162,24 +169,64 @@ function adoptPlacedCards(change) {
 
 // A content lease owns display subscriptions only. Releasing it never cancels
 // the floor's job, and mounting it never submits an image request.
-export function mountChatMessageImages(content, messageId = Number(content.closest('.mes')?.getAttribute('mesid'))) {
-    return drawMessageViewport.mount(content, messageId);
+export function mountChatMessageImages({ element, messageId } = {}) {
+    if (!element?.isConnected || element.nodeType !== 1 || !element.ownerDocument?.defaultView) {
+        throw new MediaApiError('invalid_request', { field: 'element' });
+    }
+    const ctx = getContext(), message = ctx.chat?.[messageId], chatId = ctx.chatId;
+    if (!Number.isInteger(messageId) || messageId < 0 || !message) {
+        throw new MediaApiError('invalid_request', { field: 'messageId' });
+    }
+    if (!available()) throw new Error(DRAW_SLOT_COPY.unavailable);
+    mountedViews.get(element)?.destroy();
+    const controller = new AbortController();
+    const releaseDocument = retainImageCardDocument(element.ownerDocument);
+    const win = element.ownerDocument.defaultView;
+    const isCurrent = () => getContext().chatId === chatId && getContext().chat?.[messageId] === message;
+    const onRelease = () => {
+        controller.abort();
+        releaseDocument();
+        win.removeEventListener('pagehide', destroy);
+        mountedViews.delete(element);
+        for (const card of element.querySelectorAll('.xb-nd-img[data-slot-id]')) {
+            if (card.dataset.slotId) card.replaceWith(element.ownerDocument.createTextNode(createPlaceholder(card.dataset.slotId)));
+        }
+    };
+    const release = drawMessageViewport.mount(element, messageId, { isCurrent, onRelease });
+    function destroy() { release(); }
+    const view = {
+        async refresh() {
+            if (controller.signal.aborted) return;
+            if (!isCurrent()) { destroy(); return; }
+            drawMessageViewport.invalidate(element);
+            await refreshContent(element, messageId);
+            if (!controller.signal.aborted) {
+                await renderPreviewsForMessage(messageId, { content: element, signal: controller.signal });
+            }
+        },
+        destroy,
+    };
+    mountedViews.set(element, view);
+    win.addEventListener('pagehide', destroy, { once: true });
+    return view;
 }
 
 function releaseContent(content) {
     const lease = leases.get(content);
+    leases.delete(content);
     if (lease) {
-        releaseChatImageAdmission(lease.message);
+        if (![...leases.values()].some(other => other.message === lease.message)) releaseChatImageAdmission(lease.message);
         drawMessageViewport.write(() => releaseProvisional(lease));
     }
-    leases.delete(content);
 }
 
 async function refreshContent(content, messageId) {
     if (!available()) { releaseContent(content); return; }
+    if (!drawMessageViewport.isActive(content)) return;
+    const isViewCurrent = drawMessageViewport.capture(content);
     let lease = leases.get(content);
     if (!lease) { lease = { content, messageId, nodes: new Map() }; leases.set(content, lease); }
-    ensureDrawImageStyles();
+    ensureDrawImageStyles(content.ownerDocument);
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     lease.message = message;
@@ -188,18 +235,19 @@ async function refreshContent(content, messageId) {
         // Streaming keeps its native observation and does no history/cache I/O.
         if (message && !session.isBusy(message)) {
             const changed = await adoptChatImageMessage(ctx, messageId);
-            if (changed) drawMessageViewport.invalidate(content);
+            if (changed && isViewCurrent()) drawMessageViewport.invalidate(content);
         }
     }
     catch (error) { report(error); }
     // A failed history read is reported, but must not remove the user's
     // explicit Generate action or hold it behind a database upgrade.
-    if (!available() || leases.get(content) !== lease || !drawMessageViewport.isActive(content)) return;
+    if (!available() || !isViewCurrent() || leases.get(content) !== lease || !drawMessageViewport.isActive(content)) return;
     drawMessageViewport.write(() => enhance(lease));
 }
 
 async function loadChat() {
     session.targetChanged();
+    drawMessageViewport.releaseMounted();
     for (const content of leases.keys()) releaseContent(content);
     // Legacy adoption is viewport-scoped in refreshContent. Opening a chat must
     // never synchronously scan or rewrite every historical floor.
@@ -246,6 +294,7 @@ export function refreshChatMessageImages() {
 export function cleanupChatMessageImages() {
     if (!initialized) return false;
     initialized = false; session.disconnect();
+    drawMessageViewport.releaseMounted();
     unsubscribePlacement?.(); unsubscribePlacement = null;
     events.cleanup();
     unsubscribeViews?.(); unsubscribeViews = null;

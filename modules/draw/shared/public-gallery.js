@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 import { getContext } from '../../../../../../extensions.js';
 import { createIdentifier } from '../../../shared/common/identifier.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
@@ -39,7 +40,7 @@ export function capturePublicGallery(request, provider) {
             // Handle local persistence separately from generation. Rejecting a
             // successful paid request would invite callers to buy the same image again.
             console.error({ source: import.meta.url, operation: 'savePublicGallery' }, new AggregateError(failures));
-            globalThis.toastr?.error(DRAW_SLOT_COPY.publicGallerySaveFailed);
+            drawNotify.error(DRAW_SLOT_COPY.publicGallerySaveFailed);
         }
     };
 }

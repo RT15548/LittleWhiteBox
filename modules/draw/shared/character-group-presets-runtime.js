@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 // 角色分组预设的运行时：读取当前聊天的角色 / 群成员，监听聊天切换，命中预设时把分组开关写入共享设置。
 // 纯逻辑在 ./character-group-presets.js；这里只做宿主交互。宿主依赖全部可注入（getContext / createEvents / settings 等），默认取真实宿主。
 import { getContext as hostGetContext } from '../../../../../../extensions.js';
@@ -60,7 +61,7 @@ export function listCharactersFromContext(ctx) {
 
 function defaultToast(message) {
     try {
-        globalThis.toastr?.info?.(message);
+        drawNotify.info(message);
     } catch (caughtError) { console.warn({ source: import.meta.url, operation: "defaultToast" }, caughtError); }
 }
 

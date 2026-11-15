@@ -3,6 +3,7 @@ import { buildSourceIndex, resolvePackageSources } from './package/sources.js';
 import { collectChunkMaterials } from '../pipeline/chunk-materials.js';
 import { makeChunkId } from './chunk-store.js';
 import { matchesVectorSource } from '../utils/vector-source.js';
+import { validateCurrentSources } from './current-source-validation.js';
 
 // The automatic check needs identities and input digests, not embedding arrays.
 // Export projects through the same boundary before attaching its binary payload.
@@ -68,6 +69,8 @@ export function buildCacheSourceManifest(cache, operation) {
 // Daily integrity is vector-to-saved-material, not saved-material-to-live-chat.
 // Missing pairs share their material selection with automatic/manual gap repair.
 export function inspectCacheSourceCoverage(cache, operation) {
+    // Invalid memory must win over a repairable cache fault, even without vectors.
+    validateCurrentSources(operation.snapshot);
     const { chat } = operation.snapshot;
     for (const chunk of cache.chunks) {
         if (!Number.isInteger(chunk.floor) || chunk.floor < 0 || chunk.floor >= chat.length
@@ -80,14 +83,14 @@ export function inspectCacheSourceCoverage(cache, operation) {
     const materials = collectChunkMaterials(chat, cache.chunks, cache.chunkVectors);
     const sources = buildSourceIndex(operation.snapshot, materials);
     const cachedIds = new Set(cache.chunks.map(chunk => chunk.chunkId));
-    const fingerprint = (cache.chunkVectors[0] || cache.stateVectors[0] || cache.eventVectors[0])?.fingerprint;
+    const fingerprint = cache.meta?.fingerprint
+        || (cache.chunkVectors[0] || cache.stateVectors[0] || cache.eventVectors[0])?.fingerprint;
     if ([cache.chunkVectors, cache.stateVectors, cache.eventVectors].some(records => records.some(record => record.fingerprint !== fingerprint))) {
-        throw packageError('invalid_package', { field: 'fingerprint' });
+        throw packageError('invalid_package', { field: 'fingerprint', repairable: true });
     }
     // Daily usability and portable provenance are different contracts. Missing
     // digests do not prove corruption; a present digest must still match. Export
     // remains strict and never fabricates a digest for an existing vector.
-    let repairableMismatch;
     for (const [records, index, key, kind] of [
         [cache.chunkVectors, sources.chunks, 'chunkId', 'chunk'],
         [cache.stateVectors, sources.states, 'atomId', 'state'],
@@ -101,16 +104,10 @@ export function inspectCacheSourceCoverage(cache, operation) {
                 // An orphan's material may only be recovered from live prose
                 // when the original vector actually proves that input.
                 || (kind === 'chunk' && !cachedIds.has(record.chunkId) && !record.sourceHash)) {
-                const error = packageError('source_mismatch', { kind, id: record[key],
-                    repairable: kind !== 'state' || !source || (Number.isInteger(source.floor) && source.floor >= 0 && source.floor < chat.length) });
-                // A fillable mismatch must not hide a later fault that filling
-                // cannot fix, whether in the same layer or a subsequent one.
-                if (!error.details.repairable) throw error;
-                repairableMismatch ??= error;
+                throw packageError('source_mismatch', { kind, id: record[key], repairable: true });
             }
         }
     }
-    if (repairableMismatch) throw repairableMismatch;
     const vectorIds = new Set(cache.chunkVectors.map(record => record.chunkId));
     const missingFloors = new Set();
     for (const [id, source] of sources.chunks) {
@@ -120,5 +117,5 @@ export function inspectCacheSourceCoverage(cache, operation) {
 }
 
 export function isCacheConsistencyFailure(error) {
-    return ['incomplete_cache', 'source_mismatch', 'invalid_package'].includes(error?.code);
+    return ['incomplete_cache', 'source_mismatch', 'source_invalid', 'invalid_package'].includes(error?.code);
 }

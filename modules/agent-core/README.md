@@ -39,7 +39,7 @@ createPlanLedger({ plansTable });
 
 共享 Agent 预设由 `config.js` 定义、`settings-repository.js` 存储；每个命名预设只有一份全字段（渠道、模型、URL、Key、采样、思考、工具模式及 Vertex 专属选项）。主配置与分身配置仍独立。切换渠道只修改 `provider`，不替换模型、不填入渠道默认值、不清除当前渠道不使用的字段。表单草稿只在当前页面内存中，保存仍走既有保存回执；协议适配器只投影当前请求需要的参数，不回写预设。不支持的组合在实际请求时明确报错，不擅自改值。
 
-持久化格式 v2 不含 `modelConfigs`。读取旧设置时，`settings-migration.js` 在仓库入口按冻结的 v1 规则转换：每个预设保留原来选中渠道的完整配置，Vertex 专属选项保留在同一预设的 `vertex` 字段；不同预设的名称和选择不变。旧数据不会进入日常表单和运行时读写，下一次保存只写当前格式。删除预设沿用原删除入口；移除 Vertex 时仅清理 `vertex` 字段与注册，不删除共享的 URL、Key、模型。
+持久化格式 v3 不含 `modelConfigs`。读取旧设置时，`settings-migration.js` 在仓库入口按冻结的 v1 规则提取每个预设原来选中渠道的完整配置，Vertex 专属选项保留在同一预设的 `vertex` 字段；v1/v2 的模型列表鉴权统一转为当前默认，其余字段、预设名称和选择不变。旧数据不会进入日常表单和运行时读写，下一次保存只写当前格式。删除预设沿用原删除入口；移除 Vertex 时仅清理 `vertex` 字段与注册，不删除共享的 URL、Key、模型。
 
 ## 模型协议与 SDK 升级
 
@@ -53,7 +53,7 @@ Google GenerateContent 的 Gemini 2.5 使用 `thinkingBudget`；其余名称沿�
 
 OpenAI 兼容、Responses、Anthropic 的免密请求不发送认证头；Google 受当前 SDK 约束发送空 `x-goog-api-key`。SDK 内部适配不保存占位密钥，也不把占位值或 Node 环境凭据发给反代。模型拉取和实际请求均保留供应商鉴权错误，不切换身份重试。
 
-Claude 和 Google 的模型列表鉴权与生成鉴权分开：预设中的 `modelListAuth` 由 `model-list-auth.js` 定义，Text API、主助手和分身沿用各自保存的选择。Claude 默认 `x-api-key`，Google 默认原生 Google API Key；中转可选 `Bearer`，列表请求只使用 `Authorization: Bearer`，不附加原生 Key 头或 URL 参数。不按域名猜测，也不在 401/403 后切换认证重试，生成仍使用所选模型协议的原生鉴权。
+Claude 和 Google 的模型列表鉴权与生成鉴权分开：预设中的 `modelListAuth` 由 `model-list-auth.js` 定义，Text API、主助手、分身及共享 Agent 设置入口统一默认 `Bearer`，列表请求只使用 `Authorization: Bearer`，不附加原生 Key 头或 URL 参数。原生鉴权保留为手动选项。Agent v1/v2 与 Text API v1 已保存的预设在升级入口统一调整为当前默认，当前格式保存的手动选择继续保留。不按域名猜测，也不在 401/403 后切换认证重试，生成仍使用所选模型协议的原生鉴权。
 
 模型发现的默认路径由 `getModelListApiPrefix` 定义：Google 原生鉴权使用 `/v1beta/models`，Bearer 使用 `/v1/models`；显式版本路径和 Text API 自定义前缀优先，不因此改变生成地址。酒馆 Google 的 Bearer 列表请求通过宿主 OpenAI `/status` 通道发送，生成仍走 Google。直连与宿主共用 `shared/common/model-list.js` 解析 `data` 和 `models` 列表；模型 `id` 原样保留，只移除 Google `name` 开头的 `models/`。
 

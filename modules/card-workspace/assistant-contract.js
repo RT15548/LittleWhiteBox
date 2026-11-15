@@ -4,7 +4,7 @@ export const CARD_FILES = 'CardFiles';
 
 export const CARD_SKILL = Object.freeze({
     id: 'builtin-card-files', title: '小白X角色卡制作',
-    summary: 'Plan the player experience, organize character-card content and worldbooks, and write files back through CardFiles. Read builtin-card-frontend for presentation and builtin-state3 or builtin-state2 for gameplay state.',
+    summary: 'CardFlow: keep design decisions and open questions in design.md while discussing, prototyping or building to the user\'s current goal. Organizes character-card content and worldbooks and writes files back through CardFiles. Read builtin-card-frontend for presentation and builtin-state3 or builtin-state2 for gameplay state.',
     path: 'modules/card-workspace/skill/SKILL.md',
     tools: [CARD_FILES],
 });
@@ -26,6 +26,8 @@ CardFiles open returns the selected card's root, avatar, name and a directory of
 Read and search with scope local. Write creates files; apply_patch changes parts of existing files. The same files are editable in the workspace UI, with original/current/diff views and a writeback button. Save receives file paths, not file contents. Work in the root returned by open.
 
 ## File locations
+design.md is the card's CardFlow design document. It is stored in the user's SillyTavern files, separate from the card: it is available on every device of that SillyTavern account, never exported with the card, follows a card rename and is deleted with the card. Saving an empty design.md removes the stored document.
+Opening checks the saved design for updates. A clean copy updates automatically; a local draft stays intact, and conflicting saved changes are reported. Preserve desired draft text before using refresh to replace it with saved content.
 card.json contains ${CARD_FIELDS.join(', ')} and world (the primary linked lorebook name). Other extensions remain on the card untouched.
 ${TEXT_FIELDS.map(key => `${key}.md`).join(', ')} map to the corresponding card fields. Empty text fields are omitted on import; Write can create them at these paths.
 message/0.md is the first greeting. Consecutive numbers starting at 1 are alternate greetings. Append at the next number to add a greeting.
@@ -60,7 +62,7 @@ export const CARD_TOOL = Object.freeze({ type: 'function', function: {
     description: [
         'Open the current character card as workspace files, write selected files back to the card, or reload selected files from the saved card.',
         'Edit the opened files with Read, Write and apply_patch; ReadSkill builtin-card-files describes the file layout.',
-        'open returns {root, avatar, name, files:[{path, name, kind, book?}], reused}; each entry, regex or task occupies one named file. reused is true when an existing workspace copy was kept with its edits.',
+        'open returns {root, avatar, name, files:[{path, name, kind, book?}], reused, warnings?:[{path,message}]}; each entry, regex or task occupies one named file. reused is true when an existing workspace copy was kept with its edits. warnings identify a design draft whose saved version also changed; the draft is retained and other files remain accessible.',
         'save returns {ok, results:[{path, fromPath?, saved, unchanged?, hasUnsavedEdits?, missingActivationConfig?, error?}]}. path is the current file path; fromPath identifies the previous path after a rename. unchanged marks a file already equal to the card. hasUnsavedEdits marks a newer edit or removal in the workspace; it remains intact.',
         'missingActivationConfig flags an enabled worldbook entry without constant, vector, keyword or a recognized @@activate decorator, including unchanged saves. Check its intended activation: external scripts can activate entries too. If ordinary worldbook triggering is intended, set keywords or constant in the document header settings and save.',
         'refresh replaces the named workspace files with the saved card content and returns {paths, refreshed:true}.',

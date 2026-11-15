@@ -14,6 +14,7 @@ import { createHostToolRequestController } from '../app-src/runtime/host-tool-re
 import { closeAssistantWorkspace } from '../app-src/workspace/workspace-lifecycle.js';
 import { loadWorkspaceHostTools } from './helpers/workspace-host.js';
 import { observeBackgroundTask } from '../../../shared/common/async-errors.js';
+import { rebaseCardName } from '../../card-workspace/rename.js';
 
 
 // Acceptance contracts: UI writes cannot lose authored work; disjoint edits
@@ -114,7 +115,7 @@ test('batch and patch conflicts or storage failures never partially commit', asy
     await assert.rejects(ra.commitWorkspaceMutation({ name: 'Write', args: { path: fileA }, preconditions: [], signal: controller.signal }), /tool_aborted/);
 });
 
-function editorWindow(t, repository, sources = initial, { beforeReceipt, timeout = 1000 } = {}) {
+function editorWindow(t, repository, sources = initial, { beforeReceipt, timeout = 1000, render } = {}) {
     const previous = globalThis.window;
     globalThis.window = { setTimeout, confirm: () => true };
     t.after(() => { globalThis.window = previous; });
@@ -143,7 +144,8 @@ function editorWindow(t, repository, sources = initial, { beforeReceipt, timeout
             }, error => pending.get(payload.requestId)?.reject(error)).finally(() => active.delete(payload.requestId));
         },
     });
-    const manager = createLocalSourcesManager({ state, createRequestId: () => createIdentifier(), persistWorkspaceUiState: async () => ({ ok: true }), callHostTool: controller.callHostTool });
+    const manager = createLocalSourcesManager({ state, createRequestId: () => createIdentifier(), persistWorkspaceUiState: async () => ({ ok: true }), callHostTool: controller.callHostTool,
+        render: () => render?.(state), renderWorkspaceOnly: () => render?.(state) });
     return { state, manager, controller, runtime, pending };
 }
 
@@ -180,6 +182,152 @@ test('remote deletion keeps an accessible draft until explicit discard', async t
     await manager.resolveEditorConflict(fileA, 'saved');
     assert.equal(state.workspaceDrafts[fileA], undefined);
     assert.equal(content((await ra.readWorkspace()).localSources), undefined);
+});
+
+// Card lifecycle is an explicit directory move/delete. Pending editor text
+// follows that move; deleting the card clears its pending writes (lost work / resurrection).
+test('host directory changes relocate unsent editor drafts and delete them without resurrection', async t => {
+    const { ra, rb } = await setup(t);
+    const { state, manager } = editorWindow(t, rb);
+    manager.updateLocalFileContent(fileA, 'typing during card rename');
+    await commit(ra, 'Move', { fromPath: 'local/story/', toPath: 'local/renamed/' });
+    await manager.applyExternalDirectoryChange({ fromPath: 'local/story/', toPath: 'local/renamed/', localSources: (await ra.readWorkspace()).localSources });
+    assert.equal(state.selectedFilePath, 'local/renamed/a.md');
+    assert.equal(content((await ra.readWorkspace()).localSources, 'local/renamed/a.md'), 'typing during card rename');
+    assert.equal(content((await ra.readWorkspace()).localSources, fileA), undefined);
+    manager.updateLocalFileContent('local/renamed/a.md', 'typing during delete');
+    await commit(ra, 'Delete', { path: 'local/renamed/' }, (await ra.readWorkspace()).localSources);
+    await manager.applyExternalDirectoryChange({ fromPath: 'local/renamed/', toPath: null, localSources: (await ra.readWorkspace()).localSources });
+    assert.equal(await manager.flushPendingWorkspaceChanges(), true);
+    assert.deepEqual(state.workspaceDrafts, {});
+    assert.equal(content((await ra.readWorkspace()).localSources, 'local/renamed/a.md'), undefined);
+});
+
+// Rename must not resolve an editor conflict or adopt unseen content as a new
+// write baseline (cost: silently overwriting another authored version).
+test('directory rename retains conflicted drafts until an explicit choice', async t => {
+    const { ra, rb } = await setup(t);
+    const { state, manager } = editorWindow(t, rb);
+    await commit(ra, 'Write', { path: fileA, content: 'committed by assistant' });
+    manager.updateLocalFileContent(fileA, 'editor draft');
+    assert.equal(await manager.flushPendingWorkspaceChanges(), false);
+    await commit(ra, 'Move', { fromPath: 'local/story/', toPath: 'local/renamed/' }, (await ra.readWorkspace()).localSources);
+    await manager.applyExternalDirectoryChange({ fromPath: 'local/story/', toPath: 'local/renamed/', localSources: (await ra.readWorkspace()).localSources });
+    const path = 'local/renamed/a.md';
+    assert.equal(content((await ra.readWorkspace()).localSources, path), 'committed by assistant');
+    assert.equal(state.workspaceDrafts[path].content, 'editor draft');
+    assert.equal(state.workspaceDrafts[path].status, 'conflict');
+    assert.equal(await manager.resolveEditorConflict(path, 'mine'), true);
+    assert.equal(content((await ra.readWorkspace()).localSources, path), 'editor draft');
+});
+
+test('directory rename checks the original baseline of a still-queued editor write', async t => {
+    const { ra, rb } = await setup(t);
+    const { state, manager } = editorWindow(t, rb);
+    await commit(ra, 'Write', { path: fileA, content: 'unseen content' });
+    await commit(ra, 'Move', { fromPath: 'local/story/', toPath: 'local/renamed/' }, (await ra.readWorkspace()).localSources);
+    manager.updateLocalFileContent(fileA, 'queued draft');
+    await manager.applyExternalDirectoryChange({ fromPath: 'local/story/', toPath: 'local/renamed/', localSources: (await ra.readWorkspace()).localSources });
+    const path = 'local/renamed/a.md';
+    assert.equal(content((await ra.readWorkspace()).localSources, path), 'unseen content');
+    assert.equal(state.workspaceDrafts[path].status, 'conflict');
+    assert.equal(await manager.resolveEditorConflict(path, 'saved'), true);
+    assert.equal(content(state.localSources, path), 'unseen content');
+});
+
+test('typing in another file while rename waits for a receipt stays attached', async t => {
+    const { ra, rb } = await setup(t);
+    const started = Promise.withResolvers(), release = Promise.withResolvers();
+    const { manager } = editorWindow(t, rb, initial, { beforeReceipt: async payload => {
+        if (payload.arguments.path === fileA) { started.resolve(); await release.promise; }
+    } });
+    manager.updateLocalFileContent(fileA, 'first draft');
+    const saving = manager.flushPendingWorkspaceChanges();
+    await started.promise;
+    await commit(ra, 'Move', { fromPath: 'local/story/', toPath: 'local/renamed/' }, (await ra.readWorkspace()).localSources);
+    const moving = manager.applyExternalDirectoryChange({ fromPath: 'local/story/', toPath: 'local/renamed/', localSources: (await ra.readWorkspace()).localSources });
+    manager.updateLocalFileContent(fileB, 'second draft during receipt');
+    release.resolve();
+    await Promise.all([saving, moving]);
+    const files = (await ra.readWorkspace()).localSources;
+    assert.equal(content(files, 'local/renamed/a.md'), 'first draft');
+    assert.equal(content(files, 'local/renamed/b.md'), 'second draft during receipt');
+});
+
+// Moving multiple drafts must attach all of them before waiting for receipts:
+// typing in a later file must never be replaced by its earlier snapshot (lost text).
+test('typing at the new path while another migrated draft saves retains the latest text', async t => {
+    const { ra, rb } = await setup(t);
+    const started = Promise.withResolvers(), release = Promise.withResolvers();
+    const nextA = 'local/renamed/a.md', nextB = 'local/renamed/b.md';
+    const { state, manager } = editorWindow(t, rb, initial, { beforeReceipt: async payload => {
+        if (payload.arguments.path === nextA) { started.resolve(); await release.promise; }
+    } });
+    await commit(ra, 'Move', { fromPath: 'local/story/', toPath: 'local/renamed/' });
+    const moved = (await ra.readWorkspace()).localSources;
+    manager.updateLocalFileContent(fileA, 'first draft');
+    manager.updateLocalFileContent(fileB, 'earlier second draft');
+    const moving = manager.applyExternalDirectoryChange({ fromPath: 'local/story/', toPath: 'local/renamed/', localSources: moved });
+    await started.promise;
+    try {
+        assert.equal(manager.updateLocalFileContent(nextB, 'latest second draft'), true);
+        assert.equal(state.workspaceDrafts[nextB].content, 'latest second draft');
+    } finally { release.resolve(); }
+    await moving;
+    await manager.flushPendingWorkspaceChanges();
+    const saved = (await ra.readWorkspace()).localSources;
+    assert.equal(content(saved, nextB), 'latest second draft');
+    assert.equal(content(saved, nextA), 'first draft');
+    assert.deepEqual(state.workspaceDrafts, {});
+});
+
+// Equal text must still rebind the editor before waiting for the renamed
+// write's receipt; further input through the visible editor must persist.
+test('renaming with equal content updates the editor binding before the save receipt', async t => {
+    const { ra, rb } = await setup(t);
+    const oldStarted = Promise.withResolvers(), oldRelease = Promise.withResolvers();
+    const newStarted = Promise.withResolvers(), newRelease = Promise.withResolvers();
+    const nextPath = 'local/renamed/a.md';
+    let boundPath = fileA;
+    const { manager } = editorWindow(t, rb, initial, {
+        render: state => { boundPath = state.selectedFilePath; },
+        beforeReceipt: async payload => {
+            if (payload.arguments.path === fileA) { oldStarted.resolve(); await oldRelease.promise; }
+            if (payload.arguments.path === nextPath) { newStarted.resolve(); await newRelease.promise; }
+        },
+    });
+    manager.updateLocalFileContent(fileA, 'draft before rename');
+    const saving = manager.flushPendingWorkspaceChanges();
+    await oldStarted.promise;
+    await commit(ra, 'Move', { fromPath: 'local/story/', toPath: 'local/renamed/' }, (await ra.readWorkspace()).localSources);
+    const moving = manager.applyExternalDirectoryChange({ fromPath: 'local/story/', toPath: 'local/renamed/', localSources: (await ra.readWorkspace()).localSources });
+    oldRelease.resolve();
+    await newStarted.promise;
+    try {
+        assert.equal(boundPath, nextPath);
+        assert.equal(manager.updateLocalFileContent(boundPath, 'latest input through the visible editor'), true);
+    } finally { newRelease.resolve(); }
+    await Promise.all([saving, moving]);
+    assert.equal(content((await ra.readWorkspace()).localSources, nextPath), 'latest input through the visible editor');
+});
+
+test('renaming a card keeps a queued metadata edit while advancing its saved name', async t => {
+    const { a, ra, rb } = await setup(t);
+    const fromPath = 'local/cards/A.png/', toPath = 'local/cards/B.png/', path = fromPath + 'card.json', nextPath = toPath + 'card.json';
+    const original = JSON.stringify({ name: 'A', creator: 'original' });
+    const sources = upsertLocalSourceFile([], path, original, { originalContent: original }).nextSources;
+    await a.table('workspace').put({ id: 'main', localSources: sources });
+    const { state, manager } = editorWindow(t, rb, sources);
+    await commit(ra, 'Move', { fromPath, toPath }, sources);
+    const moved = (await ra.readWorkspace()).localSources;
+    const rebased = rebaseCardName(findLocalFileByPath(moved, nextPath).file, 'B');
+    await ra.commitWorkspaceMutation({ name: 'Write', args: { path: nextPath },
+        preconditions: buildWorkspacePreconditions('Write', { path: nextPath }, moved),
+        execute: async current => ({ result: { ok: true }, nextSources: upsertLocalSourceFile(current, nextPath, rebased.content, { originalContent: rebased.originalContent }).nextSources }) });
+    manager.updateLocalFileContent(path, JSON.stringify({ name: 'A', creator: 'draft' }));
+    await manager.applyExternalDirectoryChange({ fromPath, toPath, localSources: (await ra.readWorkspace()).localSources });
+    assert.deepEqual(JSON.parse(content((await ra.readWorkspace()).localSources, nextPath)), { name: 'B', creator: 'draft' });
+    assert.deepEqual(state.workspaceDrafts, {});
 });
 
 test('failed editor save is not success; explicit retry saves the latest draft', async t => {

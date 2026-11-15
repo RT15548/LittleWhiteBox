@@ -4,6 +4,7 @@ export const WORKSPACE_MESSAGE_TYPES = Object.freeze({
     HYDRATE: 'xb-assistant:workspace-hydrate',
     UPDATED: 'xb-assistant:local-sources-updated',
     FLUSH: 'xb-assistant:workspace-flush',
+    DIRECTORY_CHANGED: 'xb-assistant:workspace-directory-changed',
 });
 
 export const WORKSPACE_SOURCES = Object.freeze({

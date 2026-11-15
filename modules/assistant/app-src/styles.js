@@ -1244,9 +1244,31 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-message-editor-wrap {
             min-width: 0;
         }
-        .xb-assistant-message-editor {
+        .xb-assistant-chat .xb-assistant-bubble.is-editing {
             width: 100%;
-            min-height: 108px;
+            max-width: 100%;
+            justify-self: stretch;
+            content-visibility: visible;
+        }
+        .xb-assistant-bubble.is-editing .xb-assistant-message-actions {
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .xb-assistant-bubble.is-editing .xb-assistant-message-action {
+            min-height: 40px;
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+        .xb-assistant-bubble.is-editing [data-message-action="save-edit"] {
+            background: var(--xb-assistant-accent-strong);
+            color: var(--xb-assistant-surface);
+        }
+        .xb-assistant-message-editor {
+            display: block;
+            width: 100%;
+            height: clamp(240px, 42vh, 480px);
+            min-height: 160px;
+            max-height: 70vh;
             box-sizing: border-box;
             resize: vertical;
             padding: 12px 14px;
@@ -1901,6 +1923,11 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-toast-inline {
             padding: 4px 2px 0;
         }
+        .xb-assistant-chat-toast {
+            display: none;
+            padding: 0 4px 8px;
+        }
+        .xb-assistant-chat-toast.visible { display: block; }
         @keyframes xb-assistant-spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }

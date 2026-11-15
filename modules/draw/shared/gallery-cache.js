@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 // gallery-cache.js
 // 画廊和缓存管理模块
 
@@ -5,6 +6,7 @@ import { getContext } from "../../../../../../extensions.js";
 import { hasPreviewImage, DRAW_SLOT_COPY, PreviewStatus, PUBLIC_DRAW_SOURCE } from './image-record.js';
 
 import { getSharedDrawSettings } from './draw-settings.js';
+import { DRAW_LAYERS } from './draw-visuals.js';
 import { convertImageToJpeg, GALLERY_JPEG_COPY } from './gallery-image-codec.js';
 import { IMAGE_SAVE_LABEL_HTML } from './image-save-ui.js';
 import { saveImageToServer, getImageFolderName as getChatCharacterName } from './image-save.js';
@@ -321,6 +323,7 @@ function ensureCacheSyncChannel() {
 function publishCacheChange(slotIds) {
     const normalized = normalizeChangedSlotIds(slotIds);
     if (normalized !== null && normalized.length === 0) return;
+    notifyCacheChangeListeners(normalized);
     try {
         ensureCacheSyncChannel()?.postMessage({ type: 'invalidate', slotIds: normalized });
     } catch (caughtError) { console.warn({ source: import.meta.url, operation: "publishCacheChange" }, caughtError); }
@@ -343,14 +346,7 @@ function normalizePreviewBase64(value = '') {
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
 
-function showToast(message, type = 'success', duration = 2500) {
-    const colors = { success: 'rgba(62,207,142,0.95)', error: 'rgba(248,113,113,0.95)', info: 'rgba(212,165,116,0.95)' };
-    const toast = document.createElement('div');
-    toast.textContent = message;
-    toast.style.cssText = `position:fixed;top:20px;left:50%;transform:translateX(-50%);background:${colors[type] || colors.info};color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:99999;animation:fadeInOut ${duration/1000}s ease-in-out;max-width:80vw;text-align:center;word-break:break-all`;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), duration);
-}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // IndexedDB 操作
@@ -639,7 +635,7 @@ export async function storePreview(opts) {
             }
         } catch (e) {
             console.warn(GALLERY_JPEG_COPY.conversionFailed, e);
-            globalThis.toastr?.warning(GALLERY_JPEG_COPY.conversionFailed);
+            drawNotify.warning(GALLERY_JPEG_COPY.conversionFailed);
         }
     }
 
@@ -1331,7 +1327,7 @@ function ensureGalleryStyles() {
     const style = document.createElement('style');
     style.id = 'nd-gallery-styles';
     style.textContent = `
-#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:100003;display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}
+#nd-gallery-overlay{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:${DRAW_LAYERS.gallery};display:none;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px)}
 #nd-gallery-overlay.visible{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .nd-gallery-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:none;background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:20px;cursor:pointer;z-index:10}
 .nd-gallery-close:hover{background:rgba(255,255,255,0.2)}
@@ -1513,7 +1509,7 @@ export async function openGallery(slotId, messageId, callbacks = {}, initialImgI
     }
 
     if (!validPreviews.length) {
-        showToast('没有找到图片历史', 'error');
+        drawNotify.error('没有找到图片历史', undefined, { timeOut: 2500 });
         return;
     }
 
@@ -1644,7 +1640,7 @@ async function useCurrentGalleryImage() {
     await setSlotSelection(slotId, selected.imgId);
     if (callbacks.onUse) callbacks.onUse(slotId, messageId, selected, previews.length);
     if (currentGalleryData === view) closeGallery();
-    showToast('已切换显示图片');
+    drawNotify.success('已切换显示图片', undefined, { timeOut: 2500 });
 }
 
 async function saveCurrentGalleryImage() {
@@ -1664,12 +1660,12 @@ async function saveCurrentGalleryImage() {
         await updatePreviewSavedUrl(current.imgId, url);
         metadata.savedUrl = url;
         await setSlotSelection(slotId, current.imgId);
-        showToast(`已保存: ${url}`, 'success', 4000);
+        drawNotify.success(`已保存: ${url}`, undefined, { timeOut: 4000 });
         if (currentGalleryData === view) { renderGalleryThumbs(); renderGallery(); }
         if (callbacks.onSave) callbacks.onSave(current.imgId, url);
     } catch (e) {
         console.error('[GalleryCache] save failed:', e);
-        showToast(`保存失败: ${e.message}`, 'error');
+        drawNotify.error(`保存失败: ${e.message}`, undefined, { timeOut: 2500 });
     }
 }
 
@@ -1699,7 +1695,7 @@ async function deleteCurrentGalleryImage() {
             if (callbacks.onBecameEmpty) {
                 callbacks.onBecameEmpty(slotId, messageId, { tags: current.tags || '', title: current.title || '', positive: current.positive || '' });
             }
-            showToast('图片已删除，可点击重试重新生成');
+            drawNotify.success('图片已删除，可点击重试重新生成', undefined, { timeOut: 2500 });
         } else {
             if (currentGalleryData === view) {
                 view.currentIndex = Math.min(view.currentIndex, previews.length - 1);
@@ -1715,11 +1711,11 @@ async function deleteCurrentGalleryImage() {
                 }
                 await callbacks.onDelete(slotId, current.imgId, remaining);
             }
-            showToast('图片已删除');
+            drawNotify.success('图片已删除', undefined, { timeOut: 2500 });
         }
     } catch (e) {
         console.error('[GalleryCache] delete failed:', e);
-        showToast(`删除失败: ${e.message}`, 'error');
+        drawNotify.error(`删除失败: ${e.message}`, undefined, { timeOut: 2500 });
     }
 }
 

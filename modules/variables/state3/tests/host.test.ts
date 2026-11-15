@@ -6,6 +6,7 @@ import ts from 'typescript';
 import { mergeAbortSignals } from '../../../../shared/common/abort-utils.js';
 import { createSettlementService } from '../runtime/service.js';
 import { createSaveQueue } from '../runtime/persistence.js';
+import { migrateHistoryV2 } from '../runtime/history-format.js';
 import { clone, equal } from '../engine/data.js';
 import { readVariables, writeVariables, variableRoots } from '../runtime/variables.js';
 import { reject, diagnostic } from '../engine/diagnostics.js';
@@ -21,7 +22,7 @@ import type { State3Api } from '../runtime/api.js';
 import type { Context, ChatMessage, createHostAdapter } from '../runtime/host.js';
 import { accepted } from './fixture.js';
 import { runFunctionInVm } from '../engine/functions-vm.js';
-import type { Bundle } from '../types.js';
+import type { Bundle, History } from '../types.js';
 import { activeTools, TOOL_CALL_LIMIT } from '../extensions/definition.js';
 import { createRuleRefresh } from '../definition/refresh.js';
 
@@ -34,14 +35,14 @@ function harness() {
     let saves = 0;
     const ctx = { chat: [message], chatMetadata: { variables: { neighbor: 'keep' } }, chatId: 'test', characterId: 0,
         characters: [{ name: 'test', chat: 'test', avatar: 'test.png', data: { extensions: { [CARD_EXTENSION]: JSON.stringify(equipmentExample()) } } }], saveChat: async () => { saves++; } } as unknown as Context;
-    const env = { getContext: () => ctx, getRequestHeaders: () => ({}), CHAT_KEY, clone, equal, reject,
-        createSaveQueue, readVariables, writeVariables, variableRoots, CARD_EXTENSION, decodeBundle, digest, isOpeningReceipt,
-        fetch: async () => ({ ok: true, json: async () => [{ chat_metadata: clone(ctx.chatMetadata) }] }),
+    const env = { getContext: () => ctx, getRequestHeaders: () => ({}), saveChat: () => ctx.saveChat(), CHAT_KEY, clone, equal, reject,
+        createSaveQueue, migrateHistoryV2, readVariables, writeVariables, variableRoots, CARD_EXTENSION, decodeBundle, digest, isOpeningReceipt,
+        fetch: async (_url?: string, _options?: RequestInit) => ({ ok: true, json: async () => [{ chat_metadata: clone(ctx.chatMetadata) }] }),
     };
     const exports = runInNewContext(source('runtime/host.ts') + '\n({createHostAdapter,inGroup,latestUserIndex})', env) as {
         createHostAdapter(): ReturnType<typeof createHostAdapter>; inGroup(ctx: Context): boolean; latestUserIndex(chat: ChatMessage[], end?: number): number;
     };
-    return { ctx, message, exports, saves: () => saves };
+    return { ctx, message, exports, io: env, saves: () => saves };
 }
 
 function runtimeHarness(bundle: Bundle | null = equipmentExample(), initialMode = '3.0', ready: (chatId: string, signal: AbortSignal) => Promise<boolean> = async () => true, realBefore = false, authorize: () => Promise<void> = async () => {}) {
@@ -92,7 +93,7 @@ function runtimeHarness(bundle: Bundle | null = equipmentExample(), initialMode 
         ...settings, createModuleEvents, event_types,
         observeBackgroundTask(p: Promise<unknown>) { pending.add(p); p.then(() => pending.delete(p), () => pending.delete(p)); },
         isGenerating: () => false, waitForAfterAiReady: ready, createSettlementService,
-        ...h.exports, getContext: () => h.ctx, compileDefinition, diagnostic, reject, recordResult, CHAT_KEY, CARD_EXTENSION, digest,
+        ...h.exports, getContext: () => h.ctx, compileDefinition, diagnostic, reject, recordResult, isOpeningReceipt, CHAT_KEY, CARD_EXTENSION, digest,
         exportRules() {}, prepareRuleImport() {}, importRules() {}, onRulesSaved: () => () => {},
         createRuleRefresh, currentCard: () => h.ctx.characters[h.ctx.characterId], readCharacter: async () => structuredClone(remoteCard),
         createState3Macros: () => ({ clear() {macroVersions.length = 0;}, set(compiled: ReturnType<typeof compileDefinition>) { macroVersions.push(digest(compiled.bundle)); if (disposed) {lateMacros++;} }, dispose() {} }),
@@ -888,6 +889,8 @@ test('failed opening initialization remains visible and cannot enter generation 
     assert.deepEqual(h.ctx.chatMetadata, failedState); assert.deepEqual(h.ctx.chat, failedMessages);
     assert.equal(h.api.lastResult()?.ok, false); assert.equal(h.requests(), 0);
     assert.equal(h.message.swipe_info![1].extra?.[CHAT_KEY], undefined);
+    // Removing other successful greetings must not turn this failed greeting into a common start.
+    for (const holder of h.message.swipe_info!) {delete holder.extra?.[CHAT_KEY];}
     for (const boundary of ['reload', 'mode']) {
         if (boundary === 'reload') {
             h.ctx.chatMetadata = clone(h.ctx.chatMetadata); h.ctx.chat.splice(0, h.ctx.chat.length, ...clone(h.ctx.chat));
@@ -942,12 +945,15 @@ test('opening-aware first enrollment requires greeting-only chat; failed enrollm
     assert.equal(active.requests(), 0);
 });
 
-test('adding openings preserves existing progress even when only later floors have gameplay receipts', async t => {
-    for (const later of [false, true]) {
+// O7: adding opening values to an enabled conversation preserves progress and permits play,
+// including a conversation without receipts (cost: a chat that cannot continue).
+test('adding openings preserves enabled chats with no receipts or receipts on any floor', async t => {
+    for (const receipts of ['none', 'greeting', 'later']) {
         const h = runtimeHarness(equipmentExample(), '3.0', async () => true, true); t.after(() => h.cleanup()); await h.drain();
         accepted(await h.api.enable());
-        if (later) {h.ctx.chat.push({ mes: 'previous player turn', is_user: true }, { mes: 'previous reply', extra: {} });}
-        accepted(await h.api.apply([{ op: 'set', path: ['hero', 'health'], value: 17 }]));
+        if (receipts !== 'greeting') {h.ctx.chat.push({ mes: 'previous player turn', is_user: true }, { mes: 'previous reply', extra: {} });}
+        if (receipts !== 'none') {accepted(await h.api.apply([{ op: 'set', path: ['hero', 'health'], value: 17 }]));}
+        else {h.ctx.chatMetadata.variables = { ...h.ctx.chatMetadata.variables as object, hero: JSON.stringify({ ...hero(accepted(await h.api.inspect())).hero, health: 17 }) };}
         h.ctx.chat.push({ mes: 'player turn', is_user: true });
         h.ctx.characters[0].data!.extensions![CARD_EXTENSION] = JSON.stringify(greetingBundle());
         const progress = clone(h.ctx.chatMetadata), saves = h.saves();
@@ -955,7 +961,69 @@ test('adding openings preserves existing progress even when only later floors ha
         assert.deepEqual(await h.prepare(), { aborted: false });
         assert.equal(hero(accepted(await h.api.inspect())).hero.health, 17);
         assert.deepEqual(h.ctx.chatMetadata, progress); assert.equal(h.saves(), saves);
+        accepted(await h.api.apply([{ op: 'inc', path: ['hero', 'health'], delta: -1 }]));
+        assert.equal(hero(accepted(await h.api.inspect())).hero.health, 16);
+        h.ctx.chatMetadata = clone(h.ctx.chatMetadata); h.ctx.chat.splice(0, h.ctx.chat.length, ...clone(h.ctx.chat));
+        await h.handlers.get('CHAT_CHANGED')!(); await h.drain();
+        assert.deepEqual(await h.prepare(), { aborted: false });
+        assert.equal(hero(accepted(await h.api.inspect())).hero.health, 16);
     }
+});
+
+// O7: even a greeting-only common-start chat keeps its progress when opening rules are added.
+// Cost: reset progress or a chat that cannot continue.
+test('adding openings to an enabled greeting does not initialize it again', async t => {
+    for (const health of [33, -10]) {
+        const h = runtimeHarness(equipmentExample(), '3.0', async () => true, true); t.after(() => h.cleanup()); await h.drain();
+        accepted(await h.api.enable());
+        const bundle = equipmentExample(); bundle.definition.openings = [{ hero: { health } }];
+        h.ctx.characters[0].data!.extensions![CARD_EXTENSION] = JSON.stringify(bundle);
+        const progress = clone(h.ctx.chatMetadata), saves = h.saves();
+        await h.handlers.get('GENERATION_STARTED')!('normal', {}, false);
+        assert.deepEqual(h.ctx.chatMetadata, progress); assert.equal(h.saves(), saves);
+        h.ctx.chat.push({ mes: 'player turn', is_user: true });
+        assert.deepEqual(await h.prepare(), { aborted: false });
+        assert.equal(hero(accepted(await h.api.inspect())).hero.health, 80);
+    }
+});
+
+// O7: loading an existing format-2 save preserves progress and converts only once.
+// Fixture: history metadata from the isolated 1.18 reproduction, with no chat text or user data.
+test('format-2 chat histories are normalized once at load without saving or recalculating progress', () => {
+    const stored = JSON.parse(readFileSync(new URL('./fixtures/history-v2.json', import.meta.url), 'utf8'));
+    for (const opening of [false, true]) {
+        const h = harness();
+        h.ctx.chatMetadata = { variables: { hero: '{"health":80,"amulet":true,"baseHealth":60,"maxHealth":100,"condition":"受伤"}' }, [CHAT_KEY]: clone(stored) };
+        if (opening) {h.message.swipe_info!.push({ extra: { [CHAT_KEY]: { entries: [{ id: 'opening', revision: 1, source: 'opening', delta: undefined, actions: [] }] } } });}
+        const variables = clone(h.ctx.chatMetadata.variables), records = clone(h.ctx.chat);
+        const adapter = h.exports.createHostAdapter(), history = h.ctx.chatMetadata[CHAT_KEY] as History;
+        assert.deepEqual(history, { ...stored, format: 3, openingMode: opening ? 'per-swipe' : 'common' });
+        adapter.capture(); adapter.remember();
+        assert.equal(h.ctx.chatMetadata[CHAT_KEY], history);
+        assert.deepEqual(h.ctx.chatMetadata.variables, variables); assert.deepEqual(h.ctx.chat, records); assert.equal(h.saves(), 0);
+    }
+});
+
+// P3: active host saves finish before a settlement confirms its newer state.
+// Cost: an older disk write silently erases confirmed progress.
+test('settlement persistence participates in the native save queue', async () => {
+    const h = harness(), adapter = h.exports.createHostAdapter(), service = createSettlementService(adapter);
+    accepted(await service.enable());
+    let disk = clone(h.ctx.chatMetadata), release!: () => void;
+    const old = clone(disk), gate = new Promise<void>(resolve => {release = resolve;});
+    const nativeSave = gate.then(() => {disk = old;});
+    h.io.saveChat = async () => {disk = clone(h.ctx.chatMetadata);};
+    h.ctx.saveChat = async () => {await nativeSave; await h.io.saveChat();};
+    h.io.fetch = async () => ({ ok: true, json: async () => [{ chat_metadata: clone(disk) }] });
+    let finished = false;
+    const pending = service.apply([{ op: 'set', path: ['hero', 'health'], value: 20 }]).then(result => {finished = true; return result;});
+    try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.equal(finished, false);
+    } finally {release();}
+    assert.equal(accepted(await pending).saved, true);
+    await nativeSave;
+    assert.equal((readVariables(disk.variables as Record<string, unknown>).hero as { health: number }).health, 20);
 });
 
 test('pending overswipe placeholders cannot initialize or fabricate native greeting holders', async () => {

@@ -1,6 +1,9 @@
 import { getAllChunks, getChunkVectorDescriptors, getMeta, updateMeta, saveChunks, saveChunkVectors, deleteChunkVectorsByIds } from '../storage/chunk-store.js';
 import { collectChunkMaterials } from './chunk-materials.js';
-import { embed, getEngineFingerprint } from '../utils/embedder.js';
+import { getContext } from '../../../../../../../extensions.js';
+import { getChatIdentity } from '../../data/chat-identity.js';
+import { getEngineFingerprint } from '../utils/embedder.js';
+import { embedForStorage, acknowledgeStoredEmbeddings } from '../runtime/embedding-receipts.js';
 import { getEmbeddingFailureDetails } from '../llm/embedding-failure.js';
 import { selectChunksForRepair } from './chunk-repair-policy.js';
 import { inputDigest } from '../utils/vector-input-digest.js';
@@ -15,14 +18,17 @@ export async function repairMissingChunks(options) {
         activity => repairMissingChunksInner(options, activity));
 }
 
-async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, shouldCancel, onProgress, commit = task => task() }, activity) {
-    const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
+async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, shouldCancel, onProgress, retryFailed = false, commit = task => task() }, activity) {
+    const identity = getChatIdentity(getContext());
+    const isCancelled = () => signal?.aborted || shouldCancel?.() === true
+        || getChatIdentity(getContext()) !== identity;
     let repaired = 0;
     const chunks = [];
     let phase = 'read';
     const cancelled = () => ({ success: false, cancelled: true, repaired, chunks });
     try {
         if (isCancelled()) return cancelled();
+        if (!identity) return { success: false, repaired, chunks, code: 'no_active_chat' };
         const fingerprint = getEngineFingerprint(vectorConfig);
         const meta = await getMeta(chatId);
         if (meta.fingerprint && meta.fingerprint !== fingerprint) {
@@ -53,13 +59,15 @@ async function repairMissingChunksInner({ chatId, chat, vectorConfig, signal, sh
             const batch = missing.slice(i, i + REPAIR_BATCH_SIZE);
             phase = 'embedding';
             activity.update({ state: 'embedding', activeUnits: batch.length });
-            const embeddings = await embed(batch.map(chunk => chunk.text), vectorConfig, { signal });
+            const texts = batch.map(chunk => chunk.text);
+            const embeddings = await embedForStorage(texts, vectorConfig, { chatId: identity, signal, retryFailed });
             if (isCancelled()) return cancelled();
             phase = 'write';
             activity.update({ state: 'saving', activeUnits: 0 });
             await commit(() => saveChunkVectors(chatId, batch.map((chunk, index) => ({
                 chunkId: chunk.chunkId, vector: embeddings[index], sourceHash: inputDigest('chunk', chunk.text),
             })), fingerprint));
+            acknowledgeStoredEmbeddings(texts, vectorConfig, { chatId: identity });
             repaired += batch.length;
             activity.update({ completed: repaired });
             onProgress?.(repaired, missing.length);

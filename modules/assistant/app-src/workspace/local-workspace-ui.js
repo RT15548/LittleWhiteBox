@@ -103,6 +103,7 @@ function mountWorkspaceEditor(container, options = {}) {
         disabled = false,
         editability = new Compartment(),
         callbacks = {
+            path,
             onChange: () => {},
             onSelectionChange: () => {},
             onBlur: () => {},
@@ -111,7 +112,7 @@ function mountWorkspaceEditor(container, options = {}) {
     const reportSelection = (view, options = {}) => {
         const selection = view.state.selection.main;
         callbacks.onSelectionChange({
-            filePath: path,
+            filePath: callbacks.path,
             viewerMode: 'current',
             value: view.state.doc.toString(),
             selectionStart: selection.from,
@@ -163,6 +164,18 @@ export function destroyWorkspaceEditorCache(container) {
     }
 }
 
+// A directory rename keeps the same document/view (focus, selection, undo and
+// composition). The following synchronous render refreshes the input callbacks.
+export function relocateWorkspaceEditor(container, fromPath, toPath) {
+    const cache = container?.__xbWorkspaceEditorCache;
+    if (!toPath || !cache?.path.startsWith(fromPath)) return;
+    cache.path = toPath + cache.path.slice(fromPath.length);
+    cache.callbacks.path = cache.path;
+    cache.relocated = true;
+    const wrap = cache.view.dom.closest('.xb-assistant-workspace-code-wrap');
+    if (wrap) wrap.dataset.viewKey = `${cache.path}:current`;
+}
+
 function ensureWorkspaceEditor(container, mountPoint, options = {}) {
     const cache = container?.__xbWorkspaceEditorCache || null;
     const normalizedDisabled = !!options.disabled;
@@ -178,18 +191,25 @@ function ensureWorkspaceEditor(container, mountPoint, options = {}) {
             ]) });
             cache.disabled = normalizedDisabled;
         }
-        if (currentValue !== nextValue && !cache.view.composing && !cache.view.hasFocus) {
+        if (currentValue !== nextValue && !cache.view.composing && (cache.relocated || !cache.view.hasFocus)) {
+            // Apply only the changed span, so a rebased card name does not
+            // replace the entire editor document or discard its undo mapping.
+            let from = 0, oldEnd = currentValue.length, newEnd = nextValue.length;
+            while (from < oldEnd && from < newEnd && currentValue[from] === nextValue[from]) from++;
+            while (oldEnd > from && newEnd > from && currentValue[oldEnd - 1] === nextValue[newEnd - 1]) { oldEnd--; newEnd--; }
             cache.view.dispatch({
-                changes: { from: 0, to: currentValue.length, insert: nextValue },
-                annotations: Transaction.remote.of(true),
+                changes: { from, to: oldEnd, insert: nextValue.slice(from, newEnd) },
+                annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
             });
         }
+        delete cache.relocated;
         if (cache.view.dom.parentNode !== mountPoint) mountPoint.appendChild(cache.view.dom);
         return cache.view;
     }
 
     destroyWorkspaceEditorCache(container);
     const callbacks = {
+        path: options.path,
         onChange: options.onChange || (() => {}),
         onSelectionChange: options.onSelectionChange || (() => {}),
         onBlur: options.onBlur || (() => {}),

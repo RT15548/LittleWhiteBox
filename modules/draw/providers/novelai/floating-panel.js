@@ -1,3 +1,4 @@
+import { drawNotify } from '../../shared/draw-toast.js';
 import { mountThemeSwitch } from '../../shared/theme-switch.js';
 import { mountPresetGallery } from './preset-gallery.js';
 // floating-panel.js
@@ -5,7 +6,7 @@ import { mountPresetGallery } from './preset-gallery.js';
  * NovelDraw 画图按钮面板 - 支持楼层按钮和悬浮按钮双模式
  */
 
-import { ensureDrawVisuals, createDrawIcon } from '../../shared/draw-visuals.js';
+import { ensureDrawVisuals, createDrawIcon, DRAW_LAYERS } from '../../shared/draw-visuals.js';
 import { getContext } from '../../../../../../../extensions.js';
 import {
     openNovelDrawSettings,
@@ -604,7 +605,7 @@ ${MAX_IMAGES_INPUT_CSS}
    ═══════════════════════════════════════════════════════════════════════════ */
 .nd-floating-global.nd-novel {
     position: fixed;
-    z-index: 10000;
+    z-index: ${DRAW_LAYERS.floating};
     user-select: none;
     transition: transform 0.25s ease;
 }
@@ -738,7 +739,7 @@ const maxImages = createMaxImagesController({
         okText,
     ),
     listInputs: () => [...panelMap.values()].map((data) => data.$cache?.maxImagesInput).concat($floatingCache.maxImagesInput),
-    notify: (message) => globalThis.toastr?.warning?.(message),
+    notify: (message) => drawNotify.warning(message),
 });
 // ═══════════════════════════════════════════════════════════════════════════
 // ▼▼▼ 楼层按钮逻辑 ▼▼▼
@@ -1135,10 +1136,10 @@ async function handleFloorDrawClick(messageId) {
     } catch (error) {
         if (error.drawTaskReported) return;
         if (error instanceof FloorImageBusyError || isDrawRunPendingError(error)) {
-            toastr?.info?.(error.message);
+            drawNotify.info(error.message);
         } else {
             console.error(error);
-            toastr?.error?.(error.message);
+            drawNotify.error(error.message);
         }
     }
 }
@@ -1153,7 +1154,7 @@ async function handleFloorAbort(messageId) {
             setState: state => setFloorState(getContext().chat.indexOf(target.message), state),
         });
         if (aborted && isDrawCancellationTargetCurrent(target)) {
-            toastr?.info?.('正在中止');
+            drawNotify.info('正在中止');
         }
         if (isDrawCancellationTargetCurrent(target)) {
             const liveId = getContext().chat.indexOf(target.message);
@@ -1161,7 +1162,7 @@ async function handleFloorAbort(messageId) {
         }
     } catch (e) {
         console.error('[NovelDraw] 中止失败:', e);
-        toastr?.error?.(DRAW_SLOT_COPY.cancelFailed);
+        drawNotify.error(DRAW_SLOT_COPY.cancelFailed);
     }
 }
 
@@ -1802,7 +1803,7 @@ async function handleFloatingDrawClick() {
 
     const messageId = findLastAIMessageId();
     if (messageId < 0) {
-        toastr?.warning?.('没有可配图的AI消息');
+        drawNotify.warning('没有可配图的AI消息');
         return;
     }
 
@@ -1818,10 +1819,10 @@ async function handleFloatingDrawClick() {
     } catch (error) {
         if (error.drawTaskReported) return;
         if (error instanceof FloorImageBusyError || isDrawRunPendingError(error)) {
-            toastr?.info?.(error.message);
+            drawNotify.info(error.message);
         } else {
             console.error(error);
-            toastr?.error?.(error.message);
+            drawNotify.error(error.message);
         }
     }
 }
@@ -1837,7 +1838,7 @@ async function handleFloatingAbort() {
             setState: setFloatingState,
         });
         if (aborted && isDrawCancellationTargetCurrent(target)) {
-            toastr?.info?.('正在中止');
+            drawNotify.info('正在中止');
         }
         if (messageId >= 0 && isDrawCancellationTargetCurrent(target)) {
             const liveId = getContext().chat.indexOf(target.message);
@@ -1845,7 +1846,7 @@ async function handleFloatingAbort() {
         }
     } catch (e) {
         console.error('[NovelDraw] 中止失败:', e);
-        toastr?.error?.(DRAW_SLOT_COPY.cancelFailed);
+        drawNotify.error(DRAW_SLOT_COPY.cancelFailed);
     }
 }
 

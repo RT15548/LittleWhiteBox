@@ -3,22 +3,34 @@ import { getVectorConfig } from '../data/config.js';
 import { getSummaryStore } from '../data/store.js';
 import { assertMemoryWritable, waitForMemoryCommit } from '../data/memory-commit.js';
 import { getStateAtoms, getStateVectorDescriptors, saveStateVectors, deleteStateVectorsByIds } from '../vector/storage/state-store.js';
-import { getEventVectorDescriptors, saveEventVectors, deleteEventVectorsByIds } from '../vector/storage/chunk-store.js';
+import { getMeta, getEventVectorDescriptors, saveEventVectors, deleteEventVectorsByIds } from '../vector/storage/chunk-store.js';
 import { getEngineFingerprint } from '../vector/utils/embedder.js';
 import { inputDigest } from '../vector/utils/vector-input-digest.js';
 import { buildEventVectorText, selectMissingEventVectorPairs } from '../vector/pipeline/event-vector-input.js';
 import { buildRAggregateText } from '../vector/pipeline/state-vector-input.js';
 import { selectMissingStateVectorAtoms } from '../vector/pipeline/state-vector-policy.js';
 import { orphanVectorIds } from '../vector/utils/vector-source.js';
-import { embed } from '../vector/llm/siliconflow.js';
+import { getChatIdentity } from '../data/chat-identity.js';
+import { embedForStorage, acknowledgeStoredEmbeddings, readStoredEmbeddingFailure } from '../vector/runtime/embedding-receipts.js';
+import { classifyVectorRecoveryFailure } from '../vector/integrity-recovery.js';
 import { runVectorGenerationTask, cancelVectorWriteOperation } from '../vector/runtime/maintenance-coordinator.js';
 import { createAbortError, throwIfSignalAborted } from '../../../shared/common/abort-utils.js';
 import { requireMemory } from './errors.js';
+
+function maintenanceIndexJobs({ events, atoms }) {
+    return [
+        ...events.map(event => ({ kind: 'event', id: event.id, text: buildEventVectorText(event) })),
+        ...atoms.flatMap(atom => [{ kind: 'state', id: atom.atomId, text: atom.semantic },
+            { kind: 'relation', id: atom.atomId, text: buildRAggregateText(atom) }]),
+    ];
+}
 
 export async function inspectMaintenanceIndexes(chatId, impact) {
     const config = getVectorConfig();
     if (!config.enabled) return { status: 'disabled', events: [], atoms: [] };
     const fingerprint = getEngineFingerprint(config);
+    const meta = await getMeta(chatId);
+    requireMemory(!meta?.fingerprint || meta.fingerprint === fingerprint, 'fingerprint_mismatch');
     const [eventVectors, stateVectors] = await Promise.all([getEventVectorDescriptors(chatId), getStateVectorDescriptors(chatId)]);
     requireMemory(getContext().chatId === chatId, 'conflict');
     const sourceEvents = (getSummaryStore()?.json?.events || []).filter(event => impact.eventIds.includes(event.id));
@@ -30,8 +42,11 @@ export async function inspectMaintenanceIndexes(chatId, impact) {
         new Set(sourceEvents.map(event => event.id)), 'eventId');
     const obsoleteAtomIds = orphanVectorIds(stateVectors.filter(vector => impact.atomIds.includes(vector.atomId)),
         new Set(sourceAtoms.map(atom => atom.atomId)), 'atomId');
+    const error = readStoredEmbeddingFailure(maintenanceIndexJobs({ events, atoms }).map(job => job.text), config,
+        { chatId: getChatIdentity(getContext()) });
     return { status: events.length || atoms.length || obsoleteEventIds.length || obsoleteAtomIds.length ? 'pending' : 'ready',
-        events, atoms, obsoleteEventIds, obsoleteAtomIds, fingerprint };
+        events, atoms, obsoleteEventIds, obsoleteAtomIds, fingerprint,
+        ...(error ? { failure: classifyVectorRecoveryFailure({ error }) } : {}) };
 }
 
 /** Only derived data. Retrying here cannot issue another semantic maintenance request. */
@@ -45,23 +60,20 @@ export async function repairMaintenanceIndexes(chatId, impact, { signal: ownerSi
         throwIfSignalAborted(signal);
         if (missing.status !== 'pending') return { status: missing.status };
         const config = getVectorConfig();
-        const jobs = [
-            ...missing.events.map(event => ({ kind: 'event', id: event.id, text: buildEventVectorText(event) })),
-            ...missing.atoms.flatMap(atom => [{ kind: 'state', id: atom.atomId, text: atom.semantic },
-                { kind: 'relation', id: atom.atomId, text: buildRAggregateText(atom) }]),
-        ];
+        const receiptChatId = getChatIdentity(getContext());
+        const jobs = maintenanceIndexJobs(missing);
         const vectors = [];
         for (let offset = 0; offset < jobs.length; offset += 20) {
             throwIfSignalAborted(signal);
             const batch = jobs.slice(offset, offset + 20);
-            const result = await embed(batch.map(job => job.text), { apiConfig: config.embeddingApi, signal });
+            const result = await embedForStorage(batch.map(job => job.text), config, { chatId: receiptChatId, signal });
             throwIfSignalAborted(signal);
             requireMemory(result?.length === batch.length, 'index_response_invalid');
             vectors.push(...result);
         }
         return commit(async () => {
             await waitForMemoryCommit(signal);
-            requireMemory(!signal.aborted && getContext().chatId === chatId && getEngineFingerprint(getVectorConfig()) === missing.fingerprint, 'conflict');
+            requireMemory(!signal.aborted && getChatIdentity(getContext()) === receiptChatId && getEngineFingerprint(getVectorConfig()) === missing.fingerprint, 'conflict');
             assertMemoryWritable(chatId);
             const currentEvents = new Map((getSummaryStore()?.json?.events || []).map(event => [event.id, event]));
             const currentAtoms = new Map(getStateAtoms().map(atom => [atom.atomId, atom]));
@@ -86,6 +98,7 @@ export async function repairMaintenanceIndexes(chatId, impact, { signal: ownerSi
             if (eventItems.length) await saveEventVectors(chatId, eventItems, missing.fingerprint);
             throwIfSignalAborted(signal);
             if (atomItems.size) await saveStateVectors(chatId, [...atomItems.values()], missing.fingerprint);
+            acknowledgeStoredEmbeddings(jobs.map(job => job.text), config, { chatId: receiptChatId });
             return { status: 'ready' };
         });
     });

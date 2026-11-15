@@ -3,6 +3,8 @@ import { afterEach, test } from 'node:test';
 import { parseHTML } from 'linkedom';
 import { createMemoryChatDialog } from '../maintenance/chat-ui.js';
 import { createMemoryMaintenancePage } from '../maintenance/ui.js';
+import { MEMORY_COPY } from '../maintenance/copy.js';
+import { SUMMARY_FEEDBACK_COPY } from '../feedback-copy.js';
 import { MEMORY_CHAT_MESSAGES as routes } from '../maintenance/chat-contract.js';
 
 // Protect UI actions, identity isolation, payload-free tool presentation and draft ownership.
@@ -63,6 +65,93 @@ test('automatic progress preserves mounted receipt pages, pending page requests 
     assert.equal(more.hidden, false);
     assert.equal(more.disabled, true);
     assert.equal(root.querySelector('.memory-state').dataset.status, 'saving');
+});
+
+function maintenancePage(t) {
+    const h = harness();
+    const root = h.document.createElement('section');
+    const sent = [];
+    const page = createMemoryMaintenancePage(root, (type, payload) => sent.push({ type, payload }));
+    t.after(() => page.dispose());
+    const render = index => page.render({ chatId: 'chat-a', state: { status: 'idle' }, index, items: [], total: 0, runIds: [] });
+    return { page, root, sent, render, index: root.querySelector('.memory-index-state'),
+        message: root.querySelector('.memory-index-message'), repair: root.querySelector('[data-action="repair-retrieval"]') };
+}
+
+test('saved memory retrieval failures show known counts and safe reasons alongside an explicit whole-chat retry', t => {
+    const h = maintenancePage(t);
+    const failure = { reason: 'credentials', httpStatus: 401, message: 'fixture-private-key-and-endpoint' };
+    const pending = { status: 'pending', count: 3, failure };
+    h.render(pending);
+    assert.equal(h.index.hidden, false);
+    assert.equal(h.index.getAttribute('role'), 'status');
+    assert.equal(h.message.textContent, MEMORY_COPY.indexPending(pending));
+    assert.ok(h.message.textContent.includes(SUMMARY_FEEDBACK_COPY.vectorIntegrity.failureReason(failure)));
+    assert.equal(h.message.textContent.includes(failure.message), false);
+    assert.equal(h.repair.textContent, MEMORY_COPY.repair);
+    assert.equal(h.root.querySelector(`#${h.repair.getAttribute('aria-describedby')}`).textContent, MEMORY_COPY.repairHint);
+    assert.equal(h.repair.disabled, false);
+    h.repair.click();
+    assert.deepEqual(h.sent, [{ type: 'MEMORY_MAINTENANCE_REPAIR', payload: undefined }]);
+    assert.equal(h.repair.disabled, true);
+});
+
+test('progress-only frames preserve the full known retrieval failure until an explicit new result arrives', t => {
+    const h = maintenancePage(t);
+    const pending = { status: 'pending', count: 2, failure: { reason: 'service', httpStatus: 503 } };
+    h.render(pending);
+    h.page.render({ chatId: 'chat-a', stateOnly: true, state: { status: 'running' } });
+    assert.equal(h.index.hidden, false);
+    assert.equal(h.message.textContent, MEMORY_COPY.indexPending(pending));
+    assert.equal(h.repair.disabled, true);
+    h.page.render({ chatId: 'chat-a', stateOnly: true, state: { status: 'completed' } });
+    assert.equal(h.index.hidden, false);
+    assert.equal(h.message.textContent, MEMORY_COPY.indexPending(pending));
+    assert.equal(h.repair.disabled, false);
+});
+
+test('a global failure without a count replaces the maintenance count instead of inventing a chat-wide total', t => {
+    const h = maintenancePage(t);
+    h.render({ status: 'pending', count: 7, failure: { reason: 'credentials', httpStatus: 403 } });
+    const globalFailure = { status: 'pending', failure: { reason: 'network' } };
+    h.render(globalFailure);
+    assert.equal(h.index.hidden, false);
+    assert.equal(h.message.textContent, MEMORY_COPY.indexPending(globalFailure));
+    h.page.render({ chatId: 'chat-a', stateOnly: true, state: { status: 'idle' } });
+    assert.equal(h.message.textContent, MEMORY_COPY.indexPending(globalFailure));
+});
+
+test('successful inspection and chat switching clear retrieval failure details without a success notification', t => {
+    const h = maintenancePage(t);
+    const pending = { status: 'pending', count: 1, failure: { reason: 'quota', httpStatus: 429 } };
+    h.render(pending);
+    h.render({ status: 'ready', count: 0 });
+    assert.equal(h.index.hidden, true);
+    assert.equal(h.message.textContent, '');
+    h.render({ status: 'pending', count: 1 });
+    assert.equal(h.message.textContent, MEMORY_COPY.indexPending({ count: 1 }));
+    h.render(pending);
+    h.page.setChat('chat-b');
+    assert.equal(h.index.hidden, true);
+    assert.equal(h.message.textContent, '');
+    h.page.render({ chatId: 'chat-b', stateOnly: true, state: { status: 'idle' } });
+    assert.equal(h.index.hidden, true);
+    assert.deepEqual(h.sent, []);
+});
+
+test('shared retrieval failure feedback uses only its classified cause and validated HTTP status', () => {
+    const copy = SUMMARY_FEEDBACK_COPY.vectorIntegrity;
+    const classified = { reason: 'request', httpStatus: 400 };
+    const withPrivateDetails = { ...classified, message: 'fixture-private-url', apiKey: 'fixture-private-key' };
+    assert.equal(copy.failureReason(withPrivateDetails), copy.failureReason(classified));
+    assert.equal(copy.manualFailure(withPrivateDetails), copy.manualFailure(classified));
+    assert.equal(copy.failureReason({ reason: 'fixture-private-raw-error', httpStatus: 'fixture-private-status' }), copy.failureReason({ reason: 'unknown' }));
+    assert.ok(copy.manualFailure(classified).includes(copy.failureReason(classified)));
+    assert.ok(copy.recoveryFailure(classified).includes(copy.failureReason(classified)));
+    const unconfirmed = { reason: 'outcome_unknown' };
+    assert.notEqual(copy.failureReason(unconfirmed), copy.failureReason({ reason: 'network' }));
+    assert.notEqual(copy.failureReason(unconfirmed), copy.failureReason({ reason: 'unknown' }));
+    assert.ok(copy.manualFailure(unconfirmed).includes(copy.failureReason(unconfirmed)));
 });
 
 test('opening only queries; closing preserves unsent text without stopping work', () => {

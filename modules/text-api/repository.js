@@ -1,5 +1,5 @@
 import { TEXT_API_SETTINGS_KEY as KEY, assertSettings, applyPresetAction } from './model.js';
-import { migrateLegacySettings, withoutLegacySummaryApi, withoutLegacyPlannerApi, withoutLegacyOutlineApi } from './migration.js';
+import { migrateLegacySettings, upgradeTextApiSettings, withoutLegacySummaryApi, withoutLegacyPlannerApi, withoutLegacyOutlineApi } from './migration.js';
 import { TEXT_API_COPY as COPY } from './copy.js';
 
 const SUMMARY_KEY = 'storySummaryPanelConfig';
@@ -60,7 +60,18 @@ export function createTextApiRepository({ common, planner, outline, local }) {
             await common.updateAndSave(draft => { if (!draft[KEY]) draft[KEY] = next; }, { silent: false });
             const saved = await verify();
             if (JSON.stringify(saved) !== JSON.stringify(next)) throw new Error(COPY.saveFailed);
-        } else assertSettings(current);
+        } else {
+            const upgraded = upgradeTextApiSettings(current);
+            assertSettings(upgraded);
+            if (upgraded !== current) {
+                let next;
+                await common.updateAndSave(draft => {
+                    next = assertSettings(upgradeTextApiSettings(draft[KEY]));
+                    draft[KEY] = next;
+                }, { silent: false });
+                if (JSON.stringify(await verify()) !== JSON.stringify(next)) throw new Error(COPY.saveFailed);
+            }
+        }
         await cleanup();
     }
     async function ready() {

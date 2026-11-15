@@ -12,6 +12,32 @@
 
 小白X的 srcdoc、Blob 两种 HTML 渲染方式都支持这样调用。卡片需要与酒馆同源，也就是协议、域名和端口相同；嵌入的外站网页不能直接调用。如果代码就在酒馆页面里运行（例如[循环任务](tasks.md)脚本），把 `window.parent` 换成 `window`。
 
+## 在自己的聊天 UI 中显示图片卡
+
+调用 `xiaobaixDraw.mountMessageImages({ element, messageId })`，小白X会在正文里的 `[image:…]` 位置显示现有图片卡。翻版本、重画、保存、放大、菜单均由小白X处理；原生聊天楼层可以隐藏，也可以尚未加载。
+
+```js
+const draw = window.parent.xiaobaixDraw;
+// 在 draw.getStatus().ready 为 true、正文容器已插入页面后调用。
+const images = draw.mountMessageImages({
+  element: messageBody,
+  messageId: 12, // 当前酒馆聊天中的消息数组下标，从 0 开始
+});
+await images.refresh();
+
+// 你的 UI 替换正文后，可以主动等待图片卡重新显示。
+await images.refresh();
+
+// 移除或复用这个楼层容器前调用。
+images.destroy();
+```
+
+- `element` 是当前页面或同源 iframe 中已连接的正文元素。正文须保留该楼层的图片标记；只有原文中属于该楼层的图位会被处理。小白X只替换标记及自己的图片卡，不改写其他正文节点。
+- 数据更新和正文节点变化会自动刷新；多个容器显示同一楼层时，共享图片记录和所选版本。远离可视区域的楼层延后读取；`refresh()` 完成表示本次可见区域的图片记录已处理，图片文件仍由浏览器加载。
+- Vue、React 等界面应把图片区域的 DOM 交给小白X管理。框架重建正文后调用 `refresh()`；复用容器展示另一楼层前销毁旧挂载，再重新挂载。
+- `destroy()` 释放显示绑定，并把图片卡恢复为标记，不删除图片、不取消已经提交的画图任务。切换聊天后需要重新挂载；iframe 页面卸载时会自动释放。
+- 挂载与刷新只读取现有结果，不发起绘图请求。旧图读取、缺图和生成失败沿用聊天图片卡的状态和操作。容器或楼层编号无效时抛出 `MediaApiError`，`code` 为 `invalid_request`，`field` 指明字段。
+
 ## 画图
 
 调用 `window.parent.xiaobaixDraw.generate(request)`，得到 `{ images: Blob[] }`。`images` 是图片文件数组，一张图、多张图都用同一种方式处理。

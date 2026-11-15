@@ -150,7 +150,7 @@ export function createState3Page(api: State3Api) {
             return;
         }
         const stages = status.bundle.definition.updates, hasBefore = stages.includes('before'), hasAfter = stages.includes('after');
-        main.append(element('h3', COPY.updateModes[hasBefore && hasAfter ? 'both' : hasBefore ? 'before' : 'after']));
+        main.append(element('h3', COPY.pluginUpdate), element('p', COPY.cardUpdateMode(COPY.updateModes[hasBefore && hasAfter ? 'both' : hasBefore ? 'before' : 'after'])));
         if (hasBefore) {main.append(element('p', COPY.beforeAuto));}
         const settings = element('section'), current = api.settings(), auto = element('input'), source = element('select');
         auto.type = 'checkbox'; auto.checked = current.auto;
@@ -160,14 +160,11 @@ export function createState3Page(api: State3Api) {
         auto.addEventListener('change', save); source.addEventListener('change', save);
         const autoLabel = element('label', undefined, 'lwb-state3-check'); autoLabel.append(auto, COPY.auto);
         if (hasAfter) {settings.append(autoLabel, element('p', COPY.afterHelp, 'lwb-state3-help'));}
-        settings.append(label(COPY.model, source), element('p', COPY.pluginUpdateHelp, 'lwb-state3-help'), element('p', COPY.playHelp, 'lwb-state3-help'));
+        settings.append(label(COPY.model, source));
         main.append(settings);
         const trust = api.extensionTrust();
-        if (trust !== 'unused') {
-            main.append(element('p', trust === 'allowed' ? EC.trustAllowed : EC.trustRequired), trust === 'allowed'
-                ? button(EC.revoke, async () => { api.revokeExtensionTrust(); await render(); notice.textContent = EC.revoked; })
-                : button(EC.authorize, async signal => {await api.authorizeExtensions({ signal }); await render();}));
-        }
+        if (trust === 'allowed') {main.append(button(EC.revoke, async () => { api.revokeExtensionTrust(); await render(); notice.textContent = EC.revoked; }));}
+        if (trust === 'required') {main.append(element('p', EC.trustRequired), button(EC.authorize, async signal => {await api.authorizeExtensions({ signal }); await render();}));}
     }
     async function render() {
         main.replaceChildren(); nav.replaceChildren();

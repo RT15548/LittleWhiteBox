@@ -3216,10 +3216,20 @@ function revealDraftMessage() {
     pendingDraftMessage = '';
 }
 
+export async function syncAssistantWorkspaceDirectory(fromPath, toPath) {
+    const { localSources } = await workspaceRepository.readWorkspace();
+    await getLocalSourcesToolRuntime().hydrateLocalSources(localSources);
+    if (assistantFrameReady) postToIframe(getAssistantHostWindow().getIframe(), {
+        type: WORKSPACE_MESSAGE_TYPES.DIRECTORY_CHANGED,
+        payload: { fromPath, toPath, localSources },
+    });
+}
+
 /** @param {{ variables?: boolean, version?: string, path?: string, message?: string, context?: string, reveal?: boolean }} [options] */
 export async function openCardWorkspace({ variables = false, version, path, message, context, reveal = false } = {}) {
     if (!window.xiaobaixAssistant) await initAssistant();
     const card = await executeToolCall(TOOL_NAMES.CARD_FILES, { action: 'open' });
+    if (card.warnings?.length) toastr.warning(card.warnings.map(item => item.message).join('\n'), '', { escapeHtml: true });
     const request = cardWorkspaceRequest(card, { variables, version, variablesMode: extensionsModule.extension_settings?.LittleWhiteBox?.variablesMode });
     if (path?.startsWith(card.root)) request.selectedFilePath = path;
     if (message) request.draftMessage = message;

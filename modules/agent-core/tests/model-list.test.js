@@ -66,7 +66,7 @@ test('Google native discovery keeps its native endpoint, authentication and reso
         requests.push({ url, headers: new Headers(options.headers) });
         return Response.json({ models: [{ name: 'models/vendor/gemini-test' }] });
     });
-    assert.deepEqual(await pullModelsForProvider({ provider: 'google', baseUrl: 'https://native.test', apiKey: 'fixture' }), ['vendor/gemini-test']);
+    assert.deepEqual(await pullModelsForProvider({ provider: 'google', baseUrl: 'https://native.test', apiKey: 'fixture', modelListAuth: 'x-goog-api-key' }), ['vendor/gemini-test']);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, 'https://native.test/v1beta/models?key=fixture');
     assert.equal(requests[0].headers.get('authorization'), null);
@@ -103,7 +103,7 @@ test('Google model-list auth survives Agent settings and resolved provider confi
         for (const modelListAuth of [undefined, 'x-goog-api-key', 'bearer']) {
             const preset = normalizeAgentPreset({ provider, modelListAuth });
             const config = resolveActiveProviderConfig(preset);
-            assert.equal(config.modelListAuth, modelListAuth === 'bearer' ? 'bearer' : 'x-goog-api-key');
+            assert.equal(config.modelListAuth, modelListAuth ?? 'bearer');
         }
     }
 });
@@ -125,7 +125,7 @@ test('Google direct model discovery sends only the selected auth and stops on re
                     assert.equal(requests.length, 1);
                     const request = requests[0];
                     const key = apiKey.trim();
-                    const bearer = modelListAuth === 'bearer';
+                    const bearer = modelListAuth !== 'x-goog-api-key';
                     assert.equal(request.url.pathname, '/v1/models');
                     assert.equal(request.url.searchParams.get('key'), !bearer && key ? key : null);
                     assert.equal(request.headers.get('authorization'), bearer && key ? `Bearer ${key}` : null);

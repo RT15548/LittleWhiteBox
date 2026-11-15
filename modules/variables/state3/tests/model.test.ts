@@ -9,6 +9,8 @@ import { getInputSchema, getTools } from '../model/tools.js';
 import { buildUpdateTask } from '../model/prompts.js';
 import { correctionTask } from '../../updater/correction.js';
 import { accepted, fixture } from './fixture.js';
+import { contains, overlaps } from '../engine/data.js';
+import { canWriteDirect } from '../definition/stages.js';
 import * as agentCore from '../../../agent-core/browser-entry.js';
 import { createPublicAgentApi } from '../../../agent-core/public-api.js';
 import type { Json, JsonObject } from '../types.js';
@@ -120,5 +122,74 @@ test('K9: optional objects, dynamic keys, arrays and composite schemas remain wr
     for (const input of inputs) {
         assert.equal(validate(input), true, JSON.stringify(validate.errors));
         state = accepted(await settle(compiled, state, input)).state;
+    }
+});
+
+// M1: referencing the same field structure preserves model permissions and required fields,
+// including nested/shared references (cost: omitted updates or forbidden writes).
+test('referenced state schemas expose the same writable fields and stage restrictions as expanded schemas', async () => {
+    const expanded = equipmentExample();
+    expanded.definition.updates = ['before', 'after'];
+    expanded.definition.actions.forEach(action => {action.stages = ['before'];});
+    expanded.definition.access.filter(entry => entry.direct).forEach(entry => {entry.stages = ['after'];});
+    const schema = structuredClone(expanded.definition.schema) as JsonObject;
+    const hero = (schema.properties as JsonObject).hero as JsonObject;
+    const health = (hero.properties as JsonObject).health;
+    const shapes = [
+        { $ref: '#/$defs/state', $defs: { state: schema } },
+        { ...schema, properties: { hero: { $ref: '#/$defs/hero', title: 'Hero' } }, $defs: { hero } },
+        { ...schema, properties: { hero: { type: 'object', $ref: '#/$defs/hero', properties: { amulet: { type: 'boolean' } } } }, $defs: { hero } },
+        { ...schema, properties: { hero: { type: 'object', allOf: [hero, { properties: { amulet: { type: 'boolean' } } }] } } },
+        { ...schema, properties: { hero: { ...hero, properties: { ...hero.properties as JsonObject, health: { $ref: '#/$defs/health' } } } }, $defs: { health } },
+    ];
+    for (const shape of shapes) {
+        const bundle = structuredClone(expanded); bundle.definition.schema = shape;
+        const compiled = compileDefinition(bundle), baseline = compileDefinition(expanded);
+        const state = accepted(await initialize(compiled)).state;
+        for (const stage of ['before', 'after'] as const) {
+            const guide = buildUpdateView(compiled, state, stage);
+            assert.deepEqual(guide.writable, buildUpdateView(baseline, state, stage).writable);
+            assert.deepEqual(getInputSchema(compiled, stage), getInputSchema(baseline, stage));
+            for (const path of [['hero', 'health'], ['hero', 'maxHealth'], ['hero', 'amulet']]) {
+                const input = [{ op: 'set', path, value: 20 }];
+                assert.equal((await settle(compiled, state, input, { stage })).ok,
+                    stage === 'after' && path[1] === 'health');
+            }
+        }
+    }
+    const recursive = equipmentExample();
+    recursive.definition = { ...recursive.definition, initial: { head: { value: 1 }, backup: { value: 2 } }, rules: [], actions: [], constraints: [],
+        access: ['head', 'backup'].map(key => ({ path: [key], direct: true, description: key })),
+        schema: { type: 'object', properties: { head: { $ref: '#/$defs/node' }, backup: { $ref: '#/$defs/node' } },
+            $defs: { node: { type: 'object', required: ['value'], properties: { value: { type: 'number' }, next: { $ref: '#/$defs/node' } } } } } };
+    const compiled = compileDefinition(recursive), state = accepted(await initialize(compiled)).state;
+    const writable = buildUpdateView(compiled, state, 'after').writable;
+    for (const root of ['head', 'backup']) {
+        assert.ok(writable.some(scope => contains(scope.path, [root, 'next', 'next', 'value'])));
+        const removal = await settle(compiled, state, [{ op: 'remove', path: [root, 'value'] }], { stage: 'after' });
+        assert.equal(removal.ok, false); assert.equal(removal.diagnostics[0].code, 'state-schema');
+    }
+    const result = accepted(await settle(compiled, state, [{ op: 'set', path: ['head', 'next'], value: { value: 3 } }], { stage: 'after' }));
+    assert.deepEqual(result.state, { head: { value: 1, next: { value: 3 } }, backup: { value: 2 } });
+});
+
+// M1: scope grants and exclusions must match execution for nested and staged paths.
+// Cost: omitted legitimate updates or model submissions rejected by the engine.
+test('model scope permissions match execution including protected descendants and stage overlaps', async () => {
+    const bundle = equipmentExample();
+    const paths = [['hero'], ['hero', 'health'], ['hero', 'maxHealth'], ['hero', 'locked'], ['hero', 'locked', 'value'], ['hero', 'free'], ['other']];
+    for (let mask = 0; mask < 16; mask++) {
+        bundle.definition.updates = ['before', 'after'];
+        bundle.definition.actions.forEach(action => {action.stages = ['before'];});
+        bundle.definition.access = paths.slice(0, 4).map((path, index) => ({ path, direct: Boolean(mask & (1 << index)),
+            stages: index % 2 ? ['after'] : ['before', 'after'], description: 'Scope' }));
+        const compiled = compileDefinition(bundle), state = accepted(await initialize(compiled)).state;
+        for (const stage of [undefined, 'before', 'after'] as const) {
+            const guide = buildUpdateView(compiled, state, stage);
+            for (const path of paths) {
+                const exposed = guide.writable.some(scope => contains(scope.path, path) && !scope.excluded.some(excluded => overlaps(excluded, path)));
+                assert.equal(exposed, canWriteDirect(bundle.definition, path, stage));
+            }
+        }
     }
 });

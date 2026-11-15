@@ -41,6 +41,7 @@ export function buildAppMarkup(state) {
                             ${buildAgentSettingsPanelMarkup({
                                 configSave: state.configSave,
                                 inlineToastText: state.toast,
+                                showInlineToast: false,
                                 isBusy: state.isBusy,
                                 canDeletePreset: (state.config?.presetNames || []).length > 1,
                                 activePage: state.configPage,
@@ -65,6 +66,7 @@ export function buildAppMarkup(state) {
                         </section>
                         <section class="xb-assistant-approval-slot" id="xb-assistant-approval-slot"></section>
                         <form class="xb-assistant-compose" id="xb-assistant-form">
+                            <div class="xb-assistant-toast xb-assistant-chat-toast" id="xb-assistant-toast" aria-live="polite"></div>
                             <div class="xb-assistant-compose-row">
                                 <div class="xb-assistant-compose-more" id="xb-assistant-compose-more">
                                     <button id="xb-assistant-compose-menu-toggle" type="button" class="secondary ghost xb-assistant-compose-menu-toggle" aria-expanded="false" aria-haspopup="true" title="更多操作">+</button>

@@ -1,3 +1,6 @@
+import { AGENT_SETTINGS_CONFIG_VERSION } from './config.js';
+import { DEFAULT_MODEL_LIST_AUTH } from './model-list-auth.js';
+
 // Frozen settings v1: each named preset contained provider + modelConfigs[provider].
 // Compatibility owner: saved Assistant settings (including pre-version records).
 // Remove when v1 settings files are no longer accepted at the repository boundary.
@@ -29,8 +32,7 @@ function upgradePresetV1(preset = {}, fallbackProvider = 'openai-compatible') {
     };
 }
 
-export function upgradeAgentSettings(value = {}) {
-    if (value.configVersion === 2) return value;
+function upgradeSettingsV1(value) {
     const { modelConfigs, ...rest } = value;
     const name = value.currentPresetName || value.presetName || '默认';
     const presets = value.presets || (modelConfigs ? { [name]: value } : {});
@@ -40,5 +42,20 @@ export function upgradeAgentSettings(value = {}) {
         presets: Object.fromEntries(Object.entries(presets).map(([key, preset]) => [key, upgradePresetV1(preset)])),
         ...(value.delegateConfig?.provider || value.delegateConfig?.modelConfigs
             ? { delegateConfig: upgradePresetV1(value.delegateConfig, presets[value.delegatePresetName || name]?.provider) } : {}),
+    };
+}
+
+// Settings v1/v2 persisted native discovery defaults. Reset those existing
+// presets once at the read/import boundary; v3 keeps subsequent manual choices.
+// Remove with v1/v2 import support. No credentials or generation fields change.
+export function upgradeAgentSettings(value = {}) {
+    if (value.configVersion === AGENT_SETTINGS_CONFIG_VERSION) return value;
+    const previous = value.configVersion === 2 ? value : upgradeSettingsV1(value);
+    const resetDiscovery = preset => ({ ...preset, modelListAuth: DEFAULT_MODEL_LIST_AUTH });
+    return {
+        ...previous,
+        configVersion: AGENT_SETTINGS_CONFIG_VERSION,
+        presets: Object.fromEntries(Object.entries(previous.presets || {}).map(([name, preset]) => [name, resetDiscovery(preset)])),
+        ...(previous.delegateConfig ? { delegateConfig: resetDiscovery(previous.delegateConfig) } : {}),
     };
 }

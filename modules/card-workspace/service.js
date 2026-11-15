@@ -1,41 +1,65 @@
 import { currentCard, linkedBooks, readCharacter, readBook, readTarget, refreshVariableFiles, saveFile } from './host.js';
-import { readFiles, storeFiles, observePaths, storeItemReceipt } from './workspace.js';
-import { cardFiles, locateFile, rootFor } from './files.js';
+import { readFiles, storeFiles, observePaths, observeTree, storeItemReceipt } from './workspace.js';
+import { cardFiles, locateFile, rootFor, DESIGN_FILE } from './files.js';
 import { COPY } from './copy.js';
 import { ITEM_KINDS, resolveItemTarget, parseItemDocument } from './item-document.js';
 import { cardFileDirectory } from './display.js';
+import { readDesign } from './design.js';
+import { cardLifecycle } from './lifecycle.js';
+import { equalText } from './comparison.js';
 import { variableFileGroup, variableGroupChanged } from '../variables/state3/definition/card-files.js';
 
-// Only live writeback operations serialize here. Editor text stays in the
-// Assistant workspace, not in this run-local queue.
-let writes = Promise.resolve();
-
 export async function runCardFiles(args, options = {}) {
-    if (args.action === 'open') return openFiles(options.signal);
-    if (args.action === 'refresh') return refreshFiles(args.paths, options.signal);
-    if (args.action !== 'save') throw new Error(COPY.unsupported);
-    const work = writes.then(() => saveFiles(args.paths, options.signal));
-    writes = work.catch(error => console.warn({ source: import.meta.url, operation: 'cardWriteback' }, error));
-    return work;
+    if (args.action === 'open') {
+        const selected = currentCard();
+        return cardLifecycle.run([selected.avatar], () => openFiles(selected, options.signal));
+    }
+    if (!['save', 'refresh'].includes(args.action)) throw new Error(COPY.unsupported);
+    const paths = selectedPaths(args.paths), avatars = paths.map(path => locateFile(path)?.avatar).filter(Boolean);
+    return cardLifecycle.run(avatars, () => args.action === 'save' ? saveFiles(paths, options.signal) : refreshFiles(paths, options.signal));
 }
 
-async function openFiles(signal) {
-    const selected = currentCard(), avatar = selected.avatar, root = rootFor(avatar);
+async function openFiles(selected, signal) {
+    const avatar = selected.avatar, root = rootFor(avatar);
+    const observed = await observeTree(root);
     const present = (await readFiles()).filter(file => file.path.startsWith(root));
-    if (present.length) return { root, avatar, name: selected.name, files: cardFileDirectory(present), reused: true };
+    if (present.length) return reuseFiles(selected, root, signal);
     const card = await readCharacter(avatar, signal), books = [];
     for (const name of linkedBooks(card)) {
         const book = await readBook(name, signal);
         if (book) books.push([name, book]);
     }
-    const files = cardFiles(avatar, card.data, books);
-    const observed = await observePaths(files.map(file => file.path));
-    // Opening while another tool has already populated the directory must not
-    // replace that tool's work. The transaction handles edits after this check.
-    const latest = (await readFiles()).filter(file => file.path.startsWith(root));
-    if (latest.length) return { root, avatar, name: selected.name, files: cardFileDirectory(latest), reused: true };
-    await storeFiles(files, { observed });
+    const files = cardFiles(avatar, card.data, books, await readDesign(avatar, signal) ?? '');
+    await storeOpenedFiles(files, { observed, scopeRoot: root });
     return { root, avatar, name: selected.name, files: cardFileDirectory(files), reused: false };
+}
+
+async function storeOpenedFiles(files, options) {
+    try { await storeFiles(files, options); } catch (error) {
+        if (error.message === 'workspace_conflict') throw new Error(COPY.designWorkspaceChanged);
+        throw error;
+    }
+}
+
+// A clean design follows server updates; a draft keeps its original baseline.
+async function reuseFiles(selected, root, signal) {
+    const path = root + DESIGN_FILE;
+    const warnings = [];
+    const observed = await observePaths([path]);
+    const file = observed.find(item => item.path === path)?.expected?.file;
+    const content = await readDesign(selected.avatar, signal) ?? '';
+    if (file && !equalText(file.content, file.originalContent)) {
+        if (equalText(content, file.content)) {
+            await storeOpenedFiles([{ path, content }], { observed, baselineOnly: true });
+        } else if (!equalText(content, file.originalContent ?? '')) {
+            warnings.push({ path, message: COPY.designDraftConflict });
+        }
+    } else {
+        await storeOpenedFiles([{ path, content }], { observed });
+    }
+    const present = (await readFiles()).filter(file => file.path.startsWith(root));
+    return { root, avatar: selected.avatar, name: selected.name, files: cardFileDirectory(present), reused: true,
+        ...(warnings.length ? { warnings } : {}) };
 }
 
 function selectedPaths(paths) {

@@ -1,9 +1,10 @@
-﻿// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
 // Story Summary - Chunk Builder
 // 标准 RAG chunking: ~200 tokens per chunk
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from '../../../../../../../extensions.js';
+import { getChatIdentity } from '../../data/chat-identity.js';
 import {
     getMeta,
     updateMeta,
@@ -14,12 +15,9 @@ import {
     deleteChunksFromFloor,
     deleteChunksAtFloor,
 } from '../storage/chunk-store.js';
-import { embed, getEngineFingerprint } from '../utils/embedder.js';
-import {
-    createInvalidEmbeddingResponseError,
-    getEmbeddingFailureDetails,
-    isRetryableEmbeddingFailure,
-} from '../llm/embedding-failure.js';
+import { getEngineFingerprint } from '../utils/embedder.js';
+import { embedForStorage, acknowledgeStoredEmbeddings } from '../runtime/embedding-receipts.js';
+import { getEmbeddingFailureDetails } from '../llm/embedding-failure.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { chunkMessage } from './chunk-text.js';
 import { inputDigest } from '../utils/vector-input-digest.js';
@@ -28,8 +26,6 @@ import { trackVectorActivity } from '../runtime/vector-activity.js';
 
 const MODULE_ID = 'chunk-builder';
 const INCREMENTAL_EMBED_BATCH_SIZE = 20;
-const INCREMENTAL_EMBED_MAX_ATTEMPTS = 3;
-const INCREMENTAL_EMBED_RETRY_DELAY_MS = 60000;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 构建状态
@@ -59,10 +55,13 @@ export async function getChunkBuildStatus() {
 
 export async function buildAllChunks(options = {}) {
     const { onProgress, shouldCancel, vectorConfig, signal = null } = options;
-    const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
+    const isCancelled = () => signal?.aborted || shouldCancel?.() === true
+        || getChatIdentity(getContext()) !== identity;
 
-    const { chat, chatId } = getContext();
-    if (!chatId || !chat?.length) {
+    const context = getContext();
+    const { chat, chatId } = context;
+    const identity = getChatIdentity(context);
+    if (!identity || !chatId || !chat?.length) {
         return { built: 0, errors: 0 };
     }
 
@@ -90,45 +89,34 @@ export async function buildAllChunks(options = {}) {
 
     let completed = 0;
     let errors = 0;
-    const allVectors = [];
-
     for (let i = 0; i < texts.length; i += batchSize) {
         if (isCancelled()) break;
-
         const batch = texts.slice(i, i + batchSize);
-
+        let vectors;
         try {
-            const vectors = await embed(batch, vectorConfig, { signal });
+            vectors = await embedForStorage(batch, vectorConfig, { chatId: identity, signal });
+        } catch (error) {
             if (isCancelled()) break;
-            allVectors.push(...vectors);
-            completed += batch.length;
-            onProgress?.(completed, texts.length);
-        } catch (e) {
-            xbLog.error(MODULE_ID, `批次 ${i}/${texts.length} 向量化失败`, e);
-            allVectors.push(...batch.map(() => null));
+            xbLog.error(MODULE_ID, `批次 ${i}/${texts.length} 向量化失败`, error);
             errors++;
+            break;
         }
-    }
-
-    if (isCancelled()) {
-        return { built: completed, errors };
-    }
-
-    const vectorItems = allChunks
-        .map((chunk, idx) => allVectors[idx] ? { chunkId: chunk.chunkId, vector: allVectors[idx], sourceHash: inputDigest('chunk', texts[idx]) } : null)
-        .filter(Boolean);
-
-    if (vectorItems.length > 0) {
-        if (isCancelled()) return { built: completed, errors };
+        if (isCancelled()) break;
+        const vectorItems = allChunks.slice(i, i + batch.length).map((chunk, index) => ({
+            chunkId: chunk.chunkId, vector: vectors[index], sourceHash: inputDigest('chunk', batch[index]),
+        }));
         await saveChunkVectors(chatId, vectorItems, fingerprint);
+        acknowledgeStoredEmbeddings(batch, vectorConfig, { chatId: identity });
+        completed += batch.length;
+        onProgress?.(completed, texts.length);
     }
 
     if (isCancelled()) return { built: completed, errors };
-    await updateMeta(chatId, { lastChunkFloor: chat.length - 1 });
+    if (!errors) await updateMeta(chatId, { lastChunkFloor: chat.length - 1 });
 
-    xbLog.info(MODULE_ID, `构建完成：${vectorItems.length} 个向量，${errors} 个错误`);
+    xbLog.info(MODULE_ID, `构建完成：${completed} 个向量，${errors} 个错误`);
 
-    return { built: vectorItems.length, errors };
+    return { built: completed, errors };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -147,10 +135,10 @@ async function buildIncrementalChunksInner(options, activity) {
         chatSnapshot = null,
         signal = null,
         shouldCancel = null,
-        onRetry = null,
         commit = task => task(),
     } = options;
-    const isCancelled = () => signal?.aborted || shouldCancel?.() === true;
+    const isCancelled = () => signal?.aborted || shouldCancel?.() === true
+        || getChatIdentity(getContext()) !== identity;
     const cancelledResult = (startFloor = null, endFloor = null) => ({
         success: false,
         status: 'cancelled',
@@ -161,9 +149,10 @@ async function buildIncrementalChunksInner(options, activity) {
     });
 
     const context = getContext();
+    const identity = getChatIdentity(context);
     const chat = Array.isArray(chatSnapshot) ? chatSnapshot : context.chat;
     const chatId = targetChatId || context.chatId;
-    if (!chatId || !chat?.length) {
+    if (!identity || !chatId || !chat?.length) {
         return { success: false, status: 'failed', code: 'no_active_chat', built: 0 };
     }
 
@@ -210,54 +199,14 @@ async function buildIncrementalChunksInner(options, activity) {
             if (isCancelled()) return cancelledResult(startFloor, endFloor);
 
             const batch = texts.slice(i, i + INCREMENTAL_EMBED_BATCH_SIZE);
-            let batchVectors = null;
-
-            for (let attempt = 1; attempt <= INCREMENTAL_EMBED_MAX_ATTEMPTS; attempt++) {
-                try {
-                    activity.update({ activeUnits: batch.length, state: 'embedding' });
-                    const result = await embed(batch, vectorConfig, { signal });
-                    if (isCancelled()) return cancelledResult(startFloor, endFloor);
-                    if (
-                        !Array.isArray(result)
-                        || result.length < batch.length
-                        || result.slice(0, batch.length).some(vector => !vector?.length)
-                    ) {
-                        throw createInvalidEmbeddingResponseError(batch.length, result?.length || 0);
-                    }
-                    batchVectors = result.slice(0, batch.length);
-                    break;
-                } catch (error) {
-                    if (isCancelled()) return cancelledResult(startFloor, endFloor);
-                    if (
-                        attempt >= INCREMENTAL_EMBED_MAX_ATTEMPTS
-                        || !isRetryableEmbeddingFailure(error)
-                    ) throw error;
-
-                    xbLog.warn(
-                        MODULE_ID,
-                        `增量向量批次 ${Math.floor(i / INCREMENTAL_EMBED_BATCH_SIZE) + 1}/${Math.ceil(texts.length / INCREMENTAL_EMBED_BATCH_SIZE)} 第 ${attempt} 次失败，60 秒后重试`,
-                        error,
-                    );
-                    const batchIndex = Math.floor(i / INCREMENTAL_EMBED_BATCH_SIZE) + 1;
-                    const batchCount = Math.ceil(texts.length / INCREMENTAL_EMBED_BATCH_SIZE);
-                    activity.update({ activeUnits: 0, state: 'retry-wait' });
-                    for (let waited = 0; waited < INCREMENTAL_EMBED_RETRY_DELAY_MS; waited += 1000) {
-                        if (isCancelled()) return cancelledResult(startFloor, endFloor);
-                        onRetry?.({
-                            batchIndex,
-                            batchCount,
-                            attempt,
-                            secondsRemaining: Math.ceil((INCREMENTAL_EMBED_RETRY_DELAY_MS - waited) / 1000),
-                        });
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
-                }
-            }
-
+            activity.update({ activeUnits: batch.length, state: 'embedding' });
+            const batchVectors = await embedForStorage(batch, vectorConfig, { chatId: identity, signal });
+            if (isCancelled()) return cancelledResult(startFloor, endFloor);
             vectors.push(...batchVectors);
             activity.update({ completed: vectors.length, activeUnits: 0 });
         }
     } catch (error) {
+        if (isCancelled()) return cancelledResult(startFloor, endFloor);
         const { code, httpStatus } = getEmbeddingFailureDetails(error);
         xbLog.error(MODULE_ID, `增量向量化失败 code=${code}${httpStatus ? ` http=${httpStatus}` : ''}`, error);
         return failedResult(code, error, { httpStatus });
@@ -280,6 +229,7 @@ async function buildIncrementalChunksInner(options, activity) {
         return failedResult(error.code, error.cause);
     }
 
+    acknowledgeStoredEmbeddings(texts, vectorConfig, { chatId: identity });
     if (newChunks.length === 0) return { success: true, status: 'empty', built: 0, startFloor, endFloor };
     return { success: true, status: 'built', built: vectorItems.length, startFloor, endFloor, chunks: newChunks };
 }

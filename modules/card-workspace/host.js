@@ -11,6 +11,7 @@ import { itemDocumentValue, ITEM_KINDS } from './item-document.js';
 import { CARD_EXTENSION } from '../variables/state3/definition/format.js';
 import { projectVariableFiles } from '../variables/state3/definition/card-files.js';
 import { variableCardHost } from '../variables/state3/definition/card-host.js';
+import { readDesign, writeDesign } from './design.js';
 
 const variableFiles = variableCardHost({ readCharacter, assertCard, request, publishCharacter, unconfirmed: COPY.unconfirmed });
 export const refreshVariableFiles = variableFiles.refresh;
@@ -84,6 +85,7 @@ function readValue(target, card) {
 }
 
 export async function readTarget(target, signal) {
+    if (target.kind === 'design') return await readDesign(target.avatar, signal) ?? '';
     if (target.kind === 'world') return projectItem(target, (await readBook(target.book, signal))?.entries?.[target.id]);
     const card = (await readCharacter(target.avatar, signal)).data;
     if (target.kind === 'variables') return projectVariableFiles(target.root, card.extensions?.[CARD_EXTENSION]).find(file => file.path === target.root + target.relative)?.content ?? null;
@@ -94,6 +96,7 @@ export async function readTarget(target, signal) {
 
 export async function saveFile(target, file, signal, companions = []) {
     assertCard(target.avatar);
+    if (target.kind === 'design') return saveDesign(target, file, signal);
     if (target.kind === 'world') return saveWorldFile(target, file, signal);
     if (target.kind === 'variables') return variableFiles.save(target, file, signal, companions);
     const card = (await readCharacter(target.avatar, signal)).data;
@@ -144,6 +147,18 @@ export async function saveFile(target, file, signal, companions = []) {
     const savedItem = (target.kind === 'regex' ? saved : saved?.tasks)?.find(item => item.id === target.id);
     if (!savedItem || !equalJson(savedItem, next)) throw new Error(COPY.unconfirmed);
     return { content: projectItem(target, next) };
+}
+
+// Missing and emptied designs have the same empty baseline. An old nonempty
+// baseline therefore conflicts with a remote deletion, just like any other edit.
+async function saveDesign(target, file, signal) {
+    const before = await readDesign(target.avatar, signal) ?? '';
+    const contentToSave = file.content.trim() ? file.content : '';
+    if (!assertUnchanged({ ...file, content: contentToSave, originalContent: file.originalContent ?? '' }, before)) return { content: before, unchanged: true };
+    await writeDesign(target.avatar, file.content, signal);
+    const content = await readDesign(target.avatar, signal) ?? '';
+    if (!equalText(content, file.content.trim() ? file.content : '')) throw new Error(COPY.unconfirmed);
+    return { content };
 }
 
 // SillyTavern's leading decorator block supports fallback decorators after an

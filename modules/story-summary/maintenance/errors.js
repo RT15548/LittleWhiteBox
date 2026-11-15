@@ -13,6 +13,7 @@ const explanations = {
     source_boundary: 'Source floors must be between 1 and this review’s cutoff.',
     source_missing: 'This floor no longer exists in the current dialogue. Continue with the available source and leave unsupported judgments unresolved.',
     conflict: 'The chat or summary history changed after review began. This draft was not saved.',
+    fingerprint_mismatch: 'The saved vectors use a different embedding model. Index repair is paused; generating vectors for the current model requires an explicit rebuild.',
     cancelled: 'The uncommitted review was cancelled.',
     not_configured: 'The shared Agent main preset needs a model and a provider endpoint.',
     no_boundary: 'There is no valid summary boundary to review.',

@@ -19,7 +19,7 @@ export const EXTENSION_COPY = {
     liveConfirm: '这会实际执行代码，可调用酒馆、其他插件和网络接口。确认运行当前代码？',
     trustTitle: '允许角色卡运行扩展？', allow: '允许运行', notNow: '暂不允许',
     trustConfirm: (name: string) => `「${name}」包含可操作酒馆、其他插件和网络的代码。是否允许这版代码运行？以后可在「当前聊天」中撤销或重新允许。`,
-    trustRequired: '这张卡需要运行扩展代码，允许后才能结算。', trustAllowed: '已允许这张卡运行扩展代码。',
+    trustRequired: '这张卡需要运行扩展代码，允许后才能结算。',
     authorize: '允许卡内扩展', authorResult: '查看运行诊断', noStages: '请选择回复前或回复后，或停用这个工具。',
     revoke: '撤销脚本授权', revoked: '已撤销，下次运行前会再次询问',
     testPassed: '执行成功', testFailed: '执行失败',

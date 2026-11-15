@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 import { getContext } from '../../../../../../extensions.js';
 import { getCardPreview, getPreviewsBySlot, deletePreview, clearSlotSelection, setSlotSelection } from './gallery-cache.js';
 import { captureImageCardTarget, readImageCardTarget } from './image-card-target.js';
@@ -11,6 +12,7 @@ import { getImageChatIdentity } from './chat-image-persistence.js';
 import { isSceneSlotAlive } from './scene-placement.js';
 import { DRAW_SLOT_COPY, hasPreviewImage } from './image-record.js';
 import { withDrawActionFeedback } from './draw-action-feedback.js';
+import { drawMessageViewport } from './draw-message-viewport.js';
 
 const redraws = new Map();
 
@@ -34,7 +36,7 @@ export async function restoreImageCard(container) {
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.restoreFailed, error);
-        globalThis.toastr?.error(error.message, DRAW_SLOT_COPY.restoreFailed);
+        drawNotify.error(error.message, DRAW_SLOT_COPY.restoreFailed);
         return false;
     }
 }
@@ -55,7 +57,7 @@ export function redrawImageCard(provider, container) {
         );
     }
     if (getSlotActivity(slotId)) {
-        globalThis.toastr?.info?.(DRAW_SLOT_COPY.slotBusy);
+        drawNotify.info(DRAW_SLOT_COPY.slotBusy);
         return renderPreviewsForMessage(Number(container.dataset.mesid), { refreshSlotIds: [slotId] });
     }
     const operation = redraw(provider, container).finally(() => redraws.delete(slotId));
@@ -87,7 +89,7 @@ function getFloorRedraw(container, slotId) {
 
 export function collectFailedImageCards(container) {
     const messageId = Number(container.dataset.mesid);
-    const root = container.closest('.mes_text')
+    const root = drawMessageViewport.contentForCard(container) || container.closest('.mes_text')
         || document.querySelector(`.mes[mesid="${messageId}"] .mes_text`);
     return [...(root?.querySelectorAll('.xb-nd-img[data-state="failed"]') || [])];
 }
@@ -115,14 +117,14 @@ export async function retryFloorFailedImageCards(provider, container) {
     try {
         const result = await withDrawActionFeedback(container, () => redrawFloorFailedImageCards(provider, container));
         if (joining || !result) return;
-        if (result.submitted === 0) globalThis.toastr?.info?.('本楼层没有可重新生成的失败图片');
+        if (result.submitted === 0) drawNotify.info('本楼层没有可重新生成的失败图片');
         else if (result.skipped > 0) {
-            globalThis.toastr?.info?.(`已重新生成 ${result.submitted} 张，另有 ${result.skipped} 张正在处理中已跳过`);
+            drawNotify.info(`已重新生成 ${result.submitted} 张，另有 ${result.skipped} 张正在处理中已跳过`);
         }
     } catch (error) {
         if (joining) return;
         console.error(DRAW_SLOT_COPY.redrawFailed, error);
-        globalThis.toastr?.error?.(error.message);
+        drawNotify.error(error.message);
     }
 }
 
@@ -187,7 +189,7 @@ async function redraw(provider, container) {
         // A refresh drops runtime activity, not the submitted backend job. Do
         // not turn a journal read failure into permission for a paid resubmit.
         if ((await getPendingImageJobSlots()).has(slotId)) {
-            globalThis.toastr?.info?.(DRAW_SLOT_COPY.slotBusy);
+            drawNotify.info(DRAW_SLOT_COPY.slotBusy);
             return;
         }
         const record = await readImageCardTarget(target);

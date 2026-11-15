@@ -1,3 +1,4 @@
+import { drawNotify } from '../../shared/draw-toast.js';
 import {
     storePreview,
     storeFailedPlaceholder,
@@ -17,6 +18,8 @@ import {
 } from "../../shared/gallery-cache.js";
 import { getContext } from "../../../../../../../extensions.js";
 import { GALLERY_JPEG_COPY } from '../../shared/gallery-image-codec.js';
+import { DRAW_LAYERS } from '../../shared/draw-visuals.js';
+import { bindImageCardEvents } from '../../shared/image-card-events.js';
 import { bindImageSaveControls } from '../../shared/image-save-controls.js';
 import { getRequestHeaders, syncMesToSwipe } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
@@ -220,7 +223,7 @@ let groupPresetBinding = null;
 let promptChainPreviewFrame = 0;
 let ensureSdDrawPanelRef = null;
 let destroySdDrawPanelsRef = null;
-let imageDelegationBound = false;
+let imageDelegationDispose = null;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
 let generationJobs = new Map();
@@ -468,7 +471,7 @@ export async function loadSettings() {
             if (!savedDefaults) throw new Error(API_PRESET_COPY.saveFailed);
         }
         if (saved && upgrade.installed) {
-            toastr.info(SCENE_PLANNER_PRESET_INSTALL_NOTICE, 'SD WebUI', { timeOut: 8000 });
+            drawNotify.info(SCENE_PLANNER_PRESET_INSTALL_NOTICE, 'SD WebUI', { timeOut: 8000 });
         }
         settingsLoaded = true;
         return settingsCache;
@@ -476,7 +479,7 @@ export async function loadSettings() {
         console.error('[SdDraw] 加载设置失败:', error);
         settingsCache = null;
         settingsLoaded = false;
-        toastr.error('无法读取 SD WebUI 配置，已禁止保存，请稍后重试', 'SD WebUI');
+        drawNotify.error('无法读取 SD WebUI 配置，已禁止保存，请稍后重试', 'SD WebUI');
         throw error;
     }
 }
@@ -515,7 +518,7 @@ let settingsUpdateQueue = Promise.resolve();
 async function persistSettingsNow(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     if (!settingsLoaded) {
         console.error('[SdDraw] 设置尚未成功加载，拒绝保存');
-        if (notify) toastr.error('配置尚未成功加载，已禁止保存', 'SD WebUI');
+        if (notify) drawNotify.error('配置尚未成功加载，已禁止保存', 'SD WebUI');
         return false;
     }
     const next = normalizeSettings(nextSettings);
@@ -524,17 +527,17 @@ async function persistSettingsNow(nextSettings, okText = '已保存', { notify =
         if (ok !== false) {
             settingsCache = next;
             if (notify) {
-                toastr.success(okText, 'SD WebUI');
+                drawNotify.success(okText, 'SD WebUI');
             }
             return true;
         }
         if (notify) {
-            toastr.error('保存失败', 'SD WebUI');
+            drawNotify.error('保存失败', 'SD WebUI');
         }
         return false;
     } catch (error) {
         if (notify) {
-            toastr.error(error?.message || '保存失败', 'SD WebUI');
+            drawNotify.error(error?.message || '保存失败', 'SD WebUI');
         }
         return false;
     }
@@ -962,7 +965,7 @@ async function createOverlay() {
 
     overlayElement = document.createElement('div');
     overlayElement.id = 'xiaobaix-sd-draw-overlay';
-    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:100002!important;display:none;overflow:hidden!important;`;
+    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:${DRAW_LAYERS.settings}!important;display:none;overflow:hidden!important;`;
     const backdrop = document.createElement('div');
     backdrop.className = 'sd-draw-backdrop';
     backdrop.addEventListener('click', hideSettings);
@@ -1193,7 +1196,7 @@ function bindOverlayEvents() {
     querySettings('#sd-draw-preset-delete')?.addEventListener('click', async () => {
         const settings = getSettings();
         if (settings.presets.length <= 1) {
-            toastr.warning('至少保留一个预设');
+            drawNotify.warning('至少保留一个预设');
             return;
         }
         const preset = getActivePreset(settings);
@@ -1248,7 +1251,7 @@ function bindOverlayEvents() {
         }, '重试次数已保存', { notify: false, silent: false }));
         if (!ok) {
             setPlannerRetryInput(getSharedDrawSettings().plannerMaxRetries);
-            toastr.error('重试次数保存失败，请重试');
+            drawNotify.error('重试次数保存失败，请重试');
         }
     });
     querySettings('#sd-danbooru-local')?.addEventListener('change', async (event) => {
@@ -1303,7 +1306,7 @@ function bindOverlayEvents() {
     querySettings('#sd-prompt-preset-delete')?.addEventListener('click', async () => {
         const settings = getSettings();
         if ((settings.promptPresets || []).length <= 1) {
-            toastr.warning('至少保留一个提示词预设');
+            drawNotify.warning('至少保留一个提示词预设');
             return;
         }
         const preset = getActivePromptPreset(settings);
@@ -1432,7 +1435,7 @@ function bindOverlayEvents() {
             }, `已导入为新预设「${name}」`, { notify: true, silent: false }));
             if (ok) fillForm(getSettings());
         } catch (error) {
-            toastr.error(error?.message || '导入失败', 'SD WebUI');
+            drawNotify.error(error?.message || '导入失败', 'SD WebUI');
         } finally {
             event.target.value = '';
         }
@@ -1885,9 +1888,9 @@ function ensureCharacterLibraryUi() {
         renderEmpty: createCharacterEmptyState,
         onChange: refreshSettingsSummary,
         notify: {
-            success: (message) => toastr.success(message),
-            warning: (message) => toastr.warning(message),
-            error: (message) => toastr.error(message),
+            success: (message) => drawNotify.success(message),
+            warning: (message) => drawNotify.warning(message),
+            error: (message) => drawNotify.error(message),
         },
     });
     return characterLibraryUi;
@@ -1928,8 +1931,8 @@ function ensureGroupPresetBinding() {
         },
         settings: { get: getSharedDrawSettings },
         toast: (message, level) => {
-            const show = toastr[level] || toastr.info;
-            show.call(toastr, message);
+            const show = drawNotify[level] || drawNotify.info;
+            show.call(drawNotify, message);
         },
     });
     return groupPresetBinding;
@@ -2378,7 +2381,7 @@ async function setSdDanbooruLocalEnabled(enabled) {
         }, 'Danbooru 本地库加载失败', { notify: false, silent: false }).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "setSdDanbooruLocalEnabled" }, caughtError); });
         if (checkbox) checkbox.checked = false;
         if (status) status.textContent = '加载失败';
-        toastr.error('Danbooru 本地库加载失败');
+        drawNotify.error('Danbooru 本地库加载失败');
         rerenderCharacterTagList();
         refreshSettingsSummary();
         return false;
@@ -2413,7 +2416,7 @@ async function ensureSdDanbooruLoadedForForm(sharedDrawSettings = getSharedDrawS
 
 function showSdDanbooruPanel(characterId = '') {
     if (!isDanbooruDBLoaded()) {
-        toastr.warning('请先启用 Danbooru 本地资源库');
+        drawNotify.warning('请先启用 Danbooru 本地资源库');
         return;
     }
     const panel = querySettings(`.danbooru-panel[data-char-id="${CSS.escape(characterId)}"]`);
@@ -2541,7 +2544,7 @@ function renderSdDanbooruResults(results = [], characterId = '', container = nul
                 panel.replaceChildren();
             }
             refreshSettingsSummary();
-            toastr.success('已填入 Danbooru 标签，请保存角色');
+            drawNotify.success('已填入 Danbooru 标签，请保存角色');
         });
         list.appendChild(item);
     });
@@ -2639,9 +2642,9 @@ async function persistAllSettings({ notify = false, triggerButton = null, status
     }
 
     if (ok && notify) {
-        toastr.success('SD WebUI 与共享规划设置已保存');
+        drawNotify.success('SD WebUI 与共享规划设置已保存');
     } else if (!ok && notify) {
-        toastr.error('SD WebUI 或共享规划设置保存失败');
+        drawNotify.error('SD WebUI 或共享规划设置保存失败');
     }
     refreshSettingsSummary();
     return ok;
@@ -2655,7 +2658,7 @@ function clearCharacterTagsDraft() {
     const ui = ensureCharacterLibraryUi();
     const current = ui ? ui.getCharacters({ keepEmpty: true }) : [];
     if (!current.length) {
-        toastr.warning('没有角色可清除');
+        drawNotify.warning('没有角色可清除');
         return;
     }
     if (!confirm(`确定清空全部 ${current.length} 个角色？分组会保留；点击“保存角色”前不会真正生效。`)) return;
@@ -2791,10 +2794,10 @@ async function refreshSdOptions({ notify = false } = {}) {
             value: activePreset.sampler_name || settings.defaultParams?.sampler_name || '',
             emptyLabel: '不切换后端采样器',
         });
-        if (notify) toastr.success('SD 模型和采样器已刷新');
+        if (notify) drawNotify.success('SD 模型和采样器已刷新');
         return true;
     } catch (error) {
-        if (notify) toastr.error(error?.message || '刷新失败', 'SD WebUI');
+        if (notify) drawNotify.error(error?.message || '刷新失败', 'SD WebUI');
         return false;
     }
 }
@@ -2851,7 +2854,7 @@ function abortPendingRequest() {
 async function testConnection() {
     const settings = getSettings();
     if (!settings.host) {
-        toastr.warning('请先填写 SD WebUI 地址');
+        drawNotify.warning('请先填写 SD WebUI 地址');
         return false;
     }
 
@@ -2872,13 +2875,13 @@ async function testConnection() {
             throw new Error(text || response.statusText || `HTTP ${response.status}`);
         }
 
-        toastr.success('SD WebUI 连接成功');
+        drawNotify.success('SD WebUI 连接成功');
         return true;
     } catch (error) {
         const message = error?.name === 'AbortError'
             ? '连接超时，请检查地址是否能被酒馆服务器访问'
             : (error?.message || '无法连接 SD WebUI');
-        toastr.error(message, 'SD WebUI 连接失败');
+        drawNotify.error(message, 'SD WebUI 连接失败');
         return false;
     } finally {
         clearTimeout(timeoutId);
@@ -2915,7 +2918,7 @@ function ensureAgentSettingsSurface() {
     agentSettingsSurface = attachDrawAgentSettingsSurface({
         surface: agentSettingsSurface,
         getRoot: () => getSettingsElement('sd-agent-settings-surface'),
-        showToast: (message) => toastr.info(String(message || ''), 'Agent API'),
+        showToast: (message) => drawNotify.info(String(message || ''), 'Agent API'),
         source: 'draw-sd-webui',
         logPrefix: 'SdDraw',
     });
@@ -2977,8 +2980,8 @@ async function runSaveButtonTask(button, task, {
     handleSaveResult(ok, button);
     if (statusElementId) updateStatusText(statusElementId, ok ? 'success' : 'error', ok ? successText : errorText);
     if (notify) {
-        if (ok) toastr.success(successText, 'SD WebUI');
-        else toastr.error(errorText, 'SD WebUI');
+        if (ok) drawNotify.success(successText, 'SD WebUI');
+        else drawNotify.error(errorText, 'SD WebUI');
     }
     refreshSettingsSummary();
     return ok;
@@ -3126,7 +3129,7 @@ async function autoGenerateForLastAI() {
     } catch (error) {
         if (!error.drawTaskReported) {
             console.error(error);
-            globalThis.toastr?.error(error.message);
+            drawNotify.error(error.message);
         }
     } finally {
         autoBusy = false;
@@ -3324,10 +3327,10 @@ async function navigateToImage(container, targetIndex) {
     imgEl.classList.remove('sliding-in-left', 'sliding-in-right');
 }
 
-function buildSharedGalleryCallbacks(slotId, messageId) {
+function buildSharedGalleryCallbacks(slotId, messageId, container) {
     return {
         onUse: (sid, msgId, selected, historyCount) => {
-            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            const cont = container?.isConnected && container.dataset.slotId === sid ? container : null;
             if (cont) {
                 syncContainerToPreview(cont, selected, historyCount, 0);
             }
@@ -3338,7 +3341,7 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
             }
         },
         onSave: async (imgId, url) => {
-            const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
+            const cont = container?.isConnected && container.dataset.imgId === imgId ? container : null;
             if (cont) {
                 setImageState(cont, ImageState.SAVED);
             }
@@ -3350,14 +3353,14 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
             }
         },
         onDelete: async (sid, deletedImgId, remainingPreviews) => {
-            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            const cont = container?.isConnected && container.dataset.slotId === sid ? container : null;
             if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
                 syncContainerToPreview(cont, remainingPreviews[0], remainingPreviews.length, 0);
             }
             await syncDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "onDelete" }, caughtError); });
         },
         onBecameEmpty: async (sid, msgId, lastImageInfo = {}) => {
-            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            const cont = container?.isConnected && container.dataset.slotId === sid ? container : null;
             if (cont) {
                 // eslint-disable-next-line no-unsanitized/property -- Template-only UI markup built locally.
                 cont.outerHTML = buildFailedPlaceholderHtml({
@@ -3399,6 +3402,7 @@ function renderExistingPanels() {
 
 
 async function handleImageDelegatedClick(event) {
+    const document = event.target.ownerDocument;
     const container = event.target?.closest?.('.xb-nd-img');
     if (!container) {
         document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
@@ -3430,7 +3434,7 @@ async function handleImageDelegatedClick(event) {
         await openGallery(
             container.dataset.slotId,
             Number(container.dataset.mesid),
-            buildSharedGalleryCallbacks(container.dataset.slotId, Number(container.dataset.mesid)),
+            buildSharedGalleryCallbacks(container.dataset.slotId, Number(container.dataset.mesid), container),
         );
         return;
     }
@@ -3524,7 +3528,7 @@ async function toggleEditPanel(container, show) {
         try { preview = await readCardTagEditor(container); }
         catch (error) {
             console.error(DRAW_SLOT_COPY.tagReadFailed, error);
-            toastr.error(error.message);
+            drawNotify.error(error.message);
             return;
         }
         const currentTags = preview?.tags ?? container.dataset.tags ?? '';
@@ -3578,18 +3582,18 @@ async function saveEditedTags(container) {
             return { positive: data.positive, negativePrompt: data.negative ?? record?.negativePrompt ?? '' };
         });
         observeBackgroundTask(toggleEditPanel(container, false), { source: import.meta.url, operation: 'saveEditedTags' });
-        toastr.success(notice);
+        drawNotify.success(notice);
         return true;
     } catch (error) {
         console.error(DRAW_SLOT_COPY.tagSaveFailed, error);
-        toastr.error(error.message);
+        drawNotify.error(error.message);
         return false;
     }
 }
 
 async function refreshSingleImage(container) {
     try { await withDrawActionFeedback(container, () => redrawImageCard("sdwebui", container)); }
-    catch (error) { console.error(DRAW_SLOT_COPY.redrawFailed, error); globalThis.toastr?.error(error.message); }
+    catch (error) { console.error(DRAW_SLOT_COPY.redrawFailed, error); drawNotify.error(error.message); }
 }
 
 async function retryFailedImage(container) {
@@ -3605,7 +3609,7 @@ async function saveTagsAndRetry(container) {
 async function removePlaceholder(container) {
     if (!confirm(DRAW_SLOT_COPY.removeConfirm)) return;
     try { await removeChatImageSlot(container); }
-    catch (error) { console.error(DRAW_SLOT_COPY.removeFailed, error); globalThis.toastr?.error(error.message); }
+    catch (error) { console.error(DRAW_SLOT_COPY.removeFailed, error); drawNotify.error(error.message); }
 }
 
 async function deleteCurrentImage(container) {
@@ -3624,18 +3628,18 @@ async function deleteCurrentImage(container) {
         await setSlotSelection(slotId, nextPreview.imgId).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "deleteCurrentImage" }, caughtError); });
         syncContainerToPreview(container, nextPreview, successPreviews.length, 0);
         await syncDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews).catch((caughtError) => { console.warn({ source: import.meta.url, operation: "deleteCurrentImage" }, caughtError); });
-        toastr.success(`已删除（剩余 ${successPreviews.length} 张）`);
+        drawNotify.success(`已删除（剩余 ${successPreviews.length} 张）`);
         return;
     } else {
         try { await removeChatImageSlot(container); }
         catch (error) {
             console.error(DRAW_SLOT_COPY.removeFailed, error);
-            globalThis.toastr?.error(error.message);
+            drawNotify.error(error.message);
             return;
         }
     }
     container.remove();
-    toastr.success('图片已删除');
+    drawNotify.success('图片已删除');
 }
 
 async function saveCurrentImage(container) {
@@ -3648,7 +3652,7 @@ async function saveCurrentImage(container) {
         const preview = previews.find(item => item.imgId === imgId) || previews[0];
         if (!preview?.base64 && !preview?.savedUrl) throw new Error('图片缓存不存在');
         if (preview.savedUrl) {
-            toastr.info('这张图已经保存到服务器');
+            drawNotify.info('这张图已经保存到服务器');
             return;
         }
 
@@ -3663,23 +3667,20 @@ async function saveCurrentImage(container) {
         const img = container.querySelector('img');
         if (img) img.src = getPreviewDisplayUrl(preview);
         container.dataset.state = 'saved';
-        toastr.success('图片已保存到服务器');
+        drawNotify.success('图片已保存到服务器');
     } catch (error) {
-        toastr.error(error?.message || '保存失败');
+        drawNotify.error(error?.message || '保存失败');
     }
 }
 
 
 function setupImageDelegation() {
-    if (imageDelegationBound) return;
-    imageDelegationBound = true;
-    document.addEventListener('click', handleImageDelegatedClickEvent, { capture: true });
+    imageDelegationDispose ??= bindImageCardEvents([['click', handleImageDelegatedClickEvent, { capture: true }]]);
 }
 
 function cleanupImageDelegation() {
-    if (!imageDelegationBound) return;
-    document.removeEventListener('click', handleImageDelegatedClickEvent, { capture: true });
-    imageDelegationBound = false;
+    imageDelegationDispose?.();
+    imageDelegationDispose = null;
 }
 
 function buildTextSourceGalleryMeta(options = {}) {
@@ -3972,7 +3973,7 @@ export async function generateAndInsertImages({
 async function testGenerateFromSettingsPanel() {
     const prompt = getValue('sd-draw-test-prompt').trim();
     if (!prompt) {
-        toastr.warning('请先填写测试生成 Prompt');
+        drawNotify.warning('请先填写测试生成 Prompt');
         return false;
     }
 
@@ -4005,11 +4006,11 @@ async function testGenerateFromSettingsPanel() {
             img.src = `data:image/png;base64,${base64}`;
             resultEl.appendChild(img);
         }
-        toastr.success('测试生成成功');
+        drawNotify.success('测试生成成功');
         return true;
     } catch (error) {
         if (resultEl) resultEl.textContent = '';
-        toastr.error(error?.message || '生成失败', 'SD WebUI');
+        drawNotify.error(error?.message || '生成失败', 'SD WebUI');
         return false;
     } finally {
         pendingController = null;

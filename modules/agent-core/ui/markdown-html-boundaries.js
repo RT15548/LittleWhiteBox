@@ -150,6 +150,12 @@ function matchHtmlContainerRanges(tags = []) {
     return ranges;
 }
 
+export function htmlContentRanges(source) {
+    return matchHtmlContainerRanges(scanHtmlTags(source))
+        .filter(range => range.blockContainer && !range.rawText)
+        .map(({ start, end }) => ({ start, end }));
+}
+
 function buildLineStarts(lines = []) {
     const starts = [];
     let offset = 0;

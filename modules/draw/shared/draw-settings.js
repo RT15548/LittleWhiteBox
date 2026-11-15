@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 // 共享画图设置与 NovelAI Provider 设置共用现行 settings 根对象；此模块只拥有通用字段。
 import { normalizeGroupPresetState } from './character-group-presets.js';
 import { normalizeCharacterLibrary } from './character-library.js';
@@ -171,7 +172,7 @@ export async function loadSharedDrawSettings() {
         console.error('[DrawSettings] 加载共享画图设置失败:', error);
         settingsCache = null;
         settingsLoaded = false;
-        if (window.toastr) toastr.error('无法读取共享画图配置，已禁止保存，请稍后重试');
+        drawNotify.error('无法读取共享画图配置，已禁止保存，请稍后重试');
         throw error;
     }
 
@@ -211,7 +212,7 @@ export async function updateSharedDrawSettingsPersistent(mutator, okText = '已�
     const { notify = false, silent = true } = options;
     if (!settingsLoaded || !settingsCache) {
         console.error('[DrawSettings] 配置尚未成功加载，拒绝保存');
-        if (window.toastr) toastr.error('共享画图配置尚未成功加载，已禁止保存');
+        drawNotify.error('共享画图配置尚未成功加载，已禁止保存');
         return false;
     }
     try {
@@ -226,14 +227,14 @@ export async function updateSharedDrawSettingsPersistent(mutator, okText = '已�
             return mergeSharedDrawSettingsIntoStorageRoot(saved, next);
         }, { silent });
         if (committed) {
-            if (notify && window.toastr) toastr.success(okText);
+            if (notify) drawNotify.success(okText);
             return true;
         }
-        if (notify && window.toastr) toastr.error('保存失败');
+        if (notify) drawNotify.error('保存失败');
         return false;
     } catch (error) {
         console.error('[DrawSettings] 保存共享画图设置失败:', error);
-        if (notify && window.toastr) toastr.error(`保存失败：${error?.message || '网络异常'}`);
+        if (notify) drawNotify.error(`保存失败：${error?.message || '网络异常'}`);
         return false;
     }
 }

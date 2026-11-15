@@ -8,6 +8,7 @@ import { createSaveQueue } from './persistence.js';
 import { decodeBundle } from '../definition/card-files.js';
 import { digest } from '../definition/digest.js';
 import { isOpeningReceipt } from './history.js';
+import { migrateHistoryV2, type HistoryV2 } from './history-format.js';
 import type { History, HostAdapter, JsonObject, Receipt, Snapshot, Success, SwipeRecord } from '../types.js';
 import type { CaptureContext } from '../../shared/context-capture.js';
 
@@ -23,7 +24,7 @@ export interface Context extends CaptureContext {
 interface HostSnapshot extends Snapshot {
     chat: ChatMessage[]; messages: ChatMessage[]; metadata: Record<string, unknown>; chatId: string; characterId: number;
     message?: ChatMessage; holder?: Holder; text?: string; revision?: number; rules: unknown;
-    destination: { ch_name: string; file_name: string; avatar_url: string }; saveChat(): Promise<void>;
+    destination: { ch_name: string; file_name: string; avatar_url: string };
 }
 export const state3Context = () => getContext() as unknown as Context;
 export const inGroup = (ctx: Context) => ctx.groupId !== null && ctx.groupId !== undefined;
@@ -58,7 +59,14 @@ export function createHostAdapter({ committed }: { committed?: (result: Success)
     function reconcileReceipts() {
         const { chat, chatMetadata } = state3Context(), opening = receiptChat !== chat || receiptMetadata !== chatMetadata;
         // The host reuses its chat array on reload; fresh metadata marks the new load.
-        if (opening) { receiptChat = chat; receiptMetadata = chatMetadata; owners.clear(); knownMessages = new WeakSet(); }
+        if (opening) {
+            const history = chatMetadata[CHAT_KEY] as History | HistoryV2 | undefined;
+            if (history?.format === 2) {
+                chatMetadata[CHAT_KEY] = migrateHistoryV2(history, Boolean(chat[0] && holders(chat[0]).some(holder =>
+                    (holder.extra?.[CHAT_KEY] as SwipeRecord | undefined)?.entries.some(isOpeningReceipt))));
+            }
+            receiptChat = chat; receiptMetadata = chatMetadata; owners.clear(); knownMessages = new WeakSet();
+        }
         for (const message of chat) {
             const added = !opening && !knownMessages.has(message);
             for (const holder of holders(message)) {
@@ -108,7 +116,7 @@ export function createHostAdapter({ committed }: { committed?: (result: Success)
             if (!character) {reject('character-missing');}
             index ??= latestReply(ctx);
             const history = ctx.chatMetadata[CHAT_KEY] as History | undefined, message = ctx.chat[index];
-            if (history && history.format !== 2) {reject('history-format');}
+            if (history && history.format !== 3) {reject('history-format');}
             return { chat: ctx.chat, messages: [...ctx.chat], metadata: ctx.chatMetadata, chatId: ctx.chatId, characterId: ctx.characterId,
                 history: clone(history), state: readVariables((ctx.chatMetadata.variables || {}) as Record<string, unknown>, history?.roots),
                 records: selectedRecords(ctx.chat), index, message, text: message?.mes, holder: message && selected(message),
@@ -116,7 +124,7 @@ export function createHostAdapter({ committed }: { committed?: (result: Success)
                 lastReceiptIndex: ctx.chat.reduce((last, item, floor) => holders(item).some(holder =>
                     Boolean((holder.extra?.[CHAT_KEY] as SwipeRecord | undefined)?.entries.some(entry => !isOpeningReceipt(entry)))) ? floor : last, -1),
                 rules: clone(character.data?.extensions?.[CARD_EXTENSION]), revision: history?.revision, target: { floor: index, swipeId: message?.swipe_id ?? 0 },
-                destination: { ch_name: character.name, file_name: character.chat, avatar_url: character.avatar }, saveChat: () => ctx.saveChat() };
+                destination: { ch_name: character.name, file_name: character.chat, avatar_url: character.avatar } };
         },
         isCurrent(snapshot) {
             const ctx = state3Context(), history = ctx.chatMetadata[CHAT_KEY] as History | undefined;
@@ -168,7 +176,8 @@ export function createHostAdapter({ committed }: { committed?: (result: Success)
                 const ctx = state3Context();
                 if (ctx.chat !== snapshot.chat || ctx.chatMetadata !== snapshot.metadata
                     || (ctx.chatMetadata[CHAT_KEY] as History | undefined)?.revision !== history.revision) {reject('stale-target');}
-                await snapshot.saveChat();
+                // Join the host's save queue so its older writes finish first.
+                await ctx.saveChat();
                 const response = await fetch('/api/chats/get', { method: 'POST', headers: getRequestHeaders(),
                     body: JSON.stringify(snapshot.destination), cache: 'no-store' });
                 if (!response.ok) {reject('save-unconfirmed', { status: response.status });}

@@ -1,7 +1,8 @@
 import { buildMarkdownFragment } from '../../../agent-core/ui/message-markdown.js';
 import { createToolActivityProjection } from './tool-activity.js';
 import { createToolProcess } from './tool-process.js';
-import { createMessageActions } from './message-actions.js';
+import { createMessageActions, MESSAGE_ACTION_COPY } from './message-actions.js';
+import { getMessageActions } from '../state/message-actions.js';
 import { expandMessageWindow, getMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 
 function isAssistantToolCallMessageForWindow(message) {
@@ -157,6 +158,7 @@ export function createChatUi(deps) {
             ui: Number.isInteger(messageIndex) && messageIndex >= 0
                 ? {
                     editing: state.editingMessageIndex === messageIndex,
+                    actions: getMessageActions(state.messages, messageIndex),
                     actionFeedback,
                 }
                 : undefined,
@@ -317,8 +319,9 @@ export function createChatUi(deps) {
             bubble.dataset.messageIndex = String(messageIndex);
         }
         const assistantContentText = String(message.content || '').trim();
-        const canShowAssistantActions = message.role === 'assistant' && !!assistantContentText && !message.streaming;
-        const isEditing = canShowAssistantActions && state.editingMessageIndex === messageIndex;
+        const canShowActions = getMessageActions(state.messages, messageIndex).length > 0;
+        const isEditing = canShowActions && state.editingMessageIndex === messageIndex;
+        bubble.classList.toggle('is-editing', isEditing);
 
         const metaRow = document.createElement('div');
         metaRow.className = 'xb-assistant-meta-row';
@@ -346,8 +349,7 @@ export function createChatUi(deps) {
             const textarea = document.createElement('textarea');
             textarea.className = 'xb-assistant-message-editor';
             textarea.value = assistantContentText;
-            textarea.rows = Math.min(Math.max(assistantContentText.split('\n').length, 4), 14);
-            textarea.setAttribute('aria-label', '编辑助手消息');
+            textarea.setAttribute('aria-label', MESSAGE_ACTION_COPY.editor);
             editorWrap.appendChild(textarea);
             bubble.appendChild(editorWrap);
         } else if (bodyText) {
@@ -372,7 +374,7 @@ export function createChatUi(deps) {
             bubble.appendChild(gallery);
         }
 
-        if (canShowAssistantActions) {
+        if (canShowActions) {
             appendMessageActions(bubble, message, messageIndex, isEditing);
         }
 

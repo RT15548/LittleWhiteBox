@@ -113,6 +113,7 @@ export async function checkVectorCacheConsistency(options = {}) {
         };
         if (isCacheConsistencyFailure(result.error)) return {
             status: 'inconsistent', repairable: result.error.details?.repairable === true,
+            sourceInvalid: result.error.code === 'source_invalid',
             diagnostic: result.diagnostic,
         };
         throw result.error;

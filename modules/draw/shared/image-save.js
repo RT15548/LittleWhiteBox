@@ -1,3 +1,4 @@
+import { drawNotify } from './draw-toast.js';
 // 生成图片保存到酒馆的唯一出口：手动保存、自动保存、画廊保存都经过这里，文件夹规则才会一致。
 // 规则与降级见 image-save-core.js；插件契约见 server-plugin/littlewhitebox-server/README.md。
 import { getContext } from '../../../../../../extensions.js';
@@ -14,7 +15,7 @@ const saver = createImageSaver({
     getHeaders,
     getStatus: () => fetchImageBackendJobsStatus({ getHeaders }),
     getSettings: getSharedDrawSettings,
-    warn: text => globalThis.toastr?.warning(text),
+    warn: text => drawNotify.warning(text),
 });
 
 /** 当前聊天对应的角色名（群聊为群 id），与酒馆上传时用作文件夹的名字一致。 */

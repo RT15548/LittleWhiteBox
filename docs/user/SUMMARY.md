@@ -44,5 +44,6 @@
 
 ## 开发接口
 
+- [外部制作变量 3.0 角色卡](variables-v3-external.md)
 - [画图与语音接口](media-api.md)
 - [Agent 与联网接口](agent-api.md)

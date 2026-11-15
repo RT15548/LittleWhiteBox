@@ -35,8 +35,17 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
     const ranges = rangeView.element;
     ranges.hidden = true;
     const index = element('div', 'memory-index-state');
+    index.setAttribute('role', 'status');
+    index.setAttribute('aria-live', 'polite');
+    const indexDetails = element('span');
+    const indexMessage = element('span', 'memory-index-message');
+    const repairHint = element('small', 'memory-hint', copy.repairHint);
+    repairHint.id = 'memory-index-retry-hint';
+    indexDetails.append(indexMessage, element('br'), repairHint);
     const repair = button(copy.repair, () => { repair.disabled = true; send('MEMORY_MAINTENANCE_REPAIR'); });
-    index.append(element('span', '', copy.indexPending), repair);
+    repair.dataset.action = 'repair-retrieval';
+    repair.setAttribute('aria-describedby', repairHint.id);
+    index.append(indexDetails, repair);
     const list = element('div', 'memory-results');
     const empty = element('div', 'memory-empty');
     const emptyHint = element('p');
@@ -80,6 +89,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
         runIds = [];
         more.hidden = true;
         cancel.hidden = index.hidden = empty.hidden = true;
+        indexMessage.textContent = '';
         state.textContent = copy.loading;
         ranges.hidden = true;
         ranges.open = false;
@@ -314,6 +324,7 @@ export function createMemoryMaintenancePage(root, send, { openApi } = {}) {
             repair.disabled = running || blocked;
             if (data.stateOnly) return;
             index.hidden = blocked || data.index?.status !== 'pending';
+            indexMessage.textContent = data.index?.status === 'pending' ? copy.indexPending(data.index) : '';
             if (data.total != null) {
                 runIds = data.runIds;
                 clearReceipts(new Set(runIds));

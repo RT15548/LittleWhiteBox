@@ -1,4 +1,4 @@
-import { ensureDrawVisuals, drawIconHtml } from './draw-visuals.js';
+import { ensureDrawVisuals, drawIconHtml, DRAW_LAYERS } from './draw-visuals.js';
 import { getContext } from "../../../../../../extensions.js";
 import { formatScenePlannerProgress, toScenePlannerProgress } from './draw-capsule-copy.js';
 
@@ -196,8 +196,8 @@ export function classifyError(error) {
     return { ...ErrorType.UNKNOWN, desc: error?.message || '未知错误' };
 }
 
-export function ensureDrawImageStyles() {
-    ensureDrawVisuals();
+export function ensureDrawImageStyles(document = globalThis.document) {
+    ensureDrawVisuals(document);
     installImageCardMenu(document);
     if (document.getElementById('xiaobaix-draw-image-styles')) return;
     const style = document.createElement('style');
@@ -293,7 +293,7 @@ export function ensureDrawImageStyles() {
 .xb-nd-more-btn svg{display:block;width:16px;height:16px;fill:currentColor}
 .xb-nd-more-btn:hover,.xb-nd-more-btn[aria-expanded="true"]{background:var(--draw-accent-soft)}
 .xb-nd-more{display:inline-flex}
-.xb-nd-more-menu{position:fixed;z-index:1000;display:flex;flex-direction:column;gap:2px;min-width:148px;max-width:calc(100vw - 16px);padding:4px;box-sizing:border-box;overflow-y:auto;text-align:left;background:var(--draw-bg-secondary);color:var(--draw-text-primary);border:1px solid var(--draw-border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(12px)}
+.xb-nd-more-menu{position:fixed;z-index:${DRAW_LAYERS.imageMenu};display:flex;flex-direction:column;gap:2px;min-width:148px;max-width:calc(100vw - 16px);padding:4px;box-sizing:border-box;overflow-y:auto;text-align:left;background:var(--draw-bg-secondary);color:var(--draw-text-primary);border:1px solid var(--draw-border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(12px)}
 .xb-nd-more-menu[hidden]{display:none}
 .xb-nd-more-menu .xb-nd-more-item{display:flex;align-items:center;width:100%;min-height:36px;padding:7px 10px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:inherit;font-size:13px;text-align:left;white-space:nowrap;cursor:pointer}
 .xb-nd-more-menu .xb-nd-more-item:hover,.xb-nd-more-menu .xb-nd-more-item:focus-visible{background:var(--draw-accent-soft);outline:none}
@@ -508,7 +508,11 @@ export function extractSlotIds(mes) {
 // Project an existing text slot immediately, before gallery I/O. This is only a
 // loading surface: it cannot create slots, claim requests or rebuild host text.
 function mountImageSlotShells(content, messageId, message) {
-    const replacements = [...extractSlotIds(message.mes)]
+    const slots = extractSlotIds(message.mes);
+    for (const card of content.querySelectorAll('.xb-nd-img[data-slot-id]')) {
+        if (card.dataset.slotId && !slots.has(card.dataset.slotId)) card.remove();
+    }
+    const replacements = [...slots]
         .filter(slotId => !content.querySelector(buildDrawSlotSelector(slotId)))
         .map(slotId => {
             const activity = getSlotActivity(slotId);
@@ -833,12 +837,13 @@ async function renderPreviewsForMessageNow(messageId, {
     expectedMessage,
     content,
     signal,
+    isViewCurrent,
 } = {}) {
-    if (signal?.aborted) return;
+    if (signal?.aborted || !isViewCurrent()) return;
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
-    const mesTextEl = getMesTextElement(messageId);
-    if (!mesTextEl || (content && content !== mesTextEl)) return;
+    const mesTextEl = content;
+    if (!mesTextEl?.isConnected) return;
     if (!drawMessageViewport.isActive(mesTextEl)) {
         const deferred = deferredPreviewSlots.get(mesTextEl) || new Set();
         for (const slotId of refreshSlotIds) deferred.add(slotId);
@@ -956,7 +961,7 @@ async function renderPreviewsForMessageNow(messageId, {
         return !(signal?.aborted || String(live.chatId || '') !== String(ctx.chatId || '')
         || live.chat?.[messageId] !== message
         || (message.swipe_id ?? 0) !== swipeIndex
-        || getMesTextElement(messageId) !== mesTextEl
+        || !isViewCurrent()
         || isMessageBeingEdited(messageId));
     };
     const isCurrent = () => isMounted() && message.mes === sourceText;
@@ -981,13 +986,23 @@ async function renderPreviewsForMessageNow(messageId, {
 // 发起刷新；串行执行保证较早读取的旧事实一定先完成，最后留在 DOM 的总是较新的投影。
 // 队列只绑定当前 message 对象，聊天切换或宿主替换消息对象后，旧任务会被上面的身份守卫丢弃。
 export function renderPreviewsForMessage(messageId, { refreshSlotIds = [], content, signal } = {}) {
+    if (!content) {
+        const roots = new Set(drawMessageViewport.contentsForMessage(messageId));
+        const native = getMesTextElement(messageId);
+        if (native) roots.add(native);
+        return Promise.all([...roots].map(root => renderPreviewsForMessage(messageId, { refreshSlotIds, content: root, signal })));
+    }
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (!message) return Promise.resolve();
     const expectedChatId = ctx.chatId;
 
-    const root = getMesTextElement(messageId);
-    if (signal?.aborted || !root || (content && content !== root) || isMessageBeingEdited(messageId)) return Promise.resolve();
+    const root = content;
+    if (root === getMesTextElement(messageId)) drawMessageViewport.registerNative(root);
+    if (signal?.aborted || !root.isConnected
+        || !drawMessageViewport.has(root)
+        || isMessageBeingEdited(messageId)) return Promise.resolve();
+    const isViewCurrent = drawMessageViewport.capture(root);
     const requestedSlots = new Set(deferredPreviewSlots.get(root));
     for (const slotId of refreshSlotIds) requestedSlots.add(slotId);
     if (!drawMessageViewport.isActive(root)) {
@@ -996,7 +1011,7 @@ export function renderPreviewsForMessage(messageId, { refreshSlotIds = [], conte
         return Promise.resolve();
     }
     deferredPreviewSlots.delete(root);
-    if (!message.mes) return Promise.resolve();
+    ensureDrawImageStyles(root.ownerDocument);
     indexPreviewSlots(root, extractSlotIds(message.mes));
     drawMessageViewport.write(() => mountImageSlotShells(root, messageId, message));
 
@@ -1011,6 +1026,7 @@ export function renderPreviewsForMessage(messageId, { refreshSlotIds = [], conte
         expectedMessage: message,
         content,
         signal,
+        isViewCurrent,
     }));
     const tail = render.catch((caughtError) => { console.warn({ source: import.meta.url, operation: "tail" }, caughtError); });
     queue.tail = tail;
@@ -1041,20 +1057,26 @@ export async function syncRenderedMessageFromState(messageId, { chatId, expected
 export async function renderAllDrawPreviews() {
     drawMessageViewport.refresh();
     for (const content of drawMessageViewport.activeContents()) {
-        const id = Number(content.closest('.mes')?.getAttribute('mesid'));
+        const id = drawMessageViewport.messageId(content);
         await renderPreviewsForMessage(id, { content });
     }
 }
 
 function handleDrawPreviewMessageRendered(data) {
     const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
-    if (messageId !== undefined) drawMessageViewport.invalidate(getMesTextElement(messageId));
+    if (messageId !== undefined) invalidateMessageViews(messageId);
 }
 
 function handleDrawPreviewMessageModified(data) {
     const raw = typeof data === 'object' ? (data?.messageId ?? data?.mesId) : data;
     const messageId = parseInt(raw, 10);
     if (Number.isNaN(messageId)) return;
+    invalidateMessageViews(messageId);
+}
+
+function invalidateMessageViews(messageId) {
+    drawMessageViewport.registerNative(getMesTextElement(messageId));
+    for (const content of drawMessageViewport.contentsForMessage(messageId)) drawMessageViewport.invalidate(content);
     drawMessageViewport.invalidate(getMesTextElement(messageId));
 }
 
