@@ -250,12 +250,7 @@ class StreamingGeneration {
             }
             const useNet = !!opts.enableNet;
             if (isGoogleSource && useNet) {
-                body.tools = Array.isArray(body.tools) ? body.tools : [];
-                if (!body.tools.some(t => t && t.google_search_retrieval)) {
-                    body.tools.push({ google_search_retrieval: {} });
-                }
                 body.enable_web_search = true;
-                body.makersuite_use_google_search = true;
             }
             let reverseProxy = String(opts.apiurl || oai_settings?.reverse_proxy || '').trim();
             let proxyPassword = String(oai_settings?.proxy_password || '').trim();

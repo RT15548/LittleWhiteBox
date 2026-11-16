@@ -8,6 +8,7 @@ import { build } from 'esbuild';
 // - Following Vertex preserves the host model, authentication, region and proxy.
 // - Google AI Studio and Vertex inherit the host's actual sampling fields.
 // - Explicit values, including zero, override the host; __unset__ omits the field.
+// - Web search uses the host switch without injecting tool declarations (cost: rejected request).
 const sources = { OPENAI: 'openai', CLAUDE: 'claude', MAKERSUITE: 'makersuite',
     VERTEXAI: 'vertexai', COHERE: 'cohere', DEEPSEEK: 'deepseek', CUSTOM: 'custom' };
 const stubs = {
@@ -105,5 +106,17 @@ test('Google sampling honors per-call values and explicit omission over host def
         const omitted = await f.generate({ top_p: '__unset__', top_k: '__unset__' }, stream);
         assert.equal(Object.hasOwn(omitted, 'top_p'), false);
         assert.equal(Object.hasOwn(omitted, 'top_k'), false);
+    }
+});
+
+test('web search delegates tool construction to the Google host routes without leaking between calls', async () => {
+    for (const source of [sources.MAKERSUITE, sources.VERTEXAI, sources.OPENAI]) for (const stream of [false, true]) {
+        const f = fixture(source);
+        for (const enableNet of [true, false, undefined, true]) {
+            const payload = await f.generate({ enableNet }, stream);
+            const enabled = source !== sources.OPENAI && enableNet === true;
+            assert.equal(payload.enable_web_search, enabled ? true : undefined);
+            assert.equal(Object.hasOwn(payload, 'tools'), false);
+        }
     }
 });
