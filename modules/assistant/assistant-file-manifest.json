@@ -8133,7 +8133,14 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/streaming-generation.js",
       "relativePath": "modules/streaming-generation.js",
       "extension": ".js",
-      "sizeBytes": 78882
+      "sizeBytes": 78637
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/streaming-generation.test.js",
+      "relativePath": "modules/streaming-generation.test.js",
+      "extension": ".js",
+      "sizeBytes": 6313
     },
     {
       "source": "littlewhitebox",

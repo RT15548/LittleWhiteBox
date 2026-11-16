@@ -203,17 +203,16 @@ class StreamingGeneration {
             const tUI = num(oai_settings?.temp_openai);
             const ppUI = num(oai_settings?.pres_pen_openai);
             const fpUI = num(oai_settings?.freq_pen_openai);
-            const tpUI_OpenAI = num(oai_settings?.top_p_openai ?? oai_settings?.top_p);
+            const tpUI = num(oai_settings?.top_p_openai);
+            const tkUI = num(oai_settings?.top_k_openai);
             const mtUI_OpenAI = num(oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
-            const tpUI_Gemini = num(oai_settings?.makersuite_top_p ?? oai_settings?.top_p);
-            const tkUI_Gemini = num(oai_settings?.makersuite_top_k ?? oai_settings?.top_k);
             const mtUI_Gemini = num(oai_settings?.makersuite_max_tokens ?? oai_settings?.max_output_tokens ?? oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
             const effectiveTemperature = isUnset('temperature') ? undefined : (tUser ?? tUI);
             const effectivePresence = isUnset('presence_penalty') ? undefined : (ppUser ?? ppUI);
             const effectiveFrequency = isUnset('frequency_penalty') ? undefined : (fpUser ?? fpUI);
-            const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (isGoogleSource ? tpUI_Gemini : tpUI_OpenAI));
-            const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (isGoogleSource ? tkUI_Gemini : undefined));
-            const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (isGoogleSource ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);            
+            const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? tpUI);
+            const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (isGoogleSource ? tkUI : undefined));
+            const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (isGoogleSource ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);
             
             const body = {
                 messages, model, stream,
@@ -237,7 +236,7 @@ class StreamingGeneration {
 
             // Claude 专用：top_k
             if (source === chat_completion_sources.CLAUDE) {
-                body.top_k = Number(oai_settings?.top_k_openai) || undefined;
+                body.top_k = tkUI || undefined;
             }
             
             if (isGoogleSource) {
