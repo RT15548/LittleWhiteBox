@@ -22,6 +22,7 @@ const EVT_DONE = 'xiaobaix_streaming_completed';
 const PROXY_SUPPORTED = new Set([
     chat_completion_sources.OPENAI, chat_completion_sources.CLAUDE,
     chat_completion_sources.MAKERSUITE,
+    chat_completion_sources.VERTEXAI,
     chat_completion_sources.DEEPSEEK,
 ]);
 
@@ -130,6 +131,7 @@ class StreamingGeneration {
             [chat_completion_sources.OPENAI]: 'openai',
             [chat_completion_sources.CLAUDE]: 'claude',
             [chat_completion_sources.MAKERSUITE]: 'gemini',
+            [chat_completion_sources.VERTEXAI]: 'vertexai',
             [chat_completion_sources.COHERE]: 'cohere',
             [chat_completion_sources.DEEPSEEK]: 'deepseek',
             [chat_completion_sources.CUSTOM]: 'custom',
@@ -159,6 +161,8 @@ class StreamingGeneration {
                 claude: chat_completion_sources.CLAUDE,
                 gemini: chat_completion_sources.MAKERSUITE,
                 google: chat_completion_sources.MAKERSUITE,
+                vertexai: chat_completion_sources.VERTEXAI,
+                vertex: chat_completion_sources.VERTEXAI,
                 cohere: chat_completion_sources.COHERE,
                 deepseek: chat_completion_sources.DEEPSEEK,
                 custom: chat_completion_sources.CUSTOM,
@@ -171,6 +175,7 @@ class StreamingGeneration {
             if (!source) throw new Error(`不支持的 api: ${opts.api}`);
             
             const model = String(opts.model || '').trim();
+            const isGoogleSource = source === chat_completion_sources.MAKERSUITE || source === chat_completion_sources.VERTEXAI;
             const msgCount = Array.isArray(messages) ? messages.length : null;
             
             if (!model) {
@@ -206,9 +211,9 @@ class StreamingGeneration {
             const effectiveTemperature = isUnset('temperature') ? undefined : (tUser ?? tUI);
             const effectivePresence = isUnset('presence_penalty') ? undefined : (ppUser ?? ppUI);
             const effectiveFrequency = isUnset('frequency_penalty') ? undefined : (fpUser ?? fpUI);
-            const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (source === chat_completion_sources.MAKERSUITE ? tpUI_Gemini : tpUI_OpenAI));
-            const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (source === chat_completion_sources.MAKERSUITE ? tkUI_Gemini : undefined));
-            const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (source === chat_completion_sources.MAKERSUITE ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);            
+            const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (isGoogleSource ? tpUI_Gemini : tpUI_OpenAI));
+            const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (isGoogleSource ? tkUI_Gemini : undefined));
+            const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (isGoogleSource ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);            
             
             const body = {
                 messages, model, stream,
@@ -235,12 +240,17 @@ class StreamingGeneration {
                 body.top_k = Number(oai_settings?.top_k_openai) || undefined;
             }
             
-            if (source === chat_completion_sources.MAKERSUITE) {
+            if (isGoogleSource) {
                 if (effectiveTopK !== undefined) body.top_k = effectiveTopK;
                 body.max_output_tokens = effectiveMaxT;
             }
+            if (source === chat_completion_sources.VERTEXAI) {
+                body.vertexai_auth_mode = oai_settings?.vertexai_auth_mode;
+                body.vertexai_region = oai_settings?.vertexai_region;
+                body.vertexai_express_project_id = oai_settings?.vertexai_express_project_id;
+            }
             const useNet = !!opts.enableNet;
-            if (source === chat_completion_sources.MAKERSUITE && useNet) {
+            if (isGoogleSource && useNet) {
                 body.tools = Array.isArray(body.tools) ? body.tools : [];
                 if (!body.tools.some(t => t && t.google_search_retrieval)) {
                     body.tools.push({ google_search_retrieval: {} });
