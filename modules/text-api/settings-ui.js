@@ -6,7 +6,7 @@ import { PROVIDER_OPTIONS } from '../agent-core/provider-resolution.js';
 import { samplingParametersFor } from '../agent-core/sampling.js';
 import { resolveReasoningCapability, getReasoningModeOptions, getReasoningEffortOptions } from '../agent-core/reasoning-capabilities.js';
 import { getModelListAuthOptions, normalizeModelListAuth, supportsModelListAuth } from '../agent-core/model-list-auth.js';
-import { createPreset, HOST_BINDING, HOST_PROVIDER } from './model.js';
+import { createPreset, HOST_BINDING, HOST_PROVIDER, MIN_REQUEST_TIMEOUT_SEC, MAX_REQUEST_TIMEOUT_SEC, normalizeRequestTimeoutSec, featureRequestTimeoutSec } from './model.js';
 import { TEXT_API_COPY as COPY, deletionMessage } from './copy.js';
 import { VERTEX_PROVIDER, normalizeVertexConfig } from '../agent-core/vertex-config.js';
 import { buildVertexSettingsMarkup, bindVertexSettings, readVertexSettings, syncVertexSettings } from '../agent-core/ui/vertex-settings.js';
@@ -87,6 +87,20 @@ export function mountTextApiSettings(root, { feature, namespace }) {
         }
         node.onclick = () => { Promise.resolve().then(run).catch(error => feedback(error.message, true)); };
         return node;
+    }
+    // Saved on change, independently of the preset draft, so that it also applies to the host binding.
+    function requestTimeoutControl() {
+        const node = element('input'); node.type = 'number'; node.step = '1';
+        node.min = String(MIN_REQUEST_TIMEOUT_SEC); node.max = String(MAX_REQUEST_TIMEOUT_SEC);
+        node.value = String(featureRequestTimeoutSec(settings, feature));
+        node.onchange = () => {
+            const seconds = normalizeRequestTimeoutSec(node.value);
+            node.value = String(seconds); feedback(COPY.saving);
+            request('mutate', { mutation: { type: 'request-timeout', seconds } })
+                .then(result => { settings = result; feedback(COPY.saved); })
+                .catch(error => { node.value = String(featureRequestTimeoutSec(settings, feature)); feedback(error.message, true); });
+        };
+        control(COPY.requestTimeout, node).title = COPY.requestTimeoutHint;
     }
     function choose(id) {
         revision++; cancelRequests(); selected = id;
@@ -173,6 +187,7 @@ export function mountTextApiSettings(root, { feature, namespace }) {
         toolbar.append(selector, actions); fields.append(toolbar);
         syncSaveButton();
         if (!draft) return;
+        requestTimeoutControl();
         if (selected === HOST_BINDING) {
             fields.append(button(COPY.test, async () => {
                 if (networkBusy) return;

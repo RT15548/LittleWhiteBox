@@ -29,7 +29,6 @@ const handleIframeMessageEvent = observeAsyncCallback(handleIframeMessage, { sou
 const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
 const HTML_PATH = `${extensionFolderPath}/modules/ena-planner/ena-planner.html`;
-const PLANNER_REQUEST_TIMEOUT_MS = 180000;
 
 /**
  * -------------------------
@@ -397,7 +396,7 @@ async function renderTemplateAll(text, signal, messageVars) {
  */
 async function callPlanner(messages, options, snapshot) {
     return (await generateFeatureText('planner', { ...options,
-        messages, timeoutMs: PLANNER_REQUEST_TIMEOUT_MS }, { ...snapshot, stream: true })).text;
+        messages }, { ...snapshot, stream: true })).text;
 }
 
 function debugWorldbookForUi() {

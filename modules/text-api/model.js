@@ -8,6 +8,21 @@ export const TEXT_API_VERSION = 2;
 export const TEXT_API_FEATURES = Object.freeze(['summary', 'planner', 'outline']);
 export const HOST_BINDING = '@host';
 export const HOST_PROVIDER = 'sillytavern-current';
+export const DEFAULT_REQUEST_TIMEOUT_SEC = 180;
+export const MIN_REQUEST_TIMEOUT_SEC = 30;
+export const MAX_REQUEST_TIMEOUT_SEC = 3600;
+
+export function normalizeRequestTimeoutSec(value) {
+    const seconds = Number.parseInt(value, 10);
+    return Number.isFinite(seconds)
+        ? Math.max(MIN_REQUEST_TIMEOUT_SEC, Math.min(MAX_REQUEST_TIMEOUT_SEC, seconds))
+        : DEFAULT_REQUEST_TIMEOUT_SEC;
+}
+
+// Per feature, not per preset: the host binding has no stored preset to carry it.
+export function featureRequestTimeoutSec(settings, feature) {
+    return normalizeRequestTimeoutSec(settings?.requestTimeouts?.[feature]);
+}
 
 export function createPreset(id, name, input = {}) {
     return {
@@ -40,6 +55,9 @@ export function assertSettings(value) {
         || !value.bindings || new Set(value.presets.map(preset => preset.id)).size !== value.presets.length
         || value.presets.some(preset => !preset.id || !preset.name)) throw new Error(COPY.invalid);
     for (const preset of value.presets) assertPreset(preset);
+    if (value.requestTimeouts != null && (typeof value.requestTimeouts !== 'object' || Array.isArray(value.requestTimeouts)
+        || Object.entries(value.requestTimeouts).some(([feature, seconds]) => !TEXT_API_FEATURES.includes(feature)
+            || seconds !== normalizeRequestTimeoutSec(seconds)))) throw new Error(COPY.invalid);
     for (const feature of TEXT_API_FEATURES) {
         const id = value.bindings[feature];
         if (id != null && id !== HOST_BINDING && !value.presets.some(preset => preset.id === id)) throw new Error(COPY.invalid);
@@ -64,6 +82,10 @@ export function applyPresetAction(settings, feature, action) {
         next.bindings[feature] = action.id; return next;
     }
     if (action.type === 'select-host') { next.bindings[feature] = HOST_BINDING; return next; }
+    if (action.type === 'request-timeout') {
+        next.requestTimeouts = { ...next.requestTimeouts, [feature]: normalizeRequestTimeoutSec(action.seconds) };
+        return assertSettings(next);
+    }
     if (action.type === 'save' || action.type === 'add' || action.type === 'rename') {
         const name = String(action.type === 'save' ? next.presets[index]?.name ?? '' : action.name ?? action.preset?.name ?? '').trim();
         if (!name) throw new Error(COPY.emptyName);
